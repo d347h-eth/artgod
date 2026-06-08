@@ -31,6 +31,7 @@ RUN test -n "$(find /app/.yarn/unplugged -path '*better-sqlite3*/build/Release/b
 RUN yarn check:runtime-registry
 RUN yarn build:web
 RUN yarn build:runtime
+RUN yarn node ./scripts/build/check-native-runtime-dependencies.mjs
 
 FROM node:24.3.0-bookworm-slim AS runtime
 

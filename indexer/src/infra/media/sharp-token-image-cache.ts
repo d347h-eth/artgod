@@ -1,10 +1,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import sharp from "sharp";
-import {
-    buildTokenImageCachePublicPath,
-} from "@artgod/shared/media/token-image-cache";
+import type sharp from "sharp";
+import { buildTokenImageCachePublicPath } from "@artgod/shared/media/token-image-cache";
 import {
     parseImageDataUriBuffer,
     resolveTokenResourceUri,
@@ -32,7 +30,10 @@ type SourceImagePayload = {
     contentType: string | null;
 };
 
+type SharpFactory = typeof sharp;
+
 const DEFAULT_WEBP_QUALITY = 85;
+let sharpFactoryPromise: Promise<SharpFactory> | null = null;
 
 export class SharpTokenImageCache implements TokenImageCachePort {
     private readonly fetchResilience: HttpFetchResilienceConfig;
@@ -85,7 +86,10 @@ export class SharpTokenImageCache implements TokenImageCachePort {
 
         if (resolved.startsWith("data:")) {
             const data = parseImageDataUriBuffer(resolved);
-            assertSourceLimit(data.buffer.byteLength, this.config.maxSourceBytes);
+            assertSourceLimit(
+                data.buffer.byteLength,
+                this.config.maxSourceBytes,
+            );
             return {
                 buffer: data.buffer,
                 contentType: data.contentType,
@@ -138,6 +142,8 @@ async function transformImage(
     width: number | null;
     height: number | null;
 }> {
+    const sharp = await loadSharp();
+
     if (input.requestedMaxDimension !== null) {
         const output = await sharp(source.buffer, {
             animated: false,
@@ -176,6 +182,17 @@ async function transformImage(
         width: metadata?.width ?? null,
         height: metadata?.height ?? null,
     };
+}
+
+async function loadSharp(): Promise<SharpFactory> {
+    if (!sharpFactoryPromise) {
+        // Load sharp only when native image processing is actually requested.
+        sharpFactoryPromise = import("sharp").then((module) => {
+            const loaded = module as unknown as { default?: SharpFactory };
+            return loaded.default ?? (module as unknown as SharpFactory);
+        });
+    }
+    return sharpFactoryPromise;
 }
 
 async function readResponseBufferWithLimit(
@@ -232,7 +249,11 @@ function safeTokenPathSegment(tokenId: string): string {
     if (/^\d+$/.test(tokenId)) {
         return tokenId;
     }
-    return crypto.createHash("sha256").update(tokenId).digest("hex").slice(0, 32);
+    return crypto
+        .createHash("sha256")
+        .update(tokenId)
+        .digest("hex")
+        .slice(0, 32);
 }
 
 function assertSourceLimit(bytes: number, maxBytes: number): void {

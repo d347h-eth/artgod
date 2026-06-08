@@ -148,9 +148,15 @@ Responsibilities:
 Current build strategy details:
 
 - `bundle: true`, `format: "esm"`, `platform: "node"`
-- `better-sqlite3` is externalized
+- native packages declared by `scripts/build/native-runtime-dependencies.mjs` are externalized (`better-sqlite3`, `sharp`)
 - Node `require` shim banner is injected for CJS dependencies bundled into ESM output
 - explicit `tsconfigRaw` is provided so runtime build does not depend on frontend `.svelte-kit` TS config state
+
+Native package note:
+
+- `better-sqlite3` and `sharp` stay as runtime PnP imports because their package-local loaders need access to native files under `.yarn/unplugged`.
+- `sharp` uses its optional `@img/*` prebuilt packages; it is not enabled through a broad post-install script policy.
+- `scripts/build/check-native-runtime-dependencies.mjs` can be run after `yarn build:runtime` to verify native runtime packages load from the same package boundaries used by bundled artifacts.
 
 ### `scripts/build/prepare-desktop-runtime-resources.mjs`
 

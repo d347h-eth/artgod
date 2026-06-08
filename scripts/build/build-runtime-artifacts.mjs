@@ -3,6 +3,7 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
+import { NATIVE_RUNTIME_EXTERNAL_PACKAGES } from "./native-runtime-dependencies.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,7 +33,7 @@ const baseBuildConfig = {
     chunkNames: "chunks/[name]-[hash]",
     sourcemap: false,
     minify: false,
-    external: ["better-sqlite3"],
+    external: NATIVE_RUNTIME_EXTERNAL_PACKAGES,
     banner: {
         js: 'import { createRequire as __createRequire } from "node:module"; import { dirname as __dirnameOf } from "node:path"; import { fileURLToPath as __fileURLToPath } from "node:url"; const require = __createRequire(import.meta.url); const __filename = __fileURLToPath(import.meta.url); const __dirname = __dirnameOf(__filename);',
     },
