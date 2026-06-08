@@ -1,5 +1,6 @@
 import type { ChainRecord } from "@artgod/shared/types/browse";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
+import type { ImageCacheMode } from "@artgod/shared/media/token-image-cache";
 import type {
     BootstrapEnumerationMode,
     BootstrapMetadataMode,
@@ -102,7 +103,7 @@ export interface BootstrapRunsWritePort {
         manualTokenIdsJson: string | null;
         manualRangeStartTokenId: string | null;
         manualRangeTotalSupply: number | null;
-        imageCacheEnabled: boolean;
+        imageCacheMode: ImageCacheMode;
         imageCacheMaxDimension: number | null;
         deploymentBlock: number | null;
     }): BootstrapRunRow;

@@ -10,6 +10,7 @@ import type {
     TraitFilterPresentationConfig,
     TraitSummaryTemplateConfig,
 } from "@artgod/shared/types";
+import type { ImageCachePolicyConfig } from "@artgod/shared/media/token-image-cache";
 import type {
     TokenCard,
     TokenDetail,
@@ -82,6 +83,9 @@ export interface BackendCollectionExtension {
     resolveActivityRowTraitSummaryTemplateConfig(
         install: CollectionExtensionInstall,
     ): TraitSummaryTemplateConfig | null;
+    resolveImageCachePolicyConfig(
+        install: CollectionExtensionInstall,
+    ): ImageCachePolicyConfig | null;
     listActivityEventFeeds(
         install: CollectionExtensionInstall,
     ): ActivityExtensionEventFeed[];

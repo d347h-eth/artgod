@@ -1,5 +1,6 @@
 import type { ChainRecord } from "@artgod/shared/types/browse";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
+import type { ImageCacheMode } from "@artgod/shared/media/token-image-cache";
 
 export type BootstrapMetadataMode = "strict" | "best_effort";
 
@@ -29,7 +30,7 @@ export type CreateBootstrapRunInput = {
     supportsEnumerable: boolean;
     manualInput?: BootstrapManualInput;
     imageCache?: {
-        enabled: boolean;
+        imageCacheMode: ImageCacheMode;
         maxDimension: number | null;
     };
     deploymentBlock?: number;
@@ -56,7 +57,7 @@ export type BootstrapRunRow = {
     manualTokenIdsJson: string | null;
     manualRangeStartTokenId: string | null;
     manualRangeTotalSupply: number | null;
-    imageCacheEnabled: boolean;
+    imageCacheMode: ImageCacheMode;
     imageCacheMaxDimension: number | null;
     deploymentBlock: number | null;
     status: string;

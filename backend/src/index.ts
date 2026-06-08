@@ -90,6 +90,8 @@ import { SqliteCollectionExtensionRecords } from "./infra/collections/sqlite-col
 import { NatsRuntimeHealthAdapter } from "./infra/runtime-health/nats-runtime-health.js";
 import { SqliteRuntimeHealthAdapter } from "./infra/runtime-health/sqlite-runtime-health.js";
 import { ViemBackendRpcClient } from "./infra/rpc/viem-backend-rpc.js";
+import { NatsTokenImageCacheCommandQueue } from "./infra/media/nats-token-image-cache-command-queue.js";
+import { SqliteTokenImageCacheMaintenance } from "./infra/media/sqlite-token-image-cache-maintenance.js";
 import { NatsSyncBackfillCommandQueue } from "./infra/sync-backfill/nats-sync-backfill-command-queue.js";
 import { PublicCollectionBlockspaceCache } from "./infra/sync-backfill/public-collection-blockspace-cache.js";
 import { SqliteSyncBackfillRepository } from "./infra/sync-backfill/sqlite-sync-backfill-repository.js";
@@ -226,6 +228,13 @@ export function createBackendApp(
         config.natsUrl,
         config.natsStreamPrefix,
     );
+    const tokenImageCacheCommandQueue = new NatsTokenImageCacheCommandQueue(
+        config.natsUrl,
+        config.natsStreamPrefix,
+    );
+    const tokenImageCacheMaintenance = new SqliteTokenImageCacheMaintenance(
+        config.mediaCache.tokenImagesDir,
+    );
     const builtInCollectionExtensionResolver =
         new BuiltInCollectionExtensionResolver();
     const bootstrapContractProbe = new ViemBootstrapContractProbe(
@@ -239,6 +248,7 @@ export function createBackendApp(
         chainsReadModel,
         bootstrapRunsRepository,
         builtInCollectionExtensionResolver,
+        extensionAwareCollectionCustomization,
         bootstrapCommandQueue,
     );
     const probeCollectionContractUseCase = new ProbeCollectionContractUseCase(
@@ -401,6 +411,14 @@ export function createBackendApp(
             chainsReadModel,
             extensionAwareCollectionsReadModel,
             extensionAwareCollectionCustomization,
+            {
+                deleteCollectionImageCache: (input) =>
+                    tokenImageCacheMaintenance.deleteCollectionImageCache(input),
+                publishCollectionImageCacheRefresh: (input) =>
+                    tokenImageCacheCommandQueue.publishCollectionImageCacheRefresh(
+                        input,
+                    ),
+            },
         );
     const listCollectionBiddingBidBookUseCase =
         new ListCollectionBiddingBidBookUseCase(

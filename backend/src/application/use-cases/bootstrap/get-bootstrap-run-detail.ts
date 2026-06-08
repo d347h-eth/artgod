@@ -1,5 +1,6 @@
 import { ReadModelNotFoundError } from "@artgod/shared/read-models/errors";
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
+import { isImageCachePolicyActive } from "@artgod/shared/media/token-image-cache";
 import type {
     BootstrapFlowStep,
     BootstrapFlowStepState,
@@ -137,7 +138,7 @@ function buildBootstrapRunFlow(input: {
         eventCodes.has("image_cache.skipped");
     const hasImageCacheCompleted =
         hasMetadataCompleted &&
-        (!input.run.imageCacheEnabled ||
+        (!isImageCacheRunActive(input.run) ||
             eventCodes.has("image_cache.completed") ||
             eventCodes.has("image_cache.skipped") ||
             input.run.status === "ownership" ||
@@ -393,13 +394,20 @@ function formatMetadataDetail(counts: BootstrapRunTaskCounts): string | null {
 }
 
 function formatImageCacheDetail(run: BootstrapRunRow): string | null {
-    if (!run.imageCacheEnabled) {
+    if (!isImageCacheRunActive(run)) {
         return "disabled";
     }
     if (run.imageCacheMaxDimension === null) {
         return "original";
     }
     return `${run.imageCacheMaxDimension}px`;
+}
+
+function isImageCacheRunActive(run: BootstrapRunRow): boolean {
+    return isImageCachePolicyActive({
+        imageCacheMode: run.imageCacheMode,
+        maxDimension: run.imageCacheMaxDimension,
+    });
 }
 
 function formatOpenSeaSnapshotDetail(

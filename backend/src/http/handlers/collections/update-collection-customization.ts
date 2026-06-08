@@ -5,6 +5,15 @@ import {
     normalizeTraitSummaryTemplateConfig,
     type CollectionCustomizationSourceKind,
 } from "@artgod/shared/types";
+import {
+    BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
+    BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION,
+} from "@artgod/shared/config/bootstrap";
+import {
+    IMAGE_CACHE_MODE,
+    type ImageCacheMode,
+    type ImageCachePolicyConfig,
+} from "@artgod/shared/media/token-image-cache";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import type {
     UpdateCollectionCustomizationInput,
@@ -33,6 +42,13 @@ export type UpdateCollectionCustomizationRoute = {
             selectedSource?: unknown;
             userConfig?: {
                 template?: unknown;
+            };
+        };
+        imageCachePolicy?: {
+            selectedSource?: unknown;
+            userConfig?: {
+                imageCacheMode?: unknown;
+                maxDimension?: unknown;
             };
         };
     };
@@ -87,9 +103,14 @@ export class UpdateCollectionCustomizationHttpAdapter {
                 "activityRowTraitSummaryTemplate is required",
             );
         }
+        const imageCachePolicy = request.body?.imageCachePolicy;
+        if (!imageCachePolicy || typeof imageCachePolicy !== "object") {
+            throw new ReadModelBadRequestError("imageCachePolicy is required");
+        }
 
         const selectedSource = parseSelectedSource(
             traitFilterPresentation.selectedSource,
+            "traitFilterPresentation.selectedSource",
         );
         const userConfig = normalizeTraitFilterPresentationConfig({
             rangeKeys: parseStringList(
@@ -99,6 +120,7 @@ export class UpdateCollectionCustomizationHttpAdapter {
         });
         const tokenCardSelectedSource = parseSelectedSource(
             tokenCardTraitSummaryTemplate.selectedSource,
+            "tokenCardTraitSummaryTemplate.selectedSource",
         );
         const tokenCardUserConfig = normalizeTraitSummaryTemplateConfig({
             template: parseStringValue(
@@ -108,6 +130,7 @@ export class UpdateCollectionCustomizationHttpAdapter {
         });
         const activitySelectedSource = parseSelectedSource(
             activityRowTraitSummaryTemplate.selectedSource,
+            "activityRowTraitSummaryTemplate.selectedSource",
         );
         const activityUserConfig = normalizeTraitSummaryTemplateConfig({
             template: parseStringValue(
@@ -115,6 +138,13 @@ export class UpdateCollectionCustomizationHttpAdapter {
                 "activityRowTraitSummaryTemplate.userConfig.template",
             ),
         });
+        const imageCacheSelectedSource = parseSelectedSource(
+            imageCachePolicy.selectedSource,
+            "imageCachePolicy.selectedSource",
+        );
+        const imageCacheUserConfig = parseImageCachePolicyConfig(
+            imageCachePolicy.userConfig,
+        );
 
         return {
             chainRef: request.params.chain_ref,
@@ -131,12 +161,17 @@ export class UpdateCollectionCustomizationHttpAdapter {
                 selectedSource: activitySelectedSource,
                 userConfig: activityUserConfig,
             },
+            imageCachePolicy: {
+                selectedSource: imageCacheSelectedSource,
+                userConfig: imageCacheUserConfig,
+            },
         };
     }
 }
 
 function parseSelectedSource(
     value: unknown,
+    field: string,
 ): CollectionCustomizationSourceKind {
     if (
         value === COLLECTION_CUSTOMIZATION_SOURCE_KIND.User ||
@@ -144,9 +179,7 @@ function parseSelectedSource(
     ) {
         return value;
     }
-    throw new ReadModelBadRequestError(
-        "traitFilterPresentation.selectedSource is invalid",
-    );
+    throw new ReadModelBadRequestError(`${field} is invalid`);
 }
 
 function parseStringList(value: unknown, field: string): string[] {
@@ -170,4 +203,60 @@ function parseStringValue(value: unknown, field: string): string {
         throw new ReadModelBadRequestError(`${field} must be a string`);
     }
     return value;
+}
+
+function parseImageCachePolicyConfig(value: unknown): ImageCachePolicyConfig {
+    if (!value || typeof value !== "object") {
+        throw new ReadModelBadRequestError(
+            "imageCachePolicy.userConfig must be an object",
+        );
+    }
+    const source = value as {
+        imageCacheMode?: unknown;
+        maxDimension?: unknown;
+    };
+    const imageCacheMode = parseImageCacheMode(source.imageCacheMode);
+    if (imageCacheMode === IMAGE_CACHE_MODE.Off) {
+        if (source.maxDimension !== undefined && source.maxDimension !== null) {
+            throw new ReadModelBadRequestError(
+                "imageCachePolicy.userConfig.maxDimension must be null when image cache mode is off",
+            );
+        }
+        return {
+            imageCacheMode,
+            maxDimension: null,
+        };
+    }
+    if (source.maxDimension === null) {
+        return {
+            imageCacheMode,
+            maxDimension: null,
+        };
+    }
+    if (
+        !Number.isInteger(source.maxDimension) ||
+        Number(source.maxDimension) < BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION ||
+        Number(source.maxDimension) > BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION
+    ) {
+        throw new ReadModelBadRequestError(
+            "imageCachePolicy.userConfig.maxDimension is invalid",
+        );
+    }
+    return {
+        imageCacheMode,
+        maxDimension: Number(source.maxDimension),
+    };
+}
+
+function parseImageCacheMode(value: unknown): ImageCacheMode {
+    if (
+        value === IMAGE_CACHE_MODE.Off ||
+        value === IMAGE_CACHE_MODE.CacheOnce ||
+        value === IMAGE_CACHE_MODE.RefreshOnMetadata
+    ) {
+        return value;
+    }
+    throw new ReadModelBadRequestError(
+        "imageCachePolicy.userConfig.imageCacheMode is invalid",
+    );
 }

@@ -13,6 +13,8 @@ import {
     getDefaultRpcEndpointResilienceConfig,
 } from "@artgod/shared/config/rpc-resilience";
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
+import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from "@artgod/shared/config/bootstrap";
+import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import type { RpcRetryPolicy } from "@artgod/shared/evm/rpc-resilience";
 import {
     TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS,
@@ -87,6 +89,16 @@ const API_TEST_RPC_RETRY_POLICY: RpcRetryPolicy = {
     baseDelayMs: 0,
     maxDelayMs: 0,
 };
+
+function defaultImageCachePolicyUpdateBody() {
+    return {
+        selectedSource: "user" as const,
+        userConfig: {
+            imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+            maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
+        },
+    };
+}
 
 let dbPath = "";
 let app: FastifyInstance | null = null;
@@ -282,6 +294,10 @@ beforeAll(async () => {
             chainsReadModel,
             collectionsReadModel,
             customizationReadModel,
+            {
+                async deleteCollectionImageCache() {},
+                async publishCollectionImageCacheRefresh() {},
+            },
         );
     const runtimeHealthUseCase =
         new runtimeHealthUseCaseModule.GetRuntimeHealthUseCase(
@@ -508,6 +524,7 @@ beforeAll(async () => {
             chainsReadModel,
             bootstrapRepository,
             builtInCollectionExtensionResolver,
+            customizationReadModel,
             bootstrapQueueMock,
         );
     const probeCollectionContractUseCase =
@@ -3671,6 +3688,14 @@ describe("backend api routes", () => {
             extensionConfig: null,
             effectiveConfig: { template: "" },
         });
+        expect(milady.payload.customization.imageCachePolicy).toMatchObject({
+            selectedSource: "user",
+            userConfig: {
+                imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+                maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
+            },
+            extensionConfig: null,
+        });
 
         const terraforms = await resolve(
             "GET",
@@ -3701,6 +3726,17 @@ describe("backend api routes", () => {
             selectedSource: "extension",
             extensionConfig: { template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE },
             effectiveConfig: { template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE },
+        });
+        expect(terraforms.payload.customization.imageCachePolicy).toMatchObject({
+            selectedSource: "extension",
+            extensionConfig: {
+                imageCacheMode: IMAGE_CACHE_MODE.Off,
+                maxDimension: null,
+            },
+            effectiveConfig: {
+                imageCacheMode: IMAGE_CACHE_MODE.Off,
+                maxDimension: null,
+            },
         });
     });
 
@@ -3734,6 +3770,7 @@ describe("backend api routes", () => {
                         template: "",
                     },
                 },
+                imageCachePolicy: defaultImageCachePolicyUpdateBody(),
             },
             {
                 host: "127.0.0.1:42710",
@@ -3821,6 +3858,7 @@ describe("backend api routes", () => {
                         template: "",
                     },
                 },
+                imageCachePolicy: defaultImageCachePolicyUpdateBody(),
             },
             {
                 host: "127.0.0.1:42710",
@@ -3862,6 +3900,7 @@ describe("backend api routes", () => {
                         template: "P{Power}",
                     },
                 },
+                imageCachePolicy: defaultImageCachePolicyUpdateBody(),
             },
             {
                 host: "127.0.0.1:42710",
@@ -3924,6 +3963,7 @@ describe("backend api routes", () => {
                         template: "",
                     },
                 },
+                imageCachePolicy: defaultImageCachePolicyUpdateBody(),
             },
             {
                 host: "127.0.0.1:42710",

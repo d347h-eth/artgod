@@ -1,12 +1,17 @@
 import {
     COLLECTION_CUSTOMIZATION_SOURCE_KIND,
     COLLECTION_CUSTOMIZATION_FEATURE_KEY,
+    defaultImageCachePolicyFeatureConfig,
     defaultTraitFilterPresentationConfig,
     defaultTraitSummaryTemplateConfig,
+    normalizeImageCachePolicyFeatureConfig,
     normalizeTraitFilterPresentationConfig,
     normalizeTraitKeyList,
     normalizeTraitSummaryTemplateConfig,
+    resolveCollectionCustomizationSelectedSource,
     type CollectionCustomizationSourceKind,
+    type ImageCachePolicyFeatureState,
+    type ImageCachePolicyConfig,
     type TraitSummaryTemplateConfig,
     type TraitSummaryTemplateFeatureState,
     type TraitFilterPresentationConfig,
@@ -67,7 +72,7 @@ export class ExtensionAwareCollectionCustomization {
         const userConfig = parseTraitFilterPresentationConfigJson(
             record?.userConfigJson ?? null,
         );
-        const selectedSource = resolveSelectedSource({
+        const selectedSource = resolveCollectionCustomizationSelectedSource({
             requestedSource: record?.selectedSource ?? null,
             hasExtensionConfig: extensionConfig !== null,
         });
@@ -191,6 +196,41 @@ export class ExtensionAwareCollectionCustomization {
         });
     }
 
+    getImageCachePolicyState(params: {
+        chainId: number;
+        collectionId: number;
+    }): ImageCachePolicyFeatureState {
+        const install = this.extensionRecords.getInstallByCollectionId(
+            params.chainId,
+            params.collectionId,
+        );
+        const extensionConfig = resolveExtensionImageCachePolicyConfig(install);
+        const record = this.customizationRecords.getFeature({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            featureKey: COLLECTION_CUSTOMIZATION_FEATURE_KEY.ImageCachePolicy,
+        });
+        const userConfig = parseImageCachePolicyConfigJson(
+            record?.userConfigJson ?? null,
+        );
+        const selectedSource = resolveCollectionCustomizationSelectedSource({
+            requestedSource: record?.selectedSource ?? null,
+            hasExtensionConfig: extensionConfig !== null,
+        });
+        const effectiveConfig =
+            selectedSource === COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension &&
+            extensionConfig
+                ? extensionConfig
+                : userConfig;
+
+        return {
+            selectedSource,
+            userConfig,
+            extensionConfig,
+            effectiveConfig,
+        };
+    }
+
     updateActivityRowTraitSummaryTemplateState(params: {
         chainId: number;
         collectionId: number;
@@ -217,6 +257,33 @@ export class ExtensionAwareCollectionCustomization {
         });
 
         return this.getActivityRowTraitSummaryTemplateState(params);
+    }
+
+    updateImageCachePolicyState(params: {
+        chainId: number;
+        collectionId: number;
+        selectedSource: CollectionCustomizationSourceKind;
+        userConfig: ImageCachePolicyConfig;
+    }): ImageCachePolicyFeatureState {
+        const normalizedUserConfig = normalizeImageCachePolicyFeatureConfig(
+            params.userConfig,
+        );
+        const currentState = this.getImageCachePolicyState(params);
+        assertExtensionConfigAvailable(
+            params.selectedSource,
+            currentState.extensionConfig,
+            "Extension image cache policy unavailable",
+        );
+
+        this.customizationRecords.upsertFeature({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            featureKey: COLLECTION_CUSTOMIZATION_FEATURE_KEY.ImageCachePolicy,
+            selectedSource: params.selectedSource,
+            userConfigJson: JSON.stringify(normalizedUserConfig),
+        });
+
+        return this.getImageCachePolicyState(params);
     }
 
     private resolveExtensionTraitFilterPresentationConfig(
@@ -277,6 +344,26 @@ function parseTraitSummaryTemplateConfigJson(
     }
 }
 
+function parseImageCachePolicyConfigJson(
+    raw: string | null,
+): ImageCachePolicyConfig {
+    if (!raw) {
+        return defaultImageCachePolicyFeatureConfig();
+    }
+
+    try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (!parsed || typeof parsed !== "object") {
+            return defaultImageCachePolicyFeatureConfig();
+        }
+        return normalizeImageCachePolicyFeatureConfig(
+            parsed as ImageCachePolicyConfig,
+        );
+    } catch {
+        return defaultImageCachePolicyFeatureConfig();
+    }
+}
+
 function resolveTraitSummaryTemplateFeatureState(params: {
     chainId: number;
     collectionId: number;
@@ -306,7 +393,7 @@ function resolveTraitSummaryTemplateFeatureState(params: {
     const userConfig = parseTraitSummaryTemplateConfigJson(
         record?.userConfigJson ?? null,
     );
-    const selectedSource = resolveSelectedSource({
+    const selectedSource = resolveCollectionCustomizationSelectedSource({
         requestedSource: record?.selectedSource ?? null,
         hasExtensionConfig: extensionConfig !== null,
     });
@@ -347,9 +434,26 @@ function resolveExtensionTraitSummaryTemplateConfig(params: {
     );
 }
 
+function resolveExtensionImageCachePolicyConfig(
+    install: CollectionExtensionInstall | null,
+): ImageCachePolicyConfig | null {
+    if (!install?.enabled) {
+        return null;
+    }
+
+    const extension = resolveBackendCollectionExtension(install);
+    if (!extension) {
+        return null;
+    }
+
+    return normalizeImageCachePolicyFeatureConfig(
+        extension.resolveImageCachePolicyConfig(install),
+    );
+}
+
 function assertExtensionConfigAvailable(
     selectedSource: CollectionCustomizationSourceKind,
-    extensionConfig: TraitSummaryTemplateConfig | null,
+    extensionConfig: unknown | null,
     message: string,
 ): void {
     if (
@@ -358,25 +462,4 @@ function assertExtensionConfigAvailable(
     ) {
         throw new ReadModelBadRequestError(message);
     }
-}
-
-function resolveSelectedSource(params: {
-    requestedSource: CollectionCustomizationSourceKind | null;
-    hasExtensionConfig: boolean;
-}): CollectionCustomizationSourceKind {
-    if (
-        params.requestedSource === COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension
-    ) {
-        return params.hasExtensionConfig
-            ? COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension
-            : COLLECTION_CUSTOMIZATION_SOURCE_KIND.User;
-    }
-
-    if (params.requestedSource === COLLECTION_CUSTOMIZATION_SOURCE_KIND.User) {
-        return COLLECTION_CUSTOMIZATION_SOURCE_KIND.User;
-    }
-
-    return params.hasExtensionConfig
-        ? COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension
-        : COLLECTION_CUSTOMIZATION_SOURCE_KIND.User;
 }

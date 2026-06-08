@@ -8,6 +8,10 @@ import {
     BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
     BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION,
 } from "@artgod/shared/config/bootstrap";
+import {
+    IMAGE_CACHE_MODE,
+    type ImageCacheMode,
+} from "@artgod/shared/media/token-image-cache";
 
 export type CreateBootstrapRunRoute = {
     Params: {
@@ -27,7 +31,7 @@ export type CreateBootstrapRunRoute = {
             totalSupply?: unknown;
         };
         imageCache?: {
-            enabled?: unknown;
+            imageCacheMode?: unknown;
             maxDimension?: unknown;
         };
         deploymentBlock?: number;
@@ -136,23 +140,24 @@ function parseImageCacheInput(
         throw new ReadModelBadRequestError("imageCache must be an object");
     }
     const source = value as {
-        enabled?: unknown;
+        imageCacheMode?: unknown;
         maxDimension?: unknown;
     };
-    if (typeof source.enabled !== "boolean") {
-        throw new ReadModelBadRequestError(
-            "imageCache.enabled must be boolean",
-        );
-    }
-    if (!source.enabled) {
+    const imageCacheMode = parseImageCacheMode(source.imageCacheMode);
+    if (imageCacheMode === IMAGE_CACHE_MODE.Off) {
+        if (source.maxDimension !== undefined && source.maxDimension !== null) {
+            throw new ReadModelBadRequestError(
+                "imageCache.maxDimension must be null when image cache mode is off",
+            );
+        }
         return {
-            enabled: false,
+            imageCacheMode,
             maxDimension: null,
         };
     }
     if (source.maxDimension === null) {
         return {
-            enabled: true,
+            imageCacheMode,
             maxDimension: null,
         };
     }
@@ -166,9 +171,20 @@ function parseImageCacheInput(
         );
     }
     return {
-        enabled: true,
+        imageCacheMode,
         maxDimension: Number(source.maxDimension),
     };
+}
+
+function parseImageCacheMode(value: unknown): ImageCacheMode {
+    if (
+        value === IMAGE_CACHE_MODE.Off ||
+        value === IMAGE_CACHE_MODE.CacheOnce ||
+        value === IMAGE_CACHE_MODE.RefreshOnMetadata
+    ) {
+        return value;
+    }
+    throw new ReadModelBadRequestError("imageCache.imageCacheMode is invalid");
 }
 
 function parseManualInput(
