@@ -226,6 +226,7 @@ export type ApiBootstrapProbeImageStorageEstimate = {
 	sampleImageBytes: number;
 	projectedBytes: string;
 	totalSupply: string;
+	contentType: string | null;
 } | null;
 
 export type BootstrapContractProbeApiResponse = {
@@ -250,6 +251,11 @@ export type BootstrapContractProbeApiResponse = {
 			| null;
 		ready: boolean;
 		warnings: string[];
+	};
+	imageCacheSuggestion: {
+		selectedSource: ApiCollectionCustomizationSource;
+		extensionKey: string | null;
+		config: ApiImageCachePolicyConfig;
 	};
 };
 

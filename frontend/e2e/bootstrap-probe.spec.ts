@@ -1,4 +1,6 @@
 import { expect, test, type Page, type TestInfo } from 'playwright/test';
+import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
+import { TERRAFORMS_EXTENSION_KEY } from '@artgod/shared/extensions/terraforms';
 import { TEST_IDS } from '../src/lib/test-ids';
 import {
 	attachDiagnosticsForTestFailure,
@@ -39,7 +41,8 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(page.locator('input[name="slug"]')).toHaveValue('non-enumerable-test-collection');
 		await expect(page.locator('input[name="slug"]')).toBeEnabled();
 		await expect(page.getByText('Metadata size (1 token)')).toBeVisible();
-		await expect(page.getByText('Original image size (1 token)')).toBeVisible();
+		await expect(page.getByText('Original image source size (1 token)')).toBeVisible();
+		await expect(formRow(page, 'Image cache plan')).toContainText('cache local files once');
 		await expect(formLabel(page, 'Preview token')).toHaveCount(0);
 
 		const startTokenInput = rowControl(page, 'Manual range start token ID');
@@ -81,24 +84,33 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(page.locator('input[name="slug"]')).toHaveValue('raster-images-2026');
 		await expect(page.getByText('Manual token scope mode')).toHaveCount(0);
 		await expect(rowControl(page, 'Cached image max dimension')).toBeEnabled();
+		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.Off);
+		await expect(formLabel(page, 'Cached image max dimension')).toHaveCount(0);
+		await expect(page.getByText('Card image field size (1 token)')).toBeVisible();
+		await expect(formRow(page, 'Image cache plan')).toContainText('cards use image field');
 		expect(dynamicRequests).toEqual([]);
 	});
 
-	test('renders enumerable onchain SVG image data and concise field help', async ({ page }) => {
+	test('renders enumerable onchain SVG image data with extension image cache off', async ({ page }) => {
 		await installBootstrapProbeApiMock(page);
 		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableOnchainSvg);
 
 		const card = tokenCard(page, '1');
 		await expect(card).toBeVisible();
 		await expect(card.locator('img')).toHaveAttribute('src', BOOTSTRAP_PROBE_MEDIA.OnchainSvgImage);
-		await expect(page.locator('input[name="slug"]')).toHaveValue('onchain-svg-collection');
-		await expect(page.getByText('Est. original images size (full collection)')).toBeVisible();
+		await expect(page.locator('input[name="slug"]')).toHaveValue('terraforms');
+		await expect(rowControl(page, 'Image cache mode')).toHaveValue(IMAGE_CACHE_MODE.Off);
+		await expect(formLabel(page, 'Cached image max dimension')).toHaveCount(0);
+		await expect(formRow(page, 'Image cache policy source')).toContainText(
+			`extension-defined (${TERRAFORMS_EXTENSION_KEY})`
+		);
+		await expect(page.getByText('Est. card image field size (full collection)')).toBeVisible();
 
-		const imageSizeRow = formRow(page, 'Original image size (1 token)');
+		const imageSizeRow = formRow(page, 'Card image field size (1 token)');
 		await imageSizeRow.locator('.info-tooltip').hover();
 		await expect(imageSizeRow.locator('.info-tooltip-popup')).toBeVisible();
 		await expect(imageSizeRow.locator('.info-tooltip-popup')).toContainText(
-			'tokenURI image property'
+			'used directly when local cache is off'
 		);
 	});
 });

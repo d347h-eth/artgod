@@ -8,8 +8,10 @@
 	} from '@artgod/shared/config/bootstrap';
 	import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+	import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 	import type {
 		ApiChain,
+		ApiCollectionCustomizationSource,
 		ApiCollectionMediaMode,
 		ApiImageCacheMode,
 		ApiOpenSeaIntegrationStatus,
@@ -85,11 +87,15 @@
 		projectedTokenUriPayloadSize: 'Approximate metadata payload storage for the collection.',
 		originalImageFileSize: 'Fetched image file size from the tokenURI image property.',
 		projectedOriginalImageFileSize: 'Approximate original image storage for the collection.',
+		cardImageFieldSize: 'Size of the tokenURI image field used directly when local cache is off.',
+		projectedCardImageFieldSize: 'Approximate token-card image field size for the collection.',
 		probeWarnings: 'Probe fallbacks or incomplete checks that may need review.',
 		manualEditing: 'Unlock probe-derived fields. Use only if the probe result is wrong.',
 		supportsEnumerable: 'Controls whether bootstrap enumerates tokens through tokenByIndex.',
 		imageCacheMode: 'Controls token card image caching after bootstrap.',
 		imageMaxDimension: 'Maximum cached image width or height in pixels.',
+		imageCachePolicySource: 'Whether the current cache mode came from a collection extension or user selection.',
+		imageCachePlan: 'How token cards will source images after bootstrap.',
 		manualMode: 'Manual token scope used when enumerable support is unavailable.',
 		tokenIds: 'Explicit token IDs to bootstrap, separated by commas or whitespace.',
 		startTokenId: 'First token ID for manual range bootstrap.',
@@ -108,6 +114,10 @@
 	let manualRangeTotalSupply = $state('');
 	let imageCacheMode = $state<ApiImageCacheMode>(IMAGE_CACHE_MODE.CacheOnce);
 	let imageCacheMaxDimension = $state(String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION));
+	let imageCachePolicySource = $state<ApiCollectionCustomizationSource>(
+		COLLECTION_CUSTOMIZATION_SOURCE_KIND.User
+	);
+	let imageCachePolicyExtensionKey = $state<string | null>(null);
 	let manualEditingAllowed = $state(false);
 	let submitting = $state(false);
 	let submitError = $state<string | null>(null);
@@ -149,6 +159,7 @@
 			probeResult = null;
 			probeError = null;
 			probeAddress = null;
+			resetImageCachePolicySource();
 			return;
 		}
 
@@ -157,6 +168,7 @@
 		probeAddress = null;
 		probeError = null;
 		manualEditingAllowed = false;
+		resetImageCachePolicySource();
 		let cancelled = false;
 		const timer = window.setTimeout(() => {
 			void (async () => {
@@ -211,6 +223,7 @@
 			manualRangeStartTokenId = patch.manualRangeStartTokenId;
 			manualRangeTotalSupply = patch.manualRangeTotalSupply;
 		}
+		applyProbeImageCacheSuggestion(result.imageCacheSuggestion);
 	}
 
 	function probeStateLabel(): string {
@@ -247,6 +260,104 @@
 		const slug = normalizeFieldValue(bootstrapSlug).toLowerCase();
 		if (!slug) return '#';
 		return `/${chain.slug}/${slug}/${tokenId}`;
+	}
+
+	function applyProbeImageCacheSuggestion(
+		suggestion: BootstrapContractProbeApiResponse['imageCacheSuggestion']
+	): void {
+		imageCachePolicySource = suggestion.selectedSource;
+		imageCachePolicyExtensionKey = suggestion.extensionKey;
+		imageCacheMode = suggestion.config.imageCacheMode;
+		imageCacheMaxDimension = imageCacheMaxDimensionInputValue(suggestion.config.maxDimension);
+	}
+
+	function resetImageCachePolicySource(): void {
+		imageCachePolicySource = COLLECTION_CUSTOMIZATION_SOURCE_KIND.User;
+		imageCachePolicyExtensionKey = null;
+	}
+
+	function markImageCacheUserSelected(): void {
+		resetImageCachePolicySource();
+	}
+
+	function imageCacheMaxDimensionInputValue(value: number | null): string {
+		return value === null ? '' : String(value);
+	}
+
+	function parseImageCacheMode(value: string): ApiImageCacheMode {
+		if (
+			value === IMAGE_CACHE_MODE.Off ||
+			value === IMAGE_CACHE_MODE.CacheOnce ||
+			value === IMAGE_CACHE_MODE.RefreshOnMetadata
+		) {
+			return value;
+		}
+		return IMAGE_CACHE_MODE.CacheOnce;
+	}
+
+	function onImageCacheModeChange(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLSelectElement)) return;
+		imageCacheMode = parseImageCacheMode(target.value);
+		if (imageCacheMode !== IMAGE_CACHE_MODE.Off && !normalizeFieldValue(imageCacheMaxDimension)) {
+			imageCacheMaxDimension = String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION);
+		}
+		markImageCacheUserSelected();
+	}
+
+	function onImageCacheMaxDimensionInput(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLInputElement)) return;
+		imageCacheMaxDimension = target.value;
+		markImageCacheUserSelected();
+	}
+
+	function imageCachePolicySourceLabel(): string {
+		if (imageCachePolicySource === COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension) {
+			return imageCachePolicyExtensionKey
+				? `extension-defined (${imageCachePolicyExtensionKey})`
+				: 'extension-defined';
+		}
+		return 'user-defined';
+	}
+
+	function imageCacheDimensionPlanLabel(): string {
+		const raw = normalizeFieldValue(imageCacheMaxDimension);
+		return raw ? `${raw}px` : 'original dimensions';
+	}
+
+	function imageCachePlanValue(): string {
+		if (imageCacheMode === IMAGE_CACHE_MODE.Off) {
+			return 'no cache files; cards use image field';
+		}
+		if (imageCacheMode === IMAGE_CACHE_MODE.CacheOnce) {
+			return `cache local files once; max ${imageCacheDimensionPlanLabel()}`;
+		}
+		return `refresh local files on metadata; max ${imageCacheDimensionPlanLabel()}`;
+	}
+
+	function imageSizeOneTokenLabel(): string {
+		return imageCacheMode === IMAGE_CACHE_MODE.Off
+			? 'Card image field size (1 token)'
+			: 'Original image source size (1 token)';
+	}
+
+	function imageSizeFullCollectionLabel(): string {
+		return imageCacheMode === IMAGE_CACHE_MODE.Off
+			? 'Est. card image field size (full collection)'
+			: 'Est. source images size (full collection)';
+	}
+
+	function imageSizeOneTokenHelp(): string {
+		return imageCacheMode === IMAGE_CACHE_MODE.Off
+			? bootstrapFieldHelp.cardImageFieldSize
+			: bootstrapFieldHelp.originalImageFileSize;
+	}
+
+	function imageSizeFullCollectionHelp(): string {
+		return imageCacheMode === IMAGE_CACHE_MODE.Off
+			? bootstrapFieldHelp.projectedCardImageFieldSize
+			: bootstrapFieldHelp.projectedOriginalImageFileSize;
 	}
 
 	function probeSubmitGuard(address: string): string | null {
@@ -545,13 +656,21 @@
 								</div>
 							</div>
 							<div class="bootstrap-form-row">
-								{@render fieldLabel('Original image size (1 token)', bootstrapFieldHelp.originalImageFileSize)}
+								{@render fieldLabel('Image cache policy source', bootstrapFieldHelp.imageCachePolicySource)}
+								<div class="mono">{imageCachePolicySourceLabel()}</div>
+							</div>
+							<div class="bootstrap-form-row">
+								{@render fieldLabel('Image cache plan', bootstrapFieldHelp.imageCachePlan)}
+								<div class="mono">{imageCachePlanValue()}</div>
+							</div>
+							<div class="bootstrap-form-row">
+								{@render fieldLabel(imageSizeOneTokenLabel(), imageSizeOneTokenHelp())}
 								<div class="mono">
 									{formatByteSize(probeResult.firstToken.imageBytes)}
 								</div>
 							</div>
 							<div class="bootstrap-form-row">
-								{@render fieldLabel('Est. original images size (full collection)', bootstrapFieldHelp.projectedOriginalImageFileSize)}
+								{@render fieldLabel(imageSizeFullCollectionLabel(), imageSizeFullCollectionHelp())}
 								<div class="mono">
 									{formatByteSize(probeResult.imageStorageEstimate?.projectedBytes)}
 								</div>
@@ -602,7 +721,11 @@
 				<div class="bootstrap-form-section">
 					<label class="bootstrap-form-row">
 						{@render fieldLabel('Image cache mode', bootstrapFieldHelp.imageCacheMode)}
-						<select bind:value={imageCacheMode} class={`${bootstrapSelectClass} bootstrap-input-select-medium`}>
+						<select
+							value={imageCacheMode}
+							class={`${bootstrapSelectClass} bootstrap-input-select-medium`}
+							onchange={onImageCacheModeChange}
+						>
 							<option value={IMAGE_CACHE_MODE.Off}>off</option>
 							<option value={IMAGE_CACHE_MODE.CacheOnce}>cache once</option>
 							<option value={IMAGE_CACHE_MODE.RefreshOnMetadata}>refresh on metadata</option>
@@ -612,11 +735,12 @@
 						<label class="bootstrap-form-row">
 							{@render fieldLabel('Cached image max dimension', bootstrapFieldHelp.imageMaxDimension)}
 							<input
-								bind:value={imageCacheMaxDimension}
+								value={imageCacheMaxDimension}
 								class={`${bootstrapInputClass} bootstrap-input-total-supply`}
 								type="number"
 								min={BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION}
 								max={BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION}
+								oninput={onImageCacheMaxDimensionInput}
 							/>
 						</label>
 					{/if}

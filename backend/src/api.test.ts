@@ -571,6 +571,7 @@ beforeAll(async () => {
                     };
                 },
             },
+            builtInCollectionExtensionResolver,
         );
     const getBootstrapStatusUseCase =
         new getBootstrapStatusUseCaseModule.GetBootstrapStatusUseCase(

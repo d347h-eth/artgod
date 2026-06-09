@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/bootstrap';
+import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
+import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 import {
 	bootstrapProbeFormPatch,
 	contractNameToBootstrapSlug,
@@ -121,6 +124,14 @@ function makeProbe(input: {
 			manualInput,
 			ready: input.enumerable || manualInput !== null,
 			warnings: []
+		},
+		imageCacheSuggestion: {
+			selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+			extensionKey: null,
+			config: {
+				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+				maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
+			}
 		}
 	};
 }

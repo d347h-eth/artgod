@@ -255,6 +255,7 @@ export function createBackendApp(
         config.defaultChainId,
         chainsReadModel,
         bootstrapContractProbe,
+        builtInCollectionExtensionResolver,
     );
     const getBootstrapStatusUseCase = new GetBootstrapStatusUseCase(
         config.defaultChainId,

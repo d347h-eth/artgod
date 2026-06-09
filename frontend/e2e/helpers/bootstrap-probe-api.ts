@@ -1,5 +1,9 @@
 import type { Page, Request, Route } from 'playwright/test';
 import type { BootstrapContractProbeApiResponse } from '../../src/lib/api-types';
+import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/bootstrap';
+import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
+import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
+import { TERRAFORMS_EXTENSION_KEY } from '@artgod/shared/extensions/terraforms';
 import {
 	BOOTSTRAP_PROBE_E2E_CHAIN,
 	BOOTSTRAP_PROBE_E2E_ROUTE_PATH,
@@ -145,7 +149,7 @@ function probeResponse(address: string): BootstrapContractProbeApiResponse {
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.EnumerableOnchainSvg) {
 		return buildProbeResponse({
 			address,
-			contractName: 'Onchain SVG Collection',
+			contractName: 'Terraforms',
 			enumerable: true,
 			totalSupply: '9900',
 			firstTokenId: '1',
@@ -156,7 +160,15 @@ function probeResponse(address: string): BootstrapContractProbeApiResponse {
 			firstTokenSource: 'token_by_index',
 			tokenUriPayloadBytes: 7680,
 			manualInput: null,
-			warnings: []
+			warnings: [],
+			imageCacheSuggestion: {
+				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
+				extensionKey: TERRAFORMS_EXTENSION_KEY,
+				config: {
+					imageCacheMode: IMAGE_CACHE_MODE.Off,
+					maxDimension: null
+				}
+			}
 		});
 	}
 
@@ -182,6 +194,7 @@ function buildProbeResponse(input: {
 		totalSupply: number;
 	} | null;
 	warnings: string[];
+	imageCacheSuggestion?: BootstrapContractProbeApiResponse['imageCacheSuggestion'];
 }): BootstrapContractProbeApiResponse {
 	const totalSupply = Number(input.totalSupply);
 	return {
@@ -231,13 +244,22 @@ function buildProbeResponse(input: {
 			sampleTokenId: input.firstTokenId,
 			sampleImageBytes: input.firstTokenImageBytes,
 			projectedBytes: String(input.firstTokenImageBytes * totalSupply),
-			totalSupply: input.totalSupply
+			totalSupply: input.totalSupply,
+			contentType: input.firstTokenImageContentType
 		},
 		suggestedInput: {
 			supportsEnumerable: input.enumerable,
 			manualInput: input.manualInput,
 			ready: true,
 			warnings: input.warnings
+		},
+		imageCacheSuggestion: input.imageCacheSuggestion ?? {
+			selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+			extensionKey: null,
+			config: {
+				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+				maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
+			}
 		}
 	};
 }
