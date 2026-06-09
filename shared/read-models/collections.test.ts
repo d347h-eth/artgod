@@ -121,6 +121,29 @@ describe("SqliteCollectionsReadModel observability", () => {
         );
     });
 
+    it("hydrates token cards from normalized traits beyond metadata JSON", () => {
+        insertToken("1", "100");
+        insertTokenTrait("1", "Power", "9964");
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
+
+        const page = readModel.listCollectionTokens({
+            chainId: 1,
+            collectionId: 1,
+            tokenStatus: TOKEN_BROWSER_STATUS.All,
+            limit: 1,
+        });
+        const cards = readModel.listCollectionTokenCardsByIds({
+            chainId: 1,
+            collectionId: 1,
+            tokenIds: ["1"],
+        });
+
+        expect(page.items[0]?.attributes).toEqual([
+            { key: "Power", value: "9964" },
+        ]);
+        expect(cards[0]?.attributes).toEqual([{ key: "Power", value: "9964" }]);
+    });
+
     it("prefers cached token image paths for token card read models", () => {
         insertToken("1", "100");
         db.prepare(

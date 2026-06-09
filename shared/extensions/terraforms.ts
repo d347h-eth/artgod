@@ -1,8 +1,12 @@
-import { encodeAbiParameters, keccak256 } from "viem";
+import { encodeAbiParameters, encodePacked, keccak256 } from "viem";
 import {
     EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND,
     type EmbeddedCollectionExtensionMatch,
 } from "./index.js";
+import {
+    TERRAFORMS_HYPERCASTLE_TOTAL_PARCELS,
+    TERRAFORMS_LEVEL_DIMENSIONS,
+} from "./terraforms-structure.js";
 import { normalizeAddressRef } from "../utils/ref-resolver.js";
 
 export * from "./terraforms-structure.js";
@@ -159,8 +163,30 @@ export const TERRAFORMS_KNOWN_TOKEN_URI_ADDRESSES_BY_INDEX: Readonly<
     "2": normalizeAddressRef("0x8aF860C8F157F4E3B6A54913BFA6Bb96ab2605C2"),
 };
 
-// Immutable seed value from the deployed Terraforms main contract.
-export const TERRAFORMS_SEED = 10196n;
+// Immutable placement rotation seed from the deployed Terraforms main contract.
+export const TERRAFORMS_PLACEMENT_SEED = 10196n;
+
+// Terraforms renderer seed is a hidden per-token value derived from level/tile.
+export const TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY = "Seed";
+
+// Terraforms seed classes expose renderer character-set buckets as traits.
+export const TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY = "Seed Class";
+
+// Terraforms renderer seed class values used for first-class trait filtering.
+export const TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES = {
+    XSeed: "X-Seed",
+    YSeed: "Y-Seed",
+    XYSeed: "XY-Seed",
+} as const;
+
+// Terraforms renderer seed buckets mirror animation-v2.js character-set branches.
+export const TERRAFORMS_RENDERER_SEED_THRESHOLDS = {
+    OriginXSeed: 9000n,
+    YSeedLowerExclusive: 9950n,
+    YSeedUpperInclusive: 9970n,
+    NonOriginXSeed: 9970n,
+    Modulus: 10_000n,
+} as const;
 
 // Normal committed canvases render with the Terraformed enum value.
 export const TERRAFORMS_TERRAFORMED_STATUS = 2n;
@@ -202,10 +228,131 @@ export function resolveTerraformsCommittedCanvasStatus(
 }
 
 // Checks whether a token Mode trait should expose dream-specific UI affordances.
-export function isTerraformsDreamMode(value: string | null | undefined): boolean {
+export function isTerraformsDreamMode(
+    value: string | null | undefined,
+): boolean {
     return TERRAFORMS_DREAM_MODE_ATTRIBUTE_VALUES.includes(
         value as (typeof TERRAFORMS_DREAM_MODE_ATTRIBUTE_VALUES)[number],
     );
+}
+
+// Checks whether Mode should use the Terraforms origin renderer branches.
+export function isTerraformsOriginMode(
+    value: string | null | undefined,
+): boolean {
+    return (
+        value === TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream ||
+        value === TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform
+    );
+}
+
+export type TerraformsLevelTile = {
+    level: bigint;
+    tile: bigint;
+};
+
+export type TerraformsSeedClass =
+    (typeof TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES)[keyof typeof TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES];
+
+// Resolves the zero-based level/tile pair consumed by the renderer seed hash.
+export function resolveTerraformsLevelAndTileFromPlacement(
+    placement: bigint | number,
+    placementSeed: bigint | number = TERRAFORMS_PLACEMENT_SEED,
+): TerraformsLevelTile {
+    const rotated =
+        (BigInt(placement) + BigInt(placementSeed)) %
+        BigInt(TERRAFORMS_HYPERCASTLE_TOTAL_PARCELS);
+    let previousLevelStart = 0n;
+    let currentLevelEnd = 0n;
+
+    for (const [
+        levelIndex,
+        dimension,
+    ] of TERRAFORMS_LEVEL_DIMENSIONS.entries()) {
+        currentLevelEnd += BigInt(dimension) ** 2n;
+        if (rotated < currentLevelEnd) {
+            return {
+                level: BigInt(levelIndex),
+                tile: rotated - previousLevelStart,
+            };
+        }
+        previousLevelStart = currentLevelEnd;
+    }
+
+    throw new Error(
+        `Terraforms placement ${placement.toString()} is out of range`,
+    );
+}
+
+// Calculates the hidden per-token renderer seed emitted into Terraforms HTML.
+export function calculateTerraformsRendererSeed(
+    level: bigint | number,
+    tile: bigint | number,
+): bigint {
+    return (
+        BigInt(
+            keccak256(
+                encodePacked(
+                    ["uint256", "uint256"],
+                    [BigInt(level), BigInt(tile)],
+                ),
+            ),
+        ) % TERRAFORMS_RENDERER_SEED_THRESHOLDS.Modulus
+    );
+}
+
+// Classifies renderer seed buckets that change Terraforms character-set behavior.
+export function resolveTerraformsRendererSeedClass(params: {
+    mode: string | null | undefined;
+    seed: bigint | number;
+}): TerraformsSeedClass | null {
+    const seed = BigInt(params.seed);
+    const isOrigin = isTerraformsOriginMode(params.mode);
+    const isYSeedRange =
+        seed > TERRAFORMS_RENDERER_SEED_THRESHOLDS.YSeedLowerExclusive &&
+        seed <= TERRAFORMS_RENDERER_SEED_THRESHOLDS.YSeedUpperInclusive;
+
+    if (isOrigin && isYSeedRange) {
+        return TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XYSeed;
+    }
+    if (
+        (isOrigin && seed > TERRAFORMS_RENDERER_SEED_THRESHOLDS.OriginXSeed) ||
+        (!isOrigin && seed > TERRAFORMS_RENDERER_SEED_THRESHOLDS.NonOriginXSeed)
+    ) {
+        return TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed;
+    }
+    if (!isOrigin && isYSeedRange) {
+        return TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.YSeed;
+    }
+    return null;
+}
+
+// Calculates and classifies the hidden Terraforms renderer seed for a placement.
+export function resolveTerraformsRendererSeedTraits(params: {
+    mode: string | null | undefined;
+    placement: bigint | number;
+    placementSeed?: bigint | number;
+}): {
+    seed: bigint;
+    seedClass: TerraformsSeedClass | null;
+    levelTile: TerraformsLevelTile;
+} {
+    const levelTile = resolveTerraformsLevelAndTileFromPlacement(
+        params.placement,
+        params.placementSeed ?? TERRAFORMS_PLACEMENT_SEED,
+    );
+    const seed = calculateTerraformsRendererSeed(
+        levelTile.level,
+        levelTile.tile,
+    );
+    return {
+        seed,
+        seedClass: resolveTerraformsRendererSeedClass({
+            mode: params.mode,
+            seed,
+        }),
+        levelTile,
+    };
 }
 
 // Parses user-pasted Terraforms heightmaps into the same rows stored by the contract.
@@ -218,7 +365,9 @@ export function parseTerraformsCanvasRowsText(input: string): bigint[] {
 }
 
 // Normalizes canvas rows before hashing or renderer calls.
-export function normalizeTerraformsCanvasRows(rows: readonly bigint[]): bigint[] {
+export function normalizeTerraformsCanvasRows(
+    rows: readonly bigint[],
+): bigint[] {
     const output = [...rows];
     while (output.length < TERRAFORMS_CANVAS_ROW_COUNT) {
         output.push(0n);

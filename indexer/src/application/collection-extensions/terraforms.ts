@@ -16,7 +16,10 @@ import {
     TERRAFORMS_EXTENSION_KEY,
     TERRAFORMS_MODE_ATTRIBUTE_KEY,
     TERRAFORMS_MODE_ATTRIBUTE_VALUES,
-    TERRAFORMS_SEED,
+    TERRAFORMS_PLACEMENT_SEED,
+    TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
+    TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+    resolveTerraformsRendererSeedTraits,
 } from "@artgod/shared/extensions/terraforms";
 import type { CollectionExtensionInstall } from "@artgod/shared/extensions";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
@@ -370,7 +373,7 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
             rendererV2ContractAddress: config.rendererV2ContractAddress,
             tokenId: BigInt(tokenId),
             placement,
-            seed: TERRAFORMS_SEED,
+            seed: TERRAFORMS_PLACEMENT_SEED,
             status,
         });
         await upsertRenderedArtifact(context, {
@@ -393,17 +396,43 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
                 collectionId: context.payload.collectionId,
                 contract,
                 tokenId,
-                artifactRef:
-                    TERRAFORMS_EXTENSION_ARTIFACT_REFS.LostTerrain,
+                artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.LostTerrain,
                 renderArgs: resolveTerrainRendererArgs({
                     placement,
-                    seed: TERRAFORMS_SEED,
+                    seed: TERRAFORMS_PLACEMENT_SEED,
                 }),
                 metadataFetchFailureMessage: `Terraforms lost terrain metadata fetch failed for token ${contract}:${tokenId}`,
                 htmlFetchFailureMessage: `Terraforms lost terrain HTML fetch failed for token ${contract}:${tokenId}`,
             });
             lostTerrainWritten = true;
         }
+
+        const seedTraits = resolveTerraformsRendererSeedTraits({
+            mode: tokenMode,
+            placement,
+            placementSeed: TERRAFORMS_PLACEMENT_SEED,
+        });
+        context.attributes.replaceTokenAttributes({
+            chainId: context.payload.chainId,
+            collectionId: context.payload.collectionId,
+            contractAddress: contract,
+            tokenId,
+            extensionKey: TERRAFORMS_EXTENSION_KEY,
+            attributes: [
+                {
+                    key: TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
+                    value: seedTraits.seed.toString(),
+                },
+                ...(seedTraits.seedClass
+                    ? [
+                          {
+                              key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+                              value: seedTraits.seedClass,
+                          },
+                      ]
+                    : []),
+            ],
+        });
 
         logger.debug("Terraforms extension artifacts refreshed", {
             component: "CollectionExtensions",
@@ -417,6 +446,7 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
             status: currentRenderArgs.status.toString(),
             lostTerrainWritten,
         });
+        return { attributesChanged: true };
     },
 };
 
@@ -583,7 +613,8 @@ async function buildBeaconEvent(params: {
                 }),
                 tokenId: decoded.args.tokenId.toString(),
                 modification,
-                modificationLabel: resolveAntennaModificationLabel(modification),
+                modificationLabel:
+                    resolveAntennaModificationLabel(modification),
             },
         };
     }
@@ -742,8 +773,7 @@ function resolveAntennaModificationLabel(value: number): string {
 
 function resolveScriptComponentLabel(value: number): string {
     return (
-        TERRAFORMS_BEACON_SCRIPT_COMPONENT_LABELS[value] ??
-        `component ${value}`
+        TERRAFORMS_BEACON_SCRIPT_COMPONENT_LABELS[value] ?? `component ${value}`
     );
 }
 
@@ -857,7 +887,7 @@ async function readTerraformedRenderArgsAtBlock(params: {
     return {
         status: resolveTerraformsCommittedCanvasStatus(tokenStatus),
         placement,
-        seed: TERRAFORMS_SEED,
+        seed: TERRAFORMS_PLACEMENT_SEED,
         decay: DEFAULT_DECAY,
         canvas: normalizeCanvas(params.canvas),
     };
@@ -1057,10 +1087,7 @@ function resolveTerrainRendererArgs(params: {
         placement: params.placement,
         seed: params.seed,
         decay: DEFAULT_DECAY,
-        canvas: Array.from(
-            { length: TERRAFORMS_CANVAS_ROW_COUNT },
-            () => 0n,
-        ),
+        canvas: Array.from({ length: TERRAFORMS_CANVAS_ROW_COUNT }, () => 0n),
     };
 }
 
@@ -1108,10 +1135,7 @@ function packHeightmapIndices(
         rows.push(packed);
     }
     if (numRows === 0) {
-        return Array.from(
-            { length: TERRAFORMS_CANVAS_ROW_COUNT },
-            () => 0n,
-        );
+        return Array.from({ length: TERRAFORMS_CANVAS_ROW_COUNT }, () => 0n);
     }
     return rows;
 }

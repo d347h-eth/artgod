@@ -9,9 +9,7 @@ import {
     getSettingDefaultBoolean,
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
-import {
-    getDefaultRpcEndpointResilienceConfig,
-} from "@artgod/shared/config/rpc-resilience";
+import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc-resilience";
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from "@artgod/shared/config/bootstrap";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
@@ -38,9 +36,14 @@ import {
     TERRAFORMS_EXTENSION_EVENT_KEYS,
     TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS,
     TERRAFORMS_EXTENSION_KEY,
+    TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
     TERRAFORMS_TRAIT_SUMMARY_TEMPLATE,
 } from "@artgod/shared/extensions/terraforms";
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import {
+    TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+    TOKEN_ATTRIBUTE_SOURCE_KIND,
+} from "@artgod/shared/types/token-attributes";
 import {
     ACTIVITY_KIND,
     ACTIVITY_FEED_QUERY_PARAMS,
@@ -532,9 +535,7 @@ beforeAll(async () => {
     const createBootstrapUseCaseModule =
         await import("./application/use-cases/bootstrap/create-bootstrap-run.js");
     const probeCollectionContractUseCaseModule =
-        await import(
-            "./application/use-cases/bootstrap/probe-collection-contract.js"
-        );
+        await import("./application/use-cases/bootstrap/probe-collection-contract.js");
     const getBootstrapStatusUseCaseModule =
         await import("./application/use-cases/bootstrap/get-bootstrap-status.js");
     const listBootstrapRunsUseCaseModule =
@@ -3778,8 +3779,12 @@ describe("backend api routes", () => {
             terraforms.payload.customization.traitFilterPresentation,
         ).toMatchObject({
             selectedSource: "extension",
-            extensionConfig: { rangeKeys: ["???"] },
-            effectiveConfig: { rangeKeys: ["???"] },
+            extensionConfig: {
+                rangeKeys: ["???", TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY],
+            },
+            effectiveConfig: {
+                rangeKeys: ["???", TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY],
+            },
         });
         expect(
             terraforms.payload.customization.traitFilterPresentation
@@ -3799,17 +3804,19 @@ describe("backend api routes", () => {
             extensionConfig: { template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE },
             effectiveConfig: { template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE },
         });
-        expect(terraforms.payload.customization.imageCachePolicy).toMatchObject({
-            selectedSource: "extension",
-            extensionConfig: {
-                imageCacheMode: IMAGE_CACHE_MODE.Off,
-                maxDimension: null,
+        expect(terraforms.payload.customization.imageCachePolicy).toMatchObject(
+            {
+                selectedSource: "extension",
+                extensionConfig: {
+                    imageCacheMode: IMAGE_CACHE_MODE.Off,
+                    maxDimension: null,
+                },
+                effectiveConfig: {
+                    imageCacheMode: IMAGE_CACHE_MODE.Off,
+                    maxDimension: null,
+                },
             },
-            effectiveConfig: {
-                imageCacheMode: IMAGE_CACHE_MODE.Off,
-                maxDimension: null,
-            },
-        });
+        );
     });
 
     it("updates collection trait filter presentation and applies range filtering to tokens and activities", async () => {
@@ -5548,7 +5555,9 @@ function seedData(): void {
     const powerUnknownId = insertAttribute(powerKeyId, "??");
 
     const insertTokenAttribute = db.prepare(
-        "INSERT INTO token_attributes (chain_id, collection_id, contract_address, token_id, attribute_id) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO token_attributes " +
+            "(chain_id, collection_id, contract_address, token_id, attribute_id, source_kind, source_key) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
     );
 
     insertTokenAttribute.run(
@@ -5557,6 +5566,8 @@ function seedData(): void {
         MILADY_ADDRESS,
         "1",
         beanieId,
+        TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+        TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     );
     insertTokenAttribute.run(
         1,
@@ -5564,6 +5575,8 @@ function seedData(): void {
         MILADY_ADDRESS,
         "1",
         calmId,
+        TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+        TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     );
     insertTokenAttribute.run(
         1,
@@ -5571,6 +5584,8 @@ function seedData(): void {
         MILADY_ADDRESS,
         "1",
         powerSevenId,
+        TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+        TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     );
     insertTokenAttribute.run(
         1,
@@ -5578,6 +5593,8 @@ function seedData(): void {
         MILADY_ADDRESS,
         "2",
         beanieId,
+        TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+        TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     );
     insertTokenAttribute.run(
         1,
@@ -5585,6 +5602,8 @@ function seedData(): void {
         MILADY_ADDRESS,
         "2",
         angryId,
+        TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+        TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     );
     insertTokenAttribute.run(
         1,
@@ -5592,6 +5611,8 @@ function seedData(): void {
         MILADY_ADDRESS,
         "2",
         powerTwoId,
+        TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+        TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     );
     insertTokenAttribute.run(
         1,
@@ -5599,6 +5620,8 @@ function seedData(): void {
         MILADY_ADDRESS,
         "10",
         capId,
+        TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+        TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     );
     insertTokenAttribute.run(
         1,
@@ -5606,6 +5629,8 @@ function seedData(): void {
         MILADY_ADDRESS,
         "10",
         calmId,
+        TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+        TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     );
     insertTokenAttribute.run(
         1,
@@ -5613,6 +5638,8 @@ function seedData(): void {
         MILADY_ADDRESS,
         "10",
         powerUnknownId,
+        TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+        TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     );
 
     const insertTraitStats = db.prepare(

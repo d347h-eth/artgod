@@ -24,6 +24,7 @@ export const METADATA_STATS_RECOMPUTE_REASON = {
     MetadataRefresh: "metadata-refresh",
     BootstrapFinalized: "bootstrap-finalized",
     ReorgResync: "reorg-resync",
+    CollectionExtensionTraits: "collection-extension-traits",
 } as const;
 
 export type MetadataStatsRecomputeReason =

@@ -1,6 +1,10 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
+import {
+    TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+    TOKEN_ATTRIBUTE_SOURCE_KIND,
+} from "@artgod/shared/types/token-attributes";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 import { SqliteMetadataStatsDomain } from "../src/infra/domain/metadata-stats.js";
@@ -230,14 +234,20 @@ function seedTokenAttribute(
         contractAddress: string;
         tokenId: string;
         attributeId: number;
+        sourceKind: string;
+        sourceKey: string;
     }>(
-        "INSERT OR IGNORE INTO token_attributes (chain_id, collection_id, contract_address, token_id, attribute_id) VALUES (@chainId, @collectionId, @contractAddress, @tokenId, @attributeId)",
+        "INSERT OR IGNORE INTO token_attributes " +
+            "(chain_id, collection_id, contract_address, token_id, attribute_id, source_kind, source_key) " +
+            "VALUES (@chainId, @collectionId, @contractAddress, @tokenId, @attributeId, @sourceKind, @sourceKey)",
     ).run({
         chainId,
         collectionId,
         contractAddress,
         tokenId,
         attributeId,
+        sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+        sourceKey: TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     });
 }
 

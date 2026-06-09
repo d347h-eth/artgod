@@ -11,6 +11,7 @@ import type {
 } from "../../domain/onchain.js";
 import type { RpcEvent, RpcLog, RpcProviderPort } from "../../ports/rpc.js";
 import type {
+    CollectionExtensionAttributePort,
     CollectionExtensionArtifactPort,
     CollectionExtensionInstallPort,
 } from "../../ports/collection-extensions.js";
@@ -35,7 +36,9 @@ export type CollectionExtensionSyncWatchSpec = {
     decode(
         log: RpcLog,
         context: CollectionExtensionSyncDecodeContext,
-    ): CollectionExtensionSyncDecodeResult | Promise<CollectionExtensionSyncDecodeResult>;
+    ):
+        | CollectionExtensionSyncDecodeResult
+        | Promise<CollectionExtensionSyncDecodeResult>;
 };
 
 export type CollectionExtensionArtifactRefreshContext = {
@@ -43,6 +46,7 @@ export type CollectionExtensionArtifactRefreshContext = {
     metadataFetcher: MetadataFetcherPort;
     installs: CollectionExtensionInstallPort;
     artifacts: CollectionExtensionArtifactPort;
+    attributes: CollectionExtensionAttributePort;
     install: CollectionExtensionInstall;
     payload: {
         chainId: number;
@@ -52,6 +56,11 @@ export type CollectionExtensionArtifactRefreshContext = {
         reason: string;
         source?: string | null;
     };
+};
+
+// Signals follow-up work needed after a collection-extension artifact refresh.
+export type CollectionExtensionArtifactRefreshResult = {
+    attributesChanged: boolean;
 };
 
 export interface IndexerCollectionExtension {
@@ -64,5 +73,5 @@ export interface IndexerCollectionExtension {
     ): CollectionExtensionSyncWatchSpec[];
     refreshArtifacts(
         context: CollectionExtensionArtifactRefreshContext,
-    ): Promise<void>;
+    ): Promise<CollectionExtensionArtifactRefreshResult>;
 }

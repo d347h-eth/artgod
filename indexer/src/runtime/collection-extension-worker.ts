@@ -13,12 +13,14 @@ import {
     type BootstrapTemporaryDataCleanupResult,
 } from "../application/bootstrap-temporary-data-cleanup.js";
 import { resolveIndexerCollectionExtension } from "../application/collection-extensions/index.js";
+import { publishMetadataStatsRecompute } from "../application/metadata/stats-recompute.js";
 import { runWorker } from "../application/worker-runner.js";
 import { publishCollectionExtensionRefreshArtifacts } from "../application/collection-extensions/jobs.js";
 import {
     COLLECTION_EXTENSION_JOB_KIND,
     type CollectionExtensionRefreshArtifactsPayload,
 } from "../domain/collection-extension-jobs.js";
+import { METADATA_STATS_RECOMPUTE_REASON } from "../domain/domain-jobs.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { getRetryDelayMs, type RetryPolicy } from "../domain/retry.js";
@@ -200,6 +202,7 @@ function isBootstrapArtifactTaskAlreadyTerminal(input: {
 }
 
 async function refreshArtifacts(input: {
+    queue: NatsJetStreamQueue;
     collectionExtensions: SqliteCollectionExtensions;
     rpc: ViemRpcProvider;
     metadataFetcher: HttpMetadataFetcher;
@@ -254,11 +257,12 @@ async function refreshArtifacts(input: {
         return;
     }
 
-    await extension.refreshArtifacts({
+    const refreshResult = await extension.refreshArtifacts({
         rpc: input.rpc,
         metadataFetcher: input.metadataFetcher,
         installs: input.collectionExtensions,
         artifacts: input.collectionExtensions,
+        attributes: input.collectionExtensions,
         install,
         payload: {
             chainId: job.payload.chainId,
@@ -269,6 +273,18 @@ async function refreshArtifacts(input: {
             source: job.payload.source,
         },
     });
+    if (refreshResult.attributesChanged) {
+        await publishMetadataStatsRecompute(
+            input.queue,
+            {
+                chainId: job.payload.chainId,
+                collectionId: install.collectionId,
+                reason: METADATA_STATS_RECOMPUTE_REASON.CollectionExtensionTraits,
+                sourceJobId: job.jobId,
+            },
+            job.traceId ?? job.jobId,
+        );
+    }
 }
 
 function markBootstrapArtifactTaskSucceeded(input: {

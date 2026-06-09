@@ -1,10 +1,14 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import {
+    calculateTerraformsRendererSeed,
     hashTerraformsCanvasRows,
     isTerraformsDreamMode,
     parseTerraformsCanvasRowsText,
+    resolveTerraformsLevelAndTileFromPlacement,
+    resolveTerraformsRendererSeedClass,
     TERRAFORMS_MODE_ATTRIBUTE_VALUES,
+    TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES,
 } from "./terraforms.js";
 
 describe("Terraforms canvas helpers", () => {
@@ -64,6 +68,86 @@ describe("Terraforms canvas helpers", () => {
                 TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform,
             ),
             true,
+        );
+    });
+
+    it("mirrors Terraforms placement rotation into zero-based renderer level/tile", () => {
+        assert.deepEqual(resolveTerraformsLevelAndTileFromPlacement(0n), {
+            level: 15n,
+            tile: 68n,
+        });
+        assert.deepEqual(resolveTerraformsLevelAndTileFromPlacement(907n), {
+            level: 19n,
+            tile: 15n,
+        });
+        assert.deepEqual(resolveTerraformsLevelAndTileFromPlacement(11103n), {
+            level: 15n,
+            tile: 67n,
+        });
+    });
+
+    it("calculates the hidden renderer seed with Solidity packed encoding", () => {
+        assert.equal(calculateTerraformsRendererSeed(0n, 0n), 4117n);
+        assert.equal(calculateTerraformsRendererSeed(0n, 1n), 6217n);
+        assert.equal(calculateTerraformsRendererSeed(12n, 0n), 7887n);
+    });
+
+    it("classifies Terraforms renderer seed buckets by origin mode and seed range", () => {
+        assert.equal(
+            resolveTerraformsRendererSeedClass({
+                mode: TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream,
+                seed: 9951n,
+            }),
+            TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XYSeed,
+        );
+        assert.equal(
+            resolveTerraformsRendererSeedClass({
+                mode: TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform,
+                seed: 9970n,
+            }),
+            TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XYSeed,
+        );
+        assert.equal(
+            resolveTerraformsRendererSeedClass({
+                mode: TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream,
+                seed: 9001n,
+            }),
+            TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
+        );
+        assert.equal(
+            resolveTerraformsRendererSeedClass({
+                mode: TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform,
+                seed: 9971n,
+            }),
+            TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
+        );
+        assert.equal(
+            resolveTerraformsRendererSeedClass({
+                mode: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
+                seed: 9971n,
+            }),
+            TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
+        );
+        assert.equal(
+            resolveTerraformsRendererSeedClass({
+                mode: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
+                seed: 9951n,
+            }),
+            TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.YSeed,
+        );
+        assert.equal(
+            resolveTerraformsRendererSeedClass({
+                mode: TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream,
+                seed: 9000n,
+            }),
+            null,
+        );
+        assert.equal(
+            resolveTerraformsRendererSeedClass({
+                mode: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
+                seed: 9950n,
+            }),
+            null,
         );
     });
 });
