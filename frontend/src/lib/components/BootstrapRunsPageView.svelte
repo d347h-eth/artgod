@@ -31,6 +31,7 @@
 		isBootstrapProbeableAddress,
 		normalizeBootstrapAddress
 	} from '$lib/bootstrap-contract-probe';
+	import { DEFAULT_BOOTSTRAP_METADATA_MODE } from '$lib/bootstrap-metadata-mode';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import InfoTooltip from '$lib/components/InfoTooltip.svelte';
 	import TokenCardTile from '$lib/components/TokenCardTile.svelte';
@@ -76,8 +77,6 @@
 		slug: 'Local collection slug used in ArtGod URLs.',
 		openseaSlug:
 			'Required for bidding. OpenSea event streams and orderbook require the OpenSea collection slug.',
-		metadataMode:
-			'Best effort skips failed token metadata; best when centralized metadata is unreliable. Strict fails on metadata errors; best for onchain collections.',
 		probeStatus: 'Current backend contract probe result for this address.',
 		probeError: 'Probe failure returned by the backend.',
 		erc721Interface: 'ERC165 ERC721 support check.',
@@ -106,7 +105,7 @@
 	let lastAutoFilledSlug = $state<string | null>(null);
 	let bootstrapAddress = $state('');
 	let bootstrapOpenSeaSlug = $state('');
-	let metadataMode = $state<'best_effort' | 'strict'>('best_effort');
+	let metadataMode = $state(DEFAULT_BOOTSTRAP_METADATA_MODE);
 	let supportsEnumerable = $state(false);
 	let manualMode = $state<'manual_token_ids' | 'manual_range'>('manual_range');
 	let manualTokenIds = $state('');
@@ -616,13 +615,6 @@
 								<span class="muted">{openSeaDisabledReason}</span>
 							{/if}
 						</div>
-					</label>
-					<label class="bootstrap-form-row">
-						{@render fieldLabel('Metadata mode', bootstrapFieldHelp.metadataMode)}
-						<select bind:value={metadataMode} class={`${bootstrapSelectClass} bootstrap-input-select-short`}>
-							<option value="best_effort">best effort</option>
-							<option value="strict">strict</option>
-						</select>
 					</label>
 				</div>
 

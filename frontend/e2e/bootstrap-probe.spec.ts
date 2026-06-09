@@ -3,6 +3,7 @@ import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import { TERRAFORMS_EXTENSION_KEY } from '@artgod/shared/extensions/terraforms';
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 import { TEST_IDS } from '../src/lib/test-ids';
+import { DEFAULT_BOOTSTRAP_METADATA_MODE } from '../src/lib/bootstrap-metadata-mode';
 import {
 	attachDiagnosticsForTestFailure,
 	captureDiagnosticsForTest,
@@ -61,7 +62,7 @@ test.describe('bootstrap contract probe UI', () => {
 		await assertEveryBootstrapRowHasInfoTooltip(page);
 		await assertTokenCardPlacement(page, testInfo);
 		await assertTooltipText(page, 'OpenSea slug', 'Required for bidding');
-		await assertTooltipText(page, 'Metadata mode', 'Strict fails on metadata errors');
+		await expect(formLabel(page, 'Metadata mode')).toHaveCount(0);
 		expect(api.probeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable]);
 	});
 
@@ -92,6 +93,7 @@ test.describe('bootstrap contract probe UI', () => {
 		await page.getByRole('button', { name: 'queue bootstrap' }).click();
 		await expect.poll(() => api.mutations.length).toBe(1);
 		expect(api.mutations[0]?.body).toMatchObject({
+			metadataMode: DEFAULT_BOOTSTRAP_METADATA_MODE,
 			imageCache: {
 				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
 				imageCacheMode: IMAGE_CACHE_MODE.Off,
@@ -132,6 +134,7 @@ test.describe('bootstrap contract probe UI', () => {
 		await page.getByRole('button', { name: 'queue bootstrap' }).click();
 		await expect.poll(() => api.mutations.length).toBe(1);
 		expect(api.mutations[0]?.body).toMatchObject({
+			metadataMode: DEFAULT_BOOTSTRAP_METADATA_MODE,
 			imageCache: {
 				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
 				imageCacheMode: IMAGE_CACHE_MODE.Off,
