@@ -231,13 +231,17 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 return 0;
             }
 
-            log.info("cancelActiveMakerOffers", "Cancelling active maker offers", {
-                jobId: job.id,
-                jobRef,
-                collectionSlug: job.collectionSlug,
-                targetType: job.target.type,
-                offerCount: makerOffers.length,
-            });
+            log.info(
+                "cancelActiveMakerOffers",
+                "Cancelling active maker offers",
+                {
+                    jobId: job.id,
+                    jobRef,
+                    collectionSlug: job.collectionSlug,
+                    targetType: job.target.type,
+                    offerCount: makerOffers.length,
+                },
+            );
             await this.cancelMakerOffers(job, makerOffers);
             this.clearTrackedOrderForJobId(job.id);
             return makerOffers.length;
@@ -312,11 +316,15 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         );
         let completedCount = 0;
 
-        log.debug("currentPriceBootstrapStarted", "Bootstrapping current prices", {
-            candidateCount: warmCandidates.length,
-            tokenJobCount: tokenJobIds.length,
-            concurrency,
-        });
+        log.debug(
+            "currentPriceBootstrapStarted",
+            "Bootstrapping current prices",
+            {
+                candidateCount: warmCandidates.length,
+                tokenJobCount: tokenJobIds.length,
+                concurrency,
+            },
+        );
 
         await sleep(1000);
 
@@ -348,12 +356,16 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
         await Promise.all(workers);
 
-        log.debug("currentPriceBootstrapComplete", "Current price bootstrap complete", {
-            candidateCount: warmCandidates.length,
-            warmedCount,
-            missingCount: warmCandidates.length - warmedCount,
-            alreadySetCount: tokenJobIds.length - warmCandidates.length,
-        });
+        log.debug(
+            "currentPriceBootstrapComplete",
+            "Current price bootstrap complete",
+            {
+                candidateCount: warmCandidates.length,
+                warmedCount,
+                missingCount: warmCandidates.length - warmedCount,
+                alreadySetCount: tokenJobIds.length - warmCandidates.length,
+            },
+        );
     }
 
     public getTokenTargetIds(): string[] {
@@ -411,7 +423,8 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         const refreshed = await this.refreshCachedMakerWethBalance();
         log.debug("tickStarted", "Bidder tick started", {
             makerAddress: this.makerAddress,
-            makerWethBalanceWei: this.cachedMakerWethBalance?.toString() ?? null,
+            makerWethBalanceWei:
+                this.cachedMakerWethBalance?.toString() ?? null,
             makerWethBalance: this.formatTickBalanceForLog(),
             makerWethBalanceRefreshed: refreshed,
             makerWethBalanceCached:
@@ -504,9 +517,13 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     }
 
     private async refreshJobImmediately(jobId: string): Promise<void> {
-        log.debug("immediateRefreshStarted", "Executing immediate bidding job refresh", {
-            jobId,
-        });
+        log.debug(
+            "immediateRefreshStarted",
+            "Executing immediate bidding job refresh",
+            {
+                jobId,
+            },
+        );
         const jobMutex = this.getJobMutex(jobId);
         await jobMutex.runExclusive(async () => {
             await this.executeJob(jobId);
@@ -588,12 +605,17 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     );
 
                     if (recovered) {
-                        log.info("activeBidRecovered", "Recovered active bid from tracked state", {
-                            jobId: job.id,
-                            jobRef,
-                            orderId: activeId,
-                            protocolAddress: recovered.protocolAddress ?? null,
-                        });
+                        log.info(
+                            "activeBidRecovered",
+                            "Recovered active bid from tracked state",
+                            {
+                                jobId: job.id,
+                                jobRef,
+                                orderId: activeId,
+                                protocolAddress:
+                                    recovered.protocolAddress ?? null,
+                            },
+                        );
                         offers.push(recovered);
                         if (
                             !job.state.activeProtocolAddress &&
@@ -682,16 +704,20 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 ),
             });
             if (runtimeOverride) {
-                log.debug("runtimeOverrideActive", "Runtime override is active", {
-                    jobId: job.id,
-                    jobRef,
-                    baseFloor: formatOptionalUnit(job.config.floor),
-                    baseCeiling: formatOptionalUnit(job.config.ceiling),
-                    overrideExpiresAt: new Date(
-                        runtimeOverride.expiresAt,
-                    ).toISOString(),
-                    reason: runtimeOverride.reason ?? "unspecified",
-                });
+                log.debug(
+                    "runtimeOverrideActive",
+                    "Runtime override is active",
+                    {
+                        jobId: job.id,
+                        jobRef,
+                        baseFloor: formatOptionalUnit(job.config.floor),
+                        baseCeiling: formatOptionalUnit(job.config.ceiling),
+                        overrideExpiresAt: new Date(
+                            runtimeOverride.expiresAt,
+                        ).toISOString(),
+                        reason: runtimeOverride.reason ?? "unspecified",
+                    },
+                );
             }
 
             const desiredPrice = this.getDesiredBid(
@@ -720,22 +746,30 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     return;
                 }
 
-                log.debug("zeroCeilingSkip", "Skipping job because effective ceiling is zero", {
-                    jobId: job.id,
-                    jobRef,
-                });
+                log.debug(
+                    "zeroCeilingSkip",
+                    "Skipping job because effective ceiling is zero",
+                    {
+                        jobId: job.id,
+                        jobRef,
+                    },
+                );
                 this.clearRuntimeBidDecision(job);
                 this.persistJobRuntimeState(job);
                 return;
             }
 
             if (!myHighest) {
-                log.debug("noActiveBidPlaceTarget", "No active bid; placing target", {
-                    jobId: job.id,
-                    jobRef,
-                    desiredPriceWei: desiredPrice.toString(),
-                    desiredPriceEth: formatUnits(desiredPrice, 18),
-                });
+                log.debug(
+                    "noActiveBidPlaceTarget",
+                    "No active bid; placing target",
+                    {
+                        jobId: job.id,
+                        jobRef,
+                        desiredPriceWei: desiredPrice.toString(),
+                        desiredPriceEth: formatUnits(desiredPrice, 18),
+                    },
+                );
                 this.clearRuntimeBidDecision(job);
                 await this.placeAndTrack(job, desiredPrice);
                 return;
@@ -787,21 +821,32 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                         competitorPriceEth: formatUnits(competitorPrice, 18),
                     });
                 } else if (desiredPrice > competitorPrice) {
-                    log.debug("maintainWinningPosition", "Maintaining winning position", {
-                        jobId: job.id,
-                        jobRef,
-                        currentPriceWei: desiredPrice.toString(),
-                        currentPriceEth: formatUnits(desiredPrice, 18),
-                    });
+                    log.debug(
+                        "maintainWinningPosition",
+                        "Maintaining winning position",
+                        {
+                            jobId: job.id,
+                            jobRef,
+                            currentPriceWei: desiredPrice.toString(),
+                            currentPriceEth: formatUnits(desiredPrice, 18),
+                        },
+                    );
                 } else {
-                    log.debug("maintainCappedPosition", "Maintaining capped position", {
-                        jobId: job.id,
-                        jobRef,
-                        currentPriceWei: desiredPrice.toString(),
-                        currentPriceEth: formatUnits(desiredPrice, 18),
-                        competitorPriceWei: competitorPrice.toString(),
-                        competitorPriceEth: formatUnits(competitorPrice, 18),
-                    });
+                    log.debug(
+                        "maintainCappedPosition",
+                        "Maintaining capped position",
+                        {
+                            jobId: job.id,
+                            jobRef,
+                            currentPriceWei: desiredPrice.toString(),
+                            currentPriceEth: formatUnits(desiredPrice, 18),
+                            competitorPriceWei: competitorPrice.toString(),
+                            competitorPriceEth: formatUnits(
+                                competitorPrice,
+                                18,
+                            ),
+                        },
+                    );
                 }
 
                 return;
@@ -1114,7 +1159,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 await this.biddingService.getActiveTokenOfferByMaker(
                     job,
                     this.makerAddress,
-            );
+                );
             if (!activeOffer) {
                 return false;
             }
@@ -1158,11 +1203,15 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             this.persistJobRuntimeState(job);
             return true;
         } catch (error: unknown) {
-            log.error("currentPriceWarmFailed", "Failed to warm current price", {
-                jobId: job.id,
-                jobRef: formatBidderJobReference(job),
-                ...toErrorLogFields(error),
-            });
+            log.error(
+                "currentPriceWarmFailed",
+                "Failed to warm current price",
+                {
+                    jobId: job.id,
+                    jobRef: formatBidderJobReference(job),
+                    ...toErrorLogFields(error),
+                },
+            );
             return false;
         }
     }
@@ -1207,23 +1256,29 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             .map(([reason, count]) => `${reason}=${count}`)
             .join("; ");
 
-        log.debug("hotRefreshNoEffect", "Hot refresh had no matching bidding job", {
-            eventScope: marketEvent.getScope(),
-            eventTarget: this.formatEventTargetForLog(
-                marketEvent.getCollectionSlug(),
-                marketEvent.getScope(),
-                marketEvent.getItemID(),
-                marketEvent.getTraitCriteria(),
-            ),
-            eventType: marketEvent.getType(),
-            eventPriceWei: marketEvent.getUnitPrice().toString(),
-            eventPrice: formatUnits(
-                marketEvent.getUnitPrice(),
-                marketEvent.getPaymentTokenDecimals(),
-            ),
-            candidateCount: evaluations.length,
-            reasons: reasonSummary || this.describeNoCandidateReason(marketEvent),
-        });
+        log.debug(
+            "hotRefreshNoEffect",
+            "Hot refresh had no matching bidding job",
+            {
+                eventScope: marketEvent.getScope(),
+                eventTarget: this.formatEventTargetForLog(
+                    marketEvent.getCollectionSlug(),
+                    marketEvent.getScope(),
+                    marketEvent.getItemID(),
+                    marketEvent.getTraitCriteria(),
+                ),
+                eventType: marketEvent.getType(),
+                eventPriceWei: marketEvent.getUnitPrice().toString(),
+                eventPrice: formatUnits(
+                    marketEvent.getUnitPrice(),
+                    marketEvent.getPaymentTokenDecimals(),
+                ),
+                candidateCount: evaluations.length,
+                reasons:
+                    reasonSummary ||
+                    this.describeNoCandidateReason(marketEvent),
+            },
+        );
     }
 
     private formatPriceForLog(value: bigint, decimals: number = 18): string {
@@ -1275,10 +1330,14 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 );
             return true;
         } catch (error: unknown) {
-            log.error("makerWethBalanceRefreshFailed", "Failed to refresh maker WETH balance", {
-                makerAddress: this.makerAddress,
-                ...toErrorLogFields(error),
-            });
+            log.error(
+                "makerWethBalanceRefreshFailed",
+                "Failed to refresh maker WETH balance",
+                {
+                    makerAddress: this.makerAddress,
+                    ...toErrorLogFields(error),
+                },
+            );
             return false;
         }
     }
@@ -1445,15 +1504,10 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             return false;
         }
 
-        const metadataJson = await this.tokenMetadataRepository.getMetadata(
+        const tokenTraits = await this.tokenMetadataRepository.getTraits(
             collectionSlug,
             tokenId,
         );
-        if (!metadataJson) {
-            return false;
-        }
-
-        const tokenTraits = this.parseTokenTraits(metadataJson);
         if (tokenTraits.length === 0) {
             return false;
         }
@@ -1466,42 +1520,6 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 );
             });
         });
-    }
-
-    private parseTokenTraits(metadataJson: string): TraitCriterion[] {
-        try {
-            const parsed = JSON.parse(metadataJson);
-            if (!Array.isArray(parsed)) {
-                return [];
-            }
-
-            return parsed.flatMap((entry: unknown) => {
-                const parsedEntry = entry as {
-                    traitType?: string;
-                    trait_type?: string;
-                    type?: string;
-                    value?: unknown;
-                };
-                const type =
-                    parsedEntry.traitType ??
-                    parsedEntry.trait_type ??
-                    parsedEntry.type;
-                const { value } = parsedEntry;
-                if (
-                    typeof type !== "string" ||
-                    value === undefined ||
-                    value === null
-                ) {
-                    return [];
-                }
-                return [{ type, value: String(value) }];
-            });
-        } catch (error: unknown) {
-            log.error("cachedTokenMetadataParseFailed", "Failed to parse cached token metadata", {
-                ...toErrorLogFields(error),
-            });
-            return [];
-        }
     }
 
     private normalizeOrderTraitTargets(order: Order): TraitCriterion[] {
@@ -1662,15 +1680,19 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             ) {
                 const qty = Math.max(1, Math.floor(job.target.quantity));
                 const totalWei = amount * BigInt(qty);
-                log.info("dryRunCollectionOfferPlace", "Dry run would place collection offer", {
-                    jobId: job.id,
-                    jobRef,
-                    unitPriceWei: amount.toString(),
-                    unitPriceEth: formatUnits(amount, 18),
-                    quantity: qty,
-                    totalPriceWei: totalWei.toString(),
-                    totalPriceEth: formatUnits(totalWei, 18),
-                });
+                log.info(
+                    "dryRunCollectionOfferPlace",
+                    "Dry run would place collection offer",
+                    {
+                        jobId: job.id,
+                        jobRef,
+                        unitPriceWei: amount.toString(),
+                        unitPriceEth: formatUnits(amount, 18),
+                        quantity: qty,
+                        totalPriceWei: totalWei.toString(),
+                        totalPriceEth: formatUnits(totalWei, 18),
+                    },
+                );
             } else {
                 log.info("dryRunOfferPlace", "Dry run would place offer", {
                     jobId: job.id,
@@ -1811,11 +1833,15 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         void Promise.resolve(
             this.runtimeStatePort.persistJobRuntimeState(snapshot),
         ).catch((error: unknown) => {
-            log.error("runtimeStatePersistFailed", "Failed to persist bidding job runtime state", {
-                jobId: job.id,
-                jobRef: formatBidderJobReference(job),
-                ...toErrorLogFields(error),
-            });
+            log.error(
+                "runtimeStatePersistFailed",
+                "Failed to persist bidding job runtime state",
+                {
+                    jobId: job.id,
+                    jobRef: formatBidderJobReference(job),
+                    ...toErrorLogFields(error),
+                },
+            );
         });
     }
 

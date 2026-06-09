@@ -1,6 +1,9 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
-import { TokenMetadataRepository } from "../../domain/market/token-metadata-repository.js";
+import {
+    TokenMetadataRepository,
+    type TokenMetadataTrait,
+} from "../../domain/market/token-metadata-repository.js";
 import { CollectionOfferSnapshotProvider } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
 import { OpenSeaBiddingService } from "./open-sea-bidding-service.js";
 import {
@@ -82,9 +85,7 @@ class MockOpenSeaSdk implements OpenSeaBiddingSdkClient {
     }
 }
 
-class FakeCollectionOfferSnapshotProvider
-    implements CollectionOfferSnapshotProvider
-{
+class FakeCollectionOfferSnapshotProvider implements CollectionOfferSnapshotProvider {
     constructor(
         private readonly snapshots: Record<
             string,
@@ -98,13 +99,13 @@ class FakeCollectionOfferSnapshotProvider
 }
 
 class FakeTokenMetadataRepository implements TokenMetadataRepository {
-    constructor(private readonly rows: Record<string, string>) {}
+    constructor(private readonly rows: Record<string, TokenMetadataTrait[]>) {}
 
-    async getMetadata(
+    async getTraits(
         collectionSlug: string,
         tokenId: string,
-    ): Promise<string | null> {
-        return this.rows[`${collectionSlug}:${tokenId}`] ?? null;
+    ): Promise<TokenMetadataTrait[]> {
+        return this.rows[`${collectionSlug}:${tokenId}`] ?? [];
     }
 }
 
@@ -286,17 +287,16 @@ describe("OpenSeaBiddingService", () => {
             calls.push(args);
         };
 
-        await service.cancelOffer(
-            {} as any,
-            {
-                id: orderHash,
-                maker: makerAddress,
-                price: 1n,
-                protocolAddress,
-            },
-        );
+        await service.cancelOffer({} as any, {
+            id: orderHash,
+            maker: makerAddress,
+            price: 1n,
+            protocolAddress,
+        });
 
-        assert.deepEqual(calls, [[protocolAddress, orderHash, "ethereum", undefined, true]]);
+        assert.deepEqual(calls, [
+            [protocolAddress, orderHash, "ethereum", undefined, true],
+        ]);
     });
 
     it("recovers an order directly by hash and drops inactive direct lookups", async () => {
@@ -375,7 +375,10 @@ describe("OpenSeaBiddingService", () => {
                         protocol_data: {
                             parameters: {
                                 offer: [
-                                    { token: WETH, amount: "1000000000000000000" },
+                                    {
+                                        token: WETH,
+                                        amount: "1000000000000000000",
+                                    },
                                 ],
                                 consideration: [
                                     {
@@ -734,11 +737,11 @@ describe("OpenSeaBiddingService", () => {
             },
         });
         const tokenMetadataRepository = new FakeTokenMetadataRepository({
-            "terraforms:123": JSON.stringify([
-                { traitType: "Zone", value: "8" },
-                { traitType: "Biome", value: "53" },
-                { traitType: "Chroma", value: "Flow" },
-            ]),
+            "terraforms:123": [
+                { type: "Zone", value: "8" },
+                { type: "Biome", value: "53" },
+                { type: "Chroma", value: "Flow" },
+            ],
         });
         const service = new OpenSeaBiddingService(sdk as any, makerAddress, {
             collectionOfferSnapshotProvider: snapshotProvider,

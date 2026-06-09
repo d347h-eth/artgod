@@ -1,55 +1,67 @@
 import { db } from "@artgod/shared/database";
-import type { TokenMetadataRepository } from "../../domain/market/token-metadata-repository.js";
+import type {
+    TokenMetadataRepository,
+    TokenMetadataTrait,
+} from "../../domain/market/token-metadata-repository.js";
 
 type DatabasePort = Pick<typeof db, "prepare">;
 
-type MetadataRow = {
-    attributes_json: string | null;
+type TokenTraitRow = {
+    type: string;
+    value: string;
 };
 
-// Resolves cached token metadata from ArtGod SQLite using collection slug or OpenSea slug.
+// Resolves cached token traits from ArtGod SQLite using collection slug or OpenSea slug.
 export class SqliteTokenMetadataRepository implements TokenMetadataRepository {
-    private readonly selectAttributesJson: {
-        get(
+    private readonly selectTokenTraitRows: {
+        all(
             chainId: number,
             collectionSlug: string,
             collectionSlugByOpenSea: string,
             tokenId: string,
-        ): MetadataRow | undefined;
+        ): TokenTraitRow[];
     };
 
     constructor(
         private readonly chainId: number,
         database: DatabasePort = db,
     ) {
-        this.selectAttributesJson = database.prepare<
+        this.selectTokenTraitRows = database.prepare<
             [number, string, string, string]
         >(
-            "SELECT m.attributes_json " +
+            "SELECT ak.key AS type, a.value AS value " +
                 "FROM collections c " +
-                "JOIN token_metadata m ON m.chain_id = c.chain_id AND m.collection_id = c.collection_id " +
-                "WHERE c.chain_id = ? AND (c.slug = ? OR c.opensea_slug = ?) AND m.token_id = ? " +
-                "LIMIT 1",
+                "JOIN token_attributes ta ON ta.chain_id = c.chain_id " +
+                "AND ta.collection_id = c.collection_id " +
+                "JOIN attributes a ON a.id = ta.attribute_id " +
+                "AND a.chain_id = ta.chain_id " +
+                "AND a.collection_id = ta.collection_id " +
+                "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " +
+                "AND ak.chain_id = a.chain_id " +
+                "AND ak.collection_id = a.collection_id " +
+                "WHERE c.chain_id = ? AND (c.slug = ? OR c.opensea_slug = ?) " +
+                "AND ta.token_id = ? " +
+                "ORDER BY ak.key ASC, a.value ASC",
         ) as {
-            get(
+            all(
                 chainId: number,
                 collectionSlug: string,
                 collectionSlugByOpenSea: string,
                 tokenId: string,
-            ): MetadataRow | undefined;
+            ): TokenTraitRow[];
         };
     }
 
-    public async getMetadata(
+    public async getTraits(
         collectionSlug: string,
         tokenId: string,
-    ): Promise<string | null> {
-        const row = this.selectAttributesJson.get(
+    ): Promise<TokenMetadataTrait[]> {
+        const rows = this.selectTokenTraitRows.all(
             this.chainId,
             collectionSlug,
             collectionSlug,
             tokenId,
         );
-        return row?.attributes_json ?? null;
+        return rows.map((row) => ({ type: row.type, value: row.value }));
     }
 }

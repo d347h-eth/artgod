@@ -22,31 +22,56 @@ function seedMetadataTables(): void {
             ");",
     );
     db.exec(
-        "CREATE TABLE token_metadata (" +
+        "CREATE TABLE attribute_keys (" +
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+            "chain_id INTEGER NOT NULL, " +
+            "collection_id INTEGER NOT NULL, " +
+            "key TEXT NOT NULL" +
+            ");",
+    );
+    db.exec(
+        "CREATE TABLE attributes (" +
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+            "chain_id INTEGER NOT NULL, " +
+            "collection_id INTEGER NOT NULL, " +
+            "attribute_key_id INTEGER NOT NULL, " +
+            "value TEXT NOT NULL" +
+            ");",
+    );
+    db.exec(
+        "CREATE TABLE token_attributes (" +
             "chain_id INTEGER NOT NULL, " +
             "collection_id INTEGER NOT NULL, " +
             "token_id TEXT NOT NULL, " +
-            "attributes_json TEXT, " +
-            "PRIMARY KEY (chain_id, collection_id, token_id)" +
+            "attribute_id INTEGER NOT NULL" +
             ");",
     );
 
-    db.prepare<
-        [number, number, string, string | null]
-    >(
+    db.prepare<[number, number, string, string | null]>(
         "INSERT INTO collections (chain_id, collection_id, slug, opensea_slug) VALUES (?, ?, ?, ?)",
     ).run(1, 100, "artgod-slug", "terraforms");
-    db.prepare<[number, number, string, string | null]>(
-        "INSERT INTO token_metadata (chain_id, collection_id, token_id, attributes_json) VALUES (?, ?, ?, ?)",
-    ).run(
-        1,
-        100,
-        "123",
-        JSON.stringify([
-            { traitType: "Biome", value: "53" },
-            { traitType: "Chroma", value: "Flow" },
-        ]),
+    insertTokenTrait("123", "Biome", "53");
+    insertTokenTrait("123", "Chroma", "Flow");
+}
+
+function insertTokenTrait(tokenId: string, key: string, value: string): void {
+    const keyId = Number(
+        db
+            .prepare<
+                [number, number, string]
+            >("INSERT INTO attribute_keys (chain_id, collection_id, key) VALUES (?, ?, ?)")
+            .run(1, 100, key).lastInsertRowid,
     );
+    const attributeId = Number(
+        db
+            .prepare<
+                [number, number, number, string]
+            >("INSERT INTO attributes (chain_id, collection_id, attribute_key_id, value) VALUES (?, ?, ?, ?)")
+            .run(1, 100, keyId, value).lastInsertRowid,
+    );
+    db.prepare<[number, number, string, number]>(
+        "INSERT INTO token_attributes (chain_id, collection_id, token_id, attribute_id) VALUES (?, ?, ?, ?)",
+    ).run(1, 100, tokenId, attributeId);
 }
 
 describe("SqliteTokenMetadataRepository", () => {
@@ -58,26 +83,30 @@ describe("SqliteTokenMetadataRepository", () => {
     it("reads metadata by OpenSea collection slug", async () => {
         const repository = new SqliteTokenMetadataRepository(1);
 
-        const metadata = await repository.getMetadata("terraforms", "123");
+        const traits = await repository.getTraits("terraforms", "123");
 
-        assert.ok(metadata);
-        assert.match(metadata ?? "", /Biome/);
+        assert.deepEqual(traits, [
+            { type: "Biome", value: "53" },
+            { type: "Chroma", value: "Flow" },
+        ]);
     });
 
     it("also reads metadata by ArtGod collection slug", async () => {
         const repository = new SqliteTokenMetadataRepository(1);
 
-        const metadata = await repository.getMetadata("artgod-slug", "123");
+        const traits = await repository.getTraits("artgod-slug", "123");
 
-        assert.ok(metadata);
-        assert.match(metadata ?? "", /Chroma/);
+        assert.deepEqual(traits, [
+            { type: "Biome", value: "53" },
+            { type: "Chroma", value: "Flow" },
+        ]);
     });
 
-    it("returns null when the token metadata row is missing", async () => {
+    it("returns an empty trait list when the token has no normalized traits", async () => {
         const repository = new SqliteTokenMetadataRepository(1);
 
-        const metadata = await repository.getMetadata("terraforms", "999");
+        const traits = await repository.getTraits("terraforms", "999");
 
-        assert.equal(metadata, null);
+        assert.deepEqual(traits, []);
     });
 });

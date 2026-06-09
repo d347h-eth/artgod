@@ -85,12 +85,15 @@ type TokenRow = {
     image: string | null;
     listing_price: string | null;
     listing_currency: string | null;
-    attributes_json: string | null;
     metadata_updated_at: string | null;
 };
 
 type ListedTokenRow = TokenRow & {
     total_count?: number | bigint | null;
+};
+
+type HydratedTokenRow = TokenRow & {
+    attributes: TokenAttribute[];
 };
 
 type TokenDetailRow = {
@@ -100,7 +103,6 @@ type TokenDetailRow = {
     animation_url: string | null;
     listing_price: string | null;
     listing_currency: string | null;
-    attributes_json: string | null;
     metadata_updated_at: string | null;
 };
 
@@ -123,6 +125,12 @@ type TokenListingHydrationRow = {
     token_id: string;
     price: string | null;
     currency: string | null;
+};
+
+type TokenAttributeRow = {
+    token_id: string;
+    key: string;
+    value: string;
 };
 
 type TokenCurrentHolderRow = {
@@ -568,7 +576,7 @@ export class SqliteCollectionsReadModel {
         }
 
         const sql =
-            `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, NULL AS listing_price, NULL AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at ` +
+            `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, NULL AS listing_price, NULL AS listing_currency, m.updated_at AS metadata_updated_at ` +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
             "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
@@ -603,7 +611,11 @@ export class SqliteCollectionsReadModel {
                     nowSeconds: params.nowSeconds,
                 }),
         );
-        const items = hydratedPageRows.map(mapTokenRow);
+        const items = hydrateTokenRowsWithNormalizedAttributes({
+            rows: hydratedPageRows,
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+        }).map(mapTokenRow);
 
         const prevCursor = params.cursor
             ? this.apm.withSyncSpan(
@@ -769,7 +781,7 @@ export class SqliteCollectionsReadModel {
         const totalCountSelect =
             cursorKey === null ? ", COUNT(*) OVER () AS total_count " : " ";
         const sql =
-            `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at` +
+            `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at` +
             totalCountSelect +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
@@ -794,7 +806,11 @@ export class SqliteCollectionsReadModel {
         );
         const hasNext = rows.length > params.limit;
         const pageRows = hasNext ? rows.slice(0, params.limit) : rows;
-        const items = pageRows.map(mapTokenRow);
+        const items = hydrateTokenRowsWithNormalizedAttributes({
+            rows: pageRows,
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+        }).map(mapTokenRow);
 
         const prevCursor = params.cursor
             ? this.apm.withSyncSpan(
@@ -980,7 +996,7 @@ export class SqliteCollectionsReadModel {
         }
 
         const sql =
-            `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at ` +
+            `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at ` +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
             `LEFT JOIN (${listingSql}) l ` +
@@ -1004,7 +1020,11 @@ export class SqliteCollectionsReadModel {
         );
         const hasNext = rows.length > params.limit;
         const pageRows = hasNext ? rows.slice(0, params.limit) : rows;
-        const items = pageRows.map(mapTokenRow);
+        const items = hydrateTokenRowsWithNormalizedAttributes({
+            rows: pageRows,
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+        }).map(mapTokenRow);
 
         const prevCursor = params.cursor
             ? this.apm.withSyncSpan(
@@ -1553,12 +1573,9 @@ export class SqliteCollectionsReadModel {
             params.collectionId,
             tokenId,
         ) as TokenDetailTraitRow[];
-        const attributes = mergeTokenDetailTraits({
-            normalizedTraits: attributeRows.map((item) =>
-                mapTokenDetailTraitRow(item, totalItems),
-            ),
-            metadataTraits: parseTokenAttributes(row.attributes_json),
-        });
+        const attributes = attributeRows.map((item) =>
+            mapTokenDetailTraitRow(item, totalItems),
+        );
 
         return {
             tokenId: row.token_id,
@@ -1619,7 +1636,7 @@ export class SqliteCollectionsReadModel {
 
         return db.raw
             .prepare(
-                `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at ` +
+                `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at ` +
                     "FROM tokens t " +
                     "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
                     "AND m.collection_id = t.collection_id " +
@@ -1670,7 +1687,7 @@ export class SqliteCollectionsReadModel {
                     (includeListings
                         ? "l.price AS listing_price, l.currency AS listing_currency, "
                         : "NULL AS listing_price, NULL AS listing_currency, ") +
-                    "m.attributes_json, m.updated_at AS metadata_updated_at " +
+                    "m.updated_at AS metadata_updated_at " +
                     "FROM tokens t " +
                     (includeListings
                         ? `LEFT JOIN (${listingSql}) l ON l.collection_id = t.collection_id AND l.token_id = t.token_id `
@@ -1690,8 +1707,13 @@ export class SqliteCollectionsReadModel {
                 ...tokenIds,
             ) as TokenRow[];
 
+        const hydratedRows = hydrateTokenRowsWithNormalizedAttributes({
+            rows,
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+        });
         const byId = new Map(
-            rows.map((row) => [row.token_id, mapTokenRow(row)]),
+            hydratedRows.map((row) => [row.token_id, mapTokenRow(row)]),
         );
 
         return tokenIds.flatMap((tokenId) => {
@@ -2728,7 +2750,7 @@ function normalizeCollectionTokenId(tokenId: string): string {
     return normalized;
 }
 
-function mapTokenRow(row: TokenRow): TokenCard {
+function mapTokenRow(row: HydratedTokenRow): TokenCard {
     return {
         tokenId: row.token_id,
         name: row.name ?? null,
@@ -2736,10 +2758,57 @@ function mapTokenRow(row: TokenRow): TokenCard {
         traitSummary: null,
         listingPrice: row.listing_price ?? null,
         listingCurrency: row.listing_currency ?? null,
-        attributes: parseTokenAttributes(row.attributes_json),
+        attributes: row.attributes,
         hasMetadata: row.metadata_updated_at !== null,
         metadataUpdatedAt: row.metadata_updated_at,
     };
+}
+
+function hydrateTokenRowsWithNormalizedAttributes(params: {
+    rows: TokenRow[];
+    chainId: number;
+    collectionId: number;
+}): HydratedTokenRow[] {
+    if (params.rows.length === 0) {
+        return [];
+    }
+
+    // Load normalized token traits once per page so card hydration stays bounded.
+    const tokenIds = Array.from(
+        new Set(params.rows.map((row) => row.token_id)),
+    );
+    const placeholders = tokenIds.map(() => "?").join(", ");
+    const rows = db.raw
+        .prepare(
+            "SELECT ta.token_id AS token_id, ak.key AS key, a.value AS value " +
+                "FROM token_attributes ta " +
+                "JOIN attributes a ON a.id = ta.attribute_id " +
+                "AND a.chain_id = ta.chain_id " +
+                "AND a.collection_id = ta.collection_id " +
+                "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " +
+                "AND ak.chain_id = a.chain_id " +
+                "AND ak.collection_id = a.collection_id " +
+                "WHERE ta.chain_id = ? AND ta.collection_id = ? " +
+                `AND ta.token_id IN (${placeholders}) ` +
+                "ORDER BY ta.token_id ASC, ak.key ASC, a.value ASC",
+        )
+        .all(
+            params.chainId,
+            params.collectionId,
+            ...tokenIds,
+        ) as TokenAttributeRow[];
+
+    const attributesByTokenId = new Map<string, TokenAttribute[]>();
+    for (const row of rows) {
+        const attributes = attributesByTokenId.get(row.token_id) ?? [];
+        attributes.push({ key: row.key, value: row.value });
+        attributesByTokenId.set(row.token_id, attributes);
+    }
+
+    return params.rows.map((row) => ({
+        ...row,
+        attributes: attributesByTokenId.get(row.token_id) ?? [],
+    }));
 }
 
 function mapTokenDetailTraitRow(
@@ -2757,59 +2826,4 @@ function mapTokenDetailTraitRow(
         tokenCount,
         rarityPercent,
     };
-}
-
-function mergeTokenDetailTraits(params: {
-    normalizedTraits: TokenDetailTrait[];
-    metadataTraits: TokenAttribute[];
-}): TokenDetailTrait[] {
-    const merged: TokenDetailTrait[] = [];
-    const seen = new Set<string>();
-
-    for (const trait of params.normalizedTraits) {
-        const signature = `${trait.key}:${trait.value}`;
-        if (seen.has(signature)) continue;
-        seen.add(signature);
-        merged.push(trait);
-    }
-
-    for (const trait of params.metadataTraits) {
-        const signature = `${trait.key}:${trait.value}`;
-        if (seen.has(signature)) continue;
-        seen.add(signature);
-        merged.push({
-            key: trait.key,
-            value: trait.value,
-            tokenCount: null,
-            rarityPercent: null,
-        });
-    }
-
-    return merged.sort((a, b) => {
-        const byKey = a.key.localeCompare(b.key);
-        if (byKey !== 0) return byKey;
-        return a.value.localeCompare(b.value);
-    });
-}
-
-function parseTokenAttributes(raw: string | null): TokenAttribute[] {
-    if (!raw) return [];
-    try {
-        const parsed = JSON.parse(raw) as unknown;
-        if (!Array.isArray(parsed)) return [];
-        const normalized: TokenAttribute[] = [];
-        for (const entry of parsed) {
-            if (!entry || typeof entry !== "object") continue;
-            const source = entry as { traitType?: unknown; value?: unknown };
-            if (typeof source.traitType !== "string") continue;
-            if (source.value === undefined || source.value === null) continue;
-            const key = source.traitType.trim();
-            const value = String(source.value).trim();
-            if (!key || !value) continue;
-            normalized.push({ key, value });
-        }
-        return normalized;
-    } catch {
-        return [];
-    }
 }

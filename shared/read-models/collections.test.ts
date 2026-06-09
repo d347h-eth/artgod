@@ -168,19 +168,21 @@ describe("SqliteCollectionsReadModel observability", () => {
         expect(cards[0]?.image).toBe("/media/token-images/1/1/1/cache.webp");
     });
 
-    it("maps metadata JSON attributes onto token card and detail read models", () => {
+    it("maps normalized token attributes onto token card and detail read models", () => {
         insertToken("1", "100");
         db.prepare(
             "UPDATE token_metadata SET attributes_json = ? WHERE chain_id = ? AND collection_id = ? AND token_id = ?",
         ).run(
             JSON.stringify([
-                { traitType: "Mode", value: "Terrain" },
-                { traitType: "Rank", value: 7 },
+                { traitType: "Mode", value: "RawOnly" },
+                { traitType: "Rank", value: 1 },
             ]),
             1,
             1,
             "1",
         );
+        insertTokenTrait("1", "Mode", "Terrain");
+        insertTokenTrait("1", "Rank", "7");
         const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
 
         const page = readModel.listCollectionTokens({
