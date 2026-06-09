@@ -80,10 +80,17 @@ Current artifact storage:
 - `collection_extension_installs`
 - `token_extension_artifacts`
 
+Extensions can also replace extension-owned normalized token traits in the
+shared attribute tables. These traits are first-class browse/filter traits, but
+they are source-scoped to the extension so canonical tokenURI metadata refreshes
+do not delete them and extension refreshes do not mutate `token_metadata`.
+
 This means:
 
 - canonical metadata can succeed even when extension refresh is delayed or failing
 - backend presentation can converge later once artifacts exist
+- extension-supplied traits can participate in the same facets, range filters,
+  stats, and token-card attributes as tokenURI traits
 
 ### 4. Backend presentation overrides
 
@@ -144,6 +151,7 @@ Indexer extensions currently own:
 
 - sync watch specs
 - artifact refresh logic
+- extension-owned normalized trait enrichment
 
 They do **not** currently own backend presentation logic directly.
 
@@ -174,8 +182,9 @@ It should be treated as the blueprint implementation for the current extension s
 1. Embedded install resolution by exact collection contract + token scope
 2. Sync-time custom watch specs
 3. Artifact refresh into `token_extension_artifacts`
-4. Backend media override from artifact-backed token media
-5. Extension-defined collection customization override
+4. Extension-owned normalized trait enrichment
+5. Backend media override from artifact-backed token media
+6. Extension-defined collection customization override
 
 ### Current Terraforms artifact usage
 

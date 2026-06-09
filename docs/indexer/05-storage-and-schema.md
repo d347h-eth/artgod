@@ -530,6 +530,14 @@ Important semantics:
     - canonical token rows must exist first
     - this is why collection-extension refresh runs only after canonical metadata persistence succeeds
 
+Normalized token trait links in `token_attributes` are source-scoped:
+
+- metadata traits use `source_kind = "metadata"` and `source_key = "canonical"`
+- collection-extension traits use `source_kind = "collection_extension"` and `source_key = <extension_key>`
+- metadata refresh replaces only canonical metadata links for the token
+- extension refresh replaces only that extension's links for the token
+- `collection_trait_stats` counts distinct token ids across all normalized trait sources
+
 Current Terraforms artifact usage:
 
 - `extension_key = "terraforms"`
