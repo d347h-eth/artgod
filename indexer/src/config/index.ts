@@ -10,6 +10,7 @@ import {
     getSettingDefaultBoolean,
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
+import { COMMON_MEDIA_ENV_KEY } from "@artgod/shared/config/common-media";
 import {
     parseRpcEndpointConfigList,
     parseRpcWebSocketEndpointConfigList,
@@ -23,6 +24,7 @@ import {
     parseRpcEndpointResilienceConfig,
     parseRpcRetryPolicy,
 } from "@artgod/shared/config/rpc-resilience";
+import { parseHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import {
     parseBoolean,
     parseNumber,
@@ -33,6 +35,9 @@ import type {
     RpcEndpointResilienceConfig,
     RpcRetryPolicy,
 } from "@artgod/shared/evm/rpc-resilience";
+import type { HttpFetchResilienceConfig } from "@artgod/shared/network/http-fetch-resilience";
+import { normalizeIpfsGatewayOrigin } from "@artgod/shared/media/token-resource-uri";
+import { resolveTokenImageCacheDir } from "@artgod/shared/media/token-image-cache-storage";
 import {
     parseIndexerApmConfig,
     parseIndexerMetricsConfig,
@@ -75,6 +80,21 @@ const DEFAULT_BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS = getSettingDefaultNumber(
 );
 const DEFAULT_BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS = getSettingDefaultNumber(
     "BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS",
+);
+const DEFAULT_COMMON_IPFS_GATEWAY_ORIGIN = getSettingDefault(
+    COMMON_MEDIA_ENV_KEY.IpfsGatewayOrigin,
+);
+const DEFAULT_COMMON_MEDIA_CACHE_DIR = getSettingDefault(
+    COMMON_MEDIA_ENV_KEY.MediaCacheDir,
+);
+const DEFAULT_BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE = getSettingDefaultNumber(
+    "BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE",
+);
+const DEFAULT_BOOTSTRAP_IMAGE_CACHE_CONCURRENCY = getSettingDefaultNumber(
+    "BOOTSTRAP_IMAGE_CACHE_CONCURRENCY",
+);
+const DEFAULT_BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES = getSettingDefaultNumber(
+    "BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES",
 );
 const DEFAULT_METADATA_REFRESH_RANGE_CHUNK_SIZE = getSettingDefaultNumber(
     "METADATA_REFRESH_RANGE_CHUNK_SIZE",
@@ -120,7 +140,17 @@ export type IndexerConfig = {
             baseDelayMs: number;
             maxDelayMs: number;
         };
+        imageCacheBatchSize: number;
+        imageCacheConcurrency: number;
+        imageCacheMaxSourceBytes: number;
     };
+    ipfs: {
+        gatewayOrigin: string;
+    };
+    mediaCache: {
+        tokenImagesDir: string;
+    };
+    httpFetch: HttpFetchResilienceConfig;
     metadata: {
         refreshRangeChunkSize: number;
     };
@@ -170,6 +200,16 @@ export function loadConfig(
         : undefined;
     const openseaIntegration = resolveOpenSeaIntegrationStatus(env);
     assertOpenSeaIntegrationModeSatisfied(openseaIntegration);
+    const ipfsGatewayOrigin = normalizeIpfsGatewayOrigin(
+        env[COMMON_MEDIA_ENV_KEY.IpfsGatewayOrigin] ??
+            DEFAULT_COMMON_IPFS_GATEWAY_ORIGIN,
+    );
+    const tokenImagesDir = resolveTokenImageCacheDir({
+        dbPath,
+        overrideDir:
+            env[COMMON_MEDIA_ENV_KEY.MediaCacheDir] ??
+            DEFAULT_COMMON_MEDIA_CACHE_DIR,
+    });
 
     return {
         dbPath,
@@ -260,7 +300,29 @@ export function loadConfig(
                     DEFAULT_BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS,
                 ),
             },
+            imageCacheBatchSize: parsePositiveInteger(
+                env.BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE,
+                "BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE",
+                DEFAULT_BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE,
+            ),
+            imageCacheConcurrency: parsePositiveInteger(
+                env.BOOTSTRAP_IMAGE_CACHE_CONCURRENCY,
+                "BOOTSTRAP_IMAGE_CACHE_CONCURRENCY",
+                DEFAULT_BOOTSTRAP_IMAGE_CACHE_CONCURRENCY,
+            ),
+            imageCacheMaxSourceBytes: parsePositiveInteger(
+                env.BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES,
+                "BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES",
+                DEFAULT_BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES,
+            ),
         },
+        ipfs: {
+            gatewayOrigin: ipfsGatewayOrigin,
+        },
+        mediaCache: {
+            tokenImagesDir,
+        },
+        httpFetch: parseHttpFetchResilienceConfig(env),
         metadata: {
             refreshRangeChunkSize: parseNumber(
                 env.METADATA_REFRESH_RANGE_CHUNK_SIZE,

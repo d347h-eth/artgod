@@ -12,6 +12,7 @@ import {
     getSettingDefaultCsv,
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
+import { COMMON_MEDIA_ENV_KEY } from "@artgod/shared/config/common-media";
 import {
     parseRpcEndpointConfigList,
     RPC_ENDPOINT_LIST_ENV_KEY,
@@ -21,6 +22,7 @@ import {
     parseRpcEndpointResilienceConfig,
     parseRpcRetryPolicy,
 } from "@artgod/shared/config/rpc-resilience";
+import { parseHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import {
     parseBoolean,
     parseNumber,
@@ -31,6 +33,9 @@ import type {
     RpcEndpointResilienceConfig,
     RpcRetryPolicy,
 } from "@artgod/shared/evm/rpc-resilience";
+import type { HttpFetchResilienceConfig } from "@artgod/shared/network/http-fetch-resilience";
+import { normalizeIpfsGatewayOrigin } from "@artgod/shared/media/token-resource-uri";
+import { resolveTokenImageCacheDir } from "@artgod/shared/media/token-image-cache-storage";
 import {
     QUERY_CACHE_PROVIDERS,
     type QueryCacheProvider,
@@ -101,6 +106,12 @@ const DEFAULT_OBSERVABILITY_PYROSCOPE_URL = getSettingDefault(
 );
 const DEFAULT_PUBLIC_APP_DEPLOYMENT_MODE = getSettingDefault(
     "PUBLIC_APP_DEPLOYMENT_MODE",
+);
+const DEFAULT_COMMON_IPFS_GATEWAY_ORIGIN = getSettingDefault(
+    COMMON_MEDIA_ENV_KEY.IpfsGatewayOrigin,
+);
+const DEFAULT_COMMON_MEDIA_CACHE_DIR = getSettingDefault(
+    COMMON_MEDIA_ENV_KEY.MediaCacheDir,
 );
 
 export type BackendSecurityConfig = {
@@ -182,6 +193,13 @@ export type BackendConfig = {
     deployment: BackendDeploymentConfig;
     queryCache: BackendQueryCacheConfig;
     sync: BackendSyncConfig;
+    ipfs: {
+        gatewayOrigin: string;
+    };
+    mediaCache: {
+        tokenImagesDir: string;
+    };
+    httpFetch: HttpFetchResilienceConfig;
     metrics: BackendMetricsConfig;
     apm: BackendApmConfig;
     integrations: {
@@ -237,6 +255,16 @@ export function loadBackendConfig(
     const deployment = parseDeploymentConfig(env);
     const queryCache = parseQueryCacheConfig(env);
     const sync = parseBackendSyncConfig(env);
+    const ipfsGatewayOrigin = normalizeIpfsGatewayOrigin(
+        env[COMMON_MEDIA_ENV_KEY.IpfsGatewayOrigin] ??
+            DEFAULT_COMMON_IPFS_GATEWAY_ORIGIN,
+    );
+    const tokenImagesDir = resolveTokenImageCacheDir({
+        dbPath,
+        overrideDir:
+            env[COMMON_MEDIA_ENV_KEY.MediaCacheDir] ??
+            DEFAULT_COMMON_MEDIA_CACHE_DIR,
+    });
     const metrics = parseBackendMetricsConfig(env);
     const apm = parseBackendApmConfig(env);
     const openseaIntegration = resolveOpenSeaIntegrationStatus(env);
@@ -263,6 +291,13 @@ export function loadBackendConfig(
         deployment,
         queryCache,
         sync,
+        ipfs: {
+            gatewayOrigin: ipfsGatewayOrigin,
+        },
+        mediaCache: {
+            tokenImagesDir,
+        },
+        httpFetch: parseHttpFetchResilienceConfig(env),
         metrics,
         apm,
         integrations,

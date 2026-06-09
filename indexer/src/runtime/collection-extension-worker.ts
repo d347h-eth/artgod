@@ -60,6 +60,7 @@ async function main() {
         });
         const collectionExtensions = new SqliteCollectionExtensions();
         const metadataFetcher = new HttpMetadataFetcher({
+            fetchResilience: config.httpFetch,
             metrics: runtimeMetrics.metrics,
         });
 

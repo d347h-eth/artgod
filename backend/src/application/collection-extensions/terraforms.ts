@@ -2,6 +2,7 @@ import {
     COLLECTION_MEDIA_MODES,
     type CollectionExtensionInstall,
 } from "@artgod/shared/extensions";
+import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import {
     normalizeTerraformsCanvasRows,
     parseTerraformsExtensionConfig,
@@ -120,6 +121,12 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
         resolveActivityRowTraitSummaryTemplateConfig() {
             return {
                 template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE,
+            };
+        },
+        resolveImageCachePolicyConfig() {
+            return {
+                imageCacheMode: IMAGE_CACHE_MODE.Off,
+                maxDimension: null,
             };
         },
         listActivityEventFeeds() {

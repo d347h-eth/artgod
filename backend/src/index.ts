@@ -13,6 +13,7 @@ import { CreateBootstrapRunUseCase } from "./application/use-cases/bootstrap/cre
 import { GetBootstrapRunDetailUseCase } from "./application/use-cases/bootstrap/get-bootstrap-run-detail.js";
 import { GetBootstrapStatusUseCase } from "./application/use-cases/bootstrap/get-bootstrap-status.js";
 import { ListBootstrapRunsUseCase } from "./application/use-cases/bootstrap/list-bootstrap-runs.js";
+import { ProbeCollectionContractUseCase } from "./application/use-cases/bootstrap/probe-collection-contract.js";
 import { RetryBootstrapRunFailedTasksUseCase } from "./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import { logger } from "@artgod/shared/utils";
 import { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
@@ -77,6 +78,7 @@ import {
 import { NatsBootstrapCommandQueue } from "./infra/bootstrap/nats-bootstrap-command-queue.js";
 import { MemoryQueryCache } from "./infra/cache/memory.js";
 import { SqliteBootstrapRunsRepository } from "./infra/bootstrap/sqlite-bootstrap-runs.js";
+import { ViemBootstrapContractProbe } from "./infra/bootstrap/viem-bootstrap-contract-probe.js";
 import { BuiltInCollectionExtensionResolver } from "./infra/collection-extensions/built-in-collection-extension-resolver.js";
 import { ExtensionAwareCollectionCustomization } from "./infra/collections/extension-aware-collection-customization.js";
 import { ExtensionAwareCollectionDetailRead } from "./infra/collections/extension-aware-collection-detail-read.js";
@@ -88,6 +90,8 @@ import { SqliteCollectionExtensionRecords } from "./infra/collections/sqlite-col
 import { NatsRuntimeHealthAdapter } from "./infra/runtime-health/nats-runtime-health.js";
 import { SqliteRuntimeHealthAdapter } from "./infra/runtime-health/sqlite-runtime-health.js";
 import { ViemBackendRpcClient } from "./infra/rpc/viem-backend-rpc.js";
+import { NatsTokenImageCacheCommandQueue } from "./infra/media/nats-token-image-cache-command-queue.js";
+import { SqliteTokenImageCacheMaintenance } from "./infra/media/sqlite-token-image-cache-maintenance.js";
 import { NatsSyncBackfillCommandQueue } from "./infra/sync-backfill/nats-sync-backfill-command-queue.js";
 import { PublicCollectionBlockspaceCache } from "./infra/sync-backfill/public-collection-blockspace-cache.js";
 import { SqliteSyncBackfillRepository } from "./infra/sync-backfill/sqlite-sync-backfill-repository.js";
@@ -224,15 +228,33 @@ export function createBackendApp(
         config.natsUrl,
         config.natsStreamPrefix,
     );
+    const tokenImageCacheCommandQueue = new NatsTokenImageCacheCommandQueue(
+        config.natsUrl,
+        config.natsStreamPrefix,
+    );
+    const tokenImageCacheMaintenance = new SqliteTokenImageCacheMaintenance(
+        config.mediaCache.tokenImagesDir,
+    );
     const builtInCollectionExtensionResolver =
         new BuiltInCollectionExtensionResolver();
+    const bootstrapContractProbe = new ViemBootstrapContractProbe(
+        backendRpcClient,
+        config.ipfs.gatewayOrigin,
+        config.httpFetch,
+    );
     const createBootstrapRunUseCase = new CreateBootstrapRunUseCase(
         config.defaultChainId,
         config.integrations.opensea,
         chainsReadModel,
         bootstrapRunsRepository,
         builtInCollectionExtensionResolver,
+        extensionAwareCollectionCustomization,
         bootstrapCommandQueue,
+    );
+    const probeCollectionContractUseCase = new ProbeCollectionContractUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        bootstrapContractProbe,
     );
     const getBootstrapStatusUseCase = new GetBootstrapStatusUseCase(
         config.defaultChainId,
@@ -389,6 +411,14 @@ export function createBackendApp(
             chainsReadModel,
             extensionAwareCollectionsReadModel,
             extensionAwareCollectionCustomization,
+            {
+                deleteCollectionImageCache: (input) =>
+                    tokenImageCacheMaintenance.deleteCollectionImageCache(input),
+                publishCollectionImageCacheRefresh: (input) =>
+                    tokenImageCacheCommandQueue.publishCollectionImageCacheRefresh(
+                        input,
+                    ),
+            },
         );
     const listCollectionBiddingBidBookUseCase =
         new ListCollectionBiddingBidBookUseCase(
@@ -519,6 +549,7 @@ export function createBackendApp(
     );
     const app = createApiApp(
         createBootstrapRunUseCase,
+        probeCollectionContractUseCase,
         listBootstrapRunsUseCase,
         getBootstrapRunDetailUseCase,
         getBootstrapStatusUseCase,
@@ -557,6 +588,7 @@ export function createBackendApp(
         archiveTokenBiddingJobUseCase,
         archiveCollectionBiddingPriceTierUseCase,
         runtimeHealthUseCase,
+        config.mediaCache.tokenImagesDir,
         config.userlandUiDistDir,
         config.security,
         config.deployment,

@@ -1,6 +1,10 @@
 import { db } from "@artgod/shared/database";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import {
+    IMAGE_CACHE_MODE,
+    type ImageCacheMode,
+} from "@artgod/shared/media/token-image-cache";
+import {
     normalizeAddressRef,
     normalizeSlugRef,
 } from "@artgod/shared/utils/ref-resolver";
@@ -64,6 +68,8 @@ type BootstrapRunDbRow = {
     manual_token_ids_json: string | null;
     manual_range_start_token_id: string | null;
     manual_range_total_supply: number | null;
+    request_image_cache_mode: ImageCacheMode;
+    request_image_cache_max_dimension: number | null;
     deployment_block: number | null;
     status: string;
     anchor_block: number | null;
@@ -176,7 +182,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
     }>(
         "SELECT COUNT(*) AS count FROM bootstrap_runs " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId " +
-            "AND status IN ('requested', 'queued', 'metadata', 'ownership', 'backfill')",
+            "AND status IN ('requested', 'queued', 'metadata', 'image_cache', 'ownership', 'backfill')",
     );
 
     private insertRun = db.prepare<{
@@ -192,23 +198,25 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         manualTokenIdsJson: string | null;
         manualRangeStartTokenId: string | null;
         manualRangeTotalSupply: number | null;
+        imageCacheMode: ImageCacheMode;
+        imageCacheMaxDimension: number | null;
         deploymentBlock: number | null;
     }>(
         "INSERT INTO bootstrap_runs " +
-            "(chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status) " +
-            "VALUES (@chainId, @collectionId, @requestSlug, @requestOpenseaSlug, @requestAddress, @requestStandard, @requestExtensionKey, @metadataMode, @enumerationMode, @manualTokenIdsJson, @manualRangeStartTokenId, @manualRangeTotalSupply, @deploymentBlock, 'requested')",
+            "(chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, request_image_cache_mode, request_image_cache_max_dimension, deployment_block, status) " +
+            "VALUES (@chainId, @collectionId, @requestSlug, @requestOpenseaSlug, @requestAddress, @requestStandard, @requestExtensionKey, @metadataMode, @enumerationMode, @manualTokenIdsJson, @manualRangeStartTokenId, @manualRangeTotalSupply, @imageCacheMode, @imageCacheMaxDimension, @deploymentBlock, 'requested')",
     );
 
     private selectLatestRun = db.prepare<{
         chainId: number;
         collectionId: number;
     }>(
-        "SELECT run_id, chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at " +
+        "SELECT run_id, chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, request_image_cache_mode, request_image_cache_max_dimension, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at " +
             "FROM bootstrap_runs WHERE chain_id = @chainId AND collection_id = @collectionId ORDER BY run_id DESC LIMIT 1",
     );
 
     private selectRunById = db.prepare<{ chainId: number; runId: number }>(
-        "SELECT run_id, chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at " +
+        "SELECT run_id, chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, request_image_cache_mode, request_image_cache_max_dimension, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at " +
             "FROM bootstrap_runs WHERE chain_id = @chainId AND run_id = @runId LIMIT 1",
     );
 
@@ -387,6 +395,8 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         manualTokenIdsJson: string | null;
         manualRangeStartTokenId: string | null;
         manualRangeTotalSupply: number | null;
+        imageCacheMode: ImageCacheMode;
+        imageCacheMaxDimension: number | null;
         deploymentBlock: number | null;
     }): BootstrapRunRow {
         const run = db.raw.transaction(() => {
@@ -497,7 +507,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
             values.push(params.cursorRunId);
         }
         const sql =
-            "SELECT run_id, chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at " +
+            "SELECT run_id, chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, request_image_cache_mode, request_image_cache_max_dimension, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at " +
             "FROM bootstrap_runs " +
             `WHERE ${where.join(" AND ")} ` +
             "ORDER BY run_id DESC LIMIT ?";
@@ -630,6 +640,8 @@ function mapRun(row: BootstrapRunDbRow): BootstrapRunRow {
         manualTokenIdsJson: row.manual_token_ids_json,
         manualRangeStartTokenId: row.manual_range_start_token_id,
         manualRangeTotalSupply: row.manual_range_total_supply,
+        imageCacheMode: normalizeImageCacheMode(row.request_image_cache_mode),
+        imageCacheMaxDimension: row.request_image_cache_max_dimension,
         deploymentBlock: row.deployment_block,
         status: row.status,
         anchorBlock: row.anchor_block,
@@ -641,4 +653,15 @@ function mapRun(row: BootstrapRunDbRow): BootstrapRunRow {
         updatedAt: row.updated_at,
         finishedAt: row.finished_at,
     };
+}
+
+function normalizeImageCacheMode(value: string): ImageCacheMode {
+    if (
+        value === IMAGE_CACHE_MODE.Off ||
+        value === IMAGE_CACHE_MODE.CacheOnce ||
+        value === IMAGE_CACHE_MODE.RefreshOnMetadata
+    ) {
+        return value;
+    }
+    return IMAGE_CACHE_MODE.Off;
 }

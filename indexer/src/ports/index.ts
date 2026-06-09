@@ -7,4 +7,5 @@ export * from "./bootstrap.js";
 export * from "./bootstrap-runs.js";
 export * from "./domain-handlers.js";
 export * from "./metadata.js";
+export * from "./token-image-cache.js";
 export * from "./conduits.js";

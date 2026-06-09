@@ -61,6 +61,33 @@ export type BootstrapMetadataTaskCounts = {
     total: number;
 };
 
+export type BootstrapImageCacheTaskStatus =
+    | "pending"
+    | "retry"
+    | "succeeded"
+    | "failed_terminal";
+
+export type BootstrapImageCacheTask = {
+    runId: number;
+    chainId: number;
+    collectionId: number;
+    contract: string;
+    tokenId: string;
+    sourceImageUrl: string;
+    requestedMaxDimension: number | null;
+    status: BootstrapImageCacheTaskStatus;
+    attempts: number;
+    nextAttemptAt: number;
+};
+
+export type BootstrapImageCacheTaskCounts = {
+    pending: number;
+    retry: number;
+    succeeded: number;
+    failedTerminal: number;
+    total: number;
+};
+
 export interface BootstrapSnapshotPort {
     resetSnapshot(runId: number): void;
     insertSnapshotRows(rows: BootstrapSnapshotRow[]): void;
@@ -87,4 +114,36 @@ export interface BootstrapSnapshotPort {
     ): void;
     getMetadataTaskCounts(runId: number): BootstrapMetadataTaskCounts;
     listMetadataTaskTokenIds(runId: number): string[];
+    resetImageCacheTasks(runId: number): void;
+    seedImageCacheTasks(input: {
+        runId: number;
+        requestedMaxDimension: number | null;
+    }): number;
+    listImageCacheTasksDueNow(
+        runId: number,
+        nowMs: number,
+        limit: number,
+    ): BootstrapImageCacheTask[];
+    markImageCacheTaskSucceeded(input: {
+        runId: number;
+        tokenId: string;
+        attempts: number;
+        cacheKey: string;
+        contentType: string;
+        sourceBytes: number;
+        cachedBytes: number;
+        width: number | null;
+        height: number | null;
+        relativePath: string;
+        publicPath: string;
+    }): void;
+    markImageCacheTaskRetry(input: {
+        runId: number;
+        tokenId: string;
+        attempts: number;
+        nextAttemptAt: number;
+        lastError: string;
+        failedTerminal: boolean;
+    }): void;
+    getImageCacheTaskCounts(runId: number): BootstrapImageCacheTaskCounts;
 }

@@ -49,6 +49,10 @@ export class GetCollectionCustomizationUseCase {
                 chainId: number;
                 collectionId: number;
             }): CollectionCustomization["activityRowTraitSummaryTemplate"];
+            getImageCachePolicyState(params: {
+                chainId: number;
+                collectionId: number;
+            }): CollectionCustomization["imageCachePolicy"];
         },
     ) {}
 
@@ -82,6 +86,11 @@ export class GetCollectionCustomizationUseCase {
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,
             });
+        const imageCachePolicy =
+            this.customizationReadPort.getImageCachePolicyState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+            });
 
         return {
             chain,
@@ -90,6 +99,7 @@ export class GetCollectionCustomizationUseCase {
                 traitFilterPresentation,
                 tokenCardTraitSummaryTemplate,
                 activityRowTraitSummaryTemplate,
+                imageCachePolicy,
             },
         };
     }

@@ -4,12 +4,17 @@ import { logger } from "@artgod/shared/utils";
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import { resolveEmbeddedCollectionExtensionInstallByKey } from "@artgod/shared/extensions/built-ins";
+import {
+    isImageCachePolicyActive,
+    type ImageCacheMode,
+} from "@artgod/shared/media/token-image-cache";
 import { ERC721_ENUMERABLE_ABI } from "../abi/index.js";
 import { publishCollectionExtensionRefreshArtifacts } from "../application/collection-extensions/jobs.js";
 import { runWorker } from "../application/worker-runner.js";
 import { publishMetadataStatsRecompute } from "../application/metadata/stats-recompute.js";
 import { loadConfig } from "../config/index.js";
 import type {
+    BootstrapImageCacheProcessPayload,
     BootstrapMetadataSnapshotMode,
     BootstrapMetadataProcessPayload,
 } from "../domain/bootstrap-jobs.js";
@@ -37,17 +42,20 @@ import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlit
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
 import { HttpMetadataFetcher } from "../infra/metadata/http-fetcher.js";
+import { SharpTokenImageCache } from "../infra/media/sharp-token-image-cache.js";
 import { ViemTokenUriResolver } from "../infra/metadata/viem-token-uri.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import type {
     BootstrapMetadataTask,
     BootstrapMetadataTaskSeed,
     BootstrapSnapshotPort,
+    BootstrapImageCacheTask,
 } from "../ports/bootstrap.js";
 import type { BootstrapRunsPort } from "../ports/bootstrap-runs.js";
 import type { CollectionRegistryPort } from "../ports/collections.js";
 import type { CollectionExtensionInstallPort } from "../ports/collection-extensions.js";
 import type { MetadataRefreshPayload } from "../domain/domain-jobs.js";
+import type { TokenImageCachePort } from "../ports/token-image-cache.js";
 import type { QueuePort } from "../ports/queue.js";
 import type { Hex, RpcProviderPort } from "../ports/rpc.js";
 import type { StoragePort } from "../ports/storage.js";
@@ -114,12 +122,20 @@ async function main() {
             resilience: config.rpc.resilience,
         });
         const metadataFetcher = new HttpMetadataFetcher({
+            ipfsGateway: config.ipfs.gatewayOrigin,
+            fetchResilience: config.httpFetch,
             metrics: runtimeMetrics.metrics,
         });
         const metadataDomain = new SqliteMetadataDomain(
             metadataResolver,
             metadataFetcher,
         );
+        const tokenImageCache = new SharpTokenImageCache({
+            rootDir: config.mediaCache.tokenImagesDir,
+            ipfsGatewayOrigin: config.ipfs.gatewayOrigin,
+            maxSourceBytes: config.bootstrap.imageCacheMaxSourceBytes,
+            fetchResilience: config.httpFetch,
+        });
 
         const stop = await runWorker(
             queue,
@@ -134,6 +150,7 @@ async function main() {
                 job: JobEnvelope<
                     | BootstrapCollectionPayload
                     | BootstrapMetadataProcessPayload
+                    | BootstrapImageCacheProcessPayload
                     | BootstrapBackfillCheckPayload
                 >,
             ) => {
@@ -171,6 +188,27 @@ async function main() {
                             config.bootstrap.metadataRetryPolicy,
                             config.integrations.opensea,
                             job.payload as BootstrapMetadataProcessPayload,
+                            job.traceId ?? job.jobId,
+                            job.jobId,
+                        );
+                        return;
+                    }
+
+                    if (job.kind === BOOTSTRAP_JOB_KIND.ImageCacheProcess) {
+                        await handleBootstrapImageCacheProcess(
+                            rpc,
+                            queue,
+                            collections,
+                            bootstrapStorage,
+                            bootstrapRuns,
+                            tokenImageCache,
+                            config.sync.backfillBatchSize,
+                            config.bootstrap.snapshotBatchSize,
+                            config.bootstrap.imageCacheBatchSize,
+                            config.bootstrap.imageCacheConcurrency,
+                            config.bootstrap.metadataRetryPolicy,
+                            config.integrations.opensea,
+                            job.payload as BootstrapImageCacheProcessPayload,
                             job.traceId ?? job.jobId,
                             job.jobId,
                         );
@@ -384,6 +422,7 @@ async function handleBootstrapStart(
     try {
         bootstrapStorage.resetSnapshot(run.runId);
         bootstrapStorage.resetMetadataTasks(run.runId);
+        bootstrapStorage.resetImageCacheTasks(run.runId);
 
         logger.info("Bootstrap token enumeration starting", {
             component: "CollectionBootstrapWorker",
@@ -719,65 +758,92 @@ async function handleBootstrapMetadataProcess(
         return;
     }
 
-    // Metadata snapshot is complete. If owner snapshot was not finalized yet,
-    // build ownership baseline from the same token set and anchor block.
-    if (
-        collection.bootstrapLastSyncedBlock === null ||
-        collection.bootstrapLastSyncedBlock < payload.anchorBlock
-    ) {
-        bootstrapRuns.updateRunStatus(payload.runId, "ownership");
-        const tokenIds = bootstrapStorage.listMetadataTaskTokenIds(
-            payload.runId,
-        );
-        await snapshotOwners(
-            rpc,
-            bootstrapStorage,
-            payload.runId,
-            payload.chainId,
-            payload.collectionId,
-            payload.address,
-            payload.anchorBlock,
-            tokenIds,
-            snapshotBatchSize,
-        );
-
-        bootstrapStorage.finalizeSnapshot({
-            runId: payload.runId,
-            chainId: payload.chainId,
-            collectionId: payload.collectionId,
-            contract: payload.address,
-            anchorBlock: payload.anchorBlock,
-            anchorHash: payload.anchorHash as Hex,
-            anchorTimestamp: payload.anchorTimestamp,
-        });
-        collections.markBootstrapSnapshotProgress(
-            payload.chainId,
-            payload.collectionId,
-            payload.anchorBlock,
-        );
-
-        logger.info("Bootstrap owner snapshot completed", {
+    const run = bootstrapRuns.getRun(payload.runId);
+    if (!run) {
+        logger.warn("Image cache skipped (run missing)", {
             component: "CollectionBootstrapWorker",
             action: "handleBootstrapMetadataProcess",
             runId: payload.runId,
             chainId: payload.chainId,
             collectionId: payload.collectionId,
-            anchorBlock: payload.anchorBlock,
-            tokenCount: tokenIds.length,
+        });
+        return;
+    }
+
+    if (isRunImageCacheActive(run)) {
+        const seeded = bootstrapStorage.seedImageCacheTasks({
+            runId: run.runId,
+            requestedMaxDimension: run.imageCacheMaxDimension,
+        });
+        const imageCacheCounts = bootstrapStorage.getImageCacheTaskCounts(
+            run.runId,
+        );
+        if (imageCacheCounts.total > 0) {
+            bootstrapRuns.updateRunStatus(run.runId, "image_cache");
+            bootstrapRuns.appendRunEvent({
+                runId: run.runId,
+                chainId: run.chainId,
+                collectionId: run.collectionId,
+                eventCode: "image_cache.queued",
+                eventLevel: "info",
+                message: "Bootstrap image cache phase queued",
+                payloadJson: JSON.stringify({
+                    seeded,
+                    total: imageCacheCounts.total,
+                    maxDimension: run.imageCacheMaxDimension,
+                }),
+            });
+            await scheduleImageCacheProcess(
+                queue,
+                {
+                    chainId: payload.chainId,
+                    runId: payload.runId,
+                    collectionId: payload.collectionId,
+                    address: payload.address,
+                    standard: payload.standard,
+                    anchorBlock: payload.anchorBlock,
+                    anchorHash: payload.anchorHash,
+                    anchorTimestamp: payload.anchorTimestamp,
+                },
+                traceId,
+                0,
+            );
+            return;
+        }
+        bootstrapRuns.appendRunEvent({
+            runId: run.runId,
+            chainId: run.chainId,
+            collectionId: run.collectionId,
+            eventCode: "image_cache.skipped",
+            eventLevel: "info",
+            message: "Bootstrap image cache skipped because no token images were available",
+            payloadJson: null,
         });
     }
 
-    await ensureBackfillScheduled(
+    await continueBootstrapAfterMediaCache(
         rpc,
         queue,
         collections,
+        bootstrapStorage,
         bootstrapRuns,
-        payload,
         backfillBatchSize,
+        snapshotBatchSize,
         openSeaIntegration,
+        payload,
         traceId,
         sourceJobId,
     );
+}
+
+function isRunImageCacheActive(run: {
+    imageCacheMode: ImageCacheMode;
+    imageCacheMaxDimension: number | null;
+}): boolean {
+    return isImageCachePolicyActive({
+        imageCacheMode: run.imageCacheMode,
+        maxDimension: run.imageCacheMaxDimension,
+    });
 }
 
 async function processDueMetadataTasks(
@@ -818,6 +884,186 @@ async function processDueMetadataTasks(
     );
 
     return dueTasks.length;
+}
+
+async function handleBootstrapImageCacheProcess(
+    rpc: RpcProviderPort,
+    queue: QueuePort,
+    collections: CollectionRegistryPort,
+    bootstrapStorage: BootstrapSnapshotPort,
+    bootstrapRuns: BootstrapRunsPort,
+    tokenImageCache: TokenImageCachePort,
+    backfillBatchSize: number,
+    snapshotBatchSize: number,
+    imageCacheBatchSize: number,
+    imageCacheConcurrency: number,
+    imageCacheRetryPolicy: RetryPolicy,
+    openSeaIntegration: OpenSeaIntegrationStatus,
+    payload: BootstrapImageCacheProcessPayload,
+    traceId: string,
+    sourceJobId: string,
+): Promise<void> {
+    const collection = collections.getCollection(
+        payload.chainId,
+        payload.collectionId,
+    );
+    if (!collection) {
+        logger.warn("Image cache process skipped (collection missing)", {
+            component: "CollectionBootstrapWorker",
+            action: "handleBootstrapImageCacheProcess",
+            runId: payload.runId,
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+        });
+        return;
+    }
+
+    if (collection.status === "live") {
+        logger.debug("Image cache process skipped (collection already live)", {
+            component: "CollectionBootstrapWorker",
+            action: "handleBootstrapImageCacheProcess",
+            runId: payload.runId,
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+        });
+        return;
+    }
+
+    const processed = await processDueImageCacheTasks(
+        bootstrapStorage,
+        tokenImageCache,
+        payload,
+        imageCacheBatchSize,
+        imageCacheConcurrency,
+        imageCacheRetryPolicy,
+    );
+
+    const counts = bootstrapStorage.getImageCacheTaskCounts(payload.runId);
+    if (counts.pending > 0 || counts.retry > 0) {
+        const hasDueNow =
+            bootstrapStorage.listImageCacheTasksDueNow(
+                payload.runId,
+                Date.now(),
+                1,
+            ).length > 0;
+        await scheduleImageCacheProcess(
+            queue,
+            payload,
+            traceId,
+            hasDueNow ? 0 : 5_000,
+        );
+
+        logger.debug("Bootstrap image cache process progress", {
+            component: "CollectionBootstrapWorker",
+            action: "handleBootstrapImageCacheProcess",
+            runId: payload.runId,
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+            processed,
+            counts,
+            nextDelayMs: hasDueNow ? 0 : 5_000,
+        });
+        return;
+    }
+
+    bootstrapRuns.appendRunEvent({
+        runId: payload.runId,
+        chainId: payload.chainId,
+        collectionId: payload.collectionId,
+        eventCode: "image_cache.completed",
+        eventLevel: counts.failedTerminal > 0 ? "warn" : "info",
+        message:
+            counts.failedTerminal > 0
+                ? "Bootstrap image cache completed with failed images"
+                : "Bootstrap image cache completed",
+        payloadJson: JSON.stringify(counts),
+    });
+
+    await continueBootstrapAfterMediaCache(
+        rpc,
+        queue,
+        collections,
+        bootstrapStorage,
+        bootstrapRuns,
+        backfillBatchSize,
+        snapshotBatchSize,
+        openSeaIntegration,
+        payload,
+        traceId,
+        sourceJobId,
+    );
+}
+
+async function processDueImageCacheTasks(
+    bootstrapStorage: BootstrapSnapshotPort,
+    tokenImageCache: TokenImageCachePort,
+    payload: BootstrapImageCacheProcessPayload,
+    imageCacheBatchSize: number,
+    imageCacheConcurrency: number,
+    retryPolicy: RetryPolicy,
+): Promise<number> {
+    const dueTasks = bootstrapStorage.listImageCacheTasksDueNow(
+        payload.runId,
+        Date.now(),
+        Math.max(1, imageCacheBatchSize),
+    );
+    if (dueTasks.length === 0) {
+        return 0;
+    }
+
+    await mapWithConcurrency(
+        dueTasks,
+        Math.max(1, imageCacheConcurrency),
+        async (task) => {
+            await processSingleImageCacheTask(
+                bootstrapStorage,
+                tokenImageCache,
+                task,
+                retryPolicy,
+            );
+        },
+    );
+
+    return dueTasks.length;
+}
+
+async function processSingleImageCacheTask(
+    bootstrapStorage: BootstrapSnapshotPort,
+    tokenImageCache: TokenImageCachePort,
+    task: BootstrapImageCacheTask,
+    retryPolicy: RetryPolicy,
+): Promise<void> {
+    const attempts = task.attempts + 1;
+    try {
+        const result = await tokenImageCache.cacheTokenImage({
+            chainId: task.chainId,
+            collectionId: task.collectionId,
+            tokenId: task.tokenId,
+            sourceImageUrl: task.sourceImageUrl,
+            requestedMaxDimension: task.requestedMaxDimension,
+        });
+        bootstrapStorage.markImageCacheTaskSucceeded({
+            runId: task.runId,
+            tokenId: task.tokenId,
+            attempts,
+            cacheKey: result.cacheKey,
+            contentType: result.contentType,
+            sourceBytes: result.sourceBytes,
+            cachedBytes: result.cachedBytes,
+            width: result.width,
+            height: result.height,
+            relativePath: result.relativePath,
+            publicPath: result.publicPath,
+        });
+    } catch (error) {
+        markImageCacheTaskFailed(
+            bootstrapStorage,
+            task,
+            attempts,
+            retryPolicy,
+            String(error),
+        );
+    }
 }
 
 async function processSingleMetadataTask(
@@ -945,6 +1191,25 @@ function markMetadataTaskFailed(
     );
 }
 
+function markImageCacheTaskFailed(
+    bootstrapStorage: BootstrapSnapshotPort,
+    task: BootstrapImageCacheTask,
+    attempts: number,
+    retryPolicy: RetryPolicy,
+    error: string,
+): void {
+    const failedTerminal = attempts >= Math.max(1, retryPolicy.maxAttempts);
+    const retryDelay = getRetryDelayMs(attempts, retryPolicy);
+    bootstrapStorage.markImageCacheTaskRetry({
+        runId: task.runId,
+        tokenId: task.tokenId,
+        attempts,
+        nextAttemptAt: failedTerminal ? 0 : Date.now() + retryDelay,
+        lastError: error,
+        failedTerminal,
+    });
+}
+
 function isMetadataSnapshotComplete(
     counts: {
         pending: number;
@@ -963,12 +1228,100 @@ function isMetadataSnapshotComplete(
     return counts.pending === 0 && counts.retry === 0;
 }
 
+async function continueBootstrapAfterMediaCache(
+    rpc: RpcProviderPort,
+    queue: QueuePort,
+    collections: CollectionRegistryPort,
+    bootstrapStorage: BootstrapSnapshotPort,
+    bootstrapRuns: BootstrapRunsPort,
+    backfillBatchSize: number,
+    snapshotBatchSize: number,
+    openSeaIntegration: OpenSeaIntegrationStatus,
+    payload: BootstrapImageCacheProcessPayload | BootstrapMetadataProcessPayload,
+    traceId: string,
+    sourceJobId: string,
+): Promise<void> {
+    const collection = collections.getCollection(
+        payload.chainId,
+        payload.collectionId,
+    );
+    if (!collection) {
+        logger.warn("Bootstrap continuation skipped (collection missing)", {
+            component: "CollectionBootstrapWorker",
+            action: "continueBootstrapAfterMediaCache",
+            runId: payload.runId,
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+        });
+        return;
+    }
+
+    // Metadata and image cache are complete; build ownership from the same token set and anchor.
+    if (
+        collection.bootstrapLastSyncedBlock === null ||
+        collection.bootstrapLastSyncedBlock < payload.anchorBlock
+    ) {
+        bootstrapRuns.updateRunStatus(payload.runId, "ownership");
+        const tokenIds = bootstrapStorage.listMetadataTaskTokenIds(
+            payload.runId,
+        );
+        await snapshotOwners(
+            rpc,
+            bootstrapStorage,
+            payload.runId,
+            payload.chainId,
+            payload.collectionId,
+            payload.address,
+            payload.anchorBlock,
+            tokenIds,
+            snapshotBatchSize,
+        );
+
+        bootstrapStorage.finalizeSnapshot({
+            runId: payload.runId,
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+            contract: payload.address,
+            anchorBlock: payload.anchorBlock,
+            anchorHash: payload.anchorHash as Hex,
+            anchorTimestamp: payload.anchorTimestamp,
+        });
+        collections.markBootstrapSnapshotProgress(
+            payload.chainId,
+            payload.collectionId,
+            payload.anchorBlock,
+        );
+
+        logger.info("Bootstrap owner snapshot completed", {
+            component: "CollectionBootstrapWorker",
+            action: "continueBootstrapAfterMediaCache",
+            runId: payload.runId,
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+            anchorBlock: payload.anchorBlock,
+            tokenCount: tokenIds.length,
+        });
+    }
+
+    await ensureBackfillScheduled(
+        rpc,
+        queue,
+        collections,
+        bootstrapRuns,
+        payload,
+        backfillBatchSize,
+        openSeaIntegration,
+        traceId,
+        sourceJobId,
+    );
+}
+
 async function ensureBackfillScheduled(
     rpc: RpcProviderPort,
     queue: QueuePort,
     collections: CollectionRegistryPort,
     bootstrapRuns: BootstrapRunsPort,
-    payload: BootstrapMetadataProcessPayload,
+    payload: BootstrapMetadataProcessPayload | BootstrapImageCacheProcessPayload,
     backfillBatchSize: number,
     openSeaIntegration: OpenSeaIntegrationStatus,
     traceId: string,
@@ -1085,7 +1438,7 @@ async function maybeScheduleOpenSeaBootstrap(
     queue: QueuePort,
     collections: CollectionRegistryPort,
     bootstrapRuns: BootstrapRunsPort,
-    payload: BootstrapMetadataProcessPayload,
+    payload: BootstrapMetadataProcessPayload | BootstrapImageCacheProcessPayload,
     openSeaIntegration: OpenSeaIntegrationStatus,
 ): Promise<void> {
     if (!openSeaIntegration.enabled) {
@@ -1239,6 +1592,28 @@ async function scheduleMetadataProcess(
     const job: JobEnvelope<BootstrapMetadataProcessPayload> = {
         jobId: `bootstrap:metadata:${payload.chainId}:${payload.runId}:${scheduledAt}:${nonce}`,
         kind: BOOTSTRAP_JOB_KIND.MetadataProcess,
+        queue: QUEUE_NAMES.CollectionBootstrap,
+        payload,
+        attempt: 0,
+        scheduledAt,
+        chainId: payload.chainId,
+        traceId,
+        collectionId: payload.collectionId,
+    };
+    await queue.publish(QUEUE_NAMES.CollectionBootstrap, job);
+}
+
+async function scheduleImageCacheProcess(
+    queue: QueuePort,
+    payload: BootstrapImageCacheProcessPayload,
+    traceId: string,
+    delayMs: number,
+): Promise<void> {
+    const nonce = Math.floor(Math.random() * 1_000_000_000);
+    const scheduledAt = Date.now() + Math.max(0, delayMs);
+    const job: JobEnvelope<BootstrapImageCacheProcessPayload> = {
+        jobId: `bootstrap:image-cache:${payload.chainId}:${payload.runId}:${scheduledAt}:${nonce}`,
+        kind: BOOTSTRAP_JOB_KIND.ImageCacheProcess,
         queue: QUEUE_NAMES.CollectionBootstrap,
         payload,
         attempt: 0,

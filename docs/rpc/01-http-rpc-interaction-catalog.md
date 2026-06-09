@@ -55,6 +55,7 @@ domain mapping, and any integration-specific wrappers such as APM spans.
 | Backend   | backend API                        | Blockspace and backfill state head/timestamp lookup                    | `backend/src/infra/rpc/viem-backend-rpc.ts`         | `RPC_URL_LIST`                            | `backend-rpc`                                                                        | Yes           | Yes             | Yes        | Current block has a short in-memory cache; block timestamps have an in-memory cache. The use case falls back to indexed state or unavailable timestamps after RPC fails. |
 | Backend   | backend API                        | Extension activity preview rendering                                   | `backend/src/infra/rpc/viem-backend-rpc.ts`         | `RPC_URL_LIST`                            | `backend-rpc`                                                                        | Yes           | Yes             | Yes        | Extension renderers can call `readContract` and `getStorageAt`; failures demote endpoints and retry before bubbling through preview error handling.                      |
 | Backend   | backend API                        | Token URI reads                                                        | `backend/src/infra/rpc/viem-backend-rpc.ts`         | `RPC_URL_LIST`                            | `backend-rpc`                                                                        | Yes           | Yes             | Yes        | Extension-owned token URI resolution can call extension contracts; generic ERC721 fallback reads `tokenURI` through the resilient backend RPC client.                    |
+| Backend   | backend API                        | Bootstrap contract probe                                               | `backend/src/infra/bootstrap/viem-bootstrap-contract-probe.ts` | `RPC_URL_LIST`                            | `backend-rpc`                                                                        | Yes           | Yes             | Yes        | Pre-bootstrap ERC721 probing reads ERC165 support, supply, first token, token URI, and owner fallback through the resilient backend RPC client. Token URI payload and image-size fetches are ordinary HTTP/media fetches, not JSON-RPC. |
 | Indexer   | scheduler-worker                   | HTTP head polling                                                      | `indexer/src/infra/rpc/viem.ts`                     | `RPC_URL_LIST`                            | `scheduler-http-rpc`                                                                 | Yes           | Yes             | Yes        | Each retry attempt reselects through the weighted pool. Circuit-open, retry, rate-limit, call, and endpoint-attempt events are logged and metered.                       |
 | Indexer   | sync-worker realtime consumer      | Realtime block sync                                                    | `indexer/src/infra/rpc/viem.ts`                     | `RPC_URL_LIST`                            | `primary-http-rpc`                                                                   | Yes           | Yes             | Yes        | Reads logs, blocks, transactions, and receipts through the primary provider. Worker job retry is separate from adapter retry.                                            |
 | Indexer   | sync-worker backfill consumer      | Backfill, gap repair, reorg catch-up, bootstrap catch-up               | `indexer/src/infra/rpc/viem.ts`                     | `RPC_BACKFILL_URL_LIST` or `RPC_URL_LIST` | `backfill-http-rpc` when a separate pool is configured; otherwise `primary-http-rpc` | Yes           | Yes             | Yes        | Uses the dedicated backfill pool when configured; otherwise shares the primary provider instance.                                                                        |
@@ -107,6 +108,27 @@ domain mapping, and any integration-specific wrappers such as APM spans.
   adapter retry, per-endpoint rate limiting, and per-endpoint circuit breaker.
 - Fallback: extension-specific. Generic token URI fallback returns not found
   when the contract read still fails after retry exhaustion.
+
+### Bootstrap Contract Probe
+
+- Entry point:
+  `backend/src/application/use-cases/bootstrap/probe-collection-contract.ts`
+  behind `GET /api/:chain_ref/collections/bootstrap/probe`.
+- Concrete adapter:
+  `backend/src/infra/bootstrap/viem-bootstrap-contract-probe.ts`.
+- Concrete RPC adapter method: `ViemBackendRpcClient.readContract`.
+- RPC method path: ERC165 `supportsInterface`, ERC721 `totalSupply`,
+  ERC721Enumerable `tokenByIndex`, ERC721 Metadata `tokenURI`, and ERC721
+  `ownerOf` fallback checks.
+- Resilience: inherited from `backend-rpc`, including weighted endpoint
+  selection, dynamic endpoint weight drift, adapter retry, per-endpoint rate
+  limiting, and per-endpoint circuit breaker.
+- Non-JSON-RPC follow-up: after `tokenURI` resolves, metadata payload fetches
+  and token image size probes use HTTP/media fetches through the configured IPFS
+  gateway origin when needed.
+- Fallback: failed reads are normalized into probe warnings and nullable probe
+  fields so the user can choose manual bootstrap inputs when automatic probing
+  is incomplete.
 
 ## Indexer Details
 

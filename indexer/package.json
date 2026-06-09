@@ -31,6 +31,7 @@
         "better-sqlite3": "^v12.2.0",
         "dotenv": "^16.4.5",
         "nats": "^2.29.1",
+        "sharp": "0.33.5",
         "viem": "2.41.2"
     },
     "devDependencies": {

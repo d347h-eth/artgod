@@ -11,6 +11,7 @@ import {
 	type TradingBiddingJobPricingSource,
 	type TradingBiddingTierSelectionMode
 } from '@artgod/shared/types';
+import type { ImageCacheMode } from '@artgod/shared/media/token-image-cache';
 
 export type ApiChain = {
 	id: number;
@@ -68,6 +69,8 @@ export type OwnerRefResolutionApiResponse = {
 };
 
 export type ApiCollectionCustomizationSource = 'user' | 'extension';
+
+export type ApiImageCacheMode = ImageCacheMode;
 export type ApiBiddingJobStatus = 'enabled' | 'paused' | 'archived';
 
 export type ApiTraitFilterDisplayKind = 'set' | 'range';
@@ -171,6 +174,82 @@ export type ApiCollectionsPage = {
 	items: ApiCollection[];
 	nextCursor: string | null;
 	limit: number;
+};
+
+export type ApiBootstrapProbeInterfaceCheck = {
+	supported: boolean | null;
+	error: string | null;
+};
+
+export type ApiBootstrapProbeTotalSupply = {
+	status: 'available' | 'unavailable';
+	value: string | null;
+	safeIntegerValue: number | null;
+	bootstrapRangeValue: number | null;
+	error: string | null;
+};
+
+export type ApiBootstrapProbeTokenCandidate = {
+	tokenId: string;
+	exists: boolean | null;
+	source: 'token_uri' | 'owner_of' | null;
+	error: string | null;
+};
+
+export type ApiBootstrapProbeFirstToken = {
+	tokenId: string | null;
+	source: 'token_by_index' | 'candidate_token_uri' | 'candidate_owner_of' | null;
+	tokenUri: string | null;
+	tokenUriPayloadBytes: number | null;
+	tokenUriPayloadTruncated: boolean;
+	tokenUriPayloadError: string | null;
+	name: string | null;
+	image: string | null;
+	imageBytes: number | null;
+	imageBytesSource: 'content_length' | 'download' | 'data_uri' | null;
+	imageContentType: string | null;
+	imageBytesError: string | null;
+	animationUrl: string | null;
+	metadataError: string | null;
+	candidates: ApiBootstrapProbeTokenCandidate[];
+};
+
+export type ApiBootstrapProbeStorageEstimate = {
+	sampleTokenId: string;
+	samplePayloadBytes: number;
+	projectedBytes: string;
+	totalSupply: string;
+} | null;
+
+export type ApiBootstrapProbeImageStorageEstimate = {
+	sampleTokenId: string;
+	sampleImageBytes: number;
+	projectedBytes: string;
+	totalSupply: string;
+} | null;
+
+export type BootstrapContractProbeApiResponse = {
+	chain: ApiChain;
+	address: string;
+	standard: 'erc721';
+	erc721: ApiBootstrapProbeInterfaceCheck;
+	enumerable: ApiBootstrapProbeInterfaceCheck;
+	totalSupply: ApiBootstrapProbeTotalSupply;
+	firstToken: ApiBootstrapProbeFirstToken;
+	storageEstimate: ApiBootstrapProbeStorageEstimate;
+	imageStorageEstimate: ApiBootstrapProbeImageStorageEstimate;
+	suggestedInput: {
+		supportsEnumerable: boolean;
+		manualInput:
+			| {
+					mode: 'manual_range';
+					startTokenId: string;
+					totalSupply: number;
+			  }
+			| null;
+		ready: boolean;
+		warnings: string[];
+	};
 };
 
 export type ApiTokenAttribute = {
@@ -333,6 +412,18 @@ export type ApiTraitSummaryTemplateFeatureState = {
 	effectiveConfig: ApiTraitSummaryTemplateConfig;
 };
 
+export type ApiImageCachePolicyConfig = {
+	imageCacheMode: ApiImageCacheMode;
+	maxDimension: number | null;
+};
+
+export type ApiImageCachePolicyFeatureState = {
+	selectedSource: ApiCollectionCustomizationSource;
+	userConfig: ApiImageCachePolicyConfig;
+	extensionConfig: ApiImageCachePolicyConfig | null;
+	effectiveConfig: ApiImageCachePolicyConfig;
+};
+
 export type CollectionsApiResponse = {
 	chain: ApiChain;
 	filters: {
@@ -389,6 +480,7 @@ export type CollectionCustomizationApiResponse = {
 		traitFilterPresentation: ApiTraitFilterPresentationFeatureState;
 		tokenCardTraitSummaryTemplate: ApiTraitSummaryTemplateFeatureState;
 		activityRowTraitSummaryTemplate: ApiTraitSummaryTemplateFeatureState;
+		imageCachePolicy: ApiImageCachePolicyFeatureState;
 	};
 };
 
@@ -711,8 +803,18 @@ export type ApiBootstrapRun = {
 	manualTokenIdsJson: string | null;
 	manualRangeStartTokenId: string | null;
 	manualRangeTotalSupply: number | null;
+	imageCacheMode: ApiImageCacheMode;
+	imageCacheMaxDimension: number | null;
 	deploymentBlock: number | null;
-	status: 'requested' | 'queued' | 'metadata' | 'ownership' | 'backfill' | 'completed' | 'failed';
+	status:
+		| 'requested'
+		| 'queued'
+		| 'metadata'
+		| 'image_cache'
+		| 'ownership'
+		| 'backfill'
+		| 'completed'
+		| 'failed';
 	anchorBlock: number | null;
 	anchorBlockHash: string | null;
 	anchorBlockTimestamp: number | null;
@@ -762,6 +864,7 @@ export type ApiBootstrapFlowStep = {
 		| 'anchor'
 		| 'enumeration'
 		| 'metadata'
+		| 'image_cache'
 		| 'ownership'
 		| 'backfill'
 		| 'collection_live'
@@ -796,6 +899,7 @@ export type BootstrapRunsApiResponse = {
 			| 'requested'
 			| 'queued'
 			| 'metadata'
+			| 'image_cache'
 			| 'ownership'
 			| 'backfill'
 			| 'completed'

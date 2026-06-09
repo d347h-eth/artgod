@@ -57,6 +57,21 @@ Current v1 limits:
 - this step runs before OpenSea offchain work so local token/attribute context exists
 - successful canonical metadata writes can publish `collection-extension.refresh-artifacts` as non-blocking side-effects
 
+### 5. Token image cache
+
+When the bootstrap request enables image caching, the worker seeds a dedicated cache task for each successful metadata row with a non-empty `token_metadata.image`.
+
+- the cache uses canonical `image`, not `animation_url`
+- IPFS image refs are resolved through `COMMON_IPFS_GATEWAY_ORIGIN`
+- metadata and image HTTP fetches use shared `COMMON_HTTP_FETCH_*` timeout and
+  bounded retry settings
+- files are written under `COMMON_MEDIA_CACHE_DIR`, or beside the SQLite DB when unset
+- a configured max dimension resizes images into WebP through `sharp`
+- a null max dimension stores original source bytes when possible
+- failed images retry under the bootstrap retry policy and then become `failed_terminal`
+
+The collection can continue even when some image cache tasks fail terminally. The cache is a local presentation optimization, not metadata truth.
+
 ### Collection Extension Shadow Path
 
 Collection extensions intentionally run behind the canonical metadata snapshot rather than replacing it.
@@ -65,7 +80,7 @@ Current behavior:
 
 - bootstrap metadata writes `token_metadata` and normalized attributes first
 - extension artifact refresh is queued afterward on the dedicated collection-extension queue
-- bootstrap does not wait for extension artifact completion before moving to ownership snapshot or later phases
+- bootstrap does not wait for extension artifact completion before moving to image cache, ownership snapshot, or later phases
 
 This ordering is important because:
 
@@ -75,19 +90,19 @@ This ordering is important because:
 
 The first embedded extension, Terraforms, uses this shadow path to cache version-2 renderer artifacts and later drive backend media overrides.
 
-### 5. Ownership snapshot
+### 6. Ownership snapshot
 
 - capture ownership at the anchor block
 - persist snapshot rows and finalize `nft_balances` base state
 
-### 6. Schedule short backfill
+### 7. Schedule short backfill
 
 - enqueue short backfill from `anchor + 1` to current head
 - bootstrap later checks block coverage before finishing the onchain bootstrap run
 - the short backfill is collection-scoped
 - this range is intentionally post-anchor so it can safely advance current-state tables
 
-### 7. Schedule OpenSea bootstrap
+### 8. Schedule OpenSea bootstrap
 
 After local metadata + ownership are available, bootstrap enqueues an OpenSea bootstrap job only when OpenSea integration is enabled and the collection has an explicit OpenSea slug.
 
@@ -102,7 +117,7 @@ This OpenSea work runs in parallel with the short onchain backfill.
 
 When OpenSea is disabled (`OPENSEA_INTEGRATION_MODE=disabled` or `auto` with no `OPENSEA_API_KEY`), bootstrap records an `opensea.skipped` run event and does not mark collection OpenSea state pending. When OpenSea is enabled but no slug was configured, bootstrap also records `opensea.skipped` and continues onchain bootstrap without OpenSea work.
 
-### 8. Mark collection `live`
+### 9. Mark collection `live`
 
 When the short backfill is complete, the bootstrap worker marks the collection `status = live`.
 
@@ -115,7 +130,7 @@ It does **not** mean OpenSea is necessarily ready yet.
 
 It also does **not** mean collection-extension artifact refresh has fully converged yet. Extension artifacts are eventual side-effects and do not gate collection liveness.
 
-### 9. Mark OpenSea offchain `ready`
+### 10. Mark OpenSea offchain `ready`
 
 The OpenSea bootstrap worker marks the collection OpenSea state `ready` after the first full snapshot succeeds.
 
@@ -148,6 +163,7 @@ These are config-driven, not hardcoded business invariants.
 A collection should be considered ownership-correct once:
 
 - metadata snapshot completed
+- token image cache completed or skipped
 - ownership snapshot completed
 - short backfill completed
 - `collections.status = live`
@@ -183,6 +199,8 @@ Bootstrap and OpenSea lifecycle state is tracked primarily in:
 - `collections`
 - `collection_extension_installs`
 - `nft_balance_snapshots`
+- `bootstrap_image_cache_tasks`
+- `token_image_cache`
 - `token_extension_artifacts`
 - `opensea_orderbook_runs`
 - `offchain_order_observations`
@@ -193,6 +211,7 @@ Queues:
 
 - `collection-bootstrap`
 - `events-sync-backfill`
+- `token-image-cache`
 - `collection-extension-artifacts`
 - `opensea-bootstrap`
 - `opensea-reconcile`

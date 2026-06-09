@@ -1,6 +1,7 @@
 import type {
 	BootstrapRunDetailApiResponse,
 	BootstrapRetryFailedResponse,
+	BootstrapContractProbeApiResponse,
 	BootstrapRunCreateResponse,
 	BootstrapRunsApiResponse,
 	BatchTokenBiddingJobMutationApiResponse,
@@ -21,6 +22,7 @@ import type {
 	CollectionTraitCatalogApiResponse,
 	CollectionsApiResponse,
 	DefaultChainResponse,
+	ApiImageCacheMode,
 	OwnerRefResolutionApiResponse,
 	RuntimeConfigApiResponse,
 	ScheduleBlockspaceBackfillApiResponse,
@@ -147,6 +149,20 @@ export async function scheduleBlockspaceBackfill(
 		`/api/${encodeURIComponent(chainRef)}/blockspace/backfill`,
 		'POST',
 		body
+	);
+}
+
+export async function probeBootstrapCollectionContract(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	address: string
+): Promise<BootstrapContractProbeApiResponse> {
+	const query = new URLSearchParams();
+	query.set('address', address);
+	query.set('standard', 'erc721');
+	return requestJson<BootstrapContractProbeApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/collections/bootstrap/probe?${query.toString()}`
 	);
 }
 
@@ -578,6 +594,13 @@ export async function updateCollectionCustomization(
 				template: string;
 			};
 		};
+		imageCachePolicy: {
+			selectedSource: 'user' | 'extension';
+			userConfig: {
+				imageCacheMode: ApiImageCacheMode;
+				maxDimension: number | null;
+			};
+		};
 	}
 ): Promise<CollectionCustomizationApiResponse> {
 	await ensureCsrfToken(fetchFn);
@@ -690,7 +713,11 @@ export async function createBootstrapRun(
 					mode: 'manual_range';
 					startTokenId: string;
 					totalSupply: number;
-			  };
+		};
+		imageCache?: {
+			imageCacheMode: ApiImageCacheMode;
+			maxDimension: number | null;
+		};
 		deploymentBlock?: number;
 	}
 ): Promise<BootstrapRunCreateResponse> {

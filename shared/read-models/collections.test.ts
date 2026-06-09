@@ -121,6 +121,53 @@ describe("SqliteCollectionsReadModel observability", () => {
         );
     });
 
+    it("prefers cached token image paths for token card read models", () => {
+        insertToken("1", "100");
+        db.prepare(
+            "UPDATE token_metadata SET image = ? WHERE chain_id = ? AND collection_id = ? AND token_id = ?",
+        ).run("ipfs://source-image", 1, 1, "1");
+        db.prepare(
+            "INSERT INTO token_image_cache " +
+                "(chain_id, collection_id, token_id, source_image_url, requested_max_dimension, cache_key, content_type, source_bytes, cached_bytes, relative_path, public_path) " +
+                "VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)",
+        ).run(
+            1,
+            1,
+            "1",
+            "ipfs://source-image",
+            "cache-key",
+            "image/webp",
+            100,
+            80,
+            "1/1/1/cache.webp",
+            "/media/token-images/1/1/1/cache.webp",
+        );
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
+
+        const page = readModel.listCollectionTokens({
+            chainId: 1,
+            collectionId: 1,
+            tokenStatus: TOKEN_BROWSER_STATUS.All,
+            limit: 1,
+        });
+        const preview = readModel.getCollectionTokenPreview({
+            chainId: 1,
+            collectionId: 1,
+            tokenId: "1",
+        });
+        const cards = readModel.listCollectionTokenCardsByIds({
+            chainId: 1,
+            collectionId: 1,
+            tokenIds: ["1"],
+        });
+
+        expect(page.items[0]?.image).toBe(
+            "/media/token-images/1/1/1/cache.webp",
+        );
+        expect(preview.image).toBe("/media/token-images/1/1/1/cache.webp");
+        expect(cards[0]?.image).toBe("/media/token-images/1/1/1/cache.webp");
+    });
+
     it("short-circuits listed-token trait filters when no tokens match", () => {
         insertToken("1", "100");
         insertToken("2", "200");
@@ -635,6 +682,24 @@ function createSchema(): void {
             image TEXT,
             animation_url TEXT,
             attributes_json TEXT,
+            updated_at TEXT,
+            PRIMARY KEY (chain_id, collection_id, token_id)
+        );
+        CREATE TABLE token_image_cache (
+            chain_id INTEGER NOT NULL,
+            collection_id INTEGER NOT NULL,
+            token_id TEXT NOT NULL,
+            source_image_url TEXT NOT NULL,
+            requested_max_dimension INTEGER,
+            cache_key TEXT NOT NULL,
+            content_type TEXT NOT NULL,
+            source_bytes INTEGER NOT NULL,
+            cached_bytes INTEGER NOT NULL,
+            width INTEGER,
+            height INTEGER,
+            relative_path TEXT NOT NULL,
+            public_path TEXT NOT NULL,
+            created_at TEXT,
             updated_at TEXT,
             PRIMARY KEY (chain_id, collection_id, token_id)
         );

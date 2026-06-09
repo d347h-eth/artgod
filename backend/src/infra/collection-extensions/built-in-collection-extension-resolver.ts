@@ -1,5 +1,16 @@
-import type { CollectionExtensionKey } from "@artgod/shared/extensions";
-import { resolveEmbeddedCollectionExtensionInstall } from "@artgod/shared/extensions/built-ins";
+import type {
+    CollectionExtensionInstall,
+    CollectionExtensionKey,
+} from "@artgod/shared/extensions";
+import {
+    resolveEmbeddedCollectionExtensionInstall,
+    resolveEmbeddedCollectionExtensionInstallByKey,
+} from "@artgod/shared/extensions/built-ins";
+import {
+    normalizeImageCachePolicyConfig,
+    type ImageCachePolicyConfig,
+} from "@artgod/shared/media/token-image-cache";
+import { resolveBackendCollectionExtension } from "../../application/collection-extensions/index.js";
 import type {
     EmbeddedCollectionExtensionResolveInput,
     EmbeddedCollectionExtensionResolverPort,
@@ -13,5 +24,32 @@ export class BuiltInCollectionExtensionResolver
     ): CollectionExtensionKey | null {
         const install = resolveEmbeddedCollectionExtensionInstall(input);
         return install?.extensionKey ?? null;
+    }
+
+    resolveImageCachePolicyConfig(input: {
+        chainId: number;
+        collectionId: number;
+        extensionKey: CollectionExtensionKey;
+    }): ImageCachePolicyConfig | null {
+        const embedded = resolveEmbeddedCollectionExtensionInstallByKey(input);
+        if (!embedded) {
+            return null;
+        }
+        const install: CollectionExtensionInstall = {
+            chainId: input.chainId,
+            collectionId: input.collectionId,
+            extensionKey: embedded.extensionKey,
+            enabled: true,
+            configJson: embedded.configJson,
+            createdAt: "",
+            updatedAt: "",
+        };
+        const extension = resolveBackendCollectionExtension(install);
+        if (!extension) {
+            return null;
+        }
+        return normalizeImageCachePolicyConfig(
+            extension.resolveImageCachePolicyConfig(install),
+        );
     }
 }

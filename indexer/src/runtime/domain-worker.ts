@@ -1,6 +1,19 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
+import {
+    isImageCachePolicyActive,
+    shouldRefreshImageCacheOnMetadata,
+    type ImageCachePolicyConfig,
+} from "@artgod/shared/media/token-image-cache";
+import {
+    TOKEN_IMAGE_CACHE_JOB_KIND,
+    TOKEN_IMAGE_CACHE_REFRESH_REASON,
+    buildTokenImageCacheRefreshCollectionJobId,
+    buildTokenImageCacheRefreshTokenJobId,
+    type TokenImageCacheRefreshCollectionPayload,
+    type TokenImageCacheRefreshTokenPayload,
+} from "@artgod/shared/media/token-image-cache-jobs";
 import { loadConfig } from "../config/index.js";
 import { publishCollectionExtensionRefreshArtifacts } from "../application/collection-extensions/jobs.js";
 import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
@@ -25,6 +38,9 @@ import type { DomainSyncContext } from "../ports/domain-handlers.js";
 import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
 import { SqliteMetadataStatsDomain } from "../infra/domain/metadata-stats.js";
 import { HttpMetadataFetcher } from "../infra/metadata/http-fetcher.js";
+import { SharpTokenImageCache } from "../infra/media/sharp-token-image-cache.js";
+import { SqliteImageCachePolicyResolver } from "../infra/media/sqlite-image-cache-policy.js";
+import { SqliteTokenImageCacheRecords } from "../infra/media/sqlite-token-image-cache-records.js";
 import { ViemTokenUriResolver } from "../infra/metadata/viem-token-uri.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import { SqliteActivityDomain } from "../infra/domain/activities.js";
@@ -38,6 +54,7 @@ import { validateSeaportOrder } from "../application/offchain/seaport-validate.j
 import type { MetadataUpdatedToken } from "../domain/metadata.js";
 import type { CollectionExtensionInstallPort } from "../ports/collection-extensions.js";
 import type { QueuePort } from "../ports/queue.js";
+import type { TokenImageCachePort } from "../ports/token-image-cache.js";
 import {
     ORDER_JOB_KIND,
     type OrderUpdateByIdPayload,
@@ -100,6 +117,7 @@ async function main() {
             resilience: config.rpc.resilience,
         });
         const metadataFetcher = new HttpMetadataFetcher({
+            fetchResilience: config.httpFetch,
             metrics: runtimeMetrics.metrics,
         });
         const metadataDomain = new SqliteMetadataDomain(
@@ -109,6 +127,16 @@ async function main() {
         const metadataStatsDomain = new SqliteMetadataStatsDomain();
         const activityDomain = new SqliteActivityDomain();
         const collectionExtensions = new SqliteCollectionExtensions();
+        const imageCachePolicyResolver = new SqliteImageCachePolicyResolver(
+            collectionExtensions,
+        );
+        const tokenImageCacheRecords = new SqliteTokenImageCacheRecords();
+        const tokenImageCache = new SharpTokenImageCache({
+            rootDir: config.mediaCache.tokenImagesDir,
+            ipfsGatewayOrigin: config.ipfs.gatewayOrigin,
+            maxSourceBytes: config.bootstrap.imageCacheMaxSourceBytes,
+            fetchResilience: config.httpFetch,
+        });
         const orderUpdateByMakerConsumerName = `orders-update-by-maker-${config.chainId}`;
 
         const stopOrders = await runWorker(
@@ -300,6 +328,14 @@ async function main() {
                             job.traceId ?? job.jobId,
                             (job.payload as MetadataRefreshPayload).source,
                         );
+                        await publishTokenImageCacheRefreshJobs(
+                            queue,
+                            imageCachePolicyResolver,
+                            job.chainId,
+                            [updated],
+                            job.traceId ?? job.jobId,
+                            (job.payload as MetadataRefreshPayload).source,
+                        );
                     }
                     return;
                 }
@@ -308,6 +344,7 @@ async function main() {
                         queue,
                         metadataDomain,
                         collectionExtensions,
+                        imageCachePolicyResolver,
                         job.payload as MetadataRefreshRangePayload,
                         config.metadata.refreshRangeChunkSize,
                         job.traceId ?? job.jobId,
@@ -337,6 +374,49 @@ async function main() {
             {
                 apm: runtimeApm.apm,
                 spanName: "worker.metadataStats.consume",
+            },
+        );
+
+        const stopTokenImageCache = await runWorker(
+            queue,
+            {
+                queue: QUEUE_NAMES.TokenImageCache,
+                consumerName: `token-image-cache-${config.chainId}`,
+                maxInFlight: 1,
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
+            },
+            async (
+                job: JobEnvelope<
+                    | TokenImageCacheRefreshTokenPayload
+                    | TokenImageCacheRefreshCollectionPayload
+                >,
+            ) => {
+                if (job.kind === TOKEN_IMAGE_CACHE_JOB_KIND.RefreshToken) {
+                    await handleTokenImageCacheRefreshJob(
+                        tokenImageCacheRecords,
+                        tokenImageCache,
+                        imageCachePolicyResolver,
+                        job.payload as TokenImageCacheRefreshTokenPayload,
+                    );
+                    return;
+                }
+                if (job.kind === TOKEN_IMAGE_CACHE_JOB_KIND.RefreshCollection) {
+                    await handleCollectionImageCacheRefreshJob(
+                        queue,
+                        tokenImageCacheRecords,
+                        tokenImageCache,
+                        imageCachePolicyResolver,
+                        job.payload as TokenImageCacheRefreshCollectionPayload,
+                        config.bootstrap.imageCacheBatchSize,
+                        config.bootstrap.imageCacheConcurrency,
+                        job.traceId ?? job.jobId,
+                    );
+                }
+            },
+            {
+                apm: runtimeApm.apm,
+                spanName: "worker.tokenImageCache.consume",
             },
         );
 
@@ -394,6 +474,7 @@ async function main() {
             await stopMetadata();
             await stopMetadataRefresh();
             await stopMetadataStats();
+            await stopTokenImageCache();
             await stopActivity();
             await stopActivityUpsert();
             await runtimeApm.stop();
@@ -429,6 +510,7 @@ async function handleMetadataRefreshRangeJob(
     queue: QueuePort,
     metadataDomain: SqliteMetadataDomain,
     collectionExtensions: CollectionExtensionInstallPort,
+    imageCachePolicyResolver: SqliteImageCachePolicyResolver,
     payload: MetadataRefreshRangePayload,
     chunkSize: number,
     traceId: string,
@@ -478,6 +560,14 @@ async function handleMetadataRefreshRangeJob(
             payload.chainId,
             updatedTokens,
             payload.reason,
+            traceId,
+            payload.source,
+        );
+        await publishTokenImageCacheRefreshJobs(
+            queue,
+            imageCachePolicyResolver,
+            payload.chainId,
+            updatedTokens,
             traceId,
             payload.source,
         );
@@ -622,4 +712,205 @@ async function publishCollectionExtensionArtifactJobs(
             traceId,
         );
     }
+}
+
+async function publishTokenImageCacheRefreshJobs(
+    queue: QueuePort,
+    imageCachePolicyResolver: SqliteImageCachePolicyResolver,
+    chainId: number,
+    updatedTokens: MetadataUpdatedToken[],
+    traceId: string,
+    source?: string | null,
+): Promise<void> {
+    const policyByCollectionId = new Map<number, ImageCachePolicyConfig>();
+
+    for (const updated of updatedTokens) {
+        const sourceImageUrl = updated.image?.trim() ?? "";
+        if (!sourceImageUrl) {
+            continue;
+        }
+        let policy = policyByCollectionId.get(updated.collectionId);
+        if (!policy) {
+            policy = imageCachePolicyResolver.getImageCachePolicyConfig({
+                chainId,
+                collectionId: updated.collectionId,
+            });
+            policyByCollectionId.set(updated.collectionId, policy);
+        }
+        if (!shouldRefreshImageCacheOnMetadata(policy)) {
+            continue;
+        }
+
+        const payload: TokenImageCacheRefreshTokenPayload = {
+            chainId,
+            collectionId: updated.collectionId,
+            tokenId: updated.tokenId,
+            sourceImageUrl,
+            requestedMaxDimension: policy.maxDimension,
+            imageCacheMode: policy.imageCacheMode,
+            reason: TOKEN_IMAGE_CACHE_REFRESH_REASON.MetadataRefresh,
+            source: source ?? null,
+        };
+        const job: JobEnvelope<TokenImageCacheRefreshTokenPayload> = {
+            jobId: buildTokenImageCacheRefreshTokenJobId(payload),
+            kind: TOKEN_IMAGE_CACHE_JOB_KIND.RefreshToken,
+            queue: QUEUE_NAMES.TokenImageCache,
+            payload,
+            attempt: 0,
+            scheduledAt: Date.now(),
+            chainId,
+            collectionId: updated.collectionId,
+            traceId,
+        };
+        await queue.publish(QUEUE_NAMES.TokenImageCache, job);
+    }
+}
+
+async function handleTokenImageCacheRefreshJob(
+    records: SqliteTokenImageCacheRecords,
+    tokenImageCache: TokenImageCachePort,
+    imageCachePolicyResolver: SqliteImageCachePolicyResolver,
+    payload: TokenImageCacheRefreshTokenPayload,
+): Promise<void> {
+    const policy = imageCachePolicyResolver.getImageCachePolicyConfig(payload);
+    if (!shouldProcessImageCachePayload(policy, payload)) {
+        return;
+    }
+    const currentSource = records.getTokenImageSource(payload);
+    if (currentSource?.sourceImageUrl !== payload.sourceImageUrl) {
+        return;
+    }
+
+    const result = await tokenImageCache.cacheTokenImage({
+        chainId: payload.chainId,
+        collectionId: payload.collectionId,
+        tokenId: payload.tokenId,
+        sourceImageUrl: payload.sourceImageUrl,
+        requestedMaxDimension: payload.requestedMaxDimension,
+    });
+    records.upsertTokenImageCache({
+        chainId: payload.chainId,
+        collectionId: payload.collectionId,
+        tokenId: payload.tokenId,
+        sourceImageUrl: payload.sourceImageUrl,
+        requestedMaxDimension: payload.requestedMaxDimension,
+        ...result,
+    });
+}
+
+async function handleCollectionImageCacheRefreshJob(
+    queue: QueuePort,
+    records: SqliteTokenImageCacheRecords,
+    tokenImageCache: TokenImageCachePort,
+    imageCachePolicyResolver: SqliteImageCachePolicyResolver,
+    payload: TokenImageCacheRefreshCollectionPayload,
+    batchSize: number,
+    concurrency: number,
+    traceId: string,
+): Promise<void> {
+    const policy = imageCachePolicyResolver.getImageCachePolicyConfig(payload);
+    if (!shouldProcessImageCachePayload(policy, payload)) {
+        return;
+    }
+
+    const limit = Math.max(1, batchSize);
+    const sources = records.listCollectionImageSources({
+        chainId: payload.chainId,
+        collectionId: payload.collectionId,
+        cursorTokenId: payload.cursorTokenId,
+        limit,
+    });
+    await mapWithConcurrency(
+        sources,
+        Math.max(1, concurrency),
+        async (source) => {
+            try {
+                const result = await tokenImageCache.cacheTokenImage({
+                    chainId: payload.chainId,
+                    collectionId: payload.collectionId,
+                    tokenId: source.tokenId,
+                    sourceImageUrl: source.sourceImageUrl,
+                    requestedMaxDimension: payload.requestedMaxDimension,
+                });
+                records.upsertTokenImageCache({
+                    chainId: payload.chainId,
+                    collectionId: payload.collectionId,
+                    tokenId: source.tokenId,
+                    sourceImageUrl: source.sourceImageUrl,
+                    requestedMaxDimension: payload.requestedMaxDimension,
+                    ...result,
+                });
+            } catch (error) {
+                logger.warn("Token image cache refresh failed", {
+                    component: "IndexerDomainWorker",
+                    action: "handleCollectionImageCacheRefreshJob",
+                    chainId: payload.chainId,
+                    collectionId: payload.collectionId,
+                    tokenId: source.tokenId,
+                    error: String(error),
+                });
+            }
+        },
+    );
+
+    if (sources.length < limit) {
+        return;
+    }
+    const nextCursorTokenId = sources[sources.length - 1]?.tokenId ?? null;
+    if (!nextCursorTokenId) {
+        return;
+    }
+
+    const nextPayload: TokenImageCacheRefreshCollectionPayload = {
+        ...payload,
+        cursorTokenId: nextCursorTokenId,
+    };
+    const nextJob: JobEnvelope<TokenImageCacheRefreshCollectionPayload> = {
+        jobId: buildTokenImageCacheRefreshCollectionJobId(nextPayload),
+        kind: TOKEN_IMAGE_CACHE_JOB_KIND.RefreshCollection,
+        queue: QUEUE_NAMES.TokenImageCache,
+        payload: nextPayload,
+        attempt: 0,
+        scheduledAt: Date.now(),
+        chainId: payload.chainId,
+        collectionId: payload.collectionId,
+        traceId,
+    };
+    await queue.publish(QUEUE_NAMES.TokenImageCache, nextJob);
+}
+
+function shouldProcessImageCachePayload(
+    policy: ImageCachePolicyConfig,
+    payload: {
+        imageCacheMode: ImageCachePolicyConfig["imageCacheMode"];
+        requestedMaxDimension: number | null;
+    },
+): boolean {
+    return (
+        isImageCachePolicyActive(policy) &&
+        policy.imageCacheMode === payload.imageCacheMode &&
+        policy.maxDimension === payload.requestedMaxDimension
+    );
+}
+
+async function mapWithConcurrency<T>(
+    items: T[],
+    concurrency: number,
+    fn: (item: T) => Promise<void>,
+): Promise<void> {
+    const limit = Math.max(1, concurrency);
+    let nextIndex = 0;
+    const workers = Array.from(
+        { length: Math.min(limit, items.length) },
+        async () => {
+            while (nextIndex < items.length) {
+                const item = items[nextIndex];
+                nextIndex += 1;
+                if (item !== undefined) {
+                    await fn(item);
+                }
+            }
+        },
+    );
+    await Promise.all(workers);
 }

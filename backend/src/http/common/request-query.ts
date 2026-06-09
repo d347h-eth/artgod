@@ -54,6 +54,7 @@ const ALLOWED_BOOTSTRAP_RUN_STATUSES = new Set<BootstrapRunStatus>([
     "requested",
     "queued",
     "metadata",
+    "image_cache",
     "ownership",
     "backfill",
     "completed",

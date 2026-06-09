@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import BootstrapRunDetailView from './BootstrapRunDetailView.svelte';
 
 describe('BootstrapRunDetailView', () => {
@@ -22,6 +23,8 @@ describe('BootstrapRunDetailView', () => {
 						manualTokenIdsJson: null,
 						manualRangeStartTokenId: null,
 						manualRangeTotalSupply: null,
+						imageCacheMode: IMAGE_CACHE_MODE.Off,
+						imageCacheMaxDimension: null,
 						deploymentBlock: null,
 						status: 'completed',
 						anchorBlock: 24500000,
@@ -111,6 +114,8 @@ describe('BootstrapRunDetailView', () => {
 						manualTokenIdsJson: null,
 						manualRangeStartTokenId: null,
 						manualRangeTotalSupply: null,
+						imageCacheMode: IMAGE_CACHE_MODE.Off,
+						imageCacheMaxDimension: null,
 						deploymentBlock: null,
 						status: 'completed',
 						anchorBlock: 24500000,

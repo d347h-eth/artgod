@@ -513,6 +513,53 @@ default = "false"
 input = "checkbox"
 
 [[settings]]
+key = "COMMON_IPFS_GATEWAY_ORIGIN"
+group = "indexer"
+label = "common ipfs gateway origin"
+default = "https://ipfs.io"
+validation = "url"
+help = "HTTP origin used to resolve ipfs:// token metadata and media URLs."
+
+[[settings]]
+key = "COMMON_MEDIA_CACHE_DIR"
+group = "indexer"
+label = "common media cache dir"
+defaults = { local = "", deploy = "/data/media-cache/token-images", desktop = "" }
+help = "Optional token-image cache directory. Empty stores cached token images beside the SQLite database."
+
+[[settings]]
+key = "COMMON_HTTP_FETCH_TIMEOUT_MS"
+group = "indexer"
+label = "common http fetch timeout ms"
+default = "10000"
+help = "Per-attempt timeout for ordinary metadata and media HTTP fetches."
+validation = "positive_integer"
+
+[[settings]]
+key = "COMMON_HTTP_FETCH_RETRY_MAX_ATTEMPTS"
+group = "indexer"
+label = "common http fetch retry max attempts"
+default = "3"
+help = "Maximum attempts for ordinary metadata and media HTTP fetches."
+validation = "positive_integer"
+
+[[settings]]
+key = "COMMON_HTTP_FETCH_RETRY_BASE_DELAY_MS"
+group = "indexer"
+label = "common http fetch retry base delay ms"
+default = "250"
+help = "Initial exponential-backoff delay for ordinary metadata and media HTTP fetch retries."
+validation = "positive_integer"
+
+[[settings]]
+key = "COMMON_HTTP_FETCH_RETRY_MAX_DELAY_MS"
+group = "indexer"
+label = "common http fetch retry max delay ms"
+default = "2000"
+help = "Maximum exponential-backoff delay for ordinary metadata and media HTTP fetch retries."
+validation = "positive_integer"
+
+[[settings]]
 key = "NATS_URL"
 group = "queue"
 label = "nats url"
@@ -743,6 +790,27 @@ key = "BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS"
 group = "indexer"
 label = "bootstrap metadata retry max delay ms"
 defaults = { local = "1000", deploy = "3000", desktop = "1000" }
+view = "basic"
+
+[[settings]]
+key = "BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE"
+group = "indexer"
+label = "bootstrap image cache batch size"
+default = "50"
+view = "basic"
+
+[[settings]]
+key = "BOOTSTRAP_IMAGE_CACHE_CONCURRENCY"
+group = "indexer"
+label = "bootstrap image cache concurrency"
+default = "4"
+view = "basic"
+
+[[settings]]
+key = "BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES"
+group = "indexer"
+label = "bootstrap image cache max source bytes"
+default = "26214400"
 view = "basic"
 
 [[settings]]

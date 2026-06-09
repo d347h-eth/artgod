@@ -58,6 +58,14 @@ import {
     type TokenCandidates,
 } from "./token-candidates.js";
 
+const TOKEN_IMAGE_SELECT_SQL = "COALESCE(ic.public_path, m.image) AS image";
+const TOKEN_IMAGE_CACHE_JOIN_SQL =
+    "LEFT JOIN token_image_cache ic ON ic.chain_id = t.chain_id " +
+    "AND ic.collection_id = t.collection_id " +
+    "AND ic.token_id = t.token_id " +
+    "AND ic.public_path IS NOT NULL " +
+    "AND ic.source_image_url = m.image ";
+
 type CollectionRow = {
     chain_id: number;
     collection_id: number;
@@ -342,11 +350,12 @@ export class SqliteCollectionsReadModel {
         collectionId: number;
         tokenId: string;
     }>(
-        "SELECT t.token_id, m.image, m.animation_url " +
+        `SELECT t.token_id, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url ` +
             "FROM tokens t " +
             "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
             "AND m.collection_id = t.collection_id " +
             "AND m.token_id = t.token_id " +
+            TOKEN_IMAGE_CACHE_JOIN_SQL +
             "WHERE t.chain_id = @chainId AND t.collection_id = @collectionId AND t.token_id = @tokenId " +
             "LIMIT 1",
     );
@@ -559,12 +568,13 @@ export class SqliteCollectionsReadModel {
         }
 
         const sql =
-            "SELECT t.token_id, m.name, m.image, NULL AS listing_price, NULL AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at " +
+            `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, NULL AS listing_price, NULL AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at ` +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
             "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
             "AND m.collection_id = t.collection_id " +
             "AND m.token_id = t.token_id " +
+            TOKEN_IMAGE_CACHE_JOIN_SQL +
             `WHERE ${whereClauses.join(" AND ")} ` +
             `ORDER BY ${TOKEN_ORDER_BY_ASC_SQL} ` +
             "LIMIT ?";
@@ -759,7 +769,7 @@ export class SqliteCollectionsReadModel {
         const totalCountSelect =
             cursorKey === null ? ", COUNT(*) OVER () AS total_count " : " ";
         const sql =
-            "SELECT t.token_id, m.name, m.image, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at" +
+            `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at` +
             totalCountSelect +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
@@ -769,6 +779,7 @@ export class SqliteCollectionsReadModel {
             "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
             "AND m.collection_id = t.collection_id " +
             "AND m.token_id = t.token_id " +
+            TOKEN_IMAGE_CACHE_JOIN_SQL +
             `WHERE ${whereClauses.join(" AND ")} ` +
             `ORDER BY ${LISTED_ORDER_BY_ASC_SQL} ` +
             "LIMIT ?";
@@ -969,7 +980,7 @@ export class SqliteCollectionsReadModel {
         }
 
         const sql =
-            "SELECT t.token_id, m.name, m.image, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at " +
+            `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at ` +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
             `LEFT JOIN (${listingSql}) l ` +
@@ -978,6 +989,7 @@ export class SqliteCollectionsReadModel {
             "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
             "AND m.collection_id = t.collection_id " +
             "AND m.token_id = t.token_id " +
+            TOKEN_IMAGE_CACHE_JOIN_SQL +
             `WHERE ${whereClauses.join(" AND ")} ` +
             `ORDER BY ${LISTED_THEN_UNLISTED_ORDER_BY_ASC_SQL} ` +
             "LIMIT ?";
@@ -1607,11 +1619,12 @@ export class SqliteCollectionsReadModel {
 
         return db.raw
             .prepare(
-                "SELECT t.token_id, m.name, m.image, m.animation_url, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at " +
+                `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at ` +
                     "FROM tokens t " +
                     "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
                     "AND m.collection_id = t.collection_id " +
                     "AND m.token_id = t.token_id " +
+                    TOKEN_IMAGE_CACHE_JOIN_SQL +
                     `LEFT JOIN (${listingSql}) l ` +
                     "ON l.collection_id = t.collection_id " +
                     "AND l.token_id = t.token_id " +
@@ -1653,7 +1666,7 @@ export class SqliteCollectionsReadModel {
         const placeholders = tokenIds.map(() => "?").join(", ");
         const rows = db.raw
             .prepare(
-                "SELECT t.token_id, m.name, m.image, " +
+                `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, ` +
                     (includeListings
                         ? "l.price AS listing_price, l.currency AS listing_currency, "
                         : "NULL AS listing_price, NULL AS listing_currency, ") +
@@ -1665,6 +1678,7 @@ export class SqliteCollectionsReadModel {
                     "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
                     "AND m.collection_id = t.collection_id " +
                     "AND m.token_id = t.token_id " +
+                    TOKEN_IMAGE_CACHE_JOIN_SQL +
                     "WHERE t.chain_id = ? AND t.collection_id = ? " +
                     `AND t.token_id IN (${placeholders})`,
             )

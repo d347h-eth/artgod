@@ -9,12 +9,26 @@ import {
     type CollectionExtensionKey,
     type EmbeddedCollectionExtensionScope,
 } from "@artgod/shared/extensions";
+import {
+    COLLECTION_CUSTOMIZATION_SOURCE_KIND,
+    type CollectionCustomization,
+} from "@artgod/shared/types";
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 import type {
     BootstrapCommandQueuePort,
     BootstrapRunsWritePort,
     ChainRefResolverPort,
 } from "./ports.js";
+import {
+    BOOTSTRAP_MANUAL_RANGE_TOTAL_SUPPLY_LIMIT,
+    BOOTSTRAP_MANUAL_TOKEN_IDS_LIMIT,
+} from "./bootstrap-limits.js";
+import {
+    IMAGE_CACHE_MODE,
+    defaultImageCachePolicyConfig,
+    normalizeImageCachePolicyConfig,
+    type ImageCachePolicyConfig,
+} from "@artgod/shared/media/token-image-cache";
 
 export type EmbeddedCollectionExtensionResolveInput = {
     chainId: number;
@@ -26,6 +40,11 @@ export interface EmbeddedCollectionExtensionResolverPort {
     resolveExtensionKey(
         input: EmbeddedCollectionExtensionResolveInput,
     ): CollectionExtensionKey | null;
+    resolveImageCachePolicyConfig(input: {
+        chainId: number;
+        collectionId: number;
+        extensionKey: CollectionExtensionKey;
+    }): ImageCachePolicyConfig | null;
 }
 
 export class CreateBootstrapRunUseCase {
@@ -35,6 +54,14 @@ export class CreateBootstrapRunUseCase {
         private readonly chainRefResolverPort: ChainRefResolverPort,
         private readonly bootstrapRunsPort: BootstrapRunsWritePort,
         private readonly embeddedExtensionResolverPort: EmbeddedCollectionExtensionResolverPort,
+        private readonly collectionCustomizationPort: {
+            updateImageCachePolicyState(params: {
+                chainId: number;
+                collectionId: number;
+                selectedSource: CollectionCustomization["imageCachePolicy"]["selectedSource"];
+                userConfig: ImageCachePolicyConfig;
+            }): CollectionCustomization["imageCachePolicy"];
+        },
         private readonly bootstrapQueuePort: BootstrapCommandQueuePort,
     ) {}
 
@@ -62,6 +89,7 @@ export class CreateBootstrapRunUseCase {
             input.supportsEnumerable,
             input.manualInput,
         );
+        const userImageCache = resolveImageCacheInput(input.imageCache);
         const requestExtensionKey = resolveRequestedExtensionKey(
             this.embeddedExtensionResolverPort,
             chain.publicChainId,
@@ -121,6 +149,25 @@ export class CreateBootstrapRunUseCase {
             );
         }
 
+        const imageCache = resolveEffectiveImageCacheConfig({
+            chainId: chain.publicChainId,
+            collectionId: collection.collectionId,
+            requestExtensionKey,
+            userImageCache,
+            embeddedExtensionResolverPort: this.embeddedExtensionResolverPort,
+        });
+        if (
+            imageCache.selectedSource ===
+            COLLECTION_CUSTOMIZATION_SOURCE_KIND.User
+        ) {
+            this.collectionCustomizationPort.updateImageCachePolicyState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+                selectedSource: imageCache.selectedSource,
+                userConfig: userImageCache,
+            });
+        }
+
         const run = this.bootstrapRunsPort.createRun({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
@@ -134,6 +181,8 @@ export class CreateBootstrapRunUseCase {
             manualTokenIdsJson: enumeration.manualTokenIdsJson,
             manualRangeStartTokenId: enumeration.manualRangeStartTokenId,
             manualRangeTotalSupply: enumeration.manualRangeTotalSupply,
+            imageCacheMode: imageCache.effectiveConfig.imageCacheMode,
+            imageCacheMaxDimension: imageCache.effectiveConfig.maxDimension,
             deploymentBlock: input.deploymentBlock ?? null,
         });
 
@@ -177,6 +226,62 @@ export class CreateBootstrapRunUseCase {
             createdAt,
         };
     }
+}
+
+function resolveImageCacheInput(
+    input: CreateBootstrapRunInput["imageCache"],
+): ImageCachePolicyConfig {
+    if (!input) {
+        return defaultImageCachePolicyConfig();
+    }
+    if (
+        input.imageCacheMode === IMAGE_CACHE_MODE.Off &&
+        input.maxDimension !== null
+    ) {
+        return {
+            imageCacheMode: IMAGE_CACHE_MODE.Off,
+            maxDimension: null,
+        };
+    }
+    const normalized = normalizeImageCachePolicyConfig(input);
+    if (normalized.imageCacheMode !== input.imageCacheMode) {
+        throw new BootstrapValidationError("Invalid image cache mode");
+    }
+    if (normalized.maxDimension !== input.maxDimension) {
+        throw new BootstrapValidationError("Invalid image cache dimension");
+    }
+    return normalized;
+}
+
+function resolveEffectiveImageCacheConfig(input: {
+    chainId: number;
+    collectionId: number;
+    requestExtensionKey: CollectionExtensionKey | null;
+    userImageCache: ImageCachePolicyConfig;
+    embeddedExtensionResolverPort: EmbeddedCollectionExtensionResolverPort;
+}): {
+    selectedSource: CollectionCustomization["imageCachePolicy"]["selectedSource"];
+    effectiveConfig: ImageCachePolicyConfig;
+} {
+    if (input.requestExtensionKey) {
+        const extensionConfig =
+            input.embeddedExtensionResolverPort.resolveImageCachePolicyConfig({
+                chainId: input.chainId,
+                collectionId: input.collectionId,
+                extensionKey: input.requestExtensionKey,
+            });
+        if (extensionConfig) {
+            return {
+                selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
+                effectiveConfig: extensionConfig,
+            };
+        }
+    }
+
+    return {
+        selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+        effectiveConfig: input.userImageCache,
+    };
 }
 
 function assertOpenSeaSlugIsAllowed(
@@ -323,7 +428,7 @@ function resolveEnumerationInput(
                 "Token IDs list cannot be empty",
             );
         }
-        if (manualInput.tokenIds.length > 50_000) {
+        if (manualInput.tokenIds.length > BOOTSTRAP_MANUAL_TOKEN_IDS_LIMIT) {
             throw new BootstrapValidationError("Token IDs list is too large");
         }
         const normalized = manualInput.tokenIds.map((tokenId) =>
@@ -348,7 +453,7 @@ function resolveEnumerationInput(
             "totalSupply must be a positive integer",
         );
     }
-    if (totalSupply > 1_000_000) {
+    if (totalSupply > BOOTSTRAP_MANUAL_RANGE_TOTAL_SUPPLY_LIMIT) {
         throw new BootstrapValidationError("totalSupply is too large");
     }
     return {

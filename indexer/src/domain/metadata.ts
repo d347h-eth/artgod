@@ -21,6 +21,7 @@ export type MetadataUpdatedToken = {
     collectionId: number;
     contract: string;
     tokenId: string;
+    image: string | null;
 };
 
 export type MetadataDomainSyncResult = {

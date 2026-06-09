@@ -4,6 +4,14 @@ import type {
     CreateBootstrapRunInput,
     CreateBootstrapRunOutput,
 } from "../../../application/use-cases/bootstrap/types.js";
+import {
+    BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
+    BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION,
+} from "@artgod/shared/config/bootstrap";
+import {
+    IMAGE_CACHE_MODE,
+    type ImageCacheMode,
+} from "@artgod/shared/media/token-image-cache";
 
 export type CreateBootstrapRunRoute = {
     Params: {
@@ -21,6 +29,10 @@ export type CreateBootstrapRunRoute = {
             tokenIds?: unknown;
             startTokenId?: unknown;
             totalSupply?: unknown;
+        };
+        imageCache?: {
+            imageCacheMode?: unknown;
+            maxDimension?: unknown;
         };
         deploymentBlock?: number;
     };
@@ -62,6 +74,7 @@ export class CreateBootstrapRunHttpAdapter {
         }
 
         const manualInput = parseManualInput(body.manualInput);
+        const imageCache = parseImageCacheInput(body.imageCache);
         const deploymentBlock = parseOptionalPositiveInteger(
             body.deploymentBlock,
             "deploymentBlock",
@@ -76,6 +89,7 @@ export class CreateBootstrapRunHttpAdapter {
             metadataMode: metadataMode as "strict" | "best_effort",
             supportsEnumerable,
             manualInput,
+            imageCache,
             deploymentBlock: deploymentBlock ?? undefined,
         };
     }
@@ -114,6 +128,63 @@ function parseOptionalPositiveInteger(
         );
     }
     return Number(value);
+}
+
+function parseImageCacheInput(
+    value: unknown,
+): CreateBootstrapRunInput["imageCache"] {
+    if (value === undefined || value === null) {
+        return undefined;
+    }
+    if (!value || typeof value !== "object") {
+        throw new ReadModelBadRequestError("imageCache must be an object");
+    }
+    const source = value as {
+        imageCacheMode?: unknown;
+        maxDimension?: unknown;
+    };
+    const imageCacheMode = parseImageCacheMode(source.imageCacheMode);
+    if (imageCacheMode === IMAGE_CACHE_MODE.Off) {
+        if (source.maxDimension !== undefined && source.maxDimension !== null) {
+            throw new ReadModelBadRequestError(
+                "imageCache.maxDimension must be null when image cache mode is off",
+            );
+        }
+        return {
+            imageCacheMode,
+            maxDimension: null,
+        };
+    }
+    if (source.maxDimension === null) {
+        return {
+            imageCacheMode,
+            maxDimension: null,
+        };
+    }
+    if (
+        !Number.isInteger(source.maxDimension) ||
+        Number(source.maxDimension) < BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION ||
+        Number(source.maxDimension) > BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION
+    ) {
+        throw new ReadModelBadRequestError(
+            "imageCache.maxDimension is invalid",
+        );
+    }
+    return {
+        imageCacheMode,
+        maxDimension: Number(source.maxDimension),
+    };
+}
+
+function parseImageCacheMode(value: unknown): ImageCacheMode {
+    if (
+        value === IMAGE_CACHE_MODE.Off ||
+        value === IMAGE_CACHE_MODE.CacheOnce ||
+        value === IMAGE_CACHE_MODE.RefreshOnMetadata
+    ) {
+        return value;
+    }
+    throw new ReadModelBadRequestError("imageCache.imageCacheMode is invalid");
 }
 
 function parseManualInput(

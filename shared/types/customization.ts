@@ -1,3 +1,11 @@
+import {
+    defaultImageCachePolicyConfig,
+    normalizeImageCachePolicyConfig,
+    type ImageCachePolicyConfig,
+} from "../media/token-image-cache.js";
+
+export type { ImageCachePolicyConfig } from "../media/token-image-cache.js";
+
 export const COLLECTION_CUSTOMIZATION_SOURCE_KIND = {
     User: "user",
     Extension: "extension",
@@ -10,6 +18,7 @@ export const COLLECTION_CUSTOMIZATION_FEATURE_KEY = {
     TraitFilterPresentation: "trait_filter_presentation",
     TokenCardTraitSummaryTemplate: "token_card_trait_summary_template",
     ActivityRowTraitSummaryTemplate: "activity_row_trait_summary_template",
+    ImageCachePolicy: "image_cache_policy",
 } as const;
 
 export type CollectionCustomizationFeatureKey =
@@ -46,10 +55,18 @@ export type TraitSummaryTemplateFeatureState = {
     effectiveConfig: TraitSummaryTemplateConfig;
 };
 
+export type ImageCachePolicyFeatureState = {
+    selectedSource: CollectionCustomizationSourceKind;
+    userConfig: ImageCachePolicyConfig;
+    extensionConfig: ImageCachePolicyConfig | null;
+    effectiveConfig: ImageCachePolicyConfig;
+};
+
 export type CollectionCustomization = {
     traitFilterPresentation: TraitFilterPresentationFeatureState;
     tokenCardTraitSummaryTemplate: TraitSummaryTemplateFeatureState;
     activityRowTraitSummaryTemplate: TraitSummaryTemplateFeatureState;
+    imageCachePolicy: ImageCachePolicyFeatureState;
 };
 
 export function defaultTraitFilterPresentationConfig(): TraitFilterPresentationConfig {
@@ -80,6 +97,38 @@ export function normalizeTraitSummaryTemplateConfig(
 
     const trimmed = input.template.trim();
     return { template: trimmed };
+}
+
+export function defaultImageCachePolicyFeatureConfig(): ImageCachePolicyConfig {
+    return defaultImageCachePolicyConfig();
+}
+
+export function normalizeImageCachePolicyFeatureConfig(
+    input: ImageCachePolicyConfig | null | undefined,
+): ImageCachePolicyConfig {
+    return normalizeImageCachePolicyConfig(input);
+}
+
+// Resolves whether user or extension customization config should be active.
+export function resolveCollectionCustomizationSelectedSource(params: {
+    requestedSource: CollectionCustomizationSourceKind | null;
+    hasExtensionConfig: boolean;
+}): CollectionCustomizationSourceKind {
+    if (
+        params.requestedSource === COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension
+    ) {
+        return params.hasExtensionConfig
+            ? COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension
+            : COLLECTION_CUSTOMIZATION_SOURCE_KIND.User;
+    }
+
+    if (params.requestedSource === COLLECTION_CUSTOMIZATION_SOURCE_KIND.User) {
+        return COLLECTION_CUSTOMIZATION_SOURCE_KIND.User;
+    }
+
+    return params.hasExtensionConfig
+        ? COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension
+        : COLLECTION_CUSTOMIZATION_SOURCE_KIND.User;
 }
 
 export function normalizeTraitKeyList(keys: string[] | null | undefined): string[] {

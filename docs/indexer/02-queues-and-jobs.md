@@ -18,6 +18,7 @@ Queue names are defined in `indexer/src/domain/queues.ts`:
 - `order-updates-by-maker`
 - `order-updates-by-id`
 - `collection-extension-artifacts`
+- `token-image-cache`
 - `metadata-domain`
 - `metadata-refresh`
 - `activity-domain`
@@ -192,6 +193,9 @@ Order update jobs are emitted by the sync worker whenever maker state changes (N
 
 - Collection extension jobs (`indexer/src/domain/collection-extension-jobs.ts`):
     - `collection-extension.refresh-artifacts`
+- Token image cache jobs (`shared/media/token-image-cache-jobs.ts`):
+    - `token-image-cache.refresh-token`
+    - `token-image-cache.refresh-collection`
 
 `bootstrap.collection.start` jobs are produced by future API/UI actions and consumed by the collection bootstrap worker runtime.
 `bootstrap.collection.backfill-check` jobs are produced by the bootstrap worker to verify short backfill completion before switching a collection to `live`.
@@ -212,6 +216,10 @@ These jobs are consumed by `collection-extension-worker` and carry:
 - optional `source`
 
 The dedicated queue keeps collection-specific artifact retries isolated from canonical metadata throughput.
+
+`token-image-cache.refresh-token` jobs are produced by `domain-worker` after metadata refresh when the collection image cache mode is `refresh_on_metadata`.
+
+`token-image-cache.refresh-collection` jobs are produced by the backend when a collection image cache policy switches to an active mode or changes max dimension. They are consumed by `domain-worker` in cursor pages and produce settled `token_image_cache` rows.
 
 OpenSea job production/consumption:
 

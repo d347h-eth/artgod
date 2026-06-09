@@ -3,6 +3,7 @@ import type { CreateBootstrapRunUseCase } from "./application/use-cases/bootstra
 import type { GetBootstrapRunDetailUseCase } from "./application/use-cases/bootstrap/get-bootstrap-run-detail.js";
 import type { GetBootstrapStatusUseCase } from "./application/use-cases/bootstrap/get-bootstrap-status.js";
 import type { ListBootstrapRunsUseCase } from "./application/use-cases/bootstrap/list-bootstrap-runs.js";
+import type { ProbeCollectionContractUseCase } from "./application/use-cases/bootstrap/probe-collection-contract.js";
 import type { RetryBootstrapRunFailedTasksUseCase } from "./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import type { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
 import type { GetRuntimeConfigUseCase } from "./application/use-cases/config/get-runtime-config.js";
@@ -50,6 +51,7 @@ import { CreateBootstrapRunHttpAdapter } from "./http/handlers/bootstrap/create-
 import { GetBootstrapRunDetailHttpAdapter } from "./http/handlers/bootstrap/get-bootstrap-run-detail.js";
 import { GetBootstrapStatusHttpAdapter } from "./http/handlers/bootstrap/get-bootstrap-status.js";
 import { ListBootstrapRunsHttpAdapter } from "./http/handlers/bootstrap/list-bootstrap-runs.js";
+import { ProbeCollectionContractHttpAdapter } from "./http/handlers/bootstrap/probe-collection-contract.js";
 import { RetryBootstrapRunFailedTasksHttpAdapter } from "./http/handlers/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import { GetDefaultChainHttpAdapter } from "./http/handlers/chains/get-default-chain.js";
 import { GetRuntimeConfigHttpAdapter } from "./http/handlers/config/get-runtime-config.js";
@@ -99,6 +101,7 @@ import {
     type BackendHttpObservability,
 } from "./http/common/observability.js";
 import { registerUserlandStaticRoutes } from "./http/common/userland-static.js";
+import { registerTokenImageCacheStaticRoutes } from "./http/common/token-image-cache-static.js";
 import { registerApiRoutes } from "./http-routes.js";
 import type {
     BackendDeploymentConfig,
@@ -124,6 +127,7 @@ type ScheduleSyncBackfillPort = {
 
 export function createApiApp(
     createBootstrapRunUseCase: CreateBootstrapRunUseCase,
+    probeCollectionContractUseCase: ProbeCollectionContractUseCase,
     listBootstrapRunsUseCase: ListBootstrapRunsUseCase,
     getBootstrapRunDetailUseCase: GetBootstrapRunDetailUseCase,
     getBootstrapStatusUseCase: GetBootstrapStatusUseCase,
@@ -162,6 +166,7 @@ export function createApiApp(
     archiveTokenBiddingJobUseCase: ArchiveTokenBiddingJobUseCase,
     archiveCollectionBiddingPriceTierUseCase: ArchiveCollectionBiddingPriceTierUseCase,
     getRuntimeHealthUseCase: GetRuntimeHealthUseCase,
+    tokenImageCacheDir: string,
     userlandUiDistDir: string | null,
     securityConfig: BackendSecurityConfig,
     deploymentConfig: BackendDeploymentConfig,
@@ -178,6 +183,8 @@ export function createApiApp(
     const createBootstrapRunAdapter = new CreateBootstrapRunHttpAdapter(
         createBootstrapRunUseCase,
     );
+    const probeCollectionContractAdapter =
+        new ProbeCollectionContractHttpAdapter(probeCollectionContractUseCase);
     const listBootstrapRunsAdapter = new ListBootstrapRunsHttpAdapter(
         listBootstrapRunsUseCase,
     );
@@ -332,6 +339,7 @@ export function createApiApp(
         commonHandlers,
         issueCsrfTokenHandler,
         createBootstrapRunAdapter,
+        probeCollectionContractAdapter,
         listBootstrapRunsAdapter,
         getBootstrapRunDetailAdapter,
         getBootstrapStatusAdapter,
@@ -382,6 +390,7 @@ export function createApiApp(
             observability,
         },
     );
+    registerTokenImageCacheStaticRoutes(app, tokenImageCacheDir);
     if (userlandUiDistDir) {
         registerUserlandStaticRoutes(app, userlandUiDistDir);
     }

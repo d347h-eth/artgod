@@ -19,6 +19,7 @@ import {
     TERRAFORMS_SEED,
 } from "@artgod/shared/extensions/terraforms";
 import type { CollectionExtensionInstall } from "@artgod/shared/extensions";
+import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import { logger } from "@artgod/shared/utils";
 import { decodeEventLog, encodeEventTopics } from "viem";
 import type {
@@ -285,6 +286,12 @@ const MODE_TO_STATUS: Record<string, TerraformsStatus> = {
 
 export const terraformsIndexerExtension: IndexerCollectionExtension = {
     key: TERRAFORMS_EXTENSION_KEY,
+    resolveImageCachePolicyConfig() {
+        return {
+            imageCacheMode: IMAGE_CACHE_MODE.Off,
+            maxDimension: null,
+        };
+    },
     buildSyncWatchSpecs(install: CollectionExtensionInstall) {
         const config = parseTerraformsExtensionConfig(install.configJson);
         return [
