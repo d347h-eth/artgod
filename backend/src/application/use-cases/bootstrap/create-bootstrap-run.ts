@@ -11,7 +11,8 @@ import {
 } from "@artgod/shared/extensions";
 import {
     COLLECTION_CUSTOMIZATION_SOURCE_KIND,
-    type CollectionCustomization,
+    type CollectionCustomizationSourceKind,
+    type ImageCachePolicyFeatureState,
 } from "@artgod/shared/types";
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 import type {
@@ -40,11 +41,6 @@ export interface EmbeddedCollectionExtensionResolverPort {
     resolveExtensionKey(
         input: EmbeddedCollectionExtensionResolveInput,
     ): CollectionExtensionKey | null;
-    resolveImageCachePolicyConfig(input: {
-        chainId: number;
-        collectionId: number;
-        extensionKey: CollectionExtensionKey;
-    }): ImageCachePolicyConfig | null;
 }
 
 export class CreateBootstrapRunUseCase {
@@ -58,9 +54,9 @@ export class CreateBootstrapRunUseCase {
             updateImageCachePolicyState(params: {
                 chainId: number;
                 collectionId: number;
-                selectedSource: CollectionCustomization["imageCachePolicy"]["selectedSource"];
+                selectedSource: CollectionCustomizationSourceKind;
                 userConfig: ImageCachePolicyConfig;
-            }): CollectionCustomization["imageCachePolicy"];
+            }): ImageCachePolicyFeatureState;
         },
         private readonly bootstrapQueuePort: BootstrapCommandQueuePort,
     ) {}
@@ -89,7 +85,7 @@ export class CreateBootstrapRunUseCase {
             input.supportsEnumerable,
             input.manualInput,
         );
-        const userImageCache = resolveImageCacheInput(input.imageCache);
+        const requestImageCache = resolveImageCacheInput(input.imageCache);
         const requestExtensionKey = resolveRequestedExtensionKey(
             this.embeddedExtensionResolverPort,
             chain.publicChainId,
@@ -149,22 +145,19 @@ export class CreateBootstrapRunUseCase {
             );
         }
 
-        const imageCache = resolveEffectiveImageCacheConfig({
-            chainId: chain.publicChainId,
-            collectionId: collection.collectionId,
+        assertImageCacheSourceMatchesExtension(
+            requestImageCache.selectedSource,
             requestExtensionKey,
-            userImageCache,
-            embeddedExtensionResolverPort: this.embeddedExtensionResolverPort,
-        });
+        );
         if (
-            imageCache.selectedSource ===
+            requestImageCache.selectedSource ===
             COLLECTION_CUSTOMIZATION_SOURCE_KIND.User
         ) {
             this.collectionCustomizationPort.updateImageCachePolicyState({
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,
-                selectedSource: imageCache.selectedSource,
-                userConfig: userImageCache,
+                selectedSource: requestImageCache.selectedSource,
+                userConfig: requestImageCache.config,
             });
         }
 
@@ -181,8 +174,8 @@ export class CreateBootstrapRunUseCase {
             manualTokenIdsJson: enumeration.manualTokenIdsJson,
             manualRangeStartTokenId: enumeration.manualRangeStartTokenId,
             manualRangeTotalSupply: enumeration.manualRangeTotalSupply,
-            imageCacheMode: imageCache.effectiveConfig.imageCacheMode,
-            imageCacheMaxDimension: imageCache.effectiveConfig.maxDimension,
+            imageCacheMode: requestImageCache.config.imageCacheMode,
+            imageCacheMaxDimension: requestImageCache.config.maxDimension,
             deploymentBlock: input.deploymentBlock ?? null,
         });
 
@@ -228,19 +221,30 @@ export class CreateBootstrapRunUseCase {
     }
 }
 
+type ResolvedBootstrapImageCache = {
+    selectedSource: CollectionCustomizationSourceKind;
+    config: ImageCachePolicyConfig;
+};
+
 function resolveImageCacheInput(
     input: CreateBootstrapRunInput["imageCache"],
-): ImageCachePolicyConfig {
+): ResolvedBootstrapImageCache {
     if (!input) {
-        return defaultImageCachePolicyConfig();
+        return {
+            selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+            config: defaultImageCachePolicyConfig(),
+        };
     }
     if (
         input.imageCacheMode === IMAGE_CACHE_MODE.Off &&
         input.maxDimension !== null
     ) {
         return {
-            imageCacheMode: IMAGE_CACHE_MODE.Off,
-            maxDimension: null,
+            selectedSource: input.selectedSource,
+            config: {
+                imageCacheMode: IMAGE_CACHE_MODE.Off,
+                maxDimension: null,
+            },
         };
     }
     const normalized = normalizeImageCachePolicyConfig(input);
@@ -250,38 +254,24 @@ function resolveImageCacheInput(
     if (normalized.maxDimension !== input.maxDimension) {
         throw new BootstrapValidationError("Invalid image cache dimension");
     }
-    return normalized;
+    return {
+        selectedSource: input.selectedSource,
+        config: normalized,
+    };
 }
 
-function resolveEffectiveImageCacheConfig(input: {
-    chainId: number;
-    collectionId: number;
-    requestExtensionKey: CollectionExtensionKey | null;
-    userImageCache: ImageCachePolicyConfig;
-    embeddedExtensionResolverPort: EmbeddedCollectionExtensionResolverPort;
-}): {
-    selectedSource: CollectionCustomization["imageCachePolicy"]["selectedSource"];
-    effectiveConfig: ImageCachePolicyConfig;
-} {
-    if (input.requestExtensionKey) {
-        const extensionConfig =
-            input.embeddedExtensionResolverPort.resolveImageCachePolicyConfig({
-                chainId: input.chainId,
-                collectionId: input.collectionId,
-                extensionKey: input.requestExtensionKey,
-            });
-        if (extensionConfig) {
-            return {
-                selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
-                effectiveConfig: extensionConfig,
-            };
-        }
+function assertImageCacheSourceMatchesExtension(
+    selectedSource: CollectionCustomizationSourceKind,
+    requestExtensionKey: CollectionExtensionKey | null,
+): void {
+    if (
+        selectedSource === COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension &&
+        !requestExtensionKey
+    ) {
+        throw new BootstrapValidationError(
+            "Image cache extension source requires an embedded extension match",
+        );
     }
-
-    return {
-        selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
-        effectiveConfig: input.userImageCache,
-    };
 }
 
 function assertOpenSeaSlugIsAllowed(

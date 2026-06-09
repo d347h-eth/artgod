@@ -22,6 +22,7 @@ import type {
 	CollectionTraitCatalogApiResponse,
 	CollectionsApiResponse,
 	DefaultChainResponse,
+	ApiCollectionCustomizationSource,
 	ApiImageCacheMode,
 	OwnerRefResolutionApiResponse,
 	RuntimeConfigApiResponse,
@@ -715,6 +716,7 @@ export async function createBootstrapRun(
 					totalSupply: number;
 		};
 		imageCache?: {
+			selectedSource: ApiCollectionCustomizationSource;
 			imageCacheMode: ApiImageCacheMode;
 			maxDimension: number | null;
 		};

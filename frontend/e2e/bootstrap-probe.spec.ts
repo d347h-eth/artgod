@@ -1,6 +1,7 @@
 import { expect, test, type Page, type TestInfo } from 'playwright/test';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import { TERRAFORMS_EXTENSION_KEY } from '@artgod/shared/extensions/terraforms';
+import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 import { TEST_IDS } from '../src/lib/test-ids';
 import {
 	attachDiagnosticsForTestFailure,
@@ -75,7 +76,7 @@ test.describe('bootstrap contract probe UI', () => {
 			}
 		});
 
-		await installBootstrapProbeApiMock(page);
+		const api = await installBootstrapProbeApiMock(page);
 		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
 
 		const card = tokenCard(page, '0');
@@ -88,22 +89,38 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(formLabel(page, 'Cached image max dimension')).toHaveCount(0);
 		await expect(page.getByText('Card image field size (1 token)')).toBeVisible();
 		await expect(formRow(page, 'Image cache plan')).toContainText('cards use image field');
+		await page.getByRole('button', { name: 'queue bootstrap' }).click();
+		await expect.poll(() => api.mutations.length).toBe(1);
+		expect(api.mutations[0]?.body).toMatchObject({
+			imageCache: {
+				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+				imageCacheMode: IMAGE_CACHE_MODE.Off,
+				maxDimension: null
+			}
+		});
 		expect(dynamicRequests).toEqual([]);
 	});
 
 	test('renders enumerable onchain SVG image data with extension image cache off', async ({ page }) => {
-		await installBootstrapProbeApiMock(page);
+		const api = await installBootstrapProbeApiMock(page);
 		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableOnchainSvg);
 
 		const card = tokenCard(page, '1');
 		await expect(card).toBeVisible();
 		await expect(card.locator('img')).toHaveAttribute('src', BOOTSTRAP_PROBE_MEDIA.OnchainSvgImage);
 		await expect(page.locator('input[name="slug"]')).toHaveValue('terraforms');
-		await expect(rowControl(page, 'Image cache mode')).toHaveValue(IMAGE_CACHE_MODE.Off);
+		const imageCacheModeSelect = rowControl(page, 'Image cache mode');
+		await expect(imageCacheModeSelect).toHaveValue(IMAGE_CACHE_MODE.Off);
+		await expect(imageCacheModeSelect).toBeDisabled();
 		await expect(formLabel(page, 'Cached image max dimension')).toHaveCount(0);
 		await expect(formRow(page, 'Image cache policy source')).toContainText(
 			`extension-defined (${TERRAFORMS_EXTENSION_KEY})`
 		);
+		const manualEditing = page.locator(`[data-testid="${TEST_IDS.BootstrapAllowManualEditing}"]`);
+		await manualEditing.check();
+		await expect(imageCacheModeSelect).toBeEnabled();
+		await manualEditing.uncheck();
+		await expect(imageCacheModeSelect).toBeDisabled();
 		await expect(page.getByText('Est. card image field size (full collection)')).toBeVisible();
 
 		const imageSizeRow = formRow(page, 'Card image field size (1 token)');
@@ -112,6 +129,15 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(imageSizeRow.locator('.info-tooltip-popup')).toContainText(
 			'used directly when local cache is off'
 		);
+		await page.getByRole('button', { name: 'queue bootstrap' }).click();
+		await expect.poll(() => api.mutations.length).toBe(1);
+		expect(api.mutations[0]?.body).toMatchObject({
+			imageCache: {
+				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
+				imageCacheMode: IMAGE_CACHE_MODE.Off,
+				maxDimension: null
+			}
+		});
 	});
 });
 

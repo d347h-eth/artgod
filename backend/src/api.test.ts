@@ -48,6 +48,8 @@ import {
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_TARGET_KIND,
     TRADING_JOB_STATUS,
+    COLLECTION_CUSTOMIZATION_FEATURE_KEY,
+    COLLECTION_CUSTOMIZATION_SOURCE_KIND,
 } from "@artgod/shared/types";
 import type { BackendSecurityConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
@@ -4032,6 +4034,11 @@ describe("backend api routes", () => {
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
+                imageCache: {
+                    selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+                    imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+                    maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
+                },
             },
             {
                 host: "127.0.0.1:42710",
@@ -4112,6 +4119,11 @@ describe("backend api routes", () => {
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
+                imageCache: {
+                    selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+                    imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+                    maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
+                },
             },
             {
                 host: "127.0.0.1:42710",
@@ -4194,6 +4206,11 @@ describe("backend api routes", () => {
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
+                imageCache: {
+                    selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
+                    imageCacheMode: IMAGE_CACHE_MODE.Off,
+                    maxDimension: null,
+                },
             },
             {
                 host: "127.0.0.1:42710",
@@ -4208,11 +4225,76 @@ describe("backend api routes", () => {
         const row = db
             .prepare<
                 [number]
-            >("SELECT request_extension_key FROM bootstrap_runs WHERE run_id = ? LIMIT 1")
+            >("SELECT request_extension_key, request_image_cache_mode, request_image_cache_max_dimension FROM bootstrap_runs WHERE run_id = ? LIMIT 1")
             .get(create.payload.runId) as
-            | { request_extension_key: string | null }
+            | {
+                  request_extension_key: string | null;
+                  request_image_cache_mode: string | null;
+                  request_image_cache_max_dimension: number | null;
+              }
             | undefined;
         expect(row?.request_extension_key).toBe(TERRAFORMS_EXTENSION_KEY);
+        expect(row?.request_image_cache_mode).toBe(IMAGE_CACHE_MODE.Off);
+        expect(row?.request_image_cache_max_dimension).toBeNull();
+
+        const customizationRow = db
+            .prepare<
+                [number, number, string]
+            >("SELECT selected_source FROM collection_customization_features WHERE chain_id = ? AND collection_id = ? AND feature_key = ? LIMIT 1")
+            .get(
+                1,
+                create.payload.collectionId,
+                COLLECTION_CUSTOMIZATION_FEATURE_KEY.ImageCachePolicy,
+            ) as { selected_source: string | null } | undefined;
+        expect(customizationRow).toBeUndefined();
+
+        db.prepare<[number]>(
+            "UPDATE bootstrap_runs SET status = 'completed', finished_at = CURRENT_TIMESTAMP WHERE run_id = ?",
+        ).run(create.payload.runId);
+
+        const userOverride = await resolve(
+            "POST",
+            "/api/ethereum/collections/bootstrap",
+            {
+                slug: "terraforms-embedded-extension",
+                address: EMBEDDED_TERRAFORMS_MAIN_ADDRESS,
+                standard: "erc721",
+                metadataMode: "best_effort",
+                supportsEnumerable: true,
+                imageCache: {
+                    selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+                    imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+                    maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
+                },
+            },
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(userOverride.statusCode).toBe(200);
+
+        const userCustomizationRow = db
+            .prepare<
+                [number, number, string]
+            >("SELECT selected_source, user_config_json FROM collection_customization_features WHERE chain_id = ? AND collection_id = ? AND feature_key = ? LIMIT 1")
+            .get(
+                1,
+                userOverride.payload.collectionId,
+                COLLECTION_CUSTOMIZATION_FEATURE_KEY.ImageCachePolicy,
+            ) as
+            | { selected_source: string | null; user_config_json: string }
+            | undefined;
+        expect(userCustomizationRow?.selected_source).toBe(
+            COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+        );
+        expect(JSON.parse(userCustomizationRow?.user_config_json ?? "{}")).toEqual({
+            imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+            maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
+        });
     });
 
     it("lists bootstrap runs and returns run detail", async () => {

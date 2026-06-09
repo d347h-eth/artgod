@@ -1,6 +1,7 @@
 import type { ChainRecord } from "@artgod/shared/types/browse";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import type { ImageCacheMode } from "@artgod/shared/media/token-image-cache";
+import type { CollectionCustomizationSourceKind } from "@artgod/shared/types";
 
 export type BootstrapMetadataMode = "strict" | "best_effort";
 
@@ -30,6 +31,7 @@ export type CreateBootstrapRunInput = {
     supportsEnumerable: boolean;
     manualInput?: BootstrapManualInput;
     imageCache?: {
+        selectedSource: CollectionCustomizationSourceKind;
         imageCacheMode: ImageCacheMode;
         maxDimension: number | null;
     };

@@ -148,6 +148,13 @@
 	let probeControlledDisabled = $derived(
 		probeStatus === 'ready' && probeResult !== null && latestProbeMatchesAddress && !manualEditingAllowed
 	);
+	let imageCacheExtensionControlledDisabled = $derived(
+		probeStatus === 'ready' &&
+			probeResult !== null &&
+			latestProbeMatchesAddress &&
+			imageCachePolicySource === COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension &&
+			!manualEditingAllowed
+	);
 	let firstTokenCard = $derived(firstTokenPreviewCard());
 
 	$effect(() => {
@@ -511,6 +518,7 @@
 				supportsEnumerable,
 				manualInput,
 				imageCache: {
+					selectedSource: imageCachePolicySource,
 					imageCacheMode,
 					maxDimension:
 						imageCacheMode === IMAGE_CACHE_MODE.Off ? null : imageCacheMaxDimensionValue
@@ -725,6 +733,7 @@
 							value={imageCacheMode}
 							class={`${bootstrapSelectClass} bootstrap-input-select-medium`}
 							onchange={onImageCacheModeChange}
+							disabled={imageCacheExtensionControlledDisabled}
 						>
 							<option value={IMAGE_CACHE_MODE.Off}>off</option>
 							<option value={IMAGE_CACHE_MODE.CacheOnce}>cache once</option>
@@ -741,6 +750,7 @@
 								min={BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION}
 								max={BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION}
 								oninput={onImageCacheMaxDimensionInput}
+								disabled={imageCacheExtensionControlledDisabled}
 							/>
 						</label>
 					{/if}
