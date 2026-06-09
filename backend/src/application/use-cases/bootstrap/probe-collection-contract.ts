@@ -81,6 +81,7 @@ export type ProbeCollectionContractOutput = {
     chain: ChainRecord;
     address: string;
     standard: "erc721";
+    contractName: string | null;
     erc721: BootstrapProbeInterfaceCheck;
     enumerable: BootstrapProbeInterfaceCheck;
     totalSupply: BootstrapProbeTotalSupply;

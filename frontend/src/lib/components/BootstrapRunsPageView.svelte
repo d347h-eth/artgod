@@ -24,6 +24,7 @@
 	import {
 		bootstrapProbeFormPatch,
 		bootstrapProbeStatusLabel,
+		contractNameToBootstrapSlug,
 		formatByteSize,
 		isBootstrapProbeableAddress,
 		normalizeBootstrapAddress
@@ -71,14 +72,15 @@
 	const bootstrapFieldHelp = {
 		address: 'ERC721 contract address to probe and bootstrap.',
 		slug: 'Local collection slug used in ArtGod URLs.',
-		openseaSlug: 'Optional OpenSea collection slug for snapshot seeding.',
-		metadataMode: 'Best effort skips failed token metadata. Strict fails the run on metadata errors.',
+		openseaSlug:
+			'Required for bidding. OpenSea event streams and orderbook require the OpenSea collection slug.',
+		metadataMode:
+			'Best effort skips failed token metadata; best when centralized metadata is unreliable. Strict fails on metadata errors; best for onchain collections.',
 		probeStatus: 'Current backend contract probe result for this address.',
 		probeError: 'Probe failure returned by the backend.',
 		erc721Interface: 'ERC165 ERC721 support check.',
 		enumerableInterface: 'ERC165 ERC721Enumerable support check.',
 		contractTotalSupply: 'totalSupply() returned by the contract, when available.',
-		previewToken: 'Token selected by tokenByIndex or fallback token checks.',
 		tokenUriPayloadSize: 'Fetched tokenURI metadata payload size for the preview token.',
 		projectedTokenUriPayloadSize: 'Approximate metadata payload storage for the collection.',
 		originalImageFileSize: 'Fetched image file size from the tokenURI image property.',
@@ -95,6 +97,7 @@
 	} as const;
 
 	let bootstrapSlug = $state('');
+	let lastAutoFilledSlug = $state<string | null>(null);
 	let bootstrapAddress = $state('');
 	let bootstrapOpenSeaSlug = $state('');
 	let metadataMode = $state<'best_effort' | 'strict'>('best_effort');
@@ -197,6 +200,11 @@
 
 	function applyProbeResult(result: BootstrapContractProbeApiResponse): void {
 		const patch = bootstrapProbeFormPatch(result);
+		const slugSuggestion = contractNameToBootstrapSlug(result.contractName);
+		if (slugSuggestion && (!bootstrapSlug.trim() || bootstrapSlug === lastAutoFilledSlug)) {
+			bootstrapSlug = slugSuggestion;
+			lastAutoFilledSlug = slugSuggestion;
+		}
 		supportsEnumerable = patch.supportsEnumerable;
 		if (patch.manualMode === 'manual_range') {
 			manualMode = 'manual_range';
@@ -239,13 +247,6 @@
 		const slug = normalizeFieldValue(bootstrapSlug).toLowerCase();
 		if (!slug) return '#';
 		return `/${chain.slug}/${slug}/${tokenId}`;
-	}
-
-	function firstTokenLabel(): string {
-		const tokenId = probeResult?.firstToken.tokenId;
-		if (!tokenId) return '-';
-		const name = probeResult?.firstToken.name;
-		return name ? `${tokenId} / ${name}` : tokenId;
 	}
 
 	function probeSubmitGuard(address: string): string | null {
@@ -532,29 +533,25 @@
 								<div class="mono">{probeResult.totalSupply.value ?? '-'}</div>
 							</div>
 							<div class="bootstrap-form-row">
-								{@render fieldLabel('Preview token', bootstrapFieldHelp.previewToken)}
-								<div class="mono">{firstTokenLabel()}</div>
-							</div>
-							<div class="bootstrap-form-row">
-								{@render fieldLabel('Metadata/tokenURI payload size', bootstrapFieldHelp.tokenUriPayloadSize)}
+								{@render fieldLabel('Metadata size (1 token)', bootstrapFieldHelp.tokenUriPayloadSize)}
 								<div class="mono">
 									{formatByteSize(probeResult.firstToken.tokenUriPayloadBytes)}
 								</div>
 							</div>
 							<div class="bootstrap-form-row">
-								{@render fieldLabel('Projected metadata/tokenURI total size', bootstrapFieldHelp.projectedTokenUriPayloadSize)}
+								{@render fieldLabel('Est. metadata size (full collection)', bootstrapFieldHelp.projectedTokenUriPayloadSize)}
 								<div class="mono">
 									{formatByteSize(probeResult.storageEstimate?.projectedBytes)}
 								</div>
 							</div>
 							<div class="bootstrap-form-row">
-								{@render fieldLabel('Original image file size', bootstrapFieldHelp.originalImageFileSize)}
+								{@render fieldLabel('Original image size (1 token)', bootstrapFieldHelp.originalImageFileSize)}
 								<div class="mono">
 									{formatByteSize(probeResult.firstToken.imageBytes)}
 								</div>
 							</div>
 							<div class="bootstrap-form-row">
-								{@render fieldLabel('Projected original image total size', bootstrapFieldHelp.projectedOriginalImageFileSize)}
+								{@render fieldLabel('Est. original images size (full collection)', bootstrapFieldHelp.projectedOriginalImageFileSize)}
 								<div class="mono">
 									{formatByteSize(probeResult.imageStorageEstimate?.projectedBytes)}
 								</div>

@@ -252,7 +252,7 @@ a:hover {
 
 .bootstrap-create-layout {
 	display: grid;
-	grid-template-columns: minmax(0, max-content) minmax(12rem, 16rem);
+	grid-template-columns: minmax(0, max-content) minmax(20rem, 25rem);
 	align-items: start;
 	gap: 1.35rem;
 	width: fit-content;
@@ -336,6 +336,10 @@ a:hover {
 	gap: 0.35rem;
 	min-width: 0;
 	max-width: 17.5rem;
+	line-height: 1.15;
+	font-size: 0.75rem;
+	text-transform: uppercase;
+	color: var(--c-sand);
 }
 
 .bootstrap-form-label-cell > span:first-child {
@@ -408,17 +412,13 @@ a:hover {
 .bootstrap-token-card-pane {
 	display: grid;
 	align-content: start;
-	width: min(16rem, 100%);
+	width: min(25rem, 100%);
 	max-width: 100%;
 }
 
 .bootstrap-probe-token-card {
-	width: min(16rem, 100%);
+	width: min(25rem, 100%);
 	max-width: 100%;
-}
-
-.bootstrap-probe-token-card .token-grid-media {
-	--token-grid-media-height: 15rem;
 }
 
 .bootstrap-manual-edit-control {
@@ -3949,7 +3949,7 @@ th {
 	}
 
 	.bootstrap-token-card-pane {
-		width: min(16rem, 100%);
+		width: min(25rem, 100%);
 	}
 
 	.facet-column {

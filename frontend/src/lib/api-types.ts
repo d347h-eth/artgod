@@ -232,6 +232,7 @@ export type BootstrapContractProbeApiResponse = {
 	chain: ApiChain;
 	address: string;
 	standard: 'erc721';
+	contractName: string | null;
 	erc721: ApiBootstrapProbeInterfaceCheck;
 	enumerable: ApiBootstrapProbeInterfaceCheck;
 	totalSupply: ApiBootstrapProbeTotalSupply;

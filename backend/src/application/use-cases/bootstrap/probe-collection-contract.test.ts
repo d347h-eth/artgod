@@ -13,6 +13,7 @@ const CHAIN = {
 describe("ProbeCollectionContractUseCase", () => {
     it("marks enumerable contracts ready without manual input", async () => {
         const useCase = makeUseCase({
+            contractName: "Example Collection",
             enumerable: {
                 supported: true,
                 error: null,
@@ -49,6 +50,7 @@ describe("ProbeCollectionContractUseCase", () => {
             standard: "erc721",
         });
 
+        expect(result.contractName).toBe("Example Collection");
         expect(result.suggestedInput).toEqual({
             supportsEnumerable: true,
             manualInput: null,
@@ -131,6 +133,7 @@ describe("ProbeCollectionContractUseCase", () => {
 
 function makeUseCase(overrides: Partial<CollectionContractProbeResult>) {
     const probe: CollectionContractProbeResult = {
+        contractName: null,
         erc721: {
             supported: true,
             error: null,

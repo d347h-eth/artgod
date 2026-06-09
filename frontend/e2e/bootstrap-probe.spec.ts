@@ -31,12 +31,16 @@ test.describe('bootstrap contract probe UI', () => {
 
 		const card = tokenCard(page, '1');
 		await expect(card).toBeVisible();
+		await assertTokenBrowserCardScale(card);
 		await expect(card.locator('img')).toHaveAttribute(
 			'src',
 			BOOTSTRAP_PROBE_MEDIA.NonEnumerableImage
 		);
-		await expect(page.getByText('Metadata/tokenURI payload size')).toBeVisible();
-		await expect(page.getByText('Original image file size')).toBeVisible();
+		await expect(page.locator('input[name="slug"]')).toHaveValue('non-enumerable-test-collection');
+		await expect(page.locator('input[name="slug"]')).toBeEnabled();
+		await expect(page.getByText('Metadata size (1 token)')).toBeVisible();
+		await expect(page.getByText('Original image size (1 token)')).toBeVisible();
+		await expect(formLabel(page, 'Preview token')).toHaveCount(0);
 
 		const startTokenInput = rowControl(page, 'Manual range start token ID');
 		const totalSupplyInput = rowControl(page, 'Manual range total supply');
@@ -52,6 +56,8 @@ test.describe('bootstrap contract probe UI', () => {
 
 		await assertEveryBootstrapRowHasInfoTooltip(page);
 		await assertTokenCardPlacement(page, testInfo);
+		await assertTooltipText(page, 'OpenSea slug', 'Required for bidding');
+		await assertTooltipText(page, 'Metadata mode', 'Strict fails on metadata errors');
 		expect(api.probeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable]);
 	});
 
@@ -72,6 +78,7 @@ test.describe('bootstrap contract probe UI', () => {
 		const card = tokenCard(page, '0');
 		await expect(card).toBeVisible();
 		await expect(card.locator('img')).toHaveAttribute('src', BOOTSTRAP_PROBE_MEDIA.RasterImage);
+		await expect(page.locator('input[name="slug"]')).toHaveValue('raster-images-2026');
 		await expect(page.getByText('Manual token scope mode')).toHaveCount(0);
 		await expect(rowControl(page, 'Cached image max dimension')).toBeEnabled();
 		expect(dynamicRequests).toEqual([]);
@@ -84,9 +91,10 @@ test.describe('bootstrap contract probe UI', () => {
 		const card = tokenCard(page, '1');
 		await expect(card).toBeVisible();
 		await expect(card.locator('img')).toHaveAttribute('src', BOOTSTRAP_PROBE_MEDIA.OnchainSvgImage);
-		await expect(page.getByText('Projected original image total size')).toBeVisible();
+		await expect(page.locator('input[name="slug"]')).toHaveValue('onchain-svg-collection');
+		await expect(page.getByText('Est. original images size (full collection)')).toBeVisible();
 
-		const imageSizeRow = formRow(page, 'Original image file size');
+		const imageSizeRow = formRow(page, 'Original image size (1 token)');
 		await imageSizeRow.locator('.info-tooltip').hover();
 		await expect(imageSizeRow.locator('.info-tooltip-popup')).toBeVisible();
 		await expect(imageSizeRow.locator('.info-tooltip-popup')).toContainText(
@@ -109,6 +117,12 @@ function formRow(page: Page, label: string) {
 	return page.locator('.bootstrap-form-fields .bootstrap-form-row').filter({ hasText: label });
 }
 
+function formLabel(page: Page, label: string) {
+	return page
+		.locator('.bootstrap-form-fields .bootstrap-form-label-cell > span:first-child')
+		.filter({ hasText: new RegExp(`^${label}$`) });
+}
+
 function rowControl(page: Page, label: string) {
 	return formRow(page, label).locator('input, select, textarea');
 }
@@ -117,6 +131,16 @@ async function assertEveryBootstrapRowHasInfoTooltip(page: Page): Promise<void> 
 	const rows = page.locator('.bootstrap-form-fields .bootstrap-form-row');
 	const tooltips = page.locator('.bootstrap-form-fields .bootstrap-form-row .info-tooltip');
 	expect(await tooltips.count()).toBe(await rows.count());
+}
+
+async function assertTooltipText(page: Page, label: string, expectedText: string): Promise<void> {
+	const row = formRow(page, label);
+	await row.locator('.info-tooltip').hover();
+	await expect(row.locator('.info-tooltip-popup')).toContainText(expectedText);
+}
+
+async function assertTokenBrowserCardScale(card: ReturnType<typeof tokenCard>): Promise<void> {
+	await expect(card.locator('.token-grid-media')).toHaveCSS('height', '400px');
 }
 
 async function assertTokenCardPlacement(page: Page, testInfo: TestInfo): Promise<void> {

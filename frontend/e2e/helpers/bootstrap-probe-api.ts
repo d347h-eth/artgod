@@ -104,6 +104,7 @@ function probeResponse(address: string): BootstrapContractProbeApiResponse {
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable) {
 		return buildProbeResponse({
 			address,
+			contractName: 'Non Enumerable: Test Collection!',
 			enumerable: false,
 			totalSupply: '1000',
 			firstTokenId: '1',
@@ -125,6 +126,7 @@ function probeResponse(address: string): BootstrapContractProbeApiResponse {
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster) {
 		return buildProbeResponse({
 			address,
+			contractName: 'Raster Images / 2026',
 			enumerable: true,
 			totalSupply: '7500',
 			firstTokenId: '0',
@@ -143,6 +145,7 @@ function probeResponse(address: string): BootstrapContractProbeApiResponse {
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.EnumerableOnchainSvg) {
 		return buildProbeResponse({
 			address,
+			contractName: 'Onchain SVG Collection',
 			enumerable: true,
 			totalSupply: '9900',
 			firstTokenId: '1',
@@ -162,6 +165,7 @@ function probeResponse(address: string): BootstrapContractProbeApiResponse {
 
 function buildProbeResponse(input: {
 	address: string;
+	contractName: string;
 	enumerable: boolean;
 	totalSupply: string;
 	firstTokenId: string;
@@ -184,6 +188,7 @@ function buildProbeResponse(input: {
 		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
 		address: input.address,
 		standard: 'erc721',
+		contractName: input.contractName,
 		erc721: {
 			supported: true,
 			error: null

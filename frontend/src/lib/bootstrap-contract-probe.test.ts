@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	bootstrapProbeFormPatch,
+	contractNameToBootstrapSlug,
 	formatByteSize,
 	isBootstrapProbeableAddress,
 	normalizeBootstrapAddress
@@ -47,6 +48,14 @@ describe('bootstrap contract probe helpers', () => {
 		expect(formatByteSize(1536)).toBe('1.50 KB');
 		expect(formatByteSize('10485760')).toBe('10.0 MB');
 	});
+
+	it('normalizes ERC721 names into editable bootstrap slug suggestions', () => {
+		expect(contractNameToBootstrapSlug('  Milady by Remilia Corporation!!!  ')).toBe(
+			'milady-by-remilia-corporation'
+		);
+		expect(contractNameToBootstrapSlug('Æther / Test: 2026')).toBe('ther-test-2026');
+		expect(contractNameToBootstrapSlug(`${'A'.repeat(70)}!`)).toBe('a'.repeat(64));
+	});
 });
 
 function makeProbe(input: {
@@ -72,6 +81,7 @@ function makeProbe(input: {
 		},
 		address: '0x1111111111111111111111111111111111111111',
 		standard: 'erc721',
+		contractName: null,
 		erc721: {
 			supported: true,
 			error: null
