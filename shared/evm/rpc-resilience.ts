@@ -1,3 +1,5 @@
+import { shouldRetryRpcError } from "./rpc-errors.js";
+
 // Policy values that configure JSON-RPC retry attempts.
 export type RpcRetryPolicy = {
     maxAttempts: number;
@@ -37,6 +39,7 @@ export type RpcRetryScheduledContext = {
 export type ExecuteWithRpcRetryOptions<T> = {
     policy: RpcRetryPolicy;
     executeAttempt: (attempt: number) => Promise<T>;
+    shouldRetry?: (error: unknown) => boolean;
     onRetryScheduled?: (context: RpcRetryScheduledContext) => void;
     sleep?: SleepFn;
 };
@@ -331,12 +334,13 @@ export async function executeWithRpcRetry<T>(
     options: ExecuteWithRpcRetryOptions<T>,
 ): Promise<T> {
     const sleep = options.sleep ?? sleepMs;
+    const shouldRetry = options.shouldRetry ?? shouldRetryRpcError;
     let attempt = 1;
     for (;;) {
         try {
             return await options.executeAttempt(attempt);
         } catch (error) {
-            if (attempt >= options.policy.maxAttempts) {
+            if (!shouldRetry(error) || attempt >= options.policy.maxAttempts) {
                 throw error;
             }
             const delayMs = getRpcRetryDelayMs(attempt, options.policy);

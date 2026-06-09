@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+    RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES,
+    RPC_DETERMINISTIC_CONTRACT_ERROR_TEXT,
+} from "./rpc-errors.js";
+import {
     CircuitBreaker,
     CircuitOpenError,
     executeWithRpcRetry,
@@ -9,6 +13,7 @@ import {
 } from "./rpc-resilience.js";
 
 const TEST_IGNORED_CIRCUIT_FAILURE_MESSAGE = "ignored circuit failure";
+const TEST_DETERMINISTIC_CONTRACT_OUTER_MESSAGE = "contract read failed";
 
 describe("TokenBucketRateLimiter", () => {
     it("returns immediate permits inside burst and waits after it is exhausted", async () => {
@@ -200,6 +205,40 @@ describe("executeWithRpcRetry", () => {
         ]);
         expect(sleeps).toEqual([100, 150]);
     });
+
+    it("surfaces deterministic contract failures without retry delay", async () => {
+        const scheduled: Array<{
+            attempt: number;
+            nextAttempt: number;
+            delayMs: number;
+        }> = [];
+        const sleeps: number[] = [];
+        let attempts = 0;
+
+        await expect(
+            executeWithRpcRetry({
+                policy: {
+                    maxAttempts: 3,
+                    baseDelayMs: 100,
+                    maxDelayMs: 150,
+                },
+                executeAttempt: async () => {
+                    attempts += 1;
+                    throw buildDeterministicContractError();
+                },
+                onRetryScheduled: ({ attempt, nextAttempt, delayMs }) => {
+                    scheduled.push({ attempt, nextAttempt, delayMs });
+                },
+                sleep: async (ms) => {
+                    sleeps.push(ms);
+                },
+            }),
+        ).rejects.toThrow(TEST_DETERMINISTIC_CONTRACT_OUTER_MESSAGE);
+
+        expect(attempts).toBe(1);
+        expect(scheduled).toEqual([]);
+        expect(sleeps).toEqual([]);
+    });
 });
 
 describe("fetchWithRpcRequestTimeout", () => {
@@ -221,3 +260,15 @@ describe("fetchWithRpcRequestTimeout", () => {
         expect(requestSignal?.aborted).toBe(true);
     });
 });
+
+function buildDeterministicContractError(): Error {
+    const cause = Object.assign(
+        new Error(RPC_DETERMINISTIC_CONTRACT_ERROR_TEXT.ReturnedNoData),
+        {
+            name: RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES.ContractFunctionZeroData,
+        },
+    );
+    return Object.assign(new Error(TEST_DETERMINISTIC_CONTRACT_OUTER_MESSAGE), {
+        cause,
+    });
+}

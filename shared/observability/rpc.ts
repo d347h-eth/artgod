@@ -1,6 +1,7 @@
 import { logger as defaultLogger, type LogLevel } from "../utils/logger.js";
 import {
     classifiedRpcErrorClassName,
+    RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAME,
     RPC_PROVIDER_HEAD_LAG_ERROR_CLASS_NAME,
 } from "../evm/rpc-errors.js";
 import type { Metrics } from "./metrics/types.js";
@@ -97,6 +98,7 @@ export const RPC_OBSERVABILITY_SENTINEL = {
 
 // Canonical error_class labels emitted by the shared RPC observer.
 export const RPC_OBSERVABILITY_ERROR_CLASS = {
+    DeterministicContract: RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAME,
     ProviderHeadLag: RPC_PROVIDER_HEAD_LAG_ERROR_CLASS_NAME,
     RequestTimeout: "RpcRequestTimeoutError",
 } as const;

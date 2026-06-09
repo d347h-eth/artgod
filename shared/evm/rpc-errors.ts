@@ -1,8 +1,11 @@
 // Canonical class name for provider head-lag JSON-RPC failures.
-export const RPC_PROVIDER_HEAD_LAG_ERROR_CLASS_NAME =
-    "RpcProviderHeadLagError";
+export const RPC_PROVIDER_HEAD_LAG_ERROR_CLASS_NAME = "RpcProviderHeadLagError";
 export const RPC_PROVIDER_HEAD_LAG_ERROR_MESSAGE =
     "RPC provider head is behind requested block";
+
+// Canonical class name for deterministic contract execution failures.
+export const RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAME =
+    "RpcDeterministicContractError";
 
 // JSON-RPC error codes used for shared provider-error classification.
 export const JSON_RPC_ERROR_CODE = {
@@ -14,7 +17,28 @@ export const RPC_PROVIDER_HEAD_LAG_ERROR_DATA = {
     FromBlockGreaterThanLatestBlock: "from block is greater than latest block",
 } as const;
 
+// Viem error classes that mean the contract call result is final for this input.
+export const RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES = {
+    AbiDecodingZeroData: "AbiDecodingZeroDataError",
+    AbiFunctionNotFound: "AbiFunctionNotFoundError",
+    ContractFunctionReverted: "ContractFunctionRevertedError",
+    ContractFunctionZeroData: "ContractFunctionZeroDataError",
+    ExecutionReverted: "ExecutionRevertedError",
+} as const;
+
+// Provider/SDK text fragments that identify final contract execution failures.
+export const RPC_DETERMINISTIC_CONTRACT_ERROR_TEXT = {
+    ExecutionReverted: "execution reverted",
+    FunctionSelectorNotRecognized: "function selector was not recognized",
+    MissingRevertData: "missing revert data",
+    ReturnedNoData: "returned no data",
+} as const;
+
+const DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES = new Set<string>(
+    Object.values(RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES),
+);
 const MAX_RPC_ERROR_CAUSE_SCAN_DEPTH = 6;
+const MAX_RPC_ERROR_TEXT_OBJECT_SCAN_DEPTH = 3;
 
 // Wraps head-lag failures when adapters need a concrete domain error.
 export class RpcProviderHeadLagError extends Error {
@@ -41,6 +65,19 @@ export function isRpcProviderHeadLagError(error: unknown): boolean {
     return false;
 }
 
+// Detects contract-call failures that retrying another endpoint cannot fix.
+export function isRpcDeterministicContractError(error: unknown): boolean {
+    for (const candidate of walkRpcErrorChain(error)) {
+        if (rpcErrorClassIndicatesDeterministicContract(candidate)) {
+            return true;
+        }
+        if (rpcErrorTextIndicatesDeterministicContract(candidate)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Returns the canonical class label for provider-specific RPC conditions.
 export function classifiedRpcErrorClassName(
     error: unknown,
@@ -48,12 +85,23 @@ export function classifiedRpcErrorClassName(
     if (isRpcProviderHeadLagError(error)) {
         return RPC_PROVIDER_HEAD_LAG_ERROR_CLASS_NAME;
     }
+    if (isRpcDeterministicContractError(error)) {
+        return RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAME;
+    }
     return undefined;
 }
 
-// Head-lag is a transient endpoint freshness condition, not endpoint breakage.
+// Deterministic contract failures should surface immediately to callers.
+export function shouldRetryRpcError(error: unknown): boolean {
+    return !isRpcDeterministicContractError(error);
+}
+
+// Head-lag and deterministic contract failures are not endpoint breakage.
 export function shouldPenalizeRpcEndpointFailure(error: unknown): boolean {
-    return !isRpcProviderHeadLagError(error);
+    return (
+        !isRpcProviderHeadLagError(error) &&
+        !isRpcDeterministicContractError(error)
+    );
 }
 
 function* walkRpcErrorChain(error: unknown): Generator<unknown> {
@@ -78,15 +126,39 @@ function rpcErrorCode(error: unknown): number | undefined {
     return typeof code === "number" ? code : undefined;
 }
 
+function rpcErrorClassIndicatesDeterministicContract(error: unknown): boolean {
+    const errorName = rpcErrorClassName(error);
+    return (
+        errorName !== undefined &&
+        DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES.has(errorName)
+    );
+}
+
+function rpcErrorClassName(error: unknown): string | undefined {
+    if (!error || typeof error !== "object") {
+        return undefined;
+    }
+    const name = (error as { name?: unknown }).name;
+    return typeof name === "string" && name.length > 0 ? name : undefined;
+}
+
 function rpcErrorDataIndicatesHeadLag(error: unknown): boolean {
     return rpcErrorTextFields(error).some((value) =>
         value
             .toLowerCase()
             .includes(
-                RPC_PROVIDER_HEAD_LAG_ERROR_DATA
-                    .FromBlockGreaterThanLatestBlock,
+                RPC_PROVIDER_HEAD_LAG_ERROR_DATA.FromBlockGreaterThanLatestBlock,
             ),
     );
+}
+
+function rpcErrorTextIndicatesDeterministicContract(error: unknown): boolean {
+    return rpcErrorTextFields(error).some((value) => {
+        const normalized = value.toLowerCase();
+        return Object.values(RPC_DETERMINISTIC_CONTRACT_ERROR_TEXT).some(
+            (fragment) => normalized.includes(fragment),
+        );
+    });
 }
 
 function rpcErrorTextFields(error: unknown): string[] {
@@ -98,8 +170,29 @@ function rpcErrorTextFields(error: unknown): string[] {
         details?: unknown;
         message?: unknown;
     };
-    return [record.data, record.details, record.message].filter(
-        (value): value is string =>
-            typeof value === "string" && value.trim().length > 0,
+    return [record.data, record.details, record.message].flatMap(
+        rpcErrorTextValues,
+    );
+}
+
+function rpcErrorTextValues(value: unknown, depth = 0): string[] {
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? [trimmed] : [];
+    }
+    if (
+        !value ||
+        typeof value !== "object" ||
+        depth >= MAX_RPC_ERROR_TEXT_OBJECT_SCAN_DEPTH
+    ) {
+        return [];
+    }
+    const record = value as {
+        data?: unknown;
+        details?: unknown;
+        message?: unknown;
+    };
+    return [record.data, record.details, record.message].flatMap((field) =>
+        rpcErrorTextValues(field, depth + 1),
     );
 }
