@@ -168,6 +168,53 @@ describe("SqliteCollectionsReadModel observability", () => {
         expect(cards[0]?.image).toBe("/media/token-images/1/1/1/cache.webp");
     });
 
+    it("maps metadata JSON attributes onto token card and detail read models", () => {
+        insertToken("1", "100");
+        db.prepare(
+            "UPDATE token_metadata SET attributes_json = ? WHERE chain_id = ? AND collection_id = ? AND token_id = ?",
+        ).run(
+            JSON.stringify([
+                { traitType: "Mode", value: "Terrain" },
+                { traitType: "Rank", value: 7 },
+            ]),
+            1,
+            1,
+            "1",
+        );
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
+
+        const page = readModel.listCollectionTokens({
+            chainId: 1,
+            collectionId: 1,
+            tokenStatus: TOKEN_BROWSER_STATUS.All,
+            limit: 1,
+        });
+        const detail = readModel.getCollectionTokenDetail({
+            chainId: 1,
+            collectionId: 1,
+            tokenId: "1",
+        });
+
+        expect(page.items[0]?.attributes).toEqual([
+            { key: "Mode", value: "Terrain" },
+            { key: "Rank", value: "7" },
+        ]);
+        expect(detail.attributes).toEqual([
+            {
+                key: "Mode",
+                value: "Terrain",
+                tokenCount: null,
+                rarityPercent: null,
+            },
+            {
+                key: "Rank",
+                value: "7",
+                tokenCount: null,
+                rarityPercent: null,
+            },
+        ]);
+    });
+
     it("short-circuits listed-token trait filters when no tokens match", () => {
         insertToken("1", "100");
         insertToken("2", "200");
