@@ -28,6 +28,7 @@ import type {
     BootstrapImageCacheProcessPayload,
     BootstrapMetadataSnapshotMode,
     BootstrapMetadataProcessPayload,
+    BootstrapOwnershipProcessPayload,
 } from "../domain/bootstrap-jobs.js";
 import {
     BOOTSTRAP_JOB_KIND,
@@ -62,6 +63,8 @@ import type {
     BootstrapMetadataTaskSeed,
     BootstrapSnapshotPort,
     BootstrapImageCacheTask,
+    BootstrapOwnershipTask,
+    BootstrapOwnershipTaskSeed,
 } from "../ports/bootstrap.js";
 import type { BootstrapRunsPort } from "../ports/bootstrap-runs.js";
 import type { BootstrapStepsPort } from "../ports/bootstrap-steps.js";
@@ -165,6 +168,7 @@ async function main() {
                     | BootstrapCollectionPayload
                     | BootstrapMetadataProcessPayload
                     | BootstrapImageCacheProcessPayload
+                    | BootstrapOwnershipProcessPayload
                     | BootstrapBackfillCheckPayload
                 >,
             ) => {
@@ -204,6 +208,25 @@ async function main() {
                             config.bootstrap.metadataRetryPolicy,
                             config.integrations.opensea,
                             job.payload as BootstrapMetadataProcessPayload,
+                            job.traceId ?? job.jobId,
+                            job.jobId,
+                        );
+                        return;
+                    }
+
+                    if (job.kind === BOOTSTRAP_JOB_KIND.OwnershipProcess) {
+                        await handleBootstrapOwnershipProcess(
+                            rpc,
+                            queue,
+                            collections,
+                            bootstrapStorage,
+                            bootstrapRuns,
+                            bootstrapSteps,
+                            config.sync.backfillBatchSize,
+                            config.bootstrap.snapshotBatchSize,
+                            config.bootstrap.metadataRetryPolicy,
+                            config.integrations.opensea,
+                            job.payload as BootstrapOwnershipProcessPayload,
                             job.traceId ?? job.jobId,
                             job.jobId,
                         );
@@ -1423,6 +1446,25 @@ function markImageCacheTaskFailed(
     });
 }
 
+function markOwnershipTaskFailed(
+    bootstrapStorage: BootstrapSnapshotPort,
+    task: BootstrapOwnershipTask,
+    attempts: number,
+    retryPolicy: RetryPolicy,
+    error: string,
+): void {
+    const failedTerminal = attempts >= Math.max(1, retryPolicy.maxAttempts);
+    const retryDelay = getRetryDelayMs(attempts, retryPolicy);
+    bootstrapStorage.markOwnershipTaskRetry({
+        runId: task.runId,
+        tokenId: task.tokenId,
+        attempts,
+        nextAttemptAt: failedTerminal ? 0 : Date.now() + retryDelay,
+        lastError: error,
+        failedTerminal,
+    });
+}
+
 function isMetadataSnapshotComplete(
     counts: {
         pending: number;
@@ -1462,7 +1504,7 @@ async function continueBlockingBootstrapAfterMetadata(
     if (!collection) {
         logger.warn("Bootstrap continuation skipped (collection missing)", {
             component: "CollectionBootstrapWorker",
-            action: "continueBootstrapAfterMediaCache",
+            action: "continueBlockingBootstrapAfterMetadata",
             runId: payload.runId,
             chainId: payload.chainId,
             collectionId: payload.collectionId,
@@ -1470,7 +1512,7 @@ async function continueBlockingBootstrapAfterMetadata(
         return;
     }
 
-    // Metadata is complete; build ownership from the same token set and anchor.
+    // Metadata is complete; seed durable ownership tasks from the same token set and anchor.
     if (
         collection.bootstrapLastSyncedBlock === null ||
         collection.bootstrapLastSyncedBlock < payload.anchorBlock
@@ -1482,6 +1524,37 @@ async function continueBlockingBootstrapAfterMetadata(
         const tokenIds = bootstrapStorage.listMetadataTaskTokenIds(
             payload.runId,
         );
+        const ownershipCounts = bootstrapStorage.getOwnershipTaskCounts(
+            payload.runId,
+        );
+        if (ownershipCounts.total === 0) {
+            const writeBatchSize = Math.max(1, snapshotBatchSize);
+            for (
+                let cursor = 0;
+                cursor < tokenIds.length;
+                cursor += writeBatchSize
+            ) {
+                const end = Math.min(tokenIds.length, cursor + writeBatchSize);
+                const rows: BootstrapOwnershipTaskSeed[] = [];
+                for (let index = cursor; index < end; index += 1) {
+                    rows.push({
+                        runId: payload.runId,
+                        chainId: payload.chainId,
+                        collectionId: payload.collectionId,
+                        contract: payload.address,
+                        standard: payload.standard,
+                        anchorBlock: payload.anchorBlock,
+                        anchorHash: payload.anchorHash as Hex,
+                        anchorTimestamp: payload.anchorTimestamp,
+                        tokenId: tokenIds[index]!,
+                    });
+                }
+                bootstrapStorage.insertOwnershipTasks(rows);
+            }
+        }
+        const seededOwnershipCounts = bootstrapStorage.getOwnershipTaskCounts(
+            payload.runId,
+        );
         bootstrapSteps.markStepRunning(
             payload.runId,
             BOOTSTRAP_STEP_KEY.Ownership,
@@ -1490,65 +1563,43 @@ async function continueBlockingBootstrapAfterMetadata(
             payload.runId,
             BOOTSTRAP_STEP_KEY.Ownership,
             {
-                completed: 0,
-                total: tokenIds.length,
+                completed:
+                    seededOwnershipCounts.succeeded +
+                    seededOwnershipCounts.failedTerminal,
+                total: seededOwnershipCounts.total,
             },
         );
-        await snapshotOwners(
-            rpc,
-            bootstrapStorage,
-            payload.runId,
-            payload.chainId,
-            payload.collectionId,
-            payload.address,
-            payload.anchorBlock,
-            tokenIds,
-            snapshotBatchSize,
-            (completed) => {
-                bootstrapSteps.updateStepProgress(
-                    payload.runId,
-                    BOOTSTRAP_STEP_KEY.Ownership,
-                    {
-                        completed,
-                        total: tokenIds.length,
-                    },
-                );
-            },
-        );
-
-        bootstrapStorage.finalizeSnapshot({
-            runId: payload.runId,
-            chainId: payload.chainId,
-            collectionId: payload.collectionId,
-            contract: payload.address,
-            anchorBlock: payload.anchorBlock,
-            anchorHash: payload.anchorHash as Hex,
-            anchorTimestamp: payload.anchorTimestamp,
-        });
-        collections.markBootstrapSnapshotProgress(
-            payload.chainId,
-            payload.collectionId,
-            payload.anchorBlock,
-        );
-
-        logger.info("Bootstrap owner snapshot completed", {
-            component: "CollectionBootstrapWorker",
-            action: "continueBootstrapAfterMediaCache",
-            runId: payload.runId,
-            chainId: payload.chainId,
-            collectionId: payload.collectionId,
-            anchorBlock: payload.anchorBlock,
-            tokenCount: tokenIds.length,
-        });
-        bootstrapSteps.markStepSucceeded(
-            payload.runId,
-            BOOTSTRAP_STEP_KEY.Ownership,
+        await scheduleOwnershipProcess(
+            queue,
             {
-                completed: tokenIds.length,
-                total: tokenIds.length,
+                chainId: payload.chainId,
+                runId: payload.runId,
+                collectionId: payload.collectionId,
+                address: payload.address,
+                standard: payload.standard,
+                anchorBlock: payload.anchorBlock,
+                anchorHash: payload.anchorHash,
+                anchorTimestamp: payload.anchorTimestamp,
             },
+            traceId,
         );
+        logger.info("Bootstrap ownership snapshot tasks queued", {
+            component: "CollectionBootstrapWorker",
+            action: "continueBlockingBootstrapAfterMetadata",
+            runId: payload.runId,
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+            anchorBlock: payload.anchorBlock,
+            tokenCount: seededOwnershipCounts.total,
+        });
+        return;
     }
+
+    bootstrapSteps.markStepSkipped(
+        payload.runId,
+        BOOTSTRAP_STEP_KEY.Ownership,
+        "snapshot already current",
+    );
 
     await ensureBackfillScheduled(
         rpc,
@@ -1564,13 +1615,224 @@ async function continueBlockingBootstrapAfterMetadata(
     );
 }
 
+async function handleBootstrapOwnershipProcess(
+    rpc: RpcProviderPort,
+    queue: QueuePort,
+    collections: CollectionRegistryPort,
+    bootstrapStorage: BootstrapSnapshotPort,
+    bootstrapRuns: BootstrapRunsPort,
+    bootstrapSteps: BootstrapStepsPort,
+    backfillBatchSize: number,
+    ownershipBatchSize: number,
+    ownershipRetryPolicy: RetryPolicy,
+    openSeaIntegration: OpenSeaIntegrationStatus,
+    payload: BootstrapOwnershipProcessPayload,
+    traceId: string,
+    sourceJobId: string,
+): Promise<void> {
+    const collection = collections.getCollection(
+        payload.chainId,
+        payload.collectionId,
+    );
+    if (!collection) {
+        logger.warn("Ownership process skipped (collection missing)", {
+            component: "CollectionBootstrapWorker",
+            action: "handleBootstrapOwnershipProcess",
+            runId: payload.runId,
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+        });
+        return;
+    }
+
+    const ownershipStep = bootstrapSteps.getStep(
+        payload.runId,
+        BOOTSTRAP_STEP_KEY.Ownership,
+    );
+    if (ownershipStep && isBootstrapStepTerminalStatus(ownershipStep.status)) {
+        logger.debug("Ownership process skipped (step already terminal)", {
+            component: "CollectionBootstrapWorker",
+            action: "handleBootstrapOwnershipProcess",
+            runId: payload.runId,
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+            stepStatus: ownershipStep.status,
+        });
+        return;
+    }
+
+    bootstrapSteps.markStepRunning(payload.runId, BOOTSTRAP_STEP_KEY.Ownership);
+    const processed = await processDueOwnershipTasks(
+        rpc,
+        bootstrapStorage,
+        payload.runId,
+        Math.max(1, ownershipBatchSize),
+        ownershipRetryPolicy,
+    );
+
+    const counts = bootstrapStorage.getOwnershipTaskCounts(payload.runId);
+    bootstrapSteps.updateStepProgress(
+        payload.runId,
+        BOOTSTRAP_STEP_KEY.Ownership,
+        {
+            completed: counts.succeeded + counts.failedTerminal,
+            total: counts.total,
+        },
+    );
+    if (counts.pending > 0 || counts.retry > 0) {
+        const hasDueNow =
+            bootstrapStorage.listOwnershipTasksDueNow(
+                payload.runId,
+                Date.now(),
+                1,
+            ).length > 0;
+        await scheduleOwnershipProcess(
+            queue,
+            payload,
+            traceId,
+            hasDueNow ? 0 : 5_000,
+        );
+        logger.debug("Bootstrap ownership process progress", {
+            component: "CollectionBootstrapWorker",
+            action: "handleBootstrapOwnershipProcess",
+            runId: payload.runId,
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+            processed,
+            counts,
+            nextDelayMs: hasDueNow ? 0 : 5_000,
+        });
+        return;
+    }
+
+    if (counts.failedTerminal > 0) {
+        const message = "Bootstrap ownership snapshot has terminal failures";
+        bootstrapSteps.markStepFailedTerminal({
+            runId: payload.runId,
+            stepKey: BOOTSTRAP_STEP_KEY.Ownership,
+            attempts: Math.max(1, counts.failedTerminal),
+            error: message,
+        });
+        bootstrapRuns.updateRunStatus(payload.runId, BOOTSTRAP_RUN_STATUS.Failed, {
+            code: "ownership_snapshot_failed",
+            message,
+        });
+        bootstrapRuns.appendRunEvent({
+            runId: payload.runId,
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+            eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunFailed,
+            eventLevel: "error",
+            message,
+            payloadJson: JSON.stringify(counts),
+        });
+        return;
+    }
+
+    bootstrapStorage.finalizeSnapshot({
+        runId: payload.runId,
+        chainId: payload.chainId,
+        collectionId: payload.collectionId,
+        contract: payload.address,
+        anchorBlock: payload.anchorBlock,
+        anchorHash: payload.anchorHash as Hex,
+        anchorTimestamp: payload.anchorTimestamp,
+    });
+    collections.markBootstrapSnapshotProgress(
+        payload.chainId,
+        payload.collectionId,
+        payload.anchorBlock,
+    );
+    bootstrapSteps.markStepSucceeded(payload.runId, BOOTSTRAP_STEP_KEY.Ownership, {
+        completed: counts.total,
+        total: counts.total,
+    });
+
+    logger.info("Bootstrap ownership snapshot completed", {
+        component: "CollectionBootstrapWorker",
+        action: "handleBootstrapOwnershipProcess",
+        runId: payload.runId,
+        chainId: payload.chainId,
+        collectionId: payload.collectionId,
+        anchorBlock: payload.anchorBlock,
+        tokenCount: counts.total,
+    });
+
+    await ensureBackfillScheduled(
+        rpc,
+        queue,
+        collections,
+        bootstrapRuns,
+        bootstrapSteps,
+        payload,
+        backfillBatchSize,
+        openSeaIntegration,
+        traceId,
+        sourceJobId,
+    );
+}
+
+async function processDueOwnershipTasks(
+    rpc: RpcProviderPort,
+    bootstrapStorage: BootstrapSnapshotPort,
+    runId: number,
+    ownershipBatchSize: number,
+    retryPolicy: RetryPolicy,
+): Promise<number> {
+    const dueTasks = bootstrapStorage.listOwnershipTasksDueNow(
+        runId,
+        Date.now(),
+        Math.max(1, ownershipBatchSize),
+    );
+    if (dueTasks.length === 0) {
+        return 0;
+    }
+
+    for (const task of dueTasks) {
+        await processSingleOwnershipTask(rpc, bootstrapStorage, task, retryPolicy);
+    }
+    return dueTasks.length;
+}
+
+async function processSingleOwnershipTask(
+    rpc: RpcProviderPort,
+    bootstrapStorage: BootstrapSnapshotPort,
+    task: BootstrapOwnershipTask,
+    retryPolicy: RetryPolicy,
+): Promise<void> {
+    const attempts = task.attempts + 1;
+    try {
+        const owner = await rpc.readContract<string>({
+            address: task.contract as Hex,
+            abi: ERC721_ENUMERABLE_ABI,
+            functionName: "ownerOf",
+            args: [BigInt(task.tokenId)],
+            blockNumber: task.anchorBlock,
+        });
+        bootstrapStorage.markOwnershipTaskSucceeded({
+            runId: task.runId,
+            tokenId: task.tokenId,
+            attempts,
+            owner: owner.toLowerCase(),
+        });
+    } catch (error) {
+        markOwnershipTaskFailed(
+            bootstrapStorage,
+            task,
+            attempts,
+            retryPolicy,
+            String(error),
+        );
+    }
+}
+
 async function ensureBackfillScheduled(
     rpc: RpcProviderPort,
     queue: QueuePort,
     collections: CollectionRegistryPort,
     bootstrapRuns: BootstrapRunsPort,
     bootstrapSteps: BootstrapStepsPort,
-    payload: BootstrapMetadataProcessPayload | BootstrapImageCacheProcessPayload,
+    payload: BootstrapMetadataProcessPayload | BootstrapOwnershipProcessPayload,
     backfillBatchSize: number,
     openSeaIntegration: OpenSeaIntegrationStatus,
     traceId: string,
@@ -1915,6 +2177,28 @@ async function scheduleImageCacheProcess(
     await queue.publish(QUEUE_NAMES.CollectionBootstrap, job);
 }
 
+async function scheduleOwnershipProcess(
+    queue: QueuePort,
+    payload: BootstrapOwnershipProcessPayload,
+    traceId: string,
+    delayMs = 0,
+): Promise<void> {
+    const nonce = Math.floor(Math.random() * 1_000_000_000);
+    const scheduledAt = Date.now() + Math.max(0, delayMs);
+    const job: JobEnvelope<BootstrapOwnershipProcessPayload> = {
+        jobId: `${BOOTSTRAP_JOB_ID_SCOPE.Ownership}:${payload.chainId}:${payload.runId}:${scheduledAt}:${nonce}`,
+        kind: BOOTSTRAP_JOB_KIND.OwnershipProcess,
+        queue: QUEUE_NAMES.CollectionBootstrap,
+        payload,
+        attempt: 0,
+        scheduledAt,
+        chainId: payload.chainId,
+        traceId,
+        collectionId: payload.collectionId,
+    };
+    await queue.publish(QUEUE_NAMES.CollectionBootstrap, job);
+}
+
 async function scheduleBackfillRange(
     queue: QueuePort,
     chainId: number,
@@ -2093,60 +2377,6 @@ async function resolveTokenIdsForRun(
     throw new Error(
         `Unsupported enumeration mode: ${String(run.enumerationMode)}`,
     );
-}
-
-async function snapshotOwners(
-    rpc: RpcProviderPort,
-    bootstrapStorage: BootstrapSnapshotPort,
-    runId: number,
-    chainId: number,
-    collectionId: number,
-    contract: string,
-    anchorBlock: number,
-    tokenIds: string[],
-    batchSize: number,
-    onProgress?: (completed: number) => void,
-): Promise<void> {
-    // Snapshot ownership at the anchor block and write to the temporary snapshot table.
-    const batch: Array<{
-        runId: number;
-        chainId: number;
-        collectionId: number;
-        contract: string;
-        tokenId: string;
-        owner: string;
-        anchorBlock: number;
-    }> = [];
-    let completed = 0;
-    const flush = () => {
-        if (batch.length === 0) return;
-        completed += batch.length;
-        bootstrapStorage.insertSnapshotRows(batch.splice(0, batch.length));
-        onProgress?.(completed);
-    };
-
-    for (const tokenId of tokenIds) {
-        const owner = await rpc.readContract<string>({
-            address: contract as Hex,
-            abi: ERC721_ENUMERABLE_ABI,
-            functionName: "ownerOf",
-            args: [BigInt(tokenId)],
-            blockNumber: anchorBlock,
-        });
-        batch.push({
-            runId,
-            chainId,
-            collectionId,
-            contract,
-            tokenId,
-            owner: owner.toLowerCase(),
-            anchorBlock,
-        });
-        if (batch.length >= Math.max(1, batchSize)) {
-            flush();
-        }
-    }
-    flush();
 }
 
 async function mapWithConcurrency<T>(

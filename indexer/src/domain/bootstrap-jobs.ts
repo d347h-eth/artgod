@@ -34,6 +34,17 @@ export type BootstrapImageCacheProcessPayload = {
     anchorTimestamp: number;
 };
 
+export type BootstrapOwnershipProcessPayload = {
+    chainId: number;
+    runId: number;
+    collectionId: number;
+    address: string;
+    standard: CollectionStandard;
+    anchorBlock: number;
+    anchorHash: string;
+    anchorTimestamp: number;
+};
+
 export type BootstrapBackfillCheckPayload = {
     chainId: number;
     runId: number;

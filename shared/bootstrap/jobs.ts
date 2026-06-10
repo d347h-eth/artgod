@@ -10,6 +10,7 @@ export type BootstrapQueueName =
 export const BOOTSTRAP_JOB_KIND = {
     Start: "bootstrap.collection.start",
     MetadataProcess: "bootstrap.collection.metadata-process",
+    OwnershipProcess: "bootstrap.collection.ownership-process",
     ImageCacheProcess: "bootstrap.collection.image-cache-process",
     BackfillCheck: "bootstrap.collection.backfill-check",
 } as const;
@@ -21,6 +22,7 @@ export type BootstrapJobKind =
 export const BOOTSTRAP_JOB_ID_SCOPE = {
     Start: "bootstrap:start",
     Metadata: "bootstrap:metadata",
+    Ownership: "bootstrap:ownership",
     ImageCache: "bootstrap:image-cache",
     BackfillCheck: "bootstrap:check",
 } as const;
