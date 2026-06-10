@@ -3,6 +3,8 @@ import {
     classifiedRpcErrorClassName,
     RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAME,
     RPC_PROVIDER_HEAD_LAG_ERROR_CLASS_NAME,
+    RPC_PROVIDER_STATE_UNAVAILABLE_ERROR_CLASS_NAME,
+    RPC_PROVIDER_ZERO_DATA_ERROR_CLASS_NAME,
 } from "../evm/rpc-errors.js";
 import type { Metrics } from "./metrics/types.js";
 
@@ -100,6 +102,8 @@ export const RPC_OBSERVABILITY_SENTINEL = {
 export const RPC_OBSERVABILITY_ERROR_CLASS = {
     DeterministicContract: RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAME,
     ProviderHeadLag: RPC_PROVIDER_HEAD_LAG_ERROR_CLASS_NAME,
+    ProviderStateUnavailable: RPC_PROVIDER_STATE_UNAVAILABLE_ERROR_CLASS_NAME,
+    ProviderZeroData: RPC_PROVIDER_ZERO_DATA_ERROR_CLASS_NAME,
     RequestTimeout: "RpcRequestTimeoutError",
 } as const;
 

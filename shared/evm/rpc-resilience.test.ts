@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
     RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES,
     RPC_DETERMINISTIC_CONTRACT_ERROR_TEXT,
+    RPC_PROVIDER_ZERO_DATA_ERROR_CLASS_NAMES,
+    RPC_PROVIDER_ZERO_DATA_ERROR_TEXT,
 } from "./rpc-errors.js";
 import {
     CircuitBreaker,
@@ -239,6 +241,33 @@ describe("executeWithRpcRetry", () => {
         expect(scheduled).toEqual([]);
         expect(sleeps).toEqual([]);
     });
+
+    it("retries provider zero-data contract responses", async () => {
+        const sleeps: number[] = [];
+        let attempts = 0;
+
+        const result = await executeWithRpcRetry({
+            policy: {
+                maxAttempts: 3,
+                baseDelayMs: 100,
+                maxDelayMs: 150,
+            },
+            executeAttempt: async () => {
+                attempts += 1;
+                if (attempts < 3) {
+                    throw buildProviderZeroDataError();
+                }
+                return "ok";
+            },
+            sleep: async (ms) => {
+                sleeps.push(ms);
+            },
+        });
+
+        expect(result).toBe("ok");
+        expect(attempts).toBe(3);
+        expect(sleeps).toEqual([100, 150]);
+    });
 });
 
 describe("fetchWithRpcRequestTimeout", () => {
@@ -263,9 +292,21 @@ describe("fetchWithRpcRequestTimeout", () => {
 
 function buildDeterministicContractError(): Error {
     const cause = Object.assign(
-        new Error(RPC_DETERMINISTIC_CONTRACT_ERROR_TEXT.ReturnedNoData),
+        new Error(RPC_DETERMINISTIC_CONTRACT_ERROR_TEXT.ExecutionReverted),
         {
-            name: RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES.ContractFunctionZeroData,
+            name: RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES.ContractFunctionReverted,
+        },
+    );
+    return Object.assign(new Error(TEST_DETERMINISTIC_CONTRACT_OUTER_MESSAGE), {
+        cause,
+    });
+}
+
+function buildProviderZeroDataError(): Error {
+    const cause = Object.assign(
+        new Error(RPC_PROVIDER_ZERO_DATA_ERROR_TEXT.ReturnedNoData),
+        {
+            name: RPC_PROVIDER_ZERO_DATA_ERROR_CLASS_NAMES.ContractFunctionZeroData,
         },
     );
     return Object.assign(new Error(TEST_DETERMINISTIC_CONTRACT_OUTER_MESSAGE), {

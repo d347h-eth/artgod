@@ -501,9 +501,9 @@ function buildProviderHeadLagError(): Error {
 
 function buildDeterministicContractError(): Error {
     const cause = Object.assign(
-        new Error(RPC_DETERMINISTIC_CONTRACT_ERROR_TEXT.ReturnedNoData),
+        new Error(RPC_DETERMINISTIC_CONTRACT_ERROR_TEXT.ExecutionReverted),
         {
-            name: RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES.ContractFunctionZeroData,
+            name: RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES.ContractFunctionReverted,
         },
     );
     return Object.assign(new Error(TEST_CONTRACT_READ_FAILURE_MESSAGE), {
