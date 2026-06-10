@@ -208,6 +208,24 @@ Important contract:
 - bootstrap-worker later installs that requested embedded extension by `collection_id`, without re-resolving by contract
 - `request_image_cache_*` records the requested image cache mode and optional max resize dimension used by the later image-cache phase
 
+### `bootstrap_run_steps`
+
+Defined in `014_bootstrap_runs.sql`.
+
+Purpose:
+
+- stores the planned bootstrap pipeline for each run
+- carries step dependencies, blocking/non-blocking policy, status, progress,
+  errors, and timing fields
+- remains the historical journal after successful per-token scratch rows are
+  cleaned up
+
+Important semantics:
+
+- dependencies are stored as JSON arrays on each step row
+- image cache is non-blocking and can continue after the collection is live
+- metadata and image-cache steps expose persisted pause/resume controls
+
 ### `bootstrap_image_cache_tasks`
 
 Defined in `036_token_image_cache.sql`.
@@ -278,14 +296,35 @@ Important semantics:
 - seeding reads only successful bootstrap metadata snapshot tasks with a non-empty `token_metadata.image`
 - backend serves `public_path` under `/media/token-images/...` from the configured local media cache directory
 - read models prefer `public_path` only when `source_image_url` still matches the canonical `token_metadata.image`
+- successful runs delete retained task rows after all bootstrap task families are
+  clean; settled cache rows remain in `token_image_cache`
+
+### `bootstrap_ownership_snapshot_tasks`
+
+Defined in `037_bootstrap_ownership_snapshot_tasks.sql`.
+
+Purpose:
+
+- tracks one `ownerOf(tokenId)` snapshot task per token at the bootstrap anchor
+- gives ownership snapshotting the same durable retry/progress model as
+  metadata and image-cache work
+- writes temporary `nft_balance_snapshots` rows when individual tasks succeed
+
+Important semantics:
+
+- ownership is blocking for collection liveness
+- terminal ownership task failures fail the bootstrap run
+- successful runs delete retained ownership task rows after snapshot finalization
 
 ### `nft_balance_snapshots`
 
 Temporary ownership snapshot table used during collection bootstrap.
 
-- Primary key: `(chain_id, collection_id, token_id)`
+- Primary key: `(run_id, collection_id, token_id, owner)`
 - Rows are finalized into `nft_balances` once the snapshot completes
 - Snapshot finalization establishes the base current-state ownership at `bootstrap_anchor_block`
+- Successful runs delete temporary snapshot rows after all task families are
+  clean
 
 ## Orders Table
 

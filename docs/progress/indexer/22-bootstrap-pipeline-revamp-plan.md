@@ -1,6 +1,6 @@
 # Bootstrap Pipeline Revamp Plan
 
-Status: in progress
+Status: in progress; first implementation pass partially landed
 
 This plan replaces the current procedural bootstrap flow with a persisted,
 stateful, idempotent pipeline. The current code and schema may be redesigned
@@ -296,21 +296,29 @@ These decisions are locked for the first implementation pass:
 
 ## Implementation Order
 
-1. Define bootstrap pipeline domain constants and types.
-2. Replace schema with runs, steps, dependencies, and task tables.
-3. Build a bootstrap pipeline planner from the bootstrap request.
-4. Build orchestration/reconciliation helpers.
-5. Port anchor and enumeration into step executors.
-6. Port metadata into a taskized step executor.
-7. Add taskized ownership executor.
-8. Make image cache a non-blocking taskized side lane.
-9. Port backfill and collection-live marking into step executors.
-10. Add backend run-detail read model from steps and task counts.
-11. Add pause/resume backend use cases and HTTP routes.
-12. Add frontend chip controls for metadata and image cache.
+1. Define bootstrap pipeline domain constants and types. Done.
+2. Replace schema with runs, steps, dependencies, and task tables. Done for the
+   current first pass.
+3. Build a bootstrap pipeline planner from the bootstrap request. Done.
+4. Build orchestration/reconciliation helpers. Partially done; current worker
+   records and advances durable step state but is not yet a fully generic graph
+   reconciler.
+5. Port anchor and enumeration into step executors. Partially done; current
+   procedural start handler now records step progress.
+6. Port metadata into a taskized step executor. Done.
+7. Add taskized ownership executor. Done.
+8. Make image cache a non-blocking taskized side lane. Done.
+9. Port backfill and collection-live marking into step executors. Partially
+   done; current handlers record step progress but are not yet generic
+   executor modules.
+10. Add backend run-detail read model from steps and task counts. Done.
+11. Add pause/resume backend use cases and HTTP routes. Done for metadata and
+    image cache.
+12. Add frontend chip controls for metadata and image cache. Done.
 13. Update canonical bootstrap docs and RPC catalog if any interaction paths
-    changed.
+    changed. Done for docs; RPC catalog did not need a new JSON-RPC path.
 14. Add focused backend/indexer/frontend tests, then E2E bootstrap coverage.
+    Focused tests added; E2E coverage remains.
 
 ## Open Decisions
 

@@ -29,7 +29,7 @@ OpenSea runtimes are optional in desktop composition. `OPENSEA_INTEGRATION_MODE=
 - Collection bootstrap runtime (`indexer/src/runtime/bootstrap-worker.ts`)
     - Consumes collection bootstrap jobs.
     - Auto-installs embedded collection extensions during bootstrap start when the bootstrap request matches a known embedded extension by contract plus token scope.
-    - Orchestrates per-collection metadata snapshot, ownership snapshot, short backfill, and conditional OpenSea bootstrap job emission.
+    - Orchestrates per-collection metadata snapshot, taskized ownership snapshot, short backfill, non-blocking image-cache side-lane work, and conditional OpenSea bootstrap job emission.
 
 - Collection extension runtime (`indexer/src/runtime/collection-extension-worker.ts`)
     - Consumes collection-extension artifact refresh jobs.

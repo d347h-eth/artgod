@@ -10,6 +10,7 @@ Queue names are defined in `indexer/src/domain/queues.ts`:
 - `events-sync-backfill`
 - `block-check`
 - `collection-bootstrap`
+- `collection-bootstrap-image-cache`
 - `opensea-bootstrap`
 - `opensea-reconcile`
 - `offchain-orders-raw`
@@ -189,6 +190,9 @@ Order update jobs are emitted by the sync worker whenever maker state changes (N
 
 - Bootstrap jobs (`indexer/src/domain/bootstrap-jobs.ts`):
     - `bootstrap.collection.start`
+    - `bootstrap.collection.metadata-process`
+    - `bootstrap.collection.ownership-process`
+    - `bootstrap.collection.image-cache-process`
     - `bootstrap.collection.backfill-check`
 
 - Collection extension jobs (`indexer/src/domain/collection-extension-jobs.ts`):
@@ -198,6 +202,9 @@ Order update jobs are emitted by the sync worker whenever maker state changes (N
     - `token-image-cache.refresh-collection`
 
 `bootstrap.collection.start` jobs are produced by future API/UI actions and consumed by the collection bootstrap worker runtime.
+`bootstrap.collection.metadata-process` jobs drain durable metadata snapshot tasks from `bootstrap_metadata_snapshot_tasks`.
+`bootstrap.collection.ownership-process` jobs drain durable ownership snapshot tasks from `bootstrap_ownership_snapshot_tasks`; ownership terminal failures fail collection bootstrap because ownership is required for liveness.
+`bootstrap.collection.image-cache-process` jobs drain durable image-cache tasks from `bootstrap_image_cache_tasks` on the separate `collection-bootstrap-image-cache` queue so slow remote media hosts do not block ownership/backfill/live progress.
 `bootstrap.collection.backfill-check` jobs are produced by the bootstrap worker to verify short backfill completion before switching a collection to `live`.
 
 `collection-extension.refresh-artifacts` jobs are produced only after a successful canonical metadata write:
