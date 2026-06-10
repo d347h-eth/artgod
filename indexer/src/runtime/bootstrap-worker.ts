@@ -1,6 +1,7 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
+import { BOOTSTRAP_JOB_ID_SCOPE } from "@artgod/shared/bootstrap/jobs";
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import { resolveEmbeddedCollectionExtensionInstallByKey } from "@artgod/shared/extensions/built-ins";
@@ -1081,17 +1082,6 @@ async function handleBootstrapImageCacheProcess(
         return;
     }
 
-    if (collection.status === "live") {
-        logger.debug("Image cache process skipped (collection already live)", {
-            component: "CollectionBootstrapWorker",
-            action: "handleBootstrapImageCacheProcess",
-            runId: payload.runId,
-            chainId: payload.chainId,
-            collectionId: payload.collectionId,
-        });
-        return;
-    }
-
     if (
         bootstrapSteps.isStepPaused(payload.runId, BOOTSTRAP_STEP_KEY.ImageCache)
     ) {
@@ -1861,7 +1851,7 @@ async function scheduleMetadataProcess(
     const nonce = Math.floor(Math.random() * 1_000_000_000);
     const scheduledAt = Date.now() + Math.max(0, delayMs);
     const job: JobEnvelope<BootstrapMetadataProcessPayload> = {
-        jobId: `bootstrap:metadata:${payload.chainId}:${payload.runId}:${scheduledAt}:${nonce}`,
+        jobId: `${BOOTSTRAP_JOB_ID_SCOPE.Metadata}:${payload.chainId}:${payload.runId}:${scheduledAt}:${nonce}`,
         kind: BOOTSTRAP_JOB_KIND.MetadataProcess,
         queue: QUEUE_NAMES.CollectionBootstrap,
         payload,
@@ -1883,7 +1873,7 @@ async function scheduleImageCacheProcess(
     const nonce = Math.floor(Math.random() * 1_000_000_000);
     const scheduledAt = Date.now() + Math.max(0, delayMs);
     const job: JobEnvelope<BootstrapImageCacheProcessPayload> = {
-        jobId: `bootstrap:image-cache:${payload.chainId}:${payload.runId}:${scheduledAt}:${nonce}`,
+        jobId: `${BOOTSTRAP_JOB_ID_SCOPE.ImageCache}:${payload.chainId}:${payload.runId}:${scheduledAt}:${nonce}`,
         kind: BOOTSTRAP_JOB_KIND.ImageCacheProcess,
         queue: QUEUE_NAMES.CollectionBootstrap,
         payload,
@@ -1933,7 +1923,7 @@ async function scheduleBackfillCheck(
     payload: BootstrapBackfillCheckPayload,
 ): Promise<void> {
     const job: JobEnvelope<BootstrapBackfillCheckPayload> = {
-        jobId: `bootstrap:check:${payload.chainId}:${payload.runId}:${Date.now()}`,
+        jobId: `${BOOTSTRAP_JOB_ID_SCOPE.BackfillCheck}:${payload.chainId}:${payload.runId}:${Date.now()}`,
         kind: BOOTSTRAP_JOB_KIND.BackfillCheck,
         queue: QUEUE_NAMES.CollectionBootstrap,
         payload,

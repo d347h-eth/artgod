@@ -6,6 +6,7 @@ import {
 } from "@artgod/shared/media/token-image-cache";
 import {
     BOOTSTRAP_RUN_STATUS,
+    BOOTSTRAP_STEP_STATUS,
     BOOTSTRAP_TASK_STATUS,
     mapBootstrapTaskStatusCounts,
     serializeBootstrapStepDependencies,
@@ -313,6 +314,32 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
     private selectRunSteps = db.prepare<{ runId: number }>(
         "SELECT run_id, step_key, status, blocking, progress_completed, progress_total, last_error, config_json " +
             "FROM bootstrap_run_steps WHERE run_id = @runId ORDER BY rowid ASC",
+    );
+
+    private selectRunStep = db.prepare<{
+        runId: number;
+        stepKey: BootstrapRunStepRecord["stepKey"];
+    }>(
+        "SELECT run_id, step_key, status, blocking, progress_completed, progress_total, last_error, config_json " +
+            "FROM bootstrap_run_steps WHERE run_id = @runId AND step_key = @stepKey LIMIT 1",
+    );
+
+    private pauseRunStepStmt = db.prepare<{
+        runId: number;
+        stepKey: BootstrapRunStepRecord["stepKey"];
+        status: BootstrapRunStepRecord["status"];
+    }>(
+        "UPDATE bootstrap_run_steps SET status = @status, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND step_key = @stepKey",
+    );
+
+    private resumeRunStepStmt = db.prepare<{
+        runId: number;
+        stepKey: BootstrapRunStepRecord["stepKey"];
+        status: BootstrapRunStepRecord["status"];
+    }>(
+        "UPDATE bootstrap_run_steps SET status = @status, next_attempt_at = 0, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND step_key = @stepKey",
     );
 
     private selectRunEvents = db.prepare<{ runId: number }>(
@@ -637,11 +664,44 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         return Number(row?.count ?? 0);
     }
 
+    getRunStep(
+        runId: number,
+        stepKey: BootstrapRunStepRecord["stepKey"],
+    ): BootstrapRunStepRecord | null {
+        const row = this.selectRunStep.get({
+            runId,
+            stepKey,
+        }) as BootstrapRunStepDbRow | undefined;
+        return row ? mapRunStep(row) : null;
+    }
+
     listRunSteps(runId: number): BootstrapRunStepRecord[] {
         const rows = this.selectRunSteps.all({
             runId,
         }) as BootstrapRunStepDbRow[];
         return rows.map(mapRunStep);
+    }
+
+    pauseRunStep(
+        runId: number,
+        stepKey: BootstrapRunStepRecord["stepKey"],
+    ): void {
+        this.pauseRunStepStmt.run({
+            runId,
+            stepKey,
+            status: BOOTSTRAP_STEP_STATUS.Paused,
+        });
+    }
+
+    resumeRunStep(
+        runId: number,
+        stepKey: BootstrapRunStepRecord["stepKey"],
+    ): void {
+        this.resumeRunStepStmt.run({
+            runId,
+            stepKey,
+            status: BOOTSTRAP_STEP_STATUS.Ready,
+        });
     }
 
     listRunMetadataTasks(params: {

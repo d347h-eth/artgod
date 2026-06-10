@@ -145,7 +145,19 @@ export interface BootstrapRunsWritePort {
     getRunTaskCounts(runId: number): BootstrapRunTaskCounts;
     getRunImageCacheTaskCounts(runId: number): BootstrapRunTaskCounts;
     getRunOwnershipSnapshotCount(runId: number): number;
+    getRunStep(
+        runId: number,
+        stepKey: BootstrapRunStepRecord["stepKey"],
+    ): BootstrapRunStepRecord | null;
     listRunSteps(runId: number): BootstrapRunStepRecord[];
+    pauseRunStep(
+        runId: number,
+        stepKey: BootstrapRunStepRecord["stepKey"],
+    ): void;
+    resumeRunStep(
+        runId: number,
+        stepKey: BootstrapRunStepRecord["stepKey"],
+    ): void;
     listRunMetadataTasks(params: {
         runId: number;
         status?: BootstrapMetadataTaskStatus;
@@ -171,6 +183,16 @@ export interface BootstrapCommandQueuePort {
         address: string;
         standard: "erc721" | "erc1155";
         metadataMode: BootstrapMetadataMode;
+        anchorBlock: number;
+        anchorHash: string;
+        anchorTimestamp: number;
+    }): Promise<void>;
+    publishBootstrapImageCacheProcess(input: {
+        chainId: number;
+        runId: number;
+        collectionId: number;
+        address: string;
+        standard: "erc721" | "erc1155";
         anchorBlock: number;
         anchorHash: string;
         anchorTimestamp: number;

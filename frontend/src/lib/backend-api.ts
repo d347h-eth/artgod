@@ -4,6 +4,7 @@ import type {
 	BootstrapContractProbeApiResponse,
 	BootstrapRunCreateResponse,
 	BootstrapRunsApiResponse,
+	BootstrapStepActionApiResponse,
 	BatchTokenBiddingJobMutationApiResponse,
 	BiddingPriceTierReapplyApplyApiResponse,
 	BiddingPriceTierReapplyPreviewApiResponse,
@@ -45,6 +46,7 @@ import {
 	type TokenBrowserStatus,
 	type TradingBiddingTierSelectionMode
 } from '@artgod/shared/types';
+import type { BootstrapStepAction, BootstrapStepKey } from '@artgod/shared/bootstrap/pipeline';
 import {
 	ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME,
 	QUERY_CACHE_DEBUG_AGE_HEADER_NAME,
@@ -741,6 +743,24 @@ export async function retryBootstrapFailedTasks(
 	return requestJsonWithBody<BootstrapRetryFailedResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/bootstrap-runs/${encodeURIComponent(String(runId))}/retry-failed`,
+		'POST',
+		{}
+	);
+}
+
+export async function applyBootstrapStepAction(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	runId: number,
+	stepKey: BootstrapStepKey,
+	action: BootstrapStepAction
+): Promise<BootstrapStepActionApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<BootstrapStepActionApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/bootstrap-runs/${encodeURIComponent(
+			String(runId)
+		)}/steps/${encodeURIComponent(stepKey)}/${encodeURIComponent(action)}`,
 		'POST',
 		{}
 	);

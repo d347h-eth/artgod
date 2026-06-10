@@ -219,6 +219,32 @@ a:hover {
 	word-break: break-word;
 }
 
+.bootstrap-flow-step-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--control-button-gap);
+	margin-top: 0.15rem;
+}
+
+.bootstrap-flow-step-action {
+	border: 1px solid var(--c-bg);
+	background: var(--c-bg);
+	color: var(--c-ice);
+	padding: 0.18rem 0.4rem;
+	font-size: 0.68rem;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.bootstrap-flow-step-action:hover:not(:disabled),
+.bootstrap-flow-step-action:focus-visible:not(:disabled) {
+	color: var(--c-yellow);
+}
+
+.bootstrap-flow-step-action:disabled {
+	color: var(--c-sand);
+}
+
 @keyframes bootstrap-flow-active-pulse {
 	0%,
 	100% {

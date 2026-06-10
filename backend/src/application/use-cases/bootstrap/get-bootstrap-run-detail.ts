@@ -13,6 +13,10 @@ import {
     BOOTSTRAP_STEP_ACTION,
     BOOTSTRAP_STEP_KEY,
     BOOTSTRAP_STEP_STATUS,
+    canPauseBootstrapStepStatus,
+    canResumeBootstrapStepStatus,
+    isBootstrapStepKey,
+    isBootstrapStepPausable,
     type BootstrapFlowStepKey,
 } from "@artgod/shared/bootstrap/pipeline";
 import type {
@@ -36,10 +40,6 @@ export type GetBootstrapRunDetailInput = {
 };
 
 const FAILED_TASKS_PREVIEW_LIMIT = 50;
-const PAUSABLE_BOOTSTRAP_STEP_KEYS = new Set<BootstrapFlowStepKey>([
-    BOOTSTRAP_FLOW_STEP_KEY.Metadata,
-    BOOTSTRAP_FLOW_STEP_KEY.ImageCache,
-]);
 
 export class GetBootstrapRunDetailUseCase {
     constructor(
@@ -555,7 +555,7 @@ function formatBootstrapStepLabel(key: BootstrapFlowStepKey): string {
 }
 
 function isPausableBootstrapStep(key: BootstrapFlowStepKey): boolean {
-    return PAUSABLE_BOOTSTRAP_STEP_KEYS.has(key);
+    return isBootstrapStepKey(key) && isBootstrapStepPausable(key);
 }
 
 function resolveBootstrapStepActions(
@@ -565,14 +565,10 @@ function resolveBootstrapStepActions(
     if (!isPausableBootstrapStep(key)) {
         return [];
     }
-    if (status === BOOTSTRAP_STEP_STATUS.Paused) {
+    if (canResumeBootstrapStepStatus(status)) {
         return [BOOTSTRAP_STEP_ACTION.Resume];
     }
-    if (
-        status === BOOTSTRAP_STEP_STATUS.Ready ||
-        status === BOOTSTRAP_STEP_STATUS.Running ||
-        status === BOOTSTRAP_STEP_STATUS.FailedRetry
-    ) {
+    if (canPauseBootstrapStepStatus(status)) {
         return [BOOTSTRAP_STEP_ACTION.Pause];
     }
     return [];

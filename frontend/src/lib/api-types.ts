@@ -17,6 +17,8 @@ import type {
 	BootstrapFlowStepState,
 	BootstrapRunStatus,
 	BootstrapStepAction,
+	BootstrapStepKey,
+	BootstrapStepStatus,
 	BootstrapTaskCounts,
 	BootstrapTaskStatus
 } from '@artgod/shared/bootstrap/pipeline';
@@ -925,6 +927,12 @@ export type BootstrapRetryFailedResponse = {
 	runId: number;
 	updatedCount: number;
 	status: string;
+};
+
+export type BootstrapStepActionApiResponse = {
+	runId: number;
+	stepKey: BootstrapStepKey;
+	status: BootstrapStepStatus;
 };
 
 export type ApiBlockspaceCoverageState = 'empty' | 'partial' | 'complete';

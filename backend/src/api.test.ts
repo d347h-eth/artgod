@@ -20,6 +20,7 @@ import {
     serializeBootstrapEnumerationProgressEventPayload,
 } from "@artgod/shared/bootstrap/run-events";
 import {
+    BOOTSTRAP_STEP_ACTION,
     BOOTSTRAP_STEP_KEY,
     BOOTSTRAP_STEP_STATUS,
     serializeBootstrapStepDependencies,
@@ -118,6 +119,7 @@ let publicApp: FastifyInstance | null = null;
 let cachedApp: FastifyInstance | null = null;
 let syncBackfillStateInputs: unknown[] = [];
 let syncBackfillRangeInputs: unknown[] = [];
+let bootstrapImageCacheProcessInputs: unknown[] = [];
 
 beforeAll(async () => {
     dbPath = path.join(
@@ -520,12 +522,19 @@ beforeAll(async () => {
         await import("./application/use-cases/bootstrap/get-bootstrap-run-detail.js");
     const retryBootstrapRunFailedTasksUseCaseModule =
         await import("./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js");
+    const applyBootstrapRunStepActionUseCaseModule =
+        await import(
+            "./application/use-cases/bootstrap/apply-bootstrap-run-step-action.js"
+        );
 
     const bootstrapRepository =
         new bootstrapRepositoryModule.SqliteBootstrapRunsRepository();
     const bootstrapQueueMock = {
         async publishBootstrapStart() {},
         async publishBootstrapMetadataProcess() {},
+        async publishBootstrapImageCacheProcess(input: unknown) {
+            bootstrapImageCacheProcessInputs.push(input);
+        },
     };
     const builtInCollectionExtensionResolver =
         new collectionExtensionResolverModule.BuiltInCollectionExtensionResolver();
@@ -606,6 +615,13 @@ beforeAll(async () => {
         );
     const retryBootstrapRunFailedTasksUseCase =
         new retryBootstrapRunFailedTasksUseCaseModule.RetryBootstrapRunFailedTasksUseCase(
+            1,
+            chainsReadModel,
+            bootstrapRepository,
+            bootstrapQueueMock,
+        );
+    const applyBootstrapRunStepActionUseCase =
+        new applyBootstrapRunStepActionUseCaseModule.ApplyBootstrapRunStepActionUseCase(
             1,
             chainsReadModel,
             bootstrapRepository,
@@ -742,6 +758,7 @@ beforeAll(async () => {
         getBootstrapRunDetailUseCase,
         getBootstrapStatusUseCase,
         retryBootstrapRunFailedTasksUseCase,
+        applyBootstrapRunStepActionUseCase,
         getDefaultChainUseCase,
         getRuntimeConfigUseCase,
         listCollectionsUseCase,
@@ -791,6 +808,7 @@ beforeAll(async () => {
         getBootstrapRunDetailUseCase,
         getBootstrapStatusUseCase,
         retryBootstrapRunFailedTasksUseCase,
+        applyBootstrapRunStepActionUseCase,
         getDefaultChainUseCase,
         getRuntimeConfigUseCase,
         listCollectionsUseCase,
@@ -4149,6 +4167,81 @@ describe("backend api routes", () => {
                 pausable: true,
             }),
         );
+        bootstrapImageCacheProcessInputs = [];
+        db.prepare<[number, string, number, number]>(
+            "UPDATE bootstrap_runs SET anchor_block = ?, anchor_block_hash = ?, anchor_block_timestamp = ? WHERE run_id = ?",
+        ).run(
+            24500000,
+            "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            1726000000,
+            create.payload.runId,
+        );
+        db.prepare<[string, number, string]>(
+            "UPDATE bootstrap_run_steps SET status = ? WHERE run_id = ? AND step_key = ?",
+        ).run(
+            BOOTSTRAP_STEP_STATUS.Running,
+            create.payload.runId,
+            BOOTSTRAP_STEP_KEY.ImageCache,
+        );
+        const pauseImageCache = await resolve(
+            "POST",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}/steps/${BOOTSTRAP_STEP_KEY.ImageCache}/${BOOTSTRAP_STEP_ACTION.Pause}`,
+            {},
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(pauseImageCache.statusCode).toBe(200);
+        expect(pauseImageCache.payload).toEqual({
+            runId: create.payload.runId,
+            stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+            status: BOOTSTRAP_STEP_STATUS.Paused,
+        });
+        const pausedDetail = await resolve(
+            "GET",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}`,
+        );
+        expect(
+            pausedDetail.payload.flow.steps.find(
+                (step: { key: string }) =>
+                    step.key === BOOTSTRAP_STEP_KEY.ImageCache,
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                paused: true,
+                availableActions: [BOOTSTRAP_STEP_ACTION.Resume],
+            }),
+        );
+        const resumeImageCache = await resolve(
+            "POST",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}/steps/${BOOTSTRAP_STEP_KEY.ImageCache}/${BOOTSTRAP_STEP_ACTION.Resume}`,
+            {},
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(resumeImageCache.statusCode).toBe(200);
+        expect(resumeImageCache.payload).toEqual({
+            runId: create.payload.runId,
+            stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+            status: BOOTSTRAP_STEP_STATUS.Ready,
+        });
+        expect(bootstrapImageCacheProcessInputs).toEqual([
+            expect.objectContaining({
+                runId: create.payload.runId,
+                collectionId: create.payload.collectionId,
+                address: TERRAFORMS_ADDRESS.toLowerCase(),
+                anchorBlock: 24500000,
+            }),
+        ]);
 
         const probe = await resolve(
             "GET",

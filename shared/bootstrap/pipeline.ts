@@ -108,6 +108,12 @@ export const BOOTSTRAP_STEP_ACTION = {
 export type BootstrapStepAction =
     (typeof BOOTSTRAP_STEP_ACTION)[keyof typeof BOOTSTRAP_STEP_ACTION];
 
+// Steps listed here support persisted operator pause/resume controls.
+export const BOOTSTRAP_PAUSABLE_STEP_KEYS = [
+    BOOTSTRAP_STEP_KEY.Metadata,
+    BOOTSTRAP_STEP_KEY.ImageCache,
+] as const;
+
 // Fan-out task statuses are shared by metadata, ownership, and image-cache task tables.
 export const BOOTSTRAP_TASK_STATUS = {
     Pending: "pending",
@@ -238,6 +244,41 @@ export function isBootstrapRunStatus(
     return typeof value === "string" && runStatusSet.has(value);
 }
 
+// Checks route/API values before narrowing them to persisted step keys.
+export function isBootstrapStepKey(value: unknown): value is BootstrapStepKey {
+    return typeof value === "string" && stepKeySet.has(value);
+}
+
+// Checks route/API values before narrowing them to supported step actions.
+export function isBootstrapStepAction(
+    value: unknown,
+): value is BootstrapStepAction {
+    return typeof value === "string" && stepActionSet.has(value);
+}
+
+// Owns the rule for which durable steps can be paused and resumed.
+export function isBootstrapStepPausable(stepKey: BootstrapStepKey): boolean {
+    return pausableStepKeySet.has(stepKey);
+}
+
+// Pause is offered only while a step can still claim or retry work.
+export function canPauseBootstrapStepStatus(
+    status: BootstrapStepStatus,
+): boolean {
+    return (
+        status === BOOTSTRAP_STEP_STATUS.Ready ||
+        status === BOOTSTRAP_STEP_STATUS.Running ||
+        status === BOOTSTRAP_STEP_STATUS.FailedRetry
+    );
+}
+
+// Resume is valid only for a persisted paused step.
+export function canResumeBootstrapStepStatus(
+    status: BootstrapStepStatus,
+): boolean {
+    return status === BOOTSTRAP_STEP_STATUS.Paused;
+}
+
 // Returns true when no further work should be scheduled for the step.
 export function isBootstrapStepTerminalStatus(
     status: BootstrapStepStatus,
@@ -251,3 +292,6 @@ export function isBootstrapStepTerminalStatus(
 
 const taskStatusSet = new Set<string>(BOOTSTRAP_TASK_STATUSES);
 const runStatusSet = new Set<string>(BOOTSTRAP_RUN_STATUSES);
+const stepKeySet = new Set<string>(Object.values(BOOTSTRAP_STEP_KEY));
+const stepActionSet = new Set<string>(Object.values(BOOTSTRAP_STEP_ACTION));
+const pausableStepKeySet = new Set<string>(BOOTSTRAP_PAUSABLE_STEP_KEYS);

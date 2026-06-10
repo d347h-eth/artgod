@@ -5,6 +5,8 @@ export const BOOTSTRAP_RUN_EVENT_CODE = {
     RunAnchorSelected: "run.anchor.selected",
     RunCompleted: "run.completed",
     RunFailed: "run.failed",
+    StepPaused: "step.paused",
+    StepResumed: "step.resumed",
     MetadataEnumerationStarted: "metadata.enumeration.started",
     MetadataEnumerationProgress: "metadata.enumeration.progress",
     MetadataEnumerationCompleted: "metadata.enumeration.completed",

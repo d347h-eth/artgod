@@ -14,6 +14,10 @@ import type {
     CreateBootstrapRunRoute,
 } from "./http/handlers/bootstrap/create-bootstrap-run.js";
 import type {
+    ApplyBootstrapRunStepActionHttpAdapter,
+    ApplyBootstrapRunStepActionRoute,
+} from "./http/handlers/bootstrap/apply-bootstrap-run-step-action.js";
+import type {
     ProbeCollectionContractHttpAdapter,
     ProbeCollectionContractRoute,
 } from "./http/handlers/bootstrap/probe-collection-contract.js";
@@ -226,6 +230,7 @@ export function registerApiRoutes(
     getBootstrapRunDetailAdapter: GetBootstrapRunDetailHttpAdapter,
     getBootstrapStatusAdapter: GetBootstrapStatusHttpAdapter,
     retryBootstrapRunFailedTasksAdapter: RetryBootstrapRunFailedTasksHttpAdapter,
+    applyBootstrapRunStepActionAdapter: ApplyBootstrapRunStepActionHttpAdapter,
     getDefaultChainAdapter: GetDefaultChainHttpAdapter,
     getRuntimeConfigAdapter: GetRuntimeConfigHttpAdapter,
     listCollectionsAdapter: ListCollectionsHttpAdapter,
@@ -599,6 +604,12 @@ export function registerApiRoutes(
         options,
         "/api/:chain_ref/bootstrap-runs/:run_id/retry-failed",
         retryBootstrapRunFailedTasksAdapter.handle,
+    );
+    registerObservedPost<ApplyBootstrapRunStepActionRoute>(
+        app,
+        options,
+        "/api/:chain_ref/bootstrap-runs/:run_id/steps/:step_key/:action",
+        applyBootstrapRunStepActionAdapter.handle,
     );
 }
 
