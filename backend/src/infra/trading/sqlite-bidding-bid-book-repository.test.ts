@@ -9,6 +9,7 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
     TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
 } from "@artgod/shared/trading/runtime-state";
+import { TOKEN_SET_SCHEMA_KIND } from "@artgod/shared/types/token-sets";
 import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
@@ -154,8 +155,6 @@ describe("SqliteBiddingBidBookRepository", () => {
                 [BIDDING_SPAN_ATTRIBUTE.OrdersAttributeScopeRowsCount]: 0,
                 [BIDDING_SPAN_ATTRIBUTE.OrdersTokenScopeRowsCount]: 0,
                 [BIDDING_SPAN_ATTRIBUTE.OrdersTokenSetScopeRowsCount]: 0,
-                [BIDDING_SPAN_ATTRIBUTE.OrdersRawRestRowsCount]: 1,
-                [BIDDING_SPAN_ATTRIBUTE.OrdersRawStreamRowsCount]: 1,
                 [BIDDING_SPAN_ATTRIBUTE.OrdersSeaportJsonRowsCount]: 0,
                 [BIDDING_SPAN_ATTRIBUTE.OrdersValidUntilRowsCount]: 1,
             },
@@ -604,7 +603,7 @@ describe("SqliteBiddingBidBookRepository", () => {
         );
     });
 
-    it("falls back to indexed orders and retries stream payloads when REST parsing returns no offer", () => {
+    it("falls back to indexed order columns when raw payloads are unusable", () => {
         const repository = new SqliteBiddingBidBookRepository();
         db.prepare(
             "INSERT INTO trading_bot_runtime_state " +
@@ -620,15 +619,12 @@ describe("SqliteBiddingBidBookRepository", () => {
         );
         insertIndexedOrder({
             collectionId,
-            id: "stream-fallback",
-            rawRestData: { order_hash: "stream-fallback" },
-            rawStreamData: makeOpenSeaBuyOrderPayload({
-                orderId: "stream-fallback",
-                maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                priceWei: "100000000000000000",
-                validFrom: 1,
-                validUntil: 4_000_000_000,
-            }),
+            id: "normalized-fallback",
+            maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            rawRestData: { order_hash: "normalized-fallback" },
+            rawStreamData: {
+                raw: "payload that must not be parsed for bid-book display",
+            },
             updatedAt: "2026-05-15T01:00:00Z",
         });
 
@@ -655,13 +651,85 @@ describe("SqliteBiddingBidBookRepository", () => {
             })),
             [
                 {
-                    orderId: "stream-fallback",
+                    orderId: "normalized-fallback",
                     maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     isOwn: false,
                     price: exactBidBookRowPrice("100000000000000000"),
-                    placedAt: "1970-01-01T00:00:01Z",
+                    placedAt: "2026-05-15T00:00:00Z",
                 },
             ],
+        );
+    });
+
+    it("maps indexed trait orders from normalized source schema for trait matching", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        insertIndexedOrder({
+            collectionId,
+            id: "trait-indexed-order",
+            scopeKind: "attribute",
+            sourceSchema: {
+                kind: TOKEN_SET_SCHEMA_KIND.Attribute,
+                data: {
+                    collection: COLLECTION_ADDRESS.toLowerCase(),
+                    attributes: [{ key: "Biome", value: "42" }],
+                },
+            },
+            rawRestData: {
+                raw: "payload that must not be parsed for trait criteria",
+            },
+            rawStreamData: null,
+            updatedAt: "2026-05-15T03:00:00Z",
+        });
+        insertIndexedOrder({
+            collectionId,
+            id: "collection-indexed-order",
+            rawRestData: makeOpenSeaBuyOrderPayload({
+                orderId: "collection-indexed-order",
+                maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                priceWei: "100000000000000000",
+                validFrom: 1,
+                validUntil: 4_000_000_000,
+            }),
+            rawStreamData: null,
+            updatedAt: "2026-05-15T02:00:00Z",
+        });
+
+        const collectionBidBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: false,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [{ key: "Biome", value: "42" }],
+            selectedTraitRanges: [],
+        });
+        const tokenBidBook = repository.listTokenBidBook({
+            chainId: 1,
+            collectionId,
+            tokenId: "100",
+            tokenTraits: [{ type: "Biome", value: "42" }],
+            includeOwnJobContext: false,
+        });
+
+        assert.deepEqual(
+            collectionBidBook.bids.map((bid) => ({
+                orderId: bid.orderId,
+                scopeKind: bid.scopeKind,
+                scopeLabel: bid.scopeLabel,
+                scopeTraits: bid.scopeTraits,
+            })),
+            [
+                {
+                    orderId: "trait-indexed-order",
+                    scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+                    scopeLabel: "Biome=42",
+                    scopeTraits: [{ type: "Biome", value: "42" }],
+                },
+            ],
+        );
+        assert.deepEqual(
+            tokenBidBook.bids.map((bid) => bid.orderId),
+            ["collection-indexed-order", "trait-indexed-order"],
         );
     });
 });
@@ -827,21 +895,40 @@ function insertProjectedBid(input: {
 function insertIndexedOrder(input: {
     collectionId: number;
     id: string;
-    rawRestData: unknown;
-    rawStreamData: unknown;
+    maker?: string;
+    scopeKind?: string;
+    tokenId?: string | null;
+    sourceEncodedTokenIds?: string | null;
+    sourceSchema?: unknown;
+    rawRestData?: unknown;
+    rawStreamData?: unknown;
     updatedAt: string;
 }): void {
     db.prepare(
         "INSERT INTO orders " +
-            "(id, chain_id, collection_id, kind, side, source, maker, taker, contract_address, token_id, source_scope_kind, price, currency, valid_from, valid_until, fillability_status, source_status, raw_rest_data, raw_stream_data, created_at, updated_at) " +
-            "VALUES (@id, 1, @collectionId, 'seaport', 'buy', 'opensea', '0x9999999999999999999999999999999999999999', NULL, @contractAddress, NULL, 'collection', '100000000000000000', @currency, 1, 4000000000, 'fillable', 'active', @rawRestData, @rawStreamData, @createdAt, @updatedAt)",
+            "(id, chain_id, collection_id, kind, side, source, maker, taker, contract_address, token_id, source_scope_kind, source_encoded_token_ids, source_schema_json, quantity, price, currency, valid_from, valid_until, fillability_status, source_status, seaport_data_json, raw_rest_data, raw_stream_data, created_at, updated_at) " +
+            "VALUES (@id, 1, @collectionId, 'seaport', 'buy', 'opensea', @maker, NULL, @contractAddress, @tokenId, @scopeKind, @sourceEncodedTokenIds, @sourceSchemaJson, '1', '100000000000000000', @currency, 1, 4000000000, 'fillable', 'active', NULL, @rawRestData, @rawStreamData, @createdAt, @updatedAt)",
     ).run({
         id: input.id,
         collectionId: input.collectionId,
+        maker: input.maker ?? "0x9999999999999999999999999999999999999999",
         contractAddress: COLLECTION_ADDRESS.toLowerCase(),
+        tokenId: input.tokenId ?? null,
+        scopeKind: input.scopeKind ?? "collection",
+        sourceEncodedTokenIds: input.sourceEncodedTokenIds ?? null,
+        sourceSchemaJson:
+            input.sourceSchema === undefined
+                ? null
+                : JSON.stringify(input.sourceSchema),
         currency: WETH_ADDRESS.toLowerCase(),
-        rawRestData: JSON.stringify(input.rawRestData),
-        rawStreamData: JSON.stringify(input.rawStreamData),
+        rawRestData:
+            input.rawRestData === undefined
+                ? null
+                : JSON.stringify(input.rawRestData),
+        rawStreamData:
+            input.rawStreamData === undefined
+                ? null
+                : JSON.stringify(input.rawStreamData),
         createdAt: "2026-05-15T00:00:00Z",
         updatedAt: input.updatedAt,
     });

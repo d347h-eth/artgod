@@ -133,12 +133,11 @@ Own-bid display:
 - Own-intent rows use range pricing until runtime feedback supplies a single active order price, but that runtime feedback is not a user-facing badge state.
 - Backend and frontend code must not infer own bid position from passive order rows, exact-scope grouping, or local price comparisons.
 
-Orders fallback parser:
+Orders fallback mapper:
 
-- fallback bid-book reads parse raw OpenSea buy-offer payloads through the shared OpenSea bidding-offer parser
-- REST raw payload is tried first
-- stream raw payload is tried if REST parsing returns no offer
-- parser failures are logged and skipped
+- fallback bid-book reads map normalized `orders` columns into bid-book rows
+- invalid normalized scope rows are logged and skipped
+- raw REST/stream payload columns remain audit/debug-only
 - there is no legacy fallback scope parser on the bid-book path
 
 ## Backend API Surface

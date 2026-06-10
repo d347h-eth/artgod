@@ -30,6 +30,7 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 - The snapshot lane polls every 60 seconds and hot-path callers force a blocking refresh when the snapshot is older than the configured stale threshold.
 - Snapshot refresh entrypoints are serialized/deduped by the snapshot service.
 - Job execution remains per-job serialized.
+- Token trait matching reads normalized `token_attributes` joins; bidding hot-refresh does not parse `token_metadata.attributes_json` or `token_metadata.raw_json`.
 - Human-readable config, API, UI, and logs use Ether units; low-level EVM calls and persisted amount columns may use wei strings.
 - Wallet secrets never enter env, CLI args, SQLite, frontend state, or logs.
 
@@ -249,14 +250,7 @@ Collection settings are stored through generic `collection_settings`; bidding ow
 The orders fallback is passive display only.
 It must not feed bot decisions.
 
-For buy offers, fallback bid-book reads parse raw OpenSea payloads through the shared OpenSea bidding-offer parser:
-
-1. try `raw_rest_data`
-2. if REST payload parsing returns no offer, try `raw_stream_data`
-3. if both fail, log the parser failure and skip the row
-
-There is no legacy scope parser on the bid-book path.
-This is a deliberate exception to the indexer raw-payload invariant because the shared bidding parser is currently the authoritative scope/unit-price parser for OpenSea bidding offers.
+For buy offers, fallback bid-book reads map normalized `orders` columns into bid-book rows. It does not parse `raw_rest_data` or `raw_stream_data`.
 
 The `orders` table also stores bid-book-relevant normalized columns:
 

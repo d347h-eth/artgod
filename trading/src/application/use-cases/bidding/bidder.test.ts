@@ -10,7 +10,10 @@ import {
     TraitCriterion,
     Type,
 } from "../../../domain/market/event.js";
-import { TokenMetadataRepository } from "../../../domain/market/token-metadata-repository.js";
+import {
+    TokenMetadataRepository,
+    type TokenMetadataTrait,
+} from "../../../domain/market/token-metadata-repository.js";
 import { BidderJob } from "../../../domain/market/strategy/job.js";
 import { Bidder } from "./bidder.js";
 
@@ -76,13 +79,15 @@ class FakeMakerWethBalanceService {
 }
 
 class FakeTokenMetadataRepository implements TokenMetadataRepository {
-    constructor(private readonly rows: Record<string, string> = {}) {}
+    constructor(
+        private readonly rows: Record<string, TokenMetadataTrait[]> = {},
+    ) {}
 
-    async getMetadata(
+    async getTraits(
         collectionSlug: string,
         tokenId: string,
-    ): Promise<string | null> {
-        return this.rows[`${collectionSlug}:${tokenId}`] ?? null;
+    ): Promise<TokenMetadataTrait[]> {
+        return this.rows[`${collectionSlug}:${tokenId}`] ?? [];
     }
 }
 
@@ -193,7 +198,13 @@ describe("Bidder stream refresh", () => {
         };
 
         await bidder.refreshMatchingJobs(
-            makeEvent(Type.CollectionOffer, Scope.Collection, "terraforms", "", 5n),
+            makeEvent(
+                Type.CollectionOffer,
+                Scope.Collection,
+                "terraforms",
+                "",
+                5n,
+            ),
         );
 
         assert.deepEqual(refreshedJobIds, []);
@@ -207,7 +218,10 @@ describe("Bidder stream refresh", () => {
         const refreshedJobIds: string[] = [];
 
         bidder.addJob(
-            makeJob("token-hit", "terraforms", { type: "token", tokenId: "123" }),
+            makeJob("token-hit", "terraforms", {
+                type: "token",
+                tokenId: "123",
+            }),
         );
 
         bidder.refreshJob = async (jobId: string) => {
@@ -215,7 +229,13 @@ describe("Bidder stream refresh", () => {
         };
 
         await bidder.refreshMatchingJobs(
-            makeEvent(Type.ItemReceivedBid, Scope.Item, "terraforms", "123", 5n),
+            makeEvent(
+                Type.ItemReceivedBid,
+                Scope.Item,
+                "terraforms",
+                "123",
+                5n,
+            ),
         );
 
         assert.deepEqual(refreshedJobIds, []);
@@ -246,7 +266,13 @@ describe("Bidder stream refresh", () => {
 
         await bidder.bootstrapCurrentPrices();
         await bidder.refreshMatchingJobs(
-            makeEvent(Type.ItemReceivedBid, Scope.Item, "terraforms", "123", 6n),
+            makeEvent(
+                Type.ItemReceivedBid,
+                Scope.Item,
+                "terraforms",
+                "123",
+                6n,
+            ),
         );
 
         assert.deepEqual(refreshedJobIds, ["token-hit"]);
@@ -377,7 +403,10 @@ describe("Bidder stream refresh", () => {
         });
 
         bidder.addJob(
-            makeJob("token-hit", "terraforms", { type: "token", tokenId: "123" }),
+            makeJob("token-hit", "terraforms", {
+                type: "token",
+                tokenId: "123",
+            }),
         );
 
         await Promise.all([
@@ -408,7 +437,10 @@ describe("Bidder stream refresh", () => {
         });
 
         bidder.addJob(
-            makeJob("token-hit", "terraforms", { type: "token", tokenId: "123" }),
+            makeJob("token-hit", "terraforms", {
+                type: "token",
+                tokenId: "123",
+            }),
         );
 
         await Promise.all([
@@ -427,14 +459,26 @@ describe("Bidder stream refresh", () => {
         });
 
         bidder.addJob(
-            makeJob("token-hit", "terraforms", { type: "token", tokenId: "123" }),
+            makeJob("token-hit", "terraforms", {
+                type: "token",
+                tokenId: "123",
+            }),
         );
         bidder.addJob(
-            makeJob("token-other", "terraforms", { type: "token", tokenId: "999" }),
+            makeJob("token-other", "terraforms", {
+                type: "token",
+                tokenId: "999",
+            }),
         );
 
         await bidder.refreshMatchingJobs(
-            makeEvent(Type.ItemReceivedBid, Scope.Item, "terraforms", "123", 6n),
+            makeEvent(
+                Type.ItemReceivedBid,
+                Scope.Item,
+                "terraforms",
+                "123",
+                6n,
+            ),
         );
 
         assert.deepEqual(biddingService.tokenOfferLookupJobIds, []);
@@ -471,7 +515,13 @@ describe("Bidder stream refresh", () => {
         };
 
         await bidder.refreshMatchingJobs(
-            makeEvent(Type.ItemReceivedBid, Scope.Item, "terraforms", "123", 6n),
+            makeEvent(
+                Type.ItemReceivedBid,
+                Scope.Item,
+                "terraforms",
+                "123",
+                6n,
+            ),
         );
 
         assert.deepEqual(refreshedJobIds, ["token-hit"]);
@@ -516,7 +566,13 @@ describe("Bidder stream refresh", () => {
         };
 
         await bidder.refreshMatchingJobs(
-            makeEvent(Type.CollectionOffer, Scope.Collection, "terraforms", "", 6n),
+            makeEvent(
+                Type.CollectionOffer,
+                Scope.Collection,
+                "terraforms",
+                "",
+                6n,
+            ),
         );
 
         assert.deepEqual(refreshedJobIds, ["token-hit"]);
@@ -524,7 +580,9 @@ describe("Bidder stream refresh", () => {
 
     it("refreshes maker WETH balance into the cache and clamps job ceiling to that cached balance", async () => {
         const biddingService = new FakeBiddingService();
-        biddingService.activeOffers = [{ id: "0xother", price: 8n, maker: "0xother" }];
+        biddingService.activeOffers = [
+            { id: "0xother", price: 8n, maker: "0xother" },
+        ];
         const makerWethBalanceService = new FakeMakerWethBalanceService(5n);
         const bidder = new Bidder(
             biddingService as any,
@@ -536,7 +594,10 @@ describe("Bidder stream refresh", () => {
         );
 
         bidder.addJob(
-            makeJob("token-hit", "terraforms", { type: "token", tokenId: "123" }),
+            makeJob("token-hit", "terraforms", {
+                type: "token",
+                tokenId: "123",
+            }),
         );
 
         await (bidder as any).refreshCachedMakerWethBalance();
@@ -627,7 +688,10 @@ describe("Bidder stream refresh", () => {
             { dryRun: false },
         );
         bidder.addJob(
-            makeJob("token-hit", "terraforms", { type: "token", tokenId: "123" }),
+            makeJob("token-hit", "terraforms", {
+                type: "token",
+                tokenId: "123",
+            }),
         );
 
         await assert.rejects(
@@ -648,7 +712,10 @@ describe("Bidder stream refresh", () => {
             { dryRun: false },
         );
         bidder.addJob(
-            makeJob("token-hit", "terraforms", { type: "token", tokenId: "123" }),
+            makeJob("token-hit", "terraforms", {
+                type: "token",
+                tokenId: "123",
+            }),
         );
 
         await assert.rejects(
@@ -745,7 +812,10 @@ describe("Bidder stream refresh", () => {
                     return [];
                 }
 
-                if (job.id === "target" && biddingService.placedAmounts.includes(4n)) {
+                if (
+                    job.id === "target" &&
+                    biddingService.placedAmounts.includes(4n)
+                ) {
                     return [
                         {
                             id: "0xmine",
@@ -792,7 +862,10 @@ describe("Bidder stream refresh", () => {
         await Promise.race([
             activationPromise,
             new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("Activation timed out")), 1000),
+                setTimeout(
+                    () => reject(new Error("Activation timed out")),
+                    1000,
+                ),
             ),
         ]);
 
@@ -915,7 +988,8 @@ describe("Bidder stream refresh", () => {
 
     it("refreshes a matching maker bid when its expiration is within the poll window", async () => {
         const biddingService = new FakeBiddingService();
-        biddingService.placedExpirationTime = Math.floor(Date.now() / 1000) + 3600;
+        biddingService.placedExpirationTime =
+            Math.floor(Date.now() / 1000) + 3600;
         biddingService.activeOffers = [
             {
                 id: "0xmy-expiring-order",
@@ -962,7 +1036,9 @@ describe("Bidder stream refresh", () => {
         await bidder.refreshJob("token-hit");
 
         assert.deepEqual(biddingService.placedAmounts, [6n]);
-        assert.deepEqual(biddingService.canceledOrderIds, ["0xmy-expiring-order"]);
+        assert.deepEqual(biddingService.canceledOrderIds, [
+            "0xmy-expiring-order",
+        ]);
         assert.equal(job.state.activeOrderId, "0xhash");
         assert.ok(job.state.activeExpirationTimeMs !== undefined);
         assert.deepEqual(persistedStates.at(-1), {
@@ -1121,7 +1197,12 @@ describe("Bidder stream refresh", () => {
                 offerScope: "item",
                 expirationTime: futureExpirationTime,
             },
-            { id: "0xother", price: 250n, maker: "0xother", offerScope: "item" },
+            {
+                id: "0xother",
+                price: 250n,
+                maker: "0xother",
+                offerScope: "item",
+            },
         ];
         const persistedStates: Array<{
             bidPosition: unknown;
@@ -1305,17 +1386,15 @@ describe("Bidder stream refresh", () => {
 
     it("refreshes only token jobs whose cached metadata matches every trait criterion", async () => {
         const tokenMetadataRepository = new FakeTokenMetadataRepository({
-            "terraforms:123": JSON.stringify([
-                { traitType: "Biome", value: "53" },
-                { traitType: "Chroma", value: "Flow" },
-            ]),
-            "terraforms:456": JSON.stringify([
-                { traitType: "Biome", value: "53" },
-            ]),
-            "terraforms:999": JSON.stringify([
-                { traitType: "Biome", value: "53" },
-                { traitType: "Chroma", value: "Flow" },
-            ]),
+            "terraforms:123": [
+                { type: "Biome", value: "53" },
+                { type: "Chroma", value: "Flow" },
+            ],
+            "terraforms:456": [{ type: "Biome", value: "53" }],
+            "terraforms:999": [
+                { type: "Biome", value: "53" },
+                { type: "Chroma", value: "Flow" },
+            ],
         });
         const bidder = new Bidder(
             new FakeBiddingService() as any,

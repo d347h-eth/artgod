@@ -164,10 +164,14 @@ export class OpenSeaBiddingService implements BiddingService {
                     this.addUniqueOffer(offers, parsed);
                 }
             } catch (error) {
-                log.error("itemOffersFetchFailed", "Failed to get item offers", {
-                    ...jobLogFields(job),
-                    ...toErrorLogFields(error),
-                });
+                log.error(
+                    "itemOffersFetchFailed",
+                    "Failed to get item offers",
+                    {
+                        ...jobLogFields(job),
+                        ...toErrorLogFields(error),
+                    },
+                );
                 throw error;
             }
         }
@@ -335,28 +339,36 @@ export class OpenSeaBiddingService implements BiddingService {
                 }
             } catch (error) {
                 if (!isNotFoundError(error)) {
-                    log.error("bestOfferFetchFailed", "Failed to get best offer", {
-                        ...jobLogFields(job),
-                        ...toErrorLogFields(error),
-                    });
+                    log.error(
+                        "bestOfferFetchFailed",
+                        "Failed to get best offer",
+                        {
+                            ...jobLogFields(job),
+                            ...toErrorLogFields(error),
+                        },
+                    );
                     throw error;
                 }
             }
         }
 
         if (isCompetitiveTraitJob) {
-            log.debug("competitiveTraitBuckets", "Competitive trait offer buckets resolved", {
-                ...jobLogFields(job),
-                collectionWideOfferCount:
-                    competitiveBucketCounts.collectionWide.size,
-                targetTraitOfferCount:
-                    competitiveBucketCounts.targetTrait.size,
-                competitorTraitOfferCount:
-                    competitiveBucketCounts.competitorTraits.size,
-                selectorsRequested: lookupTraitSelectors.length,
-                selectorsExpanded: expandedTraitSelectorCount,
-                trackedOfferCount: offers.length,
-            });
+            log.debug(
+                "competitiveTraitBuckets",
+                "Competitive trait offer buckets resolved",
+                {
+                    ...jobLogFields(job),
+                    collectionWideOfferCount:
+                        competitiveBucketCounts.collectionWide.size,
+                    targetTraitOfferCount:
+                        competitiveBucketCounts.targetTrait.size,
+                    competitorTraitOfferCount:
+                        competitiveBucketCounts.competitorTraits.size,
+                    selectorsRequested: lookupTraitSelectors.length,
+                    selectorsExpanded: expandedTraitSelectorCount,
+                    trackedOfferCount: offers.length,
+                },
+            );
         }
 
         return offers.sort((left, right) =>
@@ -419,10 +431,14 @@ export class OpenSeaBiddingService implements BiddingService {
 
         if (protocolAddress) {
             try {
-                log.debug("orderDirectLookupStarted", "Fetching order by hash", {
-                    orderHash,
-                    protocolAddress,
-                });
+                log.debug(
+                    "orderDirectLookupStarted",
+                    "Fetching order by hash",
+                    {
+                        orderHash,
+                        protocolAddress,
+                    },
+                );
                 const response = await this.withRetry(
                     "getOrderByHash",
                     "order by hash",
@@ -432,17 +448,25 @@ export class OpenSeaBiddingService implements BiddingService {
 
                 if (matchesOrderHash(response, orderHash)) {
                     foundOrder = response;
-                    log.debug("orderDirectLookupFound", "Found order by direct lookup", {
-                        orderHash,
-                        protocolAddress,
-                    });
+                    log.debug(
+                        "orderDirectLookupFound",
+                        "Found order by direct lookup",
+                        {
+                            orderHash,
+                            protocolAddress,
+                        },
+                    );
                 }
             } catch (error) {
-                log.debug("orderDirectLookupFailed", "Order direct lookup failed", {
-                    orderHash,
-                    protocolAddress,
-                    ...toErrorLogFields(error),
-                });
+                log.debug(
+                    "orderDirectLookupFailed",
+                    "Order direct lookup failed",
+                    {
+                        orderHash,
+                        protocolAddress,
+                        ...toErrorLogFields(error),
+                    },
+                );
             }
         }
 
@@ -487,7 +511,7 @@ export class OpenSeaBiddingService implements BiddingService {
                     foundOrder =
                         offers.find((offer) =>
                             matchesOrderHash(offer, orderHash),
-                    ) ?? null;
+                        ) ?? null;
                     if (foundOrder) {
                         log.debug(
                             "orderCollectionScanFound",
@@ -549,10 +573,14 @@ export class OpenSeaBiddingService implements BiddingService {
         )?.toLowerCase();
         if (status) {
             if (status !== "active") {
-                log.debug("recoveredOrderInactive", "Recovered order is not active", {
-                    orderHash,
-                    status,
-                });
+                log.debug(
+                    "recoveredOrderInactive",
+                    "Recovered order is not active",
+                    {
+                        orderHash,
+                        status,
+                    },
+                );
                 return null;
             }
 
@@ -718,20 +746,28 @@ export class OpenSeaBiddingService implements BiddingService {
                 this.retryPolicy,
                 {
                     onRetry: ({ attempt, error }) => {
-                        log.info("offerCancelRetry", "Retrying offer cancellation", {
-                            orderId: order.id,
-                            protocolAddress: order.protocolAddress ?? null,
-                            attempt,
-                            ...toErrorLogFields(error),
-                        });
+                        log.info(
+                            "offerCancelRetry",
+                            "Retrying offer cancellation",
+                            {
+                                orderId: order.id,
+                                protocolAddress: order.protocolAddress ?? null,
+                                attempt,
+                                ...toErrorLogFields(error),
+                            },
+                        );
                     },
                 },
             );
         } catch (error) {
-            log.error("offerCancelFailed", "Failed to cancel offer after retries", {
-                ...orderLogFields(order),
-                ...toErrorLogFields(error),
-            });
+            log.error(
+                "offerCancelFailed",
+                "Failed to cancel offer after retries",
+                {
+                    ...orderLogFields(order),
+                    ...toErrorLogFields(error),
+                },
+            );
             throw error;
         }
     }
@@ -798,11 +834,15 @@ export class OpenSeaBiddingService implements BiddingService {
             }
 
             if (seenCursors.has(next)) {
-                log.error("nftOfferPaginationLoop", "NFT offer pagination loop detected", {
-                    collectionSlug,
-                    tokenId,
-                    cursor: next,
-                });
+                log.error(
+                    "nftOfferPaginationLoop",
+                    "NFT offer pagination loop detected",
+                    {
+                        collectionSlug,
+                        tokenId,
+                        cursor: next,
+                    },
+                );
                 break;
             }
 
@@ -904,38 +944,6 @@ export class OpenSeaBiddingService implements BiddingService {
         }
 
         return traits.map((trait) => `${trait.type}=${trait.value}`).join("|");
-    }
-
-    private parseTokenMetadataTraits(metadataJson: string): TraitTarget[] {
-        try {
-            const parsed = JSON.parse(metadataJson);
-            if (!Array.isArray(parsed)) {
-                return [];
-            }
-
-            return parsed.flatMap((entry: unknown) => {
-                const type =
-                    stringOrUndefined(asRecord(entry)?.traitType) ??
-                    stringOrUndefined(asRecord(entry)?.trait_type) ??
-                    stringOrUndefined(asRecord(entry)?.type);
-                const value = asRecord(entry)?.value;
-
-                if (
-                    typeof type !== "string" ||
-                    value === undefined ||
-                    value === null
-                ) {
-                    return [];
-                }
-
-                return [{ type, value: String(value) }];
-            });
-        } catch (error) {
-            log.error("cachedTokenMetadataParseFailed", "Failed to parse cached token metadata", {
-                ...toErrorLogFields(error),
-            });
-            return [];
-        }
     }
 
     private encodedTokenIdsContain(
@@ -1097,15 +1105,11 @@ export class OpenSeaBiddingService implements BiddingService {
         let tokenTraits: TraitTarget[] = [];
         let metadataFound = false;
         if (canUseMetadataMatching) {
-            const metadataJson =
-                await this.tokenMetadataRepository!.getMetadata(
-                    job.collectionSlug,
-                    tokenTarget.tokenId,
-                );
-            if (metadataJson) {
-                metadataFound = true;
-                tokenTraits = this.parseTokenMetadataTraits(metadataJson);
-            }
+            tokenTraits = await this.tokenMetadataRepository!.getTraits(
+                job.collectionSlug,
+                tokenTarget.tokenId,
+            );
+            metadataFound = tokenTraits.length > 0;
         }
 
         for (const rawOffer of snapshot.offers) {
@@ -1301,15 +1305,19 @@ export class OpenSeaBiddingService implements BiddingService {
             }
         });
 
-        log.debug("cachedCollectionSnapshotScan", "Cached collection snapshot scan complete", {
-            ...jobLogFields(job),
-            snapshotOfferCount: snapshot.offers.length,
-            snapshotAgeMs: Date.now() - snapshot.refreshedAt,
-            collectionWideAdded: summary.collectionWideAdded,
-            exactCriteriaMatched: summary.exactCriteriaMatched ?? 0,
-            explicitItemSkipped: summary.explicitItemSkipped,
-            targetTraits,
-        });
+        log.debug(
+            "cachedCollectionSnapshotScan",
+            "Cached collection snapshot scan complete",
+            {
+                ...jobLogFields(job),
+                snapshotOfferCount: snapshot.offers.length,
+                snapshotAgeMs: Date.now() - snapshot.refreshedAt,
+                collectionWideAdded: summary.collectionWideAdded,
+                exactCriteriaMatched: summary.exactCriteriaMatched ?? 0,
+                explicitItemSkipped: summary.explicitItemSkipped,
+                targetTraits,
+            },
+        );
 
         return cachedOffers;
     }
@@ -1319,22 +1327,26 @@ export class OpenSeaBiddingService implements BiddingService {
         snapshot: CollectionOfferSnapshot,
         summary: SnapshotScanSummary,
     ): void {
-        log.debug("cachedTokenSnapshotScan", "Cached token snapshot scan complete", {
-            ...jobLogFields(job),
-            snapshotOfferCount: snapshot.offers.length,
-            snapshotAgeMs: Date.now() - snapshot.refreshedAt,
-            collectionWideAdded: summary.collectionWideAdded,
-            explicitItemSkipped: summary.explicitItemSkipped,
-            criteriaSeen: summary.criteriaSeen ?? 0,
-            criteriaMatched: summary.criteriaMatched ?? 0,
-            criteriaMismatched: summary.criteriaMismatched ?? 0,
-            criteriaUntracked: summary.criteriaUntracked ?? 0,
-            encodedTokenIdsMatched: summary.encodedTokenIdsMatched ?? 0,
-            encodedTokenIdsSkipped: summary.encodedTokenIdsSkipped ?? 0,
-            metadataFound: summary.metadataFound ?? false,
-            tokenTraits: summary.tokenTraits ?? [],
-            mismatchSamples: summary.mismatchSamples ?? [],
-        });
+        log.debug(
+            "cachedTokenSnapshotScan",
+            "Cached token snapshot scan complete",
+            {
+                ...jobLogFields(job),
+                snapshotOfferCount: snapshot.offers.length,
+                snapshotAgeMs: Date.now() - snapshot.refreshedAt,
+                collectionWideAdded: summary.collectionWideAdded,
+                explicitItemSkipped: summary.explicitItemSkipped,
+                criteriaSeen: summary.criteriaSeen ?? 0,
+                criteriaMatched: summary.criteriaMatched ?? 0,
+                criteriaMismatched: summary.criteriaMismatched ?? 0,
+                criteriaUntracked: summary.criteriaUntracked ?? 0,
+                encodedTokenIdsMatched: summary.encodedTokenIdsMatched ?? 0,
+                encodedTokenIdsSkipped: summary.encodedTokenIdsSkipped ?? 0,
+                metadataFound: summary.metadataFound ?? false,
+                tokenTraits: summary.tokenTraits ?? [],
+                mismatchSamples: summary.mismatchSamples ?? [],
+            },
+        );
     }
 
     private dedupeTraitTargets(targets: TraitTarget[]): TraitTarget[] {
@@ -1445,12 +1457,16 @@ export class OpenSeaBiddingService implements BiddingService {
                 break;
             }
             if (seenCursors.has(next)) {
-                log.error("traitOffersPaginationLoop", "Trait offers pagination loop detected", {
-                    collectionSlug,
-                    traitType,
-                    traitValue,
-                    cursor: next,
-                });
+                log.error(
+                    "traitOffersPaginationLoop",
+                    "Trait offers pagination loop detected",
+                    {
+                        collectionSlug,
+                        traitType,
+                        traitValue,
+                        cursor: next,
+                    },
+                );
                 break;
             }
 
@@ -1556,10 +1572,14 @@ export class OpenSeaBiddingService implements BiddingService {
         for (const selector of typeOnlySelectors) {
             const values = Object.keys(asRecord(counts[selector.type]));
             if (values.length === 0) {
-                log.info("traitSelectorValuesMissing", "No trait values found for selector type", {
-                    ...jobLogFields(job),
-                    traitType: selector.type,
-                });
+                log.info(
+                    "traitSelectorValuesMissing",
+                    "No trait values found for selector type",
+                    {
+                        ...jobLogFields(job),
+                        traitType: selector.type,
+                    },
+                );
                 continue;
             }
 

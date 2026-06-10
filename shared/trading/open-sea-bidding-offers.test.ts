@@ -1,6 +1,9 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
-import { TRADING_BIDDING_BID_SCOPE_KIND } from "../types/trading.js";
+import {
+    TRADING_BIDDING_BID_SCOPE_KIND,
+    TRADING_TRAIT_TEXT_MAX_LENGTH,
+} from "../types/trading.js";
 import {
     inferOpenSeaNftSelectionKind,
     isOpenSeaCollectionWideOffer,
@@ -173,7 +176,7 @@ describe("OpenSea bidding offer parser", () => {
     });
 
     it("trims oversized trait text before creating stored bid-book labels", () => {
-        const longValue = "x".repeat(140);
+        const longValue = `${"x".repeat(TRADING_TRAIT_TEXT_MAX_LENGTH)}x`;
         const parsed = parseOpenSeaBiddingOffer(
             makeSnapshotOffer({
                 orderHash: "0xlong-trait",
@@ -190,9 +193,15 @@ describe("OpenSea bidding offer parser", () => {
         );
 
         assert.ok(parsed);
-        assert.equal(parsed.bidScope.traits[0]?.value.length, 96);
+        assert.equal(
+            parsed.bidScope.traits[0]?.value.length,
+            TRADING_TRAIT_TEXT_MAX_LENGTH,
+        );
         assert.equal(parsed.bidScope.traits[0]?.value.endsWith("..."), true);
-        assert.equal(parsed.bidScope.label.length, "Dynamic=".length + 96);
+        assert.equal(
+            parsed.bidScope.label.length,
+            "Dynamic=".length + TRADING_TRAIT_TEXT_MAX_LENGTH,
+        );
     });
 
     it("preserves collection-wide snapshot offer semantics from bidder tests", () => {

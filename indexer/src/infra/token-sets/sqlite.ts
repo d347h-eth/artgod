@@ -5,9 +5,11 @@ import type {
     TokenSetRequest,
 } from "../../ports/token-sets.js";
 import type {
+    TokenSetAttributeSchema,
     TokenSetSchema,
     TokenSetResolution,
 } from "../../domain/token-sets.js";
+import { TOKEN_SET_SCHEMA_KIND } from "../../domain/token-sets.js";
 import {
     buildTokenSetId,
     generateMerkleRoot,
@@ -80,7 +82,7 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
         const schemaHash = generateSchemaHash(schema);
         const contractAddress = schema.data.collection.toLowerCase();
         const tokenIds =
-            schema.kind === "attribute"
+            schema.kind === TOKEN_SET_SCHEMA_KIND.Attribute
                 ? this.resolveTokensByAttributes(
                       request.chainId,
                       request.collectionId,
@@ -110,7 +112,8 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
 
         const tokenSetId = buildTokenSetId(contractAddress, merkleRoot);
         const attributeId =
-            schema.kind === "attribute" && schema.data.attributes.length === 1
+            schema.kind === TOKEN_SET_SCHEMA_KIND.Attribute &&
+            schema.data.attributes.length === 1
                 ? this.resolveSingleAttributeId(
                       request.chainId,
                       request.collectionId,
@@ -169,7 +172,7 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
         chainId: number,
         collectionId: number,
         contractAddress: string,
-        schema: TokenSetSchema & { kind: "attribute" },
+        schema: TokenSetAttributeSchema,
     ): string[] {
         const attributes = schema.data.attributes;
         if (!attributes.length) return [];
@@ -213,7 +216,7 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
         chainId: number,
         collectionId: number,
         contractAddress: string,
-        schema: TokenSetSchema & { kind: "attribute" },
+        schema: TokenSetAttributeSchema,
     ): number | null {
         const attribute = schema.data.attributes[0];
         if (!attribute) return null;
