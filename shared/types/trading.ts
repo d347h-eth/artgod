@@ -441,6 +441,26 @@ export const TRADING_BIDDING_BID_SCOPE_LABEL = {
 export type TradingBiddingBidScopeLabel =
     (typeof TRADING_BIDDING_BID_SCOPE_LABEL)[keyof typeof TRADING_BIDDING_BID_SCOPE_LABEL];
 
+// Caps trait text used in bidding labels and normalized marketplace criteria.
+export const TRADING_TRAIT_TEXT_MAX_LENGTH = 96;
+
+// Normalizes trait text before it crosses bidding parser and read-model boundaries.
+export function normalizeTradingTraitText(value: string): string {
+    const trimmed = value.trim();
+    return trimmed.length <= TRADING_TRAIT_TEXT_MAX_LENGTH
+        ? trimmed
+        : `${trimmed.slice(0, TRADING_TRAIT_TEXT_MAX_LENGTH - 3)}...`;
+}
+
+// Formats one trait criterion for bidding labels.
+export function formatTradingTraitCriterionLabel(
+    trait: TradingTraitCriterion,
+): string {
+    const type = normalizeTradingTraitText(trait.type);
+    const value = normalizeTradingTraitText(trait.value);
+    return `${type}=${value}`;
+}
+
 // Formats bid-scope labels shared by snapshot projection and normalized order fallback rows.
 export function formatTradingBiddingBidScopeLabel(input: {
     kind: TradingBiddingBidScopeKind;
@@ -456,7 +476,7 @@ export function formatTradingBiddingBidScopeLabel(input: {
     if (input.kind === TRADING_BIDDING_BID_SCOPE_KIND.Trait) {
         const traits = input.traits ?? [];
         return traits.length > 0
-            ? traits.map((trait) => `${trait.type}=${trait.value}`).join(" + ")
+            ? traits.map(formatTradingTraitCriterionLabel).join(" + ")
             : TRADING_BIDDING_BID_SCOPE_LABEL.Unknown;
     }
 

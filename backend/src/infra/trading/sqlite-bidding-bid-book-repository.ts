@@ -24,6 +24,7 @@ import {
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
     formatTradingBiddingBidScopeLabel,
+    normalizeTradingTraitText,
     isTradingBiddingJobRuntimeBidPosition,
     isTradingBiddingJobRuntimeConstraint,
     type CollectionBiddingBidScopeFilter,
@@ -1265,7 +1266,10 @@ function resolveJobBidScope(job: BiddingJobSignal): {
     if (job.targetTraits.length > 0) {
         return {
             kind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
-            label: formatTraitScopeLabel(job.targetTraits),
+            label: formatTradingBiddingBidScopeLabel({
+                kind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+                traits: job.targetTraits,
+            }),
             tokenId: null,
             traits: job.targetTraits,
         };
@@ -1277,12 +1281,6 @@ function resolveJobBidScope(job: BiddingJobSignal): {
         tokenId: null,
         traits: [],
     };
-}
-
-function formatTraitScopeLabel(traits: TradingTraitCriterion[]): string {
-    return traits
-        .map((trait) => `${trimTraitText(trait.type)}=${trimTraitText(trait.value)}`)
-        .join(" + ");
 }
 
 function attachOwnBidRuntimeSignals(
@@ -1579,8 +1577,8 @@ function parseIndexedOrderTraitCriteria(
         const parsed = JSON.parse(sourceSchemaJson) as unknown;
         return isTokenSetAttributeSchema(parsed)
             ? parsed.data.attributes.map((attribute) => ({
-                  type: trimTraitText(attribute.key),
-                  value: trimTraitText(attribute.value),
+                  type: normalizeTradingTraitText(attribute.key),
+                  value: normalizeTradingTraitText(attribute.value),
               }))
             : [];
     } catch {
@@ -1822,8 +1820,8 @@ function parseTraitArray(value: string | null): TradingTraitCriterion[] {
             }
             return [
                 {
-                    type: trimTraitText(record.type),
-                    value: trimTraitText(record.value),
+                    type: normalizeTradingTraitText(record.type),
+                    value: normalizeTradingTraitText(record.value),
                 },
             ];
         });
@@ -1856,14 +1854,6 @@ function parseRuntimeBidConstraints(
     } catch {
         return [];
     }
-}
-
-function trimTraitText(value: string): string {
-    const maxLength = 96;
-    const trimmed = value.trim();
-    return trimmed.length <= maxLength
-        ? trimmed
-        : `${trimmed.slice(0, maxLength - 3)}...`;
 }
 
 function parseProtocolAddress(value: string | null): string | null {
