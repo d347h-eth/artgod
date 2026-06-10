@@ -209,6 +209,10 @@ a:hover {
 	font-size: 0.88rem;
 }
 
+.bootstrap-flow-step-progress-percent {
+	font-size: 0.78rem;
+}
+
 .bootstrap-flow-step-detail {
 	font-size: 0.7rem;
 	line-height: 1.25;

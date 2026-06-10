@@ -5,6 +5,10 @@ import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-int
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import { resolveEmbeddedCollectionExtensionInstallByKey } from "@artgod/shared/extensions/built-ins";
 import {
+    BOOTSTRAP_RUN_EVENT_CODE,
+    serializeBootstrapEnumerationProgressEventPayload,
+} from "@artgod/shared/bootstrap/run-events";
+import {
     isImageCachePolicyActive,
     type ImageCacheMode,
 } from "@artgod/shared/media/token-image-cache";
@@ -241,7 +245,7 @@ async function main() {
                                 runId,
                                 chainId: run.chainId,
                                 collectionId: run.collectionId,
-                                eventCode: "run.failed",
+                                eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunFailed,
                                 eventLevel: "error",
                                 message:
                                     "Bootstrap run failed after max retry attempts",
@@ -345,7 +349,7 @@ async function handleBootstrapStart(
             runId: run.runId,
             chainId: run.chainId,
             collectionId: run.collectionId,
-            eventCode: "run.failed",
+            eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunFailed,
             eventLevel: "error",
             message: "Unsupported standard for bootstrap",
             payloadJson: JSON.stringify({ standard: run.requestStandard }),
@@ -381,7 +385,7 @@ async function handleBootstrapStart(
         runId: run.runId,
         chainId: run.chainId,
         collectionId: run.collectionId,
-        eventCode: "run.anchor.selected",
+        eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunAnchorSelected,
         eventLevel: "info",
         message: "Bootstrap anchor selected",
         payloadJson: JSON.stringify({
@@ -437,7 +441,7 @@ async function handleBootstrapStart(
             runId: run.runId,
             chainId: run.chainId,
             collectionId: run.collectionId,
-            eventCode: "metadata.enumeration.started",
+            eventCode: BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationStarted,
             eventLevel: "info",
             message: "Token enumeration started",
             payloadJson: JSON.stringify({
@@ -488,6 +492,28 @@ async function handleBootstrapStart(
                             totalTokenIds: progress.total,
                             elapsedMs: Date.now() - enumerationStartedAt,
                         });
+                        if (
+                            progress.total !== null &&
+                            progress.resolved > 0 &&
+                            progress.resolved < progress.total
+                        ) {
+                            bootstrapRuns.appendRunEvent({
+                                runId: run.runId,
+                                chainId: run.chainId,
+                                collectionId: run.collectionId,
+                                eventCode:
+                                    BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationProgress,
+                                eventLevel: "info",
+                                message: "Token enumeration progress",
+                                payloadJson:
+                                    serializeBootstrapEnumerationProgressEventPayload(
+                                        {
+                                            resolved: progress.resolved,
+                                            total: progress.total,
+                                        },
+                                    ),
+                            });
+                        }
                     }
                 },
             );
@@ -509,7 +535,7 @@ async function handleBootstrapStart(
             runId: run.runId,
             chainId: run.chainId,
             collectionId: run.collectionId,
-            eventCode: "metadata.enumeration.completed",
+            eventCode: BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationCompleted,
             eventLevel: "info",
             message: "Token enumeration completed",
             payloadJson: JSON.stringify({
@@ -574,7 +600,7 @@ async function handleBootstrapStart(
             runId: run.runId,
             chainId: run.chainId,
             collectionId: run.collectionId,
-            eventCode: "metadata.tasks.seeded",
+            eventCode: BOOTSTRAP_RUN_EVENT_CODE.MetadataTasksSeeded,
             eventLevel: "info",
             message: "Metadata tasks seeded",
             payloadJson: JSON.stringify({
@@ -616,7 +642,7 @@ async function handleBootstrapStart(
             runId: run.runId,
             chainId: run.chainId,
             collectionId: run.collectionId,
-            eventCode: "metadata.queued",
+            eventCode: BOOTSTRAP_RUN_EVENT_CODE.MetadataQueued,
             eventLevel: "info",
             message: "Bootstrap metadata phase queued",
             payloadJson: JSON.stringify({
@@ -646,7 +672,7 @@ async function handleBootstrapStart(
             runId: run.runId,
             chainId: run.chainId,
             collectionId: run.collectionId,
-            eventCode: "run.failed",
+            eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunFailed,
             eventLevel: "error",
             message: "Bootstrap start failed",
             payloadJson: JSON.stringify({ error: message }),
@@ -784,7 +810,7 @@ async function handleBootstrapMetadataProcess(
                 runId: run.runId,
                 chainId: run.chainId,
                 collectionId: run.collectionId,
-                eventCode: "image_cache.queued",
+                eventCode: BOOTSTRAP_RUN_EVENT_CODE.ImageCacheQueued,
                 eventLevel: "info",
                 message: "Bootstrap image cache phase queued",
                 payloadJson: JSON.stringify({
@@ -814,7 +840,7 @@ async function handleBootstrapMetadataProcess(
             runId: run.runId,
             chainId: run.chainId,
             collectionId: run.collectionId,
-            eventCode: "image_cache.skipped",
+            eventCode: BOOTSTRAP_RUN_EVENT_CODE.ImageCacheSkipped,
             eventLevel: "info",
             message: "Bootstrap image cache skipped because no token images were available",
             payloadJson: null,
@@ -970,7 +996,7 @@ async function handleBootstrapImageCacheProcess(
         runId: payload.runId,
         chainId: payload.chainId,
         collectionId: payload.collectionId,
-        eventCode: "image_cache.completed",
+        eventCode: BOOTSTRAP_RUN_EVENT_CODE.ImageCacheCompleted,
         eventLevel: counts.failedTerminal > 0 ? "warn" : "info",
         message:
             counts.failedTerminal > 0
@@ -1361,7 +1387,7 @@ async function ensureBackfillScheduled(
                 runId: payload.runId,
                 chainId: payload.chainId,
                 collectionId: payload.collectionId,
-                eventCode: "run.completed",
+                eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunCompleted,
                 eventLevel: "info",
                 message: "Bootstrap completed without post-anchor backfill",
                 payloadJson: JSON.stringify({
@@ -1407,7 +1433,7 @@ async function ensureBackfillScheduled(
         runId: payload.runId,
         chainId: payload.chainId,
         collectionId: payload.collectionId,
-        eventCode: "backfill.queued",
+        eventCode: BOOTSTRAP_RUN_EVENT_CODE.BackfillQueued,
         eventLevel: "info",
         message: "Bootstrap backfill queued",
         payloadJson: JSON.stringify({
@@ -1446,7 +1472,7 @@ async function maybeScheduleOpenSeaBootstrap(
             runId: payload.runId,
             chainId: payload.chainId,
             collectionId: payload.collectionId,
-            eventCode: "opensea.skipped",
+            eventCode: BOOTSTRAP_RUN_EVENT_CODE.OpenSeaSkipped,
             eventLevel: "info",
             message:
                 "OpenSea bootstrap skipped because integration is disabled",
@@ -1467,7 +1493,7 @@ async function maybeScheduleOpenSeaBootstrap(
             runId: payload.runId,
             chainId: payload.chainId,
             collectionId: payload.collectionId,
-            eventCode: "opensea.skipped",
+            eventCode: BOOTSTRAP_RUN_EVENT_CODE.OpenSeaSkipped,
             eventLevel: "info",
             message:
                 "OpenSea bootstrap skipped because no OpenSea slug is configured",
@@ -1560,7 +1586,7 @@ async function handleBootstrapBackfillCheck(
         runId: payload.runId,
         chainId: payload.chainId,
         collectionId: payload.collectionId,
-        eventCode: "run.completed",
+        eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunCompleted,
         eventLevel: "info",
         message: "Bootstrap backfill complete; collection live",
         payloadJson: JSON.stringify({

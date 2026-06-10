@@ -89,6 +89,14 @@
 		if (!step.progress) return null;
 		return `${step.progress.completed} / ${step.progress.total}`;
 	}
+
+	function flowProgressPercentLabel(
+		step: NonNullable<BootstrapRunDetailApiResponse['flow']>['steps'][number]
+	): string | null {
+		if (!step.progress || step.progress.total <= 0) return null;
+		const percent = Math.round((step.progress.completed / step.progress.total) * 100);
+		return `${Math.min(100, Math.max(0, percent))}%`;
+	}
 </script>
 
 <section class="panel">
@@ -174,6 +182,11 @@
 						<div class="bootstrap-flow-step-label">{step.label}</div>
 						{#if flowProgressLabel(step)}
 							<div class="mono bootstrap-flow-step-progress">{flowProgressLabel(step)}</div>
+							{#if flowProgressPercentLabel(step)}
+								<div class="mono bootstrap-flow-step-progress-percent">
+									{flowProgressPercentLabel(step)}
+								</div>
+							{/if}
 						{/if}
 						{#if step.detailText}
 							<div class="mono bootstrap-flow-step-detail">{step.detailText}</div>

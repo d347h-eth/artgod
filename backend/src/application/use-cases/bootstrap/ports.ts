@@ -8,6 +8,7 @@ import type {
     BootstrapMetadataTaskStatus,
     BootstrapRunEventRecord,
     BootstrapRunRow,
+    BootstrapRunTaskCounts,
 } from "./types.js";
 
 type OpenSeaCollectionStatus =
@@ -138,13 +139,9 @@ export interface BootstrapRunsWritePort {
         items: BootstrapRunRow[];
         nextCursor: string | null;
     };
-    getRunTaskCounts(runId: number): {
-        pending: number;
-        retry: number;
-        succeeded: number;
-        failedTerminal: number;
-        total: number;
-    };
+    getRunTaskCounts(runId: number): BootstrapRunTaskCounts;
+    getRunImageCacheTaskCounts(runId: number): BootstrapRunTaskCounts;
+    getRunOwnershipSnapshotCount(runId: number): number;
     listRunMetadataTasks(params: {
         runId: number;
         status?: BootstrapMetadataTaskStatus;

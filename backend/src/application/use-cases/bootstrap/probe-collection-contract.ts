@@ -120,6 +120,7 @@ export type CollectionContractProbeResult = Omit<
     | "suggestedInput"
     | "storageEstimate"
     | "imageStorageEstimate"
+    | "imageCacheSuggestion"
 >;
 
 export interface CollectionContractProbePort {

@@ -15,6 +15,10 @@ import {
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from "@artgod/shared/config/bootstrap";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
+import {
+    BOOTSTRAP_RUN_EVENT_CODE,
+    serializeBootstrapEnumerationProgressEventPayload,
+} from "@artgod/shared/bootstrap/run-events";
 import type { RpcRetryPolicy } from "@artgod/shared/evm/rpc-resilience";
 import { TOKEN_SET_SCHEMA_KIND } from "@artgod/shared/types/token-sets";
 import {
@@ -537,6 +541,7 @@ beforeAll(async () => {
             {
                 async probeErc721Contract() {
                     return {
+                        contractName: null,
                         erc721: {
                             supported: true,
                             error: null,
@@ -4308,15 +4313,45 @@ describe("backend api routes", () => {
                 "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             anchorBlockTimestamp: 1_726_000_000,
         });
-        insertBootstrapRunEvent(runId, "run.requested");
-        insertBootstrapRunEvent(runId, "run.queued");
-        insertBootstrapRunEvent(runId, "run.anchor.selected");
-        insertBootstrapRunEvent(runId, "metadata.enumeration.started");
-        insertBootstrapRunEvent(runId, "metadata.enumeration.completed");
-        insertBootstrapRunEvent(runId, "metadata.tasks.seeded");
-        insertBootstrapRunEvent(runId, "metadata.queued");
+        db.prepare(
+            "UPDATE bootstrap_runs SET request_image_cache_mode = ?, request_image_cache_max_dimension = ? WHERE run_id = ?",
+        ).run(IMAGE_CACHE_MODE.CacheOnce, 512, runId);
+        insertBootstrapRunEvent(runId, BOOTSTRAP_RUN_EVENT_CODE.RunRequested);
+        insertBootstrapRunEvent(runId, BOOTSTRAP_RUN_EVENT_CODE.RunQueued);
+        insertBootstrapRunEvent(
+            runId,
+            BOOTSTRAP_RUN_EVENT_CODE.RunAnchorSelected,
+        );
+        insertBootstrapRunEvent(
+            runId,
+            BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationStarted,
+        );
+        insertBootstrapRunEvent(
+            runId,
+            BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationProgress,
+            "info",
+            serializeBootstrapEnumerationProgressEventPayload({
+                resolved: 1,
+                total: 2,
+            }),
+        );
+        insertBootstrapRunEvent(
+            runId,
+            BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationCompleted,
+            "info",
+            JSON.stringify({ tokenCount: 2 }),
+        );
+        insertBootstrapRunEvent(
+            runId,
+            BOOTSTRAP_RUN_EVENT_CODE.MetadataTasksSeeded,
+        );
+        insertBootstrapRunEvent(runId, BOOTSTRAP_RUN_EVENT_CODE.MetadataQueued);
         insertBootstrapMetadataTask(runId, "1", "failed_terminal");
         insertBootstrapMetadataTask(runId, "2", "succeeded");
+        insertBootstrapImageCacheTask(runId, "1", "failed_terminal");
+        insertBootstrapImageCacheTask(runId, "2", "succeeded");
+        insertBootstrapOwnershipSnapshot(runId, "1");
+        insertBootstrapOwnershipSnapshot(runId, "2");
         updateCollectionLifecycle(MILADY_ADDRESS, {
             status: COLLECTION_STATUS.Live,
             bootstrapFinishedAt: "2026-02-01T00:01:00Z",
@@ -4353,7 +4388,6 @@ describe("backend api routes", () => {
         expect(
             detail.payload.flow.steps.map((step: { key: string }) => step.key),
         ).toEqual([
-            "requested",
             "queued",
             "anchor",
             "enumeration",
@@ -4374,7 +4408,43 @@ describe("backend api routes", () => {
             expect.objectContaining({
                 state: "completed",
                 progress: {
-                    completed: 1,
+                    completed: 2,
+                    total: 2,
+                },
+            }),
+        );
+        expect(
+            detail.payload.flow.steps.find(
+                (step: { key: string }) => step.key === "enumeration",
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                progress: {
+                    completed: 2,
+                    total: 2,
+                },
+            }),
+        );
+        expect(
+            detail.payload.flow.steps.find(
+                (step: { key: string }) => step.key === "image_cache",
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                progress: {
+                    completed: 2,
+                    total: 2,
+                },
+            }),
+        );
+        expect(
+            detail.payload.flow.steps.find(
+                (step: { key: string }) => step.key === "ownership",
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                progress: {
+                    completed: 2,
                     total: 2,
                 },
             }),
@@ -4402,11 +4472,23 @@ describe("backend api routes", () => {
                 "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
             anchorBlockTimestamp: 1_726_000_200,
         });
-        insertBootstrapRunEvent(olderRunId, "run.requested");
-        insertBootstrapRunEvent(olderRunId, "run.queued");
-        insertBootstrapRunEvent(olderRunId, "run.anchor.selected");
-        insertBootstrapRunEvent(olderRunId, "metadata.enumeration.completed");
-        insertBootstrapRunEvent(olderRunId, "metadata.queued");
+        insertBootstrapRunEvent(
+            olderRunId,
+            BOOTSTRAP_RUN_EVENT_CODE.RunRequested,
+        );
+        insertBootstrapRunEvent(olderRunId, BOOTSTRAP_RUN_EVENT_CODE.RunQueued);
+        insertBootstrapRunEvent(
+            olderRunId,
+            BOOTSTRAP_RUN_EVENT_CODE.RunAnchorSelected,
+        );
+        insertBootstrapRunEvent(
+            olderRunId,
+            BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationCompleted,
+        );
+        insertBootstrapRunEvent(
+            olderRunId,
+            BOOTSTRAP_RUN_EVENT_CODE.MetadataQueued,
+        );
 
         insertBootstrapRun({
             chainId: 1,
@@ -5598,23 +5680,8 @@ function insertBootstrapMetadataTask(
     tokenId: string,
     status: "pending" | "retry" | "succeeded" | "failed_terminal",
 ): void {
-    const run = db
-        .prepare<
-            [number]
-        >("SELECT r.chain_id, r.collection_id, c.address, r.request_standard, r.anchor_block, r.anchor_block_hash, r.anchor_block_timestamp " + "FROM bootstrap_runs r " + "JOIN collections c ON c.chain_id = r.chain_id AND c.collection_id = r.collection_id " + "WHERE r.run_id = ? LIMIT 1")
-        .get(runId) as
-        | {
-              chain_id: number;
-              collection_id: number;
-              address: string;
-              request_standard: string;
-              anchor_block: number | null;
-              anchor_block_hash: string | null;
-              anchor_block_timestamp: number | null;
-          }
-        | undefined;
+    const run = resolveBootstrapRunFixture(runId);
     if (
-        !run ||
         run.anchor_block === null ||
         !run.anchor_block_hash ||
         run.anchor_block_timestamp === null
@@ -5642,10 +5709,88 @@ function insertBootstrapMetadataTask(
     );
 }
 
+function insertBootstrapImageCacheTask(
+    runId: number,
+    tokenId: string,
+    status: "pending" | "retry" | "succeeded" | "failed_terminal",
+): void {
+    const run = resolveBootstrapRunFixture(runId);
+    db.prepare(
+        "INSERT INTO bootstrap_image_cache_tasks " +
+            "(run_id, chain_id, collection_id, contract_address, token_id, source_image_url, requested_max_dimension, status, attempts, next_attempt_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0)",
+    ).run(
+        runId,
+        run.chain_id,
+        run.collection_id,
+        run.address.toLowerCase(),
+        tokenId,
+        `https://images.example/${tokenId}.png`,
+        512,
+        status,
+    );
+}
+
+function insertBootstrapOwnershipSnapshot(
+    runId: number,
+    tokenId: string,
+): void {
+    const run = resolveBootstrapRunFixture(runId);
+    if (run.anchor_block === null) {
+        throw new Error(
+            "Missing run anchor data for ownership snapshot fixture insertion",
+        );
+    }
+    db.prepare(
+        "INSERT INTO nft_balance_snapshots " +
+            "(run_id, chain_id, collection_id, contract_address, token_id, owner, anchor_block) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+        runId,
+        run.chain_id,
+        run.collection_id,
+        run.address.toLowerCase(),
+        tokenId,
+        ZERO_ADDRESS,
+        run.anchor_block,
+    );
+}
+
+function resolveBootstrapRunFixture(runId: number): {
+    chain_id: number;
+    collection_id: number;
+    address: string;
+    request_standard: string;
+    anchor_block: number | null;
+    anchor_block_hash: string | null;
+    anchor_block_timestamp: number | null;
+} {
+    const run = db
+        .prepare<
+            [number]
+        >("SELECT r.chain_id, r.collection_id, c.address, r.request_standard, r.anchor_block, r.anchor_block_hash, r.anchor_block_timestamp " + "FROM bootstrap_runs r " + "JOIN collections c ON c.chain_id = r.chain_id AND c.collection_id = r.collection_id " + "WHERE r.run_id = ? LIMIT 1")
+        .get(runId) as
+        | {
+              chain_id: number;
+              collection_id: number;
+              address: string;
+              request_standard: string;
+              anchor_block: number | null;
+              anchor_block_hash: string | null;
+              anchor_block_timestamp: number | null;
+          }
+        | undefined;
+    if (!run) {
+        throw new Error("Missing bootstrap run fixture");
+    }
+    return run;
+}
+
 function insertBootstrapRunEvent(
     runId: number,
     eventCode: string,
     eventLevel: "info" | "warn" | "error" = "info",
+    payloadJson: string | null = null,
 ): void {
     const run = db
         .prepare<
@@ -5664,7 +5809,7 @@ function insertBootstrapRunEvent(
     db.prepare(
         "INSERT INTO bootstrap_run_events " +
             "(run_id, chain_id, collection_id, event_code, event_level, message, payload_json, created_at) " +
-            "VALUES (?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
     ).run(
         runId,
         run.chain_id,
@@ -5672,6 +5817,7 @@ function insertBootstrapRunEvent(
         eventCode,
         eventLevel,
         eventCode,
+        payloadJson,
     );
 }
 

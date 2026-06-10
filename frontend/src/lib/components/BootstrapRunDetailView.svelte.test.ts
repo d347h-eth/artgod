@@ -53,13 +53,6 @@ describe('BootstrapRunDetailView', () => {
 					flow: {
 						steps: [
 							{
-								key: 'requested',
-								label: 'requested',
-								state: 'completed',
-								detailText: null,
-								progress: null
-							},
-							{
 								key: 'metadata',
 								label: 'metadata',
 								state: 'active',
@@ -88,9 +81,10 @@ describe('BootstrapRunDetailView', () => {
 		});
 
 		expect(body).toContain('bootstrap flow');
-		expect(body).toContain('requested');
+		expect(body).not.toContain('requested');
 		expect(body).toContain('metadata');
 		expect(body).toContain('3 / 4');
+		expect(body).toContain('75%');
 		expect(body).toContain('retry 1');
 		expect(body).toContain('opensea ready');
 	});
@@ -143,13 +137,6 @@ describe('BootstrapRunDetailView', () => {
 					},
 					flow: {
 						steps: [
-							{
-								key: 'requested',
-								label: 'requested',
-								state: 'completed',
-								detailText: null,
-								progress: null
-							},
 							{
 								key: 'collection_live',
 								label: 'collection live',

@@ -115,7 +115,6 @@ export type BootstrapRunTaskCounts = {
 };
 
 export type BootstrapFlowStepKey =
-    | "requested"
     | "queued"
     | "anchor"
     | "enumeration"

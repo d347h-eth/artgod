@@ -1,4 +1,5 @@
 import { ReadModelNotFoundError } from "@artgod/shared/read-models/errors";
+import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 import { BootstrapConflictError, BootstrapValidationError } from "./types.js";
 import type {
     BootstrapCommandQueuePort,
@@ -78,7 +79,7 @@ export class RetryBootstrapRunFailedTasksUseCase {
             runId: run.runId,
             chainId: run.chainId,
             collectionId: run.collectionId,
-            eventCode: "metadata.retry.failed_terminal",
+            eventCode: BOOTSTRAP_RUN_EVENT_CODE.MetadataRetryFailedTerminal,
             eventLevel: "info",
             message: "Failed metadata tasks moved back to retry",
             payloadJson: JSON.stringify({ updatedCount }),

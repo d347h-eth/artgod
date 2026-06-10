@@ -30,6 +30,7 @@ import {
     normalizeImageCachePolicyConfig,
     type ImageCachePolicyConfig,
 } from "@artgod/shared/media/token-image-cache";
+import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 
 export type EmbeddedCollectionExtensionResolveInput = {
     chainId: number;
@@ -183,7 +184,7 @@ export class CreateBootstrapRunUseCase {
             runId: run.runId,
             chainId: run.chainId,
             collectionId: run.collectionId,
-            eventCode: "run.requested",
+            eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunRequested,
             eventLevel: "info",
             message: "Bootstrap run requested",
             payloadJson: null,
@@ -200,7 +201,7 @@ export class CreateBootstrapRunUseCase {
             runId: run.runId,
             chainId: run.chainId,
             collectionId: run.collectionId,
-            eventCode: "run.queued",
+            eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunQueued,
             eventLevel: "info",
             message: "Bootstrap run queued",
             payloadJson: null,

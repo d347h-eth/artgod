@@ -1,4 +1,5 @@
 import { db, setDbPath } from "@artgod/shared/database";
+import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 import {
     EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND,
     type CollectionExtensionKey,
@@ -164,8 +165,13 @@ function createRun(input: {
     db.prepare(
         "INSERT INTO bootstrap_run_events " +
             "(run_id, chain_id, collection_id, event_code, event_level, message, payload_json) " +
-            "VALUES (?, ?, ?, 'run.requested', 'info', 'Bootstrap run requested via script', NULL)",
-    ).run(row.run_id, input.chainId, input.collectionId);
+            "VALUES (?, ?, ?, ?, 'info', 'Bootstrap run requested via script', NULL)",
+    ).run(
+        row.run_id,
+        input.chainId,
+        input.collectionId,
+        BOOTSTRAP_RUN_EVENT_CODE.RunRequested,
+    );
     return { runId: row.run_id };
 }
 
@@ -180,8 +186,13 @@ function markRunQueued(input: {
     db.prepare(
         "INSERT INTO bootstrap_run_events " +
             "(run_id, chain_id, collection_id, event_code, event_level, message, payload_json) " +
-            "VALUES (?, ?, ?, 'run.queued', 'info', 'Bootstrap run queued via script', NULL)",
-    ).run(input.runId, input.chainId, input.collectionId);
+            "VALUES (?, ?, ?, ?, 'info', 'Bootstrap run queued via script', NULL)",
+    ).run(
+        input.runId,
+        input.chainId,
+        input.collectionId,
+        BOOTSTRAP_RUN_EVENT_CODE.RunQueued,
+    );
 }
 
 function normalizeAddress(raw: string): string {

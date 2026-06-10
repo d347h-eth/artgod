@@ -17,6 +17,7 @@ import type {
     BootstrapMetadataTaskListItem,
     BootstrapMetadataTaskStatus,
     BootstrapRunRow,
+    BootstrapRunTaskCounts,
 } from "../../application/use-cases/bootstrap/types.js";
 
 type CollectionRow = {
@@ -97,6 +98,11 @@ type BootstrapRunEventDbRow = {
     message: string;
     created_at: string;
     payload_json: string | null;
+};
+
+type BootstrapTaskCountRow = {
+    status: string;
+    count: number;
 };
 
 const COLLECTION_COLUMNS =
@@ -250,6 +256,16 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
     private selectRunTaskCounts = db.prepare<{ runId: number }>(
         "SELECT status, COUNT(*) AS count FROM bootstrap_metadata_snapshot_tasks " +
             "WHERE run_id = @runId GROUP BY status",
+    );
+
+    private selectRunImageCacheTaskCounts = db.prepare<{ runId: number }>(
+        "SELECT status, COUNT(*) AS count FROM bootstrap_image_cache_tasks " +
+            "WHERE run_id = @runId GROUP BY status",
+    );
+
+    private selectRunOwnershipSnapshotCount = db.prepare<{ runId: number }>(
+        "SELECT COUNT(DISTINCT token_id) AS count FROM nft_balance_snapshots " +
+            "WHERE run_id = @runId",
     );
 
     private selectRunEvents = db.prepare<{ runId: number }>(
@@ -523,32 +539,25 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         };
     }
 
-    getRunTaskCounts(runId: number): {
-        pending: number;
-        retry: number;
-        succeeded: number;
-        failedTerminal: number;
-        total: number;
-    } {
-        const counts = {
-            pending: 0,
-            retry: 0,
-            succeeded: 0,
-            failedTerminal: 0,
-            total: 0,
-        };
+    getRunTaskCounts(runId: number): BootstrapRunTaskCounts {
         const rows = this.selectRunTaskCounts.all({
             runId,
-        }) as Array<{ status: string; count: number }>;
-        for (const row of rows) {
-            const value = Number(row.count) || 0;
-            if (row.status === "pending") counts.pending = value;
-            if (row.status === "retry") counts.retry = value;
-            if (row.status === "succeeded") counts.succeeded = value;
-            if (row.status === "failed_terminal") counts.failedTerminal = value;
-            counts.total += value;
-        }
-        return counts;
+        }) as BootstrapTaskCountRow[];
+        return mapTaskCountRows(rows);
+    }
+
+    getRunImageCacheTaskCounts(runId: number): BootstrapRunTaskCounts {
+        const rows = this.selectRunImageCacheTaskCounts.all({
+            runId,
+        }) as BootstrapTaskCountRow[];
+        return mapTaskCountRows(rows);
+    }
+
+    getRunOwnershipSnapshotCount(runId: number): number {
+        const row = this.selectRunOwnershipSnapshotCount.get({ runId }) as
+            | { count: number | bigint }
+            | undefined;
+        return Number(row?.count ?? 0);
     }
 
     listRunMetadataTasks(params: {
@@ -623,6 +632,27 @@ function mapCollection(row: CollectionRow): CollectionBootstrapState {
         openseaSnapshotCompletedAt: row.opensea_snapshot_completed_at,
         openseaLastError: row.opensea_last_error,
     };
+}
+
+function mapTaskCountRows(
+    rows: BootstrapTaskCountRow[],
+): BootstrapRunTaskCounts {
+    const counts: BootstrapRunTaskCounts = {
+        pending: 0,
+        retry: 0,
+        succeeded: 0,
+        failedTerminal: 0,
+        total: 0,
+    };
+    for (const row of rows) {
+        const value = Number(row.count) || 0;
+        if (row.status === "pending") counts.pending = value;
+        if (row.status === "retry") counts.retry = value;
+        if (row.status === "succeeded") counts.succeeded = value;
+        if (row.status === "failed_terminal") counts.failedTerminal = value;
+        counts.total += value;
+    }
+    return counts;
 }
 
 function mapRun(row: BootstrapRunDbRow): BootstrapRunRow {

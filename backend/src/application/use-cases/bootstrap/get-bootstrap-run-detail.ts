@@ -1,6 +1,11 @@
 import { ReadModelNotFoundError } from "@artgod/shared/read-models/errors";
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 import { isImageCachePolicyActive } from "@artgod/shared/media/token-image-cache";
+import {
+    BOOTSTRAP_RUN_EVENT_CODE,
+    parseBootstrapEnumerationCompletedEventPayload,
+    parseBootstrapEnumerationProgressEventPayload,
+} from "@artgod/shared/bootstrap/run-events";
 import type {
     BootstrapFlowStep,
     BootstrapFlowStepState,
@@ -54,6 +59,10 @@ export class GetBootstrapRunDetailUseCase {
         }
 
         const counts = this.bootstrapRunsPort.getRunTaskCounts(run.runId);
+        const imageCacheCounts =
+            this.bootstrapRunsPort.getRunImageCacheTaskCounts(run.runId);
+        const ownershipSnapshotCount =
+            this.bootstrapRunsPort.getRunOwnershipSnapshotCount(run.runId);
         const events = this.bootstrapRunsPort.listRunEvents(run.runId);
         const isLatestForCollection =
             this.bootstrapRunsPort.isLatestRunForCollection(
@@ -75,6 +84,8 @@ export class GetBootstrapRunDetailUseCase {
                 run,
                 collection,
                 metadataTasks: counts,
+                imageCacheTasks: imageCacheCounts,
+                ownershipSnapshotCount,
                 events,
                 isLatestForCollection,
                 openseaIntegration: this.openseaIntegration,
@@ -106,6 +117,8 @@ function buildBootstrapRunFlow(input: {
     run: BootstrapRunRow;
     collection: CollectionBootstrapState;
     metadataTasks: BootstrapRunTaskCounts;
+    imageCacheTasks: BootstrapRunTaskCounts;
+    ownershipSnapshotCount: number;
     events: BootstrapRunEventRecord[];
     isLatestForCollection: boolean;
     openseaIntegration: OpenSeaIntegrationStatus;
@@ -114,18 +127,20 @@ function buildBootstrapRunFlow(input: {
 
     const hasRequested = true;
     const hasQueued =
-        eventCodes.has("run.queued") || input.run.status !== "requested";
+        eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.RunQueued) ||
+        input.run.status !== "requested";
     const hasAnchor =
-        eventCodes.has("run.anchor.selected") || input.run.anchorBlock !== null;
+        eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.RunAnchorSelected) ||
+        input.run.anchorBlock !== null;
     const hasEnumerationStarted = eventCodes.has(
-        "metadata.enumeration.started",
+        BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationStarted,
     );
     const hasEnumerationCompleted = eventCodes.has(
-        "metadata.enumeration.completed",
+        BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationCompleted,
     );
     const hasMetadataQueued =
-        eventCodes.has("metadata.queued") ||
-        eventCodes.has("metadata.retry.failed_terminal");
+        eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.MetadataQueued) ||
+        eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.MetadataRetryFailedTerminal);
     const hasMetadataCompleted =
         input.run.status === "image_cache" ||
         input.run.status === "ownership" ||
@@ -133,14 +148,14 @@ function buildBootstrapRunFlow(input: {
         input.run.status === "completed" ||
         input.collection.status === "live";
     const hasImageCacheQueued =
-        eventCodes.has("image_cache.queued") ||
-        eventCodes.has("image_cache.completed") ||
-        eventCodes.has("image_cache.skipped");
+        eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.ImageCacheQueued) ||
+        eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.ImageCacheCompleted) ||
+        eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.ImageCacheSkipped);
     const hasImageCacheCompleted =
         hasMetadataCompleted &&
         (!isImageCacheRunActive(input.run) ||
-            eventCodes.has("image_cache.completed") ||
-            eventCodes.has("image_cache.skipped") ||
+            eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.ImageCacheCompleted) ||
+            eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.ImageCacheSkipped) ||
             input.run.status === "ownership" ||
             input.run.status === "backfill" ||
             input.run.status === "completed" ||
@@ -152,15 +167,19 @@ function buildBootstrapRunFlow(input: {
     const hasBackfillCompleted =
         input.run.status === "completed" || input.collection.status === "live";
     const isRunFailed = input.run.status === "failed";
+    const enumerationProgress = resolveEnumerationProgress(input.events);
+    const metadataProgress = resolveTaskProgress(input.metadataTasks);
+    const imageCacheProgress = isImageCacheRunActive(input.run)
+        ? resolveTaskProgress(input.imageCacheTasks)
+        : null;
+    const ownershipProgress = resolveOwnershipProgress({
+        run: input.run,
+        metadataTasks: input.metadataTasks,
+        ownershipSnapshotCount: input.ownershipSnapshotCount,
+        hasOwnershipCompleted,
+    });
 
     const steps: BootstrapFlowStep[] = [
-        {
-            key: "requested",
-            label: "requested",
-            state: hasRequested ? "completed" : "pending",
-            detailText: null,
-            progress: null,
-        },
         {
             key: "queued",
             label: "queued",
@@ -201,7 +220,7 @@ function buildBootstrapRunFlow(input: {
                     (hasAnchor || hasEnumerationStarted),
             }),
             detailText: null,
-            progress: null,
+            progress: enumerationProgress,
         },
         {
             key: "metadata",
@@ -209,22 +228,14 @@ function buildBootstrapRunFlow(input: {
             state: resolveStepState({
                 completed: hasMetadataCompleted,
                 active:
-                    hasMetadataQueued &&
-                    !hasMetadataCompleted &&
-                    !isRunFailed,
+                    hasMetadataQueued && !hasMetadataCompleted && !isRunFailed,
                 failed:
                     !hasMetadataCompleted &&
                     isRunFailed &&
                     (hasMetadataQueued || input.metadataTasks.total > 0),
             }),
             detailText: formatMetadataDetail(input.metadataTasks),
-            progress:
-                input.metadataTasks.total > 0
-                    ? {
-                          completed: input.metadataTasks.succeeded,
-                          total: input.metadataTasks.total,
-                      }
-                    : null,
+            progress: metadataProgress,
         },
         {
             key: "image_cache",
@@ -237,8 +248,11 @@ function buildBootstrapRunFlow(input: {
                     isRunFailed &&
                     (hasImageCacheQueued || hasMetadataCompleted),
             }),
-            detailText: formatImageCacheDetail(input.run),
-            progress: null,
+            detailText: formatImageCacheDetail(
+                input.run,
+                input.imageCacheTasks,
+            ),
+            progress: imageCacheProgress,
         },
         {
             key: "ownership",
@@ -252,7 +266,7 @@ function buildBootstrapRunFlow(input: {
                     (hasMetadataQueued || input.metadataTasks.total > 0),
             }),
             detailText: null,
-            progress: null,
+            progress: ownershipProgress,
         },
         {
             key: "backfill",
@@ -382,7 +396,90 @@ function resolveStepState(input: {
     return "pending";
 }
 
+function resolveTaskProgress(
+    counts: BootstrapRunTaskCounts,
+): BootstrapFlowStep["progress"] {
+    return normalizeProgress(
+        counts.succeeded + counts.failedTerminal,
+        counts.total,
+    );
+}
+
+function resolveEnumerationProgress(
+    events: BootstrapRunEventRecord[],
+): BootstrapFlowStep["progress"] {
+    let progress: BootstrapFlowStep["progress"] = null;
+    for (const event of events) {
+        if (
+            event.eventCode ===
+            BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationProgress
+        ) {
+            const payload = parseBootstrapEnumerationProgressEventPayload(
+                event.payloadJson,
+            );
+            if (payload) {
+                progress = normalizeProgress(payload.resolved, payload.total);
+            }
+        }
+        if (
+            event.eventCode ===
+            BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationCompleted
+        ) {
+            const payload = parseBootstrapEnumerationCompletedEventPayload(
+                event.payloadJson,
+            );
+            if (payload) {
+                progress = normalizeProgress(
+                    payload.tokenCount,
+                    payload.tokenCount,
+                );
+            }
+        }
+    }
+    return progress;
+}
+
+function resolveOwnershipProgress(input: {
+    run: BootstrapRunRow;
+    metadataTasks: BootstrapRunTaskCounts;
+    ownershipSnapshotCount: number;
+    hasOwnershipCompleted: boolean;
+}): BootstrapFlowStep["progress"] {
+    if (input.run.status !== "ownership" && !input.hasOwnershipCompleted) {
+        return null;
+    }
+    return normalizeProgress(
+        input.ownershipSnapshotCount,
+        input.metadataTasks.total,
+    );
+}
+
+function normalizeProgress(
+    completed: number,
+    total: number,
+): BootstrapFlowStep["progress"] {
+    if (!Number.isFinite(total) || total <= 0) {
+        return null;
+    }
+    const normalizedTotal = Math.max(0, Math.trunc(total));
+    if (normalizedTotal <= 0) {
+        return null;
+    }
+    const normalizedCompleted = Math.min(
+        normalizedTotal,
+        Math.max(0, Math.trunc(completed)),
+    );
+    return {
+        completed: normalizedCompleted,
+        total: normalizedTotal,
+    };
+}
+
 function formatMetadataDetail(counts: BootstrapRunTaskCounts): string | null {
+    return formatTaskDetail(counts);
+}
+
+function formatTaskDetail(counts: BootstrapRunTaskCounts): string | null {
     const parts: string[] = [];
     if (counts.retry > 0) {
         parts.push(`retry ${counts.retry}`);
@@ -393,14 +490,20 @@ function formatMetadataDetail(counts: BootstrapRunTaskCounts): string | null {
     return parts.length > 0 ? parts.join(" / ") : null;
 }
 
-function formatImageCacheDetail(run: BootstrapRunRow): string | null {
+function formatImageCacheDetail(
+    run: BootstrapRunRow,
+    counts: BootstrapRunTaskCounts,
+): string | null {
     if (!isImageCacheRunActive(run)) {
         return "disabled";
     }
+    const taskDetail = formatTaskDetail(counts);
     if (run.imageCacheMaxDimension === null) {
-        return "original";
+        return ["original", taskDetail].filter(Boolean).join(" / ");
     }
-    return `${run.imageCacheMaxDimension}px`;
+    return [`${run.imageCacheMaxDimension}px`, taskDetail]
+        .filter(Boolean)
+        .join(" / ");
 }
 
 function isImageCacheRunActive(run: BootstrapRunRow): boolean {
