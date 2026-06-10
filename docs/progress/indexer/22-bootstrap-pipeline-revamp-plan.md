@@ -320,8 +320,8 @@ These decisions are locked for the first implementation pass:
     changed. Done for docs; RPC catalog did not need a new JSON-RPC path.
 14. Add focused backend/indexer/frontend tests, then E2E bootstrap coverage.
     Focused storage/reconciler tests added for the startup sweep. Bootstrap
-    probe UI E2E coverage exists; full run lifecycle/detail E2E coverage
-    remains.
+    probe UI and run-detail pause/resume E2E coverage exists; full backend
+    lifecycle E2E coverage remains.
 
 ## Open Decisions
 

@@ -2,6 +2,7 @@ import { expect, test, type Page, type TestInfo } from 'playwright/test';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import { TERRAFORMS_EXTENSION_KEY } from '@artgod/shared/extensions/terraforms';
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
+import { BOOTSTRAP_STEP_ACTION, BOOTSTRAP_STEP_KEY } from '@artgod/shared/bootstrap/pipeline';
 import { TEST_IDS } from '../src/lib/test-ids';
 import { DEFAULT_BOOTSTRAP_METADATA_MODE } from '../src/lib/bootstrap-metadata-mode';
 import {
@@ -15,6 +16,10 @@ import {
 	BOOTSTRAP_PROBE_MEDIA,
 	installBootstrapProbeApiMock
 } from './helpers/bootstrap-probe-api';
+import {
+	BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH,
+	installBootstrapRunDetailApiMock
+} from './helpers/bootstrap-run-detail-api';
 
 const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
 
@@ -141,6 +146,39 @@ test.describe('bootstrap contract probe UI', () => {
 				maxDimension: null
 			}
 		});
+	});
+});
+
+test.describe('bootstrap run detail UI', () => {
+	test('renders progress and toggles image-cache pause resume actions', async ({ page }) => {
+		const api = await installBootstrapRunDetailApiMock(page);
+		await page.goto(BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH);
+
+		const flow = page.getByRole('list', { name: 'bootstrap flow' });
+		await expect(flow).toBeVisible();
+		await expect(flow.getByText('metadata', { exact: true })).toBeVisible();
+		await expect(page.getByText('1000 / 1000')).toHaveCount(2);
+		await expect(page.getByText('600 / 1000')).toBeVisible();
+		await expect(page.getByText('60%')).toBeVisible();
+		await expect(page.getByText('collection live')).toBeVisible();
+
+		await page.getByRole('button', { name: 'pause image cache' }).click();
+		await expect.poll(() => api.actions.length).toBe(1);
+		expect(api.actions[0]).toMatchObject({
+			stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+			action: BOOTSTRAP_STEP_ACTION.Pause
+		});
+		await expect(page.getByRole('button', { name: 'resume image cache' })).toBeVisible();
+		await expect(page.getByText('paused')).toBeVisible();
+
+		await page.getByRole('button', { name: 'resume image cache' }).click();
+		await expect.poll(() => api.actions.length).toBe(2);
+		expect(api.actions[1]).toMatchObject({
+			stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+			action: BOOTSTRAP_STEP_ACTION.Resume
+		});
+		await expect(page.getByRole('button', { name: 'pause image cache' })).toBeVisible();
+		await expect.poll(() => api.detailRequests).toBeGreaterThan(0);
 	});
 });
 
