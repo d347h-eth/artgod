@@ -8,7 +8,9 @@ import {
     BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_TASK_STATUS,
     mapBootstrapTaskStatusCounts,
+    serializeBootstrapStepDependencies,
     type BootstrapRunStatus,
+    type BootstrapRunStepPlan,
     type BootstrapTaskStatusCountRow,
 } from "@artgod/shared/bootstrap/pipeline";
 import {
@@ -227,6 +229,20 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
             "VALUES (@chainId, @collectionId, @requestSlug, @requestOpenseaSlug, @requestAddress, @requestStandard, @requestExtensionKey, @metadataMode, @enumerationMode, @manualTokenIdsJson, @manualRangeStartTokenId, @manualRangeTotalSupply, @imageCacheMode, @imageCacheMaxDimension, @deploymentBlock, @requestedStatus)",
     );
 
+    private insertRunStep = db.prepare<{
+        runId: number;
+        stepKey: string;
+        status: string;
+        blocking: number;
+        dependsOnJson: string;
+        progressTotal: number | null;
+        configJson: string | null;
+    }>(
+        "INSERT INTO bootstrap_run_steps " +
+            "(run_id, step_key, status, blocking, depends_on_json, progress_total, config_json) " +
+            "VALUES (@runId, @stepKey, @status, @blocking, @dependsOnJson, @progressTotal, @configJson)",
+    );
+
     private selectLatestRun = db.prepare<{
         chainId: number;
         collectionId: number;
@@ -438,6 +454,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         imageCacheMode: ImageCacheMode;
         imageCacheMaxDimension: number | null;
         deploymentBlock: number | null;
+        steps: readonly BootstrapRunStepPlan[];
     }): BootstrapRunRow {
         const run = db.raw.transaction(() => {
             this.insertRun.run({
@@ -450,6 +467,21 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
             }) as BootstrapRunDbRow | undefined;
             if (!row) {
                 throw new Error("Bootstrap run insert failed");
+            }
+            for (const step of input.steps) {
+                this.insertRunStep.run({
+                    runId: row.run_id,
+                    stepKey: step.stepKey,
+                    status: step.status,
+                    blocking: step.blocking ? 1 : 0,
+                    dependsOnJson: serializeBootstrapStepDependencies(
+                        step.dependsOn,
+                    ),
+                    progressTotal: step.progressTotal,
+                    configJson: step.config
+                        ? JSON.stringify(step.config)
+                        : null,
+                });
             }
             return mapRun(row);
         });

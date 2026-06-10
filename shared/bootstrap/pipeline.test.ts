@@ -7,6 +7,8 @@ import {
     isBootstrapStepTerminalStatus,
     isBootstrapTaskStatus,
     mapBootstrapTaskStatusCounts,
+    serializeBootstrapStepDependencies,
+    BOOTSTRAP_STEP_KEY,
 } from "./pipeline.js";
 
 describe("bootstrap pipeline contract", () => {
@@ -49,5 +51,14 @@ describe("bootstrap pipeline contract", () => {
             failedTerminal: 7,
             total: 17,
         });
+    });
+
+    it("serializes step dependencies as stable JSON arrays", () => {
+        expect(
+            serializeBootstrapStepDependencies([
+                BOOTSTRAP_STEP_KEY.Anchor,
+                BOOTSTRAP_STEP_KEY.Enumeration,
+            ]),
+        ).toBe('["anchor","enumeration"]');
     });
 });

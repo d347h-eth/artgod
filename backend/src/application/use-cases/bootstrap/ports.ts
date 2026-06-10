@@ -8,6 +8,7 @@ import type {
     BootstrapMetadataTaskStatus,
     BootstrapRunEventRecord,
     BootstrapRunRow,
+    BootstrapRunStepPlan,
     BootstrapRunTaskCounts,
 } from "./types.js";
 
@@ -107,6 +108,7 @@ export interface BootstrapRunsWritePort {
         imageCacheMode: ImageCacheMode;
         imageCacheMaxDimension: number | null;
         deploymentBlock: number | null;
+        steps: readonly BootstrapRunStepPlan[];
     }): BootstrapRunRow;
     updateRunStatus(
         runId: number,

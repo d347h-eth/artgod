@@ -19,6 +19,11 @@ import {
     BOOTSTRAP_RUN_EVENT_CODE,
     serializeBootstrapEnumerationProgressEventPayload,
 } from "@artgod/shared/bootstrap/run-events";
+import {
+    BOOTSTRAP_STEP_KEY,
+    BOOTSTRAP_STEP_STATUS,
+    serializeBootstrapStepDependencies,
+} from "@artgod/shared/bootstrap/pipeline";
 import type { RpcRetryPolicy } from "@artgod/shared/evm/rpc-resilience";
 import { TOKEN_SET_SCHEMA_KIND } from "@artgod/shared/types/token-sets";
 import {
@@ -4055,6 +4060,66 @@ describe("backend api routes", () => {
         );
         expect(create.statusCode).toBe(200);
         expect(create.payload.runId).toEqual(expect.any(Number));
+        const plannedSteps = db
+            .prepare<[number]>(
+                "SELECT step_key, status, blocking, depends_on_json FROM bootstrap_run_steps WHERE run_id = ? ORDER BY rowid ASC",
+            )
+            .all(create.payload.runId) as Array<{
+                step_key: string;
+                status: string;
+                blocking: number;
+                depends_on_json: string;
+            }>;
+        expect(plannedSteps).toEqual([
+            {
+                step_key: BOOTSTRAP_STEP_KEY.Anchor,
+                status: BOOTSTRAP_STEP_STATUS.Ready,
+                blocking: 1,
+                depends_on_json: serializeBootstrapStepDependencies([]),
+            },
+            expect.objectContaining({
+                step_key: BOOTSTRAP_STEP_KEY.Enumeration,
+                blocking: 1,
+                depends_on_json: serializeBootstrapStepDependencies([
+                    BOOTSTRAP_STEP_KEY.Anchor,
+                ]),
+            }),
+            expect.objectContaining({
+                step_key: BOOTSTRAP_STEP_KEY.Metadata,
+                blocking: 1,
+                depends_on_json: serializeBootstrapStepDependencies([
+                    BOOTSTRAP_STEP_KEY.Enumeration,
+                ]),
+            }),
+            expect.objectContaining({
+                step_key: BOOTSTRAP_STEP_KEY.Ownership,
+                blocking: 1,
+                depends_on_json: serializeBootstrapStepDependencies([
+                    BOOTSTRAP_STEP_KEY.Metadata,
+                ]),
+            }),
+            expect.objectContaining({
+                step_key: BOOTSTRAP_STEP_KEY.Backfill,
+                blocking: 1,
+                depends_on_json: serializeBootstrapStepDependencies([
+                    BOOTSTRAP_STEP_KEY.Ownership,
+                ]),
+            }),
+            expect.objectContaining({
+                step_key: BOOTSTRAP_STEP_KEY.CollectionLive,
+                blocking: 1,
+                depends_on_json: serializeBootstrapStepDependencies([
+                    BOOTSTRAP_STEP_KEY.Backfill,
+                ]),
+            }),
+            expect.objectContaining({
+                step_key: BOOTSTRAP_STEP_KEY.ImageCache,
+                blocking: 0,
+                depends_on_json: serializeBootstrapStepDependencies([
+                    BOOTSTRAP_STEP_KEY.Metadata,
+                ]),
+            }),
+        ]);
 
         const probe = await resolve(
             "GET",

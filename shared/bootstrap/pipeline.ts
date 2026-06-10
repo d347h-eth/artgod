@@ -175,6 +175,15 @@ export type BootstrapTaskStatusCountRow = {
     count: number | bigint;
 };
 
+export type BootstrapRunStepPlan = {
+    stepKey: BootstrapStepKey;
+    status: BootstrapStepStatus;
+    blocking: boolean;
+    dependsOn: readonly BootstrapStepKey[];
+    progressTotal: number | null;
+    config: Record<string, unknown> | null;
+};
+
 // Creates an empty count bucket for bootstrap fan-out task read models.
 export function emptyBootstrapTaskCounts(): BootstrapTaskCounts {
     return {
@@ -205,6 +214,13 @@ export function mapBootstrapTaskStatusCounts(
         counts.total += value;
     }
     return counts;
+}
+
+// Serializes step dependencies for bootstrap_run_steps.depends_on_json.
+export function serializeBootstrapStepDependencies(
+    dependsOn: readonly BootstrapStepKey[],
+): string {
+    return JSON.stringify(dependsOn);
 }
 
 // Checks values received from query strings or database rows before narrowing.

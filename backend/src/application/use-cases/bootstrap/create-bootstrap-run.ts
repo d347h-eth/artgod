@@ -24,6 +24,7 @@ import {
     BOOTSTRAP_MANUAL_RANGE_TOTAL_SUPPLY_LIMIT,
     BOOTSTRAP_MANUAL_TOKEN_IDS_LIMIT,
 } from "./bootstrap-limits.js";
+import { planBootstrapRunSteps } from "./bootstrap-pipeline-planner.js";
 import {
     BOOTSTRAP_METADATA_MODE,
     BOOTSTRAP_RUN_STATUS,
@@ -157,6 +158,12 @@ export class CreateBootstrapRunUseCase {
             requestImageCache.selectedSource,
             requestExtensionKey,
         );
+        const plannedSteps = planBootstrapRunSteps({
+            imageCache: requestImageCache.config,
+            openseaSlug,
+            openseaIntegration: this.openseaIntegration,
+            requestExtensionKey,
+        });
         if (
             requestImageCache.selectedSource ===
             COLLECTION_CUSTOMIZATION_SOURCE_KIND.User
@@ -185,6 +192,7 @@ export class CreateBootstrapRunUseCase {
             imageCacheMode: requestImageCache.config.imageCacheMode,
             imageCacheMaxDimension: requestImageCache.config.maxDimension,
             deploymentBlock: input.deploymentBlock ?? null,
+            steps: plannedSteps,
         });
 
         this.bootstrapRunsPort.appendRunEvent({

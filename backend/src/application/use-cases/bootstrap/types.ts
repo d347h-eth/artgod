@@ -8,6 +8,7 @@ import type {
     BootstrapFlowStepState,
     BootstrapMetadataMode,
     BootstrapRunStatus,
+    BootstrapRunStepPlan,
     BootstrapTaskCounts,
     BootstrapTaskStatus,
 } from "@artgod/shared/bootstrap/pipeline";
@@ -18,6 +19,7 @@ export type {
     BootstrapFlowStepState,
     BootstrapMetadataMode,
     BootstrapRunStatus,
+    BootstrapRunStepPlan,
 } from "@artgod/shared/bootstrap/pipeline";
 
 export type BootstrapManualInput =
