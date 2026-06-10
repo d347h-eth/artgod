@@ -9,6 +9,11 @@ import {
     serializeBootstrapEnumerationProgressEventPayload,
 } from "@artgod/shared/bootstrap/run-events";
 import {
+    BOOTSTRAP_RUN_STATUS,
+    BOOTSTRAP_STEP_KEY,
+    type BootstrapStepKey,
+} from "@artgod/shared/bootstrap/pipeline";
+import {
     isImageCachePolicyActive,
     type ImageCacheMode,
 } from "@artgod/shared/media/token-image-cache";
@@ -42,6 +47,7 @@ import {
 } from "../domain/opensea-jobs.js";
 import { SqliteBootstrapStorage } from "../infra/bootstrap/sqlite.js";
 import { SqliteBootstrapRuns } from "../infra/bootstrap/sqlite-runs.js";
+import { SqliteBootstrapSteps } from "../infra/bootstrap/sqlite-steps.js";
 import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
@@ -56,6 +62,7 @@ import type {
     BootstrapImageCacheTask,
 } from "../ports/bootstrap.js";
 import type { BootstrapRunsPort } from "../ports/bootstrap-runs.js";
+import type { BootstrapStepsPort } from "../ports/bootstrap-steps.js";
 import type { CollectionRegistryPort } from "../ports/collections.js";
 import type { CollectionExtensionInstallPort } from "../ports/collection-extensions.js";
 import type { MetadataRefreshPayload } from "../domain/domain-jobs.js";
@@ -116,6 +123,7 @@ async function main() {
         const collectionExtensions = new SqliteCollectionExtensions();
         const bootstrapStorage = new SqliteBootstrapStorage();
         const bootstrapRuns = new SqliteBootstrapRuns();
+        const bootstrapSteps = new SqliteBootstrapSteps();
         const storage = new SqliteStorage();
         const metadataResolver = new ViemTokenUriResolver({
             endpoints: config.rpc.endpoints,
@@ -167,6 +175,7 @@ async function main() {
                             collectionExtensions,
                             bootstrapStorage,
                             bootstrapRuns,
+                            bootstrapSteps,
                             config.sync.reorgDepth,
                             config.bootstrap.metadataBatchSize,
                             job.payload as BootstrapCollectionPayload,
@@ -183,6 +192,7 @@ async function main() {
                             collectionExtensions,
                             bootstrapStorage,
                             bootstrapRuns,
+                            bootstrapSteps,
                             metadataDomain,
                             config.sync.backfillBatchSize,
                             config.bootstrap.snapshotBatchSize,
@@ -205,6 +215,7 @@ async function main() {
                             collections,
                             bootstrapStorage,
                             bootstrapRuns,
+                            bootstrapSteps,
                             tokenImageCache,
                             config.sync.backfillBatchSize,
                             config.bootstrap.snapshotBatchSize,
@@ -225,6 +236,7 @@ async function main() {
                             storage,
                             collections,
                             bootstrapRuns,
+                            bootstrapSteps,
                             job.payload as BootstrapBackfillCheckPayload,
                             job.traceId ?? job.jobId,
                             job.jobId,
@@ -235,10 +247,14 @@ async function main() {
                         (job.payload as { runId?: unknown }).runId,
                     );
                     if (Number.isInteger(runId) && job.attempt >= 5) {
-                        bootstrapRuns.updateRunStatus(runId, "failed", {
-                            code: "max_attempts_exceeded",
-                            message: String(error),
-                        });
+                        bootstrapRuns.updateRunStatus(
+                            runId,
+                            BOOTSTRAP_RUN_STATUS.Failed,
+                            {
+                                code: "max_attempts_exceeded",
+                                message: String(error),
+                            },
+                        );
                         const run = bootstrapRuns.getRun(runId);
                         if (run) {
                             bootstrapRuns.appendRunEvent({
@@ -316,6 +332,7 @@ async function handleBootstrapStart(
     collectionExtensions: CollectionExtensionInstallPort,
     bootstrapStorage: BootstrapSnapshotPort,
     bootstrapRuns: BootstrapRunsPort,
+    bootstrapSteps: BootstrapStepsPort,
     reorgDepth: number,
     metadataBatchSize: number,
     payload: BootstrapCollectionPayload,
@@ -341,10 +358,14 @@ async function handleBootstrapStart(
             collectionId: run.collectionId,
             standard: run.requestStandard,
         });
-        bootstrapRuns.updateRunStatus(run.runId, "failed", {
-            code: "unsupported_standard",
-            message: `Unsupported standard: ${run.requestStandard}`,
-        });
+        bootstrapRuns.updateRunStatus(
+            run.runId,
+            BOOTSTRAP_RUN_STATUS.Failed,
+            {
+                code: "unsupported_standard",
+                message: `Unsupported standard: ${run.requestStandard}`,
+            },
+        );
         bootstrapRuns.appendRunEvent({
             runId: run.runId,
             chainId: run.chainId,
@@ -357,6 +378,7 @@ async function handleBootstrapStart(
         return;
     }
 
+    bootstrapSteps.markStepRunning(run.runId, BOOTSTRAP_STEP_KEY.Anchor);
     const anchorBlock = await resolveAnchorBlock(rpc, reorgDepth);
     if (anchorBlock === null) {
         logger.warn("Bootstrap skipped (invalid anchor block)", {
@@ -366,10 +388,20 @@ async function handleBootstrapStart(
             chainId: run.chainId,
             collectionId: run.collectionId,
         });
-        bootstrapRuns.updateRunStatus(run.runId, "failed", {
-            code: "invalid_anchor",
-            message: "Anchor block is invalid",
+        bootstrapSteps.markStepFailedTerminal({
+            runId: run.runId,
+            stepKey: BOOTSTRAP_STEP_KEY.Anchor,
+            attempts: 1,
+            error: "Anchor block is invalid",
         });
+        bootstrapRuns.updateRunStatus(
+            run.runId,
+            BOOTSTRAP_RUN_STATUS.Failed,
+            {
+                code: "invalid_anchor",
+                message: "Anchor block is invalid",
+            },
+        );
         return;
     }
 
@@ -380,7 +412,8 @@ async function handleBootstrapStart(
         anchorHash: anchor.hash,
         anchorTimestamp: anchor.timestamp,
     });
-    bootstrapRuns.updateRunStatus(run.runId, "metadata");
+    bootstrapRuns.updateRunStatus(run.runId, BOOTSTRAP_RUN_STATUS.Metadata);
+    bootstrapSteps.markStepSucceeded(run.runId, BOOTSTRAP_STEP_KEY.Anchor);
     bootstrapRuns.appendRunEvent({
         runId: run.runId,
         chainId: run.chainId,
@@ -409,10 +442,14 @@ async function handleBootstrapStart(
             collectionId: run.collectionId,
             anchorBlock,
         });
-        bootstrapRuns.updateRunStatus(run.runId, "failed", {
-            code: "missing_collection",
-            message: "Collection row is missing",
-        });
+        bootstrapRuns.updateRunStatus(
+            run.runId,
+            BOOTSTRAP_RUN_STATUS.Failed,
+            {
+                code: "missing_collection",
+                message: "Collection row is missing",
+            },
+        );
         return;
     }
 
@@ -423,10 +460,16 @@ async function handleBootstrapStart(
         run.requestExtensionKey,
     );
 
+    let activeStartStep: BootstrapStepKey = BOOTSTRAP_STEP_KEY.Enumeration;
     try {
         bootstrapStorage.resetSnapshot(run.runId);
         bootstrapStorage.resetMetadataTasks(run.runId);
         bootstrapStorage.resetImageCacheTasks(run.runId);
+        bootstrapStorage.resetOwnershipTasks(run.runId);
+        bootstrapSteps.markStepRunning(
+            run.runId,
+            BOOTSTRAP_STEP_KEY.Enumeration,
+        );
 
         logger.info("Bootstrap token enumeration starting", {
             component: "CollectionBootstrapWorker",
@@ -476,6 +519,14 @@ async function handleBootstrapStart(
                 (progress) => {
                     resolvedCount = progress.resolved;
                     totalCount = progress.total;
+                    bootstrapSteps.updateStepProgress(
+                        run.runId,
+                        BOOTSTRAP_STEP_KEY.Enumeration,
+                        {
+                            completed: progress.resolved,
+                            total: progress.total,
+                        },
+                    );
                     if (
                         progress.resolved === progress.total ||
                         progress.resolved % TOKEN_ENUMERATION_PROGRESS_STEP ===
@@ -544,6 +595,16 @@ async function handleBootstrapStart(
                 elapsedMs: enumerationElapsedMs,
             }),
         });
+        bootstrapSteps.markStepSucceeded(
+            run.runId,
+            BOOTSTRAP_STEP_KEY.Enumeration,
+            {
+                completed: tokenIds.length,
+                total: tokenIds.length,
+            },
+        );
+        activeStartStep = BOOTSTRAP_STEP_KEY.Metadata;
+        bootstrapSteps.markStepRunning(run.runId, BOOTSTRAP_STEP_KEY.Metadata);
 
         const writeBatchSize = Math.max(1, metadataBatchSize);
         const normalizedContract = run.requestAddress.toLowerCase();
@@ -581,6 +642,14 @@ async function handleBootstrapStart(
             }
             bootstrapStorage.insertMetadataTasks(rows);
             seededCount += rows.length;
+            bootstrapSteps.updateStepProgress(
+                run.runId,
+                BOOTSTRAP_STEP_KEY.Metadata,
+                {
+                    completed: 0,
+                    total: tokenIds.length,
+                },
+            );
             if (
                 seededCount === tokenIds.length ||
                 seededCount % METADATA_TASK_SEED_PROGRESS_STEP === 0
@@ -664,10 +733,20 @@ async function handleBootstrapStart(
             anchorBlock,
             error: message,
         });
-        bootstrapRuns.updateRunStatus(run.runId, "failed", {
-            code: "bootstrap_start_failed",
-            message,
+        bootstrapSteps.markStepFailedTerminal({
+            runId: run.runId,
+            stepKey: activeStartStep,
+            attempts: 1,
+            error: message,
         });
+        bootstrapRuns.updateRunStatus(
+            run.runId,
+            BOOTSTRAP_RUN_STATUS.Failed,
+            {
+                code: "bootstrap_start_failed",
+                message,
+            },
+        );
         bootstrapRuns.appendRunEvent({
             runId: run.runId,
             chainId: run.chainId,
@@ -688,6 +767,7 @@ async function handleBootstrapMetadataProcess(
     collectionExtensions: CollectionExtensionInstallPort,
     bootstrapStorage: BootstrapSnapshotPort,
     bootstrapRuns: BootstrapRunsPort,
+    bootstrapSteps: BootstrapStepsPort,
     metadataDomain: SqliteMetadataDomain,
     backfillBatchSize: number,
     snapshotBatchSize: number,
@@ -738,6 +818,18 @@ async function handleBootstrapMetadataProcess(
         return;
     }
 
+    if (bootstrapSteps.isStepPaused(payload.runId, BOOTSTRAP_STEP_KEY.Metadata)) {
+        logger.info("Metadata process paused", {
+            component: "CollectionBootstrapWorker",
+            action: "handleBootstrapMetadataProcess",
+            runId: payload.runId,
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+        });
+        return;
+    }
+
+    bootstrapSteps.markStepRunning(payload.runId, BOOTSTRAP_STEP_KEY.Metadata);
     const processed = await processDueMetadataTasks(
         bootstrapStorage,
         metadataDomain,
@@ -751,6 +843,15 @@ async function handleBootstrapMetadataProcess(
     );
 
     const counts = bootstrapStorage.getMetadataTaskCounts(payload.runId);
+    const metadataCompleted = counts.succeeded + counts.failedTerminal;
+    bootstrapSteps.updateStepProgress(
+        payload.runId,
+        BOOTSTRAP_STEP_KEY.Metadata,
+        {
+            completed: metadataCompleted,
+            total: counts.total,
+        },
+    );
     const complete = isMetadataSnapshotComplete(
         counts,
         payload.metadataSnapshotMode,
@@ -805,7 +906,32 @@ async function handleBootstrapMetadataProcess(
             run.runId,
         );
         if (imageCacheCounts.total > 0) {
-            bootstrapRuns.updateRunStatus(run.runId, "image_cache");
+            bootstrapSteps.markStepSucceeded(
+                run.runId,
+                BOOTSTRAP_STEP_KEY.Metadata,
+                {
+                    completed: counts.total,
+                    total: counts.total,
+                },
+            );
+            bootstrapSteps.markStepRunning(
+                run.runId,
+                BOOTSTRAP_STEP_KEY.ImageCache,
+            );
+            bootstrapSteps.updateStepProgress(
+                run.runId,
+                BOOTSTRAP_STEP_KEY.ImageCache,
+                {
+                    completed:
+                        imageCacheCounts.succeeded +
+                        imageCacheCounts.failedTerminal,
+                    total: imageCacheCounts.total,
+                },
+            );
+            bootstrapRuns.updateRunStatus(
+                run.runId,
+                BOOTSTRAP_RUN_STATUS.ImageCache,
+            );
             bootstrapRuns.appendRunEvent({
                 runId: run.runId,
                 chainId: run.chainId,
@@ -845,7 +971,16 @@ async function handleBootstrapMetadataProcess(
             message: "Bootstrap image cache skipped because no token images were available",
             payloadJson: null,
         });
+        bootstrapSteps.markStepSkipped(
+            run.runId,
+            BOOTSTRAP_STEP_KEY.ImageCache,
+            "no token images available",
+        );
     }
+    bootstrapSteps.markStepSucceeded(run.runId, BOOTSTRAP_STEP_KEY.Metadata, {
+        completed: counts.total,
+        total: counts.total,
+    });
 
     await continueBootstrapAfterMediaCache(
         rpc,
@@ -853,6 +988,7 @@ async function handleBootstrapMetadataProcess(
         collections,
         bootstrapStorage,
         bootstrapRuns,
+        bootstrapSteps,
         backfillBatchSize,
         snapshotBatchSize,
         openSeaIntegration,
@@ -918,6 +1054,7 @@ async function handleBootstrapImageCacheProcess(
     collections: CollectionRegistryPort,
     bootstrapStorage: BootstrapSnapshotPort,
     bootstrapRuns: BootstrapRunsPort,
+    bootstrapSteps: BootstrapStepsPort,
     tokenImageCache: TokenImageCachePort,
     backfillBatchSize: number,
     snapshotBatchSize: number,
@@ -955,6 +1092,20 @@ async function handleBootstrapImageCacheProcess(
         return;
     }
 
+    if (
+        bootstrapSteps.isStepPaused(payload.runId, BOOTSTRAP_STEP_KEY.ImageCache)
+    ) {
+        logger.info("Image cache process paused", {
+            component: "CollectionBootstrapWorker",
+            action: "handleBootstrapImageCacheProcess",
+            runId: payload.runId,
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+        });
+        return;
+    }
+
+    bootstrapSteps.markStepRunning(payload.runId, BOOTSTRAP_STEP_KEY.ImageCache);
     const processed = await processDueImageCacheTasks(
         bootstrapStorage,
         tokenImageCache,
@@ -965,6 +1116,14 @@ async function handleBootstrapImageCacheProcess(
     );
 
     const counts = bootstrapStorage.getImageCacheTaskCounts(payload.runId);
+    bootstrapSteps.updateStepProgress(
+        payload.runId,
+        BOOTSTRAP_STEP_KEY.ImageCache,
+        {
+            completed: counts.succeeded + counts.failedTerminal,
+            total: counts.total,
+        },
+    );
     if (counts.pending > 0 || counts.retry > 0) {
         const hasDueNow =
             bootstrapStorage.listImageCacheTasksDueNow(
@@ -1004,6 +1163,14 @@ async function handleBootstrapImageCacheProcess(
                 : "Bootstrap image cache completed",
         payloadJson: JSON.stringify(counts),
     });
+    bootstrapSteps.markStepSucceeded(
+        payload.runId,
+        BOOTSTRAP_STEP_KEY.ImageCache,
+        {
+            completed: counts.total,
+            total: counts.total,
+        },
+    );
 
     await continueBootstrapAfterMediaCache(
         rpc,
@@ -1011,6 +1178,7 @@ async function handleBootstrapImageCacheProcess(
         collections,
         bootstrapStorage,
         bootstrapRuns,
+        bootstrapSteps,
         backfillBatchSize,
         snapshotBatchSize,
         openSeaIntegration,
@@ -1260,6 +1428,7 @@ async function continueBootstrapAfterMediaCache(
     collections: CollectionRegistryPort,
     bootstrapStorage: BootstrapSnapshotPort,
     bootstrapRuns: BootstrapRunsPort,
+    bootstrapSteps: BootstrapStepsPort,
     backfillBatchSize: number,
     snapshotBatchSize: number,
     openSeaIntegration: OpenSeaIntegrationStatus,
@@ -1287,9 +1456,24 @@ async function continueBootstrapAfterMediaCache(
         collection.bootstrapLastSyncedBlock === null ||
         collection.bootstrapLastSyncedBlock < payload.anchorBlock
     ) {
-        bootstrapRuns.updateRunStatus(payload.runId, "ownership");
+        bootstrapRuns.updateRunStatus(
+            payload.runId,
+            BOOTSTRAP_RUN_STATUS.Ownership,
+        );
         const tokenIds = bootstrapStorage.listMetadataTaskTokenIds(
             payload.runId,
+        );
+        bootstrapSteps.markStepRunning(
+            payload.runId,
+            BOOTSTRAP_STEP_KEY.Ownership,
+        );
+        bootstrapSteps.updateStepProgress(
+            payload.runId,
+            BOOTSTRAP_STEP_KEY.Ownership,
+            {
+                completed: 0,
+                total: tokenIds.length,
+            },
         );
         await snapshotOwners(
             rpc,
@@ -1301,6 +1485,16 @@ async function continueBootstrapAfterMediaCache(
             payload.anchorBlock,
             tokenIds,
             snapshotBatchSize,
+            (completed) => {
+                bootstrapSteps.updateStepProgress(
+                    payload.runId,
+                    BOOTSTRAP_STEP_KEY.Ownership,
+                    {
+                        completed,
+                        total: tokenIds.length,
+                    },
+                );
+            },
         );
 
         bootstrapStorage.finalizeSnapshot({
@@ -1327,6 +1521,14 @@ async function continueBootstrapAfterMediaCache(
             anchorBlock: payload.anchorBlock,
             tokenCount: tokenIds.length,
         });
+        bootstrapSteps.markStepSucceeded(
+            payload.runId,
+            BOOTSTRAP_STEP_KEY.Ownership,
+            {
+                completed: tokenIds.length,
+                total: tokenIds.length,
+            },
+        );
     }
 
     await ensureBackfillScheduled(
@@ -1334,6 +1536,7 @@ async function continueBootstrapAfterMediaCache(
         queue,
         collections,
         bootstrapRuns,
+        bootstrapSteps,
         payload,
         backfillBatchSize,
         openSeaIntegration,
@@ -1347,6 +1550,7 @@ async function ensureBackfillScheduled(
     queue: QueuePort,
     collections: CollectionRegistryPort,
     bootstrapRuns: BootstrapRunsPort,
+    bootstrapSteps: BootstrapStepsPort,
     payload: BootstrapMetadataProcessPayload | BootstrapImageCacheProcessPayload,
     backfillBatchSize: number,
     openSeaIntegration: OpenSeaIntegrationStatus,
@@ -1382,7 +1586,19 @@ async function ensureBackfillScheduled(
             payload.anchorBlock,
         );
         if (updated) {
-            bootstrapRuns.updateRunStatus(payload.runId, "completed");
+            bootstrapSteps.markStepSkipped(
+                payload.runId,
+                BOOTSTRAP_STEP_KEY.Backfill,
+                "no post-anchor blocks",
+            );
+            bootstrapSteps.markStepSucceeded(
+                payload.runId,
+                BOOTSTRAP_STEP_KEY.CollectionLive,
+            );
+            bootstrapRuns.updateRunStatus(
+                payload.runId,
+                BOOTSTRAP_RUN_STATUS.Completed,
+            );
             bootstrapRuns.appendRunEvent({
                 runId: payload.runId,
                 chainId: payload.chainId,
@@ -1428,7 +1644,16 @@ async function ensureBackfillScheduled(
         head,
         backfillBatchSize,
     );
-    bootstrapRuns.updateRunStatus(payload.runId, "backfill");
+    bootstrapSteps.markStepRunning(payload.runId, BOOTSTRAP_STEP_KEY.Backfill);
+    bootstrapSteps.updateStepProgress(
+        payload.runId,
+        BOOTSTRAP_STEP_KEY.Backfill,
+        {
+            completed: 0,
+            total: head - fromBlock + 1,
+        },
+    );
+    bootstrapRuns.updateRunStatus(payload.runId, BOOTSTRAP_RUN_STATUS.Backfill);
     bootstrapRuns.appendRunEvent({
         runId: payload.runId,
         chainId: payload.chainId,
@@ -1514,6 +1739,7 @@ async function handleBootstrapBackfillCheck(
     storage: StoragePort,
     collections: CollectionRegistryPort,
     bootstrapRuns: BootstrapRunsPort,
+    bootstrapSteps: BootstrapStepsPort,
     payload: BootstrapBackfillCheckPayload,
     traceId: string,
     sourceJobId: string,
@@ -1537,6 +1763,14 @@ async function handleBootstrapBackfillCheck(
         payload.collectionId,
         payload.fromBlock,
         payload.toBlock,
+    );
+    bootstrapSteps.updateStepProgress(
+        payload.runId,
+        BOOTSTRAP_STEP_KEY.Backfill,
+        {
+            completed: count,
+            total: expected,
+        },
     );
     if (count < expected) {
         logger.debug("Bootstrap backfill incomplete; retrying", {
@@ -1581,7 +1815,18 @@ async function handleBootstrapBackfillCheck(
         fromBlock: payload.fromBlock,
         toBlock: payload.toBlock,
     });
-    bootstrapRuns.updateRunStatus(payload.runId, "completed");
+    bootstrapSteps.markStepSucceeded(payload.runId, BOOTSTRAP_STEP_KEY.Backfill, {
+        completed: expected,
+        total: expected,
+    });
+    bootstrapSteps.markStepSucceeded(
+        payload.runId,
+        BOOTSTRAP_STEP_KEY.CollectionLive,
+    );
+    bootstrapRuns.updateRunStatus(
+        payload.runId,
+        BOOTSTRAP_RUN_STATUS.Completed,
+    );
     bootstrapRuns.appendRunEvent({
         runId: payload.runId,
         chainId: payload.chainId,
@@ -1841,6 +2086,7 @@ async function snapshotOwners(
     anchorBlock: number,
     tokenIds: string[],
     batchSize: number,
+    onProgress?: (completed: number) => void,
 ): Promise<void> {
     // Snapshot ownership at the anchor block and write to the temporary snapshot table.
     const batch: Array<{
@@ -1852,9 +2098,12 @@ async function snapshotOwners(
         owner: string;
         anchorBlock: number;
     }> = [];
+    let completed = 0;
     const flush = () => {
         if (batch.length === 0) return;
+        completed += batch.length;
         bootstrapStorage.insertSnapshotRows(batch.splice(0, batch.length));
+        onProgress?.(completed);
     };
 
     for (const tokenId of tokenIds) {
