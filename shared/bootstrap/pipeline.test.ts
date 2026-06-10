@@ -9,6 +9,12 @@ import {
     mapBootstrapTaskStatusCounts,
     serializeBootstrapStepDependencies,
     BOOTSTRAP_STEP_KEY,
+    BOOTSTRAP_STEP_ACTION,
+    canPauseBootstrapStepStatus,
+    canResumeBootstrapStepStatus,
+    isBootstrapStepAction,
+    isBootstrapStepKey,
+    isBootstrapStepPausable,
 } from "./pipeline.js";
 
 describe("bootstrap pipeline contract", () => {
@@ -60,5 +66,28 @@ describe("bootstrap pipeline contract", () => {
                 BOOTSTRAP_STEP_KEY.Enumeration,
             ]),
         ).toBe('["anchor","enumeration"]');
+    });
+
+    it("owns bootstrap step action and pausable-step rules", () => {
+        expect(isBootstrapStepKey(BOOTSTRAP_STEP_KEY.ImageCache)).toBe(true);
+        expect(isBootstrapStepKey("queued")).toBe(false);
+        expect(isBootstrapStepAction(BOOTSTRAP_STEP_ACTION.Pause)).toBe(true);
+        expect(isBootstrapStepAction("restart")).toBe(false);
+        expect(isBootstrapStepPausable(BOOTSTRAP_STEP_KEY.Metadata)).toBe(true);
+        expect(isBootstrapStepPausable(BOOTSTRAP_STEP_KEY.Ownership)).toBe(
+            false,
+        );
+        expect(canPauseBootstrapStepStatus(BOOTSTRAP_STEP_STATUS.Running)).toBe(
+            true,
+        );
+        expect(canPauseBootstrapStepStatus(BOOTSTRAP_STEP_STATUS.Pending)).toBe(
+            false,
+        );
+        expect(canResumeBootstrapStepStatus(BOOTSTRAP_STEP_STATUS.Paused)).toBe(
+            true,
+        );
+        expect(canResumeBootstrapStepStatus(BOOTSTRAP_STEP_STATUS.Ready)).toBe(
+            false,
+        );
     });
 });

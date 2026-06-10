@@ -20,6 +20,7 @@ import {
     serializeBootstrapEnumerationProgressEventPayload,
 } from "@artgod/shared/bootstrap/run-events";
 import {
+    BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_ACTION,
     BOOTSTRAP_STEP_KEY,
     BOOTSTRAP_STEP_STATUS,
@@ -4242,6 +4243,15 @@ describe("backend api routes", () => {
                 anchorBlock: 24500000,
             }),
         ]);
+        db.prepare<[string, number]>(
+            "UPDATE bootstrap_runs SET status = ? WHERE run_id = ?",
+        ).run(BOOTSTRAP_RUN_STATUS.Completed, create.payload.runId);
+        const sideLaneDetail = await resolve(
+            "GET",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}`,
+        );
+        expect(sideLaneDetail.payload.flow.shouldPoll).toBe(true);
+        expect(sideLaneDetail.payload.flow.isTerminal).toBe(false);
 
         const probe = await resolve(
             "GET",

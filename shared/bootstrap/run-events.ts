@@ -15,6 +15,7 @@ export const BOOTSTRAP_RUN_EVENT_CODE = {
     MetadataRetryFailedTerminal: "metadata.retry.failed_terminal",
     ImageCacheQueued: "image_cache.queued",
     ImageCacheCompleted: "image_cache.completed",
+    ImageCacheFailed: "image_cache.failed",
     ImageCacheSkipped: "image_cache.skipped",
     BackfillQueued: "backfill.queued",
     OpenSeaSkipped: "opensea.skipped",

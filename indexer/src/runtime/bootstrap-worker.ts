@@ -12,6 +12,7 @@ import {
 import {
     BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_KEY,
+    isBootstrapStepTerminalStatus,
     type BootstrapStepKey,
 } from "@artgod/shared/bootstrap/pipeline";
 import {
@@ -211,22 +212,17 @@ async function main() {
 
                     if (job.kind === BOOTSTRAP_JOB_KIND.ImageCacheProcess) {
                         await handleBootstrapImageCacheProcess(
-                            rpc,
                             queue,
                             collections,
                             bootstrapStorage,
                             bootstrapRuns,
                             bootstrapSteps,
                             tokenImageCache,
-                            config.sync.backfillBatchSize,
-                            config.bootstrap.snapshotBatchSize,
                             config.bootstrap.imageCacheBatchSize,
                             config.bootstrap.imageCacheConcurrency,
                             config.bootstrap.metadataRetryPolicy,
-                            config.integrations.opensea,
                             job.payload as BootstrapImageCacheProcessPayload,
                             job.traceId ?? job.jobId,
-                            job.jobId,
                         );
                         return;
                     }
@@ -248,6 +244,33 @@ async function main() {
                         (job.payload as { runId?: unknown }).runId,
                     );
                     if (Number.isInteger(runId) && job.attempt >= 5) {
+                        if (job.kind === BOOTSTRAP_JOB_KIND.ImageCacheProcess) {
+                            const run = bootstrapRuns.getRun(runId);
+                            const message = String(error);
+                            bootstrapSteps.markStepFailedTerminal({
+                                runId,
+                                stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+                                attempts: Math.max(1, job.attempt),
+                                error: message,
+                            });
+                            if (run) {
+                                bootstrapRuns.appendRunEvent({
+                                    runId,
+                                    chainId: run.chainId,
+                                    collectionId: run.collectionId,
+                                    eventCode:
+                                        BOOTSTRAP_RUN_EVENT_CODE.ImageCacheFailed,
+                                    eventLevel: "error",
+                                    message:
+                                        "Bootstrap image cache failed after max retry attempts",
+                                    payloadJson: JSON.stringify({
+                                        error: message,
+                                        sourceJobId: job.jobId,
+                                    }),
+                                });
+                            }
+                            return;
+                        }
                         bootstrapRuns.updateRunStatus(
                             runId,
                             BOOTSTRAP_RUN_STATUS.Failed,
@@ -898,92 +921,21 @@ async function handleBootstrapMetadataProcess(
         return;
     }
 
-    if (isRunImageCacheActive(run)) {
-        const seeded = bootstrapStorage.seedImageCacheTasks({
-            runId: run.runId,
-            requestedMaxDimension: run.imageCacheMaxDimension,
-        });
-        const imageCacheCounts = bootstrapStorage.getImageCacheTaskCounts(
-            run.runId,
-        );
-        if (imageCacheCounts.total > 0) {
-            bootstrapSteps.markStepSucceeded(
-                run.runId,
-                BOOTSTRAP_STEP_KEY.Metadata,
-                {
-                    completed: counts.total,
-                    total: counts.total,
-                },
-            );
-            bootstrapSteps.markStepRunning(
-                run.runId,
-                BOOTSTRAP_STEP_KEY.ImageCache,
-            );
-            bootstrapSteps.updateStepProgress(
-                run.runId,
-                BOOTSTRAP_STEP_KEY.ImageCache,
-                {
-                    completed:
-                        imageCacheCounts.succeeded +
-                        imageCacheCounts.failedTerminal,
-                    total: imageCacheCounts.total,
-                },
-            );
-            bootstrapRuns.updateRunStatus(
-                run.runId,
-                BOOTSTRAP_RUN_STATUS.ImageCache,
-            );
-            bootstrapRuns.appendRunEvent({
-                runId: run.runId,
-                chainId: run.chainId,
-                collectionId: run.collectionId,
-                eventCode: BOOTSTRAP_RUN_EVENT_CODE.ImageCacheQueued,
-                eventLevel: "info",
-                message: "Bootstrap image cache phase queued",
-                payloadJson: JSON.stringify({
-                    seeded,
-                    total: imageCacheCounts.total,
-                    maxDimension: run.imageCacheMaxDimension,
-                }),
-            });
-            await scheduleImageCacheProcess(
-                queue,
-                {
-                    chainId: payload.chainId,
-                    runId: payload.runId,
-                    collectionId: payload.collectionId,
-                    address: payload.address,
-                    standard: payload.standard,
-                    anchorBlock: payload.anchorBlock,
-                    anchorHash: payload.anchorHash,
-                    anchorTimestamp: payload.anchorTimestamp,
-                },
-                traceId,
-                0,
-            );
-            return;
-        }
-        bootstrapRuns.appendRunEvent({
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.ImageCacheSkipped,
-            eventLevel: "info",
-            message: "Bootstrap image cache skipped because no token images were available",
-            payloadJson: null,
-        });
-        bootstrapSteps.markStepSkipped(
-            run.runId,
-            BOOTSTRAP_STEP_KEY.ImageCache,
-            "no token images available",
-        );
-    }
     bootstrapSteps.markStepSucceeded(run.runId, BOOTSTRAP_STEP_KEY.Metadata, {
         completed: counts.total,
         total: counts.total,
     });
+    await scheduleImageCacheSideLaneIfNeeded(
+        queue,
+        bootstrapStorage,
+        bootstrapRuns,
+        bootstrapSteps,
+        run,
+        payload,
+        traceId,
+    );
 
-    await continueBootstrapAfterMediaCache(
+    await continueBlockingBootstrapAfterMetadata(
         rpc,
         queue,
         collections,
@@ -996,6 +948,84 @@ async function handleBootstrapMetadataProcess(
         payload,
         traceId,
         sourceJobId,
+    );
+}
+
+async function scheduleImageCacheSideLaneIfNeeded(
+    queue: QueuePort,
+    bootstrapStorage: BootstrapSnapshotPort,
+    bootstrapRuns: BootstrapRunsPort,
+    bootstrapSteps: BootstrapStepsPort,
+    run: {
+        runId: number;
+        chainId: number;
+        collectionId: number;
+        imageCacheMode: ImageCacheMode;
+        imageCacheMaxDimension: number | null;
+    },
+    payload: BootstrapMetadataProcessPayload,
+    traceId: string,
+): Promise<void> {
+    if (!isRunImageCacheActive(run)) {
+        return;
+    }
+
+    const seeded = bootstrapStorage.seedImageCacheTasks({
+        runId: run.runId,
+        requestedMaxDimension: run.imageCacheMaxDimension,
+    });
+    const imageCacheCounts = bootstrapStorage.getImageCacheTaskCounts(run.runId);
+    if (imageCacheCounts.total <= 0) {
+        bootstrapRuns.appendRunEvent({
+            runId: run.runId,
+            chainId: run.chainId,
+            collectionId: run.collectionId,
+            eventCode: BOOTSTRAP_RUN_EVENT_CODE.ImageCacheSkipped,
+            eventLevel: "info",
+            message:
+                "Bootstrap image cache skipped because no token images were available",
+            payloadJson: null,
+        });
+        bootstrapSteps.markStepSkipped(
+            run.runId,
+            BOOTSTRAP_STEP_KEY.ImageCache,
+            "no token images available",
+        );
+        return;
+    }
+
+    bootstrapSteps.markStepRunning(run.runId, BOOTSTRAP_STEP_KEY.ImageCache);
+    bootstrapSteps.updateStepProgress(run.runId, BOOTSTRAP_STEP_KEY.ImageCache, {
+        completed: imageCacheCounts.succeeded + imageCacheCounts.failedTerminal,
+        total: imageCacheCounts.total,
+    });
+    bootstrapRuns.appendRunEvent({
+        runId: run.runId,
+        chainId: run.chainId,
+        collectionId: run.collectionId,
+        eventCode: BOOTSTRAP_RUN_EVENT_CODE.ImageCacheQueued,
+        eventLevel: "info",
+        message: "Bootstrap image cache side lane queued",
+        payloadJson: JSON.stringify({
+            seeded,
+            total: imageCacheCounts.total,
+            maxDimension: run.imageCacheMaxDimension,
+        }),
+    });
+    await scheduleImageCacheProcess(
+        queue,
+        {
+            chainId: payload.chainId,
+            runId: payload.runId,
+            collectionId: payload.collectionId,
+            address: payload.address,
+            standard: payload.standard,
+            anchorBlock: payload.anchorBlock,
+            anchorHash: payload.anchorHash,
+            anchorTimestamp: payload.anchorTimestamp,
+        },
+        traceId,
+        0,
     );
 }
 
@@ -1050,22 +1080,17 @@ async function processDueMetadataTasks(
 }
 
 async function handleBootstrapImageCacheProcess(
-    rpc: RpcProviderPort,
     queue: QueuePort,
     collections: CollectionRegistryPort,
     bootstrapStorage: BootstrapSnapshotPort,
     bootstrapRuns: BootstrapRunsPort,
     bootstrapSteps: BootstrapStepsPort,
     tokenImageCache: TokenImageCachePort,
-    backfillBatchSize: number,
-    snapshotBatchSize: number,
     imageCacheBatchSize: number,
     imageCacheConcurrency: number,
     imageCacheRetryPolicy: RetryPolicy,
-    openSeaIntegration: OpenSeaIntegrationStatus,
     payload: BootstrapImageCacheProcessPayload,
     traceId: string,
-    sourceJobId: string,
 ): Promise<void> {
     const collection = collections.getCollection(
         payload.chainId,
@@ -1078,6 +1103,25 @@ async function handleBootstrapImageCacheProcess(
             runId: payload.runId,
             chainId: payload.chainId,
             collectionId: payload.collectionId,
+        });
+        return;
+    }
+
+    const imageCacheStep = bootstrapSteps.getStep(
+        payload.runId,
+        BOOTSTRAP_STEP_KEY.ImageCache,
+    );
+    if (
+        imageCacheStep &&
+        isBootstrapStepTerminalStatus(imageCacheStep.status)
+    ) {
+        logger.debug("Image cache process skipped (step already terminal)", {
+            component: "CollectionBootstrapWorker",
+            action: "handleBootstrapImageCacheProcess",
+            runId: payload.runId,
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+            stepStatus: imageCacheStep.status,
         });
         return;
     }
@@ -1160,21 +1204,6 @@ async function handleBootstrapImageCacheProcess(
             completed: counts.total,
             total: counts.total,
         },
-    );
-
-    await continueBootstrapAfterMediaCache(
-        rpc,
-        queue,
-        collections,
-        bootstrapStorage,
-        bootstrapRuns,
-        bootstrapSteps,
-        backfillBatchSize,
-        snapshotBatchSize,
-        openSeaIntegration,
-        payload,
-        traceId,
-        sourceJobId,
     );
 }
 
@@ -1412,7 +1441,7 @@ function isMetadataSnapshotComplete(
     return counts.pending === 0 && counts.retry === 0;
 }
 
-async function continueBootstrapAfterMediaCache(
+async function continueBlockingBootstrapAfterMetadata(
     rpc: RpcProviderPort,
     queue: QueuePort,
     collections: CollectionRegistryPort,
@@ -1422,7 +1451,7 @@ async function continueBootstrapAfterMediaCache(
     backfillBatchSize: number,
     snapshotBatchSize: number,
     openSeaIntegration: OpenSeaIntegrationStatus,
-    payload: BootstrapImageCacheProcessPayload | BootstrapMetadataProcessPayload,
+    payload: BootstrapMetadataProcessPayload,
     traceId: string,
     sourceJobId: string,
 ): Promise<void> {
@@ -1441,7 +1470,7 @@ async function continueBootstrapAfterMediaCache(
         return;
     }
 
-    // Metadata and image cache are complete; build ownership from the same token set and anchor.
+    // Metadata is complete; build ownership from the same token set and anchor.
     if (
         collection.bootstrapLastSyncedBlock === null ||
         collection.bootstrapLastSyncedBlock < payload.anchorBlock

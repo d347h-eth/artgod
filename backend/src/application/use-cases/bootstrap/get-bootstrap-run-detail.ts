@@ -17,6 +17,7 @@ import {
     canResumeBootstrapStepStatus,
     isBootstrapStepKey,
     isBootstrapStepPausable,
+    isBootstrapStepTerminalStatus,
     type BootstrapFlowStepKey,
 } from "@artgod/shared/bootstrap/pipeline";
 import type {
@@ -396,7 +397,9 @@ function buildBootstrapRunFlow(input: {
         );
     }
 
-    const shouldPoll = resolveShouldPoll(input);
+    const shouldPoll =
+        resolveShouldPoll(input) ||
+        shouldPollNonBlockingSteps(input.runSteps);
     return {
         steps: finalizeBootstrapFlowSteps(steps),
         isTerminal: !shouldPoll,
@@ -445,7 +448,9 @@ function buildBootstrapRunFlowFromSteps(
         );
     }
 
-    const shouldPoll = resolveShouldPoll(input);
+    const shouldPoll =
+        resolveShouldPoll(input) ||
+        shouldPollNonBlockingSteps(input.runSteps);
     return {
         steps: finalizeBootstrapFlowSteps(steps),
         isTerminal: !shouldPoll,
@@ -767,5 +772,16 @@ function resolveShouldPoll(input: {
     return (
         input.collection.openseaStatus !== "ready" &&
         input.collection.openseaStatus !== "failed"
+    );
+}
+
+function shouldPollNonBlockingSteps(
+    steps: readonly BootstrapRunStepRecord[],
+): boolean {
+    return steps.some(
+        (step) =>
+            !step.blocking &&
+            step.status !== BOOTSTRAP_STEP_STATUS.Paused &&
+            !isBootstrapStepTerminalStatus(step.status),
     );
 }
