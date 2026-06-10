@@ -4,6 +4,10 @@ import {
     IMAGE_CACHE_MODE,
     type ImageCacheMode,
 } from "@artgod/shared/media/token-image-cache";
+import {
+    BOOTSTRAP_RUN_STATUS,
+    type BootstrapRunStatus,
+} from "@artgod/shared/bootstrap/pipeline";
 import type {
     BootstrapRunDefinition,
     BootstrapRunsPort,
@@ -25,7 +29,7 @@ type BootstrapRunDbRow = {
     request_image_cache_mode: string;
     request_image_cache_max_dimension: number | null;
     deployment_block: number | null;
-    status: string;
+    status: BootstrapRunStatus;
     anchor_block: number | null;
     anchor_block_hash: string | null;
     anchor_block_timestamp: number | null;
@@ -39,7 +43,7 @@ export class SqliteBootstrapRuns implements BootstrapRunsPort {
 
     private updateRunStatusStmt = db.prepare<{
         runId: number;
-        status: string;
+        status: BootstrapRunStatus;
         errorCode: string | null;
         errorMessage: string | null;
         finishedAt: string | null;
@@ -79,11 +83,12 @@ export class SqliteBootstrapRuns implements BootstrapRunsPort {
 
     updateRunStatus(
         runId: number,
-        status: string,
+        status: BootstrapRunStatus,
         error?: { code: string; message: string } | null,
     ): void {
         const finishedAt =
-            status === "completed" || status === "failed"
+            status === BOOTSTRAP_RUN_STATUS.Completed ||
+            status === BOOTSTRAP_RUN_STATUS.Failed
                 ? new Date().toISOString()
                 : null;
         this.updateRunStatusStmt.run({

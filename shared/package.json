@@ -19,6 +19,7 @@
         "./config/rpc-endpoints": "./config/rpc-endpoints.ts",
         "./config/rpc-resilience": "./config/rpc-resilience.ts",
         "./config/weighted-endpoints": "./config/weighted-endpoints.ts",
+        "./bootstrap/pipeline": "./bootstrap/pipeline.ts",
         "./bootstrap/run-events": "./bootstrap/run-events.ts",
         "./evm/transactions": "./evm/transactions.ts",
         "./evm/rpc-errors": "./evm/rpc-errors.ts",

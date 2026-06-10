@@ -1,11 +1,12 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
+import { BOOTSTRAP_TASK_STATUS } from "@artgod/shared/bootstrap/pipeline";
 import { SqliteBootstrapStorage } from "../src/infra/bootstrap/sqlite.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 
-describe("bootstrap image cache storage", () => {
+describe("bootstrap storage", () => {
     loadTestEnv();
 
     beforeAll(async () => {
@@ -21,6 +22,8 @@ describe("bootstrap image cache storage", () => {
                 "DELETE FROM token_image_cache;",
                 "DELETE FROM token_metadata;",
                 "DELETE FROM bootstrap_metadata_snapshot_tasks;",
+                "DELETE FROM bootstrap_ownership_snapshot_tasks;",
+                "DELETE FROM nft_balance_snapshots;",
             ].join("\n"),
         );
     });
@@ -72,7 +75,7 @@ describe("bootstrap image cache storage", () => {
                 tokenId: "5081",
                 sourceImageUrl: "ipfs://image",
                 requestedMaxDimension: 512,
-                status: "pending",
+                status: BOOTSTRAP_TASK_STATUS.Pending,
             }),
         ]);
         expect(storage.getImageCacheTaskCounts(42)).toEqual({
@@ -104,5 +107,78 @@ describe("bootstrap image cache storage", () => {
             failedTerminal: 0,
             total: 1,
         });
+    });
+
+    it("tracks ownership task retries and writes idempotent snapshot rows", () => {
+        const storage = new SqliteBootstrapStorage();
+        storage.insertOwnershipTasks([
+            {
+                runId: 77,
+                chainId: 1,
+                collectionId: 9,
+                contract: "0xAbCd000000000000000000000000000000000000",
+                tokenId: "1074",
+                standard: "erc721",
+                anchorBlock: 200,
+                anchorHash: `0x${"22".repeat(32)}`,
+                anchorTimestamp: 1_726_000_123,
+            },
+        ]);
+
+        expect(storage.listOwnershipTasksDueNow(77, Date.now(), 10)).toEqual([
+            expect.objectContaining({
+                runId: 77,
+                chainId: 1,
+                collectionId: 9,
+                contract: "0xabcd000000000000000000000000000000000000",
+                tokenId: "1074",
+                status: BOOTSTRAP_TASK_STATUS.Pending,
+            }),
+        ]);
+
+        storage.markOwnershipTaskRetry({
+            runId: 77,
+            tokenId: "1074",
+            attempts: 1,
+            nextAttemptAt: 0,
+            lastError: "temporary rpc failure",
+            failedTerminal: false,
+        });
+        expect(storage.getOwnershipTaskCounts(77)).toEqual({
+            pending: 0,
+            retry: 1,
+            succeeded: 0,
+            failedTerminal: 0,
+            total: 1,
+        });
+
+        storage.markOwnershipTaskSucceeded({
+            runId: 77,
+            tokenId: "1074",
+            attempts: 2,
+            owner: "0x1111111111111111111111111111111111111111",
+        });
+        storage.markOwnershipTaskSucceeded({
+            runId: 77,
+            tokenId: "1074",
+            attempts: 3,
+            owner: "0x2222222222222222222222222222222222222222",
+        });
+
+        expect(storage.getOwnershipTaskCounts(77)).toEqual({
+            pending: 0,
+            retry: 0,
+            succeeded: 1,
+            failedTerminal: 0,
+            total: 1,
+        });
+        const rows = db
+            .prepare<[number, string]>(
+                "SELECT owner FROM nft_balance_snapshots WHERE run_id = ? AND token_id = ?",
+            )
+            .all(77, "1074") as Array<{ owner: string }>;
+        expect(rows).toEqual([
+            { owner: "0x2222222222222222222222222222222222222222" },
+        ]);
     });
 });

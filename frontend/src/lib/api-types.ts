@@ -12,6 +12,13 @@ import {
 	type TradingBiddingTierSelectionMode
 } from '@artgod/shared/types';
 import type { ImageCacheMode } from '@artgod/shared/media/token-image-cache';
+import type {
+	BootstrapFlowStepKey,
+	BootstrapFlowStepState,
+	BootstrapRunStatus,
+	BootstrapTaskCounts,
+	BootstrapTaskStatus
+} from '@artgod/shared/bootstrap/pipeline';
 
 export type ApiChain = {
 	id: number;
@@ -813,15 +820,7 @@ export type ApiBootstrapRun = {
 	imageCacheMode: ApiImageCacheMode;
 	imageCacheMaxDimension: number | null;
 	deploymentBlock: number | null;
-	status:
-		| 'requested'
-		| 'queued'
-		| 'metadata'
-		| 'image_cache'
-		| 'ownership'
-		| 'backfill'
-		| 'completed'
-		| 'failed';
+	status: BootstrapRunStatus;
 	anchorBlock: number | null;
 	anchorBlockHash: string | null;
 	anchorBlockTimestamp: number | null;
@@ -856,30 +855,12 @@ export type ApiBootstrapRunCollectionSummary = {
 	status: 'bootstrapping' | 'live' | 'paused' | 'disabled';
 };
 
-export type ApiBootstrapRunTaskCounts = {
-	pending: number;
-	retry: number;
-	succeeded: number;
-	failedTerminal: number;
-	total: number;
-};
+export type ApiBootstrapRunTaskCounts = BootstrapTaskCounts;
 
 export type ApiBootstrapFlowStep = {
-	key:
-		| 'requested'
-		| 'queued'
-		| 'anchor'
-		| 'enumeration'
-		| 'metadata'
-		| 'image_cache'
-		| 'ownership'
-		| 'backfill'
-		| 'collection_live'
-		| 'opensea_identity'
-		| 'opensea_snapshot'
-		| 'opensea_ready';
+	key: BootstrapFlowStepKey;
 	label: string;
-	state: 'pending' | 'active' | 'completed' | 'failed';
+	state: BootstrapFlowStepState;
 	detailText: string | null;
 	progress: {
 		completed: number;
@@ -902,16 +883,7 @@ export type ApiBootstrapRunListItem = {
 export type BootstrapRunsApiResponse = {
 	chain: ApiChain;
 	filters: {
-		status:
-			| 'requested'
-			| 'queued'
-			| 'metadata'
-			| 'image_cache'
-			| 'ownership'
-			| 'backfill'
-			| 'completed'
-			| 'failed'
-			| null;
+		status: BootstrapRunStatus | null;
 	};
 	page: {
 		items: ApiBootstrapRunListItem[];
@@ -927,7 +899,7 @@ export type BootstrapRunDetailApiResponse = {
 	flow: ApiBootstrapRunFlow;
 	failedMetadataTasksPreview: Array<{
 		tokenId: string;
-		status: 'pending' | 'retry' | 'succeeded' | 'failed_terminal';
+		status: BootstrapTaskStatus;
 		attempts: number;
 		nextAttemptAt: number;
 		lastError: string | null;

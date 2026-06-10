@@ -25,6 +25,10 @@ import {
     BOOTSTRAP_MANUAL_TOKEN_IDS_LIMIT,
 } from "./bootstrap-limits.js";
 import {
+    BOOTSTRAP_METADATA_MODE,
+    BOOTSTRAP_RUN_STATUS,
+} from "@artgod/shared/bootstrap/pipeline";
+import {
     IMAGE_CACHE_MODE,
     defaultImageCachePolicyConfig,
     normalizeImageCachePolicyConfig,
@@ -75,7 +79,10 @@ export class CreateBootstrapRunUseCase {
         const openseaSlug = normalizeOptionalSlug(input.openseaSlug);
         assertOpenSeaSlugIsAllowed(openseaSlug, this.openseaIntegration);
         const metadataMode = input.metadataMode;
-        if (metadataMode !== "best_effort" && metadataMode !== "strict") {
+        if (
+            metadataMode !== BOOTSTRAP_METADATA_MODE.BestEffort &&
+            metadataMode !== BOOTSTRAP_METADATA_MODE.Strict
+        ) {
             throw new BootstrapValidationError("Invalid metadata mode");
         }
         if (input.standard !== "erc721") {
@@ -196,7 +203,10 @@ export class CreateBootstrapRunUseCase {
             collectionId: run.collectionId,
         });
 
-        this.bootstrapRunsPort.updateRunStatus(run.runId, "queued");
+        this.bootstrapRunsPort.updateRunStatus(
+            run.runId,
+            BOOTSTRAP_RUN_STATUS.Queued,
+        );
         this.bootstrapRunsPort.appendRunEvent({
             runId: run.runId,
             chainId: run.chainId,
@@ -212,7 +222,7 @@ export class CreateBootstrapRunUseCase {
             run.collectionId,
         );
         const createdAt = queued?.createdAt ?? run.createdAt;
-        const status = queued?.status ?? "queued";
+        const status = queued?.status ?? BOOTSTRAP_RUN_STATUS.Queued;
         return {
             runId: run.runId,
             collectionId: run.collectionId,

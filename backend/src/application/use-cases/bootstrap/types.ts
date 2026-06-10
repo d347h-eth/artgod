@@ -2,13 +2,23 @@ import type { ChainRecord } from "@artgod/shared/types/browse";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import type { ImageCacheMode } from "@artgod/shared/media/token-image-cache";
 import type { CollectionCustomizationSourceKind } from "@artgod/shared/types";
+import type {
+    BootstrapEnumerationMode,
+    BootstrapFlowStepKey,
+    BootstrapFlowStepState,
+    BootstrapMetadataMode,
+    BootstrapRunStatus,
+    BootstrapTaskCounts,
+    BootstrapTaskStatus,
+} from "@artgod/shared/bootstrap/pipeline";
 
-export type BootstrapMetadataMode = "strict" | "best_effort";
-
-export type BootstrapEnumerationMode =
-    | "enumerable"
-    | "manual_token_ids"
-    | "manual_range";
+export type {
+    BootstrapEnumerationMode,
+    BootstrapFlowStepKey,
+    BootstrapFlowStepState,
+    BootstrapMetadataMode,
+    BootstrapRunStatus,
+} from "@artgod/shared/bootstrap/pipeline";
 
 export type BootstrapManualInput =
     | {
@@ -41,7 +51,7 @@ export type CreateBootstrapRunInput = {
 export type CreateBootstrapRunOutput = {
     runId: number;
     collectionId: number;
-    status: string;
+    status: BootstrapRunStatus;
     createdAt: string;
 };
 
@@ -62,7 +72,7 @@ export type BootstrapRunRow = {
     imageCacheMode: ImageCacheMode;
     imageCacheMaxDimension: number | null;
     deploymentBlock: number | null;
-    status: string;
+    status: BootstrapRunStatus;
     anchorBlock: number | null;
     anchorBlockHash: string | null;
     anchorBlockTimestamp: number | null;
@@ -73,11 +83,7 @@ export type BootstrapRunRow = {
     finishedAt: string | null;
 };
 
-export type BootstrapMetadataTaskStatus =
-    | "pending"
-    | "retry"
-    | "succeeded"
-    | "failed_terminal";
+export type BootstrapMetadataTaskStatus = BootstrapTaskStatus;
 
 export type BootstrapMetadataTaskListItem = {
     tokenId: string;
@@ -96,42 +102,7 @@ export type BootstrapRunEventRecord = {
     payloadJson: string | null;
 };
 
-export type BootstrapRunStatus =
-    | "requested"
-    | "queued"
-    | "metadata"
-    | "image_cache"
-    | "ownership"
-    | "backfill"
-    | "completed"
-    | "failed";
-
-export type BootstrapRunTaskCounts = {
-    pending: number;
-    retry: number;
-    succeeded: number;
-    failedTerminal: number;
-    total: number;
-};
-
-export type BootstrapFlowStepKey =
-    | "queued"
-    | "anchor"
-    | "enumeration"
-    | "metadata"
-    | "image_cache"
-    | "ownership"
-    | "backfill"
-    | "collection_live"
-    | "opensea_identity"
-    | "opensea_snapshot"
-    | "opensea_ready";
-
-export type BootstrapFlowStepState =
-    | "pending"
-    | "active"
-    | "completed"
-    | "failed";
+export type BootstrapRunTaskCounts = BootstrapTaskCounts;
 
 export type BootstrapFlowStep = {
     key: BootstrapFlowStepKey;

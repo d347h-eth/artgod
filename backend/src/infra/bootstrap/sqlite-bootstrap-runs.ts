@@ -5,6 +5,13 @@ import {
     type ImageCacheMode,
 } from "@artgod/shared/media/token-image-cache";
 import {
+    BOOTSTRAP_RUN_STATUS,
+    BOOTSTRAP_TASK_STATUS,
+    mapBootstrapTaskStatusCounts,
+    type BootstrapRunStatus,
+    type BootstrapTaskStatusCountRow,
+} from "@artgod/shared/bootstrap/pipeline";
+import {
     normalizeAddressRef,
     normalizeSlugRef,
 } from "@artgod/shared/utils/ref-resolver";
@@ -26,7 +33,7 @@ type CollectionRow = {
     slug: string;
     address: string;
     standard: string;
-    status: string;
+    status: BootstrapRunStatus;
     token_scope_kind:
         | "contract_all_tokens"
         | "token_range"
@@ -72,7 +79,7 @@ type BootstrapRunDbRow = {
     request_image_cache_mode: ImageCacheMode;
     request_image_cache_max_dimension: number | null;
     deployment_block: number | null;
-    status: string;
+    status: BootstrapRunStatus;
     anchor_block: number | null;
     anchor_block_hash: string | null;
     anchor_block_timestamp: number | null;
@@ -185,10 +192,16 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
     private selectActiveRunCount = db.prepare<{
         chainId: number;
         collectionId: number;
+        requestedStatus: BootstrapRunStatus;
+        queuedStatus: BootstrapRunStatus;
+        metadataStatus: BootstrapRunStatus;
+        imageCacheStatus: BootstrapRunStatus;
+        ownershipStatus: BootstrapRunStatus;
+        backfillStatus: BootstrapRunStatus;
     }>(
         "SELECT COUNT(*) AS count FROM bootstrap_runs " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId " +
-            "AND status IN ('requested', 'queued', 'metadata', 'image_cache', 'ownership', 'backfill')",
+            "AND status IN (@requestedStatus, @queuedStatus, @metadataStatus, @imageCacheStatus, @ownershipStatus, @backfillStatus)",
     );
 
     private insertRun = db.prepare<{
@@ -207,10 +220,11 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         imageCacheMode: ImageCacheMode;
         imageCacheMaxDimension: number | null;
         deploymentBlock: number | null;
+        requestedStatus: BootstrapRunStatus;
     }>(
         "INSERT INTO bootstrap_runs " +
             "(chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, request_image_cache_mode, request_image_cache_max_dimension, deployment_block, status) " +
-            "VALUES (@chainId, @collectionId, @requestSlug, @requestOpenseaSlug, @requestAddress, @requestStandard, @requestExtensionKey, @metadataMode, @enumerationMode, @manualTokenIdsJson, @manualRangeStartTokenId, @manualRangeTotalSupply, @imageCacheMode, @imageCacheMaxDimension, @deploymentBlock, 'requested')",
+            "VALUES (@chainId, @collectionId, @requestSlug, @requestOpenseaSlug, @requestAddress, @requestStandard, @requestExtensionKey, @metadataMode, @enumerationMode, @manualTokenIdsJson, @manualRangeStartTokenId, @manualRangeTotalSupply, @imageCacheMode, @imageCacheMaxDimension, @deploymentBlock, @requestedStatus)",
     );
 
     private selectLatestRun = db.prepare<{
@@ -228,7 +242,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
 
     private updateRunStatusStmt = db.prepare<{
         runId: number;
-        status: string;
+        status: BootstrapRunStatus;
         errorCode: string | null;
         errorMessage: string | null;
         finishedAt: string | null;
@@ -273,10 +287,14 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
             "FROM bootstrap_run_events WHERE run_id = @runId ORDER BY id ASC",
     );
 
-    private markFailedTasksRetry = db.prepare<{ runId: number }>(
+    private markFailedTasksRetry = db.prepare<{
+        runId: number;
+        retryStatus: BootstrapMetadataTaskStatus;
+        failedTerminalStatus: BootstrapMetadataTaskStatus;
+    }>(
         "UPDATE bootstrap_metadata_snapshot_tasks SET " +
-            "status = 'retry', next_attempt_at = 0, updated_at = CURRENT_TIMESTAMP " +
-            "WHERE run_id = @runId AND status = 'failed_terminal'",
+            "status = @retryStatus, next_attempt_at = 0, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND status = @failedTerminalStatus",
     );
 
     findCollectionBySlug(
@@ -394,6 +412,12 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         const row = this.selectActiveRunCount.get({
             chainId,
             collectionId,
+            requestedStatus: BOOTSTRAP_RUN_STATUS.Requested,
+            queuedStatus: BOOTSTRAP_RUN_STATUS.Queued,
+            metadataStatus: BOOTSTRAP_RUN_STATUS.Metadata,
+            imageCacheStatus: BOOTSTRAP_RUN_STATUS.ImageCache,
+            ownershipStatus: BOOTSTRAP_RUN_STATUS.Ownership,
+            backfillStatus: BOOTSTRAP_RUN_STATUS.Backfill,
         }) as { count: number } | undefined;
         return (row?.count ?? 0) > 0;
     }
@@ -416,7 +440,10 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         deploymentBlock: number | null;
     }): BootstrapRunRow {
         const run = db.raw.transaction(() => {
-            this.insertRun.run(input);
+            this.insertRun.run({
+                ...input,
+                requestedStatus: BOOTSTRAP_RUN_STATUS.Requested,
+            });
             const row = this.selectLatestRun.get({
                 chainId: input.chainId,
                 collectionId: input.collectionId,
@@ -431,11 +458,12 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
 
     updateRunStatus(
         runId: number,
-        status: string,
+        status: BootstrapRunStatus,
         error?: { code: string; message: string } | null,
     ): void {
         const finishedAt =
-            status === "completed" || status === "failed"
+            status === BOOTSTRAP_RUN_STATUS.Completed ||
+            status === BOOTSTRAP_RUN_STATUS.Failed
                 ? new Date().toISOString()
                 : null;
         this.updateRunStatusStmt.run({
@@ -604,7 +632,11 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
     }
 
     retryFailedTasks(runId: number): number {
-        const result = this.markFailedTasksRetry.run({ runId });
+        const result = this.markFailedTasksRetry.run({
+            runId,
+            retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
+            failedTerminalStatus: BOOTSTRAP_TASK_STATUS.FailedTerminal,
+        });
         return result.changes;
     }
 }
@@ -637,22 +669,7 @@ function mapCollection(row: CollectionRow): CollectionBootstrapState {
 function mapTaskCountRows(
     rows: BootstrapTaskCountRow[],
 ): BootstrapRunTaskCounts {
-    const counts: BootstrapRunTaskCounts = {
-        pending: 0,
-        retry: 0,
-        succeeded: 0,
-        failedTerminal: 0,
-        total: 0,
-    };
-    for (const row of rows) {
-        const value = Number(row.count) || 0;
-        if (row.status === "pending") counts.pending = value;
-        if (row.status === "retry") counts.retry = value;
-        if (row.status === "succeeded") counts.succeeded = value;
-        if (row.status === "failed_terminal") counts.failedTerminal = value;
-        counts.total += value;
-    }
-    return counts;
+    return mapBootstrapTaskStatusCounts(rows as BootstrapTaskStatusCountRow[]);
 }
 
 function mapRun(row: BootstrapRunDbRow): BootstrapRunRow {

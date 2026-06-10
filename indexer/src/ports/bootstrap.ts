@@ -1,4 +1,8 @@
 import type { Hex } from "./rpc.js";
+import type {
+    BootstrapTaskCounts,
+    BootstrapTaskStatus,
+} from "@artgod/shared/bootstrap/pipeline";
 
 export type BootstrapSnapshotRow = {
     runId: number;
@@ -20,11 +24,7 @@ export type SnapshotFinalizeInput = {
     anchorTimestamp: number;
 };
 
-export type BootstrapMetadataTaskStatus =
-    | "pending"
-    | "retry"
-    | "succeeded"
-    | "failed_terminal";
+export type BootstrapMetadataTaskStatus = BootstrapTaskStatus;
 
 export type BootstrapMetadataTaskSeed = {
     runId: number;
@@ -53,19 +53,9 @@ export type BootstrapMetadataTask = {
     nextAttemptAt: number;
 };
 
-export type BootstrapMetadataTaskCounts = {
-    pending: number;
-    retry: number;
-    succeeded: number;
-    failedTerminal: number;
-    total: number;
-};
+export type BootstrapMetadataTaskCounts = BootstrapTaskCounts;
 
-export type BootstrapImageCacheTaskStatus =
-    | "pending"
-    | "retry"
-    | "succeeded"
-    | "failed_terminal";
+export type BootstrapImageCacheTaskStatus = BootstrapTaskStatus;
 
 export type BootstrapImageCacheTask = {
     runId: number;
@@ -80,13 +70,27 @@ export type BootstrapImageCacheTask = {
     nextAttemptAt: number;
 };
 
-export type BootstrapImageCacheTaskCounts = {
-    pending: number;
-    retry: number;
-    succeeded: number;
-    failedTerminal: number;
-    total: number;
+export type BootstrapImageCacheTaskCounts = BootstrapTaskCounts;
+
+export type BootstrapOwnershipTaskSeed = {
+    runId: number;
+    chainId: number;
+    collectionId: number;
+    contract: string;
+    standard: "erc721" | "erc1155";
+    anchorBlock: number;
+    anchorHash: Hex;
+    anchorTimestamp: number;
+    tokenId: string;
 };
+
+export type BootstrapOwnershipTask = BootstrapOwnershipTaskSeed & {
+    status: BootstrapTaskStatus;
+    attempts: number;
+    nextAttemptAt: number;
+};
+
+export type BootstrapOwnershipTaskCounts = BootstrapTaskCounts;
 
 export interface BootstrapSnapshotPort {
     resetSnapshot(runId: number): void;
@@ -146,4 +150,26 @@ export interface BootstrapSnapshotPort {
         failedTerminal: boolean;
     }): void;
     getImageCacheTaskCounts(runId: number): BootstrapImageCacheTaskCounts;
+    resetOwnershipTasks(runId: number): void;
+    insertOwnershipTasks(rows: BootstrapOwnershipTaskSeed[]): void;
+    listOwnershipTasksDueNow(
+        runId: number,
+        nowMs: number,
+        limit: number,
+    ): BootstrapOwnershipTask[];
+    markOwnershipTaskSucceeded(input: {
+        runId: number;
+        tokenId: string;
+        attempts: number;
+        owner: string;
+    }): void;
+    markOwnershipTaskRetry(input: {
+        runId: number;
+        tokenId: string;
+        attempts: number;
+        nextAttemptAt: number;
+        lastError: string;
+        failedTerminal: boolean;
+    }): void;
+    getOwnershipTaskCounts(runId: number): BootstrapOwnershipTaskCounts;
 }

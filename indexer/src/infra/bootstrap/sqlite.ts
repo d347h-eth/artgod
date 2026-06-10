@@ -1,10 +1,18 @@
 import { db } from "@artgod/shared/database";
+import {
+    BOOTSTRAP_TASK_STATUS,
+    mapBootstrapTaskStatusCounts,
+    type BootstrapTaskStatusCountRow,
+} from "@artgod/shared/bootstrap/pipeline";
 import type {
     BootstrapMetadataTask,
     BootstrapMetadataTaskCounts,
     BootstrapMetadataTaskSeed,
     BootstrapImageCacheTask,
     BootstrapImageCacheTaskCounts,
+    BootstrapOwnershipTask,
+    BootstrapOwnershipTaskCounts,
+    BootstrapOwnershipTaskSeed,
     BootstrapSnapshotPort,
     BootstrapSnapshotRow,
     SnapshotFinalizeInput,
@@ -39,6 +47,21 @@ type BootstrapImageCacheTaskDbRow = {
     source_image_url: string;
     requested_max_dimension: number | null;
     status: BootstrapImageCacheTask["status"];
+    attempts: number;
+    next_attempt_at: number;
+};
+
+type BootstrapOwnershipTaskDbRow = {
+    run_id: number;
+    chain_id: number;
+    collection_id: number;
+    contract_address: string;
+    token_id: string;
+    standard: BootstrapOwnershipTask["standard"];
+    anchor_block: number;
+    anchor_block_hash: string;
+    anchor_block_timestamp: number;
+    status: BootstrapOwnershipTask["status"];
     attempts: number;
     next_attempt_at: number;
 };
@@ -79,29 +102,34 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         "DELETE FROM bootstrap_metadata_snapshot_tasks " +
             "WHERE run_id = @runId",
     );
-    private insertMetadataTaskStmt = db.prepare<BootstrapMetadataTaskSeed>(
+    private insertMetadataTaskStmt = db.prepare<
+        BootstrapMetadataTaskSeed & { pendingStatus: BootstrapMetadataTask["status"] }
+    >(
         "INSERT INTO bootstrap_metadata_snapshot_tasks " +
             "(run_id, chain_id, collection_id, contract_address, token_id, standard, anchor_block, anchor_block_hash, anchor_block_timestamp, status, attempts, next_attempt_at) " +
-            "VALUES (@runId, @chainId, @collectionId, lower(@contract), @tokenId, @standard, @anchorBlock, @anchorHash, @anchorTimestamp, 'pending', 0, 0)",
+            "VALUES (@runId, @chainId, @collectionId, lower(@contract), @tokenId, @standard, @anchorBlock, @anchorHash, @anchorTimestamp, @pendingStatus, 0, 0)",
     );
     private selectMetadataTasksDueStmt = db.prepare<{
         runId: number;
         nowMs: number;
         limit: number;
+        pendingStatus: BootstrapMetadataTask["status"];
+        retryStatus: BootstrapMetadataTask["status"];
     }>(
         "SELECT run_id, chain_id, collection_id, contract_address, token_id, standard, anchor_block, anchor_block_hash, anchor_block_timestamp, status, attempts, next_attempt_at " +
             "FROM bootstrap_metadata_snapshot_tasks " +
             "WHERE run_id = @runId " +
-            "AND status IN ('pending', 'retry') AND next_attempt_at <= @nowMs " +
+            "AND status IN (@pendingStatus, @retryStatus) AND next_attempt_at <= @nowMs " +
             "ORDER BY next_attempt_at ASC, token_id ASC LIMIT @limit",
     );
     private markMetadataTaskSucceededStmt = db.prepare<{
         runId: number;
         tokenId: string;
         attempts: number;
+        succeededStatus: BootstrapMetadataTask["status"];
     }>(
         "UPDATE bootstrap_metadata_snapshot_tasks SET " +
-            "status = 'succeeded', attempts = @attempts, last_error = NULL, last_error_at = NULL, updated_at = CURRENT_TIMESTAMP " +
+            "status = @succeededStatus, attempts = @attempts, last_error = NULL, last_error_at = NULL, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND token_id = @tokenId",
     );
     private markMetadataTaskRetryStmt = db.prepare<{
@@ -111,10 +139,12 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         nextAttemptAt: number;
         lastError: string;
         failedTerminal: number;
+        retryStatus: BootstrapMetadataTask["status"];
+        failedTerminalStatus: BootstrapMetadataTask["status"];
         nowMs: number;
     }>(
         "UPDATE bootstrap_metadata_snapshot_tasks SET " +
-            "status = CASE WHEN @failedTerminal = 1 THEN 'failed_terminal' ELSE 'retry' END, " +
+            "status = CASE WHEN @failedTerminal = 1 THEN @failedTerminalStatus ELSE @retryStatus END, " +
             "attempts = @attempts, next_attempt_at = @nextAttemptAt, last_error = @lastError, last_error_at = @nowMs, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND token_id = @tokenId",
     );
@@ -133,20 +163,22 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     private seedImageCacheTasksStmt = db.prepare<{
         runId: number;
         requestedMaxDimension: number | null;
+        pendingStatus: BootstrapImageCacheTask["status"];
+        succeededStatus: BootstrapMetadataTask["status"];
     }>(
         "INSERT INTO bootstrap_image_cache_tasks " +
             "(run_id, chain_id, collection_id, contract_address, token_id, source_image_url, requested_max_dimension, status, attempts, next_attempt_at, cache_key, content_type, source_bytes, cached_bytes, width, height, relative_path, public_path, last_error, last_error_at) " +
-            "SELECT t.run_id, t.chain_id, t.collection_id, lower(t.contract_address), t.token_id, m.image, @requestedMaxDimension, 'pending', 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL " +
+            "SELECT t.run_id, t.chain_id, t.collection_id, lower(t.contract_address), t.token_id, m.image, @requestedMaxDimension, @pendingStatus, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL " +
             "FROM bootstrap_metadata_snapshot_tasks t " +
             "JOIN token_metadata m ON m.chain_id = t.chain_id " +
             "AND m.collection_id = t.collection_id " +
             "AND m.token_id = t.token_id " +
-            "WHERE t.run_id = @runId AND t.status = 'succeeded' " +
+            "WHERE t.run_id = @runId AND t.status = @succeededStatus " +
             "AND m.image IS NOT NULL AND trim(m.image) <> '' " +
             "ON CONFLICT(run_id, token_id) DO UPDATE SET " +
             "chain_id = excluded.chain_id, collection_id = excluded.collection_id, contract_address = excluded.contract_address, " +
             "source_image_url = excluded.source_image_url, requested_max_dimension = excluded.requested_max_dimension, " +
-            "status = 'pending', attempts = 0, next_attempt_at = 0, cache_key = NULL, content_type = NULL, " +
+            "status = @pendingStatus, attempts = 0, next_attempt_at = 0, cache_key = NULL, content_type = NULL, " +
             "source_bytes = NULL, cached_bytes = NULL, width = NULL, height = NULL, relative_path = NULL, public_path = NULL, " +
             "last_error = NULL, last_error_at = NULL, " +
             "updated_at = CURRENT_TIMESTAMP",
@@ -155,11 +187,13 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         runId: number;
         nowMs: number;
         limit: number;
+        pendingStatus: BootstrapImageCacheTask["status"];
+        retryStatus: BootstrapImageCacheTask["status"];
     }>(
         "SELECT run_id, chain_id, collection_id, contract_address, token_id, source_image_url, requested_max_dimension, status, attempts, next_attempt_at " +
             "FROM bootstrap_image_cache_tasks " +
             "WHERE run_id = @runId " +
-            "AND status IN ('pending', 'retry') AND next_attempt_at <= @nowMs " +
+            "AND status IN (@pendingStatus, @retryStatus) AND next_attempt_at <= @nowMs " +
             "ORDER BY next_attempt_at ASC, token_id ASC LIMIT @limit",
     );
     private markImageCacheTaskSucceededStmt = db.prepare<{
@@ -174,9 +208,10 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         height: number | null;
         relativePath: string;
         publicPath: string;
+        succeededStatus: BootstrapImageCacheTask["status"];
     }>(
         "UPDATE bootstrap_image_cache_tasks SET " +
-            "status = 'succeeded', attempts = @attempts, next_attempt_at = 0, cache_key = @cacheKey, " +
+            "status = @succeededStatus, attempts = @attempts, next_attempt_at = 0, cache_key = @cacheKey, " +
             "content_type = @contentType, source_bytes = @sourceBytes, cached_bytes = @cachedBytes, " +
             "width = @width, height = @height, relative_path = @relativePath, public_path = @publicPath, " +
             "last_error = NULL, last_error_at = NULL, updated_at = CURRENT_TIMESTAMP " +
@@ -211,15 +246,95 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         nextAttemptAt: number;
         lastError: string;
         failedTerminal: number;
+        retryStatus: BootstrapImageCacheTask["status"];
+        failedTerminalStatus: BootstrapImageCacheTask["status"];
         nowMs: number;
     }>(
         "UPDATE bootstrap_image_cache_tasks SET " +
-            "status = CASE WHEN @failedTerminal = 1 THEN 'failed_terminal' ELSE 'retry' END, " +
+            "status = CASE WHEN @failedTerminal = 1 THEN @failedTerminalStatus ELSE @retryStatus END, " +
             "attempts = @attempts, next_attempt_at = @nextAttemptAt, last_error = @lastError, last_error_at = @nowMs, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND token_id = @tokenId",
     );
     private selectImageCacheTaskCountsStmt = db.prepare<{ runId: number }>(
         "SELECT status, COUNT(*) AS count FROM bootstrap_image_cache_tasks " +
+            "WHERE run_id = @runId GROUP BY status",
+    );
+    private resetOwnershipTasksStmt = db.prepare<{ runId: number }>(
+        "DELETE FROM bootstrap_ownership_snapshot_tasks WHERE run_id = @runId",
+    );
+    private insertOwnershipTaskStmt = db.prepare<
+        BootstrapOwnershipTaskSeed & {
+            pendingStatus: BootstrapOwnershipTask["status"];
+        }
+    >(
+        "INSERT INTO bootstrap_ownership_snapshot_tasks " +
+            "(run_id, chain_id, collection_id, contract_address, token_id, standard, anchor_block, anchor_block_hash, anchor_block_timestamp, status, attempts, next_attempt_at) " +
+            "VALUES (@runId, @chainId, @collectionId, lower(@contract), @tokenId, @standard, @anchorBlock, @anchorHash, @anchorTimestamp, @pendingStatus, 0, 0) " +
+            "ON CONFLICT(run_id, token_id) DO UPDATE SET " +
+            "chain_id = excluded.chain_id, collection_id = excluded.collection_id, contract_address = excluded.contract_address, " +
+            "standard = excluded.standard, anchor_block = excluded.anchor_block, anchor_block_hash = excluded.anchor_block_hash, " +
+            "anchor_block_timestamp = excluded.anchor_block_timestamp, status = @pendingStatus, attempts = 0, next_attempt_at = 0, " +
+            "last_error = NULL, last_error_at = NULL, updated_at = CURRENT_TIMESTAMP",
+    );
+    private selectOwnershipTasksDueStmt = db.prepare<{
+        runId: number;
+        nowMs: number;
+        limit: number;
+        pendingStatus: BootstrapOwnershipTask["status"];
+        retryStatus: BootstrapOwnershipTask["status"];
+    }>(
+        "SELECT run_id, chain_id, collection_id, contract_address, token_id, standard, anchor_block, anchor_block_hash, anchor_block_timestamp, status, attempts, next_attempt_at " +
+            "FROM bootstrap_ownership_snapshot_tasks " +
+            "WHERE run_id = @runId " +
+            "AND status IN (@pendingStatus, @retryStatus) AND next_attempt_at <= @nowMs " +
+            "ORDER BY next_attempt_at ASC, token_id ASC LIMIT @limit",
+    );
+    private markOwnershipTaskSucceededStmt = db.prepare<{
+        runId: number;
+        tokenId: string;
+        attempts: number;
+        succeededStatus: BootstrapOwnershipTask["status"];
+    }>(
+        "UPDATE bootstrap_ownership_snapshot_tasks SET " +
+            "status = @succeededStatus, attempts = @attempts, next_attempt_at = 0, " +
+            "last_error = NULL, last_error_at = NULL, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND token_id = @tokenId",
+    );
+    private insertSnapshotFromOwnershipTaskStmt = db.prepare<{
+        runId: number;
+        tokenId: string;
+        owner: string;
+    }>(
+        "INSERT INTO nft_balance_snapshots " +
+            "(run_id, chain_id, collection_id, contract_address, token_id, owner, anchor_block) " +
+            "SELECT run_id, chain_id, collection_id, lower(contract_address), token_id, lower(@owner), anchor_block " +
+            "FROM bootstrap_ownership_snapshot_tasks WHERE run_id = @runId AND token_id = @tokenId " +
+            "ON CONFLICT(run_id, collection_id, token_id, owner) DO UPDATE SET owner = excluded.owner",
+    );
+    private deleteSnapshotTokenStmt = db.prepare<{
+        runId: number;
+        tokenId: string;
+    }>(
+        "DELETE FROM nft_balance_snapshots WHERE run_id = @runId AND token_id = @tokenId",
+    );
+    private markOwnershipTaskRetryStmt = db.prepare<{
+        runId: number;
+        tokenId: string;
+        attempts: number;
+        nextAttemptAt: number;
+        lastError: string;
+        failedTerminal: number;
+        retryStatus: BootstrapOwnershipTask["status"];
+        failedTerminalStatus: BootstrapOwnershipTask["status"];
+        nowMs: number;
+    }>(
+        "UPDATE bootstrap_ownership_snapshot_tasks SET " +
+            "status = CASE WHEN @failedTerminal = 1 THEN @failedTerminalStatus ELSE @retryStatus END, " +
+            "attempts = @attempts, next_attempt_at = @nextAttemptAt, last_error = @lastError, last_error_at = @nowMs, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND token_id = @tokenId",
+    );
+    private selectOwnershipTaskCountsStmt = db.prepare<{ runId: number }>(
+        "SELECT status, COUNT(*) AS count FROM bootstrap_ownership_snapshot_tasks " +
             "WHERE run_id = @runId GROUP BY status",
     );
 
@@ -265,7 +380,10 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         const insertMany = db.raw.transaction(
             (batch: BootstrapMetadataTaskSeed[]) => {
                 for (const row of batch) {
-                    this.insertMetadataTaskStmt.run(row);
+                    this.insertMetadataTaskStmt.run({
+                        ...row,
+                        pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
+                    });
                 }
             },
         );
@@ -281,6 +399,8 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             runId,
             nowMs,
             limit,
+            pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
+            retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
         }) as BootstrapMetadataTaskDbRow[];
         return rows.map(mapBootstrapMetadataTaskDbRow);
     }
@@ -294,6 +414,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             runId,
             tokenId,
             attempts,
+            succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
         });
     }
 
@@ -312,30 +433,17 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             nextAttemptAt,
             lastError,
             failedTerminal: failedTerminal ? 1 : 0,
+            retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
+            failedTerminalStatus: BOOTSTRAP_TASK_STATUS.FailedTerminal,
             nowMs: Date.now(),
         });
     }
 
     getMetadataTaskCounts(runId: number): BootstrapMetadataTaskCounts {
-        const counts: BootstrapMetadataTaskCounts = {
-            pending: 0,
-            retry: 0,
-            succeeded: 0,
-            failedTerminal: 0,
-            total: 0,
-        };
         const rows = this.selectMetadataTaskCountsStmt.all({
             runId,
-        }) as Array<{ status: string; count: number }>;
-        for (const row of rows) {
-            const value = Number(row.count) || 0;
-            if (row.status === "pending") counts.pending = value;
-            if (row.status === "retry") counts.retry = value;
-            if (row.status === "succeeded") counts.succeeded = value;
-            if (row.status === "failed_terminal") counts.failedTerminal = value;
-            counts.total += value;
-        }
-        return counts;
+        }) as BootstrapTaskStatusCountRow[];
+        return mapBootstrapTaskStatusCounts(rows);
     }
 
     listMetadataTaskTokenIds(runId: number): string[] {
@@ -353,7 +461,11 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         runId: number;
         requestedMaxDimension: number | null;
     }): number {
-        const result = this.seedImageCacheTasksStmt.run(input);
+        const result = this.seedImageCacheTasksStmt.run({
+            ...input,
+            pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
+            succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
+        });
         return result.changes;
     }
 
@@ -366,6 +478,8 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             runId,
             nowMs,
             limit,
+            pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
+            retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
         }) as BootstrapImageCacheTaskDbRow[];
         return rows.map(mapBootstrapImageCacheTaskDbRow);
     }
@@ -385,7 +499,10 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     }): void {
         const applySuccess = db.raw.transaction(
             (params: typeof input) => {
-                this.markImageCacheTaskSucceededStmt.run(params);
+                this.markImageCacheTaskSucceededStmt.run({
+                    ...params,
+                    succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
+                });
                 this.upsertSettledImageCacheStmt.run(params);
             },
         );
@@ -403,30 +520,101 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         this.markImageCacheTaskRetryStmt.run({
             ...input,
             failedTerminal: input.failedTerminal ? 1 : 0,
+            retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
+            failedTerminalStatus: BOOTSTRAP_TASK_STATUS.FailedTerminal,
             nowMs: Date.now(),
         });
     }
 
     getImageCacheTaskCounts(runId: number): BootstrapImageCacheTaskCounts {
-        const counts: BootstrapImageCacheTaskCounts = {
-            pending: 0,
-            retry: 0,
-            succeeded: 0,
-            failedTerminal: 0,
-            total: 0,
-        };
         const rows = this.selectImageCacheTaskCountsStmt.all({
             runId,
-        }) as Array<{ status: string; count: number }>;
-        for (const row of rows) {
-            const value = Number(row.count) || 0;
-            if (row.status === "pending") counts.pending = value;
-            if (row.status === "retry") counts.retry = value;
-            if (row.status === "succeeded") counts.succeeded = value;
-            if (row.status === "failed_terminal") counts.failedTerminal = value;
-            counts.total += value;
-        }
-        return counts;
+        }) as BootstrapTaskStatusCountRow[];
+        return mapBootstrapTaskStatusCounts(rows);
+    }
+
+    resetOwnershipTasks(runId: number): void {
+        this.resetOwnershipTasksStmt.run({ runId });
+    }
+
+    insertOwnershipTasks(rows: BootstrapOwnershipTaskSeed[]): void {
+        if (rows.length === 0) return;
+        const insertMany = db.raw.transaction(
+            (batch: BootstrapOwnershipTaskSeed[]) => {
+                for (const row of batch) {
+                    this.insertOwnershipTaskStmt.run({
+                        ...row,
+                        pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
+                    });
+                }
+            },
+        );
+        insertMany(rows);
+    }
+
+    listOwnershipTasksDueNow(
+        runId: number,
+        nowMs: number,
+        limit: number,
+    ): BootstrapOwnershipTask[] {
+        const rows = this.selectOwnershipTasksDueStmt.all({
+            runId,
+            nowMs,
+            limit,
+            pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
+            retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
+        }) as BootstrapOwnershipTaskDbRow[];
+        return rows.map(mapBootstrapOwnershipTaskDbRow);
+    }
+
+    markOwnershipTaskSucceeded(input: {
+        runId: number;
+        tokenId: string;
+        attempts: number;
+        owner: string;
+    }): void {
+        const applySuccess = db.raw.transaction((params: typeof input) => {
+            this.deleteSnapshotTokenStmt.run({
+                runId: params.runId,
+                tokenId: params.tokenId,
+            });
+            this.insertSnapshotFromOwnershipTaskStmt.run({
+                runId: params.runId,
+                tokenId: params.tokenId,
+                owner: params.owner,
+            });
+            this.markOwnershipTaskSucceededStmt.run({
+                runId: params.runId,
+                tokenId: params.tokenId,
+                attempts: params.attempts,
+                succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
+            });
+        });
+        applySuccess(input);
+    }
+
+    markOwnershipTaskRetry(input: {
+        runId: number;
+        tokenId: string;
+        attempts: number;
+        nextAttemptAt: number;
+        lastError: string;
+        failedTerminal: boolean;
+    }): void {
+        this.markOwnershipTaskRetryStmt.run({
+            ...input,
+            failedTerminal: input.failedTerminal ? 1 : 0,
+            retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
+            failedTerminalStatus: BOOTSTRAP_TASK_STATUS.FailedTerminal,
+            nowMs: Date.now(),
+        });
+    }
+
+    getOwnershipTaskCounts(runId: number): BootstrapOwnershipTaskCounts {
+        const rows = this.selectOwnershipTaskCountsStmt.all({
+            runId,
+        }) as BootstrapTaskStatusCountRow[];
+        return mapBootstrapTaskStatusCounts(rows);
     }
 }
 
@@ -460,6 +648,25 @@ function mapBootstrapImageCacheTaskDbRow(
         tokenId: row.token_id,
         sourceImageUrl: row.source_image_url,
         requestedMaxDimension: row.requested_max_dimension,
+        status: row.status,
+        attempts: row.attempts,
+        nextAttemptAt: row.next_attempt_at,
+    };
+}
+
+function mapBootstrapOwnershipTaskDbRow(
+    row: BootstrapOwnershipTaskDbRow,
+): BootstrapOwnershipTask {
+    return {
+        runId: row.run_id,
+        chainId: row.chain_id,
+        collectionId: row.collection_id,
+        contract: row.contract_address,
+        tokenId: row.token_id,
+        standard: row.standard,
+        anchorBlock: row.anchor_block,
+        anchorHash: row.anchor_block_hash as `0x${string}`,
+        anchorTimestamp: row.anchor_block_timestamp,
         status: row.status,
         attempts: row.attempts,
         nextAttemptAt: row.next_attempt_at,

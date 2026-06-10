@@ -1,5 +1,10 @@
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import type { ImageCacheMode } from "@artgod/shared/media/token-image-cache";
+import type {
+    BootstrapEnumerationMode,
+    BootstrapMetadataMode,
+    BootstrapRunStatus,
+} from "@artgod/shared/bootstrap/pipeline";
 
 export type BootstrapRunDefinition = {
     runId: number;
@@ -9,15 +14,15 @@ export type BootstrapRunDefinition = {
     requestAddress: string;
     requestStandard: "erc721" | "erc1155";
     requestExtensionKey: CollectionExtensionKey | null;
-    metadataMode: "strict" | "best_effort";
-    enumerationMode: "enumerable" | "manual_token_ids" | "manual_range";
+    metadataMode: BootstrapMetadataMode;
+    enumerationMode: BootstrapEnumerationMode;
     manualTokenIdsJson: string | null;
     manualRangeStartTokenId: string | null;
     manualRangeTotalSupply: number | null;
     imageCacheMode: ImageCacheMode;
     imageCacheMaxDimension: number | null;
     deploymentBlock: number | null;
-    status: string;
+    status: BootstrapRunStatus;
     anchorBlock: number | null;
     anchorBlockHash: string | null;
     anchorBlockTimestamp: number | null;
@@ -27,7 +32,7 @@ export interface BootstrapRunsPort {
     getRun(runId: number): BootstrapRunDefinition | null;
     updateRunStatus(
         runId: number,
-        status: string,
+        status: BootstrapRunStatus,
         error?: { code: string; message: string } | null,
     ): void;
     updateRunAnchor(input: {
