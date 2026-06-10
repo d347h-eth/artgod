@@ -154,7 +154,7 @@ async function main() {
             fetchResilience: config.httpFetch,
         });
 
-        const stop = await runWorker(
+        const stopBootstrap = await runWorker(
             queue,
             {
                 queue: QUEUE_NAMES.CollectionBootstrap,
@@ -167,7 +167,6 @@ async function main() {
                 job: JobEnvelope<
                     | BootstrapCollectionPayload
                     | BootstrapMetadataProcessPayload
-                    | BootstrapImageCacheProcessPayload
                     | BootstrapOwnershipProcessPayload
                     | BootstrapBackfillCheckPayload
                 >,
@@ -233,23 +232,6 @@ async function main() {
                         return;
                     }
 
-                    if (job.kind === BOOTSTRAP_JOB_KIND.ImageCacheProcess) {
-                        await handleBootstrapImageCacheProcess(
-                            queue,
-                            collections,
-                            bootstrapStorage,
-                            bootstrapRuns,
-                            bootstrapSteps,
-                            tokenImageCache,
-                            config.bootstrap.imageCacheBatchSize,
-                            config.bootstrap.imageCacheConcurrency,
-                            config.bootstrap.metadataRetryPolicy,
-                            job.payload as BootstrapImageCacheProcessPayload,
-                            job.traceId ?? job.jobId,
-                        );
-                        return;
-                    }
-
                     if (job.kind === BOOTSTRAP_JOB_KIND.BackfillCheck) {
                         await handleBootstrapBackfillCheck(
                             queue,
@@ -267,33 +249,6 @@ async function main() {
                         (job.payload as { runId?: unknown }).runId,
                     );
                     if (Number.isInteger(runId) && job.attempt >= 5) {
-                        if (job.kind === BOOTSTRAP_JOB_KIND.ImageCacheProcess) {
-                            const run = bootstrapRuns.getRun(runId);
-                            const message = String(error);
-                            bootstrapSteps.markStepFailedTerminal({
-                                runId,
-                                stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
-                                attempts: Math.max(1, job.attempt),
-                                error: message,
-                            });
-                            if (run) {
-                                bootstrapRuns.appendRunEvent({
-                                    runId,
-                                    chainId: run.chainId,
-                                    collectionId: run.collectionId,
-                                    eventCode:
-                                        BOOTSTRAP_RUN_EVENT_CODE.ImageCacheFailed,
-                                    eventLevel: "error",
-                                    message:
-                                        "Bootstrap image cache failed after max retry attempts",
-                                    payloadJson: JSON.stringify({
-                                        error: message,
-                                        sourceJobId: job.jobId,
-                                    }),
-                                });
-                            }
-                            return;
-                        }
                         bootstrapRuns.updateRunStatus(
                             runId,
                             BOOTSTRAP_RUN_STATUS.Failed,
@@ -327,6 +282,77 @@ async function main() {
                 spanName: "worker.bootstrap.consume",
             },
         );
+        const stopImageCache = await runWorker(
+            queue,
+            {
+                queue: QUEUE_NAMES.CollectionBootstrapImageCache,
+                consumerName: `collection-bootstrap-image-cache-${config.chainId}`,
+                maxInFlight: 1,
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
+            },
+            async (job: JobEnvelope<BootstrapImageCacheProcessPayload>) => {
+                try {
+                    if (job.kind !== BOOTSTRAP_JOB_KIND.ImageCacheProcess) {
+                        logger.warn("Bootstrap image-cache lane skipped unknown job", {
+                            component: "CollectionBootstrapWorker",
+                            action: "handleBootstrapImageCacheLaneJob",
+                            jobKind: job.kind,
+                            jobId: job.jobId,
+                        });
+                        return;
+                    }
+                    await handleBootstrapImageCacheProcess(
+                        queue,
+                        collections,
+                        bootstrapStorage,
+                        bootstrapRuns,
+                        bootstrapSteps,
+                        tokenImageCache,
+                        config.bootstrap.imageCacheBatchSize,
+                        config.bootstrap.imageCacheConcurrency,
+                        config.bootstrap.metadataRetryPolicy,
+                        job.payload,
+                        job.traceId ?? job.jobId,
+                    );
+                } catch (error) {
+                    const runId = Number(
+                        (job.payload as { runId?: unknown }).runId,
+                    );
+                    if (Number.isInteger(runId) && job.attempt >= 5) {
+                        const run = bootstrapRuns.getRun(runId);
+                        const message = String(error);
+                        bootstrapSteps.markStepFailedTerminal({
+                            runId,
+                            stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+                            attempts: Math.max(1, job.attempt),
+                            error: message,
+                        });
+                        if (run) {
+                            bootstrapRuns.appendRunEvent({
+                                runId,
+                                chainId: run.chainId,
+                                collectionId: run.collectionId,
+                                eventCode: BOOTSTRAP_RUN_EVENT_CODE.ImageCacheFailed,
+                                eventLevel: "error",
+                                message:
+                                    "Bootstrap image cache failed after max retry attempts",
+                                payloadJson: JSON.stringify({
+                                    error: message,
+                                    sourceJobId: job.jobId,
+                                }),
+                            });
+                        }
+                        return;
+                    }
+                    throw error;
+                }
+            },
+            {
+                apm: runtimeApm.apm,
+                spanName: "worker.bootstrap.image_cache.consume",
+            },
+        );
 
         logger.info("Collection bootstrap worker ready", {
             component: "CollectionBootstrapWorker",
@@ -342,7 +368,8 @@ async function main() {
                 component: "CollectionBootstrapWorker",
                 action: "shutdown",
             });
-            await stop();
+            await stopBootstrap();
+            await stopImageCache();
             await runtimeApm.stop();
             await runtimeMetrics.stop();
             await queue.close();
@@ -2166,7 +2193,7 @@ async function scheduleImageCacheProcess(
     const job: JobEnvelope<BootstrapImageCacheProcessPayload> = {
         jobId: `${BOOTSTRAP_JOB_ID_SCOPE.ImageCache}:${payload.chainId}:${payload.runId}:${scheduledAt}:${nonce}`,
         kind: BOOTSTRAP_JOB_KIND.ImageCacheProcess,
-        queue: QUEUE_NAMES.CollectionBootstrap,
+        queue: QUEUE_NAMES.CollectionBootstrapImageCache,
         payload,
         attempt: 0,
         scheduledAt,
@@ -2174,7 +2201,7 @@ async function scheduleImageCacheProcess(
         traceId,
         collectionId: payload.collectionId,
     };
-    await queue.publish(QUEUE_NAMES.CollectionBootstrap, job);
+    await queue.publish(QUEUE_NAMES.CollectionBootstrapImageCache, job);
 }
 
 async function scheduleOwnershipProcess(

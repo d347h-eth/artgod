@@ -44,7 +44,7 @@ export class NatsBootstrapCommandQueue implements BootstrapCommandQueuePort {
         collectionId: number;
     }): Promise<void> {
         await this.publishJob(
-            BOOTSTRAP_QUEUE_NAME.CollectionBootstrap,
+            BOOTSTRAP_QUEUE_NAME.CollectionBootstrapImageCache,
             {
                 chainId: input.chainId,
                 runId: input.runId,

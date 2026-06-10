@@ -1,6 +1,7 @@
 // Bootstrap queue names are shared by backend publishers and indexer workers.
 export const BOOTSTRAP_QUEUE_NAME = {
     CollectionBootstrap: "collection-bootstrap",
+    CollectionBootstrapImageCache: "collection-bootstrap-image-cache",
 } as const;
 
 export type BootstrapQueueName =

@@ -6,6 +6,8 @@ export const QUEUE_NAMES = {
     BackfillSync: "events-sync-backfill",
     BlockCheck: "block-check",
     CollectionBootstrap: BOOTSTRAP_QUEUE_NAME.CollectionBootstrap,
+    CollectionBootstrapImageCache:
+        BOOTSTRAP_QUEUE_NAME.CollectionBootstrapImageCache,
     OpenSeaBootstrap: "opensea-bootstrap",
     OpenSeaReconcile: "opensea-reconcile",
     OffchainOrdersRaw: "offchain-orders-raw",
