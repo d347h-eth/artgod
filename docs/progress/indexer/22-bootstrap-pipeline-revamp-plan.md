@@ -276,6 +276,24 @@ The settled domain tables remain separate concerns:
 Bootstrap tables should track pipeline progress and tasks, not become permanent
 domain state.
 
+## Decisions
+
+These decisions are locked for the first implementation pass:
+
+- Store step dependencies as JSON on `bootstrap_run_steps`. A normalized
+  dependency table is unnecessary until dependency queries become complex.
+- Use event-driven orchestration with a startup sweep. Step completion,
+  pause/resume, and retry scheduling should wake the orchestrator explicitly.
+  Do not add a continuous periodic image-cache reconciler in the first pass.
+- Treat ownership as mandatory. Ownership failures must block collection
+  liveness; there is no best-effort path where ownership can be skipped or
+  terminally failed while the collection becomes live.
+- After a run fully succeeds, delete per-token bootstrap task rows and other
+  temporary bootstrap data for that run.
+- Keep `bootstrap_run_steps` as the historical journal. Preserve step
+  `started_at`, `finished_at`, status, progress totals, and result summaries so
+  users can inspect how long each step took after the fact.
+
 ## Implementation Order
 
 1. Define bootstrap pipeline domain constants and types.
@@ -296,10 +314,7 @@ domain state.
 
 ## Open Decisions
 
-- Whether dependencies are stored as JSON in `bootstrap_run_steps` or normalized
-  in `bootstrap_run_step_dependencies`.
-- Whether image cache side-lane scheduling is event-driven only or also has a
-  periodic reconciler loop inside the bootstrap runtime.
-- Whether ownership failures can become `failed_terminal` in best-effort mode or
-  should always block collection liveness.
-- How much historical bootstrap task data to retain after a run succeeds.
+- Whether the startup sweep should run only once at process start or also after
+  reconnecting to the queue/database following transient infrastructure errors.
+- Whether ownership should expose an operator retry action separate from generic
+  step resume.
