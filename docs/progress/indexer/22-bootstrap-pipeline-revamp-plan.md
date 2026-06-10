@@ -300,9 +300,10 @@ These decisions are locked for the first implementation pass:
 2. Replace schema with runs, steps, dependencies, and task tables. Done for the
    current first pass.
 3. Build a bootstrap pipeline planner from the bootstrap request. Done.
-4. Build orchestration/reconciliation helpers. Partially done; current worker
-   records and advances durable step state but is not yet a fully generic graph
-   reconciler.
+4. Build orchestration/reconciliation helpers. Done for the current first pass:
+   shared dependency helpers, indexer reconciler helpers, and worker startup
+   sweep now promote dependency-ready steps and republish recoverable executor
+   jobs.
 5. Port anchor and enumeration into step executors. Partially done; current
    procedural start handler now records step progress.
 6. Port metadata into a taskized step executor. Done.
@@ -318,7 +319,8 @@ These decisions are locked for the first implementation pass:
 13. Update canonical bootstrap docs and RPC catalog if any interaction paths
     changed. Done for docs; RPC catalog did not need a new JSON-RPC path.
 14. Add focused backend/indexer/frontend tests, then E2E bootstrap coverage.
-    Focused tests added; E2E coverage remains.
+    Focused storage/reconciler tests added for the startup sweep; E2E coverage
+    remains.
 
 ## Open Decisions
 

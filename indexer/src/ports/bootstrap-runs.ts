@@ -30,6 +30,10 @@ export type BootstrapRunDefinition = {
 
 export interface BootstrapRunsPort {
     getRun(runId: number): BootstrapRunDefinition | null;
+    listRunsForStartupSweep(
+        chainId: number,
+        limit: number,
+    ): BootstrapRunDefinition[];
     updateRunStatus(
         runId: number,
         status: BootstrapRunStatus,

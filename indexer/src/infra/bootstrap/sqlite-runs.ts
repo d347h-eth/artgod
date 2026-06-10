@@ -5,7 +5,10 @@ import {
     type ImageCacheMode,
 } from "@artgod/shared/media/token-image-cache";
 import {
+    BOOTSTRAP_ACTIVE_RUN_STATUSES,
+    BOOTSTRAP_RECOVERABLE_STEP_STATUSES,
     BOOTSTRAP_RUN_STATUS,
+    BOOTSTRAP_STEP_KEY,
     type BootstrapRunStatus,
 } from "@artgod/shared/bootstrap/pipeline";
 import type {
@@ -79,6 +82,41 @@ export class SqliteBootstrapRuns implements BootstrapRunsPort {
             runId,
         }) as BootstrapRunDbRow | undefined;
         return row ? mapRun(row) : null;
+    }
+
+    listRunsForStartupSweep(
+        chainId: number,
+        limit: number,
+    ): BootstrapRunDefinition[] {
+        const boundedLimit = Math.max(1, limit);
+        const runStatusPlaceholders = BOOTSTRAP_ACTIVE_RUN_STATUSES.map(
+            () => "?",
+        ).join(", ");
+        const stepStatusPlaceholders = BOOTSTRAP_RECOVERABLE_STEP_STATUSES.map(
+            () => "?",
+        ).join(", ");
+        const sql =
+            "SELECT run_id, chain_id, collection_id, request_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, request_image_cache_mode, request_image_cache_max_dimension, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp " +
+            "FROM bootstrap_runs " +
+            `WHERE chain_id = ? AND (status IN (${runStatusPlaceholders}) ` +
+            "OR EXISTS (" +
+            "SELECT 1 FROM bootstrap_run_steps s " +
+            "WHERE s.run_id = bootstrap_runs.run_id " +
+            "AND s.blocking = 0 " +
+            "AND s.step_key = ? " +
+            `AND s.status IN (${stepStatusPlaceholders})` +
+            ")) " +
+            "ORDER BY run_id ASC LIMIT ?";
+        const rows = db.raw
+            .prepare(sql)
+            .all(
+                chainId,
+                ...BOOTSTRAP_ACTIVE_RUN_STATUSES,
+                BOOTSTRAP_STEP_KEY.ImageCache,
+                ...BOOTSTRAP_RECOVERABLE_STEP_STATUSES,
+                boundedLimit,
+            ) as BootstrapRunDbRow[];
+        return rows.map(mapRun);
     }
 
     updateRunStatus(

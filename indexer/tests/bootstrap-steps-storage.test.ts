@@ -4,6 +4,7 @@ import { db, setDbPath } from "@artgod/shared/database";
 import {
     BOOTSTRAP_STEP_KEY,
     BOOTSTRAP_STEP_STATUS,
+    type BootstrapStepKey,
     serializeBootstrapStepDependencies,
 } from "@artgod/shared/bootstrap/pipeline";
 import { SqliteBootstrapSteps } from "../src/infra/bootstrap/sqlite-steps.js";
@@ -104,9 +105,48 @@ describe("bootstrap steps storage", () => {
             }),
         );
     });
+
+    it("lists run steps with parsed dependencies and marks pending steps ready", () => {
+        seedStep(92, BOOTSTRAP_STEP_KEY.Anchor);
+        seedStep(92, BOOTSTRAP_STEP_KEY.Enumeration, [
+            BOOTSTRAP_STEP_KEY.Anchor,
+        ]);
+        seedStep(92, BOOTSTRAP_STEP_KEY.Metadata, [
+            BOOTSTRAP_STEP_KEY.Enumeration,
+        ]);
+
+        const steps = new SqliteBootstrapSteps();
+        const runSteps = steps.listRunSteps(92);
+
+        expect(runSteps.map((step) => step.stepKey)).toEqual([
+            BOOTSTRAP_STEP_KEY.Anchor,
+            BOOTSTRAP_STEP_KEY.Enumeration,
+            BOOTSTRAP_STEP_KEY.Metadata,
+        ]);
+        expect(
+            runSteps.find(
+                (step) => step.stepKey === BOOTSTRAP_STEP_KEY.Metadata,
+            )?.dependsOn,
+        ).toEqual([BOOTSTRAP_STEP_KEY.Enumeration]);
+
+        steps.markStepReady(92, BOOTSTRAP_STEP_KEY.Enumeration);
+
+        expect(
+            steps.getStep(92, BOOTSTRAP_STEP_KEY.Enumeration),
+        ).toEqual(
+            expect.objectContaining({
+                status: BOOTSTRAP_STEP_STATUS.Ready,
+                dependsOn: [BOOTSTRAP_STEP_KEY.Anchor],
+            }),
+        );
+    });
 });
 
-function seedStep(runId: number, stepKey: string): void {
+function seedStep(
+    runId: number,
+    stepKey: BootstrapStepKey,
+    dependsOn: BootstrapStepKey[] = [],
+): void {
     db.prepare(
         "INSERT INTO bootstrap_run_steps " +
             "(run_id, step_key, status, blocking, depends_on_json) " +
@@ -116,6 +156,6 @@ function seedStep(runId: number, stepKey: string): void {
         stepKey,
         BOOTSTRAP_STEP_STATUS.Pending,
         1,
-        serializeBootstrapStepDependencies([]),
+        serializeBootstrapStepDependencies(dependsOn),
     );
 }

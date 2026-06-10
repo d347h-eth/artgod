@@ -99,6 +99,14 @@ export const BOOTSTRAP_STEP_STATUSES = [
     BOOTSTRAP_STEP_STATUS.Skipped,
 ] as const;
 
+// Step statuses that may still require startup reconciliation or executor wake-up.
+export const BOOTSTRAP_RECOVERABLE_STEP_STATUSES = [
+    BOOTSTRAP_STEP_STATUS.Pending,
+    BOOTSTRAP_STEP_STATUS.Ready,
+    BOOTSTRAP_STEP_STATUS.Running,
+    BOOTSTRAP_STEP_STATUS.FailedRetry,
+] as const;
+
 // Step actions are the operator controls exposed by the bootstrap detail API.
 export const BOOTSTRAP_STEP_ACTION = {
     Pause: "pause",
@@ -182,6 +190,11 @@ export type BootstrapTaskStatusCountRow = {
     count: number | bigint;
 };
 
+export type BootstrapStepDependencyRecord = {
+    stepKey: BootstrapStepKey;
+    status: BootstrapStepStatus;
+};
+
 export type BootstrapRunStepPlan = {
     stepKey: BootstrapStepKey;
     status: BootstrapStepStatus;
@@ -228,6 +241,24 @@ export function serializeBootstrapStepDependencies(
     dependsOn: readonly BootstrapStepKey[],
 ): string {
     return JSON.stringify(dependsOn);
+}
+
+// Parses persisted bootstrap_run_steps.depends_on_json into known step keys only.
+export function parseBootstrapStepDependencies(
+    dependsOnJson: string | null,
+): BootstrapStepKey[] {
+    if (!dependsOnJson) {
+        return [];
+    }
+    try {
+        const parsed = JSON.parse(dependsOnJson) as unknown;
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+        return parsed.filter(isBootstrapStepKey);
+    } catch {
+        return [];
+    }
 }
 
 // Checks values received from query strings or database rows before narrowing.
@@ -279,6 +310,17 @@ export function canResumeBootstrapStepStatus(
     return status === BOOTSTRAP_STEP_STATUS.Paused;
 }
 
+// Wakeable steps may need an executor job after startup, resume, or dependency completion.
+export function isBootstrapStepWakeableStatus(
+    status: BootstrapStepStatus,
+): boolean {
+    return (
+        status === BOOTSTRAP_STEP_STATUS.Ready ||
+        status === BOOTSTRAP_STEP_STATUS.Running ||
+        status === BOOTSTRAP_STEP_STATUS.FailedRetry
+    );
+}
+
 // Returns true when no further work should be scheduled for the step.
 export function isBootstrapStepTerminalStatus(
     status: BootstrapStepStatus,
@@ -288,6 +330,33 @@ export function isBootstrapStepTerminalStatus(
         status === BOOTSTRAP_STEP_STATUS.FailedTerminal ||
         status === BOOTSTRAP_STEP_STATUS.Skipped
     );
+}
+
+// Dependency edges unblock only after the upstream step finished successfully or was intentionally skipped.
+export function isBootstrapStepDependencySatisfied(
+    status: BootstrapStepStatus,
+): boolean {
+    return (
+        status === BOOTSTRAP_STEP_STATUS.Succeeded ||
+        status === BOOTSTRAP_STEP_STATUS.Skipped
+    );
+}
+
+// Checks whether a pending step can become ready from current dependency rows.
+export function areBootstrapStepDependenciesSatisfied(
+    dependsOn: readonly BootstrapStepKey[],
+    records: readonly BootstrapStepDependencyRecord[],
+): boolean {
+    if (dependsOn.length === 0) {
+        return true;
+    }
+    const statusByStep = new Map(
+        records.map((record) => [record.stepKey, record.status]),
+    );
+    return dependsOn.every((stepKey) => {
+        const status = statusByStep.get(stepKey);
+        return status ? isBootstrapStepDependencySatisfied(status) : false;
+    });
 }
 
 const taskStatusSet = new Set<string>(BOOTSTRAP_TASK_STATUSES);

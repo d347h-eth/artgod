@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     BOOTSTRAP_RUN_STATUS,
+    BOOTSTRAP_RECOVERABLE_STEP_STATUSES,
     BOOTSTRAP_STEP_STATUS,
     BOOTSTRAP_TASK_STATUS,
     isBootstrapRunStatus,
@@ -10,11 +11,14 @@ import {
     serializeBootstrapStepDependencies,
     BOOTSTRAP_STEP_KEY,
     BOOTSTRAP_STEP_ACTION,
+    areBootstrapStepDependenciesSatisfied,
     canPauseBootstrapStepStatus,
     canResumeBootstrapStepStatus,
     isBootstrapStepAction,
+    parseBootstrapStepDependencies,
     isBootstrapStepKey,
     isBootstrapStepPausable,
+    isBootstrapStepWakeableStatus,
 } from "./pipeline.js";
 
 describe("bootstrap pipeline contract", () => {
@@ -39,6 +43,12 @@ describe("bootstrap pipeline contract", () => {
         ).toBe(true);
         expect(isBootstrapStepTerminalStatus(BOOTSTRAP_STEP_STATUS.Running)).toBe(
             false,
+        );
+        expect(BOOTSTRAP_RECOVERABLE_STEP_STATUSES).toContain(
+            BOOTSTRAP_STEP_STATUS.Pending,
+        );
+        expect(BOOTSTRAP_RECOVERABLE_STEP_STATUSES).not.toContain(
+            BOOTSTRAP_STEP_STATUS.Paused,
         );
     });
 
@@ -66,6 +76,57 @@ describe("bootstrap pipeline contract", () => {
                 BOOTSTRAP_STEP_KEY.Enumeration,
             ]),
         ).toBe('["anchor","enumeration"]');
+        expect(
+            parseBootstrapStepDependencies(
+                serializeBootstrapStepDependencies([
+                    BOOTSTRAP_STEP_KEY.Anchor,
+                    BOOTSTRAP_STEP_KEY.Enumeration,
+                ]),
+            ),
+        ).toEqual([
+            BOOTSTRAP_STEP_KEY.Anchor,
+            BOOTSTRAP_STEP_KEY.Enumeration,
+        ]);
+        expect(
+            parseBootstrapStepDependencies('["anchor","unknown"]'),
+        ).toEqual([BOOTSTRAP_STEP_KEY.Anchor]);
+        expect(parseBootstrapStepDependencies("{")).toEqual([]);
+    });
+
+    it("checks bootstrap step dependency satisfaction", () => {
+        expect(
+            areBootstrapStepDependenciesSatisfied(
+                [BOOTSTRAP_STEP_KEY.Anchor],
+                [
+                    {
+                        stepKey: BOOTSTRAP_STEP_KEY.Anchor,
+                        status: BOOTSTRAP_STEP_STATUS.Succeeded,
+                    },
+                ],
+            ),
+        ).toBe(true);
+        expect(
+            areBootstrapStepDependenciesSatisfied(
+                [BOOTSTRAP_STEP_KEY.ImageCache],
+                [
+                    {
+                        stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+                        status: BOOTSTRAP_STEP_STATUS.Skipped,
+                    },
+                ],
+            ),
+        ).toBe(true);
+        expect(
+            areBootstrapStepDependenciesSatisfied(
+                [BOOTSTRAP_STEP_KEY.Metadata],
+                [
+                    {
+                        stepKey: BOOTSTRAP_STEP_KEY.Metadata,
+                        status: BOOTSTRAP_STEP_STATUS.FailedTerminal,
+                    },
+                ],
+            ),
+        ).toBe(false);
     });
 
     it("owns bootstrap step action and pausable-step rules", () => {
@@ -89,5 +150,14 @@ describe("bootstrap pipeline contract", () => {
         expect(canResumeBootstrapStepStatus(BOOTSTRAP_STEP_STATUS.Ready)).toBe(
             false,
         );
+        expect(isBootstrapStepWakeableStatus(BOOTSTRAP_STEP_STATUS.Ready)).toBe(
+            true,
+        );
+        expect(
+            isBootstrapStepWakeableStatus(BOOTSTRAP_STEP_STATUS.FailedRetry),
+        ).toBe(true);
+        expect(
+            isBootstrapStepWakeableStatus(BOOTSTRAP_STEP_STATUS.Paused),
+        ).toBe(false);
     });
 });

@@ -9,6 +9,7 @@ export type BootstrapStepRecord = {
     stepKey: BootstrapStepKey;
     status: BootstrapStepStatus;
     blocking: boolean;
+    dependsOn: BootstrapStepKey[];
     progressCompleted: number;
     progressTotal: number | null;
     attempts: number;
@@ -24,6 +25,8 @@ export type BootstrapStepProgress = {
 // Port for mutating durable bootstrap step state without coupling executors to SQLite.
 export interface BootstrapStepsPort {
     getStep(runId: number, stepKey: BootstrapStepKey): BootstrapStepRecord | null;
+    listRunSteps(runId: number): BootstrapStepRecord[];
+    markStepReady(runId: number, stepKey: BootstrapStepKey): void;
     markStepRunning(runId: number, stepKey: BootstrapStepKey): void;
     markStepSucceeded(
         runId: number,

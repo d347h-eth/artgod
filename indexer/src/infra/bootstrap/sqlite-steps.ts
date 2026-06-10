@@ -1,6 +1,7 @@
 import { db } from "@artgod/shared/database";
 import {
     BOOTSTRAP_STEP_STATUS,
+    parseBootstrapStepDependencies,
     type BootstrapStepKey,
     type BootstrapStepStatus,
 } from "@artgod/shared/bootstrap/pipeline";
@@ -15,6 +16,7 @@ type BootstrapStepDbRow = {
     step_key: BootstrapStepKey;
     status: BootstrapStepStatus;
     blocking: number;
+    depends_on_json: string | null;
     progress_completed: number;
     progress_total: number | null;
     attempts: number;
@@ -27,8 +29,24 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         runId: number;
         stepKey: BootstrapStepKey;
     }>(
-        "SELECT run_id, step_key, status, blocking, progress_completed, progress_total, attempts, last_error " +
+        "SELECT run_id, step_key, status, blocking, depends_on_json, progress_completed, progress_total, attempts, last_error " +
             "FROM bootstrap_run_steps WHERE run_id = @runId AND step_key = @stepKey LIMIT 1",
+    );
+
+    private selectRunStepsStmt = db.prepare<{ runId: number }>(
+        "SELECT run_id, step_key, status, blocking, depends_on_json, progress_completed, progress_total, attempts, last_error " +
+            "FROM bootstrap_run_steps WHERE run_id = @runId ORDER BY rowid ASC",
+    );
+
+    private markReadyStmt = db.prepare<{
+        runId: number;
+        stepKey: BootstrapStepKey;
+        status: BootstrapStepStatus;
+        pendingStatus: BootstrapStepStatus;
+    }>(
+        "UPDATE bootstrap_run_steps SET " +
+            "status = @status, next_attempt_at = 0, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND step_key = @stepKey AND status = @pendingStatus",
     );
 
     private markRunningStmt = db.prepare<{
@@ -116,6 +134,22 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
             stepKey,
         }) as BootstrapStepDbRow | undefined;
         return row ? mapStep(row) : null;
+    }
+
+    listRunSteps(runId: number): BootstrapStepRecord[] {
+        const rows = this.selectRunStepsStmt.all({
+            runId,
+        }) as BootstrapStepDbRow[];
+        return rows.map(mapStep);
+    }
+
+    markStepReady(runId: number, stepKey: BootstrapStepKey): void {
+        this.markReadyStmt.run({
+            runId,
+            stepKey,
+            status: BOOTSTRAP_STEP_STATUS.Ready,
+            pendingStatus: BOOTSTRAP_STEP_STATUS.Pending,
+        });
     }
 
     markStepRunning(runId: number, stepKey: BootstrapStepKey): void {
@@ -212,6 +246,7 @@ function mapStep(row: BootstrapStepDbRow): BootstrapStepRecord {
         stepKey: row.step_key,
         status: row.status,
         blocking: row.blocking === 1,
+        dependsOn: parseBootstrapStepDependencies(row.depends_on_json),
         progressCompleted: row.progress_completed,
         progressTotal: row.progress_total,
         attempts: row.attempts,
