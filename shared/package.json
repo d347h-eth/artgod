@@ -35,6 +35,7 @@
         "./types": "./types/index.ts",
         "./types/browse": "./types/browse.ts",
         "./types/customization": "./types/customization.ts",
+        "./types/token-sets": "./types/token-sets.ts",
         "./types/sync-backfill": "./types/sync-backfill.ts",
         "./types/trading": "./types/trading.ts",
         "./utils": "./utils/index.ts",

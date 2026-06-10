@@ -5,10 +5,7 @@ import {
     type ApmPort,
     type SpanAttributes,
 } from "@artgod/shared/observability/apm";
-import {
-    parseOpenSeaBiddingOffer,
-    type ParsedOpenSeaBiddingOffer,
-} from "@artgod/shared/trading/open-sea-bidding-offers";
+import { isTokenSetAttributeSchema } from "@artgod/shared/types/token-sets";
 import { logger } from "@artgod/shared/utils";
 import {
     TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
@@ -26,6 +23,7 @@ import {
     TRADING_BOT_RUNTIME_STATE,
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
+    formatTradingBiddingBidScopeLabel,
     isTradingBiddingJobRuntimeBidPosition,
     isTradingBiddingJobRuntimeConstraint,
     type CollectionBiddingBidScopeFilter,
@@ -150,16 +148,32 @@ type IndexedOrderSourceScopeKind =
 type IndexedOrderRow = {
     id: string;
     source_scope_kind: IndexedOrderSourceScopeKind;
-    contract_address: string;
+    token_id: string | null;
+    source_encoded_token_ids: string | null;
+    source_schema_json: string | null;
+    maker: string;
     price: string | null;
+    quantity: string;
     currency: string | null;
     valid_until: number | null;
     seaport_data_json: string | null;
-    raw_rest_data: string | null;
-    raw_stream_data: string | null;
     created_at: string | null;
     updated_at: string | null;
 };
+
+type IndexedOrderBidScope = {
+    kind: TradingBiddingBidScopeKind;
+    label: string;
+    tokenId: string | null;
+    traits: TradingTraitCriterion[];
+    encodedTokenIds: string | null;
+};
+
+const BIDDING_BID_BOOK_REPOSITORY_LOG = {
+    Component: "SqliteBiddingBidBookRepository",
+    ActionMapIndexedOrderRow: "mapIndexedOrderRow",
+    ReasonInvalidNormalizedScope: "invalid-normalized-scope",
+} as const;
 
 export class SqliteBiddingBidBookRepository
     implements BiddingBidBookRepositoryPort
@@ -305,7 +319,7 @@ export class SqliteBiddingBidBookRepository
             collectionId: number;
             nowSeconds: number;
         }>(
-            "SELECT id, source_scope_kind, contract_address, price, currency, valid_until, seaport_data_json, raw_rest_data, raw_stream_data, created_at, updated_at " +
+            "SELECT id, source_scope_kind, token_id, source_encoded_token_ids, source_schema_json, maker, price, quantity, currency, valid_until, seaport_data_json, created_at, updated_at " +
                 "FROM orders " +
                 "WHERE chain_id = @chainId AND collection_id = @collectionId " +
                 "AND side = 'buy' AND source_status = 'active' AND fillability_status = 'fillable' " +
@@ -907,15 +921,11 @@ function indexedOrderRowSummarySpanAttributes(
     rows: IndexedOrderRow[],
 ): SpanAttributes {
     const scopeCounts = createIndexedOrderScopeCounts();
-    let rawRestRows = 0;
-    let rawStreamRows = 0;
     let seaportJsonRows = 0;
     let validUntilRows = 0;
 
     for (const row of rows) {
         tallyIndexedOrderScope(scopeCounts, row.source_scope_kind);
-        if (row.raw_rest_data) rawRestRows += 1;
-        if (row.raw_stream_data) rawStreamRows += 1;
         if (row.seaport_data_json) seaportJsonRows += 1;
         if (row.valid_until !== null) validUntilRows += 1;
     }
@@ -930,8 +940,6 @@ function indexedOrderRowSummarySpanAttributes(
             scopeCounts.token,
         [BIDDING_SPAN_ATTRIBUTE.OrdersTokenSetScopeRowsCount]:
             scopeCounts.tokenSet,
-        [BIDDING_SPAN_ATTRIBUTE.OrdersRawRestRowsCount]: rawRestRows,
-        [BIDDING_SPAN_ATTRIBUTE.OrdersRawStreamRowsCount]: rawStreamRows,
         [BIDDING_SPAN_ATTRIBUTE.OrdersSeaportJsonRowsCount]:
             seaportJsonRows,
         [BIDDING_SPAN_ATTRIBUTE.OrdersValidUntilRowsCount]: validUntilRows,
@@ -1456,10 +1464,8 @@ function mapIndexedOrderRow(row: IndexedOrderRow): PersistedBiddingBidBookRow[] 
         return [];
     }
 
-    // Parse REST first, then stream, so malformed primary payloads still get a shared-parser retry.
-    const parsed = parseIndexedOpenSeaOrderPayload(row);
-    if (parsed) {
-        const scope = parsed.bidScope;
+    const scope = resolveIndexedOrderBidScope(row);
+    if (scope) {
         return [
             {
                 orderId: row.id,
@@ -1470,17 +1476,15 @@ function mapIndexedOrderRow(row: IndexedOrderRow): PersistedBiddingBidBookRow[] 
                 tokenId: scope.tokenId,
                 scopeTraits: scope.traits,
                 encodedTokenIds: scope.encodedTokenIds,
-                maker: parsed.maker,
+                maker: row.maker.toLowerCase(),
                 isOwn: false,
-                price: exactBidBookRowPrice(parsed.price.toString()),
-                quantity: parsed.quantity.toString(),
+                price: exactBidBookRowPrice(row.price),
+                quantity: row.quantity,
                 currencyAddress: row.currency,
                 currencySymbol: null,
-                protocolAddress:
-                    parsed.protocolAddress ??
-                    parseProtocolAddress(row.seaport_data_json),
-                validUntil: parsed.expirationTime ?? row.valid_until,
-                placedAt: parsed.createdAt ?? row.created_at,
+                protocolAddress: parseProtocolAddress(row.seaport_data_json),
+                validUntil: row.valid_until,
+                placedAt: row.created_at,
                 snapshotRefreshedAtMs: null,
                 seenAt: row.updated_at,
                 ownStatus: null,
@@ -1488,57 +1492,99 @@ function mapIndexedOrderRow(row: IndexedOrderRow): PersistedBiddingBidBookRow[] 
         ];
     }
 
-    logger.error("OpenSea buy offer shared parser failed", {
-        component: "SqliteBiddingBidBookRepository",
-        action: "mapIndexedOrderRow",
-        reason: "shared-parser-returned-null",
+    logger.error("Indexed buy offer normalized scope mapping failed", {
+        component: BIDDING_BID_BOOK_REPOSITORY_LOG.Component,
+        action: BIDDING_BID_BOOK_REPOSITORY_LOG.ActionMapIndexedOrderRow,
+        reason: BIDDING_BID_BOOK_REPOSITORY_LOG.ReasonInvalidNormalizedScope,
         orderId: row.id,
         sourceScopeKind: row.source_scope_kind,
-        hasRawRestData: row.raw_rest_data !== null,
-        hasRawStreamData: row.raw_stream_data !== null,
+        tokenId: row.token_id,
+        hasEncodedTokenIds: row.source_encoded_token_ids !== null,
+        hasSourceSchemaJson: row.source_schema_json !== null,
     });
     return [];
 }
 
-function parseIndexedOpenSeaOrderPayload(
+function resolveIndexedOrderBidScope(
     row: IndexedOrderRow,
-): ParsedOpenSeaBiddingOffer | null {
-    const options = {
-        collectionAddress: row.contract_address,
-        wethAddress: row.currency ?? undefined,
-        discoverySource: "collectionOffers" as const,
-    };
-
-    for (const payload of [
-        parseStoredOpenSeaOrderPayload(row.raw_rest_data),
-        parseStoredOpenSeaOrderPayload(row.raw_stream_data),
-    ]) {
-        if (!payload) {
-            continue;
+): IndexedOrderBidScope | null {
+    if (row.source_scope_kind === INDEXED_ORDER_SOURCE_SCOPE_KIND.Token) {
+        if (!row.token_id) {
+            return null;
         }
+        return {
+            kind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+            label: formatTradingBiddingBidScopeLabel({
+                kind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                tokenId: row.token_id,
+            }),
+            tokenId: row.token_id,
+            traits: [],
+            encodedTokenIds: null,
+        };
+    }
 
-        const parsed = parseOpenSeaBiddingOffer(payload, options);
-        if (parsed) {
-            return parsed;
+    if (row.source_scope_kind === INDEXED_ORDER_SOURCE_SCOPE_KIND.Attribute) {
+        const traits = parseIndexedOrderTraitCriteria(row.source_schema_json);
+        if (traits.length === 0) {
+            return null;
         }
+        return {
+            kind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+            label: formatTradingBiddingBidScopeLabel({
+                kind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+                traits,
+            }),
+            tokenId: null,
+            traits,
+            encodedTokenIds: row.source_encoded_token_ids,
+        };
+    }
+
+    if (row.source_scope_kind === INDEXED_ORDER_SOURCE_SCOPE_KIND.Collection) {
+        return {
+            kind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+            label: formatTradingBiddingBidScopeLabel({
+                kind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+            }),
+            tokenId: null,
+            traits: [],
+            encodedTokenIds: row.source_encoded_token_ids,
+        };
+    }
+
+    if (row.source_scope_kind === INDEXED_ORDER_SOURCE_SCOPE_KIND.TokenSet) {
+        return {
+            kind: TRADING_BIDDING_BID_SCOPE_KIND.TokenSet,
+            label: formatTradingBiddingBidScopeLabel({
+                kind: TRADING_BIDDING_BID_SCOPE_KIND.TokenSet,
+            }),
+            tokenId: null,
+            traits: [],
+            encodedTokenIds: row.source_encoded_token_ids,
+        };
     }
 
     return null;
 }
 
-function parseStoredOpenSeaOrderPayload(value: string | null): unknown | null {
-    if (!value) {
-        return null;
+function parseIndexedOrderTraitCriteria(
+    sourceSchemaJson: string | null,
+): TradingTraitCriterion[] {
+    if (!sourceSchemaJson) {
+        return [];
     }
 
     try {
-        const parsed = JSON.parse(value);
-        const record = parsed as Record<string, unknown>;
-        return record.payload && typeof record.payload === "object"
-            ? record.payload
-            : parsed;
+        const parsed = JSON.parse(sourceSchemaJson) as unknown;
+        return isTokenSetAttributeSchema(parsed)
+            ? parsed.data.attributes.map((attribute) => ({
+                  type: trimTraitText(attribute.key),
+                  value: trimTraitText(attribute.value),
+              }))
+            : [];
     } catch {
-        return null;
+        return [];
     }
 }
 

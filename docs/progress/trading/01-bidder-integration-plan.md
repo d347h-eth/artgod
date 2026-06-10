@@ -374,8 +374,8 @@ Recommended decisions:
 
 Metadata recommendation for first pass:
 
-- use `token_metadata.attributes_json` because it is the closest low-risk fit to upstream trait parsing behavior
-- only move to normalized `token_attributes` joins later if needed for performance or correctness
+- Superseded: token trait matching now reads normalized `token_attributes` joins
+  so metadata refresh and extension-owned traits share the same read contract.
 
 Acceptance:
 

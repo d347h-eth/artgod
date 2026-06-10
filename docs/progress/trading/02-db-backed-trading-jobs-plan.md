@@ -480,8 +480,8 @@ Runtime projection:
 Orders fallback:
 
 - fallback reads active buy orders only
-- fallback parses `raw_rest_data` first, then `raw_stream_data` if REST parsing returns no offer
-- failed parsing is logged explicitly and the row is skipped
+- fallback maps normalized order scope columns and canonical Seaport data into bid-book rows
+- invalid normalized scope rows are logged explicitly and skipped
 - fallback is used only when the collection has no live competitive bot snapshot source
 
 Source selection:

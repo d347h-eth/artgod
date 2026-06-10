@@ -16,6 +16,7 @@ import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from "@artgod/shared/config/bootstrap";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import type { RpcRetryPolicy } from "@artgod/shared/evm/rpc-resilience";
+import { TOKEN_SET_SCHEMA_KIND } from "@artgod/shared/types/token-sets";
 import {
     TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS,
     TERRAFORMS_BEACON_EVENT_GROUPS,
@@ -1209,8 +1210,17 @@ describe("backend api routes", () => {
             side: "buy",
             contract: MILADY_ADDRESS,
             tokenId: null,
-            sourceScopeKind: "collection",
-            price: "620000000000000000",
+            sourceScopeKind: "attribute",
+            sourceEncodedTokenIds: "1,2,3",
+            sourceSchemaJson: {
+                kind: TOKEN_SET_SCHEMA_KIND.Attribute,
+                data: {
+                    collection: MILADY_ADDRESS,
+                    attributes: [{ key: "Biome", value: "42" }],
+                },
+            },
+            quantity: "2",
+            price: "310000000000000000",
             currency: WETH_ADDRESS,
             sourceStatus: "active",
             fillabilityStatus: "fillable",
@@ -1271,7 +1281,7 @@ describe("backend api routes", () => {
             validFrom: 1,
             validUntil: 4_000_000_000,
             sourceSchemaJson: {
-                kind: "attribute",
+                kind: TOKEN_SET_SCHEMA_KIND.Attribute,
                 data: {
                     collection: MILADY_ADDRESS,
                     attributes: [
@@ -1297,6 +1307,7 @@ describe("backend api routes", () => {
             side: "buy",
             contract: MILADY_ADDRESS,
             tokenId: null,
+            maker: "0x8888888888888888888888888888888888888888",
             sourceScopeKind: "collection",
             price: "150000000000000000",
             currency: WETH_ADDRESS,
@@ -1453,6 +1464,7 @@ describe("backend api routes", () => {
             side: "buy",
             contract: MILADY_ADDRESS,
             tokenId: null,
+            maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             sourceScopeKind: "collection",
             price: "100000000000000000",
             currency: WETH_ADDRESS,
@@ -5288,8 +5300,11 @@ function insertOrderFixture(input: {
     side: "buy" | "sell";
     contract: string;
     tokenId: string | null;
+    maker?: string;
     sourceScopeKind: "token" | "collection" | "attribute" | "token_set";
+    sourceEncodedTokenIds?: string | null;
     price: string;
+    quantity?: string;
     currency: string;
     sourceStatus:
         | "active"
@@ -5316,16 +5331,19 @@ function insertOrderFixture(input: {
     const collection = getCollectionFixtureByAddress(input.contract);
     db.prepare(
         "INSERT INTO orders " +
-            "(id, chain_id, collection_id, kind, side, source, maker, taker, contract_address, token_id, source_scope_kind, source_schema_json, price, currency, valid_from, valid_until, fillability_status, source_status, raw_rest_data, raw_stream_data, created_at, updated_at) " +
-            "VALUES (?, 1, ?, 'seaport', ?, 'opensea', '0x9999999999999999999999999999999999999999', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            "(id, chain_id, collection_id, kind, side, source, maker, taker, contract_address, token_id, source_scope_kind, source_encoded_token_ids, source_schema_json, quantity, price, currency, valid_from, valid_until, fillability_status, source_status, raw_rest_data, raw_stream_data, created_at, updated_at) " +
+            "VALUES (?, 1, ?, 'seaport', ?, 'opensea', ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
     ).run(
         input.id,
         collection.collection_id,
         input.side,
+        input.maker ?? "0x9999999999999999999999999999999999999999",
         input.contract.toLowerCase(),
         input.tokenId,
         input.sourceScopeKind,
+        input.sourceEncodedTokenIds ?? null,
         input.sourceSchemaJson ? JSON.stringify(input.sourceSchemaJson) : null,
+        input.quantity ?? "1",
         input.price,
         input.currency.toLowerCase(),
         input.validFrom,

@@ -1,5 +1,6 @@
 import {
     TRADING_BIDDING_BID_SCOPE_KIND,
+    formatTradingBiddingBidScopeLabel,
     type TradingBiddingBidScopeKind,
     type TradingTraitCriterion,
 } from "../types/trading.js";
@@ -269,7 +270,10 @@ export function resolveOpenSeaBiddingOfferBidScope(
     if (explicitTokenId) {
         return {
             kind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
-            label: `#${explicitTokenId}`,
+            label: formatTradingBiddingBidScopeLabel({
+                kind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                tokenId: explicitTokenId,
+            }),
             tokenId: explicitTokenId,
             traits: [],
             encodedTokenIds: null,
@@ -279,7 +283,10 @@ export function resolveOpenSeaBiddingOfferBidScope(
     if (traits.length > 0) {
         return {
             kind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
-            label: traits.map((trait) => `${trait.type}=${trait.value}`).join(" + "),
+            label: formatTradingBiddingBidScopeLabel({
+                kind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+                traits,
+            }),
             tokenId: null,
             traits,
             encodedTokenIds: encodedTokenIds ?? null,
@@ -289,7 +296,9 @@ export function resolveOpenSeaBiddingOfferBidScope(
     if (encodedTokenIds && encodedTokenIds !== "*") {
         return {
             kind: TRADING_BIDDING_BID_SCOPE_KIND.TokenSet,
-            label: "token set",
+            label: formatTradingBiddingBidScopeLabel({
+                kind: TRADING_BIDDING_BID_SCOPE_KIND.TokenSet,
+            }),
             tokenId: null,
             traits: [],
             encodedTokenIds,
@@ -299,7 +308,9 @@ export function resolveOpenSeaBiddingOfferBidScope(
     if (criteria || hasCriteriaNftItem(rawOffer, collectionAddress)) {
         return {
             kind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
-            label: "collection",
+            label: formatTradingBiddingBidScopeLabel({
+                kind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+            }),
             tokenId: null,
             traits: [],
             encodedTokenIds: encodedTokenIds ?? null,
@@ -308,7 +319,9 @@ export function resolveOpenSeaBiddingOfferBidScope(
 
     return {
         kind: TRADING_BIDDING_BID_SCOPE_KIND.Unknown,
-        label: "unknown",
+        label: formatTradingBiddingBidScopeLabel({
+            kind: TRADING_BIDDING_BID_SCOPE_KIND.Unknown,
+        }),
         tokenId: null,
         traits: [],
         encodedTokenIds: null,

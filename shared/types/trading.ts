@@ -432,6 +432,45 @@ export const TRADING_BIDDING_BID_SCOPE_KIND = {
 export type TradingBiddingBidScopeKind =
     (typeof TRADING_BIDDING_BID_SCOPE_KIND)[keyof typeof TRADING_BIDDING_BID_SCOPE_KIND];
 
+export const TRADING_BIDDING_BID_SCOPE_LABEL = {
+    Collection: "collection",
+    TokenSet: "token set",
+    Unknown: "unknown",
+} as const;
+
+export type TradingBiddingBidScopeLabel =
+    (typeof TRADING_BIDDING_BID_SCOPE_LABEL)[keyof typeof TRADING_BIDDING_BID_SCOPE_LABEL];
+
+// Formats bid-scope labels shared by snapshot projection and normalized order fallback rows.
+export function formatTradingBiddingBidScopeLabel(input: {
+    kind: TradingBiddingBidScopeKind;
+    tokenId?: string | null;
+    traits?: TradingTraitCriterion[];
+}): string {
+    if (input.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token) {
+        return input.tokenId
+            ? `#${input.tokenId}`
+            : TRADING_BIDDING_BID_SCOPE_LABEL.Unknown;
+    }
+
+    if (input.kind === TRADING_BIDDING_BID_SCOPE_KIND.Trait) {
+        const traits = input.traits ?? [];
+        return traits.length > 0
+            ? traits.map((trait) => `${trait.type}=${trait.value}`).join(" + ")
+            : TRADING_BIDDING_BID_SCOPE_LABEL.Unknown;
+    }
+
+    if (input.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
+        return TRADING_BIDDING_BID_SCOPE_LABEL.Collection;
+    }
+
+    if (input.kind === TRADING_BIDDING_BID_SCOPE_KIND.TokenSet) {
+        return TRADING_BIDDING_BID_SCOPE_LABEL.TokenSet;
+    }
+
+    return TRADING_BIDDING_BID_SCOPE_LABEL.Unknown;
+}
+
 export type PersistedBiddingJobRuntimeState = {
     currentPriceWei: string | null;
     activeOrderId: string | null;

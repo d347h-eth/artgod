@@ -46,7 +46,7 @@ Important invariant:
 
 - canonical runtime logic uses normalized DTO fields and persisted `seaport_data_json`
 - `raw_rest_data` and `raw_stream_data` are stored only for audit/debug in the indexer/order domain
-- trading bid-book fallback may parse those raw payloads through the shared OpenSea bidding-offer parser for read-only display, but not for bidder decisions
+- trading bid-book fallback maps normalized order scope fields and canonical Seaport data instead of reparsing raw REST/stream payloads
 
 ## Status Model
 

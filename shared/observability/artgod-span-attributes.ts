@@ -135,10 +135,6 @@ export const ARTGOD_SPAN_ATTRIBUTE = {
         "artgod.bidding.orders_token_scope_rows_count",
     BiddingOrdersTokenSetScopeRowsCount:
         "artgod.bidding.orders_token_set_scope_rows_count",
-    BiddingOrdersRawRestRowsCount:
-        "artgod.bidding.orders_raw_rest_rows_count",
-    BiddingOrdersRawStreamRowsCount:
-        "artgod.bidding.orders_raw_stream_rows_count",
     BiddingOrdersSeaportJsonRowsCount:
         "artgod.bidding.orders_seaport_json_rows_count",
     BiddingOrdersValidUntilRowsCount:

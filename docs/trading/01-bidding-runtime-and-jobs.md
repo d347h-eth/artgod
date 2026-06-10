@@ -250,14 +250,7 @@ Collection settings are stored through generic `collection_settings`; bidding ow
 The orders fallback is passive display only.
 It must not feed bot decisions.
 
-For buy offers, fallback bid-book reads parse raw OpenSea payloads through the shared OpenSea bidding-offer parser:
-
-1. try `raw_rest_data`
-2. if REST payload parsing returns no offer, try `raw_stream_data`
-3. if both fail, log the parser failure and skip the row
-
-There is no legacy scope parser on the bid-book path.
-This is a deliberate exception to the indexer raw-payload invariant because the shared bidding parser is currently the authoritative scope/unit-price parser for OpenSea bidding offers.
+For buy offers, fallback bid-book reads map normalized `orders` columns into bid-book rows. It does not parse `raw_rest_data` or `raw_stream_data`.
 
 The `orders` table also stores bid-book-relevant normalized columns:
 

@@ -4,6 +4,7 @@ import type {
     TokenSetAttribute,
     TokenSetSchema,
 } from "../../domain/token-sets.js";
+import { TOKEN_SET_SCHEMA_KIND } from "../../domain/token-sets.js";
 
 const ZERO_HASH =
     "0x0000000000000000000000000000000000000000000000000000000000000000";
@@ -13,7 +14,7 @@ export function buildAttributeSchema(
     attributes: TokenSetAttribute[],
 ): TokenSetSchema {
     return {
-        kind: "attribute",
+        kind: TOKEN_SET_SCHEMA_KIND.Attribute,
         data: {
             collection,
             attributes,
@@ -23,7 +24,7 @@ export function buildAttributeSchema(
 
 export function buildCollectionSchema(collection: string): TokenSetSchema {
     return {
-        kind: "collection",
+        kind: TOKEN_SET_SCHEMA_KIND.Collection,
         data: {
             collection,
         },
@@ -31,10 +32,10 @@ export function buildCollectionSchema(collection: string): TokenSetSchema {
 }
 
 export function normalizeSchema(schema: TokenSetSchema): TokenSetSchema {
-    if (schema.kind !== "attribute") return schema;
+    if (schema.kind !== TOKEN_SET_SCHEMA_KIND.Attribute) return schema;
     const deduped = dedupeAndSortAttributes(schema.data.attributes);
     return {
-        kind: "attribute",
+        kind: TOKEN_SET_SCHEMA_KIND.Attribute,
         data: {
             collection: schema.data.collection,
             attributes: deduped,

@@ -30,7 +30,9 @@ Required tables:
 
 Required pipeline:
 
-- Parse `token_metadata.attributes_json`.
+- Superseded by the current normalized trait pipeline: metadata ingestion writes
+  `token_attributes`, and consumers read normalized trait rows rather than
+  parsing `token_metadata.attributes_json`.
 - Normalize keys/values (trim, stable casing).
 - Upsert `attribute_keys`, `attributes`, `token_attributes`.
 - Ensure `tokens` rows exist for each token.
