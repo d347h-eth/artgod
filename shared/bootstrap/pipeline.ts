@@ -146,6 +146,7 @@ export const BOOTSTRAP_FLOW_STEP_KEY = {
     OpenSeaIdentity: BOOTSTRAP_STEP_KEY.OpenSeaIdentity,
     OpenSeaSnapshot: BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
     OpenSeaReady: BOOTSTRAP_STEP_KEY.OpenSeaReady,
+    CollectionExtensionArtifacts: BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts,
 } as const;
 
 export type BootstrapFlowStepKey =

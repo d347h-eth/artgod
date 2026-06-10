@@ -26,6 +26,7 @@ import type {
     BootstrapMetadataTaskListItem,
     BootstrapMetadataTaskStatus,
     BootstrapRunRow,
+    BootstrapRunStepRecord,
     BootstrapRunTaskCounts,
 } from "../../application/use-cases/bootstrap/types.js";
 
@@ -112,6 +113,17 @@ type BootstrapRunEventDbRow = {
 type BootstrapTaskCountRow = {
     status: string;
     count: number;
+};
+
+type BootstrapRunStepDbRow = {
+    run_id: number;
+    step_key: BootstrapRunStepRecord["stepKey"];
+    status: BootstrapRunStepRecord["status"];
+    blocking: number;
+    progress_completed: number;
+    progress_total: number | null;
+    last_error: string | null;
+    config_json: string | null;
 };
 
 const COLLECTION_COLUMNS =
@@ -296,6 +308,11 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
     private selectRunOwnershipSnapshotCount = db.prepare<{ runId: number }>(
         "SELECT COUNT(DISTINCT token_id) AS count FROM nft_balance_snapshots " +
             "WHERE run_id = @runId",
+    );
+
+    private selectRunSteps = db.prepare<{ runId: number }>(
+        "SELECT run_id, step_key, status, blocking, progress_completed, progress_total, last_error, config_json " +
+            "FROM bootstrap_run_steps WHERE run_id = @runId ORDER BY rowid ASC",
     );
 
     private selectRunEvents = db.prepare<{ runId: number }>(
@@ -620,6 +637,13 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         return Number(row?.count ?? 0);
     }
 
+    listRunSteps(runId: number): BootstrapRunStepRecord[] {
+        const rows = this.selectRunSteps.all({
+            runId,
+        }) as BootstrapRunStepDbRow[];
+        return rows.map(mapRunStep);
+    }
+
     listRunMetadataTasks(params: {
         runId: number;
         status?: BootstrapMetadataTaskStatus;
@@ -702,6 +726,19 @@ function mapTaskCountRows(
     rows: BootstrapTaskCountRow[],
 ): BootstrapRunTaskCounts {
     return mapBootstrapTaskStatusCounts(rows as BootstrapTaskStatusCountRow[]);
+}
+
+function mapRunStep(row: BootstrapRunStepDbRow): BootstrapRunStepRecord {
+    return {
+        runId: row.run_id,
+        stepKey: row.step_key,
+        status: row.status,
+        blocking: row.blocking === 1,
+        progressCompleted: row.progress_completed,
+        progressTotal: row.progress_total,
+        lastError: row.last_error,
+        configJson: row.config_json,
+    };
 }
 
 function mapRun(row: BootstrapRunDbRow): BootstrapRunRow {

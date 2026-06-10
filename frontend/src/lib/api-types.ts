@@ -16,6 +16,7 @@ import type {
 	BootstrapFlowStepKey,
 	BootstrapFlowStepState,
 	BootstrapRunStatus,
+	BootstrapStepAction,
 	BootstrapTaskCounts,
 	BootstrapTaskStatus
 } from '@artgod/shared/bootstrap/pipeline';
@@ -862,6 +863,10 @@ export type ApiBootstrapFlowStep = {
 	label: string;
 	state: BootstrapFlowStepState;
 	detailText: string | null;
+	blocking: boolean;
+	pausable: boolean;
+	paused: boolean;
+	availableActions: BootstrapStepAction[];
 	progress: {
 		completed: number;
 		total: number;

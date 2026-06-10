@@ -8,6 +8,7 @@ import type {
     BootstrapMetadataTaskStatus,
     BootstrapRunEventRecord,
     BootstrapRunRow,
+    BootstrapRunStepRecord,
     BootstrapRunStepPlan,
     BootstrapRunTaskCounts,
 } from "./types.js";
@@ -144,6 +145,7 @@ export interface BootstrapRunsWritePort {
     getRunTaskCounts(runId: number): BootstrapRunTaskCounts;
     getRunImageCacheTaskCounts(runId: number): BootstrapRunTaskCounts;
     getRunOwnershipSnapshotCount(runId: number): number;
+    listRunSteps(runId: number): BootstrapRunStepRecord[];
     listRunMetadataTasks(params: {
         runId: number;
         status?: BootstrapMetadataTaskStatus;

@@ -6,12 +6,22 @@ import {
     parseBootstrapEnumerationCompletedEventPayload,
     parseBootstrapEnumerationProgressEventPayload,
 } from "@artgod/shared/bootstrap/run-events";
+import {
+    BOOTSTRAP_FLOW_STEP_KEY,
+    BOOTSTRAP_FLOW_STEP_STATE,
+    BOOTSTRAP_RUN_STATUS,
+    BOOTSTRAP_STEP_ACTION,
+    BOOTSTRAP_STEP_KEY,
+    BOOTSTRAP_STEP_STATUS,
+    type BootstrapFlowStepKey,
+} from "@artgod/shared/bootstrap/pipeline";
 import type {
     BootstrapFlowStep,
     BootstrapFlowStepState,
     BootstrapRunDetailOutput,
     BootstrapRunEventRecord,
     BootstrapRunRow,
+    BootstrapRunStepRecord,
     BootstrapRunTaskCounts,
 } from "./types.js";
 import type {
@@ -26,6 +36,10 @@ export type GetBootstrapRunDetailInput = {
 };
 
 const FAILED_TASKS_PREVIEW_LIMIT = 50;
+const PAUSABLE_BOOTSTRAP_STEP_KEYS = new Set<BootstrapFlowStepKey>([
+    BOOTSTRAP_FLOW_STEP_KEY.Metadata,
+    BOOTSTRAP_FLOW_STEP_KEY.ImageCache,
+]);
 
 export class GetBootstrapRunDetailUseCase {
     constructor(
@@ -63,6 +77,7 @@ export class GetBootstrapRunDetailUseCase {
             this.bootstrapRunsPort.getRunImageCacheTaskCounts(run.runId);
         const ownershipSnapshotCount =
             this.bootstrapRunsPort.getRunOwnershipSnapshotCount(run.runId);
+        const runSteps = this.bootstrapRunsPort.listRunSteps(run.runId);
         const events = this.bootstrapRunsPort.listRunEvents(run.runId);
         const isLatestForCollection =
             this.bootstrapRunsPort.isLatestRunForCollection(
@@ -86,6 +101,7 @@ export class GetBootstrapRunDetailUseCase {
                 metadataTasks: counts,
                 imageCacheTasks: imageCacheCounts,
                 ownershipSnapshotCount,
+                runSteps,
                 events,
                 isLatestForCollection,
                 openseaIntegration: this.openseaIntegration,
@@ -113,16 +129,32 @@ function mapCollectionSummary(collection: CollectionBootstrapState): {
     };
 }
 
+type BootstrapFlowStepDraft = Omit<
+    BootstrapFlowStep,
+    "blocking" | "pausable" | "paused" | "availableActions"
+> &
+    Partial<
+        Pick<
+            BootstrapFlowStep,
+            "blocking" | "pausable" | "paused" | "availableActions"
+        >
+    >;
+
 function buildBootstrapRunFlow(input: {
     run: BootstrapRunRow;
     collection: CollectionBootstrapState;
     metadataTasks: BootstrapRunTaskCounts;
     imageCacheTasks: BootstrapRunTaskCounts;
     ownershipSnapshotCount: number;
+    runSteps: BootstrapRunStepRecord[];
     events: BootstrapRunEventRecord[];
     isLatestForCollection: boolean;
     openseaIntegration: OpenSeaIntegrationStatus;
 }): BootstrapRunDetailOutput["flow"] {
+    if (input.runSteps.length > 0) {
+        return buildBootstrapRunFlowFromSteps(input);
+    }
+
     const eventCodes = new Set(input.events.map((event) => event.eventCode));
 
     const hasRequested = true;
@@ -179,7 +211,7 @@ function buildBootstrapRunFlow(input: {
         hasOwnershipCompleted,
     });
 
-    const steps: BootstrapFlowStep[] = [
+    const steps: BootstrapFlowStepDraft[] = [
         {
             key: "queued",
             label: "queued",
@@ -366,7 +398,56 @@ function buildBootstrapRunFlow(input: {
 
     const shouldPoll = resolveShouldPoll(input);
     return {
-        steps,
+        steps: finalizeBootstrapFlowSteps(steps),
+        isTerminal: !shouldPoll,
+        shouldPoll,
+    };
+}
+
+function buildBootstrapRunFlowFromSteps(
+    input: Parameters<typeof buildBootstrapRunFlow>[0],
+): BootstrapRunDetailOutput["flow"] {
+    const queuedCompleted = input.run.status !== BOOTSTRAP_RUN_STATUS.Requested;
+    const steps: BootstrapFlowStepDraft[] = [
+        {
+            key: BOOTSTRAP_FLOW_STEP_KEY.Queued,
+            label: "queued",
+            state: resolveStepState({
+                completed: queuedCompleted,
+                active: !queuedCompleted,
+                failed: false,
+            }),
+            detailText: null,
+            progress: null,
+            blocking: true,
+        },
+    ];
+
+    for (const step of input.runSteps) {
+        const key = step.stepKey as BootstrapFlowStepKey;
+        steps.push({
+            key,
+            label: formatBootstrapStepLabel(key),
+            state: resolveFlowStepStateFromStepStatus(step.status),
+            detailText: formatPersistedStepDetail(input, step),
+            progress: resolvePersistedStepProgress(step),
+            blocking: step.blocking,
+            pausable: isPausableBootstrapStep(key),
+            paused: step.status === BOOTSTRAP_STEP_STATUS.Paused,
+            availableActions: resolveBootstrapStepActions(key, step.status),
+        });
+    }
+
+    if (input.run.status === BOOTSTRAP_RUN_STATUS.Failed) {
+        applyRunFailureDetail(
+            steps,
+            input.run.errorMessage ?? input.run.errorCode ?? "bootstrap failed",
+        );
+    }
+
+    const shouldPoll = resolveShouldPoll(input);
+    return {
+        steps: finalizeBootstrapFlowSteps(steps),
         isTerminal: !shouldPoll,
         shouldPoll,
     };
@@ -394,6 +475,124 @@ function resolveStepState(input: {
     if (input.completed) return "completed";
     if (input.active) return "active";
     return "pending";
+}
+
+function resolveFlowStepStateFromStepStatus(
+    status: BootstrapRunStepRecord["status"],
+): BootstrapFlowStepState {
+    if (status === BOOTSTRAP_STEP_STATUS.FailedTerminal) {
+        return BOOTSTRAP_FLOW_STEP_STATE.Failed;
+    }
+    if (
+        status === BOOTSTRAP_STEP_STATUS.Succeeded ||
+        status === BOOTSTRAP_STEP_STATUS.Skipped
+    ) {
+        return BOOTSTRAP_FLOW_STEP_STATE.Completed;
+    }
+    if (
+        status === BOOTSTRAP_STEP_STATUS.Ready ||
+        status === BOOTSTRAP_STEP_STATUS.Running ||
+        status === BOOTSTRAP_STEP_STATUS.Paused ||
+        status === BOOTSTRAP_STEP_STATUS.FailedRetry
+    ) {
+        return BOOTSTRAP_FLOW_STEP_STATE.Active;
+    }
+    return BOOTSTRAP_FLOW_STEP_STATE.Pending;
+}
+
+function resolvePersistedStepProgress(
+    step: BootstrapRunStepRecord,
+): BootstrapFlowStep["progress"] {
+    if (step.progressTotal === null) {
+        return null;
+    }
+    return normalizeProgress(step.progressCompleted, step.progressTotal);
+}
+
+function formatPersistedStepDetail(
+    input: Parameters<typeof buildBootstrapRunFlow>[0],
+    step: BootstrapRunStepRecord,
+): string | null {
+    if (step.lastError) {
+        return step.lastError;
+    }
+    if (step.stepKey === BOOTSTRAP_STEP_KEY.Metadata) {
+        return formatMetadataDetail(input.metadataTasks);
+    }
+    if (step.stepKey === BOOTSTRAP_STEP_KEY.ImageCache) {
+        return formatImageCacheDetail(input.run, input.imageCacheTasks);
+    }
+    return null;
+}
+
+function formatBootstrapStepLabel(key: BootstrapFlowStepKey): string {
+    switch (key) {
+        case BOOTSTRAP_FLOW_STEP_KEY.Anchor:
+            return "anchor";
+        case BOOTSTRAP_FLOW_STEP_KEY.Enumeration:
+            return "enumeration";
+        case BOOTSTRAP_FLOW_STEP_KEY.Metadata:
+            return "metadata";
+        case BOOTSTRAP_FLOW_STEP_KEY.ImageCache:
+            return "image cache";
+        case BOOTSTRAP_FLOW_STEP_KEY.Ownership:
+            return "ownership";
+        case BOOTSTRAP_FLOW_STEP_KEY.Backfill:
+            return "backfill";
+        case BOOTSTRAP_FLOW_STEP_KEY.CollectionLive:
+            return "collection live";
+        case BOOTSTRAP_FLOW_STEP_KEY.OpenSeaIdentity:
+            return "opensea identity";
+        case BOOTSTRAP_FLOW_STEP_KEY.OpenSeaSnapshot:
+            return "opensea snapshot";
+        case BOOTSTRAP_FLOW_STEP_KEY.OpenSeaReady:
+            return "opensea ready";
+        case BOOTSTRAP_FLOW_STEP_KEY.CollectionExtensionArtifacts:
+            return "extension artifacts";
+        case BOOTSTRAP_FLOW_STEP_KEY.Queued:
+            return "queued";
+    }
+}
+
+function isPausableBootstrapStep(key: BootstrapFlowStepKey): boolean {
+    return PAUSABLE_BOOTSTRAP_STEP_KEYS.has(key);
+}
+
+function resolveBootstrapStepActions(
+    key: BootstrapFlowStepKey,
+    status: BootstrapRunStepRecord["status"],
+): BootstrapFlowStep["availableActions"] {
+    if (!isPausableBootstrapStep(key)) {
+        return [];
+    }
+    if (status === BOOTSTRAP_STEP_STATUS.Paused) {
+        return [BOOTSTRAP_STEP_ACTION.Resume];
+    }
+    if (
+        status === BOOTSTRAP_STEP_STATUS.Ready ||
+        status === BOOTSTRAP_STEP_STATUS.Running ||
+        status === BOOTSTRAP_STEP_STATUS.FailedRetry
+    ) {
+        return [BOOTSTRAP_STEP_ACTION.Pause];
+    }
+    return [];
+}
+
+function finalizeBootstrapFlowSteps(
+    steps: BootstrapFlowStepDraft[],
+): BootstrapFlowStep[] {
+    return steps.map((step) => {
+        const pausable =
+            step.pausable ?? isPausableBootstrapStep(step.key);
+        const paused = step.paused ?? false;
+        return {
+            ...step,
+            blocking: step.blocking ?? true,
+            pausable,
+            paused,
+            availableActions: step.availableActions ?? [],
+        };
+    });
 }
 
 function resolveTaskProgress(
@@ -534,7 +733,7 @@ function formatOpenSeaSnapshotDetail(
 }
 
 function applyRunFailureDetail(
-    steps: BootstrapFlowStep[],
+    steps: BootstrapFlowStepDraft[],
     failureMessage: string,
 ): void {
     for (let index = steps.length - 1; index >= 0; index -= 1) {

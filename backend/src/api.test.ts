@@ -4120,6 +4120,35 @@ describe("backend api routes", () => {
                 ]),
             }),
         ]);
+        const createdDetail = await resolve(
+            "GET",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}`,
+        );
+        expect(createdDetail.statusCode).toBe(200);
+        expect(
+            createdDetail.payload.flow.steps.find(
+                (step: { key: string }) => step.key === BOOTSTRAP_STEP_KEY.Anchor,
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                state: "active",
+                blocking: true,
+                pausable: false,
+                paused: false,
+                availableActions: [],
+            }),
+        );
+        expect(
+            createdDetail.payload.flow.steps.find(
+                (step: { key: string }) =>
+                    step.key === BOOTSTRAP_STEP_KEY.ImageCache,
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                blocking: false,
+                pausable: true,
+            }),
+        );
 
         const probe = await resolve(
             "GET",

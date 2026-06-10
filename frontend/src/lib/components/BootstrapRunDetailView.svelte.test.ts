@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
+import type { ApiBootstrapFlowStep } from '$lib/api-types';
 import BootstrapRunDetailView from './BootstrapRunDetailView.svelte';
+
+function flowStep(
+	input: Omit<ApiBootstrapFlowStep, 'blocking' | 'pausable' | 'paused' | 'availableActions'>
+): ApiBootstrapFlowStep {
+	return {
+		...input,
+		blocking: true,
+		pausable: false,
+		paused: false,
+		availableActions: []
+	};
+}
 
 describe('BootstrapRunDetailView', () => {
 	it('renders the flow strip with metadata progress', () => {
@@ -52,7 +65,7 @@ describe('BootstrapRunDetailView', () => {
 					},
 					flow: {
 						steps: [
-							{
+							flowStep({
 								key: 'metadata',
 								label: 'metadata',
 								state: 'active',
@@ -61,14 +74,14 @@ describe('BootstrapRunDetailView', () => {
 									completed: 3,
 									total: 4
 								}
-							},
-							{
+							}),
+							flowStep({
 								key: 'opensea_ready',
 								label: 'opensea ready',
 								state: 'completed',
 								detailText: null,
 								progress: null
-							}
+							})
 						],
 						isTerminal: false,
 						shouldPoll: true
@@ -137,13 +150,13 @@ describe('BootstrapRunDetailView', () => {
 					},
 					flow: {
 						steps: [
-							{
+							flowStep({
 								key: 'collection_live',
 								label: 'collection live',
 								state: 'completed',
 								detailText: null,
 								progress: null
-							}
+							})
 						],
 						isTerminal: true,
 						shouldPoll: false

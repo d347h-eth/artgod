@@ -9,6 +9,9 @@ import type {
     BootstrapMetadataMode,
     BootstrapRunStatus,
     BootstrapRunStepPlan,
+    BootstrapStepAction,
+    BootstrapStepKey,
+    BootstrapStepStatus,
     BootstrapTaskCounts,
     BootstrapTaskStatus,
 } from "@artgod/shared/bootstrap/pipeline";
@@ -20,6 +23,9 @@ export type {
     BootstrapMetadataMode,
     BootstrapRunStatus,
     BootstrapRunStepPlan,
+    BootstrapStepAction,
+    BootstrapStepKey,
+    BootstrapStepStatus,
 } from "@artgod/shared/bootstrap/pipeline";
 
 export type BootstrapManualInput =
@@ -106,11 +112,26 @@ export type BootstrapRunEventRecord = {
 
 export type BootstrapRunTaskCounts = BootstrapTaskCounts;
 
+export type BootstrapRunStepRecord = {
+    runId: number;
+    stepKey: BootstrapStepKey;
+    status: BootstrapStepStatus;
+    blocking: boolean;
+    progressCompleted: number;
+    progressTotal: number | null;
+    lastError: string | null;
+    configJson: string | null;
+};
+
 export type BootstrapFlowStep = {
     key: BootstrapFlowStepKey;
     label: string;
     state: BootstrapFlowStepState;
     detailText: string | null;
+    blocking: boolean;
+    pausable: boolean;
+    paused: boolean;
+    availableActions: BootstrapStepAction[];
     progress: {
         completed: number;
         total: number;
