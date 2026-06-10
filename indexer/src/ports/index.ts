@@ -5,6 +5,7 @@ export * from "./head-source.js";
 export * from "./storage.js";
 export * from "./bootstrap.js";
 export * from "./bootstrap-runs.js";
+export * from "./bootstrap-steps.js";
 export * from "./domain-handlers.js";
 export * from "./metadata.js";
 export * from "./token-image-cache.js";
