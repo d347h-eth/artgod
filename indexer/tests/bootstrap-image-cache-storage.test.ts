@@ -180,5 +180,20 @@ describe("bootstrap storage", () => {
         expect(rows).toEqual([
             { owner: "0x2222222222222222222222222222222222222222" },
         ]);
+
+        storage.deleteRunTemporaryData(77);
+        expect(storage.getOwnershipTaskCounts(77)).toEqual({
+            pending: 0,
+            retry: 0,
+            succeeded: 0,
+            failedTerminal: 0,
+            total: 0,
+        });
+        const snapshotCount = db
+            .prepare<[number]>(
+                "SELECT COUNT(*) AS count FROM nft_balance_snapshots WHERE run_id = ?",
+            )
+            .get(77) as { count: number } | undefined;
+        expect(snapshotCount?.count ?? 0).toBe(0);
     });
 });

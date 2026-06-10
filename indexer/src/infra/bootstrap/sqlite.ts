@@ -371,6 +371,16 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         finalize(input);
     }
 
+    deleteRunTemporaryData(runId: number): void {
+        const cleanup = db.raw.transaction((targetRunId: number) => {
+            this.resetMetadataTasksStmt.run({ runId: targetRunId });
+            this.resetImageCacheTasksStmt.run({ runId: targetRunId });
+            this.resetOwnershipTasksStmt.run({ runId: targetRunId });
+            this.resetSnapshotStmt.run({ runId: targetRunId });
+        });
+        cleanup(runId);
+    }
+
     resetMetadataTasks(runId: number): void {
         this.resetMetadataTasksStmt.run({ runId });
     }

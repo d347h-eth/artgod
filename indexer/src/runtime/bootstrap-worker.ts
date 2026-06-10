@@ -14,6 +14,7 @@ import {
     BOOTSTRAP_STEP_KEY,
     isBootstrapStepTerminalStatus,
     type BootstrapStepKey,
+    type BootstrapTaskCounts,
 } from "@artgod/shared/bootstrap/pipeline";
 import {
     isImageCachePolicyActive,
@@ -236,6 +237,7 @@ async function main() {
                         await handleBootstrapBackfillCheck(
                             queue,
                             storage,
+                            bootstrapStorage,
                             collections,
                             bootstrapRuns,
                             bootstrapSteps,
@@ -1255,6 +1257,11 @@ async function handleBootstrapImageCacheProcess(
             total: counts.total,
         },
     );
+    maybeCleanupSuccessfulBootstrapTemporaryData(
+        bootstrapStorage,
+        bootstrapRuns,
+        payload.runId,
+    );
 }
 
 async function processDueImageCacheTasks(
@@ -1492,6 +1499,48 @@ function markOwnershipTaskFailed(
     });
 }
 
+function maybeCleanupSuccessfulBootstrapTemporaryData(
+    bootstrapStorage: BootstrapSnapshotPort,
+    bootstrapRuns: BootstrapRunsPort,
+    runId: number,
+): void {
+    const run = bootstrapRuns.getRun(runId);
+    if (!run || run.status !== BOOTSTRAP_RUN_STATUS.Completed) {
+        return;
+    }
+
+    const metadataCounts = bootstrapStorage.getMetadataTaskCounts(runId);
+    const imageCacheCounts = bootstrapStorage.getImageCacheTaskCounts(runId);
+    const ownershipCounts = bootstrapStorage.getOwnershipTaskCounts(runId);
+    if (
+        !areBootstrapTaskCountsClean(metadataCounts) ||
+        !areBootstrapTaskCountsClean(imageCacheCounts) ||
+        !areBootstrapTaskCountsClean(ownershipCounts)
+    ) {
+        return;
+    }
+
+    bootstrapStorage.deleteRunTemporaryData(runId);
+    logger.info("Bootstrap temporary data cleaned up", {
+        component: "CollectionBootstrapWorker",
+        action: "cleanupBootstrapTemporaryData",
+        runId,
+        chainId: run.chainId,
+        collectionId: run.collectionId,
+        metadataTasks: metadataCounts.total,
+        imageCacheTasks: imageCacheCounts.total,
+        ownershipTasks: ownershipCounts.total,
+    });
+}
+
+function areBootstrapTaskCountsClean(counts: BootstrapTaskCounts): boolean {
+    return (
+        counts.pending === 0 &&
+        counts.retry === 0 &&
+        counts.failedTerminal === 0
+    );
+}
+
 function isMetadataSnapshotComplete(
     counts: {
         pending: number;
@@ -1634,6 +1683,7 @@ async function continueBlockingBootstrapAfterMetadata(
         collections,
         bootstrapRuns,
         bootstrapSteps,
+        bootstrapStorage,
         payload,
         backfillBatchSize,
         openSeaIntegration,
@@ -1791,6 +1841,7 @@ async function handleBootstrapOwnershipProcess(
         collections,
         bootstrapRuns,
         bootstrapSteps,
+        bootstrapStorage,
         payload,
         backfillBatchSize,
         openSeaIntegration,
@@ -1859,6 +1910,7 @@ async function ensureBackfillScheduled(
     collections: CollectionRegistryPort,
     bootstrapRuns: BootstrapRunsPort,
     bootstrapSteps: BootstrapStepsPort,
+    bootstrapStorage: BootstrapSnapshotPort,
     payload: BootstrapMetadataProcessPayload | BootstrapOwnershipProcessPayload,
     backfillBatchSize: number,
     openSeaIntegration: OpenSeaIntegrationStatus,
@@ -1919,6 +1971,11 @@ async function ensureBackfillScheduled(
                     head,
                 }),
             });
+            maybeCleanupSuccessfulBootstrapTemporaryData(
+                bootstrapStorage,
+                bootstrapRuns,
+                payload.runId,
+            );
         }
         if (updated) {
             await publishMetadataStatsRecompute(
@@ -1997,7 +2054,7 @@ async function maybeScheduleOpenSeaBootstrap(
     queue: QueuePort,
     collections: CollectionRegistryPort,
     bootstrapRuns: BootstrapRunsPort,
-    payload: BootstrapMetadataProcessPayload | BootstrapImageCacheProcessPayload,
+    payload: BootstrapMetadataProcessPayload | BootstrapOwnershipProcessPayload,
     openSeaIntegration: OpenSeaIntegrationStatus,
 ): Promise<void> {
     if (!openSeaIntegration.enabled) {
@@ -2045,6 +2102,7 @@ async function maybeScheduleOpenSeaBootstrap(
 async function handleBootstrapBackfillCheck(
     queue: QueuePort,
     storage: StoragePort,
+    bootstrapStorage: BootstrapSnapshotPort,
     collections: CollectionRegistryPort,
     bootstrapRuns: BootstrapRunsPort,
     bootstrapSteps: BootstrapStepsPort,
@@ -2147,6 +2205,11 @@ async function handleBootstrapBackfillCheck(
             toBlock: payload.toBlock,
         }),
     });
+    maybeCleanupSuccessfulBootstrapTemporaryData(
+        bootstrapStorage,
+        bootstrapRuns,
+        payload.runId,
+    );
 
     await publishMetadataStatsRecompute(
         queue,

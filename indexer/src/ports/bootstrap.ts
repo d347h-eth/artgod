@@ -96,6 +96,7 @@ export interface BootstrapSnapshotPort {
     resetSnapshot(runId: number): void;
     insertSnapshotRows(rows: BootstrapSnapshotRow[]): void;
     finalizeSnapshot(input: SnapshotFinalizeInput): void;
+    deleteRunTemporaryData(runId: number): void;
     resetMetadataTasks(runId: number): void;
     insertMetadataTasks(rows: BootstrapMetadataTaskSeed[]): void;
     listMetadataTasksDueNow(
