@@ -18,7 +18,8 @@
 		ApiCollectionMediaState,
 		ApiTokenAttribute,
 		ApiTraitFacet,
-		ApiTraitRangeFilter
+		ApiTraitRangeFilter,
+		CollectionBiddingBidBookApiResponse
 	} from '$lib/api-types';
 	import {
 		BID_SCOPE_QUERY_PARAM,
@@ -86,10 +87,11 @@
 		describePaginationWindow,
 		pageToPaginationWindow,
 		readPaginationWindow,
-		refreshPaginationWindow,
+		refreshPaginationWindowFromHead,
 		resolvePaginationWindow,
 		traitFilterPaginationSignatureParts,
-		writePaginationWindow
+		writePaginationWindow,
+		type PaginationWindowState
 	} from '$lib/components/pagination-window';
 	import TokenCardTile from '$lib/components/TokenCardTile.svelte';
 	import {
@@ -185,6 +187,7 @@
 	let tokenOffersRangeStart = $state(tokenOfferCards.rangeStart);
 	let tokenOffersRangeEnd = $state(tokenOfferCards.rangeEnd);
 	let tokenOffersPagesLoaded = $state(tokenOfferCards.items.length === 0 ? 0 : 1);
+	let tokenOffersHeadRequestCursor = $state<string | null>(requestCursor);
 	let tokenOffersHeadPrevCursor = $state<string | null>(tokenOfferCards.prevCursor);
 	let tokenOffersTailNextCursor = $state<string | null>(tokenOfferCards.nextCursor);
 	let tokenOffersPagingPending = $state(false);
@@ -193,7 +196,7 @@
 	let priceTierPanelOpen = $state(false);
 	let biddingContentElement = $state<HTMLDivElement | null>(null);
 	let liveRefreshRequestId = 0;
-	let preserveTokenOfferWindowOnNextPage = false;
+	let refreshedTokenOfferWindow: PaginationWindowState<ApiBiddingTokenOfferCard> | null = null;
 
 	const hasActiveTraitFilters = $derived(activeTraits.length > 0 || activeTraitRanges.length > 0);
 	const showBidBookFilters = $derived(
@@ -296,30 +299,27 @@
 	$effect(() => {
 		if (bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
 			tokenOffersPagingPending = false;
-			preserveTokenOfferWindowOnNextPage = false;
+			refreshedTokenOfferWindow = null;
 			return;
 		}
 
 		const signature = tokenOfferWindowSignature();
-		const incoming = pageToPaginationWindow(activeTokenOfferCardsPage);
+		const incoming = pageToPaginationWindow(activeTokenOfferCardsPage, requestCursor);
 		const cached = browser ? readPaginationWindow<ApiBiddingTokenOfferCard>(signature) : null;
-		const resolved = preserveTokenOfferWindowOnNextPage
-			? refreshPaginationWindow({
-					cached,
-					incoming,
-					itemKey: (token) => token.tokenId
-				})
-			: resolvePaginationWindow({
-					cached,
-					incoming,
-					requestCursor,
-					itemKey: (token) => token.tokenId
-				});
+		const resolved =
+			refreshedTokenOfferWindow ??
+			resolvePaginationWindow({
+				cached,
+				incoming,
+				requestCursor,
+				itemKey: (token) => token.tokenId
+			});
 
 		visibleTokenOfferCards = resolved.items;
 		tokenOffersRangeStart = resolved.rangeStart;
 		tokenOffersRangeEnd = resolved.rangeEnd;
 		tokenOffersPagesLoaded = resolved.pagesLoaded;
+		tokenOffersHeadRequestCursor = resolved.headRequestCursor;
 		tokenOffersHeadPrevCursor = resolved.headPrevCursor;
 		tokenOffersTailNextCursor = resolved.tailNextCursor;
 
@@ -328,7 +328,7 @@
 		}
 
 		tokenOffersPagingPending = false;
-		preserveTokenOfferWindowOnNextPage = false;
+		refreshedTokenOfferWindow = null;
 	});
 
 	$effect(() => {
@@ -457,7 +457,7 @@
 		return withQuery(biddingPath(), query);
 	}
 
-	function currentBidBookQuery(): URLSearchParams {
+	function currentBidBookQuery(cursor: string | null = requestCursor): URLSearchParams {
 		return buildCollectionBiddingQuery({
 			selectedTraits: activeTraits,
 			selectedTraitRanges: activeTraitRanges,
@@ -467,7 +467,7 @@
 			maker: makerFilter,
 			showMuted,
 			limit: activeTokenOfferCardsPage.limit,
-			cursor: requestCursor
+			cursor
 		});
 	}
 
@@ -480,17 +480,22 @@
 
 		try {
 			// Fetch the current source-selected bid book directly so live refresh avoids route reloads.
-			const response = await getCollectionBiddingBidBook(
-				fetch,
-				chain.slug,
-				collection.slug,
-				currentBidBookQuery()
-			);
+			const response =
+				bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+					? await refreshTokenOfferWindow({
+							chainSlug: chain.slug,
+							collectionSlug: collection.slug
+						})
+					: await getCollectionBiddingBidBook(
+							fetch,
+							chain.slug,
+							collection.slug,
+							currentBidBookQuery()
+						);
 			if (liveRefreshRequestId !== requestId || refreshKey !== activeBiddingFilterKey()) {
 				return;
 			}
 			activeBidBook = response.bidBook;
-			preserveTokenOfferWindowOnNextPage = true;
 			activeTokenOfferCardsPage = response.tokenOfferCards;
 			await tick();
 			if (liveRefreshRequestId === requestId) {
@@ -499,6 +504,44 @@
 		} catch {
 			// Keep the existing bid-book visible after transient live-refresh failures.
 		}
+	}
+
+	async function refreshTokenOfferWindow(params: {
+		chainSlug: string;
+		collectionSlug: string;
+	}): Promise<CollectionBiddingBidBookApiResponse> {
+		const refreshed = await refreshPaginationWindowFromHead<
+			ApiBiddingTokenOfferCard,
+			CollectionBiddingBidBookApiResponse
+		>({
+			pagesLoaded: tokenOffersPagesLoaded,
+			headRequestCursor: tokenOffersHeadRequestCursor,
+			loadPage: (cursor) =>
+				getCollectionBiddingBidBook(
+					fetch,
+					params.chainSlug,
+					params.collectionSlug,
+					currentBidBookQuery(cursor)
+				),
+			pageFromResponse: (response) => response.tokenOfferCards,
+			itemKey: (token) => token.tokenId
+		});
+
+		refreshedTokenOfferWindow = refreshed.window;
+		return {
+			...refreshed.headResponse,
+			bidBook: bidBookForTokenOfferWindow(refreshed.headResponse.bidBook, refreshed.window)
+		};
+	}
+
+	function bidBookForTokenOfferWindow(
+		bidBook: ApiBiddingBidBook,
+		window: PaginationWindowState<ApiBiddingTokenOfferCard>
+	): ApiBiddingBidBook {
+		return {
+			...bidBook,
+			bids: window.items.flatMap((token) => token.offers)
+		};
 	}
 
 	function loadPreviousTokenOffersHref(): string {
