@@ -1,0 +1,207 @@
+import { TRADING_BIDDING_BID_BOOK_SOURCE } from '@artgod/shared/types';
+import type { ApiBiddingBidBook } from '$lib/api-types';
+
+// Polling cadence for passive order-backed bid books.
+export const BIDDING_OFFERS_NORMAL_LIVE_POLL_INTERVAL_MS = 10_000;
+
+// Polling cadence for bot-snapshot-backed bid books.
+export const BIDDING_OFFERS_COMPETITIVE_LIVE_POLL_INTERVAL_MS = 5_000;
+
+const BIDDING_LIVE_REFRESH_ANCHOR_KIND = {
+	OpenSeaOrder: 'open-sea-order',
+	BiddingJob: 'bidding-job',
+	Token: 'token'
+} as const;
+
+// Existing bid-book and token-card markers used to restore viewport position after silent refreshes.
+const BIDDING_LIVE_REFRESH_ANCHOR_SELECTOR =
+	'[data-open-sea-order-hash], [data-bidding-job-id], [data-token-id]';
+
+const MAX_BIDDING_LIVE_REFRESH_ANCHORS = 12;
+
+type BiddingLiveRefreshAnchorKind =
+	(typeof BIDDING_LIVE_REFRESH_ANCHOR_KIND)[keyof typeof BIDDING_LIVE_REFRESH_ANCHOR_KIND];
+
+type BiddingLiveRefreshAnchor = {
+	kind: BiddingLiveRefreshAnchorKind;
+	value: string;
+	top: number;
+};
+
+export type BiddingLiveRefreshAnchorSnapshot = {
+	rootTop: number | null;
+	anchors: BiddingLiveRefreshAnchor[];
+};
+
+export type BiddingOffersLiveRefreshHandle = {
+	refreshNow(): Promise<void>;
+	stop(): void;
+};
+
+type BiddingOffersLiveRefreshOptions = {
+	refresh: () => Promise<unknown> | unknown;
+	intervalMs: () => number;
+};
+
+// Chooses the live-poll cadence from the bid-book source selected by the backend read model.
+export function biddingOffersLivePollIntervalMs(
+	source: ApiBiddingBidBook['state']['source']
+): number {
+	return source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot
+		? BIDDING_OFFERS_COMPETITIVE_LIVE_POLL_INTERVAL_MS
+		: BIDDING_OFFERS_NORMAL_LIVE_POLL_INTERVAL_MS;
+}
+
+// Poll the current offers page without overlapping backend refreshes.
+export function startBiddingOffersLiveRefresh({
+	refresh,
+	intervalMs
+}: BiddingOffersLiveRefreshOptions): BiddingOffersLiveRefreshHandle {
+	let stopped = false;
+	let refreshInFlight = false;
+	let timer: ReturnType<typeof setTimeout> | null = null;
+
+	const scheduleNext = (): void => {
+		if (stopped) return;
+		timer = setTimeout(() => {
+			void runScheduledRefresh();
+		}, intervalMs());
+	};
+
+	const refreshNow = async (): Promise<void> => {
+		if (stopped || refreshInFlight) return;
+		refreshInFlight = true;
+		try {
+			await refresh();
+		} catch {
+			// Keep polling after transient backend or network failures.
+		} finally {
+			refreshInFlight = false;
+		}
+	};
+
+	const runScheduledRefresh = async (): Promise<void> => {
+		await refreshNow();
+		scheduleNext();
+	};
+
+	scheduleNext();
+
+	return {
+		refreshNow,
+		stop() {
+			stopped = true;
+			if (timer) {
+				clearTimeout(timer);
+				timer = null;
+			}
+		}
+	};
+}
+
+// Captures visible bid/token anchors so silent refreshes can restore the user's viewport.
+export function captureBiddingLiveRefreshAnchor(
+	root: HTMLElement | null
+): BiddingLiveRefreshAnchorSnapshot | null {
+	if (!root) return null;
+	const rootTop = readElementTop(root);
+	const anchors = Array.from(
+		root.querySelectorAll<HTMLElement>(BIDDING_LIVE_REFRESH_ANCHOR_SELECTOR)
+	)
+		.map(resolveBiddingLiveRefreshAnchor)
+		.filter((anchor): anchor is BiddingLiveRefreshAnchor => anchor !== null)
+		.sort((left, right) => Math.max(left.top, 0) - Math.max(right.top, 0))
+		.slice(0, MAX_BIDDING_LIVE_REFRESH_ANCHORS);
+
+	return {
+		rootTop,
+		anchors
+	};
+}
+
+// Restores the first still-present anchor, falling back to the refreshed content root.
+export function restoreBiddingLiveRefreshAnchor(
+	root: HTMLElement | null,
+	snapshot: BiddingLiveRefreshAnchorSnapshot | null
+): void {
+	if (!root || !snapshot) return;
+	for (const anchor of snapshot.anchors) {
+		const element = findBiddingLiveRefreshAnchorElement(root, anchor);
+		if (!element) continue;
+		restoreElementTop(element, anchor.top);
+		return;
+	}
+	if (snapshot.rootTop !== null) {
+		restoreElementTop(root, snapshot.rootTop);
+	}
+}
+
+function resolveBiddingLiveRefreshAnchor(
+	marker: HTMLElement
+): BiddingLiveRefreshAnchor | null {
+	const element = resolveAnchorElement(marker);
+	const top = readElementTop(element);
+	if (top === null || !isElementVisibleInViewport(element)) return null;
+
+	if (marker.dataset.openSeaOrderHash) {
+		return {
+			kind: BIDDING_LIVE_REFRESH_ANCHOR_KIND.OpenSeaOrder,
+			value: marker.dataset.openSeaOrderHash,
+			top
+		};
+	}
+	if (marker.dataset.biddingJobId) {
+		return {
+			kind: BIDDING_LIVE_REFRESH_ANCHOR_KIND.BiddingJob,
+			value: marker.dataset.biddingJobId,
+			top
+		};
+	}
+	if (marker.dataset.tokenId) {
+		return {
+			kind: BIDDING_LIVE_REFRESH_ANCHOR_KIND.Token,
+			value: marker.dataset.tokenId,
+			top
+		};
+	}
+	return null;
+}
+
+function findBiddingLiveRefreshAnchorElement(
+	root: HTMLElement,
+	anchor: BiddingLiveRefreshAnchor
+): HTMLElement | null {
+	for (const marker of root.querySelectorAll<HTMLElement>(BIDDING_LIVE_REFRESH_ANCHOR_SELECTOR)) {
+		const candidate = resolveBiddingLiveRefreshAnchor(marker);
+		if (!candidate || candidate.kind !== anchor.kind || candidate.value !== anchor.value) {
+			continue;
+		}
+		return resolveAnchorElement(marker);
+	}
+	return null;
+}
+
+function resolveAnchorElement(marker: HTMLElement): HTMLElement {
+	if (marker.dataset.tokenId) {
+		return marker;
+	}
+	return marker.closest('tr') ?? marker;
+}
+
+function isElementVisibleInViewport(element: HTMLElement): boolean {
+	const rect = element.getBoundingClientRect();
+	return rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight;
+}
+
+function readElementTop(element: HTMLElement): number | null {
+	const rect = element.getBoundingClientRect();
+	return Number.isFinite(rect.top) ? rect.top : null;
+}
+
+function restoreElementTop(element: HTMLElement, previousTop: number): void {
+	const nextTop = readElementTop(element);
+	if (nextTop === null) return;
+	const delta = nextTop - previousTop;
+	if (Math.abs(delta) < 1) return;
+	window.scrollTo(window.scrollX, window.scrollY + delta);
+}

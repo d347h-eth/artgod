@@ -151,6 +151,45 @@ export function resolvePaginationWindow<TItem>(params: {
 	return incoming;
 }
 
+// Replaces the refreshed page slice inside an accumulated window without collapsing loaded pages.
+export function refreshPaginationWindow<TItem>(params: {
+	cached: PaginationWindowState<TItem> | null;
+	incoming: PaginationWindowState<TItem>;
+	itemKey: (item: TItem) => string;
+}): PaginationWindowState<TItem> {
+	const { cached, incoming, itemKey } = params;
+	if (!cached) return incoming;
+	if (incoming.items.length === 0) return incoming;
+	if (incoming.rangeStart === 0 || incoming.rangeEnd === 0) return incoming;
+	if (cached.rangeStart === 0 || cached.rangeEnd === 0) return incoming;
+
+	const incomingBeforeCached = incoming.rangeEnd < cached.rangeStart;
+	const incomingAfterCached = incoming.rangeStart > cached.rangeEnd;
+	if (incomingBeforeCached || incomingAfterCached) return cached;
+
+	const replaceStart = Math.max(incoming.rangeStart - cached.rangeStart, 0);
+	const replaceEnd = Math.min(incoming.rangeEnd - cached.rangeStart + 1, cached.items.length);
+	const nextItems = dedupeItems(
+		[
+			...cached.items.slice(0, replaceStart),
+			...incoming.items,
+			...cached.items.slice(replaceEnd)
+		],
+		itemKey
+	);
+
+	return {
+		items: nextItems,
+		rangeStart: Math.min(cached.rangeStart, incoming.rangeStart),
+		rangeEnd: Math.max(cached.rangeEnd, incoming.rangeEnd),
+		pagesLoaded: cached.pagesLoaded,
+		headPrevCursor:
+			incoming.rangeStart <= cached.rangeStart ? incoming.headPrevCursor : cached.headPrevCursor,
+		tailNextCursor:
+			incoming.rangeEnd >= cached.rangeEnd ? incoming.tailNextCursor : cached.tailNextCursor
+	};
+}
+
 function appendUniqueItems<TItem>(
 	source: TItem[],
 	incoming: TItem[],
@@ -166,6 +205,18 @@ function appendUniqueItems<TItem>(
 		merged.push(item);
 	}
 	return merged;
+}
+
+function dedupeItems<TItem>(items: TItem[], itemKey: (item: TItem) => string): TItem[] {
+	const seen = new Set<string>();
+	const deduped: TItem[] = [];
+	for (const item of items) {
+		const key = itemKey(item);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		deduped.push(item);
+	}
+	return deduped;
 }
 
 function prependUniqueItems<TItem>(
