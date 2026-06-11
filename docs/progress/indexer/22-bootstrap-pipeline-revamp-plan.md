@@ -304,10 +304,11 @@ These decisions are locked for the first implementation pass:
    shared dependency helpers, an indexer startup reconciler, and worker startup
    sweep now promote dependency-ready steps and republish recoverable executor
    jobs through a tested application boundary.
-5. Port anchor and enumeration into step executors. Partially done; current
-   procedural start handler records step progress and delegates anchor/manual
-   enumeration decisions to tested helpers, but is not yet a generic executor
-   module.
+5. Port anchor and enumeration into step executors. Partially done; anchor
+   selection, anchor persistence, collection bootstrap-start marking, and anchor
+   failure handling now sit behind a tested application executor. Enumeration
+   still lives in the procedural start handler, though manual enumeration
+   decisions are delegated to tested helpers.
 6. Port metadata into a taskized step executor. Done.
 7. Add taskized ownership executor. Done.
 8. Make image cache a non-blocking taskized side lane. Done.
@@ -324,11 +325,13 @@ These decisions are locked for the first implementation pass:
 13. Update canonical bootstrap docs and RPC catalog if any interaction paths
     changed. Done for docs; RPC catalog did not need a new JSON-RPC path.
 14. Add focused backend/indexer/frontend tests, then E2E bootstrap coverage.
-    Focused storage/reconciler tests added for the startup sweep, and backfill
-    executor coverage now exercises no-post-anchor completion, catch-up
-    scheduling, catch-up completion, and cleanup guards. Bootstrap probe UI and
-    run-detail pause/resume E2E coverage exists; full backend lifecycle E2E
-    coverage remains.
+    Focused storage/reconciler tests added for the startup sweep. Anchor
+    executor coverage now exercises unsupported standards, invalid anchors,
+    missing collections, and successful anchoring; backfill executor coverage
+    exercises no-post-anchor completion, catch-up scheduling, catch-up
+    completion, and cleanup guards. Bootstrap probe UI and run-detail
+    pause/resume E2E coverage exists; full backend lifecycle E2E coverage
+    remains.
 
 ## Open Decisions
 

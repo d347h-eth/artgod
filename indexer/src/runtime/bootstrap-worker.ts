@@ -37,7 +37,11 @@ import {
     type BootstrapBackfillScheduleResult,
     type BootstrapTemporaryDataCleanupResult,
 } from "../application/bootstrap-backfill-executor.js";
-import { resolveBootstrapAnchorBlock } from "../application/bootstrap-anchor-plan.js";
+import {
+    BOOTSTRAP_ANCHOR_EXECUTOR_OUTCOME,
+    BootstrapAnchorExecutor,
+    type BootstrapAnchorExecutorResult,
+} from "../application/bootstrap-anchor-executor.js";
 import { resolveManualBootstrapTokenIds } from "../application/bootstrap-token-enumeration.js";
 import { runWorker } from "../application/worker-runner.js";
 import { publishMetadataStatsRecompute } from "../application/metadata/stats-recompute.js";
@@ -62,6 +66,7 @@ import {
     SYNC_JOB_KIND,
     type BackfillSyncPayload,
 } from "../domain/sync-jobs.js";
+import { COLLECTION_STANDARD } from "../domain/collections.js";
 import {
     OPENSEA_JOB_KIND,
     type OpenSeaBootstrapCollectionPayload,
@@ -159,6 +164,12 @@ async function main() {
         const bootstrapRuns = new SqliteBootstrapRuns();
         const bootstrapSteps = new SqliteBootstrapSteps();
         const storage = new SqliteStorage();
+        const bootstrapAnchorExecutor = new BootstrapAnchorExecutor(
+            rpc,
+            bootstrapRuns,
+            bootstrapSteps,
+            collections,
+        );
         const bootstrapBackfillExecutor = new BootstrapBackfillExecutor(
             rpc,
             storage,
@@ -224,9 +235,9 @@ async function main() {
                 try {
                     if (job.kind === BOOTSTRAP_JOB_KIND.Start) {
                         await handleBootstrapStart(
+                            bootstrapAnchorExecutor,
                             rpc,
                             queue,
-                            collections,
                             collectionExtensions,
                             bootstrapStorage,
                             bootstrapRuns,
@@ -788,10 +799,49 @@ function buildOwnershipProcessPayload(
     };
 }
 
+function logBootstrapAnchorResult(result: BootstrapAnchorExecutorResult): void {
+    if (
+        result.outcome ===
+        BOOTSTRAP_ANCHOR_EXECUTOR_OUTCOME.UnsupportedStandard
+    ) {
+        logger.warn("Bootstrap skipped (unsupported standard)", {
+            component: "CollectionBootstrapWorker",
+            action: "handleBootstrapStart",
+            runId: result.run.runId,
+            chainId: result.run.chainId,
+            collectionId: result.run.collectionId,
+            standard: result.run.requestStandard,
+        });
+        return;
+    }
+
+    if (result.outcome === BOOTSTRAP_ANCHOR_EXECUTOR_OUTCOME.InvalidAnchor) {
+        logger.warn("Bootstrap skipped (invalid anchor block)", {
+            component: "CollectionBootstrapWorker",
+            action: "handleBootstrapStart",
+            runId: result.run.runId,
+            chainId: result.run.chainId,
+            collectionId: result.run.collectionId,
+        });
+        return;
+    }
+
+    if (result.outcome === BOOTSTRAP_ANCHOR_EXECUTOR_OUTCOME.CollectionMissing) {
+        logger.warn("Bootstrap skipped (collection missing)", {
+            component: "CollectionBootstrapWorker",
+            action: "handleBootstrapStart",
+            runId: result.run.runId,
+            chainId: result.run.chainId,
+            collectionId: result.run.collectionId,
+            anchorBlock: result.anchor?.anchorBlock,
+        });
+    }
+}
+
 async function handleBootstrapStart(
+    anchorExecutor: BootstrapAnchorExecutor,
     rpc: RpcProviderPort,
     queue: QueuePort,
-    collections: CollectionRegistryPort,
     collectionExtensions: CollectionExtensionInstallPort,
     bootstrapStorage: BootstrapSnapshotPort,
     bootstrapRuns: BootstrapRunsPort,
@@ -823,34 +873,6 @@ async function handleBootstrapStart(
             chainId: run.chainId,
             collectionId: run.collectionId,
             status: run.status,
-        });
-        return;
-    }
-    if (run.requestStandard !== "erc721") {
-        logger.warn("Bootstrap skipped (unsupported standard)", {
-            component: "CollectionBootstrapWorker",
-            action: "handleBootstrapStart",
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            standard: run.requestStandard,
-        });
-        bootstrapRuns.updateRunStatus(
-            run.runId,
-            BOOTSTRAP_RUN_STATUS.Failed,
-            {
-                code: "unsupported_standard",
-                message: `Unsupported standard: ${run.requestStandard}`,
-            },
-        );
-        bootstrapRuns.appendRunEvent({
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunFailed,
-            eventLevel: "error",
-            message: "Unsupported standard for bootstrap",
-            payloadJson: JSON.stringify({ standard: run.requestStandard }),
         });
         return;
     }
@@ -890,80 +912,14 @@ async function handleBootstrapStart(
         }
     }
 
-    bootstrapSteps.markStepRunning(run.runId, BOOTSTRAP_STEP_KEY.Anchor);
-    const anchorBlock = await resolveAnchorBlock(rpc, reorgDepth);
-    if (anchorBlock === null) {
-        logger.warn("Bootstrap skipped (invalid anchor block)", {
-            component: "CollectionBootstrapWorker",
-            action: "handleBootstrapStart",
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-        });
-        bootstrapSteps.markStepFailedTerminal({
-            runId: run.runId,
-            stepKey: BOOTSTRAP_STEP_KEY.Anchor,
-            attempts: 1,
-            error: "Anchor block is invalid",
-        });
-        bootstrapRuns.updateRunStatus(
-            run.runId,
-            BOOTSTRAP_RUN_STATUS.Failed,
-            {
-                code: "invalid_anchor",
-                message: "Anchor block is invalid",
-            },
-        );
+    const anchorResult = await anchorExecutor.anchor({ run, reorgDepth });
+    logBootstrapAnchorResult(anchorResult);
+    if (anchorResult.outcome !== BOOTSTRAP_ANCHOR_EXECUTOR_OUTCOME.Anchored) {
         return;
     }
-
-    const anchor = await rpc.getBlock(anchorBlock);
-    bootstrapRuns.updateRunAnchor({
-        runId: run.runId,
-        anchorBlock,
-        anchorHash: anchor.hash,
-        anchorTimestamp: anchor.timestamp,
-    });
-    bootstrapRuns.updateRunStatus(run.runId, BOOTSTRAP_RUN_STATUS.Metadata);
-    bootstrapSteps.markStepSucceeded(run.runId, BOOTSTRAP_STEP_KEY.Anchor);
-    bootstrapRuns.appendRunEvent({
-        runId: run.runId,
-        chainId: run.chainId,
-        collectionId: run.collectionId,
-        eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunAnchorSelected,
-        eventLevel: "info",
-        message: "Bootstrap anchor selected",
-        payloadJson: JSON.stringify({
-            anchorBlock,
-            anchorHash: anchor.hash,
-            anchorTimestamp: anchor.timestamp,
-        }),
-    });
-
-    const updated = collections.markBootstrapStarted(
-        run.chainId,
-        run.collectionId,
-        anchorBlock,
-    );
-    if (!updated) {
-        logger.warn("Bootstrap skipped (collection missing)", {
-            component: "CollectionBootstrapWorker",
-            action: "handleBootstrapStart",
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            anchorBlock,
-        });
-        bootstrapRuns.updateRunStatus(
-            run.runId,
-            BOOTSTRAP_RUN_STATUS.Failed,
-            {
-                code: "missing_collection",
-                message: "Collection row is missing",
-            },
-        );
-        return;
-    }
+    const anchorBlock = anchorResult.anchor.anchorBlock;
+    const anchorHash = anchorResult.anchor.anchorHash;
+    const anchorTimestamp = anchorResult.anchor.anchorTimestamp;
 
     ensureRequestedCollectionExtensionInstalled(
         collectionExtensions,
@@ -1146,10 +1102,10 @@ async function handleBootstrapStart(
                     collectionId: run.collectionId,
                     contract: normalizedContract,
                     tokenId: tokenIds[index],
-                    standard: "erc721",
+                    standard: COLLECTION_STANDARD.Erc721,
                     anchorBlock,
-                    anchorHash: anchor.hash,
-                    anchorTimestamp: anchor.timestamp,
+                    anchorHash,
+                    anchorTimestamp,
                 });
             }
             bootstrapStorage.insertMetadataTasks(rows);
@@ -1200,8 +1156,8 @@ async function handleBootstrapStart(
                 standard: run.requestStandard,
                 metadataSnapshotMode: run.metadataMode,
                 anchorBlock,
-                anchorHash: anchor.hash,
-                anchorTimestamp: anchor.timestamp,
+                anchorHash,
+                anchorTimestamp,
             },
             traceId,
             0,
@@ -1292,7 +1248,7 @@ async function handleBootstrapMetadataProcess(
     traceId: string,
     sourceJobId: string,
 ): Promise<void> {
-    if (payload.standard !== "erc721") {
+    if (payload.standard !== COLLECTION_STANDARD.Erc721) {
         logger.warn("Metadata process skipped (unsupported standard)", {
             component: "CollectionBootstrapWorker",
             action: "handleBootstrapMetadataProcess",
@@ -1853,7 +1809,7 @@ async function processSingleMetadataTask(
             chainId: payload.chainId,
             collectionId: payload.collectionId,
             tokenId: task.tokenId,
-            standard: "erc721",
+            standard: COLLECTION_STANDARD.Erc721,
             metadataUrl: null,
             blockNumber: payload.anchorBlock,
             blockHash: payload.anchorHash,
@@ -2728,18 +2684,6 @@ async function scheduleOpenSeaBootstrap(
         collectionId: payload.collectionId,
     };
     await queue.publish(QUEUE_NAMES.OpenSeaBootstrap, job);
-}
-
-async function resolveAnchorBlock(
-    rpc: RpcProviderPort,
-    reorgDepth: number,
-): Promise<number | null> {
-    // Anchor uses a confirmed head to avoid snapshots on reorg-prone blocks.
-    const head = await rpc.getBlockNumber();
-    return resolveBootstrapAnchorBlock({
-        headBlock: head,
-        reorgDepth,
-    });
 }
 
 async function enumerateTokenIds(
