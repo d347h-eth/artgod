@@ -37,6 +37,12 @@ import {
     type BootstrapTemporaryDataCleanupResult,
 } from "../application/bootstrap-backfill-executor.js";
 import {
+    BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_FAILURE_MESSAGE,
+    completeCollectionExtensionArtifactStepIfTerminal,
+    failCollectionExtensionArtifactStep,
+    updateCollectionExtensionArtifactStepProgress,
+} from "../application/bootstrap-collection-extension-artifacts.js";
+import {
     BOOTSTRAP_ANCHOR_EXECUTOR_OUTCOME,
     BootstrapAnchorExecutor,
     type BootstrapAnchorExecutorResult,
@@ -68,6 +74,7 @@ import {
 } from "../domain/sync-jobs.js";
 import { COLLECTION_STANDARD } from "../domain/collections.js";
 import {
+    OPENSEA_JOB_ID_SCOPE,
     OPENSEA_JOB_KIND,
     type OpenSeaBootstrapCollectionPayload,
 } from "../domain/opensea-jobs.js";
@@ -95,7 +102,11 @@ import type {
 import type { BootstrapStepsPort } from "../ports/bootstrap-steps.js";
 import type { CollectionRegistryPort } from "../ports/collections.js";
 import type { CollectionExtensionInstallPort } from "../ports/collection-extensions.js";
-import type { MetadataRefreshPayload } from "../domain/domain-jobs.js";
+import {
+    METADATA_REFRESH_REASON,
+    METADATA_REFRESH_SOURCE,
+    type MetadataRefreshPayload,
+} from "../domain/domain-jobs.js";
 import type { TokenImageCachePort } from "../ports/token-image-cache.js";
 import type { QueuePort } from "../ports/queue.js";
 import type { Hex, RpcProviderPort } from "../ports/rpc.js";
@@ -111,6 +122,7 @@ import { initRuntimeApm } from "@artgod/shared/observability/apm";
 const BOOTSTRAP_BACKFILL_CHECK_DELAY_MS = 5_000;
 const TOKEN_ENUMERATION_HEARTBEAT_MS = 15_000;
 const TOKEN_ENUMERATION_PROGRESS_STEP = 1_000;
+const BOOTSTRAP_EXTENSION_ARTIFACT_PUBLISH_BATCH_SIZE = 500;
 const BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT = 100;
 const BOOTSTRAP_STARTUP_SWEEP_TRACE_PREFIX = "bootstrap:startup-sweep";
 
@@ -224,6 +236,7 @@ async function main() {
         await reconcileActiveBootstrapRuns(
             queue,
             bootstrapStorage,
+            collectionExtensions,
             bootstrapRuns,
             bootstrapSteps,
             bootstrapBackfillExecutor,
@@ -508,6 +521,7 @@ function createBootstrapBackfillQueuePort(
 async function reconcileActiveBootstrapRuns(
     queue: QueuePort,
     bootstrapStorage: BootstrapSnapshotPort,
+    collectionExtensions: CollectionExtensionInstallPort,
     bootstrapRuns: BootstrapRunsPort,
     bootstrapSteps: BootstrapStepsPort,
     backfillExecutor: BootstrapBackfillExecutor,
@@ -525,6 +539,9 @@ async function reconcileActiveBootstrapRuns(
                 await wakeBootstrapStep(
                     queue,
                     bootstrapStorage,
+                    collectionExtensions,
+                    bootstrapRuns,
+                    bootstrapSteps,
                     backfillExecutor,
                     backfillBatchSize,
                     openSeaIntegration,
@@ -616,6 +633,9 @@ function logBootstrapStartupRunResult(
 async function wakeBootstrapStep(
     queue: QueuePort,
     bootstrapStorage: BootstrapSnapshotPort,
+    collectionExtensions: CollectionExtensionInstallPort,
+    bootstrapRuns: BootstrapRunsPort,
+    bootstrapSteps: BootstrapStepsPort,
     backfillExecutor: BootstrapBackfillExecutor,
     backfillBatchSize: number,
     openSeaIntegration: OpenSeaIntegrationStatus,
@@ -683,6 +703,30 @@ async function wakeBootstrapStep(
         return;
     }
 
+    if (stepKey === BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts) {
+        await scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
+            queue,
+            collectionExtensions,
+            bootstrapStorage,
+            bootstrapRuns,
+            bootstrapSteps,
+            run,
+            traceId,
+        );
+        return;
+    }
+
+    if (isOpenSeaBootstrapStepKey(stepKey)) {
+        await scheduleOpenSeaBootstrap(queue, {
+            chainId: run.chainId,
+            collectionId: run.collectionId,
+            bootstrap: {
+                runId: run.runId,
+            },
+        });
+        return;
+    }
+
     if (stepKey === BOOTSTRAP_STEP_KEY.Ownership) {
         await scheduleOwnershipProcess(
             queue,
@@ -712,6 +756,14 @@ async function wakeBootstrapStep(
         collectionId: run.collectionId,
         stepKey,
     });
+}
+
+function isOpenSeaBootstrapStepKey(stepKey: BootstrapStepKey): boolean {
+    return (
+        stepKey === BOOTSTRAP_STEP_KEY.OpenSeaIdentity ||
+        stepKey === BOOTSTRAP_STEP_KEY.OpenSeaSnapshot ||
+        stepKey === BOOTSTRAP_STEP_KEY.OpenSeaReady
+    );
 }
 
 function getAnchoredBootstrapRun(
@@ -1031,13 +1083,10 @@ async function handleBootstrapMetadataProcess(
     const processed = await processDueMetadataTasks(
         bootstrapStorage,
         metadataDomain,
-        collectionExtensions,
-        queue,
         payload,
         metadataBatchSize,
         metadataConcurrency,
         metadataRetryPolicy,
-        traceId,
     );
 
     const counts = bootstrapStorage.getMetadataTaskCounts(payload.runId);
@@ -1108,6 +1157,15 @@ async function handleBootstrapMetadataProcess(
         payload,
         traceId,
     );
+    await scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
+        queue,
+        collectionExtensions,
+        bootstrapStorage,
+        bootstrapRuns,
+        bootstrapSteps,
+        run,
+        traceId,
+    );
 
     await continueBlockingBootstrapAfterMetadata(
         queue,
@@ -1175,6 +1233,150 @@ async function scheduleImageCacheSideLaneIfNeeded(
         traceId,
         0,
     );
+}
+
+async function scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
+    queue: QueuePort,
+    collectionExtensions: CollectionExtensionInstallPort,
+    bootstrapStorage: BootstrapSnapshotPort,
+    bootstrapRuns: BootstrapRunsPort,
+    bootstrapSteps: BootstrapStepsPort,
+    run: BootstrapRunDefinition,
+    traceId: string,
+): Promise<void> {
+    if (!run.requestExtensionKey) {
+        return;
+    }
+
+    const install = collectionExtensions.getInstall(
+        run.chainId,
+        run.collectionId,
+    );
+    if (!install?.enabled) {
+        failCollectionExtensionArtifactStep({
+            runsPort: bootstrapRuns,
+            stepsPort: bootstrapSteps,
+            run,
+            error: BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_FAILURE_MESSAGE.InstallMissing,
+        });
+        return;
+    }
+
+    const existingCounts =
+        bootstrapStorage.getCollectionExtensionArtifactTaskCounts(run.runId);
+    if (existingCounts.total <= 0) {
+        const seeded = bootstrapStorage.seedCollectionExtensionArtifactTasks({
+            runId: run.runId,
+            extensionKey: install.extensionKey,
+        });
+        const seededCounts =
+            bootstrapStorage.getCollectionExtensionArtifactTaskCounts(run.runId);
+        if (
+            completeCollectionExtensionArtifactStepIfTerminal({
+                runsPort: bootstrapRuns,
+                stepsPort: bootstrapSteps,
+                run,
+                counts: seededCounts,
+            })
+        ) {
+            return;
+        }
+        bootstrapRuns.appendRunEvent({
+            runId: run.runId,
+            chainId: run.chainId,
+            collectionId: run.collectionId,
+            eventCode:
+                BOOTSTRAP_RUN_EVENT_CODE.CollectionExtensionArtifactsQueued,
+            eventLevel: "info",
+            message: "Bootstrap collection-extension artifacts side lane queued",
+            payloadJson: JSON.stringify({
+                seeded,
+                total: seededCounts.total,
+                extensionKey: install.extensionKey,
+            }),
+        });
+    }
+
+    const counts =
+        bootstrapStorage.getCollectionExtensionArtifactTaskCounts(run.runId);
+    if (
+        completeCollectionExtensionArtifactStepIfTerminal({
+            runsPort: bootstrapRuns,
+            stepsPort: bootstrapSteps,
+            run,
+            counts,
+        })
+    ) {
+        return;
+    }
+    updateCollectionExtensionArtifactStepProgress({
+        stepsPort: bootstrapSteps,
+        runId: run.runId,
+        counts,
+    });
+    bootstrapSteps.markStepRunning(
+        run.runId,
+        BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts,
+    );
+    await publishCollectionExtensionArtifactTaskJobs(
+        queue,
+        bootstrapStorage,
+        run.runId,
+        traceId,
+    );
+}
+
+async function publishCollectionExtensionArtifactTaskJobs(
+    queue: QueuePort,
+    bootstrapStorage: BootstrapSnapshotPort,
+    runId: number,
+    traceId: string,
+): Promise<number> {
+    let cursorTokenId: string | null = null;
+    let published = 0;
+    for (;;) {
+        const tasks =
+            bootstrapStorage.listCollectionExtensionArtifactTasksToPublish(
+                runId,
+                cursorTokenId,
+                BOOTSTRAP_EXTENSION_ARTIFACT_PUBLISH_BATCH_SIZE,
+            );
+        if (tasks.length === 0) {
+            return published;
+        }
+
+        for (const task of tasks) {
+            cursorTokenId = task.tokenId;
+            published += 1;
+            await publishCollectionExtensionRefreshArtifacts(
+                queue,
+                {
+                    chainId: task.chainId,
+                    collectionId: task.collectionId,
+                    contract: task.contract,
+                    tokenId: task.tokenId,
+                    reason: METADATA_REFRESH_REASON.BootstrapSnapshot,
+                    source: METADATA_REFRESH_SOURCE.Bootstrap,
+                    bootstrap: {
+                        runId: task.runId,
+                        extensionKey: task.extensionKey,
+                    },
+                },
+                traceId,
+                {
+                    attempt: task.attempts,
+                    delayMs: Math.max(0, task.nextAttemptAt - Date.now()),
+                },
+            );
+        }
+
+        if (
+            tasks.length < BOOTSTRAP_EXTENSION_ARTIFACT_PUBLISH_BATCH_SIZE ||
+            cursorTokenId === null
+        ) {
+            return published;
+        }
+    }
 }
 
 type BootstrapImageCacheSeedState = {
@@ -1258,13 +1460,10 @@ function isRunImageCacheActive(run: {
 async function processDueMetadataTasks(
     bootstrapStorage: BootstrapSnapshotPort,
     metadataDomain: SqliteMetadataDomain,
-    collectionExtensions: CollectionExtensionInstallPort,
-    queue: QueuePort,
     payload: BootstrapMetadataProcessPayload,
     metadataBatchSize: number,
     metadataConcurrency: number,
     metadataRetryPolicy: RetryPolicy,
-    traceId: string,
 ): Promise<number> {
     const dueTasks = bootstrapStorage.listMetadataTasksDueNow(
         payload.runId,
@@ -1282,12 +1481,9 @@ async function processDueMetadataTasks(
             await processSingleMetadataTask(
                 bootstrapStorage,
                 metadataDomain,
-                collectionExtensions,
-                queue,
                 payload,
                 task,
                 metadataRetryPolicy,
-                traceId,
             );
         },
     );
@@ -1526,12 +1722,9 @@ async function processSingleImageCacheTask(
 async function processSingleMetadataTask(
     bootstrapStorage: BootstrapSnapshotPort,
     metadataDomain: SqliteMetadataDomain,
-    collectionExtensions: CollectionExtensionInstallPort,
-    queue: QueuePort,
     payload: BootstrapMetadataProcessPayload,
     task: BootstrapMetadataTask,
     metadataRetryPolicy: RetryPolicy,
-    traceId: string,
 ): Promise<void> {
     const attempts = task.attempts + 1;
     try {
@@ -1544,8 +1737,8 @@ async function processSingleMetadataTask(
             blockNumber: payload.anchorBlock,
             blockHash: payload.anchorHash,
             blockTimestamp: payload.anchorTimestamp,
-            reason: "bootstrap-snapshot",
-            source: "bootstrap",
+            reason: METADATA_REFRESH_REASON.BootstrapSnapshot,
+            source: METADATA_REFRESH_SOURCE.Bootstrap,
         };
         const updated =
             await metadataDomain.handleMetadataRefresh(refreshPayload);
@@ -1555,24 +1748,6 @@ async function processSingleMetadataTask(
                 task.tokenId,
                 attempts,
             );
-            const install = collectionExtensions.getInstall(
-                payload.chainId,
-                payload.collectionId,
-            );
-            if (install?.enabled) {
-                await publishCollectionExtensionRefreshArtifacts(
-                    queue,
-                    {
-                        chainId: payload.chainId,
-                        collectionId: payload.collectionId,
-                        contract: updated.contract,
-                        tokenId: updated.tokenId,
-                        reason: refreshPayload.reason,
-                        source: refreshPayload.source,
-                    },
-                    traceId,
-                );
-            }
             return;
         }
 
@@ -2404,7 +2579,12 @@ async function scheduleOpenSeaBootstrap(
     payload: OpenSeaBootstrapCollectionPayload,
 ): Promise<void> {
     const job: JobEnvelope<OpenSeaBootstrapCollectionPayload> = {
-        jobId: `opensea:bootstrap:${payload.chainId}:${payload.collectionId}`,
+        jobId: [
+            OPENSEA_JOB_ID_SCOPE.BootstrapCollection,
+            payload.chainId,
+            payload.bootstrap?.runId ?? payload.collectionId,
+            payload.collectionId,
+        ].join(":"),
         kind: OPENSEA_JOB_KIND.BootstrapCollection,
         queue: QUEUE_NAMES.OpenSeaBootstrap,
         payload,

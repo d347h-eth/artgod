@@ -144,6 +144,9 @@ export interface BootstrapRunsWritePort {
     };
     getRunTaskCounts(runId: number): BootstrapRunTaskCounts;
     getRunImageCacheTaskCounts(runId: number): BootstrapRunTaskCounts;
+    getRunCollectionExtensionArtifactTaskCounts(
+        runId: number,
+    ): BootstrapRunTaskCounts;
     getRunOwnershipSnapshotCount(runId: number): number;
     getRunStep(
         runId: number,

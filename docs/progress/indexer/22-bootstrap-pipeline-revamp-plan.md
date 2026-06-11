@@ -1,6 +1,7 @@
 # Bootstrap Pipeline Revamp Plan
 
-Status: in progress; first implementation pass landed; audit follow-ups pending
+Status: in progress; first implementation pass landed; side-lane terminalization
+implemented; remaining audit follow-ups pending
 
 This plan replaces the current procedural bootstrap flow with a persisted,
 stateful, idempotent pipeline. The current code and schema may be redesigned
@@ -349,15 +350,13 @@ items before calling the revamp complete.
 
 ### Critical Follow-Ups
 
-1. Make every planned side-lane step terminal.
-   `opensea_identity`, `opensea_snapshot`, `opensea_ready`, and
-   `collection_extension_artifacts` are currently planned as durable steps, but
-   no bootstrap step executor marks them `succeeded`, `skipped`, or
-   `failed_terminal`. A run can therefore keep non-blocking planned steps
-   `pending`, and the detail read model can keep polling forever. Either remove
-   these rows from the first-pass planner until they are real bootstrap steps,
-   or wire explicit terminal updates from the OpenSea and collection-extension
-   workers through a bootstrap-step port.
+1. Make every planned side-lane step terminal. Done in the side-lane
+   terminalization pass. OpenSea bootstrap jobs now carry bootstrap run context
+   and update `opensea_identity`, `opensea_snapshot`, and `opensea_ready`
+   through terminal success, skip, retry, or failed-terminal states. Collection
+   extension artifacts now use a bootstrap-owned task table and the
+   collection-extension worker writes per-token success, retry, and terminal
+   failure state back into `collection_extension_artifacts`.
 
 2. Fix successful-run temporary-data cleanup semantics.
    The plan says fully successful runs should delete per-token bootstrap task

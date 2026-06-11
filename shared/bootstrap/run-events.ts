@@ -17,6 +17,11 @@ export const BOOTSTRAP_RUN_EVENT_CODE = {
     ImageCacheCompleted: "image_cache.completed",
     ImageCacheFailed: "image_cache.failed",
     ImageCacheSkipped: "image_cache.skipped",
+    CollectionExtensionArtifactsQueued: "collection_extension_artifacts.queued",
+    CollectionExtensionArtifactsCompleted:
+        "collection_extension_artifacts.completed",
+    CollectionExtensionArtifactsFailed: "collection_extension_artifacts.failed",
+    CollectionExtensionArtifactsSkipped: "collection_extension_artifacts.skipped",
     BackfillQueued: "backfill.queued",
     OpenSeaSkipped: "opensea.skipped",
 } as const;

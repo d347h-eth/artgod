@@ -332,6 +332,16 @@ export function isBootstrapStepTerminalStatus(
     );
 }
 
+// Returns true when a fan-out task row no longer needs executor work.
+export function isBootstrapTaskTerminalStatus(
+    status: BootstrapTaskStatus,
+): boolean {
+    return (
+        status === BOOTSTRAP_TASK_STATUS.Succeeded ||
+        status === BOOTSTRAP_TASK_STATUS.FailedTerminal
+    );
+}
+
 // Dependency edges unblock only after the upstream step finished successfully or was intentionally skipped.
 export function isBootstrapStepDependencySatisfied(
     status: BootstrapStepStatus,

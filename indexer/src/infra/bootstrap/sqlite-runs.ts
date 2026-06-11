@@ -8,7 +8,6 @@ import {
     BOOTSTRAP_ACTIVE_RUN_STATUSES,
     BOOTSTRAP_RECOVERABLE_STEP_STATUSES,
     BOOTSTRAP_RUN_STATUS,
-    BOOTSTRAP_STEP_KEY,
     type BootstrapRunStatus,
 } from "@artgod/shared/bootstrap/pipeline";
 import type {
@@ -103,7 +102,6 @@ export class SqliteBootstrapRuns implements BootstrapRunsPort {
             "SELECT 1 FROM bootstrap_run_steps s " +
             "WHERE s.run_id = bootstrap_runs.run_id " +
             "AND s.blocking = 0 " +
-            "AND s.step_key = ? " +
             `AND s.status IN (${stepStatusPlaceholders})` +
             ")) " +
             "ORDER BY run_id ASC LIMIT ?";
@@ -112,7 +110,6 @@ export class SqliteBootstrapRuns implements BootstrapRunsPort {
             .all(
                 chainId,
                 ...BOOTSTRAP_ACTIVE_RUN_STATUSES,
-                BOOTSTRAP_STEP_KEY.ImageCache,
                 ...BOOTSTRAP_RECOVERABLE_STEP_STATUSES,
                 boundedLimit,
             ) as BootstrapRunDbRow[];

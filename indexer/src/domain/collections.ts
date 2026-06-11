@@ -12,15 +12,20 @@ export const COLLECTION_STANDARD = {
 export type CollectionStandard =
     (typeof COLLECTION_STANDARD)[keyof typeof COLLECTION_STANDARD];
 
+// OpenSea collection statuses are persisted on collections and read by UI flows.
+export const OPENSEA_COLLECTION_STATUS = {
+    Pending: "pending",
+    IdentityRunning: "identity_running",
+    Subscribing: "subscribing",
+    SnapshotPending: "snapshot_pending",
+    SnapshotRunning: "snapshot_running",
+    Ready: "ready",
+    Retrying: "retrying",
+    Failed: "failed",
+} as const;
+
 export type OpenSeaCollectionStatus =
-    | "pending"
-    | "identity_running"
-    | "subscribing"
-    | "snapshot_pending"
-    | "snapshot_running"
-    | "ready"
-    | "retrying"
-    | "failed";
+    (typeof OPENSEA_COLLECTION_STATUS)[keyof typeof OPENSEA_COLLECTION_STATUS];
 
 // Keep raw scope literals private to this module.
 const TOKEN_SCOPE_KIND = {

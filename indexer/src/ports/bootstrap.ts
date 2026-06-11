@@ -1,4 +1,5 @@
 import type { Hex } from "./rpc.js";
+import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import type {
     BootstrapTaskCounts,
     BootstrapTaskStatus,
@@ -92,6 +93,21 @@ export type BootstrapOwnershipTask = BootstrapOwnershipTaskSeed & {
 
 export type BootstrapOwnershipTaskCounts = BootstrapTaskCounts;
 
+export type BootstrapCollectionExtensionArtifactTask = {
+    runId: number;
+    chainId: number;
+    collectionId: number;
+    contract: string;
+    tokenId: string;
+    extensionKey: CollectionExtensionKey;
+    status: BootstrapTaskStatus;
+    attempts: number;
+    nextAttemptAt: number;
+};
+
+export type BootstrapCollectionExtensionArtifactTaskCounts =
+    BootstrapTaskCounts;
+
 export interface BootstrapSnapshotPort {
     resetSnapshot(runId: number): void;
     insertSnapshotRows(rows: BootstrapSnapshotRow[]): void;
@@ -173,4 +189,41 @@ export interface BootstrapSnapshotPort {
         failedTerminal: boolean;
     }): void;
     getOwnershipTaskCounts(runId: number): BootstrapOwnershipTaskCounts;
+    seedCollectionExtensionArtifactTasks(input: {
+        runId: number;
+        extensionKey: CollectionExtensionKey;
+    }): number;
+    listCollectionExtensionArtifactTasksDueNow(
+        runId: number,
+        nowMs: number,
+        limit: number,
+    ): BootstrapCollectionExtensionArtifactTask[];
+    listCollectionExtensionArtifactTasksToPublish(
+        runId: number,
+        cursorTokenId: string | null,
+        limit: number,
+    ): BootstrapCollectionExtensionArtifactTask[];
+    getCollectionExtensionArtifactTask(input: {
+        runId: number;
+        tokenId: string;
+        extensionKey: CollectionExtensionKey;
+    }): BootstrapCollectionExtensionArtifactTask | null;
+    markCollectionExtensionArtifactTaskSucceeded(input: {
+        runId: number;
+        tokenId: string;
+        extensionKey: CollectionExtensionKey;
+        attempts: number;
+    }): void;
+    markCollectionExtensionArtifactTaskRetry(input: {
+        runId: number;
+        tokenId: string;
+        extensionKey: CollectionExtensionKey;
+        attempts: number;
+        nextAttemptAt: number;
+        lastError: string;
+        failedTerminal: boolean;
+    }): void;
+    getCollectionExtensionArtifactTaskCounts(
+        runId: number,
+    ): BootstrapCollectionExtensionArtifactTaskCounts;
 }

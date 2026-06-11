@@ -306,6 +306,13 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
             "WHERE run_id = @runId GROUP BY status",
     );
 
+    private selectRunCollectionExtensionArtifactTaskCounts = db.prepare<{
+        runId: number;
+    }>(
+        "SELECT status, COUNT(*) AS count FROM bootstrap_collection_extension_artifact_tasks " +
+            "WHERE run_id = @runId GROUP BY status",
+    );
+
     private selectRunOwnershipSnapshotCount = db.prepare<{ runId: number }>(
         "SELECT COUNT(DISTINCT token_id) AS count FROM nft_balance_snapshots " +
             "WHERE run_id = @runId",
@@ -652,6 +659,15 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
 
     getRunImageCacheTaskCounts(runId: number): BootstrapRunTaskCounts {
         const rows = this.selectRunImageCacheTaskCounts.all({
+            runId,
+        }) as BootstrapTaskCountRow[];
+        return mapTaskCountRows(rows);
+    }
+
+    getRunCollectionExtensionArtifactTaskCounts(
+        runId: number,
+    ): BootstrapRunTaskCounts {
+        const rows = this.selectRunCollectionExtensionArtifactTaskCounts.all({
             runId,
         }) as BootstrapTaskCountRow[];
         return mapTaskCountRows(rows);

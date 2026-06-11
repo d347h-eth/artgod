@@ -6,6 +6,7 @@ import {
     BOOTSTRAP_TASK_STATUS,
     isBootstrapRunStatus,
     isBootstrapStepTerminalStatus,
+    isBootstrapTaskTerminalStatus,
     isBootstrapTaskStatus,
     mapBootstrapTaskStatusCounts,
     serializeBootstrapStepDependencies,
@@ -49,6 +50,23 @@ describe("bootstrap pipeline contract", () => {
         );
         expect(BOOTSTRAP_RECOVERABLE_STEP_STATUSES).not.toContain(
             BOOTSTRAP_STEP_STATUS.Paused,
+        );
+    });
+
+    it("identifies terminal task statuses", () => {
+        expect(
+            isBootstrapTaskTerminalStatus(BOOTSTRAP_TASK_STATUS.Succeeded),
+        ).toBe(true);
+        expect(
+            isBootstrapTaskTerminalStatus(
+                BOOTSTRAP_TASK_STATUS.FailedTerminal,
+            ),
+        ).toBe(true);
+        expect(
+            isBootstrapTaskTerminalStatus(BOOTSTRAP_TASK_STATUS.Pending),
+        ).toBe(false);
+        expect(isBootstrapTaskTerminalStatus(BOOTSTRAP_TASK_STATUS.Retry)).toBe(
+            false,
         );
     });
 

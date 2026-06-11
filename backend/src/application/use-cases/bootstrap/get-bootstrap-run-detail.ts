@@ -76,6 +76,10 @@ export class GetBootstrapRunDetailUseCase {
         const counts = this.bootstrapRunsPort.getRunTaskCounts(run.runId);
         const imageCacheCounts =
             this.bootstrapRunsPort.getRunImageCacheTaskCounts(run.runId);
+        const collectionExtensionArtifactCounts =
+            this.bootstrapRunsPort.getRunCollectionExtensionArtifactTaskCounts(
+                run.runId,
+            );
         const ownershipSnapshotCount =
             this.bootstrapRunsPort.getRunOwnershipSnapshotCount(run.runId);
         const runSteps = this.bootstrapRunsPort.listRunSteps(run.runId);
@@ -101,6 +105,8 @@ export class GetBootstrapRunDetailUseCase {
                 collection,
                 metadataTasks: counts,
                 imageCacheTasks: imageCacheCounts,
+                collectionExtensionArtifactTasks:
+                    collectionExtensionArtifactCounts,
                 ownershipSnapshotCount,
                 runSteps,
                 events,
@@ -146,6 +152,7 @@ function buildBootstrapRunFlow(input: {
     collection: CollectionBootstrapState;
     metadataTasks: BootstrapRunTaskCounts;
     imageCacheTasks: BootstrapRunTaskCounts;
+    collectionExtensionArtifactTasks: BootstrapRunTaskCounts;
     ownershipSnapshotCount: number;
     runSteps: BootstrapRunStepRecord[];
     events: BootstrapRunEventRecord[];
@@ -526,6 +533,9 @@ function formatPersistedStepDetail(
     }
     if (step.stepKey === BOOTSTRAP_STEP_KEY.ImageCache) {
         return formatImageCacheDetail(input.run, input.imageCacheTasks);
+    }
+    if (step.stepKey === BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts) {
+        return formatTaskDetail(input.collectionExtensionArtifactTasks);
     }
     return null;
 }

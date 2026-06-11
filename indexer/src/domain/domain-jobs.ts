@@ -29,6 +29,22 @@ export const METADATA_STATS_RECOMPUTE_REASON = {
 export type MetadataStatsRecomputeReason =
     (typeof METADATA_STATS_RECOMPUTE_REASON)[keyof typeof METADATA_STATS_RECOMPUTE_REASON];
 
+// Metadata refresh reasons are persisted in refresh payloads and extension jobs.
+export const METADATA_REFRESH_REASON = {
+    BootstrapSnapshot: "bootstrap-snapshot",
+} as const;
+
+export type MetadataRefreshReason =
+    (typeof METADATA_REFRESH_REASON)[keyof typeof METADATA_REFRESH_REASON];
+
+// Metadata refresh sources attribute cross-domain work to the initiating lane.
+export const METADATA_REFRESH_SOURCE = {
+    Bootstrap: "bootstrap",
+} as const;
+
+export type MetadataRefreshSource =
+    (typeof METADATA_REFRESH_SOURCE)[keyof typeof METADATA_REFRESH_SOURCE];
+
 export type DomainSyncPayload = {
     fromBlock: number;
     toBlock: number;

@@ -17,6 +17,7 @@ import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import {
     BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME,
     BOOTSTRAP_BACKFILL_STEP_RESULT_REASON,
+    BOOTSTRAP_OPENSEA_STEP_RESULT_REASON,
     BootstrapBackfillExecutor,
     type BootstrapBackfillCollectionPort,
     type BootstrapBackfillQueuePort,
@@ -68,6 +69,21 @@ describe("bootstrap backfill executor", () => {
         expect(harness.skippedSteps).toEqual([
             {
                 runId: 41,
+                stepKey: BOOTSTRAP_STEP_KEY.OpenSeaIdentity,
+                reason: BOOTSTRAP_OPENSEA_STEP_RESULT_REASON.IntegrationDisabled,
+            },
+            {
+                runId: 41,
+                stepKey: BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
+                reason: BOOTSTRAP_OPENSEA_STEP_RESULT_REASON.IntegrationDisabled,
+            },
+            {
+                runId: 41,
+                stepKey: BOOTSTRAP_STEP_KEY.OpenSeaReady,
+                reason: BOOTSTRAP_OPENSEA_STEP_RESULT_REASON.IntegrationDisabled,
+            },
+            {
+                runId: 41,
                 stepKey: BOOTSTRAP_STEP_KEY.Backfill,
                 reason: BOOTSTRAP_BACKFILL_STEP_RESULT_REASON.NoPostAnchorBlocks,
             },
@@ -115,7 +131,7 @@ describe("bootstrap backfill executor", () => {
             { chainId: 1, collectionId: 7 },
         ]);
         expect(harness.openSeaSchedules).toEqual([
-            { chainId: 1, collectionId: 7 },
+            { chainId: 1, runId: 41, collectionId: 7 },
         ]);
         expect(harness.backfillRanges).toEqual([
             {
@@ -291,7 +307,11 @@ type Harness = {
         fromBlock: number;
         toBlock: number;
     }>;
-    openSeaSchedules: Array<{ chainId: number; collectionId: number }>;
+    openSeaSchedules: Array<{
+        chainId: number;
+        runId: number;
+        collectionId: number;
+    }>;
     statsRecomputeRequests: Array<{
         payload: MetadataStatsRecomputePayload;
         traceId: string;

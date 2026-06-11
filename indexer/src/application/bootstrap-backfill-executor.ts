@@ -38,6 +38,12 @@ export const BOOTSTRAP_BACKFILL_STEP_RESULT_REASON = {
     NoPostAnchorBlocks: "no post-anchor blocks",
 } as const;
 
+// OpenSea skip reasons are persisted on bootstrap_run_steps.result_json.
+export const BOOTSTRAP_OPENSEA_STEP_RESULT_REASON = {
+    IntegrationDisabled: "integration disabled",
+    MissingSlug: "missing OpenSea slug",
+} as const;
+
 export type BootstrapBackfillScheduleInput = {
     chainId: number;
     runId: number;
@@ -135,6 +141,7 @@ export interface BootstrapBackfillQueuePort {
     }): Promise<void>;
     scheduleOpenSeaBootstrap(input: {
         chainId: number;
+        runId: number;
         collectionId: number;
     }): Promise<void>;
     publishMetadataStatsRecompute(input: {
@@ -420,6 +427,10 @@ export class BootstrapBackfillExecutor {
         input: BootstrapBackfillScheduleInput,
     ): Promise<void> {
         if (!input.openSeaIntegration.enabled) {
+            this.markOpenSeaStepsSkipped(
+                input.runId,
+                BOOTSTRAP_OPENSEA_STEP_RESULT_REASON.IntegrationDisabled,
+            );
             this.runsPort.appendRunEvent({
                 runId: input.runId,
                 chainId: input.chainId,
@@ -441,6 +452,10 @@ export class BootstrapBackfillExecutor {
             input.collectionId,
         );
         if (!collection?.openseaSlug) {
+            this.markOpenSeaStepsSkipped(
+                input.runId,
+                BOOTSTRAP_OPENSEA_STEP_RESULT_REASON.MissingSlug,
+            );
             this.runsPort.appendRunEvent({
                 runId: input.runId,
                 chainId: input.chainId,
@@ -457,8 +472,27 @@ export class BootstrapBackfillExecutor {
         this.collectionPort.markOpenSeaPending(input.chainId, input.collectionId);
         await this.queuePort.scheduleOpenSeaBootstrap({
             chainId: input.chainId,
+            runId: input.runId,
             collectionId: input.collectionId,
         });
+    }
+
+    private markOpenSeaStepsSkipped(runId: number, reason: string): void {
+        this.stepsPort.markStepSkipped(
+            runId,
+            BOOTSTRAP_STEP_KEY.OpenSeaIdentity,
+            reason,
+        );
+        this.stepsPort.markStepSkipped(
+            runId,
+            BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
+            reason,
+        );
+        this.stepsPort.markStepSkipped(
+            runId,
+            BOOTSTRAP_STEP_KEY.OpenSeaReady,
+            reason,
+        );
     }
 }
 
