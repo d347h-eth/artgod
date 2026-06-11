@@ -23,9 +23,10 @@ import {
 import { ERC721_ENUMERABLE_ABI } from "../abi/index.js";
 import { publishCollectionExtensionRefreshArtifacts } from "../application/collection-extensions/jobs.js";
 import {
-    resolveReadyBootstrapSteps,
-    resolveWakeableBootstrapSteps,
-} from "../application/bootstrap-step-reconciler.js";
+    BOOTSTRAP_STARTUP_RECONCILE_OUTCOME,
+    BootstrapStartupReconciler,
+    type BootstrapStartupReconcileRunResult,
+} from "../application/bootstrap-startup-reconciler.js";
 import { runWorker } from "../application/worker-runner.js";
 import { publishMetadataStatsRecompute } from "../application/metadata/stats-recompute.js";
 import { loadConfig } from "../config/index.js";
@@ -443,89 +444,89 @@ async function reconcileActiveBootstrapRuns(
     sweepRunLimit: number,
 ): Promise<void> {
     const traceId = `${BOOTSTRAP_STARTUP_SWEEP_TRACE_PREFIX}:${Date.now()}`;
-    const runs = bootstrapRuns.listRunsForStartupSweep(chainId, sweepRunLimit);
+    const reconciler = new BootstrapStartupReconciler(
+        bootstrapRuns,
+        bootstrapSteps,
+        {
+            wakeBootstrapStep: async ({ run, stepKey, traceId: wakeTraceId }) => {
+                await wakeBootstrapStep(
+                    rpc,
+                    queue,
+                    collections,
+                    bootstrapStorage,
+                    bootstrapRuns,
+                    bootstrapSteps,
+                    backfillBatchSize,
+                    openSeaIntegration,
+                    run,
+                    stepKey,
+                    wakeTraceId,
+                );
+            },
+        },
+    );
     logger.info("Bootstrap startup sweep started", {
         component: BOOTSTRAP_WORKER_COMPONENT,
         action: BOOTSTRAP_WORKER_ACTION.StartupSweep,
         chainId,
-        sweepRunCount: runs.length,
         sweepRunLimit,
     });
 
-    for (const run of runs) {
-        try {
-            await reconcileActiveBootstrapRun(
-                rpc,
-                queue,
-                collections,
-                bootstrapStorage,
-                bootstrapRuns,
-                bootstrapSteps,
-                backfillBatchSize,
-                openSeaIntegration,
-                run,
-                traceId,
-            );
-        } catch (error) {
-            logger.warn("Bootstrap startup sweep skipped run after error", {
-                component: BOOTSTRAP_WORKER_COMPONENT,
-                action: BOOTSTRAP_WORKER_ACTION.StartupRun,
-                runId: run.runId,
-                chainId: run.chainId,
-                collectionId: run.collectionId,
-                error: String(error),
-            });
-        }
+    const result = await reconciler.reconcile({
+        chainId,
+        limit: sweepRunLimit,
+        traceId,
+    });
+    for (const runResult of result.runs) {
+        logBootstrapStartupRunResult(runResult);
     }
 
     logger.info("Bootstrap startup sweep completed", {
         component: BOOTSTRAP_WORKER_COMPONENT,
         action: BOOTSTRAP_WORKER_ACTION.StartupSweep,
         chainId,
-        sweepRunCount: runs.length,
+        sweepRunCount: result.runs.length,
     });
 }
 
-async function reconcileActiveBootstrapRun(
-    rpc: RpcProviderPort,
-    queue: QueuePort,
-    collections: CollectionRegistryPort,
-    bootstrapStorage: BootstrapSnapshotPort,
-    bootstrapRuns: BootstrapRunsPort,
-    bootstrapSteps: BootstrapStepsPort,
-    backfillBatchSize: number,
-    openSeaIntegration: OpenSeaIntegrationStatus,
-    run: BootstrapRunDefinition,
-    traceId: string,
-): Promise<void> {
-    const steps = bootstrapSteps.listRunSteps(run.runId);
-    if (steps.length === 0) {
+function logBootstrapStartupRunResult(
+    result: BootstrapStartupReconcileRunResult,
+): void {
+    const { run } = result;
+    if (result.outcome === BOOTSTRAP_STARTUP_RECONCILE_OUTCOME.Failed) {
+        logger.warn("Bootstrap startup sweep skipped run after error", {
+            component: BOOTSTRAP_WORKER_COMPONENT,
+            action: BOOTSTRAP_WORKER_ACTION.StartupRun,
+            runId: run.runId,
+            chainId: run.chainId,
+            collectionId: run.collectionId,
+            outcome: result.outcome,
+            error: result.error,
+        });
+        return;
+    }
+
+    if (result.outcome === BOOTSTRAP_STARTUP_RECONCILE_OUTCOME.NoSteps) {
         logger.warn("Bootstrap startup sweep skipped run without steps", {
             component: BOOTSTRAP_WORKER_COMPONENT,
             action: BOOTSTRAP_WORKER_ACTION.StartupRun,
             runId: run.runId,
             chainId: run.chainId,
             collectionId: run.collectionId,
+            outcome: result.outcome,
         });
         return;
     }
 
-    const readyStepKeys = resolveReadyBootstrapSteps(steps);
-    for (const stepKey of readyStepKeys) {
-        bootstrapSteps.markStepReady(run.runId, stepKey);
-    }
-
-    const wakeableStepKeys = resolveWakeableBootstrapSteps(
-        steps,
-        readyStepKeys,
-    );
-    if (wakeableStepKeys.length === 0) {
+    if (result.outcome === BOOTSTRAP_STARTUP_RECONCILE_OUTCOME.Idle) {
         logger.debug("Bootstrap startup sweep found no wakeable steps", {
             component: BOOTSTRAP_WORKER_COMPONENT,
             action: BOOTSTRAP_WORKER_ACTION.StartupRun,
             runId: run.runId,
             chainId: run.chainId,
             collectionId: run.collectionId,
+            outcome: result.outcome,
+            readyStepKeys: result.readyStepKeys,
         });
         return;
     }
@@ -536,24 +537,10 @@ async function reconcileActiveBootstrapRun(
         runId: run.runId,
         chainId: run.chainId,
         collectionId: run.collectionId,
-        readyStepKeys,
-        wakeableStepKeys,
+        outcome: result.outcome,
+        readyStepKeys: result.readyStepKeys,
+        wakeableStepKeys: result.wakeableStepKeys,
     });
-    for (const stepKey of wakeableStepKeys) {
-        await wakeBootstrapStep(
-            rpc,
-            queue,
-            collections,
-            bootstrapStorage,
-            bootstrapRuns,
-            bootstrapSteps,
-            backfillBatchSize,
-            openSeaIntegration,
-            run,
-            stepKey,
-            traceId,
-        );
-    }
 }
 
 async function wakeBootstrapStep(

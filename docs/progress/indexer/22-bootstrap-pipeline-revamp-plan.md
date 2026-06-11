@@ -301,9 +301,9 @@ These decisions are locked for the first implementation pass:
    current first pass.
 3. Build a bootstrap pipeline planner from the bootstrap request. Done.
 4. Build orchestration/reconciliation helpers. Done for the current first pass:
-   shared dependency helpers, indexer reconciler helpers, and worker startup
+   shared dependency helpers, an indexer startup reconciler, and worker startup
    sweep now promote dependency-ready steps and republish recoverable executor
-   jobs.
+   jobs through a tested application boundary.
 5. Port anchor and enumeration into step executors. Partially done; current
    procedural start handler now records step progress.
 6. Port metadata into a taskized step executor. Done.
