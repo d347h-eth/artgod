@@ -1,6 +1,6 @@
 # Bootstrap Pipeline Revamp Plan
 
-Status: in progress; first implementation pass partially landed
+Status: in progress; first implementation pass landed; audit follow-ups pending
 
 This plan replaces the current procedural bootstrap flow with a persisted,
 stateful, idempotent pipeline. The current code and schema may be redesigned
@@ -339,9 +339,95 @@ These decisions are locked for the first implementation pass:
     E2E coverage exists; a heavier NATS/worker-process E2E remains outside this
     first pass.
 
+## Post-Implementation Audit
+
+The first implementation pass established the durable step rows, taskized
+ownership, non-blocking image-cache lane, pause/resume controls, and focused
+executor tests. The code is still a hybrid between the old procedural flow and
+the target persisted orchestrator. These follow-ups are the next required work
+items before calling the revamp complete.
+
+### Critical Follow-Ups
+
+1. Make every planned side-lane step terminal.
+   `opensea_identity`, `opensea_snapshot`, `opensea_ready`, and
+   `collection_extension_artifacts` are currently planned as durable steps, but
+   no bootstrap step executor marks them `succeeded`, `skipped`, or
+   `failed_terminal`. A run can therefore keep non-blocking planned steps
+   `pending`, and the detail read model can keep polling forever. Either remove
+   these rows from the first-pass planner until they are real bootstrap steps,
+   or wire explicit terminal updates from the OpenSea and collection-extension
+   workers through a bootstrap-step port.
+
+2. Fix successful-run temporary-data cleanup semantics.
+   The plan says fully successful runs should delete per-token bootstrap task
+   rows while preserving `bootstrap_run_steps` as the historical journal. The
+   current cleanup guard refuses deletion when any metadata or image-cache task
+   is `failed_terminal`, but `best_effort` metadata and non-blocking image cache
+   can complete a run with terminal per-token failures. Decide the policy
+   explicitly:
+   - metadata `failed_terminal` is acceptable only in `best_effort`
+   - image-cache `failed_terminal` is acceptable because image cache is
+     presentation-only and non-blocking
+   - ownership `failed_terminal` is never acceptable because ownership gates
+     collection liveness
+
+3. Replace normal forward progress handoffs with a real step reconciler.
+   Startup reconciliation can promote and wake persisted steps, but normal
+   runtime progress still depends on direct handler-to-handler scheduling:
+   anchor/enumeration inside start, metadata completion scheduling image cache
+   and ownership, and ownership completion scheduling backfill. The next pass
+   should make step completion call a shared reconciler that promotes newly
+   dependency-ready steps, claims/wakes their executor, and keeps runtime
+   handlers as bounded step processors rather than phase coordinators.
+
+### High-Priority Follow-Ups
+
+4. Generalize completed-run side-lane recovery.
+   The startup sweep currently includes completed runs only for recoverable
+   image-cache work. If OpenSea and extension artifact steps remain in
+   `bootstrap_run_steps`, completed-run recovery must become generic for
+   non-blocking recoverable steps instead of hard-coding only `image_cache`.
+
+5. Align RPC zero-data behavior and documentation.
+   The code now treats provider zero-data and historical-state unavailable
+   errors as retryable provider failures, while deterministic contract failures
+   still short-circuit. The RPC catalog still has text that groups zero returned
+   data with deterministic no-retry behavior in places. Update the catalog and
+   add focused coverage so missing methods/reverts still short-circuit quickly
+   during probing, while provider zero-data from flaky endpoints rotates/retries.
+
+6. Avoid loading `sharp` for original-byte image-cache passthrough.
+   The image cache adapter currently imports `sharp` even when no resize is
+   requested, only to inspect dimensions. For `maxDimension = null`, passthrough
+   should preserve original bytes without requiring native image processing.
+   Dimension extraction can be skipped or handled by a lightweight optional
+   probe. Resizing should remain the only path that requires `sharp`.
+
+7. Strengthen lifecycle and side-lane tests.
+   Existing lifecycle coverage validates anchor, enumeration task seeding, and
+   no-post-anchor completion through SQLite adapters, but it does not drive the
+   real metadata, ownership, image-cache, OpenSea, or extension side-lane
+   lifecycle. Add tests for:
+   - planned OpenSea/extension side-lane steps reaching terminal state
+   - successful cleanup after acceptable metadata/image-cache terminal task
+     failures
+   - ownership terminal failures blocking collection liveness
+   - completed-run startup recovery for non-blocking steps
+
+8. Remove remaining hard-coded semantic literals from new bootstrap surfaces.
+   The first pass centralized most pipeline vocabulary, but some frontend and
+   backend bootstrap code still repeats statuses, standards, route/action
+   values, and task states directly. Import the owning constants/contracts in
+   production code and tests unless a test is intentionally asserting storage or
+   wire serialization.
+
 ## Open Decisions
 
 - Whether the startup sweep should run only once at process start or also after
   reconnecting to the queue/database following transient infrastructure errors.
 - Whether ownership should expose an operator retry action separate from generic
   step resume.
+- Whether OpenSea and collection-extension work should be modeled as bootstrap
+  steps with terminal state, or shown as separate collection integration state
+  outside the bootstrap step graph until they have first-class executors.
