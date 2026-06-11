@@ -313,28 +313,31 @@ These decisions are locked for the first implementation pass:
 6. Port metadata into a taskized step executor. Done.
 7. Add taskized ownership executor. Done.
 8. Make image cache a non-blocking taskized side lane. Done.
-9. Port backfill and collection-live marking into step executors. Mostly done:
-   backfill scheduling, backfill completion checks, collection-live marking,
-   OpenSea side-lane scheduling, stats recompute wake-up, and successful
-   temporary-data cleanup now sit behind a tested application executor. The
-   runtime still wires that executor explicitly instead of a fully generic step
-   executor/orchestrator module.
+9. Port backfill and collection-live marking into step executors. Done for the
+   current first pass: backfill scheduling, backfill completion checks,
+   collection-live marking, OpenSea side-lane scheduling, stats recompute
+   wake-up, and successful temporary-data cleanup now sit behind a tested
+   application executor. The runtime still wires that executor explicitly
+   instead of a fully generic step executor/orchestrator module.
 10. Add backend run-detail read model from steps and task counts. Done.
 11. Add pause/resume backend use cases and HTTP routes. Done for metadata and
     image cache.
 12. Add frontend chip controls for metadata and image cache. Done.
 13. Update canonical bootstrap docs and RPC catalog if any interaction paths
     changed. Done for docs; RPC catalog did not need a new JSON-RPC path.
-14. Add focused backend/indexer/frontend tests, then E2E bootstrap coverage.
+14. Add focused backend/indexer/frontend tests, then E2E bootstrap coverage. Done
+    for the current first pass.
     Focused storage/reconciler tests added for the startup sweep. Anchor
     executor coverage now exercises unsupported standards, invalid anchors,
     missing collections, and successful anchoring; enumeration executor coverage
     exercises token resolution, bounded progress events, metadata task seeding,
     metadata queue wake-up, and failure attribution; backfill executor coverage
     exercises no-post-anchor completion, catch-up scheduling, catch-up
-    completion, and cleanup guards. Bootstrap probe UI and run-detail
-    pause/resume E2E coverage exists; full backend lifecycle E2E coverage
-    remains.
+    completion, and cleanup guards. A SQLite-backed lifecycle test now drives
+    anchor, enumeration task seeding, and no-post-anchor live completion through
+    the real bootstrap adapters. Bootstrap probe UI and run-detail pause/resume
+    E2E coverage exists; a heavier NATS/worker-process E2E remains outside this
+    first pass.
 
 ## Open Decisions
 
