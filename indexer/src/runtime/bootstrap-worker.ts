@@ -7,7 +7,6 @@ import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import { resolveEmbeddedCollectionExtensionInstallByKey } from "@artgod/shared/extensions/built-ins";
 import {
     BOOTSTRAP_RUN_EVENT_CODE,
-    serializeBootstrapEnumerationProgressEventPayload,
 } from "@artgod/shared/bootstrap/run-events";
 import {
     BOOTSTRAP_RUN_STATUS,
@@ -42,6 +41,7 @@ import {
     BootstrapAnchorExecutor,
     type BootstrapAnchorExecutorResult,
 } from "../application/bootstrap-anchor-executor.js";
+import { BootstrapEnumerationExecutor } from "../application/bootstrap-enumeration-executor.js";
 import { resolveManualBootstrapTokenIds } from "../application/bootstrap-token-enumeration.js";
 import { runWorker } from "../application/worker-runner.js";
 import { publishMetadataStatsRecompute } from "../application/metadata/stats-recompute.js";
@@ -83,7 +83,6 @@ import { ViemTokenUriResolver } from "../infra/metadata/viem-token-uri.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import type {
     BootstrapMetadataTask,
-    BootstrapMetadataTaskSeed,
     BootstrapSnapshotPort,
     BootstrapImageCacheTask,
     BootstrapOwnershipTask,
@@ -112,7 +111,6 @@ import { initRuntimeApm } from "@artgod/shared/observability/apm";
 const BOOTSTRAP_BACKFILL_CHECK_DELAY_MS = 5_000;
 const TOKEN_ENUMERATION_HEARTBEAT_MS = 15_000;
 const TOKEN_ENUMERATION_PROGRESS_STEP = 1_000;
-const METADATA_TASK_SEED_PROGRESS_STEP = 10_000;
 const BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT = 100;
 const BOOTSTRAP_STARTUP_SWEEP_TRACE_PREFIX = "bootstrap:startup-sweep";
 
@@ -169,6 +167,26 @@ async function main() {
             bootstrapRuns,
             bootstrapSteps,
             collections,
+        );
+        const bootstrapEnumerationExecutor = new BootstrapEnumerationExecutor(
+            {
+                resolveTokenIds: async ({ run, anchorBlock, onProgress }) =>
+                    resolveTokenIdsForRun(rpc, run, anchorBlock, onProgress),
+            },
+            bootstrapStorage,
+            bootstrapRuns,
+            bootstrapSteps,
+            {
+                scheduleMetadataProcess: async (payload, traceId, delayMs) => {
+                    await scheduleMetadataProcess(
+                        queue,
+                        payload,
+                        traceId,
+                        delayMs,
+                    );
+                },
+            },
+            TOKEN_ENUMERATION_HEARTBEAT_MS,
         );
         const bootstrapBackfillExecutor = new BootstrapBackfillExecutor(
             rpc,
@@ -236,7 +254,7 @@ async function main() {
                     if (job.kind === BOOTSTRAP_JOB_KIND.Start) {
                         await handleBootstrapStart(
                             bootstrapAnchorExecutor,
-                            rpc,
+                            bootstrapEnumerationExecutor,
                             queue,
                             collectionExtensions,
                             bootstrapStorage,
@@ -840,7 +858,7 @@ function logBootstrapAnchorResult(result: BootstrapAnchorExecutorResult): void {
 
 async function handleBootstrapStart(
     anchorExecutor: BootstrapAnchorExecutor,
-    rpc: RpcProviderPort,
+    enumerationExecutor: BootstrapEnumerationExecutor,
     queue: QueuePort,
     collectionExtensions: CollectionExtensionInstallPort,
     bootstrapStorage: BootstrapSnapshotPort,
@@ -928,304 +946,16 @@ async function handleBootstrapStart(
         run.requestExtensionKey,
     );
 
-    let activeStartStep: BootstrapStepKey = BOOTSTRAP_STEP_KEY.Enumeration;
-    try {
-        bootstrapStorage.resetSnapshot(run.runId);
-        bootstrapStorage.resetMetadataTasks(run.runId);
-        bootstrapStorage.resetImageCacheTasks(run.runId);
-        bootstrapStorage.resetOwnershipTasks(run.runId);
-        bootstrapSteps.markStepRunning(
-            run.runId,
-            BOOTSTRAP_STEP_KEY.Enumeration,
-        );
-
-        logger.info("Bootstrap token enumeration starting", {
-            component: "CollectionBootstrapWorker",
-            action: "handleBootstrapStart",
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            enumerationMode: run.enumerationMode,
+    await enumerationExecutor.execute({
+        run,
+        anchor: {
             anchorBlock,
-        });
-        bootstrapRuns.appendRunEvent({
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationStarted,
-            eventLevel: "info",
-            message: "Token enumeration started",
-            payloadJson: JSON.stringify({
-                enumerationMode: run.enumerationMode,
-                anchorBlock,
-            }),
-        });
-
-        const enumerationStartedAt = Date.now();
-        let resolvedCount = 0;
-        let totalCount: number | null = null;
-        const heartbeat = setInterval(() => {
-            logger.info("Bootstrap token enumeration in progress", {
-                component: "CollectionBootstrapWorker",
-                action: "handleBootstrapStart",
-                runId: run.runId,
-                chainId: run.chainId,
-                collectionId: run.collectionId,
-                enumerationMode: run.enumerationMode,
-                resolvedTokenIds: resolvedCount,
-                totalTokenIds: totalCount,
-                elapsedMs: Date.now() - enumerationStartedAt,
-            });
-        }, TOKEN_ENUMERATION_HEARTBEAT_MS);
-
-        let tokenIds: string[];
-        try {
-            tokenIds = await resolveTokenIdsForRun(
-                rpc,
-                run,
-                anchorBlock,
-                (progress) => {
-                    resolvedCount = progress.resolved;
-                    totalCount = progress.total;
-                    bootstrapSteps.updateStepProgress(
-                        run.runId,
-                        BOOTSTRAP_STEP_KEY.Enumeration,
-                        {
-                            completed: progress.resolved,
-                            total: progress.total,
-                        },
-                    );
-                    if (
-                        progress.resolved === progress.total ||
-                        progress.resolved % TOKEN_ENUMERATION_PROGRESS_STEP ===
-                            0
-                    ) {
-                        logger.info("Bootstrap token enumeration progress", {
-                            component: "CollectionBootstrapWorker",
-                            action: "handleBootstrapStart",
-                            runId: run.runId,
-                            chainId: run.chainId,
-                            collectionId: run.collectionId,
-                            enumerationMode: run.enumerationMode,
-                            resolvedTokenIds: progress.resolved,
-                            totalTokenIds: progress.total,
-                            elapsedMs: Date.now() - enumerationStartedAt,
-                        });
-                        if (
-                            progress.total !== null &&
-                            progress.resolved > 0 &&
-                            progress.resolved < progress.total
-                        ) {
-                            bootstrapRuns.appendRunEvent({
-                                runId: run.runId,
-                                chainId: run.chainId,
-                                collectionId: run.collectionId,
-                                eventCode:
-                                    BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationProgress,
-                                eventLevel: "info",
-                                message: "Token enumeration progress",
-                                payloadJson:
-                                    serializeBootstrapEnumerationProgressEventPayload(
-                                        {
-                                            resolved: progress.resolved,
-                                            total: progress.total,
-                                        },
-                                    ),
-                            });
-                        }
-                    }
-                },
-            );
-        } finally {
-            clearInterval(heartbeat);
-        }
-        const enumerationElapsedMs = Date.now() - enumerationStartedAt;
-        logger.info("Bootstrap token enumeration completed", {
-            component: "CollectionBootstrapWorker",
-            action: "handleBootstrapStart",
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            enumerationMode: run.enumerationMode,
-            tokenCount: tokenIds.length,
-            elapsedMs: enumerationElapsedMs,
-        });
-        bootstrapRuns.appendRunEvent({
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationCompleted,
-            eventLevel: "info",
-            message: "Token enumeration completed",
-            payloadJson: JSON.stringify({
-                enumerationMode: run.enumerationMode,
-                tokenCount: tokenIds.length,
-                elapsedMs: enumerationElapsedMs,
-            }),
-        });
-        bootstrapSteps.markStepSucceeded(
-            run.runId,
-            BOOTSTRAP_STEP_KEY.Enumeration,
-            {
-                completed: tokenIds.length,
-                total: tokenIds.length,
-            },
-        );
-        activeStartStep = BOOTSTRAP_STEP_KEY.Metadata;
-        bootstrapSteps.markStepRunning(run.runId, BOOTSTRAP_STEP_KEY.Metadata);
-
-        const writeBatchSize = Math.max(1, metadataBatchSize);
-        const normalizedContract = run.requestAddress.toLowerCase();
-        logger.info("Bootstrap metadata task seeding started", {
-            component: "CollectionBootstrapWorker",
-            action: "handleBootstrapStart",
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            tokenCount: tokenIds.length,
-            writeBatchSize,
-        });
-        let seededCount = 0;
-        // Intentionally split inserts into multiple transactions so large collections
-        // do not create one huge SQLite write transaction during bootstrap start.
-        for (
-            let cursor = 0;
-            cursor < tokenIds.length;
-            cursor += writeBatchSize
-        ) {
-            const end = Math.min(tokenIds.length, cursor + writeBatchSize);
-            const rows: BootstrapMetadataTaskSeed[] = [];
-            for (let index = cursor; index < end; index += 1) {
-                rows.push({
-                    runId: run.runId,
-                    chainId: run.chainId,
-                    collectionId: run.collectionId,
-                    contract: normalizedContract,
-                    tokenId: tokenIds[index],
-                    standard: COLLECTION_STANDARD.Erc721,
-                    anchorBlock,
-                    anchorHash,
-                    anchorTimestamp,
-                });
-            }
-            bootstrapStorage.insertMetadataTasks(rows);
-            seededCount += rows.length;
-            bootstrapSteps.updateStepProgress(
-                run.runId,
-                BOOTSTRAP_STEP_KEY.Metadata,
-                {
-                    completed: 0,
-                    total: tokenIds.length,
-                },
-            );
-            if (
-                seededCount === tokenIds.length ||
-                seededCount % METADATA_TASK_SEED_PROGRESS_STEP === 0
-            ) {
-                logger.info("Bootstrap metadata task seeding progress", {
-                    component: "CollectionBootstrapWorker",
-                    action: "handleBootstrapStart",
-                    runId: run.runId,
-                    chainId: run.chainId,
-                    collectionId: run.collectionId,
-                    seededCount,
-                    tokenCount: tokenIds.length,
-                });
-            }
-        }
-        bootstrapRuns.appendRunEvent({
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.MetadataTasksSeeded,
-            eventLevel: "info",
-            message: "Metadata tasks seeded",
-            payloadJson: JSON.stringify({
-                tokenCount: tokenIds.length,
-                writeBatchSize,
-            }),
-        });
-
-        await scheduleMetadataProcess(
-            queue,
-            {
-                chainId: run.chainId,
-                runId: run.runId,
-                collectionId: run.collectionId,
-                address: run.requestAddress,
-                standard: run.requestStandard,
-                metadataSnapshotMode: run.metadataMode,
-                anchorBlock,
-                anchorHash,
-                anchorTimestamp,
-            },
-            traceId,
-            0,
-        );
-
-        logger.info("Bootstrap metadata phase queued", {
-            component: "CollectionBootstrapWorker",
-            action: "handleBootstrapStart",
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            address: run.requestAddress,
-            standard: run.requestStandard,
-            anchorBlock,
-            metadataMode: run.metadataMode,
-            tokenCount: tokenIds.length,
-        });
-        bootstrapRuns.appendRunEvent({
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.MetadataQueued,
-            eventLevel: "info",
-            message: "Bootstrap metadata phase queued",
-            payloadJson: JSON.stringify({
-                anchorBlock,
-                metadataMode: run.metadataMode,
-                tokenCount: tokenIds.length,
-            }),
-        });
-    } catch (error) {
-        const message = String(error);
-        logger.error("Bootstrap start failed", {
-            component: "CollectionBootstrapWorker",
-            action: "handleBootstrapStart",
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            address: run.requestAddress,
-            standard: run.requestStandard,
-            anchorBlock,
-            error: message,
-        });
-        bootstrapSteps.markStepFailedTerminal({
-            runId: run.runId,
-            stepKey: activeStartStep,
-            attempts: 1,
-            error: message,
-        });
-        bootstrapRuns.updateRunStatus(
-            run.runId,
-            BOOTSTRAP_RUN_STATUS.Failed,
-            {
-                code: "bootstrap_start_failed",
-                message,
-            },
-        );
-        bootstrapRuns.appendRunEvent({
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunFailed,
-            eventLevel: "error",
-            message: "Bootstrap start failed",
-            payloadJson: JSON.stringify({ error: message }),
-        });
-        throw error;
-    }
+            anchorHash,
+            anchorTimestamp,
+        },
+        metadataBatchSize,
+        traceId,
+    });
 }
 
 async function handleBootstrapMetadataProcess(
