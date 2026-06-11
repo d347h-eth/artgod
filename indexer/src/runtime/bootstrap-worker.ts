@@ -27,6 +27,10 @@ import {
     BootstrapStartupReconciler,
     type BootstrapStartupReconcileRunResult,
 } from "../application/bootstrap-startup-reconciler.js";
+import {
+    BOOTSTRAP_BACKFILL_PLAN_KIND,
+    resolveBootstrapBackfillPlan,
+} from "../application/bootstrap-backfill-plan.js";
 import { runWorker } from "../application/worker-runner.js";
 import { publishMetadataStatsRecompute } from "../application/metadata/stats-recompute.js";
 import { loadConfig } from "../config/index.js";
@@ -2451,7 +2455,14 @@ async function ensureBackfillScheduled(
     }
 
     const head = await rpc.getBlockNumber();
-    if (head < fromBlock) {
+    const backfillPlan = resolveBootstrapBackfillPlan({
+        fromBlock,
+        headBlock: head,
+    });
+    if (
+        backfillPlan.kind ===
+        BOOTSTRAP_BACKFILL_PLAN_KIND.NoPostAnchorBlocks
+    ) {
         const updated = collections.markBootstrapFinished(
             payload.chainId,
             payload.collectionId,
@@ -2480,7 +2491,7 @@ async function ensureBackfillScheduled(
                 message: "Bootstrap completed without post-anchor backfill",
                 payloadJson: JSON.stringify({
                     anchorBlock: payload.anchorBlock,
-                    head,
+                    head: backfillPlan.headBlock,
                 }),
             });
             maybeCleanupSuccessfulBootstrapTemporaryData(
@@ -2508,7 +2519,7 @@ async function ensureBackfillScheduled(
             chainId: payload.chainId,
             collectionId: payload.collectionId,
             anchorBlock: payload.anchorBlock,
-            head,
+            head: backfillPlan.headBlock,
         });
         return;
     }
@@ -2517,8 +2528,8 @@ async function ensureBackfillScheduled(
         queue,
         payload.chainId,
         payload.collectionId,
-        fromBlock,
-        head,
+        backfillPlan.fromBlock,
+        backfillPlan.toBlock,
         backfillBatchSize,
     );
     bootstrapSteps.markStepRunning(payload.runId, BOOTSTRAP_STEP_KEY.Backfill);
@@ -2527,7 +2538,7 @@ async function ensureBackfillScheduled(
         BOOTSTRAP_STEP_KEY.Backfill,
         {
             completed: 0,
-            total: head - fromBlock + 1,
+            total: backfillPlan.totalBlocks,
         },
     );
     bootstrapRuns.updateRunStatus(payload.runId, BOOTSTRAP_RUN_STATUS.Backfill);
@@ -2539,8 +2550,8 @@ async function ensureBackfillScheduled(
         eventLevel: "info",
         message: "Bootstrap backfill queued",
         payloadJson: JSON.stringify({
-            fromBlock,
-            toBlock: head,
+            fromBlock: backfillPlan.fromBlock,
+            toBlock: backfillPlan.toBlock,
         }),
     });
     await scheduleBackfillCheck(queue, {
@@ -2548,8 +2559,8 @@ async function ensureBackfillScheduled(
         runId: payload.runId,
         collectionId: payload.collectionId,
         address: payload.address,
-        fromBlock,
-        toBlock: head,
+        fromBlock: backfillPlan.fromBlock,
+        toBlock: backfillPlan.toBlock,
     });
 
     logger.info("Bootstrap backfill queued", {
@@ -2557,8 +2568,8 @@ async function ensureBackfillScheduled(
         action: "ensureBackfillScheduled",
         chainId: payload.chainId,
         collectionId: payload.collectionId,
-        fromBlock,
-        toBlock: head,
+        fromBlock: backfillPlan.fromBlock,
+        toBlock: backfillPlan.toBlock,
     });
 }
 

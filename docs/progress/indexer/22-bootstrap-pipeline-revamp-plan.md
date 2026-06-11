@@ -310,8 +310,8 @@ These decisions are locked for the first implementation pass:
 7. Add taskized ownership executor. Done.
 8. Make image cache a non-blocking taskized side lane. Done.
 9. Port backfill and collection-live marking into step executors. Partially
-   done; current handlers record step progress but are not yet generic
-   executor modules.
+   done; backfill/live scheduling decisions are isolated behind a tested helper,
+   but current handlers are not yet generic executor modules.
 10. Add backend run-detail read model from steps and task counts. Done.
 11. Add pause/resume backend use cases and HTTP routes. Done for metadata and
     image cache.
