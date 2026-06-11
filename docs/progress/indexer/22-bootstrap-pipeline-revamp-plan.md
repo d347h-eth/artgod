@@ -311,9 +311,12 @@ These decisions are locked for the first implementation pass:
 6. Port metadata into a taskized step executor. Done.
 7. Add taskized ownership executor. Done.
 8. Make image cache a non-blocking taskized side lane. Done.
-9. Port backfill and collection-live marking into step executors. Partially
-   done; backfill/live scheduling decisions are isolated behind a tested helper,
-   but current handlers are not yet generic executor modules.
+9. Port backfill and collection-live marking into step executors. Mostly done:
+   backfill scheduling, backfill completion checks, collection-live marking,
+   OpenSea side-lane scheduling, stats recompute wake-up, and successful
+   temporary-data cleanup now sit behind a tested application executor. The
+   runtime still wires that executor explicitly instead of a fully generic step
+   executor/orchestrator module.
 10. Add backend run-detail read model from steps and task counts. Done.
 11. Add pause/resume backend use cases and HTTP routes. Done for metadata and
     image cache.
@@ -321,9 +324,11 @@ These decisions are locked for the first implementation pass:
 13. Update canonical bootstrap docs and RPC catalog if any interaction paths
     changed. Done for docs; RPC catalog did not need a new JSON-RPC path.
 14. Add focused backend/indexer/frontend tests, then E2E bootstrap coverage.
-    Focused storage/reconciler tests added for the startup sweep. Bootstrap
-    probe UI and run-detail pause/resume E2E coverage exists; full backend
-    lifecycle E2E coverage remains.
+    Focused storage/reconciler tests added for the startup sweep, and backfill
+    executor coverage now exercises no-post-anchor completion, catch-up
+    scheduling, catch-up completion, and cleanup guards. Bootstrap probe UI and
+    run-detail pause/resume E2E coverage exists; full backend lifecycle E2E
+    coverage remains.
 
 ## Open Decisions
 

@@ -29,9 +29,14 @@ import {
     type BootstrapStartupReconcileRunResult,
 } from "../application/bootstrap-startup-reconciler.js";
 import {
-    BOOTSTRAP_BACKFILL_PLAN_KIND,
-    resolveBootstrapBackfillPlan,
-} from "../application/bootstrap-backfill-plan.js";
+    BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME,
+    BootstrapBackfillExecutor,
+    cleanupSuccessfulBootstrapTemporaryData,
+    type BootstrapBackfillCheckResult,
+    type BootstrapBackfillQueuePort,
+    type BootstrapBackfillScheduleResult,
+    type BootstrapTemporaryDataCleanupResult,
+} from "../application/bootstrap-backfill-executor.js";
 import { resolveBootstrapAnchorBlock } from "../application/bootstrap-anchor-plan.js";
 import { resolveManualBootstrapTokenIds } from "../application/bootstrap-token-enumeration.js";
 import { runWorker } from "../application/worker-runner.js";
@@ -90,7 +95,6 @@ import type { MetadataRefreshPayload } from "../domain/domain-jobs.js";
 import type { TokenImageCachePort } from "../ports/token-image-cache.js";
 import type { QueuePort } from "../ports/queue.js";
 import type { Hex, RpcProviderPort } from "../ports/rpc.js";
-import type { StoragePort } from "../ports/storage.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import {
@@ -155,6 +159,15 @@ async function main() {
         const bootstrapRuns = new SqliteBootstrapRuns();
         const bootstrapSteps = new SqliteBootstrapSteps();
         const storage = new SqliteStorage();
+        const bootstrapBackfillExecutor = new BootstrapBackfillExecutor(
+            rpc,
+            storage,
+            collections,
+            bootstrapRuns,
+            bootstrapSteps,
+            bootstrapStorage,
+            createBootstrapBackfillQueuePort(queue),
+        );
         const metadataResolver = new ViemTokenUriResolver({
             endpoints: config.rpc.endpoints,
             metrics: runtimeMetrics.metrics,
@@ -180,12 +193,11 @@ async function main() {
         });
 
         await reconcileActiveBootstrapRuns(
-            rpc,
             queue,
-            collections,
             bootstrapStorage,
             bootstrapRuns,
             bootstrapSteps,
+            bootstrapBackfillExecutor,
             config.sync.backfillBatchSize,
             config.integrations.opensea,
             config.chainId,
@@ -229,13 +241,13 @@ async function main() {
 
                     if (job.kind === BOOTSTRAP_JOB_KIND.MetadataProcess) {
                         await handleBootstrapMetadataProcess(
-                            rpc,
                             queue,
                             collections,
                             collectionExtensions,
                             bootstrapStorage,
                             bootstrapRuns,
                             bootstrapSteps,
+                            bootstrapBackfillExecutor,
                             metadataDomain,
                             config.sync.backfillBatchSize,
                             config.bootstrap.snapshotBatchSize,
@@ -259,6 +271,7 @@ async function main() {
                             bootstrapStorage,
                             bootstrapRuns,
                             bootstrapSteps,
+                            bootstrapBackfillExecutor,
                             config.sync.backfillBatchSize,
                             config.bootstrap.snapshotBatchSize,
                             config.bootstrap.metadataRetryPolicy,
@@ -272,12 +285,7 @@ async function main() {
 
                     if (job.kind === BOOTSTRAP_JOB_KIND.BackfillCheck) {
                         await handleBootstrapBackfillCheck(
-                            queue,
-                            storage,
-                            bootstrapStorage,
-                            collections,
-                            bootstrapRuns,
-                            bootstrapSteps,
+                            bootstrapBackfillExecutor,
                             job.payload as BootstrapBackfillCheckPayload,
                             job.traceId ?? job.jobId,
                             job.jobId,
@@ -438,13 +446,42 @@ function summarizeRpcUrl(raw: string): string {
     }
 }
 
-async function reconcileActiveBootstrapRuns(
-    rpc: RpcProviderPort,
+function createBootstrapBackfillQueuePort(
     queue: QueuePort,
-    collections: CollectionRegistryPort,
+): BootstrapBackfillQueuePort {
+    return {
+        scheduleBackfillRange: async (input) => {
+            await scheduleBackfillRange(
+                queue,
+                input.chainId,
+                input.collectionId,
+                input.fromBlock,
+                input.toBlock,
+                input.batchSize,
+            );
+        },
+        scheduleBackfillCheck: async (input) => {
+            await scheduleBackfillCheck(queue, input);
+        },
+        scheduleOpenSeaBootstrap: async (input) => {
+            await scheduleOpenSeaBootstrap(queue, input);
+        },
+        publishMetadataStatsRecompute: async (input) => {
+            await publishMetadataStatsRecompute(
+                queue,
+                input.payload,
+                input.traceId,
+            );
+        },
+    };
+}
+
+async function reconcileActiveBootstrapRuns(
+    queue: QueuePort,
     bootstrapStorage: BootstrapSnapshotPort,
     bootstrapRuns: BootstrapRunsPort,
     bootstrapSteps: BootstrapStepsPort,
+    backfillExecutor: BootstrapBackfillExecutor,
     backfillBatchSize: number,
     openSeaIntegration: OpenSeaIntegrationStatus,
     chainId: number,
@@ -457,12 +494,9 @@ async function reconcileActiveBootstrapRuns(
         {
             wakeBootstrapStep: async ({ run, stepKey, traceId: wakeTraceId }) => {
                 await wakeBootstrapStep(
-                    rpc,
                     queue,
-                    collections,
                     bootstrapStorage,
-                    bootstrapRuns,
-                    bootstrapSteps,
+                    backfillExecutor,
                     backfillBatchSize,
                     openSeaIntegration,
                     run,
@@ -551,12 +585,9 @@ function logBootstrapStartupRunResult(
 }
 
 async function wakeBootstrapStep(
-    rpc: RpcProviderPort,
     queue: QueuePort,
-    collections: CollectionRegistryPort,
     bootstrapStorage: BootstrapSnapshotPort,
-    bootstrapRuns: BootstrapRunsPort,
-    bootstrapSteps: BootstrapStepsPort,
+    backfillExecutor: BootstrapBackfillExecutor,
     backfillBatchSize: number,
     openSeaIntegration: OpenSeaIntegrationStatus,
     run: BootstrapRunDefinition,
@@ -633,13 +664,8 @@ async function wakeBootstrapStep(
     }
 
     if (stepKey === BOOTSTRAP_STEP_KEY.Backfill) {
-        await ensureBackfillScheduled(
-            rpc,
-            queue,
-            collections,
-            bootstrapRuns,
-            bootstrapSteps,
-            bootstrapStorage,
+        await scheduleBackfillAfterSnapshot(
+            backfillExecutor,
             buildOwnershipProcessPayload(anchoredRun),
             backfillBatchSize,
             openSeaIntegration,
@@ -1247,13 +1273,13 @@ async function handleBootstrapStart(
 }
 
 async function handleBootstrapMetadataProcess(
-    rpc: RpcProviderPort,
     queue: QueuePort,
     collections: CollectionRegistryPort,
     collectionExtensions: CollectionExtensionInstallPort,
     bootstrapStorage: BootstrapSnapshotPort,
     bootstrapRuns: BootstrapRunsPort,
     bootstrapSteps: BootstrapStepsPort,
+    backfillExecutor: BootstrapBackfillExecutor,
     metadataDomain: SqliteMetadataDomain,
     backfillBatchSize: number,
     snapshotBatchSize: number,
@@ -1398,12 +1424,12 @@ async function handleBootstrapMetadataProcess(
     );
 
     await continueBlockingBootstrapAfterMetadata(
-        rpc,
         queue,
         collections,
         bootstrapStorage,
         bootstrapRuns,
         bootstrapSteps,
+        backfillExecutor,
         backfillBatchSize,
         snapshotBatchSize,
         openSeaIntegration,
@@ -1731,11 +1757,12 @@ async function handleBootstrapImageCacheProcess(
             total: counts.total,
         },
     );
-    maybeCleanupSuccessfulBootstrapTemporaryData(
+    const cleanup = cleanupSuccessfulBootstrapTemporaryData({
         bootstrapStorage,
         bootstrapRuns,
-        payload.runId,
-    );
+        runId: payload.runId,
+    });
+    logBootstrapTemporaryDataCleanup(cleanup);
 }
 
 async function processDueImageCacheTasks(
@@ -1973,48 +2000,6 @@ function markOwnershipTaskFailed(
     });
 }
 
-function maybeCleanupSuccessfulBootstrapTemporaryData(
-    bootstrapStorage: BootstrapSnapshotPort,
-    bootstrapRuns: BootstrapRunsPort,
-    runId: number,
-): void {
-    const run = bootstrapRuns.getRun(runId);
-    if (!run || run.status !== BOOTSTRAP_RUN_STATUS.Completed) {
-        return;
-    }
-
-    const metadataCounts = bootstrapStorage.getMetadataTaskCounts(runId);
-    const imageCacheCounts = bootstrapStorage.getImageCacheTaskCounts(runId);
-    const ownershipCounts = bootstrapStorage.getOwnershipTaskCounts(runId);
-    if (
-        !areBootstrapTaskCountsClean(metadataCounts) ||
-        !areBootstrapTaskCountsClean(imageCacheCounts) ||
-        !areBootstrapTaskCountsClean(ownershipCounts)
-    ) {
-        return;
-    }
-
-    bootstrapStorage.deleteRunTemporaryData(runId);
-    logger.info("Bootstrap temporary data cleaned up", {
-        component: "CollectionBootstrapWorker",
-        action: "cleanupBootstrapTemporaryData",
-        runId,
-        chainId: run.chainId,
-        collectionId: run.collectionId,
-        metadataTasks: metadataCounts.total,
-        imageCacheTasks: imageCacheCounts.total,
-        ownershipTasks: ownershipCounts.total,
-    });
-}
-
-function areBootstrapTaskCountsClean(counts: BootstrapTaskCounts): boolean {
-    return (
-        counts.pending === 0 &&
-        counts.retry === 0 &&
-        counts.failedTerminal === 0
-    );
-}
-
 function isMetadataSnapshotComplete(
     counts: {
         pending: number;
@@ -2034,12 +2019,12 @@ function isMetadataSnapshotComplete(
 }
 
 async function continueBlockingBootstrapAfterMetadata(
-    rpc: RpcProviderPort,
     queue: QueuePort,
     collections: CollectionRegistryPort,
     bootstrapStorage: BootstrapSnapshotPort,
     bootstrapRuns: BootstrapRunsPort,
     bootstrapSteps: BootstrapStepsPort,
+    backfillExecutor: BootstrapBackfillExecutor,
     backfillBatchSize: number,
     snapshotBatchSize: number,
     openSeaIntegration: OpenSeaIntegrationStatus,
@@ -2122,13 +2107,8 @@ async function continueBlockingBootstrapAfterMetadata(
         "snapshot already current",
     );
 
-    await ensureBackfillScheduled(
-        rpc,
-        queue,
-        collections,
-        bootstrapRuns,
-        bootstrapSteps,
-        bootstrapStorage,
+    await scheduleBackfillAfterSnapshot(
+        backfillExecutor,
         payload,
         backfillBatchSize,
         openSeaIntegration,
@@ -2178,6 +2158,7 @@ async function handleBootstrapOwnershipProcess(
     bootstrapStorage: BootstrapSnapshotPort,
     bootstrapRuns: BootstrapRunsPort,
     bootstrapSteps: BootstrapStepsPort,
+    backfillExecutor: BootstrapBackfillExecutor,
     backfillBatchSize: number,
     ownershipBatchSize: number,
     ownershipRetryPolicy: RetryPolicy,
@@ -2226,13 +2207,8 @@ async function handleBootstrapOwnershipProcess(
             BOOTSTRAP_STEP_KEY.Ownership,
             "snapshot already current",
         );
-        await ensureBackfillScheduled(
-            rpc,
-            queue,
-            collections,
-            bootstrapRuns,
-            bootstrapSteps,
-            bootstrapStorage,
+        await scheduleBackfillAfterSnapshot(
+            backfillExecutor,
             payload,
             backfillBatchSize,
             openSeaIntegration,
@@ -2354,13 +2330,8 @@ async function handleBootstrapOwnershipProcess(
         tokenCount: counts.total,
     });
 
-    await ensureBackfillScheduled(
-        rpc,
-        queue,
-        collections,
-        bootstrapRuns,
-        bootstrapSteps,
-        bootstrapStorage,
+    await scheduleBackfillAfterSnapshot(
+        backfillExecutor,
         payload,
         backfillBatchSize,
         openSeaIntegration,
@@ -2423,221 +2394,113 @@ async function processSingleOwnershipTask(
     }
 }
 
-async function ensureBackfillScheduled(
-    rpc: RpcProviderPort,
-    queue: QueuePort,
-    collections: CollectionRegistryPort,
-    bootstrapRuns: BootstrapRunsPort,
-    bootstrapSteps: BootstrapStepsPort,
-    bootstrapStorage: BootstrapSnapshotPort,
+async function scheduleBackfillAfterSnapshot(
+    backfillExecutor: BootstrapBackfillExecutor,
     payload: BootstrapMetadataProcessPayload | BootstrapOwnershipProcessPayload,
     backfillBatchSize: number,
     openSeaIntegration: OpenSeaIntegrationStatus,
     traceId: string,
     sourceJobId: string,
 ): Promise<void> {
-    await maybeScheduleOpenSeaBootstrap(
-        queue,
-        collections,
-        bootstrapRuns,
-        payload,
-        openSeaIntegration,
-    );
-
-    const fromBlock = payload.anchorBlock + 1;
-    if (fromBlock <= 0) {
-        logger.warn("Bootstrap backfill skipped (invalid range)", {
-            component: "CollectionBootstrapWorker",
-            action: "ensureBackfillScheduled",
-            chainId: payload.chainId,
-            collectionId: payload.collectionId,
-            fromBlock,
-            anchorBlock: payload.anchorBlock,
-        });
-        return;
-    }
-
-    const head = await rpc.getBlockNumber();
-    const backfillPlan = resolveBootstrapBackfillPlan({
-        fromBlock,
-        headBlock: head,
-    });
-    if (
-        backfillPlan.kind ===
-        BOOTSTRAP_BACKFILL_PLAN_KIND.NoPostAnchorBlocks
-    ) {
-        const updated = collections.markBootstrapFinished(
-            payload.chainId,
-            payload.collectionId,
-            payload.anchorBlock,
-        );
-        if (updated) {
-            bootstrapSteps.markStepSkipped(
-                payload.runId,
-                BOOTSTRAP_STEP_KEY.Backfill,
-                "no post-anchor blocks",
-            );
-            bootstrapSteps.markStepSucceeded(
-                payload.runId,
-                BOOTSTRAP_STEP_KEY.CollectionLive,
-            );
-            bootstrapRuns.updateRunStatus(
-                payload.runId,
-                BOOTSTRAP_RUN_STATUS.Completed,
-            );
-            bootstrapRuns.appendRunEvent({
-                runId: payload.runId,
-                chainId: payload.chainId,
-                collectionId: payload.collectionId,
-                eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunCompleted,
-                eventLevel: "info",
-                message: "Bootstrap completed without post-anchor backfill",
-                payloadJson: JSON.stringify({
-                    anchorBlock: payload.anchorBlock,
-                    head: backfillPlan.headBlock,
-                }),
-            });
-            maybeCleanupSuccessfulBootstrapTemporaryData(
-                bootstrapStorage,
-                bootstrapRuns,
-                payload.runId,
-            );
-        }
-        if (updated) {
-            await publishMetadataStatsRecompute(
-                queue,
-                {
-                    chainId: payload.chainId,
-                    collectionId: payload.collectionId,
-                    reason: "bootstrap-finalized",
-                    sourceJobId,
-                },
-                traceId,
-            );
-        }
-
-        logger.info("Bootstrap finished (no post-anchor blocks)", {
-            component: "CollectionBootstrapWorker",
-            action: "ensureBackfillScheduled",
-            chainId: payload.chainId,
-            collectionId: payload.collectionId,
-            anchorBlock: payload.anchorBlock,
-            head: backfillPlan.headBlock,
-        });
-        return;
-    }
-
-    await scheduleBackfillRange(
-        queue,
-        payload.chainId,
-        payload.collectionId,
-        backfillPlan.fromBlock,
-        backfillPlan.toBlock,
-        backfillBatchSize,
-    );
-    bootstrapSteps.markStepRunning(payload.runId, BOOTSTRAP_STEP_KEY.Backfill);
-    bootstrapSteps.updateStepProgress(
-        payload.runId,
-        BOOTSTRAP_STEP_KEY.Backfill,
-        {
-            completed: 0,
-            total: backfillPlan.totalBlocks,
-        },
-    );
-    bootstrapRuns.updateRunStatus(payload.runId, BOOTSTRAP_RUN_STATUS.Backfill);
-    bootstrapRuns.appendRunEvent({
-        runId: payload.runId,
-        chainId: payload.chainId,
-        collectionId: payload.collectionId,
-        eventCode: BOOTSTRAP_RUN_EVENT_CODE.BackfillQueued,
-        eventLevel: "info",
-        message: "Bootstrap backfill queued",
-        payloadJson: JSON.stringify({
-            fromBlock: backfillPlan.fromBlock,
-            toBlock: backfillPlan.toBlock,
-        }),
-    });
-    await scheduleBackfillCheck(queue, {
+    const result = await backfillExecutor.scheduleAfterSnapshot({
         chainId: payload.chainId,
         runId: payload.runId,
         collectionId: payload.collectionId,
         address: payload.address,
-        fromBlock: backfillPlan.fromBlock,
-        toBlock: backfillPlan.toBlock,
+        anchorBlock: payload.anchorBlock,
+        backfillBatchSize,
+        openSeaIntegration,
+        traceId,
+        sourceJobId,
     });
+    logBootstrapBackfillScheduleResult(result, payload);
+    logBootstrapTemporaryDataCleanup(result.cleanup);
+}
+
+function logBootstrapBackfillScheduleResult(
+    result: BootstrapBackfillScheduleResult,
+    payload: BootstrapMetadataProcessPayload | BootstrapOwnershipProcessPayload,
+): void {
+    if (result.outcome === BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.InvalidRange) {
+        logger.warn("Bootstrap backfill skipped (invalid range)", {
+            component: "CollectionBootstrapWorker",
+            action: "scheduleBackfillAfterSnapshot",
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+            fromBlock: result.fromBlock,
+            anchorBlock: payload.anchorBlock,
+        });
+        return;
+    }
+
+    if (
+        result.outcome ===
+        BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.CollectionMissing
+    ) {
+        logger.warn("Bootstrap finish skipped (collection missing)", {
+            component: "CollectionBootstrapWorker",
+            action: "scheduleBackfillAfterSnapshot",
+            runId: payload.runId,
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+            anchorBlock: payload.anchorBlock,
+        });
+        return;
+    }
+
+    if (
+        result.outcome ===
+        BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.CompletedWithoutBackfill
+    ) {
+        logger.info("Bootstrap finished (no post-anchor blocks)", {
+            component: "CollectionBootstrapWorker",
+            action: "scheduleBackfillAfterSnapshot",
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+            anchorBlock: payload.anchorBlock,
+            head: result.headBlock,
+        });
+        return;
+    }
 
     logger.info("Bootstrap backfill queued", {
         component: "CollectionBootstrapWorker",
-        action: "ensureBackfillScheduled",
+        action: "scheduleBackfillAfterSnapshot",
         chainId: payload.chainId,
         collectionId: payload.collectionId,
-        fromBlock: backfillPlan.fromBlock,
-        toBlock: backfillPlan.toBlock,
-    });
-}
-
-async function maybeScheduleOpenSeaBootstrap(
-    queue: QueuePort,
-    collections: CollectionRegistryPort,
-    bootstrapRuns: BootstrapRunsPort,
-    payload: BootstrapMetadataProcessPayload | BootstrapOwnershipProcessPayload,
-    openSeaIntegration: OpenSeaIntegrationStatus,
-): Promise<void> {
-    if (!openSeaIntegration.enabled) {
-        bootstrapRuns.appendRunEvent({
-            runId: payload.runId,
-            chainId: payload.chainId,
-            collectionId: payload.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.OpenSeaSkipped,
-            eventLevel: "info",
-            message:
-                "OpenSea bootstrap skipped because integration is disabled",
-            payloadJson: JSON.stringify({
-                reason: openSeaIntegration.reason,
-                missingKeys: openSeaIntegration.missingKeys,
-            }),
-        });
-        return;
-    }
-
-    const collection = collections.getCollection(
-        payload.chainId,
-        payload.collectionId,
-    );
-    if (!collection?.openseaSlug) {
-        bootstrapRuns.appendRunEvent({
-            runId: payload.runId,
-            chainId: payload.chainId,
-            collectionId: payload.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.OpenSeaSkipped,
-            eventLevel: "info",
-            message:
-                "OpenSea bootstrap skipped because no OpenSea slug is configured",
-            payloadJson: null,
-        });
-        return;
-    }
-
-    collections.markOpenSeaPending(payload.chainId, payload.collectionId);
-    await scheduleOpenSeaBootstrap(queue, {
-        chainId: payload.chainId,
-        collectionId: payload.collectionId,
+        fromBlock: result.plan?.fromBlock,
+        toBlock:
+            result.plan && "toBlock" in result.plan
+                ? result.plan.toBlock
+                : undefined,
     });
 }
 
 async function handleBootstrapBackfillCheck(
-    queue: QueuePort,
-    storage: StoragePort,
-    bootstrapStorage: BootstrapSnapshotPort,
-    collections: CollectionRegistryPort,
-    bootstrapRuns: BootstrapRunsPort,
-    bootstrapSteps: BootstrapStepsPort,
+    backfillExecutor: BootstrapBackfillExecutor,
     payload: BootstrapBackfillCheckPayload,
     traceId: string,
     sourceJobId: string,
 ): Promise<void> {
-    const expected = payload.toBlock - payload.fromBlock + 1;
-    if (expected <= 0) {
+    const result = await backfillExecutor.checkProgress({
+        chainId: payload.chainId,
+        runId: payload.runId,
+        collectionId: payload.collectionId,
+        address: payload.address,
+        fromBlock: payload.fromBlock,
+        toBlock: payload.toBlock,
+        traceId,
+        sourceJobId,
+    });
+    logBootstrapBackfillCheckResult(result, payload);
+    logBootstrapTemporaryDataCleanup(result.cleanup);
+}
+
+function logBootstrapBackfillCheckResult(
+    result: BootstrapBackfillCheckResult,
+    payload: BootstrapBackfillCheckPayload,
+): void {
+    if (result.outcome === BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.InvalidRange) {
         logger.warn("Bootstrap backfill check skipped (invalid range)", {
             component: "CollectionBootstrapWorker",
             action: "handleBootstrapBackfillCheck",
@@ -2650,21 +2513,10 @@ async function handleBootstrapBackfillCheck(
         return;
     }
 
-    const count = storage.countCollectionSyncedBlocksInRange(
-        payload.chainId,
-        payload.collectionId,
-        payload.fromBlock,
-        payload.toBlock,
-    );
-    bootstrapSteps.updateStepProgress(
-        payload.runId,
-        BOOTSTRAP_STEP_KEY.Backfill,
-        {
-            completed: count,
-            total: expected,
-        },
-    );
-    if (count < expected) {
+    if (
+        result.outcome ===
+        BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillIncomplete
+    ) {
         logger.debug("Bootstrap backfill incomplete; retrying", {
             component: "CollectionBootstrapWorker",
             action: "handleBootstrapBackfillCheck",
@@ -2673,19 +2525,16 @@ async function handleBootstrapBackfillCheck(
             collectionId: payload.collectionId,
             fromBlock: payload.fromBlock,
             toBlock: payload.toBlock,
-            count,
-            expected,
+            count: result.synced,
+            expected: result.expected,
         });
-        await scheduleBackfillCheck(queue, payload);
         return;
     }
 
-    const updated = collections.markBootstrapFinished(
-        payload.chainId,
-        payload.collectionId,
-        payload.toBlock,
-    );
-    if (!updated) {
+    if (
+        result.outcome ===
+        BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.CollectionMissing
+    ) {
         logger.warn("Bootstrap finish skipped (collection missing)", {
             component: "CollectionBootstrapWorker",
             action: "handleBootstrapBackfillCheck",
@@ -2707,46 +2556,25 @@ async function handleBootstrapBackfillCheck(
         fromBlock: payload.fromBlock,
         toBlock: payload.toBlock,
     });
-    bootstrapSteps.markStepSucceeded(payload.runId, BOOTSTRAP_STEP_KEY.Backfill, {
-        completed: expected,
-        total: expected,
-    });
-    bootstrapSteps.markStepSucceeded(
-        payload.runId,
-        BOOTSTRAP_STEP_KEY.CollectionLive,
-    );
-    bootstrapRuns.updateRunStatus(
-        payload.runId,
-        BOOTSTRAP_RUN_STATUS.Completed,
-    );
-    bootstrapRuns.appendRunEvent({
-        runId: payload.runId,
-        chainId: payload.chainId,
-        collectionId: payload.collectionId,
-        eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunCompleted,
-        eventLevel: "info",
-        message: "Bootstrap backfill complete; collection live",
-        payloadJson: JSON.stringify({
-            fromBlock: payload.fromBlock,
-            toBlock: payload.toBlock,
-        }),
-    });
-    maybeCleanupSuccessfulBootstrapTemporaryData(
-        bootstrapStorage,
-        bootstrapRuns,
-        payload.runId,
-    );
+}
 
-    await publishMetadataStatsRecompute(
-        queue,
-        {
-            chainId: payload.chainId,
-            collectionId: payload.collectionId,
-            reason: "bootstrap-finalized",
-            sourceJobId,
-        },
-        traceId,
-    );
+function logBootstrapTemporaryDataCleanup(
+    cleanup: BootstrapTemporaryDataCleanupResult,
+): void {
+    if (!cleanup.deleted) {
+        return;
+    }
+
+    logger.info("Bootstrap temporary data cleaned up", {
+        component: "CollectionBootstrapWorker",
+        action: "cleanupBootstrapTemporaryData",
+        runId: cleanup.run.runId,
+        chainId: cleanup.run.chainId,
+        collectionId: cleanup.run.collectionId,
+        metadataTasks: cleanup.metadataTasks,
+        imageCacheTasks: cleanup.imageCacheTasks,
+        ownershipTasks: cleanup.ownershipTasks,
+    });
 }
 
 async function scheduleMetadataProcess(

@@ -3,6 +3,7 @@ import {
     buildMetadataStatsRecomputeJob,
     METADATA_STATS_DEDUPE_BUCKET_MS,
 } from "../src/application/metadata/stats-recompute.js";
+import { METADATA_STATS_RECOMPUTE_REASON } from "../src/domain/domain-jobs.js";
 
 describe("metadata stats recompute jobs", () => {
     it("schedules job at bucket end (trailing edge)", () => {
@@ -11,7 +12,7 @@ describe("metadata stats recompute jobs", () => {
             {
                 chainId: 1,
                 collectionId: 7,
-                reason: "metadata-refresh",
+                reason: METADATA_STATS_RECOMPUTE_REASON.MetadataRefresh,
                 sourceJobId: "source-1",
             },
             "trace-1",
@@ -26,7 +27,7 @@ describe("metadata stats recompute jobs", () => {
         const payload = {
             chainId: 1,
             collectionId: 7,
-            reason: "metadata-refresh" as const,
+            reason: METADATA_STATS_RECOMPUTE_REASON.MetadataRefresh,
             sourceJobId: "source-1",
         };
 
