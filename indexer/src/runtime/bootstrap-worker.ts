@@ -13,6 +13,7 @@ import {
     BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_KEY,
     isBootstrapStepTerminalStatus,
+    type BootstrapEnumerationMode,
     type BootstrapStepKey,
     type BootstrapTaskCounts,
 } from "@artgod/shared/bootstrap/pipeline";
@@ -31,6 +32,8 @@ import {
     BOOTSTRAP_BACKFILL_PLAN_KIND,
     resolveBootstrapBackfillPlan,
 } from "../application/bootstrap-backfill-plan.js";
+import { resolveBootstrapAnchorBlock } from "../application/bootstrap-anchor-plan.js";
+import { resolveManualBootstrapTokenIds } from "../application/bootstrap-token-enumeration.js";
 import { runWorker } from "../application/worker-runner.js";
 import { publishMetadataStatsRecompute } from "../application/metadata/stats-recompute.js";
 import { loadConfig } from "../config/index.js";
@@ -2905,9 +2908,10 @@ async function resolveAnchorBlock(
 ): Promise<number | null> {
     // Anchor uses a confirmed head to avoid snapshots on reorg-prone blocks.
     const head = await rpc.getBlockNumber();
-    const anchor = head - Math.max(0, reorgDepth);
-    if (anchor < 1) return null;
-    return anchor;
+    return resolveBootstrapAnchorBlock({
+        headBlock: head,
+        reorgDepth,
+    });
 }
 
 async function enumerateTokenIds(
@@ -2953,7 +2957,7 @@ async function resolveTokenIdsForRun(
     rpc: RpcProviderPort,
     run: {
         requestAddress: string;
-        enumerationMode: "enumerable" | "manual_token_ids" | "manual_range";
+        enumerationMode: BootstrapEnumerationMode;
         manualTokenIdsJson: string | null;
         manualRangeStartTokenId: string | null;
         manualRangeTotalSupply: number | null;
@@ -2970,40 +2974,8 @@ async function resolveTokenIdsForRun(
         );
     }
 
-    if (run.enumerationMode === "manual_token_ids") {
-        if (!run.manualTokenIdsJson) {
-            throw new Error("manual_token_ids mode requires tokenIds payload");
-        }
-        const parsed = JSON.parse(run.manualTokenIdsJson) as unknown;
-        if (!Array.isArray(parsed) || parsed.length === 0) {
-            throw new Error("manual_token_ids payload is empty");
-        }
-        const tokenIds: string[] = [];
-        for (const value of parsed) {
-            if (typeof value !== "string" || !/^\d+$/.test(value.trim())) {
-                throw new Error(
-                    "manual_token_ids payload contains invalid token id",
-                );
-            }
-            tokenIds.push(value.trim());
-        }
-        onProgress?.({ resolved: tokenIds.length, total: tokenIds.length });
-        return tokenIds;
-    }
-
-    if (
-        run.enumerationMode === "manual_range" &&
-        run.manualRangeStartTokenId &&
-        run.manualRangeTotalSupply &&
-        Number.isInteger(run.manualRangeTotalSupply) &&
-        run.manualRangeTotalSupply > 0
-    ) {
-        const start = BigInt(run.manualRangeStartTokenId);
-        const total = run.manualRangeTotalSupply;
-        const tokenIds: string[] = [];
-        for (let index = 0; index < total; index += 1) {
-            tokenIds.push((start + BigInt(index)).toString());
-        }
+    const tokenIds = resolveManualBootstrapTokenIds(run);
+    if (tokenIds) {
         onProgress?.({ resolved: tokenIds.length, total: tokenIds.length });
         return tokenIds;
     }

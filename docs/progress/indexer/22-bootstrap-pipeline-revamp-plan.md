@@ -305,7 +305,9 @@ These decisions are locked for the first implementation pass:
    sweep now promote dependency-ready steps and republish recoverable executor
    jobs through a tested application boundary.
 5. Port anchor and enumeration into step executors. Partially done; current
-   procedural start handler now records step progress.
+   procedural start handler records step progress and delegates anchor/manual
+   enumeration decisions to tested helpers, but is not yet a generic executor
+   module.
 6. Port metadata into a taskized step executor. Done.
 7. Add taskized ownership executor. Done.
 8. Make image cache a non-blocking taskized side lane. Done.
