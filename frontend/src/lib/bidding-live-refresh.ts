@@ -28,6 +28,12 @@ type BiddingLiveRefreshAnchor = {
 	top: number;
 };
 
+type BiddingLiveRefreshAnchorMarker = {
+	kind: BiddingLiveRefreshAnchorKind;
+	value: string;
+	element: HTMLElement;
+};
+
 export type BiddingLiveRefreshAnchorSnapshot = {
 	rootTop: number | null;
 	anchors: BiddingLiveRefreshAnchor[];
@@ -139,29 +145,42 @@ export function restoreBiddingLiveRefreshAnchor(
 function resolveBiddingLiveRefreshAnchor(
 	marker: HTMLElement
 ): BiddingLiveRefreshAnchor | null {
-	const element = resolveAnchorElement(marker);
-	const top = readElementTop(element);
-	if (top === null || !isElementVisibleInViewport(element)) return null;
+	const resolved = resolveBiddingLiveRefreshAnchorMarker(marker);
+	if (!resolved) return null;
 
+	const rect = readElementRect(resolved.element);
+	if (!rect || !isElementRectVisibleInViewport(rect)) return null;
+
+	return {
+		kind: resolved.kind,
+		value: resolved.value,
+		top: rect.top
+	};
+}
+
+function resolveBiddingLiveRefreshAnchorMarker(
+	marker: HTMLElement
+): BiddingLiveRefreshAnchorMarker | null {
+	const element = resolveAnchorElement(marker);
 	if (marker.dataset.openSeaOrderHash) {
 		return {
 			kind: BIDDING_LIVE_REFRESH_ANCHOR_KIND.OpenSeaOrder,
 			value: marker.dataset.openSeaOrderHash,
-			top
+			element
 		};
 	}
 	if (marker.dataset.biddingJobId) {
 		return {
 			kind: BIDDING_LIVE_REFRESH_ANCHOR_KIND.BiddingJob,
 			value: marker.dataset.biddingJobId,
-			top
+			element
 		};
 	}
 	if (marker.dataset.tokenId) {
 		return {
 			kind: BIDDING_LIVE_REFRESH_ANCHOR_KIND.Token,
 			value: marker.dataset.tokenId,
-			top
+			element
 		};
 	}
 	return null;
@@ -172,11 +191,11 @@ function findBiddingLiveRefreshAnchorElement(
 	anchor: BiddingLiveRefreshAnchor
 ): HTMLElement | null {
 	for (const marker of root.querySelectorAll<HTMLElement>(BIDDING_LIVE_REFRESH_ANCHOR_SELECTOR)) {
-		const candidate = resolveBiddingLiveRefreshAnchor(marker);
+		const candidate = resolveBiddingLiveRefreshAnchorMarker(marker);
 		if (!candidate || candidate.kind !== anchor.kind || candidate.value !== anchor.value) {
 			continue;
 		}
-		return resolveAnchorElement(marker);
+		return candidate.element;
 	}
 	return null;
 }
@@ -188,14 +207,17 @@ function resolveAnchorElement(marker: HTMLElement): HTMLElement {
 	return marker.closest('tr') ?? marker;
 }
 
-function isElementVisibleInViewport(element: HTMLElement): boolean {
-	const rect = element.getBoundingClientRect();
+function isElementRectVisibleInViewport(rect: DOMRect): boolean {
 	return rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight;
 }
 
 function readElementTop(element: HTMLElement): number | null {
+	return readElementRect(element)?.top ?? null;
+}
+
+function readElementRect(element: HTMLElement): DOMRect | null {
 	const rect = element.getBoundingClientRect();
-	return Number.isFinite(rect.top) ? rect.top : null;
+	return Number.isFinite(rect.top) ? rect : null;
 }
 
 function restoreElementTop(element: HTMLElement, previousTop: number): void {

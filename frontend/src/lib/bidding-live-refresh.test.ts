@@ -91,6 +91,36 @@ describe('bidding live refresh', () => {
 
 		expect(scrollTo).toHaveBeenCalledWith(0, 125);
 	});
+
+	it('restores a bid row anchor after new rows push it below the viewport', () => {
+		const scrollTo = vi.fn();
+		vi.stubGlobal('window', {
+			innerHeight: 800,
+			scrollX: 0,
+			scrollY: 100,
+			scrollTo
+		});
+		const row = {
+			dataset: {},
+			getBoundingClientRect: vi
+				.fn()
+				.mockReturnValueOnce(rectAt(120, 24))
+				.mockReturnValue(rectAt(900, 24))
+		};
+		const marker = {
+			dataset: { openSeaOrderHash: '0xabc' },
+			closest: () => row
+		};
+		const root = {
+			querySelectorAll: () => [marker],
+			getBoundingClientRect: vi.fn().mockReturnValue(rectAt(20, 200))
+		};
+
+		const snapshot = captureBiddingLiveRefreshAnchor(root as unknown as HTMLElement);
+		restoreBiddingLiveRefreshAnchor(root as unknown as HTMLElement, snapshot);
+
+		expect(scrollTo).toHaveBeenCalledWith(0, 880);
+	});
 });
 
 function rectAt(top: number, height: number): DOMRect {
