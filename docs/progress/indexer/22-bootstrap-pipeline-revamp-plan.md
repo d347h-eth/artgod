@@ -358,18 +358,14 @@ items before calling the revamp complete.
    collection-extension worker writes per-token success, retry, and terminal
    failure state back into `collection_extension_artifacts`.
 
-2. Fix successful-run temporary-data cleanup semantics.
-   The plan says fully successful runs should delete per-token bootstrap task
-   rows while preserving `bootstrap_run_steps` as the historical journal. The
-   current cleanup guard refuses deletion when any metadata or image-cache task
-   is `failed_terminal`, but `best_effort` metadata and non-blocking image cache
-   can complete a run with terminal per-token failures. Decide the policy
-   explicitly:
-   - metadata `failed_terminal` is acceptable only in `best_effort`
-   - image-cache `failed_terminal` is acceptable because image cache is
-     presentation-only and non-blocking
-   - ownership `failed_terminal` is never acceptable because ownership gates
-     collection liveness
+2. Fix successful-run temporary-data cleanup semantics. Done in the
+   per-lane cleanup pass. `bootstrap_run_steps` remains the historical journal,
+   while high-volume task tables are trimmed by lane once each lane is settled:
+   metadata and image-cache delete only `succeeded` rows, image-cache can clean
+   after collection liveness, and ownership cleanup still requires zero
+   terminal ownership failures because ownership gates collection liveness.
+   `failed_terminal` rows remain available for retry/audit where the current UI
+   supports it.
 
 3. Replace normal forward progress handoffs with a real step reconciler.
    Startup reconciliation can promote and wake persisted steps, but normal

@@ -2,18 +2,20 @@ import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-int
 import {
     BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_KEY,
-    type BootstrapTaskCounts,
 } from "@artgod/shared/bootstrap/pipeline";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 import {
     METADATA_STATS_RECOMPUTE_REASON,
     type MetadataStatsRecomputePayload,
 } from "../domain/domain-jobs.js";
-import type {
-    BootstrapRunDefinition,
-    BootstrapRunsPort,
-} from "../ports/bootstrap-runs.js";
+import type { BootstrapRunsPort } from "../ports/bootstrap-runs.js";
 import type { BootstrapStepsPort } from "../ports/bootstrap-steps.js";
+import {
+    cleanupSuccessfulBootstrapTemporaryData,
+    type BootstrapTemporaryDataCleanupResult,
+    type BootstrapTemporaryDataRunsPort,
+    type BootstrapTemporaryDataStoragePort,
+} from "./bootstrap-temporary-data-cleanup.js";
 import {
     BOOTSTRAP_BACKFILL_PLAN_KIND,
     type BootstrapBackfillPlan,
@@ -84,18 +86,6 @@ export type BootstrapBackfillCheckResult = {
     synced: number;
     cleanup: BootstrapTemporaryDataCleanupResult;
 };
-
-export type BootstrapTemporaryDataCleanupResult =
-    | {
-          deleted: false;
-      }
-    | {
-          deleted: true;
-          run: BootstrapRunDefinition;
-          metadataTasks: number;
-          imageCacheTasks: number;
-          ownershipTasks: number;
-      };
 
 export interface BootstrapBackfillRpcPort {
     getBlockNumber(): Promise<number>;
@@ -494,61 +484,4 @@ export class BootstrapBackfillExecutor {
             reason,
         );
     }
-}
-
-// Deletes fan-out task rows only after the blocking run and side lanes are clean.
-export function cleanupSuccessfulBootstrapTemporaryData(input: {
-    bootstrapStorage: BootstrapTemporaryDataStoragePort;
-    bootstrapRuns: BootstrapTemporaryDataRunsPort;
-    runId: number;
-}): BootstrapTemporaryDataCleanupResult {
-    const run = input.bootstrapRuns.getRun(input.runId);
-    if (!run || run.status !== BOOTSTRAP_RUN_STATUS.Completed) {
-        return { deleted: false };
-    }
-
-    const metadataCounts = input.bootstrapStorage.getMetadataTaskCounts(
-        input.runId,
-    );
-    const imageCacheCounts = input.bootstrapStorage.getImageCacheTaskCounts(
-        input.runId,
-    );
-    const ownershipCounts = input.bootstrapStorage.getOwnershipTaskCounts(
-        input.runId,
-    );
-    if (
-        !areBootstrapTaskCountsClean(metadataCounts) ||
-        !areBootstrapTaskCountsClean(imageCacheCounts) ||
-        !areBootstrapTaskCountsClean(ownershipCounts)
-    ) {
-        return { deleted: false };
-    }
-
-    input.bootstrapStorage.deleteRunTemporaryData(input.runId);
-    return {
-        deleted: true,
-        run,
-        metadataTasks: metadataCounts.total,
-        imageCacheTasks: imageCacheCounts.total,
-        ownershipTasks: ownershipCounts.total,
-    };
-}
-
-export interface BootstrapTemporaryDataRunsPort {
-    getRun(runId: number): BootstrapRunDefinition | null;
-}
-
-export interface BootstrapTemporaryDataStoragePort {
-    deleteRunTemporaryData(runId: number): void;
-    getMetadataTaskCounts(runId: number): BootstrapTaskCounts;
-    getImageCacheTaskCounts(runId: number): BootstrapTaskCounts;
-    getOwnershipTaskCounts(runId: number): BootstrapTaskCounts;
-}
-
-function areBootstrapTaskCountsClean(counts: BootstrapTaskCounts): boolean {
-    return (
-        counts.pending === 0 &&
-        counts.retry === 0 &&
-        counts.failedTerminal === 0
-    );
 }

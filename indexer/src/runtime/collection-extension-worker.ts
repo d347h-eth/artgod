@@ -8,6 +8,10 @@ import {
     completeCollectionExtensionArtifactStepIfTerminal,
     updateCollectionExtensionArtifactStepProgress,
 } from "../application/bootstrap-collection-extension-artifacts.js";
+import {
+    cleanupSuccessfulBootstrapTemporaryData,
+    type BootstrapTemporaryDataCleanupResult,
+} from "../application/bootstrap-temporary-data-cleanup.js";
 import { resolveIndexerCollectionExtension } from "../application/collection-extensions/index.js";
 import { runWorker } from "../application/worker-runner.js";
 import { publishCollectionExtensionRefreshArtifacts } from "../application/collection-extensions/jobs.js";
@@ -366,10 +370,42 @@ function finalizeBootstrapArtifactTaskProgress(input: {
         runId: bootstrap.runId,
         counts,
     });
-    completeCollectionExtensionArtifactStepIfTerminal({
+    const terminal = completeCollectionExtensionArtifactStepIfTerminal({
         runsPort: input.bootstrapRuns,
         stepsPort: input.bootstrapSteps,
         run,
         counts,
+    });
+    if (!terminal) {
+        return;
+    }
+
+    const cleanup = cleanupSuccessfulBootstrapTemporaryData({
+        bootstrapStorage: input.bootstrapStorage,
+        bootstrapRuns: input.bootstrapRuns,
+        runId: bootstrap.runId,
+    });
+    logBootstrapTemporaryDataCleanup(cleanup);
+}
+
+function logBootstrapTemporaryDataCleanup(
+    cleanup: BootstrapTemporaryDataCleanupResult,
+): void {
+    if (!cleanup.deleted) {
+        return;
+    }
+
+    logger.info("Bootstrap temporary data cleaned up", {
+        component: "CollectionExtensionWorker",
+        action: "cleanupBootstrapTemporaryData",
+        runId: cleanup.run.runId,
+        chainId: cleanup.run.chainId,
+        collectionId: cleanup.run.collectionId,
+        metadataTasks: cleanup.metadataTasks,
+        imageCacheTasks: cleanup.imageCacheTasks,
+        ownershipTasks: cleanup.ownershipTasks,
+        ownershipSnapshotRows: cleanup.ownershipSnapshotRows,
+        collectionExtensionArtifactTasks:
+            cleanup.collectionExtensionArtifactTasks,
     });
 }

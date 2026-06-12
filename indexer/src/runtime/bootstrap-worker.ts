@@ -30,12 +30,14 @@ import {
 import {
     BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME,
     BootstrapBackfillExecutor,
-    cleanupSuccessfulBootstrapTemporaryData,
     type BootstrapBackfillCheckResult,
     type BootstrapBackfillQueuePort,
     type BootstrapBackfillScheduleResult,
-    type BootstrapTemporaryDataCleanupResult,
 } from "../application/bootstrap-backfill-executor.js";
+import {
+    cleanupSuccessfulBootstrapTemporaryData,
+    type BootstrapTemporaryDataCleanupResult,
+} from "../application/bootstrap-temporary-data-cleanup.js";
 import {
     BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_FAILURE_MESSAGE,
     completeCollectionExtensionArtifactStepIfTerminal,
@@ -2435,6 +2437,9 @@ function logBootstrapTemporaryDataCleanup(
         metadataTasks: cleanup.metadataTasks,
         imageCacheTasks: cleanup.imageCacheTasks,
         ownershipTasks: cleanup.ownershipTasks,
+        ownershipSnapshotRows: cleanup.ownershipSnapshotRows,
+        collectionExtensionArtifactTasks:
+            cleanup.collectionExtensionArtifactTasks,
     });
 }
 

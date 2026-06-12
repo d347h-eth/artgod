@@ -117,6 +117,13 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         "DELETE FROM bootstrap_metadata_snapshot_tasks " +
             "WHERE run_id = @runId",
     );
+    private deleteSucceededMetadataTasksStmt = db.prepare<{
+        runId: number;
+        succeededStatus: BootstrapMetadataTask["status"];
+    }>(
+        "DELETE FROM bootstrap_metadata_snapshot_tasks " +
+            "WHERE run_id = @runId AND status = @succeededStatus",
+    );
     private insertMetadataTaskStmt = db.prepare<
         BootstrapMetadataTaskSeed & { pendingStatus: BootstrapMetadataTask["status"] }
     >(
@@ -174,6 +181,13 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     );
     private resetImageCacheTasksStmt = db.prepare<{ runId: number }>(
         "DELETE FROM bootstrap_image_cache_tasks WHERE run_id = @runId",
+    );
+    private deleteSucceededImageCacheTasksStmt = db.prepare<{
+        runId: number;
+        succeededStatus: BootstrapImageCacheTask["status"];
+    }>(
+        "DELETE FROM bootstrap_image_cache_tasks " +
+            "WHERE run_id = @runId AND status = @succeededStatus",
     );
     private seedImageCacheTasksStmt = db.prepare<{
         runId: number;
@@ -276,6 +290,13 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     );
     private resetOwnershipTasksStmt = db.prepare<{ runId: number }>(
         "DELETE FROM bootstrap_ownership_snapshot_tasks WHERE run_id = @runId",
+    );
+    private deleteSucceededOwnershipTasksStmt = db.prepare<{
+        runId: number;
+        succeededStatus: BootstrapOwnershipTask["status"];
+    }>(
+        "DELETE FROM bootstrap_ownership_snapshot_tasks " +
+            "WHERE run_id = @runId AND status = @succeededStatus",
     );
     private insertOwnershipTaskStmt = db.prepare<
         BootstrapOwnershipTaskSeed & {
@@ -439,6 +460,19 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         "SELECT status, COUNT(*) AS count FROM bootstrap_collection_extension_artifact_tasks " +
             "WHERE run_id = @runId GROUP BY status",
     );
+    private resetCollectionExtensionArtifactTasksStmt = db.prepare<{
+        runId: number;
+    }>(
+        "DELETE FROM bootstrap_collection_extension_artifact_tasks " +
+            "WHERE run_id = @runId",
+    );
+    private deleteSucceededCollectionExtensionArtifactTasksStmt = db.prepare<{
+        runId: number;
+        succeededStatus: BootstrapCollectionExtensionArtifactTask["status"];
+    }>(
+        "DELETE FROM bootstrap_collection_extension_artifact_tasks " +
+            "WHERE run_id = @runId AND status = @succeededStatus",
+    );
 
     resetSnapshot(runId: number): void {
         this.resetSnapshotStmt.run({ runId });
@@ -478,13 +512,27 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             this.resetMetadataTasksStmt.run({ runId: targetRunId });
             this.resetImageCacheTasksStmt.run({ runId: targetRunId });
             this.resetOwnershipTasksStmt.run({ runId: targetRunId });
+            this.resetCollectionExtensionArtifactTasksStmt.run({
+                runId: targetRunId,
+            });
             this.resetSnapshotStmt.run({ runId: targetRunId });
         });
         cleanup(runId);
     }
 
+    deleteSnapshotRows(runId: number): number {
+        return this.resetSnapshotStmt.run({ runId }).changes;
+    }
+
     resetMetadataTasks(runId: number): void {
         this.resetMetadataTasksStmt.run({ runId });
+    }
+
+    deleteSucceededMetadataTasks(runId: number): number {
+        return this.deleteSucceededMetadataTasksStmt.run({
+            runId,
+            succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
+        }).changes;
     }
 
     insertMetadataTasks(rows: BootstrapMetadataTaskSeed[]): void {
@@ -569,6 +617,13 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         this.resetImageCacheTasksStmt.run({ runId });
     }
 
+    deleteSucceededImageCacheTasks(runId: number): number {
+        return this.deleteSucceededImageCacheTasksStmt.run({
+            runId,
+            succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
+        }).changes;
+    }
+
     seedImageCacheTasks(input: {
         runId: number;
         requestedMaxDimension: number | null;
@@ -649,6 +704,13 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         this.resetOwnershipTasksStmt.run({ runId });
     }
 
+    deleteSucceededOwnershipTasks(runId: number): number {
+        return this.deleteSucceededOwnershipTasksStmt.run({
+            runId,
+            succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
+        }).changes;
+    }
+
     insertOwnershipTasks(rows: BootstrapOwnershipTaskSeed[]): void {
         if (rows.length === 0) return;
         const insertMany = db.raw.transaction(
@@ -727,6 +789,13 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             runId,
         }) as BootstrapTaskStatusCountRow[];
         return mapBootstrapTaskStatusCounts(rows);
+    }
+
+    deleteSucceededCollectionExtensionArtifactTasks(runId: number): number {
+        return this.deleteSucceededCollectionExtensionArtifactTasksStmt.run({
+            runId,
+            succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
+        }).changes;
     }
 
     seedCollectionExtensionArtifactTasks(input: {

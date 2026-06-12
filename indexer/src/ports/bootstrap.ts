@@ -113,7 +113,9 @@ export interface BootstrapSnapshotPort {
     insertSnapshotRows(rows: BootstrapSnapshotRow[]): void;
     finalizeSnapshot(input: SnapshotFinalizeInput): void;
     deleteRunTemporaryData(runId: number): void;
+    deleteSnapshotRows(runId: number): number;
     resetMetadataTasks(runId: number): void;
+    deleteSucceededMetadataTasks(runId: number): number;
     insertMetadataTasks(rows: BootstrapMetadataTaskSeed[]): void;
     listMetadataTasksDueNow(
         runId: number,
@@ -136,6 +138,7 @@ export interface BootstrapSnapshotPort {
     getMetadataTaskCounts(runId: number): BootstrapMetadataTaskCounts;
     listMetadataTaskTokenIds(runId: number): string[];
     resetImageCacheTasks(runId: number): void;
+    deleteSucceededImageCacheTasks(runId: number): number;
     seedImageCacheTasks(input: {
         runId: number;
         requestedMaxDimension: number | null;
@@ -168,6 +171,7 @@ export interface BootstrapSnapshotPort {
     }): void;
     getImageCacheTaskCounts(runId: number): BootstrapImageCacheTaskCounts;
     resetOwnershipTasks(runId: number): void;
+    deleteSucceededOwnershipTasks(runId: number): number;
     insertOwnershipTasks(rows: BootstrapOwnershipTaskSeed[]): void;
     listOwnershipTasksDueNow(
         runId: number,
@@ -189,6 +193,7 @@ export interface BootstrapSnapshotPort {
         failedTerminal: boolean;
     }): void;
     getOwnershipTaskCounts(runId: number): BootstrapOwnershipTaskCounts;
+    deleteSucceededCollectionExtensionArtifactTasks(runId: number): number;
     seedCollectionExtensionArtifactTasks(input: {
         runId: number;
         extensionKey: CollectionExtensionKey;
