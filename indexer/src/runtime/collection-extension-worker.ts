@@ -12,15 +12,13 @@ import {
     cleanupSuccessfulBootstrapTemporaryData,
     type BootstrapTemporaryDataCleanupResult,
 } from "../application/bootstrap-temporary-data-cleanup.js";
-import { resolveIndexerCollectionExtension } from "../application/collection-extensions/index.js";
-import { publishMetadataStatsRecompute } from "../application/metadata/stats-recompute.js";
+import { handleCollectionExtensionRefreshArtifactsJob } from "../application/collection-extensions/refresh-artifacts-worker.js";
 import { runWorker } from "../application/worker-runner.js";
 import { publishCollectionExtensionRefreshArtifacts } from "../application/collection-extensions/jobs.js";
 import {
     COLLECTION_EXTENSION_JOB_KIND,
     type CollectionExtensionRefreshArtifactsPayload,
 } from "../domain/collection-extension-jobs.js";
-import { METADATA_STATS_RECOMPUTE_REASON } from "../domain/domain-jobs.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { getRetryDelayMs, type RetryPolicy } from "../domain/retry.js";
@@ -209,82 +207,27 @@ async function refreshArtifacts(input: {
     job: JobEnvelope<CollectionExtensionRefreshArtifactsPayload>;
 }): Promise<void> {
     const job = input.job;
-    const install = input.collectionExtensions.getInstall(
-        job.payload.chainId,
-        job.payload.collectionId,
+    const bootstrapFailureOptions = job.payload.bootstrap
+        ? {
+              installMissingError:
+                  BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_FAILURE_MESSAGE.InstallMissing,
+              implementationMissingError:
+                  BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_FAILURE_MESSAGE.ImplementationMissing,
+          }
+        : undefined;
+
+    // Delegate extension refresh while preserving bootstrap task failure semantics.
+    await handleCollectionExtensionRefreshArtifactsJob(
+        job,
+        input.queue,
+        input.rpc,
+        input.metadataFetcher,
+        input.collectionExtensions,
+        input.collectionExtensions,
+        input.collectionExtensions,
+        undefined,
+        bootstrapFailureOptions,
     );
-
-    if (!install?.enabled) {
-        if (job.payload.bootstrap) {
-            throw new Error(
-                BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_FAILURE_MESSAGE.InstallMissing,
-            );
-        }
-        logger.debug(
-            "Collection extension artifact refresh skipped; install missing",
-            {
-                component: "CollectionExtensionWorker",
-                action: "handleRefreshArtifacts",
-                chainId: job.payload.chainId,
-                collectionId: job.payload.collectionId,
-                contract: job.payload.contract,
-                tokenId: job.payload.tokenId,
-                reason: job.payload.reason,
-            },
-        );
-        return;
-    }
-
-    const extension = resolveIndexerCollectionExtension(install);
-    if (!extension) {
-        if (job.payload.bootstrap) {
-            throw new Error(
-                BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_FAILURE_MESSAGE.ImplementationMissing,
-            );
-        }
-        logger.warn(
-            "Collection extension artifact refresh skipped; extension implementation missing",
-            {
-                component: "CollectionExtensionWorker",
-                action: "handleRefreshArtifacts",
-                chainId: job.payload.chainId,
-                collectionId: install.collectionId,
-                extensionKey: install.extensionKey,
-                contract: job.payload.contract,
-                tokenId: job.payload.tokenId,
-            },
-        );
-        return;
-    }
-
-    const refreshResult = await extension.refreshArtifacts({
-        rpc: input.rpc,
-        metadataFetcher: input.metadataFetcher,
-        installs: input.collectionExtensions,
-        artifacts: input.collectionExtensions,
-        attributes: input.collectionExtensions,
-        install,
-        payload: {
-            chainId: job.payload.chainId,
-            collectionId: install.collectionId,
-            contract: job.payload.contract,
-            tokenId: job.payload.tokenId,
-            reason: job.payload.reason,
-            source: job.payload.source,
-        },
-    });
-    if (refreshResult.attributesChanged) {
-        await publishMetadataStatsRecompute(
-            input.queue,
-            {
-                chainId: job.payload.chainId,
-                collectionId: install.collectionId,
-                reason: METADATA_STATS_RECOMPUTE_REASON.CollectionExtensionTraits,
-                sourceJobId: job.jobId,
-            },
-            job.traceId ?? job.jobId,
-        );
-    }
 }
 
 function markBootstrapArtifactTaskSucceeded(input: {
