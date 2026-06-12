@@ -28,7 +28,6 @@ import {
     CollectionTokenScope,
     COLLECTION_STANDARD,
 } from "../src/domain/collections.js";
-import type { BootstrapMetadataProcessPayload } from "../src/domain/bootstrap-jobs.js";
 import type { MetadataStatsRecomputePayload } from "../src/domain/domain-jobs.js";
 import { SqliteBootstrapStorage } from "../src/infra/bootstrap/sqlite.js";
 import { SqliteBootstrapRuns } from "../src/infra/bootstrap/sqlite-runs.js";
@@ -93,11 +92,6 @@ describe("bootstrap pipeline lifecycle", () => {
         const bootstrapStorage = new SqliteBootstrapStorage();
         const collections = new SqliteCollectionRegistry();
         const storage = new SqliteStorage();
-        const metadataSchedules: Array<{
-            payload: BootstrapMetadataProcessPayload;
-            traceId: string;
-            delayMs: number;
-        }> = [];
         const statsRecomputeRequests: Array<{
             payload: MetadataStatsRecomputePayload;
             traceId: string;
@@ -122,11 +116,6 @@ describe("bootstrap pipeline lifecycle", () => {
             bootstrapStorage,
             bootstrapRuns,
             bootstrapSteps,
-            {
-                scheduleMetadataProcess: async (payload, traceId, delayMs) => {
-                    metadataSchedules.push({ payload, traceId, delayMs });
-                },
-            },
             1,
         );
         const backfillExecutor = new BootstrapBackfillExecutor(
@@ -159,17 +148,6 @@ describe("bootstrap pipeline lifecycle", () => {
             traceId: "trace-1",
         });
 
-        expect(metadataSchedules).toEqual([
-            expect.objectContaining({
-                payload: expect.objectContaining({
-                    runId,
-                    collectionId,
-                    anchorBlock: 100,
-                }),
-                traceId: "trace-1",
-                delayMs: 0,
-            }),
-        ]);
         expect(bootstrapStorage.getMetadataTaskCounts(runId)).toEqual({
             pending: 2,
             retry: 0,

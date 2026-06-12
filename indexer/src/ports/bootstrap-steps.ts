@@ -10,6 +10,9 @@ export type BootstrapStepRecord = {
     status: BootstrapStepStatus;
     blocking: boolean;
     dependsOn: BootstrapStepKey[];
+    nextAttemptAt: number;
+    leaseOwner: string | null;
+    leaseUntil: number | null;
     progressCompleted: number;
     progressTotal: number | null;
     attempts: number;
@@ -26,6 +29,26 @@ export type BootstrapStepProgress = {
 export interface BootstrapStepsPort {
     getStep(runId: number, stepKey: BootstrapStepKey): BootstrapStepRecord | null;
     listRunSteps(runId: number): BootstrapStepRecord[];
+    claimReadySteps(input: {
+        runId: number;
+        stepKeys: readonly BootstrapStepKey[];
+        leaseOwner: string;
+        leaseUntil: number;
+        nowMs: number;
+        limit: number;
+    }): BootstrapStepRecord[];
+    releaseStepLease(input: {
+        runId: number;
+        stepKey: BootstrapStepKey;
+        leaseOwner: string;
+        nextAttemptAt: number;
+    }): void;
+    releaseStepLeaseAsRunning(input: {
+        runId: number;
+        stepKey: BootstrapStepKey;
+        leaseOwner: string;
+        nextAttemptAt: number | null;
+    }): void;
     markStepReady(runId: number, stepKey: BootstrapStepKey): void;
     markStepRunning(runId: number, stepKey: BootstrapStepKey): void;
     markStepSucceeded(

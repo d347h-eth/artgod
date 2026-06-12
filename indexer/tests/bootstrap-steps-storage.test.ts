@@ -140,6 +140,87 @@ describe("bootstrap steps storage", () => {
             }),
         );
     });
+
+    it("claims and releases ready steps with a lease", () => {
+        seedStep(93, BOOTSTRAP_STEP_KEY.Metadata);
+        const steps = new SqliteBootstrapSteps();
+        steps.markStepReady(93, BOOTSTRAP_STEP_KEY.Metadata);
+
+        const claimed = steps.claimReadySteps({
+            runId: 93,
+            stepKeys: [BOOTSTRAP_STEP_KEY.Metadata],
+            leaseOwner: "test-lease",
+            leaseUntil: 2_000,
+            nowMs: 1_000,
+            limit: 1,
+        });
+
+        expect(claimed).toEqual([
+            expect.objectContaining({
+                status: BOOTSTRAP_STEP_STATUS.Running,
+                leaseOwner: "test-lease",
+                leaseUntil: 2_000,
+            }),
+        ]);
+
+        steps.releaseStepLease({
+            runId: 93,
+            stepKey: BOOTSTRAP_STEP_KEY.Metadata,
+            leaseOwner: "test-lease",
+            nextAttemptAt: 3_000,
+        });
+
+        expect(steps.getStep(93, BOOTSTRAP_STEP_KEY.Metadata)).toEqual(
+            expect.objectContaining({
+                status: BOOTSTRAP_STEP_STATUS.Ready,
+                nextAttemptAt: 3_000,
+                leaseOwner: null,
+                leaseUntil: null,
+            }),
+        );
+    });
+
+    it("claims expired running leases but not live leases", () => {
+        seedStep(94, BOOTSTRAP_STEP_KEY.Metadata);
+        const steps = new SqliteBootstrapSteps();
+        steps.markStepReady(94, BOOTSTRAP_STEP_KEY.Metadata);
+        steps.claimReadySteps({
+            runId: 94,
+            stepKeys: [BOOTSTRAP_STEP_KEY.Metadata],
+            leaseOwner: "old-lease",
+            leaseUntil: 2_000,
+            nowMs: 1_000,
+            limit: 1,
+        });
+
+        expect(
+            steps.claimReadySteps({
+                runId: 94,
+                stepKeys: [BOOTSTRAP_STEP_KEY.Metadata],
+                leaseOwner: "new-lease",
+                leaseUntil: 4_000,
+                nowMs: 1_500,
+                limit: 1,
+            }),
+        ).toEqual([]);
+
+        expect(
+            steps.claimReadySteps({
+                runId: 94,
+                stepKeys: [BOOTSTRAP_STEP_KEY.Metadata],
+                leaseOwner: "new-lease",
+                leaseUntil: 5_000,
+                nowMs: 2_500,
+                limit: 1,
+            }),
+        ).toEqual([
+            expect.objectContaining({
+                status: BOOTSTRAP_STEP_STATUS.Running,
+                leaseOwner: "new-lease",
+                leaseUntil: 5_000,
+            }),
+        ]);
+    });
 });
 
 function seedStep(

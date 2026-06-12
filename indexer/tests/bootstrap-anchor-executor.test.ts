@@ -53,6 +53,14 @@ describe("bootstrap anchor executor", () => {
         expect(harness.events.map((event) => event.eventCode)).toEqual([
             BOOTSTRAP_RUN_EVENT_CODE.RunFailed,
         ]);
+        expect(harness.failedSteps).toEqual([
+            {
+                runId: 41,
+                stepKey: BOOTSTRAP_STEP_KEY.Anchor,
+                attempts: 1,
+                error: `Unsupported standard: ${COLLECTION_STANDARD.Erc1155}`,
+            },
+        ]);
         expect(harness.runningSteps).toEqual([]);
     });
 

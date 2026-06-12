@@ -69,7 +69,7 @@ export class NatsBootstrapCommandQueue implements BootstrapCommandQueuePort {
         anchorTimestamp: number;
     }): Promise<void> {
         await this.publishJob(
-            BOOTSTRAP_QUEUE_NAME.CollectionBootstrapImageCache,
+            BOOTSTRAP_QUEUE_NAME.CollectionBootstrap,
             {
                 chainId: input.chainId,
                 runId: input.runId,
@@ -99,7 +99,7 @@ export class NatsBootstrapCommandQueue implements BootstrapCommandQueuePort {
         anchorTimestamp: number;
     }): Promise<void> {
         await this.publishJob(
-            BOOTSTRAP_QUEUE_NAME.CollectionBootstrap,
+            BOOTSTRAP_QUEUE_NAME.CollectionBootstrapImageCache,
             {
                 chainId: input.chainId,
                 runId: input.runId,

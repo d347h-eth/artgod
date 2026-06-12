@@ -117,9 +117,16 @@ export class BootstrapAnchorExecutor {
     async anchor(input: BootstrapAnchorInput): Promise<BootstrapAnchorExecutorResult> {
         const { run } = input;
         if (!isBootstrapAnchorSupportedStandard(run.requestStandard)) {
+            const message = `Unsupported standard: ${run.requestStandard}`;
+            this.stepsPort.markStepFailedTerminal({
+                runId: run.runId,
+                stepKey: BOOTSTRAP_STEP_KEY.Anchor,
+                attempts: 1,
+                error: message,
+            });
             this.runsPort.updateRunStatus(run.runId, BOOTSTRAP_RUN_STATUS.Failed, {
                 code: BOOTSTRAP_ANCHOR_FAILURE_CODE.UnsupportedStandard,
-                message: `Unsupported standard: ${run.requestStandard}`,
+                message,
             });
             this.runsPort.appendRunEvent({
                 runId: run.runId,

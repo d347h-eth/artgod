@@ -17,6 +17,9 @@ type BootstrapStepDbRow = {
     status: BootstrapStepStatus;
     blocking: number;
     depends_on_json: string | null;
+    next_attempt_at: number;
+    lease_owner: string | null;
+    lease_until: number | null;
     progress_completed: number;
     progress_total: number | null;
     attempts: number;
@@ -29,12 +32,12 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         runId: number;
         stepKey: BootstrapStepKey;
     }>(
-        "SELECT run_id, step_key, status, blocking, depends_on_json, progress_completed, progress_total, attempts, last_error " +
+        "SELECT run_id, step_key, status, blocking, depends_on_json, next_attempt_at, lease_owner, lease_until, progress_completed, progress_total, attempts, last_error " +
             "FROM bootstrap_run_steps WHERE run_id = @runId AND step_key = @stepKey LIMIT 1",
     );
 
     private selectRunStepsStmt = db.prepare<{ runId: number }>(
-        "SELECT run_id, step_key, status, blocking, depends_on_json, progress_completed, progress_total, attempts, last_error " +
+        "SELECT run_id, step_key, status, blocking, depends_on_json, next_attempt_at, lease_owner, lease_until, progress_completed, progress_total, attempts, last_error " +
             "FROM bootstrap_run_steps WHERE run_id = @runId ORDER BY rowid ASC",
     );
 
@@ -45,7 +48,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         pendingStatus: BootstrapStepStatus;
     }>(
         "UPDATE bootstrap_run_steps SET " +
-            "status = @status, next_attempt_at = 0, updated_at = CURRENT_TIMESTAMP " +
+            "status = @status, next_attempt_at = 0, lease_owner = NULL, lease_until = NULL, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey AND status = @pendingStatus",
     );
 
@@ -59,6 +62,31 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
             "WHERE run_id = @runId AND step_key = @stepKey",
     );
 
+    private releaseReadyStmt = db.prepare<{
+        runId: number;
+        stepKey: BootstrapStepKey;
+        leaseOwner: string;
+        status: BootstrapStepStatus;
+        nextAttemptAt: number;
+        runningStatus: BootstrapStepStatus;
+    }>(
+        "UPDATE bootstrap_run_steps SET " +
+            "status = @status, next_attempt_at = @nextAttemptAt, lease_owner = NULL, lease_until = NULL, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND step_key = @stepKey AND status = @runningStatus AND lease_owner = @leaseOwner",
+    );
+
+    private releaseRunningStmt = db.prepare<{
+        runId: number;
+        stepKey: BootstrapStepKey;
+        leaseOwner: string;
+        nextAttemptAt: number | null;
+        runningStatus: BootstrapStepStatus;
+    }>(
+        "UPDATE bootstrap_run_steps SET " +
+            "next_attempt_at = COALESCE(@nextAttemptAt, next_attempt_at), lease_owner = NULL, lease_until = @nextAttemptAt, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND step_key = @stepKey AND status = @runningStatus AND lease_owner = @leaseOwner",
+    );
+
     private markSucceededStmt = db.prepare<{
         runId: number;
         stepKey: BootstrapStepKey;
@@ -69,7 +97,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
     }>(
         "UPDATE bootstrap_run_steps SET " +
             "status = @status, progress_completed = @completed, progress_total = @total, result_json = @resultJson, " +
-            "last_error = NULL, last_error_at = NULL, finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP " +
+            "lease_owner = NULL, lease_until = NULL, last_error = NULL, last_error_at = NULL, finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey",
     );
 
@@ -80,7 +108,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         resultJson: string;
     }>(
         "UPDATE bootstrap_run_steps SET " +
-            "status = @status, result_json = @resultJson, last_error = NULL, last_error_at = NULL, " +
+            "status = @status, result_json = @resultJson, lease_owner = NULL, lease_until = NULL, last_error = NULL, last_error_at = NULL, " +
             "finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey",
     );
@@ -96,7 +124,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
     }>(
         "UPDATE bootstrap_run_steps SET " +
             "status = @status, attempts = @attempts, next_attempt_at = @nextAttemptAt, " +
-            "last_error = @lastError, last_error_at = @nowMs, updated_at = CURRENT_TIMESTAMP " +
+            "lease_owner = NULL, lease_until = NULL, last_error = @lastError, last_error_at = @nowMs, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey",
     );
 
@@ -109,7 +137,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         nowMs: number;
     }>(
         "UPDATE bootstrap_run_steps SET " +
-            "status = @status, attempts = @attempts, last_error = @lastError, last_error_at = @nowMs, " +
+            "status = @status, attempts = @attempts, lease_owner = NULL, lease_until = NULL, last_error = @lastError, last_error_at = @nowMs, " +
             "finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey",
     );
@@ -141,6 +169,60 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
             runId,
         }) as BootstrapStepDbRow[];
         return rows.map(mapStep);
+    }
+
+    claimReadySteps(input: {
+        runId: number;
+        stepKeys: readonly BootstrapStepKey[];
+        leaseOwner: string;
+        leaseUntil: number;
+        nowMs: number;
+        limit: number;
+    }): BootstrapStepRecord[] {
+        if (input.stepKeys.length === 0) {
+            return [];
+        }
+        const claim = db.raw.transaction(() => {
+            const candidates = selectClaimCandidates(input);
+            const claimed: BootstrapStepRecord[] = [];
+            for (const candidate of candidates) {
+                const updated = updateClaimCandidate(input, candidate);
+                if (updated <= 0) {
+                    continue;
+                }
+                const step = this.getStep(candidate.run_id, candidate.step_key);
+                if (step) {
+                    claimed.push(step);
+                }
+            }
+            return claimed;
+        });
+        return claim();
+    }
+
+    releaseStepLease(input: {
+        runId: number;
+        stepKey: BootstrapStepKey;
+        leaseOwner: string;
+        nextAttemptAt: number;
+    }): void {
+        this.releaseReadyStmt.run({
+            ...input,
+            status: BOOTSTRAP_STEP_STATUS.Ready,
+            runningStatus: BOOTSTRAP_STEP_STATUS.Running,
+        });
+    }
+
+    releaseStepLeaseAsRunning(input: {
+        runId: number;
+        stepKey: BootstrapStepKey;
+        leaseOwner: string;
+        nextAttemptAt: number | null;
+    }): void {
+        this.releaseRunningStmt.run({
+            ...input,
+            runningStatus: BOOTSTRAP_STEP_STATUS.Running,
+        });
     }
 
     markStepReady(runId: number, stepKey: BootstrapStepKey): void {
@@ -247,9 +329,71 @@ function mapStep(row: BootstrapStepDbRow): BootstrapStepRecord {
         status: row.status,
         blocking: row.blocking === 1,
         dependsOn: parseBootstrapStepDependencies(row.depends_on_json),
+        nextAttemptAt: row.next_attempt_at,
+        leaseOwner: row.lease_owner,
+        leaseUntil: row.lease_until,
         progressCompleted: row.progress_completed,
         progressTotal: row.progress_total,
         attempts: row.attempts,
         lastError: row.last_error,
     };
+}
+
+function selectClaimCandidates(input: {
+    runId: number;
+    stepKeys: readonly BootstrapStepKey[];
+    nowMs: number;
+    limit: number;
+}): BootstrapStepDbRow[] {
+    const stepKeyPlaceholders = input.stepKeys.map(() => "?").join(", ");
+    const sql =
+        "SELECT run_id, step_key, status, blocking, depends_on_json, next_attempt_at, lease_owner, lease_until, progress_completed, progress_total, attempts, last_error " +
+        "FROM bootstrap_run_steps " +
+        `WHERE run_id = ? AND step_key IN (${stepKeyPlaceholders}) ` +
+        "AND (" +
+        "(status IN (?, ?) AND next_attempt_at <= ? AND (lease_until IS NULL OR lease_until <= ?)) " +
+        "OR (status = ? AND lease_until IS NOT NULL AND lease_until <= ?)" +
+        ") ORDER BY rowid ASC LIMIT ?";
+    return db.raw.prepare(sql).all(
+        input.runId,
+        ...input.stepKeys,
+        BOOTSTRAP_STEP_STATUS.Ready,
+        BOOTSTRAP_STEP_STATUS.FailedRetry,
+        input.nowMs,
+        input.nowMs,
+        BOOTSTRAP_STEP_STATUS.Running,
+        input.nowMs,
+        Math.max(1, input.limit),
+    ) as BootstrapStepDbRow[];
+}
+
+function updateClaimCandidate(
+    input: {
+        leaseOwner: string;
+        leaseUntil: number;
+        nowMs: number;
+    },
+    candidate: BootstrapStepDbRow,
+): number {
+    const result = db.raw.prepare(
+        "UPDATE bootstrap_run_steps SET " +
+            "status = ?, lease_owner = ?, lease_until = ?, started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = ? AND step_key = ? AND (" +
+            "(status IN (?, ?) AND next_attempt_at <= ? AND (lease_until IS NULL OR lease_until <= ?)) " +
+            "OR (status = ? AND lease_until IS NOT NULL AND lease_until <= ?)" +
+            ")",
+    ).run(
+        BOOTSTRAP_STEP_STATUS.Running,
+        input.leaseOwner,
+        input.leaseUntil,
+        candidate.run_id,
+        candidate.step_key,
+        BOOTSTRAP_STEP_STATUS.Ready,
+        BOOTSTRAP_STEP_STATUS.FailedRetry,
+        input.nowMs,
+        input.nowMs,
+        BOOTSTRAP_STEP_STATUS.Running,
+        input.nowMs,
+    );
+    return result.changes;
 }

@@ -367,14 +367,14 @@ items before calling the revamp complete.
    `failed_terminal` rows remain available for retry/audit where the current UI
    supports it.
 
-3. Replace normal forward progress handoffs with a real step reconciler.
-   Startup reconciliation can promote and wake persisted steps, but normal
-   runtime progress still depends on direct handler-to-handler scheduling:
-   anchor/enumeration inside start, metadata completion scheduling image cache
-   and ownership, and ownership completion scheduling backfill. The next pass
-   should make step completion call a shared reconciler that promotes newly
-   dependency-ready steps, claims/wakes their executor, and keeps runtime
-   handlers as bounded step processors rather than phase coordinators.
+3. Replace normal forward progress handoffs with a real step reconciler. Done
+   in the lease-based executor pass. The bootstrap worker now runs main and
+   image-cache lanes through a shared step orchestrator that reconciles
+   dependency-ready steps, claims due work from `bootstrap_run_steps`, executes
+   bounded step processors, releases leases for retryable/incomplete work, and
+   wakes out-of-lane side steps. Direct phase handoffs from metadata to image
+   cache/ownership and from ownership to backfill were removed from the normal
+   path; those transitions are now driven by persisted step dependencies.
 
 ### High-Priority Follow-Ups
 

@@ -9,7 +9,6 @@ import {
     serializeBootstrapEnumerationProgressEventPayload,
 } from "@artgod/shared/bootstrap/run-events";
 import { COLLECTION_STANDARD } from "../domain/collections.js";
-import type { BootstrapMetadataProcessPayload } from "../domain/bootstrap-jobs.js";
 import type { BootstrapMetadataTaskSeed } from "../ports/bootstrap.js";
 import type { BootstrapRunDefinition } from "../ports/bootstrap-runs.js";
 import type { Hex } from "../ports/rpc.js";
@@ -121,14 +120,6 @@ export interface BootstrapEnumerationStepsPort {
     ): void;
 }
 
-export interface BootstrapEnumerationQueuePort {
-    scheduleMetadataProcess(
-        payload: BootstrapMetadataProcessPayload,
-        traceId: string,
-        delayMs: number,
-    ): Promise<void>;
-}
-
 // Executes token enumeration and durable metadata task seeding for a bootstrap run.
 export class BootstrapEnumerationExecutor {
     constructor(
@@ -136,7 +127,6 @@ export class BootstrapEnumerationExecutor {
         private readonly storagePort: BootstrapEnumerationStoragePort,
         private readonly runsPort: BootstrapEnumerationRunsPort,
         private readonly stepsPort: BootstrapEnumerationStepsPort,
-        private readonly queuePort: BootstrapEnumerationQueuePort,
         private readonly heartbeatMs: number,
     ) {}
 
@@ -174,23 +164,7 @@ export class BootstrapEnumerationExecutor {
             this.completeEnumeration(run, tokenIds.length, elapsedMs);
 
             activeStep = BOOTSTRAP_STEP_KEY.Metadata;
-            this.stepsPort.markStepRunning(run.runId, BOOTSTRAP_STEP_KEY.Metadata);
             this.seedMetadataTasks(run, anchor, tokenIds, input.metadataBatchSize);
-            await this.queuePort.scheduleMetadataProcess(
-                {
-                    chainId: run.chainId,
-                    runId: run.runId,
-                    collectionId: run.collectionId,
-                    address: run.requestAddress,
-                    standard: run.requestStandard,
-                    metadataSnapshotMode: run.metadataMode,
-                    anchorBlock: anchor.anchorBlock,
-                    anchorHash: anchor.anchorHash,
-                    anchorTimestamp: anchor.anchorTimestamp,
-                },
-                input.traceId,
-                0,
-            );
             this.runsPort.appendRunEvent({
                 runId: run.runId,
                 chainId: run.chainId,

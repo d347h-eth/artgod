@@ -14,14 +14,12 @@ import {
     BOOTSTRAP_ENUMERATION_FAILURE_CODE,
     BOOTSTRAP_ENUMERATION_PROGRESS_EVENT_STEP,
     BootstrapEnumerationExecutor,
-    type BootstrapEnumerationQueuePort,
     type BootstrapEnumerationResolverPort,
     type BootstrapEnumerationRunsPort,
     type BootstrapEnumerationStepsPort,
     type BootstrapEnumerationStoragePort,
 } from "../src/application/bootstrap-enumeration-executor.js";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
-import type { BootstrapMetadataProcessPayload } from "../src/domain/bootstrap-jobs.js";
 import type { BootstrapMetadataTaskSeed } from "../src/ports/bootstrap.js";
 import type { BootstrapRunDefinition } from "../src/ports/bootstrap-runs.js";
 
@@ -34,7 +32,7 @@ const TEST_ANCHOR = {
 } as const;
 
 describe("bootstrap enumeration executor", () => {
-    it("enumerates tokens, seeds metadata tasks, and queues metadata processing", async () => {
+    it("enumerates tokens and seeds metadata tasks", async () => {
         const harness = createHarness({
             tokenIds: ["1", "2", "3"],
             progress: [
@@ -64,7 +62,6 @@ describe("bootstrap enumeration executor", () => {
         ]);
         expect(harness.runningSteps).toEqual([
             { runId: 41, stepKey: BOOTSTRAP_STEP_KEY.Enumeration },
-            { runId: 41, stepKey: BOOTSTRAP_STEP_KEY.Metadata },
         ]);
         expect(harness.insertedMetadataBatches.map((batch) => batch.length)).toEqual([
             2,
@@ -83,23 +80,6 @@ describe("bootstrap enumeration executor", () => {
                 tokenId: "1",
             }),
         );
-        expect(harness.metadataSchedules).toEqual([
-            {
-                payload: {
-                    chainId: 1,
-                    runId: 41,
-                    collectionId: 7,
-                    address: TEST_CONTRACT_ADDRESS,
-                    standard: COLLECTION_STANDARD.Erc721,
-                    metadataSnapshotMode: BOOTSTRAP_METADATA_MODE.BestEffort,
-                    anchorBlock: TEST_ANCHOR.anchorBlock,
-                    anchorHash: TEST_ANCHOR.anchorHash,
-                    anchorTimestamp: TEST_ANCHOR.anchorTimestamp,
-                },
-                traceId: "trace-1",
-                delayMs: 0,
-            },
-        ]);
         expect(harness.events.map((event) => event.eventCode)).toEqual([
             BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationStarted,
             BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationCompleted,
@@ -193,7 +173,6 @@ describe("bootstrap enumeration executor", () => {
                 error: "Error: seed failed",
             },
         ]);
-        expect(harness.metadataSchedules).toEqual([]);
     });
 });
 
@@ -225,11 +204,6 @@ type Harness = {
         stepKey: BootstrapStepKey;
         progress: { completed: number; total: number | null };
     }>;
-    metadataSchedules: Array<{
-        payload: BootstrapMetadataProcessPayload;
-        traceId: string;
-        delayMs: number;
-    }>;
 };
 
 function createHarness(input: {
@@ -247,7 +221,6 @@ function createHarness(input: {
     const succeededSteps: Harness["succeededSteps"] = [];
     const failedSteps: Harness["failedSteps"] = [];
     const progressUpdates: Harness["progressUpdates"] = [];
-    const metadataSchedules: Harness["metadataSchedules"] = [];
     const resolverPort: BootstrapEnumerationResolverPort = {
         resolveTokenIds: async ({ onProgress }) => {
             if (input.resolverError) {
@@ -296,17 +269,11 @@ function createHarness(input: {
             progressUpdates.push({ runId, stepKey, progress });
         },
     };
-    const queuePort: BootstrapEnumerationQueuePort = {
-        scheduleMetadataProcess: async (payload, traceId, delayMs) => {
-            metadataSchedules.push({ payload, traceId, delayMs });
-        },
-    };
     const executor = new BootstrapEnumerationExecutor(
         resolverPort,
         storagePort,
         runsPort,
         stepsPort,
-        queuePort,
         1,
     );
 
@@ -321,7 +288,6 @@ function createHarness(input: {
         succeededSteps,
         failedSteps,
         progressUpdates,
-        metadataSchedules,
     };
 }
 

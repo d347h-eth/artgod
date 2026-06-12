@@ -336,7 +336,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         stepKey: BootstrapRunStepRecord["stepKey"];
         status: BootstrapRunStepRecord["status"];
     }>(
-        "UPDATE bootstrap_run_steps SET status = @status, updated_at = CURRENT_TIMESTAMP " +
+        "UPDATE bootstrap_run_steps SET status = @status, lease_owner = NULL, lease_until = NULL, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey",
     );
 
@@ -345,7 +345,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         stepKey: BootstrapRunStepRecord["stepKey"];
         status: BootstrapRunStepRecord["status"];
     }>(
-        "UPDATE bootstrap_run_steps SET status = @status, next_attempt_at = 0, updated_at = CURRENT_TIMESTAMP " +
+        "UPDATE bootstrap_run_steps SET status = @status, next_attempt_at = 0, lease_owner = NULL, lease_until = NULL, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey",
     );
 
