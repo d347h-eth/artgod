@@ -1,7 +1,8 @@
 # Bootstrap Pipeline Revamp Plan
 
-Status: in progress; first implementation pass landed; side-lane terminalization
-implemented; remaining audit follow-ups pending
+Status: in progress; first implementation pass landed; follow-up audits found
+remaining liveness gaps in the leased orchestrator design; scheduler-first
+pipeline design is now the target before moving to medium-priority cleanup
 
 This plan replaces the current procedural bootstrap flow with a persisted,
 stateful, idempotent pipeline. The current code and schema may be redesigned
@@ -126,20 +127,63 @@ Initial policy:
 
 Image cache must not hold ownership, backfill, or collection-live progress.
 
-## Runtime Model
+## Target Runtime Model
 
-One bootstrap runtime process can still own this, but it should behave as an
-orchestrator plus step executors:
+One bootstrap runtime process can still own this, but it must behave as a
+small durable scheduler plus bounded step executors. Queue messages are wake
+signals only; `bootstrap_run_steps` is the source of truth.
 
-1. The orchestrator finds ready steps whose dependencies are satisfied.
-2. It claims or leases a bounded unit of work.
-3. The executor processes a bounded batch.
-4. It persists progress and result state.
-5. It releases or completes the step.
-6. It wakes the orchestrator for newly ready downstream steps.
+The runtime should start one scheduler loop per lane:
+
+- main blocking lane: anchor, enumeration, metadata, ownership, backfill, and
+  collection-live transitions
+- image-cache lane: image-cache tasks and policy refresh work
+- integration side lanes: OpenSea and collection-extension artifact steps if
+  they stay in the bootstrap graph
+
+Each scheduler loop:
+
+1. reconciles dependency-satisfied `pending` steps into `ready`
+2. claims due `ready` or retryable steps for its lane
+3. reclaims expired `running` leases for local or delegated work
+4. executes a bounded processor batch
+5. persists a terminal, retry, delegated, or pause-aware outcome
+6. immediately repeats reconciliation after terminal outcomes
+7. sleeps only when there is no due local work
+
+Queue jobs, startup sweep, and pause/resume should only notify the relevant
+lane loop. Losing a queue wake must not strand the run; the scheduler loop must
+eventually pick up any due nonterminal step from durable state.
 
 No step should require the previous step to have completed in the same job
 handler invocation.
+
+## No-Gap Liveness Invariants
+
+Every planned step must be in exactly one durable liveness bucket:
+
+- blocked: `pending` with unsatisfied dependencies
+- claimable now or later: `ready` / retryable with `next_attempt_at`
+- locally executing: `running` with a non-null lease owner and lease deadline
+- externally delegated: `running` with a non-null health-check deadline
+- paused: `paused`, never claimable until resume
+- terminal: `succeeded`, `skipped`, or terminal failure
+
+These invariants are mandatory:
+
+- A nonterminal step must always have a future path to a scheduler claim or a
+  resume action.
+- `running` must never be stored without a lease or health-check deadline.
+- Releasing an incomplete step must update durable scheduling state before any
+  optional queue notification.
+- Queue redelivery timing must not be relied on for liveness.
+- Step processors must be idempotent under duplicate wake jobs, duplicate
+  claims after expired leases, and process restart.
+- A processor must not return a terminal outcome unless the step row is already
+  terminal or the orchestrator terminalizes it in the same state transition.
+- Step exceptions must be converted into retry or terminal state by the
+  orchestration boundary; they should not leave a live lease as the only
+  recovery path.
 
 ## Async Fan-Out Steps
 
@@ -160,6 +204,122 @@ Each task table should support:
 - last error fields
 
 Pause/resume should normally be step-level, not a mass update of token tasks.
+
+## Scheduler And Lease Contract
+
+The scheduler is responsible for all step execution. Queue handlers should not
+drive step-to-step progression directly.
+
+Claiming rules:
+
+- claim only steps belonging to the scheduler lane
+- claim `ready` and retryable steps only when `next_attempt_at` is due
+- reclaim `running` steps only when their lease or delegated health-check
+  deadline is due
+- update `status`, `lease_owner`, `lease_until`, and `started_at` atomically in
+  the claim statement
+- treat a zero-row claim update as a benign race
+
+Release rules:
+
+- terminal outcome: persist terminal step state and clear lease fields
+- incomplete outcome: release to `ready` with the next due timestamp
+- retry outcome: persist retry state, attempts, last error, and next due
+  timestamp
+- delegated outcome: leave `running`, clear local lease owner if needed, and
+  persist a non-null health-check deadline
+- paused outcome: leave `paused`, clear lease fields, and do not schedule a due
+  wake until resume
+
+The scheduler loop should keep running while it can claim due work. When it
+cannot claim anything, it should sleep until the earliest due step for its lane
+or a bounded polling interval, whichever is smaller. This keeps the design
+event-driven in normal operation while still closing lost-wake gaps.
+
+## Processor Outcome Contract
+
+Step processors should return a small domain-owned outcome instead of raw
+handler decisions:
+
+- terminal: the processor has persisted `succeeded`, `skipped`, or terminal
+  failure state
+- incomplete: bounded work completed, more due or future work remains
+- retry: the step-level processor failed before task-level retry handling could
+  fully absorb the error
+- delegated: work has been handed to another durable queue or runtime path
+- paused: the step was paused before or during claim processing
+
+The orchestrator must validate the outcome:
+
+- terminal requires the current persisted step state to be terminal
+- incomplete requires a non-null next attempt timestamp
+- retry requires a non-null next attempt timestamp and persisted error context
+- delegated requires a non-null health-check timestamp
+- paused requires the current persisted step state to be paused
+
+Validation failures should be treated as orchestration bugs: persist a terminal
+or retryable orchestration error according to the step's blocking policy and
+emit a structured error event. Silent terminal returns are not acceptable.
+
+## Queue And Wake Semantics
+
+Queue messages are notifications, not state. A message may be duplicated,
+delayed, redelivered too soon, or lost during process shutdown. The scheduler
+must still make progress from `bootstrap_run_steps`.
+
+The queue should still be used for:
+
+- creating a bootstrap run from a backend request
+- nudging a lane after API resume
+- waking a lane quickly after a step terminalizes another step's dependencies
+- handing delegated side work to existing runtimes
+
+The scheduler must not depend on a future queue job being published after every
+release. Durable step state and lane polling are the recovery mechanism. Queue
+notifications only reduce latency.
+
+When publishing wake jobs is useful, the job identity should be idempotent for
+the same run, step, lane, and due timestamp, while still allowing a later due
+timestamp to publish a new wake.
+
+## Delegated Work Contract
+
+Some bootstrap steps delegate work to another queue or runtime path:
+
+- backfill delegates block-range sync work
+- OpenSea bootstrap delegates marketplace identity/snapshot work
+- collection-extension artifacts delegate extension refresh jobs
+
+Delegated work remains a bootstrap step. The scheduler-owned step row must stay
+authoritative:
+
+- the step enters `running` with a non-null health-check deadline
+- delegated jobs must be idempotent and carry enough bootstrap context to update
+  the step/task rows
+- when the health-check deadline expires, the scheduler may republish missing
+  delegated work, recompute progress, or terminalize the step
+- delegated workers should terminalize or retry the step through the same
+  bootstrap step port, not by ad-hoc table updates
+
+This avoids the current ambiguous state where a side step can be `running`
+without a claimable lease or scheduled health check.
+
+## Failure Policy
+
+Failure handling should be layered:
+
+- per-token task failures are handled inside the task table first
+- step-level processor exceptions become step retry state with backoff
+- repeated orchestration failures become terminal step failures
+- blocking terminal failures fail the bootstrap run
+- non-blocking terminal failures keep the collection live but remain visible in
+  the run detail/history
+
+Ownership remains mandatory. Ownership terminal failures must block collection
+liveness. Metadata and image-cache terminal task failures follow their step
+policy: metadata can complete in best-effort mode when no pending/retry tasks
+remain; image-cache can complete with terminal image failures because it is a
+presentation optimization.
 
 ## Pause And Resume
 
@@ -279,13 +439,19 @@ domain state.
 
 ## Decisions
 
-These decisions are locked for the first implementation pass:
+These decisions are locked for the next implementation pass:
 
 - Store step dependencies as JSON on `bootstrap_run_steps`. A normalized
   dependency table is unnecessary until dependency queries become complex.
-- Use event-driven orchestration with a startup sweep. Step completion,
-  pause/resume, and retry scheduling should wake the orchestrator explicitly.
-  Do not add a continuous periodic image-cache reconciler in the first pass.
+- Use scheduler-first orchestration. Queue wake events are latency hints; the
+  lane scheduler must poll durable step state so lost, early, or duplicated
+  queue messages cannot strand a run.
+- The scheduler loop is generic to bootstrap lanes, not an image-cache-specific
+  reconciler. It should be bounded, indexed, and configurable.
+- Every `running` step must have either a live local lease owner or a delegated
+  health-check deadline. `running` with no deadline is invalid.
+- Processor outcomes must be validated against the persisted step row before
+  the orchestrator accepts them.
 - Treat ownership as mandatory. Ownership failures must block collection
   liveness; there is no best-effort path where ownership can be skipped or
   terminally failed while the collection becomes live.
@@ -295,96 +461,188 @@ These decisions are locked for the first implementation pass:
   `started_at`, `finished_at`, status, progress totals, and result summaries so
   users can inspect how long each step took after the fact.
 
-## Implementation Order
+## Completed First-Pass Work
 
-1. Define bootstrap pipeline domain constants and types. Done.
-2. Replace schema with runs, steps, dependencies, and task tables. Done for the
-   current first pass.
-3. Build a bootstrap pipeline planner from the bootstrap request. Done.
-4. Build orchestration/reconciliation helpers. Done for the current first pass:
-   shared dependency helpers, an indexer startup reconciler, and worker startup
-   sweep now promote dependency-ready steps and republish recoverable executor
-   jobs through a tested application boundary.
-5. Port anchor and enumeration into step executors. Done for the current first
-   pass: anchor selection, anchor persistence, collection bootstrap-start
-   marking, token enumeration, metadata task seeding, metadata process wake-up,
-   and failure handling now sit behind tested application executors. The start
-   handler still owns the restart shortcut that wakes already-seeded metadata
-   work.
-6. Port metadata into a taskized step executor. Done.
-7. Add taskized ownership executor. Done.
-8. Make image cache a non-blocking taskized side lane. Done.
-9. Port backfill and collection-live marking into step executors. Done for the
-   current first pass: backfill scheduling, backfill completion checks,
-   collection-live marking, OpenSea side-lane scheduling, stats recompute
-   wake-up, and successful temporary-data cleanup now sit behind a tested
-   application executor. The runtime still wires that executor explicitly
-   instead of a fully generic step executor/orchestrator module.
-10. Add backend run-detail read model from steps and task counts. Done.
-11. Add pause/resume backend use cases and HTTP routes. Done for metadata and
-    image cache.
-12. Add frontend chip controls for metadata and image cache. Done.
-13. Update canonical bootstrap docs and RPC catalog if any interaction paths
-    changed. Done for docs; RPC catalog did not need a new JSON-RPC path.
-14. Add focused backend/indexer/frontend tests, then E2E bootstrap coverage. Done
-    for the current first pass.
-    Focused storage/reconciler tests added for the startup sweep. Anchor
-    executor coverage now exercises unsupported standards, invalid anchors,
-    missing collections, and successful anchoring; enumeration executor coverage
-    exercises token resolution, bounded progress events, metadata task seeding,
-    metadata queue wake-up, and failure attribution; backfill executor coverage
-    exercises no-post-anchor completion, catch-up scheduling, catch-up
-    completion, and cleanup guards. A SQLite-backed lifecycle test now drives
-    anchor, enumeration task seeding, and no-post-anchor live completion through
-    the real bootstrap adapters. Bootstrap probe UI and run-detail pause/resume
-    E2E coverage exists; a heavier NATS/worker-process E2E remains outside this
-    first pass.
+The first pass already established important pieces:
 
-## Post-Implementation Audit
+1. Bootstrap pipeline domain constants and step rows.
+2. A pipeline planner from the bootstrap request.
+3. Taskized metadata, ownership, and image-cache work.
+4. Non-blocking image-cache lane.
+5. Side-lane terminalization for OpenSea and collection-extension artifacts.
+6. Per-lane successful-task cleanup while preserving `bootstrap_run_steps`.
+7. Backend run-detail read model and pause/resume routes.
+8. Frontend progress chips and pause/resume controls.
+9. Focused storage, executor, startup, backend, and frontend tests.
 
-The first implementation pass established the durable step rows, taskized
-ownership, non-blocking image-cache lane, pause/resume controls, and focused
-executor tests. The code is still a hybrid between the old procedural flow and
-the target persisted orchestrator. These follow-ups are the next required work
-items before calling the revamp complete.
+The latest lease-based executor pass removed the largest direct phase
+handoffs, but the post-commit audit found that it is still not the final
+no-gap design because it lacks scheduler-owned liveness after incomplete
+release, processor exceptions, and delegated `running` work.
 
-### Critical Follow-Ups
+## Required Final Architecture Work
 
-1. Make every planned side-lane step terminal. Done in the side-lane
-   terminalization pass. OpenSea bootstrap jobs now carry bootstrap run context
-   and update `opensea_identity`, `opensea_snapshot`, and `opensea_ready`
-   through terminal success, skip, retry, or failed-terminal states. Collection
-   extension artifacts now use a bootstrap-owned task table and the
-   collection-extension worker writes per-token success, retry, and terminal
-   failure state back into `collection_extension_artifacts`.
+These are the remaining critical/high issues before moving to medium-priority
+cleanup:
 
-2. Fix successful-run temporary-data cleanup semantics. Done in the
-   per-lane cleanup pass. `bootstrap_run_steps` remains the historical journal,
-   while high-volume task tables are trimmed by lane once each lane is settled:
-   metadata and image-cache delete only `succeeded` rows, image-cache can clean
-   after collection liveness, and ownership cleanup still requires zero
-   terminal ownership failures because ownership gates collection liveness.
-   `failed_terminal` rows remain available for retry/audit where the current UI
-   supports it.
+1. Build the scheduler-first lane loops.
+   The lane scheduler must poll indexed `bootstrap_run_steps` state, claim due
+   work, reclaim expired leases, and keep processing until the lane is idle.
+   Queue wakes should notify the loop but not be required for progress.
 
-3. Replace normal forward progress handoffs with a real step reconciler. Done
-   in the lease-based executor pass. The bootstrap worker now runs main and
-   image-cache lanes through a shared step orchestrator that reconciles
-   dependency-ready steps, claims due work from `bootstrap_run_steps`, executes
-   bounded step processors, releases leases for retryable/incomplete work, and
-   wakes out-of-lane side steps. Direct phase handoffs from metadata to image
-   cache/ownership and from ownership to backfill were removed from the normal
-   path; those transitions are now driven by persisted step dependencies.
+2. Make releases self-contained.
+   Incomplete, retry, and delegated outcomes must persist enough state for the
+   scheduler to pick them up again without another queue message. This closes
+   the current lost-wake and max-iteration liveness gap.
 
-### High-Priority Follow-Ups
+3. Add processor exception handling at the orchestration boundary.
+   Exceptions must release or retry the step according to a step-level retry
+   policy. A throw must not leave a live lease as the only recovery path.
 
-4. Generalize completed-run side-lane recovery.
-   The startup sweep currently includes completed runs only for recoverable
-   image-cache work. If OpenSea and extension artifact steps remain in
-   `bootstrap_run_steps`, completed-run recovery must become generic for
-   non-blocking recoverable steps instead of hard-coding only `image_cache`.
+4. Enforce processor outcome invariants.
+   Terminal outcomes require terminal persisted state; delegated outcomes
+   require a health-check deadline; retry/incomplete outcomes require a next
+   attempt timestamp. Violations should be persisted as orchestration errors.
 
-5. Align RPC zero-data behavior and documentation.
+5. Normalize delegated side-lane processing.
+   Backfill, OpenSea, and collection-extension artifact steps should all use the
+   same delegated-step contract: `running` with a non-null health-check
+   deadline, idempotent delegated job publish, progress recompute, retry, and
+   terminalization.
+
+6. Generalize completed-run recovery.
+   Completed runs can still have non-blocking recoverable work. Startup and the
+   lane scheduler should recover any nonterminal non-blocking step, not just
+   image-cache work.
+
+7. Strengthen lifecycle and liveness tests.
+   Tests must prove scheduler behavior, not merely handler behavior.
+
+## Implementation Milestones
+
+### Milestone 1: Scheduler Core
+
+Goal: make the orchestration boundary impossible to strand from normal
+incomplete work or exceptions.
+
+Implementation:
+
+- Add lane scheduler loops inside the bootstrap runtime.
+- Add storage methods for selecting the earliest due step by lane and for
+  claiming due local/delegated work.
+- Replace "run loop once because a queue message arrived" with "notify the lane
+  scheduler and let it claim durable work".
+- Convert current release helpers into validated scheduler outcomes.
+- Ensure processor exceptions become step retry or terminal failure state.
+- Reject or terminalize invalid terminal/delegated outcomes instead of silently
+  returning.
+
+Test gate:
+
+- unit: due `ready` step is claimed without a queue wake
+- unit: incomplete outcome with future due timestamp is picked up later
+- unit: max-iteration exhaustion cannot strand remaining due work
+- unit: processor throw releases to retry with backoff and clears the local
+  lease
+- unit: invalid terminal outcome is detected and persisted as an orchestration
+  error
+- storage: expired `running` lease is reclaimable; unexpired lease is not
+
+### Milestone 2: Main Blocking Lane E2E
+
+Goal: prove the blocking path is fully scheduler-driven.
+
+Implementation:
+
+- Port anchor, enumeration, metadata, ownership, backfill, and collection-live
+  transitions onto scheduler-owned outcomes.
+- Remove remaining handler-specific assumptions from main bootstrap queue jobs.
+- Make backfill delegated work use a health-check deadline instead of relying
+  on a one-off delayed check job for liveness.
+
+Test gate:
+
+- integration: anchor through collection-live succeeds through SQLite adapters
+  without direct handler handoffs
+- integration: metadata best-effort completes with terminal metadata task
+  failures only when no pending/retry tasks remain
+- integration: ownership terminal task failure blocks collection liveness
+- integration: backfill delegated range sync is republished or checked after
+  health-check expiry
+- integration: duplicate queue wakes do not duplicate domain side effects
+
+### Milestone 3: Non-Blocking And Delegated Side Lanes
+
+Goal: make image-cache, OpenSea, and extension artifact work composable,
+recoverable, and terminal.
+
+Implementation:
+
+- Keep image-cache as a separate scheduler lane.
+- Convert OpenSea and collection-extension artifact steps to the delegated
+  contract with health-check deadlines.
+- Make completed-run recovery generic for non-blocking nonterminal steps.
+- Preserve collection liveness while non-blocking side lanes continue.
+
+Test gate:
+
+- integration: image-cache continues after collection live and reaches terminal
+  state
+- integration: image-cache pause/resume is honored by the scheduler
+- integration: OpenSea delegated steps reach terminal success/skip/failure
+- integration: collection-extension artifact tasks reach terminal state after
+  delegated refresh jobs
+- startup: completed run with nonterminal side-lane step is recovered
+
+### Milestone 4: Runtime, Queue, And Recovery Hardening
+
+Goal: prove process and queue failures do not break liveness.
+
+Implementation:
+
+- Treat NATS jobs as wake signals only.
+- Add scheduler notification on startup, resume, and terminal step transitions.
+- Add graceful shutdown behavior that does not corrupt claimed step state.
+- Add observability fields for scheduler claim, release, retry, delegation, and
+  health-check transitions.
+
+Test gate:
+
+- runtime/integration: early redelivery before lease expiry is harmless and does
+  not consume the only future wake
+- runtime/integration: lost wake is recovered by scheduler polling
+- runtime/integration: restart recovers `ready`, retryable, and expired
+  `running` steps
+- runtime/integration: paused steps are not claimed and resume makes them due
+- observability: scheduler logs include run, step, lane, claim/release action,
+  and retry/delegation context
+
+### Milestone 5: API/UI Consistency Pass
+
+Goal: expose the settled scheduler model without UI drift.
+
+Implementation:
+
+- Ensure run-detail progress reads from `bootstrap_run_steps` plus task counts
+  without relying on deleted succeeded task rows.
+- Ensure pause/resume endpoints notify the scheduler and clear local leases.
+- Keep frontend chips consistent for blocking, non-blocking, delegated, paused,
+  retrying, and terminal states.
+
+Test gate:
+
+- backend: run-detail exposes correct state/progress/action availability for
+  scheduler states
+- frontend: chips show progress and pause/resume controls without relying on
+  stale task rows
+- E2E: bootstrap page reflects scheduler-driven progress across metadata,
+  ownership, image-cache, and completed-run side-lane recovery
+
+## Later High-Priority Cleanup
+
+These remain important but should wait until the scheduler design is coherent:
+
+1. Align RPC zero-data behavior and documentation.
    The code now treats provider zero-data and historical-state unavailable
    errors as retryable provider failures, while deterministic contract failures
    still short-circuit. The RPC catalog still has text that groups zero returned
@@ -392,25 +650,14 @@ items before calling the revamp complete.
    add focused coverage so missing methods/reverts still short-circuit quickly
    during probing, while provider zero-data from flaky endpoints rotates/retries.
 
-6. Avoid loading `sharp` for original-byte image-cache passthrough.
+2. Avoid loading `sharp` for original-byte image-cache passthrough.
    The image cache adapter currently imports `sharp` even when no resize is
    requested, only to inspect dimensions. For `maxDimension = null`, passthrough
    should preserve original bytes without requiring native image processing.
    Dimension extraction can be skipped or handled by a lightweight optional
    probe. Resizing should remain the only path that requires `sharp`.
 
-7. Strengthen lifecycle and side-lane tests.
-   Existing lifecycle coverage validates anchor, enumeration task seeding, and
-   no-post-anchor completion through SQLite adapters, but it does not drive the
-   real metadata, ownership, image-cache, OpenSea, or extension side-lane
-   lifecycle. Add tests for:
-   - planned OpenSea/extension side-lane steps reaching terminal state
-   - successful cleanup after acceptable metadata/image-cache terminal task
-     failures
-   - ownership terminal failures blocking collection liveness
-   - completed-run startup recovery for non-blocking steps
-
-8. Remove remaining hard-coded semantic literals from new bootstrap surfaces.
+3. Remove remaining hard-coded semantic literals from new bootstrap surfaces.
    The first pass centralized most pipeline vocabulary, but some frontend and
    backend bootstrap code still repeats statuses, standards, route/action
    values, and task states directly. Import the owning constants/contracts in
@@ -419,10 +666,10 @@ items before calling the revamp complete.
 
 ## Open Decisions
 
-- Whether the startup sweep should run only once at process start or also after
-  reconnecting to the queue/database following transient infrastructure errors.
-- Whether ownership should expose an operator retry action separate from generic
-  step resume.
-- Whether OpenSea and collection-extension work should be modeled as bootstrap
-  steps with terminal state, or shown as separate collection integration state
-  outside the bootstrap step graph until they have first-class executors.
+- Exact scheduler polling floor/ceiling defaults. The loop must be bounded and
+  configurable, but the first implementation can choose conservative defaults
+  and tune after local runtime testing.
+- Whether ownership should expose a dedicated operator retry action separate
+  from generic step resume. This does not change ownership being mandatory.
+- Whether non-blocking side-lane terminal failures should show a dedicated
+  collection warning outside bootstrap history after the run itself is complete.
