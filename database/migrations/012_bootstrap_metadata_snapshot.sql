@@ -9,8 +9,7 @@ CREATE TABLE IF NOT EXISTS bootstrap_metadata_snapshot_tasks (
   anchor_block INTEGER NOT NULL,
   anchor_block_hash TEXT NOT NULL,
   anchor_block_timestamp INTEGER NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending', 'retry', 'succeeded', 'failed_terminal')),
+  status TEXT NOT NULL,
   attempts INTEGER NOT NULL DEFAULT 0,
   next_attempt_at INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
