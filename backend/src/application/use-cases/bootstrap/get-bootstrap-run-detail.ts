@@ -1,7 +1,10 @@
 import { ReadModelNotFoundError } from "@artgod/shared/read-models/errors";
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 import { isImageCachePolicyActive } from "@artgod/shared/media/token-image-cache";
-import { COLLECTION_STATUS } from "@artgod/shared/types";
+import {
+    COLLECTION_STATUS,
+    OPENSEA_COLLECTION_STATUS,
+} from "@artgod/shared/types";
 import {
     BOOTSTRAP_RUN_EVENT_CODE,
     parseBootstrapEnumerationCompletedEventPayload,
@@ -348,21 +351,27 @@ function buildBootstrapRunFlow(input: {
         const openseaSnapshotCompleted =
             input.collection.openseaSnapshotCompletedAt !== null ||
             input.collection.openseaReadyAt !== null ||
-            input.collection.openseaStatus === "ready";
+            input.collection.openseaStatus === OPENSEA_COLLECTION_STATUS.Ready;
         const openseaReadyCompleted =
             input.collection.openseaReadyAt !== null ||
-            input.collection.openseaStatus === "ready";
+            input.collection.openseaStatus === OPENSEA_COLLECTION_STATUS.Ready;
         const openseaIdentityActive =
-            input.collection.openseaStatus === "identity_running" ||
-            (input.collection.openseaStatus === "retrying" &&
+            input.collection.openseaStatus ===
+                OPENSEA_COLLECTION_STATUS.IdentityRunning ||
+            (input.collection.openseaStatus ===
+                OPENSEA_COLLECTION_STATUS.Retrying &&
                 !openseaIdentityCompleted);
         const openseaSnapshotActive =
-            input.collection.openseaStatus === "subscribing" ||
-            input.collection.openseaStatus === "snapshot_running" ||
-            (input.collection.openseaStatus === "retrying" &&
+            input.collection.openseaStatus ===
+                OPENSEA_COLLECTION_STATUS.Subscribing ||
+            input.collection.openseaStatus ===
+                OPENSEA_COLLECTION_STATUS.SnapshotRunning ||
+            (input.collection.openseaStatus ===
+                OPENSEA_COLLECTION_STATUS.Retrying &&
                 openseaIdentityCompleted &&
                 !openseaSnapshotCompleted);
-        const openseaFailed = input.collection.openseaStatus === "failed";
+        const openseaFailed =
+            input.collection.openseaStatus === OPENSEA_COLLECTION_STATUS.Failed;
 
         steps.push(
             {
@@ -740,18 +749,20 @@ function isImageCacheRunActive(run: BootstrapRunRow): boolean {
 function formatOpenSeaSnapshotDetail(
     collection: CollectionBootstrapState,
 ): string | null {
-    if (collection.openseaStatus === "retrying") {
+    if (collection.openseaStatus === OPENSEA_COLLECTION_STATUS.Retrying) {
         return collection.openseaLastError
             ? `retrying: ${collection.openseaLastError}`
             : "retrying";
     }
-    if (collection.openseaStatus === "subscribing") {
+    if (collection.openseaStatus === OPENSEA_COLLECTION_STATUS.Subscribing) {
         return "subscribing";
     }
-    if (collection.openseaStatus === "snapshot_running") {
+    if (
+        collection.openseaStatus === OPENSEA_COLLECTION_STATUS.SnapshotRunning
+    ) {
         return "running";
     }
-    if (collection.openseaStatus === "failed") {
+    if (collection.openseaStatus === OPENSEA_COLLECTION_STATUS.Failed) {
         return collection.openseaLastError ?? "failed";
     }
     return null;
@@ -794,8 +805,8 @@ function resolveShouldPoll(input: {
     }
 
     return (
-        input.collection.openseaStatus !== "ready" &&
-        input.collection.openseaStatus !== "failed"
+        input.collection.openseaStatus !== OPENSEA_COLLECTION_STATUS.Ready &&
+        input.collection.openseaStatus !== OPENSEA_COLLECTION_STATUS.Failed
     );
 }
 

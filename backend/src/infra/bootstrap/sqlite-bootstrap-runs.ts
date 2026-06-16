@@ -4,6 +4,7 @@ import {
     IMAGE_CACHE_MODE,
     type ImageCacheMode,
 } from "@artgod/shared/media/token-image-cache";
+import type { OpenSeaCollectionStatus } from "@artgod/shared/types";
 import {
     BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_STATUS,
@@ -50,16 +51,7 @@ type CollectionRow = {
     bootstrap_finished_at: string | null;
     bootstrap_last_synced_block: number | null;
     opensea_slug: string | null;
-    opensea_status:
-        | "pending"
-        | "identity_running"
-        | "subscribing"
-        | "snapshot_pending"
-        | "snapshot_running"
-        | "ready"
-        | "retrying"
-        | "failed"
-        | null;
+    opensea_status: OpenSeaCollectionStatus | null;
     opensea_ready_at: string | null;
     opensea_snapshot_started_at: string | null;
     opensea_snapshot_completed_at: string | null;

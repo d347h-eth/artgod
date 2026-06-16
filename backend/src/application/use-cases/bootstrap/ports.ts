@@ -1,4 +1,7 @@
-import type { ChainRecord } from "@artgod/shared/types/browse";
+import type {
+    ChainRecord,
+    OpenSeaCollectionStatus,
+} from "@artgod/shared/types";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import type { ImageCacheMode } from "@artgod/shared/media/token-image-cache";
 import type {
@@ -12,16 +15,6 @@ import type {
     BootstrapRunStepPlan,
     BootstrapRunTaskCounts,
 } from "./types.js";
-
-type OpenSeaCollectionStatus =
-    | "pending"
-    | "identity_running"
-    | "subscribing"
-    | "snapshot_pending"
-    | "snapshot_running"
-    | "ready"
-    | "retrying"
-    | "failed";
 
 export type CollectionBootstrapState = {
     chainId: number;

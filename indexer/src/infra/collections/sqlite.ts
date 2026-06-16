@@ -1,9 +1,13 @@
 import { db } from "@artgod/shared/database";
-import { COLLECTION_STATUS, type CollectionStatus } from "@artgod/shared/types";
+import {
+    COLLECTION_STATUS,
+    OPENSEA_COLLECTION_STATUS,
+    type CollectionStatus,
+    type OpenSeaCollectionStatus,
+} from "@artgod/shared/types";
 import {
     CollectionRecord,
     CollectionUpsertInput,
-    OpenSeaCollectionStatus,
 } from "../../domain/collections.js";
 import type {
     CollectionScopeRange,
@@ -164,9 +168,10 @@ export class SqliteCollectionRegistry
     private markOpenSeaPendingStmt = db.prepare<{
         chainId: number;
         collectionId: number;
+        status: OpenSeaCollectionStatus;
     }>(
         "UPDATE collections SET " +
-            "opensea_status = 'pending', " +
+            "opensea_status = @status, " +
             "opensea_last_error = NULL, " +
             "updated_at = CURRENT_TIMESTAMP " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId",
@@ -174,9 +179,10 @@ export class SqliteCollectionRegistry
     private markOpenSeaIdentityRunningStmt = db.prepare<{
         chainId: number;
         collectionId: number;
+        status: OpenSeaCollectionStatus;
     }>(
         "UPDATE collections SET " +
-            "opensea_status = 'identity_running', " +
+            "opensea_status = @status, " +
             "opensea_last_error = NULL, " +
             "updated_at = CURRENT_TIMESTAMP " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId",
@@ -206,9 +212,10 @@ export class SqliteCollectionRegistry
     private markOpenSeaSnapshotStartedStmt = db.prepare<{
         chainId: number;
         collectionId: number;
+        status: OpenSeaCollectionStatus;
     }>(
         "UPDATE collections SET " +
-            "opensea_status = 'snapshot_running', " +
+            "opensea_status = @status, " +
             "opensea_snapshot_started_at = CURRENT_TIMESTAMP, " +
             "opensea_last_error = NULL, " +
             "updated_at = CURRENT_TIMESTAMP " +
@@ -244,9 +251,10 @@ export class SqliteCollectionRegistry
     private markOpenSeaReadyStmt = db.prepare<{
         chainId: number;
         collectionId: number;
+        status: OpenSeaCollectionStatus;
     }>(
         "UPDATE collections SET " +
-            "opensea_status = 'ready', " +
+            "opensea_status = @status, " +
             "opensea_ready_at = COALESCE(opensea_ready_at, CURRENT_TIMESTAMP), " +
             "opensea_last_error = NULL, " +
             "updated_at = CURRENT_TIMESTAMP " +
@@ -399,6 +407,7 @@ export class SqliteCollectionRegistry
             this.markOpenSeaPendingStmt.run({
                 chainId,
                 collectionId,
+                status: OPENSEA_COLLECTION_STATUS.Pending,
             }).changes > 0
         );
     }
@@ -408,6 +417,7 @@ export class SqliteCollectionRegistry
             this.markOpenSeaIdentityRunningStmt.run({
                 chainId,
                 collectionId,
+                status: OPENSEA_COLLECTION_STATUS.IdentityRunning,
             }).changes > 0
         );
     }
@@ -447,6 +457,7 @@ export class SqliteCollectionRegistry
             this.markOpenSeaSnapshotStartedStmt.run({
                 chainId,
                 collectionId,
+                status: OPENSEA_COLLECTION_STATUS.SnapshotRunning,
             }).changes > 0
         );
     }
@@ -492,6 +503,7 @@ export class SqliteCollectionRegistry
             this.markOpenSeaReadyStmt.run({
                 chainId,
                 collectionId,
+                status: OPENSEA_COLLECTION_STATUS.Ready,
             }).changes > 0
         );
     }

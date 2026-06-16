@@ -1,5 +1,6 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
+import { OPENSEA_COLLECTION_STATUS } from "@artgod/shared/types";
 import { logger } from "@artgod/shared/utils";
 import { loadOpenSeaConfig } from "../config/opensea.js";
 import { runWorker } from "../application/worker-runner.js";
@@ -158,7 +159,7 @@ async function handleReconcileJob(
         collections.setOpenSeaStatus(
             collection.chainId,
             collection.id,
-            "retrying",
+            OPENSEA_COLLECTION_STATUS.Retrying,
             String(error),
         );
         await scheduleReconcileRetry(

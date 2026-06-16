@@ -55,7 +55,9 @@ import {
     TRADING_BIDDING_TIER_SELECTION_MODE,
     TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
     COLLECTION_STATUS,
+    OPENSEA_COLLECTION_STATUS,
     type CollectionStatus,
+    type OpenSeaCollectionStatus,
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_TARGET_KIND,
     TRADING_JOB_STATUS,
@@ -4554,7 +4556,7 @@ describe("backend api routes", () => {
             bootstrapFinishedAt: "2026-02-01T00:01:00Z",
             bootstrapLastSyncedBlock: 24_500_100,
             openseaSlug: "milady-maker",
-            openseaStatus: "ready",
+            openseaStatus: OPENSEA_COLLECTION_STATUS.Ready,
             openseaReadyAt: "2026-02-01T00:02:00Z",
             openseaSnapshotStartedAt: "2026-02-01T00:01:10Z",
             openseaSnapshotCompletedAt: "2026-02-01T00:01:50Z",
@@ -4700,7 +4702,7 @@ describe("backend api routes", () => {
         updateCollectionLifecycle(MILADY_ADDRESS, {
             status: COLLECTION_STATUS.Live,
             openseaSlug: "milady-maker",
-            openseaStatus: "ready",
+            openseaStatus: OPENSEA_COLLECTION_STATUS.Ready,
             openseaReadyAt: "2026-02-02T00:02:00Z",
             openseaSnapshotStartedAt: "2026-02-02T00:01:00Z",
             openseaSnapshotCompletedAt: "2026-02-02T00:01:40Z",
@@ -6025,16 +6027,7 @@ function updateCollectionLifecycle(
         bootstrapFinishedAt?: string | null;
         bootstrapLastSyncedBlock?: number | null;
         openseaSlug?: string | null;
-        openseaStatus?:
-            | "pending"
-            | "identity_running"
-            | "subscribing"
-            | "snapshot_pending"
-            | "snapshot_running"
-            | "ready"
-            | "retrying"
-            | "failed"
-            | null;
+        openseaStatus?: OpenSeaCollectionStatus | null;
         openseaReadyAt?: string | null;
         openseaSnapshotStartedAt?: string | null;
         openseaSnapshotCompletedAt?: string | null;

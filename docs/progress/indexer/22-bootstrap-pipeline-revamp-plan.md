@@ -521,6 +521,9 @@ The scheduler-first implementation is being landed in review-sized chunks:
 - Backend bootstrap retry and run-detail flow code now imports the owning
   bootstrap run, step, flow-state, and task-status contracts instead of
   branching on raw serialized bootstrap values.
+- OpenSea collection status values now live in the shared collection type
+  contract and are imported by backend, indexer domain, runtime workers, and
+  SQLite adapters instead of being repeated as backend/indexer-local literals.
 
 ## Required Final Architecture Work
 
@@ -705,13 +708,12 @@ These remain important but should wait until the scheduler design is coherent:
    mode. Resizing remains the only path that requires `sharp`.
 
 3. Remove remaining hard-coded semantic literals from new bootstrap surfaces.
-   Status: partially implemented; final audit pending.
+   Status: implemented for the surfaced bootstrap/OpenSea production paths;
+   final audit pending.
    Backend bootstrap retry and run-detail production code now imports the
    owning bootstrap contracts for serialized run, flow, step, and task values.
-   The remaining obvious production literals are OpenSea collection status
-   values that currently have an indexer-local owner; centralizing those should
-   be done through a proper shared collection/offchain contract instead of
-   importing indexer-domain constants into backend code.
+   OpenSea collection status values now use the shared collection type contract
+   instead of an indexer-local owner plus backend-local unions.
 
 ## Open Decisions
 

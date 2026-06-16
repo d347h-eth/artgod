@@ -14,7 +14,7 @@ import {
     type OpenSeaBootstrapStepKey,
 } from "../application/bootstrap-opensea-steps.js";
 import { getRetryDelayMs, type RetryPolicy } from "../domain/retry.js";
-import { OPENSEA_COLLECTION_STATUS } from "../domain/collections.js";
+import { OPENSEA_COLLECTION_STATUS } from "@artgod/shared/types";
 import type { JobEnvelope } from "../domain/jobs.js";
 import {
     OPENSEA_BOOTSTRAP_FAILURE_MESSAGE,
