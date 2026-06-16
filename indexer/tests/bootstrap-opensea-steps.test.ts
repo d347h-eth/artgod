@@ -7,6 +7,8 @@ import {
 import {
     areOpenSeaBootstrapStepsTerminal,
     markOpenSeaBootstrapStepDelegatedRunning,
+    markOpenSeaBootstrapStepRetry,
+    markOpenSeaBootstrapStepSucceeded,
     markOpenSeaBootstrapTerminalFailure,
     type BootstrapOpenSeaStepsPort,
     type OpenSeaBootstrapStepKey,
@@ -85,6 +87,54 @@ describe("bootstrap OpenSea steps", () => {
             },
         ]);
     });
+
+    it("marks an OpenSea phase as succeeded through the bootstrap step port", () => {
+        const steps = createStepsPort();
+
+        markOpenSeaBootstrapStepSucceeded(
+            steps,
+            {
+                chainId: 1,
+                collectionId: 7,
+                bootstrap: { runId: 41 },
+            },
+            BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
+        );
+
+        expect(steps.succeeded).toEqual([
+            {
+                runId: 41,
+                stepKey: BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
+            },
+        ]);
+    });
+
+    it("marks an OpenSea phase as retryable through the bootstrap step port", () => {
+        const steps = createStepsPort();
+
+        markOpenSeaBootstrapStepRetry({
+            stepsPort: steps,
+            payload: {
+                chainId: 1,
+                collectionId: 7,
+                bootstrap: { runId: 41 },
+            },
+            stepKey: BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
+            attempts: 2,
+            nextAttemptAt: 30_000,
+            error: "snapshot retry",
+        });
+
+        expect(steps.failedRetry).toEqual([
+            {
+                runId: 41,
+                stepKey: BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
+                attempts: 2,
+                nextAttemptAt: 30_000,
+                error: "snapshot retry",
+            },
+        ]);
+    });
 });
 
 function createStepsPort(
@@ -94,6 +144,17 @@ function createStepsPort(
         runId: number;
         stepKey: OpenSeaBootstrapStepKey;
         healthCheckAt: number;
+    }>;
+    succeeded: Array<{
+        runId: number;
+        stepKey: OpenSeaBootstrapStepKey;
+    }>;
+    failedRetry: Array<{
+        runId: number;
+        stepKey: OpenSeaBootstrapStepKey;
+        attempts: number;
+        nextAttemptAt: number;
+        error: string;
     }>;
     failedTerminal: Array<{
         runId: number;
@@ -107,6 +168,17 @@ function createStepsPort(
         stepKey: OpenSeaBootstrapStepKey;
         healthCheckAt: number;
     }> = [];
+    const succeeded: Array<{
+        runId: number;
+        stepKey: OpenSeaBootstrapStepKey;
+    }> = [];
+    const failedRetry: Array<{
+        runId: number;
+        stepKey: OpenSeaBootstrapStepKey;
+        attempts: number;
+        nextAttemptAt: number;
+        error: string;
+    }> = [];
     const failedTerminal: Array<{
         runId: number;
         stepKey: OpenSeaBootstrapStepKey;
@@ -115,6 +187,8 @@ function createStepsPort(
     }> = [];
     return {
         delegatedRunning,
+        succeeded,
+        failedRetry,
         failedTerminal,
         getStep: (_runId, stepKey) => {
             const status = statuses[stepKey];
@@ -123,8 +197,12 @@ function createStepsPort(
         markStepDelegatedRunning: (input) => {
             delegatedRunning.push(input);
         },
-        markStepSucceeded: () => {},
-        markStepFailedRetry: () => {},
+        markStepSucceeded: (runId, stepKey) => {
+            succeeded.push({ runId, stepKey });
+        },
+        markStepFailedRetry: (input) => {
+            failedRetry.push(input);
+        },
         markStepFailedTerminal: (input) => {
             failedTerminal.push(input);
         },

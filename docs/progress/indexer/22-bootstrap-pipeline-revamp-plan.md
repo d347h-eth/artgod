@@ -528,6 +528,10 @@ The scheduler-first implementation is being landed in review-sized chunks:
   non-blocking step, not only image-cache work. Storage coverage includes a
   non-image side-lane step so this does not regress back to image-cache-only
   recovery.
+- Delegated side-lane unit coverage now pins OpenSea delegated running,
+  success, retry, and terminal failure updates through the bootstrap step port,
+  plus collection-extension artifact succeeded, skipped, nonterminal, and
+  terminal-failure outcomes.
 
 ## Required Final Architecture Work
 
@@ -557,8 +561,8 @@ until the final audit verifies them against the full runtime and UI surface.
    require a health-check deadline; retry/incomplete outcomes require a next
    attempt timestamp. Violations should be persisted as orchestration errors.
 
-5. Normalize delegated side-lane processing. Status: partially implemented;
-   final audit pending.
+5. Normalize delegated side-lane processing. Status: implemented; final audit
+   pending.
    Backfill, OpenSea, and collection-extension artifact steps should all use the
    same delegated-step contract: `running` with a non-null health-check
    deadline, idempotent delegated job publish, progress recompute, retry, and

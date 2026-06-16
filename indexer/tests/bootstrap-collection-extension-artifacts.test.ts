@@ -6,6 +6,7 @@ import {
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 import {
     BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_FAILURE_MESSAGE,
+    BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_STEP_RESULT_REASON,
     completeCollectionExtensionArtifactStepIfTerminal,
     failCollectionExtensionArtifactStep,
     type BootstrapCollectionExtensionArtifactRunsPort,
@@ -36,6 +37,29 @@ describe("bootstrap collection-extension artifact steps", () => {
         ]);
     });
 
+    it("marks the step skipped when there are no artifact tasks", () => {
+        const harness = createHarness();
+
+        const terminal = completeCollectionExtensionArtifactStepIfTerminal({
+            runsPort: harness.runs,
+            stepsPort: harness.steps,
+            run: harness.run,
+            counts: counts(),
+        });
+
+        expect(terminal).toBe(true);
+        expect(harness.skipped).toEqual([
+            {
+                runId: 41,
+                stepKey: BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts,
+                reason: BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_STEP_RESULT_REASON.NoMetadataTasks,
+            },
+        ]);
+        expect(harness.events.map((event) => event.eventCode)).toEqual([
+            BOOTSTRAP_RUN_EVENT_CODE.CollectionExtensionArtifactsSkipped,
+        ]);
+    });
+
     it("keeps the step nonterminal while artifact tasks can still run", () => {
         const harness = createHarness();
 
@@ -56,6 +80,30 @@ describe("bootstrap collection-extension artifact steps", () => {
         ]);
         expect(harness.succeeded).toEqual([]);
         expect(harness.failedTerminal).toEqual([]);
+    });
+
+    it("marks the step failed when artifact tasks settle with terminal failures", () => {
+        const harness = createHarness();
+
+        const terminal = completeCollectionExtensionArtifactStepIfTerminal({
+            runsPort: harness.runs,
+            stepsPort: harness.steps,
+            run: harness.run,
+            counts: counts({ succeeded: 3, failedTerminal: 1, total: 4 }),
+        });
+
+        expect(terminal).toBe(true);
+        expect(harness.failedTerminal).toEqual([
+            {
+                runId: 41,
+                stepKey: BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts,
+                attempts: 1,
+                error: BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_FAILURE_MESSAGE.TerminalTaskFailures,
+            },
+        ]);
+        expect(harness.events.map((event) => event.eventCode)).toEqual([
+            BOOTSTRAP_RUN_EVENT_CODE.CollectionExtensionArtifactsFailed,
+        ]);
     });
 
     it("marks the step failed when setup prevents any task from running", () => {
@@ -104,6 +152,11 @@ function createHarness() {
         progress: { completed: number; total: number | null };
     }> = [];
     const succeeded: typeof progress = [];
+    const skipped: Array<{
+        runId: number;
+        stepKey: typeof BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts;
+        reason: string;
+    }> = [];
     const failedTerminal: Array<{
         runId: number;
         stepKey: typeof BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts;
@@ -124,7 +177,9 @@ function createHarness() {
                 progress: stepProgress ?? { completed: 1, total: 1 },
             });
         },
-        markStepSkipped: () => {},
+        markStepSkipped: (runId, stepKey, reason) => {
+            skipped.push({ runId, stepKey, reason });
+        },
         markStepFailedTerminal: (input) => {
             failedTerminal.push(input);
         },
@@ -143,6 +198,7 @@ function createHarness() {
         events,
         progress,
         succeeded,
+        skipped,
         failedTerminal,
     };
 }
