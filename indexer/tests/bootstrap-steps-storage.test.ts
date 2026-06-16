@@ -2,11 +2,16 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
 import {
+    BOOTSTRAP_ENUMERATION_MODE,
+    BOOTSTRAP_METADATA_MODE,
+    BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_KEY,
     BOOTSTRAP_STEP_STATUS,
     type BootstrapStepKey,
     serializeBootstrapStepDependencies,
 } from "@artgod/shared/bootstrap/pipeline";
+import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
+import { COLLECTION_STANDARD } from "../src/domain/collections.js";
 import { SqliteBootstrapSteps } from "../src/infra/bootstrap/sqlite-steps.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
@@ -23,6 +28,7 @@ describe("bootstrap steps storage", () => {
 
     beforeEach(() => {
         db.exec("DELETE FROM bootstrap_run_steps;");
+        db.exec("DELETE FROM bootstrap_runs;");
     });
 
     it("tracks running, progress, success, skip, and failure states", () => {
@@ -221,7 +227,76 @@ describe("bootstrap steps storage", () => {
             }),
         ]);
     });
+
+    it("lists due lane runs and reports the next durable deadline", () => {
+        const dueRunId = seedRun(1, 95);
+        const futureRunId = seedRun(1, 96);
+        const otherChainRunId = seedRun(2, 97);
+        seedStep(dueRunId, BOOTSTRAP_STEP_KEY.Metadata);
+        seedStep(futureRunId, BOOTSTRAP_STEP_KEY.Metadata);
+        seedStep(otherChainRunId, BOOTSTRAP_STEP_KEY.Metadata);
+        const steps = new SqliteBootstrapSteps();
+        steps.markStepReady(dueRunId, BOOTSTRAP_STEP_KEY.Metadata);
+        steps.markStepReady(futureRunId, BOOTSTRAP_STEP_KEY.Metadata);
+        steps.markStepReady(otherChainRunId, BOOTSTRAP_STEP_KEY.Metadata);
+        db.prepare(
+            "UPDATE bootstrap_run_steps SET next_attempt_at = ? WHERE run_id = ?",
+        ).run(1_000, dueRunId);
+        db.prepare(
+            "UPDATE bootstrap_run_steps SET status = ?, lease_until = ? WHERE run_id = ?",
+        ).run(BOOTSTRAP_STEP_STATUS.Running, 1_500, futureRunId);
+
+        expect(
+            steps.listDueStepRunIds({
+                chainId: 1,
+                stepKeys: [BOOTSTRAP_STEP_KEY.Metadata],
+                nowMs: 1_200,
+                limit: 10,
+            }),
+        ).toEqual([dueRunId]);
+        expect(
+            steps.listDueStepRunIds({
+                chainId: 1,
+                stepKeys: [BOOTSTRAP_STEP_KEY.Metadata],
+                nowMs: 1_600,
+                limit: 10,
+            }),
+        ).toEqual([dueRunId, futureRunId]);
+        expect(
+            steps.listDueStepRunIds({
+                chainId: 2,
+                stepKeys: [BOOTSTRAP_STEP_KEY.Metadata],
+                nowMs: 1_200,
+                limit: 10,
+            }),
+        ).toEqual([otherChainRunId]);
+        expect(
+            steps.getNextDueStepAt({
+                chainId: 1,
+                stepKeys: [BOOTSTRAP_STEP_KEY.Metadata],
+            }),
+        ).toBe(1_000);
+    });
 });
+
+function seedRun(chainId: number, collectionId: number): number {
+    const result = db.prepare(
+        "INSERT INTO bootstrap_runs " +
+            "(chain_id, collection_id, request_slug, request_address, request_standard, metadata_mode, enumeration_mode, request_image_cache_mode, status) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+        chainId,
+        collectionId,
+        `collection-${collectionId}`,
+        "0x0000000000000000000000000000000000000001",
+        COLLECTION_STANDARD.Erc721,
+        BOOTSTRAP_METADATA_MODE.BestEffort,
+        BOOTSTRAP_ENUMERATION_MODE.Enumerable,
+        IMAGE_CACHE_MODE.Off,
+        BOOTSTRAP_RUN_STATUS.Metadata,
+    );
+    return Number(result.lastInsertRowid);
+}
 
 function seedStep(
     runId: number,

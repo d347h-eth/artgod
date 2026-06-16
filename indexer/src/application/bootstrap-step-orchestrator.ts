@@ -2,6 +2,7 @@ import {
     isBootstrapStepTerminalStatus,
     type BootstrapStepKey,
 } from "@artgod/shared/bootstrap/pipeline";
+import { getRetryDelayMs, type RetryPolicy } from "../domain/retry.js";
 import type { BootstrapRunDefinition } from "../ports/bootstrap-runs.js";
 import type { BootstrapStepRecord } from "../ports/bootstrap-steps.js";
 import { resolveReadyBootstrapSteps } from "./bootstrap-step-reconciler.js";
@@ -24,11 +25,18 @@ export type BootstrapClaimedStepProcessorResult =
       }
     | {
           release: typeof BOOTSTRAP_STEP_PROCESSOR_RELEASE.Running;
-          nextAttemptAt: number | null;
+          nextAttemptAt: number;
       }
     | {
           release: typeof BOOTSTRAP_STEP_PROCESSOR_RELEASE.Terminal;
       };
+
+// Orchestration errors are persisted as step errors when a processor violates its contract.
+export const BOOTSTRAP_STEP_ORCHESTRATION_ERROR = {
+    ProcessorException: "processor_exception",
+    InvalidTerminalOutcome: "invalid_terminal_outcome",
+    InvalidRunningOutcome: "invalid_running_outcome",
+} as const;
 
 export type BootstrapStepOrchestratorInput = {
     runId: number;
@@ -38,6 +46,7 @@ export type BootstrapStepOrchestratorInput = {
     leaseMs: number;
     claimLimit: number;
     maxIterations: number;
+    retryPolicy: RetryPolicy;
 };
 
 export type BootstrapStepOrchestratorResult = {
@@ -72,7 +81,20 @@ export interface BootstrapStepOrchestratorStepsPort {
         runId: number;
         stepKey: BootstrapStepKey;
         leaseOwner: string;
-        nextAttemptAt: number | null;
+        nextAttemptAt: number;
+    }): void;
+    markStepFailedRetry(input: {
+        runId: number;
+        stepKey: BootstrapStepKey;
+        attempts: number;
+        nextAttemptAt: number;
+        error: string;
+    }): void;
+    markStepFailedTerminal(input: {
+        runId: number;
+        stepKey: BootstrapStepKey;
+        attempts: number;
+        error: string;
     }): void;
 }
 
@@ -100,6 +122,7 @@ export class BootstrapStepOrchestrator {
         private readonly stepsPort: BootstrapStepOrchestratorStepsPort,
         private readonly processorPort: BootstrapClaimedStepProcessorPort,
         private readonly wakePort: BootstrapStepWakePort,
+        private readonly nowMs: () => number = Date.now,
     ) {}
 
     async run(
@@ -121,7 +144,7 @@ export class BootstrapStepOrchestrator {
             const readyNow = await this.reconcile(run, input, wakeStepKeys);
             readyStepKeys.push(...readyNow);
 
-            const nowMs = Date.now();
+            const nowMs = this.nowMs();
             const claimedSteps = this.stepsPort.claimReadySteps({
                 runId: input.runId,
                 stepKeys: input.laneStepKeys,
@@ -174,12 +197,18 @@ export class BootstrapStepOrchestrator {
         step: BootstrapStepRecord,
         input: BootstrapStepOrchestratorInput,
     ): Promise<void> {
-        const result = await this.processorPort.processClaimedStep({
-            run,
-            step,
-            leaseOwner: input.leaseOwner,
-            traceId: input.traceId,
-        });
+        let result: BootstrapClaimedStepProcessorResult;
+        try {
+            result = await this.processorPort.processClaimedStep({
+                run,
+                step,
+                leaseOwner: input.leaseOwner,
+                traceId: input.traceId,
+            });
+        } catch (error) {
+            this.markProcessorException(step, input, error);
+            return;
+        }
         const currentStep = this.stepsPort
             .listRunSteps(run.runId)
             .find((candidate) => candidate.stepKey === step.stepKey);
@@ -190,9 +219,24 @@ export class BootstrapStepOrchestrator {
             return;
         }
         if (result.release === BOOTSTRAP_STEP_PROCESSOR_RELEASE.Terminal) {
+            this.markInvalidOutcome(
+                step,
+                input,
+                BOOTSTRAP_STEP_ORCHESTRATION_ERROR.InvalidTerminalOutcome,
+                "Processor returned terminal without terminal step state",
+            );
             return;
         }
         if (result.release === BOOTSTRAP_STEP_PROCESSOR_RELEASE.Running) {
+            if (!Number.isFinite(result.nextAttemptAt)) {
+                this.markInvalidOutcome(
+                    step,
+                    input,
+                    BOOTSTRAP_STEP_ORCHESTRATION_ERROR.InvalidRunningOutcome,
+                    "Processor delegated running work without a deadline",
+                );
+                return;
+            }
             this.stepsPort.releaseStepLeaseAsRunning({
                 runId: run.runId,
                 stepKey: step.stepKey,
@@ -206,6 +250,60 @@ export class BootstrapStepOrchestrator {
             stepKey: step.stepKey,
             leaseOwner: input.leaseOwner,
             nextAttemptAt: result.nextAttemptAt,
+        });
+    }
+
+    private markProcessorException(
+        step: BootstrapStepRecord,
+        input: BootstrapStepOrchestratorInput,
+        error: unknown,
+    ): void {
+        this.markRetryOrTerminalFailure(
+            step,
+            input,
+            BOOTSTRAP_STEP_ORCHESTRATION_ERROR.ProcessorException,
+            String(error),
+        );
+    }
+
+    private markInvalidOutcome(
+        step: BootstrapStepRecord,
+        input: BootstrapStepOrchestratorInput,
+        code: string,
+        message: string,
+    ): void {
+        this.stepsPort.markStepFailedTerminal({
+            runId: step.runId,
+            stepKey: step.stepKey,
+            attempts: step.attempts + 1,
+            error: formatOrchestrationError(code, message),
+        });
+    }
+
+    private markRetryOrTerminalFailure(
+        step: BootstrapStepRecord,
+        input: BootstrapStepOrchestratorInput,
+        code: string,
+        message: string,
+    ): void {
+        const attempts = step.attempts + 1;
+        if (attempts >= input.retryPolicy.maxAttempts) {
+            this.stepsPort.markStepFailedTerminal({
+                runId: step.runId,
+                stepKey: step.stepKey,
+                attempts,
+                error: formatOrchestrationError(code, message),
+            });
+            return;
+        }
+
+        this.stepsPort.markStepFailedRetry({
+            runId: step.runId,
+            stepKey: step.stepKey,
+            attempts,
+            nextAttemptAt:
+                this.nowMs() + getRetryDelayMs(attempts, input.retryPolicy),
+            error: formatOrchestrationError(code, message),
         });
     }
 }
@@ -227,10 +325,14 @@ export function readyStepResult(
 
 // Releasing as running is for work delegated to another durable queue.
 export function runningStepResult(
-    nextAttemptAt: number | null,
+    nextAttemptAt: number,
 ): BootstrapClaimedStepProcessorResult {
     return {
         release: BOOTSTRAP_STEP_PROCESSOR_RELEASE.Running,
         nextAttemptAt,
     };
+}
+
+function formatOrchestrationError(code: string, message: string): string {
+    return `${code}: ${message}`;
 }

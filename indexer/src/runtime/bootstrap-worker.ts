@@ -28,12 +28,12 @@ import {
     type BootstrapStartupReconcileRunResult,
 } from "../application/bootstrap-startup-reconciler.js";
 import {
-    BootstrapStepOrchestrator,
     readyStepResult,
     runningStepResult,
     terminalStepResult,
     type BootstrapClaimedStepProcessorResult,
 } from "../application/bootstrap-step-orchestrator.js";
+import { BootstrapStepScheduler } from "../application/bootstrap-step-scheduler.js";
 import {
     BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME,
     BootstrapBackfillExecutor,
@@ -954,7 +954,7 @@ async function runBootstrapMainStepLoop(
     const leaseOwner = buildBootstrapStepLeaseOwner(
         BOOTSTRAP_MAIN_STEP_LEASE_OWNER,
     );
-    const orchestrator = new BootstrapStepOrchestrator(
+    const scheduler = new BootstrapStepScheduler(
         input.bootstrapRuns,
         input.bootstrapSteps,
         {
@@ -973,22 +973,27 @@ async function runBootstrapMainStepLoop(
             },
         },
     );
-    const result = await orchestrator.run({
+    const result = await scheduler.runOnce({
+        chainId: input.payload.chainId,
         runId: input.payload.runId,
         traceId: input.traceId,
         laneStepKeys: BOOTSTRAP_MAIN_LANE_STEP_KEYS,
         leaseOwner,
         leaseMs: BOOTSTRAP_STEP_LEASE_MS,
         claimLimit: BOOTSTRAP_STEP_CLAIM_LIMIT,
-        maxIterations: BOOTSTRAP_STEP_MAX_ITERATIONS,
+        maxIterationsPerRun: BOOTSTRAP_STEP_MAX_ITERATIONS,
+        runLimit: BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT,
+        retryPolicy: input.metadataRetryPolicy,
     });
     logger.debug("Bootstrap main step loop completed", {
         component: BOOTSTRAP_WORKER_COMPONENT,
         action: BOOTSTRAP_WORKER_ACTION.MainStepLoop,
-        runId: result.runId,
+        runId: input.payload.runId,
+        runIds: result.runIds,
         claimedStepKeys: result.claimedStepKeys,
         readyStepKeys: result.readyStepKeys,
         wakeStepKeys: result.wakeStepKeys,
+        nextDueAt: result.nextDueAt,
     });
 }
 
@@ -998,7 +1003,7 @@ async function runBootstrapImageCacheStepLoop(
     const leaseOwner = buildBootstrapStepLeaseOwner(
         BOOTSTRAP_IMAGE_CACHE_STEP_LEASE_OWNER,
     );
-    const orchestrator = new BootstrapStepOrchestrator(
+    const scheduler = new BootstrapStepScheduler(
         input.bootstrapRuns,
         input.bootstrapSteps,
         {
@@ -1017,22 +1022,27 @@ async function runBootstrapImageCacheStepLoop(
             },
         },
     );
-    const result = await orchestrator.run({
+    const result = await scheduler.runOnce({
+        chainId: input.payload.chainId,
         runId: input.payload.runId,
         traceId: input.traceId,
         laneStepKeys: BOOTSTRAP_IMAGE_CACHE_LANE_STEP_KEYS,
         leaseOwner,
         leaseMs: BOOTSTRAP_STEP_LEASE_MS,
         claimLimit: BOOTSTRAP_STEP_CLAIM_LIMIT,
-        maxIterations: BOOTSTRAP_STEP_MAX_ITERATIONS,
+        maxIterationsPerRun: BOOTSTRAP_STEP_MAX_ITERATIONS,
+        runLimit: BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT,
+        retryPolicy: input.imageCacheRetryPolicy,
     });
     logger.debug("Bootstrap image-cache step loop completed", {
         component: BOOTSTRAP_WORKER_COMPONENT,
         action: BOOTSTRAP_WORKER_ACTION.ImageCacheStepLoop,
-        runId: result.runId,
+        runId: input.payload.runId,
+        runIds: result.runIds,
         claimedStepKeys: result.claimedStepKeys,
         readyStepKeys: result.readyStepKeys,
         wakeStepKeys: result.wakeStepKeys,
+        nextDueAt: result.nextDueAt,
     });
 }
 
@@ -1157,7 +1167,7 @@ async function processBootstrapMainClaimedStep(
         );
         return step && isBootstrapStepTerminalStatus(step.status)
             ? terminalStepResult()
-            : runningStepResult(null);
+            : runningStepResult(Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS);
     }
 
     if (input.step.stepKey === BOOTSTRAP_STEP_KEY.OpenSeaIdentity) {
@@ -1168,10 +1178,10 @@ async function processBootstrapMainClaimedStep(
                 runId: input.run.runId,
             },
         });
-        return runningStepResult(null);
+        return runningStepResult(Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS);
     }
 
-    return terminalStepResult();
+    throw new Error(`Unsupported bootstrap step: ${input.step.stepKey}`);
 }
 
 async function processBootstrapImageCacheClaimedStep(
@@ -1182,7 +1192,7 @@ async function processBootstrapImageCacheClaimedStep(
     },
 ): Promise<BootstrapClaimedStepProcessorResult> {
     if (input.step.stepKey !== BOOTSTRAP_STEP_KEY.ImageCache) {
-        return terminalStepResult();
+        throw new Error(`Unsupported image-cache step: ${input.step.stepKey}`);
     }
     return processBootstrapImageCacheStep(input);
 }

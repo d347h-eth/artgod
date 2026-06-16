@@ -25,10 +25,26 @@ export type BootstrapStepProgress = {
     total: number | null;
 };
 
+// Query shape for finding due bootstrap work scoped to one scheduler lane.
+export type BootstrapDueStepRunQuery = {
+    chainId: number;
+    stepKeys: readonly BootstrapStepKey[];
+    nowMs: number;
+    limit: number;
+};
+
+// Query shape for calculating the next scheduler wake deadline for a lane.
+export type BootstrapNextDueStepQuery = {
+    chainId: number;
+    stepKeys: readonly BootstrapStepKey[];
+};
+
 // Port for mutating durable bootstrap step state without coupling executors to SQLite.
 export interface BootstrapStepsPort {
     getStep(runId: number, stepKey: BootstrapStepKey): BootstrapStepRecord | null;
     listRunSteps(runId: number): BootstrapStepRecord[];
+    listDueStepRunIds(input: BootstrapDueStepRunQuery): number[];
+    getNextDueStepAt(input: BootstrapNextDueStepQuery): number | null;
     claimReadySteps(input: {
         runId: number;
         stepKeys: readonly BootstrapStepKey[];
@@ -47,7 +63,7 @@ export interface BootstrapStepsPort {
         runId: number;
         stepKey: BootstrapStepKey;
         leaseOwner: string;
-        nextAttemptAt: number | null;
+        nextAttemptAt: number;
     }): void;
     markStepReady(runId: number, stepKey: BootstrapStepKey): void;
     markStepRunning(runId: number, stepKey: BootstrapStepKey): void;

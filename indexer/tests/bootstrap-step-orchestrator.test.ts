@@ -9,6 +9,7 @@ import {
 } from "@artgod/shared/bootstrap/pipeline";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import {
+    BOOTSTRAP_STEP_ORCHESTRATION_ERROR,
     BootstrapStepOrchestrator,
     readyStepResult,
     terminalStepResult,
@@ -18,8 +19,15 @@ import {
     type BootstrapStepWakePort,
 } from "../src/application/bootstrap-step-orchestrator.js";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
+import type { RetryPolicy } from "../src/domain/retry.js";
 import type { BootstrapRunDefinition } from "../src/ports/bootstrap-runs.js";
 import type { BootstrapStepRecord } from "../src/ports/bootstrap-steps.js";
+
+const TEST_RETRY_POLICY = {
+    maxAttempts: 3,
+    baseDelayMs: 10,
+    maxDelayMs: 100,
+} satisfies RetryPolicy;
 
 describe("bootstrap step orchestrator", () => {
     it("claims in-lane ready steps and wakes out-of-lane ready steps", async () => {
@@ -57,6 +65,7 @@ describe("bootstrap step orchestrator", () => {
             leaseMs: 1_000,
             claimLimit: 1,
             maxIterations: 1,
+            retryPolicy: TEST_RETRY_POLICY,
         });
 
         expect(result.readyStepKeys).toEqual([
@@ -69,6 +78,95 @@ describe("bootstrap step orchestrator", () => {
         expect(released).toEqual([
             { stepKey: BOOTSTRAP_STEP_KEY.Ownership, nextAttemptAt: 1234 },
         ]);
+    });
+
+    it("releases processor exceptions into retry state and clears the lease", async () => {
+        const run = buildRun();
+        const steps = [
+            step(BOOTSTRAP_STEP_KEY.Metadata, BOOTSTRAP_STEP_STATUS.Ready),
+        ];
+        const failures: Array<{
+            stepKey: BootstrapStepKey;
+            attempts: number;
+            nextAttemptAt: number;
+            error: string;
+        }> = [];
+        const orchestrator = new BootstrapStepOrchestrator(
+            runsPort(run),
+            stepsPort(steps, [], [], failures),
+            processorPort(async () => {
+                throw new Error("metadata exploded");
+            }),
+            wakePort([]),
+        );
+
+        await orchestrator.run({
+            runId: run.runId,
+            traceId: "trace-test",
+            laneStepKeys: [BOOTSTRAP_STEP_KEY.Metadata],
+            leaseOwner: "lease-test",
+            leaseMs: 1_000,
+            claimLimit: 1,
+            maxIterations: 1,
+            retryPolicy: TEST_RETRY_POLICY,
+        });
+
+        expect(failures).toEqual([
+            expect.objectContaining({
+                stepKey: BOOTSTRAP_STEP_KEY.Metadata,
+                attempts: 1,
+                error: expect.stringContaining(
+                    BOOTSTRAP_STEP_ORCHESTRATION_ERROR.ProcessorException,
+                ),
+            }),
+        ]);
+        expect(steps[0]).toEqual(
+            expect.objectContaining({
+                status: BOOTSTRAP_STEP_STATUS.FailedRetry,
+                leaseOwner: null,
+                leaseUntil: null,
+            }),
+        );
+    });
+
+    it("marks invalid terminal outcomes as orchestration failures", async () => {
+        const run = buildRun();
+        const steps = [
+            step(BOOTSTRAP_STEP_KEY.Metadata, BOOTSTRAP_STEP_STATUS.Ready),
+        ];
+        const terminalFailures: Array<{
+            stepKey: BootstrapStepKey;
+            attempts: number;
+            error: string;
+        }> = [];
+        const orchestrator = new BootstrapStepOrchestrator(
+            runsPort(run),
+            stepsPort(steps, [], [], [], terminalFailures),
+            processorPort(async () => terminalStepResult()),
+            wakePort([]),
+        );
+
+        await orchestrator.run({
+            runId: run.runId,
+            traceId: "trace-test",
+            laneStepKeys: [BOOTSTRAP_STEP_KEY.Metadata],
+            leaseOwner: "lease-test",
+            leaseMs: 1_000,
+            claimLimit: 1,
+            maxIterations: 1,
+            retryPolicy: TEST_RETRY_POLICY,
+        });
+
+        expect(terminalFailures).toEqual([
+            expect.objectContaining({
+                stepKey: BOOTSTRAP_STEP_KEY.Metadata,
+                attempts: 1,
+                error: expect.stringContaining(
+                    BOOTSTRAP_STEP_ORCHESTRATION_ERROR.InvalidTerminalOutcome,
+                ),
+            }),
+        ]);
+        expect(steps[0]?.status).toBe(BOOTSTRAP_STEP_STATUS.FailedTerminal);
     });
 });
 
@@ -84,6 +182,17 @@ function stepsPort(
     steps: BootstrapStepRecord[],
     claimed: BootstrapStepKey[],
     released: Array<{ stepKey: BootstrapStepKey; nextAttemptAt: number }>,
+    failures: Array<{
+        stepKey: BootstrapStepKey;
+        attempts: number;
+        nextAttemptAt: number;
+        error: string;
+    }> = [],
+    terminalFailures: Array<{
+        stepKey: BootstrapStepKey;
+        attempts: number;
+        error: string;
+    }> = [],
 ): BootstrapStepOrchestratorStepsPort {
     return {
         listRunSteps: () => steps,
@@ -125,6 +234,29 @@ function stepsPort(
             released.push({ stepKey, nextAttemptAt });
         },
         releaseStepLeaseAsRunning: () => {},
+        markStepFailedRetry: ({ stepKey, attempts, nextAttemptAt, error }) => {
+            const target = steps.find((stepItem) => stepItem.stepKey === stepKey);
+            if (target) {
+                target.status = BOOTSTRAP_STEP_STATUS.FailedRetry;
+                target.attempts = attempts;
+                target.nextAttemptAt = nextAttemptAt;
+                target.leaseOwner = null;
+                target.leaseUntil = null;
+                target.lastError = error;
+            }
+            failures.push({ stepKey, attempts, nextAttemptAt, error });
+        },
+        markStepFailedTerminal: ({ stepKey, attempts, error }) => {
+            const target = steps.find((stepItem) => stepItem.stepKey === stepKey);
+            if (target) {
+                target.status = BOOTSTRAP_STEP_STATUS.FailedTerminal;
+                target.attempts = attempts;
+                target.leaseOwner = null;
+                target.leaseUntil = null;
+                target.lastError = error;
+            }
+            terminalFailures.push({ stepKey, attempts, error });
+        },
     };
 }
 

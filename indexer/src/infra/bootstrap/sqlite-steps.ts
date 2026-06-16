@@ -6,6 +6,8 @@ import {
     type BootstrapStepStatus,
 } from "@artgod/shared/bootstrap/pipeline";
 import type {
+    BootstrapDueStepRunQuery,
+    BootstrapNextDueStepQuery,
     BootstrapStepProgress,
     BootstrapStepRecord,
     BootstrapStepsPort,
@@ -79,11 +81,11 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         runId: number;
         stepKey: BootstrapStepKey;
         leaseOwner: string;
-        nextAttemptAt: number | null;
+        nextAttemptAt: number;
         runningStatus: BootstrapStepStatus;
     }>(
         "UPDATE bootstrap_run_steps SET " +
-            "next_attempt_at = COALESCE(@nextAttemptAt, next_attempt_at), lease_owner = NULL, lease_until = @nextAttemptAt, updated_at = CURRENT_TIMESTAMP " +
+            "next_attempt_at = @nextAttemptAt, lease_owner = NULL, lease_until = @nextAttemptAt, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey AND status = @runningStatus AND lease_owner = @leaseOwner",
     );
 
@@ -171,6 +173,63 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         return rows.map(mapStep);
     }
 
+    listDueStepRunIds(input: BootstrapDueStepRunQuery): number[] {
+        if (input.stepKeys.length === 0) {
+            return [];
+        }
+        const stepKeyPlaceholders = input.stepKeys.map(() => "?").join(", ");
+        const sql =
+            "SELECT DISTINCT s.run_id " +
+            "FROM bootstrap_run_steps s " +
+            "JOIN bootstrap_runs r ON r.run_id = s.run_id " +
+            `WHERE r.chain_id = ? AND s.step_key IN (${stepKeyPlaceholders}) ` +
+            "AND (" +
+            "(s.status IN (?, ?) AND s.next_attempt_at <= ? AND (s.lease_until IS NULL OR s.lease_until <= ?)) " +
+            "OR (s.status = ? AND s.lease_until IS NOT NULL AND s.lease_until <= ?)" +
+            ") ORDER BY s.run_id ASC LIMIT ?";
+        const rows = db.raw
+            .prepare(sql)
+            .all(
+                input.chainId,
+                ...input.stepKeys,
+                BOOTSTRAP_STEP_STATUS.Ready,
+                BOOTSTRAP_STEP_STATUS.FailedRetry,
+                input.nowMs,
+                input.nowMs,
+                BOOTSTRAP_STEP_STATUS.Running,
+                input.nowMs,
+                Math.max(1, input.limit),
+            ) as Array<{ run_id: number }>;
+        return rows.map((row) => row.run_id);
+    }
+
+    getNextDueStepAt(input: BootstrapNextDueStepQuery): number | null {
+        if (input.stepKeys.length === 0) {
+            return null;
+        }
+        const stepKeyPlaceholders = input.stepKeys.map(() => "?").join(", ");
+        const sql =
+            "SELECT MIN(CASE WHEN s.status = ? THEN s.lease_until ELSE s.next_attempt_at END) AS next_due_at " +
+            "FROM bootstrap_run_steps s " +
+            "JOIN bootstrap_runs r ON r.run_id = s.run_id " +
+            `WHERE r.chain_id = ? AND s.step_key IN (${stepKeyPlaceholders}) ` +
+            "AND (" +
+            "s.status IN (?, ?) " +
+            "OR (s.status = ? AND s.lease_until IS NOT NULL)" +
+            ")";
+        const row = db.raw
+            .prepare(sql)
+            .get(
+                BOOTSTRAP_STEP_STATUS.Running,
+                input.chainId,
+                ...input.stepKeys,
+                BOOTSTRAP_STEP_STATUS.Ready,
+                BOOTSTRAP_STEP_STATUS.FailedRetry,
+                BOOTSTRAP_STEP_STATUS.Running,
+            ) as { next_due_at: number | null } | undefined;
+        return row?.next_due_at ?? null;
+    }
+
     claimReadySteps(input: {
         runId: number;
         stepKeys: readonly BootstrapStepKey[];
@@ -217,7 +276,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         runId: number;
         stepKey: BootstrapStepKey;
         leaseOwner: string;
-        nextAttemptAt: number | null;
+        nextAttemptAt: number;
     }): void {
         this.releaseRunningStmt.run({
             ...input,
