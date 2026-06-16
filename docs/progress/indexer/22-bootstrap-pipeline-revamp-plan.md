@@ -1,8 +1,8 @@
 # Bootstrap Pipeline Revamp Plan
 
-Status: in progress; first implementation pass landed; follow-up audits found
-remaining liveness gaps in the leased orchestrator design; scheduler-first
-pipeline design is now the target before moving to medium-priority cleanup
+Status: critical/high scheduler-first implementation complete; final audit
+verified against the current worktree; remaining open decisions are product
+follow-ups rather than blockers for this revamp
 
 This plan replaces the current procedural bootstrap flow with a persisted,
 stateful, idempotent pipeline. The current code and schema may be redesigned
@@ -536,44 +536,41 @@ The scheduler-first implementation is being landed in review-sized chunks:
 ## Required Final Architecture Work
 
 This checklist tracks the critical/high items that must be true before moving
-to medium-priority cleanup. Items marked implemented still need to stay visible
-until the final audit verifies them against the full runtime and UI surface.
+to medium-priority cleanup. The final audit verified these items against the
+current runtime, storage, backend, frontend, and focused E2E coverage.
 
-1. Build the scheduler-first lane loops. Status: implemented; final audit
-   pending.
+1. Build the scheduler-first lane loops. Status: verified.
    The lane scheduler must poll indexed `bootstrap_run_steps` state, claim due
    work, reclaim expired leases, and keep processing until the lane is idle.
    Queue wakes should notify the loop but not be required for progress.
 
-2. Make releases self-contained. Status: implemented; final audit pending.
+2. Make releases self-contained. Status: verified.
    Incomplete, retry, and delegated outcomes must persist enough state for the
    scheduler to pick them up again without another queue message. This closes
    the current lost-wake and max-iteration liveness gap.
 
 3. Add processor exception handling at the orchestration boundary. Status:
-   implemented; final audit pending.
+   verified.
    Exceptions must release or retry the step according to a step-level retry
    policy. A throw must not leave a live lease as the only recovery path.
 
-4. Enforce processor outcome invariants. Status: implemented; final audit
-   pending.
+4. Enforce processor outcome invariants. Status: verified.
    Terminal outcomes require terminal persisted state; delegated outcomes
    require a health-check deadline; retry/incomplete outcomes require a next
    attempt timestamp. Violations should be persisted as orchestration errors.
 
-5. Normalize delegated side-lane processing. Status: implemented; final audit
-   pending.
+5. Normalize delegated side-lane processing. Status: verified.
    Backfill, OpenSea, and collection-extension artifact steps should all use the
    same delegated-step contract: `running` with a non-null health-check
    deadline, idempotent delegated job publish, progress recompute, retry, and
    terminalization.
 
-6. Generalize completed-run recovery. Status: implemented; final audit pending.
+6. Generalize completed-run recovery. Status: verified.
    Completed runs can still have non-blocking recoverable work. Startup and the
    lane scheduler should recover any nonterminal non-blocking step, not just
    image-cache work.
 
-7. Strengthen lifecycle and liveness tests. Status: in progress.
+7. Strengthen lifecycle and liveness tests. Status: verified.
    Tests must prove scheduler behavior, not merely handler behavior.
 
 ## Implementation Milestones
@@ -700,8 +697,7 @@ Test gate:
 
 These remain important but should wait until the scheduler design is coherent:
 
-1. Align RPC zero-data behavior and documentation. Status: implemented; final
-   audit pending.
+1. Align RPC zero-data behavior and documentation. Status: verified.
    The code treats provider zero-data and historical-state unavailable errors
    as retryable provider failures, while deterministic contract failures still
    short-circuit. The RPC catalog now reflects that split. Existing focused
@@ -709,18 +705,35 @@ These remain important but should wait until the scheduler design is coherent:
    zero-data retry/penalty behavior.
 
 2. Avoid loading `sharp` for original-byte image-cache passthrough. Status:
-   implemented; final audit pending.
+   verified.
    For `maxDimension = null`, passthrough preserves original bytes without
    requiring native image processing. Dimension extraction is skipped for this
    mode. Resizing remains the only path that requires `sharp`.
 
 3. Remove remaining hard-coded semantic literals from new bootstrap surfaces.
-   Status: implemented for the surfaced bootstrap/OpenSea production paths;
-   final audit pending.
+   Status: verified for the surfaced bootstrap/OpenSea production paths.
    Backend bootstrap retry and run-detail production code now imports the
    owning bootstrap contracts for serialized run, flow, step, and task values.
    OpenSea collection status values now use the shared collection type contract
    instead of an indexer-local owner plus backend-local unions.
+
+## Final Audit Evidence
+
+The final audit used the current worktree as authority and verified the
+critical/high checklist with these focused gates:
+
+- `ARTGOD_DB_PATH=/tmp/artgod-backend-opensea-status.sqlite yarn workspace @artgod/backend test api.test.ts`
+- `ARTGOD_DB_PATH=/tmp/artgod-indexer-opensea-status.sqlite yarn workspace @artgod/indexer test bootstrap-pipeline-lifecycle.test.ts bootstrap-opensea-steps.test.ts address-normalization.test.ts`
+- `ARTGOD_DB_PATH=/tmp/artgod-bootstrap-runs-storage.sqlite yarn workspace @artgod/indexer test bootstrap-runs-storage.test.ts bootstrap-step-scheduler.test.ts bootstrap-startup-reconciler.test.ts bootstrap-pipeline-lifecycle.test.ts`
+- `ARTGOD_DB_PATH=/tmp/artgod-delegated-side-lanes.sqlite yarn workspace @artgod/indexer test bootstrap-opensea-steps.test.ts bootstrap-collection-extension-artifacts.test.ts bootstrap-steps-storage.test.ts bootstrap-pipeline-lifecycle.test.ts`
+- `yarn workspace @artgod/frontend test BootstrapRunDetailView.svelte.test.ts bootstrap-contract-probe.test.ts`
+- `yarn workspace @artgod/frontend check`
+- `yarn workspace @artgod/frontend test:bootstrap:probe`
+- `yarn tsc -b`
+- `git diff --check`
+
+`yarn tauri build` was intentionally not run for this worktree, per the
+explicit instruction to skip Tauri builds here.
 
 ## Open Decisions
 
