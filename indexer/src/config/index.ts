@@ -72,6 +72,12 @@ const DEFAULT_BOOTSTRAP_METADATA_CONCURRENCY = getSettingDefaultNumber(
 const DEFAULT_BOOTSTRAP_METADATA_PROCESS_POLL_MS = getSettingDefaultNumber(
     "BOOTSTRAP_METADATA_PROCESS_POLL_MS",
 );
+const DEFAULT_BOOTSTRAP_SCHEDULER_POLL_MIN_MS = getSettingDefaultNumber(
+    "BOOTSTRAP_SCHEDULER_POLL_MIN_MS",
+);
+const DEFAULT_BOOTSTRAP_SCHEDULER_POLL_MAX_MS = getSettingDefaultNumber(
+    "BOOTSTRAP_SCHEDULER_POLL_MAX_MS",
+);
 const DEFAULT_BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS = getSettingDefaultNumber(
     "BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS",
 );
@@ -135,6 +141,8 @@ export type IndexerConfig = {
         metadataBatchSize: number;
         metadataConcurrency: number;
         metadataProcessPollMs: number;
+        schedulerPollMinMs: number;
+        schedulerPollMaxMs: number;
         metadataRetryPolicy: {
             maxAttempts: number;
             baseDelayMs: number;
@@ -282,6 +290,16 @@ export function loadConfig(
                 env.BOOTSTRAP_METADATA_PROCESS_POLL_MS,
                 "BOOTSTRAP_METADATA_PROCESS_POLL_MS",
                 DEFAULT_BOOTSTRAP_METADATA_PROCESS_POLL_MS,
+            ),
+            schedulerPollMinMs: parsePositiveInteger(
+                env.BOOTSTRAP_SCHEDULER_POLL_MIN_MS,
+                "BOOTSTRAP_SCHEDULER_POLL_MIN_MS",
+                DEFAULT_BOOTSTRAP_SCHEDULER_POLL_MIN_MS,
+            ),
+            schedulerPollMaxMs: parsePositiveInteger(
+                env.BOOTSTRAP_SCHEDULER_POLL_MAX_MS,
+                "BOOTSTRAP_SCHEDULER_POLL_MAX_MS",
+                DEFAULT_BOOTSTRAP_SCHEDULER_POLL_MAX_MS,
             ),
             metadataRetryPolicy: {
                 maxAttempts: parseNumber(

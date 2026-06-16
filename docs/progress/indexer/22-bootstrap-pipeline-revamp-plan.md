@@ -499,6 +499,9 @@ The scheduler-first implementation is being landed in review-sized chunks:
 - The bootstrap runtime now starts bounded pollers for the main and image-cache
   lanes. Queue jobs still trigger immediate passes, but due durable rows are
   also discovered by lane polling when no wake arrives.
+- Scheduler polling bounds are configurable through typed indexer config:
+  `BOOTSTRAP_SCHEDULER_POLL_MIN_MS` and
+  `BOOTSTRAP_SCHEDULER_POLL_MAX_MS`.
 
 ## Required Final Architecture Work
 
@@ -686,9 +689,6 @@ These remain important but should wait until the scheduler design is coherent:
 
 ## Open Decisions
 
-- Exact scheduler polling floor/ceiling defaults. The loop must be bounded and
-  configurable, but the first implementation can choose conservative defaults
-  and tune after local runtime testing.
 - Whether ownership should expose a dedicated operator retry action separate
   from generic step resume. This does not change ownership being mandatory.
 - Whether non-blocking side-lane terminal failures should show a dedicated

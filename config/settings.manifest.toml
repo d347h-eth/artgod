@@ -772,6 +772,18 @@ label = "bootstrap metadata process poll ms"
 default = "5000"
 
 [[settings]]
+key = "BOOTSTRAP_SCHEDULER_POLL_MIN_MS"
+group = "indexer"
+label = "bootstrap scheduler poll min ms"
+default = "250"
+
+[[settings]]
+key = "BOOTSTRAP_SCHEDULER_POLL_MAX_MS"
+group = "indexer"
+label = "bootstrap scheduler poll max ms"
+default = "5000"
+
+[[settings]]
 key = "BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS"
 group = "indexer"
 label = "bootstrap metadata retry max attempts"

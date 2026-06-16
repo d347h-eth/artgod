@@ -149,8 +149,6 @@ const BOOTSTRAP_STARTUP_SWEEP_TRACE_PREFIX = "bootstrap:startup-sweep";
 const BOOTSTRAP_STEP_LEASE_MS = 60_000;
 const BOOTSTRAP_STEP_CLAIM_LIMIT = 1;
 const BOOTSTRAP_STEP_MAX_ITERATIONS = 20;
-const BOOTSTRAP_SCHEDULER_POLL_MIN_MS = 250;
-const BOOTSTRAP_SCHEDULER_POLL_MAX_MS = 5_000;
 const BOOTSTRAP_MAIN_STEP_LEASE_OWNER = "bootstrap-worker:main";
 const BOOTSTRAP_IMAGE_CACHE_STEP_LEASE_OWNER = "bootstrap-worker:image-cache";
 const BOOTSTRAP_MAIN_LANE_STEP_KEYS = [
@@ -360,6 +358,8 @@ async function main() {
         );
         const stopMainLanePoller = startBootstrapLanePoller({
             laneName: BOOTSTRAP_LANE_NAME.Main,
+            pollMinMs: config.bootstrap.schedulerPollMinMs,
+            pollMaxMs: config.bootstrap.schedulerPollMaxMs,
             run: async (input) =>
                 runMainLane({
                     ...input,
@@ -368,6 +368,8 @@ async function main() {
         });
         const stopImageCacheLanePoller = startBootstrapLanePoller({
             laneName: BOOTSTRAP_LANE_NAME.ImageCache,
+            pollMinMs: config.bootstrap.schedulerPollMinMs,
+            pollMaxMs: config.bootstrap.schedulerPollMaxMs,
             run: runImageCacheLane,
         });
 
@@ -587,6 +589,8 @@ type BootstrapLanePollerRunInput = {
 
 function startBootstrapLanePoller(input: {
     laneName: BootstrapLanePollerName;
+    pollMinMs: number;
+    pollMaxMs: number;
     run: (
         pollInput: BootstrapLanePollerRunInput,
     ) => Promise<BootstrapStepSchedulerResult>;
@@ -607,7 +611,11 @@ function startBootstrapLanePoller(input: {
             () => {
                 poll().catch(() => {});
             },
-            resolveBootstrapLanePollDelayMs(nextDueAt),
+            resolveBootstrapLanePollDelayMs({
+                nextDueAt,
+                pollMinMs: input.pollMinMs,
+                pollMaxMs: input.pollMaxMs,
+            }),
         );
     };
 
@@ -677,15 +685,18 @@ function startBootstrapLanePoller(input: {
     };
 }
 
-function resolveBootstrapLanePollDelayMs(nextDueAt: number | null): number {
-    if (nextDueAt === null) {
-        return BOOTSTRAP_SCHEDULER_POLL_MAX_MS;
+function resolveBootstrapLanePollDelayMs(input: {
+    nextDueAt: number | null;
+    pollMinMs: number;
+    pollMaxMs: number;
+}): number {
+    const pollMinMs = Math.max(1, input.pollMinMs);
+    const pollMaxMs = Math.max(pollMinMs, input.pollMaxMs);
+    if (input.nextDueAt === null) {
+        return pollMaxMs;
     }
-    const dueDelay = Math.max(0, nextDueAt - Date.now());
-    return Math.min(
-        BOOTSTRAP_SCHEDULER_POLL_MAX_MS,
-        Math.max(BOOTSTRAP_SCHEDULER_POLL_MIN_MS, dueDelay),
-    );
+    const dueDelay = Math.max(0, input.nextDueAt - Date.now());
+    return Math.min(pollMaxMs, Math.max(pollMinMs, dueDelay));
 }
 
 function createBootstrapBackfillQueuePort(
