@@ -106,9 +106,10 @@ domain mapping, and any integration-specific wrappers such as APM spans.
   lookup, and generic ERC721 `tokenURI`.
 - Resilience: weighted endpoint selection, dynamic endpoint weight drift,
   adapter retry, per-endpoint rate limiting, and per-endpoint circuit breaker.
-  Deterministic contract-call failures such as missing methods, zero returned
-  data, and EVM reverts are not retried and do not penalize the selected
-  endpoint.
+  Deterministic contract-call failures such as missing methods and EVM reverts
+  are not retried and do not penalize the selected endpoint. Provider zero-data
+  responses such as viem `ContractFunctionZeroDataError` / `AbiDecodingZeroDataError`
+  and unavailable historical-state responses are retryable endpoint failures.
 - Fallback: extension-specific. Generic token URI fallback returns not found
   when the contract read still fails after retry exhaustion or deterministic
   contract failure.
@@ -127,8 +128,10 @@ domain mapping, and any integration-specific wrappers such as APM spans.
 - Resilience: inherited from `backend-rpc`, including weighted endpoint
   selection, dynamic endpoint weight drift, adapter retry, per-endpoint rate
   limiting, and per-endpoint circuit breaker. Missing ERC165/enumerable
-  methods, zero returned data, and EVM reverts short-circuit as deterministic
-  contract-call failures instead of exhausting retry attempts.
+  methods and EVM reverts short-circuit as deterministic contract-call failures
+  instead of exhausting retry attempts. Provider zero-data responses and
+  unavailable historical-state responses are retried through the shared RPC
+  harness because they can indicate endpoint state/indexing failure.
 - Non-JSON-RPC follow-up: after `tokenURI` resolves, metadata payload fetches
   and token image size probes use HTTP/media fetches through the configured IPFS
   gateway origin when needed.

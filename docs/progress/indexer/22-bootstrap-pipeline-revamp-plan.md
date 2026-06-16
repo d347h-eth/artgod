@@ -515,6 +515,9 @@ The scheduler-first implementation is being landed in review-sized chunks:
 - Original-byte image-cache passthrough no longer imports or invokes `sharp`.
   Native image processing is loaded only for resize requests, and passthrough
   keeps the original bytes without dimension probing.
+- The HTTP JSON-RPC catalog now distinguishes deterministic contract failures
+  from provider zero-data and unavailable historical-state responses, matching
+  the shared RPC harness classification and retry behavior.
 
 ## Required Final Architecture Work
 
@@ -684,13 +687,13 @@ Test gate:
 
 These remain important but should wait until the scheduler design is coherent:
 
-1. Align RPC zero-data behavior and documentation.
-   The code now treats provider zero-data and historical-state unavailable
-   errors as retryable provider failures, while deterministic contract failures
-   still short-circuit. The RPC catalog still has text that groups zero returned
-   data with deterministic no-retry behavior in places. Update the catalog and
-   add focused coverage so missing methods/reverts still short-circuit quickly
-   during probing, while provider zero-data from flaky endpoints rotates/retries.
+1. Align RPC zero-data behavior and documentation. Status: implemented; final
+   audit pending.
+   The code treats provider zero-data and historical-state unavailable errors
+   as retryable provider failures, while deterministic contract failures still
+   short-circuit. The RPC catalog now reflects that split. Existing focused
+   shared RPC coverage pins missing/revert no-retry behavior and provider
+   zero-data retry/penalty behavior.
 
 2. Avoid loading `sharp` for original-byte image-cache passthrough. Status:
    implemented; final audit pending.
