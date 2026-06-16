@@ -1,6 +1,7 @@
 import { ReadModelNotFoundError } from "@artgod/shared/read-models/errors";
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 import { isImageCachePolicyActive } from "@artgod/shared/media/token-image-cache";
+import { COLLECTION_STATUS } from "@artgod/shared/types";
 import {
     BOOTSTRAP_RUN_EVENT_CODE,
     parseBootstrapEnumerationCompletedEventPayload,
@@ -13,6 +14,7 @@ import {
     BOOTSTRAP_STEP_ACTION,
     BOOTSTRAP_STEP_KEY,
     BOOTSTRAP_STEP_STATUS,
+    BOOTSTRAP_TASK_STATUS,
     canPauseBootstrapStepStatus,
     canResumeBootstrapStepStatus,
     isBootstrapStepKey,
@@ -92,7 +94,7 @@ export class GetBootstrapRunDetailUseCase {
             );
         const failedTasksPreview = this.bootstrapRunsPort.listRunMetadataTasks({
             runId: run.runId,
-            status: "failed_terminal",
+            status: BOOTSTRAP_TASK_STATUS.FailedTerminal,
             limit: FAILED_TASKS_PREVIEW_LIMIT,
         });
 
@@ -168,7 +170,7 @@ function buildBootstrapRunFlow(input: {
     const hasRequested = true;
     const hasQueued =
         eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.RunQueued) ||
-        input.run.status !== "requested";
+        input.run.status !== BOOTSTRAP_RUN_STATUS.Requested;
     const hasAnchor =
         eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.RunAnchorSelected) ||
         input.run.anchorBlock !== null;
@@ -182,11 +184,11 @@ function buildBootstrapRunFlow(input: {
         eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.MetadataQueued) ||
         eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.MetadataRetryFailedTerminal);
     const hasMetadataCompleted =
-        input.run.status === "image_cache" ||
-        input.run.status === "ownership" ||
-        input.run.status === "backfill" ||
-        input.run.status === "completed" ||
-        input.collection.status === "live";
+        input.run.status === BOOTSTRAP_RUN_STATUS.ImageCache ||
+        input.run.status === BOOTSTRAP_RUN_STATUS.Ownership ||
+        input.run.status === BOOTSTRAP_RUN_STATUS.Backfill ||
+        input.run.status === BOOTSTRAP_RUN_STATUS.Completed ||
+        input.collection.status === COLLECTION_STATUS.Live;
     const hasImageCacheQueued =
         eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.ImageCacheQueued) ||
         eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.ImageCacheCompleted) ||
@@ -196,17 +198,18 @@ function buildBootstrapRunFlow(input: {
         (!isImageCacheRunActive(input.run) ||
             eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.ImageCacheCompleted) ||
             eventCodes.has(BOOTSTRAP_RUN_EVENT_CODE.ImageCacheSkipped) ||
-            input.run.status === "ownership" ||
-            input.run.status === "backfill" ||
-            input.run.status === "completed" ||
-            input.collection.status === "live");
+            input.run.status === BOOTSTRAP_RUN_STATUS.Ownership ||
+            input.run.status === BOOTSTRAP_RUN_STATUS.Backfill ||
+            input.run.status === BOOTSTRAP_RUN_STATUS.Completed ||
+            input.collection.status === COLLECTION_STATUS.Live);
     const hasOwnershipCompleted =
-        input.run.status === "backfill" ||
-        input.run.status === "completed" ||
-        input.collection.status === "live";
+        input.run.status === BOOTSTRAP_RUN_STATUS.Backfill ||
+        input.run.status === BOOTSTRAP_RUN_STATUS.Completed ||
+        input.collection.status === COLLECTION_STATUS.Live;
     const hasBackfillCompleted =
-        input.run.status === "completed" || input.collection.status === "live";
-    const isRunFailed = input.run.status === "failed";
+        input.run.status === BOOTSTRAP_RUN_STATUS.Completed ||
+        input.collection.status === COLLECTION_STATUS.Live;
+    const isRunFailed = input.run.status === BOOTSTRAP_RUN_STATUS.Failed;
     const enumerationProgress = resolveEnumerationProgress(input.events);
     const metadataProgress = resolveTaskProgress(input.metadataTasks);
     const imageCacheProgress = isImageCacheRunActive(input.run)
@@ -221,7 +224,7 @@ function buildBootstrapRunFlow(input: {
 
     const steps: BootstrapFlowStepDraft[] = [
         {
-            key: "queued",
+            key: BOOTSTRAP_FLOW_STEP_KEY.Queued,
             label: "queued",
             state: resolveStepState({
                 completed: hasQueued,
@@ -232,7 +235,7 @@ function buildBootstrapRunFlow(input: {
             progress: null,
         },
         {
-            key: "anchor",
+            key: BOOTSTRAP_FLOW_STEP_KEY.Anchor,
             label: "anchor",
             state: resolveStepState({
                 completed: hasAnchor,
@@ -246,7 +249,7 @@ function buildBootstrapRunFlow(input: {
             progress: null,
         },
         {
-            key: "enumeration",
+            key: BOOTSTRAP_FLOW_STEP_KEY.Enumeration,
             label: "enumeration",
             state: resolveStepState({
                 completed: hasEnumerationCompleted,
@@ -263,7 +266,7 @@ function buildBootstrapRunFlow(input: {
             progress: enumerationProgress,
         },
         {
-            key: "metadata",
+            key: BOOTSTRAP_FLOW_STEP_KEY.Metadata,
             label: "metadata",
             state: resolveStepState({
                 completed: hasMetadataCompleted,
@@ -278,11 +281,13 @@ function buildBootstrapRunFlow(input: {
             progress: metadataProgress,
         },
         {
-            key: "image_cache",
+            key: BOOTSTRAP_FLOW_STEP_KEY.ImageCache,
             label: "image cache",
             state: resolveStepState({
                 completed: hasImageCacheCompleted,
-                active: input.run.status === "image_cache" && !isRunFailed,
+                active:
+                    input.run.status === BOOTSTRAP_RUN_STATUS.ImageCache &&
+                    !isRunFailed,
                 failed:
                     !hasImageCacheCompleted &&
                     isRunFailed &&
@@ -295,11 +300,13 @@ function buildBootstrapRunFlow(input: {
             progress: imageCacheProgress,
         },
         {
-            key: "ownership",
+            key: BOOTSTRAP_FLOW_STEP_KEY.Ownership,
             label: "ownership",
             state: resolveStepState({
                 completed: hasOwnershipCompleted,
-                active: input.run.status === "ownership" && !isRunFailed,
+                active:
+                    input.run.status === BOOTSTRAP_RUN_STATUS.Ownership &&
+                    !isRunFailed,
                 failed:
                     !hasOwnershipCompleted &&
                     isRunFailed &&
@@ -309,21 +316,25 @@ function buildBootstrapRunFlow(input: {
             progress: ownershipProgress,
         },
         {
-            key: "backfill",
+            key: BOOTSTRAP_FLOW_STEP_KEY.Backfill,
             label: "backfill",
             state: resolveStepState({
                 completed: hasBackfillCompleted,
-                active: input.run.status === "backfill" && !isRunFailed,
-                failed: input.run.status === "failed" && hasOwnershipCompleted,
+                active:
+                    input.run.status === BOOTSTRAP_RUN_STATUS.Backfill &&
+                    !isRunFailed,
+                failed:
+                    input.run.status === BOOTSTRAP_RUN_STATUS.Failed &&
+                    hasOwnershipCompleted,
             }),
             detailText: null,
             progress: null,
         },
         {
-            key: "collection_live",
+            key: BOOTSTRAP_FLOW_STEP_KEY.CollectionLive,
             label: "collection live",
             state: resolveStepState({
-                completed: input.collection.status === "live",
+                completed: input.collection.status === COLLECTION_STATUS.Live,
                 active: false,
                 failed: false,
             }),
@@ -355,7 +366,7 @@ function buildBootstrapRunFlow(input: {
 
         steps.push(
             {
-                key: "opensea_identity",
+                key: BOOTSTRAP_FLOW_STEP_KEY.OpenSeaIdentity,
                 label: "opensea identity",
                 state: resolveStepState({
                     completed: openseaIdentityCompleted,
@@ -366,7 +377,7 @@ function buildBootstrapRunFlow(input: {
                 progress: null,
             },
             {
-                key: "opensea_snapshot",
+                key: BOOTSTRAP_FLOW_STEP_KEY.OpenSeaSnapshot,
                 label: "opensea snapshot",
                 state: resolveStepState({
                     completed: openseaSnapshotCompleted,
@@ -380,7 +391,7 @@ function buildBootstrapRunFlow(input: {
                 progress: null,
             },
             {
-                key: "opensea_ready",
+                key: BOOTSTRAP_FLOW_STEP_KEY.OpenSeaReady,
                 label: "opensea ready",
                 state: resolveStepState({
                     completed: openseaReadyCompleted,
@@ -483,10 +494,10 @@ function resolveStepState(input: {
     active: boolean;
     failed: boolean;
 }): BootstrapFlowStepState {
-    if (input.failed) return "failed";
-    if (input.completed) return "completed";
-    if (input.active) return "active";
-    return "pending";
+    if (input.failed) return BOOTSTRAP_FLOW_STEP_STATE.Failed;
+    if (input.completed) return BOOTSTRAP_FLOW_STEP_STATE.Completed;
+    if (input.active) return BOOTSTRAP_FLOW_STEP_STATE.Active;
+    return BOOTSTRAP_FLOW_STEP_STATE.Pending;
 }
 
 function resolveFlowStepStateFromStepStatus(
@@ -655,7 +666,10 @@ function resolveOwnershipProgress(input: {
     ownershipSnapshotCount: number;
     hasOwnershipCompleted: boolean;
 }): BootstrapFlowStep["progress"] {
-    if (input.run.status !== "ownership" && !input.hasOwnershipCompleted) {
+    if (
+        input.run.status !== BOOTSTRAP_RUN_STATUS.Ownership &&
+        !input.hasOwnershipCompleted
+    ) {
         return null;
     }
     return normalizeProgress(
@@ -748,7 +762,7 @@ function applyRunFailureDetail(
     failureMessage: string,
 ): void {
     for (let index = steps.length - 1; index >= 0; index -= 1) {
-        if (steps[index]?.state !== "failed") continue;
+        if (steps[index]?.state !== BOOTSTRAP_FLOW_STEP_STATE.Failed) continue;
         steps[index] = {
             ...steps[index]!,
             detailText: failureMessage,
@@ -763,11 +777,11 @@ function resolveShouldPoll(input: {
     isLatestForCollection: boolean;
     openseaIntegration: OpenSeaIntegrationStatus;
 }): boolean {
-    if (input.run.status === "failed") {
+    if (input.run.status === BOOTSTRAP_RUN_STATUS.Failed) {
         return false;
     }
 
-    if (input.run.status !== "completed") {
+    if (input.run.status !== BOOTSTRAP_RUN_STATUS.Completed) {
         return true;
     }
 

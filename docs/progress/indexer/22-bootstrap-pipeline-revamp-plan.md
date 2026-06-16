@@ -518,6 +518,9 @@ The scheduler-first implementation is being landed in review-sized chunks:
 - The HTTP JSON-RPC catalog now distinguishes deterministic contract failures
   from provider zero-data and unavailable historical-state responses, matching
   the shared RPC harness classification and retry behavior.
+- Backend bootstrap retry and run-detail flow code now imports the owning
+  bootstrap run, step, flow-state, and task-status contracts instead of
+  branching on raw serialized bootstrap values.
 
 ## Required Final Architecture Work
 
@@ -702,11 +705,13 @@ These remain important but should wait until the scheduler design is coherent:
    mode. Resizing remains the only path that requires `sharp`.
 
 3. Remove remaining hard-coded semantic literals from new bootstrap surfaces.
-   The first pass centralized most pipeline vocabulary, but some frontend and
-   backend bootstrap code still repeats statuses, standards, route/action
-   values, and task states directly. Import the owning constants/contracts in
-   production code and tests unless a test is intentionally asserting storage or
-   wire serialization.
+   Status: partially implemented; final audit pending.
+   Backend bootstrap retry and run-detail production code now imports the
+   owning bootstrap contracts for serialized run, flow, step, and task values.
+   The remaining obvious production literals are OpenSea collection status
+   values that currently have an indexer-local owner; centralizing those should
+   be done through a proper shared collection/offchain contract instead of
+   importing indexer-domain constants into backend code.
 
 ## Open Decisions
 
