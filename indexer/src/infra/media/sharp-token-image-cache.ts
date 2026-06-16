@@ -23,6 +23,7 @@ export type SharpTokenImageCacheConfig = {
     ipfsGatewayOrigin: string;
     maxSourceBytes: number;
     fetchResilience?: HttpFetchResilienceConfig;
+    sharpLoader?: SharpFactoryLoader;
 };
 
 type SourceImagePayload = {
@@ -30,7 +31,8 @@ type SourceImagePayload = {
     contentType: string | null;
 };
 
-type SharpFactory = typeof sharp;
+export type SharpFactory = typeof sharp;
+export type SharpFactoryLoader = () => Promise<SharpFactory>;
 
 const DEFAULT_WEBP_QUALITY = 85;
 let sharpFactoryPromise: Promise<SharpFactory> | null = null;
@@ -48,7 +50,11 @@ export class SharpTokenImageCache implements TokenImageCachePort {
     ): Promise<TokenImageCacheResult> {
         const source = await this.fetchSourceImage(input.sourceImageUrl);
         const cacheKey = buildCacheKey(input);
-        const transformed = await transformImage(source, input);
+        const transformed = await transformImage(
+            source,
+            input,
+            this.config.sharpLoader ?? loadSharp,
+        );
         const relativePath = buildRelativePath({
             chainId: input.chainId,
             collectionId: input.collectionId,
@@ -135,6 +141,7 @@ export class SharpTokenImageCache implements TokenImageCachePort {
 async function transformImage(
     source: SourceImagePayload,
     input: TokenImageCacheInput,
+    sharpLoader: SharpFactoryLoader,
 ): Promise<{
     buffer: Buffer;
     contentType: string;
@@ -142,9 +149,8 @@ async function transformImage(
     width: number | null;
     height: number | null;
 }> {
-    const sharp = await loadSharp();
-
     if (input.requestedMaxDimension !== null) {
+        const sharp = await sharpLoader();
         const output = await sharp(source.buffer, {
             animated: false,
         })
@@ -166,11 +172,6 @@ async function transformImage(
         };
     }
 
-    const metadata = await sharp(source.buffer, {
-        animated: false,
-    })
-        .metadata()
-        .catch(() => null);
     const contentType =
         normalizeContentType(source.contentType) ??
         inferImageContentType(source.buffer) ??
@@ -179,8 +180,8 @@ async function transformImage(
         buffer: source.buffer,
         contentType,
         extension: extensionForContentType(contentType),
-        width: metadata?.width ?? null,
-        height: metadata?.height ?? null,
+        width: null,
+        height: null,
     };
 }
 

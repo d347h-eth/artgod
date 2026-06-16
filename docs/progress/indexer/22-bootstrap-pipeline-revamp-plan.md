@@ -512,6 +512,9 @@ The scheduler-first implementation is being landed in review-sized chunks:
 - Processor outcome validation now also rejects incomplete/ready releases that
   do not provide a finite next-attempt deadline, preventing invalid durable
   scheduling state from being persisted silently.
+- Original-byte image-cache passthrough no longer imports or invokes `sharp`.
+  Native image processing is loaded only for resize requests, and passthrough
+  keeps the original bytes without dimension probing.
 
 ## Required Final Architecture Work
 
@@ -689,12 +692,11 @@ These remain important but should wait until the scheduler design is coherent:
    add focused coverage so missing methods/reverts still short-circuit quickly
    during probing, while provider zero-data from flaky endpoints rotates/retries.
 
-2. Avoid loading `sharp` for original-byte image-cache passthrough.
-   The image cache adapter currently imports `sharp` even when no resize is
-   requested, only to inspect dimensions. For `maxDimension = null`, passthrough
-   should preserve original bytes without requiring native image processing.
-   Dimension extraction can be skipped or handled by a lightweight optional
-   probe. Resizing should remain the only path that requires `sharp`.
+2. Avoid loading `sharp` for original-byte image-cache passthrough. Status:
+   implemented; final audit pending.
+   For `maxDimension = null`, passthrough preserves original bytes without
+   requiring native image processing. Dimension extraction is skipped for this
+   mode. Resizing remains the only path that requires `sharp`.
 
 3. Remove remaining hard-coded semantic literals from new bootstrap surfaces.
    The first pass centralized most pipeline vocabulary, but some frontend and
