@@ -13,6 +13,7 @@ export type BootstrapStepSchedulerInput = {
     chainId: number;
     runId?: number | null;
     traceId: string;
+    laneName: string;
     laneStepKeys: readonly BootstrapStepKey[];
     leaseOwner: string;
     leaseMs: number;
@@ -85,6 +86,7 @@ export class BootstrapStepScheduler {
             const result = await this.orchestrator.run({
                 runId,
                 traceId: input.traceId,
+                laneName: input.laneName,
                 laneStepKeys: input.laneStepKeys,
                 leaseOwner: input.leaseOwner,
                 leaseMs: input.leaseMs,

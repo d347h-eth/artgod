@@ -60,6 +60,7 @@ const TEST_MAIN_LANE_STEP_KEYS = [
     BOOTSTRAP_STEP_KEY.Backfill,
     BOOTSTRAP_STEP_KEY.CollectionLive,
 ] as const;
+const TEST_MAIN_LANE_NAME = "main";
 const TEST_RETRY_POLICY = {
     maxAttempts: 3,
     baseDelayMs: 10,
@@ -432,6 +433,7 @@ describe("bootstrap pipeline lifecycle", () => {
             chainId: 1,
             runId,
             traceId: "trace-scheduler",
+            laneName: TEST_MAIN_LANE_NAME,
             laneStepKeys: TEST_MAIN_LANE_STEP_KEYS,
             leaseOwner: "scheduler-lifecycle-test",
             leaseMs: 1_000,
@@ -645,6 +647,7 @@ describe("bootstrap pipeline lifecycle", () => {
             chainId: 1,
             runId,
             traceId: "trace-scheduler",
+            laneName: TEST_MAIN_LANE_NAME,
             laneStepKeys: TEST_MAIN_LANE_STEP_KEYS,
             leaseOwner: "scheduler-lifecycle-test",
             leaseMs: 1_000,

@@ -2,10 +2,31 @@ import {
     isBootstrapStepTerminalStatus,
     type BootstrapStepKey,
 } from "@artgod/shared/bootstrap/pipeline";
+import { logger } from "@artgod/shared/utils";
 import { getRetryDelayMs, type RetryPolicy } from "../domain/retry.js";
 import type { BootstrapRunDefinition } from "../ports/bootstrap-runs.js";
 import type { BootstrapStepRecord } from "../ports/bootstrap-steps.js";
 import { resolveReadyBootstrapSteps } from "./bootstrap-step-reconciler.js";
+
+// Structured scheduler component label used by bootstrap orchestration logs.
+export const BOOTSTRAP_STEP_ORCHESTRATOR_COMPONENT =
+    "BootstrapStepOrchestrator";
+
+// Scheduler log actions describe durable step state transitions.
+export const BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION = {
+    StepReady: "step_ready",
+    OutOfLaneWake: "out_of_lane_wake",
+    StepClaimed: "step_claimed",
+    StepReleasedReady: "step_released_ready",
+    StepDelegated: "step_delegated",
+    StepTerminalObserved: "step_terminal_observed",
+    StepRetryScheduled: "step_retry_scheduled",
+    StepTerminalFailed: "step_terminal_failed",
+    InvalidOutcome: "invalid_outcome",
+} as const;
+
+const BOOTSTRAP_STEP_ORCHESTRATOR_LOG_MESSAGE =
+    "Bootstrap step scheduler transition";
 
 // Step processor release modes tell the orchestrator how to persist lease state.
 export const BOOTSTRAP_STEP_PROCESSOR_RELEASE = {
@@ -34,6 +55,7 @@ export type BootstrapClaimedStepProcessorResult =
 // Orchestration errors are persisted as step errors when a processor violates its contract.
 export const BOOTSTRAP_STEP_ORCHESTRATION_ERROR = {
     ProcessorException: "processor_exception",
+    InvalidReadyOutcome: "invalid_ready_outcome",
     InvalidTerminalOutcome: "invalid_terminal_outcome",
     InvalidRunningOutcome: "invalid_running_outcome",
 } as const;
@@ -41,6 +63,7 @@ export const BOOTSTRAP_STEP_ORCHESTRATION_ERROR = {
 export type BootstrapStepOrchestratorInput = {
     runId: number;
     traceId: string;
+    laneName: string;
     laneStepKeys: readonly BootstrapStepKey[];
     leaseOwner: string;
     leaseMs: number;
@@ -115,6 +138,12 @@ export interface BootstrapStepWakePort {
     }): Promise<void>;
 }
 
+export interface BootstrapStepOrchestratorLoggerPort {
+    debug(message: string, meta?: Record<string, unknown>): void;
+    warn(message: string, meta?: Record<string, unknown>): void;
+    error(message: string, meta?: Record<string, unknown>): void;
+}
+
 // Reconciles dependencies, claims due steps with leases, and executes bounded processors.
 export class BootstrapStepOrchestrator {
     constructor(
@@ -123,6 +152,7 @@ export class BootstrapStepOrchestrator {
         private readonly processorPort: BootstrapClaimedStepProcessorPort,
         private readonly wakePort: BootstrapStepWakePort,
         private readonly nowMs: () => number = Date.now,
+        private readonly loggerPort: BootstrapStepOrchestratorLoggerPort = logger,
     ) {}
 
     async run(
@@ -145,11 +175,12 @@ export class BootstrapStepOrchestrator {
             readyStepKeys.push(...readyNow);
 
             const nowMs = this.nowMs();
+            const leaseUntil = nowMs + Math.max(1, input.leaseMs);
             const claimedSteps = this.stepsPort.claimReadySteps({
                 runId: input.runId,
                 stepKeys: input.laneStepKeys,
                 leaseOwner: input.leaseOwner,
-                leaseUntil: nowMs + Math.max(1, input.leaseMs),
+                leaseUntil,
                 nowMs,
                 limit: Math.max(1, input.claimLimit),
             });
@@ -159,6 +190,17 @@ export class BootstrapStepOrchestrator {
 
             for (const step of claimedSteps) {
                 claimedStepKeys.push(step.stepKey);
+                this.logDebug(
+                    input,
+                    run,
+                    step.stepKey,
+                    BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepClaimed,
+                    {
+                        attempts: step.attempts,
+                        leaseUntil,
+                        nextAttemptAt: step.nextAttemptAt,
+                    },
+                );
                 await this.processClaimedStep(run, step, input);
             }
         }
@@ -180,6 +222,12 @@ export class BootstrapStepOrchestrator {
         const readyStepKeys = resolveReadyBootstrapSteps(steps);
         for (const stepKey of readyStepKeys) {
             this.stepsPort.markStepReady(run.runId, stepKey);
+            this.logDebug(
+                input,
+                run,
+                stepKey,
+                BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepReady,
+            );
             if (!input.laneStepKeys.includes(stepKey)) {
                 wakeStepKeys.push(stepKey);
                 await this.wakePort.wakeBootstrapStep({
@@ -187,6 +235,12 @@ export class BootstrapStepOrchestrator {
                     stepKey,
                     traceId: input.traceId,
                 });
+                this.logDebug(
+                    input,
+                    run,
+                    stepKey,
+                    BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.OutOfLaneWake,
+                );
             }
         }
         return readyStepKeys;
@@ -206,7 +260,7 @@ export class BootstrapStepOrchestrator {
                 traceId: input.traceId,
             });
         } catch (error) {
-            this.markProcessorException(step, input, error);
+            this.markProcessorException(run, step, input, error);
             return;
         }
         const currentStep = this.stepsPort
@@ -216,10 +270,21 @@ export class BootstrapStepOrchestrator {
             currentStep &&
             isBootstrapStepTerminalStatus(currentStep.status)
         ) {
+            this.logDebug(
+                input,
+                run,
+                step.stepKey,
+                BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepTerminalObserved,
+                {
+                    status: currentStep.status,
+                    attempts: currentStep.attempts,
+                },
+            );
             return;
         }
         if (result.release === BOOTSTRAP_STEP_PROCESSOR_RELEASE.Terminal) {
             this.markInvalidOutcome(
+                run,
                 step,
                 input,
                 BOOTSTRAP_STEP_ORCHESTRATION_ERROR.InvalidTerminalOutcome,
@@ -230,6 +295,7 @@ export class BootstrapStepOrchestrator {
         if (result.release === BOOTSTRAP_STEP_PROCESSOR_RELEASE.Running) {
             if (!Number.isFinite(result.nextAttemptAt)) {
                 this.markInvalidOutcome(
+                    run,
                     step,
                     input,
                     BOOTSTRAP_STEP_ORCHESTRATION_ERROR.InvalidRunningOutcome,
@@ -243,6 +309,25 @@ export class BootstrapStepOrchestrator {
                 leaseOwner: input.leaseOwner,
                 nextAttemptAt: result.nextAttemptAt,
             });
+            this.logDebug(
+                input,
+                run,
+                step.stepKey,
+                BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepDelegated,
+                {
+                    healthCheckAt: result.nextAttemptAt,
+                },
+            );
+            return;
+        }
+        if (!Number.isFinite(result.nextAttemptAt)) {
+            this.markInvalidOutcome(
+                run,
+                step,
+                input,
+                BOOTSTRAP_STEP_ORCHESTRATION_ERROR.InvalidReadyOutcome,
+                "Processor released incomplete work without a deadline",
+            );
             return;
         }
         this.stepsPort.releaseStepLease({
@@ -251,14 +336,25 @@ export class BootstrapStepOrchestrator {
             leaseOwner: input.leaseOwner,
             nextAttemptAt: result.nextAttemptAt,
         });
+        this.logDebug(
+            input,
+            run,
+            step.stepKey,
+            BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepReleasedReady,
+            {
+                nextAttemptAt: result.nextAttemptAt,
+            },
+        );
     }
 
     private markProcessorException(
+        run: BootstrapRunDefinition,
         step: BootstrapStepRecord,
         input: BootstrapStepOrchestratorInput,
         error: unknown,
     ): void {
         this.markRetryOrTerminalFailure(
+            run,
             step,
             input,
             BOOTSTRAP_STEP_ORCHESTRATION_ERROR.ProcessorException,
@@ -267,6 +363,7 @@ export class BootstrapStepOrchestrator {
     }
 
     private markInvalidOutcome(
+        run: BootstrapRunDefinition,
         step: BootstrapStepRecord,
         input: BootstrapStepOrchestratorInput,
         code: string,
@@ -278,9 +375,21 @@ export class BootstrapStepOrchestrator {
             attempts: step.attempts + 1,
             error: formatOrchestrationError(code, message),
         });
+        this.logError(
+            input,
+            run,
+            step.stepKey,
+            BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.InvalidOutcome,
+            {
+                attempts: step.attempts + 1,
+                errorCode: code,
+                error: message,
+            },
+        );
     }
 
     private markRetryOrTerminalFailure(
+        run: BootstrapRunDefinition,
         step: BootstrapStepRecord,
         input: BootstrapStepOrchestratorInput,
         code: string,
@@ -294,17 +403,99 @@ export class BootstrapStepOrchestrator {
                 attempts,
                 error: formatOrchestrationError(code, message),
             });
+            this.logError(
+                input,
+                run,
+                step.stepKey,
+                BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepTerminalFailed,
+                {
+                    attempts,
+                    errorCode: code,
+                    error: message,
+                },
+            );
             return;
         }
 
+        const nextAttemptAt =
+            this.nowMs() + getRetryDelayMs(attempts, input.retryPolicy);
         this.stepsPort.markStepFailedRetry({
             runId: step.runId,
             stepKey: step.stepKey,
             attempts,
-            nextAttemptAt:
-                this.nowMs() + getRetryDelayMs(attempts, input.retryPolicy),
+            nextAttemptAt,
             error: formatOrchestrationError(code, message),
         });
+        this.logWarn(
+            input,
+            run,
+            step.stepKey,
+            BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepRetryScheduled,
+            {
+                attempts,
+                nextAttemptAt,
+                errorCode: code,
+                error: message,
+            },
+        );
+    }
+
+    private logDebug(
+        input: BootstrapStepOrchestratorInput,
+        run: BootstrapRunDefinition,
+        stepKey: BootstrapStepKey,
+        action: string,
+        meta: Record<string, unknown> = {},
+    ): void {
+        this.loggerPort.debug(BOOTSTRAP_STEP_ORCHESTRATOR_LOG_MESSAGE, {
+            ...this.buildLogMeta(input, run, stepKey, action),
+            ...meta,
+        });
+    }
+
+    private logWarn(
+        input: BootstrapStepOrchestratorInput,
+        run: BootstrapRunDefinition,
+        stepKey: BootstrapStepKey,
+        action: string,
+        meta: Record<string, unknown> = {},
+    ): void {
+        this.loggerPort.warn(BOOTSTRAP_STEP_ORCHESTRATOR_LOG_MESSAGE, {
+            ...this.buildLogMeta(input, run, stepKey, action),
+            ...meta,
+        });
+    }
+
+    private logError(
+        input: BootstrapStepOrchestratorInput,
+        run: BootstrapRunDefinition,
+        stepKey: BootstrapStepKey,
+        action: string,
+        meta: Record<string, unknown> = {},
+    ): void {
+        this.loggerPort.error(BOOTSTRAP_STEP_ORCHESTRATOR_LOG_MESSAGE, {
+            ...this.buildLogMeta(input, run, stepKey, action),
+            ...meta,
+        });
+    }
+
+    private buildLogMeta(
+        input: BootstrapStepOrchestratorInput,
+        run: BootstrapRunDefinition,
+        stepKey: BootstrapStepKey,
+        action: string,
+    ): Record<string, unknown> {
+        return {
+            component: BOOTSTRAP_STEP_ORCHESTRATOR_COMPONENT,
+            action,
+            traceId: input.traceId,
+            laneName: input.laneName,
+            runId: run.runId,
+            chainId: run.chainId,
+            collectionId: run.collectionId,
+            stepKey,
+            leaseOwner: input.leaseOwner,
+        };
     }
 }
 

@@ -9,11 +9,14 @@ import {
 } from "@artgod/shared/bootstrap/pipeline";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import {
+    BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION,
     BOOTSTRAP_STEP_ORCHESTRATION_ERROR,
     BootstrapStepOrchestrator,
     readyStepResult,
+    runningStepResult,
     terminalStepResult,
     type BootstrapClaimedStepProcessorPort,
+    type BootstrapStepOrchestratorLoggerPort,
     type BootstrapStepOrchestratorRunsPort,
     type BootstrapStepOrchestratorStepsPort,
     type BootstrapStepWakePort,
@@ -28,6 +31,14 @@ const TEST_RETRY_POLICY = {
     baseDelayMs: 10,
     maxDelayMs: 100,
 } satisfies RetryPolicy;
+const TEST_TRACE_ID = "trace-test";
+const TEST_LANE_NAME = "test_lane";
+const TEST_LEASE_OWNER = "lease-test";
+const TEST_LOG_LEVEL = {
+    Debug: "debug",
+    Warn: "warn",
+    Error: "error",
+} as const;
 
 describe("bootstrap step orchestrator", () => {
     it("claims in-lane ready steps and wakes out-of-lane ready steps", async () => {
@@ -59,9 +70,10 @@ describe("bootstrap step orchestrator", () => {
 
         const result = await orchestrator.run({
             runId: run.runId,
-            traceId: "trace-test",
+            traceId: TEST_TRACE_ID,
+            laneName: TEST_LANE_NAME,
             laneStepKeys: [BOOTSTRAP_STEP_KEY.Ownership],
-            leaseOwner: "lease-test",
+            leaseOwner: TEST_LEASE_OWNER,
             leaseMs: 1_000,
             claimLimit: 1,
             maxIterations: 1,
@@ -102,9 +114,10 @@ describe("bootstrap step orchestrator", () => {
 
         await orchestrator.run({
             runId: run.runId,
-            traceId: "trace-test",
+            traceId: TEST_TRACE_ID,
+            laneName: TEST_LANE_NAME,
             laneStepKeys: [BOOTSTRAP_STEP_KEY.Metadata],
-            leaseOwner: "lease-test",
+            leaseOwner: TEST_LEASE_OWNER,
             leaseMs: 1_000,
             claimLimit: 1,
             maxIterations: 1,
@@ -148,9 +161,10 @@ describe("bootstrap step orchestrator", () => {
 
         await orchestrator.run({
             runId: run.runId,
-            traceId: "trace-test",
+            traceId: TEST_TRACE_ID,
+            laneName: TEST_LANE_NAME,
             laneStepKeys: [BOOTSTRAP_STEP_KEY.Metadata],
-            leaseOwner: "lease-test",
+            leaseOwner: TEST_LEASE_OWNER,
             leaseMs: 1_000,
             claimLimit: 1,
             maxIterations: 1,
@@ -167,6 +181,179 @@ describe("bootstrap step orchestrator", () => {
             }),
         ]);
         expect(steps[0]?.status).toBe(BOOTSTRAP_STEP_STATUS.FailedTerminal);
+    });
+
+    it("marks invalid ready outcomes as orchestration failures", async () => {
+        const run = buildRun();
+        const steps = [
+            step(BOOTSTRAP_STEP_KEY.Metadata, BOOTSTRAP_STEP_STATUS.Ready),
+        ];
+        const terminalFailures: Array<{
+            stepKey: BootstrapStepKey;
+            attempts: number;
+            error: string;
+        }> = [];
+        const orchestrator = new BootstrapStepOrchestrator(
+            runsPort(run),
+            stepsPort(steps, [], [], [], terminalFailures),
+            processorPort(async () => readyStepResult(Number.NaN)),
+            wakePort([]),
+        );
+
+        await orchestrator.run(
+            orchestratorInput(run.runId, [BOOTSTRAP_STEP_KEY.Metadata]),
+        );
+
+        expect(terminalFailures).toEqual([
+            expect.objectContaining({
+                stepKey: BOOTSTRAP_STEP_KEY.Metadata,
+                attempts: 1,
+                error: expect.stringContaining(
+                    BOOTSTRAP_STEP_ORCHESTRATION_ERROR.InvalidReadyOutcome,
+                ),
+            }),
+        ]);
+        expect(steps[0]?.status).toBe(BOOTSTRAP_STEP_STATUS.FailedTerminal);
+    });
+
+    it("logs scheduler claim, release, retry, and delegation context", async () => {
+        const readyRun = buildRun();
+        const readyLogs = createLogCapture();
+        const readyOrchestrator = new BootstrapStepOrchestrator(
+            runsPort(readyRun),
+            stepsPort(
+                [
+                    step(
+                        BOOTSTRAP_STEP_KEY.Metadata,
+                        BOOTSTRAP_STEP_STATUS.Ready,
+                    ),
+                ],
+                [],
+                [],
+            ),
+            processorPort(async () => readyStepResult(2_000)),
+            wakePort([]),
+            () => 1_000,
+            readyLogs.logger,
+        );
+
+        await readyOrchestrator.run(
+            orchestratorInput(readyRun.runId, [BOOTSTRAP_STEP_KEY.Metadata]),
+        );
+
+        expect(readyLogs.entries).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    level: TEST_LOG_LEVEL.Debug,
+                    meta: expect.objectContaining({
+                        action:
+                            BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepClaimed,
+                        laneName: TEST_LANE_NAME,
+                        runId: readyRun.runId,
+                        chainId: readyRun.chainId,
+                        collectionId: readyRun.collectionId,
+                        stepKey: BOOTSTRAP_STEP_KEY.Metadata,
+                        leaseOwner: TEST_LEASE_OWNER,
+                        leaseUntil: 2_000,
+                    }),
+                }),
+                expect.objectContaining({
+                    level: TEST_LOG_LEVEL.Debug,
+                    meta: expect.objectContaining({
+                        action:
+                            BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION
+                                .StepReleasedReady,
+                        nextAttemptAt: 2_000,
+                    }),
+                }),
+            ]),
+        );
+
+        const delegatedRun = buildRun();
+        const delegatedLogs = createLogCapture();
+        const delegatedOrchestrator = new BootstrapStepOrchestrator(
+            runsPort(delegatedRun),
+            stepsPort(
+                [
+                    step(
+                        BOOTSTRAP_STEP_KEY.ImageCache,
+                        BOOTSTRAP_STEP_STATUS.Ready,
+                    ),
+                ],
+                [],
+                [],
+            ),
+            processorPort(async () => runningStepResult(5_000)),
+            wakePort([]),
+            () => 1_000,
+            delegatedLogs.logger,
+        );
+
+        await delegatedOrchestrator.run(
+            orchestratorInput(delegatedRun.runId, [
+                BOOTSTRAP_STEP_KEY.ImageCache,
+            ]),
+        );
+
+        expect(delegatedLogs.entries).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    level: TEST_LOG_LEVEL.Debug,
+                    meta: expect.objectContaining({
+                        action:
+                            BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepDelegated,
+                        laneName: TEST_LANE_NAME,
+                        stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+                        healthCheckAt: 5_000,
+                    }),
+                }),
+            ]),
+        );
+
+        const retryRun = buildRun();
+        const retryLogs = createLogCapture();
+        const retryOrchestrator = new BootstrapStepOrchestrator(
+            runsPort(retryRun),
+            stepsPort(
+                [
+                    step(
+                        BOOTSTRAP_STEP_KEY.Metadata,
+                        BOOTSTRAP_STEP_STATUS.Ready,
+                    ),
+                ],
+                [],
+                [],
+            ),
+            processorPort(async () => {
+                throw new Error("metadata exploded");
+            }),
+            wakePort([]),
+            () => 1_000,
+            retryLogs.logger,
+        );
+
+        await retryOrchestrator.run(
+            orchestratorInput(retryRun.runId, [BOOTSTRAP_STEP_KEY.Metadata]),
+        );
+
+        expect(retryLogs.entries).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    level: TEST_LOG_LEVEL.Warn,
+                    meta: expect.objectContaining({
+                        action:
+                            BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION
+                                .StepRetryScheduled,
+                        laneName: TEST_LANE_NAME,
+                        stepKey: BOOTSTRAP_STEP_KEY.Metadata,
+                        attempts: 1,
+                        errorCode:
+                            BOOTSTRAP_STEP_ORCHESTRATION_ERROR
+                                .ProcessorException,
+                    }),
+                }),
+            ]),
+        );
     });
 });
 
@@ -270,6 +457,62 @@ function wakePort(woken: BootstrapStepKey[]): BootstrapStepWakePort {
     return {
         wakeBootstrapStep: async ({ stepKey }) => {
             woken.push(stepKey);
+        },
+    };
+}
+
+function orchestratorInput(
+    runId: number,
+    laneStepKeys: readonly BootstrapStepKey[],
+) {
+    return {
+        runId,
+        traceId: TEST_TRACE_ID,
+        laneName: TEST_LANE_NAME,
+        laneStepKeys,
+        leaseOwner: TEST_LEASE_OWNER,
+        leaseMs: 1_000,
+        claimLimit: 1,
+        maxIterations: 1,
+        retryPolicy: TEST_RETRY_POLICY,
+    };
+}
+
+type TestLogEntry = {
+    level: (typeof TEST_LOG_LEVEL)[keyof typeof TEST_LOG_LEVEL];
+    message: string;
+    meta?: Record<string, unknown>;
+};
+
+function createLogCapture(): {
+    entries: TestLogEntry[];
+    logger: BootstrapStepOrchestratorLoggerPort;
+} {
+    const entries: TestLogEntry[] = [];
+    return {
+        entries,
+        logger: {
+            debug: (message, meta) => {
+                entries.push({
+                    level: TEST_LOG_LEVEL.Debug,
+                    message,
+                    meta,
+                });
+            },
+            warn: (message, meta) => {
+                entries.push({
+                    level: TEST_LOG_LEVEL.Warn,
+                    message,
+                    meta,
+                });
+            },
+            error: (message, meta) => {
+                entries.push({
+                    level: TEST_LOG_LEVEL.Error,
+                    message,
+                    meta,
+                });
+            },
         },
     };
 }

@@ -475,10 +475,11 @@ The first pass already established important pieces:
 8. Frontend progress chips and pause/resume controls.
 9. Focused storage, executor, startup, backend, and frontend tests.
 
-The latest lease-based executor pass removed the largest direct phase
-handoffs, but the post-commit audit found that it is still not the final
-no-gap design because it lacks scheduler-owned liveness after incomplete
-release, processor exceptions, and delegated `running` work.
+The first lease-based executor pass removed the largest direct phase handoffs,
+but the post-commit audit found that it was still not the final no-gap design
+because it lacked scheduler-owned liveness after incomplete release, processor
+exceptions, and delegated `running` work. The chunks below are closing those
+gaps incrementally.
 
 ## Current Implementation Progress
 
@@ -504,43 +505,56 @@ The scheduler-first implementation is being landed in review-sized chunks:
   `BOOTSTRAP_SCHEDULER_POLL_MAX_MS`.
 - The bounded lane poller is extracted into an application helper with direct
   unit coverage for delay clamping, rescheduling, and failure continuation.
+- The orchestration boundary now emits structured scheduler transition logs for
+  claim, ready release, delegated release, retry scheduling, terminal
+  observation, and invalid outcomes. These logs include run, chain, collection,
+  step, lane, trace, lease owner, and retry/delegation context.
+- Processor outcome validation now also rejects incomplete/ready releases that
+  do not provide a finite next-attempt deadline, preventing invalid durable
+  scheduling state from being persisted silently.
 
 ## Required Final Architecture Work
 
-These are the remaining critical/high issues before moving to medium-priority
-cleanup:
+This checklist tracks the critical/high items that must be true before moving
+to medium-priority cleanup. Items marked implemented still need to stay visible
+until the final audit verifies them against the full runtime and UI surface.
 
-1. Build the scheduler-first lane loops.
+1. Build the scheduler-first lane loops. Status: implemented; final audit
+   pending.
    The lane scheduler must poll indexed `bootstrap_run_steps` state, claim due
    work, reclaim expired leases, and keep processing until the lane is idle.
    Queue wakes should notify the loop but not be required for progress.
 
-2. Make releases self-contained.
+2. Make releases self-contained. Status: implemented; final audit pending.
    Incomplete, retry, and delegated outcomes must persist enough state for the
    scheduler to pick them up again without another queue message. This closes
    the current lost-wake and max-iteration liveness gap.
 
-3. Add processor exception handling at the orchestration boundary.
+3. Add processor exception handling at the orchestration boundary. Status:
+   implemented; final audit pending.
    Exceptions must release or retry the step according to a step-level retry
    policy. A throw must not leave a live lease as the only recovery path.
 
-4. Enforce processor outcome invariants.
+4. Enforce processor outcome invariants. Status: implemented; final audit
+   pending.
    Terminal outcomes require terminal persisted state; delegated outcomes
    require a health-check deadline; retry/incomplete outcomes require a next
    attempt timestamp. Violations should be persisted as orchestration errors.
 
-5. Normalize delegated side-lane processing.
+5. Normalize delegated side-lane processing. Status: partially implemented;
+   final audit pending.
    Backfill, OpenSea, and collection-extension artifact steps should all use the
    same delegated-step contract: `running` with a non-null health-check
    deadline, idempotent delegated job publish, progress recompute, retry, and
    terminalization.
 
-6. Generalize completed-run recovery.
+6. Generalize completed-run recovery. Status: partially implemented; final
+   audit pending.
    Completed runs can still have non-blocking recoverable work. Startup and the
    lane scheduler should recover any nonterminal non-blocking step, not just
    image-cache work.
 
-7. Strengthen lifecycle and liveness tests.
+7. Strengthen lifecycle and liveness tests. Status: in progress.
    Tests must prove scheduler behavior, not merely handler behavior.
 
 ## Implementation Milestones

@@ -28,6 +28,7 @@ const TEST_RETRY_POLICY = {
     baseDelayMs: 10,
     maxDelayMs: 100,
 } satisfies RetryPolicy;
+const TEST_LANE_NAME = "test_lane";
 
 describe("bootstrap step scheduler", () => {
     it("claims due lane work without a queue wake", async () => {
@@ -176,6 +177,7 @@ function schedulerInput(
     return {
         chainId,
         traceId: "scheduler-test",
+        laneName: TEST_LANE_NAME,
         laneStepKeys,
         leaseOwner: "scheduler-test-lease",
         leaseMs: 1_000,
