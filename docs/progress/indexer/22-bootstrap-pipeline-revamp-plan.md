@@ -502,6 +502,8 @@ The scheduler-first implementation is being landed in review-sized chunks:
 - Scheduler polling bounds are configurable through typed indexer config:
   `BOOTSTRAP_SCHEDULER_POLL_MIN_MS` and
   `BOOTSTRAP_SCHEDULER_POLL_MAX_MS`.
+- The bounded lane poller is extracted into an application helper with direct
+  unit coverage for delay clamping, rescheduling, and failure continuation.
 
 ## Required Final Architecture Work
 

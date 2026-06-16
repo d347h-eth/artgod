@@ -37,6 +37,7 @@ import {
     BootstrapStepScheduler,
     type BootstrapStepSchedulerResult,
 } from "../application/bootstrap-step-scheduler.js";
+import { startBootstrapLanePoller } from "../application/bootstrap-lane-poller.js";
 import {
     BootstrapCollectionLiveExecutor,
     type BootstrapCollectionLiveQueuePort,
@@ -358,6 +359,7 @@ async function main() {
         );
         const stopMainLanePoller = startBootstrapLanePoller({
             laneName: BOOTSTRAP_LANE_NAME.Main,
+            traceIdPrefix: BOOTSTRAP_LANE_POLL_TRACE_PREFIX,
             pollMinMs: config.bootstrap.schedulerPollMinMs,
             pollMaxMs: config.bootstrap.schedulerPollMaxMs,
             run: async (input) =>
@@ -365,12 +367,19 @@ async function main() {
                     ...input,
                     sourceJobId: input.traceId,
                 }),
+            hooks: createBootstrapLanePollerHooks(
+                BOOTSTRAP_LANE_NAME.Main,
+            ),
         });
         const stopImageCacheLanePoller = startBootstrapLanePoller({
             laneName: BOOTSTRAP_LANE_NAME.ImageCache,
+            traceIdPrefix: BOOTSTRAP_LANE_POLL_TRACE_PREFIX,
             pollMinMs: config.bootstrap.schedulerPollMinMs,
             pollMaxMs: config.bootstrap.schedulerPollMaxMs,
             run: runImageCacheLane,
+            hooks: createBootstrapLanePollerHooks(
+                BOOTSTRAP_LANE_NAME.ImageCache,
+            ),
         });
 
         const stopBootstrap = await runWorker(
@@ -582,121 +591,29 @@ function summarizeRpcUrl(raw: string): string {
 type BootstrapLanePollerName =
     (typeof BOOTSTRAP_LANE_NAME)[keyof typeof BOOTSTRAP_LANE_NAME];
 
-type BootstrapLanePollerRunInput = {
-    runId?: number | null;
-    traceId: string;
-};
-
-function startBootstrapLanePoller(input: {
-    laneName: BootstrapLanePollerName;
-    pollMinMs: number;
-    pollMaxMs: number;
-    run: (
-        pollInput: BootstrapLanePollerRunInput,
-    ) => Promise<BootstrapStepSchedulerResult>;
-}): () => Promise<void> {
-    let stopped = false;
-    let running = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let activePoll: Promise<void> | null = null;
-
-    const schedule = (nextDueAt: number | null): void => {
-        if (stopped) {
-            return;
-        }
-        if (timer) {
-            clearTimeout(timer);
-        }
-        timer = setTimeout(
-            () => {
-                poll().catch(() => {});
-            },
-            resolveBootstrapLanePollDelayMs({
-                nextDueAt,
-                pollMinMs: input.pollMinMs,
-                pollMaxMs: input.pollMaxMs,
-            }),
-        );
-    };
-
-    const poll = async (): Promise<void> => {
-        if (stopped) {
-            return;
-        }
-        if (running) {
-            schedule(null);
-            return;
-        }
-        running = true;
-        const pollPromise = runPoll();
-        activePoll = pollPromise;
-        try {
-            await pollPromise;
-        } finally {
-            if (activePoll === pollPromise) {
-                activePoll = null;
-            }
-        }
-    };
-
-    const runPoll = async (): Promise<void> => {
-        let nextDueAt: number | null = null;
-        const traceId = `${BOOTSTRAP_LANE_POLL_TRACE_PREFIX}:${input.laneName}:${Date.now()}`;
-        try {
-            const result = await input.run({
-                runId: null,
-                traceId,
-            });
-            nextDueAt = result.nextDueAt;
+function createBootstrapLanePollerHooks(laneName: BootstrapLanePollerName) {
+    return {
+        onCompleted(result: BootstrapStepSchedulerResult): void {
             logger.debug("Bootstrap lane poll completed", {
                 component: BOOTSTRAP_WORKER_COMPONENT,
                 action: BOOTSTRAP_WORKER_ACTION.LanePoll,
-                laneName: input.laneName,
+                laneName,
                 runIds: result.runIds,
                 claimedStepKeys: result.claimedStepKeys,
                 readyStepKeys: result.readyStepKeys,
                 wakeStepKeys: result.wakeStepKeys,
-                nextDueAt,
+                nextDueAt: result.nextDueAt,
             });
-        } catch (error) {
+        },
+        onFailed(error: unknown): void {
             logger.warn("Bootstrap lane poll failed", {
                 component: BOOTSTRAP_WORKER_COMPONENT,
                 action: BOOTSTRAP_WORKER_ACTION.LanePoll,
-                laneName: input.laneName,
+                laneName,
                 error: String(error),
             });
-        } finally {
-            running = false;
-            schedule(nextDueAt);
-        }
+        },
     };
-
-    schedule(0);
-
-    return async () => {
-        stopped = true;
-        if (timer) {
-            clearTimeout(timer);
-            timer = null;
-        }
-        if (activePoll) {
-            await activePoll;
-        }
-    };
-}
-
-function resolveBootstrapLanePollDelayMs(input: {
-    nextDueAt: number | null;
-    pollMinMs: number;
-    pollMaxMs: number;
-}): number {
-    const pollMinMs = Math.max(1, input.pollMinMs);
-    const pollMaxMs = Math.max(pollMinMs, input.pollMaxMs);
-    if (input.nextDueAt === null) {
-        return pollMaxMs;
-    }
-    const dueDelay = Math.max(0, input.nextDueAt - Date.now());
-    return Math.min(pollMaxMs, Math.max(pollMinMs, dueDelay));
 }
 
 function createBootstrapBackfillQueuePort(
