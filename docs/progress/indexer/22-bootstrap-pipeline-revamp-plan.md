@@ -496,6 +496,9 @@ The scheduler-first implementation is being landed in review-sized chunks:
   belong to the scheduler lane for recovery.
 - Collection-extension artifact scheduling no longer writes ad-hoc `running`
   step state; the scheduler release owns the delegated health-check state.
+- The bootstrap runtime now starts bounded pollers for the main and image-cache
+  lanes. Queue jobs still trigger immediate passes, but due durable rows are
+  also discovered by lane polling when no wake arrives.
 
 ## Required Final Architecture Work
 

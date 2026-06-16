@@ -33,7 +33,10 @@ import {
     terminalStepResult,
     type BootstrapClaimedStepProcessorResult,
 } from "../application/bootstrap-step-orchestrator.js";
-import { BootstrapStepScheduler } from "../application/bootstrap-step-scheduler.js";
+import {
+    BootstrapStepScheduler,
+    type BootstrapStepSchedulerResult,
+} from "../application/bootstrap-step-scheduler.js";
 import {
     BootstrapCollectionLiveExecutor,
     type BootstrapCollectionLiveQueuePort,
@@ -146,6 +149,8 @@ const BOOTSTRAP_STARTUP_SWEEP_TRACE_PREFIX = "bootstrap:startup-sweep";
 const BOOTSTRAP_STEP_LEASE_MS = 60_000;
 const BOOTSTRAP_STEP_CLAIM_LIMIT = 1;
 const BOOTSTRAP_STEP_MAX_ITERATIONS = 20;
+const BOOTSTRAP_SCHEDULER_POLL_MIN_MS = 250;
+const BOOTSTRAP_SCHEDULER_POLL_MAX_MS = 5_000;
 const BOOTSTRAP_MAIN_STEP_LEASE_OWNER = "bootstrap-worker:main";
 const BOOTSTRAP_IMAGE_CACHE_STEP_LEASE_OWNER = "bootstrap-worker:image-cache";
 const BOOTSTRAP_MAIN_LANE_STEP_KEYS = [
@@ -163,6 +168,11 @@ const BOOTSTRAP_MAIN_LANE_STEP_KEYS = [
 const BOOTSTRAP_IMAGE_CACHE_LANE_STEP_KEYS = [
     BOOTSTRAP_STEP_KEY.ImageCache,
 ] as const;
+const BOOTSTRAP_LANE_NAME = {
+    Main: "main",
+    ImageCache: "image_cache",
+} as const;
+const BOOTSTRAP_LANE_POLL_TRACE_PREFIX = "bootstrap:lane-poll";
 
 const BOOTSTRAP_WORKER_COMPONENT = "CollectionBootstrapWorker";
 const BOOTSTRAP_WORKER_ACTION = {
@@ -174,6 +184,7 @@ const BOOTSTRAP_WORKER_ACTION = {
     StartupStepWake: "wakeBootstrapStep",
     MainStepLoop: "runBootstrapMainStepLoop",
     ImageCacheStepLoop: "runBootstrapImageCacheStepLoop",
+    LanePoll: "pollBootstrapLane",
     AnchorStep: "processBootstrapAnchorStep",
     MetadataStep: "processBootstrapMetadataStep",
     ImageCacheStep: "processBootstrapImageCacheStep",
@@ -288,6 +299,58 @@ async function main() {
             fetchResilience: config.httpFetch,
         });
 
+        const runMainLane = async (input: {
+            runId?: number | null;
+            backfillCheckPayload?: BootstrapBackfillCheckPayload | null;
+            traceId: string;
+            sourceJobId: string;
+        }): Promise<BootstrapStepSchedulerResult> =>
+            runBootstrapMainStepLoop({
+                queue,
+                collections,
+                collectionExtensions,
+                bootstrapStorage,
+                bootstrapRuns,
+                bootstrapSteps,
+                bootstrapAnchorExecutor,
+                bootstrapEnumerationExecutor,
+                bootstrapBackfillExecutor,
+                bootstrapCollectionLiveExecutor,
+                rpc,
+                metadataDomain,
+                reorgDepth: config.sync.reorgDepth,
+                backfillBatchSize: config.sync.backfillBatchSize,
+                snapshotBatchSize: config.bootstrap.snapshotBatchSize,
+                metadataBatchSize: config.bootstrap.metadataBatchSize,
+                metadataConcurrency: config.bootstrap.metadataConcurrency,
+                metadataPollMs: config.bootstrap.metadataProcessPollMs,
+                metadataRetryPolicy: config.bootstrap.metadataRetryPolicy,
+                openSeaIntegration: config.integrations.opensea,
+                chainId: config.chainId,
+                runId: input.runId,
+                backfillCheckPayload: input.backfillCheckPayload,
+                traceId: input.traceId,
+                sourceJobId: input.sourceJobId,
+            });
+        const runImageCacheLane = async (input: {
+            runId?: number | null;
+            traceId: string;
+        }): Promise<BootstrapStepSchedulerResult> =>
+            runBootstrapImageCacheStepLoop({
+                queue,
+                collections,
+                bootstrapStorage,
+                bootstrapRuns,
+                bootstrapSteps,
+                tokenImageCache,
+                imageCacheBatchSize: config.bootstrap.imageCacheBatchSize,
+                imageCacheConcurrency: config.bootstrap.imageCacheConcurrency,
+                imageCacheRetryPolicy: config.bootstrap.metadataRetryPolicy,
+                chainId: config.chainId,
+                runId: input.runId,
+                traceId: input.traceId,
+            });
+
         await reconcileActiveBootstrapRuns(
             queue,
             bootstrapRuns,
@@ -295,6 +358,18 @@ async function main() {
             config.chainId,
             BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT,
         );
+        const stopMainLanePoller = startBootstrapLanePoller({
+            laneName: BOOTSTRAP_LANE_NAME.Main,
+            run: async (input) =>
+                runMainLane({
+                    ...input,
+                    sourceJobId: input.traceId,
+                }),
+        });
+        const stopImageCacheLanePoller = startBootstrapLanePoller({
+            laneName: BOOTSTRAP_LANE_NAME.ImageCache,
+            run: runImageCacheLane,
+        });
 
         const stopBootstrap = await runWorker(
             queue,
@@ -315,33 +390,9 @@ async function main() {
             ) => {
                 try {
                     if (job.kind === BOOTSTRAP_JOB_KIND.Start) {
-                        await runBootstrapMainStepLoop({
-                            queue,
-                            collections,
-                            collectionExtensions,
-                            bootstrapStorage,
-                            bootstrapRuns,
-                            bootstrapSteps,
-                            bootstrapAnchorExecutor,
-                            bootstrapEnumerationExecutor,
-                            bootstrapBackfillExecutor,
-                            bootstrapCollectionLiveExecutor,
-                            rpc,
-                            metadataDomain,
-                            reorgDepth: config.sync.reorgDepth,
-                            backfillBatchSize: config.sync.backfillBatchSize,
-                            snapshotBatchSize:
-                                config.bootstrap.snapshotBatchSize,
-                            metadataBatchSize:
-                                config.bootstrap.metadataBatchSize,
-                            metadataConcurrency:
-                                config.bootstrap.metadataConcurrency,
-                            metadataPollMs:
-                                config.bootstrap.metadataProcessPollMs,
-                            metadataRetryPolicy:
-                                config.bootstrap.metadataRetryPolicy,
-                            openSeaIntegration: config.integrations.opensea,
-                            payload: job.payload as BootstrapCollectionPayload,
+                        await runMainLane({
+                            runId: (job.payload as BootstrapCollectionPayload)
+                                .runId,
                             traceId: job.traceId ?? job.jobId,
                             sourceJobId: job.jobId,
                         });
@@ -349,33 +400,9 @@ async function main() {
                     }
 
                     if (job.kind === BOOTSTRAP_JOB_KIND.MetadataProcess) {
-                        await runBootstrapMainStepLoop({
-                            queue,
-                            collections,
-                            collectionExtensions,
-                            bootstrapStorage,
-                            bootstrapRuns,
-                            bootstrapSteps,
-                            bootstrapAnchorExecutor,
-                            bootstrapEnumerationExecutor,
-                            bootstrapBackfillExecutor,
-                            bootstrapCollectionLiveExecutor,
-                            rpc,
-                            metadataDomain,
-                            reorgDepth: config.sync.reorgDepth,
-                            backfillBatchSize: config.sync.backfillBatchSize,
-                            snapshotBatchSize:
-                                config.bootstrap.snapshotBatchSize,
-                            metadataBatchSize:
-                                config.bootstrap.metadataBatchSize,
-                            metadataConcurrency:
-                                config.bootstrap.metadataConcurrency,
-                            metadataPollMs:
-                                config.bootstrap.metadataProcessPollMs,
-                            metadataRetryPolicy:
-                                config.bootstrap.metadataRetryPolicy,
-                            openSeaIntegration: config.integrations.opensea,
-                            payload: job.payload as BootstrapMetadataProcessPayload,
+                        await runMainLane({
+                            runId: (job.payload as BootstrapMetadataProcessPayload)
+                                .runId,
                             traceId: job.traceId ?? job.jobId,
                             sourceJobId: job.jobId,
                         });
@@ -383,33 +410,9 @@ async function main() {
                     }
 
                     if (job.kind === BOOTSTRAP_JOB_KIND.OwnershipProcess) {
-                        await runBootstrapMainStepLoop({
-                            queue,
-                            collections,
-                            collectionExtensions,
-                            bootstrapStorage,
-                            bootstrapRuns,
-                            bootstrapSteps,
-                            bootstrapAnchorExecutor,
-                            bootstrapEnumerationExecutor,
-                            bootstrapBackfillExecutor,
-                            bootstrapCollectionLiveExecutor,
-                            rpc,
-                            metadataDomain,
-                            reorgDepth: config.sync.reorgDepth,
-                            backfillBatchSize: config.sync.backfillBatchSize,
-                            snapshotBatchSize:
-                                config.bootstrap.snapshotBatchSize,
-                            metadataBatchSize:
-                                config.bootstrap.metadataBatchSize,
-                            metadataConcurrency:
-                                config.bootstrap.metadataConcurrency,
-                            metadataPollMs:
-                                config.bootstrap.metadataProcessPollMs,
-                            metadataRetryPolicy:
-                                config.bootstrap.metadataRetryPolicy,
-                            openSeaIntegration: config.integrations.opensea,
-                            payload: job.payload as BootstrapOwnershipProcessPayload,
+                        await runMainLane({
+                            runId: (job.payload as BootstrapOwnershipProcessPayload)
+                                .runId,
                             traceId: job.traceId ?? job.jobId,
                             sourceJobId: job.jobId,
                         });
@@ -417,33 +420,11 @@ async function main() {
                     }
 
                     if (job.kind === BOOTSTRAP_JOB_KIND.BackfillCheck) {
-                        await runBootstrapMainStepLoop({
-                            queue,
-                            collections,
-                            collectionExtensions,
-                            bootstrapStorage,
-                            bootstrapRuns,
-                            bootstrapSteps,
-                            bootstrapAnchorExecutor,
-                            bootstrapEnumerationExecutor,
-                            bootstrapBackfillExecutor,
-                            bootstrapCollectionLiveExecutor,
-                            rpc,
-                            metadataDomain,
-                            reorgDepth: config.sync.reorgDepth,
-                            backfillBatchSize: config.sync.backfillBatchSize,
-                            snapshotBatchSize:
-                                config.bootstrap.snapshotBatchSize,
-                            metadataBatchSize:
-                                config.bootstrap.metadataBatchSize,
-                            metadataConcurrency:
-                                config.bootstrap.metadataConcurrency,
-                            metadataPollMs:
-                                config.bootstrap.metadataProcessPollMs,
-                            metadataRetryPolicy:
-                                config.bootstrap.metadataRetryPolicy,
-                            openSeaIntegration: config.integrations.opensea,
-                            payload: job.payload as BootstrapBackfillCheckPayload,
+                        await runMainLane({
+                            runId: (job.payload as BootstrapBackfillCheckPayload)
+                                .runId,
+                            backfillCheckPayload:
+                                job.payload as BootstrapBackfillCheckPayload,
                             traceId: job.traceId ?? job.jobId,
                             sourceJobId: job.jobId,
                         });
@@ -506,20 +487,8 @@ async function main() {
                         });
                         return;
                     }
-                    await runBootstrapImageCacheStepLoop({
-                        queue,
-                        collections,
-                        bootstrapStorage,
-                        bootstrapRuns,
-                        bootstrapSteps,
-                        tokenImageCache,
-                        imageCacheBatchSize:
-                            config.bootstrap.imageCacheBatchSize,
-                        imageCacheConcurrency:
-                            config.bootstrap.imageCacheConcurrency,
-                        imageCacheRetryPolicy:
-                            config.bootstrap.metadataRetryPolicy,
-                        payload: job.payload,
+                    await runImageCacheLane({
+                        runId: job.payload.runId,
                         traceId: job.traceId ?? job.jobId,
                     });
                 } catch (error) {
@@ -575,6 +544,8 @@ async function main() {
                 component: BOOTSTRAP_WORKER_COMPONENT,
                 action: BOOTSTRAP_WORKER_ACTION.Shutdown,
             });
+            await stopMainLanePoller();
+            await stopImageCacheLanePoller();
             await stopBootstrap();
             await stopImageCache();
             await runtimeApm.stop();
@@ -604,6 +575,117 @@ function summarizeRpcUrl(raw: string): string {
     } catch {
         return "<invalid-rpc-url>";
     }
+}
+
+type BootstrapLanePollerName =
+    (typeof BOOTSTRAP_LANE_NAME)[keyof typeof BOOTSTRAP_LANE_NAME];
+
+type BootstrapLanePollerRunInput = {
+    runId?: number | null;
+    traceId: string;
+};
+
+function startBootstrapLanePoller(input: {
+    laneName: BootstrapLanePollerName;
+    run: (
+        pollInput: BootstrapLanePollerRunInput,
+    ) => Promise<BootstrapStepSchedulerResult>;
+}): () => Promise<void> {
+    let stopped = false;
+    let running = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let activePoll: Promise<void> | null = null;
+
+    const schedule = (nextDueAt: number | null): void => {
+        if (stopped) {
+            return;
+        }
+        if (timer) {
+            clearTimeout(timer);
+        }
+        timer = setTimeout(
+            () => {
+                poll().catch(() => {});
+            },
+            resolveBootstrapLanePollDelayMs(nextDueAt),
+        );
+    };
+
+    const poll = async (): Promise<void> => {
+        if (stopped) {
+            return;
+        }
+        if (running) {
+            schedule(null);
+            return;
+        }
+        running = true;
+        const pollPromise = runPoll();
+        activePoll = pollPromise;
+        try {
+            await pollPromise;
+        } finally {
+            if (activePoll === pollPromise) {
+                activePoll = null;
+            }
+        }
+    };
+
+    const runPoll = async (): Promise<void> => {
+        let nextDueAt: number | null = null;
+        const traceId = `${BOOTSTRAP_LANE_POLL_TRACE_PREFIX}:${input.laneName}:${Date.now()}`;
+        try {
+            const result = await input.run({
+                runId: null,
+                traceId,
+            });
+            nextDueAt = result.nextDueAt;
+            logger.debug("Bootstrap lane poll completed", {
+                component: BOOTSTRAP_WORKER_COMPONENT,
+                action: BOOTSTRAP_WORKER_ACTION.LanePoll,
+                laneName: input.laneName,
+                runIds: result.runIds,
+                claimedStepKeys: result.claimedStepKeys,
+                readyStepKeys: result.readyStepKeys,
+                wakeStepKeys: result.wakeStepKeys,
+                nextDueAt,
+            });
+        } catch (error) {
+            logger.warn("Bootstrap lane poll failed", {
+                component: BOOTSTRAP_WORKER_COMPONENT,
+                action: BOOTSTRAP_WORKER_ACTION.LanePoll,
+                laneName: input.laneName,
+                error: String(error),
+            });
+        } finally {
+            running = false;
+            schedule(nextDueAt);
+        }
+    };
+
+    schedule(0);
+
+    return async () => {
+        stopped = true;
+        if (timer) {
+            clearTimeout(timer);
+            timer = null;
+        }
+        if (activePoll) {
+            await activePoll;
+        }
+    };
+}
+
+function resolveBootstrapLanePollDelayMs(nextDueAt: number | null): number {
+    if (nextDueAt === null) {
+        return BOOTSTRAP_SCHEDULER_POLL_MAX_MS;
+    }
+    const dueDelay = Math.max(0, nextDueAt - Date.now());
+    return Math.min(
+        BOOTSTRAP_SCHEDULER_POLL_MAX_MS,
+        Math.max(BOOTSTRAP_SCHEDULER_POLL_MIN_MS, dueDelay),
+    );
 }
 
 function createBootstrapBackfillQueuePort(
@@ -930,12 +1012,6 @@ function logBootstrapAnchorResult(result: BootstrapAnchorExecutorResult): void {
     }
 }
 
-type BootstrapMainStepLoopPayload =
-    | BootstrapCollectionPayload
-    | BootstrapMetadataProcessPayload
-    | BootstrapOwnershipProcessPayload
-    | BootstrapBackfillCheckPayload;
-
 type BootstrapMainStepLoopInput = {
     queue: QueuePort;
     collections: CollectionRegistryPort;
@@ -957,7 +1033,9 @@ type BootstrapMainStepLoopInput = {
     metadataPollMs: number;
     metadataRetryPolicy: RetryPolicy;
     openSeaIntegration: OpenSeaIntegrationStatus;
-    payload: BootstrapMainStepLoopPayload;
+    chainId: number;
+    runId?: number | null;
+    backfillCheckPayload?: BootstrapBackfillCheckPayload | null;
     traceId: string;
     sourceJobId: string;
 };
@@ -972,13 +1050,14 @@ type BootstrapImageCacheStepLoopInput = {
     imageCacheBatchSize: number;
     imageCacheConcurrency: number;
     imageCacheRetryPolicy: RetryPolicy;
-    payload: BootstrapImageCacheProcessPayload;
+    chainId: number;
+    runId?: number | null;
     traceId: string;
 };
 
 async function runBootstrapMainStepLoop(
     input: BootstrapMainStepLoopInput,
-): Promise<void> {
+): Promise<BootstrapStepSchedulerResult> {
     const leaseOwner = buildBootstrapStepLeaseOwner(
         BOOTSTRAP_MAIN_STEP_LEASE_OWNER,
     );
@@ -1002,8 +1081,8 @@ async function runBootstrapMainStepLoop(
         },
     );
     const result = await scheduler.runOnce({
-        chainId: input.payload.chainId,
-        runId: input.payload.runId,
+        chainId: input.chainId,
+        runId: input.runId,
         traceId: input.traceId,
         laneStepKeys: BOOTSTRAP_MAIN_LANE_STEP_KEYS,
         leaseOwner,
@@ -1016,18 +1095,19 @@ async function runBootstrapMainStepLoop(
     logger.debug("Bootstrap main step loop completed", {
         component: BOOTSTRAP_WORKER_COMPONENT,
         action: BOOTSTRAP_WORKER_ACTION.MainStepLoop,
-        runId: input.payload.runId,
+        runId: input.runId,
         runIds: result.runIds,
         claimedStepKeys: result.claimedStepKeys,
         readyStepKeys: result.readyStepKeys,
         wakeStepKeys: result.wakeStepKeys,
         nextDueAt: result.nextDueAt,
     });
+    return result;
 }
 
 async function runBootstrapImageCacheStepLoop(
     input: BootstrapImageCacheStepLoopInput,
-): Promise<void> {
+): Promise<BootstrapStepSchedulerResult> {
     const leaseOwner = buildBootstrapStepLeaseOwner(
         BOOTSTRAP_IMAGE_CACHE_STEP_LEASE_OWNER,
     );
@@ -1051,8 +1131,8 @@ async function runBootstrapImageCacheStepLoop(
         },
     );
     const result = await scheduler.runOnce({
-        chainId: input.payload.chainId,
-        runId: input.payload.runId,
+        chainId: input.chainId,
+        runId: input.runId,
         traceId: input.traceId,
         laneStepKeys: BOOTSTRAP_IMAGE_CACHE_LANE_STEP_KEYS,
         leaseOwner,
@@ -1065,13 +1145,14 @@ async function runBootstrapImageCacheStepLoop(
     logger.debug("Bootstrap image-cache step loop completed", {
         component: BOOTSTRAP_WORKER_COMPONENT,
         action: BOOTSTRAP_WORKER_ACTION.ImageCacheStepLoop,
-        runId: input.payload.runId,
+        runId: input.runId,
         runIds: result.runIds,
         claimedStepKeys: result.claimedStepKeys,
         readyStepKeys: result.readyStepKeys,
         wakeStepKeys: result.wakeStepKeys,
         nextDueAt: result.nextDueAt,
     });
+    return result;
 }
 
 function buildBootstrapStepLeaseOwner(scope: string): string {
@@ -1170,9 +1251,7 @@ async function processBootstrapMainClaimedStep(
             backfillExecutor: input.bootstrapBackfillExecutor,
             payload: buildOwnershipProcessPayload(anchoredRun),
             step: input.step,
-            backfillCheckPayload: isBootstrapBackfillCheckPayload(input.payload)
-                ? input.payload
-                : null,
+            backfillCheckPayload: input.backfillCheckPayload ?? null,
             backfillBatchSize: input.backfillBatchSize,
             openSeaIntegration: input.openSeaIntegration,
             traceId: input.traceId,
@@ -1241,13 +1320,15 @@ async function processBootstrapImageCacheClaimedStep(
     if (input.step.stepKey !== BOOTSTRAP_STEP_KEY.ImageCache) {
         throw new Error(`Unsupported image-cache step: ${input.step.stepKey}`);
     }
-    return processBootstrapImageCacheStep(input);
-}
-
-function isBootstrapBackfillCheckPayload(
-    payload: BootstrapMainStepLoopPayload,
-): payload is BootstrapBackfillCheckPayload {
-    return "fromBlock" in payload && "toBlock" in payload;
+    const anchoredRun = getAnchoredBootstrapRun(input.run);
+    if (!anchoredRun) {
+        logMissingAnchorForWake(input.run, input.step.stepKey);
+        return readyStepResult(Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS);
+    }
+    return processBootstrapImageCacheStep({
+        ...input,
+        payload: buildImageCacheProcessPayload(anchoredRun),
+    });
 }
 
 async function processBootstrapMetadataStep(input: {
