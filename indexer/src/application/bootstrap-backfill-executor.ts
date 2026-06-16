@@ -4,17 +4,10 @@ import {
     BOOTSTRAP_STEP_KEY,
 } from "@artgod/shared/bootstrap/pipeline";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
-import {
-    METADATA_STATS_RECOMPUTE_REASON,
-    type MetadataStatsRecomputePayload,
-} from "../domain/domain-jobs.js";
 import type { BootstrapRunsPort } from "../ports/bootstrap-runs.js";
 import type { BootstrapStepsPort } from "../ports/bootstrap-steps.js";
 import {
-    cleanupSuccessfulBootstrapTemporaryData,
     type BootstrapTemporaryDataCleanupResult,
-    type BootstrapTemporaryDataRunsPort,
-    type BootstrapTemporaryDataStoragePort,
 } from "./bootstrap-temporary-data-cleanup.js";
 import {
     BOOTSTRAP_BACKFILL_PLAN_KIND,
@@ -38,6 +31,14 @@ export type BootstrapBackfillExecutorOutcome =
 // Backfill skip reasons are persisted on bootstrap_run_steps.result_json.
 export const BOOTSTRAP_BACKFILL_STEP_RESULT_REASON = {
     NoPostAnchorBlocks: "no post-anchor blocks",
+} as const;
+
+// Backfill step result fields hand collection-live finalization enough durable context.
+export const BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD = {
+    Reason: "reason",
+    FromBlock: "fromBlock",
+    ToBlock: "toBlock",
+    LiveBlock: "liveBlock",
 } as const;
 
 // OpenSea skip reasons are persisted on bootstrap_run_steps.result_json.
@@ -96,11 +97,6 @@ export interface BootstrapBackfillCollectionPort {
         chainId: number,
         collectionId: number,
     ): { openseaSlug: string | null } | null;
-    markBootstrapFinished(
-        chainId: number,
-        collectionId: number,
-        lastSyncedBlock: number,
-    ): boolean;
     markOpenSeaPending(chainId: number, collectionId: number): boolean;
 }
 
@@ -134,15 +130,10 @@ export interface BootstrapBackfillQueuePort {
         runId: number;
         collectionId: number;
     }): Promise<void>;
-    publishMetadataStatsRecompute(input: {
-        payload: MetadataStatsRecomputePayload;
-        traceId: string;
-    }): Promise<void>;
 }
 
 export interface BootstrapBackfillRunsPort
-    extends BootstrapTemporaryDataRunsPort,
-        Pick<BootstrapRunsPort, "updateRunStatus" | "appendRunEvent"> {}
+    extends Pick<BootstrapRunsPort, "updateRunStatus" | "appendRunEvent"> {}
 
 export interface BootstrapBackfillStepsPort
     extends Pick<
@@ -151,12 +142,10 @@ export interface BootstrapBackfillStepsPort
         | "markStepSucceeded"
         | "markStepSkipped"
         | "updateStepProgress"
+        | "updateStepResult"
     > {}
 
-export interface BootstrapBackfillTemporaryDataPort
-    extends BootstrapTemporaryDataStoragePort {}
-
-// Executes bootstrap backfill and collection-live transitions behind testable ports.
+// Executes bootstrap backfill scheduling/checking and writes the collection-live handoff.
 export class BootstrapBackfillExecutor {
     constructor(
         private readonly rpcPort: BootstrapBackfillRpcPort,
@@ -164,7 +153,6 @@ export class BootstrapBackfillExecutor {
         private readonly collectionPort: BootstrapBackfillCollectionPort,
         private readonly runsPort: BootstrapBackfillRunsPort,
         private readonly stepsPort: BootstrapBackfillStepsPort,
-        private readonly temporaryDataPort: BootstrapBackfillTemporaryDataPort,
         private readonly queuePort: BootstrapBackfillQueuePort,
     ) {}
 
@@ -203,6 +191,14 @@ export class BootstrapBackfillExecutor {
             completed: 0,
             total: plan.totalBlocks,
         });
+        this.stepsPort.updateStepResult(
+            input.runId,
+            BOOTSTRAP_STEP_KEY.Backfill,
+            buildBootstrapBackfillDelegatedStepResult({
+                fromBlock: plan.fromBlock,
+                toBlock: plan.toBlock,
+            }),
+        );
         this.runsPort.updateRunStatus(input.runId, BOOTSTRAP_RUN_STATUS.Backfill);
         this.runsPort.appendRunEvent({
             runId: input.runId,
@@ -261,6 +257,14 @@ export class BootstrapBackfillExecutor {
             completed: synced,
             total: expected,
         });
+        this.stepsPort.updateStepResult(
+            input.runId,
+            BOOTSTRAP_STEP_KEY.Backfill,
+            buildBootstrapBackfillDelegatedStepResult({
+                fromBlock: input.fromBlock,
+                toBlock: input.toBlock,
+            }),
+        );
         if (synced < expected) {
             await this.queuePort.scheduleBackfillCheck({
                 chainId: input.chainId,
@@ -280,57 +284,19 @@ export class BootstrapBackfillExecutor {
             };
         }
 
-        const updated = this.collectionPort.markBootstrapFinished(
-            input.chainId,
-            input.collectionId,
-            input.toBlock,
-        );
-        if (!updated) {
-            return {
-                outcome: BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.CollectionMissing,
-                fromBlock: input.fromBlock,
-                toBlock: input.toBlock,
-                expected,
-                synced,
-                cleanup: { deleted: false },
-            };
-        }
-
         this.stepsPort.markStepSucceeded(input.runId, BOOTSTRAP_STEP_KEY.Backfill, {
             completed: expected,
             total: expected,
         });
-        this.stepsPort.markStepSucceeded(
+        this.stepsPort.updateStepResult(
             input.runId,
-            BOOTSTRAP_STEP_KEY.CollectionLive,
-        );
-        this.runsPort.updateRunStatus(input.runId, BOOTSTRAP_RUN_STATUS.Completed);
-        this.runsPort.appendRunEvent({
-            runId: input.runId,
-            chainId: input.chainId,
-            collectionId: input.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunCompleted,
-            eventLevel: "info",
-            message: "Bootstrap backfill complete; collection live",
-            payloadJson: JSON.stringify({
+            BOOTSTRAP_STEP_KEY.Backfill,
+            buildBootstrapBackfillTerminalStepResult({
                 fromBlock: input.fromBlock,
                 toBlock: input.toBlock,
+                liveBlock: input.toBlock,
             }),
-        });
-        const cleanup = cleanupSuccessfulBootstrapTemporaryData({
-            bootstrapStorage: this.temporaryDataPort,
-            bootstrapRuns: this.runsPort,
-            runId: input.runId,
-        });
-        await this.queuePort.publishMetadataStatsRecompute({
-            payload: {
-                chainId: input.chainId,
-                collectionId: input.collectionId,
-                reason: METADATA_STATS_RECOMPUTE_REASON.BootstrapFinalized,
-                sourceJobId: input.sourceJobId,
-            },
-            traceId: input.traceId,
-        });
+        );
 
         return {
             outcome: BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillCompleted,
@@ -338,7 +304,7 @@ export class BootstrapBackfillExecutor {
             toBlock: input.toBlock,
             expected,
             synced,
-            cleanup,
+            cleanup: { deleted: false },
         };
     }
 
@@ -349,58 +315,19 @@ export class BootstrapBackfillExecutor {
             { kind: typeof BOOTSTRAP_BACKFILL_PLAN_KIND.NoPostAnchorBlocks }
         >,
     ): Promise<BootstrapBackfillScheduleResult> {
-        const updated = this.collectionPort.markBootstrapFinished(
-            input.chainId,
-            input.collectionId,
-            input.anchorBlock,
-        );
-        if (!updated) {
-            return {
-                outcome: BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.CollectionMissing,
-                fromBlock: plan.fromBlock,
-                anchorBlock: input.anchorBlock,
-                headBlock: plan.headBlock,
-                plan,
-                cleanup: { deleted: false },
-            };
-        }
-
         this.stepsPort.markStepSkipped(
             input.runId,
             BOOTSTRAP_STEP_KEY.Backfill,
             BOOTSTRAP_BACKFILL_STEP_RESULT_REASON.NoPostAnchorBlocks,
         );
-        this.stepsPort.markStepSucceeded(
+        this.stepsPort.updateStepResult(
             input.runId,
-            BOOTSTRAP_STEP_KEY.CollectionLive,
-        );
-        this.runsPort.updateRunStatus(input.runId, BOOTSTRAP_RUN_STATUS.Completed);
-        this.runsPort.appendRunEvent({
-            runId: input.runId,
-            chainId: input.chainId,
-            collectionId: input.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunCompleted,
-            eventLevel: "info",
-            message: "Bootstrap completed without post-anchor backfill",
-            payloadJson: JSON.stringify({
-                anchorBlock: input.anchorBlock,
-                head: plan.headBlock,
+            BOOTSTRAP_STEP_KEY.Backfill,
+            buildBootstrapBackfillTerminalStepResult({
+                reason: BOOTSTRAP_BACKFILL_STEP_RESULT_REASON.NoPostAnchorBlocks,
+                liveBlock: input.anchorBlock,
             }),
-        });
-        const cleanup = cleanupSuccessfulBootstrapTemporaryData({
-            bootstrapStorage: this.temporaryDataPort,
-            bootstrapRuns: this.runsPort,
-            runId: input.runId,
-        });
-        await this.queuePort.publishMetadataStatsRecompute({
-            payload: {
-                chainId: input.chainId,
-                collectionId: input.collectionId,
-                reason: METADATA_STATS_RECOMPUTE_REASON.BootstrapFinalized,
-                sourceJobId: input.sourceJobId,
-            },
-            traceId: input.traceId,
-        });
+        );
 
         return {
             outcome:
@@ -409,7 +336,7 @@ export class BootstrapBackfillExecutor {
             anchorBlock: input.anchorBlock,
             headBlock: plan.headBlock,
             plan,
-            cleanup,
+            cleanup: { deleted: false },
         };
     }
 
@@ -484,4 +411,103 @@ export class BootstrapBackfillExecutor {
             reason,
         );
     }
+}
+
+export type BootstrapBackfillDelegatedStepResult = {
+    [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.FromBlock]: number;
+    [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.ToBlock]: number;
+};
+
+export type BootstrapBackfillTerminalStepResult = Partial<{
+    [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.Reason]: string;
+    [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.FromBlock]: number;
+    [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.ToBlock]: number;
+}> & {
+    [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.LiveBlock]: number;
+};
+
+// Builds the persisted handoff state for delegated backfill health checks.
+export function buildBootstrapBackfillDelegatedStepResult(input: {
+    fromBlock: number;
+    toBlock: number;
+}): BootstrapBackfillDelegatedStepResult {
+    return {
+        [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.FromBlock]: input.fromBlock,
+        [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.ToBlock]: input.toBlock,
+    };
+}
+
+// Builds the persisted handoff state consumed by the collection-live step.
+export function buildBootstrapBackfillTerminalStepResult(input: {
+    reason?: string;
+    fromBlock?: number;
+    toBlock?: number;
+    liveBlock: number;
+}): BootstrapBackfillTerminalStepResult {
+    const result: BootstrapBackfillTerminalStepResult = {
+        [BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.LiveBlock]: input.liveBlock,
+    };
+    if (input.reason !== undefined) {
+        result[BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.Reason] = input.reason;
+    }
+    if (input.fromBlock !== undefined) {
+        result[BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.FromBlock] =
+            input.fromBlock;
+    }
+    if (input.toBlock !== undefined) {
+        result[BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.ToBlock] = input.toBlock;
+    }
+    return result;
+}
+
+// Reads delegated range state from bootstrap_run_steps.result_json.
+export function parseBootstrapBackfillDelegatedRange(
+    resultJson: string | null,
+): { fromBlock: number; toBlock: number } | null {
+    const parsed = parseBackfillStepResult(resultJson);
+    const fromBlock = readBackfillNumberField(
+        parsed,
+        BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.FromBlock,
+    );
+    const toBlock = readBackfillNumberField(
+        parsed,
+        BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.ToBlock,
+    );
+    return fromBlock === null || toBlock === null
+        ? null
+        : { fromBlock, toBlock };
+}
+
+// Reads the finalized live block from bootstrap_run_steps.result_json.
+export function parseBootstrapBackfillLiveBlock(
+    resultJson: string | null,
+): number | null {
+    return readBackfillNumberField(
+        parseBackfillStepResult(resultJson),
+        BOOTSTRAP_BACKFILL_STEP_RESULT_FIELD.LiveBlock,
+    );
+}
+
+function parseBackfillStepResult(
+    resultJson: string | null,
+): Record<string, unknown> | null {
+    if (!resultJson) {
+        return null;
+    }
+    try {
+        const parsed = JSON.parse(resultJson) as unknown;
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : null;
+    } catch {
+        return null;
+    }
+}
+
+function readBackfillNumberField(
+    parsed: Record<string, unknown> | null,
+    field: string,
+): number | null {
+    const value = parsed?.[field];
+    return Number.isInteger(value) ? Number(value) : null;
 }

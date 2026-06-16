@@ -24,6 +24,7 @@ type BootstrapStepDbRow = {
     lease_until: number | null;
     progress_completed: number;
     progress_total: number | null;
+    result_json: string | null;
     attempts: number;
     last_error: string | null;
 };
@@ -34,12 +35,12 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         runId: number;
         stepKey: BootstrapStepKey;
     }>(
-        "SELECT run_id, step_key, status, blocking, depends_on_json, next_attempt_at, lease_owner, lease_until, progress_completed, progress_total, attempts, last_error " +
+        "SELECT run_id, step_key, status, blocking, depends_on_json, next_attempt_at, lease_owner, lease_until, progress_completed, progress_total, result_json, attempts, last_error " +
             "FROM bootstrap_run_steps WHERE run_id = @runId AND step_key = @stepKey LIMIT 1",
     );
 
     private selectRunStepsStmt = db.prepare<{ runId: number }>(
-        "SELECT run_id, step_key, status, blocking, depends_on_json, next_attempt_at, lease_owner, lease_until, progress_completed, progress_total, attempts, last_error " +
+        "SELECT run_id, step_key, status, blocking, depends_on_json, next_attempt_at, lease_owner, lease_until, progress_completed, progress_total, result_json, attempts, last_error " +
             "FROM bootstrap_run_steps WHERE run_id = @runId ORDER BY rowid ASC",
     );
 
@@ -152,6 +153,16 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
     }>(
         "UPDATE bootstrap_run_steps SET " +
             "progress_completed = @completed, progress_total = @total, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND step_key = @stepKey",
+    );
+
+    private updateResultStmt = db.prepare<{
+        runId: number;
+        stepKey: BootstrapStepKey;
+        resultJson: string;
+    }>(
+        "UPDATE bootstrap_run_steps SET " +
+            "result_json = @resultJson, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey",
     );
 
@@ -373,6 +384,18 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         });
     }
 
+    updateStepResult(
+        runId: number,
+        stepKey: BootstrapStepKey,
+        result: Record<string, unknown>,
+    ): void {
+        this.updateResultStmt.run({
+            runId,
+            stepKey,
+            resultJson: JSON.stringify(result),
+        });
+    }
+
     isStepPaused(runId: number, stepKey: BootstrapStepKey): boolean {
         return (
             this.getStep(runId, stepKey)?.status ===
@@ -393,6 +416,7 @@ function mapStep(row: BootstrapStepDbRow): BootstrapStepRecord {
         leaseUntil: row.lease_until,
         progressCompleted: row.progress_completed,
         progressTotal: row.progress_total,
+        resultJson: row.result_json,
         attempts: row.attempts,
         lastError: row.last_error,
     };
@@ -406,7 +430,7 @@ function selectClaimCandidates(input: {
 }): BootstrapStepDbRow[] {
     const stepKeyPlaceholders = input.stepKeys.map(() => "?").join(", ");
     const sql =
-        "SELECT run_id, step_key, status, blocking, depends_on_json, next_attempt_at, lease_owner, lease_until, progress_completed, progress_total, attempts, last_error " +
+        "SELECT run_id, step_key, status, blocking, depends_on_json, next_attempt_at, lease_owner, lease_until, progress_completed, progress_total, result_json, attempts, last_error " +
         "FROM bootstrap_run_steps " +
         `WHERE run_id = ? AND step_key IN (${stepKeyPlaceholders}) ` +
         "AND (" +

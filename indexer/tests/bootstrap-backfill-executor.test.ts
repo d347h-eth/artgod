@@ -19,24 +19,21 @@ import {
     BOOTSTRAP_BACKFILL_STEP_RESULT_REASON,
     BOOTSTRAP_OPENSEA_STEP_RESULT_REASON,
     BootstrapBackfillExecutor,
+    buildBootstrapBackfillDelegatedStepResult,
+    buildBootstrapBackfillTerminalStepResult,
     type BootstrapBackfillCollectionPort,
     type BootstrapBackfillQueuePort,
     type BootstrapBackfillRunsPort,
     type BootstrapBackfillStepsPort,
-    type BootstrapBackfillTemporaryDataPort,
 } from "../src/application/bootstrap-backfill-executor.js";
 import { BOOTSTRAP_BACKFILL_PLAN_KIND } from "../src/application/bootstrap-backfill-plan.js";
-import {
-    METADATA_STATS_RECOMPUTE_REASON,
-    type MetadataStatsRecomputePayload,
-} from "../src/domain/domain-jobs.js";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
 import type { BootstrapRunDefinition } from "../src/ports/bootstrap-runs.js";
 
 const TEST_CONTRACT_ADDRESS = "0x0000000000000000000000000000000000000001";
 
 describe("bootstrap backfill executor", () => {
-    it("marks the collection live without catch-up when there are no post-anchor blocks", async () => {
+    it("marks backfill skipped without catch-up when there are no post-anchor blocks", async () => {
         const harness = createHarness({
             headBlock: 100,
             run: buildRun({ status: BOOTSTRAP_RUN_STATUS.Ownership }),
@@ -60,12 +57,9 @@ describe("bootstrap backfill executor", () => {
                     fromBlock: 101,
                     headBlock: 100,
                 },
-                cleanup: expect.objectContaining({ deleted: true }),
+                cleanup: expect.objectContaining({ deleted: false }),
             }),
         );
-        expect(harness.collectionFinishes).toEqual([
-            { chainId: 1, collectionId: 7, lastSyncedBlock: 100 },
-        ]);
         expect(harness.skippedSteps).toEqual([
             {
                 runId: 41,
@@ -88,31 +82,21 @@ describe("bootstrap backfill executor", () => {
                 reason: BOOTSTRAP_BACKFILL_STEP_RESULT_REASON.NoPostAnchorBlocks,
             },
         ]);
-        expect(harness.succeededSteps).toEqual([
-            { runId: 41, stepKey: BOOTSTRAP_STEP_KEY.CollectionLive },
-        ]);
-        expect(harness.run.status).toBe(BOOTSTRAP_RUN_STATUS.Completed);
-        expect(harness.cleanupDeletedRows).toEqual({
-            metadataTasks: 3,
-            imageCacheTasks: 0,
-            ownershipTasks: 3,
-            ownershipSnapshotRows: 3,
-            collectionExtensionArtifactTasks: 0,
-        });
-        expect(harness.statsRecomputeRequests).toEqual([
+        expect(harness.succeededSteps).toEqual([]);
+        expect(harness.resultUpdates).toEqual([
             {
-                payload: {
-                    chainId: 1,
-                    collectionId: 7,
-                    reason: METADATA_STATS_RECOMPUTE_REASON.BootstrapFinalized,
-                    sourceJobId: "job-1",
-                },
-                traceId: "trace-1",
+                runId: 41,
+                stepKey: BOOTSTRAP_STEP_KEY.Backfill,
+                result: buildBootstrapBackfillTerminalStepResult({
+                    reason: BOOTSTRAP_BACKFILL_STEP_RESULT_REASON.NoPostAnchorBlocks,
+                    liveBlock: 100,
+                }),
             },
         ]);
+        expect(harness.run.status).toBe(BOOTSTRAP_RUN_STATUS.Ownership);
+        expect(harness.cleanupDeletedRows).toEqual(emptyCleanupDeletedRows());
         expect(harness.events.map((event) => event.eventCode)).toEqual([
             BOOTSTRAP_RUN_EVENT_CODE.OpenSeaSkipped,
-            BOOTSTRAP_RUN_EVENT_CODE.RunCompleted,
         ]);
     });
 
@@ -165,6 +149,16 @@ describe("bootstrap backfill executor", () => {
                 progress: { completed: 0, total: 5 },
             },
         ]);
+        expect(harness.resultUpdates).toEqual([
+            {
+                runId: 41,
+                stepKey: BOOTSTRAP_STEP_KEY.Backfill,
+                result: buildBootstrapBackfillDelegatedStepResult({
+                    fromBlock: 101,
+                    toBlock: 105,
+                }),
+            },
+        ]);
         expect(harness.run.status).toBe(BOOTSTRAP_RUN_STATUS.Backfill);
         expect(harness.cleanupDeletedRows).toEqual(emptyCleanupDeletedRows());
     });
@@ -203,9 +197,19 @@ describe("bootstrap backfill executor", () => {
                 toBlock: 105,
             },
         ]);
+        expect(harness.resultUpdates).toEqual([
+            {
+                runId: 41,
+                stepKey: BOOTSTRAP_STEP_KEY.Backfill,
+                result: buildBootstrapBackfillDelegatedStepResult({
+                    fromBlock: 101,
+                    toBlock: 105,
+                }),
+            },
+        ]);
     });
 
-    it("marks live and cleans temporary data when catch-up is complete", async () => {
+    it("marks backfill complete and writes collection-live handoff state", async () => {
         const harness = createHarness({
             syncedBlockCount: 5,
             run: buildRun({ status: BOOTSTRAP_RUN_STATUS.Backfill }),
@@ -221,42 +225,40 @@ describe("bootstrap backfill executor", () => {
                 outcome: BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillCompleted,
                 expected: 5,
                 synced: 5,
-                cleanup: expect.objectContaining({ deleted: true }),
+                cleanup: expect.objectContaining({ deleted: false }),
             }),
         );
-        expect(harness.collectionFinishes).toEqual([
-            { chainId: 1, collectionId: 7, lastSyncedBlock: 105 },
-        ]);
         expect(harness.succeededSteps).toEqual([
             {
                 runId: 41,
                 stepKey: BOOTSTRAP_STEP_KEY.Backfill,
                 progress: { completed: 5, total: 5 },
             },
-            { runId: 41, stepKey: BOOTSTRAP_STEP_KEY.CollectionLive },
         ]);
-        expect(harness.run.status).toBe(BOOTSTRAP_RUN_STATUS.Completed);
-        expect(harness.cleanupDeletedRows).toEqual({
-            metadataTasks: 3,
-            imageCacheTasks: 3,
-            ownershipTasks: 3,
-            ownershipSnapshotRows: 3,
-            collectionExtensionArtifactTasks: 0,
-        });
-        expect(harness.statsRecomputeRequests).toEqual([
+        expect(harness.resultUpdates).toEqual([
             {
-                payload: {
-                    chainId: 1,
-                    collectionId: 7,
-                    reason: METADATA_STATS_RECOMPUTE_REASON.BootstrapFinalized,
-                    sourceJobId: "job-1",
-                },
-                traceId: "trace-1",
+                runId: 41,
+                stepKey: BOOTSTRAP_STEP_KEY.Backfill,
+                result: buildBootstrapBackfillDelegatedStepResult({
+                    fromBlock: 101,
+                    toBlock: 105,
+                }),
+            },
+            {
+                runId: 41,
+                stepKey: BOOTSTRAP_STEP_KEY.Backfill,
+                result: buildBootstrapBackfillTerminalStepResult({
+                    fromBlock: 101,
+                    toBlock: 105,
+                    liveBlock: 105,
+                }),
             },
         ]);
+        expect(harness.run.status).toBe(BOOTSTRAP_RUN_STATUS.Backfill);
+        expect(harness.cleanupDeletedRows).toEqual(emptyCleanupDeletedRows());
     });
 
-    it("cleans blocking temporary data while the image-cache side lane is still pending", async () => {
+    it("leaves cleanup to collection-live while the image-cache side lane is still pending", async () => {
         const harness = createHarness({
             syncedBlockCount: 5,
             run: buildRun({ status: BOOTSTRAP_RUN_STATUS.Backfill }),
@@ -271,24 +273,15 @@ describe("bootstrap backfill executor", () => {
             expect.objectContaining({
                 outcome: BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillCompleted,
                 cleanup: expect.objectContaining({
-                    deleted: true,
-                    metadataTasks: 3,
-                    imageCacheTasks: 0,
-                    ownershipTasks: 3,
+                    deleted: false,
                 }),
             }),
         );
-        expect(harness.run.status).toBe(BOOTSTRAP_RUN_STATUS.Completed);
-        expect(harness.cleanupDeletedRows).toEqual({
-            metadataTasks: 3,
-            imageCacheTasks: 0,
-            ownershipTasks: 3,
-            ownershipSnapshotRows: 3,
-            collectionExtensionArtifactTasks: 0,
-        });
+        expect(harness.run.status).toBe(BOOTSTRAP_RUN_STATUS.Backfill);
+        expect(harness.cleanupDeletedRows).toEqual(emptyCleanupDeletedRows());
     });
 
-    it("cleans successful best-effort metadata tasks while retaining terminal failures", async () => {
+    it("does not delete best-effort metadata tasks before collection-live finalization", async () => {
         const harness = createHarness({
             syncedBlockCount: 5,
             run: buildRun({ status: BOOTSTRAP_RUN_STATUS.Backfill }),
@@ -303,20 +296,11 @@ describe("bootstrap backfill executor", () => {
             expect.objectContaining({
                 outcome: BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillCompleted,
                 cleanup: expect.objectContaining({
-                    deleted: true,
-                    metadataTasks: 2,
-                    imageCacheTasks: 0,
-                    ownershipTasks: 3,
+                    deleted: false,
                 }),
             }),
         );
-        expect(harness.cleanupDeletedRows).toEqual({
-            metadataTasks: 2,
-            imageCacheTasks: 0,
-            ownershipTasks: 3,
-            ownershipSnapshotRows: 3,
-            collectionExtensionArtifactTasks: 0,
-        });
+        expect(harness.cleanupDeletedRows).toEqual(emptyCleanupDeletedRows());
     });
 });
 
@@ -324,11 +308,6 @@ type Harness = {
     executor: BootstrapBackfillExecutor;
     run: BootstrapRunDefinition;
     events: Array<Parameters<BootstrapBackfillRunsPort["appendRunEvent"]>[0]>;
-    collectionFinishes: Array<{
-        chainId: number;
-        collectionId: number;
-        lastSyncedBlock: number;
-    }>;
     openSeaPending: Array<{ chainId: number; collectionId: number }>;
     runningSteps: Array<{ runId: number; stepKey: BootstrapStepKey }>;
     succeededSteps: Array<{
@@ -345,6 +324,11 @@ type Harness = {
         runId: number;
         stepKey: BootstrapStepKey;
         progress: { completed: number; total: number | null };
+    }>;
+    resultUpdates: Array<{
+        runId: number;
+        stepKey: BootstrapStepKey;
+        result: Record<string, unknown>;
     }>;
     backfillRanges: Array<{
         chainId: number;
@@ -365,10 +349,6 @@ type Harness = {
         chainId: number;
         runId: number;
         collectionId: number;
-    }>;
-    statsRecomputeRequests: Array<{
-        payload: MetadataStatsRecomputePayload;
-        traceId: string;
     }>;
     cleanupDeletedRows: CleanupDeletedRows;
 };
@@ -393,25 +373,17 @@ function createHarness(input: {
 }): Harness {
     const run = input.run ?? buildRun({});
     const events: Harness["events"] = [];
-    const collectionFinishes: Harness["collectionFinishes"] = [];
     const openSeaPending: Harness["openSeaPending"] = [];
     const runningSteps: Harness["runningSteps"] = [];
     const succeededSteps: Harness["succeededSteps"] = [];
     const skippedSteps: Harness["skippedSteps"] = [];
     const progressUpdates: Harness["progressUpdates"] = [];
+    const resultUpdates: Harness["resultUpdates"] = [];
     const backfillRanges: Harness["backfillRanges"] = [];
     const backfillChecks: Harness["backfillChecks"] = [];
     const openSeaSchedules: Harness["openSeaSchedules"] = [];
-    const statsRecomputeRequests: Harness["statsRecomputeRequests"] = [];
-    let metadataCounts = input.metadataCounts ?? cleanCounts(0);
-    let imageCacheCounts = input.imageCacheCounts ?? cleanCounts(0);
-    let ownershipCounts = input.ownershipCounts ?? cleanCounts(0);
-    let ownershipSnapshotRows = ownershipCounts.succeeded;
-    let collectionExtensionArtifactCounts =
-        input.collectionExtensionArtifactCounts ?? cleanCounts(0);
     const cleanupDeletedRows = emptyCleanupDeletedRows();
     const runsPort: BootstrapBackfillRunsPort = {
-        getRun: (runId) => (runId === run.runId ? run : null),
         updateRunStatus: (runId, status) => {
             if (runId === run.runId) {
                 run.status = status;
@@ -438,62 +410,19 @@ function createHarness(input: {
         updateStepProgress: (runId, stepKey, progress) => {
             progressUpdates.push({ runId, stepKey, progress });
         },
+        updateStepResult: (runId, stepKey, result) => {
+            resultUpdates.push({ runId, stepKey, result });
+        },
     };
     const collectionPort: BootstrapBackfillCollectionPort = {
         getCollection: (chainId, collectionId) =>
             chainId === run.chainId && collectionId === run.collectionId
                 ? { openseaSlug: input.openseaSlug ?? null }
                 : null,
-        markBootstrapFinished: (chainId, collectionId, lastSyncedBlock) => {
-            if (chainId !== run.chainId || collectionId !== run.collectionId) {
-                return false;
-            }
-            collectionFinishes.push({ chainId, collectionId, lastSyncedBlock });
-            return true;
-        },
         markOpenSeaPending: (chainId, collectionId) => {
             openSeaPending.push({ chainId, collectionId });
             return true;
         },
-    };
-    const temporaryDataPort: BootstrapBackfillTemporaryDataPort = {
-        deleteSnapshotRows: () => {
-            const deleted = ownershipSnapshotRows;
-            cleanupDeletedRows.ownershipSnapshotRows += deleted;
-            ownershipSnapshotRows = 0;
-            return deleted;
-        },
-        deleteSucceededMetadataTasks: () => {
-            const deleted = metadataCounts.succeeded;
-            cleanupDeletedRows.metadataTasks += deleted;
-            metadataCounts = removeSucceededTasks(metadataCounts);
-            return deleted;
-        },
-        deleteSucceededImageCacheTasks: () => {
-            const deleted = imageCacheCounts.succeeded;
-            cleanupDeletedRows.imageCacheTasks += deleted;
-            imageCacheCounts = removeSucceededTasks(imageCacheCounts);
-            return deleted;
-        },
-        deleteSucceededOwnershipTasks: () => {
-            const deleted = ownershipCounts.succeeded;
-            cleanupDeletedRows.ownershipTasks += deleted;
-            ownershipCounts = removeSucceededTasks(ownershipCounts);
-            return deleted;
-        },
-        deleteSucceededCollectionExtensionArtifactTasks: () => {
-            const deleted = collectionExtensionArtifactCounts.succeeded;
-            cleanupDeletedRows.collectionExtensionArtifactTasks += deleted;
-            collectionExtensionArtifactCounts = removeSucceededTasks(
-                collectionExtensionArtifactCounts,
-            );
-            return deleted;
-        },
-        getMetadataTaskCounts: () => metadataCounts,
-        getImageCacheTaskCounts: () => imageCacheCounts,
-        getOwnershipTaskCounts: () => ownershipCounts,
-        getCollectionExtensionArtifactTaskCounts: () =>
-            collectionExtensionArtifactCounts,
     };
     const queuePort: BootstrapBackfillQueuePort = {
         scheduleBackfillRange: async (request) => {
@@ -504,9 +433,6 @@ function createHarness(input: {
         },
         scheduleOpenSeaBootstrap: async (request) => {
             openSeaSchedules.push(request);
-        },
-        publishMetadataStatsRecompute: async (request) => {
-            statsRecomputeRequests.push(request);
         },
     };
     const executor = new BootstrapBackfillExecutor(
@@ -519,7 +445,6 @@ function createHarness(input: {
         collectionPort,
         runsPort,
         stepsPort,
-        temporaryDataPort,
         queuePort,
     );
 
@@ -527,16 +452,15 @@ function createHarness(input: {
         executor,
         run,
         events,
-        collectionFinishes,
         openSeaPending,
         runningSteps,
         succeededSteps,
         skippedSteps,
         progressUpdates,
+        resultUpdates,
         backfillRanges,
         backfillChecks,
         openSeaSchedules,
-        statsRecomputeRequests,
         cleanupDeletedRows,
     };
 }
@@ -639,14 +563,6 @@ function taskCounts(input: {
         succeeded,
         failedTerminal,
         total: pending + retry + succeeded + failedTerminal,
-    };
-}
-
-function removeSucceededTasks(counts: BootstrapTaskCounts): BootstrapTaskCounts {
-    return {
-        ...counts,
-        succeeded: 0,
-        total: counts.total - counts.succeeded,
     };
 }
 

@@ -215,6 +215,7 @@ function step(
         leaseUntil: null,
         progressCompleted: 0,
         progressTotal: null,
+        resultJson: null,
         attempts: 0,
         lastError: null,
     };

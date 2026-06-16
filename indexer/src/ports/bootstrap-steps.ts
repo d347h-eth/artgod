@@ -15,6 +15,7 @@ export type BootstrapStepRecord = {
     leaseUntil: number | null;
     progressCompleted: number;
     progressTotal: number | null;
+    resultJson: string | null;
     attempts: number;
     lastError: string | null;
 };
@@ -94,6 +95,11 @@ export interface BootstrapStepsPort {
         runId: number,
         stepKey: BootstrapStepKey,
         progress: BootstrapStepProgress,
+    ): void;
+    updateStepResult(
+        runId: number,
+        stepKey: BootstrapStepKey,
+        result: Record<string, unknown>,
     ): void;
     isStepPaused(runId: number, stepKey: BootstrapStepKey): boolean;
 }

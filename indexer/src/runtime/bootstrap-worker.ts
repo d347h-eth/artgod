@@ -35,8 +35,13 @@ import {
 } from "../application/bootstrap-step-orchestrator.js";
 import { BootstrapStepScheduler } from "../application/bootstrap-step-scheduler.js";
 import {
+    BootstrapCollectionLiveExecutor,
+    type BootstrapCollectionLiveQueuePort,
+} from "../application/bootstrap-collection-live-executor.js";
+import {
     BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME,
     BootstrapBackfillExecutor,
+    parseBootstrapBackfillDelegatedRange,
     type BootstrapBackfillCheckResult,
     type BootstrapBackfillQueuePort,
     type BootstrapBackfillScheduleResult,
@@ -148,6 +153,7 @@ const BOOTSTRAP_MAIN_LANE_STEP_KEYS = [
     BOOTSTRAP_STEP_KEY.Metadata,
     BOOTSTRAP_STEP_KEY.Ownership,
     BOOTSTRAP_STEP_KEY.Backfill,
+    BOOTSTRAP_STEP_KEY.CollectionLive,
     BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts,
     BOOTSTRAP_STEP_KEY.OpenSeaIdentity,
 ] as const;
@@ -245,9 +251,16 @@ async function main() {
             collections,
             bootstrapRuns,
             bootstrapSteps,
-            bootstrapStorage,
             createBootstrapBackfillQueuePort(queue),
         );
+        const bootstrapCollectionLiveExecutor =
+            new BootstrapCollectionLiveExecutor(
+                collections,
+                bootstrapRuns,
+                bootstrapSteps,
+                bootstrapStorage,
+                createBootstrapCollectionLiveQueuePort(queue),
+            );
         const metadataResolver = new ViemTokenUriResolver({
             endpoints: config.rpc.endpoints,
             metrics: runtimeMetrics.metrics,
@@ -309,6 +322,7 @@ async function main() {
                             bootstrapAnchorExecutor,
                             bootstrapEnumerationExecutor,
                             bootstrapBackfillExecutor,
+                            bootstrapCollectionLiveExecutor,
                             rpc,
                             metadataDomain,
                             reorgDepth: config.sync.reorgDepth,
@@ -342,6 +356,7 @@ async function main() {
                             bootstrapAnchorExecutor,
                             bootstrapEnumerationExecutor,
                             bootstrapBackfillExecutor,
+                            bootstrapCollectionLiveExecutor,
                             rpc,
                             metadataDomain,
                             reorgDepth: config.sync.reorgDepth,
@@ -375,6 +390,7 @@ async function main() {
                             bootstrapAnchorExecutor,
                             bootstrapEnumerationExecutor,
                             bootstrapBackfillExecutor,
+                            bootstrapCollectionLiveExecutor,
                             rpc,
                             metadataDomain,
                             reorgDepth: config.sync.reorgDepth,
@@ -408,6 +424,7 @@ async function main() {
                             bootstrapAnchorExecutor,
                             bootstrapEnumerationExecutor,
                             bootstrapBackfillExecutor,
+                            bootstrapCollectionLiveExecutor,
                             rpc,
                             metadataDomain,
                             reorgDepth: config.sync.reorgDepth,
@@ -606,6 +623,13 @@ function createBootstrapBackfillQueuePort(
         scheduleOpenSeaBootstrap: async (input) => {
             await scheduleOpenSeaBootstrap(queue, input);
         },
+    };
+}
+
+function createBootstrapCollectionLiveQueuePort(
+    queue: QueuePort,
+): BootstrapCollectionLiveQueuePort {
+    return {
         publishMetadataStatsRecompute: async (input) => {
             await publishMetadataStatsRecompute(
                 queue,
@@ -919,6 +943,7 @@ type BootstrapMainStepLoopInput = {
     bootstrapAnchorExecutor: BootstrapAnchorExecutor;
     bootstrapEnumerationExecutor: BootstrapEnumerationExecutor;
     bootstrapBackfillExecutor: BootstrapBackfillExecutor;
+    bootstrapCollectionLiveExecutor: BootstrapCollectionLiveExecutor;
     rpc: RpcProviderPort;
     metadataDomain: SqliteMetadataDomain;
     reorgDepth: number;
@@ -1141,11 +1166,22 @@ async function processBootstrapMainClaimedStep(
         return processBootstrapBackfillStep({
             backfillExecutor: input.bootstrapBackfillExecutor,
             payload: buildOwnershipProcessPayload(anchoredRun),
+            step: input.step,
             backfillCheckPayload: isBootstrapBackfillCheckPayload(input.payload)
                 ? input.payload
                 : null,
             backfillBatchSize: input.backfillBatchSize,
             openSeaIntegration: input.openSeaIntegration,
+            traceId: input.traceId,
+            sourceJobId: input.sourceJobId,
+        });
+    }
+
+    if (input.step.stepKey === BOOTSTRAP_STEP_KEY.CollectionLive) {
+        return processBootstrapCollectionLiveStep({
+            collectionLiveExecutor: input.bootstrapCollectionLiveExecutor,
+            run: input.run,
+            step: input.step,
             traceId: input.traceId,
             sourceJobId: input.sourceJobId,
         });
@@ -2234,30 +2270,39 @@ async function processSingleOwnershipTask(
 async function processBootstrapBackfillStep(input: {
     backfillExecutor: BootstrapBackfillExecutor;
     payload: BootstrapOwnershipProcessPayload;
+    step: BootstrapStepRecord;
     backfillCheckPayload: BootstrapBackfillCheckPayload | null;
     backfillBatchSize: number;
     openSeaIntegration: OpenSeaIntegrationStatus;
     traceId: string;
     sourceJobId: string;
 }): Promise<BootstrapClaimedStepProcessorResult> {
-    if (input.backfillCheckPayload) {
+    const delegatedRange = input.backfillCheckPayload
+        ? null
+        : parseBootstrapBackfillDelegatedRange(input.step.resultJson);
+    if (input.backfillCheckPayload || delegatedRange) {
+        const checkPayload = input.backfillCheckPayload ?? {
+            ...input.payload,
+            fromBlock: delegatedRange?.fromBlock ?? input.payload.anchorBlock + 1,
+            toBlock: delegatedRange?.toBlock ?? input.payload.anchorBlock,
+        };
         const result = await input.backfillExecutor.checkProgress({
-            chainId: input.backfillCheckPayload.chainId,
-            runId: input.backfillCheckPayload.runId,
-            collectionId: input.backfillCheckPayload.collectionId,
-            address: input.backfillCheckPayload.address,
-            fromBlock: input.backfillCheckPayload.fromBlock,
-            toBlock: input.backfillCheckPayload.toBlock,
+            chainId: checkPayload.chainId,
+            runId: checkPayload.runId,
+            collectionId: checkPayload.collectionId,
+            address: checkPayload.address,
+            fromBlock: checkPayload.fromBlock,
+            toBlock: checkPayload.toBlock,
             traceId: input.traceId,
             sourceJobId: input.sourceJobId,
         });
-        logBootstrapBackfillCheckResult(result, input.backfillCheckPayload);
+        logBootstrapBackfillCheckResult(result, checkPayload);
         logBootstrapTemporaryDataCleanup(result.cleanup);
         if (
             result.outcome ===
             BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillIncomplete
         ) {
-            return readyStepResult(
+            return runningStepResult(
                 Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS,
             );
         }
@@ -2280,8 +2325,25 @@ async function processBootstrapBackfillStep(input: {
     if (
         result.outcome === BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillQueued
     ) {
-        return readyStepResult(Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS);
+        return runningStepResult(Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS);
     }
+    return terminalStepResult();
+}
+
+async function processBootstrapCollectionLiveStep(input: {
+    collectionLiveExecutor: BootstrapCollectionLiveExecutor;
+    run: BootstrapRunDefinition;
+    step: BootstrapStepRecord;
+    traceId: string;
+    sourceJobId: string;
+}): Promise<BootstrapClaimedStepProcessorResult> {
+    const result = await input.collectionLiveExecutor.complete({
+        run: input.run,
+        step: input.step,
+        traceId: input.traceId,
+        sourceJobId: input.sourceJobId,
+    });
+    logBootstrapTemporaryDataCleanup(result.cleanup);
     return terminalStepResult();
 }
 
