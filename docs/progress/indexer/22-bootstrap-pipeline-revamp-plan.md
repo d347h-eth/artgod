@@ -524,6 +524,10 @@ The scheduler-first implementation is being landed in review-sized chunks:
 - OpenSea collection status values now live in the shared collection type
   contract and are imported by backend, indexer domain, runtime workers, and
   SQLite adapters instead of being repeated as backend/indexer-local literals.
+- Startup recovery now includes completed runs that still have any recoverable
+  non-blocking step, not only image-cache work. Storage coverage includes a
+  non-image side-lane step so this does not regress back to image-cache-only
+  recovery.
 
 ## Required Final Architecture Work
 
@@ -560,8 +564,7 @@ until the final audit verifies them against the full runtime and UI surface.
    deadline, idempotent delegated job publish, progress recompute, retry, and
    terminalization.
 
-6. Generalize completed-run recovery. Status: partially implemented; final
-   audit pending.
+6. Generalize completed-run recovery. Status: implemented; final audit pending.
    Completed runs can still have non-blocking recoverable work. Startup and the
    lane scheduler should recover any nonterminal non-blocking step, not just
    image-cache work.

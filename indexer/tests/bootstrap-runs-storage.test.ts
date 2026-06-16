@@ -9,6 +9,7 @@ import {
     BOOTSTRAP_STEP_STATUS,
     serializeBootstrapStepDependencies,
     type BootstrapRunStatus,
+    type BootstrapStepKey,
 } from "@artgod/shared/bootstrap/pipeline";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import { COLLECTION_STANDARD } from "../src/domain/collections.js";
@@ -30,7 +31,7 @@ describe("bootstrap runs storage", () => {
         db.exec("DELETE FROM bootstrap_runs;");
     });
 
-    it("lists only active runs for startup reconciliation", () => {
+    it("lists active runs and completed runs with recoverable side-lane steps", () => {
         seedRun(1, 101, BOOTSTRAP_RUN_STATUS.Queued);
         seedRun(1, 102, BOOTSTRAP_RUN_STATUS.Metadata);
         seedRun(1, 103, BOOTSTRAP_RUN_STATUS.Completed);
@@ -40,15 +41,30 @@ describe("bootstrap runs storage", () => {
             105,
             BOOTSTRAP_RUN_STATUS.Completed,
         );
-        seedSideLaneStep(completedWithSideLaneRunId);
+        seedSideLaneStep(
+            completedWithSideLaneRunId,
+            BOOTSTRAP_STEP_KEY.ImageCache,
+        );
+        const completedWithOpenSeaSideLaneRunId = seedRun(
+            1,
+            106,
+            BOOTSTRAP_RUN_STATUS.Completed,
+        );
+        seedSideLaneStep(
+            completedWithOpenSeaSideLaneRunId,
+            BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
+        );
         seedRun(2, 201, BOOTSTRAP_RUN_STATUS.Queued);
 
         const runs = new SqliteBootstrapRuns().listRunsForStartupSweep(1, 10);
 
-        expect(runs.map((run) => run.collectionId)).toEqual([101, 102, 105]);
+        expect(runs.map((run) => run.collectionId)).toEqual([
+            101, 102, 105, 106,
+        ]);
         expect(runs.map((run) => run.status)).toEqual([
             BOOTSTRAP_RUN_STATUS.Queued,
             BOOTSTRAP_RUN_STATUS.Metadata,
+            BOOTSTRAP_RUN_STATUS.Completed,
             BOOTSTRAP_RUN_STATUS.Completed,
         ]);
     });
@@ -77,14 +93,14 @@ function seedRun(
     return Number(result.lastInsertRowid);
 }
 
-function seedSideLaneStep(runId: number): void {
+function seedSideLaneStep(runId: number, stepKey: BootstrapStepKey): void {
     db.prepare(
         "INSERT INTO bootstrap_run_steps " +
             "(run_id, step_key, status, blocking, depends_on_json) " +
             "VALUES (?, ?, ?, ?, ?)",
     ).run(
         runId,
-        BOOTSTRAP_STEP_KEY.ImageCache,
+        stepKey,
         BOOTSTRAP_STEP_STATUS.Ready,
         0,
         serializeBootstrapStepDependencies([]),
