@@ -23,7 +23,11 @@ export interface BootstrapOpenSeaStepsPort {
         runId: number,
         stepKey: OpenSeaBootstrapStepKey,
     ): { status: BootstrapStepStatus } | null;
-    markStepRunning(runId: number, stepKey: OpenSeaBootstrapStepKey): void;
+    markStepDelegatedRunning(input: {
+        runId: number;
+        stepKey: OpenSeaBootstrapStepKey;
+        healthCheckAt: number;
+    }): void;
     markStepSucceeded(runId: number, stepKey: OpenSeaBootstrapStepKey): void;
     markStepFailedRetry(input: {
         runId: number;
@@ -55,17 +59,24 @@ export function areOpenSeaBootstrapStepsTerminal(
     });
 }
 
-// Marks one OpenSea phase as running when the job belongs to a bootstrap run.
-export function markOpenSeaBootstrapStepRunning(
-    stepsPort: BootstrapOpenSeaStepsPort,
-    payload: OpenSeaBootstrapCollectionPayload,
-    stepKey: OpenSeaBootstrapStepKey,
+// Marks one OpenSea phase as delegated running with a scheduler health-check deadline.
+export function markOpenSeaBootstrapStepDelegatedRunning(
+    input: {
+        stepsPort: BootstrapOpenSeaStepsPort;
+        payload: OpenSeaBootstrapCollectionPayload;
+        stepKey: OpenSeaBootstrapStepKey;
+        healthCheckAt: number;
+    },
 ): void {
-    const bootstrapRunId = payload.bootstrap?.runId;
+    const bootstrapRunId = input.payload.bootstrap?.runId;
     if (!bootstrapRunId) {
         return;
     }
-    stepsPort.markStepRunning(bootstrapRunId, stepKey);
+    input.stepsPort.markStepDelegatedRunning({
+        runId: bootstrapRunId,
+        stepKey: input.stepKey,
+        healthCheckAt: input.healthCheckAt,
+    });
 }
 
 // Marks one OpenSea phase as succeeded when the job belongs to a bootstrap run.

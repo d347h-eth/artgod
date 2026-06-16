@@ -228,6 +228,74 @@ describe("bootstrap steps storage", () => {
         ]);
     });
 
+    it("tracks delegated running steps with a durable health-check deadline", () => {
+        seedStep(98, BOOTSTRAP_STEP_KEY.OpenSeaSnapshot);
+        const steps = new SqliteBootstrapSteps();
+
+        steps.markStepDelegatedRunning({
+            runId: 98,
+            stepKey: BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
+            healthCheckAt: 5_000,
+        });
+
+        expect(
+            steps.getStep(98, BOOTSTRAP_STEP_KEY.OpenSeaSnapshot),
+        ).toEqual(
+            expect.objectContaining({
+                status: BOOTSTRAP_STEP_STATUS.Running,
+                nextAttemptAt: 5_000,
+                leaseOwner: null,
+                leaseUntil: 5_000,
+            }),
+        );
+        expect(
+            steps.claimReadySteps({
+                runId: 98,
+                stepKeys: [BOOTSTRAP_STEP_KEY.OpenSeaSnapshot],
+                leaseOwner: "delegate-reclaimer",
+                leaseUntil: 8_000,
+                nowMs: 4_000,
+                limit: 1,
+            }),
+        ).toEqual([]);
+        expect(
+            steps.claimReadySteps({
+                runId: 98,
+                stepKeys: [BOOTSTRAP_STEP_KEY.OpenSeaSnapshot],
+                leaseOwner: "delegate-reclaimer",
+                leaseUntil: 8_000,
+                nowMs: 5_000,
+                limit: 1,
+            }),
+        ).toEqual([
+            expect.objectContaining({
+                status: BOOTSTRAP_STEP_STATUS.Running,
+                leaseOwner: "delegate-reclaimer",
+                leaseUntil: 8_000,
+            }),
+        ]);
+    });
+
+    it("does not regress terminal steps when delegated work is duplicated", () => {
+        seedStep(99, BOOTSTRAP_STEP_KEY.OpenSeaReady);
+        const steps = new SqliteBootstrapSteps();
+        steps.markStepSucceeded(99, BOOTSTRAP_STEP_KEY.OpenSeaReady);
+
+        steps.markStepDelegatedRunning({
+            runId: 99,
+            stepKey: BOOTSTRAP_STEP_KEY.OpenSeaReady,
+            healthCheckAt: 5_000,
+        });
+
+        expect(steps.getStep(99, BOOTSTRAP_STEP_KEY.OpenSeaReady)).toEqual(
+            expect.objectContaining({
+                status: BOOTSTRAP_STEP_STATUS.Succeeded,
+                leaseOwner: null,
+                leaseUntil: null,
+            }),
+        );
+    });
+
     it("lists due lane runs and reports the next durable deadline", () => {
         const dueRunId = seedRun(1, 95);
         const futureRunId = seedRun(1, 96);

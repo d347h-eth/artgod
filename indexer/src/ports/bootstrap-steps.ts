@@ -68,6 +68,11 @@ export interface BootstrapStepsPort {
     }): void;
     markStepReady(runId: number, stepKey: BootstrapStepKey): void;
     markStepRunning(runId: number, stepKey: BootstrapStepKey): void;
+    markStepDelegatedRunning(input: {
+        runId: number;
+        stepKey: BootstrapStepKey;
+        healthCheckAt: number;
+    }): void;
     markStepSucceeded(
         runId: number,
         stepKey: BootstrapStepKey,

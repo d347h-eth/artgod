@@ -92,6 +92,7 @@ import {
     OPENSEA_JOB_KIND,
     type OpenSeaBootstrapCollectionPayload,
 } from "../domain/opensea-jobs.js";
+import { OPENSEA_BOOTSTRAP_STEP_SEQUENCE } from "../application/bootstrap-opensea-steps.js";
 import { SqliteBootstrapStorage } from "../infra/bootstrap/sqlite.js";
 import { SqliteBootstrapRuns } from "../infra/bootstrap/sqlite-runs.js";
 import { SqliteBootstrapSteps } from "../infra/bootstrap/sqlite-steps.js";
@@ -156,6 +157,8 @@ const BOOTSTRAP_MAIN_LANE_STEP_KEYS = [
     BOOTSTRAP_STEP_KEY.CollectionLive,
     BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts,
     BOOTSTRAP_STEP_KEY.OpenSeaIdentity,
+    BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
+    BOOTSTRAP_STEP_KEY.OpenSeaReady,
 ] as const;
 const BOOTSTRAP_IMAGE_CACHE_LANE_STEP_KEYS = [
     BOOTSTRAP_STEP_KEY.ImageCache,
@@ -1206,7 +1209,7 @@ async function processBootstrapMainClaimedStep(
             : runningStepResult(Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS);
     }
 
-    if (input.step.stepKey === BOOTSTRAP_STEP_KEY.OpenSeaIdentity) {
+    if (isOpenSeaBootstrapStepKey(input.step.stepKey)) {
         await scheduleOpenSeaBootstrap(input.queue, {
             chainId: input.run.chainId,
             collectionId: input.run.collectionId,
@@ -1218,6 +1221,14 @@ async function processBootstrapMainClaimedStep(
     }
 
     throw new Error(`Unsupported bootstrap step: ${input.step.stepKey}`);
+}
+
+function isOpenSeaBootstrapStepKey(
+    stepKey: BootstrapStepKey,
+): boolean {
+    return (OPENSEA_BOOTSTRAP_STEP_SEQUENCE as readonly BootstrapStepKey[]).includes(
+        stepKey,
+    );
 }
 
 async function processBootstrapImageCacheClaimedStep(
@@ -1451,10 +1462,7 @@ async function scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
         runId: run.runId,
         counts,
     });
-    bootstrapSteps.markStepRunning(
-        run.runId,
-        BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts,
-    );
+    // The scheduler release owns delegated running state and its health check.
     await publishCollectionExtensionArtifactTaskJobs(
         queue,
         bootstrapStorage,

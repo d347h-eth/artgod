@@ -480,6 +480,23 @@ handoffs, but the post-commit audit found that it is still not the final
 no-gap design because it lacks scheduler-owned liveness after incomplete
 release, processor exceptions, and delegated `running` work.
 
+## Current Implementation Progress
+
+The scheduler-first implementation is being landed in review-sized chunks:
+
+- Scheduler core now claims due durable steps, validates processor outcomes,
+  retries processor exceptions, and can discover due run IDs without a queue
+  wake.
+- The main blocking lane now drives anchor, enumeration, metadata, ownership,
+  backfill, and `collection_live` through scheduler-owned step outcomes.
+- Backfill delegated work now stores a health-check deadline and can be
+  reclaimed from durable step state after that deadline expires.
+- OpenSea delegated phases now use a dedicated delegated-running step update
+  with a health-check deadline, and identity, snapshot, and ready steps all
+  belong to the scheduler lane for recovery.
+- Collection-extension artifact scheduling no longer writes ad-hoc `running`
+  step state; the scheduler release owns the delegated health-check state.
+
 ## Required Final Architecture Work
 
 These are the remaining critical/high issues before moving to medium-priority

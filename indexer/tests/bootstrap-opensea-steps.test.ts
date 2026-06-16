@@ -6,6 +6,7 @@ import {
 } from "@artgod/shared/bootstrap/pipeline";
 import {
     areOpenSeaBootstrapStepsTerminal,
+    markOpenSeaBootstrapStepDelegatedRunning,
     markOpenSeaBootstrapTerminalFailure,
     type BootstrapOpenSeaStepsPort,
     type OpenSeaBootstrapStepKey,
@@ -61,11 +62,39 @@ describe("bootstrap OpenSea steps", () => {
             },
         ]);
     });
+
+    it("marks an OpenSea phase as delegated running with a health-check deadline", () => {
+        const steps = createStepsPort();
+
+        markOpenSeaBootstrapStepDelegatedRunning({
+            stepsPort: steps,
+            payload: {
+                chainId: 1,
+                collectionId: 7,
+                bootstrap: { runId: 41 },
+            },
+            stepKey: BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
+            healthCheckAt: 30_000,
+        });
+
+        expect(steps.delegatedRunning).toEqual([
+            {
+                runId: 41,
+                stepKey: BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
+                healthCheckAt: 30_000,
+            },
+        ]);
+    });
 });
 
 function createStepsPort(
     statuses: Partial<Record<OpenSeaBootstrapStepKey, BootstrapStepStatus>> = {},
 ): BootstrapOpenSeaStepsPort & {
+    delegatedRunning: Array<{
+        runId: number;
+        stepKey: OpenSeaBootstrapStepKey;
+        healthCheckAt: number;
+    }>;
     failedTerminal: Array<{
         runId: number;
         stepKey: OpenSeaBootstrapStepKey;
@@ -73,6 +102,11 @@ function createStepsPort(
         error: string;
     }>;
 } {
+    const delegatedRunning: Array<{
+        runId: number;
+        stepKey: OpenSeaBootstrapStepKey;
+        healthCheckAt: number;
+    }> = [];
     const failedTerminal: Array<{
         runId: number;
         stepKey: OpenSeaBootstrapStepKey;
@@ -80,12 +114,15 @@ function createStepsPort(
         error: string;
     }> = [];
     return {
+        delegatedRunning,
         failedTerminal,
         getStep: (_runId, stepKey) => {
             const status = statuses[stepKey];
             return status ? { status } : null;
         },
-        markStepRunning: () => {},
+        markStepDelegatedRunning: (input) => {
+            delegatedRunning.push(input);
+        },
         markStepSucceeded: () => {},
         markStepFailedRetry: () => {},
         markStepFailedTerminal: (input) => {

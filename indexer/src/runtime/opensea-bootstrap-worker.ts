@@ -8,7 +8,7 @@ import { OpenSeaOrderbookSync } from "../application/offchain/opensea-orderbook-
 import {
     areOpenSeaBootstrapStepsTerminal,
     markOpenSeaBootstrapStepRetry,
-    markOpenSeaBootstrapStepRunning,
+    markOpenSeaBootstrapStepDelegatedRunning,
     markOpenSeaBootstrapStepSucceeded,
     markOpenSeaBootstrapTerminalFailure,
     type OpenSeaBootstrapStepKey,
@@ -87,6 +87,7 @@ async function main() {
                     orderbookRuns,
                     sync,
                     config.opensea.retryPolicy,
+                    config.opensea.staleStartThresholdMs,
                     job,
                 );
             },
@@ -134,6 +135,7 @@ async function handleBootstrapJob(
     orderbookRuns: SqliteOpenSeaOrderbookRuns,
     sync: OpenSeaOrderbookSync,
     retryPolicy: RetryPolicy,
+    delegatedHealthCheckMs: number,
     job: JobEnvelope<OpenSeaBootstrapCollectionPayload>,
 ): Promise<void> {
     if (areOpenSeaBootstrapStepsTerminal(bootstrapSteps, job.payload)) {
@@ -176,11 +178,12 @@ async function handleBootstrapJob(
     let activeStep: OpenSeaBootstrapStepKey = BOOTSTRAP_STEP_KEY.OpenSeaIdentity;
 
     try {
-        markOpenSeaBootstrapStepRunning(
-            bootstrapSteps,
-            job.payload,
-            BOOTSTRAP_STEP_KEY.OpenSeaIdentity,
-        );
+        markOpenSeaBootstrapStepDelegatedRunning({
+            stepsPort: bootstrapSteps,
+            payload: job.payload,
+            stepKey: BOOTSTRAP_STEP_KEY.OpenSeaIdentity,
+            healthCheckAt: Date.now() + Math.max(1, delegatedHealthCheckMs),
+        });
         collections.markOpenSeaIdentityRunning(
             collection.chainId,
             collection.id,
@@ -199,11 +202,12 @@ async function handleBootstrapJob(
         );
 
         activeStep = BOOTSTRAP_STEP_KEY.OpenSeaSnapshot;
-        markOpenSeaBootstrapStepRunning(
-            bootstrapSteps,
-            job.payload,
-            BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
-        );
+        markOpenSeaBootstrapStepDelegatedRunning({
+            stepsPort: bootstrapSteps,
+            payload: job.payload,
+            stepKey: BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
+            healthCheckAt: Date.now() + Math.max(1, delegatedHealthCheckMs),
+        });
         collections.setOpenSeaStatus(
             collection.chainId,
             collection.id,
@@ -227,11 +231,12 @@ async function handleBootstrapJob(
         );
 
         activeStep = BOOTSTRAP_STEP_KEY.OpenSeaReady;
-        markOpenSeaBootstrapStepRunning(
-            bootstrapSteps,
-            job.payload,
-            BOOTSTRAP_STEP_KEY.OpenSeaReady,
-        );
+        markOpenSeaBootstrapStepDelegatedRunning({
+            stepsPort: bootstrapSteps,
+            payload: job.payload,
+            stepKey: BOOTSTRAP_STEP_KEY.OpenSeaReady,
+            healthCheckAt: Date.now() + Math.max(1, delegatedHealthCheckMs),
+        });
         collections.markOpenSeaReady(collection.chainId, collection.id);
         markOpenSeaBootstrapStepSucceeded(
             bootstrapSteps,

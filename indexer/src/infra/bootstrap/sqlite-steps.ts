@@ -65,6 +65,22 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
             "WHERE run_id = @runId AND step_key = @stepKey",
     );
 
+    private markDelegatedRunningStmt = db.prepare<{
+        runId: number;
+        stepKey: BootstrapStepKey;
+        status: BootstrapStepStatus;
+        healthCheckAt: number;
+        succeededStatus: BootstrapStepStatus;
+        skippedStatus: BootstrapStepStatus;
+        failedTerminalStatus: BootstrapStepStatus;
+    }>(
+        "UPDATE bootstrap_run_steps SET " +
+            "status = @status, next_attempt_at = @healthCheckAt, lease_owner = NULL, lease_until = @healthCheckAt, " +
+            "started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND step_key = @stepKey " +
+            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus)",
+    );
+
     private releaseReadyStmt = db.prepare<{
         runId: number;
         stepKey: BootstrapStepKey;
@@ -309,6 +325,20 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
             runId,
             stepKey,
             status: BOOTSTRAP_STEP_STATUS.Running,
+        });
+    }
+
+    markStepDelegatedRunning(input: {
+        runId: number;
+        stepKey: BootstrapStepKey;
+        healthCheckAt: number;
+    }): void {
+        this.markDelegatedRunningStmt.run({
+            ...input,
+            status: BOOTSTRAP_STEP_STATUS.Running,
+            succeededStatus: BOOTSTRAP_STEP_STATUS.Succeeded,
+            skippedStatus: BOOTSTRAP_STEP_STATUS.Skipped,
+            failedTerminalStatus: BOOTSTRAP_STEP_STATUS.FailedTerminal,
         });
     }
 
