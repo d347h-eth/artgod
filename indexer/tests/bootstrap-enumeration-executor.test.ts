@@ -111,6 +111,35 @@ describe("bootstrap enumeration executor", () => {
         );
     });
 
+    it("treats existing metadata tasks as an already seeded handoff", async () => {
+        const harness = createHarness({
+            existingMetadataTaskCount: 3,
+        });
+
+        const result = await harness.executor.execute({
+            run: harness.run,
+            anchor: TEST_ANCHOR,
+            metadataBatchSize: 2,
+            traceId: "trace-duplicate",
+        });
+
+        expect(result).toEqual(
+            expect.objectContaining({
+                outcome: BOOTSTRAP_ENUMERATION_EXECUTOR_OUTCOME.MetadataQueued,
+                tokenCount: 3,
+            }),
+        );
+        expect(harness.resets).toEqual([]);
+        expect(harness.insertedMetadataBatches).toEqual([]);
+        expect(harness.succeededSteps).toEqual([
+            {
+                runId: 41,
+                stepKey: BOOTSTRAP_STEP_KEY.Enumeration,
+                progress: { completed: 3, total: 3 },
+            },
+        ]);
+    });
+
     it("fails the enumeration step when token resolution fails", async () => {
         const harness = createHarness({
             resolverError: new Error("enumeration failed"),
@@ -211,6 +240,7 @@ function createHarness(input: {
     progress?: Array<{ resolved: number; total: number | null }>;
     resolverError?: Error;
     insertError?: Error;
+    existingMetadataTaskCount?: number;
 }): Harness {
     const run = buildRun();
     const resets: string[] = [];
@@ -242,6 +272,17 @@ function createHarness(input: {
                 throw input.insertError;
             }
             insertedMetadataBatches.push(rows);
+            return rows.length;
+        },
+        getMetadataTaskCounts: () => {
+            const existingCount = input.existingMetadataTaskCount ?? 0;
+            return {
+                pending: existingCount,
+                retry: 0,
+                succeeded: 0,
+                failedTerminal: 0,
+                total: existingCount,
+            };
         },
     };
     const runsPort: BootstrapEnumerationRunsPort = {

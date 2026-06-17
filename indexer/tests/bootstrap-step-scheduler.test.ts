@@ -181,6 +181,7 @@ function schedulerInput(
         laneStepKeys,
         leaseOwner: "scheduler-test-lease",
         leaseMs: 1_000,
+        maxProgressStaleMs: 30_000,
         claimLimit: 1,
         maxIterationsPerRun: 1,
         runLimit: options.runLimit ?? 10,
@@ -320,6 +321,18 @@ class InMemoryStepsPort implements BootstrapStepSchedulerStepsPort {
             target.nextAttemptAt = input.nextAttemptAt;
             target.leaseOwner = null;
             target.leaseUntil = input.nextAttemptAt;
+        }
+    }
+
+    renewStepLease(input: {
+        runId: number;
+        stepKey: BootstrapStepKey;
+        leaseOwner: string;
+        leaseUntil: number;
+    }): void {
+        const target = this.getStep(input.runId, input.stepKey);
+        if (target && target.leaseOwner === input.leaseOwner) {
+            target.leaseUntil = input.leaseUntil;
         }
     }
 

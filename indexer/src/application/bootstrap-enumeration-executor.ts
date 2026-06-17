@@ -3,6 +3,7 @@ import {
     BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_KEY,
     type BootstrapStepKey,
+    type BootstrapTaskCounts,
 } from "@artgod/shared/bootstrap/pipeline";
 import {
     BOOTSTRAP_RUN_EVENT_CODE,
@@ -73,7 +74,8 @@ export interface BootstrapEnumerationStoragePort {
     resetMetadataTasks(runId: number): void;
     resetImageCacheTasks(runId: number): void;
     resetOwnershipTasks(runId: number): void;
-    insertMetadataTasks(rows: BootstrapMetadataTaskSeed[]): void;
+    insertMetadataTasks(rows: BootstrapMetadataTaskSeed[]): number;
+    getMetadataTaskCounts(runId: number): BootstrapTaskCounts;
 }
 
 export interface BootstrapEnumerationRunsPort {
@@ -136,6 +138,22 @@ export class BootstrapEnumerationExecutor {
         const { run, anchor } = input;
         let activeStep: BootstrapStepKey = BOOTSTRAP_STEP_KEY.Enumeration;
         try {
+            const existingMetadataTasks =
+                this.storagePort.getMetadataTaskCounts(run.runId);
+            if (existingMetadataTasks.total > 0) {
+                this.completeEnumeration(
+                    run,
+                    existingMetadataTasks.total,
+                    0,
+                );
+                return {
+                    outcome:
+                        BOOTSTRAP_ENUMERATION_EXECUTOR_OUTCOME.MetadataQueued,
+                    tokenCount: existingMetadataTasks.total,
+                    elapsedMs: 0,
+                };
+            }
+
             this.resetTemporaryWork(run.runId);
             this.stepsPort.markStepRunning(
                 run.runId,
@@ -164,7 +182,12 @@ export class BootstrapEnumerationExecutor {
             this.completeEnumeration(run, tokenIds.length, elapsedMs);
 
             activeStep = BOOTSTRAP_STEP_KEY.Metadata;
-            this.seedMetadataTasks(run, anchor, tokenIds, input.metadataBatchSize);
+            const seededTokenCount = this.seedMetadataTasks(
+                run,
+                anchor,
+                tokenIds,
+                input.metadataBatchSize,
+            );
             this.runsPort.appendRunEvent({
                 runId: run.runId,
                 chainId: run.chainId,
@@ -175,7 +198,7 @@ export class BootstrapEnumerationExecutor {
                 payloadJson: JSON.stringify({
                     anchorBlock: anchor.anchorBlock,
                     metadataMode: run.metadataMode,
-                    tokenCount: tokenIds.length,
+                    tokenCount: seededTokenCount,
                 }),
             });
             logger.info("Bootstrap metadata phase queued", {
@@ -188,13 +211,13 @@ export class BootstrapEnumerationExecutor {
                 standard: run.requestStandard,
                 anchorBlock: anchor.anchorBlock,
                 metadataMode: run.metadataMode,
-                tokenCount: tokenIds.length,
+                tokenCount: seededTokenCount,
             });
 
             return {
                 outcome:
                     BOOTSTRAP_ENUMERATION_EXECUTOR_OUTCOME.MetadataQueued,
-                tokenCount: tokenIds.length,
+                tokenCount: seededTokenCount,
                 elapsedMs,
             };
         } catch (error) {
@@ -380,7 +403,20 @@ export class BootstrapEnumerationExecutor {
         anchor: BootstrapEnumerationAnchor,
         tokenIds: string[],
         batchSize: number,
-    ): void {
+    ): number {
+        const existingCounts = this.storagePort.getMetadataTaskCounts(run.runId);
+        if (existingCounts.total > 0) {
+            logger.info("Bootstrap metadata task seeding skipped", {
+                component: BOOTSTRAP_ENUMERATION_EXECUTOR_LOG.Component,
+                action: BOOTSTRAP_ENUMERATION_EXECUTOR_LOG.Action,
+                runId: run.runId,
+                chainId: run.chainId,
+                collectionId: run.collectionId,
+                tokenCount: existingCounts.total,
+            });
+            return existingCounts.total;
+        }
+
         const writeBatchSize = Math.max(1, batchSize);
         const normalizedContract = run.requestAddress.toLowerCase();
         logger.info("Bootstrap metadata task seeding started", {
@@ -394,6 +430,7 @@ export class BootstrapEnumerationExecutor {
         });
 
         let seededCount = 0;
+        let insertedCount = 0;
         // Split inserts so large collections avoid one huge SQLite transaction.
         for (
             let cursor = 0;
@@ -415,16 +452,18 @@ export class BootstrapEnumerationExecutor {
                     anchorTimestamp: anchor.anchorTimestamp,
                 });
             }
-            this.storagePort.insertMetadataTasks(rows);
+            insertedCount += this.storagePort.insertMetadataTasks(rows);
             seededCount += rows.length;
-            this.stepsPort.updateStepProgress(
-                run.runId,
-                BOOTSTRAP_STEP_KEY.Metadata,
-                {
-                    completed: 0,
-                    total: tokenIds.length,
-                },
-            );
+            if (insertedCount > 0) {
+                this.stepsPort.updateStepProgress(
+                    run.runId,
+                    BOOTSTRAP_STEP_KEY.Metadata,
+                    {
+                        completed: 0,
+                        total: tokenIds.length,
+                    },
+                );
+            }
             if (
                 seededCount === tokenIds.length ||
                 seededCount % BOOTSTRAP_METADATA_TASK_SEED_LOG_STEP === 0
@@ -450,7 +489,9 @@ export class BootstrapEnumerationExecutor {
             payloadJson: JSON.stringify({
                 tokenCount: tokenIds.length,
                 writeBatchSize,
+                insertedCount,
             }),
         });
+        return tokenIds.length;
     }
 }

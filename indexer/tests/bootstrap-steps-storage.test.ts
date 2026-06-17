@@ -228,6 +228,40 @@ describe("bootstrap steps storage", () => {
         ]);
     });
 
+    it("renews a running lease only for the current owner", () => {
+        seedStep(90, BOOTSTRAP_STEP_KEY.Enumeration);
+        const steps = new SqliteBootstrapSteps();
+        steps.markStepReady(90, BOOTSTRAP_STEP_KEY.Enumeration);
+        steps.claimReadySteps({
+            runId: 90,
+            stepKeys: [BOOTSTRAP_STEP_KEY.Enumeration],
+            leaseOwner: "current-lease",
+            leaseUntil: 2_000,
+            nowMs: 1_000,
+            limit: 1,
+        });
+
+        steps.renewStepLease({
+            runId: 90,
+            stepKey: BOOTSTRAP_STEP_KEY.Enumeration,
+            leaseOwner: "stale-lease",
+            leaseUntil: 3_000,
+        });
+        expect(
+            steps.getStep(90, BOOTSTRAP_STEP_KEY.Enumeration)?.leaseUntil,
+        ).toBe(2_000);
+
+        steps.renewStepLease({
+            runId: 90,
+            stepKey: BOOTSTRAP_STEP_KEY.Enumeration,
+            leaseOwner: "current-lease",
+            leaseUntil: 4_000,
+        });
+        expect(
+            steps.getStep(90, BOOTSTRAP_STEP_KEY.Enumeration)?.leaseUntil,
+        ).toBe(4_000);
+    });
+
     it("tracks delegated running steps with a durable health-check deadline", () => {
         seedStep(98, BOOTSTRAP_STEP_KEY.OpenSeaSnapshot);
         const steps = new SqliteBootstrapSteps();
@@ -292,6 +326,55 @@ describe("bootstrap steps storage", () => {
                 status: BOOTSTRAP_STEP_STATUS.Succeeded,
                 leaseOwner: null,
                 leaseUntil: null,
+            }),
+        );
+    });
+
+    it("does not let stale writers mutate terminal step rows", () => {
+        seedStep(100, BOOTSTRAP_STEP_KEY.Metadata);
+        seedStep(100, BOOTSTRAP_STEP_KEY.ImageCache);
+        const steps = new SqliteBootstrapSteps();
+
+        steps.markStepSucceeded(100, BOOTSTRAP_STEP_KEY.Metadata, {
+            completed: 10,
+            total: 10,
+        });
+        steps.markStepRunning(100, BOOTSTRAP_STEP_KEY.Metadata);
+        steps.updateStepProgress(100, BOOTSTRAP_STEP_KEY.Metadata, {
+            completed: 0,
+            total: 10,
+        });
+        steps.markStepFailedTerminal({
+            runId: 100,
+            stepKey: BOOTSTRAP_STEP_KEY.Metadata,
+            attempts: 1,
+            error: "stale failure",
+        });
+
+        expect(steps.getStep(100, BOOTSTRAP_STEP_KEY.Metadata)).toEqual(
+            expect.objectContaining({
+                status: BOOTSTRAP_STEP_STATUS.Succeeded,
+                progressCompleted: 10,
+                progressTotal: 10,
+                lastError: null,
+            }),
+        );
+
+        steps.markStepFailedTerminal({
+            runId: 100,
+            stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+            attempts: 1,
+            error: "terminal failure",
+        });
+        steps.markStepSucceeded(100, BOOTSTRAP_STEP_KEY.ImageCache, {
+            completed: 1,
+            total: 1,
+        });
+
+        expect(steps.getStep(100, BOOTSTRAP_STEP_KEY.ImageCache)).toEqual(
+            expect.objectContaining({
+                status: BOOTSTRAP_STEP_STATUS.FailedTerminal,
+                lastError: "terminal failure",
             }),
         );
     });

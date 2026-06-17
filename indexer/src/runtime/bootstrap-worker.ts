@@ -32,11 +32,13 @@ import {
     runningStepResult,
     terminalStepResult,
     type BootstrapClaimedStepProcessorResult,
+    type BootstrapStepProgressObserverPort,
 } from "../application/bootstrap-step-orchestrator.js";
 import {
     BootstrapStepScheduler,
     type BootstrapStepSchedulerResult,
 } from "../application/bootstrap-step-scheduler.js";
+import { BootstrapStepProgressObserver } from "../application/bootstrap-step-progress-observer.js";
 import { startBootstrapLanePoller } from "../application/bootstrap-lane-poller.js";
 import {
     BootstrapCollectionLiveExecutor,
@@ -147,7 +149,6 @@ const TOKEN_ENUMERATION_PROGRESS_STEP = 1_000;
 const BOOTSTRAP_EXTENSION_ARTIFACT_PUBLISH_BATCH_SIZE = 500;
 const BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT = 100;
 const BOOTSTRAP_STARTUP_SWEEP_TRACE_PREFIX = "bootstrap:startup-sweep";
-const BOOTSTRAP_STEP_LEASE_MS = 60_000;
 const BOOTSTRAP_STEP_CLAIM_LIMIT = 1;
 const BOOTSTRAP_STEP_MAX_ITERATIONS = 20;
 const BOOTSTRAP_MAIN_STEP_LEASE_OWNER = "bootstrap-worker:main";
@@ -241,6 +242,10 @@ async function main() {
         const bootstrapStorage = new SqliteBootstrapStorage();
         const bootstrapRuns = new SqliteBootstrapRuns();
         const bootstrapSteps = new SqliteBootstrapSteps();
+        const bootstrapStepProgressObserver = new BootstrapStepProgressObserver(
+            bootstrapSteps,
+            bootstrapStorage,
+        );
         const storage = new SqliteStorage();
         const bootstrapAnchorExecutor = new BootstrapAnchorExecutor(
             rpc,
@@ -311,6 +316,7 @@ async function main() {
                 bootstrapStorage,
                 bootstrapRuns,
                 bootstrapSteps,
+                bootstrapStepProgressObserver,
                 bootstrapAnchorExecutor,
                 bootstrapEnumerationExecutor,
                 bootstrapBackfillExecutor,
@@ -323,6 +329,8 @@ async function main() {
                 metadataBatchSize: config.bootstrap.metadataBatchSize,
                 metadataConcurrency: config.bootstrap.metadataConcurrency,
                 metadataPollMs: config.bootstrap.metadataProcessPollMs,
+                stepLeaseMs: config.bootstrap.stepLeaseMs,
+                stepProgressStaleMs: config.bootstrap.stepProgressStaleMs,
                 metadataRetryPolicy: config.bootstrap.metadataRetryPolicy,
                 openSeaIntegration: config.integrations.opensea,
                 chainId: config.chainId,
@@ -341,9 +349,12 @@ async function main() {
                 bootstrapStorage,
                 bootstrapRuns,
                 bootstrapSteps,
+                bootstrapStepProgressObserver,
                 tokenImageCache,
                 imageCacheBatchSize: config.bootstrap.imageCacheBatchSize,
                 imageCacheConcurrency: config.bootstrap.imageCacheConcurrency,
+                stepLeaseMs: config.bootstrap.stepLeaseMs,
+                stepProgressStaleMs: config.bootstrap.stepProgressStaleMs,
                 imageCacheRetryPolicy: config.bootstrap.metadataRetryPolicy,
                 chainId: config.chainId,
                 runId: input.runId,
@@ -947,6 +958,7 @@ type BootstrapMainStepLoopInput = {
     bootstrapStorage: BootstrapSnapshotPort;
     bootstrapRuns: BootstrapRunsPort;
     bootstrapSteps: BootstrapStepsPort;
+    bootstrapStepProgressObserver: BootstrapStepProgressObserverPort;
     bootstrapAnchorExecutor: BootstrapAnchorExecutor;
     bootstrapEnumerationExecutor: BootstrapEnumerationExecutor;
     bootstrapBackfillExecutor: BootstrapBackfillExecutor;
@@ -959,6 +971,8 @@ type BootstrapMainStepLoopInput = {
     metadataBatchSize: number;
     metadataConcurrency: number;
     metadataPollMs: number;
+    stepLeaseMs: number;
+    stepProgressStaleMs: number;
     metadataRetryPolicy: RetryPolicy;
     openSeaIntegration: OpenSeaIntegrationStatus;
     chainId: number;
@@ -974,9 +988,12 @@ type BootstrapImageCacheStepLoopInput = {
     bootstrapStorage: BootstrapSnapshotPort;
     bootstrapRuns: BootstrapRunsPort;
     bootstrapSteps: BootstrapStepsPort;
+    bootstrapStepProgressObserver: BootstrapStepProgressObserverPort;
     tokenImageCache: TokenImageCachePort;
     imageCacheBatchSize: number;
     imageCacheConcurrency: number;
+    stepLeaseMs: number;
+    stepProgressStaleMs: number;
     imageCacheRetryPolicy: RetryPolicy;
     chainId: number;
     runId?: number | null;
@@ -1007,6 +1024,8 @@ async function runBootstrapMainStepLoop(
                 await wakeBootstrapStep(input.queue, run, stepKey, traceId);
             },
         },
+        Date.now,
+        input.bootstrapStepProgressObserver,
     );
     const result = await scheduler.runOnce({
         chainId: input.chainId,
@@ -1015,7 +1034,8 @@ async function runBootstrapMainStepLoop(
         laneName: BOOTSTRAP_LANE_NAME.Main,
         laneStepKeys: BOOTSTRAP_MAIN_LANE_STEP_KEYS,
         leaseOwner,
-        leaseMs: BOOTSTRAP_STEP_LEASE_MS,
+        leaseMs: input.stepLeaseMs,
+        maxProgressStaleMs: input.stepProgressStaleMs,
         claimLimit: BOOTSTRAP_STEP_CLAIM_LIMIT,
         maxIterationsPerRun: BOOTSTRAP_STEP_MAX_ITERATIONS,
         runLimit: BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT,
@@ -1058,6 +1078,8 @@ async function runBootstrapImageCacheStepLoop(
                 await wakeBootstrapStep(input.queue, run, stepKey, traceId);
             },
         },
+        Date.now,
+        input.bootstrapStepProgressObserver,
     );
     const result = await scheduler.runOnce({
         chainId: input.chainId,
@@ -1066,7 +1088,8 @@ async function runBootstrapImageCacheStepLoop(
         laneName: BOOTSTRAP_LANE_NAME.ImageCache,
         laneStepKeys: BOOTSTRAP_IMAGE_CACHE_LANE_STEP_KEYS,
         leaseOwner,
-        leaseMs: BOOTSTRAP_STEP_LEASE_MS,
+        leaseMs: input.stepLeaseMs,
+        maxProgressStaleMs: input.stepProgressStaleMs,
         claimLimit: BOOTSTRAP_STEP_CLAIM_LIMIT,
         maxIterationsPerRun: BOOTSTRAP_STEP_MAX_ITERATIONS,
         runLimit: BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT,

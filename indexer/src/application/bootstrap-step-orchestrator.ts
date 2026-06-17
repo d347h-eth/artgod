@@ -17,6 +17,8 @@ export const BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION = {
     StepReady: "step_ready",
     OutOfLaneWake: "out_of_lane_wake",
     StepClaimed: "step_claimed",
+    LeaseRenewalProgressStale: "lease_renewal_progress_stale",
+    LeaseRenewalObserveFailed: "lease_renewal_observe_failed",
     StepReleasedReady: "step_released_ready",
     StepDelegated: "step_delegated",
     StepTerminalObserved: "step_terminal_observed",
@@ -67,6 +69,7 @@ export type BootstrapStepOrchestratorInput = {
     laneStepKeys: readonly BootstrapStepKey[];
     leaseOwner: string;
     leaseMs: number;
+    maxProgressStaleMs: number;
     claimLimit: number;
     maxIterations: number;
     retryPolicy: RetryPolicy;
@@ -106,6 +109,12 @@ export interface BootstrapStepOrchestratorStepsPort {
         leaseOwner: string;
         nextAttemptAt: number;
     }): void;
+    renewStepLease(input: {
+        runId: number;
+        stepKey: BootstrapStepKey;
+        leaseOwner: string;
+        leaseUntil: number;
+    }): void;
     markStepFailedRetry(input: {
         runId: number;
         stepKey: BootstrapStepKey;
@@ -138,11 +147,28 @@ export interface BootstrapStepWakePort {
     }): Promise<void>;
 }
 
+export type BootstrapStepProgressObservation = {
+    fingerprint: string;
+    completed: number;
+    total: number | null;
+};
+
+export interface BootstrapStepProgressObserverPort {
+    observeStepProgress(input: {
+        runId: number;
+        stepKey: BootstrapStepKey;
+    }): BootstrapStepProgressObservation | null;
+}
+
 export interface BootstrapStepOrchestratorLoggerPort {
     debug(message: string, meta?: Record<string, unknown>): void;
     warn(message: string, meta?: Record<string, unknown>): void;
     error(message: string, meta?: Record<string, unknown>): void;
 }
+
+const NOOP_BOOTSTRAP_STEP_PROGRESS_OBSERVER: BootstrapStepProgressObserverPort = {
+    observeStepProgress: () => null,
+};
 
 // Reconciles dependencies, claims due steps with leases, and executes bounded processors.
 export class BootstrapStepOrchestrator {
@@ -153,6 +179,7 @@ export class BootstrapStepOrchestrator {
         private readonly wakePort: BootstrapStepWakePort,
         private readonly nowMs: () => number = Date.now,
         private readonly loggerPort: BootstrapStepOrchestratorLoggerPort = logger,
+        private readonly progressObserverPort: BootstrapStepProgressObserverPort = NOOP_BOOTSTRAP_STEP_PROGRESS_OBSERVER,
     ) {}
 
     async run(
@@ -252,6 +279,7 @@ export class BootstrapStepOrchestrator {
         input: BootstrapStepOrchestratorInput,
     ): Promise<void> {
         let result: BootstrapClaimedStepProcessorResult;
+        const stopLeaseRenewal = this.startLeaseRenewal(run, step, input);
         try {
             result = await this.processorPort.processClaimedStep({
                 run,
@@ -262,6 +290,8 @@ export class BootstrapStepOrchestrator {
         } catch (error) {
             this.markProcessorException(run, step, input, error);
             return;
+        } finally {
+            stopLeaseRenewal();
         }
         const currentStep = this.stepsPort
             .listRunSteps(run.runId)
@@ -345,6 +375,99 @@ export class BootstrapStepOrchestrator {
                 nextAttemptAt: result.nextAttemptAt,
             },
         );
+    }
+
+    private startLeaseRenewal(
+        run: BootstrapRunDefinition,
+        step: BootstrapStepRecord,
+        input: BootstrapStepOrchestratorInput,
+    ): () => void {
+        const leaseMs = Math.max(1, input.leaseMs);
+        const intervalMs = Math.max(1, Math.floor(leaseMs / 3));
+        const maxProgressStaleMs = Math.max(
+            leaseMs,
+            input.maxProgressStaleMs,
+        );
+        let stopped = false;
+        let lastProgressAt = this.nowMs();
+        let lastProgressFingerprint = this.observeProgressFingerprint(
+            run,
+            step,
+            input,
+        );
+        const renew = (): void => {
+            if (stopped) {
+                return;
+            }
+            const nowMs = this.nowMs();
+            const progressFingerprint = this.observeProgressFingerprint(
+                run,
+                step,
+                input,
+            );
+            if (progressFingerprint !== lastProgressFingerprint) {
+                lastProgressAt = nowMs;
+                lastProgressFingerprint = progressFingerprint;
+            }
+            const staleMs = nowMs - lastProgressAt;
+            if (staleMs > maxProgressStaleMs) {
+                stopped = true;
+                clearInterval(timer);
+                this.logWarn(
+                    input,
+                    run,
+                    step.stepKey,
+                    BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION
+                        .LeaseRenewalProgressStale,
+                    {
+                        lastProgressAt,
+                        staleMs,
+                        maxProgressStaleMs,
+                        progressFingerprint,
+                    },
+                );
+                return;
+            }
+            this.stepsPort.renewStepLease({
+                runId: run.runId,
+                stepKey: step.stepKey,
+                leaseOwner: input.leaseOwner,
+                leaseUntil: nowMs + leaseMs,
+            });
+        };
+        const timer = setInterval(renew, intervalMs);
+        timer.unref?.();
+        return () => {
+            stopped = true;
+            clearInterval(timer);
+        };
+    }
+
+    private observeProgressFingerprint(
+        run: BootstrapRunDefinition,
+        step: BootstrapStepRecord,
+        input: BootstrapStepOrchestratorInput,
+    ): string | null {
+        try {
+            return (
+                this.progressObserverPort.observeStepProgress({
+                    runId: run.runId,
+                    stepKey: step.stepKey,
+                })?.fingerprint ?? null
+            );
+        } catch (error) {
+            this.logWarn(
+                input,
+                run,
+                step.stepKey,
+                BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION
+                    .LeaseRenewalObserveFailed,
+                {
+                    error: String(error),
+                },
+            );
+            return null;
+        }
     }
 
     private markProcessorException(

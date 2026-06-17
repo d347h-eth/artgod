@@ -87,6 +87,7 @@ describe("metadata domain anchor gating", () => {
                 collectionId,
                 contract,
                 tokenId: "2",
+                image: null,
             },
         ]);
         expect(selectMetadataTokenIds(chainId, collectionId)).toEqual(["2"]);

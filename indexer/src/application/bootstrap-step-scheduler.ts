@@ -4,6 +4,7 @@ import type { BootstrapRunDefinition } from "../ports/bootstrap-runs.js";
 import {
     BootstrapStepOrchestrator,
     type BootstrapClaimedStepProcessorPort,
+    type BootstrapStepProgressObserverPort,
     type BootstrapStepOrchestratorRunsPort,
     type BootstrapStepOrchestratorStepsPort,
     type BootstrapStepWakePort,
@@ -17,6 +18,7 @@ export type BootstrapStepSchedulerInput = {
     laneStepKeys: readonly BootstrapStepKey[];
     leaseOwner: string;
     leaseMs: number;
+    maxProgressStaleMs: number;
     claimLimit: number;
     maxIterationsPerRun: number;
     runLimit: number;
@@ -64,6 +66,7 @@ export class BootstrapStepScheduler {
         processorPort: BootstrapClaimedStepProcessorPort,
         wakePort: BootstrapStepWakePort,
         private readonly nowMs: () => number = Date.now,
+        progressObserverPort?: BootstrapStepProgressObserverPort,
     ) {
         this.orchestrator = new BootstrapStepOrchestrator(
             runsPort,
@@ -71,6 +74,8 @@ export class BootstrapStepScheduler {
             processorPort,
             wakePort,
             nowMs,
+            undefined,
+            progressObserverPort,
         );
     }
 
@@ -90,6 +95,7 @@ export class BootstrapStepScheduler {
                 laneStepKeys: input.laneStepKeys,
                 leaseOwner: input.leaseOwner,
                 leaseMs: input.leaseMs,
+                maxProgressStaleMs: input.maxProgressStaleMs,
                 claimLimit: input.claimLimit,
                 maxIterations: input.maxIterationsPerRun,
                 retryPolicy: input.retryPolicy,

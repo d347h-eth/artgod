@@ -784,6 +784,18 @@ label = "bootstrap scheduler poll max ms"
 default = "5000"
 
 [[settings]]
+key = "BOOTSTRAP_STEP_LEASE_MS"
+group = "indexer"
+label = "bootstrap step lease ms"
+default = "60000"
+
+[[settings]]
+key = "BOOTSTRAP_STEP_PROGRESS_STALE_MS"
+group = "indexer"
+label = "bootstrap step progress stale ms"
+default = "1800000"
+
+[[settings]]
 key = "BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS"
 group = "indexer"
 label = "bootstrap metadata retry max attempts"

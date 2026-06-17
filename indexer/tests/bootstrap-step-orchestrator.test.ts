@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { setTimeout as sleep } from "node:timers/promises";
 import {
     BOOTSTRAP_ENUMERATION_MODE,
     BOOTSTRAP_METADATA_MODE,
@@ -16,6 +17,7 @@ import {
     runningStepResult,
     terminalStepResult,
     type BootstrapClaimedStepProcessorPort,
+    type BootstrapStepProgressObserverPort,
     type BootstrapStepOrchestratorLoggerPort,
     type BootstrapStepOrchestratorRunsPort,
     type BootstrapStepOrchestratorStepsPort,
@@ -75,6 +77,7 @@ describe("bootstrap step orchestrator", () => {
             laneStepKeys: [BOOTSTRAP_STEP_KEY.Ownership],
             leaseOwner: TEST_LEASE_OWNER,
             leaseMs: 1_000,
+            maxProgressStaleMs: 30_000,
             claimLimit: 1,
             maxIterations: 1,
             retryPolicy: TEST_RETRY_POLICY,
@@ -119,6 +122,7 @@ describe("bootstrap step orchestrator", () => {
             laneStepKeys: [BOOTSTRAP_STEP_KEY.Metadata],
             leaseOwner: TEST_LEASE_OWNER,
             leaseMs: 1_000,
+            maxProgressStaleMs: 30_000,
             claimLimit: 1,
             maxIterations: 1,
             retryPolicy: TEST_RETRY_POLICY,
@@ -166,6 +170,7 @@ describe("bootstrap step orchestrator", () => {
             laneStepKeys: [BOOTSTRAP_STEP_KEY.Metadata],
             leaseOwner: TEST_LEASE_OWNER,
             leaseMs: 1_000,
+            maxProgressStaleMs: 30_000,
             claimLimit: 1,
             maxIterations: 1,
             retryPolicy: TEST_RETRY_POLICY,
@@ -214,6 +219,196 @@ describe("bootstrap step orchestrator", () => {
             }),
         ]);
         expect(steps[0]?.status).toBe(BOOTSTRAP_STEP_STATUS.FailedTerminal);
+    });
+
+    it("renews the running step lease while the processor is active", async () => {
+        const run = buildRun();
+        const renewals: Array<{
+            stepKey: BootstrapStepKey;
+            leaseOwner: string;
+            leaseUntil: number;
+        }> = [];
+        const orchestrator = new BootstrapStepOrchestrator(
+            runsPort(run),
+            stepsPort(
+                [
+                    step(
+                        BOOTSTRAP_STEP_KEY.Enumeration,
+                        BOOTSTRAP_STEP_STATUS.Ready,
+                    ),
+                ],
+                [],
+                [],
+                [],
+                [],
+                renewals,
+            ),
+            processorPort(async () => {
+                await sleep(20);
+                return readyStepResult(3_000);
+            }),
+            wakePort([]),
+            () => 1_000,
+        );
+
+        await orchestrator.run({
+            runId: run.runId,
+            traceId: TEST_TRACE_ID,
+            laneName: TEST_LANE_NAME,
+            laneStepKeys: [BOOTSTRAP_STEP_KEY.Enumeration],
+            leaseOwner: TEST_LEASE_OWNER,
+            leaseMs: 9,
+            maxProgressStaleMs: 30_000,
+            claimLimit: 1,
+            maxIterations: 1,
+            retryPolicy: TEST_RETRY_POLICY,
+        });
+
+        expect(renewals.length).toBeGreaterThan(0);
+        expect(renewals).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    stepKey: BOOTSTRAP_STEP_KEY.Enumeration,
+                    leaseOwner: TEST_LEASE_OWNER,
+                    leaseUntil: 1_009,
+                }),
+            ]),
+        );
+    });
+
+    it("keeps renewing while observed progress changes", async () => {
+        const run = buildRun();
+        const renewals: Array<{
+            stepKey: BootstrapStepKey;
+            leaseOwner: string;
+            leaseUntil: number;
+        }> = [];
+        let progressVersion = 0;
+        const logs = createLogCapture();
+        const orchestrator = new BootstrapStepOrchestrator(
+            runsPort(run),
+            stepsPort(
+                [
+                    step(
+                        BOOTSTRAP_STEP_KEY.Enumeration,
+                        BOOTSTRAP_STEP_STATUS.Ready,
+                    ),
+                ],
+                [],
+                [],
+                [],
+                [],
+                renewals,
+            ),
+            processorPort(async () => {
+                await sleep(20);
+                return readyStepResult(3_000);
+            }),
+            wakePort([]),
+            Date.now,
+            logs.logger,
+            progressObserverPort(() => {
+                progressVersion += 1;
+                return {
+                    fingerprint: String(progressVersion),
+                    completed: progressVersion,
+                    total: 100,
+                };
+            }),
+        );
+
+        await orchestrator.run({
+            runId: run.runId,
+            traceId: TEST_TRACE_ID,
+            laneName: TEST_LANE_NAME,
+            laneStepKeys: [BOOTSTRAP_STEP_KEY.Enumeration],
+            leaseOwner: TEST_LEASE_OWNER,
+            leaseMs: 5,
+            maxProgressStaleMs: 5,
+            claimLimit: 1,
+            maxIterations: 1,
+            retryPolicy: TEST_RETRY_POLICY,
+        });
+
+        expect(renewals.length).toBeGreaterThan(0);
+        expect(logs.entries).not.toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    meta: expect.objectContaining({
+                        action:
+                            BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION
+                                .LeaseRenewalProgressStale,
+                    }),
+                }),
+            ]),
+        );
+    });
+
+    it("stops renewing when observed progress is stale", async () => {
+        const run = buildRun();
+        const renewals: Array<{
+            stepKey: BootstrapStepKey;
+            leaseOwner: string;
+            leaseUntil: number;
+        }> = [];
+        const logs = createLogCapture();
+        const orchestrator = new BootstrapStepOrchestrator(
+            runsPort(run),
+            stepsPort(
+                [
+                    step(
+                        BOOTSTRAP_STEP_KEY.Enumeration,
+                        BOOTSTRAP_STEP_STATUS.Ready,
+                    ),
+                ],
+                [],
+                [],
+                [],
+                [],
+                renewals,
+            ),
+            processorPort(async () => {
+                await sleep(30);
+                return readyStepResult(3_000);
+            }),
+            wakePort([]),
+            Date.now,
+            logs.logger,
+            progressObserverPort(() => ({
+                fingerprint: "static-progress",
+                completed: 0,
+                total: 100,
+            })),
+        );
+
+        await orchestrator.run({
+            runId: run.runId,
+            traceId: TEST_TRACE_ID,
+            laneName: TEST_LANE_NAME,
+            laneStepKeys: [BOOTSTRAP_STEP_KEY.Enumeration],
+            leaseOwner: TEST_LEASE_OWNER,
+            leaseMs: 5,
+            maxProgressStaleMs: 10,
+            claimLimit: 1,
+            maxIterations: 1,
+            retryPolicy: TEST_RETRY_POLICY,
+        });
+
+        expect(renewals.length).toBeGreaterThan(0);
+        expect(logs.entries).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    level: TEST_LOG_LEVEL.Warn,
+                    meta: expect.objectContaining({
+                        action:
+                            BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION
+                                .LeaseRenewalProgressStale,
+                        stepKey: BOOTSTRAP_STEP_KEY.Enumeration,
+                        leaseOwner: TEST_LEASE_OWNER,
+                    }),
+                }),
+            ]),
+        );
     });
 
     it("logs scheduler claim, release, retry, and delegation context", async () => {
@@ -380,6 +575,11 @@ function stepsPort(
         attempts: number;
         error: string;
     }> = [],
+    renewals: Array<{
+        stepKey: BootstrapStepKey;
+        leaseOwner: string;
+        leaseUntil: number;
+    }> = [],
 ): BootstrapStepOrchestratorStepsPort {
     return {
         listRunSteps: () => steps,
@@ -421,6 +621,13 @@ function stepsPort(
             released.push({ stepKey, nextAttemptAt });
         },
         releaseStepLeaseAsRunning: () => {},
+        renewStepLease: ({ stepKey, leaseOwner, leaseUntil }) => {
+            const target = steps.find((stepItem) => stepItem.stepKey === stepKey);
+            if (target && target.leaseOwner === leaseOwner) {
+                target.leaseUntil = leaseUntil;
+            }
+            renewals.push({ stepKey, leaseOwner, leaseUntil });
+        },
         markStepFailedRetry: ({ stepKey, attempts, nextAttemptAt, error }) => {
             const target = steps.find((stepItem) => stepItem.stepKey === stepKey);
             if (target) {
@@ -461,6 +668,12 @@ function wakePort(woken: BootstrapStepKey[]): BootstrapStepWakePort {
     };
 }
 
+function progressObserverPort(
+    observeStepProgress: BootstrapStepProgressObserverPort["observeStepProgress"],
+): BootstrapStepProgressObserverPort {
+    return { observeStepProgress };
+}
+
 function orchestratorInput(
     runId: number,
     laneStepKeys: readonly BootstrapStepKey[],
@@ -472,6 +685,7 @@ function orchestratorInput(
         laneStepKeys,
         leaseOwner: TEST_LEASE_OWNER,
         leaseMs: 1_000,
+        maxProgressStaleMs: 30_000,
         claimLimit: 1,
         maxIterations: 1,
         retryPolicy: TEST_RETRY_POLICY,

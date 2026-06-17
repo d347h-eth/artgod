@@ -121,6 +121,10 @@ describe("Indexer config", () => {
             schedulerPollMaxMs: getSettingDefaultNumber(
                 "BOOTSTRAP_SCHEDULER_POLL_MAX_MS",
             ),
+            stepLeaseMs: getSettingDefaultNumber("BOOTSTRAP_STEP_LEASE_MS"),
+            stepProgressStaleMs: getSettingDefaultNumber(
+                "BOOTSTRAP_STEP_PROGRESS_STALE_MS",
+            ),
             metadataRetryPolicy: {
                 maxAttempts: getSettingDefaultNumber(
                     "BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS",
@@ -184,6 +188,8 @@ describe("Indexer config", () => {
             BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES: "123456",
             BOOTSTRAP_SCHEDULER_POLL_MIN_MS: "300",
             BOOTSTRAP_SCHEDULER_POLL_MAX_MS: "6000",
+            BOOTSTRAP_STEP_LEASE_MS: "45000",
+            BOOTSTRAP_STEP_PROGRESS_STALE_MS: "900000",
         });
 
         expect(config.ipfs.gatewayOrigin).toBe("https://gateway.example");
@@ -195,6 +201,8 @@ describe("Indexer config", () => {
         expect(config.bootstrap.imageCacheMaxSourceBytes).toBe(123456);
         expect(config.bootstrap.schedulerPollMinMs).toBe(300);
         expect(config.bootstrap.schedulerPollMaxMs).toBe(6000);
+        expect(config.bootstrap.stepLeaseMs).toBe(45000);
+        expect(config.bootstrap.stepProgressStaleMs).toBe(900000);
     });
 
     it("parses shared HTTP fetch resilience config", () => {

@@ -66,6 +66,12 @@ export interface BootstrapStepsPort {
         leaseOwner: string;
         nextAttemptAt: number;
     }): void;
+    renewStepLease(input: {
+        runId: number;
+        stepKey: BootstrapStepKey;
+        leaseOwner: string;
+        leaseUntil: number;
+    }): void;
     markStepReady(runId: number, stepKey: BootstrapStepKey): void;
     markStepRunning(runId: number, stepKey: BootstrapStepKey): void;
     markStepDelegatedRunning(input: {

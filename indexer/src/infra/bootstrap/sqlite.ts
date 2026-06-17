@@ -127,7 +127,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     private insertMetadataTaskStmt = db.prepare<
         BootstrapMetadataTaskSeed & { pendingStatus: BootstrapMetadataTask["status"] }
     >(
-        "INSERT INTO bootstrap_metadata_snapshot_tasks " +
+        "INSERT OR IGNORE INTO bootstrap_metadata_snapshot_tasks " +
             "(run_id, chain_id, collection_id, contract_address, token_id, standard, anchor_block, anchor_block_hash, anchor_block_timestamp, status, attempts, next_attempt_at) " +
             "VALUES (@runId, @chainId, @collectionId, lower(@contract), @tokenId, @standard, @anchorBlock, @anchorHash, @anchorTimestamp, @pendingStatus, 0, 0)",
     );
@@ -535,19 +535,21 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         }).changes;
     }
 
-    insertMetadataTasks(rows: BootstrapMetadataTaskSeed[]): void {
-        if (rows.length === 0) return;
+    insertMetadataTasks(rows: BootstrapMetadataTaskSeed[]): number {
+        if (rows.length === 0) return 0;
         const insertMany = db.raw.transaction(
             (batch: BootstrapMetadataTaskSeed[]) => {
+                let inserted = 0;
                 for (const row of batch) {
-                    this.insertMetadataTaskStmt.run({
+                    inserted += this.insertMetadataTaskStmt.run({
                         ...row,
                         pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
-                    });
+                    }).changes;
                 }
+                return inserted;
             },
         );
-        insertMany(rows);
+        return insertMany(rows) as number;
     }
 
     listMetadataTasksDueNow(

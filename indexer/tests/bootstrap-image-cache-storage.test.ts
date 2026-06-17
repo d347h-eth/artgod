@@ -31,6 +31,31 @@ describe("bootstrap storage", () => {
         );
     });
 
+    it("ignores duplicate metadata task inserts for the same run token", () => {
+        const storage = new SqliteBootstrapStorage();
+        const task = {
+            runId: 40,
+            chainId: 1,
+            collectionId: 7,
+            contract: "0xAbCd000000000000000000000000000000000000",
+            tokenId: "5081",
+            standard: COLLECTION_STANDARD.Erc721,
+            anchorBlock: 100,
+            anchorHash: `0x${"11".repeat(32)}`,
+            anchorTimestamp: 1_726_000_000,
+        };
+
+        expect(storage.insertMetadataTasks([task])).toBe(1);
+        expect(storage.insertMetadataTasks([task])).toBe(0);
+        expect(storage.getMetadataTaskCounts(40)).toEqual({
+            pending: 1,
+            retry: 0,
+            succeeded: 0,
+            failedTerminal: 0,
+            total: 1,
+        });
+    });
+
     it("seeds image cache tasks from successful metadata tasks", () => {
         const storage = new SqliteBootstrapStorage();
         storage.insertMetadataTasks([
