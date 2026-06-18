@@ -62,11 +62,12 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         succeededStatus: BootstrapStepStatus;
         skippedStatus: BootstrapStepStatus;
         failedTerminalStatus: BootstrapStepStatus;
+        pausedStatus: BootstrapStepStatus;
     }>(
         "UPDATE bootstrap_run_steps SET " +
             "status = @status, started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey " +
-            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus)",
+            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus, @pausedStatus)",
     );
 
     private markDelegatedRunningStmt = db.prepare<{
@@ -77,12 +78,13 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         succeededStatus: BootstrapStepStatus;
         skippedStatus: BootstrapStepStatus;
         failedTerminalStatus: BootstrapStepStatus;
+        pausedStatus: BootstrapStepStatus;
     }>(
         "UPDATE bootstrap_run_steps SET " +
             "status = @status, next_attempt_at = @healthCheckAt, lease_owner = NULL, lease_until = @healthCheckAt, " +
             "started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey " +
-            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus)",
+            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus, @pausedStatus)",
     );
 
     private releaseReadyStmt = db.prepare<{
@@ -132,12 +134,13 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         succeededStatus: BootstrapStepStatus;
         skippedStatus: BootstrapStepStatus;
         failedTerminalStatus: BootstrapStepStatus;
+        pausedStatus: BootstrapStepStatus;
     }>(
         "UPDATE bootstrap_run_steps SET " +
             "status = @status, progress_completed = @completed, progress_total = @total, result_json = @resultJson, " +
             "lease_owner = NULL, lease_until = NULL, last_error = NULL, last_error_at = NULL, finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey " +
-            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus)",
+            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus, @pausedStatus)",
     );
 
     private markSkippedStmt = db.prepare<{
@@ -148,12 +151,13 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         succeededStatus: BootstrapStepStatus;
         skippedStatus: BootstrapStepStatus;
         failedTerminalStatus: BootstrapStepStatus;
+        pausedStatus: BootstrapStepStatus;
     }>(
         "UPDATE bootstrap_run_steps SET " +
             "status = @status, result_json = @resultJson, lease_owner = NULL, lease_until = NULL, last_error = NULL, last_error_at = NULL, " +
             "finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey " +
-            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus)",
+            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus, @pausedStatus)",
     );
 
     private markFailedRetryStmt = db.prepare<{
@@ -167,12 +171,13 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         succeededStatus: BootstrapStepStatus;
         skippedStatus: BootstrapStepStatus;
         failedTerminalStatus: BootstrapStepStatus;
+        pausedStatus: BootstrapStepStatus;
     }>(
         "UPDATE bootstrap_run_steps SET " +
             "status = @status, attempts = @attempts, next_attempt_at = @nextAttemptAt, " +
             "lease_owner = NULL, lease_until = NULL, last_error = @lastError, last_error_at = @nowMs, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey " +
-            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus)",
+            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus, @pausedStatus)",
     );
 
     private markFailedTerminalStmt = db.prepare<{
@@ -185,12 +190,13 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         succeededStatus: BootstrapStepStatus;
         skippedStatus: BootstrapStepStatus;
         failedTerminalStatus: BootstrapStepStatus;
+        pausedStatus: BootstrapStepStatus;
     }>(
         "UPDATE bootstrap_run_steps SET " +
             "status = @status, attempts = @attempts, lease_owner = NULL, lease_until = NULL, last_error = @lastError, last_error_at = @nowMs, " +
             "finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey " +
-            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus)",
+            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus, @pausedStatus)",
     );
 
     private updateProgressStmt = db.prepare<{
@@ -201,11 +207,12 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         succeededStatus: BootstrapStepStatus;
         skippedStatus: BootstrapStepStatus;
         failedTerminalStatus: BootstrapStepStatus;
+        pausedStatus: BootstrapStepStatus;
     }>(
         "UPDATE bootstrap_run_steps SET " +
             "progress_completed = @completed, progress_total = @total, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND step_key = @stepKey " +
-            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus)",
+            "AND status NOT IN (@succeededStatus, @skippedStatus, @failedTerminalStatus, @pausedStatus)",
     );
 
     private updateResultStmt = db.prepare<{
@@ -373,7 +380,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
             runId,
             stepKey,
             status: BOOTSTRAP_STEP_STATUS.Running,
-            ...terminalStatusParams(),
+            ...protectedStatusParams(),
         });
     }
 
@@ -385,9 +392,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         this.markDelegatedRunningStmt.run({
             ...input,
             status: BOOTSTRAP_STEP_STATUS.Running,
-            succeededStatus: BOOTSTRAP_STEP_STATUS.Succeeded,
-            skippedStatus: BOOTSTRAP_STEP_STATUS.Skipped,
-            failedTerminalStatus: BOOTSTRAP_STEP_STATUS.FailedTerminal,
+            ...protectedStatusParams(),
         });
     }
 
@@ -405,7 +410,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
             completed,
             total,
             resultJson: JSON.stringify({ completed, total }),
-            ...terminalStatusParams(),
+            ...protectedStatusParams(),
         });
     }
 
@@ -419,7 +424,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
             stepKey,
             status: BOOTSTRAP_STEP_STATUS.Skipped,
             resultJson: JSON.stringify({ reason }),
-            ...terminalStatusParams(),
+            ...protectedStatusParams(),
         });
     }
 
@@ -435,7 +440,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
             status: BOOTSTRAP_STEP_STATUS.FailedRetry,
             lastError: input.error,
             nowMs: Date.now(),
-            ...terminalStatusParams(),
+            ...protectedStatusParams(),
         });
     }
 
@@ -450,7 +455,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
             status: BOOTSTRAP_STEP_STATUS.FailedTerminal,
             lastError: input.error,
             nowMs: Date.now(),
-            ...terminalStatusParams(),
+            ...protectedStatusParams(),
         });
     }
 
@@ -464,7 +469,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
             stepKey,
             completed: progress.completed,
             total: progress.total,
-            ...terminalStatusParams(),
+            ...protectedStatusParams(),
         });
     }
 
@@ -488,15 +493,17 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
     }
 }
 
-function terminalStatusParams(): {
+function protectedStatusParams(): {
     succeededStatus: BootstrapStepStatus;
     skippedStatus: BootstrapStepStatus;
     failedTerminalStatus: BootstrapStepStatus;
+    pausedStatus: BootstrapStepStatus;
 } {
     return {
         succeededStatus: BOOTSTRAP_STEP_STATUS.Succeeded,
         skippedStatus: BOOTSTRAP_STEP_STATUS.Skipped,
         failedTerminalStatus: BOOTSTRAP_STEP_STATUS.FailedTerminal,
+        pausedStatus: BOOTSTRAP_STEP_STATUS.Paused,
     };
 }
 

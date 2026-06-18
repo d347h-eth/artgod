@@ -146,14 +146,16 @@ export interface BootstrapRunsWritePort {
         stepKey: BootstrapRunStepRecord["stepKey"],
     ): BootstrapRunStepRecord | null;
     listRunSteps(runId: number): BootstrapRunStepRecord[];
-    pauseRunStep(
-        runId: number,
-        stepKey: BootstrapRunStepRecord["stepKey"],
-    ): void;
-    resumeRunStep(
-        runId: number,
-        stepKey: BootstrapRunStepRecord["stepKey"],
-    ): void;
+    pauseRunStep(input: {
+        runId: number;
+        stepKey: BootstrapRunStepRecord["stepKey"];
+        expectedStatus: BootstrapRunStepRecord["status"];
+    }): boolean;
+    resumeRunStep(input: {
+        runId: number;
+        stepKey: BootstrapRunStepRecord["stepKey"];
+        expectedStatus: BootstrapRunStepRecord["status"];
+    }): boolean;
     retryTerminalRunStep(
         runId: number,
         stepKey: BootstrapRunStepRecord["stepKey"],

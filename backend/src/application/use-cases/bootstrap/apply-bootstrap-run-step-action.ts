@@ -152,7 +152,16 @@ export class ApplyBootstrapRunStepActionUseCase {
             );
         }
 
-        this.bootstrapRunsPort.pauseRunStep(run.runId, step.stepKey);
+        const paused = this.bootstrapRunsPort.pauseRunStep({
+            runId: run.runId,
+            stepKey: step.stepKey,
+            expectedStatus: step.status,
+        });
+        if (!paused) {
+            throw new BootstrapConflictError(
+                "Bootstrap step pause lost the state race",
+            );
+        }
         this.appendStepActionEvent(run, step.stepKey, BOOTSTRAP_STEP_ACTION.Pause);
         return buildOutput(
             run.runId,
@@ -166,7 +175,16 @@ export class ApplyBootstrapRunStepActionUseCase {
         step: BootstrapRunStepRecord,
     ): Promise<ApplyBootstrapRunStepActionOutput> {
         if (canResumeBootstrapStepStatus(step.status)) {
-            this.bootstrapRunsPort.resumeRunStep(run.runId, step.stepKey);
+            const resumed = this.bootstrapRunsPort.resumeRunStep({
+                runId: run.runId,
+                stepKey: step.stepKey,
+                expectedStatus: step.status,
+            });
+            if (!resumed) {
+                throw new BootstrapConflictError(
+                    "Bootstrap step resume lost the state race",
+                );
+            }
             this.appendStepActionEvent(
                 run,
                 step.stepKey,

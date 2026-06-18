@@ -4201,6 +4201,24 @@ describe("backend api routes", () => {
             create.payload.runId,
             BOOTSTRAP_STEP_KEY.ImageCache,
         );
+        const { SqliteBootstrapRunsRepository } = await import(
+            "./infra/bootstrap/sqlite-bootstrap-runs.js"
+        );
+        const raceRepository = new SqliteBootstrapRunsRepository();
+        expect(
+            raceRepository.pauseRunStep({
+                runId: create.payload.runId,
+                stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+                expectedStatus: BOOTSTRAP_STEP_STATUS.Ready,
+            }),
+        ).toBe(false);
+        expect(
+            db
+                .prepare<[number, string]>(
+                    "SELECT status FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?",
+                )
+                .get(create.payload.runId, BOOTSTRAP_STEP_KEY.ImageCache),
+        ).toEqual({ status: BOOTSTRAP_STEP_STATUS.Running });
         const pauseImageCache = await resolve(
             "POST",
             `/api/ethereum/bootstrap-runs/${create.payload.runId}/steps/${BOOTSTRAP_STEP_KEY.ImageCache}/${BOOTSTRAP_STEP_ACTION.Pause}`,
@@ -4234,6 +4252,20 @@ describe("backend api routes", () => {
                 availableActions: [BOOTSTRAP_STEP_ACTION.Resume],
             }),
         );
+        expect(
+            raceRepository.resumeRunStep({
+                runId: create.payload.runId,
+                stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+                expectedStatus: BOOTSTRAP_STEP_STATUS.Running,
+            }),
+        ).toBe(false);
+        expect(
+            db
+                .prepare<[number, string]>(
+                    "SELECT status FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?",
+                )
+                .get(create.payload.runId, BOOTSTRAP_STEP_KEY.ImageCache),
+        ).toEqual({ status: BOOTSTRAP_STEP_STATUS.Paused });
         const resumeImageCache = await resolve(
             "POST",
             `/api/ethereum/bootstrap-runs/${create.payload.runId}/steps/${BOOTSTRAP_STEP_KEY.ImageCache}/${BOOTSTRAP_STEP_ACTION.Resume}`,

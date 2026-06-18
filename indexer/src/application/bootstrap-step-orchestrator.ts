@@ -1,4 +1,5 @@
 import {
+    BOOTSTRAP_STEP_STATUS,
     isBootstrapStepTerminalStatus,
     type BootstrapStepKey,
 } from "@artgod/shared/bootstrap/pipeline";
@@ -21,6 +22,7 @@ export const BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION = {
     LeaseRenewalObserveFailed: "lease_renewal_observe_failed",
     StepReleasedReady: "step_released_ready",
     StepDelegated: "step_delegated",
+    StepPausedObserved: "step_paused_observed",
     StepTerminalObserved: "step_terminal_observed",
     StepRetryScheduled: "step_retry_scheduled",
     StepTerminalFailed: "step_terminal_failed",
@@ -307,6 +309,18 @@ export class BootstrapStepOrchestrator {
                 BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepTerminalObserved,
                 {
                     status: currentStep.status,
+                    attempts: currentStep.attempts,
+                },
+            );
+            return;
+        }
+        if (currentStep?.status === BOOTSTRAP_STEP_STATUS.Paused) {
+            this.logDebug(
+                input,
+                run,
+                step.stepKey,
+                BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION.StepPausedObserved,
+                {
                     attempts: currentStep.attempts,
                 },
             );

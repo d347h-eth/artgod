@@ -740,7 +740,7 @@ explicit instruction to skip Tauri builds here.
 
 ## Open Decisions
 
-- Whether ownership should expose a dedicated operator retry action separate
-  from generic step resume. This does not change ownership being mandatory.
+- Ownership terminal recovery uses the shared step `retry` action. This keeps
+  ownership mandatory while avoiding a one-off retry endpoint.
 - Whether non-blocking side-lane terminal failures should show a dedicated
   collection warning outside bootstrap history after the run itself is complete.

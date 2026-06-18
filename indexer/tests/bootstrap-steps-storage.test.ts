@@ -379,6 +379,49 @@ describe("bootstrap steps storage", () => {
         );
     });
 
+    it("does not let stale writers mutate paused step rows", () => {
+        seedStep(101, BOOTSTRAP_STEP_KEY.Ownership);
+        const steps = new SqliteBootstrapSteps();
+        steps.markStepRunning(101, BOOTSTRAP_STEP_KEY.Ownership);
+        db.prepare(
+            "UPDATE bootstrap_run_steps SET status = ?, lease_owner = NULL, lease_until = NULL WHERE run_id = ? AND step_key = ?",
+        ).run(
+            BOOTSTRAP_STEP_STATUS.Paused,
+            101,
+            BOOTSTRAP_STEP_KEY.Ownership,
+        );
+
+        steps.markStepRunning(101, BOOTSTRAP_STEP_KEY.Ownership);
+        steps.updateStepProgress(101, BOOTSTRAP_STEP_KEY.Ownership, {
+            completed: 10,
+            total: 10,
+        });
+        steps.markStepDelegatedRunning({
+            runId: 101,
+            stepKey: BOOTSTRAP_STEP_KEY.Ownership,
+            healthCheckAt: 5_000,
+        });
+        steps.markStepSucceeded(101, BOOTSTRAP_STEP_KEY.Ownership, {
+            completed: 10,
+            total: 10,
+        });
+        steps.markStepFailedTerminal({
+            runId: 101,
+            stepKey: BOOTSTRAP_STEP_KEY.Ownership,
+            attempts: 1,
+            error: "stale failure",
+        });
+
+        expect(steps.getStep(101, BOOTSTRAP_STEP_KEY.Ownership)).toEqual(
+            expect.objectContaining({
+                status: BOOTSTRAP_STEP_STATUS.Paused,
+                progressCompleted: 0,
+                progressTotal: null,
+                lastError: null,
+            }),
+        );
+    });
+
     it("lists due lane runs and reports the next durable deadline", () => {
         const dueRunId = seedRun(1, 95);
         const futureRunId = seedRun(1, 96);

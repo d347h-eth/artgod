@@ -329,18 +329,20 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         runId: number;
         stepKey: BootstrapRunStepRecord["stepKey"];
         status: BootstrapRunStepRecord["status"];
+        expectedStatus: BootstrapRunStepRecord["status"];
     }>(
         "UPDATE bootstrap_run_steps SET status = @status, lease_owner = NULL, lease_until = NULL, updated_at = CURRENT_TIMESTAMP " +
-            "WHERE run_id = @runId AND step_key = @stepKey",
+            "WHERE run_id = @runId AND step_key = @stepKey AND status = @expectedStatus",
     );
 
     private resumeRunStepStmt = db.prepare<{
         runId: number;
         stepKey: BootstrapRunStepRecord["stepKey"];
         status: BootstrapRunStepRecord["status"];
+        expectedStatus: BootstrapRunStepRecord["status"];
     }>(
         "UPDATE bootstrap_run_steps SET status = @status, next_attempt_at = 0, lease_owner = NULL, lease_until = NULL, updated_at = CURRENT_TIMESTAMP " +
-            "WHERE run_id = @runId AND step_key = @stepKey",
+            "WHERE run_id = @runId AND step_key = @stepKey AND status = @expectedStatus",
     );
 
     private retryTerminalRunStepStmt = db.prepare<{
@@ -734,26 +736,28 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         return rows.map(mapRunStep);
     }
 
-    pauseRunStep(
-        runId: number,
-        stepKey: BootstrapRunStepRecord["stepKey"],
-    ): void {
-        this.pauseRunStepStmt.run({
-            runId,
-            stepKey,
+    pauseRunStep(input: {
+        runId: number;
+        stepKey: BootstrapRunStepRecord["stepKey"];
+        expectedStatus: BootstrapRunStepRecord["status"];
+    }): boolean {
+        const result = this.pauseRunStepStmt.run({
+            ...input,
             status: BOOTSTRAP_STEP_STATUS.Paused,
         });
+        return result.changes > 0;
     }
 
-    resumeRunStep(
-        runId: number,
-        stepKey: BootstrapRunStepRecord["stepKey"],
-    ): void {
-        this.resumeRunStepStmt.run({
-            runId,
-            stepKey,
+    resumeRunStep(input: {
+        runId: number;
+        stepKey: BootstrapRunStepRecord["stepKey"];
+        expectedStatus: BootstrapRunStepRecord["status"];
+    }): boolean {
+        const result = this.resumeRunStepStmt.run({
+            ...input,
             status: BOOTSTRAP_STEP_STATUS.Ready,
         });
+        return result.changes > 0;
     }
 
     listRunMetadataTasks(params: {

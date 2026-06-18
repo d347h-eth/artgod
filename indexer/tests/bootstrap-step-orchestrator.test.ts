@@ -188,6 +188,59 @@ describe("bootstrap step orchestrator", () => {
         expect(steps[0]?.status).toBe(BOOTSTRAP_STEP_STATUS.FailedTerminal);
     });
 
+    it("observes a paused step without terminalizing stale processor output", async () => {
+        const run = buildRun();
+        const steps = [
+            step(BOOTSTRAP_STEP_KEY.Ownership, BOOTSTRAP_STEP_STATUS.Ready),
+        ];
+        const terminalFailures: Array<{
+            stepKey: BootstrapStepKey;
+            attempts: number;
+            error: string;
+        }> = [];
+        const logs = createLogCapture();
+        const orchestrator = new BootstrapStepOrchestrator(
+            runsPort(run),
+            stepsPort(steps, [], [], [], terminalFailures),
+            processorPort(async () => {
+                steps[0]!.status = BOOTSTRAP_STEP_STATUS.Paused;
+                return terminalStepResult();
+            }),
+            wakePort([]),
+            () => 1_000,
+            logs.logger,
+        );
+
+        await orchestrator.run({
+            runId: run.runId,
+            traceId: TEST_TRACE_ID,
+            laneName: TEST_LANE_NAME,
+            laneStepKeys: [BOOTSTRAP_STEP_KEY.Ownership],
+            leaseOwner: TEST_LEASE_OWNER,
+            leaseMs: 1_000,
+            maxProgressStaleMs: 30_000,
+            claimLimit: 1,
+            maxIterations: 1,
+            retryPolicy: TEST_RETRY_POLICY,
+        });
+
+        expect(terminalFailures).toEqual([]);
+        expect(steps[0]?.status).toBe(BOOTSTRAP_STEP_STATUS.Paused);
+        expect(logs.entries).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    level: TEST_LOG_LEVEL.Debug,
+                    meta: expect.objectContaining({
+                        action:
+                            BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION
+                                .StepPausedObserved,
+                        stepKey: BOOTSTRAP_STEP_KEY.Ownership,
+                    }),
+                }),
+            ]),
+        );
+    });
+
     it("marks invalid ready outcomes as orchestration failures", async () => {
         const run = buildRun();
         const steps = [
