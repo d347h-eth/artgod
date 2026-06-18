@@ -17,6 +17,9 @@ import {
 } from "./rpc-resilience.js";
 import {
     JSON_RPC_ERROR_CODE,
+    RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAME,
+    RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES,
+    RPC_DETERMINISTIC_CONTRACT_ERROR_TEXT,
     RPC_PROVIDER_HEAD_LAG_ERROR_DATA,
 } from "./rpc-errors.js";
 import {
@@ -40,6 +43,7 @@ const TEST_RPC_COMPONENT = "test-rpc-executor";
 const TEST_RPC_LOG_COMPONENT = "TestRpcExecutor";
 const TEST_RPC_RESULT = "0x1";
 const TEST_RPC_FAILURE_MESSAGE = "rpc unavailable";
+const TEST_CONTRACT_READ_FAILURE_MESSAGE = "contract read failed";
 const TEST_RPC_INVALID_PARAMS_MESSAGE = "invalid params";
 const TEST_PROVIDER_INVALID_PARAMS_ERROR_CLASS = "InvalidParamsRpcError";
 const TEST_PROVIDER_RPC_REQUEST_ERROR_CLASS = "RpcRequestError";
@@ -285,8 +289,78 @@ describe("executeObservedRpcEndpointCall", () => {
                 method: TEST_RPC_METHOD,
                 endpoint: TEST_RPC_ENDPOINT_A_ID,
                 result: RPC_OBSERVABILITY_RESULT.Failure,
-                error_class:
-                    RPC_OBSERVABILITY_ERROR_CLASS.ProviderHeadLag,
+                error_class: RPC_OBSERVABILITY_ERROR_CLASS.ProviderHeadLag,
+            },
+        });
+
+        await expect(
+            executeObservedRpcEndpointCall({
+                selector,
+                method: TEST_RPC_METHOD,
+                rpcObservability: observer,
+                circuitBreaker: (endpoint) => endpoint.value.circuitBreaker,
+                execute: async () => TEST_RPC_RESULT,
+            }),
+        ).resolves.toBe(TEST_RPC_RESULT);
+    });
+
+    it("does not retry, penalize, or open circuits for deterministic contract failures", async () => {
+        const metrics = new CapturingMetrics();
+        const observer = createTestRpcObservability(metrics);
+        const circuitBreaker = new CircuitBreaker(
+            TEST_CIRCUIT_BREAKER_CONFIG,
+            () => 0,
+        );
+        const selector = createTestSelector([
+            { url: TEST_RPC_ENDPOINT_A_URL, circuitBreaker },
+        ]);
+        let attemptCount = 0;
+
+        await expect(
+            executeObservedRpcEndpointCall({
+                selector,
+                method: TEST_RPC_METHOD,
+                rpcObservability: observer,
+                retryPolicy: TEST_RETRY_POLICY,
+                sleep: async () => {},
+                circuitBreaker: (endpoint) => endpoint.value.circuitBreaker,
+                execute: async () => {
+                    attemptCount += 1;
+                    throw buildDeterministicContractError();
+                },
+            }),
+        ).rejects.toThrow(TEST_CONTRACT_READ_FAILURE_MESSAGE);
+
+        expect(attemptCount).toBe(1);
+        expect(selector.snapshot()[0]?.effectiveWeight).toBe(1);
+        expect(
+            metrics.increments.some(
+                (metric) =>
+                    metric.name === RPC_OBSERVABILITY_METRIC.RetryAttempt,
+            ),
+        ).toBe(false);
+        expect(metrics.increments).toContainEqual({
+            name: RPC_OBSERVABILITY_METRIC.EndpointAttempt,
+            value: 1,
+            labels: {
+                component: TEST_RPC_COMPONENT,
+                protocol: RPC_PROTOCOL.Http,
+                method: TEST_RPC_METHOD,
+                endpoint: TEST_RPC_ENDPOINT_A_ID,
+                result: RPC_OBSERVABILITY_RESULT.Failure,
+                error_class: RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAME,
+            },
+        });
+        expect(metrics.increments).toContainEqual({
+            name: RPC_OBSERVABILITY_METRIC.Call,
+            value: 1,
+            labels: {
+                component: TEST_RPC_COMPONENT,
+                protocol: RPC_PROTOCOL.Http,
+                method: TEST_RPC_METHOD,
+                endpoint: TEST_RPC_ENDPOINT_A_ID,
+                result: RPC_OBSERVABILITY_RESULT.Failure,
+                error_class: RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAME,
             },
         });
 
@@ -416,12 +490,23 @@ function buildProviderHeadLagError(): Error {
     const cause = Object.assign(new Error(TEST_RPC_INVALID_PARAMS_MESSAGE), {
         name: TEST_PROVIDER_RPC_REQUEST_ERROR_CLASS,
         code: JSON_RPC_ERROR_CODE.InvalidParams,
-        data: RPC_PROVIDER_HEAD_LAG_ERROR_DATA
-            .FromBlockGreaterThanLatestBlock,
+        data: RPC_PROVIDER_HEAD_LAG_ERROR_DATA.FromBlockGreaterThanLatestBlock,
     });
     return Object.assign(new Error(TEST_RPC_INVALID_PARAMS_MESSAGE), {
         name: TEST_PROVIDER_INVALID_PARAMS_ERROR_CLASS,
         code: JSON_RPC_ERROR_CODE.InvalidParams,
+        cause,
+    });
+}
+
+function buildDeterministicContractError(): Error {
+    const cause = Object.assign(
+        new Error(RPC_DETERMINISTIC_CONTRACT_ERROR_TEXT.ExecutionReverted),
+        {
+            name: RPC_DETERMINISTIC_CONTRACT_ERROR_CLASS_NAMES.ContractFunctionReverted,
+        },
+    );
+    return Object.assign(new Error(TEST_CONTRACT_READ_FAILURE_MESSAGE), {
         cause,
     });
 }

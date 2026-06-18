@@ -1,4 +1,17 @@
 import type { ChainRecord } from "@artgod/shared/types/browse";
+import {
+    EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND,
+    type CollectionExtensionKey,
+    type EmbeddedCollectionExtensionScope,
+} from "@artgod/shared/extensions";
+import {
+    COLLECTION_CUSTOMIZATION_SOURCE_KIND,
+    type CollectionCustomizationSourceKind,
+} from "@artgod/shared/types";
+import {
+    defaultImageCachePolicyConfig,
+    type ImageCachePolicyConfig,
+} from "@artgod/shared/media/token-image-cache";
 import type { ChainRefResolverPort } from "./ports.js";
 import { BootstrapValidationError } from "./types.js";
 import { BOOTSTRAP_MANUAL_RANGE_TOTAL_SUPPLY_LIMIT } from "./bootstrap-limits.js";
@@ -71,6 +84,13 @@ export type BootstrapProbeSuggestedInput = {
     warnings: string[];
 };
 
+// Image-cache policy the bootstrap form should preselect after contract probing.
+export type BootstrapProbeImageCacheSuggestion = {
+    selectedSource: CollectionCustomizationSourceKind;
+    extensionKey: CollectionExtensionKey | null;
+    config: ImageCachePolicyConfig;
+};
+
 export type ProbeCollectionContractInput = {
     chainRef: string;
     address: string;
@@ -81,6 +101,7 @@ export type ProbeCollectionContractOutput = {
     chain: ChainRecord;
     address: string;
     standard: "erc721";
+    contractName: string | null;
     erc721: BootstrapProbeInterfaceCheck;
     enumerable: BootstrapProbeInterfaceCheck;
     totalSupply: BootstrapProbeTotalSupply;
@@ -88,6 +109,7 @@ export type ProbeCollectionContractOutput = {
     storageEstimate: BootstrapProbeStorageEstimate;
     imageStorageEstimate: BootstrapProbeImageStorageEstimate;
     suggestedInput: BootstrapProbeSuggestedInput;
+    imageCacheSuggestion: BootstrapProbeImageCacheSuggestion;
 };
 
 export type CollectionContractProbeResult = Omit<
@@ -98,6 +120,7 @@ export type CollectionContractProbeResult = Omit<
     | "suggestedInput"
     | "storageEstimate"
     | "imageStorageEstimate"
+    | "imageCacheSuggestion"
 >;
 
 export interface CollectionContractProbePort {
@@ -106,11 +129,25 @@ export interface CollectionContractProbePort {
     }): Promise<CollectionContractProbeResult>;
 }
 
+// Resolves built-in extension matches while probing a collection before creation.
+export interface ProbeCollectionExtensionResolverPort {
+    resolveExtensionKey(input: {
+        chainId: number;
+        contractAddress: string;
+        scope: EmbeddedCollectionExtensionScope;
+    }): CollectionExtensionKey | null;
+    resolveImageCachePolicyConfig(input: {
+        chainId: number;
+        extensionKey: CollectionExtensionKey;
+    }): ImageCachePolicyConfig | null;
+}
+
 export class ProbeCollectionContractUseCase {
     constructor(
         private readonly defaultChainId: number,
         private readonly chainRefResolverPort: ChainRefResolverPort,
         private readonly collectionContractProbePort: CollectionContractProbePort,
+        private readonly collectionExtensionResolverPort: ProbeCollectionExtensionResolverPort,
     ) {}
 
     async probe(
@@ -133,6 +170,7 @@ export class ProbeCollectionContractUseCase {
         );
         const storageEstimate = estimateStorage(probe);
         const imageStorageEstimate = estimateImageStorage(probe);
+        const suggestedInput = buildSuggestedInput(probe);
         return {
             chain,
             address,
@@ -140,7 +178,14 @@ export class ProbeCollectionContractUseCase {
             ...probe,
             storageEstimate,
             imageStorageEstimate,
-            suggestedInput: buildSuggestedInput(probe),
+            suggestedInput,
+            imageCacheSuggestion: resolveImageCacheSuggestion({
+                chainId: chain.publicChainId,
+                address,
+                suggestedInput,
+                collectionExtensionResolverPort:
+                    this.collectionExtensionResolverPort,
+            }),
         };
     }
 }
@@ -203,6 +248,74 @@ function buildSuggestedInput(
         ready: manualInput !== null,
         warnings,
     };
+}
+
+function resolveImageCacheSuggestion(input: {
+    chainId: number;
+    address: string;
+    suggestedInput: BootstrapProbeSuggestedInput;
+    collectionExtensionResolverPort: ProbeCollectionExtensionResolverPort;
+}): BootstrapProbeImageCacheSuggestion {
+    const scope = toEmbeddedCollectionExtensionScope(input.suggestedInput);
+    if (!scope) {
+        return defaultImageCacheSuggestion();
+    }
+
+    const extensionKey =
+        input.collectionExtensionResolverPort.resolveExtensionKey({
+            chainId: input.chainId,
+            contractAddress: input.address,
+            scope,
+        });
+    if (!extensionKey) {
+        return defaultImageCacheSuggestion();
+    }
+
+    const extensionConfig =
+        input.collectionExtensionResolverPort.resolveImageCachePolicyConfig({
+            chainId: input.chainId,
+            extensionKey,
+        });
+    if (!extensionConfig) {
+        return {
+            ...defaultImageCacheSuggestion(),
+            extensionKey,
+        };
+    }
+
+    return {
+        selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
+        extensionKey,
+        config: extensionConfig,
+    };
+}
+
+function defaultImageCacheSuggestion(): BootstrapProbeImageCacheSuggestion {
+    return {
+        selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+        extensionKey: null,
+        config: defaultImageCachePolicyConfig(),
+    };
+}
+
+function toEmbeddedCollectionExtensionScope(
+    suggestedInput: BootstrapProbeSuggestedInput,
+): EmbeddedCollectionExtensionScope | null {
+    if (suggestedInput.supportsEnumerable) {
+        return {
+            kind: EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
+        };
+    }
+
+    if (suggestedInput.manualInput?.mode === "manual_range") {
+        return {
+            kind: EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.TokenRange,
+            startTokenId: suggestedInput.manualInput.startTokenId,
+            totalSupply: suggestedInput.manualInput.totalSupply,
+        };
+    }
+
+    return null;
 }
 
 function estimateStorage(

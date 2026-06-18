@@ -1,6 +1,6 @@
 import type { FastifyRequest } from "fastify";
-import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import type { BootstrapRunDetailOutput } from "../../../application/use-cases/bootstrap/types.js";
+import { parseBootstrapRunId } from "./request-parsing.js";
 
 export type GetBootstrapRunDetailRoute = {
     Params: {
@@ -26,16 +26,7 @@ export class GetBootstrapRunDetailHttpAdapter {
     ) => {
         return this.getBootstrapRunDetailPort.getRunDetail({
             chainRef: request.params.chain_ref,
-            runId: parseRunId(request.params.run_id),
+            runId: parseBootstrapRunId(request.params.run_id),
         });
     };
-}
-
-function parseRunId(raw: string): number {
-    const value = raw.trim();
-    const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed <= 0) {
-        throw new ReadModelBadRequestError("Invalid run_id");
-    }
-    return parsed;
 }

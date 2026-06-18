@@ -80,6 +80,16 @@ const ERC721_METADATA_ABI = [
     },
 ] as const;
 
+const ERC721_NAME_ABI = [
+    {
+        name: "name",
+        type: "function",
+        stateMutability: "view",
+        inputs: [],
+        outputs: [{ type: "string" }],
+    },
+] as const;
+
 const ERC721_OWNER_ABI = [
     {
         name: "ownerOf",
@@ -129,10 +139,13 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
             address,
             ERC721_ENUMERABLE_INTERFACE_ID,
         );
+        // Read name() only to suggest an editable local collection slug.
+        const contractName = await this.readContractName(address);
         const totalSupply = await this.readTotalSupply(address);
         const firstToken = await this.probeFirstToken(address, enumerable);
 
         return {
+            contractName,
             erc721,
             enumerable,
             totalSupply,
@@ -160,6 +173,19 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 supported: null,
                 error: compactError(error),
             };
+        }
+    }
+
+    private async readContractName(address: `0x${string}`): Promise<string | null> {
+        try {
+            const name = await this.rpc.readContract<string>({
+                address,
+                abi: ERC721_NAME_ABI,
+                functionName: "name",
+            });
+            return name.trim() || null;
+        } catch {
+            return null;
         }
     }
 

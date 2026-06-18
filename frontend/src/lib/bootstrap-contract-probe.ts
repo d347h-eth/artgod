@@ -7,12 +7,34 @@ export type BootstrapContractProbeFormPatch = {
 	manualRangeTotalSupply: string;
 };
 
+const BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH = 64;
+
 export function isBootstrapProbeableAddress(value: string): boolean {
 	return /^0x[a-fA-F0-9]{40}$/.test(value.trim());
 }
 
 export function normalizeBootstrapAddress(value: string): string {
 	return value.trim().toLowerCase();
+}
+
+// Converts ERC721 name() output into the local bootstrap slug suggestion.
+export function contractNameToBootstrapSlug(value: string | null | undefined): string {
+	if (!value) return '';
+	let slug = '';
+	for (const char of value.trim().toLowerCase()) {
+		if (/^[a-z0-9]$/.test(char)) {
+			slug += char;
+			continue;
+		}
+		if (/^[\s!-\/:-@\[-`{-~]$/.test(char)) {
+			slug += '-';
+		}
+	}
+	return slug
+		.replace(/-+/g, '-')
+		.replace(/^-+|-+$/g, '')
+		.slice(0, BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH)
+		.replace(/-+$/g, '');
 }
 
 export function bootstrapProbeFormPatch(

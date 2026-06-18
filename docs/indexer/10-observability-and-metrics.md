@@ -58,7 +58,7 @@ Observability containers run behind the `observability` compose profile in `dock
   existing files, so Alloy can tail late-started wallet-bound bot logs while
   still using `tail_from_end`.
 - Alloy config in `observability/alloy/config.alloy`:
-    - `local.file_match` targets `/var/log/artgod/backend-api.log`, `/var/log/artgod/frontend-web.log`, `/var/log/artgod/indexer-*.log`, and `/var/log/artgod/trading-*.log`.
+    - `local.file_match` targets `/var/log/artgod/backend-api*.log`, `/var/log/artgod/frontend-web*.log`, `/var/log/artgod/indexer-*.log`, and `/var/log/artgod/trading-*.log`.
     - `loki.source.file` tails from end.
     - JSON parsing extracts `t`, `level`, `component`, `action`.
     - Loki labels include `level`, `component`, `action`.
@@ -372,6 +372,11 @@ RPC logs use stable fields:
 - `configuredWeight` and `effectiveWeight`
 - `attempt`, `durationMs`, `error`, `errorClass`, and retry delay fields where
   applicable
+
+Deterministic contract-call failures such as missing methods, zero returned
+data, and EVM reverts are normalized as `RpcDeterministicContractError`. They
+are logged as failed RPC calls, but they do not schedule adapter retries, demote
+the selected endpoint, or open the endpoint circuit.
 
 RPC metrics export with the workspace runtime prefixes:
 

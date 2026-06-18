@@ -15,6 +15,18 @@ import {
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from "@artgod/shared/config/bootstrap";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
+import {
+    BOOTSTRAP_RUN_EVENT_CODE,
+    serializeBootstrapEnumerationProgressEventPayload,
+} from "@artgod/shared/bootstrap/run-events";
+import {
+    BOOTSTRAP_RUN_STATUS,
+    BOOTSTRAP_STEP_ACTION,
+    BOOTSTRAP_STEP_KEY,
+    BOOTSTRAP_STEP_STATUS,
+    BOOTSTRAP_TASK_STATUS,
+    serializeBootstrapStepDependencies,
+} from "@artgod/shared/bootstrap/pipeline";
 import type { RpcRetryPolicy } from "@artgod/shared/evm/rpc-resilience";
 import { TOKEN_SET_SCHEMA_KIND } from "@artgod/shared/types/token-sets";
 import {
@@ -44,10 +56,14 @@ import {
     TRADING_BIDDING_TIER_SELECTION_MODE,
     TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
     COLLECTION_STATUS,
+    OPENSEA_COLLECTION_STATUS,
     type CollectionStatus,
+    type OpenSeaCollectionStatus,
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_TARGET_KIND,
     TRADING_JOB_STATUS,
+    COLLECTION_CUSTOMIZATION_FEATURE_KEY,
+    COLLECTION_CUSTOMIZATION_SOURCE_KIND,
 } from "@artgod/shared/types";
 import type { BackendSecurityConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
@@ -107,6 +123,8 @@ let publicApp: FastifyInstance | null = null;
 let cachedApp: FastifyInstance | null = null;
 let syncBackfillStateInputs: unknown[] = [];
 let syncBackfillRangeInputs: unknown[] = [];
+let bootstrapStartInputs: unknown[] = [];
+let bootstrapImageCacheProcessInputs: unknown[] = [];
 
 beforeAll(async () => {
     dbPath = path.join(
@@ -509,12 +527,21 @@ beforeAll(async () => {
         await import("./application/use-cases/bootstrap/get-bootstrap-run-detail.js");
     const retryBootstrapRunFailedTasksUseCaseModule =
         await import("./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js");
+    const applyBootstrapRunStepActionUseCaseModule =
+        await import(
+            "./application/use-cases/bootstrap/apply-bootstrap-run-step-action.js"
+        );
 
     const bootstrapRepository =
         new bootstrapRepositoryModule.SqliteBootstrapRunsRepository();
     const bootstrapQueueMock = {
-        async publishBootstrapStart() {},
+        async publishBootstrapStart(input: unknown) {
+            bootstrapStartInputs.push(input);
+        },
         async publishBootstrapMetadataProcess() {},
+        async publishBootstrapImageCacheProcess(input: unknown) {
+            bootstrapImageCacheProcessInputs.push(input);
+        },
     };
     const builtInCollectionExtensionResolver =
         new collectionExtensionResolverModule.BuiltInCollectionExtensionResolver();
@@ -535,6 +562,7 @@ beforeAll(async () => {
             {
                 async probeErc721Contract() {
                     return {
+                        contractName: null,
                         erc721: {
                             supported: true,
                             error: null,
@@ -571,6 +599,7 @@ beforeAll(async () => {
                     };
                 },
             },
+            builtInCollectionExtensionResolver,
         );
     const getBootstrapStatusUseCase =
         new getBootstrapStatusUseCaseModule.GetBootstrapStatusUseCase(
@@ -593,6 +622,13 @@ beforeAll(async () => {
         );
     const retryBootstrapRunFailedTasksUseCase =
         new retryBootstrapRunFailedTasksUseCaseModule.RetryBootstrapRunFailedTasksUseCase(
+            1,
+            chainsReadModel,
+            bootstrapRepository,
+            bootstrapQueueMock,
+        );
+    const applyBootstrapRunStepActionUseCase =
+        new applyBootstrapRunStepActionUseCaseModule.ApplyBootstrapRunStepActionUseCase(
             1,
             chainsReadModel,
             bootstrapRepository,
@@ -729,6 +765,7 @@ beforeAll(async () => {
         getBootstrapRunDetailUseCase,
         getBootstrapStatusUseCase,
         retryBootstrapRunFailedTasksUseCase,
+        applyBootstrapRunStepActionUseCase,
         getDefaultChainUseCase,
         getRuntimeConfigUseCase,
         listCollectionsUseCase,
@@ -778,6 +815,7 @@ beforeAll(async () => {
         getBootstrapRunDetailUseCase,
         getBootstrapStatusUseCase,
         retryBootstrapRunFailedTasksUseCase,
+        applyBootstrapRunStepActionUseCase,
         getDefaultChainUseCase,
         getRuntimeConfigUseCase,
         listCollectionsUseCase,
@@ -4031,6 +4069,11 @@ describe("backend api routes", () => {
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
+                imageCache: {
+                    selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+                    imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+                    maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
+                },
             },
             {
                 host: "127.0.0.1:42710",
@@ -4042,6 +4085,416 @@ describe("backend api routes", () => {
         );
         expect(create.statusCode).toBe(200);
         expect(create.payload.runId).toEqual(expect.any(Number));
+        const plannedSteps = db
+            .prepare<[number]>(
+                "SELECT step_key, status, blocking, depends_on_json FROM bootstrap_run_steps WHERE run_id = ? ORDER BY rowid ASC",
+            )
+            .all(create.payload.runId) as Array<{
+                step_key: string;
+                status: string;
+                blocking: number;
+                depends_on_json: string;
+            }>;
+        expect(plannedSteps).toEqual([
+            {
+                step_key: BOOTSTRAP_STEP_KEY.Anchor,
+                status: BOOTSTRAP_STEP_STATUS.Ready,
+                blocking: 1,
+                depends_on_json: serializeBootstrapStepDependencies([]),
+            },
+            expect.objectContaining({
+                step_key: BOOTSTRAP_STEP_KEY.Enumeration,
+                blocking: 1,
+                depends_on_json: serializeBootstrapStepDependencies([
+                    BOOTSTRAP_STEP_KEY.Anchor,
+                ]),
+            }),
+            expect.objectContaining({
+                step_key: BOOTSTRAP_STEP_KEY.Metadata,
+                blocking: 1,
+                depends_on_json: serializeBootstrapStepDependencies([
+                    BOOTSTRAP_STEP_KEY.Enumeration,
+                ]),
+            }),
+            expect.objectContaining({
+                step_key: BOOTSTRAP_STEP_KEY.Ownership,
+                blocking: 1,
+                depends_on_json: serializeBootstrapStepDependencies([
+                    BOOTSTRAP_STEP_KEY.Metadata,
+                ]),
+            }),
+            expect.objectContaining({
+                step_key: BOOTSTRAP_STEP_KEY.Backfill,
+                blocking: 1,
+                depends_on_json: serializeBootstrapStepDependencies([
+                    BOOTSTRAP_STEP_KEY.Ownership,
+                ]),
+            }),
+            expect.objectContaining({
+                step_key: BOOTSTRAP_STEP_KEY.CollectionLive,
+                blocking: 1,
+                depends_on_json: serializeBootstrapStepDependencies([
+                    BOOTSTRAP_STEP_KEY.Backfill,
+                ]),
+            }),
+            expect.objectContaining({
+                step_key: BOOTSTRAP_STEP_KEY.ImageCache,
+                blocking: 0,
+                depends_on_json: serializeBootstrapStepDependencies([
+                    BOOTSTRAP_STEP_KEY.Metadata,
+                ]),
+            }),
+        ]);
+        const createdDetail = await resolve(
+            "GET",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}`,
+        );
+        expect(createdDetail.statusCode).toBe(200);
+        expect(
+            createdDetail.payload.flow.steps.find(
+                (step: { key: string }) => step.key === BOOTSTRAP_STEP_KEY.Anchor,
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                state: "active",
+                blocking: true,
+                pausable: false,
+                paused: false,
+                availableActions: [],
+            }),
+        );
+        expect(
+            createdDetail.payload.flow.steps.find(
+                (step: { key: string }) =>
+                    step.key === BOOTSTRAP_STEP_KEY.ImageCache,
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                blocking: false,
+                pausable: true,
+            }),
+        );
+        expect(
+            createdDetail.payload.flow.steps.find(
+                (step: { key: string }) =>
+                    step.key === BOOTSTRAP_STEP_KEY.Ownership,
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                blocking: true,
+                pausable: true,
+            }),
+        );
+        bootstrapImageCacheProcessInputs = [];
+        db.prepare<[number, string, number, number]>(
+            "UPDATE bootstrap_runs SET anchor_block = ?, anchor_block_hash = ?, anchor_block_timestamp = ? WHERE run_id = ?",
+        ).run(
+            24500000,
+            "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            1726000000,
+            create.payload.runId,
+        );
+        db.prepare<[string, number, string]>(
+            "UPDATE bootstrap_run_steps SET status = ? WHERE run_id = ? AND step_key = ?",
+        ).run(
+            BOOTSTRAP_STEP_STATUS.Running,
+            create.payload.runId,
+            BOOTSTRAP_STEP_KEY.ImageCache,
+        );
+        const { SqliteBootstrapRunsRepository } = await import(
+            "./infra/bootstrap/sqlite-bootstrap-runs.js"
+        );
+        const raceRepository = new SqliteBootstrapRunsRepository();
+        expect(
+            raceRepository.pauseRunStep({
+                runId: create.payload.runId,
+                stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+                expectedStatus: BOOTSTRAP_STEP_STATUS.Ready,
+            }),
+        ).toBe(false);
+        expect(
+            db
+                .prepare<[number, string]>(
+                    "SELECT status FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?",
+                )
+                .get(create.payload.runId, BOOTSTRAP_STEP_KEY.ImageCache),
+        ).toEqual({ status: BOOTSTRAP_STEP_STATUS.Running });
+        const pauseImageCache = await resolve(
+            "POST",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}/steps/${BOOTSTRAP_STEP_KEY.ImageCache}/${BOOTSTRAP_STEP_ACTION.Pause}`,
+            {},
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(pauseImageCache.statusCode).toBe(200);
+        expect(pauseImageCache.payload).toEqual({
+            runId: create.payload.runId,
+            stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+            status: BOOTSTRAP_STEP_STATUS.Paused,
+        });
+        const pausedDetail = await resolve(
+            "GET",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}`,
+        );
+        expect(
+            pausedDetail.payload.flow.steps.find(
+                (step: { key: string }) =>
+                    step.key === BOOTSTRAP_STEP_KEY.ImageCache,
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                paused: true,
+                availableActions: [BOOTSTRAP_STEP_ACTION.Resume],
+            }),
+        );
+        expect(
+            raceRepository.resumeRunStep({
+                runId: create.payload.runId,
+                stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+                expectedStatus: BOOTSTRAP_STEP_STATUS.Running,
+            }),
+        ).toBe(false);
+        expect(
+            db
+                .prepare<[number, string]>(
+                    "SELECT status FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?",
+                )
+                .get(create.payload.runId, BOOTSTRAP_STEP_KEY.ImageCache),
+        ).toEqual({ status: BOOTSTRAP_STEP_STATUS.Paused });
+        const resumeImageCache = await resolve(
+            "POST",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}/steps/${BOOTSTRAP_STEP_KEY.ImageCache}/${BOOTSTRAP_STEP_ACTION.Resume}`,
+            {},
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(resumeImageCache.statusCode).toBe(200);
+        expect(resumeImageCache.payload).toEqual({
+            runId: create.payload.runId,
+            stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+            status: BOOTSTRAP_STEP_STATUS.Ready,
+        });
+        expect(bootstrapImageCacheProcessInputs).toEqual([
+            expect.objectContaining({
+                runId: create.payload.runId,
+                collectionId: create.payload.collectionId,
+                address: TERRAFORMS_ADDRESS.toLowerCase(),
+                anchorBlock: 24500000,
+            }),
+        ]);
+
+        bootstrapStartInputs = [];
+        bootstrapImageCacheProcessInputs = [];
+        db.prepare<[string, number, string]>(
+            "UPDATE bootstrap_run_steps SET status = ? WHERE run_id = ? AND step_key = ?",
+        ).run(
+            BOOTSTRAP_STEP_STATUS.Running,
+            create.payload.runId,
+            BOOTSTRAP_STEP_KEY.Ownership,
+        );
+        const pauseOwnership = await resolve(
+            "POST",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}/steps/${BOOTSTRAP_STEP_KEY.Ownership}/${BOOTSTRAP_STEP_ACTION.Pause}`,
+            {},
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(pauseOwnership.statusCode).toBe(200);
+        expect(pauseOwnership.payload).toEqual({
+            runId: create.payload.runId,
+            stepKey: BOOTSTRAP_STEP_KEY.Ownership,
+            status: BOOTSTRAP_STEP_STATUS.Paused,
+        });
+        const pausedOwnershipDetail = await resolve(
+            "GET",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}`,
+        );
+        expect(
+            pausedOwnershipDetail.payload.flow.steps.find(
+                (step: { key: string }) =>
+                    step.key === BOOTSTRAP_STEP_KEY.Ownership,
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                paused: true,
+                availableActions: [BOOTSTRAP_STEP_ACTION.Resume],
+            }),
+        );
+        const resumeOwnership = await resolve(
+            "POST",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}/steps/${BOOTSTRAP_STEP_KEY.Ownership}/${BOOTSTRAP_STEP_ACTION.Resume}`,
+            {},
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(resumeOwnership.statusCode).toBe(200);
+        expect(resumeOwnership.payload).toEqual({
+            runId: create.payload.runId,
+            stepKey: BOOTSTRAP_STEP_KEY.Ownership,
+            status: BOOTSTRAP_STEP_STATUS.Ready,
+        });
+        expect(bootstrapStartInputs).toEqual([
+            expect.objectContaining({
+                runId: create.payload.runId,
+                collectionId: create.payload.collectionId,
+            }),
+        ]);
+        expect(bootstrapImageCacheProcessInputs).toEqual([]);
+
+        db.prepare<[string, number]>(
+            "UPDATE bootstrap_runs SET status = ? WHERE run_id = ?",
+        ).run(BOOTSTRAP_RUN_STATUS.Completed, create.payload.runId);
+        const sideLaneDetail = await resolve(
+            "GET",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}`,
+        );
+        expect(sideLaneDetail.payload.flow.shouldPoll).toBe(true);
+        expect(sideLaneDetail.payload.flow.isTerminal).toBe(false);
+
+        bootstrapImageCacheProcessInputs = [];
+        db.prepare<[string, string, number, string]>(
+            "UPDATE bootstrap_run_steps SET status = ?, last_error = ? WHERE run_id = ? AND step_key = ?",
+        ).run(
+            BOOTSTRAP_STEP_STATUS.FailedTerminal,
+            "database is locked",
+            create.payload.runId,
+            BOOTSTRAP_STEP_KEY.ImageCache,
+        );
+        insertBootstrapImageCacheTask(
+            create.payload.runId,
+            "1",
+            BOOTSTRAP_TASK_STATUS.FailedTerminal,
+        );
+        const imageCacheFailedDetail = await resolve(
+            "GET",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}`,
+        );
+        expect(
+            imageCacheFailedDetail.payload.flow.steps.find(
+                (step: { key: string }) =>
+                    step.key === BOOTSTRAP_STEP_KEY.ImageCache,
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                availableActions: [BOOTSTRAP_STEP_ACTION.Retry],
+            }),
+        );
+        const retryImageCache = await resolve(
+            "POST",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}/steps/${BOOTSTRAP_STEP_KEY.ImageCache}/${BOOTSTRAP_STEP_ACTION.Retry}`,
+            {},
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(retryImageCache.statusCode).toBe(200);
+        expect(retryImageCache.payload).toEqual({
+            runId: create.payload.runId,
+            stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+            status: BOOTSTRAP_STEP_STATUS.Ready,
+        });
+        expect(bootstrapImageCacheProcessInputs).toEqual([
+            expect.objectContaining({
+                runId: create.payload.runId,
+                collectionId: create.payload.collectionId,
+            }),
+        ]);
+        expect(
+            db
+                .prepare<[number, string]>(
+                    "SELECT status FROM bootstrap_image_cache_tasks WHERE run_id = ? AND token_id = ?",
+                )
+                .get(create.payload.runId, "1"),
+        ).toEqual({ status: BOOTSTRAP_TASK_STATUS.Retry });
+
+        bootstrapStartInputs = [];
+        db.prepare<[string, string, string, number]>(
+            "UPDATE bootstrap_runs SET status = ?, error_code = ?, error_message = ? WHERE run_id = ?",
+        ).run(
+            BOOTSTRAP_RUN_STATUS.Failed,
+            "ownership_failed",
+            "ownership failed",
+            create.payload.runId,
+        );
+        db.prepare<[string, string, number, string]>(
+            "UPDATE bootstrap_run_steps SET status = ?, last_error = ? WHERE run_id = ? AND step_key = ?",
+        ).run(
+            BOOTSTRAP_STEP_STATUS.FailedTerminal,
+            "ownership failed",
+            create.payload.runId,
+            BOOTSTRAP_STEP_KEY.Ownership,
+        );
+        insertBootstrapOwnershipTask(
+            create.payload.runId,
+            "2",
+            BOOTSTRAP_TASK_STATUS.FailedTerminal,
+        );
+        const retryOwnership = await resolve(
+            "POST",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}/steps/${BOOTSTRAP_STEP_KEY.Ownership}/${BOOTSTRAP_STEP_ACTION.Retry}`,
+            {},
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(retryOwnership.statusCode).toBe(200);
+        expect(retryOwnership.payload).toEqual({
+            runId: create.payload.runId,
+            stepKey: BOOTSTRAP_STEP_KEY.Ownership,
+            status: BOOTSTRAP_STEP_STATUS.Ready,
+        });
+        expect(bootstrapStartInputs).toEqual([
+            expect.objectContaining({
+                runId: create.payload.runId,
+                collectionId: create.payload.collectionId,
+            }),
+        ]);
+        expect(
+            db
+                .prepare<[number, string]>(
+                    "SELECT status FROM bootstrap_ownership_snapshot_tasks WHERE run_id = ? AND token_id = ?",
+                )
+                .get(create.payload.runId, "2"),
+        ).toEqual({ status: BOOTSTRAP_TASK_STATUS.Retry });
+        expect(
+            db
+                .prepare<[number]>(
+                    "SELECT status, error_code, error_message FROM bootstrap_runs WHERE run_id = ?",
+                )
+                .get(create.payload.runId),
+        ).toEqual({
+            status: BOOTSTRAP_RUN_STATUS.Ownership,
+            error_code: null,
+            error_message: null,
+        });
 
         const probe = await resolve(
             "GET",
@@ -4111,6 +4564,11 @@ describe("backend api routes", () => {
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
+                imageCache: {
+                    selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+                    imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+                    maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
+                },
             },
             {
                 host: "127.0.0.1:42710",
@@ -4193,6 +4651,11 @@ describe("backend api routes", () => {
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
+                imageCache: {
+                    selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
+                    imageCacheMode: IMAGE_CACHE_MODE.Off,
+                    maxDimension: null,
+                },
             },
             {
                 host: "127.0.0.1:42710",
@@ -4207,11 +4670,76 @@ describe("backend api routes", () => {
         const row = db
             .prepare<
                 [number]
-            >("SELECT request_extension_key FROM bootstrap_runs WHERE run_id = ? LIMIT 1")
+            >("SELECT request_extension_key, request_image_cache_mode, request_image_cache_max_dimension FROM bootstrap_runs WHERE run_id = ? LIMIT 1")
             .get(create.payload.runId) as
-            | { request_extension_key: string | null }
+            | {
+                  request_extension_key: string | null;
+                  request_image_cache_mode: string | null;
+                  request_image_cache_max_dimension: number | null;
+              }
             | undefined;
         expect(row?.request_extension_key).toBe(TERRAFORMS_EXTENSION_KEY);
+        expect(row?.request_image_cache_mode).toBe(IMAGE_CACHE_MODE.Off);
+        expect(row?.request_image_cache_max_dimension).toBeNull();
+
+        const customizationRow = db
+            .prepare<
+                [number, number, string]
+            >("SELECT selected_source FROM collection_customization_features WHERE chain_id = ? AND collection_id = ? AND feature_key = ? LIMIT 1")
+            .get(
+                1,
+                create.payload.collectionId,
+                COLLECTION_CUSTOMIZATION_FEATURE_KEY.ImageCachePolicy,
+            ) as { selected_source: string | null } | undefined;
+        expect(customizationRow).toBeUndefined();
+
+        db.prepare<[number]>(
+            "UPDATE bootstrap_runs SET status = 'completed', finished_at = CURRENT_TIMESTAMP WHERE run_id = ?",
+        ).run(create.payload.runId);
+
+        const userOverride = await resolve(
+            "POST",
+            "/api/ethereum/collections/bootstrap",
+            {
+                slug: "terraforms-embedded-extension",
+                address: EMBEDDED_TERRAFORMS_MAIN_ADDRESS,
+                standard: "erc721",
+                metadataMode: "best_effort",
+                supportsEnumerable: true,
+                imageCache: {
+                    selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+                    imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+                    maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
+                },
+            },
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(userOverride.statusCode).toBe(200);
+
+        const userCustomizationRow = db
+            .prepare<
+                [number, number, string]
+            >("SELECT selected_source, user_config_json FROM collection_customization_features WHERE chain_id = ? AND collection_id = ? AND feature_key = ? LIMIT 1")
+            .get(
+                1,
+                userOverride.payload.collectionId,
+                COLLECTION_CUSTOMIZATION_FEATURE_KEY.ImageCachePolicy,
+            ) as
+            | { selected_source: string | null; user_config_json: string }
+            | undefined;
+        expect(userCustomizationRow?.selected_source).toBe(
+            COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+        );
+        expect(JSON.parse(userCustomizationRow?.user_config_json ?? "{}")).toEqual({
+            imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+            maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
+        });
     });
 
     it("lists bootstrap runs and returns run detail", async () => {
@@ -4225,21 +4753,51 @@ describe("backend api routes", () => {
                 "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             anchorBlockTimestamp: 1_726_000_000,
         });
-        insertBootstrapRunEvent(runId, "run.requested");
-        insertBootstrapRunEvent(runId, "run.queued");
-        insertBootstrapRunEvent(runId, "run.anchor.selected");
-        insertBootstrapRunEvent(runId, "metadata.enumeration.started");
-        insertBootstrapRunEvent(runId, "metadata.enumeration.completed");
-        insertBootstrapRunEvent(runId, "metadata.tasks.seeded");
-        insertBootstrapRunEvent(runId, "metadata.queued");
+        db.prepare(
+            "UPDATE bootstrap_runs SET request_image_cache_mode = ?, request_image_cache_max_dimension = ? WHERE run_id = ?",
+        ).run(IMAGE_CACHE_MODE.CacheOnce, 512, runId);
+        insertBootstrapRunEvent(runId, BOOTSTRAP_RUN_EVENT_CODE.RunRequested);
+        insertBootstrapRunEvent(runId, BOOTSTRAP_RUN_EVENT_CODE.RunQueued);
+        insertBootstrapRunEvent(
+            runId,
+            BOOTSTRAP_RUN_EVENT_CODE.RunAnchorSelected,
+        );
+        insertBootstrapRunEvent(
+            runId,
+            BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationStarted,
+        );
+        insertBootstrapRunEvent(
+            runId,
+            BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationProgress,
+            "info",
+            serializeBootstrapEnumerationProgressEventPayload({
+                resolved: 1,
+                total: 2,
+            }),
+        );
+        insertBootstrapRunEvent(
+            runId,
+            BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationCompleted,
+            "info",
+            JSON.stringify({ tokenCount: 2 }),
+        );
+        insertBootstrapRunEvent(
+            runId,
+            BOOTSTRAP_RUN_EVENT_CODE.MetadataTasksSeeded,
+        );
+        insertBootstrapRunEvent(runId, BOOTSTRAP_RUN_EVENT_CODE.MetadataQueued);
         insertBootstrapMetadataTask(runId, "1", "failed_terminal");
         insertBootstrapMetadataTask(runId, "2", "succeeded");
+        insertBootstrapImageCacheTask(runId, "1", "failed_terminal");
+        insertBootstrapImageCacheTask(runId, "2", "succeeded");
+        insertBootstrapOwnershipSnapshot(runId, "1");
+        insertBootstrapOwnershipSnapshot(runId, "2");
         updateCollectionLifecycle(MILADY_ADDRESS, {
             status: COLLECTION_STATUS.Live,
             bootstrapFinishedAt: "2026-02-01T00:01:00Z",
             bootstrapLastSyncedBlock: 24_500_100,
             openseaSlug: "milady-maker",
-            openseaStatus: "ready",
+            openseaStatus: OPENSEA_COLLECTION_STATUS.Ready,
             openseaReadyAt: "2026-02-01T00:02:00Z",
             openseaSnapshotStartedAt: "2026-02-01T00:01:10Z",
             openseaSnapshotCompletedAt: "2026-02-01T00:01:50Z",
@@ -4270,7 +4828,6 @@ describe("backend api routes", () => {
         expect(
             detail.payload.flow.steps.map((step: { key: string }) => step.key),
         ).toEqual([
-            "requested",
             "queued",
             "anchor",
             "enumeration",
@@ -4291,7 +4848,43 @@ describe("backend api routes", () => {
             expect.objectContaining({
                 state: "completed",
                 progress: {
-                    completed: 1,
+                    completed: 2,
+                    total: 2,
+                },
+            }),
+        );
+        expect(
+            detail.payload.flow.steps.find(
+                (step: { key: string }) => step.key === "enumeration",
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                progress: {
+                    completed: 2,
+                    total: 2,
+                },
+            }),
+        );
+        expect(
+            detail.payload.flow.steps.find(
+                (step: { key: string }) => step.key === "image_cache",
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                progress: {
+                    completed: 2,
+                    total: 2,
+                },
+            }),
+        );
+        expect(
+            detail.payload.flow.steps.find(
+                (step: { key: string }) => step.key === "ownership",
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                progress: {
+                    completed: 2,
                     total: 2,
                 },
             }),
@@ -4319,11 +4912,23 @@ describe("backend api routes", () => {
                 "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
             anchorBlockTimestamp: 1_726_000_200,
         });
-        insertBootstrapRunEvent(olderRunId, "run.requested");
-        insertBootstrapRunEvent(olderRunId, "run.queued");
-        insertBootstrapRunEvent(olderRunId, "run.anchor.selected");
-        insertBootstrapRunEvent(olderRunId, "metadata.enumeration.completed");
-        insertBootstrapRunEvent(olderRunId, "metadata.queued");
+        insertBootstrapRunEvent(
+            olderRunId,
+            BOOTSTRAP_RUN_EVENT_CODE.RunRequested,
+        );
+        insertBootstrapRunEvent(olderRunId, BOOTSTRAP_RUN_EVENT_CODE.RunQueued);
+        insertBootstrapRunEvent(
+            olderRunId,
+            BOOTSTRAP_RUN_EVENT_CODE.RunAnchorSelected,
+        );
+        insertBootstrapRunEvent(
+            olderRunId,
+            BOOTSTRAP_RUN_EVENT_CODE.MetadataEnumerationCompleted,
+        );
+        insertBootstrapRunEvent(
+            olderRunId,
+            BOOTSTRAP_RUN_EVENT_CODE.MetadataQueued,
+        );
 
         insertBootstrapRun({
             chainId: 1,
@@ -4338,7 +4943,7 @@ describe("backend api routes", () => {
         updateCollectionLifecycle(MILADY_ADDRESS, {
             status: COLLECTION_STATUS.Live,
             openseaSlug: "milady-maker",
-            openseaStatus: "ready",
+            openseaStatus: OPENSEA_COLLECTION_STATUS.Ready,
             openseaReadyAt: "2026-02-02T00:02:00Z",
             openseaSnapshotStartedAt: "2026-02-02T00:01:00Z",
             openseaSnapshotCompletedAt: "2026-02-02T00:01:40Z",
@@ -5515,23 +6120,8 @@ function insertBootstrapMetadataTask(
     tokenId: string,
     status: "pending" | "retry" | "succeeded" | "failed_terminal",
 ): void {
-    const run = db
-        .prepare<
-            [number]
-        >("SELECT r.chain_id, r.collection_id, c.address, r.request_standard, r.anchor_block, r.anchor_block_hash, r.anchor_block_timestamp " + "FROM bootstrap_runs r " + "JOIN collections c ON c.chain_id = r.chain_id AND c.collection_id = r.collection_id " + "WHERE r.run_id = ? LIMIT 1")
-        .get(runId) as
-        | {
-              chain_id: number;
-              collection_id: number;
-              address: string;
-              request_standard: string;
-              anchor_block: number | null;
-              anchor_block_hash: string | null;
-              anchor_block_timestamp: number | null;
-          }
-        | undefined;
+    const run = resolveBootstrapRunFixture(runId);
     if (
-        !run ||
         run.anchor_block === null ||
         !run.anchor_block_hash ||
         run.anchor_block_timestamp === null
@@ -5559,10 +6149,122 @@ function insertBootstrapMetadataTask(
     );
 }
 
+function insertBootstrapImageCacheTask(
+    runId: number,
+    tokenId: string,
+    status: "pending" | "retry" | "succeeded" | "failed_terminal",
+): void {
+    const run = resolveBootstrapRunFixture(runId);
+    db.prepare(
+        "INSERT INTO bootstrap_image_cache_tasks " +
+            "(run_id, chain_id, collection_id, contract_address, token_id, source_image_url, requested_max_dimension, status, attempts, next_attempt_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0)",
+    ).run(
+        runId,
+        run.chain_id,
+        run.collection_id,
+        run.address.toLowerCase(),
+        tokenId,
+        `https://images.example/${tokenId}.png`,
+        512,
+        status,
+    );
+}
+
+function insertBootstrapOwnershipTask(
+    runId: number,
+    tokenId: string,
+    status: "pending" | "retry" | "succeeded" | "failed_terminal",
+): void {
+    const run = resolveBootstrapRunFixture(runId);
+    if (
+        run.anchor_block === null ||
+        !run.anchor_block_hash ||
+        run.anchor_block_timestamp === null
+    ) {
+        throw new Error(
+            "Missing run anchor data for ownership task fixture insertion",
+        );
+    }
+
+    db.prepare(
+        "INSERT INTO bootstrap_ownership_snapshot_tasks " +
+            "(run_id, chain_id, collection_id, contract_address, token_id, standard, anchor_block, anchor_block_hash, anchor_block_timestamp, status, attempts, next_attempt_at, last_error, last_error_at, created_at, updated_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+    ).run(
+        runId,
+        run.chain_id,
+        run.collection_id,
+        run.address.toLowerCase(),
+        tokenId,
+        run.request_standard,
+        run.anchor_block,
+        run.anchor_block_hash,
+        run.anchor_block_timestamp,
+        status,
+    );
+}
+
+function insertBootstrapOwnershipSnapshot(
+    runId: number,
+    tokenId: string,
+): void {
+    const run = resolveBootstrapRunFixture(runId);
+    if (run.anchor_block === null) {
+        throw new Error(
+            "Missing run anchor data for ownership snapshot fixture insertion",
+        );
+    }
+    db.prepare(
+        "INSERT INTO nft_balance_snapshots " +
+            "(run_id, chain_id, collection_id, contract_address, token_id, owner, anchor_block) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+        runId,
+        run.chain_id,
+        run.collection_id,
+        run.address.toLowerCase(),
+        tokenId,
+        ZERO_ADDRESS,
+        run.anchor_block,
+    );
+}
+
+function resolveBootstrapRunFixture(runId: number): {
+    chain_id: number;
+    collection_id: number;
+    address: string;
+    request_standard: string;
+    anchor_block: number | null;
+    anchor_block_hash: string | null;
+    anchor_block_timestamp: number | null;
+} {
+    const run = db
+        .prepare<
+            [number]
+        >("SELECT r.chain_id, r.collection_id, c.address, r.request_standard, r.anchor_block, r.anchor_block_hash, r.anchor_block_timestamp " + "FROM bootstrap_runs r " + "JOIN collections c ON c.chain_id = r.chain_id AND c.collection_id = r.collection_id " + "WHERE r.run_id = ? LIMIT 1")
+        .get(runId) as
+        | {
+              chain_id: number;
+              collection_id: number;
+              address: string;
+              request_standard: string;
+              anchor_block: number | null;
+              anchor_block_hash: string | null;
+              anchor_block_timestamp: number | null;
+          }
+        | undefined;
+    if (!run) {
+        throw new Error("Missing bootstrap run fixture");
+    }
+    return run;
+}
+
 function insertBootstrapRunEvent(
     runId: number,
     eventCode: string,
     eventLevel: "info" | "warn" | "error" = "info",
+    payloadJson: string | null = null,
 ): void {
     const run = db
         .prepare<
@@ -5581,7 +6283,7 @@ function insertBootstrapRunEvent(
     db.prepare(
         "INSERT INTO bootstrap_run_events " +
             "(run_id, chain_id, collection_id, event_code, event_level, message, payload_json, created_at) " +
-            "VALUES (?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
     ).run(
         runId,
         run.chain_id,
@@ -5589,6 +6291,7 @@ function insertBootstrapRunEvent(
         eventCode,
         eventLevel,
         eventCode,
+        payloadJson,
     );
 }
 
@@ -5599,16 +6302,7 @@ function updateCollectionLifecycle(
         bootstrapFinishedAt?: string | null;
         bootstrapLastSyncedBlock?: number | null;
         openseaSlug?: string | null;
-        openseaStatus?:
-            | "pending"
-            | "identity_running"
-            | "subscribing"
-            | "snapshot_pending"
-            | "snapshot_running"
-            | "ready"
-            | "retrying"
-            | "failed"
-            | null;
+        openseaStatus?: OpenSeaCollectionStatus | null;
         openseaReadyAt?: string | null;
         openseaSnapshotStartedAt?: string | null;
         openseaSnapshotCompletedAt?: string | null;

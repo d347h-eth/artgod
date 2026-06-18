@@ -10,6 +10,7 @@ import {
     SqliteCollectionsReadModel,
 } from "@artgod/shared/read-models";
 import { CreateBootstrapRunUseCase } from "./application/use-cases/bootstrap/create-bootstrap-run.js";
+import { ApplyBootstrapRunStepActionUseCase } from "./application/use-cases/bootstrap/apply-bootstrap-run-step-action.js";
 import { GetBootstrapRunDetailUseCase } from "./application/use-cases/bootstrap/get-bootstrap-run-detail.js";
 import { GetBootstrapStatusUseCase } from "./application/use-cases/bootstrap/get-bootstrap-status.js";
 import { ListBootstrapRunsUseCase } from "./application/use-cases/bootstrap/list-bootstrap-runs.js";
@@ -255,6 +256,7 @@ export function createBackendApp(
         config.defaultChainId,
         chainsReadModel,
         bootstrapContractProbe,
+        builtInCollectionExtensionResolver,
     );
     const getBootstrapStatusUseCase = new GetBootstrapStatusUseCase(
         config.defaultChainId,
@@ -274,6 +276,13 @@ export function createBackendApp(
     );
     const retryBootstrapRunFailedTasksUseCase =
         new RetryBootstrapRunFailedTasksUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            bootstrapRunsRepository,
+            bootstrapCommandQueue,
+        );
+    const applyBootstrapRunStepActionUseCase =
+        new ApplyBootstrapRunStepActionUseCase(
             config.defaultChainId,
             chainsReadModel,
             bootstrapRunsRepository,
@@ -554,6 +563,7 @@ export function createBackendApp(
         getBootstrapRunDetailUseCase,
         getBootstrapStatusUseCase,
         retryBootstrapRunFailedTasksUseCase,
+        applyBootstrapRunStepActionUseCase,
         getDefaultChainUseCase,
         getRuntimeConfigUseCase,
         listCollectionsUseCase,

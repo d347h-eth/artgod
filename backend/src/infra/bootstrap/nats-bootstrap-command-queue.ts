@@ -7,6 +7,11 @@ import {
     type JetStreamManager,
     type NatsConnection,
 } from "nats";
+import {
+    BOOTSTRAP_JOB_ID_SCOPE,
+    BOOTSTRAP_JOB_KIND,
+    BOOTSTRAP_QUEUE_NAME,
+} from "@artgod/shared/bootstrap/jobs";
 import type { BootstrapCommandQueuePort } from "../../application/use-cases/bootstrap/ports.js";
 
 type JobEnvelope<TPayload> = {
@@ -20,15 +25,6 @@ type JobEnvelope<TPayload> = {
     collectionId?: number;
     traceId?: string;
 };
-
-const QUEUE_NAMES = {
-    CollectionBootstrap: "collection-bootstrap",
-} as const;
-
-const BOOTSTRAP_JOB_KIND = {
-    Start: "bootstrap.collection.start",
-    MetadataProcess: "bootstrap.collection.metadata-process",
-} as const;
 
 export class NatsBootstrapCommandQueue implements BootstrapCommandQueuePort {
     private readonly streamName: string;
@@ -48,14 +44,14 @@ export class NatsBootstrapCommandQueue implements BootstrapCommandQueuePort {
         collectionId: number;
     }): Promise<void> {
         await this.publishJob(
-            QUEUE_NAMES.CollectionBootstrap,
+            BOOTSTRAP_QUEUE_NAME.CollectionBootstrap,
             {
                 chainId: input.chainId,
                 runId: input.runId,
                 collectionId: input.collectionId,
             },
             BOOTSTRAP_JOB_KIND.Start,
-            `bootstrap:start:${input.chainId}:${input.runId}:${Date.now()}`,
+            `${BOOTSTRAP_JOB_ID_SCOPE.Start}:${input.chainId}:${input.runId}:${Date.now()}`,
             input.chainId,
             input.collectionId,
         );
@@ -73,7 +69,7 @@ export class NatsBootstrapCommandQueue implements BootstrapCommandQueuePort {
         anchorTimestamp: number;
     }): Promise<void> {
         await this.publishJob(
-            QUEUE_NAMES.CollectionBootstrap,
+            BOOTSTRAP_QUEUE_NAME.CollectionBootstrap,
             {
                 chainId: input.chainId,
                 runId: input.runId,
@@ -86,7 +82,36 @@ export class NatsBootstrapCommandQueue implements BootstrapCommandQueuePort {
                 anchorTimestamp: input.anchorTimestamp,
             },
             BOOTSTRAP_JOB_KIND.MetadataProcess,
-            `bootstrap:metadata:${input.chainId}:${input.runId}:${Date.now()}`,
+            `${BOOTSTRAP_JOB_ID_SCOPE.Metadata}:${input.chainId}:${input.runId}:${Date.now()}`,
+            input.chainId,
+            input.collectionId,
+        );
+    }
+
+    async publishBootstrapImageCacheProcess(input: {
+        chainId: number;
+        runId: number;
+        collectionId: number;
+        address: string;
+        standard: "erc721" | "erc1155";
+        anchorBlock: number;
+        anchorHash: string;
+        anchorTimestamp: number;
+    }): Promise<void> {
+        await this.publishJob(
+            BOOTSTRAP_QUEUE_NAME.CollectionBootstrapImageCache,
+            {
+                chainId: input.chainId,
+                runId: input.runId,
+                collectionId: input.collectionId,
+                address: input.address,
+                standard: input.standard,
+                anchorBlock: input.anchorBlock,
+                anchorHash: input.anchorHash,
+                anchorTimestamp: input.anchorTimestamp,
+            },
+            BOOTSTRAP_JOB_KIND.ImageCacheProcess,
+            `${BOOTSTRAP_JOB_ID_SCOPE.ImageCache}:${input.chainId}:${input.runId}:${Date.now()}`,
             input.chainId,
             input.collectionId,
         );

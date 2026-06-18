@@ -51,4 +51,37 @@ describe("SharpTokenImageCache", () => {
         expect(existsSync(cachedPath)).toBe(true);
         expect(readFileSync(cachedPath).byteLength).toBe(result.cachedBytes);
     });
+
+    it("caches original bytes without loading sharp when resize is disabled", async () => {
+        const source = Buffer.from(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="2"></svg>',
+        );
+        const cache = new SharpTokenImageCache({
+            rootDir: tempDir,
+            ipfsGatewayOrigin: "https://ipfs.io",
+            maxSourceBytes: 1024 * 1024,
+            sharpLoader: async () => {
+                throw new Error("sharp should not load for passthrough");
+            },
+        });
+
+        const result = await cache.cacheTokenImage({
+            chainId: 1,
+            collectionId: 2,
+            tokenId: "7",
+            sourceImageUrl: `data:image/svg+xml;base64,${source.toString("base64")}`,
+            requestedMaxDimension: null,
+        });
+
+        expect(result.contentType).toBe("image/svg+xml");
+        expect(result.width).toBe(null);
+        expect(result.height).toBe(null);
+        expect(result.publicPath).toMatch(
+            /^\/media\/token-images\/1\/2\/7\/[a-f0-9]+\.svg$/,
+        );
+        const cachedPath = join(tempDir, result.relativePath);
+        expect(readFileSync(cachedPath)).toEqual(source);
+        expect(result.sourceBytes).toBe(source.byteLength);
+        expect(result.cachedBytes).toBe(source.byteLength);
+    });
 });

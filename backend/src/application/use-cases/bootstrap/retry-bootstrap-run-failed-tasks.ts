@@ -1,4 +1,9 @@
 import { ReadModelNotFoundError } from "@artgod/shared/read-models/errors";
+import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
+import {
+    BOOTSTRAP_RUN_STATUS,
+    type BootstrapRunStatus,
+} from "@artgod/shared/bootstrap/pipeline";
 import { BootstrapConflictError, BootstrapValidationError } from "./types.js";
 import type {
     BootstrapCommandQueuePort,
@@ -14,7 +19,7 @@ export type RetryBootstrapRunFailedTasksInput = {
 export type RetryBootstrapRunFailedTasksOutput = {
     runId: number;
     updatedCount: number;
-    status: string;
+    status: BootstrapRunStatus;
 };
 
 export class RetryBootstrapRunFailedTasksUseCase {
@@ -59,7 +64,7 @@ export class RetryBootstrapRunFailedTasksUseCase {
                 "Run anchor data is incomplete; queue new bootstrap run",
             );
         }
-        if (run.status === "failed") {
+        if (run.status === BOOTSTRAP_RUN_STATUS.Failed) {
             throw new BootstrapConflictError(
                 "Run failed fatally; queue a new bootstrap run",
             );
@@ -73,12 +78,15 @@ export class RetryBootstrapRunFailedTasksUseCase {
             };
         }
 
-        this.bootstrapRunsPort.updateRunStatus(run.runId, "metadata");
+        this.bootstrapRunsPort.updateRunStatus(
+            run.runId,
+            BOOTSTRAP_RUN_STATUS.Metadata,
+        );
         this.bootstrapRunsPort.appendRunEvent({
             runId: run.runId,
             chainId: run.chainId,
             collectionId: run.collectionId,
-            eventCode: "metadata.retry.failed_terminal",
+            eventCode: BOOTSTRAP_RUN_EVENT_CODE.MetadataRetryFailedTerminal,
             eventLevel: "info",
             message: "Failed metadata tasks moved back to retry",
             payloadJson: JSON.stringify({ updatedCount }),
@@ -99,7 +107,7 @@ export class RetryBootstrapRunFailedTasksUseCase {
         return {
             runId: run.runId,
             updatedCount,
-            status: "metadata",
+            status: BOOTSTRAP_RUN_STATUS.Metadata,
         };
     }
 }

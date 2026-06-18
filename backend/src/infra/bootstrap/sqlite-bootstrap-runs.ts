@@ -4,6 +4,19 @@ import {
     IMAGE_CACHE_MODE,
     type ImageCacheMode,
 } from "@artgod/shared/media/token-image-cache";
+import type { OpenSeaCollectionStatus } from "@artgod/shared/types";
+import {
+    BOOTSTRAP_RUN_STATUS,
+    BOOTSTRAP_STEP_KEY,
+    BOOTSTRAP_STEP_STATUS,
+    BOOTSTRAP_TASK_STATUS,
+    mapBootstrapTaskStatusCounts,
+    serializeBootstrapStepDependencies,
+    type BootstrapRunStatus,
+    type BootstrapRunStepPlan,
+    type BootstrapTaskStatus,
+    type BootstrapTaskStatusCountRow,
+} from "@artgod/shared/bootstrap/pipeline";
 import {
     normalizeAddressRef,
     normalizeSlugRef,
@@ -17,6 +30,8 @@ import type {
     BootstrapMetadataTaskListItem,
     BootstrapMetadataTaskStatus,
     BootstrapRunRow,
+    BootstrapRunStepRecord,
+    BootstrapRunTaskCounts,
 } from "../../application/use-cases/bootstrap/types.js";
 
 type CollectionRow = {
@@ -25,7 +40,7 @@ type CollectionRow = {
     slug: string;
     address: string;
     standard: string;
-    status: string;
+    status: BootstrapRunStatus;
     token_scope_kind:
         | "contract_all_tokens"
         | "token_range"
@@ -38,16 +53,7 @@ type CollectionRow = {
     bootstrap_finished_at: string | null;
     bootstrap_last_synced_block: number | null;
     opensea_slug: string | null;
-    opensea_status:
-        | "pending"
-        | "identity_running"
-        | "subscribing"
-        | "snapshot_pending"
-        | "snapshot_running"
-        | "ready"
-        | "retrying"
-        | "failed"
-        | null;
+    opensea_status: OpenSeaCollectionStatus | null;
     opensea_ready_at: string | null;
     opensea_snapshot_started_at: string | null;
     opensea_snapshot_completed_at: string | null;
@@ -71,7 +77,7 @@ type BootstrapRunDbRow = {
     request_image_cache_mode: ImageCacheMode;
     request_image_cache_max_dimension: number | null;
     deployment_block: number | null;
-    status: string;
+    status: BootstrapRunStatus;
     anchor_block: number | null;
     anchor_block_hash: string | null;
     anchor_block_timestamp: number | null;
@@ -97,6 +103,22 @@ type BootstrapRunEventDbRow = {
     message: string;
     created_at: string;
     payload_json: string | null;
+};
+
+type BootstrapTaskCountRow = {
+    status: string;
+    count: number;
+};
+
+type BootstrapRunStepDbRow = {
+    run_id: number;
+    step_key: BootstrapRunStepRecord["stepKey"];
+    status: BootstrapRunStepRecord["status"];
+    blocking: number;
+    progress_completed: number;
+    progress_total: number | null;
+    last_error: string | null;
+    config_json: string | null;
 };
 
 const COLLECTION_COLUMNS =
@@ -179,10 +201,16 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
     private selectActiveRunCount = db.prepare<{
         chainId: number;
         collectionId: number;
+        requestedStatus: BootstrapRunStatus;
+        queuedStatus: BootstrapRunStatus;
+        metadataStatus: BootstrapRunStatus;
+        imageCacheStatus: BootstrapRunStatus;
+        ownershipStatus: BootstrapRunStatus;
+        backfillStatus: BootstrapRunStatus;
     }>(
         "SELECT COUNT(*) AS count FROM bootstrap_runs " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId " +
-            "AND status IN ('requested', 'queued', 'metadata', 'image_cache', 'ownership', 'backfill')",
+            "AND status IN (@requestedStatus, @queuedStatus, @metadataStatus, @imageCacheStatus, @ownershipStatus, @backfillStatus)",
     );
 
     private insertRun = db.prepare<{
@@ -201,10 +229,25 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         imageCacheMode: ImageCacheMode;
         imageCacheMaxDimension: number | null;
         deploymentBlock: number | null;
+        requestedStatus: BootstrapRunStatus;
     }>(
         "INSERT INTO bootstrap_runs " +
             "(chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, request_image_cache_mode, request_image_cache_max_dimension, deployment_block, status) " +
-            "VALUES (@chainId, @collectionId, @requestSlug, @requestOpenseaSlug, @requestAddress, @requestStandard, @requestExtensionKey, @metadataMode, @enumerationMode, @manualTokenIdsJson, @manualRangeStartTokenId, @manualRangeTotalSupply, @imageCacheMode, @imageCacheMaxDimension, @deploymentBlock, 'requested')",
+            "VALUES (@chainId, @collectionId, @requestSlug, @requestOpenseaSlug, @requestAddress, @requestStandard, @requestExtensionKey, @metadataMode, @enumerationMode, @manualTokenIdsJson, @manualRangeStartTokenId, @manualRangeTotalSupply, @imageCacheMode, @imageCacheMaxDimension, @deploymentBlock, @requestedStatus)",
+    );
+
+    private insertRunStep = db.prepare<{
+        runId: number;
+        stepKey: string;
+        status: string;
+        blocking: number;
+        dependsOnJson: string;
+        progressTotal: number | null;
+        configJson: string | null;
+    }>(
+        "INSERT INTO bootstrap_run_steps " +
+            "(run_id, step_key, status, blocking, depends_on_json, progress_total, config_json) " +
+            "VALUES (@runId, @stepKey, @status, @blocking, @dependsOnJson, @progressTotal, @configJson)",
     );
 
     private selectLatestRun = db.prepare<{
@@ -222,7 +265,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
 
     private updateRunStatusStmt = db.prepare<{
         runId: number;
-        status: string;
+        status: BootstrapRunStatus;
         errorCode: string | null;
         errorMessage: string | null;
         finishedAt: string | null;
@@ -252,15 +295,111 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
             "WHERE run_id = @runId GROUP BY status",
     );
 
+    private selectRunImageCacheTaskCounts = db.prepare<{ runId: number }>(
+        "SELECT status, COUNT(*) AS count FROM bootstrap_image_cache_tasks " +
+            "WHERE run_id = @runId GROUP BY status",
+    );
+
+    private selectRunCollectionExtensionArtifactTaskCounts = db.prepare<{
+        runId: number;
+    }>(
+        "SELECT status, COUNT(*) AS count FROM bootstrap_collection_extension_artifact_tasks " +
+            "WHERE run_id = @runId GROUP BY status",
+    );
+
+    private selectRunOwnershipSnapshotCount = db.prepare<{ runId: number }>(
+        "SELECT COUNT(DISTINCT token_id) AS count FROM nft_balance_snapshots " +
+            "WHERE run_id = @runId",
+    );
+
+    private selectRunSteps = db.prepare<{ runId: number }>(
+        "SELECT run_id, step_key, status, blocking, progress_completed, progress_total, last_error, config_json " +
+            "FROM bootstrap_run_steps WHERE run_id = @runId ORDER BY rowid ASC",
+    );
+
+    private selectRunStep = db.prepare<{
+        runId: number;
+        stepKey: BootstrapRunStepRecord["stepKey"];
+    }>(
+        "SELECT run_id, step_key, status, blocking, progress_completed, progress_total, last_error, config_json " +
+            "FROM bootstrap_run_steps WHERE run_id = @runId AND step_key = @stepKey LIMIT 1",
+    );
+
+    private pauseRunStepStmt = db.prepare<{
+        runId: number;
+        stepKey: BootstrapRunStepRecord["stepKey"];
+        status: BootstrapRunStepRecord["status"];
+        expectedStatus: BootstrapRunStepRecord["status"];
+    }>(
+        "UPDATE bootstrap_run_steps SET status = @status, lease_owner = NULL, lease_until = NULL, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND step_key = @stepKey AND status = @expectedStatus",
+    );
+
+    private resumeRunStepStmt = db.prepare<{
+        runId: number;
+        stepKey: BootstrapRunStepRecord["stepKey"];
+        status: BootstrapRunStepRecord["status"];
+        expectedStatus: BootstrapRunStepRecord["status"];
+    }>(
+        "UPDATE bootstrap_run_steps SET status = @status, next_attempt_at = 0, lease_owner = NULL, lease_until = NULL, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND step_key = @stepKey AND status = @expectedStatus",
+    );
+
+    private retryTerminalRunStepStmt = db.prepare<{
+        runId: number;
+        stepKey: BootstrapRunStepRecord["stepKey"];
+        readyStatus: BootstrapRunStepRecord["status"];
+        failedTerminalStatus: BootstrapRunStepRecord["status"];
+    }>(
+        "UPDATE bootstrap_run_steps SET " +
+            "status = @readyStatus, next_attempt_at = 0, lease_owner = NULL, lease_until = NULL, " +
+            "attempts = 0, last_error = NULL, last_error_at = NULL, finished_at = NULL, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND step_key = @stepKey AND status = @failedTerminalStatus",
+    );
+
     private selectRunEvents = db.prepare<{ runId: number }>(
         "SELECT event_code, event_level, message, created_at, payload_json " +
             "FROM bootstrap_run_events WHERE run_id = @runId ORDER BY id ASC",
     );
 
-    private markFailedTasksRetry = db.prepare<{ runId: number }>(
+    private markFailedTasksRetry = db.prepare<{
+        runId: number;
+        retryStatus: BootstrapMetadataTaskStatus;
+        failedTerminalStatus: BootstrapMetadataTaskStatus;
+    }>(
         "UPDATE bootstrap_metadata_snapshot_tasks SET " +
-            "status = 'retry', next_attempt_at = 0, updated_at = CURRENT_TIMESTAMP " +
-            "WHERE run_id = @runId AND status = 'failed_terminal'",
+            "status = @retryStatus, next_attempt_at = 0, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND status = @failedTerminalStatus",
+    );
+
+    private markFailedImageCacheTasksRetry = db.prepare<{
+        runId: number;
+        retryStatus: BootstrapTaskStatus;
+        failedTerminalStatus: BootstrapTaskStatus;
+    }>(
+        "UPDATE bootstrap_image_cache_tasks SET " +
+            "status = @retryStatus, next_attempt_at = 0, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND status = @failedTerminalStatus",
+    );
+
+    private markFailedOwnershipTasksRetry = db.prepare<{
+        runId: number;
+        retryStatus: BootstrapTaskStatus;
+        failedTerminalStatus: BootstrapTaskStatus;
+    }>(
+        "UPDATE bootstrap_ownership_snapshot_tasks SET " +
+            "status = @retryStatus, next_attempt_at = 0, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND status = @failedTerminalStatus",
+    );
+
+    private markFailedCollectionExtensionArtifactTasksRetry = db.prepare<{
+        runId: number;
+        retryStatus: BootstrapTaskStatus;
+        failedTerminalStatus: BootstrapTaskStatus;
+    }>(
+        "UPDATE bootstrap_collection_extension_artifact_tasks SET " +
+            "status = @retryStatus, next_attempt_at = 0, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND status = @failedTerminalStatus",
     );
 
     findCollectionBySlug(
@@ -378,6 +517,12 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         const row = this.selectActiveRunCount.get({
             chainId,
             collectionId,
+            requestedStatus: BOOTSTRAP_RUN_STATUS.Requested,
+            queuedStatus: BOOTSTRAP_RUN_STATUS.Queued,
+            metadataStatus: BOOTSTRAP_RUN_STATUS.Metadata,
+            imageCacheStatus: BOOTSTRAP_RUN_STATUS.ImageCache,
+            ownershipStatus: BOOTSTRAP_RUN_STATUS.Ownership,
+            backfillStatus: BOOTSTRAP_RUN_STATUS.Backfill,
         }) as { count: number } | undefined;
         return (row?.count ?? 0) > 0;
     }
@@ -398,15 +543,34 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         imageCacheMode: ImageCacheMode;
         imageCacheMaxDimension: number | null;
         deploymentBlock: number | null;
+        steps: readonly BootstrapRunStepPlan[];
     }): BootstrapRunRow {
         const run = db.raw.transaction(() => {
-            this.insertRun.run(input);
+            this.insertRun.run({
+                ...input,
+                requestedStatus: BOOTSTRAP_RUN_STATUS.Requested,
+            });
             const row = this.selectLatestRun.get({
                 chainId: input.chainId,
                 collectionId: input.collectionId,
             }) as BootstrapRunDbRow | undefined;
             if (!row) {
                 throw new Error("Bootstrap run insert failed");
+            }
+            for (const step of input.steps) {
+                this.insertRunStep.run({
+                    runId: row.run_id,
+                    stepKey: step.stepKey,
+                    status: step.status,
+                    blocking: step.blocking ? 1 : 0,
+                    dependsOnJson: serializeBootstrapStepDependencies(
+                        step.dependsOn,
+                    ),
+                    progressTotal: step.progressTotal,
+                    configJson: step.config
+                        ? JSON.stringify(step.config)
+                        : null,
+                });
             }
             return mapRun(row);
         });
@@ -415,11 +579,12 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
 
     updateRunStatus(
         runId: number,
-        status: string,
+        status: BootstrapRunStatus,
         error?: { code: string; message: string } | null,
     ): void {
         const finishedAt =
-            status === "completed" || status === "failed"
+            status === BOOTSTRAP_RUN_STATUS.Completed ||
+            status === BOOTSTRAP_RUN_STATUS.Failed
                 ? new Date().toISOString()
                 : null;
         this.updateRunStatusStmt.run({
@@ -523,32 +688,76 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         };
     }
 
-    getRunTaskCounts(runId: number): {
-        pending: number;
-        retry: number;
-        succeeded: number;
-        failedTerminal: number;
-        total: number;
-    } {
-        const counts = {
-            pending: 0,
-            retry: 0,
-            succeeded: 0,
-            failedTerminal: 0,
-            total: 0,
-        };
+    getRunTaskCounts(runId: number): BootstrapRunTaskCounts {
         const rows = this.selectRunTaskCounts.all({
             runId,
-        }) as Array<{ status: string; count: number }>;
-        for (const row of rows) {
-            const value = Number(row.count) || 0;
-            if (row.status === "pending") counts.pending = value;
-            if (row.status === "retry") counts.retry = value;
-            if (row.status === "succeeded") counts.succeeded = value;
-            if (row.status === "failed_terminal") counts.failedTerminal = value;
-            counts.total += value;
-        }
-        return counts;
+        }) as BootstrapTaskCountRow[];
+        return mapTaskCountRows(rows);
+    }
+
+    getRunImageCacheTaskCounts(runId: number): BootstrapRunTaskCounts {
+        const rows = this.selectRunImageCacheTaskCounts.all({
+            runId,
+        }) as BootstrapTaskCountRow[];
+        return mapTaskCountRows(rows);
+    }
+
+    getRunCollectionExtensionArtifactTaskCounts(
+        runId: number,
+    ): BootstrapRunTaskCounts {
+        const rows = this.selectRunCollectionExtensionArtifactTaskCounts.all({
+            runId,
+        }) as BootstrapTaskCountRow[];
+        return mapTaskCountRows(rows);
+    }
+
+    getRunOwnershipSnapshotCount(runId: number): number {
+        const row = this.selectRunOwnershipSnapshotCount.get({ runId }) as
+            | { count: number | bigint }
+            | undefined;
+        return Number(row?.count ?? 0);
+    }
+
+    getRunStep(
+        runId: number,
+        stepKey: BootstrapRunStepRecord["stepKey"],
+    ): BootstrapRunStepRecord | null {
+        const row = this.selectRunStep.get({
+            runId,
+            stepKey,
+        }) as BootstrapRunStepDbRow | undefined;
+        return row ? mapRunStep(row) : null;
+    }
+
+    listRunSteps(runId: number): BootstrapRunStepRecord[] {
+        const rows = this.selectRunSteps.all({
+            runId,
+        }) as BootstrapRunStepDbRow[];
+        return rows.map(mapRunStep);
+    }
+
+    pauseRunStep(input: {
+        runId: number;
+        stepKey: BootstrapRunStepRecord["stepKey"];
+        expectedStatus: BootstrapRunStepRecord["status"];
+    }): boolean {
+        const result = this.pauseRunStepStmt.run({
+            ...input,
+            status: BOOTSTRAP_STEP_STATUS.Paused,
+        });
+        return result.changes > 0;
+    }
+
+    resumeRunStep(input: {
+        runId: number;
+        stepKey: BootstrapRunStepRecord["stepKey"];
+        expectedStatus: BootstrapRunStepRecord["status"];
+    }): boolean {
+        const result = this.resumeRunStepStmt.run({
+            ...input,
+            status: BOOTSTRAP_STEP_STATUS.Ready,
+        });
+        return result.changes > 0;
     }
 
     listRunMetadataTasks(params: {
@@ -595,8 +804,63 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
     }
 
     retryFailedTasks(runId: number): number {
-        const result = this.markFailedTasksRetry.run({ runId });
+        const result = this.markFailedTasksRetry.run({
+            runId,
+            retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
+            failedTerminalStatus: BOOTSTRAP_TASK_STATUS.FailedTerminal,
+        });
         return result.changes;
+    }
+
+    retryTerminalRunStep(
+        runId: number,
+        stepKey: BootstrapRunStepRecord["stepKey"],
+    ): {
+        stepUpdated: boolean;
+        taskUpdatedCount: number;
+    } {
+        const retryTerminal = db.raw.transaction(() => {
+            const stepResult = this.retryTerminalRunStepStmt.run({
+                runId,
+                stepKey,
+                readyStatus: BOOTSTRAP_STEP_STATUS.Ready,
+                failedTerminalStatus: BOOTSTRAP_STEP_STATUS.FailedTerminal,
+            });
+            const stepUpdated = stepResult.changes > 0;
+            return {
+                stepUpdated,
+                taskUpdatedCount: stepUpdated
+                    ? this.retryTerminalTasks(runId, stepKey)
+                    : 0,
+            };
+        });
+        return retryTerminal();
+    }
+
+    private retryTerminalTasks(
+        runId: number,
+        stepKey: BootstrapRunStepRecord["stepKey"],
+    ): number {
+        const params = {
+            runId,
+            retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
+            failedTerminalStatus: BOOTSTRAP_TASK_STATUS.FailedTerminal,
+        };
+        if (stepKey === BOOTSTRAP_STEP_KEY.Metadata) {
+            return this.markFailedTasksRetry.run(params).changes;
+        }
+        if (stepKey === BOOTSTRAP_STEP_KEY.ImageCache) {
+            return this.markFailedImageCacheTasksRetry.run(params).changes;
+        }
+        if (stepKey === BOOTSTRAP_STEP_KEY.Ownership) {
+            return this.markFailedOwnershipTasksRetry.run(params).changes;
+        }
+        if (stepKey === BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts) {
+            return this.markFailedCollectionExtensionArtifactTasksRetry.run(
+                params,
+            ).changes;
+        }
+        return 0;
     }
 }
 
@@ -622,6 +886,25 @@ function mapCollection(row: CollectionRow): CollectionBootstrapState {
         openseaSnapshotStartedAt: row.opensea_snapshot_started_at,
         openseaSnapshotCompletedAt: row.opensea_snapshot_completed_at,
         openseaLastError: row.opensea_last_error,
+    };
+}
+
+function mapTaskCountRows(
+    rows: BootstrapTaskCountRow[],
+): BootstrapRunTaskCounts {
+    return mapBootstrapTaskStatusCounts(rows as BootstrapTaskStatusCountRow[]);
+}
+
+function mapRunStep(row: BootstrapRunStepDbRow): BootstrapRunStepRecord {
+    return {
+        runId: row.run_id,
+        stepKey: row.step_key,
+        status: row.status,
+        blocking: row.blocking === 1,
+        progressCompleted: row.progress_completed,
+        progressTotal: row.progress_total,
+        lastError: row.last_error,
+        configJson: row.config_json,
     };
 }
 

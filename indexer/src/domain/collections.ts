@@ -1,7 +1,10 @@
 // Collection identity is the primary anchor of the indexer. Everything
 // downstream should depend on this domain model, not on raw contract-address
 // heuristics or ad hoc scope-kind string checks.
-import type { CollectionStatus } from "@artgod/shared/types";
+import type {
+    CollectionStatus,
+    OpenSeaCollectionStatus,
+} from "@artgod/shared/types";
 
 // Collection standards supported by the on-chain indexer and order domain.
 export const COLLECTION_STANDARD = {
@@ -11,16 +14,6 @@ export const COLLECTION_STANDARD = {
 
 export type CollectionStandard =
     (typeof COLLECTION_STANDARD)[keyof typeof COLLECTION_STANDARD];
-
-export type OpenSeaCollectionStatus =
-    | "pending"
-    | "identity_running"
-    | "subscribing"
-    | "snapshot_pending"
-    | "snapshot_running"
-    | "ready"
-    | "retrying"
-    | "failed";
 
 // Keep raw scope literals private to this module.
 const TOKEN_SCOPE_KIND = {

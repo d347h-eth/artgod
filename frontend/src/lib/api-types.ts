@@ -12,6 +12,16 @@ import {
 	type TradingBiddingTierSelectionMode
 } from '@artgod/shared/types';
 import type { ImageCacheMode } from '@artgod/shared/media/token-image-cache';
+import type {
+	BootstrapFlowStepKey,
+	BootstrapFlowStepState,
+	BootstrapRunStatus,
+	BootstrapStepAction,
+	BootstrapStepKey,
+	BootstrapStepStatus,
+	BootstrapTaskCounts,
+	BootstrapTaskStatus
+} from '@artgod/shared/bootstrap/pipeline';
 
 export type ApiChain = {
 	id: number;
@@ -226,12 +236,14 @@ export type ApiBootstrapProbeImageStorageEstimate = {
 	sampleImageBytes: number;
 	projectedBytes: string;
 	totalSupply: string;
+	contentType: string | null;
 } | null;
 
 export type BootstrapContractProbeApiResponse = {
 	chain: ApiChain;
 	address: string;
 	standard: 'erc721';
+	contractName: string | null;
 	erc721: ApiBootstrapProbeInterfaceCheck;
 	enumerable: ApiBootstrapProbeInterfaceCheck;
 	totalSupply: ApiBootstrapProbeTotalSupply;
@@ -249,6 +261,11 @@ export type BootstrapContractProbeApiResponse = {
 			| null;
 		ready: boolean;
 		warnings: string[];
+	};
+	imageCacheSuggestion: {
+		selectedSource: ApiCollectionCustomizationSource;
+		extensionKey: string | null;
+		config: ApiImageCachePolicyConfig;
 	};
 };
 
@@ -806,15 +823,7 @@ export type ApiBootstrapRun = {
 	imageCacheMode: ApiImageCacheMode;
 	imageCacheMaxDimension: number | null;
 	deploymentBlock: number | null;
-	status:
-		| 'requested'
-		| 'queued'
-		| 'metadata'
-		| 'image_cache'
-		| 'ownership'
-		| 'backfill'
-		| 'completed'
-		| 'failed';
+	status: BootstrapRunStatus;
 	anchorBlock: number | null;
 	anchorBlockHash: string | null;
 	anchorBlockTimestamp: number | null;
@@ -849,31 +858,17 @@ export type ApiBootstrapRunCollectionSummary = {
 	status: 'bootstrapping' | 'live' | 'paused' | 'disabled';
 };
 
-export type ApiBootstrapRunTaskCounts = {
-	pending: number;
-	retry: number;
-	succeeded: number;
-	failedTerminal: number;
-	total: number;
-};
+export type ApiBootstrapRunTaskCounts = BootstrapTaskCounts;
 
 export type ApiBootstrapFlowStep = {
-	key:
-		| 'requested'
-		| 'queued'
-		| 'anchor'
-		| 'enumeration'
-		| 'metadata'
-		| 'image_cache'
-		| 'ownership'
-		| 'backfill'
-		| 'collection_live'
-		| 'opensea_identity'
-		| 'opensea_snapshot'
-		| 'opensea_ready';
+	key: BootstrapFlowStepKey;
 	label: string;
-	state: 'pending' | 'active' | 'completed' | 'failed';
+	state: BootstrapFlowStepState;
 	detailText: string | null;
+	blocking: boolean;
+	pausable: boolean;
+	paused: boolean;
+	availableActions: BootstrapStepAction[];
 	progress: {
 		completed: number;
 		total: number;
@@ -895,16 +890,7 @@ export type ApiBootstrapRunListItem = {
 export type BootstrapRunsApiResponse = {
 	chain: ApiChain;
 	filters: {
-		status:
-			| 'requested'
-			| 'queued'
-			| 'metadata'
-			| 'image_cache'
-			| 'ownership'
-			| 'backfill'
-			| 'completed'
-			| 'failed'
-			| null;
+		status: BootstrapRunStatus | null;
 	};
 	page: {
 		items: ApiBootstrapRunListItem[];
@@ -920,7 +906,7 @@ export type BootstrapRunDetailApiResponse = {
 	flow: ApiBootstrapRunFlow;
 	failedMetadataTasksPreview: Array<{
 		tokenId: string;
-		status: 'pending' | 'retry' | 'succeeded' | 'failed_terminal';
+		status: BootstrapTaskStatus;
 		attempts: number;
 		nextAttemptAt: number;
 		lastError: string | null;
@@ -941,6 +927,12 @@ export type BootstrapRetryFailedResponse = {
 	runId: number;
 	updatedCount: number;
 	status: string;
+};
+
+export type BootstrapStepActionApiResponse = {
+	runId: number;
+	stepKey: BootstrapStepKey;
+	status: BootstrapStepStatus;
 };
 
 export type ApiBlockspaceCoverageState = 'empty' | 'partial' | 'complete';

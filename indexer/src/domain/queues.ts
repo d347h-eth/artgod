@@ -1,10 +1,13 @@
 import { TOKEN_IMAGE_CACHE_QUEUE_NAME } from "@artgod/shared/media/token-image-cache-jobs";
+import { BOOTSTRAP_QUEUE_NAME } from "@artgod/shared/bootstrap/jobs";
 
 export const QUEUE_NAMES = {
     RealtimeSync: "events-sync-realtime",
     BackfillSync: "events-sync-backfill",
     BlockCheck: "block-check",
-    CollectionBootstrap: "collection-bootstrap",
+    CollectionBootstrap: BOOTSTRAP_QUEUE_NAME.CollectionBootstrap,
+    CollectionBootstrapImageCache:
+        BOOTSTRAP_QUEUE_NAME.CollectionBootstrapImageCache,
     OpenSeaBootstrap: "opensea-bootstrap",
     OpenSeaReconcile: "opensea-reconcile",
     OffchainOrdersRaw: "offchain-orders-raw",

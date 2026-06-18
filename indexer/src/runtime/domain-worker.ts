@@ -27,6 +27,7 @@ import {
 } from "../domain/activity-jobs.js";
 import {
     DOMAIN_JOB_KIND,
+    METADATA_STATS_RECOMPUTE_REASON,
     type DomainSyncPayload,
     type MetadataRefreshPayload,
     type MetadataRefreshRangePayload,
@@ -314,7 +315,8 @@ async function main() {
                             {
                                 chainId: job.chainId,
                                 collectionId: updated.collectionId,
-                                reason: "metadata-refresh",
+                                reason:
+                                    METADATA_STATS_RECOMPUTE_REASON.MetadataRefresh,
                                 sourceJobId: job.jobId,
                             },
                             job.traceId ?? job.jobId,
@@ -501,9 +503,9 @@ function deriveMetadataStatsReason(
     sourceJobId: string,
 ): MetadataStatsRecomputePayload["reason"] {
     if (sourceJobId.startsWith("sync:reorg:")) {
-        return "reorg-resync";
+        return METADATA_STATS_RECOMPUTE_REASON.ReorgResync;
     }
-    return "metadata-sync";
+    return METADATA_STATS_RECOMPUTE_REASON.MetadataSync;
 }
 
 async function handleMetadataRefreshRangeJob(
@@ -548,7 +550,7 @@ async function handleMetadataRefreshRangeJob(
                 {
                     chainId: payload.chainId,
                     collectionId,
-                    reason: "metadata-refresh",
+                    reason: METADATA_STATS_RECOMPUTE_REASON.MetadataRefresh,
                     sourceJobId,
                 },
                 traceId,

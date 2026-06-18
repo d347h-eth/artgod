@@ -4,6 +4,7 @@ import { db, setDbPath } from "@artgod/shared/database";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 import { SqliteMetadataStatsDomain } from "../src/infra/domain/metadata-stats.js";
+import { METADATA_STATS_RECOMPUTE_REASON } from "../src/domain/domain-jobs.js";
 
 describe("metadata trait stats recompute", () => {
     loadTestEnv();
@@ -72,7 +73,7 @@ describe("metadata trait stats recompute", () => {
         await domain.handleRecompute({
             chainId,
             collectionId,
-            reason: "metadata-sync",
+            reason: METADATA_STATS_RECOMPUTE_REASON.MetadataSync,
         });
 
         const rows = db
@@ -118,7 +119,7 @@ describe("metadata trait stats recompute", () => {
         await domain.handleRecompute({
             chainId,
             collectionId,
-            reason: "metadata-sync",
+            reason: METADATA_STATS_RECOMPUTE_REASON.MetadataSync,
         });
 
         db.exec("DELETE FROM token_attributes;");
@@ -127,7 +128,7 @@ describe("metadata trait stats recompute", () => {
         await domain.handleRecompute({
             chainId,
             collectionId,
-            reason: "metadata-refresh",
+            reason: METADATA_STATS_RECOMPUTE_REASON.MetadataRefresh,
         });
 
         const row = db

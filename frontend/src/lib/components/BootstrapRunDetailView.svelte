@@ -1,9 +1,18 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { getBootstrapRunDetail, retryBootstrapFailedTasks } from '$lib/backend-api';
+	import {
+		applyBootstrapStepAction,
+		getBootstrapRunDetail,
+		retryBootstrapFailedTasks
+	} from '$lib/backend-api';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
-	import type { BootstrapRunDetailApiResponse } from '$lib/api-types';
+	import type { ApiBootstrapFlowStep, BootstrapRunDetailApiResponse } from '$lib/api-types';
 	import { APP_VERSION } from '$lib/runtime/app-version';
+	import {
+		BOOTSTRAP_STEP_ACTION,
+		isBootstrapStepKey,
+		type BootstrapStepAction
+	} from '@artgod/shared/bootstrap/pipeline';
 
 	const BOOTSTRAP_POLL_INTERVAL_MS = 1_000;
 
@@ -22,6 +31,8 @@
 	let loadError = $state<string | null>(null);
 	let retryPending = $state(false);
 	let retryMessage = $state<string | null>(null);
+	let stepActionPending = $state<string | null>(null);
+	let stepActionError = $state<string | null>(null);
 	let refreshInFlight = false;
 	let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -83,11 +94,45 @@
 		}
 	}
 
-	function flowProgressLabel(
-		step: NonNullable<BootstrapRunDetailApiResponse['flow']>['steps'][number]
-	): string | null {
+	async function onStepAction(
+		step: ApiBootstrapFlowStep,
+		action: BootstrapStepAction
+	): Promise<void> {
+		if (!chainRef || !runId) return;
+		if (!isBootstrapStepKey(step.key)) return;
+		const pendingKey = stepActionKey(step, action);
+		if (stepActionPending) return;
+		stepActionPending = pendingKey;
+		stepActionError = null;
+		try {
+			await applyBootstrapStepAction(fetch, chainRef, runId, step.key, action);
+			await refreshRunDetail();
+		} catch (error) {
+			stepActionError = error instanceof Error ? error.message : 'bootstrap step action failed';
+		} finally {
+			stepActionPending = null;
+		}
+	}
+
+	function stepActionKey(step: ApiBootstrapFlowStep, action: BootstrapStepAction): string {
+		return `${step.key}:${action}`;
+	}
+
+	function stepActionLabel(action: BootstrapStepAction): string {
+		if (action === BOOTSTRAP_STEP_ACTION.Pause) return 'pause';
+		if (action === BOOTSTRAP_STEP_ACTION.Resume) return 'resume';
+		return 'retry';
+	}
+
+	function flowProgressLabel(step: ApiBootstrapFlowStep): string | null {
 		if (!step.progress) return null;
 		return `${step.progress.completed} / ${step.progress.total}`;
+	}
+
+	function flowProgressPercentLabel(step: ApiBootstrapFlowStep): string | null {
+		if (!step.progress || step.progress.total <= 0) return null;
+		const percent = Math.round((step.progress.completed / step.progress.total) * 100);
+		return `${Math.min(100, Math.max(0, percent))}%`;
 	}
 </script>
 
@@ -165,6 +210,9 @@
 			{#if loadError}
 				<div class="muted">{loadError}</div>
 			{/if}
+			{#if stepActionError}
+				<div class="muted">{stepActionError}</div>
+			{/if}
 		</section>
 
 		<section class="bootstrap-flow-panel">
@@ -174,9 +222,33 @@
 						<div class="bootstrap-flow-step-label">{step.label}</div>
 						{#if flowProgressLabel(step)}
 							<div class="mono bootstrap-flow-step-progress">{flowProgressLabel(step)}</div>
+							{#if flowProgressPercentLabel(step)}
+								<div class="mono bootstrap-flow-step-progress-percent">
+									{flowProgressPercentLabel(step)}
+								</div>
+							{/if}
 						{/if}
 						{#if step.detailText}
 							<div class="mono bootstrap-flow-step-detail">{step.detailText}</div>
+						{/if}
+						{#if step.availableActions.length > 0}
+							<div class="bootstrap-flow-step-actions">
+								{#each step.availableActions as action}
+									<button
+										type="button"
+										class="bootstrap-flow-step-action"
+										onclick={() => void onStepAction(step, action)}
+										disabled={stepActionPending !== null}
+										aria-label={`${stepActionLabel(action)} ${step.label}`}
+									>
+										{#if stepActionPending === stepActionKey(step, action)}
+											{stepActionLabel(action)}...
+										{:else}
+											{stepActionLabel(action)}
+										{/if}
+									</button>
+								{/each}
+							</div>
 						{/if}
 					</div>
 				{/each}

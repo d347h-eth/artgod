@@ -7,10 +7,15 @@
 		BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION
 	} from '@artgod/shared/config/bootstrap';
 	import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
+	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+	import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 	import type {
 		ApiChain,
+		ApiCollectionCustomizationSource,
+		ApiCollectionMediaMode,
 		ApiImageCacheMode,
 		ApiOpenSeaIntegrationStatus,
+		ApiTokenCard,
 		BootstrapContractProbeApiResponse,
 		BootstrapRunsApiResponse
 	} from '$lib/api-types';
@@ -21,18 +26,18 @@
 	import {
 		bootstrapProbeFormPatch,
 		bootstrapProbeStatusLabel,
+		contractNameToBootstrapSlug,
 		formatByteSize,
 		isBootstrapProbeableAddress,
 		normalizeBootstrapAddress
 	} from '$lib/bootstrap-contract-probe';
+	import { DEFAULT_BOOTSTRAP_METADATA_MODE } from '$lib/bootstrap-metadata-mode';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
-	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
+	import InfoTooltip from '$lib/components/InfoTooltip.svelte';
+	import TokenCardTile from '$lib/components/TokenCardTile.svelte';
+	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import { APP_VERSION } from '$lib/runtime/app-version';
-	import {
-		resolveTokenMediaIframeSource,
-		tokenMediaTitle,
-		type TokenMediaIframeSource
-	} from '$lib/token-media';
+	import { TEST_IDS } from '$lib/test-ids';
 
 	let {
 		chain,
@@ -63,11 +68,44 @@
 	const bootstrapSelectClass = 'bootstrap-control bootstrap-control-select';
 	const bootstrapTextareaClass = 'bootstrap-control bootstrap-control-textarea';
 	const bootstrapCheckboxClass = 'bootstrap-checkbox';
+	const bootstrapPreviewMediaModes: ApiCollectionMediaMode[] = [
+		{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
+	];
+	const tokenPreview = getTokenPreviewController();
+	const bootstrapFieldHelp = {
+		address: 'ERC721 contract address to probe and bootstrap.',
+		slug: 'Local collection slug used in ArtGod URLs.',
+		openseaSlug:
+			'Required for bidding. OpenSea event streams and orderbook require the OpenSea collection slug.',
+		probeStatus: 'Current backend contract probe result for this address.',
+		probeError: 'Probe failure returned by the backend.',
+		erc721Interface: 'ERC165 ERC721 support check.',
+		enumerableInterface: 'ERC165 ERC721Enumerable support check.',
+		contractTotalSupply: 'totalSupply() returned by the contract, when available.',
+		tokenUriPayloadSize: 'Fetched tokenURI metadata payload size for the preview token.',
+		projectedTokenUriPayloadSize: 'Approximate metadata payload storage for the collection.',
+		originalImageFileSize: 'Fetched image file size from the tokenURI image property.',
+		projectedOriginalImageFileSize: 'Approximate original image storage for the collection.',
+		cardImageFieldSize: 'Size of the tokenURI image field used directly when local cache is off.',
+		projectedCardImageFieldSize: 'Approximate token-card image field size for the collection.',
+		probeWarnings: 'Probe fallbacks or incomplete checks that may need review.',
+		manualEditing: 'Unlock probe-derived fields. Use only if the probe result is wrong.',
+		supportsEnumerable: 'Controls whether bootstrap enumerates tokens through tokenByIndex.',
+		imageCacheMode: 'Controls token card image caching after bootstrap.',
+		imageMaxDimension: 'Maximum cached image width or height in pixels.',
+		imageCachePolicySource: 'Whether the current cache mode came from a collection extension or user selection.',
+		imageCachePlan: 'How token cards will source images after bootstrap.',
+		manualMode: 'Manual token scope used when enumerable support is unavailable.',
+		tokenIds: 'Explicit token IDs to bootstrap, separated by commas or whitespace.',
+		startTokenId: 'First token ID for manual range bootstrap.',
+		manualRangeTotalSupply: 'Number of tokens in the manual range.'
+	} as const;
 
 	let bootstrapSlug = $state('');
+	let lastAutoFilledSlug = $state<string | null>(null);
 	let bootstrapAddress = $state('');
 	let bootstrapOpenSeaSlug = $state('');
-	let metadataMode = $state<'best_effort' | 'strict'>('best_effort');
+	let metadataMode = $state(DEFAULT_BOOTSTRAP_METADATA_MODE);
 	let supportsEnumerable = $state(false);
 	let manualMode = $state<'manual_token_ids' | 'manual_range'>('manual_range');
 	let manualTokenIds = $state('');
@@ -75,6 +113,11 @@
 	let manualRangeTotalSupply = $state('');
 	let imageCacheMode = $state<ApiImageCacheMode>(IMAGE_CACHE_MODE.CacheOnce);
 	let imageCacheMaxDimension = $state(String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION));
+	let imageCachePolicySource = $state<ApiCollectionCustomizationSource>(
+		COLLECTION_CUSTOMIZATION_SOURCE_KIND.User
+	);
+	let imageCachePolicyExtensionKey = $state<string | null>(null);
+	let manualEditingAllowed = $state(false);
 	let submitting = $state(false);
 	let submitError = $state<string | null>(null);
 	let submitSuccess = $state<string | null>(null);
@@ -101,7 +144,17 @@
 			probeStatus === 'waiting' ||
 			probeStatus === 'loading'
 	);
-	let firstTokenIframeSource = $derived(firstTokenMediaSource());
+	let probeControlledDisabled = $derived(
+		probeStatus === 'ready' && probeResult !== null && latestProbeMatchesAddress && !manualEditingAllowed
+	);
+	let imageCacheExtensionControlledDisabled = $derived(
+		probeStatus === 'ready' &&
+			probeResult !== null &&
+			latestProbeMatchesAddress &&
+			imageCachePolicySource === COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension &&
+			!manualEditingAllowed
+	);
+	let firstTokenCard = $derived(firstTokenPreviewCard());
 
 	$effect(() => {
 		if (!browser) return;
@@ -112,11 +165,16 @@
 			probeResult = null;
 			probeError = null;
 			probeAddress = null;
+			resetImageCachePolicySource();
 			return;
 		}
 
 		probeStatus = 'waiting';
+		probeResult = null;
+		probeAddress = null;
 		probeError = null;
+		manualEditingAllowed = false;
+		resetImageCachePolicySource();
 		let cancelled = false;
 		const timer = window.setTimeout(() => {
 			void (async () => {
@@ -127,6 +185,7 @@
 					probeStatus = 'ready';
 					probeResult = result;
 					probeAddress = result.address;
+					manualEditingAllowed = false;
 					applyProbeResult(result);
 				} catch (error) {
 					if (cancelled) return;
@@ -159,12 +218,18 @@
 
 	function applyProbeResult(result: BootstrapContractProbeApiResponse): void {
 		const patch = bootstrapProbeFormPatch(result);
+		const slugSuggestion = contractNameToBootstrapSlug(result.contractName);
+		if (slugSuggestion && (!bootstrapSlug.trim() || bootstrapSlug === lastAutoFilledSlug)) {
+			bootstrapSlug = slugSuggestion;
+			lastAutoFilledSlug = slugSuggestion;
+		}
 		supportsEnumerable = patch.supportsEnumerable;
 		if (patch.manualMode === 'manual_range') {
 			manualMode = 'manual_range';
 			manualRangeStartTokenId = patch.manualRangeStartTokenId;
 			manualRangeTotalSupply = patch.manualRangeTotalSupply;
 		}
+		applyProbeImageCacheSuggestion(result.imageCacheSuggestion);
 	}
 
 	function probeStateLabel(): string {
@@ -180,21 +245,125 @@
 		return 'unknown';
 	}
 
-	function firstTokenMediaSource(): TokenMediaIframeSource | null {
+	function firstTokenPreviewCard(): ApiTokenCard | null {
 		const firstToken = probeResult?.firstToken;
 		if (!firstToken?.tokenId) return null;
-		return resolveTokenMediaIframeSource(
-			firstToken.animationUrl,
-			firstToken.image,
-			tokenMediaTitle(firstToken.tokenId)
-		);
+		return {
+			tokenId: firstToken.tokenId,
+			name: firstToken.name,
+			image: firstToken.image,
+			traitSummary: null,
+			listingPrice: null,
+			listingCurrency: null,
+			attributes: [],
+			hasMetadata: firstToken.metadataError === null,
+			metadataUpdatedAt: null
+		};
 	}
 
-	function firstTokenLabel(): string {
-		const tokenId = probeResult?.firstToken.tokenId;
-		if (!tokenId) return '-';
-		const name = probeResult?.firstToken.name;
-		return name ? `${tokenId} / ${name}` : tokenId;
+	function firstTokenCardHref(tokenId: string): string {
+		if (!chain) return '#';
+		const slug = normalizeFieldValue(bootstrapSlug).toLowerCase();
+		if (!slug) return '#';
+		return `/${chain.slug}/${slug}/${tokenId}`;
+	}
+
+	function applyProbeImageCacheSuggestion(
+		suggestion: BootstrapContractProbeApiResponse['imageCacheSuggestion']
+	): void {
+		imageCachePolicySource = suggestion.selectedSource;
+		imageCachePolicyExtensionKey = suggestion.extensionKey;
+		imageCacheMode = suggestion.config.imageCacheMode;
+		imageCacheMaxDimension = imageCacheMaxDimensionInputValue(suggestion.config.maxDimension);
+	}
+
+	function resetImageCachePolicySource(): void {
+		imageCachePolicySource = COLLECTION_CUSTOMIZATION_SOURCE_KIND.User;
+		imageCachePolicyExtensionKey = null;
+	}
+
+	function markImageCacheUserSelected(): void {
+		resetImageCachePolicySource();
+	}
+
+	function imageCacheMaxDimensionInputValue(value: number | null): string {
+		return value === null ? '' : String(value);
+	}
+
+	function parseImageCacheMode(value: string): ApiImageCacheMode {
+		if (
+			value === IMAGE_CACHE_MODE.Off ||
+			value === IMAGE_CACHE_MODE.CacheOnce ||
+			value === IMAGE_CACHE_MODE.RefreshOnMetadata
+		) {
+			return value;
+		}
+		return IMAGE_CACHE_MODE.CacheOnce;
+	}
+
+	function onImageCacheModeChange(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLSelectElement)) return;
+		imageCacheMode = parseImageCacheMode(target.value);
+		if (imageCacheMode !== IMAGE_CACHE_MODE.Off && !normalizeFieldValue(imageCacheMaxDimension)) {
+			imageCacheMaxDimension = String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION);
+		}
+		markImageCacheUserSelected();
+	}
+
+	function onImageCacheMaxDimensionInput(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLInputElement)) return;
+		imageCacheMaxDimension = target.value;
+		markImageCacheUserSelected();
+	}
+
+	function imageCachePolicySourceLabel(): string {
+		if (imageCachePolicySource === COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension) {
+			return imageCachePolicyExtensionKey
+				? `extension-defined (${imageCachePolicyExtensionKey})`
+				: 'extension-defined';
+		}
+		return 'user-defined';
+	}
+
+	function imageCacheDimensionPlanLabel(): string {
+		const raw = normalizeFieldValue(imageCacheMaxDimension);
+		return raw ? `${raw}px` : 'original dimensions';
+	}
+
+	function imageCachePlanValue(): string {
+		if (imageCacheMode === IMAGE_CACHE_MODE.Off) {
+			return 'no cache files; cards use image field';
+		}
+		if (imageCacheMode === IMAGE_CACHE_MODE.CacheOnce) {
+			return `cache local files once; max ${imageCacheDimensionPlanLabel()}`;
+		}
+		return `refresh local files on metadata; max ${imageCacheDimensionPlanLabel()}`;
+	}
+
+	function imageSizeOneTokenLabel(): string {
+		return imageCacheMode === IMAGE_CACHE_MODE.Off
+			? 'Card image field size (1 token)'
+			: 'Original image source size (1 token)';
+	}
+
+	function imageSizeFullCollectionLabel(): string {
+		return imageCacheMode === IMAGE_CACHE_MODE.Off
+			? 'Est. card image field size (full collection)'
+			: 'Est. source images size (full collection)';
+	}
+
+	function imageSizeOneTokenHelp(): string {
+		return imageCacheMode === IMAGE_CACHE_MODE.Off
+			? bootstrapFieldHelp.cardImageFieldSize
+			: bootstrapFieldHelp.originalImageFileSize;
+	}
+
+	function imageSizeFullCollectionHelp(): string {
+		return imageCacheMode === IMAGE_CACHE_MODE.Off
+			? bootstrapFieldHelp.projectedCardImageFieldSize
+			: bootstrapFieldHelp.projectedOriginalImageFileSize;
 	}
 
 	function probeSubmitGuard(address: string): string | null {
@@ -348,6 +517,7 @@
 				supportsEnumerable,
 				manualInput,
 				imageCache: {
+					selectedSource: imageCachePolicySource,
 					imageCacheMode,
 					maxDimension:
 						imageCacheMode === IMAGE_CACHE_MODE.Off ? null : imageCacheMaxDimensionValue
@@ -362,6 +532,13 @@
 		}
 	}
 </script>
+
+{#snippet fieldLabel(label: string, help: string)}
+	<span class="bootstrap-form-label-cell">
+		<span>{label}</span>
+		<InfoTooltip text={help} className="bootstrap-form-label-tooltip" />
+	</span>
+{/snippet}
 
 <section class="panel">
 	<header class="panel-header">
@@ -390,219 +567,259 @@
 		</div>
 	</header>
 
-	<form class="bootstrap-form" onsubmit={onSubmitBootstrap}>
-		{#if submitSuccess || submitError}
-			<div class="bootstrap-form-feedback">
-				{#if submitSuccess}
-					<span class="muted">{submitSuccess}</span>
-				{/if}
-				{#if submitError}
-					<span class="muted">{submitError}</span>
-				{/if}
-			</div>
-		{/if}
-
-			<div class="bootstrap-form-section">
-				<label class="bootstrap-form-row">
-					<span>address</span>
-					<input
-						bind:value={bootstrapAddress}
-						class={`${bootstrapInputClass} bootstrap-input-address`}
-						type="text"
-						name="address"
-						required
-					/>
-				</label>
-				<label class="bootstrap-form-row">
-					<span>slug</span>
-					<input
-						bind:value={bootstrapSlug}
-						class={`${bootstrapInputClass} bootstrap-input-slug`}
-						type="text"
-						name="slug"
-						required
-					/>
-				</label>
-				<label class="bootstrap-form-row">
-					<span>opensea slug</span>
-					<div class="bootstrap-input-with-note">
-						<input
-							bind:value={bootstrapOpenSeaSlug}
-							class={`${bootstrapInputClass} bootstrap-input-slug`}
-							type="text"
-							disabled={!openSeaEnabled}
-						/>
-						{#if openSeaDisabledReason}
-							<span class="muted">{openSeaDisabledReason}</span>
+	<form class="bootstrap-form bootstrap-create-form" onsubmit={onSubmitBootstrap}>
+		<div class="bootstrap-create-layout">
+			<div class="bootstrap-form-fields">
+				{#if submitSuccess || submitError}
+					<div class="bootstrap-form-feedback">
+						{#if submitSuccess}
+							<span class="muted">{submitSuccess}</span>
+						{/if}
+						{#if submitError}
+							<span class="muted">{submitError}</span>
 						{/if}
 					</div>
-				</label>
-				<label class="bootstrap-form-row">
-					<span>metadata mode</span>
-					<select bind:value={metadataMode} class={`${bootstrapSelectClass} bootstrap-input-select-short`}>
-						<option value="best_effort">best effort</option>
-						<option value="strict">strict</option>
-					</select>
-				</label>
-			</div>
-
-			{#if probeStatus !== 'idle'}
-				<div class="bootstrap-form-section bootstrap-probe-section">
-					<div class="bootstrap-form-row">
-						<span class="bootstrap-form-label">contract probe</span>
-						<div class="bootstrap-probe-status mono">{probeStateLabel()}</div>
-					</div>
-					{#if probeError}
-						<div class="bootstrap-form-row">
-							<span class="bootstrap-form-label">error</span>
-							<div class="muted">{probeError}</div>
-						</div>
-					{/if}
-					{#if probeResult}
-						<div class="bootstrap-probe-grid">
-							<div class="bootstrap-probe-facts">
-								<div class="bootstrap-form-row">
-									<span class="bootstrap-form-label">erc721</span>
-									<div class="mono">{interfaceLabel(probeResult.erc721.supported)}</div>
-								</div>
-								<div class="bootstrap-form-row">
-									<span class="bootstrap-form-label">enumerable</span>
-									<div class="mono">{interfaceLabel(probeResult.enumerable.supported)}</div>
-								</div>
-								<div class="bootstrap-form-row">
-									<span class="bootstrap-form-label">total supply</span>
-									<div class="mono">{probeResult.totalSupply.value ?? '-'}</div>
-								</div>
-								<div class="bootstrap-form-row">
-									<span class="bootstrap-form-label">first token</span>
-									<div class="mono">{firstTokenLabel()}</div>
-								</div>
-								<div class="bootstrap-form-row">
-									<span class="bootstrap-form-label">tokenURI size</span>
-									<div class="mono">
-										{formatByteSize(probeResult.firstToken.tokenUriPayloadBytes)}
-									</div>
-								</div>
-								<div class="bootstrap-form-row">
-									<span class="bootstrap-form-label">projected size</span>
-									<div class="mono">
-										{formatByteSize(probeResult.storageEstimate?.projectedBytes)}
-									</div>
-								</div>
-								<div class="bootstrap-form-row">
-									<span class="bootstrap-form-label">image size</span>
-									<div class="mono">
-										{formatByteSize(probeResult.firstToken.imageBytes)}
-									</div>
-								</div>
-								<div class="bootstrap-form-row">
-									<span class="bootstrap-form-label">image total</span>
-									<div class="mono">
-										{formatByteSize(probeResult.imageStorageEstimate?.projectedBytes)}
-									</div>
-								</div>
-								{#if probeResult.suggestedInput.warnings.length > 0}
-									<div class="bootstrap-form-row bootstrap-probe-warning-row">
-										<span class="bootstrap-form-label">warnings</span>
-										<div class="bootstrap-probe-warnings">
-											{#each probeResult.suggestedInput.warnings as warning}
-												<span class="muted">{warning}</span>
-											{/each}
-										</div>
-									</div>
-								{/if}
-							</div>
-							<div class="bootstrap-probe-media">
-								{#if firstTokenIframeSource && probeResult.firstToken.tokenId}
-									<TokenMediaFrame
-										iframeSource={firstTokenIframeSource}
-										title={tokenMediaTitle(probeResult.firstToken.tokenId)}
-										className="bootstrap-probe-media-frame"
-									/>
-								{:else}
-									<div class="bootstrap-probe-media-empty muted">no media</div>
-								{/if}
-							</div>
-						</div>
-					{/if}
-				</div>
-			{/if}
-
-			<div class="bootstrap-form-section">
-				<label class="bootstrap-form-checkbox-row bootstrap-form-row">
-					<span>supports enumerable</span>
-					<input bind:checked={supportsEnumerable} class={bootstrapCheckboxClass} type="checkbox" />
-				</label>
-			</div>
-
-			<div class="bootstrap-form-section">
-				<label class="bootstrap-form-row">
-					<span>image cache mode</span>
-					<select bind:value={imageCacheMode} class={`${bootstrapSelectClass} bootstrap-input-select-medium`}>
-						<option value={IMAGE_CACHE_MODE.Off}>off</option>
-						<option value={IMAGE_CACHE_MODE.CacheOnce}>cache once</option>
-						<option value={IMAGE_CACHE_MODE.RefreshOnMetadata}>refresh on metadata</option>
-					</select>
-				</label>
-				{#if imageCacheMode !== IMAGE_CACHE_MODE.Off}
-					<label class="bootstrap-form-row">
-						<span>image max dimension</span>
-						<input
-							bind:value={imageCacheMaxDimension}
-							class={`${bootstrapInputClass} bootstrap-input-total-supply`}
-							type="number"
-							min={BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION}
-							max={BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION}
-						/>
-					</label>
 				{/if}
-			</div>
 
-			{#if !supportsEnumerable}
 				<div class="bootstrap-form-section">
 					<label class="bootstrap-form-row">
-						<span>manual mode</span>
-						<select bind:value={manualMode} class={`${bootstrapSelectClass} bootstrap-input-select-medium`}>
-							<option value="manual_range">start + total supply</option>
-							<option value="manual_token_ids">token ids list</option>
+						{@render fieldLabel('Contract address', bootstrapFieldHelp.address)}
+						<input
+							bind:value={bootstrapAddress}
+							class={`${bootstrapInputClass} bootstrap-input-address`}
+							type="text"
+							name="address"
+							required
+						/>
+					</label>
+					<label class="bootstrap-form-row">
+						{@render fieldLabel('Collection slug', bootstrapFieldHelp.slug)}
+						<input
+							bind:value={bootstrapSlug}
+							class={`${bootstrapInputClass} bootstrap-input-slug`}
+							type="text"
+							name="slug"
+							required
+						/>
+					</label>
+					<label class="bootstrap-form-row">
+						{@render fieldLabel('OpenSea slug', bootstrapFieldHelp.openseaSlug)}
+						<div class="bootstrap-input-with-note">
+							<input
+								bind:value={bootstrapOpenSeaSlug}
+								class={`${bootstrapInputClass} bootstrap-input-slug`}
+								type="text"
+								disabled={!openSeaEnabled}
+							/>
+							{#if openSeaDisabledReason}
+								<span class="muted">{openSeaDisabledReason}</span>
+							{/if}
+						</div>
+					</label>
+				</div>
+
+				{#if probeStatus !== 'idle'}
+					<div class="bootstrap-form-section bootstrap-probe-section">
+						<div class="bootstrap-form-row">
+							{@render fieldLabel('Contract probe status', bootstrapFieldHelp.probeStatus)}
+							<div class="bootstrap-probe-status mono">{probeStateLabel()}</div>
+						</div>
+						{#if probeError}
+							<div class="bootstrap-form-row">
+								{@render fieldLabel('Probe error', bootstrapFieldHelp.probeError)}
+								<div class="muted">{probeError}</div>
+							</div>
+						{/if}
+						{#if probeResult}
+							<div class="bootstrap-form-row">
+								{@render fieldLabel('ERC721 interface', bootstrapFieldHelp.erc721Interface)}
+								<div class="mono">{interfaceLabel(probeResult.erc721.supported)}</div>
+							</div>
+							<div class="bootstrap-form-row">
+								{@render fieldLabel('ERC721Enumerable interface', bootstrapFieldHelp.enumerableInterface)}
+								<div class="mono">{interfaceLabel(probeResult.enumerable.supported)}</div>
+							</div>
+							<div class="bootstrap-form-row">
+								{@render fieldLabel('Contract total supply', bootstrapFieldHelp.contractTotalSupply)}
+								<div class="mono">{probeResult.totalSupply.value ?? '-'}</div>
+							</div>
+							<div class="bootstrap-form-row">
+								{@render fieldLabel('Metadata size (1 token)', bootstrapFieldHelp.tokenUriPayloadSize)}
+								<div class="mono">
+									{formatByteSize(probeResult.firstToken.tokenUriPayloadBytes)}
+								</div>
+							</div>
+							<div class="bootstrap-form-row">
+								{@render fieldLabel('Est. metadata size (full collection)', bootstrapFieldHelp.projectedTokenUriPayloadSize)}
+								<div class="mono">
+									{formatByteSize(probeResult.storageEstimate?.projectedBytes)}
+								</div>
+							</div>
+							<div class="bootstrap-form-row">
+								{@render fieldLabel('Image cache policy source', bootstrapFieldHelp.imageCachePolicySource)}
+								<div class="mono">{imageCachePolicySourceLabel()}</div>
+							</div>
+							<div class="bootstrap-form-row">
+								{@render fieldLabel('Image cache plan', bootstrapFieldHelp.imageCachePlan)}
+								<div class="mono">{imageCachePlanValue()}</div>
+							</div>
+							<div class="bootstrap-form-row">
+								{@render fieldLabel(imageSizeOneTokenLabel(), imageSizeOneTokenHelp())}
+								<div class="mono">
+									{formatByteSize(probeResult.firstToken.imageBytes)}
+								</div>
+							</div>
+							<div class="bootstrap-form-row">
+								{@render fieldLabel(imageSizeFullCollectionLabel(), imageSizeFullCollectionHelp())}
+								<div class="mono">
+									{formatByteSize(probeResult.imageStorageEstimate?.projectedBytes)}
+								</div>
+							</div>
+							{#if probeResult.suggestedInput.warnings.length > 0}
+								<div class="bootstrap-form-row bootstrap-probe-warning-row">
+									{@render fieldLabel('Probe warnings', bootstrapFieldHelp.probeWarnings)}
+									<div class="bootstrap-probe-warnings">
+										{#each probeResult.suggestedInput.warnings as warning}
+											<span class="muted">{warning}</span>
+										{/each}
+									</div>
+								</div>
+							{/if}
+						{/if}
+					</div>
+				{/if}
+
+				{#if probeResult}
+					<div class="bootstrap-form-section">
+						<label class="bootstrap-form-checkbox-row bootstrap-form-row">
+							{@render fieldLabel('Allow manual editing', bootstrapFieldHelp.manualEditing)}
+							<div class="bootstrap-manual-edit-control">
+								<input
+									bind:checked={manualEditingAllowed}
+									class={bootstrapCheckboxClass}
+									type="checkbox"
+									data-testid={TEST_IDS.BootstrapAllowManualEditing}
+								/>
+								<span class="muted">use only if you know what you are doing</span>
+							</div>
+						</label>
+					</div>
+				{/if}
+
+				<div class="bootstrap-form-section">
+					<label class="bootstrap-form-checkbox-row bootstrap-form-row">
+						{@render fieldLabel('Use ERC721Enumerable token enumeration', bootstrapFieldHelp.supportsEnumerable)}
+						<input
+							bind:checked={supportsEnumerable}
+							class={bootstrapCheckboxClass}
+							type="checkbox"
+							disabled={probeControlledDisabled}
+						/>
+					</label>
+				</div>
+
+				<div class="bootstrap-form-section">
+					<label class="bootstrap-form-row">
+						{@render fieldLabel('Image cache mode', bootstrapFieldHelp.imageCacheMode)}
+						<select
+							value={imageCacheMode}
+							class={`${bootstrapSelectClass} bootstrap-input-select-medium`}
+							onchange={onImageCacheModeChange}
+							disabled={imageCacheExtensionControlledDisabled}
+						>
+							<option value={IMAGE_CACHE_MODE.Off}>off</option>
+							<option value={IMAGE_CACHE_MODE.CacheOnce}>cache once</option>
+							<option value={IMAGE_CACHE_MODE.RefreshOnMetadata}>refresh on metadata</option>
 						</select>
 					</label>
-					{#if manualMode === 'manual_token_ids'}
-						<label class="bootstrap-form-row bootstrap-form-row-textarea">
-							<span>token ids</span>
-							<textarea
-								bind:value={manualTokenIds}
-								class={`${bootstrapTextareaClass} bootstrap-input-token-ids`}
-								rows="4"
-							></textarea>
-						</label>
-					{:else}
+					{#if imageCacheMode !== IMAGE_CACHE_MODE.Off}
 						<label class="bootstrap-form-row">
-							<span>start token id</span>
+							{@render fieldLabel('Cached image max dimension', bootstrapFieldHelp.imageMaxDimension)}
 							<input
-								bind:value={manualRangeStartTokenId}
-								class={`${bootstrapInputClass} bootstrap-input-token-id`}
-								type="text"
-							/>
-						</label>
-						<label class="bootstrap-form-row">
-							<span>total supply</span>
-							<input
-								bind:value={manualRangeTotalSupply}
+								value={imageCacheMaxDimension}
 								class={`${bootstrapInputClass} bootstrap-input-total-supply`}
 								type="number"
-								min="1"
+								min={BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION}
+								max={BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION}
+								oninput={onImageCacheMaxDimensionInput}
+								disabled={imageCacheExtensionControlledDisabled}
 							/>
 						</label>
 					{/if}
 				</div>
-			{/if}
 
-			<div class="bootstrap-form-actions">
-				<button type="submit" disabled={submitDisabled}>
-					{submitting ? 'submitting...' : 'queue bootstrap'}
-				</button>
+				{#if !supportsEnumerable}
+					<div class="bootstrap-form-section">
+						<label class="bootstrap-form-row">
+							{@render fieldLabel('Manual token scope mode', bootstrapFieldHelp.manualMode)}
+							<select
+								bind:value={manualMode}
+								class={`${bootstrapSelectClass} bootstrap-input-select-medium`}
+								disabled={probeControlledDisabled}
+							>
+								<option value="manual_range">start + total supply</option>
+								<option value="manual_token_ids">token ids list</option>
+							</select>
+						</label>
+						{#if manualMode === 'manual_token_ids'}
+							<label class="bootstrap-form-row bootstrap-form-row-textarea">
+								{@render fieldLabel('Manual token IDs', bootstrapFieldHelp.tokenIds)}
+								<textarea
+									bind:value={manualTokenIds}
+									class={`${bootstrapTextareaClass} bootstrap-input-token-ids`}
+									rows="4"
+									disabled={probeControlledDisabled}
+								></textarea>
+							</label>
+						{:else}
+							<label class="bootstrap-form-row">
+								{@render fieldLabel('Manual range start token ID', bootstrapFieldHelp.startTokenId)}
+								<input
+									bind:value={manualRangeStartTokenId}
+									class={`${bootstrapInputClass} bootstrap-input-token-id`}
+									type="text"
+									disabled={probeControlledDisabled}
+								/>
+							</label>
+							<label class="bootstrap-form-row">
+								{@render fieldLabel('Manual range total supply', bootstrapFieldHelp.manualRangeTotalSupply)}
+								<input
+									bind:value={manualRangeTotalSupply}
+									class={`${bootstrapInputClass} bootstrap-input-total-supply`}
+									type="number"
+									min="1"
+									disabled={probeControlledDisabled}
+								/>
+							</label>
+						{/if}
+					</div>
+				{/if}
+
+				<div class="bootstrap-form-actions">
+					<button type="submit" disabled={submitDisabled}>
+						{submitting ? 'submitting...' : 'queue bootstrap'}
+					</button>
+				</div>
 			</div>
+			<aside class="bootstrap-token-card-pane" aria-label="Token image preview">
+				{#if firstTokenCard}
+					<div class="bootstrap-probe-token-card" data-testid={TEST_IDS.BootstrapProbeTokenCard}>
+						<TokenCardTile
+							{chain}
+							collection={null}
+							token={firstTokenCard}
+							href={firstTokenCardHref(firstTokenCard.tokenId)}
+							selectedMediaMode={COLLECTION_MEDIA_MODES.Snapshot}
+							availableMediaModes={bootstrapPreviewMediaModes}
+							{tokenPreview}
+							metaLabel={firstTokenCard.name}
+						/>
+					</div>
+				{:else}
+					<div class="bootstrap-probe-media-empty muted">-</div>
+				{/if}
+			</aside>
+		</div>
 	</form>
 
 	<div class="table-wrap">

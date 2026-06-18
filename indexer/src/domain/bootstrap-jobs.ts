@@ -1,13 +1,9 @@
 import type { CollectionStandard } from "./collections.js";
+import type { BootstrapMetadataMode } from "@artgod/shared/bootstrap/pipeline";
 
-export const BOOTSTRAP_JOB_KIND = {
-    Start: "bootstrap.collection.start",
-    MetadataProcess: "bootstrap.collection.metadata-process",
-    ImageCacheProcess: "bootstrap.collection.image-cache-process",
-    BackfillCheck: "bootstrap.collection.backfill-check",
-} as const;
+export { BOOTSTRAP_JOB_KIND } from "@artgod/shared/bootstrap/jobs";
 
-export type BootstrapMetadataSnapshotMode = "strict" | "best_effort";
+export type BootstrapMetadataSnapshotMode = BootstrapMetadataMode;
 
 export type BootstrapCollectionPayload = {
     chainId: number;
@@ -28,6 +24,17 @@ export type BootstrapMetadataProcessPayload = {
 };
 
 export type BootstrapImageCacheProcessPayload = {
+    chainId: number;
+    runId: number;
+    collectionId: number;
+    address: string;
+    standard: CollectionStandard;
+    anchorBlock: number;
+    anchorHash: string;
+    anchorTimestamp: number;
+};
+
+export type BootstrapOwnershipProcessPayload = {
     chainId: number;
     runId: number;
     collectionId: number;

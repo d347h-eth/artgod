@@ -524,7 +524,7 @@ help = "HTTP origin used to resolve ipfs:// token metadata and media URLs."
 key = "COMMON_MEDIA_CACHE_DIR"
 group = "indexer"
 label = "common media cache dir"
-defaults = { local = "", deploy = "/data/media-cache/token-images", desktop = "" }
+defaults = { local = "", deploy = "/data/media-cache/token-images", desktop = "media-cache/token-images" }
 help = "Optional token-image cache directory. Empty stores cached token images beside the SQLite database."
 
 [[settings]]
@@ -770,6 +770,30 @@ key = "BOOTSTRAP_METADATA_PROCESS_POLL_MS"
 group = "indexer"
 label = "bootstrap metadata process poll ms"
 default = "5000"
+
+[[settings]]
+key = "BOOTSTRAP_SCHEDULER_POLL_MIN_MS"
+group = "indexer"
+label = "bootstrap scheduler poll min ms"
+default = "250"
+
+[[settings]]
+key = "BOOTSTRAP_SCHEDULER_POLL_MAX_MS"
+group = "indexer"
+label = "bootstrap scheduler poll max ms"
+default = "5000"
+
+[[settings]]
+key = "BOOTSTRAP_STEP_LEASE_MS"
+group = "indexer"
+label = "bootstrap step lease ms"
+default = "60000"
+
+[[settings]]
+key = "BOOTSTRAP_STEP_PROGRESS_STALE_MS"
+group = "indexer"
+label = "bootstrap step progress stale ms"
+default = "1800000"
 
 [[settings]]
 key = "BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS"

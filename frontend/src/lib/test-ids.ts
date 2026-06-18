@@ -10,6 +10,8 @@ export const TEST_IDS = {
 	BidBookTraitBucketFilter: 'bid-book-trait-bucket-filter',
 	BidBookRowBid: 'bid-book-row-bid',
 	BidBookRowFilter: 'bid-book-row-filter',
+	BootstrapAllowManualEditing: 'bootstrap-allow-manual-editing',
+	BootstrapProbeTokenCard: 'bootstrap-probe-token-card',
 	TokenCard: 'token-card',
 	TokenCardBiddingToggle: 'token-card-bidding-toggle'
 } as const;

@@ -1,14 +1,3 @@
-ALTER TABLE bootstrap_runs
-ADD COLUMN request_image_cache_mode TEXT NOT NULL DEFAULT 'off'
-CHECK (request_image_cache_mode IN ('off', 'cache_once', 'refresh_on_metadata'));
-
-ALTER TABLE bootstrap_runs
-ADD COLUMN request_image_cache_max_dimension INTEGER
-CHECK (
-  request_image_cache_max_dimension IS NULL
-  OR request_image_cache_max_dimension > 0
-);
-
 CREATE TABLE IF NOT EXISTS bootstrap_image_cache_tasks (
   run_id INTEGER NOT NULL,
   chain_id INTEGER NOT NULL,

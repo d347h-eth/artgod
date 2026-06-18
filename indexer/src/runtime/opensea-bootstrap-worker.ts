@@ -1,11 +1,24 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
+import { BOOTSTRAP_STEP_KEY } from "@artgod/shared/bootstrap/pipeline";
 import { loadOpenSeaConfig } from "../config/opensea.js";
 import { runWorker } from "../application/worker-runner.js";
 import { OpenSeaOrderbookSync } from "../application/offchain/opensea-orderbook-sync.js";
+import {
+    areOpenSeaBootstrapStepsTerminal,
+    markOpenSeaBootstrapStepRetry,
+    markOpenSeaBootstrapStepDelegatedRunning,
+    markOpenSeaBootstrapStepSucceeded,
+    markOpenSeaBootstrapTerminalFailure,
+    type OpenSeaBootstrapStepKey,
+} from "../application/bootstrap-opensea-steps.js";
+import { getRetryDelayMs, type RetryPolicy } from "../domain/retry.js";
+import { OPENSEA_COLLECTION_STATUS } from "@artgod/shared/types";
 import type { JobEnvelope } from "../domain/jobs.js";
 import {
+    OPENSEA_BOOTSTRAP_FAILURE_MESSAGE,
+    OPENSEA_JOB_ID_SCOPE,
     OPENSEA_JOB_KIND,
     type OpenSeaBootstrapCollectionPayload,
 } from "../domain/opensea-jobs.js";
@@ -13,10 +26,12 @@ import { QUEUE_NAMES } from "../domain/queues.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import { SqliteOpenSeaOrderbookRuns } from "../infra/offchain/sqlite-orderbook-runs.js";
 import { SqliteOrderSourceStateStore } from "../infra/offchain/sqlite-order-source-state.js";
+import { SqliteBootstrapSteps } from "../infra/bootstrap/sqlite-steps.js";
 import { OpenSeaApiAdapter } from "../infra/offchain/opensea-api.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
+import type { BootstrapStepsPort } from "../ports/bootstrap-steps.js";
 
 async function main() {
     try {
@@ -47,6 +62,7 @@ async function main() {
         const collections = new SqliteCollectionRegistry();
         const orderbookRuns = new SqliteOpenSeaOrderbookRuns();
         const sourceState = new SqliteOrderSourceStateStore();
+        const bootstrapSteps = new SqliteBootstrapSteps();
         const api = new OpenSeaApiAdapter({
             apiKey: config.opensea.apiKey,
             snapshotPageSize: config.opensea.snapshotPageSize,
@@ -67,10 +83,11 @@ async function main() {
                 await handleBootstrapJob(
                     queue,
                     collections,
-                    api,
+                    bootstrapSteps,
                     orderbookRuns,
                     sync,
                     config.opensea.retryPolicy,
+                    config.opensea.staleStartThresholdMs,
                     job,
                 );
             },
@@ -114,20 +131,36 @@ main();
 async function handleBootstrapJob(
     queue: NatsJetStreamQueue,
     collections: SqliteCollectionRegistry,
-    api: OpenSeaApiAdapter,
+    bootstrapSteps: BootstrapStepsPort,
     orderbookRuns: SqliteOpenSeaOrderbookRuns,
     sync: OpenSeaOrderbookSync,
-    retryPolicy: {
-        baseDelayMs: number;
-        maxDelayMs: number;
-    },
+    retryPolicy: RetryPolicy,
+    delegatedHealthCheckMs: number,
     job: JobEnvelope<OpenSeaBootstrapCollectionPayload>,
 ): Promise<void> {
+    if (areOpenSeaBootstrapStepsTerminal(bootstrapSteps, job.payload)) {
+        logger.debug("OpenSea bootstrap skipped; bootstrap steps are terminal", {
+            component: "OpenSeaBootstrapWorker",
+            action: "handleBootstrapJob",
+            chainId: job.payload.chainId,
+            collectionId: job.payload.collectionId,
+            runId: job.payload.bootstrap?.runId,
+        });
+        return;
+    }
+
     const collection = collections.getCollection(
         job.payload.chainId,
         job.payload.collectionId,
     );
     if (!collection) {
+        markOpenSeaBootstrapTerminalFailure({
+            stepsPort: bootstrapSteps,
+            payload: job.payload,
+            activeStep: BOOTSTRAP_STEP_KEY.OpenSeaIdentity,
+            attempts: Math.max(1, job.attempt),
+            error: OPENSEA_BOOTSTRAP_FAILURE_MESSAGE.CollectionMissing,
+        });
         logger.warn("OpenSea bootstrap skipped; collection missing", {
             component: "OpenSeaBootstrapWorker",
             action: "handleBootstrapJob",
@@ -142,8 +175,15 @@ async function handleBootstrapJob(
         collectionId: collection.id,
         kind: "snapshot",
     });
+    let activeStep: OpenSeaBootstrapStepKey = BOOTSTRAP_STEP_KEY.OpenSeaIdentity;
 
     try {
+        markOpenSeaBootstrapStepDelegatedRunning({
+            stepsPort: bootstrapSteps,
+            payload: job.payload,
+            stepKey: BOOTSTRAP_STEP_KEY.OpenSeaIdentity,
+            healthCheckAt: Date.now() + Math.max(1, delegatedHealthCheckMs),
+        });
         collections.markOpenSeaIdentityRunning(
             collection.chainId,
             collection.id,
@@ -155,11 +195,23 @@ async function handleBootstrapJob(
                 `Collection ${collection.id} missing explicit OpenSea slug`,
             );
         }
+        markOpenSeaBootstrapStepSucceeded(
+            bootstrapSteps,
+            job.payload,
+            BOOTSTRAP_STEP_KEY.OpenSeaIdentity,
+        );
 
+        activeStep = BOOTSTRAP_STEP_KEY.OpenSeaSnapshot;
+        markOpenSeaBootstrapStepDelegatedRunning({
+            stepsPort: bootstrapSteps,
+            payload: job.payload,
+            stepKey: BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
+            healthCheckAt: Date.now() + Math.max(1, delegatedHealthCheckMs),
+        });
         collections.setOpenSeaStatus(
             collection.chainId,
             collection.id,
-            "subscribing",
+            OPENSEA_COLLECTION_STATUS.Subscribing,
         );
         collections.markOpenSeaSnapshotStarted(
             collection.chainId,
@@ -172,56 +224,106 @@ async function handleBootstrapJob(
             collection.chainId,
             collection.id,
         );
+        markOpenSeaBootstrapStepSucceeded(
+            bootstrapSteps,
+            job.payload,
+            BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
+        );
+
+        activeStep = BOOTSTRAP_STEP_KEY.OpenSeaReady;
+        markOpenSeaBootstrapStepDelegatedRunning({
+            stepsPort: bootstrapSteps,
+            payload: job.payload,
+            stepKey: BOOTSTRAP_STEP_KEY.OpenSeaReady,
+            healthCheckAt: Date.now() + Math.max(1, delegatedHealthCheckMs),
+        });
         collections.markOpenSeaReady(collection.chainId, collection.id);
+        markOpenSeaBootstrapStepSucceeded(
+            bootstrapSteps,
+            job.payload,
+            BOOTSTRAP_STEP_KEY.OpenSeaReady,
+        );
         orderbookRuns.completeRun(runId);
     } catch (error) {
+        const attempts = Math.max(1, job.attempt);
+        const message = String(error);
+        const terminal = attempts >= Math.max(1, retryPolicy.maxAttempts);
         orderbookRuns.failRun(runId, String(error));
         collections.setOpenSeaStatus(
             collection.chainId,
             collection.id,
-            "retrying",
-            String(error),
+            terminal
+                ? OPENSEA_COLLECTION_STATUS.Failed
+                : OPENSEA_COLLECTION_STATUS.Retrying,
+            message,
         );
-        await scheduleBootstrapRetry(
-            queue,
-            job.payload,
-            getRetryDelayMs(job.attempt, retryPolicy),
-        );
+        if (terminal) {
+            markOpenSeaBootstrapTerminalFailure({
+                stepsPort: bootstrapSteps,
+                payload: job.payload,
+                activeStep,
+                attempts,
+                error: message,
+            });
+            logger.warn("OpenSea bootstrap failed terminally", {
+                component: "OpenSeaBootstrapWorker",
+                action: "handleBootstrapJob",
+                chainId: collection.chainId,
+                collectionId: collection.id,
+                runId: job.payload.bootstrap?.runId,
+                attempts,
+                error: message,
+            });
+            return;
+        }
+
+        const delayMs = getRetryDelayMs(attempts, retryPolicy);
+        markOpenSeaBootstrapStepRetry({
+            stepsPort: bootstrapSteps,
+            payload: job.payload,
+            stepKey: activeStep,
+            attempts,
+            nextAttemptAt: Date.now() + delayMs,
+            error: message,
+        });
+        await scheduleBootstrapRetry(queue, job, attempts + 1, delayMs);
         logger.warn("OpenSea bootstrap retry scheduled", {
             component: "OpenSeaBootstrapWorker",
             action: "handleBootstrapJob",
             chainId: collection.chainId,
             collectionId: collection.id,
-            attempt: job.attempt,
-            error: String(error),
+            runId: job.payload.bootstrap?.runId,
+            attempt: attempts,
+            error: message,
         });
     }
 }
 
 async function scheduleBootstrapRetry(
     queue: NatsJetStreamQueue,
-    payload: OpenSeaBootstrapCollectionPayload,
+    job: JobEnvelope<OpenSeaBootstrapCollectionPayload>,
+    nextAttempt: number,
     delayMs: number,
 ): Promise<void> {
+    const payload = job.payload;
     const scheduledAt = Date.now() + delayMs;
     const retryJob: JobEnvelope<OpenSeaBootstrapCollectionPayload> = {
-        jobId: `opensea:bootstrap:${payload.chainId}:${payload.collectionId}:${scheduledAt}`,
+        jobId: [
+            OPENSEA_JOB_ID_SCOPE.BootstrapCollection,
+            payload.chainId,
+            payload.bootstrap?.runId ?? payload.collectionId,
+            payload.collectionId,
+            nextAttempt,
+            scheduledAt,
+        ].join(":"),
         kind: OPENSEA_JOB_KIND.BootstrapCollection,
         queue: QUEUE_NAMES.OpenSeaBootstrap,
         payload,
-        attempt: 0,
+        attempt: nextAttempt,
         scheduledAt,
         chainId: payload.chainId,
         collectionId: payload.collectionId,
+        traceId: job.traceId,
     };
     await queue.publish(QUEUE_NAMES.OpenSeaBootstrap, retryJob);
-}
-
-function getRetryDelayMs(
-    attempt: number,
-    retryPolicy: { baseDelayMs: number; maxDelayMs: number },
-): number {
-    const exponent = Math.max(0, attempt - 1);
-    const delay = retryPolicy.baseDelayMs * Math.pow(2, exponent);
-    return Math.min(delay, retryPolicy.maxDelayMs);
 }

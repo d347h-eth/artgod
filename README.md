@@ -338,6 +338,7 @@ Queue contracts (`indexer/src/domain/queues.ts`):
 - `events-sync-backfill`
 - `block-check`
 - `collection-bootstrap`
+- `collection-bootstrap-image-cache`
 - `opensea-bootstrap`
 - `opensea-reconcile`
 - `offchain-orders-raw`
@@ -370,12 +371,12 @@ Per-collection bootstrap flow:
 3. Auto-install any embedded collection extension whose build-bundled match exactly fits the collection contract plus token scope.
 4. Run metadata snapshot first (strict or `best_effort` mode).
 5. Fan out collection-extension artifact refresh jobs as non-blocking side-effects behind canonical metadata writes.
-6. Cache canonical token `image` media locally when requested, optionally resized to the bootstrap run's max dimension.
-7. Run ownership snapshot at the same anchor.
+6. Start canonical token `image` media caching on its own bootstrap runtime lane when requested.
+7. Run taskized ownership snapshot at the same anchor.
 8. Schedule short backfill (`anchor + 1` to head).
 9. Enqueue OpenSea bootstrap once local metadata + ownership are ready, only when OpenSea integration is enabled and the collection has an OpenSea slug.
-10. Mark collection `live` once short backfill completes.
-11. Mark OpenSea offchain `ready` once the first full snapshot succeeds; periodic reconcile maintains eventual consistency after that.
+10. Mark collection `live` once ownership and short backfill complete.
+11. Let image cache, extension artifacts, and OpenSea converge as non-blocking side lanes; OpenSea `ready` is marked once the first full snapshot succeeds.
 
 `nft_balances` is canonical ownership state after bootstrap completion.
 Historical backfill for blocks at or before the bootstrap anchor is facts-only: it can enrich transfers/fills/activity history, but it must not mutate current-state tables such as `nft_balances`.

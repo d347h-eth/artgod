@@ -18,6 +18,21 @@ export const COLLECTION_STATUS = {
 export type CollectionStatus =
     (typeof COLLECTION_STATUS)[keyof typeof COLLECTION_STATUS];
 
+// Names OpenSea collection bootstrap states persisted on collections.
+export const OPENSEA_COLLECTION_STATUS = {
+    Pending: "pending",
+    IdentityRunning: "identity_running",
+    Subscribing: "subscribing",
+    SnapshotPending: "snapshot_pending",
+    SnapshotRunning: "snapshot_running",
+    Ready: "ready",
+    Retrying: "retrying",
+    Failed: "failed",
+} as const;
+
+export type OpenSeaCollectionStatus =
+    (typeof OPENSEA_COLLECTION_STATUS)[keyof typeof OPENSEA_COLLECTION_STATUS];
+
 // Public collection extension summaries expose enabled extension identity without install config.
 export type CollectionExtensionSummary = {
     key: CollectionExtensionKey;

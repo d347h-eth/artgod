@@ -12,6 +12,10 @@ import {
     IMAGE_CACHE_MODE,
     type ImageCacheMode,
 } from "@artgod/shared/media/token-image-cache";
+import {
+    COLLECTION_CUSTOMIZATION_SOURCE_KIND,
+    type CollectionCustomizationSourceKind,
+} from "@artgod/shared/types";
 
 export type CreateBootstrapRunRoute = {
     Params: {
@@ -31,6 +35,7 @@ export type CreateBootstrapRunRoute = {
             totalSupply?: unknown;
         };
         imageCache?: {
+            selectedSource?: unknown;
             imageCacheMode?: unknown;
             maxDimension?: unknown;
         };
@@ -140,9 +145,13 @@ function parseImageCacheInput(
         throw new ReadModelBadRequestError("imageCache must be an object");
     }
     const source = value as {
+        selectedSource?: unknown;
         imageCacheMode?: unknown;
         maxDimension?: unknown;
     };
+    const selectedSource = parseImageCacheSelectedSource(
+        source.selectedSource,
+    );
     const imageCacheMode = parseImageCacheMode(source.imageCacheMode);
     if (imageCacheMode === IMAGE_CACHE_MODE.Off) {
         if (source.maxDimension !== undefined && source.maxDimension !== null) {
@@ -151,12 +160,14 @@ function parseImageCacheInput(
             );
         }
         return {
+            selectedSource,
             imageCacheMode,
             maxDimension: null,
         };
     }
     if (source.maxDimension === null) {
         return {
+            selectedSource,
             imageCacheMode,
             maxDimension: null,
         };
@@ -171,9 +182,25 @@ function parseImageCacheInput(
         );
     }
     return {
+        selectedSource,
         imageCacheMode,
         maxDimension: Number(source.maxDimension),
     };
+}
+
+function parseImageCacheSelectedSource(
+    value: unknown,
+): CollectionCustomizationSourceKind {
+    if (value === undefined || value === null) {
+        return COLLECTION_CUSTOMIZATION_SOURCE_KIND.User;
+    }
+    if (
+        value === COLLECTION_CUSTOMIZATION_SOURCE_KIND.User ||
+        value === COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension
+    ) {
+        return value;
+    }
+    throw new ReadModelBadRequestError("imageCache.selectedSource is invalid");
 }
 
 function parseImageCacheMode(value: unknown): ImageCacheMode {

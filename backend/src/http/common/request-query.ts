@@ -19,6 +19,10 @@ import {
     type CollectionBiddingBidScopeFilter,
     type CollectionBiddingTraitFilterJoinMode,
 } from "@artgod/shared/types";
+import {
+    BOOTSTRAP_RUN_STATUSES,
+    BOOTSTRAP_TASK_STATUSES,
+} from "@artgod/shared/bootstrap/pipeline";
 import type {
     CollectionStatus,
     TokenBrowserStatus,
@@ -44,21 +48,11 @@ const ALLOWED_TOKEN_BROWSER_STATUSES = new Set<TokenBrowserStatus>([
 ]);
 
 const ALLOWED_BOOTSTRAP_TASK_STATUSES = new Set<BootstrapMetadataTaskStatus>([
-    "pending",
-    "retry",
-    "succeeded",
-    "failed_terminal",
+    ...BOOTSTRAP_TASK_STATUSES,
 ]);
 
 const ALLOWED_BOOTSTRAP_RUN_STATUSES = new Set<BootstrapRunStatus>([
-    "requested",
-    "queued",
-    "metadata",
-    "image_cache",
-    "ownership",
-    "backfill",
-    "completed",
-    "failed",
+    ...BOOTSTRAP_RUN_STATUSES,
 ]);
 
 const ALLOWED_ACTIVITY_FILTER_KINDS = new Set<ActivityFeedFilterKind>([

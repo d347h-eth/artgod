@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/bootstrap';
+import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
+import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 import {
 	bootstrapProbeFormPatch,
+	contractNameToBootstrapSlug,
 	formatByteSize,
 	isBootstrapProbeableAddress,
 	normalizeBootstrapAddress
@@ -47,6 +51,14 @@ describe('bootstrap contract probe helpers', () => {
 		expect(formatByteSize(1536)).toBe('1.50 KB');
 		expect(formatByteSize('10485760')).toBe('10.0 MB');
 	});
+
+	it('normalizes ERC721 names into editable bootstrap slug suggestions', () => {
+		expect(contractNameToBootstrapSlug('  Milady by Remilia Corporation!!!  ')).toBe(
+			'milady-by-remilia-corporation'
+		);
+		expect(contractNameToBootstrapSlug('Æther / Test: 2026')).toBe('ther-test-2026');
+		expect(contractNameToBootstrapSlug(`${'A'.repeat(70)}!`)).toBe('a'.repeat(64));
+	});
 });
 
 function makeProbe(input: {
@@ -72,6 +84,7 @@ function makeProbe(input: {
 		},
 		address: '0x1111111111111111111111111111111111111111',
 		standard: 'erc721',
+		contractName: null,
 		erc721: {
 			supported: true,
 			error: null
@@ -111,6 +124,14 @@ function makeProbe(input: {
 			manualInput,
 			ready: input.enumerable || manualInput !== null,
 			warnings: []
+		},
+		imageCacheSuggestion: {
+			selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+			extensionKey: null,
+			config: {
+				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+				maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
+			}
 		}
 	};
 }

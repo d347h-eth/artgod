@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { ProbeCollectionContractUseCase } from "./probe-collection-contract.js";
+import {
+    IMAGE_CACHE_MODE,
+    defaultImageCachePolicyConfig,
+    type ImageCachePolicyConfig,
+} from "@artgod/shared/media/token-image-cache";
+import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
+import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from "@artgod/shared/types";
+import {
+    ProbeCollectionContractUseCase,
+    type ProbeCollectionExtensionResolverPort,
+} from "./probe-collection-contract.js";
 import type { CollectionContractProbeResult } from "./probe-collection-contract.js";
 
 const CHAIN = {
@@ -10,9 +20,13 @@ const CHAIN = {
     name: "Ethereum",
 };
 
+// Test extension key used to verify probe-time extension policy plumbing.
+const PROBE_TEST_EXTENSION_KEY = "probe-test-extension";
+
 describe("ProbeCollectionContractUseCase", () => {
     it("marks enumerable contracts ready without manual input", async () => {
         const useCase = makeUseCase({
+            contractName: "Example Collection",
             enumerable: {
                 supported: true,
                 error: null,
@@ -49,6 +63,7 @@ describe("ProbeCollectionContractUseCase", () => {
             standard: "erc721",
         });
 
+        expect(result.contractName).toBe("Example Collection");
         expect(result.suggestedInput).toEqual({
             supportsEnumerable: true,
             manualInput: null,
@@ -60,6 +75,11 @@ describe("ProbeCollectionContractUseCase", () => {
             samplePayloadBytes: 100,
             projectedBytes: "300",
             totalSupply: "3",
+        });
+        expect(result.imageCacheSuggestion).toEqual({
+            selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+            extensionKey: null,
+            config: defaultImageCachePolicyConfig(),
         });
         expect(result.imageStorageEstimate).toBeNull();
     });
@@ -127,10 +147,84 @@ describe("ProbeCollectionContractUseCase", () => {
             contentType: "image/png",
         });
     });
+
+    it("uses embedded extension image cache policy suggestions when the probed scope matches", async () => {
+        const extensionConfig: ImageCachePolicyConfig = {
+            imageCacheMode: IMAGE_CACHE_MODE.Off,
+            maxDimension: null,
+        };
+        const useCase = makeUseCase(
+            {
+                enumerable: {
+                    supported: true,
+                    error: null,
+                },
+                totalSupply: {
+                    status: "available",
+                    value: "3",
+                    safeIntegerValue: 3,
+                    bootstrapRangeValue: 3,
+                    error: null,
+                },
+                firstToken: {
+                    tokenId: "1",
+                    source: "token_by_index",
+                    tokenUri: "data:application/json,%7B%7D",
+                    tokenUriPayloadBytes: 100,
+                    tokenUriPayloadTruncated: false,
+                    tokenUriPayloadError: null,
+                    name: null,
+                    image: null,
+                    imageBytes: null,
+                    imageBytesSource: null,
+                    imageContentType: null,
+                    imageBytesError: null,
+                    animationUrl: null,
+                    metadataError: null,
+                    candidates: [],
+                },
+            },
+            {
+                resolveExtensionKey(input) {
+                    expect(input.scope.kind).toBe(
+                        EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
+                    );
+                    return PROBE_TEST_EXTENSION_KEY;
+                },
+                resolveImageCachePolicyConfig(input) {
+                    expect(input.extensionKey).toBe(PROBE_TEST_EXTENSION_KEY);
+                    return extensionConfig;
+                },
+            },
+        );
+
+        const result = await useCase.probe({
+            chainRef: "ethereum",
+            address: "0x3333333333333333333333333333333333333333",
+            standard: "erc721",
+        });
+
+        expect(result.imageCacheSuggestion).toEqual({
+            selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
+            extensionKey: PROBE_TEST_EXTENSION_KEY,
+            config: extensionConfig,
+        });
+    });
 });
 
-function makeUseCase(overrides: Partial<CollectionContractProbeResult>) {
+function makeUseCase(
+    overrides: Partial<CollectionContractProbeResult>,
+    extensionResolver: ProbeCollectionExtensionResolverPort = {
+        resolveExtensionKey() {
+            return null;
+        },
+        resolveImageCachePolicyConfig() {
+            return null;
+        },
+    },
+) {
     const probe: CollectionContractProbeResult = {
+        contractName: null,
         erc721: {
             supported: true,
             error: null,
@@ -177,5 +271,6 @@ function makeUseCase(overrides: Partial<CollectionContractProbeResult>) {
                 return probe;
             },
         },
+        extensionResolver,
     );
 }

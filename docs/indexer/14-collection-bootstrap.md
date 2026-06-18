@@ -61,6 +61,11 @@ Current v1 limits:
 
 When the bootstrap request enables image caching, the worker seeds a dedicated cache task for each successful metadata row with a non-empty `token_metadata.image`.
 
+- image-cache work is published to the `collection-bootstrap-image-cache` queue
+- the main bootstrap path continues to ownership/backfill/live without waiting
+  for image-cache completion
+- bootstrap run detail keeps image-cache progress visible from the
+  `bootstrap_run_steps` journal and task counts while work is still retained
 - the cache uses canonical `image`, not `animation_url`
 - IPFS image refs are resolved through `COMMON_IPFS_GATEWAY_ORIGIN`
 - metadata and image HTTP fetches use shared `COMMON_HTTP_FETCH_*` timeout and
@@ -92,8 +97,15 @@ The first embedded extension, Terraforms, uses this shadow path to cache version
 
 ### 6. Ownership snapshot
 
-- capture ownership at the anchor block
-- persist snapshot rows and finalize `nft_balances` base state
+- seed one ownership task per token after metadata completes
+- each task calls `ownerOf(tokenId)` at the anchor block through the shared
+  resilient bootstrap RPC lane
+- successful tasks persist snapshot rows
+- task retries use the bootstrap retry policy
+- ownership is mandatory: terminal ownership task failures fail the bootstrap
+  run and block collection liveness
+- once all ownership tasks succeed, snapshot rows finalize the base
+  `nft_balances` state
 
 ### 7. Schedule short backfill
 
@@ -163,10 +175,18 @@ These are config-driven, not hardcoded business invariants.
 A collection should be considered ownership-correct once:
 
 - metadata snapshot completed
-- token image cache completed or skipped
 - ownership snapshot completed
 - short backfill completed
 - `collections.status = live`
+
+Token image cache completion is not part of onchain ownership correctness. It is
+a local token-card loading optimization and may continue after the collection is
+already live.
+
+When a run fully succeeds and all task families have no pending, retry, or
+terminal-failed rows, bootstrap removes per-token scratch rows from metadata,
+ownership, image-cache, and temporary snapshot tables. `bootstrap_run_steps`
+remains the historical journal for step timing and progress totals.
 
 Manual historical backfill before `bootstrap_anchor_block` does not improve or change current ownership correctness. It only enriches historical facts before the anchor.
 
@@ -198,6 +218,10 @@ Bootstrap and OpenSea lifecycle state is tracked primarily in:
 
 - `collections`
 - `collection_extension_installs`
+- `bootstrap_runs`
+- `bootstrap_run_steps`
+- `bootstrap_metadata_snapshot_tasks`
+- `bootstrap_ownership_snapshot_tasks`
 - `nft_balance_snapshots`
 - `bootstrap_image_cache_tasks`
 - `token_image_cache`
@@ -210,6 +234,7 @@ Bootstrap and OpenSea lifecycle state is tracked primarily in:
 Queues:
 
 - `collection-bootstrap`
+- `collection-bootstrap-image-cache`
 - `events-sync-backfill`
 - `token-image-cache`
 - `collection-extension-artifacts`

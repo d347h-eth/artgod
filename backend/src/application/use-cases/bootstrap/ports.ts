@@ -1,4 +1,7 @@
-import type { ChainRecord } from "@artgod/shared/types/browse";
+import type {
+    ChainRecord,
+    OpenSeaCollectionStatus,
+} from "@artgod/shared/types";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import type { ImageCacheMode } from "@artgod/shared/media/token-image-cache";
 import type {
@@ -8,17 +11,10 @@ import type {
     BootstrapMetadataTaskStatus,
     BootstrapRunEventRecord,
     BootstrapRunRow,
+    BootstrapRunStepRecord,
+    BootstrapRunStepPlan,
+    BootstrapRunTaskCounts,
 } from "./types.js";
-
-type OpenSeaCollectionStatus =
-    | "pending"
-    | "identity_running"
-    | "subscribing"
-    | "snapshot_pending"
-    | "snapshot_running"
-    | "ready"
-    | "retrying"
-    | "failed";
 
 export type CollectionBootstrapState = {
     chainId: number;
@@ -106,6 +102,7 @@ export interface BootstrapRunsWritePort {
         imageCacheMode: ImageCacheMode;
         imageCacheMaxDimension: number | null;
         deploymentBlock: number | null;
+        steps: readonly BootstrapRunStepPlan[];
     }): BootstrapRunRow;
     updateRunStatus(
         runId: number,
@@ -138,12 +135,33 @@ export interface BootstrapRunsWritePort {
         items: BootstrapRunRow[];
         nextCursor: string | null;
     };
-    getRunTaskCounts(runId: number): {
-        pending: number;
-        retry: number;
-        succeeded: number;
-        failedTerminal: number;
-        total: number;
+    getRunTaskCounts(runId: number): BootstrapRunTaskCounts;
+    getRunImageCacheTaskCounts(runId: number): BootstrapRunTaskCounts;
+    getRunCollectionExtensionArtifactTaskCounts(
+        runId: number,
+    ): BootstrapRunTaskCounts;
+    getRunOwnershipSnapshotCount(runId: number): number;
+    getRunStep(
+        runId: number,
+        stepKey: BootstrapRunStepRecord["stepKey"],
+    ): BootstrapRunStepRecord | null;
+    listRunSteps(runId: number): BootstrapRunStepRecord[];
+    pauseRunStep(input: {
+        runId: number;
+        stepKey: BootstrapRunStepRecord["stepKey"];
+        expectedStatus: BootstrapRunStepRecord["status"];
+    }): boolean;
+    resumeRunStep(input: {
+        runId: number;
+        stepKey: BootstrapRunStepRecord["stepKey"];
+        expectedStatus: BootstrapRunStepRecord["status"];
+    }): boolean;
+    retryTerminalRunStep(
+        runId: number,
+        stepKey: BootstrapRunStepRecord["stepKey"],
+    ): {
+        stepUpdated: boolean;
+        taskUpdatedCount: number;
     };
     listRunMetadataTasks(params: {
         runId: number;
@@ -170,6 +188,16 @@ export interface BootstrapCommandQueuePort {
         address: string;
         standard: "erc721" | "erc1155";
         metadataMode: BootstrapMetadataMode;
+        anchorBlock: number;
+        anchorHash: string;
+        anchorTimestamp: number;
+    }): Promise<void>;
+    publishBootstrapImageCacheProcess(input: {
+        chainId: number;
+        runId: number;
+        collectionId: number;
+        address: string;
+        standard: "erc721" | "erc1155";
         anchorBlock: number;
         anchorHash: string;
         anchorTimestamp: number;

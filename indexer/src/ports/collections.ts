@@ -1,7 +1,7 @@
+import type { OpenSeaCollectionStatus } from "@artgod/shared/types";
 import type {
     CollectionRecord,
     CollectionUpsertInput,
-    OpenSeaCollectionStatus,
 } from "../domain/collections.js";
 
 export type CollectionSyncMode = "realtime" | "backfill";

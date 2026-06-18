@@ -4,6 +4,12 @@ import {
     IMAGE_CACHE_MODE,
     type ImageCacheMode,
 } from "@artgod/shared/media/token-image-cache";
+import {
+    BOOTSTRAP_ACTIVE_RUN_STATUSES,
+    BOOTSTRAP_RECOVERABLE_STEP_STATUSES,
+    BOOTSTRAP_RUN_STATUS,
+    type BootstrapRunStatus,
+} from "@artgod/shared/bootstrap/pipeline";
 import type {
     BootstrapRunDefinition,
     BootstrapRunsPort,
@@ -25,7 +31,7 @@ type BootstrapRunDbRow = {
     request_image_cache_mode: string;
     request_image_cache_max_dimension: number | null;
     deployment_block: number | null;
-    status: string;
+    status: BootstrapRunStatus;
     anchor_block: number | null;
     anchor_block_hash: string | null;
     anchor_block_timestamp: number | null;
@@ -39,7 +45,7 @@ export class SqliteBootstrapRuns implements BootstrapRunsPort {
 
     private updateRunStatusStmt = db.prepare<{
         runId: number;
-        status: string;
+        status: BootstrapRunStatus;
         errorCode: string | null;
         errorMessage: string | null;
         finishedAt: string | null;
@@ -77,13 +83,47 @@ export class SqliteBootstrapRuns implements BootstrapRunsPort {
         return row ? mapRun(row) : null;
     }
 
+    listRunsForStartupSweep(
+        chainId: number,
+        limit: number,
+    ): BootstrapRunDefinition[] {
+        const boundedLimit = Math.max(1, limit);
+        const runStatusPlaceholders = BOOTSTRAP_ACTIVE_RUN_STATUSES.map(
+            () => "?",
+        ).join(", ");
+        const stepStatusPlaceholders = BOOTSTRAP_RECOVERABLE_STEP_STATUSES.map(
+            () => "?",
+        ).join(", ");
+        const sql =
+            "SELECT run_id, chain_id, collection_id, request_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, request_image_cache_mode, request_image_cache_max_dimension, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp " +
+            "FROM bootstrap_runs " +
+            `WHERE chain_id = ? AND (status IN (${runStatusPlaceholders}) ` +
+            "OR EXISTS (" +
+            "SELECT 1 FROM bootstrap_run_steps s " +
+            "WHERE s.run_id = bootstrap_runs.run_id " +
+            "AND s.blocking = 0 " +
+            `AND s.status IN (${stepStatusPlaceholders})` +
+            ")) " +
+            "ORDER BY run_id ASC LIMIT ?";
+        const rows = db.raw
+            .prepare(sql)
+            .all(
+                chainId,
+                ...BOOTSTRAP_ACTIVE_RUN_STATUSES,
+                ...BOOTSTRAP_RECOVERABLE_STEP_STATUSES,
+                boundedLimit,
+            ) as BootstrapRunDbRow[];
+        return rows.map(mapRun);
+    }
+
     updateRunStatus(
         runId: number,
-        status: string,
+        status: BootstrapRunStatus,
         error?: { code: string; message: string } | null,
     ): void {
         const finishedAt =
-            status === "completed" || status === "failed"
+            status === BOOTSTRAP_RUN_STATUS.Completed ||
+            status === BOOTSTRAP_RUN_STATUS.Failed
                 ? new Date().toISOString()
                 : null;
         this.updateRunStatusStmt.run({
