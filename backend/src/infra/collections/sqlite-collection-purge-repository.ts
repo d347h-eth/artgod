@@ -60,6 +60,13 @@ export class SqliteCollectionPurgeRepository {
                     "SELECT job_id FROM trading_jobs WHERE chain_id = @chainId AND collection_id = @collectionId" +
                     ")",
             ),
+            this.deleteFrom(
+                "bootstrap_run_steps",
+                "DELETE FROM bootstrap_run_steps " +
+                    "WHERE run_id IN (" +
+                    "SELECT run_id FROM bootstrap_runs WHERE chain_id = @chainId AND collection_id = @collectionId" +
+                    ")",
+            ),
             this.deleteCollectionRows("trading_bidding_bid_book_rows"),
             this.deleteCollectionRows("trading_bidding_collection_bid_book_state"),
             this.deleteCollectionRows("trading_bidding_price_tiers"),
@@ -71,6 +78,7 @@ export class SqliteCollectionPurgeRepository {
             this.deleteCollectionRows("collection_customization_features"),
             this.deleteCollectionRows("collection_settings"),
             this.deleteCollectionRows("collection_scope_tokens"),
+            this.deleteCollectionRows("collection_sync_blocks"),
             this.deleteCollectionRows("collection_trait_stats"),
             this.deleteCollectionRows("token_sets_tokens"),
             this.deleteCollectionRows("token_sets"),
@@ -78,9 +86,13 @@ export class SqliteCollectionPurgeRepository {
             this.deleteCollectionRows("attributes"),
             this.deleteCollectionRows("attribute_keys"),
             this.deleteCollectionRows("token_metadata"),
+            this.deleteCollectionRows("token_image_cache"),
             this.deleteCollectionRows("tokens"),
             this.deleteCollectionRows("nft_balance_snapshots"),
             this.deleteCollectionRows("nft_balances"),
+            this.deleteCollectionRows("bootstrap_collection_extension_artifact_tasks"),
+            this.deleteCollectionRows("bootstrap_ownership_snapshot_tasks"),
+            this.deleteCollectionRows("bootstrap_image_cache_tasks"),
             this.deleteCollectionRows("bootstrap_metadata_snapshot_tasks"),
             this.deleteCollectionRows("bootstrap_run_events"),
             this.deleteCollectionRows("bootstrap_runs"),

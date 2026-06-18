@@ -54,7 +54,19 @@ describe("SqliteCollectionPurgeRepository", () => {
         assert.equal(countRows("bootstrap_runs", collectionId), 0);
         assert.equal(countRows("trading_jobs", collectionId), 0);
         assert.equal(countRows("token_extension_artifacts", collectionId), 0);
+        assert.equal(countRows("collection_sync_blocks", collectionId), 0);
+        assert.equal(countRows("bootstrap_image_cache_tasks", collectionId), 0);
+        assert.equal(countRows("token_image_cache", collectionId), 0);
+        assert.equal(
+            countRows("bootstrap_ownership_snapshot_tasks", collectionId),
+            0,
+        );
+        assert.equal(
+            countRows("bootstrap_collection_extension_artifact_tasks", collectionId),
+            0,
+        );
         assert.equal(countActivitySources(collectionId), 0);
+        assert.equal(countBootstrapRunSteps(collectionId), 0);
         assert.equal(countTradingJobChildren(collectionId), 0);
 
         assert.equal(countRows("collections", otherCollectionId), 1);
@@ -64,7 +76,22 @@ describe("SqliteCollectionPurgeRepository", () => {
         assert.equal(countRows("bootstrap_runs", otherCollectionId), 1);
         assert.equal(countRows("trading_jobs", otherCollectionId), 1);
         assert.equal(countRows("token_extension_artifacts", otherCollectionId), 1);
+        assert.equal(countRows("collection_sync_blocks", otherCollectionId), 1);
+        assert.equal(countRows("bootstrap_image_cache_tasks", otherCollectionId), 1);
+        assert.equal(countRows("token_image_cache", otherCollectionId), 1);
+        assert.equal(
+            countRows("bootstrap_ownership_snapshot_tasks", otherCollectionId),
+            1,
+        );
+        assert.equal(
+            countRows(
+                "bootstrap_collection_extension_artifact_tasks",
+                otherCollectionId,
+            ),
+            1,
+        );
         assert.equal(countActivitySources(otherCollectionId), 1);
+        assert.equal(countBootstrapRunSteps(otherCollectionId), 1);
         assert.equal(countTradingJobChildren(otherCollectionId), 3);
     });
 });
@@ -94,6 +121,7 @@ function seedCollectionScopedRows(collectionId: number, address: string): void {
     seedOffchainRows(collectionId);
     seedExtensionRows(collectionId, address);
     seedTradingRows(collectionId);
+    seedPostMigrationRows(collectionId, runId, address);
 
     db.prepare(
         "INSERT INTO activity_sources " +
@@ -108,6 +136,51 @@ function seedCollectionScopedRows(collectionId: number, address: string): void {
             "(run_id, chain_id, collection_id, contract_address, token_id, standard, anchor_block, anchor_block_hash, anchor_block_timestamp, status) " +
             "VALUES (?, 1, ?, ?, '1', 'erc721', 10, '0xanchor', 1000, 'completed')",
     ).run(runId, collectionId, address);
+}
+
+function seedPostMigrationRows(
+    collectionId: number,
+    runId: number,
+    address: string,
+): void {
+    db.prepare(
+        "INSERT INTO collection_sync_blocks " +
+            "(chain_id, collection_id, block_number) VALUES (1, ?, 12)",
+    ).run(collectionId);
+    db.prepare(
+        "INSERT INTO bootstrap_image_cache_tasks " +
+            "(run_id, chain_id, collection_id, contract_address, token_id, source_image_url) " +
+            "VALUES (?, 1, ?, ?, '1', ?)",
+    ).run(
+        runId,
+        collectionId,
+        address,
+        `https://images.example/${collectionId}.png`,
+    );
+    db.prepare(
+        "INSERT INTO token_image_cache " +
+            "(chain_id, collection_id, token_id, source_image_url, requested_max_dimension, cache_key, content_type, source_bytes, cached_bytes, relative_path, public_path) " +
+            "VALUES (1, ?, '1', ?, 512, ?, 'image/png', 10, 8, ?, ?)",
+    ).run(
+        collectionId,
+        `https://images.example/${collectionId}.png`,
+        `cache-${collectionId}`,
+        `tokens/${collectionId}.png`,
+        `/media/tokens/${collectionId}.png`,
+    );
+    db.prepare(
+        "INSERT INTO bootstrap_ownership_snapshot_tasks " +
+            "(run_id, chain_id, collection_id, contract_address, token_id, standard, anchor_block, anchor_block_hash, anchor_block_timestamp) " +
+            "VALUES (?, 1, ?, ?, '1', 'erc721', 10, '0xanchor', 1000)",
+    ).run(runId, collectionId, address);
+    db.prepare(
+        "INSERT INTO bootstrap_collection_extension_artifact_tasks " +
+            "(run_id, chain_id, collection_id, contract_address, token_id, extension_key) " +
+            "VALUES (?, 1, ?, ?, '1', 'test-extension')",
+    ).run(runId, collectionId, address);
+    db.prepare(
+        "INSERT INTO bootstrap_run_steps (run_id, step_key) VALUES (?, ?)",
+    ).run(runId, `test-step-${collectionId}`);
 }
 
 function seedBootstrapRows(collectionId: number, address: string): number {
@@ -322,6 +395,15 @@ function countActivitySources(collectionId: number): number {
             "SELECT COUNT(1) AS count FROM activity_sources WHERE source_event_key = ?",
         )
         .get(`activity-source:${collectionId}`) as { count: number } | undefined;
+    return row?.count ?? 0;
+}
+
+function countBootstrapRunSteps(collectionId: number): number {
+    const row = db
+        .prepare<[string]>(
+            "SELECT COUNT(1) AS count FROM bootstrap_run_steps WHERE step_key = ?",
+        )
+        .get(`test-step-${collectionId}`) as { count: number } | undefined;
     return row?.count ?? 0;
 }
 
