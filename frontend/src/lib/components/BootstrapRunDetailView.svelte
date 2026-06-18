@@ -119,7 +119,9 @@
 	}
 
 	function stepActionLabel(action: BootstrapStepAction): string {
-		return action === BOOTSTRAP_STEP_ACTION.Pause ? 'pause' : 'resume';
+		if (action === BOOTSTRAP_STEP_ACTION.Pause) return 'pause';
+		if (action === BOOTSTRAP_STEP_ACTION.Resume) return 'resume';
+		return 'retry';
 	}
 
 	function flowProgressLabel(step: ApiBootstrapFlowStep): string | null {

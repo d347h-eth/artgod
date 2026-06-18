@@ -111,6 +111,7 @@ export const BOOTSTRAP_RECOVERABLE_STEP_STATUSES = [
 export const BOOTSTRAP_STEP_ACTION = {
     Pause: "pause",
     Resume: "resume",
+    Retry: "retry",
 } as const;
 
 export type BootstrapStepAction =
@@ -120,6 +121,21 @@ export type BootstrapStepAction =
 export const BOOTSTRAP_PAUSABLE_STEP_KEYS = [
     BOOTSTRAP_STEP_KEY.Metadata,
     BOOTSTRAP_STEP_KEY.ImageCache,
+] as const;
+
+// Steps listed here support explicit operator recovery from terminal failure.
+export const BOOTSTRAP_TERMINAL_RETRY_STEP_KEYS = [
+    BOOTSTRAP_STEP_KEY.Anchor,
+    BOOTSTRAP_STEP_KEY.Enumeration,
+    BOOTSTRAP_STEP_KEY.Metadata,
+    BOOTSTRAP_STEP_KEY.Ownership,
+    BOOTSTRAP_STEP_KEY.Backfill,
+    BOOTSTRAP_STEP_KEY.CollectionLive,
+    BOOTSTRAP_STEP_KEY.ImageCache,
+    BOOTSTRAP_STEP_KEY.OpenSeaIdentity,
+    BOOTSTRAP_STEP_KEY.OpenSeaSnapshot,
+    BOOTSTRAP_STEP_KEY.OpenSeaReady,
+    BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts,
 ] as const;
 
 // Fan-out task statuses are shared by metadata, ownership, and image-cache task tables.
@@ -292,6 +308,13 @@ export function isBootstrapStepPausable(stepKey: BootstrapStepKey): boolean {
     return pausableStepKeySet.has(stepKey);
 }
 
+// Owns the rule for durable steps that can be manually retried after terminal failure.
+export function isBootstrapStepTerminalRetryable(
+    stepKey: BootstrapStepKey,
+): boolean {
+    return terminalRetryStepKeySet.has(stepKey);
+}
+
 // Pause is offered only while a step can still claim or retry work.
 export function canPauseBootstrapStepStatus(
     status: BootstrapStepStatus,
@@ -308,6 +331,13 @@ export function canResumeBootstrapStepStatus(
     status: BootstrapStepStatus,
 ): boolean {
     return status === BOOTSTRAP_STEP_STATUS.Paused;
+}
+
+// Terminal retry is an explicit operator recovery action, not a resume.
+export function canRetryBootstrapStepStatus(
+    status: BootstrapStepStatus,
+): boolean {
+    return status === BOOTSTRAP_STEP_STATUS.FailedTerminal;
 }
 
 // Wakeable steps may need an executor job after startup, resume, or dependency completion.
@@ -374,3 +404,6 @@ const runStatusSet = new Set<string>(BOOTSTRAP_RUN_STATUSES);
 const stepKeySet = new Set<string>(Object.values(BOOTSTRAP_STEP_KEY));
 const stepActionSet = new Set<string>(Object.values(BOOTSTRAP_STEP_ACTION));
 const pausableStepKeySet = new Set<string>(BOOTSTRAP_PAUSABLE_STEP_KEYS);
+const terminalRetryStepKeySet = new Set<string>(
+    BOOTSTRAP_TERMINAL_RETRY_STEP_KEYS,
+);

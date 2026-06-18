@@ -24,6 +24,7 @@ import {
     BOOTSTRAP_STEP_ACTION,
     BOOTSTRAP_STEP_KEY,
     BOOTSTRAP_STEP_STATUS,
+    BOOTSTRAP_TASK_STATUS,
     serializeBootstrapStepDependencies,
 } from "@artgod/shared/bootstrap/pipeline";
 import type { RpcRetryPolicy } from "@artgod/shared/evm/rpc-resilience";
@@ -122,6 +123,7 @@ let publicApp: FastifyInstance | null = null;
 let cachedApp: FastifyInstance | null = null;
 let syncBackfillStateInputs: unknown[] = [];
 let syncBackfillRangeInputs: unknown[] = [];
+let bootstrapStartInputs: unknown[] = [];
 let bootstrapImageCacheProcessInputs: unknown[] = [];
 
 beforeAll(async () => {
@@ -533,7 +535,9 @@ beforeAll(async () => {
     const bootstrapRepository =
         new bootstrapRepositoryModule.SqliteBootstrapRunsRepository();
     const bootstrapQueueMock = {
-        async publishBootstrapStart() {},
+        async publishBootstrapStart(input: unknown) {
+            bootstrapStartInputs.push(input);
+        },
         async publishBootstrapMetadataProcess() {},
         async publishBootstrapImageCacheProcess(input: unknown) {
             bootstrapImageCacheProcessInputs.push(input);
@@ -4255,6 +4259,131 @@ describe("backend api routes", () => {
         expect(sideLaneDetail.payload.flow.shouldPoll).toBe(true);
         expect(sideLaneDetail.payload.flow.isTerminal).toBe(false);
 
+        bootstrapImageCacheProcessInputs = [];
+        db.prepare<[string, string, number, string]>(
+            "UPDATE bootstrap_run_steps SET status = ?, last_error = ? WHERE run_id = ? AND step_key = ?",
+        ).run(
+            BOOTSTRAP_STEP_STATUS.FailedTerminal,
+            "database is locked",
+            create.payload.runId,
+            BOOTSTRAP_STEP_KEY.ImageCache,
+        );
+        insertBootstrapImageCacheTask(
+            create.payload.runId,
+            "1",
+            BOOTSTRAP_TASK_STATUS.FailedTerminal,
+        );
+        const imageCacheFailedDetail = await resolve(
+            "GET",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}`,
+        );
+        expect(
+            imageCacheFailedDetail.payload.flow.steps.find(
+                (step: { key: string }) =>
+                    step.key === BOOTSTRAP_STEP_KEY.ImageCache,
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                availableActions: [BOOTSTRAP_STEP_ACTION.Retry],
+            }),
+        );
+        const retryImageCache = await resolve(
+            "POST",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}/steps/${BOOTSTRAP_STEP_KEY.ImageCache}/${BOOTSTRAP_STEP_ACTION.Retry}`,
+            {},
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(retryImageCache.statusCode).toBe(200);
+        expect(retryImageCache.payload).toEqual({
+            runId: create.payload.runId,
+            stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+            status: BOOTSTRAP_STEP_STATUS.Ready,
+        });
+        expect(bootstrapImageCacheProcessInputs).toEqual([
+            expect.objectContaining({
+                runId: create.payload.runId,
+                collectionId: create.payload.collectionId,
+            }),
+        ]);
+        expect(
+            db
+                .prepare<[number, string]>(
+                    "SELECT status FROM bootstrap_image_cache_tasks WHERE run_id = ? AND token_id = ?",
+                )
+                .get(create.payload.runId, "1"),
+        ).toEqual({ status: BOOTSTRAP_TASK_STATUS.Retry });
+
+        bootstrapStartInputs = [];
+        db.prepare<[string, string, string, number]>(
+            "UPDATE bootstrap_runs SET status = ?, error_code = ?, error_message = ? WHERE run_id = ?",
+        ).run(
+            BOOTSTRAP_RUN_STATUS.Failed,
+            "ownership_failed",
+            "ownership failed",
+            create.payload.runId,
+        );
+        db.prepare<[string, string, number, string]>(
+            "UPDATE bootstrap_run_steps SET status = ?, last_error = ? WHERE run_id = ? AND step_key = ?",
+        ).run(
+            BOOTSTRAP_STEP_STATUS.FailedTerminal,
+            "ownership failed",
+            create.payload.runId,
+            BOOTSTRAP_STEP_KEY.Ownership,
+        );
+        insertBootstrapOwnershipTask(
+            create.payload.runId,
+            "2",
+            BOOTSTRAP_TASK_STATUS.FailedTerminal,
+        );
+        const retryOwnership = await resolve(
+            "POST",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}/steps/${BOOTSTRAP_STEP_KEY.Ownership}/${BOOTSTRAP_STEP_ACTION.Retry}`,
+            {},
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(retryOwnership.statusCode).toBe(200);
+        expect(retryOwnership.payload).toEqual({
+            runId: create.payload.runId,
+            stepKey: BOOTSTRAP_STEP_KEY.Ownership,
+            status: BOOTSTRAP_STEP_STATUS.Ready,
+        });
+        expect(bootstrapStartInputs).toEqual([
+            expect.objectContaining({
+                runId: create.payload.runId,
+                collectionId: create.payload.collectionId,
+            }),
+        ]);
+        expect(
+            db
+                .prepare<[number, string]>(
+                    "SELECT status FROM bootstrap_ownership_snapshot_tasks WHERE run_id = ? AND token_id = ?",
+                )
+                .get(create.payload.runId, "2"),
+        ).toEqual({ status: BOOTSTRAP_TASK_STATUS.Retry });
+        expect(
+            db
+                .prepare<[number]>(
+                    "SELECT status, error_code, error_message FROM bootstrap_runs WHERE run_id = ?",
+                )
+                .get(create.payload.runId),
+        ).toEqual({
+            status: BOOTSTRAP_RUN_STATUS.Ownership,
+            error_code: null,
+            error_message: null,
+        });
+
         const probe = await resolve(
             "GET",
             `/api/ethereum/collections/bootstrap/probe?address=${TERRAFORMS_ADDRESS}`,
@@ -5926,6 +6055,40 @@ function insertBootstrapImageCacheTask(
         tokenId,
         `https://images.example/${tokenId}.png`,
         512,
+        status,
+    );
+}
+
+function insertBootstrapOwnershipTask(
+    runId: number,
+    tokenId: string,
+    status: "pending" | "retry" | "succeeded" | "failed_terminal",
+): void {
+    const run = resolveBootstrapRunFixture(runId);
+    if (
+        run.anchor_block === null ||
+        !run.anchor_block_hash ||
+        run.anchor_block_timestamp === null
+    ) {
+        throw new Error(
+            "Missing run anchor data for ownership task fixture insertion",
+        );
+    }
+
+    db.prepare(
+        "INSERT INTO bootstrap_ownership_snapshot_tasks " +
+            "(run_id, chain_id, collection_id, contract_address, token_id, standard, anchor_block, anchor_block_hash, anchor_block_timestamp, status, attempts, next_attempt_at, last_error, last_error_at, created_at, updated_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+    ).run(
+        runId,
+        run.chain_id,
+        run.collection_id,
+        run.address.toLowerCase(),
+        tokenId,
+        run.request_standard,
+        run.anchor_block,
+        run.anchor_block_hash,
+        run.anchor_block_timestamp,
         status,
     );
 }

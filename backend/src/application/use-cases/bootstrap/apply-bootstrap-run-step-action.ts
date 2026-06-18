@@ -6,8 +6,11 @@ import {
     BOOTSTRAP_STEP_KEY,
     BOOTSTRAP_STEP_STATUS,
     canPauseBootstrapStepStatus,
+    canRetryBootstrapStepStatus,
     canResumeBootstrapStepStatus,
+    isBootstrapStepTerminalRetryable,
     isBootstrapStepPausable,
+    type BootstrapRunStatus,
     type BootstrapStepAction,
     type BootstrapStepKey,
     type BootstrapStepStatus,
@@ -66,17 +69,22 @@ export class ApplyBootstrapRunStepActionUseCase {
                 "Only latest collection run can change bootstrap steps",
             );
         }
-        if (run.status === BOOTSTRAP_RUN_STATUS.Failed) {
-            throw new BootstrapConflictError(
-                "Run failed fatally; queue a new bootstrap run",
-            );
-        }
         const step = this.bootstrapRunsPort.getRunStep(
             run.runId,
             input.stepKey,
         );
         if (!step) {
             throw new ReadModelNotFoundError("Unknown bootstrap run step");
+        }
+
+        if (input.action === BOOTSTRAP_STEP_ACTION.Retry) {
+            return this.retryStep(run, step);
+        }
+
+        if (run.status === BOOTSTRAP_RUN_STATUS.Failed) {
+            throw new BootstrapConflictError(
+                "Run failed; retry the terminal step before pause/resume",
+            );
         }
         if (!isBootstrapStepPausable(step.stepKey)) {
             throw new BootstrapValidationError(
@@ -89,6 +97,46 @@ export class ApplyBootstrapRunStepActionUseCase {
         }
 
         return this.resumeStep(run, step);
+    }
+
+    private async retryStep(
+        run: BootstrapRunRow,
+        step: BootstrapRunStepRecord,
+    ): Promise<ApplyBootstrapRunStepActionOutput> {
+        if (!isBootstrapStepTerminalRetryable(step.stepKey)) {
+            throw new BootstrapValidationError(
+                "Bootstrap step does not support terminal retry",
+            );
+        }
+        if (!canRetryBootstrapStepStatus(step.status)) {
+            throw new BootstrapConflictError(
+                "Bootstrap step cannot be retried from its current status",
+            );
+        }
+
+        const retry = this.bootstrapRunsPort.retryTerminalRunStep(
+            run.runId,
+            step.stepKey,
+        );
+        if (!retry.stepUpdated) {
+            throw new BootstrapConflictError(
+                "Bootstrap step terminal retry lost the state race",
+            );
+        }
+
+        const runStatus = resolveRunStatusAfterTerminalRetry(run, step);
+        if (runStatus) {
+            this.bootstrapRunsPort.updateRunStatus(run.runId, runStatus);
+        }
+        this.appendStepActionEvent(run, step.stepKey, BOOTSTRAP_STEP_ACTION.Retry, {
+            taskUpdatedCount: retry.taskUpdatedCount,
+        });
+        await this.publishStepWork(run, step.stepKey);
+        return buildOutput(
+            run.runId,
+            step.stepKey,
+            BOOTSTRAP_STEP_STATUS.Ready,
+        );
     }
 
     private pauseStep(
@@ -124,7 +172,7 @@ export class ApplyBootstrapRunStepActionUseCase {
                 step.stepKey,
                 BOOTSTRAP_STEP_ACTION.Resume,
             );
-            await this.publishResumeWork(run, step.stepKey);
+            await this.publishStepWork(run, step.stepKey);
             return buildOutput(
                 run.runId,
                 step.stepKey,
@@ -136,7 +184,7 @@ export class ApplyBootstrapRunStepActionUseCase {
             step.status === BOOTSTRAP_STEP_STATUS.Ready ||
             step.status === BOOTSTRAP_STEP_STATUS.FailedRetry
         ) {
-            await this.publishResumeWork(run, step.stepKey);
+            await this.publishStepWork(run, step.stepKey);
             return buildOutput(run.runId, step.stepKey, step.status);
         }
 
@@ -153,55 +201,120 @@ export class ApplyBootstrapRunStepActionUseCase {
         run: BootstrapRunRow,
         stepKey: BootstrapStepKey,
         action: BootstrapStepAction,
+        extraPayload: Record<string, unknown> = {},
     ): void {
+        const event = resolveStepActionEvent(action);
         this.bootstrapRunsPort.appendRunEvent({
             runId: run.runId,
             chainId: run.chainId,
             collectionId: run.collectionId,
-            eventCode:
-                action === BOOTSTRAP_STEP_ACTION.Pause
-                    ? BOOTSTRAP_RUN_EVENT_CODE.StepPaused
-                    : BOOTSTRAP_RUN_EVENT_CODE.StepResumed,
+            eventCode: event.code,
             eventLevel: "info",
-            message:
-                action === BOOTSTRAP_STEP_ACTION.Pause
-                    ? "Bootstrap step paused"
-                    : "Bootstrap step resumed",
-            payloadJson: JSON.stringify({ stepKey, action }),
+            message: event.message,
+            payloadJson: JSON.stringify({ stepKey, action, ...extraPayload }),
         });
     }
 
-    private async publishResumeWork(
+    private async publishStepWork(
         run: BootstrapRunRow,
         stepKey: BootstrapStepKey,
     ): Promise<void> {
-        assertRunAnchorReady(run);
-        if (stepKey === BOOTSTRAP_STEP_KEY.Metadata) {
-            await this.bootstrapQueuePort.publishBootstrapMetadataProcess({
+        if (stepKey !== BOOTSTRAP_STEP_KEY.ImageCache) {
+            await this.bootstrapQueuePort.publishBootstrapStart({
                 chainId: run.chainId,
                 runId: run.runId,
                 collectionId: run.collectionId,
-                address: run.requestAddress,
-                standard: run.requestStandard,
-                metadataMode: run.metadataMode,
-                anchorBlock: run.anchorBlock,
-                anchorHash: run.anchorBlockHash,
-                anchorTimestamp: run.anchorBlockTimestamp,
             });
             return;
         }
 
-        await this.bootstrapQueuePort.publishBootstrapImageCacheProcess({
-            chainId: run.chainId,
-            runId: run.runId,
-            collectionId: run.collectionId,
-            address: run.requestAddress,
-            standard: run.requestStandard,
-            anchorBlock: run.anchorBlock,
-            anchorHash: run.anchorBlockHash,
-            anchorTimestamp: run.anchorBlockTimestamp,
-        });
+        assertRunAnchorReady(run);
+        await this.bootstrapQueuePort.publishBootstrapImageCacheProcess(
+            buildAnchoredStepPayload(run),
+        );
     }
+}
+
+function resolveStepActionEvent(
+    action: BootstrapStepAction,
+): { code: string; message: string } {
+    if (action === BOOTSTRAP_STEP_ACTION.Pause) {
+        return {
+            code: BOOTSTRAP_RUN_EVENT_CODE.StepPaused,
+            message: "Bootstrap step paused",
+        };
+    }
+    if (action === BOOTSTRAP_STEP_ACTION.Resume) {
+        return {
+            code: BOOTSTRAP_RUN_EVENT_CODE.StepResumed,
+            message: "Bootstrap step resumed",
+        };
+    }
+    return {
+        code: BOOTSTRAP_RUN_EVENT_CODE.StepRetried,
+        message: "Bootstrap step terminal failure retry requested",
+    };
+}
+
+function resolveRunStatusAfterTerminalRetry(
+    run: BootstrapRunRow,
+    step: BootstrapRunStepRecord,
+): BootstrapRunStatus | null {
+    if (!step.blocking && run.status === BOOTSTRAP_RUN_STATUS.Completed) {
+        return null;
+    }
+    if (
+        step.stepKey === BOOTSTRAP_STEP_KEY.Anchor ||
+        step.stepKey === BOOTSTRAP_STEP_KEY.Enumeration
+    ) {
+        return BOOTSTRAP_RUN_STATUS.Queued;
+    }
+    if (step.stepKey === BOOTSTRAP_STEP_KEY.Metadata) {
+        return BOOTSTRAP_RUN_STATUS.Metadata;
+    }
+    if (step.stepKey === BOOTSTRAP_STEP_KEY.ImageCache) {
+        return BOOTSTRAP_RUN_STATUS.ImageCache;
+    }
+    if (step.stepKey === BOOTSTRAP_STEP_KEY.Ownership) {
+        return BOOTSTRAP_RUN_STATUS.Ownership;
+    }
+    if (
+        step.stepKey === BOOTSTRAP_STEP_KEY.Backfill ||
+        step.stepKey === BOOTSTRAP_STEP_KEY.CollectionLive
+    ) {
+        return BOOTSTRAP_RUN_STATUS.Backfill;
+    }
+    return run.status === BOOTSTRAP_RUN_STATUS.Failed
+        ? BOOTSTRAP_RUN_STATUS.Backfill
+        : null;
+}
+
+function buildAnchoredStepPayload(
+    run: BootstrapRunRow & {
+        anchorBlock: number;
+        anchorBlockHash: string;
+        anchorBlockTimestamp: number;
+    },
+): {
+    chainId: number;
+    runId: number;
+    collectionId: number;
+    address: string;
+    standard: "erc721" | "erc1155";
+    anchorBlock: number;
+    anchorHash: string;
+    anchorTimestamp: number;
+} {
+    return {
+        chainId: run.chainId,
+        runId: run.runId,
+        collectionId: run.collectionId,
+        address: run.requestAddress,
+        standard: run.requestStandard,
+        anchorBlock: run.anchorBlock,
+        anchorHash: run.anchorBlockHash,
+        anchorTimestamp: run.anchorBlockTimestamp,
+    };
 }
 
 function assertRunAnchorReady(

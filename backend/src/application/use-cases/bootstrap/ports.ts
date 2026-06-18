@@ -154,6 +154,13 @@ export interface BootstrapRunsWritePort {
         runId: number,
         stepKey: BootstrapRunStepRecord["stepKey"],
     ): void;
+    retryTerminalRunStep(
+        runId: number,
+        stepKey: BootstrapRunStepRecord["stepKey"],
+    ): {
+        stepUpdated: boolean;
+        taskUpdatedCount: number;
+    };
     listRunMetadataTasks(params: {
         runId: number;
         status?: BootstrapMetadataTaskStatus;

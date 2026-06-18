@@ -19,9 +19,11 @@ import {
     BOOTSTRAP_STEP_STATUS,
     BOOTSTRAP_TASK_STATUS,
     canPauseBootstrapStepStatus,
+    canRetryBootstrapStepStatus,
     canResumeBootstrapStepStatus,
     isBootstrapStepKey,
     isBootstrapStepPausable,
+    isBootstrapStepTerminalRetryable,
     isBootstrapStepTerminalStatus,
     type BootstrapFlowStepKey,
 } from "@artgod/shared/bootstrap/pipeline";
@@ -597,6 +599,13 @@ function resolveBootstrapStepActions(
     key: BootstrapFlowStepKey,
     status: BootstrapRunStepRecord["status"],
 ): BootstrapFlowStep["availableActions"] {
+    if (
+        isBootstrapStepKey(key) &&
+        isBootstrapStepTerminalRetryable(key) &&
+        canRetryBootstrapStepStatus(status)
+    ) {
+        return [BOOTSTRAP_STEP_ACTION.Retry];
+    }
     if (!isPausableBootstrapStep(key)) {
         return [];
     }

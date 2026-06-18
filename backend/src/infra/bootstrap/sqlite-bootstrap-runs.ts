@@ -7,12 +7,14 @@ import {
 import type { OpenSeaCollectionStatus } from "@artgod/shared/types";
 import {
     BOOTSTRAP_RUN_STATUS,
+    BOOTSTRAP_STEP_KEY,
     BOOTSTRAP_STEP_STATUS,
     BOOTSTRAP_TASK_STATUS,
     mapBootstrapTaskStatusCounts,
     serializeBootstrapStepDependencies,
     type BootstrapRunStatus,
     type BootstrapRunStepPlan,
+    type BootstrapTaskStatus,
     type BootstrapTaskStatusCountRow,
 } from "@artgod/shared/bootstrap/pipeline";
 import {
@@ -341,6 +343,18 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
             "WHERE run_id = @runId AND step_key = @stepKey",
     );
 
+    private retryTerminalRunStepStmt = db.prepare<{
+        runId: number;
+        stepKey: BootstrapRunStepRecord["stepKey"];
+        readyStatus: BootstrapRunStepRecord["status"];
+        failedTerminalStatus: BootstrapRunStepRecord["status"];
+    }>(
+        "UPDATE bootstrap_run_steps SET " +
+            "status = @readyStatus, next_attempt_at = 0, lease_owner = NULL, lease_until = NULL, " +
+            "attempts = 0, last_error = NULL, last_error_at = NULL, finished_at = NULL, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND step_key = @stepKey AND status = @failedTerminalStatus",
+    );
+
     private selectRunEvents = db.prepare<{ runId: number }>(
         "SELECT event_code, event_level, message, created_at, payload_json " +
             "FROM bootstrap_run_events WHERE run_id = @runId ORDER BY id ASC",
@@ -352,6 +366,36 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         failedTerminalStatus: BootstrapMetadataTaskStatus;
     }>(
         "UPDATE bootstrap_metadata_snapshot_tasks SET " +
+            "status = @retryStatus, next_attempt_at = 0, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND status = @failedTerminalStatus",
+    );
+
+    private markFailedImageCacheTasksRetry = db.prepare<{
+        runId: number;
+        retryStatus: BootstrapTaskStatus;
+        failedTerminalStatus: BootstrapTaskStatus;
+    }>(
+        "UPDATE bootstrap_image_cache_tasks SET " +
+            "status = @retryStatus, next_attempt_at = 0, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND status = @failedTerminalStatus",
+    );
+
+    private markFailedOwnershipTasksRetry = db.prepare<{
+        runId: number;
+        retryStatus: BootstrapTaskStatus;
+        failedTerminalStatus: BootstrapTaskStatus;
+    }>(
+        "UPDATE bootstrap_ownership_snapshot_tasks SET " +
+            "status = @retryStatus, next_attempt_at = 0, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND status = @failedTerminalStatus",
+    );
+
+    private markFailedCollectionExtensionArtifactTasksRetry = db.prepare<{
+        runId: number;
+        retryStatus: BootstrapTaskStatus;
+        failedTerminalStatus: BootstrapTaskStatus;
+    }>(
+        "UPDATE bootstrap_collection_extension_artifact_tasks SET " +
             "status = @retryStatus, next_attempt_at = 0, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND status = @failedTerminalStatus",
     );
@@ -762,6 +806,57 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
             failedTerminalStatus: BOOTSTRAP_TASK_STATUS.FailedTerminal,
         });
         return result.changes;
+    }
+
+    retryTerminalRunStep(
+        runId: number,
+        stepKey: BootstrapRunStepRecord["stepKey"],
+    ): {
+        stepUpdated: boolean;
+        taskUpdatedCount: number;
+    } {
+        const retryTerminal = db.raw.transaction(() => {
+            const stepResult = this.retryTerminalRunStepStmt.run({
+                runId,
+                stepKey,
+                readyStatus: BOOTSTRAP_STEP_STATUS.Ready,
+                failedTerminalStatus: BOOTSTRAP_STEP_STATUS.FailedTerminal,
+            });
+            const stepUpdated = stepResult.changes > 0;
+            return {
+                stepUpdated,
+                taskUpdatedCount: stepUpdated
+                    ? this.retryTerminalTasks(runId, stepKey)
+                    : 0,
+            };
+        });
+        return retryTerminal();
+    }
+
+    private retryTerminalTasks(
+        runId: number,
+        stepKey: BootstrapRunStepRecord["stepKey"],
+    ): number {
+        const params = {
+            runId,
+            retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
+            failedTerminalStatus: BOOTSTRAP_TASK_STATUS.FailedTerminal,
+        };
+        if (stepKey === BOOTSTRAP_STEP_KEY.Metadata) {
+            return this.markFailedTasksRetry.run(params).changes;
+        }
+        if (stepKey === BOOTSTRAP_STEP_KEY.ImageCache) {
+            return this.markFailedImageCacheTasksRetry.run(params).changes;
+        }
+        if (stepKey === BOOTSTRAP_STEP_KEY.Ownership) {
+            return this.markFailedOwnershipTasksRetry.run(params).changes;
+        }
+        if (stepKey === BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts) {
+            return this.markFailedCollectionExtensionArtifactTasksRetry.run(
+                params,
+            ).changes;
+        }
+        return 0;
     }
 }
 

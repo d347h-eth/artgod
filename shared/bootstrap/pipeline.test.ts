@@ -14,11 +14,13 @@ import {
     BOOTSTRAP_STEP_ACTION,
     areBootstrapStepDependenciesSatisfied,
     canPauseBootstrapStepStatus,
+    canRetryBootstrapStepStatus,
     canResumeBootstrapStepStatus,
     isBootstrapStepAction,
     parseBootstrapStepDependencies,
     isBootstrapStepKey,
     isBootstrapStepPausable,
+    isBootstrapStepTerminalRetryable,
     isBootstrapStepWakeableStatus,
 } from "./pipeline.js";
 
@@ -151,11 +153,15 @@ describe("bootstrap pipeline contract", () => {
         expect(isBootstrapStepKey(BOOTSTRAP_STEP_KEY.ImageCache)).toBe(true);
         expect(isBootstrapStepKey("queued")).toBe(false);
         expect(isBootstrapStepAction(BOOTSTRAP_STEP_ACTION.Pause)).toBe(true);
+        expect(isBootstrapStepAction(BOOTSTRAP_STEP_ACTION.Retry)).toBe(true);
         expect(isBootstrapStepAction("restart")).toBe(false);
         expect(isBootstrapStepPausable(BOOTSTRAP_STEP_KEY.Metadata)).toBe(true);
         expect(isBootstrapStepPausable(BOOTSTRAP_STEP_KEY.Ownership)).toBe(
             false,
         );
+        expect(
+            isBootstrapStepTerminalRetryable(BOOTSTRAP_STEP_KEY.Ownership),
+        ).toBe(true);
         expect(canPauseBootstrapStepStatus(BOOTSTRAP_STEP_STATUS.Running)).toBe(
             true,
         );
@@ -166,6 +172,12 @@ describe("bootstrap pipeline contract", () => {
             true,
         );
         expect(canResumeBootstrapStepStatus(BOOTSTRAP_STEP_STATUS.Ready)).toBe(
+            false,
+        );
+        expect(
+            canRetryBootstrapStepStatus(BOOTSTRAP_STEP_STATUS.FailedTerminal),
+        ).toBe(true);
+        expect(canRetryBootstrapStepStatus(BOOTSTRAP_STEP_STATUS.Paused)).toBe(
             false,
         );
         expect(isBootstrapStepWakeableStatus(BOOTSTRAP_STEP_STATUS.Ready)).toBe(
