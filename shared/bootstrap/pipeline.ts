@@ -120,6 +120,7 @@ export type BootstrapStepAction =
 // Steps listed here support persisted operator pause/resume controls.
 export const BOOTSTRAP_PAUSABLE_STEP_KEYS = [
     BOOTSTRAP_STEP_KEY.Metadata,
+    BOOTSTRAP_STEP_KEY.Ownership,
     BOOTSTRAP_STEP_KEY.ImageCache,
 ] as const;
 

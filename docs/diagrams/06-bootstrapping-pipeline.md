@@ -44,7 +44,8 @@ rather than a local lease. When that deadline becomes due, the main scheduler
 can claim the step again and decide whether to republish work, observe terminal
 state, or retry.
 
-Pause/resume is currently step-level and exposed for metadata and image cache.
+Pause/resume is currently step-level and exposed for metadata, ownership, and
+image cache.
 
 ## Sequence
 

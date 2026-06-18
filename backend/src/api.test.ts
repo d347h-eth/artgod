@@ -4174,6 +4174,17 @@ describe("backend api routes", () => {
                 pausable: true,
             }),
         );
+        expect(
+            createdDetail.payload.flow.steps.find(
+                (step: { key: string }) =>
+                    step.key === BOOTSTRAP_STEP_KEY.Ownership,
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                blocking: true,
+                pausable: true,
+            }),
+        );
         bootstrapImageCacheProcessInputs = [];
         db.prepare<[number, string, number, number]>(
             "UPDATE bootstrap_runs SET anchor_block = ?, anchor_block_hash = ?, anchor_block_timestamp = ? WHERE run_id = ?",
@@ -4249,6 +4260,75 @@ describe("backend api routes", () => {
                 anchorBlock: 24500000,
             }),
         ]);
+
+        bootstrapStartInputs = [];
+        bootstrapImageCacheProcessInputs = [];
+        db.prepare<[string, number, string]>(
+            "UPDATE bootstrap_run_steps SET status = ? WHERE run_id = ? AND step_key = ?",
+        ).run(
+            BOOTSTRAP_STEP_STATUS.Running,
+            create.payload.runId,
+            BOOTSTRAP_STEP_KEY.Ownership,
+        );
+        const pauseOwnership = await resolve(
+            "POST",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}/steps/${BOOTSTRAP_STEP_KEY.Ownership}/${BOOTSTRAP_STEP_ACTION.Pause}`,
+            {},
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(pauseOwnership.statusCode).toBe(200);
+        expect(pauseOwnership.payload).toEqual({
+            runId: create.payload.runId,
+            stepKey: BOOTSTRAP_STEP_KEY.Ownership,
+            status: BOOTSTRAP_STEP_STATUS.Paused,
+        });
+        const pausedOwnershipDetail = await resolve(
+            "GET",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}`,
+        );
+        expect(
+            pausedOwnershipDetail.payload.flow.steps.find(
+                (step: { key: string }) =>
+                    step.key === BOOTSTRAP_STEP_KEY.Ownership,
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                paused: true,
+                availableActions: [BOOTSTRAP_STEP_ACTION.Resume],
+            }),
+        );
+        const resumeOwnership = await resolve(
+            "POST",
+            `/api/ethereum/bootstrap-runs/${create.payload.runId}/steps/${BOOTSTRAP_STEP_KEY.Ownership}/${BOOTSTRAP_STEP_ACTION.Resume}`,
+            {},
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(resumeOwnership.statusCode).toBe(200);
+        expect(resumeOwnership.payload).toEqual({
+            runId: create.payload.runId,
+            stepKey: BOOTSTRAP_STEP_KEY.Ownership,
+            status: BOOTSTRAP_STEP_STATUS.Ready,
+        });
+        expect(bootstrapStartInputs).toEqual([
+            expect.objectContaining({
+                runId: create.payload.runId,
+                collectionId: create.payload.collectionId,
+            }),
+        ]);
+        expect(bootstrapImageCacheProcessInputs).toEqual([]);
+
         db.prepare<[string, number]>(
             "UPDATE bootstrap_runs SET status = ? WHERE run_id = ?",
         ).run(BOOTSTRAP_RUN_STATUS.Completed, create.payload.runId);

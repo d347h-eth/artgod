@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
-import { BOOTSTRAP_STEP_ACTION } from '@artgod/shared/bootstrap/pipeline';
+import { BOOTSTRAP_STEP_ACTION, BOOTSTRAP_STEP_KEY } from '@artgod/shared/bootstrap/pipeline';
 import type { ApiBootstrapFlowStep } from '$lib/api-types';
 import BootstrapRunDetailView from './BootstrapRunDetailView.svelte';
 
@@ -239,6 +239,23 @@ describe('BootstrapRunDetailView', () => {
 									pausable: true,
 									availableActions: [BOOTSTRAP_STEP_ACTION.Pause]
 								}
+							),
+							flowStep(
+								{
+									key: BOOTSTRAP_STEP_KEY.Ownership,
+									label: 'ownership',
+									state: 'active',
+									detailText: null,
+									progress: {
+										completed: 2,
+										total: 4
+									}
+								},
+								{
+									pausable: true,
+									paused: true,
+									availableActions: [BOOTSTRAP_STEP_ACTION.Resume]
+								}
 							)
 						],
 						isTerminal: false,
@@ -252,6 +269,7 @@ describe('BootstrapRunDetailView', () => {
 		});
 
 		expect(body).toContain('aria-label="pause image cache"');
+		expect(body).toContain('aria-label="resume ownership"');
 		expect(body).toContain('class="bootstrap-flow-step-action"');
 	});
 

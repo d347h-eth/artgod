@@ -157,7 +157,7 @@ describe("bootstrap pipeline contract", () => {
         expect(isBootstrapStepAction("restart")).toBe(false);
         expect(isBootstrapStepPausable(BOOTSTRAP_STEP_KEY.Metadata)).toBe(true);
         expect(isBootstrapStepPausable(BOOTSTRAP_STEP_KEY.Ownership)).toBe(
-            false,
+            true,
         );
         expect(
             isBootstrapStepTerminalRetryable(BOOTSTRAP_STEP_KEY.Ownership),

@@ -125,6 +125,33 @@ describe("bootstrap step scheduler", () => {
         expect(second.claimedStepKeys).toEqual([BOOTSTRAP_STEP_KEY.Ownership]);
     });
 
+    it("does not claim paused ownership work during startup sweep", async () => {
+        const run = buildRun(56);
+        const steps = new InMemoryStepsPort([
+            step(
+                run.runId,
+                BOOTSTRAP_STEP_KEY.Ownership,
+                BOOTSTRAP_STEP_STATUS.Paused,
+            ),
+        ]);
+        const scheduler = buildScheduler({
+            runs: runsPort([run], [run]),
+            steps,
+            nowMs: () => 1_000,
+            processor: processorPort(async () => readyStepResult(2_000)),
+        });
+
+        const result = await scheduler.runOnce(
+            schedulerInput(run.chainId, [BOOTSTRAP_STEP_KEY.Ownership]),
+        );
+
+        expect(result.runIds).toEqual([run.runId]);
+        expect(result.claimedStepKeys).toEqual([]);
+        expect(steps.isStepPaused(run.runId, BOOTSTRAP_STEP_KEY.Ownership)).toBe(
+            true,
+        );
+    });
+
     it("prioritizes due rows before startup sweep candidates", async () => {
         const dueRun = buildRun(54);
         const startupRun = buildRun(55);

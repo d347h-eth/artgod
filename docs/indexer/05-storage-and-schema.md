@@ -224,7 +224,8 @@ Important semantics:
 
 - dependencies are stored as JSON arrays on each step row
 - image cache is non-blocking and can continue after the collection is live
-- metadata and image-cache steps expose persisted pause/resume controls
+- metadata, ownership, and image-cache steps expose persisted pause/resume
+  controls
 
 ### `bootstrap_image_cache_tasks`
 

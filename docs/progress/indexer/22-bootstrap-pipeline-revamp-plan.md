@@ -19,7 +19,7 @@ a good fit for the requirements now visible:
   work because collection images may be hosted on very slow servers
 - image caching is a local presentation optimization and should not block a
   collection from becoming live
-- metadata and image-cache work need explicit pause/resume controls
+- metadata, ownership, and image-cache work need explicit pause/resume controls
 - ownership snapshot needs per-token durability and retry semantics like
   metadata, not one monolithic loop
 - progress, errors, and controls should be step-native rather than inferred from
@@ -339,9 +339,11 @@ Resume:
 Initial UI controls should exist for:
 
 - metadata
+- ownership
 - image cache
 
-Other bootstrap steps can continue without pause/resume until they prove
+Enumeration, backfill, collection-live, OpenSea, and extension artifact steps
+can continue without pause/resume until they prove
 operationally expensive enough to justify controls.
 
 ## Image Cache Lane
@@ -644,6 +646,7 @@ Test gate:
 - integration: image-cache continues after collection live and reaches terminal
   state
 - integration: image-cache pause/resume is honored by the scheduler
+- integration: ownership pause/resume is honored by the scheduler
 - integration: OpenSea delegated steps reach terminal success/skip/failure
 - integration: collection-extension artifact tasks reach terminal state after
   delegated refresh jobs
