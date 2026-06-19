@@ -3,8 +3,10 @@ import {
     BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
     BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION,
 } from "../config/bootstrap.js";
-
-export const TOKEN_IMAGE_CACHE_PUBLIC_PATH_PREFIX = "/media/token-images";
+export {
+    buildTokenImageCachePublicPath,
+    TOKEN_IMAGE_CACHE_PUBLIC_PATH_PREFIX,
+} from "./token-image-cache-paths.js";
 
 // Image cache modes define how local token-card media is populated and refreshed.
 export const IMAGE_CACHE_MODE = {
@@ -20,16 +22,6 @@ export type ImageCachePolicyConfig = {
     imageCacheMode: ImageCacheMode;
     maxDimension: number | null;
 };
-
-// Builds the root-relative URL stored in read-model rows for cached images.
-export function buildTokenImageCachePublicPath(relativePath: string): string {
-    const normalized = relativePath
-        .split(/[\\/]+/)
-        .filter(Boolean)
-        .map((part) => encodeURIComponent(part))
-        .join("/");
-    return `${TOKEN_IMAGE_CACHE_PUBLIC_PATH_PREFIX}/${normalized}`;
-}
 
 // Returns the generic image-cache policy used when no extension overrides it.
 export function defaultImageCachePolicyConfig(): ImageCachePolicyConfig {
