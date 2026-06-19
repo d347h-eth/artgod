@@ -236,17 +236,27 @@
 {#if purgeTarget}
 	<div
 		class="collection-purge-backdrop"
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="collection-purge-title"
+		role="presentation"
 		tabindex="-1"
 		onclick={onPurgeBackdropClick}
 		onkeydown={onPurgeBackdropKeydown}
 	>
-		<section class="collection-purge-modal">
+		<div
+			class="collection-purge-modal"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="collection-purge-title"
+		>
 			<header class="collection-purge-header">
-				<h2 id="collection-purge-title">purge collection</h2>
-				<button type="button" class="button-link" onclick={closePurgeModal}>close</button>
+				<h2 id="collection-purge-title" class="panel-title">purge collection</h2>
+				<button
+					type="button"
+					class="button-link panel-header-help-button"
+					aria-label="close purge collection"
+					onclick={closePurgeModal}
+				>
+					x
+				</button>
 			</header>
 
 			<dl class="collection-purge-context">
@@ -274,6 +284,7 @@
 				<label for="collection-purge-confirmation">type purge</label>
 				<input
 					id="collection-purge-confirmation"
+					class="collection-purge-confirmation"
 					name="confirmation"
 					autocomplete="off"
 					bind:value={purgeConfirmation}
@@ -287,7 +298,7 @@
 					<p class="collection-purge-error">{purgeError}</p>
 				{/if}
 			</form>
-		</section>
+		</div>
 	</div>
 {/if}
 
@@ -309,14 +320,14 @@
 	}
 
 	.collection-purge-modal {
-		width: min(34rem, 92vw);
+		width: min(35rem, 92vw);
 		max-height: 90vh;
 		overflow: auto;
 		border: 1px solid var(--c-blue);
 		background: var(--c-bg);
 		padding: 1rem;
 		display: grid;
-		gap: 0.9rem;
+		gap: 1rem;
 	}
 
 	.collection-purge-header {
@@ -326,19 +337,14 @@
 		gap: 1rem;
 	}
 
-	.collection-purge-header h2 {
-		margin: 0;
-		color: var(--c-yellow);
-		font-size: 0.95rem;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-	}
-
 	.collection-purge-context {
 		display: grid;
-		grid-template-columns: max-content minmax(0, 1fr);
-		gap: 0.4rem 0.75rem;
+		grid-template-columns: minmax(6.5rem, max-content) minmax(0, 1fr);
+		gap: 0.45rem 0.9rem;
 		margin: 0;
+		padding: 0.75rem 0;
+		border-top: 1px solid var(--c-blue);
+		border-bottom: 1px solid var(--c-blue);
 	}
 
 	.collection-purge-context div {
@@ -346,7 +352,7 @@
 	}
 
 	.collection-purge-context dt {
-		color: var(--c-pink);
+		color: var(--c-sand);
 		text-transform: uppercase;
 		font-size: 0.72rem;
 		letter-spacing: 0.05em;
@@ -355,6 +361,8 @@
 	.collection-purge-context dd {
 		margin: 0;
 		min-width: 0;
+		overflow-wrap: anywhere;
+		color: var(--c-ice);
 	}
 
 	.collection-purge-warning,
@@ -367,18 +375,62 @@
 		color: var(--c-pink);
 	}
 
-	.collection-purge-form {
-		display: grid;
-		gap: 0.5rem;
-		justify-items: start;
+	.collection-purge-warning {
+		border-left: 2px solid var(--c-pink);
+		padding-left: 0.75rem;
+		line-height: 1.35;
 	}
 
-	.collection-purge-form input {
-		width: min(14rem, 100%);
+	.collection-purge-form {
+		display: grid;
+		grid-template-columns: max-content max-content;
+		gap: 0.65rem 0.8rem;
+		align-items: center;
+		justify-items: start;
+		width: fit-content;
+		max-width: 100%;
+	}
+
+	.collection-purge-form label {
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		color: var(--c-sand);
+	}
+
+	.collection-purge-confirmation {
+		width: 14rem;
+		max-width: 100%;
+		background: var(--c-bg);
+		color: var(--c-ice);
+		border: 1px solid var(--c-blue);
+		padding: 0.25rem 0.45rem;
+		font-family: inherit;
+		font-size: 0.78rem;
+		line-height: 1.2;
+	}
+
+	.collection-purge-confirmation:focus {
+		outline: none;
+		border-color: var(--c-cyan);
 	}
 
 	.collection-purge-actions {
 		display: flex;
 		gap: 0.5rem;
+		grid-column: 2;
+	}
+
+	.collection-purge-error {
+		grid-column: 1 / -1;
+	}
+
+	@media (max-width: 420px) {
+		.collection-purge-form {
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		.collection-purge-actions {
+			grid-column: 1;
+		}
 	}
 </style>
