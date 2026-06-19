@@ -168,6 +168,59 @@ describe("SqliteCollectionsReadModel observability", () => {
         expect(cards[0]?.image).toBe("/media/token-images/1/1/1/cache.webp");
     });
 
+    it("resolves uncached IPFS media through the configured gateway", () => {
+        insertToken("1003", "100");
+        db.prepare(
+            "UPDATE token_metadata SET image = ?, animation_url = ? WHERE chain_id = ? AND collection_id = ? AND token_id = ?",
+        ).run(
+            "ipfs://bafybeie7t5ehlwnhs5jh3r5pbqx7q2gvjpvzgm3zsftxxwrupzsaiemlpq/1003.png",
+            "ipfs://bafybeie7t5ehlwnhs5jh3r5pbqx7q2gvjpvzgm3zsftxxwrupzsaiemlpq/1003.html",
+            1,
+            1,
+            "1003",
+        );
+        const readModel = new SqliteCollectionsReadModel(
+            [ZERO_ADDRESS],
+            undefined,
+            {
+                ipfsGatewayOrigin: "https://gateway.example/ipfs",
+            },
+        );
+
+        const page = readModel.listCollectionTokens({
+            chainId: 1,
+            collectionId: 1,
+            tokenStatus: TOKEN_BROWSER_STATUS.All,
+            limit: 1,
+        });
+        const detail = readModel.getCollectionTokenDetail({
+            chainId: 1,
+            collectionId: 1,
+            tokenId: "1003",
+        });
+        const preview = readModel.getCollectionTokenPreview({
+            chainId: 1,
+            collectionId: 1,
+            tokenId: "1003",
+        });
+        const cards = readModel.listCollectionTokenCardsByIds({
+            chainId: 1,
+            collectionId: 1,
+            tokenIds: ["1003"],
+        });
+
+        const imageUrl =
+            "https://gateway.example/ipfs/bafybeie7t5ehlwnhs5jh3r5pbqx7q2gvjpvzgm3zsftxxwrupzsaiemlpq/1003.png";
+        const animationUrl =
+            "https://gateway.example/ipfs/bafybeie7t5ehlwnhs5jh3r5pbqx7q2gvjpvzgm3zsftxxwrupzsaiemlpq/1003.html";
+        expect(page.items[0]?.image).toBe(imageUrl);
+        expect(cards[0]?.image).toBe(imageUrl);
+        expect(detail.image).toBe(imageUrl);
+        expect(detail.animationUrl).toBe(animationUrl);
+        expect(preview.image).toBe(imageUrl);
+        expect(preview.animationUrl).toBe(animationUrl);
+    });
+
     it("maps normalized token attributes onto token card and detail read models", () => {
         insertToken("1", "100");
         db.prepare(

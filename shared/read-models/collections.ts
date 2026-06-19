@@ -1,5 +1,10 @@
 import { db } from "../database/db.js";
 import { MAX_PAGE_LIMIT } from "../config/pagination.js";
+import { isTokenImageCachePublicPath } from "../media/token-image-cache-paths.js";
+import {
+    resolveTokenResourceUri,
+    type TokenResourceUriOptions,
+} from "../media/token-resource-uri.js";
 import {
     ARTGOD_COLLECTION_COUNT_KIND,
     ARTGOD_SPAN_NAME,
@@ -65,6 +70,10 @@ const TOKEN_IMAGE_CACHE_JOIN_SQL =
     "AND ic.token_id = t.token_id " +
     "AND ic.public_path IS NOT NULL " +
     "AND ic.source_image_url = m.image ";
+
+export type CollectionReadModelMediaOptions = {
+    ipfsGatewayOrigin?: string;
+};
 
 type CollectionRow = {
     chain_id: number;
@@ -284,10 +293,12 @@ export type ListCollectionHoldersParams = {
 
 export class SqliteCollectionsReadModel {
     private readonly supportedListingCurrencies: string[];
+    private readonly tokenResourceOptions: TokenResourceUriOptions;
 
     constructor(
         supportedListingCurrencies: string[],
         private readonly apm: ApmPort = NOOP_APM,
+        mediaOptions: CollectionReadModelMediaOptions = {},
     ) {
         const normalized = [
             ...new Set(
@@ -302,6 +313,9 @@ export class SqliteCollectionsReadModel {
             );
         }
         this.supportedListingCurrencies = normalized;
+        this.tokenResourceOptions = {
+            ipfsGatewayOrigin: mediaOptions.ipfsGatewayOrigin,
+        };
     }
 
     private selectCollectionBySlug = db.prepare<{
@@ -615,7 +629,7 @@ export class SqliteCollectionsReadModel {
             rows: hydratedPageRows,
             chainId: params.chainId,
             collectionId: params.collectionId,
-        }).map(mapTokenRow);
+        }).map((row) => mapTokenRow(row, this.tokenResourceOptions));
 
         const prevCursor = params.cursor
             ? this.apm.withSyncSpan(
@@ -810,7 +824,7 @@ export class SqliteCollectionsReadModel {
             rows: pageRows,
             chainId: params.chainId,
             collectionId: params.collectionId,
-        }).map(mapTokenRow);
+        }).map((row) => mapTokenRow(row, this.tokenResourceOptions));
 
         const prevCursor = params.cursor
             ? this.apm.withSyncSpan(
@@ -1024,7 +1038,7 @@ export class SqliteCollectionsReadModel {
             rows: pageRows,
             chainId: params.chainId,
             collectionId: params.collectionId,
-        }).map(mapTokenRow);
+        }).map((row) => mapTokenRow(row, this.tokenResourceOptions));
 
         const prevCursor = params.cursor
             ? this.apm.withSyncSpan(
@@ -1580,8 +1594,8 @@ export class SqliteCollectionsReadModel {
         return {
             tokenId: row.token_id,
             name: row.name ?? null,
-            image: row.image ?? null,
-            animationUrl: row.animation_url ?? null,
+            image: this.resolveImagePresentation(row.image),
+            animationUrl: this.resolveMediaPresentation(row.animation_url),
             listingPrice: row.listing_price ?? null,
             listingCurrency: row.listing_currency ?? null,
             currentHolder:
@@ -1613,8 +1627,8 @@ export class SqliteCollectionsReadModel {
 
         return {
             tokenId: row.token_id,
-            image: row.image ?? null,
-            animationUrl: row.animation_url ?? null,
+            image: this.resolveImagePresentation(row.image),
+            animationUrl: this.resolveMediaPresentation(row.animation_url),
         };
     }
 
@@ -1713,7 +1727,10 @@ export class SqliteCollectionsReadModel {
             collectionId: params.collectionId,
         });
         const byId = new Map(
-            hydratedRows.map((row) => [row.token_id, mapTokenRow(row)]),
+            hydratedRows.map((row) => [
+                row.token_id,
+                mapTokenRow(row, this.tokenResourceOptions),
+            ]),
         );
 
         return tokenIds.flatMap((tokenId) => {
@@ -1778,6 +1795,14 @@ export class SqliteCollectionsReadModel {
             currentPage,
             totalPages,
         };
+    }
+
+    private resolveImagePresentation(value: string | null): string | null {
+        return resolveTokenImagePresentation(value, this.tokenResourceOptions);
+    }
+
+    private resolveMediaPresentation(value: string | null): string | null {
+        return resolveTokenResourceUri(value, this.tokenResourceOptions);
     }
 }
 
@@ -2750,11 +2775,14 @@ function normalizeCollectionTokenId(tokenId: string): string {
     return normalized;
 }
 
-function mapTokenRow(row: HydratedTokenRow): TokenCard {
+function mapTokenRow(
+    row: HydratedTokenRow,
+    tokenResourceOptions: TokenResourceUriOptions,
+): TokenCard {
     return {
         tokenId: row.token_id,
         name: row.name ?? null,
-        image: row.image ?? null,
+        image: resolveTokenImagePresentation(row.image, tokenResourceOptions),
         traitSummary: null,
         listingPrice: row.listing_price ?? null,
         listingCurrency: row.listing_currency ?? null,
@@ -2762,6 +2790,20 @@ function mapTokenRow(row: HydratedTokenRow): TokenCard {
         hasMetadata: row.metadata_updated_at !== null,
         metadataUpdatedAt: row.metadata_updated_at,
     };
+}
+
+function resolveTokenImagePresentation(
+    value: string | null,
+    tokenResourceOptions: TokenResourceUriOptions,
+): string | null {
+    const normalized = value?.trim();
+    if (!normalized) {
+        return null;
+    }
+    if (isTokenImageCachePublicPath(normalized)) {
+        return normalized;
+    }
+    return resolveTokenResourceUri(normalized, tokenResourceOptions);
 }
 
 function hydrateTokenRowsWithNormalizedAttributes(params: {

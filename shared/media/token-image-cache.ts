@@ -5,6 +5,7 @@ import {
 } from "../config/bootstrap.js";
 export {
     buildTokenImageCachePublicPath,
+    isTokenImageCachePublicPath,
     TOKEN_IMAGE_CACHE_PUBLIC_PATH_PREFIX,
 } from "./token-image-cache-paths.js";
 
