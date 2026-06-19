@@ -92,6 +92,9 @@ Bootstrap token-image caching is intentionally downstream from this metadata wri
 - the cache reads canonical `token_metadata.image`
 - it does not cache `animation_url`
 - cache output affects read-model presentation through `/media/token-images/...`, without mutating canonical metadata
+- when no cached image is available, backend read models resolve IPFS image and
+  animation references through `COMMON_IPFS_GATEWAY_ORIGIN` for browser
+  presentation while preserving raw canonical metadata
 
 ## Canonical Metadata First, Extension Artifacts Second
 

@@ -167,6 +167,9 @@ export function createBackendApp(
     const collectionsReadModel = new SqliteCollectionsReadModel(
         [ZERO_ADDRESS, config.wethAddress],
         backendObservability.apm,
+        {
+            ipfsGatewayOrigin: config.ipfs.gatewayOrigin,
+        },
     );
     const activitiesReadModel = new SqliteActivitiesReadModel(
         backendObservability.apm,

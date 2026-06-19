@@ -32,6 +32,7 @@
         "./extensions/terraforms": "./extensions/terraforms.ts",
         "./media/token-resource-uri": "./media/token-resource-uri.ts",
         "./media/token-image-cache": "./media/token-image-cache.ts",
+        "./media/token-image-cache-paths": "./media/token-image-cache-paths.ts",
         "./media/token-image-cache-storage": "./media/token-image-cache-storage.ts",
         "./media/token-image-cache-jobs": "./media/token-image-cache-jobs.ts",
         "./network/http-fetch-resilience": "./network/http-fetch-resilience.ts",

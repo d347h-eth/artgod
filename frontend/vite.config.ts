@@ -3,6 +3,10 @@ import tailwindcss from '@tailwindcss/vite';
 import { resolveProjectPath } from '@artgod/shared/utils/paths';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig, loadEnv, searchForWorkspaceRoot } from 'vite';
+import {
+	buildFrontendDevProxy,
+	DEFAULT_FRONTEND_DEV_BACKEND_ORIGIN
+} from './src/lib/dev-server-proxy';
 
 const rootPackageJson = JSON.parse(
 	readFileSync(resolveProjectPath('package.json'), 'utf8')
@@ -23,7 +27,7 @@ export default defineConfig(({ mode }) => {
 	const publicChainRef = resolvedEnv.PUBLIC_APP_CHAIN_REF?.trim() || '';
 	const publicCollectionRef = resolvedEnv.PUBLIC_APP_COLLECTION_REF?.trim() || '';
 	const devBackendOrigin =
-		internalBackendOrigin || publicBackendOrigin || 'http://127.0.0.1:42710';
+		internalBackendOrigin || publicBackendOrigin || DEFAULT_FRONTEND_DEV_BACKEND_ORIGIN;
 
 	return {
 		plugins: [tailwindcss(), sveltekit()],
@@ -39,16 +43,7 @@ export default defineConfig(({ mode }) => {
 			fs: {
 				allow: [workspaceRoot]
 			},
-			proxy: {
-				'/api': {
-					target: devBackendOrigin,
-					changeOrigin: true
-				},
-				'/health': {
-					target: devBackendOrigin,
-					changeOrigin: true
-				}
-			}
+			proxy: buildFrontendDevProxy(devBackendOrigin)
 		}
 	};
 });

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { TOKEN_IMAGE_CACHE_PUBLIC_PATH_PREFIX } from "@artgod/shared/media/token-image-cache";
+import { TOKEN_IMAGE_CACHE_PUBLIC_PATH_PREFIX } from "@artgod/shared/media/token-image-cache-paths";
 
 const CONTENT_TYPE_BY_EXT = new Map<string, string>([
     [".gif", "image/gif"],

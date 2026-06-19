@@ -297,6 +297,9 @@ Important semantics:
 - seeding reads only successful bootstrap metadata snapshot tasks with a non-empty `token_metadata.image`
 - backend serves `public_path` under `/media/token-images/...` from the configured local media cache directory
 - read models prefer `public_path` only when `source_image_url` still matches the canonical `token_metadata.image`
+- when no local cache row applies, backend read models resolve browser-facing
+  IPFS media URLs through `COMMON_IPFS_GATEWAY_ORIGIN` without rewriting
+  canonical `token_metadata.image`
 - successful runs delete retained task rows after all bootstrap task families are
   clean; settled cache rows remain in `token_image_cache`
 
