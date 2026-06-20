@@ -12,6 +12,7 @@ import {
     fetchWithHttpResilience,
     type HttpFetchResilienceConfig,
 } from "@artgod/shared/network/http-fetch-resilience";
+import { logger } from "@artgod/shared/utils";
 import type {
     TokenImageCacheInput,
     TokenImageCachePort,
@@ -80,6 +81,27 @@ export class SharpTokenImageCache implements TokenImageCachePort {
             relativePath,
             publicPath: buildTokenImageCachePublicPath(relativePath),
         };
+    }
+
+    async deleteCachedTokenImage(relativePath: string): Promise<void> {
+        const target = resolveSafeCachedPath(this.config.rootDir, relativePath);
+        if (!target) {
+            logger.warn("Token image cache file cleanup skipped", {
+                component: "SharpTokenImageCache",
+                action: "deleteCachedTokenImage",
+                relativePath,
+            });
+            return;
+        }
+
+        await fs.rm(target, { force: true }).catch((error) => {
+            logger.warn("Token image cache file cleanup failed", {
+                component: "SharpTokenImageCache",
+                action: "deleteCachedTokenImage",
+                relativePath,
+                error: String(error),
+            });
+        });
     }
 
     private async fetchSourceImage(uri: string): Promise<SourceImagePayload> {
@@ -244,6 +266,18 @@ function buildRelativePath(input: {
         safeTokenPathSegment(input.tokenId),
         `${input.cacheKey}.${input.extension}`,
     );
+}
+
+function resolveSafeCachedPath(
+    rootDir: string,
+    relativePath: string,
+): string | null {
+    const root = path.resolve(rootDir);
+    const target = path.resolve(root, relativePath);
+    if (target === root || !target.startsWith(`${root}${path.sep}`)) {
+        return null;
+    }
+    return target;
 }
 
 function safeTokenPathSegment(tokenId: string): string {

@@ -19,4 +19,5 @@ export type TokenImageCacheResult = {
 
 export interface TokenImageCachePort {
     cacheTokenImage(input: TokenImageCacheInput): Promise<TokenImageCacheResult>;
+    deleteCachedTokenImage(relativePath: string): Promise<void>;
 }

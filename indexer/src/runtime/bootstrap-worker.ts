@@ -1865,7 +1865,7 @@ async function processSingleImageCacheTask(
             sourceImageUrl: task.sourceImageUrl,
             requestedMaxDimension: task.requestedMaxDimension,
         });
-        bootstrapStorage.markImageCacheTaskSucceeded({
+        const stored = bootstrapStorage.markImageCacheTaskSucceeded({
             runId: task.runId,
             tokenId: task.tokenId,
             attempts,
@@ -1878,6 +1878,9 @@ async function processSingleImageCacheTask(
             relativePath: result.relativePath,
             publicPath: result.publicPath,
         });
+        if (!stored) {
+            await tokenImageCache.deleteCachedTokenImage(result.relativePath);
+        }
     } catch (error) {
         markImageCacheTaskFailed(
             bootstrapStorage,

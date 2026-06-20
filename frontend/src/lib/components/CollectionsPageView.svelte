@@ -277,7 +277,8 @@
 			</dl>
 
 			<p class="collection-purge-warning">
-				this action will completely wipe all data related to this collection from the database
+				this action will completely wipe all data related to this collection from the database and
+				local media cache
 			</p>
 
 			<form class="collection-purge-form" onsubmit={submitPurge}>

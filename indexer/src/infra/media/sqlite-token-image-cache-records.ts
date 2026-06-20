@@ -41,7 +41,12 @@ export class SqliteTokenImageCacheRecords {
     >(
         "INSERT INTO token_image_cache " +
             "(chain_id, collection_id, token_id, source_image_url, requested_max_dimension, cache_key, content_type, source_bytes, cached_bytes, width, height, relative_path, public_path) " +
-            "VALUES (@chainId, @collectionId, @tokenId, @sourceImageUrl, @requestedMaxDimension, @cacheKey, @contentType, @sourceBytes, @cachedBytes, @width, @height, @relativePath, @publicPath) " +
+            "SELECT @chainId, @collectionId, @tokenId, @sourceImageUrl, @requestedMaxDimension, @cacheKey, @contentType, @sourceBytes, @cachedBytes, @width, @height, @relativePath, @publicPath " +
+            "WHERE EXISTS (" +
+            "SELECT 1 FROM token_metadata " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId " +
+            "AND token_id = @tokenId AND image = @sourceImageUrl" +
+            ") " +
             "ON CONFLICT(chain_id, collection_id, token_id) DO UPDATE SET " +
             "source_image_url = excluded.source_image_url, requested_max_dimension = excluded.requested_max_dimension, " +
             "cache_key = excluded.cache_key, content_type = excluded.content_type, source_bytes = excluded.source_bytes, " +
@@ -82,8 +87,8 @@ export class SqliteTokenImageCacheRecords {
                 collectionId: number;
                 requestedMaxDimension: number | null;
             },
-    ): void {
-        this.upsertTokenImageCacheStmt.run(input);
+    ): boolean {
+        return this.upsertTokenImageCacheStmt.run(input).changes > 0;
     }
 }
 

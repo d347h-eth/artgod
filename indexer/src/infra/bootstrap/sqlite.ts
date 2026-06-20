@@ -665,17 +665,21 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         height: number | null;
         relativePath: string;
         publicPath: string;
-    }): void {
+    }): boolean {
         const applySuccess = db.raw.transaction(
             (params: typeof input) => {
-                this.markImageCacheTaskSucceededStmt.run({
+                const taskUpdate = this.markImageCacheTaskSucceededStmt.run({
                     ...params,
                     succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
                 });
+                if (taskUpdate.changes === 0) {
+                    return false;
+                }
                 this.upsertSettledImageCacheStmt.run(params);
+                return true;
             },
         );
-        applySuccess(input);
+        return applySuccess(input);
     }
 
     markImageCacheTaskRetry(input: {
