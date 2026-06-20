@@ -7,6 +7,7 @@ import {
     BootstrapConflictError,
     BootstrapValidationError,
 } from "../../application/use-cases/bootstrap/types.js";
+import { PurgeCollectionValidationError } from "../../application/use-cases/collections/purge-collection.js";
 import { TradingValidationError } from "../../application/use-cases/trading/types.js";
 import { logger } from "@artgod/shared/utils";
 import { toErrorMessage } from "../../utils/error-message.js";
@@ -53,6 +54,14 @@ export function registerApiErrorHandlers(app: FastifyInstance): void {
         }
 
         if (error instanceof TradingValidationError) {
+            reply.code(422).send({
+                error: "validation_error",
+                message: toErrorMessage(error),
+            });
+            return;
+        }
+
+        if (error instanceof PurgeCollectionValidationError) {
             reply.code(422).send({
                 error: "validation_error",
                 message: toErrorMessage(error),

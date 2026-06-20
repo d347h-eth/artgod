@@ -44,6 +44,7 @@ import {
     type GetTokenPreviewPort,
 } from "./application/use-cases/collections/get-token-preview.js";
 import { GetTokenUriUseCase } from "./application/use-cases/collections/get-token-uri.js";
+import { PurgeCollectionUseCase } from "./application/use-cases/collections/purge-collection.js";
 import { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import {
@@ -85,6 +86,7 @@ import { ExtensionAwareCollectionCustomization } from "./infra/collections/exten
 import { ExtensionAwareCollectionDetailRead } from "./infra/collections/extension-aware-collection-detail-read.js";
 import { ExtensionActivityEventPreviewRead } from "./infra/collections/extension-activity-event-preview.js";
 import { ExtensionAwareTokenUriRead } from "./infra/collections/extension-aware-token-uri-read.js";
+import { SqliteCollectionPurgeRepository } from "./infra/collections/sqlite-collection-purge-repository.js";
 import { SqliteCollectionSettingsRepository } from "./infra/collections/sqlite-collection-settings-repository.js";
 import { SqliteCollectionCustomizationRecords } from "./infra/collections/sqlite-collection-customization-records.js";
 import { SqliteCollectionExtensionRecords } from "./infra/collections/sqlite-collection-extension-records.js";
@@ -222,6 +224,7 @@ export function createBackendApp(
         config.natsStreamPrefix,
         backendObservability.apm,
     );
+    const collectionPurgeRepository = new SqliteCollectionPurgeRepository();
     const tradingJobCommandSignalPublisher =
         new NatsTradingJobCommandSignalPublisher(
             config.natsUrl,
@@ -331,6 +334,13 @@ export function createBackendApp(
         syncBackfillRepository,
         syncBackfillCommandQueue,
         backendObservability.apm,
+    );
+    const purgeCollectionUseCase = new PurgeCollectionUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        collectionsReadModel,
+        collectionPurgeRepository,
+        tokenImageCacheMaintenance,
     );
     const resolveOwnerRefUseCase = new ResolveOwnerRefUseCase(
         config.defaultChainId,
@@ -572,6 +582,7 @@ export function createBackendApp(
         listCollectionsUseCase,
         getSyncBackfillStateUseCase,
         scheduleSyncBackfillUseCase,
+        purgeCollectionUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
         getActivityEventPreviewUseCase,

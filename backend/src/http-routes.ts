@@ -88,6 +88,10 @@ import type {
     GetTokenUriRoute,
 } from "./http/handlers/collections/get-token-uri.js";
 import type {
+    PurgeCollectionHttpAdapter,
+    PurgeCollectionRoute,
+} from "./http/handlers/collections/purge-collection.js";
+import type {
     UpdateCollectionCustomizationHttpAdapter,
     UpdateCollectionCustomizationRoute,
 } from "./http/handlers/collections/update-collection-customization.js";
@@ -239,6 +243,7 @@ export function registerApiRoutes(
     publicGetBlockspaceStateAdapter: GetBlockspaceStateHttpAdapter | null,
     publicGetBlockspaceRangeSummaryAdapter: GetBlockspaceRangeSummaryHttpAdapter | null,
     scheduleBlockspaceBackfillAdapter: ScheduleBlockspaceBackfillHttpAdapter,
+    purgeCollectionAdapter: PurgeCollectionHttpAdapter,
     resolveOwnerRefAdapter: ResolveOwnerRefHttpAdapter,
     getCollectionActivityAdapter: GetCollectionActivityHttpAdapter,
     getActivityEventPreviewAdapter: GetActivityEventPreviewHttpAdapter,
@@ -472,6 +477,12 @@ export function registerApiRoutes(
         options,
         "/api/:chain_ref/blockspace/backfill",
         scheduleBlockspaceBackfillAdapter.handle,
+    );
+    registerObservedDelete<PurgeCollectionRoute>(
+        app,
+        options,
+        "/api/:chain_ref/:collection_ref",
+        purgeCollectionAdapter.handle,
     );
     registerObservedGet<GetCollectionCustomizationRoute>(
         app,

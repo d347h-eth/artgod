@@ -160,7 +160,7 @@ export interface BootstrapSnapshotPort {
         height: number | null;
         relativePath: string;
         publicPath: string;
-    }): void;
+    }): boolean;
     markImageCacheTaskRetry(input: {
         runId: number;
         tokenId: string;

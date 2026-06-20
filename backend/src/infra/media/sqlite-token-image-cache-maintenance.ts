@@ -3,20 +3,7 @@ import path from "node:path";
 import { db } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 
-type TokenImageCachePathRow = {
-    relative_path: string;
-};
-
 export class SqliteTokenImageCacheMaintenance {
-    private readonly selectCollectionPathsStmt = db.prepare<{
-        chainId: number;
-        collectionId: number;
-    }>(
-        "SELECT relative_path FROM token_image_cache " +
-            "WHERE chain_id = @chainId AND collection_id = @collectionId " +
-            "AND relative_path IS NOT NULL",
-    );
-
     private readonly deleteCollectionRowsStmt = db.prepare<{
         chainId: number;
         collectionId: number;
@@ -31,46 +18,41 @@ export class SqliteTokenImageCacheMaintenance {
         chainId: number;
         collectionId: number;
     }): Promise<void> {
-        const rows = this.selectCollectionPathsStmt.all(
-            input,
-        ) as TokenImageCachePathRow[];
         this.deleteCollectionRowsStmt.run(input);
-
-        for (const row of rows) {
-            await this.deleteCachedFile(row.relative_path, input);
-        }
+        await this.deleteCollectionImageCacheDirectory(input);
     }
 
-    private async deleteCachedFile(
-        relativePath: string,
-        context: { chainId: number; collectionId: number },
-    ): Promise<void> {
-        const target = resolveSafeCachedFile(this.rootDir, relativePath);
+    async deleteCollectionImageCacheDirectory(input: {
+        chainId: number;
+        collectionId: number;
+    }): Promise<void> {
+        const target = resolveSafeCachePath(
+            this.rootDir,
+            path.join(String(input.chainId), String(input.collectionId)),
+        );
         if (!target) {
-            logger.warn("Token image cache file cleanup skipped", {
+            logger.warn("Token image cache directory cleanup skipped", {
                 component: "TokenImageCacheMaintenance",
-                action: "deleteCachedFile",
-                chainId: context.chainId,
-                collectionId: context.collectionId,
-                relativePath,
+                action: "deleteCollectionImageCacheDirectory",
+                chainId: input.chainId,
+                collectionId: input.collectionId,
             });
             return;
         }
 
-        await fs.rm(target, { force: true }).catch((error) => {
-            logger.warn("Token image cache file cleanup failed", {
+        await fs.rm(target, { recursive: true, force: true }).catch((error) => {
+            logger.warn("Token image cache directory cleanup failed", {
                 component: "TokenImageCacheMaintenance",
-                action: "deleteCachedFile",
-                chainId: context.chainId,
-                collectionId: context.collectionId,
-                relativePath,
+                action: "deleteCollectionImageCacheDirectory",
+                chainId: input.chainId,
+                collectionId: input.collectionId,
                 error: String(error),
             });
         });
     }
 }
 
-function resolveSafeCachedFile(
+function resolveSafeCachePath(
     rootDir: string,
     relativePath: string,
 ): string | null {

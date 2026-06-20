@@ -415,6 +415,42 @@ paths:
                     $ref: "#/components/responses/NotFound"
                 "500":
                     $ref: "#/components/responses/InternalError"
+        delete:
+            tags: [Collections]
+            summary: Purge all local data for one collection
+            description: |
+                Destructive admin endpoint protected by host/origin/CSRF checks.
+                The request body must include confirmation word `purge`.
+            operationId: purgeCollection
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/PurgeCollectionRequest"
+            responses:
+                "200":
+                    description: Collection data purged from local database
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/PurgeCollectionResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
 
     /api/{chain_ref}/{collection_ref}/traits/catalog:
         get:
@@ -1613,6 +1649,28 @@ components:
             type: string
             enum: [bootstrapping, live, paused, disabled]
 
+        CollectionTokenScopeSummary:
+            type: object
+            required: [label, items]
+            additionalProperties: false
+            properties:
+                label:
+                    type: string
+                items:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/CollectionTokenScopeSummaryItem"
+
+        CollectionTokenScopeSummaryItem:
+            type: object
+            required: [label, value]
+            additionalProperties: false
+            properties:
+                label:
+                    type: string
+                value:
+                    type: string
+
         CollectionListItem:
             type: object
             required:
@@ -1652,10 +1710,46 @@ components:
                 updatedAt:
                     type: string
                     format: date-time
+                tokenScope:
+                    $ref: "#/components/schemas/CollectionTokenScopeSummary"
                 activityEventFeeds:
                     type: array
                     items:
                         $ref: "#/components/schemas/ActivityExtensionEventFeed"
+
+        PurgeCollectionRequest:
+            type: object
+            required: [confirmation]
+            additionalProperties: false
+            properties:
+                confirmation:
+                    type: string
+
+        CollectionPurgeDeletedRowCount:
+            type: object
+            required: [table, rowCount]
+            additionalProperties: false
+            properties:
+                table:
+                    type: string
+                rowCount:
+                    type: integer
+
+        PurgeCollectionResponse:
+            type: object
+            required: [chain, collection, deletedRows, totalDeletedRows]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/Chain"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                deletedRows:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/CollectionPurgeDeletedRowCount"
+                totalDeletedRows:
+                    type: integer
 
         ActivityExtensionEventFeed:
             type: object

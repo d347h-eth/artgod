@@ -114,19 +114,21 @@ describe("bootstrap storage", () => {
             total: 1,
         });
 
-        storage.markImageCacheTaskSucceeded({
-            runId: 42,
-            tokenId: "5081",
-            attempts: 1,
-            cacheKey: "cache",
-            contentType: "image/webp",
-            sourceBytes: 100,
-            cachedBytes: 40,
-            width: 512,
-            height: 512,
-            relativePath: "1/7/5081/cache.webp",
-            publicPath: "/media/token-images/1/7/5081/cache.webp",
-        });
+        expect(
+            storage.markImageCacheTaskSucceeded({
+                runId: 42,
+                tokenId: "5081",
+                attempts: 1,
+                cacheKey: "cache",
+                contentType: "image/webp",
+                sourceBytes: 100,
+                cachedBytes: 40,
+                width: 512,
+                height: 512,
+                relativePath: "1/7/5081/cache.webp",
+                publicPath: "/media/token-images/1/7/5081/cache.webp",
+            }),
+        ).toBe(true);
 
         expect(storage.getImageCacheTaskCounts(42)).toEqual({
             pending: 0,
@@ -201,9 +203,9 @@ describe("bootstrap storage", () => {
             total: 1,
         });
         const rows = db
-            .prepare<[number, string]>(
-                "SELECT owner FROM nft_balance_snapshots WHERE run_id = ? AND token_id = ?",
-            )
+            .prepare<
+                [number, string]
+            >("SELECT owner FROM nft_balance_snapshots WHERE run_id = ? AND token_id = ?")
             .all(77, "1074") as Array<{ owner: string }>;
         expect(rows).toEqual([
             { owner: "0x2222222222222222222222222222222222222222" },
@@ -218,9 +220,9 @@ describe("bootstrap storage", () => {
             total: 0,
         });
         const snapshotCount = db
-            .prepare<[number]>(
-                "SELECT COUNT(*) AS count FROM nft_balance_snapshots WHERE run_id = ?",
-            )
+            .prepare<
+                [number]
+            >("SELECT COUNT(*) AS count FROM nft_balance_snapshots WHERE run_id = ?")
             .get(77) as { count: number } | undefined;
         expect(snapshotCount?.count ?? 0).toBe(0);
     });
@@ -242,19 +244,21 @@ describe("bootstrap storage", () => {
             requestedMaxDimension: 512,
         });
 
-        storage.markImageCacheTaskSucceeded({
-            runId: 88,
-            tokenId: "1",
-            attempts: 1,
-            cacheKey: "cache-1",
-            contentType: "image/webp",
-            sourceBytes: 100,
-            cachedBytes: 40,
-            width: 512,
-            height: 512,
-            relativePath: "1/7/1/cache.webp",
-            publicPath: "/media/token-images/1/7/1/cache.webp",
-        });
+        expect(
+            storage.markImageCacheTaskSucceeded({
+                runId: 88,
+                tokenId: "1",
+                attempts: 1,
+                cacheKey: "cache-1",
+                contentType: "image/webp",
+                sourceBytes: 100,
+                cachedBytes: 40,
+                width: 512,
+                height: 512,
+                relativePath: "1/7/1/cache.webp",
+                publicPath: "/media/token-images/1/7/1/cache.webp",
+            }),
+        ).toBe(true);
         storage.markImageCacheTaskRetry({
             runId: 88,
             tokenId: "2",
@@ -272,6 +276,37 @@ describe("bootstrap storage", () => {
             failedTerminal: 1,
             total: 1,
         });
+    });
+
+    it("does not settle image-cache tasks that were purged mid-flight", () => {
+        const storage = new SqliteBootstrapStorage();
+        seedMetadataWithImage(storage, {
+            runId: 90,
+            tokenId: "1",
+            image: "ipfs://image-1",
+        });
+        storage.seedImageCacheTasks({
+            runId: 90,
+            requestedMaxDimension: 512,
+        });
+        storage.resetImageCacheTasks(90);
+
+        expect(
+            storage.markImageCacheTaskSucceeded({
+                runId: 90,
+                tokenId: "1",
+                attempts: 1,
+                cacheKey: "cache-1",
+                contentType: "image/webp",
+                sourceBytes: 100,
+                cachedBytes: 40,
+                width: 512,
+                height: 512,
+                relativePath: "1/7/1/cache.webp",
+                publicPath: "/media/token-images/1/7/1/cache.webp",
+            }),
+        ).toBe(false);
+        expect(countTokenImageCacheRows()).toBe(0);
     });
 });
 
@@ -310,4 +345,11 @@ function seedMetadataWithImage(
         input.image,
         "[]",
     );
+}
+
+function countTokenImageCacheRows(): number {
+    const row = db
+        .prepare("SELECT COUNT(1) AS count FROM token_image_cache")
+        .get() as { count: number } | undefined;
+    return row?.count ?? 0;
 }

@@ -747,11 +747,20 @@ function createSchema(): void {
             address TEXT NOT NULL,
             standard TEXT NOT NULL,
             status TEXT NOT NULL,
+            token_scope_kind TEXT NOT NULL DEFAULT 'contract_all_tokens',
+            scope_start_token_id TEXT,
+            scope_total_supply INTEGER,
             deployment_block INTEGER,
             bootstrap_anchor_block INTEGER,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             PRIMARY KEY (chain_id, collection_id)
+        );
+        CREATE TABLE collection_scope_tokens (
+            chain_id INTEGER NOT NULL,
+            collection_id INTEGER NOT NULL,
+            token_id TEXT NOT NULL,
+            PRIMARY KEY (chain_id, collection_id, token_id)
         );
         CREATE TABLE tokens (
             chain_id INTEGER NOT NULL,

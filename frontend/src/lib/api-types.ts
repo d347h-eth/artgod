@@ -45,8 +45,17 @@ export type ApiCollection = {
 	bootstrapAnchorBlock: number | null;
 	createdAt: string;
 	updatedAt: string;
+	tokenScope?: ApiCollectionTokenScopeSummary;
 	extensions?: ApiCollectionExtensionSummary[];
 	activityEventFeeds?: ApiActivityExtensionEventFeed[];
+};
+
+export type ApiCollectionTokenScopeSummary = {
+	label: string;
+	items: Array<{
+		label: string;
+		value: string;
+	}>;
 };
 
 // Enabled collection extension summary exposed to frontend extension registries.
@@ -447,6 +456,16 @@ export type CollectionsApiResponse = {
 		status: ApiCollection['status'] | null;
 	};
 	page: ApiCollectionsPage;
+};
+
+export type CollectionPurgeApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	deletedRows: Array<{
+		table: string;
+		rowCount: number;
+	}>;
+	totalDeletedRows: number;
 };
 
 export type CollectionDetailApiResponse = {

@@ -790,7 +790,7 @@ async function handleTokenImageCacheRefreshJob(
         sourceImageUrl: payload.sourceImageUrl,
         requestedMaxDimension: payload.requestedMaxDimension,
     });
-    records.upsertTokenImageCache({
+    const stored = records.upsertTokenImageCache({
         chainId: payload.chainId,
         collectionId: payload.collectionId,
         tokenId: payload.tokenId,
@@ -798,6 +798,9 @@ async function handleTokenImageCacheRefreshJob(
         requestedMaxDimension: payload.requestedMaxDimension,
         ...result,
     });
+    if (!stored) {
+        await tokenImageCache.deleteCachedTokenImage(result.relativePath);
+    }
 }
 
 async function handleCollectionImageCacheRefreshJob(
@@ -834,7 +837,7 @@ async function handleCollectionImageCacheRefreshJob(
                     sourceImageUrl: source.sourceImageUrl,
                     requestedMaxDimension: payload.requestedMaxDimension,
                 });
-                records.upsertTokenImageCache({
+                const stored = records.upsertTokenImageCache({
                     chainId: payload.chainId,
                     collectionId: payload.collectionId,
                     tokenId: source.tokenId,
@@ -842,6 +845,11 @@ async function handleCollectionImageCacheRefreshJob(
                     requestedMaxDimension: payload.requestedMaxDimension,
                     ...result,
                 });
+                if (!stored) {
+                    await tokenImageCache.deleteCachedTokenImage(
+                        result.relativePath,
+                    );
+                }
             } catch (error) {
                 logger.warn("Token image cache refresh failed", {
                     component: "IndexerDomainWorker",
