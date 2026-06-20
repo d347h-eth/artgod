@@ -228,6 +228,9 @@ beforeAll(async () => {
             chainsReadModel,
             baseCollectionsReadModel,
             collectionPurgeRepository,
+            {
+                async deleteCollectionImageCacheDirectory() {},
+            },
         );
     const resolveOwnerRefUseCase =
         new resolveOwnerRefUseCaseModule.ResolveOwnerRefUseCase(

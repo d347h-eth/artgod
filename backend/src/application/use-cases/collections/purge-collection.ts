@@ -29,6 +29,8 @@ type PurgeCollectionDataInput = {
     collectionId: number;
 };
 
+type MaybePromise<T> = T | Promise<T>;
+
 // Validation error mapped by HTTP adapters to a user-correctable response.
 export class PurgeCollectionValidationError extends Error {
     constructor(message: string) {
@@ -58,9 +60,16 @@ export class PurgeCollectionUseCase {
                 input: PurgeCollectionDataInput,
             ): PurgeCollectionDeletedRowCount[];
         },
+        readonly imageCachePurgePort: {
+            deleteCollectionImageCacheDirectory(
+                input: PurgeCollectionDataInput,
+            ): MaybePromise<void>;
+        },
     ) {}
 
-    purgeCollection(input: PurgeCollectionInput): PurgeCollectionOutput {
+    async purgeCollection(
+        input: PurgeCollectionInput,
+    ): Promise<PurgeCollectionOutput> {
         assertPurgeConfirmation(input.confirmation);
 
         // Resolve the chain before loading collection-scoped database state.
@@ -76,6 +85,10 @@ export class PurgeCollectionUseCase {
 
         // Delete collection-scoped rows inside the outbound persistence adapter.
         const deletedRows = this.collectionPurgePort.purgeCollectionData({
+            chainId: chain.publicChainId,
+            collectionId: collection.collectionId,
+        });
+        await this.imageCachePurgePort.deleteCollectionImageCacheDirectory({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
         });

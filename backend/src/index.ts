@@ -340,6 +340,7 @@ export function createBackendApp(
         chainsReadModel,
         collectionsReadModel,
         collectionPurgeRepository,
+        tokenImageCacheMaintenance,
     );
     const resolveOwnerRefUseCase = new ResolveOwnerRefUseCase(
         config.defaultChainId,
