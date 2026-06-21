@@ -10,7 +10,7 @@ import { resolveProjectPath } from "../utils/paths.js";
 import { db, setDbPath } from "./db.js";
 import { MigrationRunner } from "./migrations.js";
 
-const TOKEN_ATTRIBUTE_SOURCE_MIGRATION = "037_token_attribute_sources.sql";
+const TOKEN_ATTRIBUTE_SOURCE_MIGRATION = "040_token_attribute_sources.sql";
 const CHAIN_ID = 1;
 const COLLECTION_ID = 10;
 const CONTRACT_ADDRESS = "0xabc0000000000000000000000000000000000000";
