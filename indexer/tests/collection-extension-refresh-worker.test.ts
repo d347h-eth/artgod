@@ -45,6 +45,7 @@ const TEST_REFRESH_REASON = "test-refresh";
 const TEST_REFRESH_SOURCE = "test-source";
 const TEST_JOB_ID = "collection-extension-refresh-test-job";
 const TEST_TRACE_ID = "collection-extension-refresh-test-trace";
+const TEST_METADATA_REFRESH_RUN_ID = "metadata-refresh-test-run";
 const TEST_INSTALL_MISSING_ERROR = "collection-extension-install-missing";
 const TEST_IMPLEMENTATION_MISSING_ERROR =
     "collection-extension-implementation-missing";
@@ -134,6 +135,28 @@ describe("collection extension refresh worker handler", () => {
         expect(queue.published).toEqual([]);
     });
 
+    it("does not publish metadata stats recompute for metadata-refresh owned jobs", async () => {
+        const queue = new RecordingQueue();
+        const extension = buildExtension({ attributesChanged: true });
+
+        const result = await handleCollectionExtensionRefreshArtifactsJob(
+            buildRefreshJob({
+                metadataRefreshRunId: TEST_METADATA_REFRESH_RUN_ID,
+                metadataRefreshExtensionKey: TERRAFORMS_EXTENSION_KEY,
+            }),
+            queue,
+            buildUnusedRpc(),
+            buildMetadataFetcher(),
+            buildInstallPort(buildInstall()),
+            buildArtifactPort(),
+            buildAttributePort(),
+            () => extension,
+        );
+
+        expect(result.attributesChanged).toBe(true);
+        expect(queue.published).toEqual([]);
+    });
+
     it("throws the configured missing-install error for bootstrap callers", async () => {
         const queue = new RecordingQueue();
 
@@ -205,7 +228,9 @@ class RecordingQueue implements QueuePort {
     async close(): Promise<void> {}
 }
 
-function buildRefreshJob(): JobEnvelope<CollectionExtensionRefreshArtifactsPayload> {
+function buildRefreshJob(
+    payload: Partial<CollectionExtensionRefreshArtifactsPayload> = {},
+): JobEnvelope<CollectionExtensionRefreshArtifactsPayload> {
     return {
         jobId: TEST_JOB_ID,
         kind: COLLECTION_EXTENSION_JOB_KIND.RefreshArtifacts,
@@ -217,6 +242,7 @@ function buildRefreshJob(): JobEnvelope<CollectionExtensionRefreshArtifactsPaylo
             tokenId: TEST_TOKEN_ID,
             reason: TEST_REFRESH_REASON,
             source: TEST_REFRESH_SOURCE,
+            ...payload,
         },
         attempt: 0,
         scheduledAt: 0,

@@ -148,10 +148,11 @@ These assumptions are relied on by the implementation and should be preserved in
 ### Collection extension flow
 
 1. Bootstrap request resolution checks whether the collection contract plus token scope matches an embedded extension definition, persists the requested extension key on the run, and bootstrap start upserts a `collection_extension_installs` row before metadata snapshot work begins.
-2. Any successful canonical metadata write can publish extension artifact jobs and, when collection policy asks for it, token image cache jobs.
+2. Any successful canonical metadata write persists a metadata-refresh follow-up run. If an enabled extension exists, that run owns extension artifact jobs; otherwise it enqueues final stats recompute immediately.
 3. Collection extension worker resolves the enabled install and executes extension-specific artifact refresh logic against normalized token state and onchain/metadata ports.
-4. Extension artifact results are upserted into `token_extension_artifacts`; token image cache jobs upsert settled `token_image_cache` rows.
-5. Backend read paths can resolve effective collection-specific presentation from extension artifacts while frontend components remain generic.
+4. Extension artifact results are upserted into `token_extension_artifacts`, extension-owned normalized rows are written into `token_attributes`, and the follow-up run enqueues final stats recompute once every required extension artifact job is terminal.
+5. Token image cache jobs remain independent side effects and upsert settled `token_image_cache` rows when collection policy asks for it.
+6. Backend read paths can resolve effective collection-specific presentation from extension artifacts while frontend components remain generic.
 
 Current embedded extension:
 
@@ -173,7 +174,8 @@ It does **not** mean every published order has already completed downstream upse
 Collection-extension artifact completion is similarly eventual:
 
 - canonical metadata is committed first
-- extension jobs run afterward on their own queue
+- extension jobs run afterward on their own queue when an enabled install exists
+- collection stats recompute is guarded by the metadata-refresh follow-up run so normalized canonical and extension-owned rows are covered together
 - backend overrides converge once the artifact refresh worker completes
 
 ## Current Limits and Planned Evolution
@@ -184,7 +186,7 @@ Collection extensions intentionally ship as a narrow first pass:
 - build-bundled code only; no remote or onchain-loaded extension source yet
 - bootstrap auto-install exists, but operator-driven install/uninstall flows are not implemented yet
 - sync hooks currently emit only metadata refresh triggers
-- collection-extension artifact readiness is not tracked separately from canonical collection/bootstrap readiness
+- metadata-refresh follow-up runs track extension job terminality only to guard stats recompute; they are not a general operator-facing artifact readiness model yet
 
 ## Code Map
 

@@ -5,9 +5,7 @@ import { BOOTSTRAP_JOB_ID_SCOPE } from "@artgod/shared/bootstrap/jobs";
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import { resolveEmbeddedCollectionExtensionInstallByKey } from "@artgod/shared/extensions/built-ins";
-import {
-    BOOTSTRAP_RUN_EVENT_CODE,
-} from "@artgod/shared/bootstrap/run-events";
+import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 import {
     BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_KEY,
@@ -70,7 +68,7 @@ import {
 import { BootstrapEnumerationExecutor } from "../application/bootstrap-enumeration-executor.js";
 import { resolveManualBootstrapTokenIds } from "../application/bootstrap-token-enumeration.js";
 import { runWorker } from "../application/worker-runner.js";
-import { publishMetadataStatsRecompute } from "../application/metadata/stats-recompute.js";
+import { buildBootstrapFinalStatsFollowupRun } from "../application/metadata/refresh-followups.js";
 import { loadConfig } from "../config/index.js";
 import type {
     BootstrapImageCacheProcessPayload,
@@ -105,6 +103,7 @@ import { SqliteBootstrapSteps } from "../infra/bootstrap/sqlite-steps.js";
 import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
+import { SqliteMetadataRefreshFollowups } from "../infra/metadata/sqlite-refresh-followups.js";
 import { HttpMetadataFetcher } from "../infra/metadata/http-fetcher.js";
 import { SharpTokenImageCache } from "../infra/media/sharp-token-image-cache.js";
 import { ViemTokenUriResolver } from "../infra/metadata/viem-token-uri.js";
@@ -129,12 +128,14 @@ import type { CollectionExtensionInstallPort } from "../ports/collection-extensi
 import {
     METADATA_REFRESH_REASON,
     METADATA_REFRESH_SOURCE,
+    METADATA_STATS_RECOMPUTE_REASON,
     type MetadataRefreshPayload,
 } from "../domain/domain-jobs.js";
 import type { TokenImageCachePort } from "../ports/token-image-cache.js";
 import type { QueuePort } from "../ports/queue.js";
 import type { Hex, RpcProviderPort } from "../ports/rpc.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
+import { SqliteQueueOutbox } from "../infra/queue/sqlite-queue-outbox.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import {
     INDEXER_RPC_ENDPOINT_ID_PREFIX,
@@ -239,6 +240,10 @@ async function main() {
         });
         const collections = new SqliteCollectionRegistry();
         const collectionExtensions = new SqliteCollectionExtensions();
+        const queueOutbox = new SqliteQueueOutbox();
+        const metadataRefreshFollowups = new SqliteMetadataRefreshFollowups(
+            queueOutbox,
+        );
         const bootstrapStorage = new SqliteBootstrapStorage();
         const bootstrapRuns = new SqliteBootstrapRuns();
         const bootstrapSteps = new SqliteBootstrapSteps();
@@ -277,7 +282,9 @@ async function main() {
                 bootstrapRuns,
                 bootstrapSteps,
                 bootstrapStorage,
-                createBootstrapCollectionLiveQueuePort(queue),
+                createBootstrapCollectionLiveQueuePort(
+                    metadataRefreshFollowups,
+                ),
             );
         const metadataResolver = new ViemTokenUriResolver({
             endpoints: config.rpc.endpoints,
@@ -313,6 +320,7 @@ async function main() {
                 queue,
                 collections,
                 collectionExtensions,
+                metadataRefreshFollowups,
                 bootstrapStorage,
                 bootstrapRuns,
                 bootstrapSteps,
@@ -378,9 +386,7 @@ async function main() {
                     ...input,
                     sourceJobId: input.traceId,
                 }),
-            hooks: createBootstrapLanePollerHooks(
-                BOOTSTRAP_LANE_NAME.Main,
-            ),
+            hooks: createBootstrapLanePollerHooks(BOOTSTRAP_LANE_NAME.Main),
         });
         const stopImageCacheLanePoller = startBootstrapLanePoller({
             laneName: BOOTSTRAP_LANE_NAME.ImageCache,
@@ -423,8 +429,9 @@ async function main() {
 
                     if (job.kind === BOOTSTRAP_JOB_KIND.MetadataProcess) {
                         await runMainLane({
-                            runId: (job.payload as BootstrapMetadataProcessPayload)
-                                .runId,
+                            runId: (
+                                job.payload as BootstrapMetadataProcessPayload
+                            ).runId,
                             traceId: job.traceId ?? job.jobId,
                             sourceJobId: job.jobId,
                         });
@@ -433,8 +440,9 @@ async function main() {
 
                     if (job.kind === BOOTSTRAP_JOB_KIND.OwnershipProcess) {
                         await runMainLane({
-                            runId: (job.payload as BootstrapOwnershipProcessPayload)
-                                .runId,
+                            runId: (
+                                job.payload as BootstrapOwnershipProcessPayload
+                            ).runId,
                             traceId: job.traceId ?? job.jobId,
                             sourceJobId: job.jobId,
                         });
@@ -443,8 +451,9 @@ async function main() {
 
                     if (job.kind === BOOTSTRAP_JOB_KIND.BackfillCheck) {
                         await runMainLane({
-                            runId: (job.payload as BootstrapBackfillCheckPayload)
-                                .runId,
+                            runId: (
+                                job.payload as BootstrapBackfillCheckPayload
+                            ).runId,
                             backfillCheckPayload:
                                 job.payload as BootstrapBackfillCheckPayload,
                             traceId: job.traceId ?? job.jobId,
@@ -501,12 +510,15 @@ async function main() {
             async (job: JobEnvelope<BootstrapImageCacheProcessPayload>) => {
                 try {
                     if (job.kind !== BOOTSTRAP_JOB_KIND.ImageCacheProcess) {
-                        logger.warn("Bootstrap image-cache lane skipped unknown job", {
-                            component: BOOTSTRAP_WORKER_COMPONENT,
-                            action: BOOTSTRAP_WORKER_ACTION.ImageCacheLaneJob,
-                            jobKind: job.kind,
-                            jobId: job.jobId,
-                        });
+                        logger.warn(
+                            "Bootstrap image-cache lane skipped unknown job",
+                            {
+                                component: BOOTSTRAP_WORKER_COMPONENT,
+                                action: BOOTSTRAP_WORKER_ACTION.ImageCacheLaneJob,
+                                jobKind: job.kind,
+                                jobId: job.jobId,
+                            },
+                        );
                         return;
                     }
                     await runImageCacheLane({
@@ -531,7 +543,8 @@ async function main() {
                                 runId,
                                 chainId: run.chainId,
                                 collectionId: run.collectionId,
-                                eventCode: BOOTSTRAP_RUN_EVENT_CODE.ImageCacheFailed,
+                                eventCode:
+                                    BOOTSTRAP_RUN_EVENT_CODE.ImageCacheFailed,
                                 eventLevel: "error",
                                 message:
                                     "Bootstrap image cache failed after max retry attempts",
@@ -651,15 +664,20 @@ function createBootstrapBackfillQueuePort(
 }
 
 function createBootstrapCollectionLiveQueuePort(
-    queue: QueuePort,
+    metadataRefreshFollowups: SqliteMetadataRefreshFollowups,
 ): BootstrapCollectionLiveQueuePort {
     return {
-        publishMetadataStatsRecompute: async (input) => {
-            await publishMetadataStatsRecompute(
-                queue,
-                input.payload,
-                input.traceId,
-            );
+        enqueueBootstrapFinalStats: async (input) => {
+            metadataRefreshFollowups.enqueueFinalStatsOnce({
+                run: buildBootstrapFinalStatsFollowupRun({
+                    bootstrapRunId: input.bootstrapRunId,
+                    chainId: input.payload.chainId,
+                    collectionId: input.payload.collectionId,
+                    statsReason: input.payload.reason,
+                    sourceJobId: input.payload.sourceJobId ?? input.traceId,
+                    traceId: input.traceId,
+                }),
+            });
         },
     };
 }
@@ -676,13 +694,12 @@ async function reconcileActiveBootstrapRuns(
         bootstrapRuns,
         bootstrapSteps,
         {
-            wakeBootstrapStep: async ({ run, stepKey, traceId: wakeTraceId }) => {
-                await wakeBootstrapStep(
-                    queue,
-                    run,
-                    stepKey,
-                    wakeTraceId,
-                );
+            wakeBootstrapStep: async ({
+                run,
+                stepKey,
+                traceId: wakeTraceId,
+            }) => {
+                await wakeBootstrapStep(queue, run, stepKey, wakeTraceId);
             },
         },
     );
@@ -799,23 +816,26 @@ async function wakeBootstrapStep(
         return;
     }
 
-    logger.debug("Bootstrap startup sweep skipped step without local executor", {
-        component: BOOTSTRAP_WORKER_COMPONENT,
-        action: BOOTSTRAP_WORKER_ACTION.StartupStepWake,
-        runId: run.runId,
-        chainId: run.chainId,
-        collectionId: run.collectionId,
-        stepKey,
-    });
+    logger.debug(
+        "Bootstrap startup sweep skipped step without local executor",
+        {
+            component: BOOTSTRAP_WORKER_COMPONENT,
+            action: BOOTSTRAP_WORKER_ACTION.StartupStepWake,
+            runId: run.runId,
+            chainId: run.chainId,
+            collectionId: run.collectionId,
+            stepKey,
+        },
+    );
 }
 
-function getAnchoredBootstrapRun(
-    run: BootstrapRunDefinition,
-): (BootstrapRunDefinition & {
-    anchorBlock: number;
-    anchorBlockHash: string;
-    anchorBlockTimestamp: number;
-}) | null {
+function getAnchoredBootstrapRun(run: BootstrapRunDefinition):
+    | (BootstrapRunDefinition & {
+          anchorBlock: number;
+          anchorBlockHash: string;
+          anchorBlockTimestamp: number;
+      })
+    | null {
     if (
         run.anchorBlock === null ||
         !run.anchorBlockHash ||
@@ -914,8 +934,7 @@ function buildOwnershipProcessPayload(
 
 function logBootstrapAnchorResult(result: BootstrapAnchorExecutorResult): void {
     if (
-        result.outcome ===
-        BOOTSTRAP_ANCHOR_EXECUTOR_OUTCOME.UnsupportedStandard
+        result.outcome === BOOTSTRAP_ANCHOR_EXECUTOR_OUTCOME.UnsupportedStandard
     ) {
         logger.warn("Bootstrap skipped (unsupported standard)", {
             component: BOOTSTRAP_WORKER_COMPONENT,
@@ -939,7 +958,9 @@ function logBootstrapAnchorResult(result: BootstrapAnchorExecutorResult): void {
         return;
     }
 
-    if (result.outcome === BOOTSTRAP_ANCHOR_EXECUTOR_OUTCOME.CollectionMissing) {
+    if (
+        result.outcome === BOOTSTRAP_ANCHOR_EXECUTOR_OUTCOME.CollectionMissing
+    ) {
         logger.warn("Bootstrap skipped (collection missing)", {
             component: BOOTSTRAP_WORKER_COMPONENT,
             action: BOOTSTRAP_WORKER_ACTION.AnchorStep,
@@ -955,6 +976,7 @@ type BootstrapMainStepLoopInput = {
     queue: QueuePort;
     collections: CollectionRegistryPort;
     collectionExtensions: CollectionExtensionInstallPort;
+    metadataRefreshFollowups: SqliteMetadataRefreshFollowups;
     bootstrapStorage: BootstrapSnapshotPort;
     bootstrapRuns: BootstrapRunsPort;
     bootstrapSteps: BootstrapStepsPort;
@@ -1141,7 +1163,9 @@ async function processBootstrapMainClaimedStep(
         const anchoredRun = getAnchoredBootstrapRun(input.run);
         if (!anchoredRun) {
             logMissingAnchorForWake(input.run, input.step.stepKey);
-            return readyStepResult(Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS);
+            return readyStepResult(
+                Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS,
+            );
         }
         await input.bootstrapEnumerationExecutor.execute({
             run: input.run,
@@ -1160,7 +1184,9 @@ async function processBootstrapMainClaimedStep(
         const anchoredRun = getAnchoredBootstrapRun(input.run);
         if (!anchoredRun) {
             logMissingAnchorForWake(input.run, input.step.stepKey);
-            return readyStepResult(Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS);
+            return readyStepResult(
+                Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS,
+            );
         }
         return processBootstrapMetadataStep({
             collections: input.collections,
@@ -1180,7 +1206,9 @@ async function processBootstrapMainClaimedStep(
         const anchoredRun = getAnchoredBootstrapRun(input.run);
         if (!anchoredRun) {
             logMissingAnchorForWake(input.run, input.step.stepKey);
-            return readyStepResult(Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS);
+            return readyStepResult(
+                Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS,
+            );
         }
         return processBootstrapOwnershipStep({
             rpc: input.rpc,
@@ -1198,7 +1226,9 @@ async function processBootstrapMainClaimedStep(
         const anchoredRun = getAnchoredBootstrapRun(input.run);
         if (!anchoredRun) {
             logMissingAnchorForWake(input.run, input.step.stepKey);
-            return readyStepResult(Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS);
+            return readyStepResult(
+                Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS,
+            );
         }
         return processBootstrapBackfillStep({
             backfillExecutor: input.bootstrapBackfillExecutor,
@@ -1222,15 +1252,19 @@ async function processBootstrapMainClaimedStep(
         });
     }
 
-    if (input.step.stepKey === BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts) {
+    if (
+        input.step.stepKey === BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts
+    ) {
         await scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
             input.queue,
             input.collectionExtensions,
+            input.metadataRefreshFollowups,
             input.bootstrapStorage,
             input.bootstrapRuns,
             input.bootstrapSteps,
             input.run,
             input.traceId,
+            input.sourceJobId,
         );
         const step = input.bootstrapSteps.getStep(
             input.run.runId,
@@ -1249,18 +1283,18 @@ async function processBootstrapMainClaimedStep(
                 runId: input.run.runId,
             },
         });
-        return runningStepResult(Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS);
+        return runningStepResult(
+            Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS,
+        );
     }
 
     throw new Error(`Unsupported bootstrap step: ${input.step.stepKey}`);
 }
 
-function isOpenSeaBootstrapStepKey(
-    stepKey: BootstrapStepKey,
-): boolean {
-    return (OPENSEA_BOOTSTRAP_STEP_SEQUENCE as readonly BootstrapStepKey[]).includes(
-        stepKey,
-    );
+function isOpenSeaBootstrapStepKey(stepKey: BootstrapStepKey): boolean {
+    return (
+        OPENSEA_BOOTSTRAP_STEP_SEQUENCE as readonly BootstrapStepKey[]
+    ).includes(stepKey);
 }
 
 async function processBootstrapImageCacheClaimedStep(
@@ -1285,15 +1319,15 @@ async function processBootstrapImageCacheClaimedStep(
 }
 
 async function processBootstrapMetadataStep(input: {
-    collections: CollectionRegistryPort,
-    bootstrapStorage: BootstrapSnapshotPort,
-    bootstrapRuns: BootstrapRunsPort,
-    bootstrapSteps: BootstrapStepsPort,
-    metadataDomain: SqliteMetadataDomain,
-    metadataBatchSize: number,
-    metadataConcurrency: number,
-    metadataPollMs: number,
-    metadataRetryPolicy: RetryPolicy,
+    collections: CollectionRegistryPort;
+    bootstrapStorage: BootstrapSnapshotPort;
+    bootstrapRuns: BootstrapRunsPort;
+    bootstrapSteps: BootstrapStepsPort;
+    metadataDomain: SqliteMetadataDomain;
+    metadataBatchSize: number;
+    metadataConcurrency: number;
+    metadataPollMs: number;
+    metadataRetryPolicy: RetryPolicy;
     payload: BootstrapMetadataProcessPayload;
 }): Promise<BootstrapClaimedStepProcessorResult> {
     const {
@@ -1420,11 +1454,13 @@ async function processBootstrapMetadataStep(input: {
 async function scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
     queue: QueuePort,
     collectionExtensions: CollectionExtensionInstallPort,
+    metadataRefreshFollowups: SqliteMetadataRefreshFollowups,
     bootstrapStorage: BootstrapSnapshotPort,
     bootstrapRuns: BootstrapRunsPort,
     bootstrapSteps: BootstrapStepsPort,
     run: BootstrapRunDefinition,
     traceId: string,
+    sourceJobId: string,
 ): Promise<void> {
     if (!run.requestExtensionKey) {
         return;
@@ -1441,6 +1477,17 @@ async function scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
             run,
             error: BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_FAILURE_MESSAGE.InstallMissing,
         });
+        enqueueBootstrapFinalStatsOnce(
+            metadataRefreshFollowups,
+            run,
+            traceId,
+            sourceJobId,
+        );
+        cleanupBootstrapTemporaryDataAfterExtensionArtifactsTerminal(
+            bootstrapStorage,
+            bootstrapRuns,
+            run.runId,
+        );
         return;
     }
 
@@ -1452,7 +1499,9 @@ async function scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
             extensionKey: install.extensionKey,
         });
         const seededCounts =
-            bootstrapStorage.getCollectionExtensionArtifactTaskCounts(run.runId);
+            bootstrapStorage.getCollectionExtensionArtifactTaskCounts(
+                run.runId,
+            );
         if (
             completeCollectionExtensionArtifactStepIfTerminal({
                 runsPort: bootstrapRuns,
@@ -1461,6 +1510,17 @@ async function scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
                 counts: seededCounts,
             })
         ) {
+            enqueueBootstrapFinalStatsOnce(
+                metadataRefreshFollowups,
+                run,
+                traceId,
+                sourceJobId,
+            );
+            cleanupBootstrapTemporaryDataAfterExtensionArtifactsTerminal(
+                bootstrapStorage,
+                bootstrapRuns,
+                run.runId,
+            );
             return;
         }
         bootstrapRuns.appendRunEvent({
@@ -1470,7 +1530,8 @@ async function scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
             eventCode:
                 BOOTSTRAP_RUN_EVENT_CODE.CollectionExtensionArtifactsQueued,
             eventLevel: "info",
-            message: "Bootstrap collection-extension artifacts side lane queued",
+            message:
+                "Bootstrap collection-extension artifacts side lane queued",
             payloadJson: JSON.stringify({
                 seeded,
                 total: seededCounts.total,
@@ -1479,8 +1540,9 @@ async function scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
         });
     }
 
-    const counts =
-        bootstrapStorage.getCollectionExtensionArtifactTaskCounts(run.runId);
+    const counts = bootstrapStorage.getCollectionExtensionArtifactTaskCounts(
+        run.runId,
+    );
     if (
         completeCollectionExtensionArtifactStepIfTerminal({
             runsPort: bootstrapRuns,
@@ -1489,6 +1551,17 @@ async function scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
             counts,
         })
     ) {
+        enqueueBootstrapFinalStatsOnce(
+            metadataRefreshFollowups,
+            run,
+            traceId,
+            sourceJobId,
+        );
+        cleanupBootstrapTemporaryDataAfterExtensionArtifactsTerminal(
+            bootstrapStorage,
+            bootstrapRuns,
+            run.runId,
+        );
         return;
     }
     updateCollectionExtensionArtifactStepProgress({
@@ -1503,6 +1576,49 @@ async function scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
         run.runId,
         traceId,
     );
+}
+
+function enqueueBootstrapFinalStatsOnce(
+    metadataRefreshFollowups: SqliteMetadataRefreshFollowups,
+    run: BootstrapRunDefinition,
+    traceId: string,
+    sourceJobId: string,
+): void {
+    metadataRefreshFollowups.enqueueFinalStatsOnce({
+        run: buildBootstrapFinalStatsFollowupRun({
+            bootstrapRunId: run.runId,
+            chainId: run.chainId,
+            collectionId: run.collectionId,
+            statsReason: METADATA_STATS_RECOMPUTE_REASON.BootstrapFinalized,
+            sourceJobId,
+            traceId,
+        }),
+    });
+}
+
+function cleanupBootstrapTemporaryDataAfterExtensionArtifactsTerminal(
+    bootstrapStorage: BootstrapSnapshotPort,
+    bootstrapRuns: BootstrapRunsPort,
+    runId: number,
+): void {
+    const cleanup = cleanupSuccessfulBootstrapTemporaryData({
+        bootstrapStorage,
+        bootstrapRuns,
+        runId,
+        collectionExtensionArtifactsTerminal: true,
+    });
+    logBootstrapTemporaryDataCleanup(cleanup);
+}
+
+function isBootstrapCollectionExtensionArtifactStepTerminal(
+    bootstrapSteps: BootstrapStepsPort,
+    runId: number,
+): boolean {
+    const step = bootstrapSteps.getStep(
+        runId,
+        BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts,
+    );
+    return step ? isBootstrapStepTerminalStatus(step.status) : false;
 }
 
 async function publishCollectionExtensionArtifactTaskJobs(
@@ -1671,14 +1787,14 @@ async function processDueMetadataTasks(
 }
 
 async function processBootstrapImageCacheStep(input: {
-    collections: CollectionRegistryPort,
-    bootstrapStorage: BootstrapSnapshotPort,
-    bootstrapRuns: BootstrapRunsPort,
-    bootstrapSteps: BootstrapStepsPort,
-    tokenImageCache: TokenImageCachePort,
-    imageCacheBatchSize: number,
-    imageCacheConcurrency: number,
-    imageCacheRetryPolicy: RetryPolicy,
+    collections: CollectionRegistryPort;
+    bootstrapStorage: BootstrapSnapshotPort;
+    bootstrapRuns: BootstrapRunsPort;
+    bootstrapSteps: BootstrapStepsPort;
+    tokenImageCache: TokenImageCachePort;
+    imageCacheBatchSize: number;
+    imageCacheConcurrency: number;
+    imageCacheRetryPolicy: RetryPolicy;
     payload: BootstrapImageCacheProcessPayload;
 }): Promise<BootstrapClaimedStepProcessorResult> {
     const {
@@ -1812,6 +1928,11 @@ async function processBootstrapImageCacheStep(input: {
         bootstrapStorage,
         bootstrapRuns,
         runId: payload.runId,
+        collectionExtensionArtifactsTerminal:
+            isBootstrapCollectionExtensionArtifactStepTerminal(
+                bootstrapSteps,
+                payload.runId,
+            ),
     });
     logBootstrapTemporaryDataCleanup(cleanup);
     return terminalStepResult();
@@ -2057,7 +2178,9 @@ function ensureOwnershipTasksSeeded(
     payload: BootstrapMetadataProcessPayload | BootstrapOwnershipProcessPayload,
     snapshotBatchSize: number,
 ): BootstrapTaskCounts {
-    const existingCounts = bootstrapStorage.getOwnershipTaskCounts(payload.runId);
+    const existingCounts = bootstrapStorage.getOwnershipTaskCounts(
+        payload.runId,
+    );
     if (existingCounts.total > 0) {
         return existingCounts;
     }
@@ -2087,13 +2210,13 @@ function ensureOwnershipTasksSeeded(
 }
 
 async function processBootstrapOwnershipStep(input: {
-    rpc: RpcProviderPort,
-    collections: CollectionRegistryPort,
-    bootstrapStorage: BootstrapSnapshotPort,
-    bootstrapRuns: BootstrapRunsPort,
-    bootstrapSteps: BootstrapStepsPort,
-    ownershipBatchSize: number,
-    ownershipRetryPolicy: RetryPolicy,
+    rpc: RpcProviderPort;
+    collections: CollectionRegistryPort;
+    bootstrapStorage: BootstrapSnapshotPort;
+    bootstrapRuns: BootstrapRunsPort;
+    bootstrapSteps: BootstrapStepsPort;
+    ownershipBatchSize: number;
+    ownershipRetryPolicy: RetryPolicy;
     payload: BootstrapOwnershipProcessPayload;
 }): Promise<BootstrapClaimedStepProcessorResult> {
     const {
@@ -2210,10 +2333,14 @@ async function processBootstrapOwnershipStep(input: {
             attempts: Math.max(1, counts.failedTerminal),
             error: message,
         });
-        bootstrapRuns.updateRunStatus(payload.runId, BOOTSTRAP_RUN_STATUS.Failed, {
-            code: BOOTSTRAP_OWNERSHIP_FAILURE_CODE.SnapshotFailed,
-            message,
-        });
+        bootstrapRuns.updateRunStatus(
+            payload.runId,
+            BOOTSTRAP_RUN_STATUS.Failed,
+            {
+                code: BOOTSTRAP_OWNERSHIP_FAILURE_CODE.SnapshotFailed,
+                message,
+            },
+        );
         bootstrapRuns.appendRunEvent({
             runId: payload.runId,
             chainId: payload.chainId,
@@ -2240,10 +2367,14 @@ async function processBootstrapOwnershipStep(input: {
         payload.collectionId,
         payload.anchorBlock,
     );
-    bootstrapSteps.markStepSucceeded(payload.runId, BOOTSTRAP_STEP_KEY.Ownership, {
-        completed: counts.total,
-        total: counts.total,
-    });
+    bootstrapSteps.markStepSucceeded(
+        payload.runId,
+        BOOTSTRAP_STEP_KEY.Ownership,
+        {
+            completed: counts.total,
+            total: counts.total,
+        },
+    );
 
     logger.info("Bootstrap ownership snapshot completed", {
         component: BOOTSTRAP_WORKER_COMPONENT,
@@ -2275,7 +2406,12 @@ async function processDueOwnershipTasks(
     }
 
     for (const task of dueTasks) {
-        await processSingleOwnershipTask(rpc, bootstrapStorage, task, retryPolicy);
+        await processSingleOwnershipTask(
+            rpc,
+            bootstrapStorage,
+            task,
+            retryPolicy,
+        );
     }
     return dueTasks.length;
 }
@@ -2328,7 +2464,8 @@ async function processBootstrapBackfillStep(input: {
     if (input.backfillCheckPayload || delegatedRange) {
         const checkPayload = input.backfillCheckPayload ?? {
             ...input.payload,
-            fromBlock: delegatedRange?.fromBlock ?? input.payload.anchorBlock + 1,
+            fromBlock:
+                delegatedRange?.fromBlock ?? input.payload.anchorBlock + 1,
             toBlock: delegatedRange?.toBlock ?? input.payload.anchorBlock,
         };
         const result = await input.backfillExecutor.checkProgress({
@@ -2367,10 +2504,10 @@ async function processBootstrapBackfillStep(input: {
     });
     logBootstrapBackfillScheduleResult(result, input.payload);
     logBootstrapTemporaryDataCleanup(result.cleanup);
-    if (
-        result.outcome === BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillQueued
-    ) {
-        return runningStepResult(Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS);
+    if (result.outcome === BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.BackfillQueued) {
+        return runningStepResult(
+            Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS,
+        );
     }
     return terminalStepResult();
 }
@@ -2409,8 +2546,7 @@ function logBootstrapBackfillScheduleResult(
     }
 
     if (
-        result.outcome ===
-        BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.CollectionMissing
+        result.outcome === BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.CollectionMissing
     ) {
         logger.warn("Bootstrap finish skipped (collection missing)", {
             component: BOOTSTRAP_WORKER_COMPONENT,
@@ -2487,8 +2623,7 @@ function logBootstrapBackfillCheckResult(
     }
 
     if (
-        result.outcome ===
-        BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.CollectionMissing
+        result.outcome === BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME.CollectionMissing
     ) {
         logger.warn("Bootstrap finish skipped (collection missing)", {
             component: BOOTSTRAP_WORKER_COMPONENT,

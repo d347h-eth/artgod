@@ -27,10 +27,27 @@ type CollectionExtensionRefreshArtifactsOptions = {
     implementationMissingError?: string;
 };
 
+// Refresh artifact result statuses let worker owners settle their task rows.
+export const COLLECTION_EXTENSION_REFRESH_ARTIFACTS_RESULT_STATUS = {
+    Refreshed: "refreshed",
+    Skipped: "skipped",
+} as const;
+
+// CollectionExtensionRefreshArtifactsResultStatus tells owner workers how to settle.
+export type CollectionExtensionRefreshArtifactsResultStatus =
+    (typeof COLLECTION_EXTENSION_REFRESH_ARTIFACTS_RESULT_STATUS)[keyof typeof COLLECTION_EXTENSION_REFRESH_ARTIFACTS_RESULT_STATUS];
+
+// CollectionExtensionRefreshArtifactsResult reports the terminal refresh outcome.
+export type CollectionExtensionRefreshArtifactsResult = {
+    status: CollectionExtensionRefreshArtifactsResultStatus;
+    attributesChanged: boolean;
+    extensionKey: CollectionExtensionInstall["extensionKey"] | null;
+};
+
 const COLLECTION_EXTENSION_WORKER_LOG_COMPONENT = "CollectionExtensionWorker";
 const COLLECTION_EXTENSION_REFRESH_LOG_ACTION = "handleRefreshArtifacts";
 
-// Handles one collection-extension artifact job and queues follow-up trait stats work.
+// Handles one collection-extension artifact job and reports its terminal result.
 export async function handleCollectionExtensionRefreshArtifactsJob(
     job: JobEnvelope<CollectionExtensionRefreshArtifactsPayload>,
     queue: QueuePort,
@@ -41,9 +58,9 @@ export async function handleCollectionExtensionRefreshArtifactsJob(
     attributes: CollectionExtensionAttributePort,
     resolveExtension: CollectionExtensionResolver = resolveIndexerCollectionExtension,
     options: CollectionExtensionRefreshArtifactsOptions = {},
-): Promise<void> {
+): Promise<CollectionExtensionRefreshArtifactsResult> {
     if (job.kind !== COLLECTION_EXTENSION_JOB_KIND.RefreshArtifacts) {
-        return;
+        return skippedRefreshResult(null);
     }
 
     // Load the extension install before delegating collection-specific work.
@@ -68,7 +85,7 @@ export async function handleCollectionExtensionRefreshArtifactsJob(
                 reason: job.payload.reason,
             },
         );
-        return;
+        return skippedRefreshResult(null);
     }
 
     const extension = resolveExtension(install);
@@ -88,7 +105,7 @@ export async function handleCollectionExtensionRefreshArtifactsJob(
                 tokenId: job.payload.tokenId,
             },
         );
-        return;
+        return skippedRefreshResult(install.extensionKey);
     }
 
     // Let the installed extension refresh its artifacts and normalized traits.
@@ -108,8 +125,11 @@ export async function handleCollectionExtensionRefreshArtifactsJob(
             source: job.payload.source,
         },
     });
-    if (refreshResult.attributesChanged) {
-        // Recompute trait stats only when extension-owned trait rows changed.
+    if (
+        refreshResult.attributesChanged &&
+        shouldPublishStandaloneStats(job.payload)
+    ) {
+        // Standalone extension jobs publish directly because no owner run exists.
         await publishMetadataStatsRecompute(
             queue,
             {
@@ -121,4 +141,25 @@ export async function handleCollectionExtensionRefreshArtifactsJob(
             job.traceId ?? job.jobId,
         );
     }
+    return {
+        status: COLLECTION_EXTENSION_REFRESH_ARTIFACTS_RESULT_STATUS.Refreshed,
+        attributesChanged: refreshResult.attributesChanged,
+        extensionKey: install.extensionKey,
+    };
+}
+
+function skippedRefreshResult(
+    extensionKey: CollectionExtensionInstall["extensionKey"] | null,
+): CollectionExtensionRefreshArtifactsResult {
+    return {
+        status: COLLECTION_EXTENSION_REFRESH_ARTIFACTS_RESULT_STATUS.Skipped,
+        attributesChanged: false,
+        extensionKey,
+    };
+}
+
+function shouldPublishStandaloneStats(
+    payload: CollectionExtensionRefreshArtifactsPayload,
+): boolean {
+    return !payload.metadataRefreshRunId && !payload.bootstrap;
 }

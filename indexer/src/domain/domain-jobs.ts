@@ -41,6 +41,7 @@ export type MetadataRefreshReason =
 // Metadata refresh sources attribute cross-domain work to the initiating lane.
 export const METADATA_REFRESH_SOURCE = {
     Bootstrap: "bootstrap",
+    Onchain: "onchain",
 } as const;
 
 export type MetadataRefreshSource =
