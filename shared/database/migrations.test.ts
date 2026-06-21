@@ -11,6 +11,8 @@ import { db, setDbPath } from "./db.js";
 import { MigrationRunner } from "./migrations.js";
 
 const TOKEN_ATTRIBUTE_SOURCE_MIGRATION = "040_token_attribute_sources.sql";
+const METADATA_REFRESH_FOLLOWUPS_MIGRATION =
+    "041_metadata_refresh_followups_and_queue_outbox.sql";
 const CHAIN_ID = 1;
 const COLLECTION_ID = 10;
 const CONTRACT_ADDRESS = "0xabc0000000000000000000000000000000000000";
@@ -96,6 +98,52 @@ describe("MigrationRunner token attribute source upgrades", () => {
         );
         expect(selectAppliedMigrationNames()).toEqual([
             TOKEN_ATTRIBUTE_SOURCE_MIGRATION,
+        ]);
+    });
+});
+
+describe("MigrationRunner metadata refresh follow-up schema", () => {
+    let tempDir: string;
+    let migrationsDir: string;
+
+    beforeEach(() => {
+        tempDir = mkdtempSync(join(tmpdir(), "artgod-followups-migration-"));
+        migrationsDir = join(tempDir, "migrations");
+        mkdirSync(migrationsDir);
+        copyFileSync(
+            resolveProjectPath(
+                `database/migrations/${METADATA_REFRESH_FOLLOWUPS_MIGRATION}`,
+            ),
+            join(migrationsDir, METADATA_REFRESH_FOLLOWUPS_MIGRATION),
+        );
+        setDbPath(join(tempDir, "test.sqlite"));
+    });
+
+    afterEach(() => {
+        setDbPath(join(tmpdir(), "artgod-followups-migration-closed.sqlite"));
+        rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it("creates queue outbox and metadata refresh follow-up tables", async () => {
+        const migrations = new MigrationRunner(migrationsDir);
+        await migrations.runMigrations();
+
+        expect(selectTableNames()).toEqual(
+            expect.arrayContaining([
+                "queue_outbox",
+                "metadata_refresh_runs",
+                "metadata_refresh_extension_artifact_tasks",
+            ]),
+        );
+        expect(selectColumnNames("metadata_refresh_runs")).toEqual(
+            expect.arrayContaining([
+                "run_id",
+                "stats_job_json",
+                "stats_queue_outbox_id",
+            ]),
+        );
+        expect(selectAppliedMigrationNames()).toEqual([
+            METADATA_REFRESH_FOLLOWUPS_MIGRATION,
         ]);
     });
 });
@@ -238,24 +286,17 @@ function seedPreTokenAttributeSourceLink(input: {
 
 function selectTokenAttributeSourceRows(): TokenAttributeSourceRow[] {
     return db
-        .prepare<[]>(
-            "SELECT ta.token_id AS token_id, ak.key AS key, a.value AS value, " +
-                "ta.source_kind AS source_kind, ta.source_key AS source_key, ta.created_at AS created_at " +
-                "FROM token_attributes ta " +
-                "JOIN attributes a ON a.id = ta.attribute_id " +
-                "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " +
-                "ORDER BY ta.token_id ASC",
-        )
+        .prepare<
+            []
+        >("SELECT ta.token_id AS token_id, ak.key AS key, a.value AS value, " + "ta.source_kind AS source_kind, ta.source_key AS source_key, ta.created_at AS created_at " + "FROM token_attributes ta " + "JOIN attributes a ON a.id = ta.attribute_id " + "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " + "ORDER BY ta.token_id ASC")
         .all() as TokenAttributeSourceRow[];
 }
 
 function selectTokenAttributeIndexes(): string[] {
     const rows = db
-        .prepare<[]>(
-            "SELECT name FROM sqlite_master " +
-                "WHERE type = 'index' AND tbl_name = 'token_attributes' " +
-                "ORDER BY name ASC",
-        )
+        .prepare<
+            []
+        >("SELECT name FROM sqlite_master " + "WHERE type = 'index' AND tbl_name = 'token_attributes' " + "ORDER BY name ASC")
         .all() as SqliteNameRow[];
     return rows.map((row) => row.name);
 }
@@ -263,6 +304,22 @@ function selectTokenAttributeIndexes(): string[] {
 function selectAppliedMigrationNames(): string[] {
     const rows = db
         .prepare<[]>("SELECT name FROM migrations ORDER BY name ASC")
+        .all() as SqliteNameRow[];
+    return rows.map((row) => row.name);
+}
+
+function selectTableNames(): string[] {
+    const rows = db
+        .prepare<
+            []
+        >("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name ASC")
+        .all() as SqliteNameRow[];
+    return rows.map((row) => row.name);
+}
+
+function selectColumnNames(table: string): string[] {
+    const rows = db
+        .prepare<[]>(`PRAGMA table_info("${table.replaceAll('"', '""')}")`)
         .all() as SqliteNameRow[];
     return rows.map((row) => row.name);
 }
