@@ -56,6 +56,7 @@ Current v1 limits:
 - fetch/store metadata first
 - this step runs before OpenSea offchain work so local token/attribute context exists
 - successful canonical metadata writes can publish `collection-extension.refresh-artifacts` as non-blocking side-effects
+- metadata snapshot completion enqueues a canonical metadata stats checkpoint so the token browser can use standard traits before extension artifacts converge
 
 ### 5. Token image cache
 
@@ -84,8 +85,10 @@ Collection extensions intentionally run behind the canonical metadata snapshot r
 Current behavior:
 
 - bootstrap metadata writes `token_metadata` and normalized attributes first
+- bootstrap metadata snapshot completion releases canonical trait stats through the queue outbox
 - extension artifact refresh is queued afterward on the dedicated collection-extension queue
 - bootstrap does not wait for extension artifact completion before moving to image cache, ownership snapshot, or later phases
+- extension artifact terminality releases a final stats recompute that includes extension-owned normalized traits
 
 This ordering is important because:
 
@@ -211,6 +214,8 @@ That tradeoff is intentional for now:
 
 - source-complete data is published quickly
 - canonical order rows and validation converge through the queue pipeline shortly after
+
+Bootstrap metadata stats follow the same availability-first shape: canonical metadata stats are published when the metadata snapshot completes, while extension-owned trait stats converge after the extension side lane finishes.
 
 ## Relevant Tables
 

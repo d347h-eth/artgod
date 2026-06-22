@@ -22,6 +22,7 @@ export type DomainSyncProjection =
 export const METADATA_STATS_RECOMPUTE_REASON = {
     MetadataSync: "metadata-sync",
     MetadataRefresh: "metadata-refresh",
+    BootstrapMetadataSnapshot: "bootstrap-metadata-snapshot",
     BootstrapFinalized: "bootstrap-finalized",
     ReorgResync: "reorg-resync",
     CollectionExtensionTraits: "collection-extension-traits",

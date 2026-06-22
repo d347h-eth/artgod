@@ -565,7 +565,7 @@ Defined in `041_metadata_refresh_followups_and_queue_outbox.sql`.
 
 Defined in `041_metadata_refresh_followups_and_queue_outbox.sql`.
 
-- one collection-scoped guard row for a metadata refresh, metadata sync, refresh range chunk, or bootstrap finalization
+- one collection-scoped guard row for a metadata refresh, metadata sync, refresh range chunk, bootstrap metadata snapshot, or bootstrap finalization
 - stores the exact final stats recompute job envelope in `stats_job_json`
 - transitions from `pending` to `finalized` exactly once, in the same transaction that inserts the stats job into `queue_outbox`
 - points to the stats outbox row through `stats_queue_outbox_id`

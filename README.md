@@ -370,13 +370,14 @@ Per-collection bootstrap flow:
 2. Pick anchor block (`head - reorgDepth`).
 3. Auto-install any embedded collection extension whose build-bundled match exactly fits the collection contract plus token scope.
 4. Run metadata snapshot first (strict or `best_effort` mode).
-5. Fan out collection-extension artifact refresh jobs as non-blocking side-effects behind canonical metadata writes.
-6. Start canonical token `image` media caching on its own bootstrap runtime lane when requested.
-7. Run taskized ownership snapshot at the same anchor.
-8. Schedule short backfill (`anchor + 1` to head).
-9. Enqueue OpenSea bootstrap once local metadata + ownership are ready, only when OpenSea integration is enabled and the collection has an OpenSea slug.
-10. Mark collection `live` once ownership and short backfill complete.
-11. Let image cache, extension artifacts, and OpenSea converge as non-blocking side lanes; OpenSea `ready` is marked once the first full snapshot succeeds.
+5. Enqueue a canonical metadata stats checkpoint once the metadata snapshot completes.
+6. Fan out collection-extension artifact refresh jobs as non-blocking side-effects behind canonical metadata writes.
+7. Start canonical token `image` media caching on its own bootstrap runtime lane when requested.
+8. Run taskized ownership snapshot at the same anchor.
+9. Schedule short backfill (`anchor + 1` to head).
+10. Enqueue OpenSea bootstrap once local metadata + ownership are ready, only when OpenSea integration is enabled and the collection has an OpenSea slug.
+11. Mark collection `live` once ownership and short backfill complete.
+12. Let image cache, extension artifacts, and OpenSea converge as non-blocking side lanes; OpenSea `ready` is marked once the first full snapshot succeeds.
 
 `nft_balances` is canonical ownership state after bootstrap completion.
 Historical backfill for blocks at or before the bootstrap anchor is facts-only: it can enrich transfers/fills/activity history, but it must not mutate current-state tables such as `nft_balances`.

@@ -68,7 +68,10 @@ import {
 import { BootstrapEnumerationExecutor } from "../application/bootstrap-enumeration-executor.js";
 import { resolveManualBootstrapTokenIds } from "../application/bootstrap-token-enumeration.js";
 import { runWorker } from "../application/worker-runner.js";
-import { buildBootstrapFinalStatsFollowupRun } from "../application/metadata/refresh-followups.js";
+import {
+    buildBootstrapFinalStatsFollowupRun,
+    buildBootstrapMetadataSnapshotStatsFollowupRun,
+} from "../application/metadata/refresh-followups.js";
 import { loadConfig } from "../config/index.js";
 import type {
     BootstrapImageCacheProcessPayload,
@@ -1193,12 +1196,15 @@ async function processBootstrapMainClaimedStep(
             bootstrapStorage: input.bootstrapStorage,
             bootstrapRuns: input.bootstrapRuns,
             bootstrapSteps: input.bootstrapSteps,
+            metadataRefreshFollowups: input.metadataRefreshFollowups,
             metadataDomain: input.metadataDomain,
             metadataBatchSize: input.metadataBatchSize,
             metadataConcurrency: input.metadataConcurrency,
             metadataPollMs: input.metadataPollMs,
             metadataRetryPolicy: input.metadataRetryPolicy,
             payload: buildMetadataProcessPayload(anchoredRun),
+            traceId: input.traceId,
+            sourceJobId: input.sourceJobId,
         });
     }
 
@@ -1323,24 +1329,30 @@ async function processBootstrapMetadataStep(input: {
     bootstrapStorage: BootstrapSnapshotPort;
     bootstrapRuns: BootstrapRunsPort;
     bootstrapSteps: BootstrapStepsPort;
+    metadataRefreshFollowups: SqliteMetadataRefreshFollowups;
     metadataDomain: SqliteMetadataDomain;
     metadataBatchSize: number;
     metadataConcurrency: number;
     metadataPollMs: number;
     metadataRetryPolicy: RetryPolicy;
     payload: BootstrapMetadataProcessPayload;
+    traceId: string;
+    sourceJobId: string;
 }): Promise<BootstrapClaimedStepProcessorResult> {
     const {
         collections,
         bootstrapStorage,
         bootstrapRuns,
         bootstrapSteps,
+        metadataRefreshFollowups,
         metadataDomain,
         metadataBatchSize,
         metadataConcurrency,
         metadataPollMs,
         metadataRetryPolicy,
         payload,
+        traceId,
+        sourceJobId,
     } = input;
     if (payload.standard !== COLLECTION_STANDARD.Erc721) {
         logger.warn("Metadata process skipped (unsupported standard)", {
@@ -1444,6 +1456,12 @@ async function processBootstrapMetadataStep(input: {
         return readyStepResult(Date.now() + Math.max(1, metadataPollMs));
     }
 
+    enqueueBootstrapMetadataSnapshotStatsOnce(
+        metadataRefreshFollowups,
+        run,
+        traceId,
+        sourceJobId,
+    );
     bootstrapSteps.markStepSucceeded(run.runId, BOOTSTRAP_STEP_KEY.Metadata, {
         completed: counts.total,
         total: counts.total,
@@ -1590,6 +1608,23 @@ function enqueueBootstrapFinalStatsOnce(
             chainId: run.chainId,
             collectionId: run.collectionId,
             statsReason: METADATA_STATS_RECOMPUTE_REASON.BootstrapFinalized,
+            sourceJobId,
+            traceId,
+        }),
+    });
+}
+
+function enqueueBootstrapMetadataSnapshotStatsOnce(
+    metadataRefreshFollowups: SqliteMetadataRefreshFollowups,
+    run: BootstrapRunDefinition,
+    traceId: string,
+    sourceJobId: string,
+): void {
+    metadataRefreshFollowups.enqueueFinalStatsOnce({
+        run: buildBootstrapMetadataSnapshotStatsFollowupRun({
+            bootstrapRunId: run.runId,
+            chainId: run.chainId,
+            collectionId: run.collectionId,
             sourceJobId,
             traceId,
         }),
