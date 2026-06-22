@@ -649,7 +649,7 @@
 		{/if}
 	</section>
 {:else}
-	<TerraformsHypercastleSeedClasses basePath={basePath} mediaMode={media.selectedMode} />
+	<TerraformsHypercastleSeedClasses {chain} {collection} {media} {basePath} />
 {/if}
 
 <style>

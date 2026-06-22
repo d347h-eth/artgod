@@ -1,15 +1,24 @@
 import { writeFile } from 'node:fs/promises';
 import { expect, test, type Locator, type Page, type TestInfo } from 'playwright/test';
-import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+import { PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
+import { COLLECTION_MEDIA_QUERY_PARAMS } from '@artgod/shared/extensions';
 import {
 	TERRAFORMS_BIOME_ATTRIBUTE_KEY,
 	TERRAFORMS_EXTENSION_KEY,
 	TERRAFORMS_EXTENSION_PAGE_REFS,
 	TERRAFORMS_HYPERCASTLE_LEVELS,
 	TERRAFORMS_LEVEL_ATTRIBUTE_KEY,
+	TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+	TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES,
 	TERRAFORMS_ZONE_ATTRIBUTE_KEY
 } from '@artgod/shared/extensions/terraforms';
-import { TRAIT_CATALOG_QUERY_PARAMS } from '@artgod/shared/types';
+import { TRAIT_CATALOG_QUERY_PARAMS, TRAIT_FILTER_QUERY_PARAMS } from '@artgod/shared/types';
+import type {
+	ApiCollectionMediaState,
+	ApiTokenCard,
+	CollectionDetailApiResponse,
+	TokenPreviewApiResponse
+} from '../src/lib/api-types';
 import {
 	applyTerraformsBiomeTokenCounts,
 	buildTerraformsBiomeRows,
@@ -42,7 +51,7 @@ import {
 } from '../src/lib/collection-extension-pages/terraforms/hypercastle-sections';
 import {
 	buildTerraformsHypercastleTokenHref,
-	formatTerraformsHypercastleTokenLabel,
+	buildTerraformsSeedClassTokenHref,
 	TERRAFORMS_HYPERCASTLE_GODMODE_TOKENS,
 	TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM,
 	TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS,
@@ -90,6 +99,8 @@ import {
 	TERRAFORMS_ZONE_PALETTE_BAND_DOM
 } from '../src/lib/collection-extension-pages/terraforms/trait-previews';
 import { COLLECTION_PAGE_TOP_ACTIONS_DOM } from '../src/lib/components/collection-page-layout-dom';
+import { buildTerraformsExtensionPageE2eData } from '../src/lib/e2e/terraforms-extension-page-fixtures';
+import { TEST_IDS } from '../src/lib/test-ids';
 import {
 	attachDiagnosticsForTestFailure,
 	captureDiagnosticsForTest,
@@ -270,17 +281,34 @@ const TEST_ARTIFACTS = {
 	}
 } as const;
 const EMPTY_ATTRIBUTE_VALUE = '';
-const HYPERCASTLE_E2E_COLLECTION_BASE_PATH = '/e2e-harness/collection';
-const HYPERCASTLE_E2E_MEDIA_MODE = COLLECTION_MEDIA_MODES.Snapshot;
+const HYPERCASTLE_E2E_PAGE_DATA = buildTerraformsExtensionPageE2eData();
+const HYPERCASTLE_E2E_COLLECTION_BASE_PATH = HYPERCASTLE_E2E_PAGE_DATA.basePath;
+const HYPERCASTLE_E2E_MEDIA_MODE = HYPERCASTLE_E2E_PAGE_DATA.media.selectedMode;
+const HYPERCASTLE_E2E_API_BASE_PATH = `/api/${encodeURIComponent(
+	HYPERCASTLE_E2E_PAGE_DATA.chain.slug
+)}/${encodeURIComponent(HYPERCASTLE_E2E_PAGE_DATA.collection.slug)}`;
 const HYPERCASTLE_EXPECTED_LEVEL_COUNT = TERRAFORMS_HYPERCASTLE_LEVELS.length;
 const HYPERCASTLE_EXPECTED_FACE_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT * 3;
 const HYPERCASTLE_EXPECTED_VERTICAL_FACE_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT * 2;
 const HYPERCASTLE_E2E_TRAIT_CATALOG_ROUTE_PATTERN = '**/api/*/*/traits/catalog*';
+const HYPERCASTLE_E2E_COLLECTION_DETAIL_ROUTE_PATTERN = new RegExp(
+	`${escapeRegExp(HYPERCASTLE_E2E_API_BASE_PATH)}(?:\\?.*)?$`
+);
+const HYPERCASTLE_E2E_TOKEN_PREVIEW_ROUTE_PATTERN = new RegExp(
+	`${escapeRegExp(HYPERCASTLE_E2E_API_BASE_PATH)}/[^/]+/preview(?:\\?.*)?$`
+);
 const HYPERCASTLE_E2E_TRAIT_SCOPE_SEPARATOR = ':';
 const HYPERCASTLE_E2E_ALL_LEVEL_MINTED_COUNT = 0;
 const HYPERCASTLE_E2E_SELECTED_BIOME_COUNTS = {
 	22: 8,
 	23: 13
+} as const;
+const HYPERCASTLE_E2E_SEED_CLASS_SAMPLE_TOKEN_IDS = {
+	[TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed]: ['9011', '9042', '9314', '9971', '9999'],
+	[TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.YSeed]: ['9951', '9958', '9962', '9967', '9970'],
+	[TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.Godmode]: TERRAFORMS_HYPERCASTLE_GODMODE_TOKENS.map(
+		(token) => token.tokenId
+	)
 } as const;
 const HYPERCASTLE_REACHABILITY_LEVEL_NUMBER = 12;
 const HYPERCASTLE_GODMODE_PROBE_TOKEN = TERRAFORMS_HYPERCASTLE_GODMODE_TOKENS[1]!;
@@ -386,10 +414,26 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 			DATA_ATTRIBUTE_NAMES.testId,
 			TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.root
 		),
-		seedClassTable: dataAttributeSelector(
+		seedClassList: dataAttributeSelector(
 			DATA_ATTRIBUTE_NAMES.testId,
-			TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.seedClassTable
+			TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.seedClassList
 		),
+		seedClassBlock: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.seedClassBlock
+		),
+		seedClassSampleGrid: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.sampleGrid
+		),
+		seedClassRerollButton: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.rerollButton
+		),
+		tokenCard: dataAttributeSelector(DATA_ATTRIBUTE_NAMES.testId, TEST_IDS.TokenCard),
+		tokenPreviewTrigger: 'button[aria-label^="preview token "]',
+		tokenPreviewOverlay: classSelector('token-preview-overlay'),
+		tokenPreviewFrame: classSelector('token-preview-frame'),
 		texturedLevelLayer: idSelector(
 			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_TEXTURE_LEVEL_NUMBER)
 		),
@@ -425,6 +469,8 @@ const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
 test.beforeEach(async ({ page }, testInfo) => {
 	captureDiagnosticsForTest(diagnosticsByTest, page, testInfo);
 	await installTraitCatalogApiProbe(page);
+	await installSeedClassSampleApiProbe(page);
+	await installTokenPreviewApiProbe(page);
 });
 
 test.afterEach(async ({}, testInfo) => {
@@ -453,7 +499,9 @@ test.describe('Terraforms Hypercastle overview', () => {
 			})
 		).toBeVisible();
 		await expect(page.getByPlaceholder('jump to token #/owner/.eth')).toBeVisible();
-		await expect(page.getByRole(ACCESSIBLE_ROLES.button, { name: 'keyboard shortcuts' })).toBeVisible();
+		await expect(
+			page.getByRole(ACCESSIBLE_ROLES.button, { name: 'keyboard shortcuts' })
+		).toBeVisible();
 		const topActionsPanel = page.locator(
 			classSelector(COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.root)
 		);
@@ -471,9 +519,7 @@ test.describe('Terraforms Hypercastle overview', () => {
 				exact: true
 			})
 		).toBeVisible();
-		const sectionTabs = sectionActionRow.locator(
-			HYPERCASTLE_PROBE_CONTRACT.selectors.sectionTabs
-		);
+		const sectionTabs = sectionActionRow.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.sectionTabs);
 		await expect(sectionTabs).toHaveAttribute(
 			ARIA_ATTRIBUTE_NAMES.label,
 			TERRAFORMS_HYPERCASTLE_SECTION_LABELS.AriaLabel
@@ -507,27 +553,70 @@ test.describe('Terraforms Hypercastle overview', () => {
 				name: TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.Heading
 			})
 		).toBeVisible();
-		const seedClassTable = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.seedClassTable);
-		await expect(seedClassTable).toBeVisible();
-		await expect(seedClassTable.locator(TABLE_SELECTORS.bodyRows)).toHaveCount(
-			TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.length
+		const seedClassList = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.seedClassList);
+		await expect(seedClassList).toBeVisible();
+		const seedClassBlocks = seedClassList.locator(
+			HYPERCASTLE_PROBE_CONTRACT.selectors.seedClassBlock
+		);
+		await expect(seedClassBlocks).toHaveCount(TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.length);
+		await expect(
+			seedClassList.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.seedClassSampleGrid)
+		).toHaveCount(TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.length);
+		await expect(seedClassList.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.tokenCard)).toHaveCount(
+			TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.length * 3
 		);
 		await expect(
-			seedClassesSection.getByRole(ACCESSIBLE_ROLES.heading, {
-				name: TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.GodmodeHeading
-			})
-		).toBeVisible();
+			seedClassList.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.seedClassRerollButton)
+		).toHaveCount(2);
+		const xSeedBlock = seedClassBlocks.first();
+		const xSeedRerollButton = xSeedBlock.locator(
+			HYPERCASTLE_PROBE_CONTRACT.selectors.seedClassRerollButton
+		);
+		await expect(xSeedRerollButton).toBeEnabled();
+		await xSeedRerollButton.click();
+		await expect(xSeedBlock.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.tokenCard)).toHaveCount(3);
+		const godmodeBlock = seedClassBlocks.nth(TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.length - 1);
 		await expect(
-			seedClassesSection.getByRole(ACCESSIBLE_ROLES.link, {
-				name: formatTerraformsHypercastleTokenLabel(HYPERCASTLE_GODMODE_PROBE_TOKEN.tokenId)
+			godmodeBlock.getByRole(ACCESSIBLE_ROLES.link, {
+				name: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.Godmode
 			})
 		).toHaveAttribute(
 			SVG_ATTRIBUTE_NAMES.href,
-			buildTerraformsHypercastleTokenHref(
-				HYPERCASTLE_E2E_COLLECTION_BASE_PATH,
-				HYPERCASTLE_GODMODE_PROBE_TOKEN.tokenId
-			)
+			buildTerraformsSeedClassTokenHref({
+				basePath: HYPERCASTLE_E2E_COLLECTION_BASE_PATH,
+				mediaMode: HYPERCASTLE_E2E_MEDIA_MODE,
+				seedClass: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.Godmode
+			})
 		);
+		await expect(godmodeBlock.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.tokenCard)).toHaveCount(
+			TERRAFORMS_HYPERCASTLE_GODMODE_TOKENS.length
+		);
+		await expect(
+			godmodeBlock.getByRole(ACCESSIBLE_ROLES.link, {
+				name: HYPERCASTLE_GODMODE_PROBE_TOKEN.tokenId
+			})
+		).toHaveAttribute(
+			SVG_ATTRIBUTE_NAMES.href,
+			buildTerraformsHypercastleTokenHref({
+				basePath: HYPERCASTLE_E2E_COLLECTION_BASE_PATH,
+				tokenId: HYPERCASTLE_GODMODE_PROBE_TOKEN.tokenId,
+				mediaMode: HYPERCASTLE_E2E_MEDIA_MODE
+			})
+		);
+		await godmodeBlock
+			.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.tokenPreviewTrigger)
+			.first()
+			.click();
+		await expect(
+			page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.tokenPreviewOverlay)
+		).toBeVisible();
+		await expect(
+			page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.tokenPreviewFrame)
+		).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(
+			page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.tokenPreviewOverlay)
+		).toHaveCount(0);
 		await expect(surfaceRerollButton).toHaveCount(0);
 		await expect(topActionRows).toHaveCount(1);
 		await expect(page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.overview)).toHaveCount(0);
@@ -979,8 +1068,7 @@ async function expectHypercastleSection(
 	page: Page,
 	section: TerraformsHypercastleSection
 ): Promise<void> {
-	const expectedQueryValue =
-		section === TERRAFORMS_HYPERCASTLE_SECTIONS.Structure ? null : section;
+	const expectedQueryValue = section === TERRAFORMS_HYPERCASTLE_SECTIONS.Structure ? null : section;
 	await expect
 		.poll(() =>
 			new URL(page.url()).searchParams.get(TERRAFORMS_HYPERCASTLE_SECTION_QUERY_PARAMS.Section)
@@ -1419,6 +1507,134 @@ async function installTraitCatalogApiProbe(page: Page): Promise<void> {
 	});
 }
 
+async function installSeedClassSampleApiProbe(page: Page): Promise<void> {
+	await page.route(HYPERCASTLE_E2E_COLLECTION_DETAIL_ROUTE_PATTERN, async (route) => {
+		const requestUrl = new URL(route.request().url());
+		const seedClass = resolveSeedClassSampleRequest(requestUrl);
+		if (!seedClass) {
+			await route.fulfill({ status: 400, contentType: 'application/json', body: '{}' });
+			return;
+		}
+
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify(buildSeedClassSampleResponse(seedClass, requestUrl))
+		});
+	});
+}
+
+async function installTokenPreviewApiProbe(page: Page): Promise<void> {
+	await page.route(HYPERCASTLE_E2E_TOKEN_PREVIEW_ROUTE_PATTERN, async (route) => {
+		const requestUrl = new URL(route.request().url());
+		const tokenId = decodeURIComponent(
+			requestUrl.pathname
+				.slice(HYPERCASTLE_E2E_API_BASE_PATH.length + 1)
+				.replace(/\/preview$/, EMPTY_ATTRIBUTE_VALUE)
+		);
+		const mediaMode =
+			requestUrl.searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode) ??
+			HYPERCASTLE_E2E_MEDIA_MODE;
+
+		const response: TokenPreviewApiResponse = {
+			media: resolveE2eMediaState(mediaMode),
+			token: {
+				tokenId,
+				image: buildSeedClassSampleImage(tokenId),
+				animationUrl: buildSeedClassSampleArtifact(tokenId)
+			}
+		};
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify(response)
+		});
+	});
+}
+
+function resolveSeedClassSampleRequest(url: URL): string | null {
+	const traitValues = [
+		...url.searchParams.getAll(TRAIT_FILTER_QUERY_PARAMS.Traits),
+		...url.searchParams.getAll(TRAIT_FILTER_QUERY_PARAMS.Trait)
+	];
+	for (const value of traitValues) {
+		for (const segment of value.split(',')) {
+			const trait = formatTraitCatalogScopeValue(segment.trim());
+			if (
+				trait.key === TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY &&
+				trait.value in HYPERCASTLE_E2E_SEED_CLASS_SAMPLE_TOKEN_IDS
+			) {
+				return trait.value;
+			}
+		}
+	}
+	return null;
+}
+
+function buildSeedClassSampleResponse(seedClass: string, url: URL): CollectionDetailApiResponse {
+	const tokens = HYPERCASTLE_E2E_SEED_CLASS_SAMPLE_TOKEN_IDS[
+		seedClass as keyof typeof HYPERCASTLE_E2E_SEED_CLASS_SAMPLE_TOKEN_IDS
+	].map((tokenId) => buildSeedClassSampleTokenCard(seedClass, tokenId));
+	const limit = Number(url.searchParams.get(PAGINATION_QUERY_PARAMS.Limit)) || tokens.length;
+
+	return {
+		chain: HYPERCASTLE_E2E_PAGE_DATA.chain,
+		collection: HYPERCASTLE_E2E_PAGE_DATA.collection,
+		media: resolveE2eMediaState(
+			url.searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode) ?? HYPERCASTLE_E2E_MEDIA_MODE
+		),
+		traits: {
+			selected: [{ key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY, value: seedClass }],
+			selectedRanges: [],
+			facets: []
+		},
+		tokens: {
+			items: tokens,
+			prevCursor: null,
+			nextCursor: null,
+			limit,
+			totalItems: tokens.length,
+			rangeStart: tokens.length > 0 ? 1 : 0,
+			rangeEnd: tokens.length,
+			currentPage: 1,
+			totalPages: 1
+		}
+	};
+}
+
+function buildSeedClassSampleTokenCard(seedClass: string, tokenId: string): ApiTokenCard {
+	return {
+		tokenId,
+		name: `Terraforms #${tokenId}`,
+		image: buildSeedClassSampleImage(tokenId),
+		traitSummary: seedClass,
+		listingPrice: null,
+		listingCurrency: null,
+		attributes: [{ key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY, value: seedClass }],
+		hasMetadata: true,
+		metadataUpdatedAt: null
+	};
+}
+
+function resolveE2eMediaState(selectedMode: string): ApiCollectionMediaState {
+	return {
+		...HYPERCASTLE_E2E_PAGE_DATA.media,
+		selectedMode
+	};
+}
+
+function buildSeedClassSampleImage(tokenId: string): string {
+	return `data:image/svg+xml,${encodeURIComponent(
+		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120"><rect width="160" height="120" opacity=".01"/><text x="18" y="68" font-family="monospace" font-size="28">${tokenId}</text></svg>`
+	)}`;
+}
+
+function buildSeedClassSampleArtifact(tokenId: string): string {
+	return `data:text/html,${encodeURIComponent(
+		`<!doctype html><html lang="en"><body>Terraforms ${tokenId}</body></html>`
+	)}`;
+}
+
 function buildTraitCatalogProbeFacets(scope: Array<{ key: string; value: string }>) {
 	const level = resolveTraitCatalogProbeLevel(scope);
 	if (level === null) {
@@ -1592,4 +1808,8 @@ function dataAttributeSelector(attributeName: string, value: string): string {
 
 function idSelector(id: string): string {
 	return `#${id}`;
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

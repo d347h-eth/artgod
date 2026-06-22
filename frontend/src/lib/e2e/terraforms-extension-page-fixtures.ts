@@ -35,7 +35,10 @@ export function buildTerraformsExtensionPageE2eData(): CollectionExtensionPageLo
 		media: {
 			selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
 			defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
-			availableModes: [{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }]
+			availableModes: [
+				{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot },
+				{ key: COLLECTION_MEDIA_MODES.Artifact, label: COLLECTION_MEDIA_MODES.Artifact }
+			]
 		},
 		basePath: TERRAFORMS_E2E_COLLECTION_BASE_PATH,
 		page: {
