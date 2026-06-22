@@ -89,7 +89,7 @@ Metrics are recorded for latency and failures.
 Results are stored in `token_metadata`, and normalized traits are stored in `token_attributes`.
 Large debug-only metadata fields are controlled separately:
 
-- with `PERSIST_RAW_DEBUG_PAYLOADS=false` (default), canonical metadata still writes token identity, name/description/media fields, attribution, and normalized `token_attributes`, but omits raw URI, raw JSON, and attributes JSON retention
+- with `PERSIST_RAW_DEBUG_PAYLOADS=false` (default), canonical metadata still writes token identity, name/description/media fields, attribution, and normalized `token_attributes`, but omits raw URI, raw JSON, and attributes JSON retention; `token_metadata.uri` stays `NULL` rather than a placeholder value
 - with `PERSIST_RAW_DEBUG_PAYLOADS=true`, `token_metadata.uri`, `token_metadata.raw_json`, and `token_metadata.attributes_json` retain the fetched source payload data for source-normalization debugging
 
 Bootstrap token-image caching is intentionally downstream from this metadata write:

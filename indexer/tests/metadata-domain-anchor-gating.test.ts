@@ -137,7 +137,7 @@ describe("metadata domain anchor gating", () => {
         });
 
         expect(selectMetadataDebugColumns(chainId, collectionId, "1")).toEqual({
-            uri: "",
+            uri: null,
             attributes_json: null,
             raw_json: null,
         });
@@ -406,12 +406,16 @@ function selectMetadataDebugColumns(
     chainId: number,
     collectionId: number,
     tokenId: string,
-): { uri: string; attributes_json: string | null; raw_json: string | null } {
+): {
+    uri: string | null;
+    attributes_json: string | null;
+    raw_json: string | null;
+} {
     const row = db
         .prepare<
             [number, number, string],
             {
-                uri: string;
+                uri: string | null;
                 attributes_json: string | null;
                 raw_json: string | null;
             }

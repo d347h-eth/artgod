@@ -90,7 +90,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         collectionId: number;
         contract: string;
         tokenId: string;
-        uri: string;
+        uri: string | null;
         name: string | null;
         description: string | null;
         image: string | null;
@@ -395,7 +395,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                 tokenId,
                 uri: this.debugPayloads.persistRawDebugPayloads
                     ? metadata.uri
-                    : "",
+                    : null,
                 name: metadata.name ?? null,
                 description: metadata.description ?? null,
                 image: metadata.image ?? null,
