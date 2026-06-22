@@ -1,4 +1,8 @@
 import { db } from "@artgod/shared/database";
+import {
+    TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+    TOKEN_ATTRIBUTE_SOURCE_KIND,
+} from "@artgod/shared/types/token-attributes";
 import { logger } from "@artgod/shared/utils";
 import { DOMAIN_SYNC_PROJECTION } from "../../domain/domain-jobs.js";
 import type {
@@ -8,6 +12,7 @@ import type {
     TokenStandard,
 } from "../../domain/metadata.js";
 import { normalizeUniqueAttributeList } from "../../domain/attributes.js";
+import { SqliteTokenAttributeWriter } from "../attributes/sqlite-token-attributes.js";
 import type {
     DomainSyncContext,
     MetadataDomainPort,
@@ -110,29 +115,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             "ON CONFLICT(chain_id, collection_id, token_id) DO UPDATE SET " +
             "updated_at = CURRENT_TIMESTAMP",
     );
-    private deleteTokenAttributes = db.prepare<[number, number, string]>(
-        "DELETE FROM token_attributes WHERE chain_id = ? AND collection_id = ? AND token_id = ?",
-    );
-    private insertAttributeKey = db.prepare<[number, number, string, string]>(
-        "INSERT OR IGNORE INTO attribute_keys (chain_id, collection_id, contract_address, key) VALUES (?, ?, ?, ?)",
-    );
-    private selectAttributeKeyId = db.prepare<[number, number, string]>(
-        "SELECT id FROM attribute_keys WHERE chain_id = ? AND collection_id = ? AND key = ?",
-    );
-    private insertAttribute = db.prepare<
-        [number, number, string, number, string]
-    >(
-        "INSERT OR IGNORE INTO attributes (chain_id, collection_id, contract_address, attribute_key_id, value) VALUES (?, ?, ?, ?, ?)",
-    );
-    private selectAttributeId = db.prepare<[number, number, number, string]>(
-        "SELECT id FROM attributes WHERE chain_id = ? AND collection_id = ? AND attribute_key_id = ? AND value = ?",
-    );
-    private insertTokenAttribute = db.prepare<
-        [number, number, string, string, number]
-    >(
-        "INSERT OR IGNORE INTO token_attributes (chain_id, collection_id, contract_address, token_id, attribute_id) " +
-            "VALUES (?, ?, ?, ?, ?)",
-    );
+    private tokenAttributes = new SqliteTokenAttributeWriter();
 
     constructor(
         private resolver: TokenUriResolverPort,
@@ -150,15 +133,18 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             };
         }
         if (context.projection === DOMAIN_SYNC_PROJECTION.FactsOnly) {
-            logger.debug("Metadata domain sync skipped for facts-only projection", {
-                component: "MetadataDomain",
-                action: "handleDomainSync",
-                chainId,
-                collectionId: context.collectionId,
-                fromBlock,
-                toBlock,
-                mode: context.mode,
-            });
+            logger.debug(
+                "Metadata domain sync skipped for facts-only projection",
+                {
+                    component: "MetadataDomain",
+                    action: "handleDomainSync",
+                    chainId,
+                    collectionId: context.collectionId,
+                    fromBlock,
+                    toBlock,
+                    mode: context.mode,
+                },
+            );
             return {
                 contracts: [],
                 updatedTokens: [],
@@ -417,44 +403,16 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                 logIndex: attribution?.log_index ?? null,
             });
 
-            // Replace attribute links for this token on every metadata refresh.
-            this.deleteTokenAttributes.run(chainId, collectionId, tokenId);
-
-            for (const attribute of normalizedAttributes) {
-                this.insertAttributeKey.run(
-                    chainId,
-                    collectionId,
-                    contract,
-                    attribute.key,
-                );
-                const keyRow = this.selectAttributeKeyId.get(
-                    chainId,
-                    collectionId,
-                    attribute.key,
-                ) as { id: number } | undefined;
-                if (!keyRow) continue;
-                this.insertAttribute.run(
-                    chainId,
-                    collectionId,
-                    contract,
-                    keyRow.id,
-                    attribute.value,
-                );
-                const attributeRow = this.selectAttributeId.get(
-                    chainId,
-                    collectionId,
-                    keyRow.id,
-                    attribute.value,
-                ) as { id: number } | undefined;
-                if (!attributeRow) continue;
-                this.insertTokenAttribute.run(
-                    chainId,
-                    collectionId,
-                    contract,
-                    tokenId,
-                    attributeRow.id,
-                );
-            }
+            // Replace only canonical metadata links so extension-owned traits survive refreshes.
+            this.tokenAttributes.replaceTokenAttributes({
+                chainId,
+                collectionId,
+                contractAddress: contract,
+                tokenId,
+                sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+                sourceKey: TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+                attributes: normalizedAttributes,
+            });
         });
 
         persist();

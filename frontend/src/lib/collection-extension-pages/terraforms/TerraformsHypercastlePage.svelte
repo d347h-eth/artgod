@@ -6,6 +6,7 @@
 	import type { CollectionExtensionPageProps } from '$lib/collection-extension-pages/types';
 	import TerraformsBiomeCharacterBand from '$lib/collection-extension-pages/terraforms/TerraformsBiomeCharacterBand.svelte';
 	import TerraformsHypercastleOverview from '$lib/collection-extension-pages/terraforms/TerraformsHypercastleOverview.svelte';
+	import TerraformsHypercastleSeedClasses from '$lib/collection-extension-pages/terraforms/TerraformsHypercastleSeedClasses.svelte';
 	import TerraformsTraitTable from '$lib/collection-extension-pages/terraforms/TerraformsTraitTable.svelte';
 	import TerraformsZonePaletteBand from '$lib/collection-extension-pages/terraforms/TerraformsZonePaletteBand.svelte';
 	import CheckIcon from '$lib/components/CheckIcon.svelte';
@@ -82,6 +83,11 @@
 		replaceTerraformsHypercastleLevelSurface
 	} from '$lib/collection-extension-pages/terraforms/hypercastle-surface-texture';
 	import {
+		parseTerraformsHypercastleSection,
+		TERRAFORMS_HYPERCASTLE_SECTION_QUERY_PARAMS,
+		TERRAFORMS_HYPERCASTLE_SECTIONS
+	} from '$lib/collection-extension-pages/terraforms/hypercastle-sections';
+	import {
 		buildTerraformsTraitCatalogRequestKey,
 		fetchTerraformsHypercastleTraitCounts,
 		TERRAFORMS_HYPERCASTLE_EMPTY_TRAIT_COUNTS,
@@ -123,6 +129,12 @@
 		)
 	);
 	let routeSelectionKey = $derived(formatTerraformsHypercastleSelectionRouteKey(routeSelection));
+	let activeSection = $derived(
+		parseTerraformsHypercastleSection(
+			page.url.searchParams.get(TERRAFORMS_HYPERCASTLE_SECTION_QUERY_PARAMS.Section)
+		)
+	);
+	let showStructureSection = $derived(activeSection === TERRAFORMS_HYPERCASTLE_SECTIONS.Structure);
 	let selectedLevelNumber = $derived(resolveTerraformsSelectedLevelNumber(selection));
 	let allLevelsSelected = $derived(isTerraformsAllLevelsSelection(selection));
 	let selectedLevel = $derived(resolveTerraformsHypercastleLevel(selectedLevelNumber));
@@ -210,6 +222,7 @@
 	$effect(() => {
 		// Keep minted counts aligned with the selected Hypercastle scope.
 		if (!browser) return;
+		if (!showStructureSection) return;
 		const nextRequestKey = buildTerraformsTraitCatalogRequestKey({
 			chainRef: chain.slug,
 			collectionRef: collection.slug,
@@ -475,165 +488,169 @@
 	}
 </script>
 
-<section class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.root}>
-	<div class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.overview}>
-		<TerraformsHypercastleOverview
-			{selectedLevelNumber}
-			{allLevelsSelected}
-			{levelSurfaces}
-			onLevelSelect={selectLevel}
-			onAllLevelsSelect={selectAllLevels}
-		/>
-	</div>
+{#if showStructureSection}
+	<section class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.root}>
+		<div class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.overview}>
+			<TerraformsHypercastleOverview
+				{selectedLevelNumber}
+				{allLevelsSelected}
+				{levelSurfaces}
+				onLevelSelect={selectLevel}
+				onAllLevelsSelect={selectAllLevels}
+			/>
+		</div>
 
-	<aside
-		class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailPanel}
-		data-testid={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.detailPanel}
-	>
-		{#if showZoneTable && detailTitle}
-			{#if showDetailTitle}
-				<h2 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailHeading}>
-					{detailTitle}
-				</h2>
-			{/if}
-			<h3 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailSubheading}>
-				{TERRAFORMS_LEVEL_ZONE_SECTION_LABELS.Zones}
-			</h3>
-			<TerraformsTraitTable
-				columns={zoneTableColumns}
-				labels={TERRAFORMS_LEVEL_ZONE_TABLE_LABELS}
-				activeColumn={activeZoneSortColumn}
-				sortDirection={zoneSortDirection}
-				className={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.table}
-				testId={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.zoneTable}
-				formatSortLabel={formatZoneTableSortLabel}
-				resolveAriaSort={resolveZoneTableAriaSort}
-				onSort={sortZonesByTableColumn}
-			>
-				{#each zoneRows as row (row.key)}
-					{@const currentCopyState = paletteCopyState(row.key)}
-					<tr>
-						{#each zoneTableColumns as column}
-							{#if column === TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name}
-								<td>
-									<a
-										class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.tableLink}
-										href={zoneTokenHref(row)}
-										title={formatTerraformsZoneTokenFilterLabel(row.name)}
-										aria-label={formatTerraformsZoneTokenFilterLabel(row.name)}
-									>
-										{row.name}
-									</a>
-								</td>
-							{:else if column === TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette}
-								<td>
-									<div class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.paletteCell}>
-										<TerraformsZonePaletteBand
-											palette={row.palette}
-											swatchLabels={buildTerraformsZonePaletteSwatchLabels({
-												zoneName: row.name,
-												palette: row.palette
-											})}
-											selectable={selectedLevelNumber !== null}
-											onSelect={() => applyZonePalette(row)}
-										/>
-										<button
-											type={TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES.Button}
-											class={paletteCopyButtonClass(row.key)}
-											data-testid={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.paletteCopyButton}
-											title={formatTerraformsZonePaletteCopyLabel(currentCopyState)}
-											aria-label={formatTerraformsZonePaletteCopyLabel(currentCopyState)}
-											onclick={() => copyZonePalette(row)}
-										>
-											{#if currentCopyState === TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_STATES.Copied}
-												<CheckIcon />
-											{:else}
-												<CopyIcon />
-											{/if}
-										</button>
-									</div>
-								</td>
-							{:else if column === TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted}
-								<td class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.numericCell}>
-									{formatTerraformsZoneMintedTokenCount(row)}
-								</td>
-							{/if}
-						{/each}
-					</tr>
-				{/each}
-			</TerraformsTraitTable>
-		{/if}
-	</aside>
-
-	{#if showBiomeTable}
 		<aside
-			class={TERRAFORMS_BIOME_TABLE_DOM.classes.panel}
-			data-testid={TERRAFORMS_BIOME_TABLE_DOM.testIds.panel}
+			class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailPanel}
+			data-testid={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.detailPanel}
 		>
-			<h3 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailSubheading}>
-				{TERRAFORMS_BIOME_TABLE_LABELS.Heading}
-			</h3>
-			{#if selectedLevelNumber !== null}
-				<div class={TERRAFORMS_BIOME_TABLE_DOM.classes.controls}>
-					<button
-						type={TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES.Button}
-						class={TERRAFORMS_BIOME_TABLE_DOM.classes.colorResetButton}
-						data-testid={TERRAFORMS_BIOME_TABLE_DOM.testIds.colorResetButton}
-						disabled={biomePreviewPalette === null}
-						onclick={resetBiomePreviewColors}
-					>
-						{TERRAFORMS_BIOME_TABLE_LABELS.ResetColors}
-					</button>
-				</div>
+			{#if showZoneTable && detailTitle}
+				{#if showDetailTitle}
+					<h2 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailHeading}>
+						{detailTitle}
+					</h2>
+				{/if}
+				<h3 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailSubheading}>
+					{TERRAFORMS_LEVEL_ZONE_SECTION_LABELS.Zones}
+				</h3>
+				<TerraformsTraitTable
+					columns={zoneTableColumns}
+					labels={TERRAFORMS_LEVEL_ZONE_TABLE_LABELS}
+					activeColumn={activeZoneSortColumn}
+					sortDirection={zoneSortDirection}
+					className={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.table}
+					testId={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.zoneTable}
+					formatSortLabel={formatZoneTableSortLabel}
+					resolveAriaSort={resolveZoneTableAriaSort}
+					onSort={sortZonesByTableColumn}
+				>
+					{#each zoneRows as row (row.key)}
+						{@const currentCopyState = paletteCopyState(row.key)}
+						<tr>
+							{#each zoneTableColumns as column}
+								{#if column === TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name}
+									<td>
+										<a
+											class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.tableLink}
+											href={zoneTokenHref(row)}
+											title={formatTerraformsZoneTokenFilterLabel(row.name)}
+											aria-label={formatTerraformsZoneTokenFilterLabel(row.name)}
+										>
+											{row.name}
+										</a>
+									</td>
+								{:else if column === TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette}
+									<td>
+										<div class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.paletteCell}>
+											<TerraformsZonePaletteBand
+												palette={row.palette}
+												swatchLabels={buildTerraformsZonePaletteSwatchLabels({
+													zoneName: row.name,
+													palette: row.palette
+												})}
+												selectable={selectedLevelNumber !== null}
+												onSelect={() => applyZonePalette(row)}
+											/>
+											<button
+												type={TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES.Button}
+												class={paletteCopyButtonClass(row.key)}
+												data-testid={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.paletteCopyButton}
+												title={formatTerraformsZonePaletteCopyLabel(currentCopyState)}
+												aria-label={formatTerraformsZonePaletteCopyLabel(currentCopyState)}
+												onclick={() => copyZonePalette(row)}
+											>
+												{#if currentCopyState === TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_STATES.Copied}
+													<CheckIcon />
+												{:else}
+													<CopyIcon />
+												{/if}
+											</button>
+										</div>
+									</td>
+								{:else if column === TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted}
+									<td class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.numericCell}>
+										{formatTerraformsZoneMintedTokenCount(row)}
+									</td>
+								{/if}
+							{/each}
+						</tr>
+					{/each}
+				</TerraformsTraitTable>
 			{/if}
-			<TerraformsTraitTable
-				columns={TERRAFORMS_BIOME_TABLE_COLUMNS_ORDER}
-				labels={TERRAFORMS_BIOME_TABLE_LABELS}
-				activeColumn={biomeSortColumn}
-				sortDirection={biomeSortDirection}
-				className={`${TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.table} ${TERRAFORMS_BIOME_TABLE_DOM.classes.table}`}
-				testId={TERRAFORMS_BIOME_TABLE_DOM.testIds.table}
-				formatSortLabel={formatBiomeTableSortLabel}
-				resolveAriaSort={resolveBiomeTableAriaSort}
-				onSort={sortBiomesByTableColumn}
-			>
-				{#each biomeRows as row (row.key)}
-					<tr>
-						{#each TERRAFORMS_BIOME_TABLE_COLUMNS_ORDER as column}
-							{#if column === TERRAFORMS_BIOME_TABLE_COLUMNS.Number}
-								<td class={TERRAFORMS_BIOME_TABLE_DOM.classes.numberCell}>
-									<a
-										class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.tableLink}
-										href={biomeTokenHref(row.biomeIndex)}
-										title={formatTerraformsBiomeTokenLabel(row.biomeIndex)}
-										aria-label={formatTerraformsBiomeTokenLabel(row.biomeIndex)}
-									>
-										{row.biomeIndex}
-									</a>
-								</td>
-							{:else if column === TERRAFORMS_BIOME_TABLE_COLUMNS.CharacterSet}
-								<td>
-									<TerraformsBiomeCharacterBand
-										characters={row.displayCharacters}
-										characterLabels={buildTerraformsBiomeCharacterLabels({
-											biomeIndex: row.biomeIndex,
-											characters: row.displayCharacters
-										})}
-										palette={biomePreviewPalette}
-									/>
-								</td>
-							{:else if column === TERRAFORMS_BIOME_TABLE_COLUMNS.Minted}
-								<td class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.numericCell}>
-									{formatTerraformsBiomeMintedTokenCount(row)}
-								</td>
-							{/if}
-						{/each}
-					</tr>
-				{/each}
-			</TerraformsTraitTable>
 		</aside>
-	{/if}
-</section>
+
+		{#if showBiomeTable}
+			<aside
+				class={TERRAFORMS_BIOME_TABLE_DOM.classes.panel}
+				data-testid={TERRAFORMS_BIOME_TABLE_DOM.testIds.panel}
+			>
+				<h3 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailSubheading}>
+					{TERRAFORMS_BIOME_TABLE_LABELS.Heading}
+				</h3>
+				{#if selectedLevelNumber !== null}
+					<div class={TERRAFORMS_BIOME_TABLE_DOM.classes.controls}>
+						<button
+							type={TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES.Button}
+							class={TERRAFORMS_BIOME_TABLE_DOM.classes.colorResetButton}
+							data-testid={TERRAFORMS_BIOME_TABLE_DOM.testIds.colorResetButton}
+							disabled={biomePreviewPalette === null}
+							onclick={resetBiomePreviewColors}
+						>
+							{TERRAFORMS_BIOME_TABLE_LABELS.ResetColors}
+						</button>
+					</div>
+				{/if}
+				<TerraformsTraitTable
+					columns={TERRAFORMS_BIOME_TABLE_COLUMNS_ORDER}
+					labels={TERRAFORMS_BIOME_TABLE_LABELS}
+					activeColumn={biomeSortColumn}
+					sortDirection={biomeSortDirection}
+					className={`${TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.table} ${TERRAFORMS_BIOME_TABLE_DOM.classes.table}`}
+					testId={TERRAFORMS_BIOME_TABLE_DOM.testIds.table}
+					formatSortLabel={formatBiomeTableSortLabel}
+					resolveAriaSort={resolveBiomeTableAriaSort}
+					onSort={sortBiomesByTableColumn}
+				>
+					{#each biomeRows as row (row.key)}
+						<tr>
+							{#each TERRAFORMS_BIOME_TABLE_COLUMNS_ORDER as column}
+								{#if column === TERRAFORMS_BIOME_TABLE_COLUMNS.Number}
+									<td class={TERRAFORMS_BIOME_TABLE_DOM.classes.numberCell}>
+										<a
+											class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.tableLink}
+											href={biomeTokenHref(row.biomeIndex)}
+											title={formatTerraformsBiomeTokenLabel(row.biomeIndex)}
+											aria-label={formatTerraformsBiomeTokenLabel(row.biomeIndex)}
+										>
+											{row.biomeIndex}
+										</a>
+									</td>
+								{:else if column === TERRAFORMS_BIOME_TABLE_COLUMNS.CharacterSet}
+									<td>
+										<TerraformsBiomeCharacterBand
+											characters={row.displayCharacters}
+											characterLabels={buildTerraformsBiomeCharacterLabels({
+												biomeIndex: row.biomeIndex,
+												characters: row.displayCharacters
+											})}
+											palette={biomePreviewPalette}
+										/>
+									</td>
+								{:else if column === TERRAFORMS_BIOME_TABLE_COLUMNS.Minted}
+									<td class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.numericCell}>
+										{formatTerraformsBiomeMintedTokenCount(row)}
+									</td>
+								{/if}
+							{/each}
+						</tr>
+					{/each}
+				</TerraformsTraitTable>
+			</aside>
+		{/if}
+	</section>
+{:else}
+	<TerraformsHypercastleSeedClasses {chain} {collection} {media} {basePath} />
+{/if}
 
 <style>
 	.terraforms-hypercastle-page {

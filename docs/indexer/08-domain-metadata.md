@@ -103,13 +103,15 @@ Collection extensions do **not** replace the canonical metadata domain.
 Current behavior:
 
 1. canonical metadata resolution/fetch/normalization completes first
-2. `token_metadata` and normalized attribute rows are committed
+2. `token_metadata` and metadata-sourced normalized attribute rows are committed
 3. bootstrap-worker or domain-worker publishes `collection-extension.refresh-artifacts` as a side-effect if the collection has an enabled install
-4. collection-extension-worker performs extension-specific artifact refresh and writes `token_extension_artifacts`
+4. collection-extension-worker performs extension-specific artifact refresh
+5. collection-extension-worker replaces any extension-owned normalized traits and writes `token_extension_artifacts`
 
 This split is intentional:
 
 - canonical metadata stays authoritative for token identity and normalized traits
+- extension-owned traits are first-class normalized traits, but do not mutate `token_metadata.attributes_json`
 - extension logic can fail/retry independently
 - bootstrap readiness and canonical metadata refreshes do not wait on extension artifact completion
 
@@ -125,6 +127,9 @@ The first embedded extension, `terraforms`, shadows the metadata path in a very 
     - v2 `tokenHTML(...)`
 - for `Daydream` and `Origin Daydream` modes it follows the canvas-override path before calling the v2 renderer
 - for non-Terrain tokens it also writes a second artifact that forces the V2 renderer through Terrain status (`terraforms-v2-lost-terrain`)
+- it derives the hidden renderer seed from placement -> level/tile and writes:
+    - `Seed` as a range trait
+    - `Seed Class` for `X-Seed`, `Y-Seed`, and `Godmode` buckets
 
 The resulting extension artifact row is then used later by backend read paths to override effective `image` and `animationUrl` while leaving canonical `token_metadata` untouched.
 

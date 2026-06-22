@@ -45,6 +45,7 @@ export function cleanupSuccessfulBootstrapTemporaryData(input: {
     bootstrapStorage: BootstrapTemporaryDataStoragePort;
     bootstrapRuns: BootstrapTemporaryDataRunsPort;
     runId: number;
+    collectionExtensionArtifactsTerminal?: boolean;
 }): BootstrapTemporaryDataCleanupResult {
     const run = input.bootstrapRuns.getRun(input.runId);
     if (!run || run.status !== BOOTSTRAP_RUN_STATUS.Completed) {
@@ -65,7 +66,12 @@ export function cleanupSuccessfulBootstrapTemporaryData(input: {
             input.runId,
         );
 
-    const metadataTasks = canDeleteMetadataSucceededTasks(run, metadataCounts)
+    const metadataTasks = canDeleteMetadataSucceededTasks(
+        run,
+        metadataCounts,
+        collectionExtensionArtifactCounts,
+        input.collectionExtensionArtifactsTerminal ?? false,
+    )
         ? input.bootstrapStorage.deleteSucceededMetadataTasks(input.runId)
         : 0;
     const imageCacheTasks = areTaskCountsSettled(imageCacheCounts)
@@ -110,8 +116,17 @@ export function cleanupSuccessfulBootstrapTemporaryData(input: {
 function canDeleteMetadataSucceededTasks(
     run: BootstrapRunDefinition,
     counts: BootstrapTaskCounts,
+    collectionExtensionArtifactCounts: BootstrapTaskCounts,
+    collectionExtensionArtifactsTerminal: boolean,
 ): boolean {
     if (!areTaskCountsSettled(counts)) {
+        return false;
+    }
+    if (
+        run.requestExtensionKey &&
+        (!collectionExtensionArtifactsTerminal ||
+            !areTaskCountsSettled(collectionExtensionArtifactCounts))
+    ) {
         return false;
     }
     return (

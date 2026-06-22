@@ -18,6 +18,22 @@ export type CollectionExtensionArtifactUpsertInput = {
     htmlContent: string | null;
 };
 
+// Normalized trait pair supplied by collection-extension enrichment logic.
+export type CollectionExtensionTokenAttributeInput = {
+    key: string;
+    value: string;
+};
+
+// Replaces one extension's owned normalized traits for a token.
+export type CollectionExtensionTokenAttributesReplaceInput = {
+    chainId: number;
+    collectionId: number;
+    contractAddress: string;
+    tokenId: string;
+    extensionKey: CollectionExtensionKey;
+    attributes: readonly CollectionExtensionTokenAttributeInput[];
+};
+
 export type CollectionExtensionArtifactRecord = {
     chainId: number;
     collectionId: number;
@@ -65,4 +81,11 @@ export interface CollectionExtensionArtifactPort {
         tokenId: string;
         key: string;
     }): string | null;
+}
+
+// Persists extension-owned normalized traits without mutating tokenURI metadata.
+export interface CollectionExtensionAttributePort {
+    replaceTokenAttributes(
+        input: CollectionExtensionTokenAttributesReplaceInput,
+    ): void;
 }

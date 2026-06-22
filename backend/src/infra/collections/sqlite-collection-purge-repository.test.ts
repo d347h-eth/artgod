@@ -11,6 +11,11 @@ const COLLECTION_ADDRESS = "0x1111111111111111111111111111111111111111";
 const OTHER_COLLECTION_ADDRESS = "0x2222222222222222222222222222222222222222";
 const OWNER_ADDRESS = "0x3333333333333333333333333333333333333333";
 const MAKER_ADDRESS = "0x4444444444444444444444444444444444444444";
+const PURGE_FIXTURE_EXTENSION_KEY = "test-extension";
+const PURGE_FIXTURE_QUEUE_NAME = "metadata-stats";
+const PURGE_FIXTURE_JOB_KIND = "domain.metadata.stats-recompute";
+const PURGE_FIXTURE_REFRESH_REASON = "metadata-refresh";
+const PURGE_FIXTURE_RUN_STATUS = "finalized";
 
 async function createTempDbPath(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "artgod-collection-purge-"));
@@ -57,12 +62,24 @@ describe("SqliteCollectionPurgeRepository", () => {
         assert.equal(countRows("collection_sync_blocks", collectionId), 0);
         assert.equal(countRows("bootstrap_image_cache_tasks", collectionId), 0);
         assert.equal(countRows("token_image_cache", collectionId), 0);
+        assert.equal(countRows("metadata_refresh_runs", collectionId), 0);
+        assert.equal(
+            countRows(
+                "metadata_refresh_extension_artifact_tasks",
+                collectionId,
+            ),
+            0,
+        );
+        assert.equal(countRows("queue_outbox", collectionId), 0);
         assert.equal(
             countRows("bootstrap_ownership_snapshot_tasks", collectionId),
             0,
         );
         assert.equal(
-            countRows("bootstrap_collection_extension_artifact_tasks", collectionId),
+            countRows(
+                "bootstrap_collection_extension_artifact_tasks",
+                collectionId,
+            ),
             0,
         );
         assert.equal(countActivitySources(collectionId), 0);
@@ -75,10 +92,25 @@ describe("SqliteCollectionPurgeRepository", () => {
         assert.equal(countRows("activities", otherCollectionId), 1);
         assert.equal(countRows("bootstrap_runs", otherCollectionId), 1);
         assert.equal(countRows("trading_jobs", otherCollectionId), 1);
-        assert.equal(countRows("token_extension_artifacts", otherCollectionId), 1);
+        assert.equal(
+            countRows("token_extension_artifacts", otherCollectionId),
+            1,
+        );
         assert.equal(countRows("collection_sync_blocks", otherCollectionId), 1);
-        assert.equal(countRows("bootstrap_image_cache_tasks", otherCollectionId), 1);
+        assert.equal(
+            countRows("bootstrap_image_cache_tasks", otherCollectionId),
+            1,
+        );
         assert.equal(countRows("token_image_cache", otherCollectionId), 1);
+        assert.equal(countRows("metadata_refresh_runs", otherCollectionId), 1);
+        assert.equal(
+            countRows(
+                "metadata_refresh_extension_artifact_tasks",
+                otherCollectionId,
+            ),
+            1,
+        );
+        assert.equal(countRows("queue_outbox", otherCollectionId), 1);
         assert.equal(
             countRows("bootstrap_ownership_snapshot_tasks", otherCollectionId),
             1,
@@ -176,8 +208,47 @@ function seedPostMigrationRows(
     db.prepare(
         "INSERT INTO bootstrap_collection_extension_artifact_tasks " +
             "(run_id, chain_id, collection_id, contract_address, token_id, extension_key) " +
-            "VALUES (?, 1, ?, ?, '1', 'test-extension')",
-    ).run(runId, collectionId, address);
+            "VALUES (?, 1, ?, ?, '1', ?)",
+    ).run(runId, collectionId, address, PURGE_FIXTURE_EXTENSION_KEY);
+    const refreshOutboxId = Number(
+        db
+            .prepare(
+                "INSERT INTO queue_outbox " +
+                    "(queue_name, job_id, job_kind, job_json, chain_id, collection_id) " +
+                    "VALUES (?, ?, ?, ?, 1, ?)",
+            )
+            .run(
+                PURGE_FIXTURE_QUEUE_NAME,
+                `metadata-stats:${collectionId}`,
+                PURGE_FIXTURE_JOB_KIND,
+                JSON.stringify({ collectionId }),
+                collectionId,
+            ).lastInsertRowid,
+    );
+    db.prepare(
+        "INSERT INTO metadata_refresh_runs " +
+            "(run_id, chain_id, collection_id, reason, source_job_id, trace_id, stats_job_json, status, stats_queue_outbox_id) " +
+            "VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+        `metadata-refresh-run-${collectionId}`,
+        collectionId,
+        PURGE_FIXTURE_REFRESH_REASON,
+        `metadata-refresh-job-${collectionId}`,
+        `metadata-refresh-trace-${collectionId}`,
+        JSON.stringify({ collectionId }),
+        PURGE_FIXTURE_RUN_STATUS,
+        refreshOutboxId,
+    );
+    db.prepare(
+        "INSERT INTO metadata_refresh_extension_artifact_tasks " +
+            "(run_id, chain_id, collection_id, contract_address, token_id, extension_key) " +
+            "VALUES (?, 1, ?, ?, '1', ?)",
+    ).run(
+        `metadata-refresh-run-${collectionId}`,
+        collectionId,
+        address,
+        PURGE_FIXTURE_EXTENSION_KEY,
+    );
     db.prepare(
         "INSERT INTO bootstrap_run_steps (run_id, step_key) VALUES (?, ?)",
     ).run(runId, `test-step-${collectionId}`);
@@ -185,11 +256,13 @@ function seedPostMigrationRows(
 
 function seedBootstrapRows(collectionId: number, address: string): number {
     const runId = Number(
-        db.prepare(
-            "INSERT INTO bootstrap_runs " +
-                "(chain_id, collection_id, request_slug, request_address, request_standard, metadata_mode, enumeration_mode, status) " +
-                "VALUES (1, ?, ?, ?, 'erc721', 'strict', 'manual_token_ids', 'finished')",
-        ).run(collectionId, `run-${collectionId}`, address).lastInsertRowid,
+        db
+            .prepare(
+                "INSERT INTO bootstrap_runs " +
+                    "(chain_id, collection_id, request_slug, request_address, request_standard, metadata_mode, enumeration_mode, status) " +
+                    "VALUES (1, ?, ?, ?, 'erc721', 'strict', 'manual_token_ids', 'finished')",
+            )
+            .run(collectionId, `run-${collectionId}`, address).lastInsertRowid,
     );
     db.prepare(
         "INSERT INTO bootstrap_run_events " +
@@ -206,20 +279,25 @@ function seedBootstrapRows(collectionId: number, address: string): number {
 
 function seedActivityRows(collectionId: number, address: string): number {
     return Number(
-        db.prepare(
-            "INSERT INTO activities " +
-                "(chain_id, collection_id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, dedupe_key) " +
-                "VALUES (1, ?, 'token', 'transfer', ?, '1', 1000, 'onchain', 'ethereum', ?)",
-        ).run(collectionId, address, `activity:${collectionId}`).lastInsertRowid,
+        db
+            .prepare(
+                "INSERT INTO activities " +
+                    "(chain_id, collection_id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, dedupe_key) " +
+                    "VALUES (1, ?, 'token', 'transfer', ?, '1', 1000, 'onchain', 'ethereum', ?)",
+            )
+            .run(collectionId, address, `activity:${collectionId}`)
+            .lastInsertRowid,
     );
 }
 
 function seedAttributeKey(collectionId: number, address: string): number {
     return Number(
-        db.prepare(
-            "INSERT INTO attribute_keys (chain_id, collection_id, contract_address, key) " +
-                "VALUES (1, ?, ?, 'Type')",
-        ).run(collectionId, address).lastInsertRowid,
+        db
+            .prepare(
+                "INSERT INTO attribute_keys (chain_id, collection_id, contract_address, key) " +
+                    "VALUES (1, ?, ?, 'Type')",
+            )
+            .run(collectionId, address).lastInsertRowid,
     );
 }
 
@@ -229,11 +307,13 @@ function seedAttribute(
     attributeKeyId: number,
 ): number {
     return Number(
-        db.prepare(
-            "INSERT INTO attributes " +
-                "(chain_id, collection_id, contract_address, attribute_key_id, value) " +
-                "VALUES (1, ?, ?, ?, 'One')",
-        ).run(collectionId, address, attributeKeyId).lastInsertRowid,
+        db
+            .prepare(
+                "INSERT INTO attributes " +
+                    "(chain_id, collection_id, contract_address, attribute_key_id, value) " +
+                    "VALUES (1, ?, ?, ?, 'One')",
+            )
+            .run(collectionId, address, attributeKeyId).lastInsertRowid,
     );
 }
 
@@ -296,7 +376,13 @@ function seedOrderRows(collectionId: number, address: string): void {
         "INSERT INTO orders " +
             "(id, chain_id, collection_id, kind, side, source, maker, contract_address, token_id, price, currency, fillability_status, source_status) " +
             "VALUES (?, 1, ?, 'seaport', 'buy', 'opensea', ?, ?, '1', '100', ?, 'fillable', 'active')",
-    ).run(`order-${collectionId}`, collectionId, MAKER_ADDRESS, address, address);
+    ).run(
+        `order-${collectionId}`,
+        collectionId,
+        MAKER_ADDRESS,
+        address,
+        address,
+    );
 }
 
 function seedOffchainRows(collectionId: number): void {
@@ -382,27 +468,29 @@ function seedTradingRows(collectionId: number): void {
 
 function countRows(table: string, collectionId: number): number {
     const row = db
-        .prepare<[number]>(
-            `SELECT COUNT(1) AS count FROM "${table}" WHERE collection_id = ?`,
-        )
+        .prepare<
+            [number]
+        >(`SELECT COUNT(1) AS count FROM "${table}" WHERE collection_id = ?`)
         .get(collectionId) as { count: number } | undefined;
     return row?.count ?? 0;
 }
 
 function countActivitySources(collectionId: number): number {
     const row = db
-        .prepare<[string]>(
-            "SELECT COUNT(1) AS count FROM activity_sources WHERE source_event_key = ?",
-        )
-        .get(`activity-source:${collectionId}`) as { count: number } | undefined;
+        .prepare<
+            [string]
+        >("SELECT COUNT(1) AS count FROM activity_sources WHERE source_event_key = ?")
+        .get(`activity-source:${collectionId}`) as
+        | { count: number }
+        | undefined;
     return row?.count ?? 0;
 }
 
 function countBootstrapRunSteps(collectionId: number): number {
     const row = db
-        .prepare<[string]>(
-            "SELECT COUNT(1) AS count FROM bootstrap_run_steps WHERE step_key = ?",
-        )
+        .prepare<
+            [string]
+        >("SELECT COUNT(1) AS count FROM bootstrap_run_steps WHERE step_key = ?")
         .get(`test-step-${collectionId}`) as { count: number } | undefined;
     return row?.count ?? 0;
 }
@@ -416,9 +504,9 @@ function countTradingJobChildren(collectionId: number): number {
     ];
     return tables.reduce((sum, table) => {
         const row = db
-            .prepare<[string]>(
-                `SELECT COUNT(1) AS count FROM "${table}" WHERE job_id = ?`,
-            )
+            .prepare<
+                [string]
+            >(`SELECT COUNT(1) AS count FROM "${table}" WHERE job_id = ?`)
             .get(jobId) as { count: number } | undefined;
         return sum + (row?.count ?? 0);
     }, 0);

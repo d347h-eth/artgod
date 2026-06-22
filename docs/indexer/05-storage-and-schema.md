@@ -530,6 +530,14 @@ Important semantics:
     - canonical token rows must exist first
     - this is why collection-extension refresh runs only after canonical metadata persistence succeeds
 
+Normalized token trait links in `token_attributes` are source-scoped:
+
+- metadata traits use `source_kind = "metadata"` and `source_key = "canonical"`
+- collection-extension traits use `source_kind = "collection_extension"` and `source_key = <extension_key>`
+- metadata refresh replaces only canonical metadata links for the token
+- extension refresh replaces only that extension's links for the token
+- `collection_trait_stats` counts distinct token ids across all normalized trait sources
+
 Current Terraforms artifact usage:
 
 - `extension_key = "terraforms"`
@@ -541,6 +549,35 @@ Current Terraforms artifact usage:
 - `html_content` stores the direct v2 renderer `tokenHTML(...)` response used for backend animation override
 - backend resolves Terraforms collection browsing from `terraforms-v2-media`
 - backend exposes `terraforms-v2-lost-terrain` only as a token-local media mode on token detail / preview
+
+## Metadata Refresh Follow-Ups and Queue Outbox
+
+### `queue_outbox`
+
+Defined in `041_metadata_refresh_followups_and_queue_outbox.sql`.
+
+- stores queue envelopes before publication to the broker
+- unique key on `(queue_name, job_id)` makes repeated enqueue attempts idempotent
+- domain-worker drains due rows and marks them sent after broker publish succeeds
+- collection-scoped rows are deleted by collection purge
+
+### `metadata_refresh_runs`
+
+Defined in `041_metadata_refresh_followups_and_queue_outbox.sql`.
+
+- one collection-scoped guard row for a metadata refresh, metadata sync, refresh range chunk, or bootstrap finalization
+- stores the exact final stats recompute job envelope in `stats_job_json`
+- transitions from `pending` to `finalized` exactly once, in the same transaction that inserts the stats job into `queue_outbox`
+- points to the stats outbox row through `stats_queue_outbox_id`
+
+### `metadata_refresh_extension_artifact_tasks`
+
+Defined in `041_metadata_refresh_followups_and_queue_outbox.sql`.
+
+- child rows for extension artifact jobs required by a metadata-refresh run
+- primary key is `(run_id, token_id, extension_key)`
+- terminal statuses are `succeeded`, `skipped`, and `failed_terminal`
+- the last terminal child finalizes the parent run and releases the guarded stats recompute
 
 ## Local Token Image Cache
 

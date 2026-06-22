@@ -4,6 +4,7 @@
 	import type { CollectionExtensionNavigationPageTarget } from '$lib/collection-extension-navigation';
 	import type { CollectionNavigation } from '$lib/collection-navigation';
 	import CollectionSectionTabs from '$lib/components/CollectionSectionTabs.svelte';
+	import { COLLECTION_PAGE_TOP_ACTIONS_DOM } from '$lib/components/collection-page-layout-dom';
 	import type { ApiActivityExtensionEventRef } from '$lib/api-types';
 	import type { CollectionTokenStatus } from '$lib/token-browser-query';
 
@@ -73,7 +74,9 @@
 	</header>
 
 	{#if topActions}
-		<div class="panel-top-actions panel-top-actions-stack">
+		<div
+			class={`${COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.root} ${COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.stack}`}
+		>
 			{@render topActions()}
 		</div>
 	{/if}

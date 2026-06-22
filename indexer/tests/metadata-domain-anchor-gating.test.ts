@@ -1,8 +1,18 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+    TERRAFORMS_EXTENSION_KEY,
+    TERRAFORMS_MODE_ATTRIBUTE_KEY,
+    TERRAFORMS_MODE_ATTRIBUTE_VALUES,
+    TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
+} from "@artgod/shared/extensions/terraforms";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
-import { DOMAIN_SYNC_PROJECTION } from "../src/domain/domain-jobs.js";
+import {
+    DOMAIN_SYNC_PROJECTION,
+    METADATA_STATS_RECOMPUTE_REASON,
+} from "../src/domain/domain-jobs.js";
 import type { TokenMetadata } from "../src/domain/metadata.js";
+import { SqliteCollectionExtensions } from "../src/infra/collection-extensions/sqlite.js";
 import { SqliteMetadataDomain } from "../src/infra/domain/metadata.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
@@ -141,6 +151,75 @@ describe("metadata domain anchor gating", () => {
         });
         expect(selectMetadataTokenIds(chainId, collectionId)).toEqual([]);
     });
+
+    it("preserves extension-owned traits when metadata refresh replaces tokenURI traits", async () => {
+        const chainId = 1;
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const collectionId = insertCollection({
+            chainId,
+            collectionId: 1,
+            slug: "terraforms",
+            address: contract,
+            anchorBlock: 100,
+        });
+        let metadataVersion = 0;
+        const domain = new SqliteMetadataDomain(
+            {
+                resolveTokenUri: async (_contract, tokenId) =>
+                    `https://example.com/${tokenId}`,
+            },
+            {
+                fetchMetadata: async (uri) => {
+                    metadataVersion += 1;
+                    return buildMetadata(uri, [
+                        {
+                            traitType: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+                            value:
+                                metadataVersion === 1
+                                    ? TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain
+                                    : TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terraform,
+                        },
+                    ]);
+                },
+            },
+        );
+
+        await domain.handleMetadataRefresh({
+            chainId,
+            collectionId,
+            tokenId: "1",
+            reason: METADATA_STATS_RECOMPUTE_REASON.MetadataRefresh,
+        });
+
+        new SqliteCollectionExtensions().replaceTokenAttributes({
+            chainId,
+            collectionId,
+            contractAddress: contract,
+            tokenId: "1",
+            extensionKey: TERRAFORMS_EXTENSION_KEY,
+            attributes: [
+                {
+                    key: TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
+                    value: "9964",
+                },
+            ],
+        });
+
+        await domain.handleMetadataRefresh({
+            chainId,
+            collectionId,
+            tokenId: "1",
+            reason: METADATA_STATS_RECOMPUTE_REASON.MetadataRefresh,
+        });
+
+        expect(selectTokenAttributeValues(chainId, collectionId, "1")).toEqual([
+            [
+                TERRAFORMS_MODE_ATTRIBUTE_KEY,
+                TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terraform,
+            ],
+            [TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY, "9964"],
+        ]);
+    });
 });
 
 function insertCollection(input: {
@@ -173,7 +252,21 @@ function insertTransfer(input: {
     blockNumber: number;
 }): void {
     db.prepare<
-        [number, number, string, string, string, string, string, number, string, number, string, number, string]
+        [
+            number,
+            number,
+            string,
+            string,
+            string,
+            string,
+            string,
+            number,
+            string,
+            number,
+            string,
+            number,
+            string,
+        ]
     >(
         "INSERT INTO nft_transfer_events " +
             "(chain_id, collection_id, contract_address, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind) " +
@@ -195,11 +288,14 @@ function insertTransfer(input: {
     );
 }
 
-function buildMetadata(uri: string): TokenMetadata {
+function buildMetadata(
+    uri: string,
+    attributes: TokenMetadata["attributes"] = [],
+): TokenMetadata {
     return {
         uri,
         name: `Token ${uri.split("/").at(-1)}`,
-        attributes: [],
+        attributes,
         rawJson: JSON.stringify({ uri }),
     };
 }
@@ -209,10 +305,29 @@ function selectMetadataTokenIds(
     collectionId: number,
 ): string[] {
     return (
-        db.prepare<[number, number], { token_id: string }>(
-            "SELECT token_id FROM token_metadata " +
-                "WHERE chain_id = ? AND collection_id = ? " +
-                "ORDER BY token_id ASC",
-        ).all(chainId, collectionId) as Array<{ token_id: string }>
+        db
+            .prepare<
+                [number, number],
+                { token_id: string }
+            >("SELECT token_id FROM token_metadata " + "WHERE chain_id = ? AND collection_id = ? " + "ORDER BY token_id ASC")
+            .all(chainId, collectionId) as Array<{ token_id: string }>
     ).map((row) => row.token_id);
+}
+
+function selectTokenAttributeValues(
+    chainId: number,
+    collectionId: number,
+    tokenId: string,
+): Array<[string, string]> {
+    return (
+        db
+            .prepare<
+                [number, number, string],
+                { key: string; value: string }
+            >("SELECT ak.key AS key, a.value AS value " + "FROM token_attributes ta " + "JOIN attributes a ON a.id = ta.attribute_id " + "AND a.chain_id = ta.chain_id " + "AND a.collection_id = ta.collection_id " + "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " + "AND ak.chain_id = a.chain_id " + "AND ak.collection_id = a.collection_id " + "WHERE ta.chain_id = ? AND ta.collection_id = ? AND ta.token_id = ? " + "ORDER BY ak.key ASC")
+            .all(chainId, collectionId, tokenId) as Array<{
+            key: string;
+            value: string;
+        }>
+    ).map((row) => [row.key, row.value]);
 }

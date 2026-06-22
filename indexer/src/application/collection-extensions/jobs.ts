@@ -71,6 +71,16 @@ function buildCollectionExtensionRefreshArtifactsJobId(
             scheduledAt,
         ].join(":");
     }
+    if (payload.metadataRefreshRunId) {
+        return [
+            COLLECTION_EXTENSION_JOB_ID_SCOPE.MetadataRefreshArtifacts,
+            payload.chainId,
+            payload.collectionId,
+            payload.tokenId,
+            payload.reason,
+            payload.metadataRefreshRunId,
+        ].join(":");
+    }
     return [
         COLLECTION_EXTENSION_JOB_ID_SCOPE.RefreshArtifacts,
         payload.chainId,

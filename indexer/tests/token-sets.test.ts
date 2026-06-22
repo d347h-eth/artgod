@@ -1,6 +1,10 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
+import {
+    TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+    TOKEN_ATTRIBUTE_SOURCE_KIND,
+} from "@artgod/shared/types/token-attributes";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 import { SqliteTokenSetRegistry } from "../src/infra/token-sets/sqlite.js";
@@ -232,9 +236,19 @@ function linkToken(
                 value,
             }) as { id: number };
 
-        db.prepare<[number, number, string, string, number]>(
-            "INSERT OR IGNORE INTO token_attributes (chain_id, collection_id, contract_address, token_id, attribute_id) VALUES (?, ?, ?, ?, ?)",
-        ).run(chainId, collectionId, contractAddress, tokenId, attrRow.id);
+        db.prepare<[number, number, string, string, number, string, string]>(
+            "INSERT OR IGNORE INTO token_attributes " +
+                "(chain_id, collection_id, contract_address, token_id, attribute_id, source_kind, source_key) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ).run(
+            chainId,
+            collectionId,
+            contractAddress,
+            tokenId,
+            attrRow.id,
+            TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+            TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+        );
     }
 }
 

@@ -7,6 +7,7 @@ export const COLLECTION_EXTENSION_JOB_KIND = {
 // Collection-extension job id scopes keep queue de-duplication ids consistent.
 export const COLLECTION_EXTENSION_JOB_ID_SCOPE = {
     RefreshArtifacts: "collection-extension:artifacts",
+    MetadataRefreshArtifacts: "collection-extension:metadata-refresh-artifacts",
     BootstrapArtifacts: "collection-extension:bootstrap-artifacts",
 } as const;
 
@@ -23,5 +24,7 @@ export type CollectionExtensionRefreshArtifactsPayload = {
     tokenId: string;
     reason: string;
     source?: string | null;
+    metadataRefreshRunId?: string | null;
+    metadataRefreshExtensionKey?: CollectionExtensionKey | null;
     bootstrap?: CollectionExtensionBootstrapContext | null;
 };

@@ -15,7 +15,8 @@ import {
     TERRAFORMS_EXTENSION_KEY,
     TERRAFORMS_KNOWN_TOKEN_URI_ADDRESSES_BY_INDEX,
     TERRAFORMS_MEDIA_MODES,
-    TERRAFORMS_SEED,
+    TERRAFORMS_PLACEMENT_SEED,
+    TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
     TERRAFORMS_TOKEN_TO_URI_ADDRESS_INDEX_STORAGE_SLOT,
     TERRAFORMS_TRAIT_SUMMARY_TEMPLATE,
 } from "@artgod/shared/extensions/terraforms";
@@ -110,7 +111,7 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
         key: TERRAFORMS_EXTENSION_KEY,
         resolveTraitFilterPresentationConfig() {
             return {
-                rangeKeys: ["???"],
+                rangeKeys: ["???", TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY],
             };
         },
         resolveTokenCardTraitSummaryTemplateConfig() {
@@ -397,7 +398,7 @@ async function resolveTerraformedEventRenderArgs(
     return {
         status: resolveTerraformsCommittedCanvasStatus(tokenStatus),
         placement,
-        seed: TERRAFORMS_SEED,
+        seed: TERRAFORMS_PLACEMENT_SEED,
         decay: DEFAULT_DECAY,
         canvas: readCanvasRowsFromPayload(event.payload),
     };

@@ -1,6 +1,7 @@
 import {
     BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_KEY,
+    isBootstrapStepTerminalStatus,
 } from "@artgod/shared/bootstrap/pipeline";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 import {
@@ -64,8 +65,7 @@ export interface BootstrapCollectionLiveCollectionPort {
     ): boolean;
 }
 
-export interface BootstrapCollectionLiveRunsPort
-    extends BootstrapTemporaryDataRunsPort {
+export interface BootstrapCollectionLiveRunsPort extends BootstrapTemporaryDataRunsPort {
     updateRunStatus(
         runId: number,
         status: typeof BOOTSTRAP_RUN_STATUS.Completed,
@@ -90,7 +90,9 @@ export interface BootstrapCollectionLiveRunsPort
 export interface BootstrapCollectionLiveStepsPort {
     getStep(
         runId: number,
-        stepKey: typeof BOOTSTRAP_STEP_KEY.Backfill,
+        stepKey:
+            | typeof BOOTSTRAP_STEP_KEY.Backfill
+            | typeof BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts,
     ): BootstrapStepRecord | null;
     markStepSucceeded(
         runId: number,
@@ -104,11 +106,11 @@ export interface BootstrapCollectionLiveStepsPort {
     }): void;
 }
 
-export interface BootstrapCollectionLiveTemporaryDataPort
-    extends BootstrapTemporaryDataStoragePort {}
+export interface BootstrapCollectionLiveTemporaryDataPort extends BootstrapTemporaryDataStoragePort {}
 
 export interface BootstrapCollectionLiveQueuePort {
-    publishMetadataStatsRecompute(input: {
+    enqueueBootstrapFinalStats(input: {
+        bootstrapRunId: number;
         payload: MetadataStatsRecomputePayload;
         traceId: string;
     }): Promise<void>;
@@ -179,16 +181,24 @@ export class BootstrapCollectionLiveExecutor {
             bootstrapStorage: this.temporaryDataPort,
             bootstrapRuns: this.runsPort,
             runId: input.run.runId,
+            collectionExtensionArtifactsTerminal:
+                isCollectionExtensionArtifactStepTerminal(
+                    this.stepsPort,
+                    input.run.runId,
+                ),
         });
-        await this.queuePort.publishMetadataStatsRecompute({
-            payload: {
-                chainId: input.run.chainId,
-                collectionId: input.run.collectionId,
-                reason: METADATA_STATS_RECOMPUTE_REASON.BootstrapFinalized,
-                sourceJobId: input.sourceJobId,
-            },
-            traceId: input.traceId,
-        });
+        if (!input.run.requestExtensionKey) {
+            await this.queuePort.enqueueBootstrapFinalStats({
+                bootstrapRunId: input.run.runId,
+                payload: {
+                    chainId: input.run.chainId,
+                    collectionId: input.run.collectionId,
+                    reason: METADATA_STATS_RECOMPUTE_REASON.BootstrapFinalized,
+                    sourceJobId: input.sourceJobId,
+                },
+                traceId: input.traceId,
+            });
+        }
 
         return {
             outcome: BOOTSTRAP_COLLECTION_LIVE_EXECUTOR_OUTCOME.Completed,
@@ -204,21 +214,38 @@ export class BootstrapCollectionLiveExecutor {
             attempts: input.step.attempts + 1,
             error: BOOTSTRAP_COLLECTION_LIVE_FAILURE_MESSAGE.CollectionMissing,
         });
-        this.runsPort.updateRunStatus(input.run.runId, BOOTSTRAP_RUN_STATUS.Failed, {
-            code: BOOTSTRAP_COLLECTION_LIVE_FAILURE_CODE.CollectionMissing,
-            message: BOOTSTRAP_COLLECTION_LIVE_FAILURE_MESSAGE.CollectionMissing,
-        });
+        this.runsPort.updateRunStatus(
+            input.run.runId,
+            BOOTSTRAP_RUN_STATUS.Failed,
+            {
+                code: BOOTSTRAP_COLLECTION_LIVE_FAILURE_CODE.CollectionMissing,
+                message:
+                    BOOTSTRAP_COLLECTION_LIVE_FAILURE_MESSAGE.CollectionMissing,
+            },
+        );
         this.runsPort.appendRunEvent({
             runId: input.run.runId,
             chainId: input.run.chainId,
             collectionId: input.run.collectionId,
             eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunFailed,
             eventLevel: "error",
-            message: BOOTSTRAP_COLLECTION_LIVE_FAILURE_MESSAGE.CollectionMissing,
+            message:
+                BOOTSTRAP_COLLECTION_LIVE_FAILURE_MESSAGE.CollectionMissing,
             payloadJson: JSON.stringify({
                 [BOOTSTRAP_COLLECTION_LIVE_EVENT_PAYLOAD_FIELD.SourceJobId]:
                     input.sourceJobId,
             }),
         });
     }
+}
+
+function isCollectionExtensionArtifactStepTerminal(
+    stepsPort: BootstrapCollectionLiveStepsPort,
+    runId: number,
+): boolean {
+    const step = stepsPort.getStep(
+        runId,
+        BOOTSTRAP_STEP_KEY.CollectionExtensionArtifacts,
+    );
+    return step ? isBootstrapStepTerminalStatus(step.status) : false;
 }

@@ -4,11 +4,15 @@ import type {
     CollectionExtensionKey,
 } from "@artgod/shared/extensions";
 import type {
+    CollectionExtensionAttributePort,
     CollectionExtensionArtifactPort,
     CollectionExtensionArtifactRecord,
     CollectionExtensionArtifactUpsertInput,
     CollectionExtensionInstallPort,
+    CollectionExtensionTokenAttributesReplaceInput,
 } from "../../ports/collection-extensions.js";
+import { TOKEN_ATTRIBUTE_SOURCE_KIND } from "@artgod/shared/types/token-attributes";
+import { SqliteTokenAttributeWriter } from "../attributes/sqlite-token-attributes.js";
 
 type InstallRow = {
     chain_id: number;
@@ -42,8 +46,13 @@ type AttributeValueRow = {
 };
 
 export class SqliteCollectionExtensions
-    implements CollectionExtensionInstallPort, CollectionExtensionArtifactPort
+    implements
+        CollectionExtensionInstallPort,
+        CollectionExtensionArtifactPort,
+        CollectionExtensionAttributePort
 {
+    private tokenAttributes = new SqliteTokenAttributeWriter();
+
     private selectInstall = db.prepare<{
         chainId: number;
         collectionId: number;
@@ -216,6 +225,23 @@ export class SqliteCollectionExtensions
             key: params.key,
         }) as AttributeValueRow | undefined;
         return row?.value ?? null;
+    }
+
+    replaceTokenAttributes(
+        input: CollectionExtensionTokenAttributesReplaceInput,
+    ): void {
+        const persist = db.raw.transaction(() => {
+            this.tokenAttributes.replaceTokenAttributes({
+                chainId: input.chainId,
+                collectionId: input.collectionId,
+                contractAddress: input.contractAddress.toLowerCase(),
+                tokenId: input.tokenId,
+                sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+                sourceKey: input.extensionKey,
+                attributes: input.attributes,
+            });
+        });
+        persist();
     }
 }
 

@@ -10,6 +10,8 @@ import {
 } from "@artgod/shared/bootstrap/pipeline";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
+import { TERRAFORMS_EXTENSION_KEY } from "@artgod/shared/extensions/terraforms";
+import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import {
     BOOTSTRAP_COLLECTION_LIVE_EXECUTOR_OUTCOME,
     BootstrapCollectionLiveExecutor,
@@ -29,6 +31,8 @@ import type { BootstrapRunDefinition } from "../src/ports/bootstrap-runs.js";
 import type { BootstrapStepRecord } from "../src/ports/bootstrap-steps.js";
 
 const TEST_CONTRACT_ADDRESS = "0x0000000000000000000000000000000000000001";
+const TEST_TRACE_ID = "trace-1";
+const TEST_SOURCE_JOB_ID = "job-1";
 
 describe("bootstrap collection-live executor", () => {
     it("marks the collection live and deletes settled blocking task rows", async () => {
@@ -41,8 +45,8 @@ describe("bootstrap collection-live executor", () => {
         const result = await harness.executor.complete({
             run: harness.run,
             step: collectionLiveStep(harness.run.runId),
-            traceId: "trace-1",
-            sourceJobId: "job-1",
+            traceId: TEST_TRACE_ID,
+            sourceJobId: TEST_SOURCE_JOB_ID,
         });
 
         expect(result).toEqual(
@@ -77,18 +81,38 @@ describe("bootstrap collection-live executor", () => {
         });
         expect(harness.statsRecomputeRequests).toEqual([
             {
+                bootstrapRunId: 41,
                 payload: {
                     chainId: 1,
                     collectionId: 7,
                     reason: METADATA_STATS_RECOMPUTE_REASON.BootstrapFinalized,
-                    sourceJobId: "job-1",
+                    sourceJobId: TEST_SOURCE_JOB_ID,
                 },
-                traceId: "trace-1",
+                traceId: TEST_TRACE_ID,
             },
         ]);
         expect(harness.events.map((event) => event.eventCode)).toEqual([
             BOOTSTRAP_RUN_EVENT_CODE.RunCompleted,
         ]);
+    });
+
+    it("defers final stats when a bootstrap extension was requested", async () => {
+        const harness = createHarness({
+            metadataCounts: cleanCounts(3),
+            imageCacheCounts: cleanCounts(0),
+            ownershipCounts: cleanCounts(3),
+            requestExtensionKey: TERRAFORMS_EXTENSION_KEY,
+        });
+
+        await harness.executor.complete({
+            run: harness.run,
+            step: collectionLiveStep(harness.run.runId),
+            traceId: TEST_TRACE_ID,
+            sourceJobId: TEST_SOURCE_JOB_ID,
+        });
+
+        expect(harness.statsRecomputeRequests).toEqual([]);
+        expect(harness.cleanupDeletedRows.metadataTasks).toBe(0);
     });
 
     it("retains terminal best-effort metadata failures while deleting succeeded rows", async () => {
@@ -101,8 +125,8 @@ describe("bootstrap collection-live executor", () => {
         const result = await harness.executor.complete({
             run: harness.run,
             step: collectionLiveStep(harness.run.runId),
-            traceId: "trace-1",
-            sourceJobId: "job-1",
+            traceId: TEST_TRACE_ID,
+            sourceJobId: TEST_SOURCE_JOB_ID,
         });
 
         expect(result.cleanup).toEqual(
@@ -126,7 +150,9 @@ describe("bootstrap collection-live executor", () => {
 type Harness = {
     executor: BootstrapCollectionLiveExecutor;
     run: BootstrapRunDefinition;
-    events: Array<Parameters<BootstrapCollectionLiveRunsPort["appendRunEvent"]>[0]>;
+    events: Array<
+        Parameters<BootstrapCollectionLiveRunsPort["appendRunEvent"]>[0]
+    >;
     collectionFinishes: Array<{
         chainId: number;
         collectionId: number;
@@ -137,6 +163,7 @@ type Harness = {
         stepKey: typeof BOOTSTRAP_STEP_KEY.CollectionLive;
     }>;
     statsRecomputeRequests: Array<{
+        bootstrapRunId: number;
         payload: MetadataStatsRecomputePayload;
         traceId: string;
     }>;
@@ -155,8 +182,12 @@ function createHarness(input: {
     metadataCounts: BootstrapTaskCounts;
     imageCacheCounts: BootstrapTaskCounts;
     ownershipCounts: BootstrapTaskCounts;
+    requestExtensionKey?: CollectionExtensionKey | null;
 }): Harness {
-    const run = buildRun({ status: BOOTSTRAP_RUN_STATUS.Backfill });
+    const run = buildRun({
+        status: BOOTSTRAP_RUN_STATUS.Backfill,
+        requestExtensionKey: input.requestExtensionKey ?? null,
+    });
     const backfillStep = backfillStepWithLiveBlock(run.runId, 105);
     const events: Harness["events"] = [];
     const collectionFinishes: Harness["collectionFinishes"] = [];
@@ -239,7 +270,7 @@ function createHarness(input: {
             collectionExtensionArtifactCounts,
     };
     const queuePort: BootstrapCollectionLiveQueuePort = {
-        publishMetadataStatsRecompute: async (request) => {
+        enqueueBootstrapFinalStats: async (request) => {
             statsRecomputeRequests.push(request);
         },
     };
@@ -306,6 +337,7 @@ function step(
 
 function buildRun(input: {
     status?: BootstrapRunStatus;
+    requestExtensionKey?: CollectionExtensionKey | null;
 }): BootstrapRunDefinition {
     return {
         runId: 41,
@@ -314,7 +346,7 @@ function buildRun(input: {
         requestSlug: "milady-by-remilia-corporation",
         requestAddress: TEST_CONTRACT_ADDRESS,
         requestStandard: COLLECTION_STANDARD.Erc721,
-        requestExtensionKey: null,
+        requestExtensionKey: input.requestExtensionKey ?? null,
         metadataMode: BOOTSTRAP_METADATA_MODE.BestEffort,
         enumerationMode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,
         manualTokenIdsJson: null,
@@ -354,7 +386,9 @@ function taskCounts(input: {
     };
 }
 
-function removeSucceededTasks(counts: BootstrapTaskCounts): BootstrapTaskCounts {
+function removeSucceededTasks(
+    counts: BootstrapTaskCounts,
+): BootstrapTaskCounts {
     return {
         ...counts,
         succeeded: 0,

@@ -3767,7 +3767,7 @@ th {
 	border: 1px solid var(--c-cyan);
 	background: var(--c-bg);
 	color: var(--c-cyan);
-	padding: 0.18rem 0.4rem;
+	padding: 0.22rem 0.4rem 0.14rem;
 	font-size: 0.68rem;
 	line-height: 1;
 	text-transform: uppercase;

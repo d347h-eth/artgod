@@ -1,7 +1,4 @@
-import {
-    db,
-    type BetterSqlite3NamedStatement,
-} from "@artgod/shared/database";
+import { db, type BetterSqlite3NamedStatement } from "@artgod/shared/database";
 import type { PurgeCollectionDeletedRowCount } from "../../application/use-cases/collections/purge-collection.js";
 
 type PurgeCollectionParams = {
@@ -67,8 +64,15 @@ export class SqliteCollectionPurgeRepository {
                     "SELECT run_id FROM bootstrap_runs WHERE chain_id = @chainId AND collection_id = @collectionId" +
                     ")",
             ),
+            this.deleteCollectionRows(
+                "metadata_refresh_extension_artifact_tasks",
+            ),
+            this.deleteCollectionRows("metadata_refresh_runs"),
+            this.deleteCollectionRows("queue_outbox"),
             this.deleteCollectionRows("trading_bidding_bid_book_rows"),
-            this.deleteCollectionRows("trading_bidding_collection_bid_book_state"),
+            this.deleteCollectionRows(
+                "trading_bidding_collection_bid_book_state",
+            ),
             this.deleteCollectionRows("trading_bidding_price_tiers"),
             this.deleteCollectionRows("trading_jobs"),
             this.deleteCollectionRows("collection_extension_event_media"),
@@ -90,7 +94,9 @@ export class SqliteCollectionPurgeRepository {
             this.deleteCollectionRows("tokens"),
             this.deleteCollectionRows("nft_balance_snapshots"),
             this.deleteCollectionRows("nft_balances"),
-            this.deleteCollectionRows("bootstrap_collection_extension_artifact_tasks"),
+            this.deleteCollectionRows(
+                "bootstrap_collection_extension_artifact_tasks",
+            ),
             this.deleteCollectionRows("bootstrap_ownership_snapshot_tasks"),
             this.deleteCollectionRows("bootstrap_image_cache_tasks"),
             this.deleteCollectionRows("bootstrap_metadata_snapshot_tasks"),
@@ -143,9 +149,9 @@ export class SqliteCollectionPurgeRepository {
         params: PurgeCollectionParams,
     ): void {
         const tableRows = db
-            .prepare<[]>(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
-            )
+            .prepare<
+                []
+            >("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
             .all() as TableNameRow[];
 
         for (const row of tableRows) {
@@ -164,9 +170,7 @@ export class SqliteCollectionPurgeRepository {
                 )
                 .get(params) as CountRow | undefined;
             if ((countRow?.count ?? 0) > 0) {
-                throw new Error(
-                    `Collection purge left rows in ${row.name}`,
-                );
+                throw new Error(`Collection purge left rows in ${row.name}`);
             }
         }
     }

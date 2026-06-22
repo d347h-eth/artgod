@@ -15,10 +15,10 @@ import {
     type TokenImageCacheRefreshTokenPayload,
 } from "@artgod/shared/media/token-image-cache-jobs";
 import { loadConfig } from "../config/index.js";
-import { publishCollectionExtensionRefreshArtifacts } from "../application/collection-extensions/jobs.js";
 import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
 import { runWorker } from "../application/worker-runner.js";
-import { publishMetadataStatsRecompute } from "../application/metadata/stats-recompute.js";
+import { enqueueMetadataRefreshFollowups } from "../application/metadata/refresh-followups.js";
+import { startQueueOutboxDrainer } from "../application/queue-outbox/drainer.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import {
@@ -27,17 +27,20 @@ import {
 } from "../domain/activity-jobs.js";
 import {
     DOMAIN_JOB_KIND,
+    METADATA_REFRESH_SOURCE,
     METADATA_STATS_RECOMPUTE_REASON,
     type DomainSyncPayload,
     type MetadataRefreshPayload,
     type MetadataRefreshRangePayload,
     type MetadataStatsRecomputePayload,
 } from "../domain/domain-jobs.js";
+import { METADATA_REFRESH_RUN_ID_SCOPE } from "../domain/metadata-refresh-followups.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { SqliteOrdersDomain } from "../infra/domain/orders.js";
 import type { DomainSyncContext } from "../ports/domain-handlers.js";
 import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
 import { SqliteMetadataStatsDomain } from "../infra/domain/metadata-stats.js";
+import { SqliteMetadataRefreshFollowups } from "../infra/metadata/sqlite-refresh-followups.js";
 import { HttpMetadataFetcher } from "../infra/metadata/http-fetcher.js";
 import { SharpTokenImageCache } from "../infra/media/sharp-token-image-cache.js";
 import { SqliteImageCachePolicyResolver } from "../infra/media/sqlite-image-cache-policy.js";
@@ -63,6 +66,7 @@ import {
     type OrderUpsertPayload,
 } from "../domain/order-jobs.js";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
+import { SqliteQueueOutbox } from "../infra/queue/sqlite-queue-outbox.js";
 
 const ORDER_UPDATE_BY_MAKER_LEASE_EXTENSION_MS = 10_000;
 
@@ -128,6 +132,14 @@ async function main() {
         const metadataStatsDomain = new SqliteMetadataStatsDomain();
         const activityDomain = new SqliteActivityDomain();
         const collectionExtensions = new SqliteCollectionExtensions();
+        const queueOutbox = new SqliteQueueOutbox();
+        const metadataRefreshFollowups = new SqliteMetadataRefreshFollowups(
+            queueOutbox,
+        );
+        const stopQueueOutboxDrainer = startQueueOutboxDrainer(
+            queueOutbox,
+            queue,
+        );
         const imageCachePolicyResolver = new SqliteImageCachePolicyResolver(
             collectionExtensions,
         );
@@ -257,33 +269,21 @@ async function main() {
                 const result = await metadataDomain.handleDomainSync(
                     toDomainContext(job),
                 );
-                const statsTargets = new Set<number>();
-                for (const updated of result.updatedTokens) {
-                    statsTargets.add(updated.collectionId);
-                }
-                for (const collectionId of statsTargets) {
-                    await publishMetadataStatsRecompute(
-                        queue,
-                        {
-                            chainId: job.chainId,
-                            collectionId,
-                            reason: deriveMetadataStatsReason(
-                                job.payload.sourceJobId,
-                            ),
-                            sourceJobId: job.jobId,
-                        },
-                        job.traceId ?? job.jobId,
-                    );
-                }
-                await publishCollectionExtensionArtifactJobs(
-                    queue,
-                    collectionExtensions,
-                    job.chainId,
-                    result.updatedTokens,
-                    "metadata-sync",
-                    job.traceId ?? job.jobId,
-                    "onchain",
+                const statsReason = deriveMetadataStatsReason(
+                    job.payload.sourceJobId,
                 );
+                enqueueMetadataRefreshFollowups({
+                    followups: metadataRefreshFollowups,
+                    collectionExtensions,
+                    chainId: job.chainId,
+                    updatedTokens: result.updatedTokens,
+                    runScope: METADATA_REFRESH_RUN_ID_SCOPE.MetadataSync,
+                    artifactReason: statsReason,
+                    statsReason,
+                    sourceJobId: job.jobId,
+                    traceId: job.traceId ?? job.jobId,
+                    source: METADATA_REFRESH_SOURCE.Onchain,
+                });
             },
             {
                 apm: runtimeApm.apm,
@@ -306,37 +306,31 @@ async function main() {
                 >,
             ) => {
                 if (job.kind === DOMAIN_JOB_KIND.MetadataRefresh) {
-                    const updated = await metadataDomain.handleMetadataRefresh(
-                        job.payload as MetadataRefreshPayload,
-                    );
+                    const payload = job.payload as MetadataRefreshPayload;
+                    const updated =
+                        await metadataDomain.handleMetadataRefresh(payload);
                     if (updated) {
-                        await publishMetadataStatsRecompute(
-                            queue,
-                            {
-                                chainId: job.chainId,
-                                collectionId: updated.collectionId,
-                                reason:
-                                    METADATA_STATS_RECOMPUTE_REASON.MetadataRefresh,
-                                sourceJobId: job.jobId,
-                            },
-                            job.traceId ?? job.jobId,
-                        );
-                        await publishCollectionExtensionArtifactJobs(
-                            queue,
+                        enqueueMetadataRefreshFollowups({
+                            followups: metadataRefreshFollowups,
                             collectionExtensions,
-                            job.chainId,
-                            [updated],
-                            (job.payload as MetadataRefreshPayload).reason,
-                            job.traceId ?? job.jobId,
-                            (job.payload as MetadataRefreshPayload).source,
-                        );
+                            chainId: job.chainId,
+                            updatedTokens: [updated],
+                            runScope:
+                                METADATA_REFRESH_RUN_ID_SCOPE.MetadataRefresh,
+                            artifactReason: payload.reason,
+                            statsReason:
+                                METADATA_STATS_RECOMPUTE_REASON.MetadataRefresh,
+                            sourceJobId: job.jobId,
+                            traceId: job.traceId ?? job.jobId,
+                            source: payload.source,
+                        });
                         await publishTokenImageCacheRefreshJobs(
                             queue,
                             imageCachePolicyResolver,
                             job.chainId,
                             [updated],
                             job.traceId ?? job.jobId,
-                            (job.payload as MetadataRefreshPayload).source,
+                            payload.source,
                         );
                     }
                     return;
@@ -345,6 +339,7 @@ async function main() {
                     await handleMetadataRefreshRangeJob(
                         queue,
                         metadataDomain,
+                        metadataRefreshFollowups,
                         collectionExtensions,
                         imageCachePolicyResolver,
                         job.payload as MetadataRefreshRangePayload,
@@ -479,6 +474,7 @@ async function main() {
             await stopTokenImageCache();
             await stopActivity();
             await stopActivityUpsert();
+            await stopQueueOutboxDrainer();
             await runtimeApm.stop();
             await runtimeMetrics.stop();
             await queue.close();
@@ -511,6 +507,7 @@ function deriveMetadataStatsReason(
 async function handleMetadataRefreshRangeJob(
     queue: QueuePort,
     metadataDomain: SqliteMetadataDomain,
+    metadataRefreshFollowups: SqliteMetadataRefreshFollowups,
     collectionExtensions: CollectionExtensionInstallPort,
     imageCachePolicyResolver: SqliteImageCachePolicyResolver,
     payload: MetadataRefreshRangePayload,
@@ -540,31 +537,18 @@ async function handleMetadataRefreshRangeJob(
         }
     }
     if (updatedTokens.length > 0) {
-        const statsTargets = new Set<number>();
-        for (const updated of updatedTokens) {
-            statsTargets.add(updated.collectionId);
-        }
-        for (const collectionId of statsTargets) {
-            await publishMetadataStatsRecompute(
-                queue,
-                {
-                    chainId: payload.chainId,
-                    collectionId,
-                    reason: METADATA_STATS_RECOMPUTE_REASON.MetadataRefresh,
-                    sourceJobId,
-                },
-                traceId,
-            );
-        }
-        await publishCollectionExtensionArtifactJobs(
-            queue,
+        enqueueMetadataRefreshFollowups({
+            followups: metadataRefreshFollowups,
             collectionExtensions,
-            payload.chainId,
+            chainId: payload.chainId,
             updatedTokens,
-            payload.reason,
+            runScope: METADATA_REFRESH_RUN_ID_SCOPE.MetadataRefreshRange,
+            artifactReason: payload.reason,
+            statsReason: METADATA_STATS_RECOMPUTE_REASON.MetadataRefresh,
+            sourceJobId,
             traceId,
-            payload.source,
-        );
+            source: payload.source,
+        });
         await publishTokenImageCacheRefreshJobs(
             queue,
             imageCachePolicyResolver,
@@ -672,48 +656,6 @@ function toDomainContext(
         sourceJobId: job.payload.sourceJobId,
         sourceKind: job.payload.sourceKind,
     };
-}
-
-async function publishCollectionExtensionArtifactJobs(
-    queue: QueuePort,
-    collectionExtensions: CollectionExtensionInstallPort,
-    chainId: number,
-    updatedTokens: MetadataUpdatedToken[],
-    reason: string,
-    traceId: string,
-    source?: string | null,
-): Promise<void> {
-    const enabledByCollectionId = new Map<number, boolean>();
-
-    for (const updated of updatedTokens) {
-        const contract = updated.contract.toLowerCase();
-        let enabled = enabledByCollectionId.get(updated.collectionId);
-        if (enabled === undefined) {
-            const install = collectionExtensions.getInstall(
-                chainId,
-                updated.collectionId,
-            );
-            enabled = Boolean(install?.enabled);
-            enabledByCollectionId.set(updated.collectionId, enabled);
-        }
-
-        if (!enabled) {
-            continue;
-        }
-
-        await publishCollectionExtensionRefreshArtifacts(
-            queue,
-            {
-                chainId,
-                collectionId: updated.collectionId,
-                contract,
-                tokenId: updated.tokenId,
-                reason,
-                source,
-            },
-            traceId,
-        );
-    }
 }
 
 async function publishTokenImageCacheRefreshJobs(

@@ -27,6 +27,7 @@ export type CollectionExtensionPageProps = {
 export type CollectionExtensionPageRegistration = CollectionExtensionPageRef & {
 	label: string;
 	Page: Component<CollectionExtensionPageProps>;
+	// TopActions renders row-level chrome inside the collection page top-action stack.
 	TopActions?: Component<CollectionExtensionPageProps>;
 };
 

@@ -120,8 +120,12 @@ Provides two related storage-facing responsibilities:
     - upsert extension artifact rows
     - read extension artifact rows
     - resolve normalized token attribute values for extension logic
+- extension-owned normalized trait writes
+    - replace one extension's traits for a token
+    - leave metadata-owned traits and other extensions' traits intact
 
 This adapter intentionally reads normalized attribute state from SQLite so collection-specific logic can depend on canonical metadata outputs without re-parsing raw metadata JSON.
+It writes extension-owned traits through source-scoped `token_attributes` rows so canonical metadata refreshes can replace tokenURI traits without erasing enrichment.
 
 ## Embedded Extension Registry
 
@@ -148,6 +152,7 @@ The indexer extension contract currently exposes two behaviors:
 - `buildSyncWatchSpecs(...)`
     - returns extra log watch definitions for sync-worker
 - `refreshArtifacts(...)`
-    - executes extension-owned artifact refresh logic on the dedicated collection-extension queue
+    - executes extension-owned artifact and trait refresh logic on the dedicated collection-extension queue
+    - reports whether normalized traits changed so the worker can publish a metadata-stats recompute
 
 Backend keeps a separate presentation-oriented extension registry under `backend/src/application/collection-extensions/*` so backend read-model code depends only on backend-local contracts, not on indexer adapters.
