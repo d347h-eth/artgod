@@ -8,6 +8,8 @@ import {
 	TERRAFORMS_EXTENSION_PAGE_REFS,
 	TERRAFORMS_HYPERCASTLE_LEVELS,
 	TERRAFORMS_LEVEL_ATTRIBUTE_KEY,
+	TERRAFORMS_MODE_ATTRIBUTE_KEY,
+	TERRAFORMS_MODE_ATTRIBUTE_VALUES,
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES,
 	TERRAFORMS_ZONE_ATTRIBUTE_KEY
@@ -51,6 +53,7 @@ import {
 } from '../src/lib/collection-extension-pages/terraforms/hypercastle-sections';
 import {
 	buildTerraformsHypercastleTokenHref,
+	buildTerraformsOriginTokenHref,
 	buildTerraformsSeedClassTokenHref,
 	TERRAFORMS_HYPERCASTLE_GODMODE_TOKENS,
 	TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM,
@@ -422,6 +425,10 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 			DATA_ATTRIBUTE_NAMES.testId,
 			TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.seedClassBlock
 		),
+		seedClassCharacterSets: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.characterSets
+		),
 		seedClassSampleGrid: dataAttributeSelector(
 			DATA_ATTRIBUTE_NAMES.testId,
 			TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.sampleGrid
@@ -553,12 +560,58 @@ test.describe('Terraforms Hypercastle overview', () => {
 				name: TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.Heading
 			})
 		).toBeVisible();
+		await expect(
+			seedClassesSection.locator(
+				classSelector(TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.subheading)
+			)
+		).toHaveText([
+			TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.OriginsHeading,
+			TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.SeedTraitsHeading,
+			...TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.map((row) => row.heading)
+		]);
+		await expect(
+			seedClassesSection.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.seedClassCharacterSets)
+		).toHaveCount(2);
+		await expect(
+			seedClassesSection.getByRole(ACCESSIBLE_ROLES.link, {
+				name: TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.OriginsCopyLink
+			})
+		).toHaveAttribute(
+			SVG_ATTRIBUTE_NAMES.href,
+			buildTerraformsOriginTokenHref({
+				basePath: HYPERCASTLE_E2E_COLLECTION_BASE_PATH,
+				mediaMode: HYPERCASTLE_E2E_MEDIA_MODE
+			})
+		);
+		const originHref = buildTerraformsOriginTokenHref({
+			basePath: HYPERCASTLE_E2E_COLLECTION_BASE_PATH,
+			mediaMode: HYPERCASTLE_E2E_MEDIA_MODE
+		});
+		const originQuery = new URL(originHref, page.url()).searchParams;
+		await expect(originQuery.getAll(TRAIT_FILTER_QUERY_PARAMS.Traits)).toEqual([
+			`${TERRAFORMS_MODE_ATTRIBUTE_KEY}:${TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream}`,
+			`${TERRAFORMS_MODE_ATTRIBUTE_KEY}:${TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform}`
+		]);
 		const seedClassList = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.seedClassList);
 		await expect(seedClassList).toBeVisible();
 		const seedClassBlocks = seedClassList.locator(
 			HYPERCASTLE_PROBE_CONTRACT.selectors.seedClassBlock
 		);
 		await expect(seedClassBlocks).toHaveCount(TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.length);
+		for (const [index, row] of TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.entries()) {
+			await expect(
+				seedClassBlocks.nth(index).getByRole(ACCESSIBLE_ROLES.link, {
+					name: row.summary.linkLabel
+				})
+			).toHaveAttribute(
+				SVG_ATTRIBUTE_NAMES.href,
+				buildTerraformsSeedClassTokenHref({
+					basePath: HYPERCASTLE_E2E_COLLECTION_BASE_PATH,
+					mediaMode: HYPERCASTLE_E2E_MEDIA_MODE,
+					seedClass: row.traitValue
+				})
+			);
+		}
 		await expect(
 			seedClassList.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.seedClassSampleGrid)
 		).toHaveCount(TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.length);
@@ -576,6 +629,9 @@ test.describe('Terraforms Hypercastle overview', () => {
 		await xSeedRerollButton.click();
 		await expect(xSeedBlock.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.tokenCard)).toHaveCount(3);
 		const godmodeBlock = seedClassBlocks.nth(TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.length - 1);
+		await expect(godmodeBlock).toContainText(
+			`Only ${TERRAFORMS_HYPERCASTLE_GODMODE_TOKENS.length} parcels are Godmode, shown below`
+		);
 		await expect(
 			godmodeBlock.getByRole(ACCESSIBLE_ROLES.link, {
 				name: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.Godmode
