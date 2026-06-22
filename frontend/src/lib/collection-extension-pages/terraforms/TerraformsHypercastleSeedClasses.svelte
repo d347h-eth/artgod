@@ -13,10 +13,12 @@
 	import TerraformsSurfaceRerollIcon from '$lib/collection-extension-pages/terraforms/TerraformsSurfaceRerollIcon.svelte';
 	import {
 		buildTerraformsHypercastleTokenHref,
+		buildTerraformsOriginSampleQuery,
 		buildTerraformsOriginTokenHref,
 		buildTerraformsSeedClassSampleQuery,
 		buildTerraformsSeedClassTokenHref,
 		sampleTerraformsSeedClassTokenCards,
+		TERRAFORMS_HYPERCASTLE_ORIGIN_SAMPLE_KEY,
 		TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM,
 		TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS,
 		TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION,
@@ -39,13 +41,14 @@
 	} = $props();
 
 	const tokenPreview = getTokenPreviewController();
-	let sampleStateBySeedClass = $state<Record<string, TerraformsHypercastleSeedClassSampleState>>(
-		initialSampleStateBySeedClass()
+	let sampleStateByKey = $state<Record<string, TerraformsHypercastleSeedClassSampleState>>(
+		initialSampleStateByKey()
 	);
+	let originSampleState = $derived(sampleStateByKey[TERRAFORMS_HYPERCASTLE_ORIGIN_SAMPLE_KEY]);
 
 	onMount(() => {
 		let cancelled = false;
-		void loadSeedClassSamples(() => cancelled);
+		void loadHypercastleSamples(() => cancelled);
 		return () => {
 			cancelled = true;
 		};
@@ -74,51 +77,98 @@
 		});
 	}
 
-	function initialSampleStateBySeedClass(): Record<string, TerraformsHypercastleSeedClassSampleState> {
-		return Object.fromEntries(
-			TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.map((row) => [
+	function initialSampleStateByKey(): Record<string, TerraformsHypercastleSeedClassSampleState> {
+		return Object.fromEntries([
+			[TERRAFORMS_HYPERCASTLE_ORIGIN_SAMPLE_KEY, createIdleSampleState()],
+			...TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.map((row) => [
 				row.traitValue,
-				{
-					status: TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_STATUS.Idle,
-					pool: [],
-					visible: []
-				}
+				createIdleSampleState()
 			])
+		]);
+	}
+
+	function createIdleSampleState(): TerraformsHypercastleSeedClassSampleState {
+		return {
+			status: TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_STATUS.Idle,
+			pool: [],
+			visible: []
+		};
+	}
+
+	async function loadHypercastleSamples(cancelled: () => boolean): Promise<void> {
+		await Promise.all([loadOriginSamples(cancelled), loadSeedClassRowSamples(cancelled)]);
+	}
+
+	async function loadOriginSamples(cancelled: () => boolean): Promise<void> {
+		updateSampleState(TERRAFORMS_HYPERCASTLE_ORIGIN_SAMPLE_KEY, {
+			status: TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_STATUS.Loading
+		});
+		try {
+			const response = await getCollectionDetail(
+				fetch,
+				chain.slug,
+				collection.slug,
+				buildTerraformsOriginSampleQuery({ mediaMode: media.selectedMode })
+			);
+			if (cancelled()) return;
+			updateSampleState(TERRAFORMS_HYPERCASTLE_ORIGIN_SAMPLE_KEY, {
+				status: TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_STATUS.Ready,
+				pool: response.tokens.items,
+				visible: sampleTerraformsSeedClassTokenCards(response.tokens.items)
+			});
+		} catch {
+			if (cancelled()) return;
+			updateSampleState(TERRAFORMS_HYPERCASTLE_ORIGIN_SAMPLE_KEY, {
+				status: TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_STATUS.Error
+			});
+		}
+	}
+
+	async function loadSeedClassRowSamples(cancelled: () => boolean): Promise<void> {
+		await Promise.all(
+			TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.map(async (row) => loadSeedClassRowSample(row, cancelled))
 		);
 	}
 
-	async function loadSeedClassSamples(cancelled: () => boolean): Promise<void> {
-		await Promise.all(
-			TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.map(async (row) => {
-				updateSampleState(row.traitValue, {
-					status: TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_STATUS.Loading
-				});
-				try {
-					const response = await getCollectionDetail(
-						fetch,
-						chain.slug,
-						collection.slug,
-						buildTerraformsSeedClassSampleQuery({
-							mediaMode: media.selectedMode,
-							seedClass: row.traitValue
-						})
-					);
-					if (cancelled()) return;
-					updateSampleState(row.traitValue, {
-						status: TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_STATUS.Ready,
-						pool: response.tokens.items,
-						visible: row.rerollable
-							? sampleTerraformsSeedClassTokenCards(response.tokens.items)
-							: response.tokens.items
-					});
-				} catch {
-					if (cancelled()) return;
-					updateSampleState(row.traitValue, {
-						status: TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_STATUS.Error
-					});
-				}
-			})
-		);
+	async function loadSeedClassRowSample(
+		row: TerraformsHypercastleSeedClassRow,
+		cancelled: () => boolean
+	): Promise<void> {
+		updateSampleState(row.traitValue, {
+			status: TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_STATUS.Loading
+		});
+		try {
+			const response = await getCollectionDetail(
+				fetch,
+				chain.slug,
+				collection.slug,
+				buildTerraformsSeedClassSampleQuery({
+					mediaMode: media.selectedMode,
+					seedClass: row.traitValue
+				})
+			);
+			if (cancelled()) return;
+			updateSampleState(row.traitValue, {
+				status: TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_STATUS.Ready,
+				pool: response.tokens.items,
+				visible: row.rerollable
+					? sampleTerraformsSeedClassTokenCards(response.tokens.items)
+					: response.tokens.items
+			});
+		} catch {
+			if (cancelled()) return;
+			updateSampleState(row.traitValue, {
+				status: TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_STATUS.Error
+			});
+		}
+	}
+
+	function rerollOriginSamples(): void {
+		const state = originSampleState;
+		if (state.pool.length === 0) return;
+		updateSampleState(TERRAFORMS_HYPERCASTLE_ORIGIN_SAMPLE_KEY, {
+			visible: sampleTerraformsSeedClassTokenCards(state.pool)
+		});
 	}
 
 	function rerollSeedClassSamples(row: TerraformsHypercastleSeedClassRow): void {
@@ -130,20 +180,20 @@
 	}
 
 	function updateSampleState(
-		seedClass: string,
+		sampleKey: string,
 		patch: Partial<TerraformsHypercastleSeedClassSampleState>
 	): void {
-		sampleStateBySeedClass = {
-			...sampleStateBySeedClass,
-			[seedClass]: {
-				...sampleStateBySeedClass[seedClass],
+		sampleStateByKey = {
+			...sampleStateByKey,
+			[sampleKey]: {
+				...sampleStateByKey[sampleKey],
 				...patch
 			}
 		};
 	}
 
 	function sampleState(row: TerraformsHypercastleSeedClassRow): TerraformsHypercastleSeedClassSampleState {
-		return sampleStateBySeedClass[row.traitValue];
+		return sampleStateByKey[row.traitValue];
 	}
 
 	function showSampleStatus(state: TerraformsHypercastleSeedClassSampleState): boolean {
@@ -168,7 +218,18 @@
 		step: -1 | 1,
 		currentTokenId: string
 	): string | null {
-		const sample = sampleState(row).visible;
+		return adjacentSampleTokenId(sampleState(row).visible, step, currentTokenId);
+	}
+
+	function sampleAdjacentOriginTokenId(step: -1 | 1, currentTokenId: string): string | null {
+		return adjacentSampleTokenId(originSampleState.visible, step, currentTokenId);
+	}
+
+	function adjacentSampleTokenId(
+		sample: readonly ApiTokenCard[],
+		step: -1 | 1,
+		currentTokenId: string
+	): string | null {
 		const index = sample.findIndex((token) => token.tokenId === currentTokenId);
 		if (index < 0) return null;
 		return sample[index + step]?.tokenId ?? null;
@@ -212,6 +273,44 @@
 					/>
 				{/each}
 			</div>
+			{#if showSampleStatus(originSampleState)}
+				<div class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.status}>
+					{sampleStatusLabel(originSampleState)}
+				</div>
+			{:else}
+				<div class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.sampleGroup}>
+					<div class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.sampleActions}>
+						<button
+							type="button"
+							class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.rerollButton}
+							data-testid={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.rerollButton}
+							title={TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.Reroll}
+							aria-label={`${TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.Reroll} ${TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION.heading}`}
+							disabled={originSampleState.pool.length <= originSampleState.visible.length}
+							onclick={rerollOriginSamples}
+						>
+							<TerraformsSurfaceRerollIcon />
+						</button>
+					</div>
+					<div
+						class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.sampleGrid}
+						data-testid={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.sampleGrid}
+					>
+						{#each originSampleState.visible as token (token.tokenId)}
+							<TokenCardTile
+								{chain}
+								{collection}
+								{token}
+								href={tokenHref(token.tokenId)}
+								selectedMediaMode={media.selectedMode}
+								availableMediaModes={media.availableModes}
+								{tokenPreview}
+								adjacentTokenResolver={sampleAdjacentOriginTokenId}
+							/>
+						{/each}
+					</div>
+				</div>
+			{/if}
 		</section>
 	</section>
 

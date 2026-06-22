@@ -76,6 +76,9 @@ export const TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_STATUS = {
 export const TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_COUNT = 3;
 export const TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_POOL_LIMIT = 100;
 
+// Stable sample-state key for Origin examples, which are mode-filtered rather than Seed Class filtered.
+export const TERRAFORMS_HYPERCASTLE_ORIGIN_SAMPLE_KEY = 'origins';
+
 // DOM contracts for the Terraforms Hypercastle seed-class section.
 export const TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM = {
 	classes: {
@@ -261,6 +264,30 @@ export function buildTerraformsOriginTokenHref(input: {
 			}
 		]
 	});
+}
+
+// Builds the collection-detail query used to load Origin sample cards.
+export function buildTerraformsOriginSampleQuery(input: {
+	mediaMode?: string | null;
+}): URLSearchParams {
+	const raw = buildTokenBrowserQuery({
+		limit: TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_POOL_LIMIT,
+		displayMode: TOKEN_BROWSER_DISPLAY_MODES.Grid,
+		tokenStatus: TOKEN_BROWSER_STATUS.All,
+		selectedTraits: [
+			{
+				key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+				value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream
+			},
+			{
+				key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+				value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform
+			}
+		],
+		selectedTraitRanges: [],
+		mediaMode: input.mediaMode ?? null
+	});
+	return normalizeTokenBrowserParams(raw, TOKEN_BROWSER_STATUS.All);
 }
 
 // Builds a token-browser href for one Terraforms Seed Class bucket.
