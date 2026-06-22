@@ -88,6 +88,7 @@ import {
 	TERRAFORMS_BIOME_CHARACTER_BAND_DOM,
 	TERRAFORMS_ZONE_PALETTE_BAND_DOM
 } from '../src/lib/collection-extension-pages/terraforms/trait-previews';
+import { COLLECTION_PAGE_TOP_ACTIONS_DOM } from '../src/lib/components/collection-page-layout-dom';
 import {
 	attachDiagnosticsForTestFailure,
 	captureDiagnosticsForTest,
@@ -170,10 +171,6 @@ const HYDRATION_DATASET_READY_VALUE = '1';
 const CLIPBOARD_PROBE_WINDOW_KEY = '__artgodTerraformsHypercastleClipboardText';
 const COLLECTION_NAV_CLASS_NAMES = {
 	activeTab: 'runtime-tab-active'
-} as const;
-const COLLECTION_PAGE_ACTION_PANEL_CLASS_NAMES = {
-	stack: 'panel-top-actions',
-	row: 'panel-top-actions-row'
 } as const;
 const SVG_ATTRIBUTE_NAMES = {
 	class: 'class',
@@ -460,16 +457,26 @@ test.describe('Terraforms Hypercastle overview', () => {
 		).toBeVisible();
 		await expect(page.getByPlaceholder('jump to token #/owner/.eth')).toBeVisible();
 		await expect(page.getByRole(ACCESSIBLE_ROLES.button, { name: 'keyboard shortcuts' })).toBeVisible();
-		const topActionRow = page.locator(
-			[
-				classSelector(COLLECTION_PAGE_ACTION_PANEL_CLASS_NAMES.stack),
-				classSelector(COLLECTION_PAGE_ACTION_PANEL_CLASS_NAMES.row)
-			].join(' ')
+		const topActionsPanel = page.locator(
+			classSelector(COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.root)
 		);
+		await expect(topActionsPanel).toHaveClass(
+			new RegExp(`\\b${COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.stack}\\b`)
+		);
+		const topActionRows = topActionsPanel.locator(
+			classSelector(COLLECTION_PAGE_TOP_ACTIONS_DOM.classes.row)
+		);
+		await expect(topActionRows).toHaveCount(2);
+		const sectionActionRow = topActionRows.first();
+		const rerollActionRow = topActionRows.nth(1);
 		await expect(
-			topActionRow.getByText(TERRAFORMS_HYPERCASTLE_SECTION_LABELS.Control, { exact: true })
+			sectionActionRow.getByText(TERRAFORMS_HYPERCASTLE_SECTION_LABELS.Control, {
+				exact: true
+			})
 		).toBeVisible();
-		const sectionTabs = topActionRow.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.sectionTabs);
+		const sectionTabs = sectionActionRow.locator(
+			HYPERCASTLE_PROBE_CONTRACT.selectors.sectionTabs
+		);
 		await expect(sectionTabs).toHaveAttribute(
 			ARIA_ATTRIBUTE_NAMES.label,
 			TERRAFORMS_HYPERCASTLE_SECTION_LABELS.AriaLabel
@@ -479,13 +486,12 @@ test.describe('Terraforms Hypercastle overview', () => {
 				name: TERRAFORMS_HYPERCASTLE_SECTION_LABELS.Structure
 			})
 		).toBeDisabled();
-		const surfaceRerollButton = page.locator(
-			[
-				classSelector(COLLECTION_PAGE_ACTION_PANEL_CLASS_NAMES.stack),
-				classSelector(COLLECTION_PAGE_ACTION_PANEL_CLASS_NAMES.row),
-				HYPERCASTLE_PROBE_CONTRACT.selectors.surfaceRerollButton
-			].join(' ')
+		const surfaceRerollButton = rerollActionRow.locator(
+			HYPERCASTLE_PROBE_CONTRACT.selectors.surfaceRerollButton
 		);
+		await expect(
+			sectionActionRow.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.surfaceRerollButton)
+		).toHaveCount(0);
 		await expect(surfaceRerollButton).toHaveAttribute(
 			SVG_ATTRIBUTE_NAMES.title,
 			TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS.RerollSurfaces
@@ -525,6 +531,7 @@ test.describe('Terraforms Hypercastle overview', () => {
 			)
 		);
 		await expect(surfaceRerollButton).toHaveCount(0);
+		await expect(topActionRows).toHaveCount(1);
 		await expect(page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.overview)).toHaveCount(0);
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.seedClassesScreenshot);
 		await sectionTabs
@@ -538,6 +545,7 @@ test.describe('Terraforms Hypercastle overview', () => {
 				name: TERRAFORMS_HYPERCASTLE_SECTION_LABELS.Structure
 			})
 		).toBeDisabled();
+		await expect(topActionRows).toHaveCount(2);
 		await expect(surfaceRerollButton).toBeVisible();
 
 		const overview = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.overview);

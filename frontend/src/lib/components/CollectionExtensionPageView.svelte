@@ -82,17 +82,15 @@
 
 {#snippet extensionTopActions()}
 	{#if chain && collection && resolvedPage?.TopActions}
-		<div class="panel-top-actions-row">
-			<CollectionExtensionPageOutlet
-				Page={resolvedPage.TopActions}
-				{chain}
-				{collection}
-				{media}
-				{basePath}
-				{page}
-				actions={extensionPageActions}
-			/>
-		</div>
+		<CollectionExtensionPageOutlet
+			Page={resolvedPage.TopActions}
+			{chain}
+			{collection}
+			{media}
+			{basePath}
+			{page}
+			actions={extensionPageActions}
+		/>
 	{/if}
 {/snippet}
 
