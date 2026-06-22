@@ -1,5 +1,9 @@
 import { db } from "@artgod/shared/database";
 import {
+    getDefaultDebugPayloadPersistenceConfig,
+    type DebugPayloadPersistenceConfig,
+} from "@artgod/shared/config/debug-payload-persistence";
+import {
     TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     TOKEN_ATTRIBUTE_SOURCE_KIND,
 } from "@artgod/shared/types/token-attributes";
@@ -35,7 +39,7 @@ type TokenRow = {
     log_index: number;
 };
 
-type MetadataRow = { uri: string };
+type MetadataRow = { present: 1 };
 type CollectionMetadataContextRow = {
     collection_id: number;
     address: string;
@@ -76,7 +80,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             ") WHERE rn = 1",
     );
     private selectMetadata = db.prepare<[number, number, string]>(
-        "SELECT uri FROM token_metadata WHERE chain_id = ? AND collection_id = ? AND token_id = ? LIMIT 1",
+        "SELECT 1 AS present FROM token_metadata WHERE chain_id = ? AND collection_id = ? AND token_id = ? LIMIT 1",
     );
     private selectCollectionById = db.prepare<[number, number]>(
         "SELECT collection_id, address, standard FROM collections WHERE chain_id = ? AND collection_id = ? LIMIT 1",
@@ -92,8 +96,8 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         image: string | null;
         animationUrl: string | null;
         externalUrl: string | null;
-        attributesJson: string;
-        rawJson: string;
+        attributesJson: string | null;
+        rawJson: string | null;
         blockNumber: number | null;
         blockHash: string | null;
         blockTimestamp: number | null;
@@ -120,6 +124,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
     constructor(
         private resolver: TokenUriResolverPort,
         private fetcher: MetadataFetcherPort,
+        private debugPayloads: DebugPayloadPersistenceConfig = getDefaultDebugPayloadPersistenceConfig(),
     ) {}
 
     async handleDomainSync(
@@ -360,7 +365,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         const row = this.selectMetadata.get(chainId, collectionId, tokenId) as
             | MetadataRow
             | undefined;
-        return Boolean(row?.uri);
+        return Boolean(row?.present);
     }
 
     private persistMetadata(
@@ -388,14 +393,20 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                 collectionId,
                 contract,
                 tokenId,
-                uri: metadata.uri,
+                uri: this.debugPayloads.persistRawDebugPayloads
+                    ? metadata.uri
+                    : "",
                 name: metadata.name ?? null,
                 description: metadata.description ?? null,
                 image: metadata.image ?? null,
                 animationUrl: metadata.animationUrl ?? null,
                 externalUrl: metadata.externalUrl ?? null,
-                attributesJson: JSON.stringify(metadata.attributes ?? []),
-                rawJson: metadata.rawJson,
+                attributesJson: this.debugPayloads.persistRawDebugPayloads
+                    ? JSON.stringify(metadata.attributes ?? [])
+                    : null,
+                rawJson: this.debugPayloads.persistRawDebugPayloads
+                    ? metadata.rawJson
+                    : null,
                 blockNumber: attribution?.block_number ?? null,
                 blockHash: attribution?.block_hash ?? null,
                 blockTimestamp: attribution?.block_timestamp ?? null,

@@ -45,7 +45,7 @@ Even so, the orders domain now enforces the bootstrap-anchor contract for onchai
 Important invariant:
 
 - canonical runtime logic uses normalized DTO fields and persisted `seaport_data_json`
-- `raw_rest_data` and `raw_stream_data` are stored only for audit/debug in the indexer/order domain
+- `raw_rest_data` and `raw_stream_data` are stored only for audit/debug in the indexer/order domain and are disabled by default with `PERSIST_RAW_DEBUG_PAYLOADS=false`
 - trading bid-book fallback maps normalized order scope fields and canonical Seaport data instead of reparsing raw REST/stream payloads
 
 ## Status Model

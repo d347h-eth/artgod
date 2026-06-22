@@ -507,6 +507,9 @@ describe("terraforms collection extension", () => {
         });
 
         expect(artifact).not.toBeNull();
+        expect(artifact?.uri).toBeNull();
+        expect(artifact?.rawJson).toBeNull();
+        expect(artifact?.attributesJson).toBeNull();
         expect(artifact?.image).toBe("data:image/svg+xml;base64,terraform-v2");
         expect(artifact?.animationUrl).toBe(
             "https://example.com/terraform-v2-animation",
@@ -548,6 +551,50 @@ describe("terraforms collection extension", () => {
                 key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
             }),
         ).toBeNull();
+    });
+
+    it("stores extension artifact debug columns when raw debug payload persistence is enabled", () => {
+        resetExtensionTables();
+        const collectionId = seedCollectionToken("7710", "Terraform");
+
+        const collectionExtensions = new SqliteCollectionExtensions({
+            persistRawDebugPayloads: true,
+        });
+        collectionExtensions.upsertArtifact({
+            chainId: 1,
+            collectionId,
+            contractAddress: TERRAFORMS_ADDRESS,
+            tokenId: "7710",
+            extensionKey: TERRAFORMS_EXTENSION_KEY,
+            artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
+            uri: "data:application/json;base64,debug",
+            rawJson: JSON.stringify({ name: "Terraform #7710 v2" }),
+            attributesJson: JSON.stringify([
+                { traitType: "Mode", value: "Terraform" },
+            ]),
+            image: "data:image/svg+xml;base64,terraform-v2",
+            animationUrl: "https://example.com/terraform-v2-animation",
+            htmlContent: "<html><body>terraform-v2</body></html>",
+        });
+
+        const artifact = collectionExtensions.getArtifact({
+            chainId: 1,
+            collectionId,
+            tokenId: "7710",
+            extensionKey: TERRAFORMS_EXTENSION_KEY,
+            artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
+        });
+
+        expect(artifact).toMatchObject({
+            uri: "data:application/json;base64,debug",
+            rawJson: JSON.stringify({ name: "Terraform #7710 v2" }),
+            attributesJson: JSON.stringify([
+                { traitType: "Mode", value: "Terraform" },
+            ]),
+            image: "data:image/svg+xml;base64,terraform-v2",
+            animationUrl: "https://example.com/terraform-v2-animation",
+            htmlContent: "<html><body>terraform-v2</body></html>",
+        });
     });
 
     it("uses terrain-derived canvas override for daydream mode", async () => {

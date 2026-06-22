@@ -103,6 +103,94 @@ describe("metadata domain anchor gating", () => {
         expect(selectMetadataTokenIds(chainId, collectionId)).toEqual(["2"]);
     });
 
+    it("omits metadata debug columns by default while preserving normalized traits", async () => {
+        const chainId = 1;
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const collectionId = insertCollection({
+            chainId,
+            collectionId: 1,
+            slug: "terraforms",
+            address: contract,
+            anchorBlock: 100,
+        });
+        const domain = new SqliteMetadataDomain(
+            {
+                resolveTokenUri: async (_contract, tokenId) =>
+                    `data:application/json;base64,${tokenId}`,
+            },
+            {
+                fetchMetadata: async (uri) =>
+                    buildMetadata(uri, [
+                        {
+                            traitType: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+                            value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
+                        },
+                    ]),
+            },
+        );
+
+        await domain.handleMetadataRefresh({
+            chainId,
+            collectionId,
+            tokenId: "1",
+            reason: METADATA_STATS_RECOMPUTE_REASON.MetadataRefresh,
+        });
+
+        expect(selectMetadataDebugColumns(chainId, collectionId, "1")).toEqual({
+            uri: "",
+            attributes_json: null,
+            raw_json: null,
+        });
+        expect(selectTokenAttributeValues(chainId, collectionId, "1")).toEqual([
+            [
+                TERRAFORMS_MODE_ATTRIBUTE_KEY,
+                TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
+            ],
+        ]);
+    });
+
+    it("stores metadata debug columns when raw debug payload persistence is enabled", async () => {
+        const chainId = 1;
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const collectionId = insertCollection({
+            chainId,
+            collectionId: 1,
+            slug: "terraforms",
+            address: contract,
+            anchorBlock: 100,
+        });
+        const attributes = [
+            {
+                traitType: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+                value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
+            },
+        ];
+        const domain = new SqliteMetadataDomain(
+            {
+                resolveTokenUri: async (_contract, tokenId) =>
+                    `data:application/json;base64,${tokenId}`,
+            },
+            {
+                fetchMetadata: async (uri) => buildMetadata(uri, attributes),
+            },
+            { persistRawDebugPayloads: true },
+        );
+
+        await domain.handleMetadataRefresh({
+            chainId,
+            collectionId,
+            tokenId: "1",
+            reason: METADATA_STATS_RECOMPUTE_REASON.MetadataRefresh,
+        });
+
+        const uri = "data:application/json;base64,1";
+        expect(selectMetadataDebugColumns(chainId, collectionId, "1")).toEqual({
+            uri,
+            attributes_json: JSON.stringify(attributes),
+            raw_json: JSON.stringify({ uri }),
+        });
+    });
+
     it("skips metadata sync entirely for facts-only projection", async () => {
         const chainId = 1;
         const contract = "0xabc0000000000000000000000000000000000000";
@@ -312,6 +400,29 @@ function selectMetadataTokenIds(
             >("SELECT token_id FROM token_metadata " + "WHERE chain_id = ? AND collection_id = ? " + "ORDER BY token_id ASC")
             .all(chainId, collectionId) as Array<{ token_id: string }>
     ).map((row) => row.token_id);
+}
+
+function selectMetadataDebugColumns(
+    chainId: number,
+    collectionId: number,
+    tokenId: string,
+): { uri: string; attributes_json: string | null; raw_json: string | null } {
+    const row = db
+        .prepare<
+            [number, number, string],
+            {
+                uri: string;
+                attributes_json: string | null;
+                raw_json: string | null;
+            }
+        >(
+            "SELECT uri, attributes_json, raw_json " +
+                "FROM token_metadata " +
+                "WHERE chain_id = ? AND collection_id = ? AND token_id = ?",
+        )
+        .get(chainId, collectionId, tokenId);
+    expect(row).toBeDefined();
+    return row!;
 }
 
 function selectTokenAttributeValues(

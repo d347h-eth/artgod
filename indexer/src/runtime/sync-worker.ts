@@ -119,7 +119,9 @@ async function main() {
             : primaryRpc;
         const storage = new SqliteStorage();
         const collectionRegistry = new SqliteCollectionRegistry();
-        const collectionExtensions = new SqliteCollectionExtensions();
+        const collectionExtensions = new SqliteCollectionExtensions(
+            config.debugPayloads,
+        );
         const bidderIndex = new BidderIndex(
             new SqliteBidderIndex(),
             config.chainId,

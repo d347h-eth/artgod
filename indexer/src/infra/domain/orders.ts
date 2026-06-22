@@ -1,4 +1,8 @@
 import { db } from "@artgod/shared/database";
+import {
+    getDefaultDebugPayloadPersistenceConfig,
+    type DebugPayloadPersistenceConfig,
+} from "@artgod/shared/config/debug-payload-persistence";
 import { logger } from "@artgod/shared/utils";
 import { CollectionRecord } from "../../domain/collections.js";
 import {
@@ -297,7 +301,11 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             "updated_at = CURRENT_TIMESTAMP",
     );
 
-    constructor(wethAddress: string, validateOrder: SeaportOrderValidator) {
+    constructor(
+        wethAddress: string,
+        validateOrder: SeaportOrderValidator,
+        private debugPayloads: DebugPayloadPersistenceConfig = getDefaultDebugPayloadPersistenceConfig(),
+    ) {
         this.wethAddress = wethAddress.toLowerCase();
         this.validateOrder = validateOrder;
     }
@@ -564,9 +572,10 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             payload.seaportData ?? null,
             rawSourceKind,
         );
-        const rawPayload = payload.rawPayload
-            ? JSON.stringify(payload.rawPayload)
-            : null;
+        const rawPayload =
+            this.debugPayloads.persistRawDebugPayloads && payload.rawPayload
+                ? JSON.stringify(payload.rawPayload)
+                : null;
         const rawStreamData = rawSourceKind === "stream" ? rawPayload : null;
         const rawRestData = rawSourceKind === "rest" ? rawPayload : null;
         const sourceSchemaJson = payload.sourceSchema

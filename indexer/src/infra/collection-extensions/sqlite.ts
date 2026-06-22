@@ -1,4 +1,8 @@
 import { db } from "@artgod/shared/database";
+import {
+    getDefaultDebugPayloadPersistenceConfig,
+    type DebugPayloadPersistenceConfig,
+} from "@artgod/shared/config/debug-payload-persistence";
 import type {
     CollectionExtensionInstall,
     CollectionExtensionKey,
@@ -52,6 +56,10 @@ export class SqliteCollectionExtensions
         CollectionExtensionAttributePort
 {
     private tokenAttributes = new SqliteTokenAttributeWriter();
+
+    constructor(
+        private debugPayloads: DebugPayloadPersistenceConfig = getDefaultDebugPayloadPersistenceConfig(),
+    ) {}
 
     private selectInstall = db.prepare<{
         chainId: number;
@@ -186,9 +194,13 @@ export class SqliteCollectionExtensions
             tokenId: input.tokenId,
             extensionKey: input.extensionKey,
             artifactRef: input.artifactRef,
-            uri: input.uri,
-            rawJson: input.rawJson,
-            attributesJson: input.attributesJson,
+            uri: this.debugPayloads.persistRawDebugPayloads ? input.uri : null,
+            rawJson: this.debugPayloads.persistRawDebugPayloads
+                ? input.rawJson
+                : null,
+            attributesJson: this.debugPayloads.persistRawDebugPayloads
+                ? input.attributesJson
+                : null,
             image: input.image,
             animationUrl: input.animationUrl,
             htmlContent: input.htmlContent,

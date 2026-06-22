@@ -26,12 +26,7 @@ describe("orders raw source selection", () => {
     });
 
     beforeEach(() => {
-        db.exec(
-            [
-                "DELETE FROM orders;",
-                "DELETE FROM collections;",
-            ].join("\n"),
-        );
+        db.exec(["DELETE FROM orders;", "DELETE FROM collections;"].join("\n"));
     });
 
     it("validates using canonical seaport data rather than audit payload fields", async () => {
@@ -64,6 +59,60 @@ describe("orders raw source selection", () => {
         expect(validatedOrder).not.toBeNull();
         if (!validatedOrder) return;
         expect(validatedOrder.seaportData).toEqual(buildSeaportData());
+    });
+
+    it("omits raw order audit payloads by default", async () => {
+        const domain = new SqliteOrdersDomain(
+            "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+            async () => ({
+                status: ORDER_STATUS.Fillable,
+                reason: "unused",
+            }),
+        );
+        const payload = buildOrderUpsert("rest", {
+            source: "rest",
+            debugPayload: "large-source-record",
+        });
+        ensureCollection(
+            payload.chainId,
+            payload.collectionId,
+            payload.contract,
+        );
+
+        await domain.handleOrderUpsert(payload);
+
+        expect(selectRawOrderPayloads(payload.orderId)).toEqual({
+            raw_rest_data: null,
+            raw_stream_data: null,
+        });
+    });
+
+    it("stores raw order audit payloads when raw debug payload persistence is enabled", async () => {
+        const domain = new SqliteOrdersDomain(
+            "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+            async () => ({
+                status: ORDER_STATUS.Fillable,
+                reason: "unused",
+            }),
+            { persistRawDebugPayloads: true },
+        );
+        const rawPayload = {
+            source: "stream",
+            debugPayload: "large-source-record",
+        };
+        const payload = buildOrderUpsert("stream", rawPayload);
+        ensureCollection(
+            payload.chainId,
+            payload.collectionId,
+            payload.contract,
+        );
+
+        await domain.handleOrderUpsert(payload);
+
+        expect(selectRawOrderPayloads(payload.orderId)).toEqual({
+            raw_rest_data: null,
+            raw_stream_data: JSON.stringify(rawPayload),
+        });
     });
 
     it("preserves a stream signature when a later REST upsert refreshes the same order", async () => {
@@ -123,7 +172,11 @@ describe("orders raw source selection", () => {
         const payload = buildOrderUpsert("stream", {
             source: "stream",
         });
-        ensureCollection(payload.chainId, payload.collectionId, payload.contract);
+        ensureCollection(
+            payload.chainId,
+            payload.collectionId,
+            payload.contract,
+        );
         setCollectionAnchor(payload.chainId, payload.collectionId, 100);
 
         await domain.handleOrderUpsert(payload);
@@ -234,9 +287,7 @@ function ensureCollection(
     collectionId: number,
     contract: string,
 ): void {
-    db.prepare<
-        [number, number, string, string]
-    >(
+    db.prepare<[number, number, string, string]>(
         "INSERT OR REPLACE INTO collections " +
             "(chain_id, collection_id, slug, address, standard, status, token_scope_kind, bootstrap_anchor_block) " +
             "VALUES (?, ?, ?, ?, 'erc721', 'live', 'contract_all_tokens', 0)",
@@ -263,4 +314,18 @@ function getFillabilityStatus(orderId: string): string | null {
         .prepare<[string]>("SELECT fillability_status FROM orders WHERE id = ?")
         .get(orderId) as { fillability_status: string } | undefined;
     return row?.fillability_status ?? null;
+}
+
+function selectRawOrderPayloads(orderId: string): {
+    raw_rest_data: string | null;
+    raw_stream_data: string | null;
+} {
+    const row = db
+        .prepare<
+            [string],
+            { raw_rest_data: string | null; raw_stream_data: string | null }
+        >("SELECT raw_rest_data, raw_stream_data " + "FROM orders WHERE id = ?")
+        .get(orderId);
+    expect(row).toBeDefined();
+    return row!;
 }

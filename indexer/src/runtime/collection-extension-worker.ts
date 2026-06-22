@@ -87,7 +87,9 @@ async function main() {
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });
-        const collectionExtensions = new SqliteCollectionExtensions();
+        const collectionExtensions = new SqliteCollectionExtensions(
+            config.debugPayloads,
+        );
         const queueOutbox = new SqliteQueueOutbox();
         const metadataRefreshFollowups = new SqliteMetadataRefreshFollowups(
             queueOutbox,
