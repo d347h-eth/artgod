@@ -31,6 +31,7 @@ export const METADATA_REFRESH_RUN_ID_SCOPE = {
     MetadataSync: "metadata-sync",
     MetadataRefresh: "metadata-refresh",
     MetadataRefreshRange: "metadata-refresh-range",
+    BootstrapMetadataSnapshot: "bootstrap-metadata-snapshot",
     Bootstrap: "bootstrap",
 } as const;
 

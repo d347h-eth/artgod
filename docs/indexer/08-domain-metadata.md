@@ -50,7 +50,8 @@ Trait counts are recomputed into `collection_trait_stats` through `domain.metada
 
 - Metadata sync enqueues recompute per touched collection.
 - Metadata refresh (single and range/cursor mode) enqueues recompute on successful token updates.
-- Bootstrap finalization enqueues recompute with reason `bootstrap-finalized`.
+- Bootstrap metadata snapshot completion enqueues recompute with reason `bootstrap-metadata-snapshot`.
+- Bootstrap finalization or extension-artifact terminality enqueues recompute with reason `bootstrap-finalized`.
 - Reorg backfill metadata sync is classified as `reorg-resync` for stats recompute jobs.
 - Recompute strategy is replace-in-transaction for deterministic correctness:
     - delete existing stats rows for the collection.
@@ -104,9 +105,10 @@ Current behavior:
 
 1. canonical metadata resolution/fetch/normalization completes first
 2. `token_metadata` and metadata-sourced normalized attribute rows are committed
-3. bootstrap-worker or domain-worker publishes `collection-extension.refresh-artifacts` as a side-effect if the collection has an enabled install
-4. collection-extension-worker performs extension-specific artifact refresh
-5. collection-extension-worker replaces any extension-owned normalized traits and writes `token_extension_artifacts`
+3. bootstrap-worker publishes an early canonical metadata stats checkpoint when the bootstrap metadata snapshot completes
+4. bootstrap-worker or domain-worker publishes `collection-extension.refresh-artifacts` as a side-effect if the collection has an enabled install
+5. collection-extension-worker performs extension-specific artifact refresh
+6. collection-extension-worker replaces any extension-owned normalized traits and writes `token_extension_artifacts`
 
 This split is intentional:
 

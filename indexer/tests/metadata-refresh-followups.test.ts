@@ -6,10 +6,15 @@ import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { TERRAFORMS_EXTENSION_KEY } from "@artgod/shared/extensions/terraforms";
 import { buildCollectionExtensionRefreshArtifactsJob } from "../src/application/collection-extensions/jobs.js";
-import { buildFollowupRun } from "../src/application/metadata/refresh-followups.js";
+import {
+    buildBootstrapFinalStatsFollowupRun,
+    buildBootstrapMetadataSnapshotStatsFollowupRun,
+    buildFollowupRun,
+} from "../src/application/metadata/refresh-followups.js";
 import {
     DOMAIN_JOB_KIND,
     METADATA_STATS_RECOMPUTE_REASON,
+    type MetadataStatsRecomputePayload,
 } from "../src/domain/domain-jobs.js";
 import {
     METADATA_REFRESH_EXTENSION_ARTIFACT_TASK_STATUS,
@@ -22,6 +27,7 @@ import { SqliteQueueOutbox } from "../src/infra/queue/sqlite-queue-outbox.js";
 
 const CHAIN_ID = 1;
 const COLLECTION_ID = 7;
+const BOOTSTRAP_RUN_ID = 41;
 const CONTRACT_ADDRESS = "0xabc0000000000000000000000000000000000000";
 const TRACE_ID = "metadata-refresh-followups-test-trace";
 const SOURCE_JOB_ID = "metadata-refresh-followups-test-job";
@@ -124,6 +130,43 @@ describe("SqliteMetadataRefreshFollowups", () => {
         expect(followups.enqueueFinalStatsOnce({ run })).toBe(false);
         expect(countOutboxRows(QUEUE_NAMES.MetadataStats)).toBe(1);
     });
+
+    it("keeps bootstrap metadata-snapshot and final stats checkpoints separate", () => {
+        const queueOutbox = new SqliteQueueOutbox();
+        const followups = new SqliteMetadataRefreshFollowups(queueOutbox);
+        const metadataSnapshotRun =
+            buildBootstrapMetadataSnapshotStatsFollowupRun({
+                bootstrapRunId: BOOTSTRAP_RUN_ID,
+                chainId: CHAIN_ID,
+                collectionId: COLLECTION_ID,
+                sourceJobId: SOURCE_JOB_ID,
+                traceId: TRACE_ID,
+            });
+        const finalRun = buildBootstrapFinalStatsFollowupRun({
+            bootstrapRunId: BOOTSTRAP_RUN_ID,
+            chainId: CHAIN_ID,
+            collectionId: COLLECTION_ID,
+            statsReason: METADATA_STATS_RECOMPUTE_REASON.BootstrapFinalized,
+            sourceJobId: SOURCE_JOB_ID,
+            traceId: TRACE_ID,
+        });
+
+        expect(metadataSnapshotRun.runId).not.toBe(finalRun.runId);
+        expect(followups.enqueueFinalStatsOnce({ run: metadataSnapshotRun })).toBe(
+            true,
+        );
+        expect(followups.enqueueFinalStatsOnce({ run: metadataSnapshotRun })).toBe(
+            false,
+        );
+        expect(followups.enqueueFinalStatsOnce({ run: finalRun })).toBe(true);
+        expect(followups.enqueueFinalStatsOnce({ run: finalRun })).toBe(false);
+
+        expect(countOutboxRows(QUEUE_NAMES.MetadataStats)).toBe(2);
+        expect(selectMetadataStatsJobPayloadReasons()).toEqual([
+            METADATA_STATS_RECOMPUTE_REASON.BootstrapMetadataSnapshot,
+            METADATA_STATS_RECOMPUTE_REASON.BootstrapFinalized,
+        ]);
+    });
 });
 
 async function createTempDbPath(): Promise<string> {
@@ -156,4 +199,18 @@ function selectMetadataStatsJobKind(): string | null {
         >("SELECT job_json FROM queue_outbox WHERE queue_name = ? LIMIT 1")
         .get(QUEUE_NAMES.MetadataStats) as { job_json: string } | undefined;
     return row ? JSON.parse(row.job_json).kind : null;
+}
+
+function selectMetadataStatsJobPayloadReasons(): string[] {
+    const rows = db
+        .prepare<
+            [string]
+        >("SELECT job_json FROM queue_outbox WHERE queue_name = ? ORDER BY outbox_id ASC")
+        .all(QUEUE_NAMES.MetadataStats) as { job_json: string }[];
+    return rows.map((row) => {
+        const job = JSON.parse(row.job_json) as {
+            payload: MetadataStatsRecomputePayload;
+        };
+        return job.payload.reason;
+    });
 }

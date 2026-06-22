@@ -154,6 +154,8 @@ These assumptions are relied on by the implementation and should be preserved in
 5. Token image cache jobs remain independent side effects and upsert settled `token_image_cache` rows when collection policy asks for it.
 6. Backend read paths can resolve effective collection-specific presentation from extension artifacts while frontend components remain generic.
 
+Bootstrap adds one exception for user-facing availability: metadata snapshot completion enqueues a canonical metadata stats checkpoint before extension artifacts finish. The extension-artifact side lane still enqueues the final stats recompute after extension-owned normalized rows are terminal.
+
 Current embedded extension:
 
 - `terraforms`
@@ -175,7 +177,8 @@ Collection-extension artifact completion is similarly eventual:
 
 - canonical metadata is committed first
 - extension jobs run afterward on their own queue when an enabled install exists
-- collection stats recompute is guarded by the metadata-refresh follow-up run so normalized canonical and extension-owned rows are covered together
+- bootstrap collection stats recompute once for canonical metadata snapshot readiness, then again after extension-owned rows are covered
+- non-bootstrap collection stats recompute is guarded by the metadata-refresh follow-up run so normalized canonical and extension-owned rows are covered together
 - backend overrides converge once the artifact refresh worker completes
 
 ## Current Limits and Planned Evolution

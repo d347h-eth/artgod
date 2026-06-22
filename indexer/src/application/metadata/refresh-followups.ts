@@ -7,13 +7,16 @@ import {
     buildMetadataRefreshRunId,
     type MetadataRefreshRunIdScope,
 } from "../../domain/metadata-refresh-followups.js";
-import type {
-    MetadataStatsRecomputePayload,
-    MetadataStatsRecomputeReason,
+import {
+    METADATA_STATS_RECOMPUTE_REASON,
+    type MetadataStatsRecomputePayload,
+    type MetadataStatsRecomputeReason,
 } from "../../domain/domain-jobs.js";
+import type {
+    CollectionExtensionRefreshArtifactsPayload,
+} from "../../domain/collection-extension-jobs.js";
 import type { JobEnvelope } from "../../domain/jobs.js";
 import type { CollectionExtensionInstallPort } from "../../ports/collection-extensions.js";
-import type { CollectionExtensionRefreshArtifactsPayload } from "../../domain/collection-extension-jobs.js";
 
 // MetadataRefreshExtensionArtifactTaskSeed stores one extension job dependency.
 export type MetadataRefreshExtensionArtifactTaskSeed = {
@@ -177,6 +180,36 @@ export function buildBootstrapFinalStatsFollowupRun(input: {
         chainId: input.chainId,
         collectionId: input.collectionId,
         reason: input.statsReason,
+        sourceJobId: input.sourceJobId,
+        traceId: input.traceId,
+        statsJob: buildMetadataStatsRecomputeJob(statsPayload, input.traceId),
+    };
+}
+
+// Builds the early canonical-metadata stats guard for one bootstrap run.
+export function buildBootstrapMetadataSnapshotStatsFollowupRun(input: {
+    bootstrapRunId: number;
+    chainId: number;
+    collectionId: number;
+    sourceJobId: string;
+    traceId: string;
+}): MetadataRefreshFollowupRunInput {
+    const statsPayload: MetadataStatsRecomputePayload = {
+        chainId: input.chainId,
+        collectionId: input.collectionId,
+        reason: METADATA_STATS_RECOMPUTE_REASON.BootstrapMetadataSnapshot,
+        sourceJobId: input.sourceJobId,
+    };
+    return {
+        runId: buildMetadataRefreshRunId({
+            scope: METADATA_REFRESH_RUN_ID_SCOPE.BootstrapMetadataSnapshot,
+            chainId: input.chainId,
+            collectionId: input.collectionId,
+            sourceJobId: input.bootstrapRunId.toString(),
+        }),
+        chainId: input.chainId,
+        collectionId: input.collectionId,
+        reason: METADATA_STATS_RECOMPUTE_REASON.BootstrapMetadataSnapshot,
         sourceJobId: input.sourceJobId,
         traceId: input.traceId,
         statsJob: buildMetadataStatsRecomputeJob(statsPayload, input.traceId),
