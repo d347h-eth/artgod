@@ -17,6 +17,7 @@ import {
 import { TRAIT_CATALOG_QUERY_PARAMS, TRAIT_FILTER_QUERY_PARAMS } from '@artgod/shared/types';
 import type {
 	ApiCollectionMediaState,
+	ApiTokenAttribute,
 	ApiTokenCard,
 	CollectionDetailApiResponse,
 	TokenPreviewApiResponse
@@ -166,6 +167,12 @@ type HypercastleLevelDetailMetrics = {
 	paletteCopyButtonCount: number;
 };
 
+type HypercastleSampleRequest = {
+	traitSummary: string;
+	selectedTraits: ApiTokenAttribute[];
+	tokenIds: readonly string[];
+};
+
 const ACCESSIBLE_ROLES = {
 	button: 'button',
 	heading: 'heading',
@@ -306,6 +313,7 @@ const HYPERCASTLE_E2E_SELECTED_BIOME_COUNTS = {
 	22: 8,
 	23: 13
 } as const;
+const HYPERCASTLE_E2E_ORIGIN_SAMPLE_TOKEN_IDS = ['8', '83', '124', '1955', '2112'] as const;
 const HYPERCASTLE_E2E_SEED_CLASS_SAMPLE_TOKEN_IDS = {
 	[TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed]: ['9011', '9042', '9314', '9971', '9999'],
 	[TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.YSeed]: ['9951', '9958', '9962', '9967', '9970'],
@@ -476,7 +484,7 @@ const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
 test.beforeEach(async ({ page }, testInfo) => {
 	captureDiagnosticsForTest(diagnosticsByTest, page, testInfo);
 	await installTraitCatalogApiProbe(page);
-	await installSeedClassSampleApiProbe(page);
+	await installHypercastleSampleApiProbe(page);
 	await installTokenPreviewApiProbe(page);
 });
 
@@ -592,6 +600,20 @@ test.describe('Terraforms Hypercastle overview', () => {
 			`${TERRAFORMS_MODE_ATTRIBUTE_KEY}:${TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream}`,
 			`${TERRAFORMS_MODE_ATTRIBUTE_KEY}:${TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform}`
 		]);
+		const originSampleGrid = seedClassesSection
+			.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.seedClassSampleGrid)
+			.first();
+		await expect(originSampleGrid.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.tokenCard)).toHaveCount(
+			3
+		);
+		const originRerollButton = seedClassesSection
+			.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.seedClassRerollButton)
+			.first();
+		await expect(originRerollButton).toBeEnabled();
+		await originRerollButton.click();
+		await expect(originSampleGrid.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.tokenCard)).toHaveCount(
+			3
+		);
 		const seedClassList = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.seedClassList);
 		await expect(seedClassList).toBeVisible();
 		const seedClassBlocks = seedClassList.locator(
@@ -1563,7 +1585,7 @@ async function installTraitCatalogApiProbe(page: Page): Promise<void> {
 	});
 }
 
-async function installSeedClassSampleApiProbe(page: Page): Promise<void> {
+async function installHypercastleSampleApiProbe(page: Page): Promise<void> {
 	await page.route(HYPERCASTLE_E2E_COLLECTION_DETAIL_ROUTE_PATTERN, async (route) => {
 		const requestUrl = new URL(route.request().url());
 		if (
@@ -1573,8 +1595,8 @@ async function installSeedClassSampleApiProbe(page: Page): Promise<void> {
 			await route.fulfill({ status: 400, contentType: 'application/json', body: '{}' });
 			return;
 		}
-		const seedClass = resolveSeedClassSampleRequest(requestUrl);
-		if (!seedClass) {
+		const sampleRequest = resolveHypercastleSampleRequest(requestUrl);
+		if (!sampleRequest) {
 			await route.fulfill({ status: 400, contentType: 'application/json', body: '{}' });
 			return;
 		}
@@ -1582,7 +1604,7 @@ async function installSeedClassSampleApiProbe(page: Page): Promise<void> {
 		await route.fulfill({
 			status: 200,
 			contentType: 'application/json',
-			body: JSON.stringify(buildSeedClassSampleResponse(seedClass, requestUrl))
+			body: JSON.stringify(buildHypercastleSampleResponse(sampleRequest, requestUrl))
 		});
 	});
 }
@@ -1619,29 +1641,65 @@ async function installTokenPreviewApiProbe(page: Page): Promise<void> {
 	});
 }
 
-function resolveSeedClassSampleRequest(url: URL): string | null {
+function resolveHypercastleSampleRequest(url: URL): HypercastleSampleRequest | null {
+	const selectedTraits = resolveSampleRequestTraits(url);
+	if (matchesOriginSampleRequest(selectedTraits)) {
+		return {
+			traitSummary: TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.OriginsHeading,
+			selectedTraits,
+			tokenIds: HYPERCASTLE_E2E_ORIGIN_SAMPLE_TOKEN_IDS
+		};
+	}
+
+	for (const trait of selectedTraits) {
+		if (
+			trait.key === TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY &&
+			trait.value in HYPERCASTLE_E2E_SEED_CLASS_SAMPLE_TOKEN_IDS
+		) {
+			return {
+				traitSummary: trait.value,
+				selectedTraits: [trait],
+				tokenIds:
+					HYPERCASTLE_E2E_SEED_CLASS_SAMPLE_TOKEN_IDS[
+						trait.value as keyof typeof HYPERCASTLE_E2E_SEED_CLASS_SAMPLE_TOKEN_IDS
+					]
+			};
+		}
+	}
+
+	return null;
+}
+
+function resolveSampleRequestTraits(url: URL): ApiTokenAttribute[] {
 	const traitValues = [
 		...url.searchParams.getAll(TRAIT_FILTER_QUERY_PARAMS.Traits),
 		...url.searchParams.getAll(TRAIT_FILTER_QUERY_PARAMS.Trait)
 	];
-	for (const value of traitValues) {
-		for (const segment of value.split(',')) {
-			const trait = formatTraitCatalogScopeValue(segment.trim());
-			if (
-				trait.key === TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY &&
-				trait.value in HYPERCASTLE_E2E_SEED_CLASS_SAMPLE_TOKEN_IDS
-			) {
-				return trait.value;
-			}
-		}
-	}
-	return null;
+	return traitValues.flatMap((value) =>
+		value
+			.split(',')
+			.map((segment) => formatTraitCatalogScopeValue(segment.trim()))
+			.filter((trait) => trait.key.length > 0 && trait.value.length > 0)
+	);
 }
 
-function buildSeedClassSampleResponse(seedClass: string, url: URL): CollectionDetailApiResponse {
-	const tokens = HYPERCASTLE_E2E_SEED_CLASS_SAMPLE_TOKEN_IDS[
-		seedClass as keyof typeof HYPERCASTLE_E2E_SEED_CLASS_SAMPLE_TOKEN_IDS
-	].map((tokenId) => buildSeedClassSampleTokenCard(seedClass, tokenId));
+function matchesOriginSampleRequest(selectedTraits: readonly ApiTokenAttribute[]): boolean {
+	const modeValues = selectedTraits
+		.filter((trait) => trait.key === TERRAFORMS_MODE_ATTRIBUTE_KEY)
+		.map((trait) => trait.value);
+	return (
+		modeValues.includes(TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream) &&
+		modeValues.includes(TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform)
+	);
+}
+
+function buildHypercastleSampleResponse(
+	sampleRequest: HypercastleSampleRequest,
+	url: URL
+): CollectionDetailApiResponse {
+	const tokens = sampleRequest.tokenIds.map((tokenId) =>
+		buildHypercastleSampleTokenCard(sampleRequest, tokenId)
+	);
 	const limit = Number(url.searchParams.get(PAGINATION_QUERY_PARAMS.Limit)) || tokens.length;
 
 	return {
@@ -1651,7 +1709,7 @@ function buildSeedClassSampleResponse(seedClass: string, url: URL): CollectionDe
 			url.searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode) ?? HYPERCASTLE_E2E_MEDIA_MODE
 		),
 		traits: {
-			selected: [{ key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY, value: seedClass }],
+			selected: [...sampleRequest.selectedTraits],
 			selectedRanges: [],
 			facets: []
 		},
@@ -1669,15 +1727,18 @@ function buildSeedClassSampleResponse(seedClass: string, url: URL): CollectionDe
 	};
 }
 
-function buildSeedClassSampleTokenCard(seedClass: string, tokenId: string): ApiTokenCard {
+function buildHypercastleSampleTokenCard(
+	sampleRequest: HypercastleSampleRequest,
+	tokenId: string
+): ApiTokenCard {
 	return {
 		tokenId,
 		name: `Terraforms #${tokenId}`,
 		image: buildSeedClassSampleImage(tokenId),
-		traitSummary: seedClass,
+		traitSummary: sampleRequest.traitSummary,
 		listingPrice: null,
 		listingCurrency: null,
-		attributes: [{ key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY, value: seedClass }],
+		attributes: [...sampleRequest.selectedTraits],
 		hasMetadata: true,
 		metadataUpdatedAt: null
 	};

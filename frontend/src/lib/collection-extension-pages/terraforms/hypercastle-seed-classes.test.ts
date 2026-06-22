@@ -14,6 +14,7 @@ import {
 import type { ApiTokenCard } from '$lib/api-types';
 import {
 	buildTerraformsHypercastleTokenHref,
+	buildTerraformsOriginSampleQuery,
 	buildTerraformsOriginTokenHref,
 	buildTerraformsSeedClassSampleQuery,
 	buildTerraformsSeedClassTokenHref,
@@ -201,19 +202,33 @@ describe('Terraforms Hypercastle seed classes', () => {
 	});
 
 	it('builds a normalized API query for loading sample token cards', () => {
-		const query = buildTerraformsSeedClassSampleQuery({
+		const originQuery = buildTerraformsOriginSampleQuery({
+			mediaMode: COLLECTION_MEDIA_MODES.Artifact
+		});
+		const seedClassQuery = buildTerraformsSeedClassSampleQuery({
 			mediaMode: COLLECTION_MEDIA_MODES.Artifact,
 			seedClass: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed
 		});
 
-		expect(query.get(PAGINATION_QUERY_PARAMS.Limit)).toBe(
+		expect(originQuery.get(PAGINATION_QUERY_PARAMS.Limit)).toBe(
 			String(TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_POOL_LIMIT)
 		);
-		expect(query.get(TOKEN_STATUS_QUERY_PARAM)).toBe(TOKEN_BROWSER_STATUS.All);
-		expect(query.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode)).toBe(
+		expect(originQuery.get(TOKEN_STATUS_QUERY_PARAM)).toBe(TOKEN_BROWSER_STATUS.All);
+		expect(originQuery.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode)).toBe(
 			COLLECTION_MEDIA_MODES.Artifact
 		);
-		expect(query.getAll(TRAIT_FILTER_QUERY_PARAMS.Traits)).toEqual([
+		expect(originQuery.getAll(TRAIT_FILTER_QUERY_PARAMS.Traits)).toEqual([
+			`${TERRAFORMS_MODE_ATTRIBUTE_KEY}:${TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream}`,
+			`${TERRAFORMS_MODE_ATTRIBUTE_KEY}:${TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform}`
+		]);
+		expect(seedClassQuery.get(PAGINATION_QUERY_PARAMS.Limit)).toBe(
+			String(TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_POOL_LIMIT)
+		);
+		expect(seedClassQuery.get(TOKEN_STATUS_QUERY_PARAM)).toBe(TOKEN_BROWSER_STATUS.All);
+		expect(seedClassQuery.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode)).toBe(
+			COLLECTION_MEDIA_MODES.Artifact
+		);
+		expect(seedClassQuery.getAll(TRAIT_FILTER_QUERY_PARAMS.Traits)).toEqual([
 			`${TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY}:${TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed}`
 		]);
 	});
