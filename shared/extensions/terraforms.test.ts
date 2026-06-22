@@ -98,14 +98,21 @@ describe("Terraforms canvas helpers", () => {
                 mode: TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream,
                 seed: 9951n,
             }),
-            TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XYSeed,
+            TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.Godmode,
         );
         assert.equal(
             resolveTerraformsRendererSeedClass({
                 mode: TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform,
                 seed: 9970n,
             }),
-            TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XYSeed,
+            TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.Godmode,
+        );
+        assert.equal(
+            resolveTerraformsRendererSeedClass({
+                mode: TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream,
+                seed: 9983n,
+            }),
+            TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.Godmode,
         );
         assert.equal(
             resolveTerraformsRendererSeedClass({
@@ -117,7 +124,7 @@ describe("Terraforms canvas helpers", () => {
         assert.equal(
             resolveTerraformsRendererSeedClass({
                 mode: TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform,
-                seed: 9971n,
+                seed: 9950n,
             }),
             TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
         );

@@ -176,13 +176,13 @@ export const TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY = "Seed Class";
 export const TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES = {
     XSeed: "X-Seed",
     YSeed: "Y-Seed",
-    XYSeed: "XY-Seed",
+    Godmode: "Godmode",
 } as const;
 
 // Terraforms renderer seed buckets mirror animation-v2.js character-set branches.
 export const TERRAFORMS_RENDERER_SEED_THRESHOLDS = {
     OriginXSeed: 9000n,
-    YSeedLowerExclusive: 9950n,
+    OverdriveLowerExclusive: 9950n,
     YSeedUpperInclusive: 9970n,
     NonOriginXSeed: 9970n,
     Modulus: 10_000n,
@@ -309,11 +309,14 @@ export function resolveTerraformsRendererSeedClass(params: {
     const seed = BigInt(params.seed);
     const isOrigin = isTerraformsOriginMode(params.mode);
     const isYSeedRange =
-        seed > TERRAFORMS_RENDERER_SEED_THRESHOLDS.YSeedLowerExclusive &&
+        seed > TERRAFORMS_RENDERER_SEED_THRESHOLDS.OverdriveLowerExclusive &&
         seed <= TERRAFORMS_RENDERER_SEED_THRESHOLDS.YSeedUpperInclusive;
 
-    if (isOrigin && isYSeedRange) {
-        return TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XYSeed;
+    if (
+        isOrigin &&
+        seed > TERRAFORMS_RENDERER_SEED_THRESHOLDS.OverdriveLowerExclusive
+    ) {
+        return TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.Godmode;
     }
     if (
         (isOrigin && seed > TERRAFORMS_RENDERER_SEED_THRESHOLDS.OriginXSeed) ||

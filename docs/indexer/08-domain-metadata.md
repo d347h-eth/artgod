@@ -129,7 +129,7 @@ The first embedded extension, `terraforms`, shadows the metadata path in a very 
 - for non-Terrain tokens it also writes a second artifact that forces the V2 renderer through Terrain status (`terraforms-v2-lost-terrain`)
 - it derives the hidden renderer seed from placement -> level/tile and writes:
     - `Seed` as a range trait
-    - `Seed Class` for `X-Seed`, `Y-Seed`, and `XY-Seed` buckets
+    - `Seed Class` for `X-Seed`, `Y-Seed`, and `Godmode` buckets
 
 The resulting extension artifact row is then used later by backend read paths to override effective `image` and `animationUrl` while leaving canonical `token_metadata` untouched.
 
