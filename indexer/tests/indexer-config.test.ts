@@ -4,6 +4,7 @@ import {
     getSettingDefaultBoolean,
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
+import { DEBUG_PAYLOAD_PERSISTENCE_ENV_KEY } from "@artgod/shared/config/debug-payload-persistence";
 import {
     getDefaultRpcEndpointResilienceConfig,
     getDefaultRpcRetryPolicy,
@@ -49,6 +50,16 @@ describe("Indexer config", () => {
 
         expect(config.offchain.persistRawObservations).toBe(
             getSettingDefaultBoolean("OFFCHAIN_PERSIST_RAW_OBSERVATIONS"),
+        );
+    });
+
+    it("uses the manifest raw debug payload default", () => {
+        const config = loadConfig(REQUIRED_ENV);
+
+        expect(config.debugPayloads.persistRawDebugPayloads).toBe(
+            getSettingDefaultBoolean(
+                DEBUG_PAYLOAD_PERSISTENCE_ENV_KEY.PersistRawDebugPayloads,
+            ),
         );
     });
 
@@ -254,6 +265,15 @@ describe("Indexer config", () => {
         });
 
         expect(config.offchain.persistRawObservations).toBe(true);
+    });
+
+    it("allows enabling raw debug payload persistence", () => {
+        const config = loadConfig({
+            ...REQUIRED_ENV,
+            [DEBUG_PAYLOAD_PERSISTENCE_ENV_KEY.PersistRawDebugPayloads]: "true",
+        });
+
+        expect(config.debugPayloads.persistRawDebugPayloads).toBe(true);
     });
 
     it("parses canonical indexer observability config", () => {

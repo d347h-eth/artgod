@@ -12,6 +12,7 @@
         "./config/pagination": "./config/pagination.ts",
         "./config/blockspace": "./config/blockspace.ts",
         "./config/common-media": "./config/common-media.ts",
+        "./config/debug-payload-persistence": "./config/debug-payload-persistence.ts",
         "./config/generated-settings-defaults": "./config/generated-settings-defaults.ts",
         "./config/http-fetch-resilience": "./config/http-fetch-resilience.ts",
         "./config/opensea-integration": "./config/opensea-integration.ts",

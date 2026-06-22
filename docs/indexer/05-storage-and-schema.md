@@ -415,6 +415,9 @@ In practice this means a manual backfill for `X-100 .. X-1` after a snapshot anc
 Runtime validation must use normalized canonical fields (`seaport_data_json`, side/maker/price/currency/scope fields), not raw stored JSON. The runtime SQL paths intentionally do not select the raw payload columns for order validation.
 Trading bid-book fallback also reads normalized order scope fields, not raw REST/stream payloads.
 
+Raw order audit payload persistence is disabled by default with `PERSIST_RAW_DEBUG_PAYLOADS=false`.
+When disabled, canonical order upserts still persist normalized order fields and `seaport_data_json`; only `raw_rest_data` and `raw_stream_data` stop growing.
+
 ## Offchain OpenSea Tables
 
 ### `offchain_order_observations`
@@ -450,6 +453,7 @@ Operational note:
 - raw observation persistence is disabled by default with `OFFCHAIN_PERSIST_RAW_OBSERVATIONS=false`
 - when disabled, downstream normalization and canonical order updates still run; only the audit trail table stops growing
 - set `OFFCHAIN_PERSIST_RAW_OBSERVATIONS=true` when raw audit payload history is needed
+- this setting is independent from `PERSIST_RAW_DEBUG_PAYLOADS`, which controls latest-state debug columns rather than the append-only offchain observation table
 
 ### `opensea_orderbook_runs`
 
@@ -543,9 +547,10 @@ Current Terraforms artifact usage:
 - `extension_key = "terraforms"`
 - `artifact_ref = "terraforms-v2-media"`
 - `artifact_ref = "terraforms-v2-lost-terrain"` for non-Terrain tokens only
-- `uri` stores the raw v2 renderer `tokenURI(...)` response
-- `raw_json` stores the decoded JSON payload returned by the metadata fetcher
-- `attributes_json`, `image`, and `animation_url` store the parsed v2 metadata fields
+- when `PERSIST_RAW_DEBUG_PAYLOADS=true`, `uri` stores the raw v2 renderer `tokenURI(...)` response
+- when `PERSIST_RAW_DEBUG_PAYLOADS=true`, `raw_json` stores the decoded JSON payload returned by the metadata fetcher
+- when `PERSIST_RAW_DEBUG_PAYLOADS=true`, `attributes_json` stores the parsed v2 metadata attributes
+- `image` and `animation_url` store the parsed v2 metadata fields used by backend read paths
 - `html_content` stores the direct v2 renderer `tokenHTML(...)` response used for backend animation override
 - backend resolves Terraforms collection browsing from `terraforms-v2-media`
 - backend exposes `terraforms-v2-lost-terrain` only as a token-local media mode on token detail / preview

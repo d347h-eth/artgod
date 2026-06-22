@@ -242,7 +242,9 @@ async function main() {
             resilience: config.rpc.resilience,
         });
         const collections = new SqliteCollectionRegistry();
-        const collectionExtensions = new SqliteCollectionExtensions();
+        const collectionExtensions = new SqliteCollectionExtensions(
+            config.debugPayloads,
+        );
         const queueOutbox = new SqliteQueueOutbox();
         const metadataRefreshFollowups = new SqliteMetadataRefreshFollowups(
             queueOutbox,
@@ -305,6 +307,7 @@ async function main() {
         const metadataDomain = new SqliteMetadataDomain(
             metadataResolver,
             metadataFetcher,
+            config.debugPayloads,
         );
         const tokenImageCache = new SharpTokenImageCache({
             rootDir: config.mediaCache.tokenImagesDir,

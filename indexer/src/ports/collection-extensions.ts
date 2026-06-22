@@ -41,9 +41,6 @@ export type CollectionExtensionArtifactRecord = {
     tokenId: string;
     extensionKey: CollectionExtensionKey;
     artifactRef: string;
-    uri: string | null;
-    rawJson: string | null;
-    attributesJson: string | null;
     image: string | null;
     animationUrl: string | null;
     htmlContent: string | null;

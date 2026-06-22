@@ -112,6 +112,7 @@ async function main() {
         const ordersDomain = new SqliteOrdersDomain(
             config.tokens.wethAddress,
             validateOrder,
+            config.debugPayloads,
         );
         const metadataResolver = new ViemTokenUriResolver({
             endpoints: config.rpc.endpoints,
@@ -128,10 +129,13 @@ async function main() {
         const metadataDomain = new SqliteMetadataDomain(
             metadataResolver,
             metadataFetcher,
+            config.debugPayloads,
         );
         const metadataStatsDomain = new SqliteMetadataStatsDomain();
         const activityDomain = new SqliteActivityDomain();
-        const collectionExtensions = new SqliteCollectionExtensions();
+        const collectionExtensions = new SqliteCollectionExtensions(
+            config.debugPayloads,
+        );
         const queueOutbox = new SqliteQueueOutbox();
         const metadataRefreshFollowups = new SqliteMetadataRefreshFollowups(
             queueOutbox,

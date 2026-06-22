@@ -53,6 +53,10 @@ The indexer reads these variables from the root `.env`:
 - `OFFCHAIN_PERSIST_RAW_OBSERVATIONS` (default: `false`)
     - Controls whether `offchain-ingest-worker` persists raw OpenSea payloads into `offchain_order_observations`.
     - Set to `true` when raw audit payload history is needed.
+- `PERSIST_RAW_DEBUG_PAYLOADS` (default: `false`)
+    - Controls whether runtime writers persist large raw/debug payload columns such as `token_metadata.uri`, `token_metadata.raw_json`, `token_metadata.attributes_json`, `token_extension_artifacts.uri`, `token_extension_artifacts.raw_json`, `token_extension_artifacts.attributes_json`, `orders.raw_rest_data`, and `orders.raw_stream_data`.
+    - Set to `true` only when source-normalization debugging needs those payloads retained in SQLite.
+    - Does not control `offchain_order_observations.payload_json`; that append-only offchain audit table remains controlled by `OFFCHAIN_PERSIST_RAW_OBSERVATIONS`.
 - `COMMON_IPFS_GATEWAY_ORIGIN` (default: `https://ipfs.io`)
     - Dedicated origin used when resolving `ipfs://` metadata and token-image references.
     - `/ipfs` suffixes are accepted in config but normalized away before requests are built.
@@ -122,6 +126,7 @@ CACHE_MAX_ENTRIES=5000
 CACHE_TTL_MS=30000
 BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS=60000
 OFFCHAIN_PERSIST_RAW_OBSERVATIONS=false
+PERSIST_RAW_DEBUG_PAYLOADS=false
 COMMON_IPFS_GATEWAY_ORIGIN=https://ipfs.io
 COMMON_MEDIA_CACHE_DIR=
 COMMON_HTTP_FETCH_TIMEOUT_MS=10000

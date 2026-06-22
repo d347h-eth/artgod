@@ -286,6 +286,7 @@ Useful optional env groups:
 - Metadata and bootstrap media tuning (`METADATA_REFRESH_RANGE_CHUNK_SIZE`, `BOOTSTRAP_METADATA_*`, `BOOTSTRAP_IMAGE_CACHE_*`)
 - IPFS/media cache and HTTP fetch resilience (`COMMON_IPFS_GATEWAY_ORIGIN`, `COMMON_MEDIA_CACHE_DIR`, `COMMON_HTTP_FETCH_*`)
 - Offchain storage (`OFFCHAIN_PERSIST_RAW_OBSERVATIONS`)
+- Debug payload storage (`PERSIST_RAW_DEBUG_PAYLOADS`)
 - OpenSea integration (`OPENSEA_INTEGRATION_MODE`, `OPENSEA_API_KEY`)
 - Trading bot OpenSea lanes (`OPENSEA_STREAM_SECRET_KEY`, `OPENSEA_BIDDING_SECRET_KEY`, `OPENSEA_SNAPSHOT_SECRET_KEY`)
 - Trading bot command reconciliation and bid-book projection (`BIDDING_COMMAND_*`, `BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS`)

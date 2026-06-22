@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS token_metadata (
   collection_id INTEGER NOT NULL,
   contract_address TEXT NOT NULL,
   token_id TEXT NOT NULL,
-  uri TEXT NOT NULL,
+  uri TEXT,
   name TEXT,
   description TEXT,
   image TEXT,
