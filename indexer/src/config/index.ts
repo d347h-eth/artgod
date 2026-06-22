@@ -26,6 +26,10 @@ import {
 } from "@artgod/shared/config/rpc-resilience";
 import { parseHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import {
+    parseDebugPayloadPersistenceConfig,
+    type DebugPayloadPersistenceConfig,
+} from "@artgod/shared/config/debug-payload-persistence";
+import {
     parseBoolean,
     parseNumber,
     parsePositiveInteger,
@@ -173,6 +177,7 @@ export type IndexerConfig = {
     offchain: {
         persistRawObservations: boolean;
     };
+    debugPayloads: DebugPayloadPersistenceConfig;
     integrations: {
         opensea: OpenSeaIntegrationStatus;
     };
@@ -373,6 +378,7 @@ export function loadConfig(
                 DEFAULT_OFFCHAIN_PERSIST_RAW_OBSERVATIONS,
             ),
         },
+        debugPayloads: parseDebugPayloadPersistenceConfig(env),
         integrations: {
             opensea: openseaIntegration,
         },

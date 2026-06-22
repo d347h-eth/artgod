@@ -513,6 +513,14 @@ default = "false"
 input = "checkbox"
 
 [[settings]]
+key = "PERSIST_RAW_DEBUG_PAYLOADS"
+group = "indexer"
+label = "persist raw debug payloads"
+default = "false"
+input = "checkbox"
+help = "Stores large raw metadata/order debug payloads in SQLite. Keep disabled unless debugging source normalization."
+
+[[settings]]
 key = "COMMON_IPFS_GATEWAY_ORIGIN"
 group = "indexer"
 label = "common ipfs gateway origin"
