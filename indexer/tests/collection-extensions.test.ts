@@ -35,6 +35,12 @@ const TERRAFORMS_TOKEN_URI_V2_ADDRESS =
 const TERRAFORMS_BEACON_V2_ADDRESS =
     "0x331512a28a4cf80221af949b5d43041ff0fc7f01";
 
+type ArtifactDebugColumnRow = {
+    uri: string | null;
+    raw_json: string | null;
+    attributes_json: string | null;
+};
+
 let dbPath = "";
 
 beforeAll(async () => {
@@ -507,9 +513,6 @@ describe("terraforms collection extension", () => {
         });
 
         expect(artifact).not.toBeNull();
-        expect(artifact?.uri).toBeNull();
-        expect(artifact?.rawJson).toBeNull();
-        expect(artifact?.attributesJson).toBeNull();
         expect(artifact?.image).toBe("data:image/svg+xml;base64,terraform-v2");
         expect(artifact?.animationUrl).toBe(
             "https://example.com/terraform-v2-animation",
@@ -517,6 +520,17 @@ describe("terraforms collection extension", () => {
         expect(artifact?.htmlContent).toBe(
             "<html><body>terraform-v2</body></html>",
         );
+        expect(
+            selectArtifactDebugColumns({
+                collectionId,
+                tokenId: "7710",
+                artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
+            }),
+        ).toEqual({
+            uri: null,
+            raw_json: null,
+            attributes_json: null,
+        });
         const lostArtifact = collectionExtensions.getArtifact({
             chainId: 1,
             collectionId,
@@ -530,6 +544,17 @@ describe("terraforms collection extension", () => {
         expect(lostArtifact?.htmlContent).toBe(
             "<html><body>terraform-lost</body></html>",
         );
+        expect(
+            selectArtifactDebugColumns({
+                collectionId,
+                tokenId: "7710",
+                artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.LostTerrain,
+            }),
+        ).toEqual({
+            uri: null,
+            raw_json: null,
+            attributes_json: null,
+        });
         expect(canvasReads).toHaveLength(16);
         expect(tokenUriArgs[0]?.[1]).toBe(2n);
         expect(tokenUriArgs[1]?.[1]).toBe(0n);
@@ -585,15 +610,31 @@ describe("terraforms collection extension", () => {
             artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
         });
 
-        expect(artifact).toMatchObject({
-            uri: "data:application/json;base64,debug",
-            rawJson: JSON.stringify({ name: "Terraform #7710 v2" }),
-            attributesJson: JSON.stringify([
-                { traitType: "Mode", value: "Terraform" },
-            ]),
+        expect(artifact).toEqual({
+            chainId: 1,
+            collectionId,
+            contractAddress: TERRAFORMS_ADDRESS,
+            tokenId: "7710",
+            extensionKey: TERRAFORMS_EXTENSION_KEY,
+            artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
             image: "data:image/svg+xml;base64,terraform-v2",
             animationUrl: "https://example.com/terraform-v2-animation",
             htmlContent: "<html><body>terraform-v2</body></html>",
+            createdAt: expect.any(String),
+            updatedAt: expect.any(String),
+        });
+        expect(
+            selectArtifactDebugColumns({
+                collectionId,
+                tokenId: "7710",
+                artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
+            }),
+        ).toEqual({
+            uri: "data:application/json;base64,debug",
+            raw_json: JSON.stringify({ name: "Terraform #7710 v2" }),
+            attributes_json: JSON.stringify([
+                { traitType: "Mode", value: "Terraform" },
+            ]),
         });
     });
 
@@ -790,6 +831,30 @@ function resetExtensionTables(): void {
             "DELETE FROM collections;",
         ].join("\n"),
     );
+}
+
+function selectArtifactDebugColumns(params: {
+    collectionId: number;
+    tokenId: string;
+    artifactRef: string;
+}): ArtifactDebugColumnRow | null {
+    const row = db
+        .prepare(
+            "SELECT uri, raw_json, attributes_json " +
+                "FROM token_extension_artifacts " +
+                "WHERE chain_id = ? AND collection_id = ? AND token_id = ? " +
+                "AND extension_key = ? AND artifact_ref = ? " +
+                "LIMIT 1",
+        )
+        .get(
+            1,
+            params.collectionId,
+            params.tokenId,
+            TERRAFORMS_EXTENSION_KEY,
+            params.artifactRef,
+        ) as ArtifactDebugColumnRow | undefined;
+
+    return row ?? null;
 }
 
 function seedCollectionToken(tokenId: string, mode: string): number {

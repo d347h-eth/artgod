@@ -35,9 +35,6 @@ type ArtifactRow = {
     token_id: string;
     extension_key: CollectionExtensionKey;
     artifact_ref: string;
-    uri: string | null;
-    raw_json: string | null;
-    attributes_json: string | null;
     image: string | null;
     animation_url: string | null;
     html_content: string | null;
@@ -124,7 +121,7 @@ export class SqliteCollectionExtensions
         extensionKey: CollectionExtensionKey;
         artifactRef: string;
     }>(
-        "SELECT chain_id, collection_id, contract_address, token_id, extension_key, artifact_ref, uri, raw_json, attributes_json, image, animation_url, html_content, created_at, updated_at " +
+        "SELECT chain_id, collection_id, contract_address, token_id, extension_key, artifact_ref, image, animation_url, html_content, created_at, updated_at " +
             "FROM token_extension_artifacts " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId AND token_id = @tokenId " +
             "AND extension_key = @extensionKey AND artifact_ref = @artifactRef " +
@@ -277,9 +274,6 @@ function mapArtifactRow(row: ArtifactRow): CollectionExtensionArtifactRecord {
         tokenId: row.token_id,
         extensionKey: row.extension_key,
         artifactRef: row.artifact_ref,
-        uri: row.uri,
-        rawJson: row.raw_json,
-        attributesJson: row.attributes_json,
         image: row.image,
         animationUrl: row.animation_url,
         htmlContent: row.html_content,
