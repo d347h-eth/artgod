@@ -9,6 +9,7 @@
 	import { getCollectionDetail } from '$lib/backend-api';
 	import TokenCardTile from '$lib/components/TokenCardTile.svelte';
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
+	import TerraformsBiomeCharacterBand from '$lib/collection-extension-pages/terraforms/TerraformsBiomeCharacterBand.svelte';
 	import TerraformsSurfaceRerollIcon from '$lib/collection-extension-pages/terraforms/TerraformsSurfaceRerollIcon.svelte';
 	import {
 		buildTerraformsHypercastleTokenHref,
@@ -17,6 +18,7 @@
 		sampleTerraformsSeedClassTokenCards,
 		TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM,
 		TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS,
+		TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION,
 		TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS,
 		TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_STATUS,
 		type TerraformsHypercastleSeedClassRow,
@@ -183,6 +185,25 @@
 
 	<section class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.section}>
 		<h3 class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.subheading}>
+			{TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION.heading}
+		</h3>
+		<section class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.block}>
+			<div class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.blockHeader}>
+				<span class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.blockTitle}>
+					{TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION.heading}
+				</span>
+			</div>
+			<p class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.condition}>
+				{TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION.condition}
+			</p>
+			<p class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.copy}>
+				{TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION.summary}
+			</p>
+		</section>
+	</section>
+
+	<section class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.section}>
+		<h3 class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.subheading}>
 			{TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.SeedClassesHeading}
 		</h3>
 		<div
@@ -202,28 +223,42 @@
 						>
 							{row.label}
 						</a>
-						{#if row.rerollable}
-							<button
-								type="button"
-								class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.rerollButton}
-								data-testid={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.rerollButton}
-								title={TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.Reroll}
-								aria-label={`${TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.Reroll} ${row.label}`}
-								disabled={state.status !== TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_STATUS.Ready ||
-									state.pool.length <= state.visible.length}
-								onclick={() => rerollSeedClassSamples(row)}
-							>
-								<TerraformsSurfaceRerollIcon />
-							</button>
-						{/if}
 					</div>
 					<p class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.condition}>{row.condition}</p>
 					<p class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.copy}>{row.summary}</p>
+					{#if row.characterSets !== undefined}
+						<div
+							class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.characterSets}
+							data-testid={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.characterSets}
+						>
+							{#each row.characterSets as characterSet (characterSet.key)}
+								<TerraformsBiomeCharacterBand
+									characters={characterSet.characters}
+									characterLabels={characterSet.characterLabels}
+								/>
+							{/each}
+						</div>
+					{/if}
 					{#if showSampleStatus(state)}
 						<div class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.status}>
 							{sampleStatusLabel(state)}
 						</div>
 					{:else}
+						{#if row.rerollable}
+							<div class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.sampleActions}>
+								<button
+									type="button"
+									class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.rerollButton}
+									data-testid={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.rerollButton}
+									title={TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.Reroll}
+									aria-label={`${TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.Reroll} ${row.label}`}
+									disabled={state.pool.length <= state.visible.length}
+									onclick={() => rerollSeedClassSamples(row)}
+								>
+									<TerraformsSurfaceRerollIcon />
+								</button>
+							</div>
+						{/if}
 						<div
 							class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.sampleGrid}
 							data-testid={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.sampleGrid}
@@ -317,6 +352,12 @@
 		color: var(--c-yellow);
 	}
 
+	.terraforms-hypercastle-seed-classes-block-title {
+		color: var(--c-ice);
+		font-size: 0.9rem;
+		font-weight: 600;
+	}
+
 	.terraforms-hypercastle-seed-classes-reroll-button {
 		width: 20px;
 		min-width: 20px;
@@ -332,6 +373,31 @@
 		color: var(--c-sand);
 		font-size: 0.74rem;
 		line-height: 1.35;
+		white-space: pre-line;
+	}
+
+	.terraforms-hypercastle-seed-classes-character-sets {
+		--terraforms-biome-character-band-grid-template-columns: repeat(
+			10,
+			var(--terraforms-biome-character-band-cell-size, 22px)
+		);
+		--terraforms-biome-character-band-cell-size: 22px;
+		--terraforms-biome-character-band-font-size: 18px;
+		--terraforms-biome-character-band-padding-block: 5px;
+		--terraforms-biome-character-band-padding-inline: 6px;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.42rem;
+		align-items: flex-start;
+		margin-top: 0.45rem;
+	}
+
+	.terraforms-hypercastle-seed-classes-sample-actions {
+		display: flex;
+		justify-content: center;
+		width: min(100%, 760px);
+		justify-self: center;
+		margin-top: 0.45rem;
 	}
 
 	.terraforms-hypercastle-seed-classes-sample-grid {
@@ -352,6 +418,16 @@
 	}
 
 	@media (max-width: 980px) {
+		.terraforms-hypercastle-seed-classes-sample-actions {
+			width: min(100%, 560px);
+		}
+
+		.terraforms-hypercastle-seed-classes-character-sets {
+			--terraforms-biome-character-band-cell-size: 20px;
+			--terraforms-biome-character-band-font-size: 16px;
+			gap: 0.36rem;
+		}
+
 		.terraforms-hypercastle-seed-classes-sample-grid {
 			--token-grid-media-height: 180px;
 			grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));

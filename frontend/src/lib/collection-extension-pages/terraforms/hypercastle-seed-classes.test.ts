@@ -4,6 +4,7 @@ import { PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
 import { TOKEN_BROWSER_STATUS, TRAIT_FILTER_QUERY_PARAMS } from '@artgod/shared/types/browse';
 import {
 	TERRAFORMS_MODE_ATTRIBUTE_VALUES,
+	TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_STARTS,
 	TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
 	TERRAFORMS_RENDERER_SEED_THRESHOLDS,
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
@@ -17,6 +18,8 @@ import {
 	formatTerraformsHypercastleTokenLabel,
 	sampleTerraformsSeedClassTokenCards,
 	TERRAFORMS_HYPERCASTLE_GODMODE_TOKENS,
+	TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION,
+	TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS,
 	TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_COUNT,
 	TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_POOL_LIMIT,
 	TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS
@@ -25,15 +28,13 @@ import { TOKEN_STATUS_QUERY_PARAM } from '$lib/token-browser-query';
 
 describe('Terraforms Hypercastle seed classes', () => {
 	it('models Godmode as the origin overdrive bucket', () => {
-		const originModes = [
-			TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream,
-			TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform
-		].join(' / ');
 		const godmodeRow = TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.find(
 			(row) => row.traitValue === TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.Godmode
 		);
 
-		expect(godmodeRow?.condition).toContain(originModes);
+		expect(godmodeRow?.condition).toContain(
+			`${TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.OriginScope}:`
+		);
 		expect(godmodeRow?.condition).toContain(
 			`${TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY} > ${TERRAFORMS_RENDERER_SEED_THRESHOLDS.OverdriveLowerExclusive.toString()}`
 		);
@@ -47,6 +48,58 @@ describe('Terraforms Hypercastle seed classes', () => {
 			TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.YSeed,
 			TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.Godmode
 		]);
+	});
+
+	it('keeps Origin as mode lineage separate from Seed Class traits', () => {
+		expect(TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION.condition).toContain(
+			TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.OriginsCondition
+		);
+		expect(TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION.condition).toContain(
+			`${TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY} <= ${TERRAFORMS_RENDERER_SEED_THRESHOLDS.OriginXSeed.toString()}`
+		);
+		expect(TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION.condition).toContain(
+			`${TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY} > ${TERRAFORMS_RENDERER_SEED_THRESHOLDS.OriginXSeed.toString()}`
+		);
+		expect(TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION.summary).toContain(
+			'mintpass redemption path'
+		);
+		expect(TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION.summary).toContain(
+			'do not have separate character ranges'
+		);
+	});
+
+	it('shows all renderer extra character ranges on the X-Seed row', () => {
+		const xSeedRow = TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.find(
+			(row) => row.traitValue === TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed
+		);
+
+		expect(xSeedRow?.characterSets).toHaveLength(
+			TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_STARTS.length
+		);
+		expect(xSeedRow?.characterSets?.[0]?.characters.join('')).toBe('▀▁▂▃▄▅▆▇█▉');
+		expect(xSeedRow?.characterSets?.[7]?.characters[0]).toBe('⿱');
+	});
+
+	it('uses compact Origin and Non-Origin condition labels', () => {
+		const xSeedRow = TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.find(
+			(row) => row.traitValue === TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed
+		);
+		const ySeedRow = TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.find(
+			(row) => row.traitValue === TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.YSeed
+		);
+
+		expect(xSeedRow?.condition).toContain(
+			`${TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.OriginScope}:`
+		);
+		expect(xSeedRow?.condition).toContain(
+			`\n${TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.NonOriginScope}:`
+		);
+		expect(xSeedRow?.condition).not.toContain(';');
+		expect(ySeedRow?.condition).toContain(
+			`${TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.NonOriginScope}:`
+		);
+		expect(ySeedRow?.summary).not.toContain('overdrive');
+		expect(ySeedRow?.summary).not.toContain('revers');
 	});
 
 	it('keeps the canonical Godmode parcel list explicit', () => {

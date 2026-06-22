@@ -188,6 +188,16 @@ export const TERRAFORMS_RENDERER_SEED_THRESHOLDS = {
     Modulus: 10_000n,
 } as const;
 
+// V2 renderer extra character ranges mirror animation-v2.js `uni` starts.
+export const TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_STARTS = [
+    9600, 9610, 9620, 3900, 9812, 9120, 9590, 143345, 48, 143672, 143682,
+    143692, 143702, 820, 8210, 8680, 9573, 142080, 142085, 142990, 143010,
+    143030, 9580, 9540, 1470, 143762, 143790, 143810,
+] as const;
+
+// Each V2 renderer extra range contributes ten UTF-16 code units.
+export const TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_LENGTH = 10;
+
 // Normal committed canvases render with the Terraformed enum value.
 export const TERRAFORMS_TERRAFORMED_STATUS = 2n;
 
@@ -356,6 +366,23 @@ export function resolveTerraformsRendererSeedTraits(params: {
         }),
         levelTile,
     };
+}
+
+// Builds one V2 renderer extra range with String.fromCharCode truncation semantics.
+export function buildTerraformsRendererExtraCharacterRange(
+    start: number,
+): readonly string[] {
+    return Array.from(
+        { length: TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_LENGTH },
+        (_, index) => String.fromCharCode(start + index),
+    );
+}
+
+// Builds all V2 renderer extra ranges in the canonical renderer order.
+export function buildTerraformsRendererExtraCharacterRanges(): readonly (readonly string[])[] {
+    return TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_STARTS.map((start) =>
+        buildTerraformsRendererExtraCharacterRange(start),
+    );
 }
 
 // Parses user-pasted Terraforms heightmaps into the same rows stored by the contract.

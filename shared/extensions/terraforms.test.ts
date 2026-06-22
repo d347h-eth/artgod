@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import {
+    buildTerraformsRendererExtraCharacterRanges,
     calculateTerraformsRendererSeed,
     hashTerraformsCanvasRows,
     isTerraformsDreamMode,
@@ -8,6 +9,8 @@ import {
     resolveTerraformsLevelAndTileFromPlacement,
     resolveTerraformsRendererSeedClass,
     TERRAFORMS_MODE_ATTRIBUTE_VALUES,
+    TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_LENGTH,
+    TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_STARTS,
     TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES,
 } from "./terraforms.js";
 
@@ -156,5 +159,37 @@ describe("Terraforms canvas helpers", () => {
             }),
             null,
         );
+    });
+
+    it("builds renderer extra character ranges with V2 fromCharCode semantics", () => {
+        const ranges = buildTerraformsRendererExtraCharacterRanges();
+
+        assert.equal(
+            ranges.length,
+            TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_STARTS.length,
+        );
+        assert.equal(
+            ranges.every(
+                (range) =>
+                    range.length ===
+                    TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_LENGTH,
+            ),
+            true,
+        );
+        assert.deepEqual(ranges[0], [
+            "▀",
+            "▁",
+            "▂",
+            "▃",
+            "▄",
+            "▅",
+            "▆",
+            "▇",
+            "█",
+            "▉",
+        ]);
+        assert.equal(ranges[7]?.[0], "⿱");
+        assert.equal(ranges[17]?.[5], "⬅");
+        assert.equal(ranges[18]?.[0], "⬅");
     });
 });

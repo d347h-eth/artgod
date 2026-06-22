@@ -1,5 +1,6 @@
 import {
 	TERRAFORMS_MODE_ATTRIBUTE_VALUES,
+	buildTerraformsRendererExtraCharacterRanges,
 	TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
 	TERRAFORMS_RENDERER_SEED_THRESHOLDS,
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
@@ -17,6 +18,12 @@ import {
 
 type TerraformsHypercastleSeedClassRowKey = 'godmode' | 'x-seed' | 'y-seed';
 
+export type TerraformsHypercastleExtraCharacterSet = {
+	key: string;
+	characters: readonly string[];
+	characterLabels: readonly string[];
+};
+
 export type TerraformsHypercastleSeedClassRow = {
 	key: TerraformsHypercastleSeedClassRowKey;
 	label: string;
@@ -24,6 +31,13 @@ export type TerraformsHypercastleSeedClassRow = {
 	summary: string;
 	traitValue: string;
 	rerollable: boolean;
+	characterSets?: readonly TerraformsHypercastleExtraCharacterSet[];
+};
+
+export type TerraformsHypercastleOriginSection = {
+	heading: string;
+	condition: string;
+	summary: string;
 };
 
 export type TerraformsHypercastleGodmodeToken = {
@@ -62,9 +76,12 @@ export const TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM = {
 		list: 'terraforms-hypercastle-seed-classes-list',
 		block: 'terraforms-hypercastle-seed-classes-block',
 		blockHeader: 'terraforms-hypercastle-seed-classes-block-header',
+		blockTitle: 'terraforms-hypercastle-seed-classes-block-title',
 		classLink: 'terraforms-hypercastle-seed-classes-class-link',
 		rerollButton: 'terraforms-hypercastle-seed-classes-reroll-button',
 		condition: 'terraforms-hypercastle-seed-classes-condition',
+		characterSets: 'terraforms-hypercastle-seed-classes-character-sets',
+		sampleActions: 'terraforms-hypercastle-seed-classes-sample-actions',
 		sampleGrid: 'terraforms-hypercastle-seed-classes-sample-grid',
 		status: 'terraforms-hypercastle-seed-classes-status'
 	},
@@ -72,6 +89,7 @@ export const TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM = {
 		root: 'terraforms-hypercastle-seed-classes',
 		seedClassList: 'terraforms-hypercastle-seed-class-list',
 		seedClassBlock: 'terraforms-hypercastle-seed-class-block',
+		characterSets: 'terraforms-hypercastle-seed-class-character-sets',
 		sampleGrid: 'terraforms-hypercastle-seed-class-sample-grid',
 		rerollButton: 'terraforms-hypercastle-seed-class-reroll'
 	}
@@ -81,29 +99,44 @@ export const TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM = {
 export const TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS = {
 	Heading: 'Origins / Seed Classes',
 	SeedTraitsHeading: 'Seed traits',
+	OriginsHeading: 'Origins',
 	SeedClassesHeading: 'Seed Class trait buckets',
+	OriginScope: 'Origin',
+	NonOriginScope: 'Non-Origin',
 	SeedTraitCopy:
-		'The hidden renderer seed is stored as the Seed range trait. Seed Class is written only for the named cases below.',
+		'Each parcel has a hidden seed that shapes its rendered character set. A few narrow seed ranges create the special Seed Classes below.',
+	OriginsCondition: 'Mode: Origin',
+	OriginsCopy:
+		'Origin parcels were created through the mintpass redemption path and keep their Origin lineage after terraforming. They do not have separate character ranges: lower seeds build from one of the same non-biome ranges shown below, while higher Origin seeds use all of them.',
 	SampleLoading: 'loading examples',
 	SampleEmpty: 'no examples found',
 	SampleError: 'examples unavailable',
 	Reroll: 'reroll examples'
 } as const;
 
-const NON_ORIGIN_MODE_LABEL = [
-	TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
-	TERRAFORMS_MODE_ATTRIBUTE_VALUES.Daydream,
-	TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terraform
-].join(' / ');
-const ORIGIN_MODE_LABEL = [
-	TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream,
-	TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform
-].join(' / ');
 const OVERDRIVE_MIN_SEED = TERRAFORMS_RENDERER_SEED_THRESHOLDS.OverdriveLowerExclusive + 1n;
 const ORIGIN_X_MIN_SEED = TERRAFORMS_RENDERER_SEED_THRESHOLDS.OriginXSeed + 1n;
 const NON_ORIGIN_X_MIN_SEED = TERRAFORMS_RENDERER_SEED_THRESHOLDS.NonOriginXSeed + 1n;
 const Y_SEED_MAX = TERRAFORMS_RENDERER_SEED_THRESHOLDS.YSeedUpperInclusive;
 const MAX_SEED = TERRAFORMS_RENDERER_SEED_THRESHOLDS.Modulus - 1n;
+const EXTRA_CHARACTER_SET_KEY_PREFIX = 'extra-character-set';
+
+// Extra character rows mirror the V2 renderer order used by X-Seeds and Godmode.
+export const TERRAFORMS_HYPERCASTLE_EXTRA_CHARACTER_SETS: readonly TerraformsHypercastleExtraCharacterSet[] =
+	buildTerraformsRendererExtraCharacterRanges().map((characters, index) => ({
+		key: [EXTRA_CHARACTER_SET_KEY_PREFIX, String(index)].join('-'),
+		characters,
+		characterLabels: characters
+	}));
+
+// Origin is a mode lineage with renderer branches, not a Seed Class trait value.
+export const TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION: TerraformsHypercastleOriginSection = {
+	heading: TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.OriginsHeading,
+	condition: `${TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.OriginsCondition}
+${formatSeedLessThanOrEqual(TERRAFORMS_RENDERER_SEED_THRESHOLDS.OriginXSeed)}: one range
+${formatSeedGreaterThan(TERRAFORMS_RENDERER_SEED_THRESHOLDS.OriginXSeed)}: all ranges`,
+	summary: TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.OriginsCopy
+};
 
 // Seed Class rows map first-class trait values to their compact renderer conditions.
 export const TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS: readonly TerraformsHypercastleSeedClassRow[] =
@@ -111,26 +144,29 @@ export const TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS: readonly TerraformsHypercas
 		{
 			key: 'x-seed',
 			label: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
-			condition: `${ORIGIN_MODE_LABEL}: ${formatSeedRange(
+			condition: `${TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.OriginScope}: ${formatSeedRange(
 				ORIGIN_X_MIN_SEED,
 				TERRAFORMS_RENDERER_SEED_THRESHOLDS.OverdriveLowerExclusive
-			)}; ${NON_ORIGIN_MODE_LABEL}: ${formatSeedRange(NON_ORIGIN_X_MIN_SEED, MAX_SEED)}`,
-			summary: 'X-Seeds can draw from every character range.',
+			)}
+${TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.NonOriginScope}: ${formatSeedRange(NON_ORIGIN_X_MIN_SEED, MAX_SEED)}`,
+			summary: 'X-Seeds can draw from every non-biome character range shown here.',
 			traitValue: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
-			rerollable: true
+			rerollable: true,
+			characterSets: TERRAFORMS_HYPERCASTLE_EXTRA_CHARACTER_SETS
 		},
 		{
 			key: 'y-seed',
 			label: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.YSeed,
-			condition: `${NON_ORIGIN_MODE_LABEL}: ${formatSeedRange(OVERDRIVE_MIN_SEED, Y_SEED_MAX)}`,
-			summary: 'Y-Seeds are non-Origin overdrive seeds where one early character range reverses.',
+			condition: `${TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.NonOriginScope}: ${formatSeedRange(OVERDRIVE_MIN_SEED, Y_SEED_MAX)}`,
+			summary:
+				'Y-Seeds are non-Origin tokens in the listed Seed range. Their renderer draws from a narrow 10-character set.',
 			traitValue: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.YSeed,
 			rerollable: true
 		},
 		{
 			key: 'godmode',
 			label: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.Godmode,
-			condition: `${ORIGIN_MODE_LABEL}; ${formatSeedGreaterThan(
+			condition: `${TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.OriginScope}: ${formatSeedGreaterThan(
 				TERRAFORMS_RENDERER_SEED_THRESHOLDS.OverdriveLowerExclusive
 			)}`,
 			summary:
@@ -228,4 +264,8 @@ function formatSeedRange(minInclusive: bigint, maxInclusive: bigint): string {
 
 function formatSeedGreaterThan(lowerExclusive: bigint): string {
 	return `${TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY} > ${lowerExclusive.toString()}`;
+}
+
+function formatSeedLessThanOrEqual(upperInclusive: bigint): string {
+	return `${TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY} <= ${upperInclusive.toString()}`;
 }
