@@ -11,7 +11,6 @@ import {
 	buildTerraformsSeedClassTokenHref,
 	formatTerraformsHypercastleTokenLabel,
 	TERRAFORMS_HYPERCASTLE_GODMODE_TOKENS,
-	TERRAFORMS_HYPERCASTLE_RENDERER_BUCKET_ROWS,
 	TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS
 } from '$lib/collection-extension-pages/terraforms/hypercastle-seed-classes';
 
@@ -24,16 +23,20 @@ describe('Terraforms Hypercastle seed classes', () => {
 		const godmodeRow = TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.find(
 			(row) => row.traitValue === TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.Godmode
 		);
-		const rendererRow = TERRAFORMS_HYPERCASTLE_RENDERER_BUCKET_ROWS.find(
-			(row) => row.seedClass === TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.Godmode
-		);
 
 		expect(godmodeRow?.condition).toContain(originModes);
 		expect(godmodeRow?.condition).toContain(
 			`${TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY} > ${TERRAFORMS_RENDERER_SEED_THRESHOLDS.OverdriveLowerExclusive.toString()}`
 		);
-		expect(godmodeRow?.runtime).toContain('overdrive');
-		expect(rendererRow?.runtime).toContain('passive height-0 playback uses the full charSet');
+		expect(godmodeRow?.effect).toContain('full passive character set');
+	});
+
+	it('keeps the table focused on named Seed Class traits', () => {
+		expect(TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.map((row) => row.traitValue)).toEqual([
+			TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
+			TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.YSeed,
+			TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.Godmode
+		]);
 	});
 
 	it('keeps the canonical Godmode parcel list explicit', () => {

@@ -4,7 +4,6 @@
 		buildTerraformsSeedClassTokenHref,
 		formatTerraformsHypercastleTokenLabel,
 		TERRAFORMS_HYPERCASTLE_GODMODE_TOKENS,
-		TERRAFORMS_HYPERCASTLE_RENDERER_BUCKET_ROWS,
 		TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM,
 		TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS,
 		TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS
@@ -53,58 +52,22 @@
 				<tr>
 					<th>{TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.ClassColumn}</th>
 					<th>{TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.ConditionColumn}</th>
-					<th>{TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.RuntimeColumn}</th>
+					<th>{TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.EffectColumn}</th>
 				</tr>
 			</thead>
 			<tbody>
 				{#each TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS as row (row.key)}
 					<tr>
 						<td>
-							{#if row.traitValue}
-								<a
-									class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.tableLink}
-									href={seedClassHref(row.traitValue)}
-								>
-									{row.label}
-								</a>
-							{:else}
+							<a
+								class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.tableLink}
+								href={seedClassHref(row.traitValue)}
+							>
 								{row.label}
-							{/if}
+							</a>
 						</td>
 						<td>{row.condition}</td>
-						<td>{row.runtime}</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-	</section>
-
-	<section class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.section}>
-		<h3 class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.subheading}>
-			{TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.RendererBucketsHeading}
-		</h3>
-		<p class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.copy}>
-			{TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.RendererCopy}
-		</p>
-		<table
-			class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.table}
-			data-testid={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.rendererBucketTable}
-		>
-			<thead>
-				<tr>
-					<th>{TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.ClassColumn}</th>
-					<th>{TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.ConditionColumn}</th>
-					<th>{TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.RuntimeColumn}</th>
-					<th>{TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.SeedClassColumn}</th>
-				</tr>
-			</thead>
-			<tbody>
-				{#each TERRAFORMS_HYPERCASTLE_RENDERER_BUCKET_ROWS as row (row.key)}
-					<tr>
-						<td>{row.label}</td>
-						<td>{row.condition}</td>
-						<td>{row.runtime}</td>
-						<td>{row.seedClass}</td>
+						<td>{row.effect}</td>
 					</tr>
 				{/each}
 			</tbody>
@@ -118,33 +81,17 @@
 		<p class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.copy}>
 			{TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.GodmodeCopy}
 		</p>
-		<table class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.table}>
-			<thead>
-				<tr>
-					<th>{TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.TokenColumn}</th>
-					<th>{TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.ModeColumn}</th>
-					<th>{TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.SeedColumn}</th>
-				</tr>
-			</thead>
-			<tbody>
-				{#each TERRAFORMS_HYPERCASTLE_GODMODE_TOKENS as token (token.tokenId)}
-					<tr>
-						<td class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.numericCell}>
-							<a
-								class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.tableLink}
-								href={tokenHref(token.tokenId)}
-							>
-								{formatTerraformsHypercastleTokenLabel(token.tokenId)}
-							</a>
-						</td>
-						<td>{token.mode}</td>
-						<td class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.numericCell}>
-							{token.seed}
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
+		<p class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.tokenList}>
+			{TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.GodmodeTokenPrefix}
+			{#each TERRAFORMS_HYPERCASTLE_GODMODE_TOKENS as token, index (token.tokenId)}
+				<a
+					class={TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.classes.tableLink}
+					href={tokenHref(token.tokenId)}
+				>
+					{formatTerraformsHypercastleTokenLabel(token.tokenId)}
+				</a>{#if index < TERRAFORMS_HYPERCASTLE_GODMODE_TOKENS.length - 1}, {/if}
+			{/each}
+		</p>
 	</section>
 </article>
 
@@ -184,6 +131,12 @@
 		line-height: 1.45;
 	}
 
+	.terraforms-hypercastle-seed-classes-token-list {
+		margin: 0.45rem 0 0;
+		font-size: 0.82rem;
+		line-height: 1.45;
+	}
+
 	.terraforms-hypercastle-seed-classes-table {
 		width: auto;
 		max-width: 100%;
@@ -214,11 +167,6 @@
 	.terraforms-hypercastle-seed-classes-table-link:hover,
 	.terraforms-hypercastle-seed-classes-table-link:focus-visible {
 		color: var(--c-yellow);
-	}
-
-	.terraforms-hypercastle-seed-classes-numeric-cell {
-		font-family: var(--font-mono);
-		white-space: nowrap;
 	}
 
 	@media (max-width: 980px) {

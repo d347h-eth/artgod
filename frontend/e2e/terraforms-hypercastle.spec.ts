@@ -45,7 +45,8 @@ import {
 	formatTerraformsHypercastleTokenLabel,
 	TERRAFORMS_HYPERCASTLE_GODMODE_TOKENS,
 	TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM,
-	TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS
+	TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS,
+	TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS
 } from '../src/lib/collection-extension-pages/terraforms/hypercastle-seed-classes';
 import {
 	buildTerraformsAllLevelZoneRows,
@@ -389,10 +390,6 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 			DATA_ATTRIBUTE_NAMES.testId,
 			TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.seedClassTable
 		),
-		rendererBucketTable: dataAttributeSelector(
-			DATA_ATTRIBUTE_NAMES.testId,
-			TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.rendererBucketTable
-		),
 		texturedLevelLayer: idSelector(
 			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_TEXTURE_LEVEL_NUMBER)
 		),
@@ -510,10 +507,11 @@ test.describe('Terraforms Hypercastle overview', () => {
 				name: TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.Heading
 			})
 		).toBeVisible();
-		await expect(page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.seedClassTable)).toBeVisible();
-		await expect(
-			page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.rendererBucketTable)
-		).toBeVisible();
+		const seedClassTable = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.seedClassTable);
+		await expect(seedClassTable).toBeVisible();
+		await expect(seedClassTable.locator(TABLE_SELECTORS.bodyRows)).toHaveCount(
+			TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS.length
+		);
 		await expect(
 			seedClassesSection.getByRole(ACCESSIBLE_ROLES.heading, {
 				name: TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.GodmodeHeading
