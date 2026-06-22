@@ -1,4 +1,3 @@
-import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
 	TERRAFORMS_MODE_ATTRIBUTE_VALUES,
 	TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
@@ -7,7 +6,7 @@ import {
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES
 } from '@artgod/shared/extensions/terraforms';
 import { TOKEN_BROWSER_STATUS } from '@artgod/shared/types/browse';
-import type { ApiCollectionMediaState, ApiTokenCard } from '$lib/api-types';
+import type { ApiTokenCard } from '$lib/api-types';
 import { buildTerraformsHypercastleTraitTokenHref } from '$lib/collection-extension-pages/terraforms/hypercastle-token-links';
 import {
 	buildTokenBrowserQuery,
@@ -206,20 +205,6 @@ export function buildTerraformsSeedClassSampleQuery(input: {
 		mediaMode: input.mediaMode ?? null
 	});
 	return normalizeTokenBrowserParams(raw, TOKEN_BROWSER_STATUS.All);
-}
-
-// Chooses static snapshot media for embedded example cards when the collection supports it.
-export function resolveTerraformsSeedClassCardMediaMode(media: ApiCollectionMediaState): string {
-	return media.availableModes.some((mode) => mode.key === COLLECTION_MEDIA_MODES.Snapshot)
-		? COLLECTION_MEDIA_MODES.Snapshot
-		: media.selectedMode;
-}
-
-// Chooses artifact media for sample-card previews when the collection supports it.
-export function resolveTerraformsSeedClassPreviewMediaMode(media: ApiCollectionMediaState): string {
-	return media.availableModes.some((mode) => mode.key === COLLECTION_MEDIA_MODES.Artifact)
-		? COLLECTION_MEDIA_MODES.Artifact
-		: media.selectedMode;
 }
 
 // Samples distinct token cards from a Seed Class pool.

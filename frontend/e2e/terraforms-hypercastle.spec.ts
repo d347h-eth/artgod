@@ -1510,6 +1510,13 @@ async function installTraitCatalogApiProbe(page: Page): Promise<void> {
 async function installSeedClassSampleApiProbe(page: Page): Promise<void> {
 	await page.route(HYPERCASTLE_E2E_COLLECTION_DETAIL_ROUTE_PATTERN, async (route) => {
 		const requestUrl = new URL(route.request().url());
+		if (
+			requestUrl.searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode) !==
+			HYPERCASTLE_E2E_MEDIA_MODE
+		) {
+			await route.fulfill({ status: 400, contentType: 'application/json', body: '{}' });
+			return;
+		}
 		const seedClass = resolveSeedClassSampleRequest(requestUrl);
 		if (!seedClass) {
 			await route.fulfill({ status: 400, contentType: 'application/json', body: '{}' });
@@ -1535,6 +1542,10 @@ async function installTokenPreviewApiProbe(page: Page): Promise<void> {
 		const mediaMode =
 			requestUrl.searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode) ??
 			HYPERCASTLE_E2E_MEDIA_MODE;
+		if (mediaMode !== HYPERCASTLE_E2E_MEDIA_MODE) {
+			await route.fulfill({ status: 400, contentType: 'application/json', body: '{}' });
+			return;
+		}
 
 		const response: TokenPreviewApiResponse = {
 			media: resolveE2eMediaState(mediaMode),

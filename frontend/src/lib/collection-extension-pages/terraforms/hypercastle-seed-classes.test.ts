@@ -9,14 +9,12 @@ import {
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES
 } from '@artgod/shared/extensions/terraforms';
-import type { ApiCollectionMediaState, ApiTokenCard } from '$lib/api-types';
+import type { ApiTokenCard } from '$lib/api-types';
 import {
 	buildTerraformsHypercastleTokenHref,
 	buildTerraformsSeedClassSampleQuery,
 	buildTerraformsSeedClassTokenHref,
 	formatTerraformsHypercastleTokenLabel,
-	resolveTerraformsSeedClassCardMediaMode,
-	resolveTerraformsSeedClassPreviewMediaMode,
 	sampleTerraformsSeedClassTokenCards,
 	TERRAFORMS_HYPERCASTLE_GODMODE_TOKENS,
 	TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_COUNT,
@@ -24,15 +22,6 @@ import {
 	TERRAFORMS_HYPERCASTLE_SEED_CLASS_ROWS
 } from '$lib/collection-extension-pages/terraforms/hypercastle-seed-classes';
 import { TOKEN_STATUS_QUERY_PARAM } from '$lib/token-browser-query';
-
-const TEST_MEDIA: ApiCollectionMediaState = {
-	selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
-	defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
-	availableModes: [
-		{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot },
-		{ key: COLLECTION_MEDIA_MODES.Artifact, label: COLLECTION_MEDIA_MODES.Artifact }
-	]
-};
 
 describe('Terraforms Hypercastle seed classes', () => {
 	it('models Godmode as the origin overdrive bucket', () => {
@@ -88,7 +77,7 @@ describe('Terraforms Hypercastle seed classes', () => {
 
 	it('builds a normalized API query for loading sample token cards', () => {
 		const query = buildTerraformsSeedClassSampleQuery({
-			mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+			mediaMode: COLLECTION_MEDIA_MODES.Artifact,
 			seedClass: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed
 		});
 
@@ -97,20 +86,11 @@ describe('Terraforms Hypercastle seed classes', () => {
 		);
 		expect(query.get(TOKEN_STATUS_QUERY_PARAM)).toBe(TOKEN_BROWSER_STATUS.All);
 		expect(query.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode)).toBe(
-			COLLECTION_MEDIA_MODES.Snapshot
+			COLLECTION_MEDIA_MODES.Artifact
 		);
 		expect(query.getAll(TRAIT_FILTER_QUERY_PARAMS.Traits)).toEqual([
 			`${TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY}:${TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed}`
 		]);
-	});
-
-	it('chooses static card media and animated preview media when available', () => {
-		expect(resolveTerraformsSeedClassCardMediaMode(TEST_MEDIA)).toBe(
-			COLLECTION_MEDIA_MODES.Snapshot
-		);
-		expect(resolveTerraformsSeedClassPreviewMediaMode(TEST_MEDIA)).toBe(
-			COLLECTION_MEDIA_MODES.Artifact
-		);
 	});
 
 	it('samples distinct token cards with an injectable random source', () => {

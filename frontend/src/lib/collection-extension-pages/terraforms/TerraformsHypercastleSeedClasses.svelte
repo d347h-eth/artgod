@@ -14,8 +14,6 @@
 		buildTerraformsHypercastleTokenHref,
 		buildTerraformsSeedClassSampleQuery,
 		buildTerraformsSeedClassTokenHref,
-		resolveTerraformsSeedClassCardMediaMode,
-		resolveTerraformsSeedClassPreviewMediaMode,
 		sampleTerraformsSeedClassTokenCards,
 		TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM,
 		TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS,
@@ -41,8 +39,6 @@
 	let sampleStateBySeedClass = $state<Record<string, TerraformsHypercastleSeedClassSampleState>>(
 		initialSampleStateBySeedClass()
 	);
-	let cardMediaMode = $derived(resolveTerraformsSeedClassCardMediaMode(media));
-	let previewMediaMode = $derived(resolveTerraformsSeedClassPreviewMediaMode(media));
 
 	onMount(() => {
 		let cancelled = false;
@@ -93,7 +89,7 @@
 						chain.slug,
 						collection.slug,
 						buildTerraformsSeedClassSampleQuery({
-							mediaMode: cardMediaMode,
+							mediaMode: media.selectedMode,
 							seedClass: row.traitValue
 						})
 					);
@@ -238,7 +234,7 @@
 									{collection}
 									{token}
 									href={tokenHref(token.tokenId)}
-									selectedMediaMode={previewMediaMode}
+									selectedMediaMode={media.selectedMode}
 									availableMediaModes={media.availableModes}
 									{tokenPreview}
 									adjacentTokenResolver={(step, currentTokenId) =>
