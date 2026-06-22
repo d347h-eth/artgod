@@ -34,6 +34,20 @@ import {
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS
 } from '../src/lib/collection-extension-pages/terraforms/hypercastle-overview';
 import {
+	TERRAFORMS_HYPERCASTLE_SECTION_DOM,
+	TERRAFORMS_HYPERCASTLE_SECTION_LABELS,
+	TERRAFORMS_HYPERCASTLE_SECTION_QUERY_PARAMS,
+	TERRAFORMS_HYPERCASTLE_SECTIONS,
+	type TerraformsHypercastleSection
+} from '../src/lib/collection-extension-pages/terraforms/hypercastle-sections';
+import {
+	buildTerraformsHypercastleTokenHref,
+	formatTerraformsHypercastleTokenLabel,
+	TERRAFORMS_HYPERCASTLE_GODMODE_TOKENS,
+	TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM,
+	TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS
+} from '../src/lib/collection-extension-pages/terraforms/hypercastle-seed-classes';
+import {
 	buildTerraformsAllLevelZoneRows,
 	buildTerraformsLevelZoneRows,
 	buildTerraformsZoneTokenHref,
@@ -177,6 +191,7 @@ const SVG_ATTRIBUTE_NAMES = {
 	x2: 'x2'
 } as const;
 const ARIA_ATTRIBUTE_NAMES = {
+	label: 'aria-label',
 	pressed: 'aria-pressed'
 } as const;
 const ARIA_ATTRIBUTE_VALUES = {
@@ -243,6 +258,10 @@ const TEST_ARTIFACTS = {
 		name: 'terraforms-hypercastle-surface-page.png',
 		contentType: 'image/png'
 	},
+	seedClassesScreenshot: {
+		name: 'terraforms-hypercastle-seed-classes-page.png',
+		contentType: 'image/png'
+	},
 	biomeResetScreenshot: {
 		name: 'terraforms-hypercastle-biome-reset-page.png',
 		contentType: 'image/png'
@@ -266,6 +285,7 @@ const HYPERCASTLE_E2E_SELECTED_BIOME_COUNTS = {
 	23: 13
 } as const;
 const HYPERCASTLE_REACHABILITY_LEVEL_NUMBER = 12;
+const HYPERCASTLE_GODMODE_PROBE_TOKEN = TERRAFORMS_HYPERCASTLE_GODMODE_TOKENS[1]!;
 const HYPERCASTLE_DETAIL_LEVEL = TERRAFORMS_HYPERCASTLE_LEVELS.find(
 	(level) => level.levelNumber === HYPERCASTLE_REACHABILITY_LEVEL_NUMBER
 )!;
@@ -360,6 +380,22 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 			DATA_ATTRIBUTE_NAMES.testId,
 			TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.testIds.rerollButton
 		),
+		sectionTabs: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_HYPERCASTLE_SECTION_DOM.testIds.tabs
+		),
+		seedClasses: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.root
+		),
+		seedClassTable: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.seedClassTable
+		),
+		rendererBucketTable: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_HYPERCASTLE_SEED_CLASS_DOM.testIds.rendererBucketTable
+		),
 		texturedLevelLayer: idSelector(
 			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_TEXTURE_LEVEL_NUMBER)
 		),
@@ -424,6 +460,25 @@ test.describe('Terraforms Hypercastle overview', () => {
 		).toBeVisible();
 		await expect(page.getByPlaceholder('jump to token #/owner/.eth')).toBeVisible();
 		await expect(page.getByRole(ACCESSIBLE_ROLES.button, { name: 'keyboard shortcuts' })).toBeVisible();
+		const topActionRow = page.locator(
+			[
+				classSelector(COLLECTION_PAGE_ACTION_PANEL_CLASS_NAMES.stack),
+				classSelector(COLLECTION_PAGE_ACTION_PANEL_CLASS_NAMES.row)
+			].join(' ')
+		);
+		await expect(
+			topActionRow.getByText(TERRAFORMS_HYPERCASTLE_SECTION_LABELS.Control, { exact: true })
+		).toBeVisible();
+		const sectionTabs = topActionRow.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.sectionTabs);
+		await expect(sectionTabs).toHaveAttribute(
+			ARIA_ATTRIBUTE_NAMES.label,
+			TERRAFORMS_HYPERCASTLE_SECTION_LABELS.AriaLabel
+		);
+		await expect(
+			sectionTabs.getByRole(ACCESSIBLE_ROLES.button, {
+				name: TERRAFORMS_HYPERCASTLE_SECTION_LABELS.Structure
+			})
+		).toBeDisabled();
 		const surfaceRerollButton = page.locator(
 			[
 				classSelector(COLLECTION_PAGE_ACTION_PANEL_CLASS_NAMES.stack),
@@ -435,6 +490,54 @@ test.describe('Terraforms Hypercastle overview', () => {
 			SVG_ATTRIBUTE_NAMES.title,
 			TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS.RerollSurfaces
 		);
+		await expect(surfaceRerollButton).toBeVisible();
+
+		await sectionTabs
+			.getByRole(ACCESSIBLE_ROLES.link, {
+				name: TERRAFORMS_HYPERCASTLE_SECTION_LABELS.OriginsSeedClasses
+			})
+			.click();
+		await expectHypercastleSection(page, TERRAFORMS_HYPERCASTLE_SECTIONS.OriginsSeedClasses);
+		const seedClassesSection = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.seedClasses);
+		await expect(
+			seedClassesSection.getByRole(ACCESSIBLE_ROLES.heading, {
+				name: TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.Heading
+			})
+		).toBeVisible();
+		await expect(page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.seedClassTable)).toBeVisible();
+		await expect(
+			page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.rendererBucketTable)
+		).toBeVisible();
+		await expect(
+			seedClassesSection.getByRole(ACCESSIBLE_ROLES.heading, {
+				name: TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.GodmodeHeading
+			})
+		).toBeVisible();
+		await expect(
+			seedClassesSection.getByRole(ACCESSIBLE_ROLES.link, {
+				name: formatTerraformsHypercastleTokenLabel(HYPERCASTLE_GODMODE_PROBE_TOKEN.tokenId)
+			})
+		).toHaveAttribute(
+			SVG_ATTRIBUTE_NAMES.href,
+			buildTerraformsHypercastleTokenHref(
+				HYPERCASTLE_E2E_COLLECTION_BASE_PATH,
+				HYPERCASTLE_GODMODE_PROBE_TOKEN.tokenId
+			)
+		);
+		await expect(surfaceRerollButton).toHaveCount(0);
+		await expect(page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.overview)).toHaveCount(0);
+		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.seedClassesScreenshot);
+		await sectionTabs
+			.getByRole(ACCESSIBLE_ROLES.link, {
+				name: TERRAFORMS_HYPERCASTLE_SECTION_LABELS.Structure
+			})
+			.click();
+		await expectHypercastleSection(page, TERRAFORMS_HYPERCASTLE_SECTIONS.Structure);
+		await expect(
+			sectionTabs.getByRole(ACCESSIBLE_ROLES.button, {
+				name: TERRAFORMS_HYPERCASTLE_SECTION_LABELS.Structure
+			})
+		).toBeDisabled();
 		await expect(surfaceRerollButton).toBeVisible();
 
 		const overview = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.overview);
@@ -864,6 +967,19 @@ async function expectHypercastleRouteSelection(
 			new URL(page.url()).searchParams.get(TERRAFORMS_HYPERCASTLE_SELECTION_QUERY_PARAMS.Level)
 		)
 		.toBe(formatTerraformsHypercastleSelectionQueryValue(selection));
+}
+
+async function expectHypercastleSection(
+	page: Page,
+	section: TerraformsHypercastleSection
+): Promise<void> {
+	const expectedQueryValue =
+		section === TERRAFORMS_HYPERCASTLE_SECTIONS.Structure ? null : section;
+	await expect
+		.poll(() =>
+			new URL(page.url()).searchParams.get(TERRAFORMS_HYPERCASTLE_SECTION_QUERY_PARAMS.Section)
+		)
+		.toBe(expectedQueryValue);
 }
 
 async function collectHypercastleOverviewMetrics(page: Page): Promise<HypercastleOverviewMetrics> {
