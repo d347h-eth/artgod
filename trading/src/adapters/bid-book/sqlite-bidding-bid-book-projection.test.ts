@@ -27,6 +27,13 @@ type ProjectedRow = {
     placed_at: string | null;
 };
 
+type ProjectionStateRow = {
+    snapshot_refreshed_at_ms: number | null;
+    row_count: number;
+    duration_ms: number | null;
+    last_error: string | null;
+};
+
 async function createTempDbPath(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "artgod-bid-book-projection-"));
     return join(dir, "main.sqlite");
@@ -277,6 +284,65 @@ describe("SqliteBiddingBidBookProjection", () => {
             quantity: "1",
             valid_until: 4_000_000_000,
             placed_at: null,
+        });
+    });
+
+    it("records projection errors without clobbering the last successful row count", async () => {
+        const projection = new SqliteBiddingBidBookProjection(
+            1,
+            OWNER_ADDRESS,
+            WETH_ADDRESS,
+        );
+
+        await projection.replaceCollectionBidBook(
+            {
+                collectionSlug: "terraforms",
+                refreshedAt: 1234,
+                offers: [
+                    makeOpenSeaOffer({
+                        orderHash: "collection-offer",
+                        offerer: OTHER_ADDRESS,
+                        priceWei: "832000000000000000",
+                        nftItemType: 4,
+                        identifierOrCriteria: "0",
+                        criteria: {
+                            collection: { slug: "terraforms" },
+                            contract: { address: COLLECTION_ADDRESS },
+                            trait: null,
+                            traits: null,
+                            numeric_traits: null,
+                            encoded_token_ids: "*",
+                        },
+                    }),
+                ],
+            },
+            "initial",
+        );
+
+        await projection.recordCollectionBidBookError({
+            snapshot: {
+                collectionSlug: "terraforms",
+                refreshedAt: 5678,
+                offers: [],
+            },
+            reason: "poll cadence",
+            errorMessage: "projection failed",
+            durationMs: 42,
+        });
+
+        const state = db
+            .prepare<[number]>(
+                "SELECT snapshot_refreshed_at_ms, row_count, duration_ms, last_error " +
+                    "FROM trading_bidding_collection_bid_book_state " +
+                    "WHERE collection_id = ?",
+            )
+            .get(collectionId) as ProjectionStateRow | undefined;
+
+        assert.deepEqual(state, {
+            snapshot_refreshed_at_ms: 5678,
+            row_count: 1,
+            duration_ms: 42,
+            last_error: "projection failed",
         });
     });
 });

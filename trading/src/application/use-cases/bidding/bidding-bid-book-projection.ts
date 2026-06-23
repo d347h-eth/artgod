@@ -11,11 +11,22 @@ export interface BiddingBidBookProjectionResult {
     durationMs: number;
 }
 
+// Carries a failed projection attempt into the adapter-owned bid-book state row.
+export interface BiddingBidBookProjectionErrorInput {
+    snapshot: CollectionOfferSnapshot;
+    reason: string;
+    errorMessage: string;
+    durationMs: number;
+}
+
 export interface BiddingBidBookProjectionPort {
     replaceCollectionBidBook(
         snapshot: CollectionOfferSnapshot,
         reason: string,
     ): Promise<BiddingBidBookProjectionResult>;
+    recordCollectionBidBookError(
+        input: BiddingBidBookProjectionErrorInput,
+    ): Promise<void>;
 }
 
 type ProjectionState = {
@@ -109,6 +120,7 @@ export class BiddingBidBookProjectionScheduler {
         state.latestSnapshot = undefined;
         state.pendingReason = undefined;
         state.running = true;
+        const startedAt = Date.now();
 
         try {
             // Persist the latest snapshot into the local bid-book read model for UI reads.
@@ -117,19 +129,47 @@ export class BiddingBidBookProjectionScheduler {
                 reason,
             );
             state.lastCompletedAt = Date.now();
-            log.debug("projectionComplete", "Bidding bid-book projection complete", {
-                collectionSlug: result.collectionSlug,
-                rowCount: result.rowCount,
-                durationMs: result.durationMs,
-                reason,
-            });
+            log.debug(
+                "projectionComplete",
+                "Bidding bid-book projection complete",
+                {
+                    collectionSlug: result.collectionSlug,
+                    rowCount: result.rowCount,
+                    durationMs: result.durationMs,
+                    reason,
+                },
+            );
         } catch (error: unknown) {
             state.lastCompletedAt = Date.now();
-            log.error("projectionFailed", "Bidding bid-book projection failed", {
-                collectionSlug,
-                reason,
-                ...toErrorLogFields(error),
-            });
+            const errorMessage = projectionErrorMessage(error);
+            try {
+                // Persist projection failure state so source selection and UI diagnostics see the error.
+                await this.projectionPort.recordCollectionBidBookError({
+                    snapshot,
+                    reason,
+                    errorMessage,
+                    durationMs: state.lastCompletedAt - startedAt,
+                });
+            } catch (recordError: unknown) {
+                log.error(
+                    "projectionErrorRecordFailed",
+                    "Failed to record bidding bid-book projection error",
+                    {
+                        collectionSlug,
+                        reason,
+                        ...toErrorLogFields(recordError),
+                    },
+                );
+            }
+            log.error(
+                "projectionFailed",
+                "Bidding bid-book projection failed",
+                {
+                    collectionSlug,
+                    reason,
+                    ...toErrorLogFields(error),
+                },
+            );
         } finally {
             state.running = false;
         }
@@ -151,4 +191,8 @@ function mergeReasons(existing: string | undefined, incoming: string): string {
     }
 
     return `${existing} || ${incoming}`;
+}
+
+function projectionErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
 }

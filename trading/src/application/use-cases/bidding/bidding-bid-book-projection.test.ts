@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import {
     BiddingBidBookProjectionScheduler,
+    type BiddingBidBookProjectionErrorInput,
     type BiddingBidBookProjectionPort,
 } from "./bidding-bid-book-projection.js";
 import type { CollectionOfferSnapshot } from "./collection-offer-snapshot-service.js";
@@ -9,7 +10,9 @@ import type { CollectionOfferSnapshot } from "./collection-offer-snapshot-servic
 class FakeProjectionPort implements BiddingBidBookProjectionPort {
     public calls: Array<{ snapshot: CollectionOfferSnapshot; reason: string }> =
         [];
+    public errors: BiddingBidBookProjectionErrorInput[] = [];
     public gate: Promise<void> | null = null;
+    public failure: Error | null = null;
 
     async replaceCollectionBidBook(
         snapshot: CollectionOfferSnapshot,
@@ -19,11 +22,20 @@ class FakeProjectionPort implements BiddingBidBookProjectionPort {
         if (this.gate) {
             await this.gate;
         }
+        if (this.failure) {
+            throw this.failure;
+        }
         return {
             collectionSlug: snapshot.collectionSlug,
             rowCount: snapshot.offers.length,
             durationMs: 1,
         };
+    }
+
+    async recordCollectionBidBookError(
+        input: BiddingBidBookProjectionErrorInput,
+    ): Promise<void> {
+        this.errors.push(input);
     }
 }
 
@@ -57,6 +69,26 @@ describe("BiddingBidBookProjectionScheduler", () => {
             projection.calls[1]?.reason,
             "stream || poll cadence",
         );
+    });
+
+    it("records projection failures through the projection port", async () => {
+        const projection = new FakeProjectionPort();
+        projection.failure = new Error("projection exploded");
+        const scheduler = new BiddingBidBookProjectionScheduler(projection, 10);
+
+        scheduler.requestProjection(makeSnapshot("first"), "poll cadence");
+        await sleep(10);
+        scheduler.stop();
+
+        assert.equal(projection.calls.length, 1);
+        assert.equal(projection.errors.length, 1);
+        assert.equal(
+            projection.errors[0]?.snapshot.collectionSlug,
+            "terraforms",
+        );
+        assert.equal(projection.errors[0]?.reason, "poll cadence");
+        assert.equal(projection.errors[0]?.errorMessage, "projection exploded");
+        assert.ok((projection.errors[0]?.durationMs ?? -1) >= 0);
     });
 });
 
