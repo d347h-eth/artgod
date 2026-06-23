@@ -10,6 +10,7 @@
 	import BidBookTraitList from '$lib/components/BidBookTraitList.svelte';
 	import FilterIcon from '$lib/components/FilterIcon.svelte';
 	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
+	import { bidBookUpdateFlash } from '$lib/bid-book-update-flash';
 	import { TEST_IDS } from '$lib/test-ids';
 
 	type MaybePromise<T> = T | Promise<T>;
@@ -25,7 +26,8 @@
 		onFilterGroup,
 		onSetHighlighted,
 		onClearHighlighted,
-		TraitDemandGroupPreview = null
+		TraitDemandGroupPreview = null,
+		flashKey = null
 	}: {
 		tabs: BidBookDemandTableTab[];
 		groups: BidBookDemandTableGroup[];
@@ -37,6 +39,7 @@
 		onSetHighlighted: (row: BidBookDemandTableRow) => void;
 		onClearHighlighted: () => void;
 		TraitDemandGroupPreview?: Component<BidBookTraitDemandGroupPreviewProps> | null;
+		flashKey?: string | null;
 	} = $props();
 
 	function selectGroupBid(group: BidBookDemandTableGroup): void {
@@ -171,6 +174,7 @@
 							class:bid-book-own-row={row.bid.maker.isOwn}
 							class:bid-book-muted-row={row.muted}
 							hidden={row.hidden}
+							use:bidBookUpdateFlash={row.bid.maker.isOwn ? flashKey : null}
 						>
 							<BidBookPriceCell
 								bid={row.bid}

@@ -2,8 +2,13 @@ import { TRADING_BIDDING_BID_BOOK_SOURCE } from '@artgod/shared/types';
 import type { ApiBiddingBidBook } from '$lib/api-types';
 import { formatCompactRelativeTime, formatRfc3339 } from '$lib/compact-time-display';
 
-// Refreshes bid-book relative freshness labels without coupling them to data polling cadence.
-export const BID_BOOK_FRESHNESS_RELATIVE_TIME_TICK_MS = 30_000;
+// Refreshes bid-book metadata labels, including short live-refresh countdowns.
+export const BID_BOOK_METADATA_RELATIVE_TIME_TICK_MS = 1_000;
+
+const BID_BOOK_REFRESH_SIGNAL_KEY_PART = {
+	NoFreshness: 'no-freshness',
+	NoProjection: 'no-projection'
+} as const;
 
 // Converts bid-book source internals into the user-facing refresh pace label.
 export function bidBookRefreshPaceLabel(source: ApiBiddingBidBook['state']['source']): string {
@@ -41,4 +46,24 @@ export function formatBidBookFreshness(state: ApiBiddingBidBook['state'], nowMs:
 export function bidBookFreshnessTitle(state: ApiBiddingBidBook['state']): string | undefined {
 	const freshnessMs = bidBookFreshnessTimestampMs(state);
 	return freshnessMs === null ? undefined : formatRfc3339(freshnessMs);
+}
+
+// Formats the scheduled live-refresh countdown for bid-book metadata rows.
+export function formatBidBookNextUpdate(nextUpdateAtMs: number | null, nowMs: number): string {
+	return nextUpdateAtMs === null ? '-' : formatCompactRelativeTime(nextUpdateAtMs, nowMs);
+}
+
+// Formats the scheduled live-refresh timestamp as UTC for native title tooltips.
+export function bidBookNextUpdateTitle(nextUpdateAtMs: number | null): string | undefined {
+	return nextUpdateAtMs === null ? undefined : formatRfc3339(nextUpdateAtMs);
+}
+
+// Provides a stable signal for UI effects and target lookups when bid-book data advances.
+export function bidBookRefreshSignalKey(state: ApiBiddingBidBook['state']): string {
+	return [
+		state.source,
+		bidBookFreshnessTimestampMs(state) ?? BID_BOOK_REFRESH_SIGNAL_KEY_PART.NoFreshness,
+		state.projectedAt ?? BID_BOOK_REFRESH_SIGNAL_KEY_PART.NoProjection,
+		state.rowCount
+	].join(':');
 }

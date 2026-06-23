@@ -23,6 +23,8 @@
 		'Mathcastles Remix', 'Noto Mathcastles Remix', 'Courier New', 'Monaco', 'Menlo', monospace;
 	/* Shared compact gap for adjacent top-action buttons and button-like controls. */
 	--control-button-gap: 0.35rem;
+	/* Shared fill for own bid rows and bid-book update flashes. */
+	--bid-book-own-row-background: color-mix(in srgb, var(--c-yellow) 12%, transparent);
 }
 
 * {
@@ -1940,7 +1942,15 @@ th {
 }
 
 .bid-book-own-row {
-	background: color-mix(in srgb, var(--c-yellow) 12%, transparent);
+	background: var(--bid-book-own-row-background);
+}
+
+.bid-book-update-chip {
+	display: inline-flex;
+	align-items: baseline;
+	min-width: 3ch;
+	padding: 0 0.25rem;
+	background: var(--bid-book-own-row-background);
 }
 
 .bid-book-muted-row {

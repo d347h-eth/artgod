@@ -2,32 +2,39 @@
 	import { onMount } from 'svelte';
 	import type { ApiBiddingBidBook } from '$lib/api-types';
 	import {
-		BID_BOOK_FRESHNESS_RELATIVE_TIME_TICK_MS,
+		BID_BOOK_METADATA_RELATIVE_TIME_TICK_MS,
 		bidBookFreshnessTitle,
+		bidBookNextUpdateTitle,
+		bidBookRefreshSignalKey,
 		bidBookRefreshPaceLabel,
 		bidBookRefreshPaceTitle,
-		formatBidBookFreshness
+		formatBidBookFreshness,
+		formatBidBookNextUpdate
 	} from '$lib/bidding-bid-book-source';
 	import type { BidBookOwnStatusBadge } from '$lib/bidding-bid-book-own-status';
+	import { bidBookUpdateFlash } from '$lib/bid-book-update-flash';
 
 	let {
 		bidBook,
+		nextUpdateAtMs = null,
 		ownStateBadges = [],
 		showTraitDemandView = false,
 		displayedDemandGroupCount = 0
 	}: {
 		bidBook: ApiBiddingBidBook;
+		nextUpdateAtMs?: number | null;
 		ownStateBadges?: BidBookOwnStatusBadge[];
 		showTraitDemandView?: boolean;
 		displayedDemandGroupCount?: number;
 	} = $props();
 
 	let freshnessNowMs = $state(Date.now());
+	const bidBookFlashKey = $derived(bidBookRefreshSignalKey(bidBook.state));
 
 	onMount(() => {
 		const timer = window.setInterval(() => {
 			freshnessNowMs = Date.now();
-		}, BID_BOOK_FRESHNESS_RELATIVE_TIME_TICK_MS);
+		}, BID_BOOK_METADATA_RELATIVE_TIME_TICK_MS);
 		return () => window.clearInterval(timer);
 	});
 </script>
@@ -52,8 +59,22 @@
 		{/if}
 		<div>
 			<span class="runtime-k">last updated</span>
-			<span class="runtime-v mono" title={bidBookFreshnessTitle(bidBook.state)}>
+			<span
+				class="runtime-v mono bid-book-update-chip"
+				title={bidBookFreshnessTitle(bidBook.state)}
+				use:bidBookUpdateFlash={bidBookFlashKey}
+			>
 				{formatBidBookFreshness(bidBook.state, freshnessNowMs)}
+			</span>
+		</div>
+		<div>
+			<span class="runtime-k">next update</span>
+			<span
+				class="runtime-v mono bid-book-update-chip"
+				title={bidBookNextUpdateTitle(nextUpdateAtMs)}
+				use:bidBookUpdateFlash={nextUpdateAtMs}
+			>
+				{formatBidBookNextUpdate(nextUpdateAtMs, freshnessNowMs)}
 			</span>
 		</div>
 		{#if ownStateBadges.length > 0}

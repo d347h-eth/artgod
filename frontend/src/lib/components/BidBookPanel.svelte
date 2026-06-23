@@ -28,6 +28,7 @@
 		bidBookPriceEffectiveEth,
 		bidBookRowEffectivePriceWei
 	} from '$lib/bidding-bid-book-price';
+	import { bidBookRefreshSignalKey } from '$lib/bidding-bid-book-source';
 	import { ownBiddingJobStateBadges } from '$lib/bidding-bid-book-own-status';
 	import type { BidBookTraitValueHref } from '$lib/bidding-bid-book-display';
 	import { trimBidBookTraitText } from '$lib/bidding-bid-book-display';
@@ -70,6 +71,7 @@
 	let {
 		bidBook,
 		job = null,
+		nextUpdateAtMs = null,
 		showScope = false,
 		showRowActions = true,
 		showMuted = false,
@@ -88,6 +90,7 @@
 	}: {
 		bidBook: ApiBiddingBidBook;
 		job?: ApiBiddingJob | null;
+		nextUpdateAtMs?: number | null;
 		showScope?: boolean;
 		showRowActions?: boolean;
 		showMuted?: boolean;
@@ -125,6 +128,7 @@
 		bidBookExpanded ? visibleBids : collapsedBids
 	);
 	const ownStateBadges = $derived(ownBiddingJobStateBadges(job, bidBook));
+	const bidBookFlashKey = $derived(bidBookRefreshSignalKey(bidBook.state));
 	const demandGroups = $derived(resolveDemandGroups(visibleBids));
 	const demandTraitTabs = $derived(resolveDemandTraitTabs(demandGroups));
 	const demandTableTabs = $derived(resolveDemandTableTabs(demandTraitTabs));
@@ -891,7 +895,13 @@
 
 </script>
 
-<BidBookMetaBar {bidBook} {ownStateBadges} {showTraitDemandView} {displayedDemandGroupCount} />
+<BidBookMetaBar
+	{bidBook}
+	{nextUpdateAtMs}
+	{ownStateBadges}
+	{showTraitDemandView}
+	{displayedDemandGroupCount}
+/>
 
 {#if visibleBids.length === 0}
 	<section class="bid-book-table-panel">
@@ -908,6 +918,7 @@
 		onFilterGroup={filterDemandTableGroup}
 		onSetHighlighted={setHighlightedDemandRowMaker}
 		onClearHighlighted={clearHighlightedMaker}
+		flashKey={bidBookFlashKey}
 		{TraitDemandGroupPreview}
 	/>
 {:else}
@@ -924,5 +935,6 @@
 		onFilterTraitBid={filterRowsTableTraitBid}
 		onSetHighlighted={setHighlightedRowMaker}
 		onClearHighlighted={clearHighlightedMaker}
+		flashKey={bidBookFlashKey}
 	/>
 {/if}

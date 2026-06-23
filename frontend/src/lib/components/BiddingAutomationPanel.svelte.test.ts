@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import {
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+	TRADING_BIDDING_BID_BOOK_SOURCE,
 	TRADING_BIDDING_BID_SCOPE_KIND,
+	TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
+	TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
 	TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
 	TRADING_BIDDING_TIER_SELECTION_MODE,
 	TRADING_JOB_TARGET_KIND,
@@ -131,7 +134,7 @@ describe('BiddingAutomationPanel', () => {
 				job: testTokenJob(TRADING_JOB_STATUS.Enabled),
 				bidBook: {
 					state: {
-						source: 'bot_snapshot',
+						source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
 						updatedAt: null,
 						snapshotRefreshedAtMs: null,
 						projectedAt: null,
@@ -143,7 +146,7 @@ describe('BiddingAutomationPanel', () => {
 					bids: [
 						{
 							orderId: '0xown-token',
-							source: 'bot_snapshot',
+							source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
 							materialization: {
 								kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid,
 								jobId: null,
@@ -190,6 +193,78 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).toContain('>state<');
 		expect(body).toContain('>winning</span>');
 		expect(body).toContain('>hit ceiling</span>');
+		expect(body).not.toContain('>queued</span>');
+	});
+
+	it('uses bid-book row state over stale panel job lifecycle badges', () => {
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: testChain(),
+				collection: testCollection(),
+				token: testToken(),
+				job: testTokenJob(TRADING_JOB_STATUS.Paused),
+				bidBook: {
+					state: {
+						source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+						updatedAt: null,
+						snapshotRefreshedAtMs: null,
+						projectedAt: null,
+						rowCount: 1,
+						durationMs: null,
+						lastError: null
+					},
+					ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+					bids: [
+						{
+							orderId: '0xown-token',
+							source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+							materialization: {
+								kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid,
+								jobId: null,
+								status: null,
+								phase: null
+							},
+							scope: {
+								kind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+								label: '#1',
+								tokenId: '1',
+								traits: []
+							},
+							maker: {
+								address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+								label: 'You',
+								isOwn: true
+							},
+							price: exactPrice('200000000000000000', '0.2'),
+							quantity: '1',
+							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+							currencySymbol: 'WETH',
+							protocolAddress: null,
+							validUntil: 1_900_000_000,
+							placedAt: '2026-01-02T00:00:00Z',
+							snapshotRefreshedAtMs: null,
+							seenAt: '2026-01-02T00:00:00Z',
+							ownStatus: {
+								position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+								constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+								job: {
+									jobId: 'job-token-1',
+									revision: 3,
+									status: TRADING_JOB_STATUS.Enabled
+								}
+							}
+						}
+					]
+				},
+				onClose: () => {},
+				onJobChange: () => {}
+			}
+		});
+
+		expect(body).toContain('>losing</span>');
+		expect(body).toContain('>hit ceiling</span>');
+		expect(body).not.toContain('>paused</span>');
 		expect(body).not.toContain('>queued</span>');
 	});
 

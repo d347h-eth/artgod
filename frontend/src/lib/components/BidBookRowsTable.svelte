@@ -5,6 +5,7 @@
 	import BidBookTraitList from '$lib/components/BidBookTraitList.svelte';
 	import FilterIcon from '$lib/components/FilterIcon.svelte';
 	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
+	import { bidBookUpdateFlash } from '$lib/bid-book-update-flash';
 	import { TEST_IDS } from '$lib/test-ids';
 
 	type MaybePromise<T> = T | Promise<T>;
@@ -21,7 +22,8 @@
 		onSelectBid,
 		onFilterTraitBid,
 		onSetHighlighted,
-		onClearHighlighted
+		onClearHighlighted,
+		flashKey = null
 	}: {
 		rows: BidBookRowsTableRow[];
 		showScope: boolean;
@@ -35,6 +37,7 @@
 		onFilterTraitBid: (row: BidBookRowsTableRow) => MaybePromise<void>;
 		onSetHighlighted: (row: BidBookRowsTableRow) => void;
 		onClearHighlighted: () => void;
+		flashKey?: string | null;
 	} = $props();
 
 	function selectBid(row: BidBookRowsTableRow): void {
@@ -99,6 +102,7 @@
 						class:bid-book-own-row={row.bid.maker.isOwn}
 						class:bid-book-muted-row={row.muted}
 						hidden={row.hidden}
+						use:bidBookUpdateFlash={row.bid.maker.isOwn ? flashKey : null}
 					>
 						<BidBookPriceCell
 							bid={row.bid}

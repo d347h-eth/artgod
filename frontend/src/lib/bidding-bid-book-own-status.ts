@@ -62,9 +62,6 @@ export function ownBiddingJobStateBadges(
 	if (!job || job.status === TRADING_JOB_STATUS.Archived) {
 		return [];
 	}
-	if (job.status === TRADING_JOB_STATUS.Paused) {
-		return [ownJobIntentPhaseBadge(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused)];
-	}
 
 	const marketBid = bidBook?.bids.find(
 		(bid) => bid.maker.isOwn && bid.ownStatus?.job?.jobId === job.jobId
@@ -81,6 +78,10 @@ export function ownBiddingJobStateBadges(
 	);
 	if (ownIntentBid) {
 		return ownBidStatusBadges(ownIntentBid);
+	}
+
+	if (job.status === TRADING_JOB_STATUS.Paused) {
+		return [ownJobIntentPhaseBadge(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused)];
 	}
 
 	return [ownJobIntentPhaseBadge(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued)];

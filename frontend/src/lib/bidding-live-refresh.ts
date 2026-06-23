@@ -47,6 +47,7 @@ export type BiddingOffersLiveRefreshHandle = {
 type BiddingOffersLiveRefreshOptions = {
 	refresh: () => Promise<unknown> | unknown;
 	intervalMs: () => number;
+	onNextUpdate?: (nextUpdateAtMs: number | null) => void;
 };
 
 // Chooses the live-poll cadence from the bid-book source selected by the backend read model.
@@ -61,7 +62,8 @@ export function biddingOffersLivePollIntervalMs(
 // Poll the current offers page without overlapping backend refreshes.
 export function startBiddingOffersLiveRefresh({
 	refresh,
-	intervalMs
+	intervalMs,
+	onNextUpdate
 }: BiddingOffersLiveRefreshOptions): BiddingOffersLiveRefreshHandle {
 	let stopped = false;
 	let refreshInFlight = false;
@@ -69,9 +71,11 @@ export function startBiddingOffersLiveRefresh({
 
 	const scheduleNext = (): void => {
 		if (stopped) return;
+		const delayMs = intervalMs();
+		onNextUpdate?.(Date.now() + delayMs);
 		timer = setTimeout(() => {
 			void runScheduledRefresh();
-		}, intervalMs());
+		}, delayMs);
 	};
 
 	const refreshNow = async (): Promise<void> => {
@@ -97,6 +101,7 @@ export function startBiddingOffersLiveRefresh({
 		refreshNow,
 		stop() {
 			stopped = true;
+			onNextUpdate?.(null);
 			if (timer) {
 				clearTimeout(timer);
 				timer = null;

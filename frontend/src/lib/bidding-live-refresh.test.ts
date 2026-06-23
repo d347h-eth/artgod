@@ -39,6 +39,25 @@ describe('bidding live refresh', () => {
 		refresh.stop();
 	});
 
+	it('publishes the next scheduled refresh timestamp', async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+		const nextUpdate = vi.fn();
+		const refresh = startBiddingOffersLiveRefresh({
+			refresh: vi.fn().mockResolvedValue(undefined),
+			intervalMs: () => 100,
+			onNextUpdate: nextUpdate
+		});
+
+		expect(nextUpdate).toHaveBeenLastCalledWith(Date.parse('2026-01-01T00:00:00.100Z'));
+
+		await vi.advanceTimersByTimeAsync(100);
+
+		expect(nextUpdate).toHaveBeenLastCalledWith(Date.parse('2026-01-01T00:00:00.200Z'));
+		refresh.stop();
+		expect(nextUpdate).toHaveBeenLastCalledWith(null);
+	});
+
 	it('does not overlap slow refreshes', async () => {
 		vi.useFakeTimers();
 		let resolveRefresh = (): void => {};

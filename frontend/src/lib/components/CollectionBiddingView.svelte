@@ -30,11 +30,14 @@
 		nextCollectionBiddingBidScopeFilter
 	} from '$lib/bidding-query';
 	import {
-		BID_BOOK_FRESHNESS_RELATIVE_TIME_TICK_MS,
+		BID_BOOK_METADATA_RELATIVE_TIME_TICK_MS,
 		bidBookFreshnessTitle,
+		bidBookNextUpdateTitle,
+		bidBookRefreshSignalKey,
 		bidBookRefreshPaceLabel,
 		bidBookRefreshPaceTitle,
-		formatBidBookFreshness
+		formatBidBookFreshness,
+		formatBidBookNextUpdate
 	} from '$lib/bidding-bid-book-source';
 	import {
 		biddingOffersLivePollIntervalMs,
@@ -45,6 +48,7 @@
 	import { resolveBiddingTokenActionLabel } from '$lib/bidding-selection-actions';
 	import { bidBookPriceEffectiveWei } from '$lib/bidding-bid-book-price';
 	import { ownBidStatusBadges, type BidBookOwnStatusBadge } from '$lib/bidding-bid-book-own-status';
+	import { bidBookUpdateFlash } from '$lib/bid-book-update-flash';
 	import { writeCollectionBiddingNavigationPreference } from '$lib/bidding-navigation-preferences';
 	import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
 	import { getCollectionBiddingBidBook } from '$lib/backend-api';
@@ -199,6 +203,7 @@
 	let biddingContentElement = $state<HTMLDivElement | null>(null);
 	let liveRefreshRequestId = 0;
 	let bidBookFreshnessNowMs = $state(Date.now());
+	let bidBookNextUpdateAtMs = $state<number | null>(null);
 	let refreshedTokenOfferWindow: PaginationWindowState<ApiBiddingTokenOfferCard> | null = null;
 
 	const hasActiveTraitFilters = $derived(activeTraits.length > 0 || activeTraitRanges.length > 0);
@@ -239,6 +244,7 @@
 		describeBiddingAutomationSelection(currentBiddingSelection)
 	);
 	const ownMakerAddress = $derived(activeBidBook.ownMakerAddress);
+	const bidBookFlashKey = $derived(bidBookRefreshSignalKey(activeBidBook.state));
 	const biddingFilterKey = $derived(activeBiddingFilterKey());
 	const canBidOnTraits = $derived(
 		canDraftTraitJobFromFilters({
@@ -270,11 +276,14 @@
 	onMount(() => {
 		const refresh = startBiddingOffersLiveRefresh({
 			refresh: () => refreshCollectionBiddingData(),
-			intervalMs: () => biddingOffersLivePollIntervalMs(activeBidBook.state.source)
+			intervalMs: () => biddingOffersLivePollIntervalMs(activeBidBook.state.source),
+			onNextUpdate: (nextUpdateAtMs) => {
+				bidBookNextUpdateAtMs = nextUpdateAtMs;
+			}
 		});
 		const freshnessTimer = window.setInterval(() => {
 			bidBookFreshnessNowMs = Date.now();
-		}, BID_BOOK_FRESHNESS_RELATIVE_TIME_TICK_MS);
+		}, BID_BOOK_METADATA_RELATIVE_TIME_TICK_MS);
 		return () => {
 			refresh.stop();
 			window.clearInterval(freshnessTimer);
@@ -962,6 +971,7 @@
 {#snippet bidBookPanel()}
 	<BidBookPanel
 		bidBook={activeBidBook}
+		nextUpdateAtMs={bidBookNextUpdateAtMs}
 		showScope={bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection}
 		view={bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits ? 'trait-demand' : 'rows'}
 		{showMuted}
@@ -1140,8 +1150,22 @@
 								</div>
 								<div>
 									<span class="runtime-k">last updated</span>
-									<span class="runtime-v mono" title={bidBookFreshnessTitle(activeBidBook.state)}>
+									<span
+										class="runtime-v mono bid-book-update-chip"
+										title={bidBookFreshnessTitle(activeBidBook.state)}
+										use:bidBookUpdateFlash={bidBookFlashKey}
+									>
 										{formatBidBookFreshness(activeBidBook.state, bidBookFreshnessNowMs)}
+									</span>
+								</div>
+								<div>
+									<span class="runtime-k">next update</span>
+									<span
+										class="runtime-v mono bid-book-update-chip"
+										title={bidBookNextUpdateTitle(bidBookNextUpdateAtMs)}
+										use:bidBookUpdateFlash={bidBookNextUpdateAtMs}
+									>
+										{formatBidBookNextUpdate(bidBookNextUpdateAtMs, bidBookFreshnessNowMs)}
 									</span>
 								</div>
 							</div>

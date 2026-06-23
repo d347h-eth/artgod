@@ -32,6 +32,7 @@
 		resolveInitialBiddingAutomationPriceTierId,
 		resolveInitialBiddingAutomationPricingMode,
 		resolveInitialBiddingAutomationStatus,
+		resolveBiddingAutomationPanelTargetLookupRequestKey,
 		resolveLoadedBiddingAutomationPanelKey
 	} from '$lib/bidding-automation-panel-state';
 	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
@@ -117,6 +118,7 @@
 	let nowMs = $state(Date.now());
 	let armedAction = $state<ConfirmableBiddingAction | null>(null);
 	let targetLookupKey = $state('');
+	let targetLookupRequestKey = $state('');
 	let targetLookupJob = $state<ApiBiddingJob | null>(null);
 
 	const hasExistingJob = $derived(currentJob !== null);
@@ -325,11 +327,18 @@
 			collection,
 			draft
 		});
-		if (nextLookupKey === targetLookupKey) {
+		const nextLookupRequestKey = resolveBiddingAutomationPanelTargetLookupRequestKey({
+			targetLookupKey: nextLookupKey,
+			bidBook
+		});
+		if (nextLookupRequestKey === targetLookupRequestKey) {
 			return;
 		}
+		if (nextLookupKey !== targetLookupKey) {
+			targetLookupJob = null;
+		}
 		targetLookupKey = nextLookupKey;
-		targetLookupJob = null;
+		targetLookupRequestKey = nextLookupRequestKey;
 		if (!nextLookupKey) {
 			return;
 		}
@@ -342,11 +351,17 @@
 				collection,
 				draft
 			});
-			if (targetLookupKey === nextLookupKey) {
+			if (
+				targetLookupKey === nextLookupKey &&
+				targetLookupRequestKey === nextLookupRequestKey
+			) {
 				targetLookupJob = lookedUpJob;
 			}
 		} catch (error) {
-			if (targetLookupKey === nextLookupKey) {
+			if (
+				targetLookupKey === nextLookupKey &&
+				targetLookupRequestKey === nextLookupRequestKey
+			) {
 				saveError = error instanceof Error ? error.message : 'failed to look up bidding job';
 			}
 		}
