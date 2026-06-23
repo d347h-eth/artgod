@@ -29,6 +29,11 @@ For release signing procurement and CI secret setup, see:
 
 - `docs/desktop/04-release-signing-runbook.md`
 
+For detailed Linux GPG release-key setup, rotation, and GitHub Actions secret
+handling, see:
+
+- `docs/desktop/05-linux-gpg-release-signing.md`
+
 ## Scope and Goals
 
 The desktop build/runtime pipeline is designed to:
@@ -585,6 +590,8 @@ Release secrets expected by CI:
     - `LINUX_GPG_PASSPHRASE`
     - `LINUX_GPG_KEY_ID`
     - optional: `LINUX_GPG_OWNERTRUST`
+  Detailed key-generation, subkey, rotation, and compromise-response guidance
+  is in `docs/desktop/05-linux-gpg-release-signing.md`.
 - macOS:
     - `APPLE_CERTIFICATE` (base64 `.p12`)
     - `APPLE_CERTIFICATE_PASSWORD`

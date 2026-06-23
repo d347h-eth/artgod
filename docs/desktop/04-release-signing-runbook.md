@@ -61,6 +61,7 @@ Recommended first purchase path:
   vendor's cloud-signing or hardware-token flow.
 - Linux: do not buy a platform certificate. Use a dedicated release GPG key and
   publish the public key/fingerprint on stable maintainer-controlled profiles.
+  Detailed setup is in `docs/desktop/05-linux-gpg-release-signing.md`.
 
 ## Current Tauri State
 
@@ -378,10 +379,22 @@ Linux release trust is repository-local rather than platform-vendor trust.
 Use a dedicated release GPG key and publish the public key/fingerprint on stable
 profiles controlled by the maintainer.
 
+Detailed Ubuntu setup, CI secret configuration, multi-key tradeoffs, rotation,
+and compromise response are documented in:
+
+- `docs/desktop/05-linux-gpg-release-signing.md`
+
+Recommended key model:
+
+- Preferred: offline project primary key plus one CI-exported Linux release
+  signing subkey.
+- Simpler fallback: one dedicated Linux release key exported into GitHub
+  Actions secrets.
+
 Recommended procedure:
 
-1. Generate a dedicated signing key used only for ArtGod releases.
-2. Protect it with a strong passphrase.
+1. Generate the chosen release key material on the maintainer's Ubuntu machine.
+2. Protect every private key export with a strong passphrase.
 3. Publish the public key and full fingerprint on the project README, GitHub
    profile, and any stable personal/project site.
 4. Store GitHub Actions secrets:
@@ -390,16 +403,6 @@ Recommended procedure:
    - `LINUX_GPG_KEY_ID`
    - optional `LINUX_GPG_OWNERTRUST`
 5. Test verification from a clean machine before the first public tag.
-
-Example commands:
-
-```sh
-gpg --quick-gen-key "ArtGod Release Signing <release@example.invalid>" ed25519 sign 2y
-gpg --list-secret-keys --keyid-format long
-gpg --armor --export <key-id> > artgod-release-signing-public.asc
-gpg --armor --export-secret-keys <key-id> > artgod-release-signing-private.asc
-gpg --export-ownertrust > artgod-release-signing-ownertrust.txt
-```
 
 Consumer verification:
 

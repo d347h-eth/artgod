@@ -119,6 +119,8 @@ Desktop, deploy, and operations:
   workflow and generated env artifacts.
 - `docs/desktop/04-release-signing-runbook.md`: desktop signing, notarization,
   release secrets, and verification runbook.
+- `docs/desktop/05-linux-gpg-release-signing.md`: dedicated Linux release GPG
+  key setup and CI signing flow.
 - `docs/deploy/01-web-hosted-read-only.md`: public read-only hosted deployment
   shape.
 - `docs/indexer/10-observability-and-metrics.md`: logs, metrics, traces,
