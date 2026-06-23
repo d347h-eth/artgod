@@ -492,6 +492,8 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                 });
 
                 if (existing) {
+                    const cancellationPayload =
+                        this.biddingJobCancellationCommandPayload(existing);
                     this.updateTradingJobById.run({
                         jobId: existing.jobId,
                         status: transactionInput.status,
@@ -513,24 +515,25 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                         job.status === TRADING_JOB_STATUS.Paused
                             ? TRADING_JOB_COMMAND_KIND.JobPaused
                             : TRADING_JOB_COMMAND_KIND.JobUpdated;
-                    const commands = [
-                        this.insertCommandRecord(
-                            job.jobId,
-                            commandKind,
-                            job.revision,
-                            this.collectionJobCommandPayload(job),
-                        ),
-                    ];
+                    const commands: TradingJobCommandRecord[] = [];
                     if (job.status === TRADING_JOB_STATUS.Paused) {
                         commands.push(
                             this.insertCommandRecord(
                                 job.jobId,
                                 TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
                                 job.revision,
-                                this.collectionJobCommandPayload(job),
+                                cancellationPayload,
                             ),
                         );
                     }
+                    commands.push(
+                        this.insertCommandRecord(
+                            job.jobId,
+                            commandKind,
+                            job.revision,
+                            this.collectionJobCommandPayload(job),
+                        ),
+                    );
                     return { job, commands };
                 }
 
@@ -680,26 +683,28 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             return null;
         }
 
+        const cancellationPayload =
+            this.biddingJobCancellationCommandPayload(existing);
         this.archiveTradingJobById.run({ jobId: existing.jobId });
         this.clearRuntimeStateForDeclarationChange(existing.jobId);
 
         const job = this.requireBiddingJobById(existing.jobId);
         const payload = this.biddingJobCommandPayload(job);
+        const cancelCommand = this.insertCommandRecord(
+            job.jobId,
+            TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            job.revision,
+            cancellationPayload,
+        );
         const archivedCommand = this.insertCommandRecord(
             job.jobId,
             TRADING_JOB_COMMAND_KIND.JobArchived,
             job.revision,
             payload,
         );
-        const cancelCommand = this.insertCommandRecord(
-            job.jobId,
-            TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
-            job.revision,
-            payload,
-        );
         return {
             job,
-            commands: [archivedCommand, cancelCommand],
+            commands: [cancelCommand, archivedCommand],
         };
     }
 
@@ -719,6 +724,8 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             return null;
         }
 
+        const cancellationPayload =
+            this.biddingJobCancellationCommandPayload(existing);
         this.updateTradingJobById.run({
             jobId: existing.jobId,
             status: existing.status,
@@ -740,24 +747,25 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             job.status === TRADING_JOB_STATUS.Paused
                 ? TRADING_JOB_COMMAND_KIND.JobPaused
                 : TRADING_JOB_COMMAND_KIND.JobUpdated;
-        const commands = [
-            this.insertCommandRecord(
-                job.jobId,
-                commandKind,
-                job.revision,
-                payload,
-            ),
-        ];
+        const commands: TradingJobCommandRecord[] = [];
         if (job.status === TRADING_JOB_STATUS.Paused) {
             commands.push(
                 this.insertCommandRecord(
                     job.jobId,
                     TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
                     job.revision,
-                    payload,
+                    cancellationPayload,
                 ),
             );
         }
+        commands.push(
+            this.insertCommandRecord(
+                job.jobId,
+                commandKind,
+                job.revision,
+                payload,
+            ),
+        );
         return { job, commands };
     }
 
@@ -785,6 +793,8 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         });
 
         if (existing) {
+            const cancellationPayload =
+                this.biddingJobCancellationCommandPayload(existing);
             this.updateTradingJobById.run({
                 jobId: existing.jobId,
                 status: transactionInput.status,
@@ -806,24 +816,25 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                 job.status === TRADING_JOB_STATUS.Paused
                     ? TRADING_JOB_COMMAND_KIND.JobPaused
                     : TRADING_JOB_COMMAND_KIND.JobUpdated;
-            const commands = [
-                this.insertCommandRecord(
-                    job.jobId,
-                    commandKind,
-                    job.revision,
-                    this.tokenJobCommandPayload(job),
-                ),
-            ];
+            const commands: TradingJobCommandRecord[] = [];
             if (job.status === TRADING_JOB_STATUS.Paused) {
                 commands.push(
                     this.insertCommandRecord(
                         job.jobId,
                         TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
                         job.revision,
-                        this.tokenJobCommandPayload(job),
+                        cancellationPayload,
                     ),
                 );
             }
+            commands.push(
+                this.insertCommandRecord(
+                    job.jobId,
+                    commandKind,
+                    job.revision,
+                    this.tokenJobCommandPayload(job),
+                ),
+            );
             return { job, commands };
         }
 
@@ -935,6 +946,30 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             return this.tokenJobCommandPayload(job);
         }
         return this.collectionJobCommandPayload(job);
+    }
+
+    private biddingJobCancellationCommandPayload(
+        job: PersistedBiddingJobRecord,
+    ): Record<string, unknown> {
+        return {
+            ...this.biddingJobCommandPayload(job),
+            ...this.biddingJobRuntimeCommandPayload(job),
+        };
+    }
+
+    private biddingJobRuntimeCommandPayload(
+        job: PersistedBiddingJobRecord,
+    ): Record<string, unknown> {
+        if (!job.runtime?.activeOrderId) {
+            return {};
+        }
+
+        return {
+            activeOrderId: job.runtime.activeOrderId,
+            activeProtocolAddress: job.runtime.activeProtocolAddress,
+            currentPriceWei: job.runtime.currentPriceWei,
+            activeExpirationTimeMs: job.runtime.activeExpirationTimeMs,
+        };
     }
 
     private persistedJobTarget(

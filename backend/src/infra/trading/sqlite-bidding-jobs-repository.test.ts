@@ -315,9 +315,14 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.deepEqual(
             updated.commands.map((command) => command.commandKind),
             [
-                TRADING_JOB_COMMAND_KIND.JobPaused,
                 TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+                TRADING_JOB_COMMAND_KIND.JobPaused,
             ],
+        );
+        assert.equal(updated.commands[0]?.payload.activeOrderId, "0xactive-order");
+        assert.equal(
+            updated.commands[0]?.payload.activeProtocolAddress,
+            "0x00000000006c3852cbef3e08e8df289169ede581",
         );
         assert.equal(updated.commands[0]?.requestedRevision, 2);
 
@@ -326,8 +331,8 @@ describe("SqliteBiddingJobsRepository", () => {
             pendingCommands.map((command) => command.commandKind),
             [
                 TRADING_JOB_COMMAND_KIND.JobCreated,
-                TRADING_JOB_COMMAND_KIND.JobPaused,
                 TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+                TRADING_JOB_COMMAND_KIND.JobPaused,
             ],
         );
     });
@@ -382,8 +387,8 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.deepEqual(
             updated.commands.map((command) => command.commandKind),
             [
-                TRADING_JOB_COMMAND_KIND.JobPaused,
                 TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+                TRADING_JOB_COMMAND_KIND.JobPaused,
             ],
         );
 
@@ -485,8 +490,8 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.deepEqual(
             archived?.commands.map((command) => command.commandKind),
             [
-                TRADING_JOB_COMMAND_KIND.JobArchived,
                 TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+                TRADING_JOB_COMMAND_KIND.JobArchived,
             ],
         );
 
@@ -508,8 +513,8 @@ describe("SqliteBiddingJobsRepository", () => {
             pendingCommands.map((command) => command.commandKind),
             [
                 TRADING_JOB_COMMAND_KIND.JobCreated,
-                TRADING_JOB_COMMAND_KIND.JobArchived,
                 TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+                TRADING_JOB_COMMAND_KIND.JobArchived,
             ],
         );
     });
@@ -540,8 +545,8 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.deepEqual(
             archived?.commands.map((command) => command.commandKind),
             [
-                TRADING_JOB_COMMAND_KIND.JobArchived,
                 TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+                TRADING_JOB_COMMAND_KIND.JobArchived,
             ],
         );
 
@@ -585,8 +590,8 @@ describe("SqliteBiddingJobsRepository", () => {
             pendingCommands.map((command) => command.commandKind),
             [
                 TRADING_JOB_COMMAND_KIND.JobCreated,
-                TRADING_JOB_COMMAND_KIND.JobArchived,
                 TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+                TRADING_JOB_COMMAND_KIND.JobArchived,
             ],
         );
     });

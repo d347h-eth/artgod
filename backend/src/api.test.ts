@@ -1864,8 +1864,8 @@ describe("backend api routes", () => {
         });
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
-            TRADING_JOB_COMMAND_KIND.JobPaused,
             TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            TRADING_JOB_COMMAND_KIND.JobPaused,
         ]);
     });
 
@@ -2064,8 +2064,8 @@ describe("backend api routes", () => {
 
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
-            TRADING_JOB_COMMAND_KIND.JobPaused,
             TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            TRADING_JOB_COMMAND_KIND.JobPaused,
         ]);
     });
 
@@ -2111,8 +2111,8 @@ describe("backend api routes", () => {
 
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
-            TRADING_JOB_COMMAND_KIND.JobPaused,
             TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            TRADING_JOB_COMMAND_KIND.JobPaused,
         ]);
     });
 
@@ -2184,8 +2184,8 @@ describe("backend api routes", () => {
         expect(missing.payload.job).toBeNull();
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
-            TRADING_JOB_COMMAND_KIND.JobArchived,
             TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            TRADING_JOB_COMMAND_KIND.JobArchived,
         ]);
     });
 
@@ -2259,8 +2259,8 @@ describe("backend api routes", () => {
         expect(tokenJob.payload.job).toBeNull();
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
-            TRADING_JOB_COMMAND_KIND.JobArchived,
             TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            TRADING_JOB_COMMAND_KIND.JobArchived,
         ]);
     });
 
