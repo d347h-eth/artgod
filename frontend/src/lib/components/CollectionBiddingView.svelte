@@ -350,6 +350,13 @@
 	});
 
 	$effect(() => {
+		if (bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
+			return;
+		}
+		biddingAutomation.pruneInvisibleTokenSelection(visibleTokenOfferCardIds);
+	});
+
+	$effect(() => {
 		writeCollectionBiddingNavigationPreference({ bidScope });
 	});
 

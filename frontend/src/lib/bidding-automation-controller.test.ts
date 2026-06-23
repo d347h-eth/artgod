@@ -293,6 +293,33 @@ describe('createBiddingAutomationController', () => {
 		expect(controller.tokenSelectionState('1').selected).toBe(true);
 		expect(controller.tokenSelectionState('2').selected).toBe(false);
 	});
+
+	it('prunes explicit token selections that leave the visible result set', () => {
+		const controller = createBiddingAutomationController();
+
+		controller.selectExplicitTokens(['1', '2']);
+		controller.pruneInvisibleTokenSelection(['2']);
+
+		const selection = get(controller.state).selection;
+		expect(selection?.type).toBe(BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens);
+		if (selection?.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens) {
+			throw new Error('expected explicit token selection');
+		}
+		expect(selection.tokenIds).toEqual(['2']);
+		expect(controller.selectionSummary()).toBe('1 token selected');
+		expect(controller.tokenSelectionState('1').selected).toBe(false);
+		expect(controller.tokenSelectionState('2').selected).toBe(true);
+	});
+
+	it('clears explicit token selections when every selected token leaves the visible result set', () => {
+		const controller = createBiddingAutomationController();
+
+		controller.selectExplicitTokens(['1']);
+		controller.pruneInvisibleTokenSelection(['2']);
+
+		expect(get(controller.state).selection).toBeNull();
+		expect(controller.selectionSummary()).toBeNull();
+	});
 });
 
 describe('resolveTokenCardSelectionGesture', () => {
