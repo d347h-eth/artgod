@@ -105,7 +105,7 @@ describe('BiddingAutomationPanel', () => {
 		});
 
 		expect(body).toContain('role="dialog"');
-		expect(body).toContain('token bidding');
+		expect(body).toContain('>bidding<');
 		expect(body).toContain('>state<');
 		expect(body).toContain('>queued</span>');
 		expect(body).not.toContain('>current price<');

@@ -608,7 +608,7 @@
 		aria-label="bidding automation"
 	>
 		<header class="panel-header bidding-automation-panel-header">
-			<h2 class="panel-title">token bidding</h2>
+			<h2 class="panel-title">bidding</h2>
 			<button type="button" class="button-link" onclick={hidePanel}>hide</button>
 		</header>
 
