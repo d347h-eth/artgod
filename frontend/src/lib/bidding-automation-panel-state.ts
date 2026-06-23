@@ -40,7 +40,14 @@ export function resolveLoadedBiddingAutomationPanelKey(params: {
 	draft: BiddingAutomationDraft | null;
 	lookedUpJob: ApiBiddingJob | null;
 }): string {
-	return `${resolveLoadedJobKey(resolveBiddingAutomationPanelJob(params))}:${resolveDraftKey(params.draft)}`;
+	return `${resolveLoadedJobKey(resolveBiddingAutomationPanelJob(params))}:${resolveBiddingAutomationPanelDraftIdentityKey(params.draft)}`;
+}
+
+// Identifies the target and source draft whose editable fields are currently loaded.
+export function resolveBiddingAutomationPanelDraftIdentityKey(
+	draft: BiddingAutomationDraft | null
+): string {
+	return resolveDraftKey(draft);
 }
 
 // Invalidates target-job lookups when the bid-book read model advances for the same draft target.
@@ -57,6 +64,15 @@ export function resolveBiddingAutomationPanelTargetLookupRequestKey(params: {
 			? bidBookRefreshSignalKey(params.bidBook.state)
 			: BIDDING_PANEL_KEY_PART.NoBidBookSignal
 	].join(':');
+}
+
+// Keeps background refreshes from overwriting an in-progress panel edit.
+export function shouldPreserveBiddingAutomationPanelDraftOnLoadChange(params: {
+	draftInputTouched: boolean;
+	saving: boolean;
+	archiving: boolean;
+}): boolean {
+	return params.draftInputTouched || params.saving || params.archiving;
 }
 
 // Resolves the initial pricing mode from persisted job config first, then the active draft.

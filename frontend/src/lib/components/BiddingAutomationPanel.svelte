@@ -32,8 +32,10 @@
 		resolveInitialBiddingAutomationPriceTierId,
 		resolveInitialBiddingAutomationPricingMode,
 		resolveInitialBiddingAutomationStatus,
+		resolveBiddingAutomationPanelDraftIdentityKey,
 		resolveBiddingAutomationPanelTargetLookupRequestKey,
-		resolveLoadedBiddingAutomationPanelKey
+		resolveLoadedBiddingAutomationPanelKey,
+		shouldPreserveBiddingAutomationPanelDraftOnLoadChange
 	} from '$lib/bidding-automation-panel-state';
 	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 	import { ownBiddingJobStateBadges } from '$lib/bidding-bid-book-own-status';
@@ -93,6 +95,7 @@
 	const initialPanelJob = resolveBiddingAutomationPanelJob({ job, draft, lookedUpJob: null });
 	let currentJob = $state<ApiBiddingJob | null>(initialPanelJob);
 	let loadedJobKey = $state(resolveLoadedBiddingAutomationPanelKey({ job, draft, lookedUpJob: null }));
+	let loadedDraftKey = $state(resolveBiddingAutomationPanelDraftIdentityKey(draft));
 	let pricingMode = $state<BiddingAutomationPricingMode>(
 		resolveInitialBiddingAutomationPricingMode({ job: initialPanelJob, draft })
 	);
@@ -120,6 +123,7 @@
 	let targetLookupKey = $state('');
 	let targetLookupRequestKey = $state('');
 	let targetLookupJob = $state<ApiBiddingJob | null>(null);
+	let draftInputTouched = $state(false);
 
 	const hasExistingJob = $derived(currentJob !== null);
 	const selectedDraftUnsupported = $derived(!isBiddingAutomationDraftSubmittable(draft));
@@ -209,8 +213,28 @@
 			return;
 		}
 
+		const nextLoadedDraftKey = resolveBiddingAutomationPanelDraftIdentityKey(draft);
+		const sameDraftTarget = nextLoadedDraftKey === loadedDraftKey;
+		const nextJob = resolveBiddingAutomationPanelJob({
+			job,
+			draft,
+			lookedUpJob: targetLookupJob
+		});
 		loadedJobKey = nextLoadedJobKey;
-		applyLoadedPanel(job, draft, targetLookupJob);
+		loadedDraftKey = nextLoadedDraftKey;
+		if (
+			sameDraftTarget &&
+			shouldPreserveBiddingAutomationPanelDraftOnLoadChange({
+				draftInputTouched,
+				saving,
+				archiving
+			})
+		) {
+			currentJob = nextJob;
+			return;
+		}
+
+		applyLoadedPanel(nextJob, draft);
 		saving = false;
 		archiving = false;
 		saveMessage = null;
@@ -234,6 +258,7 @@
 
 	function resetDraft(): void {
 		applyDraft(currentJob, draft);
+		draftInputTouched = false;
 		saveMessage = null;
 		saveError = null;
 		armedAction = null;
@@ -309,16 +334,12 @@
 	}
 
 	function applyLoadedPanel(
-		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null,
-		lookedUpJob: ApiBiddingJob | null
+		resolvedJob: ApiBiddingJob | null,
+		currentDraft: BiddingAutomationDraft | null
 	): void {
-		currentJob = resolveBiddingAutomationPanelJob({
-			job: value,
-			draft: currentDraft,
-			lookedUpJob
-		});
+		currentJob = resolvedJob;
 		applyDraft(currentJob, currentDraft);
+		draftInputTouched = false;
 	}
 
 	async function refreshTargetLookupJob(): Promise<void> {
@@ -410,6 +431,7 @@
 		if (!(target instanceof HTMLSelectElement)) {
 			return;
 		}
+		markDraftInputTouched();
 		selectPricingOption(target.value);
 	}
 
@@ -422,6 +444,7 @@
 	}
 
 	function selectManualPricing(): void {
+		markDraftInputTouched();
 		if (pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
 			floorEth = displayedFloorEth;
 			ceilingEth = displayedCeilingEth;
@@ -436,11 +459,16 @@
 		if (!tier) {
 			return;
 		}
+		markDraftInputTouched();
 		pricingMode = BIDDING_AUTOMATION_PRICING_MODE.Tier;
 		selectedPriceTierId = tier.tierId;
 		floorEth = tier.resolvedFloorEth ?? floorEth;
 		ceilingEth = tier.resolvedCeilingEth ?? ceilingEth;
 		deltaEth = tier.deltaEth;
+	}
+
+	function markDraftInputTouched(): void {
+		draftInputTouched = true;
 	}
 
 	function tierButtonTitle(tier: ApiBiddingPriceTier): string {
@@ -770,6 +798,7 @@
 						type="text"
 						inputmode="decimal"
 						bind:value={floorEth}
+						oninput={markDraftInputTouched}
 						disabled={saving || archiving || selectedDraftUnsupported}
 					/>
 				{/if}
@@ -791,6 +820,7 @@
 						type="text"
 						inputmode="decimal"
 						bind:value={ceilingEth}
+						oninput={markDraftInputTouched}
 						disabled={saving || archiving || selectedDraftUnsupported}
 					/>
 				{/if}
@@ -808,6 +838,7 @@
 							pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Manual &&
 							event.currentTarget instanceof HTMLInputElement
 						) {
+							markDraftInputTouched();
 							deltaEth = event.currentTarget.value;
 						}
 					}}
