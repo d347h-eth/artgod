@@ -170,6 +170,9 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         priceTierId: string | null;
         pricingSourceJson: string | null;
     }>;
+    private readonly deleteRuntimeStateByJobId: BetterSqlite3NamedStatement<{
+        jobId: string;
+    }>;
 
     private readonly insertCommand: BetterSqlite3NamedStatement<{
         jobId: string;
@@ -332,6 +335,10 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             priceTierId: string | null;
             pricingSourceJson: string | null;
         }>;
+
+        this.deleteRuntimeStateByJobId = db.prepare<{ jobId: string }>(
+            "DELETE FROM trading_bidding_job_runtime_state WHERE job_id = @jobId",
+        ) as BetterSqlite3NamedStatement<{ jobId: string }>;
 
         this.insertCommand = db.prepare<{
             jobId: string;
@@ -499,6 +506,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                         competitorTraitsJson: null,
                         ...this.biddingPricingPayload(transactionInput),
                     });
+                    this.clearRuntimeStateForDeclarationChange(existing.jobId);
 
                     const job = this.requireCollectionJobById(existing.jobId);
                     const commandKind =
@@ -673,6 +681,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         }
 
         this.archiveTradingJobById.run({ jobId: existing.jobId });
+        this.clearRuntimeStateForDeclarationChange(existing.jobId);
 
         const job = this.requireBiddingJobById(existing.jobId);
         const payload = this.biddingJobCommandPayload(job);
@@ -723,6 +732,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             priceTierId: input.priceTierId,
             pricingSourceJson: JSON.stringify(input.pricingSource),
         });
+        this.clearRuntimeStateForDeclarationChange(existing.jobId);
 
         const job = this.requireBiddingJobById(existing.jobId);
         const payload = this.biddingJobCommandPayload(job);
@@ -789,6 +799,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                 competitorTraitsJson: null,
                 ...this.biddingPricingPayload(transactionInput),
             });
+            this.clearRuntimeStateForDeclarationChange(existing.jobId);
 
             const job = this.requireTokenJobById(existing.jobId);
             const commandKind =
@@ -850,6 +861,11 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             job,
             commands: [command],
         };
+    }
+
+    private clearRuntimeStateForDeclarationChange(jobId: string): void {
+        // A declaration revision invalidates bot feedback until the bot persists fresh post-command runtime state.
+        this.deleteRuntimeStateByJobId.run({ jobId });
     }
 
     private tokenJobCommandPayload(

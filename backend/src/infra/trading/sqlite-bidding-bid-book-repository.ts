@@ -417,17 +417,27 @@ export class SqliteBiddingBidBookRepository
         const jobs = params.includeOwnJobContext
             ? this.loadActiveBiddingJobs(params.chainId, params.collectionId)
             : [];
+        const currentOwnBidBook = suppressStaleOwnJobMarketRows(
+            markedBidBook,
+            jobs,
+            knownMakerAddress,
+        );
         const bidBook = this.apm.withSyncSpan(
             "backend.bidding.repository.own_overlays",
             {
                 ...attributes,
-                ...bidSummarySpanAttributes(markedBidBook.bids),
+                ...bidSummarySpanAttributes(currentOwnBidBook.bids),
                 ...jobSummarySpanAttributes(jobs),
                 [BIDDING_SPAN_ATTRIBUTE.Source]: source,
                 [BIDDING_SPAN_ATTRIBUTE.OwnMakerPresent]:
                     knownMakerAddress !== null,
             },
-            () => maybeAddOwnJobOverlays(markedBidBook, jobs, knownMakerAddress),
+            () =>
+                maybeAddOwnJobOverlays(
+                    currentOwnBidBook,
+                    jobs,
+                    knownMakerAddress,
+                ),
         );
         const makerAddress = params.makerAddress?.toLowerCase() ?? null;
         const scopedBids = this.apm.withSyncSpan(
@@ -535,17 +545,27 @@ export class SqliteBiddingBidBookRepository
         const jobs = params.includeOwnJobContext
             ? this.loadActiveBiddingJobs(params.chainId, params.collectionId)
             : [];
+        const currentOwnBidBook = suppressStaleOwnJobMarketRows(
+            markedBidBook,
+            jobs,
+            knownMakerAddress,
+        );
         const bidBook = this.apm.withSyncSpan(
             "backend.bidding.repository.own_overlays",
             {
                 ...attributes,
-                ...bidSummarySpanAttributes(markedBidBook.bids),
+                ...bidSummarySpanAttributes(currentOwnBidBook.bids),
                 ...jobSummarySpanAttributes(jobs),
                 [BIDDING_SPAN_ATTRIBUTE.Source]: source,
                 [BIDDING_SPAN_ATTRIBUTE.OwnMakerPresent]:
                     knownMakerAddress !== null,
             },
-            () => maybeAddOwnJobOverlays(markedBidBook, jobs, knownMakerAddress),
+            () =>
+                maybeAddOwnJobOverlays(
+                    currentOwnBidBook,
+                    jobs,
+                    knownMakerAddress,
+                ),
         );
         const bids = this.apm.withSyncSpan(
             "backend.bidding.repository.token_filter_sort",
@@ -1148,6 +1168,51 @@ function markOwnBids(
     };
 }
 
+function suppressStaleOwnJobMarketRows(
+    bidBook: PersistedBiddingBidBook,
+    jobs: BiddingJobSignal[],
+    ownMakerAddress: string | null,
+): PersistedBiddingBidBook {
+    if (!ownMakerAddress || jobs.length === 0) {
+        return bidBook;
+    }
+
+    const bids = bidBook.bids.filter(
+        (bid) => !isStaleOwnJobMarketRow(bid, jobs),
+    );
+    if (bids.length === bidBook.bids.length) {
+        return bidBook;
+    }
+
+    return {
+        ...bidBook,
+        state: {
+            ...bidBook.state,
+            rowCount: bids.length,
+        },
+        bids,
+    };
+}
+
+function isStaleOwnJobMarketRow(
+    bid: PersistedBiddingBidBookRow,
+    jobs: BiddingJobSignal[],
+): boolean {
+    if (
+        !bid.isOwn ||
+        bid.materialization.kind !==
+            TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid
+    ) {
+        return false;
+    }
+
+    const matchingJobs = jobs.filter((job) => jobMatchesBid(job, bid));
+    return (
+        matchingJobs.length > 0 &&
+        !matchingJobs.some((job) => activeRuntimeOrderMatchesBid(job, bid))
+    );
+}
+
 function maybeAddOwnJobOverlays(
     bidBook: PersistedBiddingBidBook,
     jobs: BiddingJobSignal[],
@@ -1189,11 +1254,11 @@ function shouldCreateOwnJobOverlay(
         return true;
     }
 
-    if (!job.runtime?.activeOrderId || !job.runtime.bidPosition) {
+    if (!job.runtime?.activeOrderId) {
         return true;
     }
 
-    return !bids.some((bid) => activeRuntimeDecisionMatchesBid(job, bid));
+    return !bids.some((bid) => activeRuntimeOrderMatchesBid(job, bid));
 }
 
 function mapJobOverlayRow(
@@ -1202,7 +1267,9 @@ function mapJobOverlayRow(
     ownMakerAddress: string,
 ): PersistedBiddingBidBookRow {
     const activeRuntime =
-        job.runtime?.activeOrderId && job.runtime.currentPriceWei
+        job.status === TRADING_JOB_STATUS.Enabled &&
+        job.runtime?.activeOrderId &&
+        job.runtime.currentPriceWei
             ? job.runtime
             : null;
     const activeRuntimePriceWei = activeRuntime?.currentPriceWei ?? null;
@@ -1323,9 +1390,18 @@ function activeRuntimeDecisionMatchesBid(
     bid: PersistedBiddingBidBookRow,
 ): boolean {
     return Boolean(
+        activeRuntimeOrderMatchesBid(job, bid) &&
+            job.runtime?.bidPosition,
+    );
+}
+
+function activeRuntimeOrderMatchesBid(
+    job: BiddingJobSignal,
+    bid: PersistedBiddingBidBookRow,
+): boolean {
+    return Boolean(
         bid.isOwn &&
             job.runtime?.activeOrderId &&
-            job.runtime.bidPosition &&
             bid.orderId === job.runtime.activeOrderId &&
             jobMatchesBid(job, bid),
     );

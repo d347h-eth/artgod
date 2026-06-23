@@ -322,6 +322,88 @@ describe("SqliteBiddingBidBookRepository", () => {
         );
     });
 
+    it("suppresses stale own market rows for active job targets", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedBiddingRuntime(collectionId);
+        insertProjectedState(collectionId, Date.now());
+        insertProjectedBid({
+            collectionId,
+            orderId: "old-own-collection",
+            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+            scopeLabel: "collection",
+            maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            priceWei: "220",
+        });
+        insertProjectedBid({
+            collectionId,
+            orderId: "opponent-collection",
+            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+            scopeLabel: "collection",
+            maker: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            priceWei: "210",
+        });
+
+        const queuedBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+
+        assert.deepEqual(
+            queuedBook.bids.map((bid) => bid.orderId),
+            ["opponent-collection", "job-intent:collection-job"],
+        );
+
+        insertProjectedBid({
+            collectionId,
+            orderId: "new-own-collection",
+            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+            scopeLabel: "collection",
+            maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            priceWei: "190",
+        });
+        seedJobRuntimeState({
+            jobId: "collection-job",
+            currentPriceWei: "190",
+            activeOrderId: "new-own-collection",
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            competitorPriceWei: "210",
+        });
+
+        const activeBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+
+        assert.deepEqual(
+            activeBook.bids.map((bid) => bid.orderId),
+            ["opponent-collection", "new-own-collection"],
+        );
+        assert.deepEqual(
+            activeBook.bids.find((bid) => bid.orderId === "new-own-collection")
+                ?.ownStatus,
+            {
+                position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+                constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+                job: {
+                    jobId: "collection-job",
+                    revision: 1,
+                    status: TRADING_JOB_STATUS.Enabled,
+                },
+            },
+        );
+    });
+
     it("adds admin-only own job intent overlays for queued and paused jobs", () => {
         const repository = new SqliteBiddingBidBookRepository();
         seedBiddingRuntime(collectionId);

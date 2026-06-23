@@ -249,7 +249,7 @@ describe("SqliteBiddingJobsRepository", () => {
         );
     });
 
-    it("updates an existing token bidding job, preserves job identity, and keeps joined runtime state", () => {
+    it("updates an existing token bidding job, preserves job identity, and clears stale runtime state", () => {
         const repository = new SqliteBiddingJobsRepository();
         const created = repository.upsertTokenJob({
             chainId: 1,
@@ -305,18 +305,10 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.equal(updated.job.revision, 2);
         assert.equal(updated.job.status, TRADING_JOB_STATUS.Paused);
         assert.equal(updated.job.floorWei, "120000000000000000");
-        assert.equal(updated.job.runtime?.activeOrderId, "0xactive-order");
-        assert.equal(updated.job.runtime?.currentPriceWei, "150000000000000000");
+        assert.equal(updated.job.runtime, null);
         assert.equal(
-            updated.job.runtime?.bidPosition,
-            TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
-        );
-        assert.deepEqual(updated.job.runtime?.bidConstraints, [
-            TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
-        ]);
-        assert.equal(
-            updated.job.runtime?.competitorPriceWei,
-            "250000000000000000",
+            repository.getJobById(created.job.jobId)?.runtime,
+            null,
         );
 
         assert.equal(updated.commands.length, 2);
