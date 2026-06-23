@@ -324,7 +324,19 @@ function buildAttributePort(): CollectionExtensionAttributePort {
 
 function buildSyntheticTokenPort(): CollectionExtensionSyntheticTokenPort {
     return {
-        upsertSyntheticToken() {},
+        publishSyntheticToken() {
+            return {
+                published: true,
+                blockedByCanonicalState: false,
+                blockedByRetirement: false,
+            };
+        },
+        replaceSyntheticTokenWithToken() {
+            return {
+                replaced: true,
+                blockedByCanonicalState: false,
+            };
+        },
         retireSyntheticToken() {
             return {
                 retired: false,

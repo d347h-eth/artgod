@@ -46,7 +46,10 @@ import type {
     CollectionExtensionSyncWatchSpec,
     IndexerCollectionExtension,
 } from "./types.js";
-import type { CollectionExtensionTokenAttributeInput } from "../../ports/collection-extensions.js";
+import type {
+    CollectionExtensionArtifactUpsertInput,
+    CollectionExtensionTokenAttributeInput,
+} from "../../ports/collection-extensions.js";
 import type { Hex, RpcLog, RpcProviderPort } from "../../ports/rpc.js";
 
 const DEFAULT_DECAY = 0n;
@@ -56,6 +59,7 @@ const TERRAFORMS_COLLECTION_EXTENSION_LOG_ACTION = {
     SeedBootstrapArtifactTasks: "terraforms.seedBootstrapArtifactTasks",
     RefreshArtifacts: "terraforms.refreshArtifacts",
     RefreshUnmintedArtifacts: "terraforms.refreshUnmintedArtifacts",
+    SkipRetiredUnmintedArtifacts: "terraforms.skipRetiredUnmintedArtifacts",
 } as const;
 
 const TERRAFORMS_MAIN_ABI = [
@@ -288,6 +292,11 @@ type TerraformsStatus = {
     value: bigint;
 };
 
+type TerraformsRenderedArtifact = {
+    metadata: TokenMetadata;
+    artifact: CollectionExtensionArtifactUpsertInput;
+};
+
 const MODE_TO_STATUS: Record<string, TerraformsStatus> = {
     [TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain]: {
         slug: TERRAFORMS_STATUS_SLUG.Terrain,
@@ -436,11 +445,6 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
             args: [BigInt(tokenId)],
         });
 
-        retireUnmintedPlacementToken(context, {
-            contract,
-            placement,
-        });
-
         const currentRenderArgs = await resolveRendererArgs(context, {
             mainContractAddress: config.mainContractAddress,
             rendererV2ContractAddress: config.rendererV2ContractAddress,
@@ -449,7 +453,7 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
             seed: TERRAFORMS_PLACEMENT_SEED,
             status,
         });
-        await upsertRenderedArtifact(context, {
+        const currentArtifact = await renderArtifact(context, {
             rendererV2ContractAddress: config.rendererV2ContractAddress,
             chainId: context.payload.chainId,
             collectionId: context.payload.collectionId,
@@ -463,8 +467,11 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
         });
 
         let lostTerrainWritten = false;
+        const artifacts: CollectionExtensionArtifactUpsertInput[] = [
+            currentArtifact.artifact,
+        ];
         if (status.slug !== TERRAFORMS_STATUS_SLUG.Terrain) {
-            await upsertRenderedArtifact(context, {
+            const lostTerrainArtifact = await renderArtifact(context, {
                 rendererV2ContractAddress: config.rendererV2ContractAddress,
                 chainId: context.payload.chainId,
                 collectionId: context.payload.collectionId,
@@ -479,6 +486,7 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
                 metadataFetchFailureMessage: `Terraforms lost terrain metadata fetch failed for token ${contract}:${tokenId}`,
                 htmlFetchFailureMessage: `Terraforms lost terrain HTML fetch failed for token ${contract}:${tokenId}`,
             });
+            artifacts.push(lostTerrainArtifact.artifact);
             lostTerrainWritten = true;
         }
 
@@ -487,12 +495,22 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
             placement,
             placementSeed: TERRAFORMS_PLACEMENT_SEED,
         });
-        context.attributes.replaceTokenAttributes({
-            chainId: context.payload.chainId,
-            collectionId: context.payload.collectionId,
-            contractAddress: contract,
-            tokenId,
-            extensionKey: TERRAFORMS_EXTENSION_KEY,
+        const replacement = context.syntheticTokens.replaceSyntheticTokenWithToken({
+            syntheticToken: {
+                chainId: context.payload.chainId,
+                collectionId: context.payload.collectionId,
+                contractAddress: contract,
+                tokenId: buildTerraformsUnmintedTokenId(placement),
+                extensionKey: TERRAFORMS_EXTENSION_KEY,
+            },
+            token: {
+                chainId: context.payload.chainId,
+                collectionId: context.payload.collectionId,
+                contractAddress: contract,
+                tokenId,
+                extensionKey: TERRAFORMS_EXTENSION_KEY,
+            },
+            artifacts,
             attributes: [
                 {
                     key: TERRAFORMS_MINTED_ATTRIBUTE_KEY,
@@ -512,6 +530,11 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
                     : []),
             ],
         });
+        if (replacement.blockedByCanonicalState) {
+            throw new Error(
+                `Terraforms synthetic token retirement blocked for ${buildTerraformsUnmintedTokenId(placement)}`,
+            );
+        }
 
         logger.debug("Terraforms extension artifacts refreshed", {
             component: TERRAFORMS_COLLECTION_EXTENSION_LOG_COMPONENT,
@@ -575,15 +598,7 @@ async function refreshUnmintedPlacementArtifacts(
         placement: bigint;
     },
 ): Promise<{ attributesChanged: boolean }> {
-    context.syntheticTokens.upsertSyntheticToken({
-        chainId: context.payload.chainId,
-        collectionId: context.payload.collectionId,
-        contractAddress: params.contract,
-        tokenId: params.tokenId,
-        extensionKey: TERRAFORMS_EXTENSION_KEY,
-    });
-
-    const metadata = await upsertRenderedArtifact(context, {
+    const rendered = await renderArtifact(context, {
         rendererV2ContractAddress: params.rendererV2ContractAddress,
         chainId: context.payload.chainId,
         collectionId: context.payload.collectionId,
@@ -604,18 +619,37 @@ async function refreshUnmintedPlacementArtifacts(
         placement: params.placement,
         placementSeed: TERRAFORMS_PLACEMENT_SEED,
     });
-    context.attributes.replaceTokenAttributes({
+    const publication = context.syntheticTokens.publishSyntheticToken({
         chainId: context.payload.chainId,
         collectionId: context.payload.collectionId,
         contractAddress: params.contract,
         tokenId: params.tokenId,
         extensionKey: TERRAFORMS_EXTENSION_KEY,
+        artifact: rendered.artifact,
         attributes: buildTerraformsUnmintedTokenAttributes({
-            metadata,
+            metadata: rendered.metadata,
             seed: seedTraits.seed,
             seedClass: seedTraits.seedClass,
         }),
     });
+    if (publication.blockedByCanonicalState) {
+        throw new Error(
+            `Terraforms synthetic token publication blocked for ${params.tokenId}`,
+        );
+    }
+    if (publication.blockedByRetirement) {
+        logger.debug("Terraforms unminted artifact refresh skipped", {
+            component: TERRAFORMS_COLLECTION_EXTENSION_LOG_COMPONENT,
+            action: TERRAFORMS_COLLECTION_EXTENSION_LOG_ACTION.SkipRetiredUnmintedArtifacts,
+            chainId: context.payload.chainId,
+            collectionId: context.payload.collectionId,
+            contract: params.contract,
+            tokenId: params.tokenId,
+            placement: params.placement.toString(),
+            reason: context.payload.reason,
+        });
+        return { attributesChanged: false };
+    }
 
     logger.debug("Terraforms unminted artifacts refreshed", {
         component: TERRAFORMS_COLLECTION_EXTENSION_LOG_COMPONENT,
@@ -672,28 +706,6 @@ export function buildTerraformsUnmintedTokenAttributes(input: {
               ]
             : []),
     ];
-}
-
-function retireUnmintedPlacementToken(
-    context: CollectionExtensionArtifactRefreshContext,
-    params: {
-        contract: string;
-        placement: bigint;
-    },
-): void {
-    const syntheticTokenId = buildTerraformsUnmintedTokenId(params.placement);
-    const result = context.syntheticTokens.retireSyntheticToken({
-        chainId: context.payload.chainId,
-        collectionId: context.payload.collectionId,
-        contractAddress: params.contract,
-        tokenId: syntheticTokenId,
-        extensionKey: TERRAFORMS_EXTENSION_KEY,
-    });
-    if (result.blockedByCanonicalState) {
-        throw new Error(
-            `Terraforms synthetic token retirement blocked for ${syntheticTokenId}`,
-        );
-    }
 }
 
 async function decodeTokenRefreshLog(
@@ -1173,7 +1185,7 @@ function resolveStatusFromMode(mode: string): TerraformsStatus {
     return status;
 }
 
-async function upsertRenderedArtifact(
+async function renderArtifact(
     context: CollectionExtensionArtifactRefreshContext,
     params: {
         rendererV2ContractAddress: string;
@@ -1193,7 +1205,7 @@ async function upsertRenderedArtifact(
         metadataFetchFailureMessage: string;
         htmlFetchFailureMessage: string;
     },
-): Promise<TokenMetadata> {
+): Promise<TerraformsRenderedArtifact> {
     const uri = await context.rpc.readContract<string>({
         address: params.rendererV2ContractAddress as Hex,
         abi: TERRAFORMS_RENDERER_ABI,
@@ -1228,21 +1240,23 @@ async function upsertRenderedArtifact(
         throw new Error(params.htmlFetchFailureMessage);
     }
 
-    context.artifacts.upsertArtifact({
-        chainId: params.chainId,
-        collectionId: params.collectionId,
-        contractAddress: params.contract,
-        tokenId: params.tokenId,
-        extensionKey: TERRAFORMS_EXTENSION_KEY,
-        artifactRef: params.artifactRef,
-        uri,
-        rawJson: metadata.rawJson,
-        attributesJson: JSON.stringify(metadata.attributes ?? []),
-        image: metadata.image ?? null,
-        animationUrl: metadata.animationUrl ?? null,
-        htmlContent,
-    });
-    return metadata;
+    return {
+        metadata,
+        artifact: {
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            contractAddress: params.contract,
+            tokenId: params.tokenId,
+            extensionKey: TERRAFORMS_EXTENSION_KEY,
+            artifactRef: params.artifactRef,
+            uri,
+            rawJson: metadata.rawJson,
+            attributesJson: JSON.stringify(metadata.attributes ?? []),
+            image: metadata.image ?? null,
+            animationUrl: metadata.animationUrl ?? null,
+            htmlContent,
+        },
+    };
 }
 
 async function resolveRendererArgs(

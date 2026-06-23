@@ -94,7 +94,8 @@ Current behavior:
 This ordering is important because:
 
 - `token_extension_artifacts` references canonical `tokens` rows
-- extension-owned synthetic token rows are inserted by the extension before their artifact writes
+- extension-owned synthetic token rows are published atomically with their artifact and trait writes
+- retired synthetic identities are tombstoned so delayed bootstrap tasks cannot recreate them after a real mint refresh
 - extension logic can depend on normalized attributes already written by the canonical metadata path
 - canonical ownership correctness must not be blocked by collection-specific extras
 

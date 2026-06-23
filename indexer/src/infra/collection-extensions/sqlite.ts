@@ -15,6 +15,10 @@ import type {
     CollectionExtensionInstallPort,
     CollectionExtensionSyntheticTokenInput,
     CollectionExtensionSyntheticTokenPort,
+    CollectionExtensionSyntheticTokenPublicationInput,
+    CollectionExtensionSyntheticTokenPublicationResult,
+    CollectionExtensionSyntheticTokenReplacementInput,
+    CollectionExtensionSyntheticTokenReplacementResult,
     CollectionExtensionSyntheticTokenRetirementResult,
     CollectionExtensionTokenAttributesReplaceInput,
 } from "../../ports/collection-extensions.js";
@@ -47,6 +51,10 @@ type ArtifactRow = {
 
 type AttributeValueRow = {
     value: string;
+};
+
+type SyntheticTokenRetirementRow = {
+    present: number;
 };
 
 export class SqliteCollectionExtensions
@@ -180,6 +188,31 @@ export class SqliteCollectionExtensions
             "EXISTS(SELECT 1 FROM orders o WHERE o.chain_id = @chainId AND o.collection_id = @collectionId AND o.token_id = @tokenId) AS has_orders",
     );
 
+    private selectSyntheticTokenRetirementStmt = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        tokenId: string;
+        extensionKey: CollectionExtensionKey;
+    }>(
+        "SELECT 1 AS present " +
+            "FROM collection_extension_synthetic_token_retirements " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId " +
+            "AND token_id = @tokenId AND extension_key = @extensionKey " +
+            "LIMIT 1",
+    );
+
+    private insertSyntheticTokenRetirementStmt = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        contractAddress: string;
+        tokenId: string;
+        extensionKey: CollectionExtensionKey;
+    }>(
+        "INSERT OR IGNORE INTO collection_extension_synthetic_token_retirements " +
+            "(chain_id, collection_id, contract_address, token_id, extension_key) " +
+            "VALUES (@chainId, @collectionId, @contractAddress, @tokenId, @extensionKey)",
+    );
+
     private deleteSyntheticTokenAttributesStmt = db.prepare<{
         chainId: number;
         collectionId: number;
@@ -249,6 +282,119 @@ export class SqliteCollectionExtensions
     }
 
     upsertArtifact(input: CollectionExtensionArtifactUpsertInput): void {
+        this.upsertArtifactRecord(input);
+    }
+
+    publishSyntheticToken(
+        input: CollectionExtensionSyntheticTokenPublicationInput,
+    ): CollectionExtensionSyntheticTokenPublicationResult {
+        const publish = db.raw.transaction(() => {
+            if (this.isSyntheticTokenRetired(input)) {
+                return {
+                    published: false,
+                    blockedByCanonicalState: false,
+                    blockedByRetirement: true,
+                };
+            }
+
+            const state = this.getSyntheticTokenCanonicalState(input);
+            if (hasSyntheticTokenCanonicalState(state)) {
+                return {
+                    published: false,
+                    blockedByCanonicalState: true,
+                    blockedByRetirement: false,
+                };
+            }
+
+            this.upsertSyntheticTokenStmt.run({
+                chainId: input.chainId,
+                collectionId: input.collectionId,
+                contractAddress: input.contractAddress.toLowerCase(),
+                tokenId: input.tokenId,
+            });
+            this.upsertArtifactRecord(
+                scopeArtifactToToken(input.artifact, input),
+            );
+            this.replaceTokenAttributesInTransaction({
+                chainId: input.chainId,
+                collectionId: input.collectionId,
+                contractAddress: input.contractAddress,
+                tokenId: input.tokenId,
+                extensionKey: input.extensionKey,
+                attributes: input.attributes,
+            });
+            return {
+                published: true,
+                blockedByCanonicalState: false,
+                blockedByRetirement: false,
+            };
+        });
+        return publish() as CollectionExtensionSyntheticTokenPublicationResult;
+    }
+
+    replaceSyntheticTokenWithToken(
+        input: CollectionExtensionSyntheticTokenReplacementInput,
+    ): CollectionExtensionSyntheticTokenReplacementResult {
+        const replace = db.raw.transaction(() => {
+            const state = this.getSyntheticTokenCanonicalState(
+                input.syntheticToken,
+            );
+            if (hasSyntheticTokenCanonicalState(state)) {
+                return {
+                    replaced: false,
+                    blockedByCanonicalState: true,
+                };
+            }
+
+            for (const artifact of input.artifacts) {
+                this.upsertArtifactRecord(
+                    scopeArtifactToToken(artifact, input.token),
+                );
+            }
+            this.replaceTokenAttributesInTransaction({
+                chainId: input.token.chainId,
+                collectionId: input.token.collectionId,
+                contractAddress: input.token.contractAddress,
+                tokenId: input.token.tokenId,
+                extensionKey: input.token.extensionKey,
+                attributes: input.attributes,
+            });
+            this.recordSyntheticTokenRetirement(input.syntheticToken);
+            this.deleteSyntheticTokenExtensionState(input.syntheticToken);
+            return {
+                replaced: true,
+                blockedByCanonicalState: false,
+            };
+        });
+        return replace() as CollectionExtensionSyntheticTokenReplacementResult;
+    }
+
+    retireSyntheticToken(
+        input: CollectionExtensionSyntheticTokenInput,
+    ): CollectionExtensionSyntheticTokenRetirementResult {
+        const retire = db.raw.transaction(() => {
+            const state = this.getSyntheticTokenCanonicalState(input);
+            if (hasSyntheticTokenCanonicalState(state)) {
+                return {
+                    retired: false,
+                    blockedByCanonicalState: true,
+                };
+            }
+
+            this.recordSyntheticTokenRetirement(input);
+            const retired =
+                this.deleteSyntheticTokenExtensionState(input).changes > 0;
+            return {
+                retired,
+                blockedByCanonicalState: false,
+            };
+        });
+        return retire() as CollectionExtensionSyntheticTokenRetirementResult;
+    }
+
+    private upsertArtifactRecord(
+        input: CollectionExtensionArtifactUpsertInput,
+    ): void {
         this.upsertArtifactStmt.run({
             chainId: input.chainId,
             collectionId: input.collectionId,
@@ -267,58 +413,6 @@ export class SqliteCollectionExtensions
             animationUrl: input.animationUrl,
             htmlContent: input.htmlContent,
         });
-    }
-
-    upsertSyntheticToken(input: CollectionExtensionSyntheticTokenInput): void {
-        const assertAndPersist = db.raw.transaction(() => {
-            const state = this.getSyntheticTokenCanonicalState(input);
-            if (hasSyntheticTokenCanonicalState(state)) {
-                throw new Error(
-                    `Synthetic token ${input.tokenId} already has non-extension-owned state`,
-                );
-            }
-            this.upsertSyntheticTokenStmt.run({
-                chainId: input.chainId,
-                collectionId: input.collectionId,
-                contractAddress: input.contractAddress.toLowerCase(),
-                tokenId: input.tokenId,
-            });
-        });
-        assertAndPersist();
-    }
-
-    retireSyntheticToken(
-        input: CollectionExtensionSyntheticTokenInput,
-    ): CollectionExtensionSyntheticTokenRetirementResult {
-        const retire = db.raw.transaction(() => {
-            const state = this.getSyntheticTokenCanonicalState(input);
-            if (hasSyntheticTokenCanonicalState(state)) {
-                return {
-                    retired: false,
-                    blockedByCanonicalState: true,
-                };
-            }
-
-            const params = {
-                chainId: input.chainId,
-                collectionId: input.collectionId,
-                tokenId: input.tokenId,
-                extensionKey: input.extensionKey,
-                sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
-            };
-            this.deleteSyntheticTokenAttributesStmt.run(params);
-            this.deleteSyntheticTokenArtifactsStmt.run(params);
-            const result = this.deleteSyntheticTokenStmt.run({
-                chainId: input.chainId,
-                collectionId: input.collectionId,
-                tokenId: input.tokenId,
-            });
-            return {
-                retired: result.changes > 0,
-                blockedByCanonicalState: false,
-            };
-        });
-        return retire() as CollectionExtensionSyntheticTokenRetirementResult;
     }
 
     getArtifact(params: {
@@ -357,17 +451,23 @@ export class SqliteCollectionExtensions
         input: CollectionExtensionTokenAttributesReplaceInput,
     ): void {
         const persist = db.raw.transaction(() => {
-            this.tokenAttributes.replaceTokenAttributes({
-                chainId: input.chainId,
-                collectionId: input.collectionId,
-                contractAddress: input.contractAddress.toLowerCase(),
-                tokenId: input.tokenId,
-                sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
-                sourceKey: input.extensionKey,
-                attributes: input.attributes,
-            });
+            this.replaceTokenAttributesInTransaction(input);
         });
         persist();
+    }
+
+    private replaceTokenAttributesInTransaction(
+        input: CollectionExtensionTokenAttributesReplaceInput,
+    ): void {
+        this.tokenAttributes.replaceTokenAttributes({
+            chainId: input.chainId,
+            collectionId: input.collectionId,
+            contractAddress: input.contractAddress.toLowerCase(),
+            tokenId: input.tokenId,
+            sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+            sourceKey: input.extensionKey,
+            attributes: input.attributes,
+        });
     }
 
     private getSyntheticTokenCanonicalState(
@@ -380,6 +480,49 @@ export class SqliteCollectionExtensions
             extensionKey: input.extensionKey,
             sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
         }) as SyntheticTokenCanonicalState;
+    }
+
+    private isSyntheticTokenRetired(
+        input: CollectionExtensionSyntheticTokenInput,
+    ): boolean {
+        const row = this.selectSyntheticTokenRetirementStmt.get({
+            chainId: input.chainId,
+            collectionId: input.collectionId,
+            tokenId: input.tokenId,
+            extensionKey: input.extensionKey,
+        }) as SyntheticTokenRetirementRow | undefined;
+        return row?.present === 1;
+    }
+
+    private recordSyntheticTokenRetirement(
+        input: CollectionExtensionSyntheticTokenInput,
+    ): void {
+        this.insertSyntheticTokenRetirementStmt.run({
+            chainId: input.chainId,
+            collectionId: input.collectionId,
+            contractAddress: input.contractAddress.toLowerCase(),
+            tokenId: input.tokenId,
+            extensionKey: input.extensionKey,
+        });
+    }
+
+    private deleteSyntheticTokenExtensionState(
+        input: CollectionExtensionSyntheticTokenInput,
+    ): { changes: number } {
+        const params = {
+            chainId: input.chainId,
+            collectionId: input.collectionId,
+            tokenId: input.tokenId,
+            extensionKey: input.extensionKey,
+            sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+        };
+        this.deleteSyntheticTokenAttributesStmt.run(params);
+        this.deleteSyntheticTokenArtifactsStmt.run(params);
+        return this.deleteSyntheticTokenStmt.run({
+            chainId: input.chainId,
+            collectionId: input.collectionId,
+            tokenId: input.tokenId,
+        });
     }
 }
 
@@ -429,4 +572,18 @@ function hasSyntheticTokenCanonicalState(
         row.has_ownership === 1 ||
         row.has_orders === 1
     );
+}
+
+function scopeArtifactToToken(
+    artifact: CollectionExtensionArtifactUpsertInput,
+    token: CollectionExtensionSyntheticTokenInput,
+): CollectionExtensionArtifactUpsertInput {
+    return {
+        ...artifact,
+        chainId: token.chainId,
+        collectionId: token.collectionId,
+        contractAddress: token.contractAddress,
+        tokenId: token.tokenId,
+        extensionKey: token.extensionKey,
+    };
 }

@@ -79,6 +79,7 @@ Current artifact storage:
 
 - `collection_extension_installs`
 - `token_extension_artifacts`
+- `collection_extension_synthetic_token_retirements`
 
 Extensions can also replace extension-owned normalized token traits in the
 shared attribute tables. These traits are first-class browse/filter traits, but
@@ -91,6 +92,8 @@ This means:
 - backend presentation can converge later once artifacts exist
 - extension-supplied traits can participate in the same facets, range filters,
   stats, and token-card attributes as tokenURI traits
+- extension-owned synthetic rows can be retired durably when real token state
+  replaces them
 
 ### 4. Backend presentation overrides
 

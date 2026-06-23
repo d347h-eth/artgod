@@ -533,7 +533,7 @@ Important semantics:
 - foreign key references `tokens(chain_id, collection_id, token_id)`
     - canonical token rows must exist first
     - this is why normal collection-extension refresh runs only after canonical metadata persistence succeeds
-    - Terraforms also inserts extension-owned synthetic `tokens` rows for settled unminted placements before writing their artifacts
+    - Terraforms publishes extension-owned synthetic `tokens` rows for settled unminted placements in the same transaction as their artifact and trait writes
 
 Normalized token trait links in `token_attributes` are source-scoped:
 
@@ -556,6 +556,22 @@ Current Terraforms artifact usage:
 - backend resolves Terraforms collection browsing from `terraforms-v2-media`
 - backend exposes `terraforms-v2-lost-terrain` only as a token-local media mode on token detail / preview
 - unminted placement rows are extension-owned synthetic `tokens` without canonical `token_metadata`; Terraforms writes the extension-owned minted-state trait from `TERRAFORMS_MINTED_ATTRIBUTE_KEY` plus Terrain renderer traits
+
+### `collection_extension_synthetic_token_retirements`
+
+Defined in `042_collection_extension_synthetic_token_retirements.sql`.
+
+Purpose:
+
+- records synthetic token identities that an extension has retired after real token state superseded them
+- prevents delayed bootstrap or retry jobs from recreating an already-retired synthetic token row
+- keeps the retirement marker scoped to `(chain_id, collection_id, token_id, extension_key)`
+
+Important semantics:
+
+- retirement is inserted only after the synthetic row has no unexpected canonical state
+- Terraforms real-token refresh writes real extension artifacts and `Minted=true` traits in the same transaction that records the matching synthetic retirement
+- later synthetic publication attempts for the retired identity no-op instead of recreating the row
 
 ## Metadata Refresh Follow-Ups and Queue Outbox
 
