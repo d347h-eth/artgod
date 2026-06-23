@@ -233,7 +233,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                         targetType: job.target.type,
                     },
                 );
-                this.clearTrackedOrderForJobId(job.id);
+                this.clearTrackedOrder(job);
                 return 0;
             }
 
@@ -249,7 +249,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 },
             );
             await this.cancelMakerOffers(job, makerOffers);
-            this.clearTrackedOrderForJobId(job.id);
+            this.clearTrackedOrder(job);
             return makerOffers.length;
         });
     }
@@ -1828,13 +1828,6 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         job.state.activeExpirationTimeMs = undefined;
         this.clearRuntimeBidDecision(job);
         this.persistJobRuntimeState(job);
-    }
-
-    private clearTrackedOrderForJobId(jobId: string): void {
-        const job = this.jobs.get(jobId);
-        if (job) {
-            this.clearTrackedOrder(job);
-        }
     }
 
     private persistJobRuntimeState(

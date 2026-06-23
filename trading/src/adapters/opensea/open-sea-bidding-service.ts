@@ -663,15 +663,9 @@ export class OpenSeaBiddingService implements BiddingService {
                     );
                 }
 
+                const identity = requirePlacedOrderIdentity(order);
                 return {
-                    orderHash:
-                        stringOrUndefined(order.order_hash) ??
-                        stringOrUndefined(order.orderHash) ??
-                        "",
-                    protocolAddress:
-                        stringOrUndefined(order.protocol_address) ??
-                        stringOrUndefined(order.protocolAddress) ??
-                        "",
+                    ...identity,
                     expirationTime:
                         this.tryParseNumber(
                             order.expiration_time ?? order.expirationTime,
@@ -697,16 +691,15 @@ export class OpenSeaBiddingService implements BiddingService {
                     expirationTime,
                 }),
             );
+            if (!order) {
+                throw new Error(
+                    "Failed to create token offer (no order returned)",
+                );
+            }
 
+            const identity = requirePlacedOrderIdentity(order);
             return {
-                orderHash:
-                    stringOrUndefined(order.orderHash) ??
-                    stringOrUndefined(order.order_hash) ??
-                    "",
-                protocolAddress:
-                    stringOrUndefined(order.protocolAddress) ??
-                    stringOrUndefined(order.protocol_address) ??
-                    "",
+                ...identity,
                 expirationTime:
                     this.tryParseNumber(
                         order.expiration_time ?? order.expirationTime,
@@ -1644,6 +1637,33 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function stringOrUndefined(value: unknown): string | undefined {
     return typeof value === "string" ? value : undefined;
+}
+
+function nonEmptyStringOrUndefined(value: unknown): string | undefined {
+    const text = stringOrUndefined(value)?.trim();
+    return text && text.length > 0 ? text : undefined;
+}
+
+function requirePlacedOrderIdentity(rawOrder: unknown): {
+    orderHash: string;
+    protocolAddress: string;
+} {
+    const order = asRecord(rawOrder);
+    const orderHash =
+        nonEmptyStringOrUndefined(order.orderHash) ??
+        nonEmptyStringOrUndefined(order.order_hash);
+    const protocolAddress =
+        nonEmptyStringOrUndefined(order.protocolAddress) ??
+        nonEmptyStringOrUndefined(order.protocol_address);
+    if (!orderHash) {
+        throw new Error("OpenSea create offer response missing order hash");
+    }
+    if (!protocolAddress) {
+        throw new Error(
+            "OpenSea create offer response missing protocol address",
+        );
+    }
+    return { orderHash, protocolAddress };
 }
 
 function getOrderHash(rawOrder: unknown): string | undefined {

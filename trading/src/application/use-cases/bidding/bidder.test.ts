@@ -1442,6 +1442,73 @@ describe("Bidder stream refresh", () => {
         assert.equal(job.state.currentPrice, undefined);
     });
 
+    it("clears persisted runtime state when cancelling an unscheduled job declaration", async () => {
+        const biddingService = new FakeBiddingService();
+        biddingService.activeOffers = [
+            {
+                id: "0xmine",
+                price: 5n,
+                maker: "0xmaker",
+                protocolAddress: "0xprotocol",
+                offerScope: "item",
+            },
+        ];
+        const persistedStates: Array<{
+            activeOrderId: string | null;
+            activeProtocolAddress: string | null;
+            currentPriceWei: string | null;
+            bidPosition: TradingBiddingJobRuntimeBidPosition | null;
+            bidConstraints: TradingBiddingJobRuntimeConstraint[];
+        }> = [];
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            { dryRun: false },
+            undefined,
+            undefined,
+            {
+                persistJobRuntimeState: (snapshot) => {
+                    persistedStates.push({
+                        activeOrderId: snapshot.activeOrderId,
+                        activeProtocolAddress: snapshot.activeProtocolAddress,
+                        currentPriceWei: snapshot.currentPriceWei,
+                        bidPosition: snapshot.bidPosition,
+                        bidConstraints: snapshot.bidConstraints,
+                    });
+                },
+            },
+        );
+        const job = makeJob(
+            "token-hit",
+            "terraforms",
+            { type: "token", tokenId: "123" },
+            5n,
+        );
+        job.state.activeOrderId = "0xmine";
+        job.state.activeProtocolAddress = "0xprotocol";
+        job.state.bidPosition =
+            TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning;
+        job.state.bidConstraints = [
+            TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
+        ];
+
+        const cancelled = await bidder.cancelActiveOffersForJob(job);
+
+        assert.equal(cancelled, 1);
+        assert.deepEqual(biddingService.canceledOrderIds, ["0xmine"]);
+        assert.equal(job.state.activeOrderId, undefined);
+        assert.equal(job.state.activeProtocolAddress, undefined);
+        assert.equal(job.state.currentPrice, undefined);
+        assert.deepEqual(persistedStates.at(-1), {
+            activeOrderId: null,
+            activeProtocolAddress: null,
+            currentPriceWei: null,
+            bidPosition: null,
+            bidConstraints: [],
+        });
+    });
+
     it("refreshes only token jobs whose cached metadata matches every trait criterion", async () => {
         const tokenMetadataRepository = new FakeTokenMetadataRepository({
             "terraforms:123": [

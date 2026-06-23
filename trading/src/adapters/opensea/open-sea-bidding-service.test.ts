@@ -278,6 +278,47 @@ describe("OpenSeaBiddingService", () => {
         assert.ok(result.expirationTime !== undefined);
     });
 
+    it("rejects placed offers without a complete OpenSea order identity", async () => {
+        const sdk = new MockOpenSeaSdk();
+        const service = new OpenSeaBiddingService(sdk as any, makerAddress);
+        const tokenJob = {
+            id: "job-token",
+            network: "eth" as const,
+            collectionSlug,
+            collectionAddress,
+            target: { type: "token" as const, tokenId: "123" },
+            config: { floor: 1n, ceiling: 2n, delta: 1n },
+            state: {},
+        };
+        const collectionJob = {
+            id: "job-collection",
+            network: "eth" as const,
+            collectionSlug,
+            collectionAddress,
+            target: { type: "collection" as const, quantity: 1 },
+            config: { floor: 1n, ceiling: 2n, delta: 1n },
+            state: {},
+        };
+
+        sdk.createOffer = async () => ({
+            orderHash: "",
+            protocolAddress,
+        });
+        await assert.rejects(
+            () => service.placeOffer(tokenJob, 1_000000000000000000n),
+            /missing order hash/,
+        );
+
+        sdk.createCollectionOffer = async () => ({
+            order_hash: orderHash,
+            protocol_address: "   ",
+        });
+        await assert.rejects(
+            () => service.placeOffer(collectionJob, 1_000000000000000000n),
+            /missing protocol address/,
+        );
+    });
+
     it("cancels offers via offchainCancelOrder and requires protocol address", async () => {
         const sdk = new MockOpenSeaSdk();
         const service = new OpenSeaBiddingService(sdk as any, makerAddress);
