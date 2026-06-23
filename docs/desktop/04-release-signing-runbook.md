@@ -12,6 +12,36 @@ The target release artifacts are:
 - release signatures: Linux detached signatures and `SHA256SUMS.txt.asc`
 - GitHub provenance attestation
 
+## Direct Signup and Purchase Links
+
+Use these links for account setup and purchases. Re-check the vendor pages
+before paying because certificate and managed-signing availability changes.
+
+- macOS:
+  - Apple Developer Program enrollment: https://developer.apple.com/programs/enroll/
+  - Apple Developer account: https://developer.apple.com/account/
+  - Certificates, Identifiers & Profiles: https://developer.apple.com/account/resources/certificates/list
+  - App Store Connect API keys: https://appstoreconnect.apple.com/access/integrations/api
+- Windows preferred path:
+  - Azure account signup: https://azure.microsoft.com/free/
+  - Azure Artifact Signing product page: https://azure.microsoft.com/en-us/products/artifact-signing
+  - Azure Artifact Signing pricing: https://azure.microsoft.com/en-us/pricing/details/artifact-signing/
+  - Azure portal Artifact Signing Accounts: https://portal.azure.com/#view/HubsExtension/BrowseResource/resourceType/Microsoft.CodeSigning%2FcodeSigningAccounts
+- Windows fallback vendors:
+  - SSL.com Personal Identity Code Signing: https://www.ssl.com/certificates/iv-code-signing/
+  - Certum Open Source Code Signing: https://shop.certum.eu/open-source-code-signing.html
+
+Recommended first purchase path:
+
+- macOS: buy only Apple Developer Program membership as an individual. Do not
+  buy a separate public CA certificate for macOS Developer ID signing.
+- Windows: prefer Azure Artifact Signing if the individual-developer public
+  trust path is available for the maintainer's country. If it is unavailable,
+  use a public code-signing vendor such as SSL.com or Certum, but plan a
+  workflow change for that vendor's cloud-signing or hardware-token flow.
+- Linux: do not buy a platform certificate. Use a dedicated release GPG key and
+  publish the public key/fingerprint on stable maintainer-controlled profiles.
+
 ## Current Tauri State
 
 The current checked-in Tauri stack is not fully current:
@@ -21,12 +51,12 @@ The current checked-in Tauri stack is not fully current:
 - JavaScript `@tauri-apps/cli`: locked to `2.6.0`
 - JavaScript `@tauri-apps/api`: locked to `2.9.1`
 
-As of 2026-05-21, the current Tauri v2 release line is:
+As of 2026-06-23, the current Tauri v2 release line is:
 
-- `tauri`: `2.11.2`
-- `@tauri-apps/api`: `2.11.0`
-- `tauri-cli` / `@tauri-apps/cli`: `2.11.2`
-- `tauri-bundler`: `2.9.2`
+- `tauri`: `2.11.3`
+- `@tauri-apps/api`: `2.11.1`
+- `tauri-cli` / `@tauri-apps/cli`: `2.11.3`
+- `tauri-bundler`: `2.9.3`
 
 Upgrade Tauri before a public release candidate, but keep it as a separate
 review chunk from signing setup. The release pipeline should be green on the
@@ -35,7 +65,7 @@ current stack first, then the Tauri upgrade should run through the same matrix.
 Expected upgrade shape:
 
 ```sh
-yarn up @tauri-apps/cli@2.11.2 @tauri-apps/api@2.11.0
+yarn up @tauri-apps/cli@2.11.3 @tauri-apps/api@2.11.1
 cargo update --manifest-path src-tauri/Cargo.toml -p tauri -p tauri-build -p tauri-plugin-log -p tauri-plugin-shell
 ```
 
@@ -55,6 +85,8 @@ What to buy:
 
 - Apple Developer Program membership as an individual developer.
 - The membership is annual and Apple lists it as `99 USD` per membership year.
+- The Developer ID certificate is created inside the Apple Developer account;
+  there is no separate macOS certificate vendor purchase.
 
 What to create:
 
@@ -98,6 +130,7 @@ stapled ticket, and then runs Gatekeeper assessment on the DMG.
 Official references:
 
 - Apple Developer Program: https://developer.apple.com/programs/
+- Apple Developer Program enrollment: https://developer.apple.com/programs/enroll/
 - Apple enrollment requirements: https://developer.apple.com/programs/enroll/
 - Developer ID certificates: https://developer.apple.com/help/account/certificates/create-developer-id-certificates
 - Developer ID / notarization overview: https://developer.apple.com/developer-id/
@@ -119,16 +152,18 @@ certificate.
 
 Availability note:
 
-- Public Trust Artifact Signing is currently available to individual developers
-  in the USA and Canada. For an individual developer outside those regions, use
-  a traditional code-signing vendor or reassess the current Microsoft
-  availability before release.
+- Public Trust Artifact Signing is currently available to organizations in the
+  USA, Canada, the European Union, and the United Kingdom, and to individual
+  developers in the USA and Canada. For an individual developer outside those
+  regions, use a traditional code-signing vendor or reassess the current
+  Microsoft availability before release.
 
 What to buy:
 
 - Azure Artifact Signing account with public trust signing.
-- Microsoft lists a Basic plan for lower-volume signing and a Premium plan for
-  higher-volume signing on the product pricing page.
+- Microsoft lists Basic and Premium plans. The public pricing page is dynamic,
+  so confirm the actual monthly price in the Azure portal or pricing calculator
+  before creating the Artifact Signing account.
 
 What to create:
 
@@ -163,6 +198,14 @@ Procedure:
     - `AZURE_CLIENT_SECRET`: app registration client secret value
     - `AZURE_TENANT_ID`: Entra tenant ID
 
+Portal starting points:
+
+- Azure signup: https://azure.microsoft.com/free/
+- Artifact Signing Accounts: https://portal.azure.com/#view/HubsExtension/BrowseResource/resourceType/Microsoft.CodeSigning%2FcodeSigningAccounts
+
+If the Azure portal deep link changes, sign in to the Azure portal and search
+for `Artifact Signing Accounts`.
+
 The workflow installs `artifact-signing-cli`, writes a temporary Tauri config
 with a `trusted-signing-cli ... %1` sign command, builds the Windows bundle, and
 then verifies the installer signature with `signtool verify`.
@@ -170,6 +213,7 @@ then verifies the installer signature with `signtool verify`.
 Official references:
 
 - Azure Artifact Signing: https://azure.microsoft.com/en-us/products/artifact-signing
+- Artifact Signing pricing: https://azure.microsoft.com/en-us/pricing/details/artifact-signing/
 - Artifact Signing setup quickstart: https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart
 - Artifact Signing certificate management: https://learn.microsoft.com/en-us/azure/trusted-signing/concept-trusted-signing-cert-management
 - Artifact Signing roles: https://learn.microsoft.com/en-us/azure/trusted-signing/tutorial-assign-roles
@@ -199,6 +243,20 @@ SmartScreen expectation:
 - EV certificates usually receive immediate SmartScreen reputation.
 - OV or individual certificates can still show warnings until Microsoft builds
   reputation for the certificate and downloaded files.
+
+Individual/open-source vendor notes:
+
+- SSL.com sells Personal Identity Code Signing certificates for independent
+  developers and individual contributors. Their current order page offers
+  YubiKey token and eSigner cloud signing options, not an ordinary CI-friendly
+  exported private key by default.
+- Certum sells an Open Source Code Signing set intended for open-source
+  software. Its current page describes a cryptographic card/card-reader set, so
+  GitHub-hosted CI signing would need a vendor/cloud integration or a
+  self-hosted runner with hardware access.
+- The current workflow's PFX backend is a fallback for an issuer-provided
+  exportable `.pfx`. Do not assume a newly purchased public code-signing
+  certificate will be exportable.
 
 ## Linux Signing
 
