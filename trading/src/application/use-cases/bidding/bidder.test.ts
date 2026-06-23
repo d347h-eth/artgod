@@ -3,6 +3,8 @@ import { describe, it } from "vitest";
 import {
     TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
     TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
+    type TradingBiddingJobRuntimeBidPosition,
+    type TradingBiddingJobRuntimeConstraint,
 } from "@artgod/shared/types";
 import {
     MarketEvent,
@@ -958,6 +960,62 @@ describe("Bidder stream refresh", () => {
 
         assert.equal(makerWethBalanceService.calls, 1);
         assert.deepEqual(biddingService.placedAmounts, [5n]);
+    });
+
+    it("persists the runtime bid decision when a new offer is placed", async () => {
+        const biddingService = new FakeBiddingService();
+        biddingService.activeOffers = [
+            { id: "0xother", price: 25n, maker: "0xother", offerScope: "item" },
+        ];
+        const persistedStates: Array<{
+            activeOrderId: string | null;
+            currentPriceWei: string | null;
+            bidPosition: TradingBiddingJobRuntimeBidPosition | null;
+            bidConstraints: TradingBiddingJobRuntimeConstraint[];
+            competitorPriceWei: string | null;
+        }> = [];
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            {
+                dryRun: false,
+            },
+            undefined,
+            undefined,
+            {
+                persistJobRuntimeState: (snapshot) => {
+                    persistedStates.push({
+                        activeOrderId: snapshot.activeOrderId,
+                        currentPriceWei: snapshot.currentPriceWei,
+                        bidPosition: snapshot.bidPosition,
+                        bidConstraints: snapshot.bidConstraints,
+                        competitorPriceWei: snapshot.competitorPriceWei,
+                    });
+                },
+            },
+        );
+
+        bidder.addJob(
+            makeJob(
+                "token-hit",
+                "terraforms",
+                { type: "token", tokenId: "123" },
+                undefined,
+                { floor: 1n, ceiling: 20n, delta: 1n },
+            ),
+        );
+
+        await bidder.refreshJob("token-hit");
+
+        assert.deepEqual(biddingService.placedAmounts, [20n]);
+        assert.deepEqual(persistedStates.at(-1), {
+            activeOrderId: "0xhash",
+            currentPriceWei: "20",
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            competitorPriceWei: "25",
+        });
     });
 
     it("optimizes a winning bid down to the minimum winning price and cancels the old bid", async () => {

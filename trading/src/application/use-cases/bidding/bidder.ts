@@ -126,6 +126,12 @@ interface RuntimeJobOverride {
     timer?: ReturnType<typeof setTimeout>;
 }
 
+type RuntimeBidDecisionContext = {
+    competitorPrice: bigint;
+    floor: bigint;
+    ceiling: bigint;
+};
+
 const log = createBiddingComponentLogger(BIDDING_LOG_COMPONENT.Bidder);
 
 // Bidder is the pure bidding core ported from the production bot with mechanical renames only.
@@ -771,7 +777,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     },
                 );
                 this.clearRuntimeBidDecision(job);
-                await this.placeAndTrack(job, desiredPrice);
+                await this.placeAndTrack(job, desiredPrice, {
+                    competitorPrice,
+                    floor,
+                    ceiling,
+                });
                 return;
             }
 
@@ -791,7 +801,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     reason: renewalReason,
                 });
                 this.clearRuntimeBidDecision(job);
-                await this.placeAndTrack(job, desiredPrice);
+                await this.placeAndTrack(job, desiredPrice, {
+                    competitorPrice,
+                    floor,
+                    ceiling,
+                });
                 await this.cancelMakerOffers(job, myOffers);
                 return;
             }
@@ -865,7 +879,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 competitorPriceEth: formatUnits(competitorPrice, 18),
             });
             this.clearRuntimeBidDecision(job);
-            await this.placeAndTrack(job, desiredPrice);
+            await this.placeAndTrack(job, desiredPrice, {
+                competitorPrice,
+                floor,
+                ceiling,
+            });
             await this.cancelMakerOffers(job, myOffers);
         } catch (error: unknown) {
             const { errorMessage, ...errorFields } = toErrorLogFields(error);
@@ -1669,7 +1687,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         return false;
     }
 
-    private async placeAndTrack(job: BidderJob, amount: bigint): Promise<void> {
+    private async placeAndTrack(
+        job: BidderJob,
+        amount: bigint,
+        decisionContext?: RuntimeBidDecisionContext,
+    ): Promise<void> {
         job.state.lastRun = Date.now();
         const jobRef = formatBidderJobReference(job);
 
@@ -1711,6 +1733,15 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         job.state.currentPrice = amount;
         job.state.activeExpirationTimeMs =
             this.toExpirationTimeMs(expirationTime);
+        if (decisionContext) {
+            this.trackRuntimeBidDecision(
+                job,
+                amount,
+                decisionContext.competitorPrice,
+                decisionContext.floor,
+                decisionContext.ceiling,
+            );
+        }
         this.persistJobRuntimeState(job);
         if (
             job.target.type === "collection" ||

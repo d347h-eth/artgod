@@ -38,20 +38,20 @@ export function ownBidStatusBadges(bid: ApiBiddingBidBookRow): BidBookOwnStatusB
 	if (!bid.maker.isOwn) {
 		return [];
 	}
+	if (bid.ownStatus) {
+		return [
+			{ kind: bid.ownStatus.position, label: bid.ownStatus.position },
+			...bid.ownStatus.constraints.map((constraint) => ({
+				kind: constraint,
+				label: OWN_BID_CONSTRAINT_LABELS[constraint]
+			}))
+		];
+	}
 	if (bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent) {
 		const phase = bid.materialization.phase ?? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued;
 		return [ownJobIntentPhaseBadge(phase)];
 	}
-	if (!bid.ownStatus) {
-		return [];
-	}
-	return [
-		{ kind: bid.ownStatus.position, label: bid.ownStatus.position },
-		...bid.ownStatus.constraints.map((constraint) => ({
-			kind: constraint,
-			label: OWN_BID_CONSTRAINT_LABELS[constraint]
-		}))
-	];
+	return [];
 }
 
 // Resolves the user-facing state badges for the bidding panel from backend-owned bid-book signals.

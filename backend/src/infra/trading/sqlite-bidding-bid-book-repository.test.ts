@@ -388,6 +388,9 @@ describe("SqliteBiddingBidBookRepository", () => {
             jobId: "collection-job",
             currentPriceWei: "150",
             activeOrderId: "0xruntime-order",
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            competitorPriceWei: "250",
         });
         const runtimeCollectionBook = repository.listCollectionBidBook({
             chainId: 1,
@@ -410,6 +413,15 @@ describe("SqliteBiddingBidBookRepository", () => {
             runtimeCollectionBook.bids[0]?.materialization.phase,
             TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
         );
+        assert.deepEqual(runtimeCollectionBook.bids[0]?.ownStatus, {
+            position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            job: {
+                jobId: "collection-job",
+                revision: 1,
+                status: TRADING_JOB_STATUS.Enabled,
+            },
+        });
 
         const pausedTraitBook = repository.listCollectionBidBook({
             chainId: 1,
