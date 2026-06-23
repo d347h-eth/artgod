@@ -105,6 +105,16 @@ export type BootstrapCollectionExtensionArtifactTask = {
     nextAttemptAt: number;
 };
 
+// Seed row supplied by collection extensions for bootstrap artifact side-lane work.
+export type BootstrapCollectionExtensionArtifactTaskSeed = {
+    runId: number;
+    chainId: number;
+    collectionId: number;
+    contract: string;
+    tokenId: string;
+    extensionKey: CollectionExtensionKey;
+};
+
 export type BootstrapCollectionExtensionArtifactTaskCounts =
     BootstrapTaskCounts;
 
@@ -198,6 +208,9 @@ export interface BootstrapSnapshotPort {
         runId: number;
         extensionKey: CollectionExtensionKey;
     }): number;
+    insertCollectionExtensionArtifactTasks(
+        rows: BootstrapCollectionExtensionArtifactTaskSeed[],
+    ): number;
     listCollectionExtensionArtifactTasksDueNow(
         runId: number,
         nowMs: number,

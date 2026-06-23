@@ -532,7 +532,8 @@ Important semantics:
 - writes are upserts, so the table holds current artifact state rather than history
 - foreign key references `tokens(chain_id, collection_id, token_id)`
     - canonical token rows must exist first
-    - this is why collection-extension refresh runs only after canonical metadata persistence succeeds
+    - this is why normal collection-extension refresh runs only after canonical metadata persistence succeeds
+    - Terraforms also inserts extension-owned synthetic `tokens` rows for settled unminted placements before writing their artifacts
 
 Normalized token trait links in `token_attributes` are source-scoped:
 
@@ -554,6 +555,7 @@ Current Terraforms artifact usage:
 - `html_content` stores the direct v2 renderer `tokenHTML(...)` response used for backend animation override
 - backend resolves Terraforms collection browsing from `terraforms-v2-media`
 - backend exposes `terraforms-v2-lost-terrain` only as a token-local media mode on token detail / preview
+- unminted placement rows are extension-owned synthetic `tokens` without canonical `token_metadata`; Terraforms writes the extension-owned minted-state trait from `TERRAFORMS_MINTED_ATTRIBUTE_KEY` plus Terrain renderer traits
 
 ## Metadata Refresh Follow-Ups and Queue Outbox
 

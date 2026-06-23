@@ -87,16 +87,18 @@ Current behavior:
 - bootstrap metadata writes `token_metadata` and normalized attributes first
 - bootstrap metadata snapshot completion releases canonical trait stats through the queue outbox
 - extension artifact refresh is queued afterward on the dedicated collection-extension queue
+- Terraforms may add extension-owned synthetic unminted-placement artifact tasks to that same queue after canonical metadata tasks are available
 - bootstrap does not wait for extension artifact completion before moving to image cache, ownership snapshot, or later phases
 - extension artifact terminality releases a final stats recompute that includes extension-owned normalized traits
 
 This ordering is important because:
 
 - `token_extension_artifacts` references canonical `tokens` rows
+- extension-owned synthetic token rows are inserted by the extension before their artifact writes
 - extension logic can depend on normalized attributes already written by the canonical metadata path
 - canonical ownership correctness must not be blocked by collection-specific extras
 
-The first embedded extension, Terraforms, uses this shadow path to cache version-2 renderer artifacts and later drive backend media overrides.
+The first embedded extension, Terraforms, uses this shadow path to cache version-2 renderer artifacts, add browseable unminted placement rows, and later drive backend media overrides.
 
 ### 6. Ownership snapshot
 

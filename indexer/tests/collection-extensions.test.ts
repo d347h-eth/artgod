@@ -5,6 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { encodeAbiParameters, encodeEventTopics } from "viem";
 import { db, setDbPath } from "@artgod/shared/database";
 import {
+    buildTerraformsUnmintedTokenId,
+    TERRAFORMS_BIOME_ATTRIBUTE_KEY,
     TERRAFORMS_BEACON_ANTENNA_MODIFICATION_LABELS,
     TERRAFORMS_BEACON_EVENT_GROUPS,
     TERRAFORMS_BEACON_EVENT_TYPES,
@@ -12,17 +14,24 @@ import {
     TERRAFORMS_EXTENSION_ARTIFACT_REFS,
     TERRAFORMS_EXTENSION_EVENT_KEYS,
     TERRAFORMS_EXTENSION_KEY,
+    TERRAFORMS_MINTED_ATTRIBUTE_KEY,
+    TERRAFORMS_MINTED_ATTRIBUTE_VALUES,
     TERRAFORMS_MODE_ATTRIBUTE_KEY,
+    TERRAFORMS_MODE_ATTRIBUTE_VALUES,
     TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
     TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
     TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES,
+    TERRAFORMS_ZONE_ATTRIBUTE_KEY,
 } from "@artgod/shared/extensions/terraforms";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
     TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     TOKEN_ATTRIBUTE_SOURCE_KIND,
 } from "@artgod/shared/types/token-attributes";
-import { terraformsIndexerExtension } from "../src/application/collection-extensions/terraforms.js";
+import {
+    buildTerraformsUnmintedTokenAttributes,
+    terraformsIndexerExtension,
+} from "../src/application/collection-extensions/terraforms.js";
 import { SqliteCollectionExtensions } from "../src/infra/collection-extensions/sqlite.js";
 import { HttpMetadataFetcher } from "../src/infra/metadata/http-fetcher.js";
 import type { RpcProviderPort } from "../src/ports/rpc.js";
@@ -108,6 +117,60 @@ describe("terraforms collection extension", () => {
         ]);
         expect(decoded.metadataRefreshRangeEvents).toEqual([]);
         expect(decoded.collectionExtensionEvents).toEqual([]);
+    });
+
+    it("seeds unminted bootstrap artifact tasks from minted placements", async () => {
+        const seededRows: Array<{
+            tokenId: string;
+            contract: string;
+            extensionKey: string;
+        }> = [];
+        const rpc = createRpcStub({
+            onReadContract({ functionName, args }) {
+                if (functionName === "totalSupply") {
+                    return 2n;
+                }
+                if (functionName === "tokenToPlacement") {
+                    return args?.[0] === 1n ? 0n : 2n;
+                }
+                throw new Error(`Unexpected contract call: ${functionName}`);
+            },
+        });
+
+        const result =
+            await terraformsIndexerExtension.seedBootstrapArtifactTasks?.({
+                rpc,
+                install: buildInstall(7),
+                tasks: {
+                    insertCollectionExtensionArtifactTasks(rows) {
+                        seededRows.push(...rows);
+                        return rows.length;
+                    },
+                },
+                run: {
+                    runId: 41,
+                    chainId: 1,
+                    collectionId: 7,
+                    contract: TERRAFORMS_ADDRESS,
+                },
+            });
+
+        expect(result).toEqual({ tasksSeeded: 11102 });
+        expect(seededRows[0]).toMatchObject({
+            tokenId: buildTerraformsUnmintedTokenId(1n),
+            contract: TERRAFORMS_ADDRESS,
+            extensionKey: TERRAFORMS_EXTENSION_KEY,
+        });
+        expect(
+            seededRows.some(
+                (row) => row.tokenId === buildTerraformsUnmintedTokenId(0n),
+            ),
+        ).toBe(false);
+        expect(
+            seededRows.some(
+                (row) => row.tokenId === buildTerraformsUnmintedTokenId(2n),
+            ),
+        ).toBe(false);
     });
 
     it("decodes Terraformed logs into extension event facts", async () => {
@@ -491,6 +554,7 @@ describe("terraforms collection extension", () => {
                 installs: collectionExtensions,
                 artifacts: collectionExtensions,
                 attributes: collectionExtensions,
+                syntheticTokens: collectionExtensions,
                 install: buildInstall(collectionId),
                 payload: {
                     chainId: 1,
@@ -688,6 +752,7 @@ describe("terraforms collection extension", () => {
             installs: collectionExtensions,
             artifacts: collectionExtensions,
             attributes: collectionExtensions,
+            syntheticTokens: collectionExtensions,
             install: buildInstall(collectionId),
             payload: {
                 chainId: 1,
@@ -759,6 +824,7 @@ describe("terraforms collection extension", () => {
             installs: collectionExtensions,
             artifacts: collectionExtensions,
             attributes: collectionExtensions,
+            syntheticTokens: collectionExtensions,
             install: buildInstall(collectionId),
             payload: {
                 chainId: 1,
@@ -798,6 +864,302 @@ describe("terraforms collection extension", () => {
                 key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
             }),
         ).toBe(TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.YSeed);
+    });
+
+    it("builds unminted attributes with Terrain mode regardless of renderer metadata mode", () => {
+        const attributes = buildTerraformsUnmintedTokenAttributes({
+            metadata: {
+                uri: "data:application/json;base64,test",
+                attributes: [
+                    {
+                        traitType: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+                        value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Daydream,
+                    },
+                    {
+                        traitType: TERRAFORMS_MINTED_ATTRIBUTE_KEY,
+                        value: TERRAFORMS_MINTED_ATTRIBUTE_VALUES.True,
+                    },
+                    { traitType: TERRAFORMS_ZONE_ATTRIBUTE_KEY, value: "Alto" },
+                ],
+                rawJson: "{}",
+            },
+            seed: 4117n,
+            seedClass: null,
+        });
+
+        expect(attributes).toEqual([
+            {
+                key: TERRAFORMS_MINTED_ATTRIBUTE_KEY,
+                value: TERRAFORMS_MINTED_ATTRIBUTE_VALUES.False,
+            },
+            {
+                key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+                value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
+            },
+            { key: TERRAFORMS_ZONE_ATTRIBUTE_KEY, value: "Alto" },
+            {
+                key: TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
+                value: "4117",
+            },
+        ]);
+    });
+
+    it("creates synthetic unminted token rows without canonical metadata", async () => {
+        resetExtensionTables();
+        const collectionId = seedCollectionOnly();
+        const collectionExtensions = new SqliteCollectionExtensions();
+        const metadataFetcher = new HttpMetadataFetcher();
+        const tokenId = buildTerraformsUnmintedTokenId(42n);
+        const tokenUriArgs: unknown[][] = [];
+        const rpc = createRpcStub({
+            onReadContract({ functionName, args }) {
+                if (functionName === "tokenURI") {
+                    tokenUriArgs.push([...(args ?? [])]);
+                    return buildMetadataDataUri({
+                        name: "Unminted Terraforms placement 42",
+                        image: "data:image/svg+xml;base64,unminted-42",
+                        animation_url:
+                            "https://example.com/unminted-42-animation",
+                        attributes: [
+                            {
+                                trait_type: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+                                value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
+                            },
+                            {
+                                trait_type: TERRAFORMS_ZONE_ATTRIBUTE_KEY,
+                                value: "Alto",
+                            },
+                            {
+                                trait_type: TERRAFORMS_BIOME_ATTRIBUTE_KEY,
+                                value: "17",
+                            },
+                        ],
+                    });
+                }
+                if (functionName === "tokenHTML") {
+                    return "<html><body>unminted-42</body></html>";
+                }
+                throw new Error(`Unexpected contract call: ${functionName}`);
+            },
+        });
+
+        await terraformsIndexerExtension.refreshArtifacts({
+            rpc,
+            metadataFetcher,
+            installs: collectionExtensions,
+            artifacts: collectionExtensions,
+            attributes: collectionExtensions,
+            syntheticTokens: collectionExtensions,
+            install: buildInstall(collectionId),
+            payload: {
+                chainId: 1,
+                collectionId,
+                contract: TERRAFORMS_ADDRESS,
+                tokenId,
+                reason: "bootstrap-snapshot",
+                source: "bootstrap",
+            },
+        });
+
+        expect(selectTokenExists(collectionId, tokenId)).toBe(true);
+        expect(selectTokenMetadataExists(collectionId, tokenId)).toBe(false);
+        expect(tokenUriArgs[0]?.[0]).toBe(42n);
+        expect(tokenUriArgs[0]?.[1]).toBe(0n);
+        expect(tokenUriArgs[0]?.[2]).toBe(42n);
+        expect(
+            collectionExtensions.getArtifact({
+                chainId: 1,
+                collectionId,
+                tokenId,
+                extensionKey: TERRAFORMS_EXTENSION_KEY,
+                artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
+            })?.image,
+        ).toBe("data:image/svg+xml;base64,unminted-42");
+        expect(
+            collectionExtensions.getTokenAttributeValue({
+                chainId: 1,
+                collectionId,
+                tokenId,
+                key: TERRAFORMS_MINTED_ATTRIBUTE_KEY,
+            }),
+        ).toBe(TERRAFORMS_MINTED_ATTRIBUTE_VALUES.False);
+        expect(
+            collectionExtensions.getTokenAttributeValue({
+                chainId: 1,
+                collectionId,
+                tokenId,
+                key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+            }),
+        ).toBe(TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain);
+        expect(
+            collectionExtensions.getTokenAttributeValue({
+                chainId: 1,
+                collectionId,
+                tokenId,
+                key: TERRAFORMS_ZONE_ATTRIBUTE_KEY,
+            }),
+        ).toBe("Alto");
+        expect(
+            collectionExtensions.getTokenAttributeValue({
+                chainId: 1,
+                collectionId,
+                tokenId,
+                key: TERRAFORMS_BIOME_ATTRIBUTE_KEY,
+            }),
+        ).toBe("17");
+    });
+
+    it("retires the matching synthetic row when a real token refreshes", async () => {
+        resetExtensionTables();
+        const collectionId = seedCollectionToken("7712", "Terrain");
+        const collectionExtensions = new SqliteCollectionExtensions();
+        const metadataFetcher = new HttpMetadataFetcher();
+        const syntheticTokenId = buildTerraformsUnmintedTokenId(42n);
+        collectionExtensions.upsertSyntheticToken({
+            chainId: 1,
+            collectionId,
+            contractAddress: TERRAFORMS_ADDRESS,
+            tokenId: syntheticTokenId,
+            extensionKey: TERRAFORMS_EXTENSION_KEY,
+        });
+        collectionExtensions.upsertArtifact({
+            chainId: 1,
+            collectionId,
+            contractAddress: TERRAFORMS_ADDRESS,
+            tokenId: syntheticTokenId,
+            extensionKey: TERRAFORMS_EXTENSION_KEY,
+            artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
+            uri: null,
+            rawJson: null,
+            attributesJson: null,
+            image: "data:image/svg+xml;base64,old-unminted",
+            animationUrl: null,
+            htmlContent: "<html><body>old-unminted</body></html>",
+        });
+        collectionExtensions.replaceTokenAttributes({
+            chainId: 1,
+            collectionId,
+            contractAddress: TERRAFORMS_ADDRESS,
+            tokenId: syntheticTokenId,
+            extensionKey: TERRAFORMS_EXTENSION_KEY,
+            attributes: [
+                {
+                    key: TERRAFORMS_MINTED_ATTRIBUTE_KEY,
+                    value: TERRAFORMS_MINTED_ATTRIBUTE_VALUES.False,
+                },
+            ],
+        });
+
+        const rpc = createRpcStub({
+            onReadContract({ functionName }) {
+                if (functionName === "tokenToPlacement") {
+                    return 42n;
+                }
+                if (functionName === "tokenURI") {
+                    return buildMetadataDataUri({
+                        name: "Terrain #7712 v2",
+                        image: "data:image/svg+xml;base64,terrain-v2",
+                        animation_url:
+                            "https://example.com/terrain-v2-animation",
+                        attributes: [
+                            {
+                                trait_type: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+                                value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
+                            },
+                        ],
+                    });
+                }
+                if (functionName === "tokenHTML") {
+                    return "<html><body>terrain-v2</body></html>";
+                }
+                throw new Error(`Unexpected contract call: ${functionName}`);
+            },
+        });
+
+        await terraformsIndexerExtension.refreshArtifacts({
+            rpc,
+            metadataFetcher,
+            installs: collectionExtensions,
+            artifacts: collectionExtensions,
+            attributes: collectionExtensions,
+            syntheticTokens: collectionExtensions,
+            install: buildInstall(collectionId),
+            payload: {
+                chainId: 1,
+                collectionId,
+                contract: TERRAFORMS_ADDRESS,
+                tokenId: "7712",
+                reason: "collection-extension",
+                source: "onchain",
+            },
+        });
+
+        expect(selectTokenExists(collectionId, syntheticTokenId)).toBe(false);
+        expect(
+            collectionExtensions.getArtifact({
+                chainId: 1,
+                collectionId,
+                tokenId: syntheticTokenId,
+                extensionKey: TERRAFORMS_EXTENSION_KEY,
+                artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
+            }),
+        ).toBeNull();
+        expect(
+            collectionExtensions.getTokenAttributeValue({
+                chainId: 1,
+                collectionId,
+                tokenId: syntheticTokenId,
+                key: TERRAFORMS_MINTED_ATTRIBUTE_KEY,
+            }),
+        ).toBeNull();
+        expect(
+            collectionExtensions.getTokenAttributeValue({
+                chainId: 1,
+                collectionId,
+                tokenId: "7712",
+                key: TERRAFORMS_MINTED_ATTRIBUTE_KEY,
+            }),
+        ).toBe(TERRAFORMS_MINTED_ATTRIBUTE_VALUES.True);
+    });
+
+    it("blocks synthetic retirement when unexpected canonical state exists", () => {
+        resetExtensionTables();
+        const collectionId = seedCollectionOnly();
+        const collectionExtensions = new SqliteCollectionExtensions();
+        const tokenId = buildTerraformsUnmintedTokenId(42n);
+        collectionExtensions.upsertSyntheticToken({
+            chainId: 1,
+            collectionId,
+            contractAddress: TERRAFORMS_ADDRESS,
+            tokenId,
+            extensionKey: TERRAFORMS_EXTENSION_KEY,
+        });
+        db.prepare(
+            "INSERT INTO token_metadata " +
+                "(chain_id, collection_id, contract_address, token_id, uri) " +
+                "VALUES (?, ?, ?, ?, ?)",
+        ).run(
+            1,
+            collectionId,
+            TERRAFORMS_ADDRESS,
+            tokenId,
+            "data:application/json;base64,canonical",
+        );
+
+        const result = collectionExtensions.retireSyntheticToken({
+            chainId: 1,
+            collectionId,
+            contractAddress: TERRAFORMS_ADDRESS,
+            tokenId,
+            extensionKey: TERRAFORMS_EXTENSION_KEY,
+        });
+
+        expect(result).toEqual({
+            retired: false,
+            blockedByCanonicalState: true,
+        });
+        expect(selectTokenExists(collectionId, tokenId)).toBe(true);
+        expect(selectTokenMetadataExists(collectionId, tokenId)).toBe(true);
     });
 });
 
@@ -858,28 +1220,7 @@ function selectArtifactDebugColumns(params: {
 }
 
 function seedCollectionToken(tokenId: string, mode: string): number {
-    const collectionId = Number(
-        db
-            .prepare(
-                "INSERT INTO collections " +
-                    "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply, deployment_block, created_at, updated_at) " +
-                    "VALUES (?, ?, ?, ?, ?, 'contract_all_tokens', NULL, NULL, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-            )
-            .run(1, "terraforms", TERRAFORMS_ADDRESS, "erc721", "live", 1)
-            .lastInsertRowid,
-    );
-
-    db.prepare(
-        "INSERT INTO collection_extension_installs " +
-            "(chain_id, collection_id, extension_key, enabled, config_json) " +
-            "VALUES (?, ?, ?, ?, ?)",
-    ).run(
-        1,
-        collectionId,
-        TERRAFORMS_EXTENSION_KEY,
-        1,
-        buildInstall(collectionId).configJson,
-    );
+    const collectionId = seedCollectionOnly();
 
     db.prepare(
         "INSERT INTO tokens (chain_id, collection_id, contract_address, token_id) VALUES (?, ?, ?, ?)",
@@ -920,6 +1261,58 @@ function seedCollectionToken(tokenId: string, mode: string): number {
     );
 
     return collectionId;
+}
+
+function seedCollectionOnly(): number {
+    const collectionId = Number(
+        db
+            .prepare(
+                "INSERT INTO collections " +
+                    "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply, deployment_block, created_at, updated_at) " +
+                    "VALUES (?, ?, ?, ?, ?, 'contract_all_tokens', NULL, NULL, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            )
+            .run(1, "terraforms", TERRAFORMS_ADDRESS, "erc721", "live", 1)
+            .lastInsertRowid,
+    );
+
+    db.prepare(
+        "INSERT INTO collection_extension_installs " +
+            "(chain_id, collection_id, extension_key, enabled, config_json) " +
+            "VALUES (?, ?, ?, ?, ?)",
+    ).run(
+        1,
+        collectionId,
+        TERRAFORMS_EXTENSION_KEY,
+        1,
+        buildInstall(collectionId).configJson,
+    );
+
+    return collectionId;
+}
+
+function selectTokenExists(collectionId: number, tokenId: string): boolean {
+    const row = db
+        .prepare(
+            "SELECT 1 AS present FROM tokens " +
+                "WHERE chain_id = ? AND collection_id = ? AND token_id = ? " +
+                "LIMIT 1",
+        )
+        .get(1, collectionId, tokenId) as { present: number } | undefined;
+    return row?.present === 1;
+}
+
+function selectTokenMetadataExists(
+    collectionId: number,
+    tokenId: string,
+): boolean {
+    const row = db
+        .prepare(
+            "SELECT 1 AS present FROM token_metadata " +
+                "WHERE chain_id = ? AND collection_id = ? AND token_id = ? " +
+                "LIMIT 1",
+        )
+        .get(1, collectionId, tokenId) as { present: number } | undefined;
+    return row?.present === 1;
 }
 
 function buildMetadataDataUri(payload: Record<string, unknown>): string {

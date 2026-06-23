@@ -8,6 +8,7 @@ import {
 import type {
     BootstrapCollectionExtensionArtifactTask,
     BootstrapCollectionExtensionArtifactTaskCounts,
+    BootstrapCollectionExtensionArtifactTaskSeed,
     BootstrapMetadataTask,
     BootstrapMetadataTaskCounts,
     BootstrapMetadataTaskSeed,
@@ -125,7 +126,9 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             "WHERE run_id = @runId AND status = @succeededStatus",
     );
     private insertMetadataTaskStmt = db.prepare<
-        BootstrapMetadataTaskSeed & { pendingStatus: BootstrapMetadataTask["status"] }
+        BootstrapMetadataTaskSeed & {
+            pendingStatus: BootstrapMetadataTask["status"];
+        }
     >(
         "INSERT OR IGNORE INTO bootstrap_metadata_snapshot_tasks " +
             "(run_id, chain_id, collection_id, contract_address, token_id, standard, anchor_block, anchor_block_hash, anchor_block_timestamp, status, attempts, next_attempt_at) " +
@@ -388,6 +391,15 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             "chain_id = excluded.chain_id, collection_id = excluded.collection_id, contract_address = excluded.contract_address, " +
             "status = @pendingStatus, attempts = 0, next_attempt_at = 0, last_error = NULL, last_error_at = NULL, " +
             "updated_at = CURRENT_TIMESTAMP",
+    );
+    private insertCollectionExtensionArtifactTaskStmt = db.prepare<
+        BootstrapCollectionExtensionArtifactTaskSeed & {
+            pendingStatus: BootstrapCollectionExtensionArtifactTask["status"];
+        }
+    >(
+        "INSERT OR IGNORE INTO bootstrap_collection_extension_artifact_tasks " +
+            "(run_id, chain_id, collection_id, contract_address, token_id, extension_key, status, attempts, next_attempt_at, last_error, last_error_at) " +
+            "VALUES (@runId, @chainId, @collectionId, lower(@contract), @tokenId, @extensionKey, @pendingStatus, 0, 0, NULL, NULL)",
     );
     private selectCollectionExtensionArtifactTasksDueStmt = db.prepare<{
         runId: number;
@@ -666,19 +678,17 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         relativePath: string;
         publicPath: string;
     }): boolean {
-        const applySuccess = db.raw.transaction(
-            (params: typeof input) => {
-                const taskUpdate = this.markImageCacheTaskSucceededStmt.run({
-                    ...params,
-                    succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
-                });
-                if (taskUpdate.changes === 0) {
-                    return false;
-                }
-                this.upsertSettledImageCacheStmt.run(params);
-                return true;
-            },
-        );
+        const applySuccess = db.raw.transaction((params: typeof input) => {
+            const taskUpdate = this.markImageCacheTaskSucceededStmt.run({
+                ...params,
+                succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
+            });
+            if (taskUpdate.changes === 0) {
+                return false;
+            }
+            this.upsertSettledImageCacheStmt.run(params);
+            return true;
+        });
         return applySuccess(input);
     }
 
@@ -816,6 +826,27 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         return result.changes;
     }
 
+    insertCollectionExtensionArtifactTasks(
+        rows: BootstrapCollectionExtensionArtifactTaskSeed[],
+    ): number {
+        if (rows.length === 0) return 0;
+        const insertMany = db.raw.transaction(
+            (batch: BootstrapCollectionExtensionArtifactTaskSeed[]) => {
+                let inserted = 0;
+                for (const row of batch) {
+                    inserted +=
+                        this.insertCollectionExtensionArtifactTaskStmt.run({
+                            ...row,
+                            contract: row.contract.toLowerCase(),
+                            pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
+                        }).changes;
+                }
+                return inserted;
+            },
+        );
+        return insertMany(rows) as number;
+    }
+
     listCollectionExtensionArtifactTasksDueNow(
         runId: number,
         nowMs: number,
@@ -836,13 +867,14 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         cursorTokenId: string | null,
         limit: number,
     ): BootstrapCollectionExtensionArtifactTask[] {
-        const rows = this.selectCollectionExtensionArtifactTasksToPublishStmt.all({
-            runId,
-            cursorTokenId,
-            limit,
-            pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
-            retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
-        }) as BootstrapCollectionExtensionArtifactTaskDbRow[];
+        const rows =
+            this.selectCollectionExtensionArtifactTasksToPublishStmt.all({
+                runId,
+                cursorTokenId,
+                limit,
+                pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
+                retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
+            }) as BootstrapCollectionExtensionArtifactTaskDbRow[];
         return rows.map(mapBootstrapCollectionExtensionArtifactTaskDbRow);
     }
 
@@ -854,7 +886,9 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         const row = this.selectCollectionExtensionArtifactTaskStmt.get(
             input,
         ) as BootstrapCollectionExtensionArtifactTaskDbRow | undefined;
-        return row ? mapBootstrapCollectionExtensionArtifactTaskDbRow(row) : null;
+        return row
+            ? mapBootstrapCollectionExtensionArtifactTaskDbRow(row)
+            : null;
     }
 
     markCollectionExtensionArtifactTaskSucceeded(input: {

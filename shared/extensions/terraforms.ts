@@ -13,6 +13,12 @@ export * from "./terraforms-structure.js";
 
 export const TERRAFORMS_EXTENSION_KEY = "terraforms";
 
+// Terraforms main-contract max supply and placement domain size.
+export const TERRAFORMS_MAX_SUPPLY = TERRAFORMS_HYPERCASTLE_TOTAL_PARCELS;
+
+// Extension-owned token id prefix for settled placements that have not minted.
+export const TERRAFORMS_UNMINTED_TOKEN_ID_PREFIX = "unminted-tile";
+
 export const TERRAFORMS_EXTENSION_ARTIFACT_REFS = {
     V2Media: "terraforms-v2-media",
     LostTerrain: "terraforms-v2-lost-terrain",
@@ -127,6 +133,15 @@ export const TERRAFORMS_MODE_ATTRIBUTE_VALUES = {
     Terraform: "Terraform",
     OriginDaydream: "Origin Daydream",
     OriginTerraform: "Origin Terraform",
+} as const;
+
+// Terraforms extension-owned trait key that separates real and synthetic rows.
+export const TERRAFORMS_MINTED_ATTRIBUTE_KEY = "Minted";
+
+// Terraforms stores Minted as string values so trait filters stay categorical.
+export const TERRAFORMS_MINTED_ATTRIBUTE_VALUES = {
+    True: "true",
+    False: "false",
 } as const;
 
 // Tokens in these Mode states can have or receive owner-written dream canvases.
@@ -292,6 +307,58 @@ export function resolveTerraformsLevelAndTileFromPlacement(
     throw new Error(
         `Terraforms placement ${placement.toString()} is out of range`,
     );
+}
+
+// Builds the extension-owned token id for an unminted Terraforms placement.
+export function buildTerraformsUnmintedTokenId(
+    placement: bigint | number,
+): string {
+    return `${TERRAFORMS_UNMINTED_TOKEN_ID_PREFIX}-${normalizeTerraformsPlacement(placement).toString()}`;
+}
+
+// Parses an extension-owned unminted token id back to its Terraforms placement.
+export function parseTerraformsUnmintedTokenId(tokenId: string): bigint | null {
+    const prefix = `${TERRAFORMS_UNMINTED_TOKEN_ID_PREFIX}-`;
+    if (!tokenId.startsWith(prefix)) {
+        return null;
+    }
+    const rawPlacement = tokenId.slice(prefix.length);
+    if (!/^\d+$/.test(rawPlacement)) {
+        return null;
+    }
+    return normalizeTerraformsPlacement(BigInt(rawPlacement));
+}
+
+// Computes the settled placement ids that do not yet have a minted token.
+export function resolveTerraformsUnmintedPlacements(
+    mintedPlacements: Iterable<bigint | number>,
+): bigint[] {
+    const minted = new Set<string>();
+    for (const placement of mintedPlacements) {
+        minted.add(normalizeTerraformsPlacement(placement).toString());
+    }
+
+    const unminted: bigint[] = [];
+    for (
+        let placement = 0n;
+        placement < BigInt(TERRAFORMS_MAX_SUPPLY);
+        placement += 1n
+    ) {
+        if (!minted.has(placement.toString())) {
+            unminted.push(placement);
+        }
+    }
+    return unminted;
+}
+
+function normalizeTerraformsPlacement(placement: bigint | number): bigint {
+    const value = BigInt(placement);
+    if (value < 0n || value >= BigInt(TERRAFORMS_MAX_SUPPLY)) {
+        throw new Error(
+            `Terraforms placement ${value.toString()} is out of range`,
+        );
+    }
+    return value;
 }
 
 // Calculates the hidden per-token renderer seed emitted into Terraforms HTML.

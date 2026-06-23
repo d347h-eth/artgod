@@ -34,6 +34,21 @@ export type CollectionExtensionTokenAttributesReplaceInput = {
     attributes: readonly CollectionExtensionTokenAttributeInput[];
 };
 
+// Extension-owned synthetic token rows let collection-specific artifacts browse like tokens.
+export type CollectionExtensionSyntheticTokenInput = {
+    chainId: number;
+    collectionId: number;
+    contractAddress: string;
+    tokenId: string;
+    extensionKey: CollectionExtensionKey;
+};
+
+// Synthetic retirement is blocked when non-extension-owned state exists.
+export type CollectionExtensionSyntheticTokenRetirementResult = {
+    retired: boolean;
+    blockedByCanonicalState: boolean;
+};
+
 export type CollectionExtensionArtifactRecord = {
     chainId: number;
     collectionId: number;
@@ -85,4 +100,12 @@ export interface CollectionExtensionAttributePort {
     replaceTokenAttributes(
         input: CollectionExtensionTokenAttributesReplaceInput,
     ): void;
+}
+
+// Manages extension-owned synthetic token rows and their owned artifacts/traits.
+export interface CollectionExtensionSyntheticTokenPort {
+    upsertSyntheticToken(input: CollectionExtensionSyntheticTokenInput): void;
+    retireSyntheticToken(
+        input: CollectionExtensionSyntheticTokenInput,
+    ): CollectionExtensionSyntheticTokenRetirementResult;
 }

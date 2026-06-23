@@ -251,6 +251,7 @@ async function refreshArtifacts(input: {
         input.collectionExtensions,
         input.collectionExtensions,
         input.collectionExtensions,
+        input.collectionExtensions,
         undefined,
         bootstrapFailureOptions,
     );
