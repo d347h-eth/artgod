@@ -573,7 +573,10 @@ Current state:
 
 - Linux artifacts are GPG-signed (detached armor signatures).
 - macOS DMG is code-signed, notarized, and stapled in CI.
-- Windows NSIS/installer artifacts are Authenticode-signed in CI.
+- Windows NSIS/installer signing support exists in CI for Azure Artifact
+  Signing or an exportable PFX, but the target Germany-based individual
+  maintainer profile needs a vendor-specific workflow path once the Windows
+  signing provider is chosen.
 
 Release secrets expected by CI:
 
@@ -600,6 +603,17 @@ Release secrets expected by CI:
     - `WINDOWS_CERT_PFX_B64`
     - `WINDOWS_CERT_PASSWORD`
     - optional: `WINDOWS_CERT_SHA1`
+
+Windows maintainer-profile note:
+
+- Azure Artifact Signing Public Trust is not the expected path for the first
+  release while the maintainer is an individual/private person based in Germany
+  without a company. Microsoft currently makes the Public Trust individual
+  developer path available only in the USA and Canada.
+- The release-signing runbook treats SignPath Foundation as the first Windows
+  option to evaluate for open-source signing, with SSL.com eSigner or Certum
+  Open Source Code Signing as paid fallback paths. The workflow must be updated
+  after the provider is selected.
 
 Consumer-side verification examples:
 

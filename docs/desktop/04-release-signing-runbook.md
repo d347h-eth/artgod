@@ -12,6 +12,21 @@ The target release artifacts are:
 - release signatures: Linux detached signatures and `SHA256SUMS.txt.asc`
 - GitHub provenance attestation
 
+## Maintainer Profile
+
+This runbook is written for the first public release by an individual/private
+person based in Germany, with no company or other legal entity behind the
+project.
+
+Release-signing consequences:
+
+- macOS: use Apple Developer Program individual enrollment.
+- Windows: do not plan on Azure Artifact Signing Public Trust for this profile.
+  Microsoft currently limits individual developer Public Trust validation to
+  the USA and Canada. EU availability applies to organizations, not individual
+  developers.
+- Linux: use a dedicated GPG release key and public fingerprint publication.
+
 ## Direct Signup and Purchase Links
 
 Use these links for account setup and purchases. Re-check the vendor pages
@@ -22,23 +37,28 @@ before paying because certificate and managed-signing availability changes.
   - Apple Developer account: https://developer.apple.com/account/
   - Certificates, Identifiers & Profiles: https://developer.apple.com/account/resources/certificates/list
   - App Store Connect API keys: https://appstoreconnect.apple.com/access/integrations/api
-- Windows preferred path:
+- Windows preferred evaluation path:
+  - SignPath Foundation free OSS signing application: https://signpath.org/apply
+  - SignPath Foundation terms: https://signpath.org/terms
+  - SignPath GitHub integration: https://docs.signpath.io/trusted-build-systems/github
+- Windows paid fallback vendors:
+  - SSL.com Personal Identity Code Signing: https://www.ssl.com/certificates/iv-code-signing/
+  - Certum Open Source Code Signing: https://shop.certum.eu/open-source-code-signing.html
+- Windows not applicable to this maintainer profile unless a legal entity is
+  created later:
   - Azure account signup: https://azure.microsoft.com/free/
   - Azure Artifact Signing product page: https://azure.microsoft.com/en-us/products/artifact-signing
   - Azure Artifact Signing pricing: https://azure.microsoft.com/en-us/pricing/details/artifact-signing/
   - Azure portal Artifact Signing Accounts: https://portal.azure.com/#view/HubsExtension/BrowseResource/resourceType/Microsoft.CodeSigning%2FcodeSigningAccounts
-- Windows fallback vendors:
-  - SSL.com Personal Identity Code Signing: https://www.ssl.com/certificates/iv-code-signing/
-  - Certum Open Source Code Signing: https://shop.certum.eu/open-source-code-signing.html
 
 Recommended first purchase path:
 
 - macOS: buy only Apple Developer Program membership as an individual. Do not
   buy a separate public CA certificate for macOS Developer ID signing.
-- Windows: prefer Azure Artifact Signing if the individual-developer public
-  trust path is available for the maintainer's country. If it is unavailable,
-  use a public code-signing vendor such as SSL.com or Certum, but plan a
-  workflow change for that vendor's cloud-signing or hardware-token flow.
+- Windows: first apply to SignPath Foundation for free OSS signing. If that is
+  declined or does not fit the desired publisher identity, choose SSL.com
+  eSigner or Certum Open Source Code Signing and plan a workflow change for that
+  vendor's cloud-signing or hardware-token flow.
 - Linux: do not buy a platform certificate. Use a dedicated release GPG key and
   publish the public key/fingerprint on stable maintainer-controlled profiles.
 
@@ -85,6 +105,7 @@ What to buy:
 
 - Apple Developer Program membership as an individual developer.
 - The membership is annual and Apple lists it as `99 USD` per membership year.
+  The German checkout may show local currency/tax handling during enrollment.
 - The Developer ID certificate is created inside the Apple Developer account;
   there is no separate macOS certificate vendor purchase.
 
@@ -139,24 +160,123 @@ Official references:
 
 ## Windows Signing
 
-Prefer Azure Artifact Signing for an individual developer release.
-It is Microsoft's managed successor naming for Trusted Signing and avoids
-exporting private keys into CI. The service keeps keys in Microsoft-managed
-FIPS 140-2 Level 3 hardware modules and does not support importing or exporting
-private keys or certificates.
+For the target maintainer profile, Windows signing is the unresolved release
+procurement item. Azure Artifact Signing is not the primary path because
+Microsoft currently limits Public Trust individual developer validation to the
+USA and Canada.
 
-### Option A: Azure Artifact Signing
+The decision to make before wiring CI is whether the Windows Publisher should be
+`SignPath Foundation` via the free OSS program, or the maintainer's personal
+legal name via a paid individual code-signing vendor.
 
-Use this path unless there is a strong reason to buy a traditional CA
-certificate.
+### Option A: SignPath Foundation OSS Signing
+
+Evaluate this first for a Germany-based individual open-source maintainer.
+It avoids buying a personal code-signing certificate, avoids hardware-token
+access in GitHub-hosted CI, and is designed for public OSS repositories.
+
+Tradeoff:
+
+- The Windows Publisher is SignPath Foundation, not the maintainer's personal
+  name and not the ArtGod project name.
+- SignPath must accept the project and its release process.
+- The project must publish a code-signing policy and satisfy SignPath's OSS
+  conditions.
+- The current release workflow does not yet implement SignPath signing; add
+  that workflow path only after the SignPath project/application details are
+  known.
+
+What to apply for:
+
+- Free SignPath.io subscription through SignPath Foundation.
+- SignPath project and signing policy for ArtGod.
+- GitHub trusted-build-system integration with origin verification.
+
+Procedure:
+
+1. Confirm ArtGod uses an OSI-approved license and that the released desktop
+   bundle does not include proprietary project-owned components.
+2. Add a public `Code signing policy` section or page before application if
+   SignPath requires it during review.
+3. Apply through SignPath Foundation.
+4. If accepted, configure the SignPath project, artifact configuration, signing
+   policy, and GitHub trusted build system.
+5. Update `.github/workflows/tauri-release.yml` so the Windows job builds an
+   unsigned installer, uploads that installer as a GitHub Actions artifact,
+   submits it to SignPath, downloads the signed artifact, and verifies it with
+   `signtool verify`.
+6. Dry-run on a private/pre-release tag and verify the final installer shows the
+   expected publisher.
+
+Official references:
+
+- SignPath Foundation: https://signpath.org/
+- SignPath Foundation application: https://signpath.org/apply
+- SignPath Foundation OSS terms: https://signpath.org/terms
+- SignPath signing code docs: https://docs.signpath.io/signing-code
+- SignPath GitHub integration: https://docs.signpath.io/trusted-build-systems/github
+- SignPath origin verification: https://docs.signpath.io/origin-verification
+
+### Option B: Personal or OSS Code-Signing Vendor
+
+Use this if SignPath is declined, if the release must display the maintainer's
+personal legal name as Publisher, or if the project needs a certificate
+controlled outside SignPath Foundation.
+
+Germany-relevant choices to evaluate:
+
+- SSL.com Personal Identity Code Signing with eSigner cloud signing.
+- Certum Open Source Code Signing.
+
+Expected shape:
+
+- SSL.com validates the individual identity and can sign through eSigner cloud
+  signing. This is a better fit for GitHub-hosted CI than a USB token.
+- Certum's Open Source Code Signing page describes a cryptographic card/card
+  reader set. That is a better fit for local or self-hosted-runner signing than
+  GitHub-hosted CI, unless Certum offers a suitable cloud-signing flow at order
+  time.
+- Modern public code-signing issuance generally should not be assumed to produce
+  an exportable `.pfx`.
+
+Procedure:
+
+1. Decide whether the displayed Publisher should be the maintainer's legal name
+   or an OSS foundation/service identity.
+2. For SSL.com, choose eSigner unless there is a deliberate plan for hardware
+   token access in CI.
+3. For Certum, confirm current stock, German identity-validation requirements,
+   and whether signing will be cloud-based or hardware-card-based before
+   purchase.
+4. After vendor choice, update the workflow for that vendor's signing path.
+5. Keep the existing PFX workflow path only if the vendor explicitly provides an
+   exportable `.pfx`.
+
+Official references:
+
+- SSL.com Personal Identity Code Signing: https://www.ssl.com/certificates/iv-code-signing/
+- Certum Open Source Code Signing: https://shop.certum.eu/open-source-code-signing.html
+- Tauri Windows signing: https://v2.tauri.app/distribute/sign/windows/
+
+### Option C: Azure Artifact Signing
 
 Availability note:
 
 - Public Trust Artifact Signing is currently available to organizations in the
   USA, Canada, the European Union, and the United Kingdom, and to individual
-  developers in the USA and Canada. For an individual developer outside those
-  regions, use a traditional code-signing vendor or reassess the current
-  Microsoft availability before release.
+  developers in the USA and Canada.
+- A Germany-based individual/private person without a company is therefore not
+  eligible for the Public Trust individual path. Revisit this only if Microsoft
+  expands individual availability or if the project later has an eligible legal
+  organization.
+
+Why this remains documented:
+
+- The current workflow already contains an Azure Artifact Signing path.
+- Azure is still a good managed-signing option for an eligible organization.
+- The service avoids exporting private keys into CI. It keeps keys in
+  Microsoft-managed FIPS 140-2 Level 3 hardware modules and does not support
+  importing or exporting private keys or certificates.
 
 What to buy:
 
@@ -219,7 +339,7 @@ Official references:
 - Artifact Signing roles: https://learn.microsoft.com/en-us/azure/trusted-signing/tutorial-assign-roles
 - Tauri Windows signing: https://v2.tauri.app/distribute/sign/windows/
 
-### Option B: Exportable PFX Certificate
+### Option D: Exportable PFX Certificate
 
 Use this only if the issuer gives you an exportable code-signing certificate.
 Many modern OV/EV issuance flows use hardware or managed signing instead of an
@@ -240,20 +360,14 @@ and verifies the installer with `signtool verify`.
 
 SmartScreen expectation:
 
-- EV certificates usually receive immediate SmartScreen reputation.
-- OV or individual certificates can still show warnings until Microsoft builds
+- EV certificates historically have stronger initial SmartScreen reputation,
+  but they are normally organization-oriented and not the baseline fit for this
+  maintainer profile.
+- Individual certificates can still show warnings until Microsoft builds
   reputation for the certificate and downloaded files.
 
 Individual/open-source vendor notes:
 
-- SSL.com sells Personal Identity Code Signing certificates for independent
-  developers and individual contributors. Their current order page offers
-  YubiKey token and eSigner cloud signing options, not an ordinary CI-friendly
-  exported private key by default.
-- Certum sells an Open Source Code Signing set intended for open-source
-  software. Its current page describes a cryptographic card/card-reader set, so
-  GitHub-hosted CI signing would need a vendor/cloud integration or a
-  self-hosted runner with hardware access.
 - The current workflow's PFX backend is a fallback for an issuer-provided
   exportable `.pfx`. Do not assume a newly purchased public code-signing
   certificate will be exportable.
@@ -308,6 +422,7 @@ Before pushing a `v*` tag:
 4. Run the release workflow once manually or on a private dry-run tag.
 5. Install each produced artifact on a clean Linux, Windows, and macOS machine.
 6. Verify macOS Gatekeeper opens the DMG without bypass actions.
-7. Verify Windows installer publisher is the intended individual or Artifact
-   Signing identity.
+7. Verify Windows installer publisher is the intended identity for the chosen
+   signing path: SignPath Foundation, the maintainer's personal legal name, or
+   a later organization identity.
 8. Verify Linux GPG signatures and checksum manifest from a clean keyring.
