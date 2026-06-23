@@ -404,6 +404,51 @@ describe("SqliteBiddingBidBookRepository", () => {
         );
     });
 
+    it("suppresses completed own cancellations in orders fallback after archive", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedBiddingRuntime(collectionId);
+        db.prepare(
+            "UPDATE trading_jobs SET status = @status, archived_at = @archivedAt WHERE job_id = @jobId",
+        ).run({
+            status: TRADING_JOB_STATUS.Archived,
+            archivedAt: "2026-05-17T00:00:00Z",
+            jobId: "collection-job",
+        });
+        insertIndexedOrder({
+            collectionId,
+            id: "cancelled-own-order",
+            maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            updatedAt: "2026-05-17T00:00:01Z",
+        });
+        insertIndexedOrder({
+            collectionId,
+            id: "opponent-order",
+            maker: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            updatedAt: "2026-05-17T00:00:01Z",
+        });
+        insertCompletedOrderCancellation({
+            collectionId,
+            orderId: "cancelled-own-order",
+        });
+
+        const bidBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+
+        assert.equal(bidBook.state.source, TRADING_BIDDING_BID_BOOK_SOURCE.Orders);
+        assert.equal(bidBook.ownMakerAddress, "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        assert.deepEqual(
+            bidBook.bids.map((bid) => bid.orderId),
+            ["opponent-order"],
+        );
+    });
+
     it("adds admin-only own job intent overlays for queued and paused jobs", () => {
         const repository = new SqliteBiddingBidBookRepository();
         seedBiddingRuntime(collectionId);
@@ -939,6 +984,27 @@ function seedJobRuntimeState(input: {
         bidConstraintsJson: JSON.stringify(input.bidConstraints ?? []),
         competitorPriceWei: input.competitorPriceWei ?? null,
         updatedAt: "2026-05-17T00:00:00Z",
+    });
+}
+
+function insertCompletedOrderCancellation(input: {
+    collectionId: number;
+    orderId: string;
+    jobId?: string;
+    maker?: string;
+}): void {
+    db.prepare(
+        "INSERT INTO trading_bidding_order_cancellations " +
+            "(order_id, job_id, chain_id, collection_id, maker, requested_at, completed_at, cancellation_error, updated_at) " +
+            "VALUES (@orderId, @jobId, 1, @collectionId, @maker, @requestedAt, @completedAt, NULL, @updatedAt)",
+    ).run({
+        orderId: input.orderId,
+        jobId: input.jobId ?? "collection-job",
+        collectionId: input.collectionId,
+        maker: input.maker ?? "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        requestedAt: "2026-05-17T00:00:00Z",
+        completedAt: "2026-05-17T00:00:01Z",
+        updatedAt: "2026-05-17T00:00:01Z",
     });
 }
 

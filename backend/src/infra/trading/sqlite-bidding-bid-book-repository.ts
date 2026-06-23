@@ -92,6 +92,10 @@ type KnownBiddingMakerRow = {
     address: string;
 };
 
+type CompletedOwnCancellationRow = {
+    order_id: string;
+};
+
 type BiddingJobSignalRow = {
     job_id: string;
     status: TradingJobStatus;
@@ -204,6 +208,11 @@ export class SqliteBiddingBidBookRepository
         chainId: number;
         botKind: typeof TRADING_BOT_KIND.Bidding;
     }>;
+    private readonly selectCompletedOwnCancellations: BetterSqlite3NamedStatement<{
+        chainId: number;
+        collectionId: number;
+        makerAddress: string;
+    }>;
     private readonly selectActiveBiddingJobs: BetterSqlite3NamedStatement<{
         chainId: number;
         collectionId: number;
@@ -291,6 +300,22 @@ export class SqliteBiddingBidBookRepository
         ) as BetterSqlite3NamedStatement<{
             chainId: number;
             botKind: typeof TRADING_BOT_KIND.Bidding;
+        }>;
+
+        this.selectCompletedOwnCancellations = db.prepare<{
+            chainId: number;
+            collectionId: number;
+            makerAddress: string;
+        }>(
+            "SELECT order_id " +
+                "FROM trading_bidding_order_cancellations " +
+                "WHERE chain_id = @chainId AND collection_id = @collectionId " +
+                "AND maker = @makerAddress " +
+                "AND completed_at IS NOT NULL AND cancellation_error IS NULL",
+        ) as BetterSqlite3NamedStatement<{
+            chainId: number;
+            collectionId: number;
+            makerAddress: string;
         }>;
 
         this.selectActiveBiddingJobs = db.prepare<{
@@ -417,10 +442,18 @@ export class SqliteBiddingBidBookRepository
         const jobs = params.includeOwnJobContext
             ? this.loadActiveBiddingJobs(params.chainId, params.collectionId)
             : [];
-        const currentOwnBidBook = suppressStaleOwnJobMarketRows(
-            markedBidBook,
-            jobs,
+        const cancelledOwnOrderIds = this.loadCompletedOwnCancellationOrderIds(
+            params.chainId,
+            params.collectionId,
             knownMakerAddress,
+        );
+        const currentOwnBidBook = suppressCancelledOwnMarketRows(
+            suppressStaleOwnJobMarketRows(
+                markedBidBook,
+                jobs,
+                knownMakerAddress,
+            ),
+            cancelledOwnOrderIds,
         );
         const bidBook = this.apm.withSyncSpan(
             "backend.bidding.repository.own_overlays",
@@ -545,10 +578,18 @@ export class SqliteBiddingBidBookRepository
         const jobs = params.includeOwnJobContext
             ? this.loadActiveBiddingJobs(params.chainId, params.collectionId)
             : [];
-        const currentOwnBidBook = suppressStaleOwnJobMarketRows(
-            markedBidBook,
-            jobs,
+        const cancelledOwnOrderIds = this.loadCompletedOwnCancellationOrderIds(
+            params.chainId,
+            params.collectionId,
             knownMakerAddress,
+        );
+        const currentOwnBidBook = suppressCancelledOwnMarketRows(
+            suppressStaleOwnJobMarketRows(
+                markedBidBook,
+                jobs,
+                knownMakerAddress,
+            ),
+            cancelledOwnOrderIds,
         );
         const bidBook = this.apm.withSyncSpan(
             "backend.bidding.repository.own_overlays",
@@ -684,6 +725,24 @@ export class SqliteBiddingBidBookRepository
             botKind: TRADING_BOT_KIND.Bidding,
         }) as KnownBiddingMakerRow | undefined;
         return row?.address?.toLowerCase() ?? null;
+    }
+
+    private loadCompletedOwnCancellationOrderIds(
+        chainId: number,
+        collectionId: number,
+        ownMakerAddress: string | null,
+    ): Set<string> {
+        if (!ownMakerAddress) {
+            return new Set();
+        }
+
+        // Load completed own cancellation tombstones so stale indexed rows do not reappear after archive/pause.
+        const rows = this.selectCompletedOwnCancellations.all({
+            chainId,
+            collectionId,
+            makerAddress: ownMakerAddress,
+        }) as CompletedOwnCancellationRow[];
+        return new Set(rows.map((row) => row.order_id));
     }
 
     private loadActiveBiddingJobs(
@@ -1192,6 +1251,43 @@ function suppressStaleOwnJobMarketRows(
         },
         bids,
     };
+}
+
+function suppressCancelledOwnMarketRows(
+    bidBook: PersistedBiddingBidBook,
+    cancelledOwnOrderIds: Set<string>,
+): PersistedBiddingBidBook {
+    if (cancelledOwnOrderIds.size === 0) {
+        return bidBook;
+    }
+
+    const bids = bidBook.bids.filter(
+        (bid) => !isCancelledOwnMarketRow(bid, cancelledOwnOrderIds),
+    );
+    if (bids.length === bidBook.bids.length) {
+        return bidBook;
+    }
+
+    return {
+        ...bidBook,
+        state: {
+            ...bidBook.state,
+            rowCount: bids.length,
+        },
+        bids,
+    };
+}
+
+function isCancelledOwnMarketRow(
+    bid: PersistedBiddingBidBookRow,
+    cancelledOwnOrderIds: Set<string>,
+): boolean {
+    return (
+        bid.isOwn &&
+        bid.materialization.kind ===
+            TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid &&
+        cancelledOwnOrderIds.has(bid.orderId)
+    );
 }
 
 function isStaleOwnJobMarketRow(

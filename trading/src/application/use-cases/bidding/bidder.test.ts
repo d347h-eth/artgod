@@ -1014,6 +1014,7 @@ describe("Bidder stream refresh", () => {
                         competitorPriceWei: snapshot.competitorPriceWei,
                     });
                 },
+                recordJobOfferCancellation: () => undefined,
             },
         );
 
@@ -1054,6 +1055,7 @@ describe("Bidder stream refresh", () => {
                 persistJobRuntimeState: () => {
                     throw new Error("runtime persistence unavailable");
                 },
+                recordJobOfferCancellation: () => undefined,
             },
         );
         const job = makeJob(
@@ -1132,6 +1134,7 @@ describe("Bidder stream refresh", () => {
                         currentPriceWei: snapshot.currentPriceWei,
                     });
                 },
+                recordJobOfferCancellation: () => undefined,
             },
         );
         const job = makeJob(
@@ -1335,6 +1338,7 @@ describe("Bidder stream refresh", () => {
                         competitorPriceWei: snapshot.competitorPriceWei,
                     });
                 },
+                recordJobOfferCancellation: () => undefined,
             },
         );
         const job = makeJob(
@@ -1513,6 +1517,12 @@ describe("Bidder stream refresh", () => {
             bidPosition: TradingBiddingJobRuntimeBidPosition | null;
             bidConstraints: TradingBiddingJobRuntimeConstraint[];
         }> = [];
+        const recordedCancellations: Array<{
+            orderId: string;
+            makerAddress: string;
+            completedAt: string | null;
+            cancellationError: string | null;
+        }> = [];
         const bidder = new Bidder(
             biddingService as any,
             "0xmaker",
@@ -1528,6 +1538,14 @@ describe("Bidder stream refresh", () => {
                         currentPriceWei: snapshot.currentPriceWei,
                         bidPosition: snapshot.bidPosition,
                         bidConstraints: snapshot.bidConstraints,
+                    });
+                },
+                recordJobOfferCancellation: (snapshot) => {
+                    recordedCancellations.push({
+                        orderId: snapshot.orderId,
+                        makerAddress: snapshot.makerAddress,
+                        completedAt: snapshot.completedAt,
+                        cancellationError: snapshot.cancellationError,
                     });
                 },
             },
@@ -1560,6 +1578,13 @@ describe("Bidder stream refresh", () => {
             bidPosition: null,
             bidConstraints: [],
         });
+        assert.equal(recordedCancellations.at(0)?.orderId, "0xmine");
+        assert.equal(recordedCancellations.at(0)?.completedAt, null);
+        const completedCancellation = recordedCancellations.at(-1);
+        assert.equal(completedCancellation?.orderId, "0xmine");
+        assert.equal(completedCancellation?.makerAddress, "0xmaker");
+        assert.ok(completedCancellation?.completedAt);
+        assert.equal(completedCancellation?.cancellationError, null);
     });
 
     it("cancels a tracked active order when scoped active offers omit it", async () => {

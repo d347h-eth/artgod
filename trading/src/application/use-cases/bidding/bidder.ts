@@ -48,9 +48,21 @@ export type BiddingJobRuntimeStateSnapshot = {
     lastError: string | null;
 };
 
+export type BiddingJobOfferCancellationSnapshot = {
+    jobId: string;
+    orderId: string;
+    makerAddress: string;
+    requestedAt: string;
+    completedAt: string | null;
+    cancellationError: string | null;
+};
+
 export interface BiddingJobRuntimeStatePort {
     persistJobRuntimeState(
         snapshot: BiddingJobRuntimeStateSnapshot,
+    ): Promise<void> | void;
+    recordJobOfferCancellation(
+        snapshot: BiddingJobOfferCancellationSnapshot,
     ): Promise<void> | void;
 }
 
@@ -1761,7 +1773,28 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             priceSource: order.priceSource ?? order.source ?? null,
             quantity: order.quantity?.toString() ?? "1",
         });
-        await this.biddingService.cancelOffer(job, order);
+        const requestedAt = new Date().toISOString();
+        this.recordJobOfferCancellation(job, order, {
+            requestedAt,
+            completedAt: null,
+            cancellationError: null,
+        });
+        try {
+            await this.biddingService.cancelOffer(job, order);
+        } catch (error: unknown) {
+            this.recordJobOfferCancellation(job, order, {
+                requestedAt,
+                completedAt: null,
+                cancellationError:
+                    error instanceof Error ? error.message : String(error),
+            });
+            throw error;
+        }
+        this.recordJobOfferCancellation(job, order, {
+            requestedAt,
+            completedAt: new Date().toISOString(),
+            cancellationError: null,
+        });
         log.info("offerCancelCompleted", "Cancelled offer", {
             jobId: job.id,
             jobRef,
@@ -1902,6 +1935,43 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 {
                     jobId: job.id,
                     jobRef: formatBidderJobReference(job),
+                    ...toErrorLogFields(error),
+                },
+            );
+        }
+    }
+
+    private recordJobOfferCancellation(
+        job: BidderJob,
+        order: Order,
+        state: {
+            requestedAt: string;
+            completedAt: string | null;
+            cancellationError: string | null;
+        },
+    ): void {
+        if (!this.runtimeStatePort) {
+            return;
+        }
+
+        try {
+            // Persist own-order cancellation facts so read models can hide stale marketplace index rows.
+            this.runtimeStatePort.recordJobOfferCancellation({
+                jobId: job.id,
+                orderId: order.id,
+                makerAddress: this.makerAddress.toLowerCase(),
+                requestedAt: state.requestedAt,
+                completedAt: state.completedAt,
+                cancellationError: state.cancellationError,
+            });
+        } catch (error: unknown) {
+            log.error(
+                "offerCancellationPersistFailed",
+                "Failed to persist bidding offer cancellation state",
+                {
+                    jobId: job.id,
+                    jobRef: formatBidderJobReference(job),
+                    orderId: order.id,
                     ...toErrorLogFields(error),
                 },
             );

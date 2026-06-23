@@ -1,6 +1,7 @@
 import { db } from "@artgod/shared/database";
 import type { BetterSqlite3NamedStatement } from "@artgod/shared/database";
 import type {
+    BiddingJobOfferCancellationSnapshot,
     BiddingJobRuntimeStatePort,
     BiddingJobRuntimeStateSnapshot,
 } from "../../application/use-cases/bidding/bidder.js";
@@ -10,10 +11,15 @@ type PersistRuntimeStateParams = BiddingJobRuntimeStateSnapshot & {
     updatedAt: string;
 };
 
+type PersistOfferCancellationParams = BiddingJobOfferCancellationSnapshot & {
+    updatedAt: string;
+};
+
 export class SqliteBiddingJobRuntimeState
     implements BiddingJobRuntimeStatePort
 {
     private readonly upsertRuntimeState: BetterSqlite3NamedStatement<PersistRuntimeStateParams>;
+    private readonly upsertOfferCancellation: BetterSqlite3NamedStatement<PersistOfferCancellationParams>;
 
     constructor() {
         this.upsertRuntimeState = db.prepare<PersistRuntimeStateParams>(
@@ -32,6 +38,23 @@ export class SqliteBiddingJobRuntimeState
                 "last_error = excluded.last_error, " +
                 "updated_at = excluded.updated_at",
         ) as BetterSqlite3NamedStatement<PersistRuntimeStateParams>;
+
+        this.upsertOfferCancellation =
+            db.prepare<PersistOfferCancellationParams>(
+                "INSERT INTO trading_bidding_order_cancellations " +
+                    "(order_id, job_id, chain_id, collection_id, maker, requested_at, completed_at, cancellation_error, updated_at) " +
+                    "SELECT @orderId, @jobId, j.chain_id, j.collection_id, @makerAddress, @requestedAt, @completedAt, @cancellationError, @updatedAt " +
+                    "FROM trading_jobs j WHERE j.job_id = @jobId " +
+                    "ON CONFLICT(order_id) DO UPDATE SET " +
+                    "job_id = excluded.job_id, " +
+                    "chain_id = excluded.chain_id, " +
+                    "collection_id = excluded.collection_id, " +
+                    "maker = excluded.maker, " +
+                    "requested_at = excluded.requested_at, " +
+                    "completed_at = COALESCE(excluded.completed_at, trading_bidding_order_cancellations.completed_at), " +
+                    "cancellation_error = excluded.cancellation_error, " +
+                    "updated_at = excluded.updated_at",
+            ) as BetterSqlite3NamedStatement<PersistOfferCancellationParams>;
     }
 
     persistJobRuntimeState(snapshot: BiddingJobRuntimeStateSnapshot): void {
@@ -40,6 +63,18 @@ export class SqliteBiddingJobRuntimeState
         this.upsertRuntimeState.run({
             ...snapshot,
             bidConstraintsJson: JSON.stringify(snapshot.bidConstraints),
+            updatedAt,
+        });
+    }
+
+    recordJobOfferCancellation(
+        snapshot: BiddingJobOfferCancellationSnapshot,
+    ): void {
+        const updatedAt = new Date().toISOString();
+        // Upsert by order id because a canceled marketplace order is unique even when jobs are recreated.
+        this.upsertOfferCancellation.run({
+            ...snapshot,
+            makerAddress: snapshot.makerAddress.toLowerCase(),
             updatedAt,
         });
     }
