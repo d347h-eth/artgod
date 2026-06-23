@@ -31,9 +31,11 @@ import {
 } from "../../application/use-cases/trading/bidding-bid-book.js";
 import { BIDDING_SPAN_ATTRIBUTE } from "../../application/use-cases/trading/bidding-observability.js";
 import { SqliteBiddingBidBookRepository } from "./sqlite-bidding-bid-book-repository.js";
+import { SqliteBiddingJobsRepository } from "./sqlite-bidding-jobs-repository.js";
 
 const COLLECTION_ADDRESS = "0x1111111111111111111111111111111111111111";
 const WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
+const BIDDING_MAKER_ADDRESS = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 class CapturingApm implements ApmPort {
     readonly spans: Array<{ name: string; attributes: SpanAttributes }> = [];
@@ -449,6 +451,52 @@ describe("SqliteBiddingBidBookRepository", () => {
         );
     });
 
+    it("keeps failed own cancellations visible in orders fallback", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedBiddingRuntime(collectionId);
+        db.prepare(
+            "UPDATE trading_jobs SET status = @status WHERE job_id = @jobId",
+        ).run({
+            status: TRADING_JOB_STATUS.Archived,
+            jobId: "collection-job",
+        });
+        insertIndexedOrder({
+            collectionId,
+            id: "failed-cancel-own-order",
+            maker: BIDDING_MAKER_ADDRESS,
+            updatedAt: "2026-05-17T00:00:01Z",
+        });
+        insertFailedOrderCancellation({
+            collectionId,
+            orderId: "failed-cancel-own-order",
+        });
+
+        const bidBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+
+        assert.deepEqual(
+            bidBook.bids.map((bid) => ({
+                orderId: bid.orderId,
+                maker: bid.maker,
+                isOwn: bid.isOwn,
+            })),
+            [
+                {
+                    orderId: "failed-cancel-own-order",
+                    maker: BIDDING_MAKER_ADDRESS,
+                    isOwn: true,
+                },
+            ],
+        );
+    });
+
     it("adds admin-only own job intent overlays for queued and paused jobs", () => {
         const repository = new SqliteBiddingBidBookRepository();
         seedBiddingRuntime(collectionId);
@@ -637,6 +685,167 @@ describe("SqliteBiddingBidBookRepository", () => {
                 status: TRADING_JOB_STATUS.Enabled,
             },
         });
+    });
+
+    it("moves a trait job from queued intent to one runtime market row and suppresses it after archive", () => {
+        const jobsRepository = new SqliteBiddingJobsRepository();
+        const bidBookRepository = new SqliteBiddingBidBookRepository();
+        const targetTraits = [{ type: "Biome", value: "42" }];
+        seedBiddingBotRuntimeState();
+        insertProjectedState(collectionId, Date.now());
+
+        const created = jobsRepository.upsertCollectionJob({
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "150",
+            ceilingWei: "150",
+            deltaWei: "1",
+            quantity: 1,
+            targetTraits,
+        });
+        const queuedBook = bidBookRepository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [{ key: "Biome", value: "42" }],
+            selectedTraitRanges: [],
+        });
+
+        assert.equal(queuedBook.bids.length, 1);
+        assert.equal(
+            queuedBook.bids[0]?.materialization.kind,
+            TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+        );
+        assert.equal(
+            queuedBook.bids[0]?.materialization.jobId,
+            created.job.jobId,
+        );
+        assert.equal(
+            queuedBook.bids[0]?.materialization.phase,
+            TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
+        );
+
+        insertProjectedBid({
+            collectionId,
+            orderId: "own-trait-order",
+            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+            scopeLabel: "Biome=42",
+            scopeTraits: targetTraits,
+            maker: BIDDING_MAKER_ADDRESS,
+            priceWei: "150",
+        });
+        insertProjectedBid({
+            collectionId,
+            orderId: "opponent-trait-order",
+            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+            scopeLabel: "Biome=42",
+            scopeTraits: targetTraits,
+            priceWei: "250",
+        });
+        seedJobRuntimeState({
+            jobId: created.job.jobId,
+            currentPriceWei: "150",
+            activeOrderId: "own-trait-order",
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            competitorPriceWei: "250",
+        });
+
+        const placedBook = bidBookRepository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [{ key: "Biome", value: "42" }],
+            selectedTraitRanges: [],
+        });
+        const ownPlacedBid = placedBook.bids.find(
+            (bid) => bid.orderId === "own-trait-order",
+        );
+
+        assert.deepEqual(
+            placedBook.bids.map((bid) => bid.orderId),
+            ["opponent-trait-order", "own-trait-order"],
+        );
+        assert.equal(
+            placedBook.bids.some(
+                (bid) =>
+                    bid.materialization.kind ===
+                    TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+            ),
+            false,
+        );
+        assert.deepEqual(ownPlacedBid?.ownStatus, {
+            position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            job: {
+                jobId: created.job.jobId,
+                revision: 1,
+                status: TRADING_JOB_STATUS.Enabled,
+            },
+        });
+
+        const archived = jobsRepository.archiveJobById({
+            chainId: 1,
+            collectionId,
+            jobId: created.job.jobId,
+        });
+        assert.ok(archived);
+        insertIndexedOrder({
+            collectionId,
+            id: "own-trait-order",
+            maker: BIDDING_MAKER_ADDRESS,
+            scopeKind: "attribute",
+            sourceSchema: {
+                kind: TOKEN_SET_SCHEMA_KIND.Attribute,
+                data: {
+                    collection: COLLECTION_ADDRESS.toLowerCase(),
+                    attributes: [{ key: "Biome", value: "42" }],
+                },
+            },
+            updatedAt: "2026-05-17T00:00:01Z",
+        });
+        insertIndexedOrder({
+            collectionId,
+            id: "opponent-trait-order",
+            scopeKind: "attribute",
+            sourceSchema: {
+                kind: TOKEN_SET_SCHEMA_KIND.Attribute,
+                data: {
+                    collection: COLLECTION_ADDRESS.toLowerCase(),
+                    attributes: [{ key: "Biome", value: "42" }],
+                },
+            },
+            updatedAt: "2026-05-17T00:00:01Z",
+        });
+        insertCompletedOrderCancellation({
+            collectionId,
+            orderId: "own-trait-order",
+            jobId: created.job.jobId,
+        });
+
+        const archivedBook = bidBookRepository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [{ key: "Biome", value: "42" }],
+            selectedTraitRanges: [],
+        });
+
+        assert.deepEqual(
+            archivedBook.bids.map((bid) => bid.orderId),
+            ["opponent-trait-order"],
+        );
+        assert.equal(
+            archivedBook.bids.some((bid) => bid.maker === BIDDING_MAKER_ADDRESS),
+            false,
+        );
     });
 
     it("falls back to indexed orders when enabled bot projections are stale", () => {
@@ -889,13 +1098,17 @@ function seedBiddingRuntime(collectionId: number): void {
             "(job_id, floor_wei, ceiling_wei, delta_wei, quantity, target_traits_json) " +
             "VALUES ('collection-job', '100', '200', '1', 1, '[]')",
     ).run();
+    seedBiddingBotRuntimeState();
+}
+
+function seedBiddingBotRuntimeState(): void {
     db.prepare(
         "INSERT INTO trading_bot_runtime_state " +
             "(bot_kind, chain_id, wallet_id, address, state, heartbeat_at, started_at, updated_at, last_error) " +
             "VALUES (?, 1, 'wallet-1', ?, ?, ?, ?, ?, NULL)",
     ).run(
         TRADING_BOT_KIND.Bidding,
-        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        BIDDING_MAKER_ADDRESS,
         TRADING_BOT_RUNTIME_STATE.Running,
         new Date().toISOString(),
         new Date().toISOString(),
@@ -1004,6 +1217,27 @@ function insertCompletedOrderCancellation(input: {
         maker: input.maker ?? "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         requestedAt: "2026-05-17T00:00:00Z",
         completedAt: "2026-05-17T00:00:01Z",
+        updatedAt: "2026-05-17T00:00:01Z",
+    });
+}
+
+function insertFailedOrderCancellation(input: {
+    collectionId: number;
+    orderId: string;
+    jobId?: string;
+    maker?: string;
+}): void {
+    db.prepare(
+        "INSERT INTO trading_bidding_order_cancellations " +
+            "(order_id, job_id, chain_id, collection_id, maker, requested_at, completed_at, cancellation_error, updated_at) " +
+            "VALUES (@orderId, @jobId, 1, @collectionId, @maker, @requestedAt, NULL, @cancellationError, @updatedAt)",
+    ).run({
+        orderId: input.orderId,
+        jobId: input.jobId ?? "collection-job",
+        collectionId: input.collectionId,
+        maker: input.maker ?? BIDDING_MAKER_ADDRESS,
+        requestedAt: "2026-05-17T00:00:00Z",
+        cancellationError: "opensea cancel failed",
         updatedAt: "2026-05-17T00:00:01Z",
     });
 }

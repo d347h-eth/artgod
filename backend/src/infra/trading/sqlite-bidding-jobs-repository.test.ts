@@ -12,8 +12,13 @@ import {
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
+    type TradingBiddingJobRuntimeBidPosition,
+    type TradingBiddingJobRuntimeConstraint,
 } from "@artgod/shared/types";
 import { SqliteBiddingJobsRepository } from "./sqlite-bidding-jobs-repository.js";
+
+const ACTIVE_ORDER_ID = "0xactive-order";
+const ACTIVE_PROTOCOL_ADDRESS = "0x00000000006c3852cbef3e08e8df289169ede581";
 
 async function createTempDbPath(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "artgod-bidding-jobs-"));
@@ -261,34 +266,13 @@ describe("SqliteBiddingJobsRepository", () => {
             deltaWei: "1000000000000000",
         });
 
-        db.prepare<{
-            jobId: string;
-            currentPriceWei: string;
-            activeOrderId: string;
-            activeProtocolAddress: string;
-            activeExpirationTimeMs: number;
-            bidPosition: string;
-            bidConstraintsJson: string;
-            competitorPriceWei: string;
-            lastRunAt: string;
-            lastError: string;
-        }>(
-            "INSERT INTO trading_bidding_job_runtime_state " +
-                "(job_id, current_price_wei, active_order_id, active_protocol_address, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, last_run_at, last_error) " +
-                "VALUES (@jobId, @currentPriceWei, @activeOrderId, @activeProtocolAddress, @activeExpirationTimeMs, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @lastRunAt, @lastError)",
-        ).run({
+        seedBiddingJobRuntimeState({
             jobId: created.job.jobId,
             currentPriceWei: "150000000000000000",
-            activeOrderId: "0xactive-order",
-            activeProtocolAddress: "0x00000000006c3852cbef3e08e8df289169ede581",
-            activeExpirationTimeMs: 1_700_000_000_000,
+            activeOrderId: ACTIVE_ORDER_ID,
             bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
-            bidConstraintsJson: JSON.stringify([
-                TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
-            ]),
+            bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
             competitorPriceWei: "250000000000000000",
-            lastRunAt: "2026-04-23T12:00:00.000Z",
-            lastError: "none",
         });
 
         const updated = repository.upsertTokenJob({
@@ -319,10 +303,10 @@ describe("SqliteBiddingJobsRepository", () => {
                 TRADING_JOB_COMMAND_KIND.JobPaused,
             ],
         );
-        assert.equal(updated.commands[0]?.payload.activeOrderId, "0xactive-order");
+        assert.equal(updated.commands[0]?.payload.activeOrderId, ACTIVE_ORDER_ID);
         assert.equal(
             updated.commands[0]?.payload.activeProtocolAddress,
-            "0x00000000006c3852cbef3e08e8df289169ede581",
+            ACTIVE_PROTOCOL_ADDRESS,
         );
         assert.equal(updated.commands[0]?.requestedRevision, 2);
 
@@ -398,6 +382,96 @@ describe("SqliteBiddingJobsRepository", () => {
         });
         assert.equal(listed.length, 1);
         assert.equal(listed[0]?.jobId, created.job.jobId);
+    });
+
+    it("clears trait job runtime state across pause and reactivation on the same target", () => {
+        const repository = new SqliteBiddingJobsRepository();
+
+        const created = repository.upsertCollectionJob({
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "100000000000000000",
+            ceilingWei: "200000000000000000",
+            deltaWei: "1000000000000000",
+            quantity: 1,
+            targetTraits: [
+                { type: "Mode", value: "Terrain" },
+                { type: "Biome", value: "42" },
+            ],
+        });
+        seedBiddingJobRuntimeState({
+            jobId: created.job.jobId,
+            currentPriceWei: "150000000000000000",
+            activeOrderId: "0xtrait-active-order",
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            competitorPriceWei: "250000000000000000",
+        });
+
+        const paused = repository.upsertCollectionJob({
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Paused,
+            floorWei: "120000000000000000",
+            ceilingWei: "240000000000000000",
+            deltaWei: "2000000000000000",
+            quantity: 1,
+            targetTraits: [
+                { type: "Biome", value: "42" },
+                { type: "Mode", value: "Terrain" },
+            ],
+        });
+
+        assert.equal(paused.job.jobId, created.job.jobId);
+        assert.equal(paused.job.revision, 2);
+        assert.equal(paused.job.runtime, null);
+        assert.deepEqual(
+            paused.commands.map((command) => command.commandKind),
+            [
+                TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+                TRADING_JOB_COMMAND_KIND.JobPaused,
+            ],
+        );
+        assert.equal(
+            paused.commands[0]?.payload.activeOrderId,
+            "0xtrait-active-order",
+        );
+        assert.equal(
+            repository.getJobById(created.job.jobId)?.runtime,
+            null,
+        );
+
+        const reactivated = repository.upsertCollectionJob({
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "130000000000000000",
+            ceilingWei: "260000000000000000",
+            deltaWei: "3000000000000000",
+            quantity: 1,
+            targetTraits: [
+                { type: "Biome", value: "42" },
+                { type: "Mode", value: "Terrain" },
+            ],
+        });
+
+        assert.equal(reactivated.job.jobId, created.job.jobId);
+        assert.equal(reactivated.job.revision, 3);
+        assert.equal(reactivated.job.status, TRADING_JOB_STATUS.Enabled);
+        assert.equal(reactivated.job.runtime, null);
+        assert.deepEqual(
+            reactivated.commands.map((command) => command.commandKind),
+            [TRADING_JOB_COMMAND_KIND.JobUpdated],
+        );
+
+        const listed = repository.listCollectionJobs({
+            chainId: 1,
+            collectionId,
+        });
+        assert.equal(listed.length, 1);
+        assert.equal(listed[0]?.jobId, created.job.jobId);
+        assert.equal(listed[0]?.runtime, null);
     });
 
     it("resolves existing jobs by canonical target equivalence", () => {
@@ -596,3 +670,40 @@ describe("SqliteBiddingJobsRepository", () => {
         );
     });
 });
+
+function seedBiddingJobRuntimeState(input: {
+    jobId: string;
+    currentPriceWei: string;
+    activeOrderId: string;
+    bidPosition: TradingBiddingJobRuntimeBidPosition;
+    bidConstraints: TradingBiddingJobRuntimeConstraint[];
+    competitorPriceWei: string;
+}): void {
+    db.prepare<{
+        jobId: string;
+        currentPriceWei: string;
+        activeOrderId: string;
+        activeProtocolAddress: string;
+        activeExpirationTimeMs: number;
+        bidPosition: string;
+        bidConstraintsJson: string;
+        competitorPriceWei: string;
+        lastRunAt: string;
+        lastError: string;
+    }>(
+        "INSERT INTO trading_bidding_job_runtime_state " +
+            "(job_id, current_price_wei, active_order_id, active_protocol_address, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, last_run_at, last_error) " +
+            "VALUES (@jobId, @currentPriceWei, @activeOrderId, @activeProtocolAddress, @activeExpirationTimeMs, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @lastRunAt, @lastError)",
+    ).run({
+        jobId: input.jobId,
+        currentPriceWei: input.currentPriceWei,
+        activeOrderId: input.activeOrderId,
+        activeProtocolAddress: ACTIVE_PROTOCOL_ADDRESS,
+        activeExpirationTimeMs: 1_700_000_000_000,
+        bidPosition: input.bidPosition,
+        bidConstraintsJson: JSON.stringify(input.bidConstraints),
+        competitorPriceWei: input.competitorPriceWei,
+        lastRunAt: "2026-04-23T12:00:00.000Z",
+        lastError: "none",
+    });
+}

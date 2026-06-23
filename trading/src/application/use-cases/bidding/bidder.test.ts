@@ -36,6 +36,7 @@ class FakeBiddingService {
     public placedAmounts: bigint[] = [];
     public placedExpirationTime?: number;
     public canceledOrderIds: string[] = [];
+    public cancelError: Error | null = null;
 
     async getActiveOffers(job: BidderJob): Promise<unknown[]> {
         if (this.activeOffersImpl) {
@@ -86,6 +87,9 @@ class FakeBiddingService {
     }
 
     async cancelOffer(_job: BidderJob, order: { id: string }): Promise<void> {
+        if (this.cancelError) {
+            throw this.cancelError;
+        }
         this.canceledOrderIds.push(order.id);
     }
 }
@@ -1626,6 +1630,72 @@ describe("Bidder stream refresh", () => {
             },
         ]);
         assert.equal(job.state.activeOrderId, undefined);
+    });
+
+    it("records failed cancellations without clearing tracked runtime state", async () => {
+        const biddingService = new FakeBiddingService();
+        biddingService.activeOffers = [
+            {
+                id: "0xmine",
+                price: 5n,
+                maker: "0xmaker",
+                protocolAddress: "0xprotocol",
+                offerScope: "item",
+            },
+        ];
+        biddingService.cancelError = new Error("opensea cancel failed");
+        const recordedCancellations: Array<{
+            orderId: string;
+            completedAt: string | null;
+            cancellationError: string | null;
+        }> = [];
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            { dryRun: false },
+            undefined,
+            undefined,
+            {
+                persistJobRuntimeState: () => {},
+                recordJobOfferCancellation: (snapshot) => {
+                    recordedCancellations.push({
+                        orderId: snapshot.orderId,
+                        completedAt: snapshot.completedAt,
+                        cancellationError: snapshot.cancellationError,
+                    });
+                },
+            },
+        );
+        const job = makeJob(
+            "token-cancel-fails",
+            "terraforms",
+            { type: "token", tokenId: "123" },
+            5n,
+        );
+        job.state.activeOrderId = "0xmine";
+        job.state.activeProtocolAddress = "0xprotocol";
+
+        await assert.rejects(
+            () => bidder.cancelActiveOffersForJob(job),
+            /opensea cancel failed/,
+        );
+
+        assert.deepEqual(biddingService.canceledOrderIds, []);
+        assert.equal(job.state.activeOrderId, "0xmine");
+        assert.equal(job.state.activeProtocolAddress, "0xprotocol");
+        assert.deepEqual(recordedCancellations, [
+            {
+                orderId: "0xmine",
+                completedAt: null,
+                cancellationError: null,
+            },
+            {
+                orderId: "0xmine",
+                completedAt: null,
+                cancellationError: "opensea cancel failed",
+            },
+        ]);
     });
 
     it("keeps tracked cancellation retryable when the active order cannot be confirmed", async () => {
