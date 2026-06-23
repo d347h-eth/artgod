@@ -171,6 +171,14 @@ describe("SqliteBiddingJobsRepository", () => {
                 deltaWei: "10000000000000000",
             },
         });
+        seedBiddingJobRuntimeState({
+            jobId: created.job.jobId,
+            currentPriceWei: "140000000000000000",
+            activeOrderId: ACTIVE_ORDER_ID,
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            competitorPriceWei: "200000000000000000",
+        });
 
         const result = repository.updateJobsPricingById([
             {
@@ -197,6 +205,8 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.equal(result.jobs[0]?.jobId, created.job.jobId);
         assert.equal(result.jobs[0]?.revision, 2);
         assert.equal(result.jobs[0]?.floorWei, "130000000000000000");
+        assert.equal(result.jobs[0]?.runtime, null);
+        assert.equal(repository.getJobById(created.job.jobId)?.runtime, null);
         assert.deepEqual(result.jobs[0]?.pricingSource, {
             kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
             tierId: "tier-base",

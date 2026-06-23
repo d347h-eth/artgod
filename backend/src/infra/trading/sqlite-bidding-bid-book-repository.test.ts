@@ -19,6 +19,7 @@ import {
     TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
     TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
     TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
+    TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
     TRADING_BIDDING_BID_SCOPE_KIND,
     TRADING_BOT_KIND,
     TRADING_BOT_RUNTIME_STATE,
@@ -788,6 +789,7 @@ describe("SqliteBiddingBidBookRepository", () => {
                 status: TRADING_JOB_STATUS.Enabled,
             },
         });
+        assert.deepEqual(ownPlacedBid?.price, exactBidBookRowPrice("150"));
 
         const archived = jobsRepository.archiveJobById({
             chainId: 1,
@@ -846,6 +848,242 @@ describe("SqliteBiddingBidBookRepository", () => {
             archivedBook.bids.some((bid) => bid.maker === BIDDING_MAKER_ADDRESS),
             false,
         );
+
+        const recreated = jobsRepository.upsertCollectionJob({
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "175",
+            ceilingWei: "225",
+            deltaWei: "1",
+            quantity: 1,
+            targetTraits,
+        });
+        const recreatedBook = bidBookRepository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [{ key: "Biome", value: "42" }],
+            selectedTraitRanges: [],
+        });
+        const recreatedIntent = recreatedBook.bids.find(
+            (bid) =>
+                bid.materialization.kind ===
+                TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+        );
+
+        assert.notEqual(recreated.job.jobId, created.job.jobId);
+        assert.equal(
+            recreatedBook.bids.some((bid) => bid.orderId === "own-trait-order"),
+            false,
+        );
+        assert.deepEqual(
+            recreatedBook.bids
+                .filter((bid) => bid.maker === BIDDING_MAKER_ADDRESS)
+                .map((bid) => ({
+                    jobId: bid.materialization.jobId,
+                    kind: bid.materialization.kind,
+                    phase: bid.materialization.phase,
+                    price: bid.price,
+                    placedAt: bid.placedAt,
+                    ownStatus: bid.ownStatus,
+                })),
+            [
+                {
+                    jobId: recreated.job.jobId,
+                    kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+                    phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
+                    price: {
+                        kind: TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range,
+                        floorWei: "175",
+                        floorEth: "0.000000000000000175",
+                        ceilingWei: "225",
+                        ceilingEth: "0.000000000000000225",
+                    },
+                    placedAt: null,
+                    ownStatus: null,
+                },
+            ],
+        );
+        assert.ok(recreatedIntent);
+    });
+
+    it("requires fresh bot runtime state after price tier reapply clears active runtime", () => {
+        const jobsRepository = new SqliteBiddingJobsRepository();
+        const bidBookRepository = new SqliteBiddingBidBookRepository();
+        seedBiddingBotRuntimeState();
+        insertProjectedState(collectionId, Date.now());
+
+        const created = jobsRepository.upsertTokenJob({
+            chainId: 1,
+            collectionId,
+            tokenId: "777",
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "100",
+            ceilingWei: "200",
+            deltaWei: "1",
+            priceTierId: "tier-base",
+            pricingSource: {
+                kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
+                tierId: "tier-base",
+                tierName: "base",
+                resolvedAt: "2026-01-01T00:00:00Z",
+                resolvedFloorWei: "100",
+                resolvedCeilingWei: "200",
+                deltaWei: "1",
+            },
+        });
+        insertProjectedBid({
+            collectionId,
+            orderId: "own-tier-order-old",
+            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+            scopeLabel: "#777",
+            tokenId: "777",
+            maker: BIDDING_MAKER_ADDRESS,
+            priceWei: "150",
+        });
+        insertProjectedBid({
+            collectionId,
+            orderId: "opponent-tier-order",
+            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+            scopeLabel: "#777",
+            tokenId: "777",
+            priceWei: "250",
+        });
+        seedJobRuntimeState({
+            jobId: created.job.jobId,
+            currentPriceWei: "150",
+            activeOrderId: "own-tier-order-old",
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            competitorPriceWei: "250",
+        });
+
+        const beforeReapply = bidBookRepository.listTokenBidBook({
+            chainId: 1,
+            collectionId,
+            tokenId: "777",
+            tokenTraits: [],
+            includeOwnJobContext: true,
+        });
+        assert.deepEqual(
+            beforeReapply.bids.find((bid) => bid.orderId === "own-tier-order-old")
+                ?.ownStatus,
+            {
+                position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+                constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+                job: {
+                    jobId: created.job.jobId,
+                    revision: 1,
+                    status: TRADING_JOB_STATUS.Enabled,
+                },
+            },
+        );
+
+        const reapply = jobsRepository.updateJobsPricingById([
+            {
+                chainId: 1,
+                collectionId,
+                jobId: created.job.jobId,
+                floorWei: "120",
+                ceilingWei: "180",
+                deltaWei: "1",
+                priceTierId: "tier-base",
+                pricingSource: {
+                    kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
+                    tierId: "tier-base",
+                    tierName: "base",
+                    resolvedAt: "2026-01-02T00:00:00Z",
+                    resolvedFloorWei: "120",
+                    resolvedCeilingWei: "180",
+                    deltaWei: "1",
+                },
+            },
+        ]);
+        const afterReapply = bidBookRepository.listTokenBidBook({
+            chainId: 1,
+            collectionId,
+            tokenId: "777",
+            tokenTraits: [],
+            includeOwnJobContext: true,
+        });
+        const queuedIntent = afterReapply.bids.find(
+            (bid) =>
+                bid.materialization.kind ===
+                TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+        );
+
+        assert.equal(reapply.jobs[0]?.runtime, null);
+        assert.equal(reapply.jobs[0]?.revision, 2);
+        assert.equal(
+            afterReapply.bids.some((bid) => bid.orderId === "own-tier-order-old"),
+            false,
+        );
+        assert.equal(queuedIntent?.materialization.jobId, created.job.jobId);
+        assert.equal(
+            queuedIntent?.materialization.phase,
+            TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
+        );
+        assert.deepEqual(queuedIntent?.price, {
+            kind: TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range,
+            floorWei: "120",
+            floorEth: "0.00000000000000012",
+            ceilingWei: "180",
+            ceilingEth: "0.00000000000000018",
+        });
+        assert.equal(queuedIntent?.ownStatus, null);
+        assert.equal(
+            afterReapply.bids.some((bid) => bid.ownStatus !== null),
+            false,
+        );
+
+        insertProjectedBid({
+            collectionId,
+            orderId: "own-tier-order-fresh",
+            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+            scopeLabel: "#777",
+            tokenId: "777",
+            maker: BIDDING_MAKER_ADDRESS,
+            priceWei: "180",
+        });
+        seedJobRuntimeState({
+            jobId: created.job.jobId,
+            currentPriceWei: "180",
+            activeOrderId: "own-tier-order-fresh",
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            competitorPriceWei: "250",
+        });
+
+        const afterFreshRuntime = bidBookRepository.listTokenBidBook({
+            chainId: 1,
+            collectionId,
+            tokenId: "777",
+            tokenTraits: [],
+            includeOwnJobContext: true,
+        });
+        const freshOwnBid = afterFreshRuntime.bids.find(
+            (bid) => bid.orderId === "own-tier-order-fresh",
+        );
+
+        assert.equal(
+            afterFreshRuntime.bids.some(
+                (bid) => bid.orderId === "own-tier-order-old",
+            ),
+            false,
+        );
+        assert.deepEqual(freshOwnBid?.ownStatus, {
+            position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            job: {
+                jobId: created.job.jobId,
+                revision: 2,
+                status: TRADING_JOB_STATUS.Enabled,
+            },
+        });
+        assert.deepEqual(freshOwnBid?.price, exactBidBookRowPrice("180"));
     });
 
     it("falls back to indexed orders when enabled bot projections are stale", () => {
