@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import type { ApiBiddingBidBook } from '$lib/api-types';
 	import {
+		BID_BOOK_FRESHNESS_RELATIVE_TIME_TICK_MS,
+		bidBookFreshnessTitle,
 		bidBookRefreshPaceLabel,
 		bidBookRefreshPaceTitle,
 		formatBidBookFreshness
@@ -18,6 +21,15 @@
 		showTraitDemandView?: boolean;
 		displayedDemandGroupCount?: number;
 	} = $props();
+
+	let freshnessNowMs = $state(Date.now());
+
+	onMount(() => {
+		const timer = window.setInterval(() => {
+			freshnessNowMs = Date.now();
+		}, BID_BOOK_FRESHNESS_RELATIVE_TIME_TICK_MS);
+		return () => window.clearInterval(timer);
+	});
 </script>
 
 <section class="runtime-section bid-book-summary-panel">
@@ -39,8 +51,10 @@
 			</div>
 		{/if}
 		<div>
-			<span class="runtime-k">updated</span>
-			<span class="runtime-v mono">{formatBidBookFreshness(bidBook.state)}</span>
+			<span class="runtime-k">last updated</span>
+			<span class="runtime-v mono" title={bidBookFreshnessTitle(bidBook.state)}>
+				{formatBidBookFreshness(bidBook.state, freshnessNowMs)}
+			</span>
 		</div>
 		{#if ownStateBadges.length > 0}
 			<div>

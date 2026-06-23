@@ -30,6 +30,8 @@
 		nextCollectionBiddingBidScopeFilter
 	} from '$lib/bidding-query';
 	import {
+		BID_BOOK_FRESHNESS_RELATIVE_TIME_TICK_MS,
+		bidBookFreshnessTitle,
 		bidBookRefreshPaceLabel,
 		bidBookRefreshPaceTitle,
 		formatBidBookFreshness
@@ -196,6 +198,7 @@
 	let priceTierPanelOpen = $state(false);
 	let biddingContentElement = $state<HTMLDivElement | null>(null);
 	let liveRefreshRequestId = 0;
+	let bidBookFreshnessNowMs = $state(Date.now());
 	let refreshedTokenOfferWindow: PaginationWindowState<ApiBiddingTokenOfferCard> | null = null;
 
 	const hasActiveTraitFilters = $derived(activeTraits.length > 0 || activeTraitRanges.length > 0);
@@ -269,7 +272,13 @@
 			refresh: () => refreshCollectionBiddingData(),
 			intervalMs: () => biddingOffersLivePollIntervalMs(activeBidBook.state.source)
 		});
-		return () => refresh.stop();
+		const freshnessTimer = window.setInterval(() => {
+			bidBookFreshnessNowMs = Date.now();
+		}, BID_BOOK_FRESHNESS_RELATIVE_TIME_TICK_MS);
+		return () => {
+			refresh.stop();
+			window.clearInterval(freshnessTimer);
+		};
 	});
 
 	$effect(() => {
@@ -1130,8 +1139,10 @@
 									<span class="runtime-v">{activeTokenOfferCardsPage.totalOffers}</span>
 								</div>
 								<div>
-									<span class="runtime-k">updated</span>
-									<span class="runtime-v mono">{formatBidBookFreshness(activeBidBook.state)}</span>
+									<span class="runtime-k">last updated</span>
+									<span class="runtime-v mono" title={bidBookFreshnessTitle(activeBidBook.state)}>
+										{formatBidBookFreshness(activeBidBook.state, bidBookFreshnessNowMs)}
+									</span>
 								</div>
 							</div>
 							{#if activeBidBook.state.lastError}
