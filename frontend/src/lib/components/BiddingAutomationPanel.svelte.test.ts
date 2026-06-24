@@ -116,8 +116,9 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).toContain('value="0.1"');
 		expect(body).toContain('value="0.2"');
 		expect(body).toContain('value="0.01"');
-		expect(body).toContain('>modified<');
-		expect(body).toContain('>refreshed<');
+		expect(body).not.toContain('>revision<');
+		expect(body).not.toContain('>modified<');
+		expect(body).not.toContain('>refreshed<');
 		expect(body).not.toContain('bidding-automation-status');
 		expect(body).toContain('>modify<');
 		expect(body).toContain('>pause<');

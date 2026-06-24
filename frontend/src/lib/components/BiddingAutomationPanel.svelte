@@ -48,12 +48,6 @@
 		type BiddingAutomationDraft,
 		type BiddingAutomationPricingMode
 	} from '$lib/bidding-automation';
-	import {
-		formatCompactTime,
-		oppositeCompactTimeTitle,
-		parseCompactTimeMs,
-		type CompactTimeDisplayMode
-	} from '$lib/compact-time-display';
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
 	import { TEST_IDS } from '$lib/test-ids';
@@ -116,9 +110,6 @@
 	let saveError = $state<string | null>(null);
 	let panelCollapsed = $state(false);
 	let lastExpandSignal = $state(expandSignal);
-	let modifiedAtMode = $state<CompactTimeDisplayMode>('relative');
-	let refreshedAtMode = $state<CompactTimeDisplayMode>('relative');
-	let nowMs = $state(Date.now());
 	let armedAction = $state<ConfirmableBiddingAction | null>(null);
 	let targetLookupKey = $state('');
 	let targetLookupRequestKey = $state('');
@@ -191,17 +182,6 @@
 			!!chain &&
 			!!collection
 	);
-	const modifiedAtMs = $derived(parseCompactTimeMs(currentJob?.updatedAt));
-	const refreshedAtMs = $derived(
-		parseCompactTimeMs(currentJob?.runtime?.updatedAt ?? currentJob?.runtime?.lastRunAt)
-	);
-
-	$effect(() => {
-		const timer = window.setInterval(() => {
-			nowMs = Date.now();
-		}, 60_000);
-		return () => window.clearInterval(timer);
-	});
 
 	$effect(() => {
 		const nextLoadedJobKey = resolveLoadedBiddingAutomationPanelKey({
@@ -502,22 +482,6 @@
 		return trimmed.length <= maxLength ? trimmed : `${trimmed.slice(0, maxLength - 3)}...`;
 	}
 
-	function formatJobTime(valueMs: number | null, mode: CompactTimeDisplayMode): string {
-		return formatCompactTime(valueMs, mode, nowMs);
-	}
-
-	function jobTimeTitle(valueMs: number | null, mode: CompactTimeDisplayMode): string | undefined {
-		return oppositeCompactTimeTitle(valueMs, mode, nowMs);
-	}
-
-	function toggleModifiedAtMode(): void {
-		modifiedAtMode = modifiedAtMode === 'relative' ? 'absolute' : 'relative';
-	}
-
-	function toggleRefreshedAtMode(): void {
-		refreshedAtMode = refreshedAtMode === 'relative' ? 'absolute' : 'relative';
-	}
-
 	async function handleSave(statusOverride: EditableBiddingJobStatus | null = null): Promise<void> {
 		if (!chain || !collection || selectedDraftUnsupported || saving || archiving || !canSubmitDraft) {
 			return;
@@ -670,42 +634,6 @@
 				<div>
 					<span class="runtime-k">job</span>
 					<span class="runtime-v mono">{currentJob.jobId}</span>
-				</div>
-				<div>
-					<span class="runtime-k">revision</span>
-					<span class="runtime-v mono">{currentJob.revision}</span>
-				</div>
-				<div>
-					<span class="runtime-k">modified</span>
-					{#if modifiedAtMs === null}
-						<span class="runtime-v mono">-</span>
-					{:else}
-						<button
-							type="button"
-							class="activities-time-mode-button token-bidding-time-value"
-							aria-label="toggle modified time mode"
-							title={jobTimeTitle(modifiedAtMs, modifiedAtMode)}
-							onclick={toggleModifiedAtMode}
-						>
-							{formatJobTime(modifiedAtMs, modifiedAtMode)}
-						</button>
-					{/if}
-				</div>
-				<div>
-					<span class="runtime-k">refreshed</span>
-					{#if refreshedAtMs === null}
-						<span class="runtime-v mono">-</span>
-					{:else}
-						<button
-							type="button"
-							class="activities-time-mode-button token-bidding-time-value"
-							aria-label="toggle refreshed time mode"
-							title={jobTimeTitle(refreshedAtMs, refreshedAtMode)}
-							onclick={toggleRefreshedAtMode}
-						>
-							{formatJobTime(refreshedAtMs, refreshedAtMode)}
-						</button>
-					{/if}
 				</div>
 			{/if}
 			{#if bidStateBadges.length > 0}
