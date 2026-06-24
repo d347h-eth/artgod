@@ -12,7 +12,10 @@
 		formatBidBookNextUpdate
 	} from '$lib/bidding-bid-book-source';
 	import type { BidBookOwnStatusBadge } from '$lib/bidding-bid-book-own-status';
-	import { bidBookUpdateFlash } from '$lib/bid-book-update-flash';
+	import {
+		BID_BOOK_UPDATE_FLASH_MODE,
+		bidBookUpdateFlash
+	} from '$lib/bid-book-update-flash';
 
 	let {
 		bidBook,
@@ -62,7 +65,10 @@
 			<span
 				class="runtime-v mono bid-book-update-chip"
 				title={bidBookFreshnessTitle(bidBook.state)}
-				use:bidBookUpdateFlash={bidBookFlashKey}
+				use:bidBookUpdateFlash={{
+					key: bidBookFlashKey,
+					mode: BID_BOOK_UPDATE_FLASH_MODE.Transient
+				}}
 			>
 				{formatBidBookFreshness(bidBook.state, freshnessNowMs)}
 			</span>
@@ -72,7 +78,10 @@
 			<span
 				class="runtime-v mono bid-book-update-chip"
 				title={bidBookNextUpdateTitle(nextUpdateAtMs)}
-				use:bidBookUpdateFlash={nextUpdateAtMs}
+				use:bidBookUpdateFlash={{
+					key: nextUpdateAtMs,
+					mode: BID_BOOK_UPDATE_FLASH_MODE.Transient
+				}}
 			>
 				{formatBidBookNextUpdate(nextUpdateAtMs, freshnessNowMs)}
 			</span>

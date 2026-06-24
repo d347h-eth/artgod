@@ -40,10 +40,28 @@ describe('bidding bid-book source metadata', () => {
 		expect(bidBookFreshnessTitle(state)).toBe('2026-01-01T00:00:00Z');
 	});
 
+	it('prefers bot snapshot refresh freshness over source updatedAt', () => {
+		const state: ApiBiddingBidBook['state'] = {
+			source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+			updatedAt: '2026-01-01T00:00:00Z',
+			snapshotRefreshedAtMs: Date.parse('2026-01-01T00:00:55Z'),
+			projectedAt: '2026-01-01T00:00:56Z',
+			rowCount: 1,
+			durationMs: 5,
+			lastError: null
+		};
+
+		expect(formatBidBookFreshness(state, Date.parse('2026-01-01T00:01:00Z'))).toBe('5s');
+		expect(bidBookFreshnessTitle(state)).toBe('2026-01-01T00:00:55Z');
+	});
+
 	it('formats the scheduled next update as relative text with a UTC title', () => {
 		const nextUpdateAtMs = Date.parse('2026-01-01T00:00:05Z');
 
 		expect(formatBidBookNextUpdate(nextUpdateAtMs, Date.parse('2026-01-01T00:00:00Z'))).toBe('5s');
+		expect(formatBidBookNextUpdate(nextUpdateAtMs, Date.parse('2026-01-01T00:00:01Z'))).toBe('4s');
+		expect(formatBidBookNextUpdate(nextUpdateAtMs, Date.parse('2026-01-01T00:00:04Z'))).toBe('1s');
+		expect(formatBidBookNextUpdate(nextUpdateAtMs, Date.parse('2026-01-01T00:00:05Z'))).toBe('now');
 		expect(bidBookNextUpdateTitle(nextUpdateAtMs)).toBe('2026-01-01T00:00:05Z');
 		expect(formatBidBookNextUpdate(null, Date.parse('2026-01-01T00:00:00Z'))).toBe('-');
 		expect(bidBookNextUpdateTitle(null)).toBeUndefined();

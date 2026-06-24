@@ -28,7 +28,6 @@
 		bidBookPriceEffectiveEth,
 		bidBookRowEffectivePriceWei
 	} from '$lib/bidding-bid-book-price';
-	import { bidBookRefreshSignalKey } from '$lib/bidding-bid-book-source';
 	import { ownBiddingJobStateBadges } from '$lib/bidding-bid-book-own-status';
 	import type { BidBookTraitValueHref } from '$lib/bidding-bid-book-display';
 	import { trimBidBookTraitText } from '$lib/bidding-bid-book-display';
@@ -128,7 +127,6 @@
 		bidBookExpanded ? visibleBids : collapsedBids
 	);
 	const ownStateBadges = $derived(ownBiddingJobStateBadges(job, bidBook));
-	const bidBookFlashKey = $derived(bidBookRefreshSignalKey(bidBook.state));
 	const demandGroups = $derived(resolveDemandGroups(visibleBids));
 	const demandTraitTabs = $derived(resolveDemandTraitTabs(demandGroups));
 	const demandTableTabs = $derived(resolveDemandTableTabs(demandTraitTabs));
@@ -918,7 +916,6 @@
 		onFilterGroup={filterDemandTableGroup}
 		onSetHighlighted={setHighlightedDemandRowMaker}
 		onClearHighlighted={clearHighlightedMaker}
-		flashKey={bidBookFlashKey}
 		{TraitDemandGroupPreview}
 	/>
 {:else}
@@ -935,6 +932,5 @@
 		onFilterTraitBid={filterRowsTableTraitBid}
 		onSetHighlighted={setHighlightedRowMaker}
 		onClearHighlighted={clearHighlightedMaker}
-		flashKey={bidBookFlashKey}
 	/>
 {/if}

@@ -23,15 +23,15 @@ export function bidBookRefreshPaceTitle(source: ApiBiddingBidBook['state']['sour
 
 // Resolves the best available source freshness timestamp for bid-book metadata rows.
 export function bidBookFreshnessTimestampMs(state: ApiBiddingBidBook['state']): number | null {
-	if (state.updatedAt) {
-		const updatedAtMs = Date.parse(state.updatedAt);
-		return Number.isFinite(updatedAtMs) ? updatedAtMs : null;
-	}
 	if (
 		state.source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot &&
 		state.snapshotRefreshedAtMs !== null
 	) {
 		return state.snapshotRefreshedAtMs;
+	}
+	if (state.updatedAt) {
+		const updatedAtMs = Date.parse(state.updatedAt);
+		return Number.isFinite(updatedAtMs) ? updatedAtMs : null;
 	}
 	return null;
 }
@@ -50,7 +50,23 @@ export function bidBookFreshnessTitle(state: ApiBiddingBidBook['state']): string
 
 // Formats the scheduled live-refresh countdown for bid-book metadata rows.
 export function formatBidBookNextUpdate(nextUpdateAtMs: number | null, nowMs: number): string {
-	return nextUpdateAtMs === null ? '-' : formatCompactRelativeTime(nextUpdateAtMs, nowMs);
+	if (nextUpdateAtMs === null) {
+		return '-';
+	}
+	const secondsUntilUpdate = Math.ceil((nextUpdateAtMs - nowMs) / 1000);
+	if (secondsUntilUpdate <= 0) {
+		return 'now';
+	}
+	if (secondsUntilUpdate < 60) {
+		return `${secondsUntilUpdate}s`;
+	}
+	if (secondsUntilUpdate < 3600) {
+		return `${Math.ceil(secondsUntilUpdate / 60)}m`;
+	}
+	if (secondsUntilUpdate < 86_400) {
+		return `${Math.ceil(secondsUntilUpdate / 3600)}h`;
+	}
+	return `${Math.ceil(secondsUntilUpdate / 86_400)}d`;
 }
 
 // Formats the scheduled live-refresh timestamp as UTC for native title tooltips.
