@@ -2,10 +2,10 @@ import { TRADING_BIDDING_BID_BOOK_SOURCE } from '@artgod/shared/types';
 import type { ApiBiddingBidBook } from '$lib/api-types';
 
 // Polling cadence for passive order-backed bid books.
-export const BIDDING_OFFERS_NORMAL_LIVE_POLL_INTERVAL_MS = 10_000;
+export const BIDDING_BID_BOOK_NORMAL_LIVE_POLL_INTERVAL_MS = 10_000;
 
 // Polling cadence for bot-snapshot-backed bid books.
-export const BIDDING_OFFERS_COMPETITIVE_LIVE_POLL_INTERVAL_MS = 5_000;
+export const BIDDING_BID_BOOK_COMPETITIVE_LIVE_POLL_INTERVAL_MS = 5_000;
 
 const BIDDING_LIVE_REFRESH_ANCHOR_KIND = {
 	OpenSeaOrder: 'open-sea-order',
@@ -42,32 +42,32 @@ export type BiddingLiveRefreshAnchorSnapshot = {
 	anchors: BiddingLiveRefreshAnchor[];
 };
 
-export type BiddingOffersLiveRefreshHandle = {
+export type BiddingBidBookLiveRefreshHandle = {
 	refreshNow(): Promise<void>;
 	stop(): void;
 };
 
-type BiddingOffersLiveRefreshOptions = {
+type BiddingBidBookLiveRefreshOptions = {
 	refresh: () => Promise<unknown> | unknown;
 	intervalMs: () => number;
 	onNextUpdate?: (nextUpdateAtMs: number | null) => void;
 };
 
 // Chooses the live-poll cadence from the bid-book source selected by the backend read model.
-export function biddingOffersLivePollIntervalMs(
+export function biddingBidBookLivePollIntervalMs(
 	source: ApiBiddingBidBook['state']['source']
 ): number {
 	return source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot
-		? BIDDING_OFFERS_COMPETITIVE_LIVE_POLL_INTERVAL_MS
-		: BIDDING_OFFERS_NORMAL_LIVE_POLL_INTERVAL_MS;
+		? BIDDING_BID_BOOK_COMPETITIVE_LIVE_POLL_INTERVAL_MS
+		: BIDDING_BID_BOOK_NORMAL_LIVE_POLL_INTERVAL_MS;
 }
 
-// Poll the current offers page without overlapping backend refreshes.
-export function startBiddingOffersLiveRefresh({
+// Poll the current bid-book view without overlapping backend refreshes.
+export function startBiddingBidBookLiveRefresh({
 	refresh,
 	intervalMs,
 	onNextUpdate
-}: BiddingOffersLiveRefreshOptions): BiddingOffersLiveRefreshHandle {
+}: BiddingBidBookLiveRefreshOptions): BiddingBidBookLiveRefreshHandle {
 	let stopped = false;
 	let refreshInFlight = false;
 	let timer: ReturnType<typeof setTimeout> | null = null;

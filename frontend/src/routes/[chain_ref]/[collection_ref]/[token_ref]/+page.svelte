@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
+	import { onMount, tick } from 'svelte';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 	import {
@@ -30,7 +31,13 @@
 	import { buildCollectionActivityHref } from '$lib/activity-query';
 	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 	import { emptyBiddingBidBook } from '$lib/bidding-empty-state';
-	import { getTokenDetail } from '$lib/backend-api';
+	import { getTokenBiddingBidBook, getTokenBiddingJob, getTokenDetail } from '$lib/backend-api';
+	import {
+		biddingBidBookLivePollIntervalMs,
+		captureBiddingLiveRefreshAnchor,
+		restoreBiddingLiveRefreshAnchor,
+		startBiddingBidBookLiveRefresh
+	} from '$lib/bidding-live-refresh';
 	import {
 		BID_SCOPE_QUERY_PARAM,
 		COLLECTION_BIDDING_BID_SCOPE_FILTER,
@@ -95,18 +102,38 @@
 	let displayedMedia = $state<ApiCollectionMediaState>(resolveInitialMediaState(data?.media));
 	let displayedMediaAspectRatio = $state<number | null>(null);
 	let tokenBiddingJob = $state<ApiBiddingJob | null>(data?.tokenBiddingJob ?? null);
+	let tokenBiddingBidBook = $state<ApiBiddingBidBook>(
+		data?.tokenBiddingBidBook ?? emptyBiddingBidBook()
+	);
 	let selectedTokenBidBookBid = $state<ApiBiddingBidBookRow | null>(null);
 	let selectedTokenTraitTarget = $state<ApiTokenDetailTrait | null>(null);
 	let tokenBiddingPanelOpen = $state(false);
 	let tokenBiddingPanelExpandSignal = $state(0);
+	let tokenBiddingContentElement = $state<HTMLElement | null>(null);
+	let tokenBiddingNextUpdateAtMs = $state<number | null>(null);
 	let tokenDetailRequestId = 0;
+	let tokenBiddingRefreshRequestId = 0;
 	const tokenBiddingDraft = $derived(resolveTokenBiddingDraft());
+
+	onMount(() => {
+		const refresh = startBiddingBidBookLiveRefresh({
+			refresh: () => refreshTokenBiddingData(),
+			intervalMs: () => biddingBidBookLivePollIntervalMs(tokenBiddingBidBook.state.source),
+			onNextUpdate: (nextUpdateAtMs) => {
+				tokenBiddingNextUpdateAtMs = nextUpdateAtMs;
+			}
+		});
+		return () => {
+			refresh.stop();
+		};
+	});
 
 	$effect(() => {
 		displayedToken = data?.token ?? null;
 		displayedMedia = resolveInitialMediaState(data?.media);
 		displayedMediaAspectRatio = null;
 		tokenBiddingJob = data?.tokenBiddingJob ?? null;
+		tokenBiddingBidBook = data?.tokenBiddingBidBook ?? emptyBiddingBidBook();
 		selectedTokenBidBookBid = null;
 		selectedTokenTraitTarget = null;
 		tokenBiddingPanelOpen = false;
@@ -214,6 +241,10 @@
 		tokenBiddingJob = nextJob;
 	}
 
+	function onTokenBiddingJobsChange(): void {
+		void refreshTokenBiddingData();
+	}
+
 	function resolveTokenBiddingDraft(): BiddingAutomationDraft | null {
 		if (!displayedToken) {
 			return null;
@@ -236,7 +267,7 @@
 		if (tokenBiddingJob) {
 			return null;
 		}
-		const topBid = bestBiddingAutomationBid(data?.tokenBiddingBidBook?.bids ?? []);
+		const topBid = bestBiddingAutomationBid(tokenBiddingBidBook.bids);
 		if (!topBid) {
 			return null;
 		}
@@ -504,6 +535,41 @@
 		}
 	}
 
+	async function refreshTokenBiddingData(): Promise<void> {
+		if (!browser || !data?.chain || !data.collection || !displayedToken) {
+			return;
+		}
+
+		const activeTokenId = displayedToken.tokenId;
+		const requestId = tokenBiddingRefreshRequestId + 1;
+		tokenBiddingRefreshRequestId = requestId;
+		const anchor = captureBiddingLiveRefreshAnchor(tokenBiddingContentElement);
+
+		try {
+			// Refresh the token-scoped job and bid book together so the panel and rows stay coherent.
+			const [jobResponse, bidBookResponse] = await Promise.all([
+				getTokenBiddingJob(fetch, data.chain.slug, data.collection.slug, activeTokenId),
+				getTokenBiddingBidBook(fetch, data.chain.slug, data.collection.slug, activeTokenId)
+			]);
+			if (
+				tokenBiddingRefreshRequestId !== requestId ||
+				displayedToken?.tokenId !== activeTokenId ||
+				jobResponse.tokenId !== activeTokenId ||
+				bidBookResponse.tokenId !== activeTokenId
+			) {
+				return;
+			}
+			tokenBiddingJob = jobResponse.job;
+			tokenBiddingBidBook = bidBookResponse.bidBook;
+			await tick();
+			if (tokenBiddingRefreshRequestId === requestId) {
+				restoreBiddingLiveRefreshAnchor(tokenBiddingContentElement, anchor);
+			}
+		} catch {
+			// Keep the current token bidding view visible after transient refresh failures.
+		}
+	}
+
 	function onWindowKeydown(event: KeyboardEvent): void {
 		if (event.defaultPrevented) return;
 		if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -535,7 +601,7 @@
 
 <svelte:window onkeydown={onWindowKeydown} />
 
-<section class="panel token-detail-panel">
+<section class="panel token-detail-panel" bind:this={tokenBiddingContentElement}>
 	{#if displayedToken}
 		{@const iframeSource = tokenMediaSource(displayedToken)}
 		<div class="token-detail-media-region">
@@ -670,8 +736,9 @@
 				</div>
 			{/if}
 			<BidBookPanel
-				bidBook={data?.tokenBiddingBidBook ?? emptyBiddingBidBook()}
+				bidBook={tokenBiddingBidBook}
 				job={tokenBiddingJob}
+				nextUpdateAtMs={tokenBiddingNextUpdateAtMs}
 				showScope
 				showMuted={data?.showMuted ?? false}
 				basePath={collectionTokensBasePath()}
@@ -693,13 +760,14 @@
 				token={displayedToken}
 				job={tokenBiddingJob}
 				draft={tokenBiddingDraft}
-				bidBook={data?.tokenBiddingBidBook ?? emptyBiddingBidBook()}
+				bidBook={tokenBiddingBidBook}
 				biddingSettings={data?.biddingSettings ?? defaultBiddingCollectionSettings()}
 				priceTiers={data?.priceTiers ?? []}
 				expandSignal={tokenBiddingPanelExpandSignal}
 				showCollapsedLauncher={false}
 				onClose={closeTokenBiddingPanel}
 				onJobChange={onTokenBiddingJobChange}
+				onJobsChange={onTokenBiddingJobsChange}
 			/>
 		{/if}
 	{:else}

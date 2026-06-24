@@ -37,10 +37,10 @@
 		formatBidBookNextUpdate
 	} from '$lib/bidding-bid-book-source';
 	import {
-		biddingOffersLivePollIntervalMs,
+		biddingBidBookLivePollIntervalMs,
 		captureBiddingLiveRefreshAnchor,
 		restoreBiddingLiveRefreshAnchor,
-		startBiddingOffersLiveRefresh
+		startBiddingBidBookLiveRefresh
 	} from '$lib/bidding-live-refresh';
 	import { resolveBiddingTokenActionLabel } from '$lib/bidding-selection-actions';
 	import { bidBookPriceEffectiveWei } from '$lib/bidding-bid-book-price';
@@ -273,9 +273,9 @@
 	);
 
 	onMount(() => {
-		const refresh = startBiddingOffersLiveRefresh({
+		const refresh = startBiddingBidBookLiveRefresh({
 			refresh: () => refreshCollectionBiddingData(),
-			intervalMs: () => biddingOffersLivePollIntervalMs(activeBidBook.state.source),
+			intervalMs: () => biddingBidBookLivePollIntervalMs(activeBidBook.state.source),
 			onNextUpdate: (nextUpdateAtMs) => {
 				bidBookNextUpdateAtMs = nextUpdateAtMs;
 			}

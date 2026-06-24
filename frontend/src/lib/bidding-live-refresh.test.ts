@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TRADING_BIDDING_BID_BOOK_SOURCE } from '@artgod/shared/types';
 import {
-	BIDDING_OFFERS_COMPETITIVE_LIVE_POLL_INTERVAL_MS,
-	BIDDING_OFFERS_NORMAL_LIVE_POLL_INTERVAL_MS,
-	biddingOffersLivePollIntervalMs,
+	BIDDING_BID_BOOK_COMPETITIVE_LIVE_POLL_INTERVAL_MS,
+	BIDDING_BID_BOOK_NORMAL_LIVE_POLL_INTERVAL_MS,
+	biddingBidBookLivePollIntervalMs,
 	captureBiddingLiveRefreshAnchor,
 	restoreBiddingLiveRefreshAnchor,
-	startBiddingOffersLiveRefresh
+	startBiddingBidBookLiveRefresh
 } from './bidding-live-refresh';
 
 describe('bidding live refresh', () => {
@@ -16,18 +16,18 @@ describe('bidding live refresh', () => {
 	});
 
 	it('uses the faster cadence for competitive bot snapshots', () => {
-		expect(biddingOffersLivePollIntervalMs(TRADING_BIDDING_BID_BOOK_SOURCE.Orders)).toBe(
-			BIDDING_OFFERS_NORMAL_LIVE_POLL_INTERVAL_MS
+		expect(biddingBidBookLivePollIntervalMs(TRADING_BIDDING_BID_BOOK_SOURCE.Orders)).toBe(
+			BIDDING_BID_BOOK_NORMAL_LIVE_POLL_INTERVAL_MS
 		);
-		expect(biddingOffersLivePollIntervalMs(TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot)).toBe(
-			BIDDING_OFFERS_COMPETITIVE_LIVE_POLL_INTERVAL_MS
+		expect(biddingBidBookLivePollIntervalMs(TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot)).toBe(
+			BIDDING_BID_BOOK_COMPETITIVE_LIVE_POLL_INTERVAL_MS
 		);
 	});
 
-	it('refreshes offers on the configured interval', async () => {
+	it('refreshes bid books on the configured interval', async () => {
 		vi.useFakeTimers();
 		const refreshState = vi.fn().mockResolvedValue(undefined);
-		const refresh = startBiddingOffersLiveRefresh({
+		const refresh = startBiddingBidBookLiveRefresh({
 			refresh: refreshState,
 			intervalMs: () => 100
 		});
@@ -43,7 +43,7 @@ describe('bidding live refresh', () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
 		const nextUpdate = vi.fn();
-		const refresh = startBiddingOffersLiveRefresh({
+		const refresh = startBiddingBidBookLiveRefresh({
 			refresh: vi.fn().mockResolvedValue(undefined),
 			intervalMs: () => 100,
 			onNextUpdate: nextUpdate
@@ -67,7 +67,7 @@ describe('bidding live refresh', () => {
 					resolveRefresh = resolve;
 				})
 		);
-		const refresh = startBiddingOffersLiveRefresh({
+		const refresh = startBiddingBidBookLiveRefresh({
 			refresh: refreshState,
 			intervalMs: () => 100
 		});
