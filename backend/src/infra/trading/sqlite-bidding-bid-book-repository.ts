@@ -8,10 +8,13 @@ import {
 import { isTokenSetAttributeSchema } from "@artgod/shared/types/token-sets";
 import { logger } from "@artgod/shared/utils";
 import {
-    TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
     isFreshEpochMs,
     isTradingBotRuntimeHeartbeatLive,
 } from "@artgod/shared/trading/runtime-state";
+import {
+    DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
+    DEFAULT_BIDDING_RUNTIME_HEARTBEAT_STALE_MS,
+} from "@artgod/shared/config/bidding";
 import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
@@ -180,6 +183,11 @@ const BIDDING_BID_BOOK_REPOSITORY_LOG = {
     ReasonInvalidNormalizedScope: "invalid-normalized-scope",
 } as const;
 
+export type SqliteBiddingBidBookRepositoryConfig = {
+    snapshotStaleMs: number;
+    runtimeHeartbeatStaleMs: number;
+};
+
 export class SqliteBiddingBidBookRepository
     implements BiddingBidBookRepositoryPort
 {
@@ -225,7 +233,14 @@ export class SqliteBiddingBidBookRepository
         nowSeconds: number;
     }>;
 
-    constructor(private readonly apm: ApmPort = NOOP_APM) {
+    constructor(
+        private readonly apm: ApmPort = NOOP_APM,
+        private readonly config: SqliteBiddingBidBookRepositoryConfig = {
+            snapshotStaleMs: DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
+            runtimeHeartbeatStaleMs:
+                DEFAULT_BIDDING_RUNTIME_HEARTBEAT_STALE_MS,
+        },
+    ) {
         this.selectEnabledJob = db.prepare<{
             chainId: number;
             collectionId: number;
@@ -680,6 +695,8 @@ export class SqliteBiddingBidBookRepository
                           heartbeatAt: runtimeState.heartbeat_at,
                       }
                     : null,
+                Date.now(),
+                this.config.runtimeHeartbeatStaleMs,
             )
         ) {
             return false;
@@ -691,7 +708,7 @@ export class SqliteBiddingBidBookRepository
             {
                 ...attributes,
                 [BIDDING_SPAN_ATTRIBUTE.SnapshotStaleMs]:
-                    TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
+                    this.config.snapshotStaleMs,
             },
             () =>
                 this.selectProjectionState.get({
@@ -700,7 +717,10 @@ export class SqliteBiddingBidBookRepository
                     source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
                 }) as ProjectionStateRow | undefined,
         );
-        return isFreshProjectionState(projectionState);
+        return isFreshProjectionState(
+            projectionState,
+            this.config.snapshotStaleMs,
+        );
     }
 
     private hasEnabledBiddingJobs(params: {
@@ -1536,14 +1556,17 @@ function jobMatchesBid(
     return false;
 }
 
-function isFreshProjectionState(row: ProjectionStateRow | undefined): boolean {
+function isFreshProjectionState(
+    row: ProjectionStateRow | undefined,
+    snapshotStaleMs: number,
+): boolean {
     return Boolean(
         row &&
             !row.last_error &&
             isFreshEpochMs(
                 row.snapshot_refreshed_at_ms,
                 Date.now(),
-                TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
+                snapshotStaleMs,
             ),
     );
 }

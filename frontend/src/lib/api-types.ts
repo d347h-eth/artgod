@@ -824,6 +824,12 @@ export type RuntimeConfigApiResponse = {
 	integrations: {
 		opensea: ApiOpenSeaIntegrationStatus;
 	};
+	bidding: {
+		bidBookLiveRefresh: {
+			normalPollMs: number;
+			competitivePollMs: number;
+		};
+	};
 };
 
 export type ApiBootstrapRun = {

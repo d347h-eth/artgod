@@ -3,6 +3,10 @@
 	import { goto } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+	import {
+		DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
+		type BiddingBidBookLiveRefreshConfig
+	} from '@artgod/shared/config/bidding';
 	import type {
 		ApiBiddingBidBook,
 		ApiBiddingBidBookRow,
@@ -131,6 +135,7 @@
 		collection,
 		biddingSettings,
 		priceTiers = [],
+		bidBookLiveRefreshConfig = DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
 		bidBook,
 		tokenOfferCards = emptyBiddingTokenOfferCardsPage(),
 		facets,
@@ -149,6 +154,7 @@
 		collection: ApiCollection | null;
 		biddingSettings: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
+		bidBookLiveRefreshConfig?: BiddingBidBookLiveRefreshConfig;
 		bidBook: ApiBiddingBidBook;
 		tokenOfferCards?: ApiBiddingTokenOfferCardsPage;
 		facets: ApiTraitFacet[];
@@ -275,7 +281,8 @@
 	onMount(() => {
 		const refresh = startBiddingBidBookLiveRefresh({
 			refresh: () => refreshCollectionBiddingData(),
-			intervalMs: () => biddingBidBookLivePollIntervalMs(activeBidBook.state.source),
+			intervalMs: () =>
+				biddingBidBookLivePollIntervalMs(activeBidBook.state.source, bidBookLiveRefreshConfig),
 			onNextUpdate: (nextUpdateAtMs) => {
 				bidBookNextUpdateAtMs = nextUpdateAtMs;
 			}

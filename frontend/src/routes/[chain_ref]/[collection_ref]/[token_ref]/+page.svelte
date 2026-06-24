@@ -3,6 +3,10 @@
 	import { goto } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+	import {
+		DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
+		type BiddingBidBookLiveRefreshConfig
+	} from '@artgod/shared/config/bidding';
 	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 	import {
 		TRADING_BIDDING_BID_SCOPE_KIND,
@@ -92,6 +96,7 @@
 		traitFilterPresentation?: ApiTraitFilterPresentationFeatureState;
 		tokenBiddingJob?: ApiBiddingJob | null;
 		tokenBiddingBidBook?: ApiBiddingBidBook;
+		bidBookLiveRefreshConfig?: BiddingBidBookLiveRefreshConfig;
 		showMuted?: boolean;
 		backPath: string | null;
 		backQuery: string | null;
@@ -118,7 +123,11 @@
 	onMount(() => {
 		const refresh = startBiddingBidBookLiveRefresh({
 			refresh: () => refreshTokenBiddingData(),
-			intervalMs: () => biddingBidBookLivePollIntervalMs(tokenBiddingBidBook.state.source),
+			intervalMs: () =>
+				biddingBidBookLivePollIntervalMs(
+					tokenBiddingBidBook.state.source,
+					data?.bidBookLiveRefreshConfig ?? DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG
+				),
 			onNextUpdate: (nextUpdateAtMs) => {
 				tokenBiddingNextUpdateAtMs = nextUpdateAtMs;
 			}

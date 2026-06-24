@@ -9,6 +9,12 @@ import {
     getSettingDefaultBoolean,
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
+import {
+    DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
+    DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
+    DEFAULT_BIDDING_RUNTIME_HEARTBEAT_INTERVAL_MS,
+    DEFAULT_BIDDING_RUNTIME_HEARTBEAT_STALE_MS,
+} from "@artgod/shared/config/bidding";
 import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc-resilience";
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from "@artgod/shared/config/bootstrap";
@@ -218,6 +224,7 @@ beforeAll(async () => {
     const getRuntimeConfigUseCase =
         new runtimeConfigUseCaseModule.GetRuntimeConfigUseCase(
             ENABLED_OPENSEA_INTEGRATION,
+            DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
         );
     const listCollectionsUseCase =
         new listCollectionsUseCaseModule.ListCollectionsUseCase(
@@ -957,6 +964,14 @@ beforeAll(async () => {
         integrations: {
             opensea: ENABLED_OPENSEA_INTEGRATION,
         },
+        bidding: {
+            bidBookLiveRefresh: DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
+            bidBookSnapshotStaleMs: DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
+            runtimeHeartbeat: {
+                intervalMs: DEFAULT_BIDDING_RUNTIME_HEARTBEAT_INTERVAL_MS,
+                staleMs: DEFAULT_BIDDING_RUNTIME_HEARTBEAT_STALE_MS,
+            },
+        },
     });
     await app.ready();
     await publicApp.ready();
@@ -990,6 +1005,9 @@ describe("backend api routes", () => {
         expect(result.statusCode).toBe(200);
         expect(result.payload.integrations.opensea).toEqual(
             ENABLED_OPENSEA_INTEGRATION,
+        );
+        expect(result.payload.bidding.bidBookLiveRefresh).toEqual(
+            DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
         );
     });
 

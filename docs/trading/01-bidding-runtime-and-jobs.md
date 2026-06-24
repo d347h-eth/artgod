@@ -161,7 +161,8 @@ Bot snapshot projection:
 - runs inside the bidding runtime as a fire-and-forget sidecar after collection-offer snapshot refreshes
 - only projects collections with enabled bidding jobs
 - coalesces concurrent notifications per collection
-- throttles projection by `BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS` (default `15000`)
+- throttles projection by `BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS`
+- treats bot snapshots as usable only while `BIDDING_RUNTIME_HEARTBEAT_STALE_MS` and `BIDDING_BID_BOOK_SNAPSHOT_STALE_MS` are fresh
 - does full transactional replacement for one collection
 - logs row count and elapsed time on every successful projection
 - records projection errors without failing snapshot refresh or bidder decisions
@@ -316,7 +317,8 @@ Dedicated OpenSea bot lanes:
 Bidding runtime groups:
 
 - snapshot cadence/freshness: `BIDDING_COLLECTION_OFFERS_*`
-- bid-book projection: `BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS`
+- bid-book projection, backend freshness, and UI live refresh: `BIDDING_BID_BOOK_*`
+- bot runtime liveness: `BIDDING_RUNTIME_HEARTBEAT_*`
 - command reconciliation: `BIDDING_COMMAND_*`
 - WETH allowance: `BIDDING_WETH_ALLOWANCE_ETH`
 - EIP-1559 fee/nonce policy: `BIDDING_TX_*`

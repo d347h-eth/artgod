@@ -1,11 +1,9 @@
 import { TRADING_BIDDING_BID_BOOK_SOURCE } from '@artgod/shared/types';
+import {
+	DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
+	type BiddingBidBookLiveRefreshConfig
+} from '@artgod/shared/config/bidding';
 import type { ApiBiddingBidBook } from '$lib/api-types';
-
-// Polling cadence for passive order-backed bid books.
-export const BIDDING_BID_BOOK_NORMAL_LIVE_POLL_INTERVAL_MS = 10_000;
-
-// Polling cadence for bot-snapshot-backed bid books.
-export const BIDDING_BID_BOOK_COMPETITIVE_LIVE_POLL_INTERVAL_MS = 5_000;
 
 const BIDDING_LIVE_REFRESH_ANCHOR_KIND = {
 	OpenSeaOrder: 'open-sea-order',
@@ -55,11 +53,12 @@ type BiddingBidBookLiveRefreshOptions = {
 
 // Chooses the live-poll cadence from the bid-book source selected by the backend read model.
 export function biddingBidBookLivePollIntervalMs(
-	source: ApiBiddingBidBook['state']['source']
+	source: ApiBiddingBidBook['state']['source'],
+	config: BiddingBidBookLiveRefreshConfig = DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG
 ): number {
 	return source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot
-		? BIDDING_BID_BOOK_COMPETITIVE_LIVE_POLL_INTERVAL_MS
-		: BIDDING_BID_BOOK_NORMAL_LIVE_POLL_INTERVAL_MS;
+		? config.competitivePollMs
+		: config.normalPollMs;
 }
 
 // Poll the current bid-book view without overlapping backend refreshes.

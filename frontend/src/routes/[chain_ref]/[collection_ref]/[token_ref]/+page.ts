@@ -3,6 +3,7 @@ import type { PageLoad } from './$types';
 import {
 	BackendApiError,
 	getCollectionBiddingPriceTiers,
+	getRuntimeConfig,
 	getTokenBiddingBidBook,
 	getTokenBiddingJob,
 	getTokenDetail
@@ -68,7 +69,13 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 
 	try {
 		// Load the token detail and its token-scoped bidding job together for the page shell.
-		const [response, biddingJobResponse, biddingBidBookResponse, priceTiersResponse] = await Promise.all([
+		const [
+			response,
+			biddingJobResponse,
+			biddingBidBookResponse,
+			priceTiersResponse,
+			runtimeConfigResponse
+		] = await Promise.all([
 			getTokenDetail(
 				fetch,
 				params.chain_ref,
@@ -78,7 +85,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			),
 			getTokenBiddingJob(fetch, params.chain_ref, params.collection_ref, params.token_ref),
 			getTokenBiddingBidBook(fetch, params.chain_ref, params.collection_ref, params.token_ref),
-			getCollectionBiddingPriceTiers(fetch, params.chain_ref, params.collection_ref)
+			getCollectionBiddingPriceTiers(fetch, params.chain_ref, params.collection_ref),
+			getRuntimeConfig(fetch)
 		]);
 		return {
 			chain: response.chain,
@@ -90,6 +98,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			traitFilterPresentation: response.traitFilterPresentation,
 			tokenBiddingJob: biddingJobResponse.job,
 			tokenBiddingBidBook: biddingBidBookResponse.bidBook,
+			bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh,
 			showMuted: parseShowMutedBidBook(url.searchParams),
 			backPath,
 			backQuery

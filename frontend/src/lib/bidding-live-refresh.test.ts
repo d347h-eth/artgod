@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TRADING_BIDDING_BID_BOOK_SOURCE } from '@artgod/shared/types';
+import { DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG } from '@artgod/shared/config/bidding';
 import {
-	BIDDING_BID_BOOK_COMPETITIVE_LIVE_POLL_INTERVAL_MS,
-	BIDDING_BID_BOOK_NORMAL_LIVE_POLL_INTERVAL_MS,
 	biddingBidBookLivePollIntervalMs,
 	captureBiddingLiveRefreshAnchor,
 	restoreBiddingLiveRefreshAnchor,
@@ -17,11 +16,23 @@ describe('bidding live refresh', () => {
 
 	it('uses the faster cadence for competitive bot snapshots', () => {
 		expect(biddingBidBookLivePollIntervalMs(TRADING_BIDDING_BID_BOOK_SOURCE.Orders)).toBe(
-			BIDDING_BID_BOOK_NORMAL_LIVE_POLL_INTERVAL_MS
+			DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG.normalPollMs
 		);
 		expect(biddingBidBookLivePollIntervalMs(TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot)).toBe(
-			BIDDING_BID_BOOK_COMPETITIVE_LIVE_POLL_INTERVAL_MS
+			DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG.competitivePollMs
 		);
+		expect(
+			biddingBidBookLivePollIntervalMs(TRADING_BIDDING_BID_BOOK_SOURCE.Orders, {
+				normalPollMs: 11,
+				competitivePollMs: 7
+			})
+		).toBe(11);
+		expect(
+			biddingBidBookLivePollIntervalMs(TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot, {
+				normalPollMs: 11,
+				competitivePollMs: 7
+			})
+		).toBe(7);
 	});
 
 	it('refreshes bid books on the configured interval', async () => {
