@@ -18,6 +18,7 @@ const BIDDING_LIVE_REFRESH_ANCHOR_SELECTOR =
 	'[data-open-sea-order-hash], [data-bidding-job-id], [data-token-id]';
 
 const MAX_BIDDING_LIVE_REFRESH_ANCHORS = 12;
+const MAX_BIDDING_LIVE_REFRESH_SCROLL_DRIFT_PX = 2;
 
 type BiddingLiveRefreshAnchorKind =
 	(typeof BIDDING_LIVE_REFRESH_ANCHOR_KIND)[keyof typeof BIDDING_LIVE_REFRESH_ANCHOR_KIND];
@@ -36,6 +37,8 @@ type BiddingLiveRefreshAnchorMarker = {
 
 export type BiddingLiveRefreshAnchorSnapshot = {
 	rootTop: number | null;
+	scrollX: number;
+	scrollY: number;
 	anchors: BiddingLiveRefreshAnchor[];
 };
 
@@ -126,6 +129,8 @@ export function captureBiddingLiveRefreshAnchor(
 
 	return {
 		rootTop,
+		scrollX: window.scrollX,
+		scrollY: window.scrollY,
 		anchors
 	};
 }
@@ -136,6 +141,9 @@ export function restoreBiddingLiveRefreshAnchor(
 	snapshot: BiddingLiveRefreshAnchorSnapshot | null
 ): void {
 	if (!root || !snapshot) return;
+	if (hasViewportMovedSinceBiddingLiveRefreshCapture(snapshot)) {
+		return;
+	}
 	for (const anchor of snapshot.anchors) {
 		const element = findBiddingLiveRefreshAnchorElement(root, anchor);
 		if (!element) continue;
@@ -145,6 +153,15 @@ export function restoreBiddingLiveRefreshAnchor(
 	if (snapshot.rootTop !== null) {
 		restoreElementTop(root, snapshot.rootTop);
 	}
+}
+
+function hasViewportMovedSinceBiddingLiveRefreshCapture(
+	snapshot: BiddingLiveRefreshAnchorSnapshot
+): boolean {
+	return (
+		Math.abs(window.scrollX - snapshot.scrollX) > MAX_BIDDING_LIVE_REFRESH_SCROLL_DRIFT_PX ||
+		Math.abs(window.scrollY - snapshot.scrollY) > MAX_BIDDING_LIVE_REFRESH_SCROLL_DRIFT_PX
+	);
 }
 
 function resolveBiddingLiveRefreshAnchor(

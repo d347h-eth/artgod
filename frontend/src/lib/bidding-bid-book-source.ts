@@ -1,12 +1,12 @@
 import { TRADING_BIDDING_BID_BOOK_SOURCE } from '@artgod/shared/types';
 import type { ApiBiddingBidBook } from '$lib/api-types';
-import { formatCompactRelativeTime, formatRfc3339 } from '$lib/compact-time-display';
+import { formatRfc3339 } from '$lib/compact-time-display';
 
 // Refreshes bid-book metadata labels, including short live-refresh countdowns.
 export const BID_BOOK_METADATA_RELATIVE_TIME_TICK_MS = 1_000;
 
 const BID_BOOK_REFRESH_SIGNAL_KEY_PART = {
-	NoFreshness: 'no-freshness',
+	NoRefreshTimestamp: 'no-refresh-timestamp',
 	NoProjection: 'no-projection'
 } as const;
 
@@ -21,8 +21,8 @@ export function bidBookRefreshPaceTitle(source: ApiBiddingBidBook['state']['sour
 	return `The bid book is refreshed at a ${pace} pace based on periodic orderbook polling with immediate updates from the inbound events stream.`;
 }
 
-// Resolves the best available source freshness timestamp for bid-book metadata rows.
-export function bidBookFreshnessTimestampMs(state: ApiBiddingBidBook['state']): number | null {
+// Resolves the best available source refresh timestamp for bid-book update signals.
+export function bidBookSourceRefreshTimestampMs(state: ApiBiddingBidBook['state']): number | null {
 	if (
 		state.source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot &&
 		state.snapshotRefreshedAtMs !== null
@@ -34,18 +34,6 @@ export function bidBookFreshnessTimestampMs(state: ApiBiddingBidBook['state']): 
 		return Number.isFinite(updatedAtMs) ? updatedAtMs : null;
 	}
 	return null;
-}
-
-// Formats bid-book source freshness as a relative age for metadata rows.
-export function formatBidBookFreshness(state: ApiBiddingBidBook['state'], nowMs: number): string {
-	const freshnessMs = bidBookFreshnessTimestampMs(state);
-	return freshnessMs === null ? '-' : formatCompactRelativeTime(freshnessMs, nowMs);
-}
-
-// Formats bid-book source freshness as UTC for native title tooltips.
-export function bidBookFreshnessTitle(state: ApiBiddingBidBook['state']): string | undefined {
-	const freshnessMs = bidBookFreshnessTimestampMs(state);
-	return freshnessMs === null ? undefined : formatRfc3339(freshnessMs);
 }
 
 // Formats the scheduled live-refresh countdown for bid-book metadata rows.
@@ -78,7 +66,8 @@ export function bidBookNextUpdateTitle(nextUpdateAtMs: number | null): string | 
 export function bidBookRefreshSignalKey(state: ApiBiddingBidBook['state']): string {
 	return [
 		state.source,
-		bidBookFreshnessTimestampMs(state) ?? BID_BOOK_REFRESH_SIGNAL_KEY_PART.NoFreshness,
+		bidBookSourceRefreshTimestampMs(state) ??
+			BID_BOOK_REFRESH_SIGNAL_KEY_PART.NoRefreshTimestamp,
 		state.projectedAt ?? BID_BOOK_REFRESH_SIGNAL_KEY_PART.NoProjection,
 		state.rowCount
 	].join(':');

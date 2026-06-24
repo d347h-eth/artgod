@@ -140,6 +140,38 @@ describe('bidding live refresh', () => {
 
 		expect(scrollTo).toHaveBeenCalledWith(0, 880);
 	});
+
+	it('does not restore anchors after the user scrolls during refresh', () => {
+		const scrollTo = vi.fn();
+		const viewport = {
+			innerHeight: 800,
+			scrollX: 0,
+			scrollY: 100,
+			scrollTo
+		};
+		vi.stubGlobal('window', viewport);
+		const row = {
+			dataset: {},
+			getBoundingClientRect: vi
+				.fn()
+				.mockReturnValueOnce(rectAt(120, 24))
+				.mockReturnValue(rectAt(145, 24))
+		};
+		const marker = {
+			dataset: { openSeaOrderHash: '0xabc' },
+			closest: () => row
+		};
+		const root = {
+			querySelectorAll: () => [marker],
+			getBoundingClientRect: vi.fn().mockReturnValue(rectAt(20, 200))
+		};
+
+		const snapshot = captureBiddingLiveRefreshAnchor(root as unknown as HTMLElement);
+		viewport.scrollY = 150;
+		restoreBiddingLiveRefreshAnchor(root as unknown as HTMLElement, snapshot);
+
+		expect(scrollTo).not.toHaveBeenCalled();
+	});
 });
 
 function rectAt(top: number, height: number): DOMRect {

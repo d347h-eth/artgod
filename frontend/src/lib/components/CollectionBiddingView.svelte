@@ -31,12 +31,9 @@
 	} from '$lib/bidding-query';
 	import {
 		BID_BOOK_METADATA_RELATIVE_TIME_TICK_MS,
-		bidBookFreshnessTitle,
 		bidBookNextUpdateTitle,
-		bidBookRefreshSignalKey,
 		bidBookRefreshPaceLabel,
 		bidBookRefreshPaceTitle,
-		formatBidBookFreshness,
 		formatBidBookNextUpdate
 	} from '$lib/bidding-bid-book-source';
 	import {
@@ -205,7 +202,7 @@
 	let priceTierPanelOpen = $state(false);
 	let biddingContentElement = $state<HTMLDivElement | null>(null);
 	let liveRefreshRequestId = 0;
-	let bidBookFreshnessNowMs = $state(Date.now());
+	let bidBookMetadataNowMs = $state(Date.now());
 	let bidBookNextUpdateAtMs = $state<number | null>(null);
 	let refreshedTokenOfferWindow: PaginationWindowState<ApiBiddingTokenOfferCard> | null = null;
 
@@ -247,7 +244,6 @@
 		describeBiddingAutomationSelection(currentBiddingSelection)
 	);
 	const ownMakerAddress = $derived(activeBidBook.ownMakerAddress);
-	const bidBookFlashKey = $derived(bidBookRefreshSignalKey(activeBidBook.state));
 	const biddingFilterKey = $derived(activeBiddingFilterKey());
 	const canBidOnTraits = $derived(
 		canDraftTraitJobFromFilters({
@@ -284,12 +280,12 @@
 				bidBookNextUpdateAtMs = nextUpdateAtMs;
 			}
 		});
-		const freshnessTimer = window.setInterval(() => {
-			bidBookFreshnessNowMs = Date.now();
+		const metadataTimer = window.setInterval(() => {
+			bidBookMetadataNowMs = Date.now();
 		}, BID_BOOK_METADATA_RELATIVE_TIME_TICK_MS);
 		return () => {
 			refresh.stop();
-			window.clearInterval(freshnessTimer);
+			window.clearInterval(metadataTimer);
 		};
 	});
 
@@ -1159,20 +1155,7 @@
 									<span class="runtime-v">{activeTokenOfferCardsPage.totalOffers}</span>
 								</div>
 								<div>
-									<span class="runtime-k">last updated</span>
-									<span
-										class="runtime-v mono bid-book-update-chip"
-										title={bidBookFreshnessTitle(activeBidBook.state)}
-										use:bidBookUpdateFlash={{
-											key: bidBookFlashKey,
-											mode: BID_BOOK_UPDATE_FLASH_MODE.Transient
-										}}
-									>
-										{formatBidBookFreshness(activeBidBook.state, bidBookFreshnessNowMs)}
-									</span>
-								</div>
-								<div>
-									<span class="runtime-k">next update</span>
+									<span class="runtime-k">next refresh</span>
 									<span
 										class="runtime-v mono bid-book-update-chip"
 										title={bidBookNextUpdateTitle(bidBookNextUpdateAtMs)}
@@ -1181,7 +1164,7 @@
 											mode: BID_BOOK_UPDATE_FLASH_MODE.Transient
 										}}
 									>
-										{formatBidBookNextUpdate(bidBookNextUpdateAtMs, bidBookFreshnessNowMs)}
+										{formatBidBookNextUpdate(bidBookNextUpdateAtMs, bidBookMetadataNowMs)}
 									</span>
 								</div>
 							</div>

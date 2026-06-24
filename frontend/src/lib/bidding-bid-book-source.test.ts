@@ -1,16 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { TRADING_BIDDING_BID_BOOK_SOURCE } from '@artgod/shared/types';
 import {
-	bidBookFreshnessTitle,
 	bidBookNextUpdateTitle,
 	bidBookRefreshSignalKey,
-	formatBidBookFreshness,
+	bidBookSourceRefreshTimestampMs,
 	formatBidBookNextUpdate
 } from '$lib/bidding-bid-book-source';
 import type { ApiBiddingBidBook } from '$lib/api-types';
 
 describe('bidding bid-book source metadata', () => {
-	it('formats source freshness as relative text with a UTC title', () => {
+	it('resolves order-backed source refresh timestamps from updatedAt', () => {
 		const state: ApiBiddingBidBook['state'] = {
 			source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
 			updatedAt: '2026-01-01T00:00:00Z',
@@ -21,11 +20,10 @@ describe('bidding bid-book source metadata', () => {
 			lastError: null
 		};
 
-		expect(formatBidBookFreshness(state, Date.parse('2026-01-01T00:02:10Z'))).toBe('2m');
-		expect(bidBookFreshnessTitle(state)).toBe('2026-01-01T00:00:00Z');
+		expect(bidBookSourceRefreshTimestampMs(state)).toBe(Date.parse('2026-01-01T00:00:00Z'));
 	});
 
-	it('falls back to bot snapshot freshness when updatedAt is unavailable', () => {
+	it('resolves bot snapshot source refresh timestamps from snapshot state', () => {
 		const state: ApiBiddingBidBook['state'] = {
 			source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
 			updatedAt: null,
@@ -36,11 +34,10 @@ describe('bidding bid-book source metadata', () => {
 			lastError: null
 		};
 
-		expect(formatBidBookFreshness(state, Date.parse('2026-01-01T01:00:00Z'))).toBe('1h');
-		expect(bidBookFreshnessTitle(state)).toBe('2026-01-01T00:00:00Z');
+		expect(bidBookSourceRefreshTimestampMs(state)).toBe(Date.parse('2026-01-01T00:00:00Z'));
 	});
 
-	it('prefers bot snapshot refresh freshness over source updatedAt', () => {
+	it('prefers bot snapshot refresh timestamps over source updatedAt', () => {
 		const state: ApiBiddingBidBook['state'] = {
 			source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
 			updatedAt: '2026-01-01T00:00:00Z',
@@ -51,11 +48,10 @@ describe('bidding bid-book source metadata', () => {
 			lastError: null
 		};
 
-		expect(formatBidBookFreshness(state, Date.parse('2026-01-01T00:01:00Z'))).toBe('5s');
-		expect(bidBookFreshnessTitle(state)).toBe('2026-01-01T00:00:55Z');
+		expect(bidBookSourceRefreshTimestampMs(state)).toBe(Date.parse('2026-01-01T00:00:55Z'));
 	});
 
-	it('formats the scheduled next update as relative text with a UTC title', () => {
+	it('formats the scheduled next refresh as relative text with a UTC title', () => {
 		const nextUpdateAtMs = Date.parse('2026-01-01T00:00:05Z');
 
 		expect(formatBidBookNextUpdate(nextUpdateAtMs, Date.parse('2026-01-01T00:00:00Z'))).toBe('5s');
