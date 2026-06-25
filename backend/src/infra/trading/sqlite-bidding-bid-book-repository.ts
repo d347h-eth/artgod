@@ -1421,10 +1421,9 @@ function mapJobOverlayRow(
         currencyAddress: null,
         currencySymbol: "WETH",
         protocolAddress: activeRuntime?.activeProtocolAddress ?? null,
-        validUntil: activeRuntime?.activeExpirationTimeMs
-            ? Math.floor(activeRuntime.activeExpirationTimeMs / 1000)
-            : null,
-        placedAt: activeRuntime?.updatedAt ?? null,
+        // Synthetic job overlays are bot intent/runtime echoes; real order rows own placed/valid times.
+        validUntil: null,
+        placedAt: null,
         snapshotRefreshedAtMs: null,
         seenAt: activeRuntime?.updatedAt ?? job.jobUpdatedAt,
         ownStatus: null,

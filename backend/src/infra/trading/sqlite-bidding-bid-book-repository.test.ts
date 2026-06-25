@@ -589,6 +589,8 @@ describe("SqliteBiddingBidBookRepository", () => {
             runtimeCollectionBook.bids[0]?.materialization.phase,
             TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
         );
+        assert.equal(runtimeCollectionBook.bids[0]?.placedAt, null);
+        assert.equal(runtimeCollectionBook.bids[0]?.validUntil, null);
         assert.deepEqual(runtimeCollectionBook.bids[0]?.ownStatus, {
             position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
             constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
