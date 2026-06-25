@@ -13,6 +13,7 @@ export interface BidderState {
     lastRun?: number;
     activeOrderId?: string;
     activeProtocolAddress?: string;
+    activeOrderPlacedAt?: string;
     currentPrice?: bigint;
     activeExpirationTimeMs?: number;
     bidPosition?: TradingBiddingJobRuntimeBidPosition;

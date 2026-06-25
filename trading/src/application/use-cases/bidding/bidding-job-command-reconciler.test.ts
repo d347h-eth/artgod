@@ -133,11 +133,13 @@ class FakeBiddingService implements BiddingService {
     async placeOffer(): Promise<{
         orderHash: string;
         protocolAddress: string;
+        placedAt: string;
         expirationTime?: number;
     }> {
         return {
             orderHash: "0xplaced",
             protocolAddress: "0x00000000006c3852cbef3e08e8df289169ede581",
+            placedAt: "2026-05-17T00:00:00Z",
         };
     }
 
@@ -360,6 +362,7 @@ describe("BiddingJobCommandReconciler", () => {
                     activeOrderId: "0xactive",
                     activeProtocolAddress:
                         "0x00000000006c3852cbef3e08e8df289169ede581",
+                    activeOrderPlacedAt: "2026-05-17T00:00:00Z",
                     currentPriceWei: "100000000000000000",
                     activeExpirationTimeMs: 1_700_000_000_000,
                 },

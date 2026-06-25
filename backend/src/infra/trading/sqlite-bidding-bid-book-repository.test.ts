@@ -564,6 +564,7 @@ describe("SqliteBiddingBidBookRepository", () => {
             jobId: "collection-job",
             currentPriceWei: "150",
             activeOrderId: "0xruntime-order",
+            activeOrderPlacedAt: "2026-05-17T00:00:00Z",
             bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
             bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
             competitorPriceWei: "250",
@@ -589,8 +590,8 @@ describe("SqliteBiddingBidBookRepository", () => {
             runtimeCollectionBook.bids[0]?.materialization.phase,
             TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
         );
-        assert.equal(runtimeCollectionBook.bids[0]?.placedAt, null);
-        assert.equal(runtimeCollectionBook.bids[0]?.validUntil, null);
+        assert.equal(runtimeCollectionBook.bids[0]?.placedAt, "2026-05-17T00:00:00Z");
+        assert.equal(runtimeCollectionBook.bids[0]?.validUntil, 1900000000);
         assert.deepEqual(runtimeCollectionBook.bids[0]?.ownStatus, {
             position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
             constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
@@ -1421,18 +1422,20 @@ function seedJobRuntimeState(input: {
     jobId: string;
     currentPriceWei: string;
     activeOrderId: string;
+    activeOrderPlacedAt?: string | null;
     bidPosition?: string | null;
     bidConstraints?: string[];
     competitorPriceWei?: string | null;
 }): void {
     db.prepare(
         "INSERT INTO trading_bidding_job_runtime_state " +
-            "(job_id, current_price_wei, active_order_id, active_protocol_address, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, updated_at) " +
-            "VALUES (@jobId, @currentPriceWei, @activeOrderId, NULL, 1900000000000, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @updatedAt)",
+            "(job_id, current_price_wei, active_order_id, active_protocol_address, active_order_placed_at, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, updated_at) " +
+            "VALUES (@jobId, @currentPriceWei, @activeOrderId, NULL, @activeOrderPlacedAt, 1900000000000, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @updatedAt)",
     ).run({
         jobId: input.jobId,
         currentPriceWei: input.currentPriceWei,
         activeOrderId: input.activeOrderId,
+        activeOrderPlacedAt: input.activeOrderPlacedAt ?? null,
         bidPosition: input.bidPosition ?? null,
         bidConstraintsJson: JSON.stringify(input.bidConstraints ?? []),
         competitorPriceWei: input.competitorPriceWei ?? null,

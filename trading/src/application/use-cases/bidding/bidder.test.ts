@@ -76,12 +76,14 @@ class FakeBiddingService {
     ): Promise<{
         orderHash: string;
         protocolAddress: string;
+        placedAt: string;
         expirationTime?: number;
     }> {
         this.placedAmounts.push(amount);
         return {
             orderHash: "0xhash",
             protocolAddress: "0xprotocol",
+            placedAt: "2026-05-17T00:00:00Z",
             expirationTime: this.placedExpirationTime,
         };
     }
@@ -994,6 +996,7 @@ describe("Bidder stream refresh", () => {
         ];
         const persistedStates: Array<{
             activeOrderId: string | null;
+            activeOrderPlacedAt: string | null;
             currentPriceWei: string | null;
             bidPosition: TradingBiddingJobRuntimeBidPosition | null;
             bidConstraints: TradingBiddingJobRuntimeConstraint[];
@@ -1012,6 +1015,7 @@ describe("Bidder stream refresh", () => {
                 persistJobRuntimeState: (snapshot) => {
                     persistedStates.push({
                         activeOrderId: snapshot.activeOrderId,
+                        activeOrderPlacedAt: snapshot.activeOrderPlacedAt,
                         currentPriceWei: snapshot.currentPriceWei,
                         bidPosition: snapshot.bidPosition,
                         bidConstraints: snapshot.bidConstraints,
@@ -1037,6 +1041,7 @@ describe("Bidder stream refresh", () => {
         assert.deepEqual(biddingService.placedAmounts, [20n]);
         assert.deepEqual(persistedStates.at(-1), {
             activeOrderId: "0xhash",
+            activeOrderPlacedAt: "2026-05-17T00:00:00Z",
             currentPriceWei: "20",
             bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
             bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],

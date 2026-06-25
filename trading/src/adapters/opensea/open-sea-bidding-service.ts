@@ -609,6 +609,7 @@ export class OpenSeaBiddingService implements BiddingService {
     ): Promise<{
         orderHash: string;
         protocolAddress: string;
+        placedAt: string;
         expirationTime?: number;
     }> {
         const expirationTime =
@@ -657,6 +658,7 @@ export class OpenSeaBiddingService implements BiddingService {
                             expirationTime,
                         }),
                 );
+                const placedAt = new Date().toISOString();
                 if (!order) {
                     throw new Error(
                         "Failed to create collection offer (no order returned)",
@@ -666,6 +668,7 @@ export class OpenSeaBiddingService implements BiddingService {
                 const identity = requirePlacedOrderIdentity(order);
                 return {
                     ...identity,
+                    placedAt,
                     expirationTime:
                         this.tryParseNumber(
                             order.expiration_time ?? order.expirationTime,
@@ -691,6 +694,7 @@ export class OpenSeaBiddingService implements BiddingService {
                     expirationTime,
                 }),
             );
+            const placedAt = new Date().toISOString();
             if (!order) {
                 throw new Error(
                     "Failed to create token offer (no order returned)",
@@ -700,6 +704,7 @@ export class OpenSeaBiddingService implements BiddingService {
             const identity = requirePlacedOrderIdentity(order);
             return {
                 ...identity,
+                placedAt,
                 expirationTime:
                     this.tryParseNumber(
                         order.expiration_time ?? order.expirationTime,
@@ -1593,11 +1598,17 @@ export class OpenSeaBiddingService implements BiddingService {
         discoverySource: OfferDiscoverySource = "collectionOffers",
     ): Order | null {
         // Keep bidder runtime offer parsing centralized for snapshot projection and backend fallback reuse.
-        return parseOpenSeaBiddingOffer(rawOffer, {
+        const parsed = parseOpenSeaBiddingOffer(rawOffer, {
             collectionAddress,
             wethAddress: OPENSEA_WETH_ADDRESS,
             discoverySource,
         });
+        return parsed
+            ? {
+                  ...parsed,
+                  placedAt: parsed.createdAt ?? undefined,
+              }
+            : null;
     }
 }
 

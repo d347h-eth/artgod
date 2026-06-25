@@ -19,6 +19,7 @@ import { SqliteBiddingJobsRepository } from "./sqlite-bidding-jobs-repository.js
 
 const ACTIVE_ORDER_ID = "0xactive-order";
 const ACTIVE_PROTOCOL_ADDRESS = "0x00000000006c3852cbef3e08e8df289169ede581";
+const ACTIVE_ORDER_PLACED_AT = "2026-05-17T00:00:00Z";
 
 async function createTempDbPath(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "artgod-bidding-jobs-"));
@@ -317,6 +318,10 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.equal(
             updated.commands[0]?.payload.activeProtocolAddress,
             ACTIVE_PROTOCOL_ADDRESS,
+        );
+        assert.equal(
+            updated.commands[0]?.payload.activeOrderPlacedAt,
+            ACTIVE_ORDER_PLACED_AT,
         );
         assert.equal(updated.commands[0]?.requestedRevision, 2);
 
@@ -694,6 +699,7 @@ function seedBiddingJobRuntimeState(input: {
         currentPriceWei: string;
         activeOrderId: string;
         activeProtocolAddress: string;
+        activeOrderPlacedAt: string;
         activeExpirationTimeMs: number;
         bidPosition: string;
         bidConstraintsJson: string;
@@ -702,13 +708,14 @@ function seedBiddingJobRuntimeState(input: {
         lastError: string;
     }>(
         "INSERT INTO trading_bidding_job_runtime_state " +
-            "(job_id, current_price_wei, active_order_id, active_protocol_address, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, last_run_at, last_error) " +
-            "VALUES (@jobId, @currentPriceWei, @activeOrderId, @activeProtocolAddress, @activeExpirationTimeMs, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @lastRunAt, @lastError)",
+            "(job_id, current_price_wei, active_order_id, active_protocol_address, active_order_placed_at, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, last_run_at, last_error) " +
+            "VALUES (@jobId, @currentPriceWei, @activeOrderId, @activeProtocolAddress, @activeOrderPlacedAt, @activeExpirationTimeMs, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @lastRunAt, @lastError)",
     ).run({
         jobId: input.jobId,
         currentPriceWei: input.currentPriceWei,
         activeOrderId: input.activeOrderId,
         activeProtocolAddress: ACTIVE_PROTOCOL_ADDRESS,
+        activeOrderPlacedAt: ACTIVE_ORDER_PLACED_AT,
         activeExpirationTimeMs: 1_700_000_000_000,
         bidPosition: input.bidPosition,
         bidConstraintsJson: JSON.stringify(input.bidConstraints),

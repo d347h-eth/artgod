@@ -113,6 +113,7 @@ type BiddingJobSignalRow = {
     current_price_wei: string | null;
     active_order_id: string | null;
     active_protocol_address: string | null;
+    active_order_placed_at: string | null;
     active_expiration_time_ms: number | null;
     bid_position: string | null;
     bid_constraints_json: string | null;
@@ -135,6 +136,7 @@ type BiddingJobSignal = {
         currentPriceWei: string | null;
         activeOrderId: string | null;
         activeProtocolAddress: string | null;
+        activeOrderPlacedAt: string | null;
         activeExpirationTimeMs: number | null;
         bidPosition: TradingBiddingJobRuntimeBidPosition | null;
         bidConstraints: TradingBiddingJobRuntimeConstraint[];
@@ -341,7 +343,7 @@ export class SqliteBiddingBidBookRepository
         }>(
             "SELECT j.job_id, j.status, j.target_kind, j.token_id, j.revision, " +
                 "j.updated_at AS job_updated_at, s.floor_wei, s.ceiling_wei, s.quantity, s.target_traits_json, " +
-                "r.current_price_wei, r.active_order_id, r.active_protocol_address, r.active_expiration_time_ms, " +
+                "r.current_price_wei, r.active_order_id, r.active_protocol_address, r.active_order_placed_at, r.active_expiration_time_ms, " +
                 "r.bid_position, r.bid_constraints_json, r.competitor_price_wei, r.updated_at AS runtime_updated_at " +
                 "FROM trading_jobs j " +
                 "JOIN trading_bidding_job_specs s ON s.job_id = j.job_id " +
@@ -809,6 +811,8 @@ export class SqliteBiddingBidBookRepository
                               activeOrderId: row.active_order_id,
                               activeProtocolAddress:
                                   row.active_protocol_address,
+                              activeOrderPlacedAt:
+                                  row.active_order_placed_at,
                               activeExpirationTimeMs:
                                   row.active_expiration_time_ms,
                               bidPosition: parseRuntimeBidPosition(
@@ -1421,9 +1425,10 @@ function mapJobOverlayRow(
         currencyAddress: null,
         currencySymbol: "WETH",
         protocolAddress: activeRuntime?.activeProtocolAddress ?? null,
-        // Synthetic job overlays are bot intent/runtime echoes; real order rows own placed/valid times.
-        validUntil: null,
-        placedAt: null,
+        validUntil: activeRuntime?.activeExpirationTimeMs
+            ? Math.floor(activeRuntime.activeExpirationTimeMs / 1000)
+            : null,
+        placedAt: activeRuntime?.activeOrderPlacedAt ?? null,
         snapshotRefreshedAtMs: null,
         seenAt: activeRuntime?.updatedAt ?? job.jobUpdatedAt,
         ownStatus: null,

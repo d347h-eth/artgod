@@ -40,6 +40,7 @@ export type BiddingJobRuntimeStateSnapshot = {
     currentPriceWei: string | null;
     activeOrderId: string | null;
     activeProtocolAddress: string | null;
+    activeOrderPlacedAt: string | null;
     activeExpirationTimeMs: number | null;
     bidPosition: TradingBiddingJobRuntimeBidPosition | null;
     bidConstraints: TradingBiddingJobRuntimeConstraint[];
@@ -1171,6 +1172,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
             job.state.activeOrderId = activeOffer.id;
             job.state.activeProtocolAddress = activeOffer.protocolAddress;
+            job.state.activeOrderPlacedAt = activeOffer.placedAt;
             job.state.currentPrice = activeOffer.price;
             job.state.activeExpirationTimeMs = this.toExpirationTimeMs(
                 activeOffer.expirationTime,
@@ -1700,10 +1702,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             return;
         }
 
-        const { orderHash, protocolAddress, expirationTime } =
+        const { orderHash, protocolAddress, placedAt, expirationTime } =
             await this.biddingService.placeOffer(job, amount);
         job.state.activeOrderId = orderHash;
         job.state.activeProtocolAddress = protocolAddress;
+        job.state.activeOrderPlacedAt = placedAt;
         job.state.currentPrice = amount;
         job.state.activeExpirationTimeMs =
             this.toExpirationTimeMs(expirationTime);
@@ -1808,9 +1811,15 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             (job.state.activeOrderId === order.id
                 ? job.state.activeExpirationTimeMs
                 : undefined);
+        const nextPlacedAt =
+            order.placedAt ??
+            (job.state.activeOrderId === order.id
+                ? job.state.activeOrderPlacedAt
+                : undefined);
 
         job.state.activeOrderId = order.id;
         job.state.activeProtocolAddress = order.protocolAddress;
+        job.state.activeOrderPlacedAt = nextPlacedAt;
         job.state.currentPrice = order.price;
         job.state.activeExpirationTimeMs = nextExpirationTimeMs;
         this.persistJobRuntimeState(job);
@@ -1819,6 +1828,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     private clearTrackedOrder(job: BidderJob): void {
         job.state.activeOrderId = undefined;
         job.state.activeProtocolAddress = undefined;
+        job.state.activeOrderPlacedAt = undefined;
         job.state.currentPrice = undefined;
         job.state.activeExpirationTimeMs = undefined;
         this.clearRuntimeBidDecision(job);
@@ -1915,6 +1925,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             currentPriceWei: job.state.currentPrice?.toString() ?? null,
             activeOrderId: job.state.activeOrderId ?? null,
             activeProtocolAddress: job.state.activeProtocolAddress ?? null,
+            activeOrderPlacedAt: job.state.activeOrderPlacedAt ?? null,
             activeExpirationTimeMs: job.state.activeExpirationTimeMs ?? null,
             bidPosition: job.state.bidPosition ?? null,
             bidConstraints: job.state.bidConstraints ?? [],

@@ -354,6 +354,7 @@ describe('token detail page', () => {
 							currentPriceEth: '0.15',
 							activeOrderId: '0xabc123',
 							activeProtocolAddress: '0xdef456',
+							activeOrderPlacedAt: '2026-01-01T12:00:00Z',
 							activeExpirationTimeMs: 1760000000000,
 							bidPosition: null,
 							bidConstraints: [],

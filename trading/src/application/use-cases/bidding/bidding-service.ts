@@ -15,6 +15,7 @@ export interface Order {
     price: bigint;
     maker: string;
     protocolAddress?: string;
+    placedAt?: string;
     expirationTime?: number;
     rawOrder?: unknown;
     offerScope?: OfferScope;
@@ -43,6 +44,7 @@ export interface BiddingService {
     ): Promise<{
         orderHash: string;
         protocolAddress: string;
+        placedAt: string;
         expirationTime?: number;
     }>;
     cancelOffer(job: BidderJob, order: Order): Promise<void>;

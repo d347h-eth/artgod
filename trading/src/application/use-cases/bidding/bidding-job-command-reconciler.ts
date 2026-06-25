@@ -247,6 +247,15 @@ export class BiddingJobCommandReconciler {
             }
         }
 
+        if (!job.state.activeOrderPlacedAt) {
+            const activeOrderPlacedAt = parseOptionalPayloadString(
+                payload.activeOrderPlacedAt,
+            );
+            if (activeOrderPlacedAt) {
+                job.state.activeOrderPlacedAt = activeOrderPlacedAt;
+            }
+        }
+
         if (job.state.currentPrice === undefined) {
             const currentPrice = parseOptionalPayloadBigInt(
                 payload.currentPriceWei,

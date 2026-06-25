@@ -181,10 +181,14 @@ describe("OpenSeaBiddingService", () => {
             };
         };
 
+        const beforePlaceMs = Date.now();
         const result = await service.placeOffer(job, 1_000000000000000000n);
+        const afterPlaceMs = Date.now();
 
         assert.equal(result.orderHash, orderHash);
         assert.equal(result.protocolAddress, protocolAddress);
+        assert.ok(Date.parse(result.placedAt) >= beforePlaceMs);
+        assert.ok(Date.parse(result.placedAt) <= afterPlaceMs);
         assert.ok(result.expirationTime !== undefined);
     });
 
@@ -271,10 +275,14 @@ describe("OpenSeaBiddingService", () => {
             };
         };
 
+        const beforePlaceMs = Date.now();
         const result = await service.placeOffer(job, 1_000000000000000000n);
+        const afterPlaceMs = Date.now();
 
         assert.equal(result.orderHash, orderHash);
         assert.equal(result.protocolAddress, protocolAddress);
+        assert.ok(Date.parse(result.placedAt) >= beforePlaceMs);
+        assert.ok(Date.parse(result.placedAt) <= afterPlaceMs);
         assert.ok(result.expirationTime !== undefined);
     });
 

@@ -71,6 +71,33 @@ describe("SqliteBiddingJobRuntimeState", () => {
         seedBiddingJob(seedCollection());
     });
 
+    it("records placed order timing with runtime state", () => {
+        const runtimeState = new SqliteBiddingJobRuntimeState();
+
+        runtimeState.persistJobRuntimeState({
+            jobId: "job-token",
+            currentPriceWei: "150000000000000000",
+            activeOrderId: "0xmine",
+            activeProtocolAddress:
+                "0x0000000000000068f116a894984e2db1123eb395",
+            activeOrderPlacedAt: "2026-05-17T00:00:00Z",
+            activeExpirationTimeMs: 1_900_000_000_000,
+            bidPosition: null,
+            bidConstraints: [],
+            competitorPriceWei: null,
+            lastRunAt: "2026-05-17T00:00:01Z",
+            lastError: null,
+        });
+
+        const row = db
+            .prepare(
+                "SELECT active_order_placed_at FROM trading_bidding_job_runtime_state WHERE job_id = ?",
+            )
+            .get("job-token") as { active_order_placed_at: string };
+
+        assert.equal(row.active_order_placed_at, "2026-05-17T00:00:00Z");
+    });
+
     it("records completed offer cancellations with the owning collection scope", () => {
         const runtimeState = new SqliteBiddingJobRuntimeState();
 
