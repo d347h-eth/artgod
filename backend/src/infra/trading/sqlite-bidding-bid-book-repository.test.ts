@@ -37,6 +37,7 @@ import { SqliteBiddingJobsRepository } from "./sqlite-bidding-jobs-repository.js
 const COLLECTION_ADDRESS = "0x1111111111111111111111111111111111111111";
 const WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
 const BIDDING_MAKER_ADDRESS = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const INDEXED_ORDER_PLACED_AT = "2026-05-15T00:00:00Z";
 
 class CapturingApm implements ApmPort {
     readonly spans: Array<{ name: string; attributes: SpanAttributes }> = [];
@@ -493,6 +494,94 @@ describe("SqliteBiddingBidBookRepository", () => {
                     orderId: "failed-cancel-own-order",
                     maker: BIDDING_MAKER_ADDRESS,
                     isOwn: true,
+                },
+            ],
+        );
+    });
+
+    it("keeps indexed order timing off active own job rows in orders fallback", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedBiddingRuntime(collectionId);
+        insertIndexedOrder({
+            collectionId,
+            id: "own-indexed-order",
+            maker: BIDDING_MAKER_ADDRESS,
+            updatedAt: "2026-05-17T00:00:01Z",
+        });
+        insertIndexedOrder({
+            collectionId,
+            id: "opponent-indexed-order",
+            maker: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            updatedAt: "2026-05-17T00:00:01Z",
+        });
+
+        const queuedBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+        const queuedOwnRows = queuedBook.bids.filter((bid) => bid.isOwn);
+        const queuedOpponent = queuedBook.bids.find(
+            (bid) => bid.orderId === "opponent-indexed-order",
+        );
+
+        assert.equal(queuedBook.state.source, TRADING_BIDDING_BID_BOOK_SOURCE.Orders);
+        assert.deepEqual(
+            queuedOwnRows.map((bid) => ({
+                orderId: bid.orderId,
+                materializationKind: bid.materialization.kind,
+                placedAt: bid.placedAt,
+                validUntil: bid.validUntil,
+            })),
+            [
+                {
+                    orderId: "job-intent:collection-job",
+                    materializationKind:
+                        TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+                    placedAt: null,
+                    validUntil: null,
+                },
+            ],
+        );
+        assert.equal(queuedOpponent?.placedAt, INDEXED_ORDER_PLACED_AT);
+        assert.equal(queuedOpponent?.validUntil, 4_000_000_000);
+
+        seedJobRuntimeState({
+            jobId: "collection-job",
+            currentPriceWei: "150",
+            activeOrderId: "own-indexed-order",
+            activeOrderPlacedAt: "2026-05-17T00:00:00Z",
+        });
+
+        const runtimeBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+        const runtimeOwnRows = runtimeBook.bids.filter((bid) => bid.isOwn);
+
+        assert.deepEqual(
+            runtimeOwnRows.map((bid) => ({
+                orderId: bid.orderId,
+                materializationKind: bid.materialization.kind,
+                placedAt: bid.placedAt,
+                validUntil: bid.validUntil,
+            })),
+            [
+                {
+                    orderId: "own-indexed-order",
+                    materializationKind:
+                        TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+                    placedAt: "2026-05-17T00:00:00Z",
+                    validUntil: 1_900_000_000,
                 },
             ],
         );
@@ -1244,7 +1333,7 @@ describe("SqliteBiddingBidBookRepository", () => {
                     maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     isOwn: false,
                     price: exactBidBookRowPrice("100000000000000000"),
-                    placedAt: "2026-05-15T00:00:00Z",
+                    placedAt: INDEXED_ORDER_PLACED_AT,
                 },
             ],
         );
@@ -1544,7 +1633,7 @@ function insertIndexedOrder(input: {
     db.prepare(
         "INSERT INTO orders " +
             "(id, chain_id, collection_id, kind, side, source, maker, taker, contract_address, token_id, source_scope_kind, source_encoded_token_ids, source_schema_json, quantity, price, currency, valid_from, valid_until, fillability_status, source_status, seaport_data_json, raw_rest_data, raw_stream_data, created_at, updated_at) " +
-            "VALUES (@id, 1, @collectionId, 'seaport', 'buy', 'opensea', @maker, NULL, @contractAddress, @tokenId, @scopeKind, @sourceEncodedTokenIds, @sourceSchemaJson, '1', '100000000000000000', @currency, 1, 4000000000, 'fillable', 'active', NULL, @rawRestData, @rawStreamData, @createdAt, @updatedAt)",
+            "VALUES (@id, 1, @collectionId, 'seaport', 'buy', 'opensea', @maker, NULL, @contractAddress, @tokenId, @scopeKind, @sourceEncodedTokenIds, @sourceSchemaJson, '1', '100000000000000000', @currency, @validFrom, 4000000000, 'fillable', 'active', NULL, @rawRestData, @rawStreamData, @createdAt, @updatedAt)",
     ).run({
         id: input.id,
         collectionId: input.collectionId,
@@ -1566,7 +1655,8 @@ function insertIndexedOrder(input: {
             input.rawStreamData === undefined
                 ? null
                 : JSON.stringify(input.rawStreamData),
-        createdAt: "2026-05-15T00:00:00Z",
+        validFrom: Math.floor(Date.parse(INDEXED_ORDER_PLACED_AT) / 1000),
+        createdAt: INDEXED_ORDER_PLACED_AT,
         updatedAt: input.updatedAt,
     });
 }

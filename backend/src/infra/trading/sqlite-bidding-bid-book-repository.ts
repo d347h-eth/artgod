@@ -165,6 +165,7 @@ type IndexedOrderRow = {
     price: string | null;
     quantity: string;
     currency: string | null;
+    valid_from: number | null;
     valid_until: number | null;
     seaport_data_json: string | null;
     created_at: string | null;
@@ -362,7 +363,7 @@ export class SqliteBiddingBidBookRepository
             collectionId: number;
             nowSeconds: number;
         }>(
-            "SELECT id, source_scope_kind, token_id, source_encoded_token_ids, source_schema_json, maker, price, quantity, currency, valid_until, seaport_data_json, created_at, updated_at " +
+            "SELECT id, source_scope_kind, token_id, source_encoded_token_ids, source_schema_json, maker, price, quantity, currency, valid_from, valid_until, seaport_data_json, created_at, updated_at " +
                 "FROM orders " +
                 "WHERE chain_id = @chainId AND collection_id = @collectionId " +
                 "AND side = 'buy' AND source_status = 'active' AND fillability_status = 'fillable' " +
@@ -1261,7 +1262,7 @@ function suppressStaleOwnJobMarketRows(
     }
 
     const bids = bidBook.bids.filter(
-        (bid) => !isStaleOwnJobMarketRow(bid, jobs),
+        (bid) => !isStaleOwnJobMarketRow(bid, jobs, bidBook.state.source),
     );
     if (bids.length === bidBook.bids.length) {
         return bidBook;
@@ -1317,6 +1318,7 @@ function isCancelledOwnMarketRow(
 function isStaleOwnJobMarketRow(
     bid: PersistedBiddingBidBookRow,
     jobs: BiddingJobSignal[],
+    source: TradingBiddingBidBookSource,
 ): boolean {
     if (
         !bid.isOwn ||
@@ -1327,8 +1329,14 @@ function isStaleOwnJobMarketRow(
     }
 
     const matchingJobs = jobs.filter((job) => jobMatchesBid(job, bid));
+    if (matchingJobs.length === 0) {
+        return false;
+    }
+    // Orders fallback cannot provide job-authoritative own timing; the job overlay owns local bid display there.
+    if (source === TRADING_BIDDING_BID_BOOK_SOURCE.Orders) {
+        return true;
+    }
     return (
-        matchingJobs.length > 0 &&
         !matchingJobs.some((job) => activeRuntimeOrderMatchesBid(job, bid))
     );
 }
@@ -1681,7 +1689,7 @@ function mapIndexedOrderRow(row: IndexedOrderRow): PersistedBiddingBidBookRow[] 
                 currencySymbol: null,
                 protocolAddress: parseProtocolAddress(row.seaport_data_json),
                 validUntil: row.valid_until,
-                placedAt: row.created_at,
+                placedAt: indexedOrderPlacedAt(row),
                 snapshotRefreshedAtMs: null,
                 seenAt: row.updated_at,
                 ownStatus: null,
@@ -1700,6 +1708,18 @@ function mapIndexedOrderRow(row: IndexedOrderRow): PersistedBiddingBidBookRow[] 
         hasSourceSchemaJson: row.source_schema_json !== null,
     });
     return [];
+}
+
+function indexedOrderPlacedAt(row: IndexedOrderRow): string | null {
+    return epochSecondsToRfc3339(row.valid_from) ?? row.created_at;
+}
+
+function epochSecondsToRfc3339(value: number | null): string | null {
+    if (value === null || !Number.isFinite(value) || value <= 0) {
+        return null;
+    }
+
+    return new Date(Math.floor(value * 1000)).toISOString().replace(".000Z", "Z");
 }
 
 function resolveIndexedOrderBidScope(
