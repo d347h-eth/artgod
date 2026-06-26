@@ -34,7 +34,7 @@
 		nextCollectionBiddingBidScopeFilter
 	} from '$lib/bidding-query';
 	import {
-		BID_BOOK_METADATA_RELATIVE_TIME_TICK_MS,
+		BID_BOOK_RELATIVE_TIME_TICK_MS,
 		bidBookNextUpdateTitle,
 		bidBookRefreshPaceLabel,
 		bidBookRefreshPaceTitle,
@@ -289,7 +289,7 @@
 		});
 		const metadataTimer = window.setInterval(() => {
 			bidBookMetadataNowMs = Date.now();
-		}, BID_BOOK_METADATA_RELATIVE_TIME_TICK_MS);
+		}, BID_BOOK_RELATIVE_TIME_TICK_MS);
 		return () => {
 			refresh.stop();
 			window.clearInterval(metadataTimer);

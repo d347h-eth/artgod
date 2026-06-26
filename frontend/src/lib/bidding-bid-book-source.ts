@@ -2,8 +2,8 @@ import { TRADING_BIDDING_BID_BOOK_SOURCE } from '@artgod/shared/types';
 import type { ApiBiddingBidBook } from '$lib/api-types';
 import { formatRfc3339 } from '$lib/compact-time-display';
 
-// Refreshes bid-book metadata labels, including short live-refresh countdowns.
-export const BID_BOOK_METADATA_RELATIVE_TIME_TICK_MS = 1_000;
+// Refreshes compact bid-book relative labels, including row times and live-refresh countdowns.
+export const BID_BOOK_RELATIVE_TIME_TICK_MS = 1_000;
 
 const BID_BOOK_REFRESH_SIGNAL_KEY_PART = {
 	NoRefreshTimestamp: 'no-refresh-timestamp',

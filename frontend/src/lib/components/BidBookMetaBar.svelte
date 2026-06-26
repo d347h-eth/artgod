@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import type { ApiBiddingBidBook } from '$lib/api-types';
 	import {
-		BID_BOOK_METADATA_RELATIVE_TIME_TICK_MS,
+		BID_BOOK_RELATIVE_TIME_TICK_MS,
 		bidBookNextUpdateTitle,
 		bidBookRefreshPaceLabel,
 		bidBookRefreshPaceTitle,
@@ -33,7 +33,7 @@
 	onMount(() => {
 		const timer = window.setInterval(() => {
 			metadataNowMs = Date.now();
-		}, BID_BOOK_METADATA_RELATIVE_TIME_TICK_MS);
+		}, BID_BOOK_RELATIVE_TIME_TICK_MS);
 		return () => window.clearInterval(timer);
 	});
 </script>

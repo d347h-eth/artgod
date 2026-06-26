@@ -16,6 +16,7 @@
 		oppositeCompactTimeTitle,
 		type CompactTimeDisplayMode
 	} from '$lib/compact-time-display';
+	import { BID_BOOK_RELATIVE_TIME_TICK_MS } from '$lib/bidding-bid-book-source';
 	import {
 		BID_BOOK_ROWS_TABLE_SCOPE_KIND,
 		type BidBookDemandTableGroup,
@@ -148,6 +149,7 @@
 	const bidBucketStepWei = $derived(resolveDecimalBucketStepWei(displayedBids));
 	const rowsTableRows = $derived(resolveRowsTableRows(displayedBids));
 	const demandTableGroups = $derived(resolveDemandTableGroups(visibleDemandGroups));
+	const bidBookRelativeTimeKey = $derived(resolveBidBookRelativeTimeKey(bidBook));
 
 	$effect(() => {
 		if (activeDemandTraitKey && !demandTraitTabs.some((tab) => tab.key === activeDemandTraitKey)) {
@@ -164,8 +166,12 @@
 	$effect(() => {
 		const timer = window.setInterval(() => {
 			nowMs = Date.now();
-		}, 60_000);
+		}, BID_BOOK_RELATIVE_TIME_TICK_MS);
 		return () => window.clearInterval(timer);
+	});
+
+	$effect(() => {
+		refreshRelativeClockForBidBookKey(bidBookRelativeTimeKey);
 	});
 
 	function compareBidRows(left: ApiBiddingBidBookRow, right: ApiBiddingBidBookRow): number {
@@ -175,6 +181,25 @@
 			return left.orderId.localeCompare(right.orderId);
 		}
 		return leftPrice > rightPrice ? -1 : 1;
+	}
+
+	function refreshRelativeClockForBidBookKey(_key: string): void {
+		nowMs = Date.now();
+	}
+
+	function resolveBidBookRelativeTimeKey(input: ApiBiddingBidBook): string {
+		return input.bids
+			.map((bid) =>
+				[
+					bid.orderId,
+					bid.materialization.kind,
+					bid.placedAt ?? '',
+					bid.validUntil ?? '',
+					bid.seenAt ?? '',
+					bid.snapshotRefreshedAtMs ?? ''
+				].join(':')
+			)
+			.join('|');
 	}
 
 	function compareDemandGroups(left: BidBookDemandGroup, right: BidBookDemandGroup): number {
