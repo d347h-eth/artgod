@@ -598,6 +598,7 @@ describe("SqliteBiddingBidBookRepository", () => {
                 materializationKind: bid.materialization.kind,
                 placedAt: bid.placedAt,
                 validUntil: bid.validUntil,
+                ownStatus: bid.ownStatus,
             })),
             [
                 {
@@ -606,6 +607,7 @@ describe("SqliteBiddingBidBookRepository", () => {
                         TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
                     placedAt: null,
                     validUntil: null,
+                    ownStatus: null,
                 },
             ],
         );
@@ -617,6 +619,9 @@ describe("SqliteBiddingBidBookRepository", () => {
             currentPriceWei: "150",
             activeOrderId: "own-indexed-order",
             activeOrderPlacedAt: "2026-05-17T00:00:00Z",
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            competitorPriceWei: "250",
         });
 
         const runtimeBook = repository.listCollectionBidBook({
@@ -636,6 +641,7 @@ describe("SqliteBiddingBidBookRepository", () => {
                 materializationKind: bid.materialization.kind,
                 placedAt: bid.placedAt,
                 validUntil: bid.validUntil,
+                ownStatus: bid.ownStatus,
             })),
             [
                 {
@@ -644,6 +650,17 @@ describe("SqliteBiddingBidBookRepository", () => {
                         TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
                     placedAt: "2026-05-17T00:00:00Z",
                     validUntil: 1_900_000_000,
+                    ownStatus: {
+                        position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+                        constraints: [
+                            TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
+                        ],
+                        job: {
+                            jobId: "collection-job",
+                            revision: 1,
+                            status: TRADING_JOB_STATUS.Enabled,
+                        },
+                    },
                 },
             ],
         );

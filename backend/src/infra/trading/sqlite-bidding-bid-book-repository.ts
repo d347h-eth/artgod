@@ -569,7 +569,7 @@ export class SqliteBiddingBidBookRepository
                 attachOwnBidRuntimeSignals(
                     scopedBids,
                     jobs,
-                    source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+                    source,
                 ),
         );
         const finalBids = this.apm.withSyncSpan(
@@ -709,7 +709,7 @@ export class SqliteBiddingBidBookRepository
                     attachOwnBidRuntimeSignals(
                         bids,
                         jobs,
-                        source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+                        source,
                     ),
             ),
         };
@@ -1628,10 +1628,10 @@ function resolveJobBidScope(job: BiddingJobSignal): {
 function attachOwnBidRuntimeSignals(
     bids: PersistedBiddingBidBookRow[],
     jobs: BiddingJobSignal[],
-    canAttachMarketDecision: boolean,
+    source: TradingBiddingBidBookSource,
 ): PersistedBiddingBidBookRow[] {
     return bids.map((bid) => {
-        if (!bid.isOwn || !canAttachMarketDecision) {
+        if (!bid.isOwn || !canAttachRuntimeDecision(source, bid)) {
             return {
                 ...bid,
                 ownStatus: null,
@@ -1652,22 +1652,44 @@ function attachOwnBidRuntimeSignals(
             jobs.find((candidate) =>
                 activeRuntimeDecisionMatchesBid(candidate, bid),
             ) ?? null;
-        const runtime = job?.runtime ?? null;
         return {
             ...bid,
-            ownStatus: job && runtime?.bidPosition
-                ? {
-                      position: runtime.bidPosition,
-                      constraints: runtime.bidConstraints,
-                      job: {
-                          jobId: job.jobId,
-                          revision: job.revision,
-                          status: job.status,
-                      },
-                  }
-                : null,
+            ownStatus: job ? mapRuntimeOwnStatus(job) : null,
         };
     });
+}
+
+function canAttachRuntimeDecision(
+    source: TradingBiddingBidBookSource,
+    bid: PersistedBiddingBidBookRow,
+): boolean {
+    if (source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot) {
+        return true;
+    }
+
+    return (
+        bid.materialization.kind ===
+        TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent
+    );
+}
+
+function mapRuntimeOwnStatus(
+    job: BiddingJobSignal,
+): PersistedBiddingBidBookRow["ownStatus"] {
+    const runtime = job.runtime;
+    if (!runtime?.bidPosition) {
+        return null;
+    }
+
+    return {
+        position: runtime.bidPosition,
+        constraints: runtime.bidConstraints,
+        job: {
+            jobId: job.jobId,
+            revision: job.revision,
+            status: job.status,
+        },
+    };
 }
 
 function activeRuntimeDecisionMatchesBid(
