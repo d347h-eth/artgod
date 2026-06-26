@@ -61,7 +61,7 @@ export function ownBiddingJobStateBadges(
 	job: ApiBiddingJob | null,
 	bidBook: ApiBiddingBidBook | null
 ): BidBookOwnStatusBadge[] {
-	if (!job || job.status === TRADING_JOB_STATUS.Archived) {
+	if (!job) {
 		return [];
 	}
 
@@ -80,6 +80,10 @@ export function ownBiddingJobStateBadges(
 	);
 	if (ownIntentBid) {
 		return ownBidStatusBadges(ownIntentBid);
+	}
+
+	if (job.status === TRADING_JOB_STATUS.Archived) {
+		return [];
 	}
 
 	if (job.status === TRADING_JOB_STATUS.Paused) {

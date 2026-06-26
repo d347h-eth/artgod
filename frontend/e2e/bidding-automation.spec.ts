@@ -1,6 +1,9 @@
 import { expect, test, type Locator, type Page } from 'playwright/test';
 import {
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
+	TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
+	TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
 	TRADING_BIDDING_TIER_SELECTION_MODE,
 	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
 	TRADING_JOB_STATUS
@@ -19,10 +22,15 @@ import {
 	type PageDiagnosticsRegistry
 } from './attached-app';
 import { installBiddingAutomationApiMock } from './helpers/bidding-automation-api';
+import {
+	BIDDING_E2E_SCENARIO,
+	BIDDING_E2E_SCENARIO_QUERY_PARAM
+} from '../src/lib/e2e/bidding-automation-fixtures';
 
 const COLLECTION_PATH = '/e2e-harness/collection';
 const BIDDING_PATH = `${COLLECTION_PATH}/bidding`;
 const MARKET_MAKER_A = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const CANCELLATION_PHASE_SCENARIO_QUERY = `${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.CancellationPhases}`;
 const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
 
 test.beforeEach(({ page }, testInfo) => {
@@ -154,9 +162,13 @@ test.describe('bidding automation fixture harness', () => {
 		const api = await installBiddingAutomationApiMock(page);
 		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=token`);
 
+		const ownStatusCard = tokenCard(page, '102');
 		await expect(
-			page.locator(`[data-testid="${TEST_IDS.TokenCard}"][data-token-id="102"]`)
-		).toContainText('queued');
+			ownStatusCard.locator(ownStatusSelector(TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing))
+		).toContainText('losing');
+		await expect(
+			ownStatusCard.locator(ownStatusSelector(TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Floor))
+		).toContainText('at floor');
 		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnAllTokens }).click();
 		await expect(page.getByText('3 tokens selected')).toBeVisible();
 		await expect(
@@ -175,6 +187,67 @@ test.describe('bidding automation fixture harness', () => {
 				tokenIds: ['101', '102']
 			}
 		});
+	});
+
+	test('renders token-offer cancellation phases from the bid-book read model', async ({ page }) => {
+		await installBiddingAutomationApiMock(page);
+		await openHarnessPage(
+			page,
+			`${BIDDING_PATH}?bid_scope=token&cursor=page-2&${CANCELLATION_PHASE_SCENARIO_QUERY}`
+		);
+
+		const cancelingCard = tokenCard(page, '103');
+		await expect(cancelingCard).toBeVisible();
+		await expect(
+			cancelingCard.locator(ownStatusSelector(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling))
+		).toContainText('canceling');
+
+		const cancelFailedCard = tokenCard(page, '104');
+		await expect(cancelFailedCard).toBeVisible();
+		await expect(
+			cancelFailedCard.locator(
+				ownStatusSelector(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed)
+			)
+		).toContainText('cancel failed');
+	});
+
+	test('opens the bidding panel with cancellation phases from trait bid buckets', async ({ page }) => {
+		await installBiddingAutomationApiMock(page);
+		await openHarnessPage(
+			page,
+			`${BIDDING_PATH}?bid_scope=traits&${CANCELLATION_PHASE_SCENARIO_QUERY}`
+		);
+
+		await expect(rowForJob(page, 'job-trait-biome-7-canceling')).toContainText('canceling');
+		await clickCenterVerifiedAction(
+			page
+				.locator(`[data-testid="${TEST_IDS.BidBookTraitBucketBid}"][data-traits="Biome=7"]`)
+				.first()
+		);
+		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toContainText(
+			'job-trait-biome-7-canceling'
+		);
+		await expect(
+			page
+				.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)
+				.locator(ownStatusSelector(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling))
+		).toContainText('canceling');
+
+		await page.keyboard.press('c');
+		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toHaveCount(0);
+		await clickCenterVerifiedAction(
+			page
+				.locator(`[data-testid="${TEST_IDS.BidBookTraitBucketBid}"][data-traits="Zone=Xleph"]`)
+				.first()
+		);
+		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toContainText(
+			'job-trait-zone-xleph-cancel-failed'
+		);
+		await expect(
+			page
+				.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)
+				.locator(ownStatusSelector(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed))
+		).toContainText('cancel failed');
 	});
 
 	test('keeps token-card link gestures out of bidding selection', async ({ page }) => {
@@ -345,6 +418,37 @@ test.describe('bidding automation fixture harness', () => {
 		await expect(page.getByRole('button', { name: 'show bidding panel' })).toHaveCount(0);
 	});
 
+	test('renders token-detail cancellation phases in rows and the token bidding panel', async ({
+		page
+	}) => {
+		await installBiddingAutomationApiMock(page);
+		await openHarnessPage(page, `${COLLECTION_PATH}/103?${CANCELLATION_PHASE_SCENARIO_QUERY}`);
+
+		await expect(rowForJob(page, 'job-token-103-canceling')).toContainText('canceling');
+		await page.getByRole('button', { name: 'bid on token' }).click();
+		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toContainText(
+			'job-token-103-canceling'
+		);
+		await expect(
+			page
+				.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)
+				.locator(ownStatusSelector(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling))
+		).toContainText('canceling');
+		await page.getByRole('button', { name: 'hide' }).click();
+
+		await openHarnessPage(page, `${COLLECTION_PATH}/104?${CANCELLATION_PHASE_SCENARIO_QUERY}`);
+		await expect(rowForJob(page, 'job-token-104-cancel-failed')).toContainText('cancel failed');
+		await page.getByRole('button', { name: 'bid on token' }).click();
+		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toContainText(
+			'job-token-104-cancel-failed'
+		);
+		await expect(
+			page
+				.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)
+				.locator(ownStatusSelector(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed))
+		).toContainText('cancel failed');
+	});
+
 	test('supports panel tier pricing and floating panel keybindings', async ({ page }) => {
 		await installBiddingAutomationApiMock(page);
 		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits`);
@@ -473,4 +577,21 @@ async function clickTokenCard(
 	await page.locator(`[data-testid="${TEST_IDS.TokenCard}"][data-token-id="${tokenId}"]`).click({
 		modifiers: options.ctrl ? ['Control'] : []
 	});
+}
+
+function tokenCard(page: Page, tokenId: string): Locator {
+	return page.locator(`[data-testid="${TEST_IDS.TokenCard}"][data-token-id="${tokenId}"]`);
+}
+
+function rowForJob(page: Page, jobId: string): Locator {
+	return page.locator('tr', { has: page.locator(`[data-bidding-job-id="${jobId}"]`) });
+}
+
+function ownStatusSelector(
+	kind:
+		| (typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE)[keyof typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE]
+		| (typeof TRADING_BIDDING_JOB_RUNTIME_BID_POSITION)[keyof typeof TRADING_BIDDING_JOB_RUNTIME_BID_POSITION]
+		| (typeof TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT)[keyof typeof TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT]
+): string {
+	return `.bid-book-own-status-${kind}`;
 }

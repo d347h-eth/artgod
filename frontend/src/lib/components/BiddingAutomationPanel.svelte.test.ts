@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import {
+	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	TRADING_BIDDING_BID_BOOK_SOURCE,
 	TRADING_BIDDING_BID_SCOPE_KIND,
@@ -268,6 +269,69 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).toContain('>hit ceiling</span>');
 		expect(body).not.toContain('>paused</span>');
 		expect(body).not.toContain('>queued</span>');
+	});
+
+	it('uses bid-book cancellation intent state for archived jobs still visible in the bid book', () => {
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: testChain(),
+				collection: testCollection(),
+				token: testToken(),
+				job: testTokenJob(TRADING_JOB_STATUS.Archived),
+				bidBook: {
+					state: {
+						source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+						updatedAt: null,
+						snapshotRefreshedAtMs: null,
+						projectedAt: null,
+						rowCount: 1,
+						durationMs: null,
+						lastError: null
+					},
+					ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+					bids: [
+						{
+							orderId: '0xown-token-canceling',
+							source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+							materialization: {
+								kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+								jobId: 'job-token-1',
+								status: TRADING_JOB_STATUS.Archived,
+								phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling
+							},
+							scope: {
+								kind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+								label: '#1',
+								tokenId: '1',
+								traits: []
+							},
+							maker: {
+								address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+								label: 'You',
+								isOwn: true
+							},
+							price: exactPrice('200000000000000000', '0.2'),
+							quantity: '1',
+							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+							currencySymbol: 'WETH',
+							protocolAddress: null,
+							validUntil: 1_900_000_000,
+							placedAt: '2026-01-02T00:00:00Z',
+							snapshotRefreshedAtMs: null,
+							seenAt: '2026-01-02T00:00:00Z',
+							ownStatus: null
+						}
+					]
+				},
+				onClose: () => {},
+				onJobChange: () => {}
+			}
+		});
+
+		expect(body).toContain('>canceling</span>');
+		expect(body).not.toContain('>queued</span>');
+		expect(body).not.toContain('>paused</span>');
 	});
 
 	it('uses the collection default delta for empty manual drafts', () => {
@@ -721,14 +785,19 @@ function testToken() {
 	};
 }
 
-function testTokenJob(status: typeof TRADING_JOB_STATUS.Enabled | typeof TRADING_JOB_STATUS.Paused) {
+function testTokenJob(
+	status:
+		| typeof TRADING_JOB_STATUS.Enabled
+		| typeof TRADING_JOB_STATUS.Paused
+		| typeof TRADING_JOB_STATUS.Archived
+): ApiBiddingJob {
 	return {
 		jobId: 'job-token-1',
 		status,
 		revision: 2,
 		createdAt: '2026-01-01T00:00:00Z',
 		updatedAt: '2026-01-01T12:00:00Z',
-		archivedAt: null,
+		archivedAt: status === TRADING_JOB_STATUS.Archived ? '2026-01-01T12:30:00Z' : null,
 		target: {
 			type: 'token' as const,
 			tokenId: '1'

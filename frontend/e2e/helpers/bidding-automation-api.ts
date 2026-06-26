@@ -1,60 +1,21 @@
 import type { Page, Request } from 'playwright/test';
 import {
-	TRADING_BIDDING_BID_SCOPE_KIND,
 	TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND,
 	TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND,
-	TRADING_BIDDING_TIER_SELECTION_MODE,
 	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
 	TRADING_JOB_STATUS,
 	TRADING_JOB_TARGET_KIND
 } from '@artgod/shared/types';
-
-const E2E_CHAIN = {
-	id: 1,
-	type: 'evm',
-	publicChainId: 1,
-	slug: 'ethereum',
-	name: 'Ethereum'
-};
-
-const E2E_COLLECTION = {
-	chainId: 1,
-	collectionId: 1,
-	slug: 'e2e-bidding',
-	address: '0x1111111111111111111111111111111111111111',
-	standard: 'erc721',
-	status: 'live',
-	deploymentBlock: 1,
-	bootstrapAnchorBlock: null,
-	createdAt: '2026-05-01T12:00:00Z',
-	updatedAt: '2026-05-01T12:00:00Z'
-};
-
-const E2E_BIDDING_SETTINGS = {
-	tierSelectionMode: TRADING_BIDDING_TIER_SELECTION_MODE.Buttons,
-	defaultDeltaEth: '0.004',
-	updatedAt: '2026-05-01T12:00:00Z'
-};
-
-const E2E_PRICE_TIERS = [
-	priceTier({
-		tierId: 'tier-base',
-		name: 'Base',
-		sortOrder: 1,
-		floorEth: '0.300',
-		ceilingEth: '0.400',
-		deltaEth: '0.004'
-	}),
-	priceTier({
-		tierId: 'tier-zone',
-		name: 'Zone Boost',
-		sortOrder: 2,
-		parentTierId: 'tier-base',
-		floorEth: '0.340',
-		ceilingEth: '0.450',
-		deltaEth: '0.006'
-	})
-];
+import {
+	BIDDING_E2E_CHAIN,
+	BIDDING_E2E_COLLECTION,
+	BIDDING_E2E_PRICE_TIERS,
+	BIDDING_E2E_SCENARIO_QUERY_PARAM,
+	BIDDING_E2E_SETTINGS,
+	buildBiddingE2eCollectionBiddingData,
+	buildBiddingE2eTokenDetailData,
+	findBiddingE2eJobForTarget
+} from '../../src/lib/e2e/bidding-automation-fixtures';
 
 export type CapturedBiddingMutation = {
 	method: string;
@@ -90,9 +51,9 @@ export async function installBiddingAutomationApiMock(page: Page): Promise<Biddi
 				status: 200,
 				contentType: 'application/json',
 				body: JSON.stringify({
-					chain: E2E_CHAIN,
-					collection: E2E_COLLECTION,
-					job: existingJobForLookup(body)
+					chain: BIDDING_E2E_CHAIN,
+					collection: BIDDING_E2E_COLLECTION,
+					job: findBiddingE2eJobForTarget(body)
 				})
 			});
 			return;
@@ -103,11 +64,20 @@ export async function installBiddingAutomationApiMock(page: Page): Promise<Biddi
 				status: 200,
 				contentType: 'application/json',
 				body: JSON.stringify({
-					chain: E2E_CHAIN,
-					collection: E2E_COLLECTION,
-					settings: E2E_BIDDING_SETTINGS,
-					tiers: E2E_PRICE_TIERS
+					chain: BIDDING_E2E_CHAIN,
+					collection: BIDDING_E2E_COLLECTION,
+					settings: BIDDING_E2E_SETTINGS,
+					tiers: BIDDING_E2E_PRICE_TIERS
 				})
+			});
+			return;
+		}
+
+		if (request.method() === 'GET' && url.pathname.endsWith('/bidding/bids')) {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify(bidBookResponse(url, request))
 			});
 			return;
 		}
@@ -166,10 +136,10 @@ function requestBody(request: Request): unknown {
 function mutationResponse(path: string, body: unknown): unknown {
 	if (path.endsWith('/bidding/settings')) {
 		return {
-			chain: E2E_CHAIN,
-			collection: E2E_COLLECTION,
+			chain: BIDDING_E2E_CHAIN,
+			collection: BIDDING_E2E_COLLECTION,
 			settings: {
-				...E2E_BIDDING_SETTINGS,
+				...BIDDING_E2E_SETTINGS,
 				...(isSettingsMutationBody(body) ? body : {})
 			}
 		};
@@ -187,18 +157,18 @@ function mutationResponse(path: string, body: unknown): unknown {
 	if (path.endsWith('/bidding/price-tiers')) {
 		const tier = priceTierFromMutation(body);
 		return {
-			chain: E2E_CHAIN,
-			collection: E2E_COLLECTION,
+			chain: BIDDING_E2E_CHAIN,
+			collection: BIDDING_E2E_COLLECTION,
 			tier,
-			tiers: [tier, ...E2E_PRICE_TIERS.filter((item) => item.tierId !== tier.tierId)]
+			tiers: [tier, ...BIDDING_E2E_PRICE_TIERS.filter((item) => item.tierId !== tier.tierId)]
 		};
 	}
 
 	if (path.endsWith('/bidding/jobs/tokens/batch')) {
 		const tokenIds = batchMutationTokenIds(body);
 		return {
-			chain: E2E_CHAIN,
-			collection: E2E_COLLECTION,
+			chain: BIDDING_E2E_CHAIN,
+			collection: BIDDING_E2E_COLLECTION,
 			tokenIds,
 			jobs: tokenIds.map((tokenId, index) =>
 				jobResponse({
@@ -216,8 +186,8 @@ function mutationResponse(path: string, body: unknown): unknown {
 
 	if (path.endsWith('/bidding/jobs/traits')) {
 		return {
-			chain: E2E_CHAIN,
-			collection: E2E_COLLECTION,
+			chain: BIDDING_E2E_CHAIN,
+			collection: BIDDING_E2E_COLLECTION,
 			job: jobResponse({
 				jobId: 'job-trait-mutated',
 				target: {
@@ -233,8 +203,8 @@ function mutationResponse(path: string, body: unknown): unknown {
 
 	if (path.endsWith('/bidding/jobs/collection')) {
 		return {
-			chain: E2E_CHAIN,
-			collection: E2E_COLLECTION,
+			chain: BIDDING_E2E_CHAIN,
+			collection: BIDDING_E2E_COLLECTION,
 			job: jobResponse({
 				jobId: 'job-collection',
 				target: {
@@ -250,8 +220,8 @@ function mutationResponse(path: string, body: unknown): unknown {
 
 	if (path.includes('/bidding/jobs/') && path.endsWith('/bidding/job') === false) {
 		return {
-			chain: E2E_CHAIN,
-			collection: E2E_COLLECTION,
+			chain: BIDDING_E2E_CHAIN,
+			collection: BIDDING_E2E_COLLECTION,
 			job: jobResponse({
 				jobId: path.split('/').at(-1) ?? 'job-archived',
 				target: {
@@ -266,8 +236,8 @@ function mutationResponse(path: string, body: unknown): unknown {
 
 	const tokenId = tokenIdFromTokenJobPath(path) ?? '999';
 	return {
-		chain: E2E_CHAIN,
-		collection: E2E_COLLECTION,
+		chain: BIDDING_E2E_CHAIN,
+		collection: BIDDING_E2E_COLLECTION,
 		tokenId,
 		job: jobResponse({
 			jobId: `job-token-${tokenId}`,
@@ -279,69 +249,6 @@ function mutationResponse(path: string, body: unknown): unknown {
 			revision: 1
 		})
 	};
-}
-
-function existingJobForLookup(body: unknown): unknown {
-	if (!isLookupBody(body)) {
-		return null;
-	}
-	const { target } = body;
-	if (target.type === TRADING_JOB_TARGET_KIND.Token && target.tokenId === '101') {
-		return jobResponse({
-			jobId: 'job-token-101',
-			target: {
-				type: TRADING_JOB_TARGET_KIND.Token,
-				tokenId: '101'
-			},
-			body: {
-				status: TRADING_JOB_STATUS.Enabled,
-				floorEth: '0.700',
-				ceilingEth: '0.720',
-				deltaEth: '0.010'
-			},
-			revision: 2
-		});
-	}
-	if (
-		target.type === TRADING_BIDDING_BID_SCOPE_KIND.Trait &&
-		target.targetTraits.length === 1 &&
-		target.targetTraits[0]?.type === 'Biome' &&
-		target.targetTraits[0]?.value === '42'
-	) {
-		return jobResponse({
-			jobId: 'job-trait-biome-42',
-			target: {
-				type: TRADING_JOB_TARGET_KIND.Collection,
-				quantity: 1,
-				targetTraits: [{ type: 'Biome', value: '42' }]
-			},
-			body: {
-				status: TRADING_JOB_STATUS.Enabled,
-				floorEth: '0.350',
-				ceilingEth: '0.400',
-				deltaEth: '0.004'
-			},
-			revision: 3
-		});
-	}
-	if (target.type === TRADING_JOB_TARGET_KIND.Collection) {
-		return jobResponse({
-			jobId: 'job-collection',
-			target: {
-				type: TRADING_JOB_TARGET_KIND.Collection,
-				quantity: 1,
-				targetTraits: []
-			},
-			body: {
-				status: TRADING_JOB_STATUS.Paused,
-				floorEth: '0.350',
-				ceilingEth: '0.500',
-				deltaEth: '0.004'
-			},
-			revision: 4
-		});
-	}
-	return null;
 }
 
 function jobResponse(input: {
@@ -369,47 +276,56 @@ function jobResponse(input: {
 	};
 }
 
-function priceTier(input: {
-	tierId: string;
-	name: string;
-	sortOrder: number;
-	parentTierId?: string | null;
-	floorEth: string;
-	ceilingEth: string;
-	deltaEth: string;
-}) {
+function bidBookResponse(url: URL, request: Request): unknown {
+	const searchParams = biddingFixtureSearchParams(url, request);
+	const tokenId = tokenIdFromTokenScopedBiddingPath(url.pathname);
+	if (tokenId) {
+		const data = buildBiddingE2eTokenDetailData(tokenId, searchParams);
+		return {
+			chain: data.chain,
+			collection: data.collection,
+			tokenId: data.token.tokenId,
+			bidBook: data.tokenBiddingBidBook
+		};
+	}
+
+	const data = buildBiddingE2eCollectionBiddingData(searchParams);
 	return {
-		tierId: input.tierId,
-		name: input.name,
-		status: TRADING_JOB_STATUS.Enabled,
-		sortOrder: input.sortOrder,
-		parentTierId: input.parentTierId ?? null,
-		floorConfig: {
-			kind: TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.Fixed,
-			valueEth: input.floorEth
+		chain: data.chain,
+		collection: data.collection,
+		media: data.media,
+		scopeFilter: data.bidScope,
+		traits: {
+			selected: data.selectedTraits,
+			selectedRanges: data.selectedTraitRanges,
+			facets: data.facets
 		},
-		ceilingConfig: {
-			kind: TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.Fixed,
-			valueEth: input.ceilingEth
-		},
-		deltaEth: input.deltaEth,
-		resolvedFloorEth: input.floorEth,
-		resolvedCeilingEth: input.ceilingEth,
-		resolvedAt: '2026-05-01T12:00:00Z',
-		lastError: null,
-		revision: 1,
-		createdAt: '2026-05-01T12:00:00Z',
-		updatedAt: '2026-05-01T12:00:00Z',
-		archivedAt: null
+		bidBook: data.bidBook,
+		tokenOfferCards: data.tokenOfferCards
 	};
+}
+
+function biddingFixtureSearchParams(url: URL, request: Request): URLSearchParams {
+	const searchParams = new URLSearchParams(url.searchParams);
+	if (!searchParams.has(BIDDING_E2E_SCENARIO_QUERY_PARAM)) {
+		const referer = request.headers().referer;
+		if (referer) {
+			const refererParams = new URL(referer).searchParams;
+			const scenario = refererParams.get(BIDDING_E2E_SCENARIO_QUERY_PARAM);
+			if (scenario) {
+				searchParams.set(BIDDING_E2E_SCENARIO_QUERY_PARAM, scenario);
+			}
+		}
+	}
+	return searchParams;
 }
 
 function priceTierFromMutation(body: unknown): unknown {
 	if (!isPriceTierMutationBody(body)) {
-		return E2E_PRICE_TIERS[0];
+		return BIDDING_E2E_PRICE_TIERS[0];
 	}
 	return {
-		...E2E_PRICE_TIERS[0],
+		...BIDDING_E2E_PRICE_TIERS[0],
 		tierId: body.tierId ?? 'tier-created',
 		name: body.name,
 		status: body.status,
@@ -421,18 +337,20 @@ function priceTierFromMutation(body: unknown): unknown {
 		resolvedFloorEth:
 			body.floorConfig.kind === TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.Fixed
 				? body.floorConfig.valueEth
-				: E2E_PRICE_TIERS[0].resolvedFloorEth,
+				: BIDDING_E2E_PRICE_TIERS[0].resolvedFloorEth,
 		resolvedCeilingEth:
 			body.ceilingConfig.kind === TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.Fixed
 				? body.ceilingConfig.valueEth
-				: E2E_PRICE_TIERS[0].resolvedCeilingEth,
+				: BIDDING_E2E_PRICE_TIERS[0].resolvedCeilingEth,
 		revision: 2
 	};
 }
 
 function reapplyPreviewResponse(path: string) {
 	const tierId = path.split('/price-tiers/')[1]?.split('/')[0] ?? 'tier-base';
-	const tier = E2E_PRICE_TIERS.find((item) => item.tierId === tierId) ?? E2E_PRICE_TIERS[0];
+	const tier =
+		BIDDING_E2E_PRICE_TIERS.find((item) => item.tierId === tierId) ??
+		BIDDING_E2E_PRICE_TIERS[0];
 	const changedJob = jobResponse({
 		jobId: 'job-token-101',
 		target: {
@@ -448,8 +366,8 @@ function reapplyPreviewResponse(path: string) {
 		revision: 2
 	});
 	return {
-		chain: E2E_CHAIN,
-		collection: E2E_COLLECTION,
+		chain: BIDDING_E2E_CHAIN,
+		collection: BIDDING_E2E_COLLECTION,
 		tier,
 		jobs: [
 			{
@@ -492,22 +410,10 @@ function tokenIdFromTokenJobPath(path: string): string | null {
 	return biddingIndex > 0 ? parts[biddingIndex - 1] ?? null : null;
 }
 
-function isLookupBody(value: unknown): value is {
-	target:
-		| { type: typeof TRADING_JOB_TARGET_KIND.Token; tokenId: string }
-		| { type: typeof TRADING_JOB_TARGET_KIND.Collection; quantity?: number }
-		| {
-				type: typeof TRADING_BIDDING_BID_SCOPE_KIND.Trait;
-				quantity?: number;
-				targetTraits: { type: string; value: string }[];
-		  };
-} {
-	return (
-		!!value &&
-		typeof value === 'object' &&
-		!!(value as { target?: unknown }).target &&
-		typeof ((value as { target: { type?: unknown } }).target.type) === 'string'
-	);
+function tokenIdFromTokenScopedBiddingPath(path: string): string | null {
+	const parts = path.split('/').filter(Boolean);
+	const biddingIndex = parts.indexOf('bidding');
+	return biddingIndex > 3 ? parts[biddingIndex - 1] ?? null : null;
 }
 
 function isJobMutationBody(value: unknown): value is {
