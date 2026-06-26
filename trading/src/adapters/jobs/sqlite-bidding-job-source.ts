@@ -34,6 +34,7 @@ type BiddingJobRow = {
     target_traits_json: string | null;
     competitor_traits_json: string | null;
     current_price_wei: string | null;
+    runtime_job_revision: number | null;
     active_order_id: string | null;
     active_protocol_address: string | null;
     active_order_placed_at: string | null;
@@ -57,7 +58,7 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
         const selectFields =
             "SELECT j.job_id, j.status, j.revision, c.slug AS collection_slug, c.opensea_slug AS collection_opensea_slug, c.address AS collection_address, " +
             "j.target_kind, j.token_id, s.floor_wei, s.ceiling_wei, s.delta_wei, s.quantity, s.target_traits_json, s.competitor_traits_json, " +
-            "r.current_price_wei, r.active_order_id, r.active_protocol_address, r.active_order_placed_at, r.active_expiration_time_ms, r.updated_at AS runtime_updated_at " +
+            "r.current_price_wei, r.job_revision AS runtime_job_revision, r.active_order_id, r.active_protocol_address, r.active_order_placed_at, r.active_expiration_time_ms, r.updated_at AS runtime_updated_at " +
             "FROM trading_jobs j " +
             "JOIN trading_bidding_job_specs s ON s.job_id = j.job_id " +
             "JOIN collections c ON c.collection_id = j.collection_id " +
@@ -149,6 +150,7 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
 
         return {
             id: this.parseNonEmptyString(row.job_id, "job_id"),
+            revision: row.revision,
             network: "eth",
             collectionAddress: this.parseAddress(
                 row.collection_address,
@@ -171,7 +173,7 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
     }
 
     private mapRuntimeState(row: BiddingJobRow): BidderJob["state"] {
-        if (!row.runtime_updated_at) {
+        if (!row.runtime_updated_at || row.runtime_job_revision !== row.revision) {
             return {};
         }
 

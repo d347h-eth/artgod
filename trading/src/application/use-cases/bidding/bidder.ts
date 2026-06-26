@@ -37,6 +37,7 @@ export interface BidderOptions {
 
 export type BiddingJobRuntimeStateSnapshot = {
     jobId: string;
+    jobRevision: number;
     currentPriceWei: string | null;
     activeOrderId: string | null;
     activeProtocolAddress: string | null;
@@ -51,7 +52,12 @@ export type BiddingJobRuntimeStateSnapshot = {
 
 export type BiddingJobOfferCancellationSnapshot = {
     jobId: string;
+    jobRevision: number;
     orderId: string;
+    priceWei: string;
+    protocolAddress: string | null;
+    placedAt: string | null;
+    expirationTimeMs: number | null;
     makerAddress: string;
     requestedAt: string;
     completedAt: string | null;
@@ -1922,6 +1928,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
         const snapshot: BiddingJobRuntimeStateSnapshot = {
             jobId: job.id,
+            jobRevision: job.revision,
             currentPriceWei: job.state.currentPrice?.toString() ?? null,
             activeOrderId: job.state.activeOrderId ?? null,
             activeProtocolAddress: job.state.activeProtocolAddress ?? null,
@@ -1969,7 +1976,12 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             // Persist own-order cancellation facts so read models can hide stale marketplace index rows.
             this.runtimeStatePort.recordJobOfferCancellation({
                 jobId: job.id,
+                jobRevision: job.revision,
                 orderId: order.id,
+                priceWei: order.price.toString(),
+                protocolAddress: order.protocolAddress ?? null,
+                placedAt: order.placedAt ?? null,
+                expirationTimeMs: this.toExpirationTimeMs(order.expirationTime) ?? null,
                 makerAddress: this.makerAddress.toLowerCase(),
                 requestedAt: state.requestedAt,
                 completedAt: state.completedAt,

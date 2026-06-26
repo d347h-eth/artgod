@@ -17,6 +17,7 @@ function makeJob(
 ): BidderJob {
     return {
         id,
+        revision: 1,
         network: "eth",
         collectionAddress: "0x0000000000000000000000000000000000000001",
         collectionSlug,

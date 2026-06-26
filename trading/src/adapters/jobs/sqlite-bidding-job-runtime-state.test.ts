@@ -76,6 +76,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
 
         runtimeState.persistJobRuntimeState({
             jobId: "job-token",
+            jobRevision: 1,
             currentPriceWei: "150000000000000000",
             activeOrderId: "0xmine",
             activeProtocolAddress:
@@ -91,10 +92,14 @@ describe("SqliteBiddingJobRuntimeState", () => {
 
         const row = db
             .prepare(
-                "SELECT active_order_placed_at FROM trading_bidding_job_runtime_state WHERE job_id = ?",
+                "SELECT job_revision, active_order_placed_at FROM trading_bidding_job_runtime_state WHERE job_id = ?",
             )
-            .get("job-token") as { active_order_placed_at: string };
+            .get("job-token") as {
+                job_revision: number;
+                active_order_placed_at: string;
+            };
 
+        assert.equal(row.job_revision, 1);
         assert.equal(row.active_order_placed_at, "2026-05-17T00:00:00Z");
     });
 
@@ -103,7 +108,12 @@ describe("SqliteBiddingJobRuntimeState", () => {
 
         runtimeState.recordJobOfferCancellation({
             jobId: "job-token",
+            jobRevision: 1,
             orderId: "0xmine",
+            priceWei: "150000000000000000",
+            protocolAddress: "0x0000000000000068f116a894984e2db1123eb395",
+            placedAt: "2026-05-17T00:00:00Z",
+            expirationTimeMs: 1_900_000_000_000,
             makerAddress: "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa",
             requestedAt: "2026-05-17T00:00:00Z",
             completedAt: null,
@@ -111,7 +121,12 @@ describe("SqliteBiddingJobRuntimeState", () => {
         });
         runtimeState.recordJobOfferCancellation({
             jobId: "job-token",
+            jobRevision: 1,
             orderId: "0xmine",
+            priceWei: "150000000000000000",
+            protocolAddress: "0x0000000000000068f116a894984e2db1123eb395",
+            placedAt: "2026-05-17T00:00:00Z",
+            expirationTimeMs: 1_900_000_000_000,
             makerAddress: "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa",
             requestedAt: "2026-05-17T00:00:00Z",
             completedAt: "2026-05-17T00:00:01Z",
@@ -119,7 +134,12 @@ describe("SqliteBiddingJobRuntimeState", () => {
         });
         runtimeState.recordJobOfferCancellation({
             jobId: "job-token",
+            jobRevision: 1,
             orderId: "0xmine",
+            priceWei: "150000000000000000",
+            protocolAddress: "0x0000000000000068f116a894984e2db1123eb395",
+            placedAt: "2026-05-17T00:00:00Z",
+            expirationTimeMs: 1_900_000_000_000,
             makerAddress: "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa",
             requestedAt: "2026-05-17T00:00:02Z",
             completedAt: null,
@@ -127,15 +147,20 @@ describe("SqliteBiddingJobRuntimeState", () => {
         });
 
         const row = db.prepare<{ orderId: string }>(
-            "SELECT order_id, job_id, chain_id, collection_id, maker, requested_at, completed_at, cancellation_error " +
+            "SELECT order_id, job_id, job_revision, chain_id, collection_id, maker, price_wei, protocol_address, placed_at, expiration_time_ms, requested_at, completed_at, cancellation_error " +
                 "FROM trading_bidding_order_cancellations WHERE order_id = @orderId",
         ).get({ orderId: "0xmine" }) as
             | {
                   order_id: string;
                   job_id: string;
+                  job_revision: number;
                   chain_id: number;
                   collection_id: number;
                   maker: string;
+                  price_wei: string;
+                  protocol_address: string;
+                  placed_at: string;
+                  expiration_time_ms: number;
                   requested_at: string;
                   completed_at: string | null;
                   cancellation_error: string | null;
@@ -145,9 +170,14 @@ describe("SqliteBiddingJobRuntimeState", () => {
         assert.deepEqual(row, {
             order_id: "0xmine",
             job_id: "job-token",
+            job_revision: 1,
             chain_id: 1,
             collection_id: 1,
             maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            price_wei: "150000000000000000",
+            protocol_address: "0x0000000000000068f116a894984e2db1123eb395",
+            placed_at: "2026-05-17T00:00:00Z",
+            expiration_time_ms: 1_900_000_000_000,
             requested_at: "2026-05-17T00:00:02Z",
             completed_at: "2026-05-17T00:00:01Z",
             cancellation_error: null,

@@ -24,6 +24,7 @@ const makerAddress = "0x00000000000000000000000000000000000000aa";
 function makeJob(jobId: string): BidderJob {
     return {
         id: jobId,
+        revision: 1,
         network: "eth",
         collectionAddress: "0x1111111111111111111111111111111111111111",
         collectionSlug: "terraforms",
@@ -352,6 +353,7 @@ describe("BiddingJobCommandReconciler", () => {
 
     it("recovers cancellation state from command payload after the live job is gone", async () => {
         const job = makeJob("job-archived");
+        job.revision = 2;
         const repository = new FakeCommandRepository([
             makeCommand(
                 1,
@@ -359,6 +361,7 @@ describe("BiddingJobCommandReconciler", () => {
                 TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
                 {
                     jobId: job.id,
+                    activeOrderJobRevision: 1,
                     activeOrderId: "0xactive",
                     activeProtocolAddress:
                         "0x00000000006c3852cbef3e08e8df289169ede581",
@@ -379,7 +382,21 @@ describe("BiddingJobCommandReconciler", () => {
             protocolAddress: "0x00000000006c3852cbef3e08e8df289169ede581",
             offerScope: "item",
         };
-        const bidder = new Bidder(biddingService, makerAddress, 60_000);
+        const recordedCancellationRevisions: number[] = [];
+        const bidder = new Bidder(
+            biddingService,
+            makerAddress,
+            60_000,
+            {},
+            undefined,
+            undefined,
+            {
+                persistJobRuntimeState: () => undefined,
+                recordJobOfferCancellation: (snapshot) => {
+                    recordedCancellationRevisions.push(snapshot.jobRevision);
+                },
+            },
+        );
         const reconciled: string[][] = [];
         const reconciler = new BiddingJobCommandReconciler(
             repository,
@@ -402,6 +419,8 @@ describe("BiddingJobCommandReconciler", () => {
 
         assert.equal(processed, 1);
         assert.deepEqual(biddingService.cancelled, ["0xactive"]);
+        assert.deepEqual(recordedCancellationRevisions, [1, 1]);
+        assert.equal(job.revision, 2);
         assert.deepEqual(reconciled, [[]]);
         assert.deepEqual(repository.completed, [1]);
     });

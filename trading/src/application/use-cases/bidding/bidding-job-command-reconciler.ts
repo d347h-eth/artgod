@@ -214,7 +214,19 @@ export class BiddingJobCommandReconciler {
         }
 
         this.applyCancellationPayload(job, command.payload);
-        const cancelled = await this.bidder.cancelActiveOffersForJob(job);
+        const originalRevision = job.revision;
+        const activeOrderJobRevision = parseOptionalPayloadNumber(
+            command.payload.activeOrderJobRevision,
+        );
+        if (activeOrderJobRevision !== undefined) {
+            job.revision = activeOrderJobRevision;
+        }
+        let cancelled = 0;
+        try {
+            cancelled = await this.bidder.cancelActiveOffersForJob(job);
+        } finally {
+            job.revision = originalRevision;
+        }
         log.info(
             "activeOfferCancellationProcessed",
             "Active-offer cancellation processed",

@@ -128,6 +128,7 @@ const makeJob = (
     configOverrides: Partial<BidderJob["config"]> = {},
 ): BidderJob => ({
     id,
+    revision: 1,
     network: "eth",
     collectionAddress: "0xcollection",
     collectionSlug: slug,
@@ -995,6 +996,7 @@ describe("Bidder stream refresh", () => {
             { id: "0xother", price: 25n, maker: "0xother", offerScope: "item" },
         ];
         const persistedStates: Array<{
+            jobRevision: number;
             activeOrderId: string | null;
             activeOrderPlacedAt: string | null;
             currentPriceWei: string | null;
@@ -1014,6 +1016,7 @@ describe("Bidder stream refresh", () => {
             {
                 persistJobRuntimeState: (snapshot) => {
                     persistedStates.push({
+                        jobRevision: snapshot.jobRevision,
                         activeOrderId: snapshot.activeOrderId,
                         activeOrderPlacedAt: snapshot.activeOrderPlacedAt,
                         currentPriceWei: snapshot.currentPriceWei,
@@ -1040,6 +1043,7 @@ describe("Bidder stream refresh", () => {
 
         assert.deepEqual(biddingService.placedAmounts, [20n]);
         assert.deepEqual(persistedStates.at(-1), {
+            jobRevision: 1,
             activeOrderId: "0xhash",
             activeOrderPlacedAt: "2026-05-17T00:00:00Z",
             currentPriceWei: "20",
@@ -1124,6 +1128,7 @@ describe("Bidder stream refresh", () => {
             { id: "0xother", price: 5n, maker: "0xother", offerScope: "item" },
         ];
         const persistedStates: Array<{
+            jobRevision: number;
             activeOrderId: string | null;
             currentPriceWei: string | null;
         }> = [];
@@ -1139,6 +1144,7 @@ describe("Bidder stream refresh", () => {
             {
                 persistJobRuntimeState: (snapshot) => {
                     persistedStates.push({
+                        jobRevision: snapshot.jobRevision,
                         activeOrderId: snapshot.activeOrderId,
                         currentPriceWei: snapshot.currentPriceWei,
                     });
@@ -1165,6 +1171,7 @@ describe("Bidder stream refresh", () => {
         assert.equal(job.state.activeOrderId, "0xhash");
         assert.ok(job.state.activeExpirationTimeMs !== undefined);
         assert.deepEqual(persistedStates.at(-1), {
+            jobRevision: 1,
             activeOrderId: "0xhash",
             currentPriceWei: "6",
         });
@@ -1520,6 +1527,7 @@ describe("Bidder stream refresh", () => {
             },
         ];
         const persistedStates: Array<{
+            jobRevision: number;
             activeOrderId: string | null;
             activeProtocolAddress: string | null;
             currentPriceWei: string | null;
@@ -1527,7 +1535,10 @@ describe("Bidder stream refresh", () => {
             bidConstraints: TradingBiddingJobRuntimeConstraint[];
         }> = [];
         const recordedCancellations: Array<{
+            jobRevision: number;
             orderId: string;
+            priceWei: string;
+            protocolAddress: string | null;
             makerAddress: string;
             completedAt: string | null;
             cancellationError: string | null;
@@ -1542,6 +1553,7 @@ describe("Bidder stream refresh", () => {
             {
                 persistJobRuntimeState: (snapshot) => {
                     persistedStates.push({
+                        jobRevision: snapshot.jobRevision,
                         activeOrderId: snapshot.activeOrderId,
                         activeProtocolAddress: snapshot.activeProtocolAddress,
                         currentPriceWei: snapshot.currentPriceWei,
@@ -1551,7 +1563,10 @@ describe("Bidder stream refresh", () => {
                 },
                 recordJobOfferCancellation: (snapshot) => {
                     recordedCancellations.push({
+                        jobRevision: snapshot.jobRevision,
                         orderId: snapshot.orderId,
+                        priceWei: snapshot.priceWei,
+                        protocolAddress: snapshot.protocolAddress,
                         makerAddress: snapshot.makerAddress,
                         completedAt: snapshot.completedAt,
                         cancellationError: snapshot.cancellationError,
@@ -1581,6 +1596,7 @@ describe("Bidder stream refresh", () => {
         assert.equal(job.state.activeProtocolAddress, undefined);
         assert.equal(job.state.currentPrice, undefined);
         assert.deepEqual(persistedStates.at(-1), {
+            jobRevision: 1,
             activeOrderId: null,
             activeProtocolAddress: null,
             currentPriceWei: null,
@@ -1588,6 +1604,9 @@ describe("Bidder stream refresh", () => {
             bidConstraints: [],
         });
         assert.equal(recordedCancellations.at(0)?.orderId, "0xmine");
+        assert.equal(recordedCancellations.at(0)?.jobRevision, 1);
+        assert.equal(recordedCancellations.at(0)?.priceWei, "5");
+        assert.equal(recordedCancellations.at(0)?.protocolAddress, "0xprotocol");
         assert.equal(recordedCancellations.at(0)?.completedAt, null);
         const completedCancellation = recordedCancellations.at(-1);
         assert.equal(completedCancellation?.orderId, "0xmine");
@@ -1650,7 +1669,9 @@ describe("Bidder stream refresh", () => {
         ];
         biddingService.cancelError = new Error("opensea cancel failed");
         const recordedCancellations: Array<{
+            jobRevision: number;
             orderId: string;
+            priceWei: string;
             completedAt: string | null;
             cancellationError: string | null;
         }> = [];
@@ -1665,7 +1686,9 @@ describe("Bidder stream refresh", () => {
                 persistJobRuntimeState: () => {},
                 recordJobOfferCancellation: (snapshot) => {
                     recordedCancellations.push({
+                        jobRevision: snapshot.jobRevision,
                         orderId: snapshot.orderId,
+                        priceWei: snapshot.priceWei,
                         completedAt: snapshot.completedAt,
                         cancellationError: snapshot.cancellationError,
                     });
@@ -1691,12 +1714,16 @@ describe("Bidder stream refresh", () => {
         assert.equal(job.state.activeProtocolAddress, "0xprotocol");
         assert.deepEqual(recordedCancellations, [
             {
+                jobRevision: 1,
                 orderId: "0xmine",
+                priceWei: "5",
                 completedAt: null,
                 cancellationError: null,
             },
             {
+                jobRevision: 1,
                 orderId: "0xmine",
+                priceWei: "5",
                 completedAt: null,
                 cancellationError: "opensea cancel failed",
             },

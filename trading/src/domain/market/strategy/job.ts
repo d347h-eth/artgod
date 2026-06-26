@@ -51,6 +51,7 @@ export type BidderTarget =
 // BidderJob is the stable business object carried between the pure bidding core and adapters.
 export interface BidderJob {
     id: string;
+    revision: number;
     network: "eth";
     collectionAddress: string;
     collectionSlug: string;

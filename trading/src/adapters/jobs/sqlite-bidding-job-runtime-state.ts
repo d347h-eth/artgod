@@ -24,9 +24,10 @@ export class SqliteBiddingJobRuntimeState
     constructor() {
         this.upsertRuntimeState = db.prepare<PersistRuntimeStateParams>(
             "INSERT INTO trading_bidding_job_runtime_state " +
-                "(job_id, current_price_wei, active_order_id, active_protocol_address, active_order_placed_at, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, last_run_at, last_error, updated_at) " +
-                "VALUES (@jobId, @currentPriceWei, @activeOrderId, @activeProtocolAddress, @activeOrderPlacedAt, @activeExpirationTimeMs, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @lastRunAt, @lastError, @updatedAt) " +
+                "(job_id, job_revision, current_price_wei, active_order_id, active_protocol_address, active_order_placed_at, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, last_run_at, last_error, updated_at) " +
+                "VALUES (@jobId, @jobRevision, @currentPriceWei, @activeOrderId, @activeProtocolAddress, @activeOrderPlacedAt, @activeExpirationTimeMs, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @lastRunAt, @lastError, @updatedAt) " +
                 "ON CONFLICT(job_id) DO UPDATE SET " +
+                "job_revision = excluded.job_revision, " +
                 "current_price_wei = excluded.current_price_wei, " +
                 "active_order_id = excluded.active_order_id, " +
                 "active_protocol_address = excluded.active_protocol_address, " +
@@ -43,14 +44,19 @@ export class SqliteBiddingJobRuntimeState
         this.upsertOfferCancellation =
             db.prepare<PersistOfferCancellationParams>(
                 "INSERT INTO trading_bidding_order_cancellations " +
-                    "(order_id, job_id, chain_id, collection_id, maker, requested_at, completed_at, cancellation_error, updated_at) " +
-                    "SELECT @orderId, @jobId, j.chain_id, j.collection_id, @makerAddress, @requestedAt, @completedAt, @cancellationError, @updatedAt " +
+                    "(order_id, job_id, job_revision, chain_id, collection_id, maker, price_wei, protocol_address, placed_at, expiration_time_ms, requested_at, completed_at, cancellation_error, updated_at) " +
+                    "SELECT @orderId, @jobId, @jobRevision, j.chain_id, j.collection_id, @makerAddress, @priceWei, @protocolAddress, @placedAt, @expirationTimeMs, @requestedAt, @completedAt, @cancellationError, @updatedAt " +
                     "FROM trading_jobs j WHERE j.job_id = @jobId " +
                     "ON CONFLICT(order_id) DO UPDATE SET " +
                     "job_id = excluded.job_id, " +
+                    "job_revision = excluded.job_revision, " +
                     "chain_id = excluded.chain_id, " +
                     "collection_id = excluded.collection_id, " +
                     "maker = excluded.maker, " +
+                    "price_wei = excluded.price_wei, " +
+                    "protocol_address = excluded.protocol_address, " +
+                    "placed_at = excluded.placed_at, " +
+                    "expiration_time_ms = excluded.expiration_time_ms, " +
                     "requested_at = excluded.requested_at, " +
                     "completed_at = COALESCE(excluded.completed_at, trading_bidding_order_cancellations.completed_at), " +
                     "cancellation_error = excluded.cancellation_error, " +

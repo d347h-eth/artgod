@@ -151,6 +151,7 @@ describe("OpenSeaBiddingService", () => {
         });
         const job = {
             id: "job-1",
+            revision: 1,
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
@@ -198,6 +199,7 @@ describe("OpenSeaBiddingService", () => {
 
         const competitiveTraitJob = {
             id: "job-ct",
+            revision: 1,
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
@@ -212,6 +214,7 @@ describe("OpenSeaBiddingService", () => {
         };
         const multiTraitJob = {
             id: "job-mt",
+            revision: 1,
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
@@ -256,6 +259,7 @@ describe("OpenSeaBiddingService", () => {
         const service = new OpenSeaBiddingService(sdk as any, makerAddress);
         const job = {
             id: "job-token",
+            revision: 1,
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
@@ -291,6 +295,7 @@ describe("OpenSeaBiddingService", () => {
         const service = new OpenSeaBiddingService(sdk as any, makerAddress);
         const tokenJob = {
             id: "job-token",
+            revision: 1,
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
@@ -300,6 +305,7 @@ describe("OpenSeaBiddingService", () => {
         };
         const collectionJob = {
             id: "job-collection",
+            revision: 1,
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
@@ -462,6 +468,7 @@ describe("OpenSeaBiddingService", () => {
         const service = new OpenSeaBiddingService(sdk as any, makerAddress);
         const job = {
             id: "job-maker",
+            revision: 1,
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
@@ -511,6 +518,7 @@ describe("OpenSeaBiddingService", () => {
         const service = new OpenSeaBiddingService(sdk as any, makerAddress);
         const job = {
             id: "job-competitive",
+            revision: 1,
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
@@ -683,6 +691,7 @@ describe("OpenSeaBiddingService", () => {
         });
         const job = {
             id: "job-multi-trait",
+            revision: 1,
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
@@ -798,6 +807,7 @@ describe("OpenSeaBiddingService", () => {
         });
         const job = {
             id: "token-job",
+            revision: 1,
             network: "eth" as const,
             collectionSlug: "terraforms",
             collectionAddress,
