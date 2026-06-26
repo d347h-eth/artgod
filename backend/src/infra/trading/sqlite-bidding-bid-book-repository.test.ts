@@ -191,6 +191,8 @@ describe("SqliteBiddingBidBookRepository", () => {
             scopeLabel: "collection",
             maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             priceWei: "200",
+            placedAt: "2026-05-16T00:00:00Z",
+            validUntil: 1_800_000_000,
         });
         insertProjectedBid({
             collectionId,
@@ -275,6 +277,7 @@ describe("SqliteBiddingBidBookRepository", () => {
             jobId: "collection-job",
             currentPriceWei: "200",
             activeOrderId: "own-collection",
+            activeOrderPlacedAt: "2026-05-17T00:00:00Z",
             bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
             bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
             competitorPriceWei: "210",
@@ -295,6 +298,8 @@ describe("SqliteBiddingBidBookRepository", () => {
 
         assert.equal(collectionBook.state.source, TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot);
         assert.equal(collectionBook.ownMakerAddress, "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        assert.equal(ownBid?.placedAt, "2026-05-17T00:00:00Z");
+        assert.equal(ownBid?.validUntil, 1_900_000_000);
         assert.deepEqual(ownBid?.ownStatus, {
             position: "losing",
             constraints: ["ceiling"],
@@ -1726,11 +1731,13 @@ function insertProjectedBid(input: {
     scopeTraits?: Array<{ type: string; value: string }>;
     encodedTokenIds?: string | null;
     priceWei: string;
+    placedAt?: string | null;
+    validUntil?: number | null;
 }): void {
     db.prepare(
         "INSERT INTO trading_bidding_bid_book_rows " +
-            "(chain_id, collection_id, order_id, source, scope_kind, scope_label, token_id, scope_traits_json, encoded_token_ids, maker, is_own, price_wei, quantity, currency_address, snapshot_refreshed_at_ms) " +
-            "VALUES (1, @collectionId, @orderId, @source, @scopeKind, @scopeLabel, @tokenId, @scopeTraitsJson, @encodedTokenIds, @maker, 0, @priceWei, '1', @currencyAddress, @snapshotRefreshedAtMs)",
+            "(chain_id, collection_id, order_id, source, scope_kind, scope_label, token_id, scope_traits_json, encoded_token_ids, maker, is_own, price_wei, quantity, currency_address, valid_until, placed_at, snapshot_refreshed_at_ms) " +
+            "VALUES (1, @collectionId, @orderId, @source, @scopeKind, @scopeLabel, @tokenId, @scopeTraitsJson, @encodedTokenIds, @maker, 0, @priceWei, '1', @currencyAddress, @validUntil, @placedAt, @snapshotRefreshedAtMs)",
     ).run({
         collectionId: input.collectionId,
         orderId: input.orderId,
@@ -1743,6 +1750,8 @@ function insertProjectedBid(input: {
         maker: input.maker ?? "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         priceWei: input.priceWei,
         currencyAddress: WETH_ADDRESS,
+        validUntil: input.validUntil ?? null,
+        placedAt: input.placedAt ?? null,
         snapshotRefreshedAtMs: Date.now(),
     });
 }

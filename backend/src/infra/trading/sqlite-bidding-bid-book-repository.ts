@@ -1652,10 +1652,9 @@ function attachOwnBidRuntimeSignals(
             jobs.find((candidate) =>
                 activeRuntimeDecisionMatchesBid(candidate, bid),
             ) ?? null;
-        return {
-            ...bid,
-            ownStatus: job ? mapRuntimeOwnStatus(job) : null,
-        };
+        return job
+            ? mergeRuntimeOwnBidSignals(bid, job)
+            : { ...bid, ownStatus: null };
     });
 }
 
@@ -1689,6 +1688,23 @@ function mapRuntimeOwnStatus(
             revision: job.revision,
             status: job.status,
         },
+    };
+}
+
+function mergeRuntimeOwnBidSignals(
+    bid: PersistedBiddingBidBookRow,
+    job: BiddingJobSignal,
+): PersistedBiddingBidBookRow {
+    const runtime = job.runtime;
+    return {
+        ...bid,
+        protocolAddress: runtime?.activeProtocolAddress ?? bid.protocolAddress,
+        validUntil: runtime?.activeExpirationTimeMs
+            ? Math.floor(runtime.activeExpirationTimeMs / 1000)
+            : bid.validUntil,
+        placedAt: runtime?.activeOrderPlacedAt ?? bid.placedAt,
+        seenAt: runtime?.updatedAt ?? bid.seenAt,
+        ownStatus: mapRuntimeOwnStatus(job),
     };
 }
 

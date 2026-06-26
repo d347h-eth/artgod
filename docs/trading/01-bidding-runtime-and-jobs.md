@@ -173,7 +173,8 @@ Backend source selection:
 - otherwise use `orders`
 - standard/admin reads may overlay own declared jobs as `own_job_intent` rows before the bot has landed a matching market offer
 - public single-collection reads stay market-only and do not expose local own-job context
-- own market-position badges (`winning`, `draw`, `losing`) are attached only in fresh `bot_snapshot` mode and only from the bot-persisted runtime decision for the active order id
+- own market-position badges (`winning`, `draw`, `losing`) are attached only from the bot-persisted runtime decision for the active order id
+- runtime-backed own rows prefer the bot-persisted active order timing even when the visible row is backed by a projected or indexed market order
 - the backend must not infer own bid position from bid-book rows or exact-scope price comparisons
 
 Frontend labels:
