@@ -115,6 +115,7 @@ class FakeJobSource implements BiddingJobSource {
 
 class FakeBiddingService implements BiddingService {
     cancelled: string[] = [];
+    placeError: Error | null = null;
     orderLookupResult: Order | null = null;
 
     constructor(private readonly offers: Order[] = []) {}
@@ -137,6 +138,9 @@ class FakeBiddingService implements BiddingService {
         placedAt: string;
         expirationTime?: number;
     }> {
+        if (this.placeError) {
+            throw this.placeError;
+        }
         return {
             orderHash: "0xplaced",
             protocolAddress: "0x00000000006c3852cbef3e08e8df289169ede581",
@@ -205,6 +209,57 @@ describe("BiddingJobCommandReconciler", () => {
         assert.deepEqual(prepared, [job.id]);
         assert.deepEqual(reconciled, [[job.id]]);
         assert.deepEqual(repository.completed, [1]);
+    });
+
+    it("keeps enabled job commands retryable when immediate placement fails", async () => {
+        const job = makeJob("job-enabled-place-fails");
+        const repository = new FakeCommandRepository([
+            makeCommand(
+                1,
+                job.id,
+                TRADING_JOB_COMMAND_KIND.JobUpdated,
+            ),
+        ]);
+        const source = new FakeJobSource(
+            new Map([[job.id, makeRecord(job, TRADING_JOB_STATUS.Enabled)]]),
+        );
+        const biddingService = new FakeBiddingService();
+        biddingService.placeError = new Error("opensea placement unavailable");
+        const bidder = new Bidder(biddingService, makerAddress, 60_000);
+        const prepared: string[] = [];
+        const reconciled: string[][] = [];
+        const reconciler = new BiddingJobCommandReconciler(
+            repository,
+            source,
+            bidder,
+            {
+                prepareEnabledJob: async (preparedJob) => {
+                    prepared.push(preparedJob.id);
+                },
+                reconcileEnabledJobs: async (jobs) => {
+                    reconciled.push(jobs.map((item) => item.id));
+                },
+            },
+            {
+                batchSize: 10,
+                claimTimeoutMs: 300_000,
+                maxAttempts: 3,
+            },
+        );
+
+        const processed = await reconciler.processPendingCommands("test");
+
+        assert.equal(processed, 1);
+        assert.equal(bidder.getJob(job.id)?.id, job.id);
+        assert.deepEqual(prepared, [job.id]);
+        assert.deepEqual(reconciled, []);
+        assert.deepEqual(repository.completed, []);
+        assert.equal(repository.retryFailures.length, 1);
+        assert.equal(repository.retryFailures[0]?.commandId, 1);
+        assert.match(
+            repository.retryFailures[0]?.error ?? "",
+            /opensea placement unavailable/,
+        );
     });
 
     it("cancels maker offers before removing disabled jobs from scheduling", async () => {

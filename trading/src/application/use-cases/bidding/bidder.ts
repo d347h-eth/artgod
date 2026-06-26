@@ -134,7 +134,12 @@ interface JobExecutionState {
     pending: boolean;
     inFlightPromise?: Promise<void>;
     pendingContext?: ProgressContext;
+    pendingThrowOnFailure?: boolean;
 }
+
+type JobExecutionOptions = {
+    throwOnFailure: boolean;
+};
 
 interface RuntimeJobOverride {
     activationId: number;
@@ -489,6 +494,22 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         jobId: string,
         context?: ProgressContext,
     ): Promise<void> {
+        return await this.refreshJobWithOptions(jobId, context, {
+            throwOnFailure: false,
+        });
+    }
+
+    public async refreshJobForCommand(jobId: string): Promise<void> {
+        return await this.refreshJobWithOptions(jobId, undefined, {
+            throwOnFailure: true,
+        });
+    }
+
+    private async refreshJobWithOptions(
+        jobId: string,
+        context: ProgressContext | undefined,
+        options: JobExecutionOptions,
+    ): Promise<void> {
         const state = this.getJobExecutionState(jobId);
 
         if (state.running) {
@@ -496,20 +517,25 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             if (context) {
                 state.pendingContext = context;
             }
+            state.pendingThrowOnFailure =
+                state.pendingThrowOnFailure || options.throwOnFailure;
             return state.inFlightPromise ?? Promise.resolve();
         }
 
         state.running = true;
         state.pending = false;
         state.pendingContext = undefined;
+        state.pendingThrowOnFailure = undefined;
         state.inFlightPromise = this.runJobRefreshLoop(
             jobId,
             state,
             context,
+            options,
         ).finally(() => {
             state.running = false;
             state.pending = false;
             state.pendingContext = undefined;
+            state.pendingThrowOnFailure = undefined;
             state.inFlightPromise = undefined;
         });
 
@@ -524,8 +550,10 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         jobId: string,
         state: JobExecutionState,
         context?: ProgressContext,
+        options: JobExecutionOptions = { throwOnFailure: false },
     ): Promise<void> {
         let nextContext = context;
+        let nextOptions = options;
 
         while (true) {
             await this.jobExecutionSemaphore.runExclusive(async () => {
@@ -533,7 +561,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 await jobMutex.runExclusive(async () => {
                     state.executing = true;
                     try {
-                        await this.executeJob(jobId, nextContext);
+                        await this.executeJob(jobId, nextContext, nextOptions);
                     } finally {
                         state.executing = false;
                     }
@@ -545,8 +573,12 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             }
 
             nextContext = state.pendingContext;
+            nextOptions = {
+                throwOnFailure: state.pendingThrowOnFailure === true,
+            };
             state.pending = false;
             state.pendingContext = undefined;
+            state.pendingThrowOnFailure = undefined;
         }
     }
 
@@ -599,6 +631,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     private async executeJob(
         jobId: string,
         context?: ProgressContext,
+        options: JobExecutionOptions = { throwOnFailure: false },
     ): Promise<void> {
         try {
             const job = this.jobs.get(jobId);
@@ -876,6 +909,9 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             const job = this.jobs.get(jobId);
             if (job) {
                 this.persistJobRuntimeState(job, String(errorMessage));
+            }
+            if (options.throwOnFailure) {
+                throw error;
             }
         }
     }

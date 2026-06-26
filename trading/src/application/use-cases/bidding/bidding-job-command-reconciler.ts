@@ -177,7 +177,7 @@ export class BiddingJobCommandReconciler {
             revision: record.revision,
         });
         // Run an immediate refresh so DB-driven changes affect market state without waiting for the next tick.
-        await this.bidder.refreshJob(record.job.id);
+        await this.bidder.refreshJobForCommand(record.job.id);
     }
 
     private removeJobFromScheduling(command: BiddingJobCommand): void {

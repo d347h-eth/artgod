@@ -35,6 +35,7 @@ class FakeBiddingService {
     }> = [];
     public placedAmounts: bigint[] = [];
     public placedExpirationTime?: number;
+    public placeError: Error | null = null;
     public canceledOrderIds: string[] = [];
     public cancelError: Error | null = null;
 
@@ -79,6 +80,9 @@ class FakeBiddingService {
         placedAt: string;
         expirationTime?: number;
     }> {
+        if (this.placeError) {
+            throw this.placeError;
+        }
         this.placedAmounts.push(amount);
         return {
             orderHash: "0xhash",
@@ -1084,6 +1088,42 @@ describe("Bidder stream refresh", () => {
 
         assert.deepEqual(biddingService.placedAmounts, [1n]);
         assert.equal(job.state.activeOrderId, "0xhash");
+    });
+
+    it("keeps normal bid refresh best-effort when placement fails", async () => {
+        const biddingService = new FakeBiddingService();
+        biddingService.placeError = new Error("opensea placement unavailable");
+        const persistedErrors: Array<string | null> = [];
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            {
+                dryRun: false,
+            },
+            undefined,
+            undefined,
+            {
+                persistJobRuntimeState: (snapshot) => {
+                    persistedErrors.push(snapshot.lastError);
+                },
+                recordJobOfferCancellation: () => undefined,
+            },
+        );
+        const job = makeJob(
+            "token-hit",
+            "terraforms",
+            { type: "token", tokenId: "123" },
+            undefined,
+            { floor: 1n, ceiling: 20n, delta: 1n },
+        );
+        bidder.addJob(job);
+
+        await bidder.refreshJob("token-hit");
+
+        assert.deepEqual(biddingService.placedAmounts, []);
+        assert.equal(job.state.activeOrderId, undefined);
+        assert.deepEqual(persistedErrors, ["opensea placement unavailable"]);
     });
 
     it("optimizes a winning bid down to the minimum winning price and cancels the old bid", async () => {
