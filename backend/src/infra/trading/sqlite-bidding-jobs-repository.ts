@@ -55,6 +55,7 @@ type BiddingJobRow = {
     created_at: string;
     updated_at: string;
     archived_at: string | null;
+    runtime_job_revision: number | null;
     current_price_wei: string | null;
     active_order_id: string | null;
     active_protocol_address: string | null;
@@ -97,7 +98,7 @@ const BIDDING_JOB_SELECT =
     "j.status, j.target_kind, j.token_id, j.revision, j.created_at, j.updated_at, j.archived_at, " +
     "s.floor_wei, s.ceiling_wei, s.delta_wei, s.price_tier_id, s.pricing_source_json, " +
     "s.quantity, s.target_traits_json, s.competitor_traits_json, " +
-    "r.current_price_wei, r.active_order_id, r.active_protocol_address, r.active_order_placed_at, r.active_expiration_time_ms, " +
+    "r.job_revision AS runtime_job_revision, r.current_price_wei, r.active_order_id, r.active_protocol_address, r.active_order_placed_at, r.active_expiration_time_ms, " +
     "r.bid_position, r.bid_constraints_json, r.competitor_price_wei, " +
     "r.last_run_at, r.last_error, r.cancellation_requested_at, r.cancellation_completed_at, r.cancellation_error, r.updated_at AS runtime_updated_at " +
     "FROM trading_jobs j " +
@@ -171,8 +172,22 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         priceTierId: string | null;
         pricingSourceJson: string | null;
     }>;
-    private readonly deleteRuntimeStateByJobId: BetterSqlite3NamedStatement<{
+    private readonly selectKnownBiddingMaker: BetterSqlite3NamedStatement<{
+        chainId: number;
+        botKind: typeof TRADING_BOT_KIND.Bidding;
+    }>;
+
+    private readonly insertCancellationRequest: BetterSqlite3NamedStatement<{
+        orderId: string;
         jobId: string;
+        jobRevision: number;
+        makerAddress: string;
+        priceWei: string | null;
+        protocolAddress: string | null;
+        placedAt: string | null;
+        expirationTimeMs: number | null;
+        requestedAt: string;
+        updatedAt: string;
     }>;
 
     private readonly insertCommand: BetterSqlite3NamedStatement<{
@@ -337,9 +352,64 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             pricingSourceJson: string | null;
         }>;
 
-        this.deleteRuntimeStateByJobId = db.prepare<{ jobId: string }>(
-            "DELETE FROM trading_bidding_job_runtime_state WHERE job_id = @jobId",
-        ) as BetterSqlite3NamedStatement<{ jobId: string }>;
+        this.selectKnownBiddingMaker = db.prepare<{
+            chainId: number;
+            botKind: typeof TRADING_BOT_KIND.Bidding;
+        }>(
+            "SELECT address " +
+                "FROM trading_bot_runtime_state " +
+                "WHERE chain_id = @chainId AND bot_kind = @botKind " +
+                "ORDER BY updated_at DESC, heartbeat_at DESC " +
+                "LIMIT 1",
+        ) as BetterSqlite3NamedStatement<{
+            chainId: number;
+            botKind: typeof TRADING_BOT_KIND.Bidding;
+        }>;
+
+        this.insertCancellationRequest = db.prepare<{
+            orderId: string;
+            jobId: string;
+            jobRevision: number;
+            makerAddress: string;
+            priceWei: string | null;
+            protocolAddress: string | null;
+            placedAt: string | null;
+            expirationTimeMs: number | null;
+            requestedAt: string;
+            updatedAt: string;
+        }>(
+            "INSERT INTO trading_bidding_order_cancellations " +
+                "(order_id, job_id, job_revision, chain_id, collection_id, maker, price_wei, protocol_address, placed_at, expiration_time_ms, requested_at, completed_at, cancellation_error, updated_at) " +
+                "SELECT @orderId, @jobId, @jobRevision, j.chain_id, j.collection_id, @makerAddress, @priceWei, @protocolAddress, @placedAt, @expirationTimeMs, @requestedAt, NULL, NULL, @updatedAt " +
+                "FROM trading_jobs j WHERE j.job_id = @jobId " +
+                "ON CONFLICT(order_id) DO UPDATE SET " +
+                "job_id = excluded.job_id, " +
+                "job_revision = excluded.job_revision, " +
+                "chain_id = excluded.chain_id, " +
+                "collection_id = excluded.collection_id, " +
+                "maker = excluded.maker, " +
+                "price_wei = excluded.price_wei, " +
+                "protocol_address = excluded.protocol_address, " +
+                "placed_at = excluded.placed_at, " +
+                "expiration_time_ms = excluded.expiration_time_ms, " +
+                "requested_at = excluded.requested_at, " +
+                "completed_at = trading_bidding_order_cancellations.completed_at, " +
+                "cancellation_error = CASE " +
+                "WHEN trading_bidding_order_cancellations.completed_at IS NULL THEN NULL " +
+                "ELSE trading_bidding_order_cancellations.cancellation_error END, " +
+                "updated_at = excluded.updated_at",
+        ) as BetterSqlite3NamedStatement<{
+            orderId: string;
+            jobId: string;
+            jobRevision: number;
+            makerAddress: string;
+            priceWei: string | null;
+            protocolAddress: string | null;
+            placedAt: string | null;
+            expirationTimeMs: number | null;
+            requestedAt: string;
+            updatedAt: string;
+        }>;
 
         this.insertCommand = db.prepare<{
             jobId: string;
@@ -509,8 +579,6 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                         competitorTraitsJson: null,
                         ...this.biddingPricingPayload(transactionInput),
                     });
-                    this.clearRuntimeStateForDeclarationChange(existing.jobId);
-
                     const job = this.requireCollectionJobById(existing.jobId);
                     const commandKind =
                         job.status === TRADING_JOB_STATUS.Paused
@@ -518,6 +586,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                             : TRADING_JOB_COMMAND_KIND.JobUpdated;
                     const commands: TradingJobCommandRecord[] = [];
                     if (job.status === TRADING_JOB_STATUS.Paused) {
+                        this.recordCancellationRequest(existing);
                         commands.push(
                             this.insertCommandRecord(
                                 job.jobId,
@@ -687,7 +756,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         const cancellationPayload =
             this.biddingJobCancellationCommandPayload(existing);
         this.archiveTradingJobById.run({ jobId: existing.jobId });
-        this.clearRuntimeStateForDeclarationChange(existing.jobId);
+        this.recordCancellationRequest(existing);
 
         const job = this.requireBiddingJobById(existing.jobId);
         const payload = this.biddingJobCommandPayload(job);
@@ -740,7 +809,6 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             priceTierId: input.priceTierId,
             pricingSourceJson: JSON.stringify(input.pricingSource),
         });
-        this.clearRuntimeStateForDeclarationChange(existing.jobId);
 
         const job = this.requireBiddingJobById(existing.jobId);
         const payload = this.biddingJobCommandPayload(job);
@@ -750,6 +818,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                 : TRADING_JOB_COMMAND_KIND.JobUpdated;
         const commands: TradingJobCommandRecord[] = [];
         if (job.status === TRADING_JOB_STATUS.Paused) {
+            this.recordCancellationRequest(existing);
             commands.push(
                 this.insertCommandRecord(
                     job.jobId,
@@ -810,7 +879,6 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                 competitorTraitsJson: null,
                 ...this.biddingPricingPayload(transactionInput),
             });
-            this.clearRuntimeStateForDeclarationChange(existing.jobId);
 
             const job = this.requireTokenJobById(existing.jobId);
             const commandKind =
@@ -819,6 +887,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                     : TRADING_JOB_COMMAND_KIND.JobUpdated;
             const commands: TradingJobCommandRecord[] = [];
             if (job.status === TRADING_JOB_STATUS.Paused) {
+                this.recordCancellationRequest(existing);
                 commands.push(
                     this.insertCommandRecord(
                         job.jobId,
@@ -875,11 +944,6 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         };
     }
 
-    private clearRuntimeStateForDeclarationChange(jobId: string): void {
-        // A declaration revision invalidates bot feedback until the bot persists fresh post-command runtime state.
-        this.deleteRuntimeStateByJobId.run({ jobId });
-    }
-
     private tokenJobCommandPayload(
         job: PersistedTokenBiddingJobRecord,
     ): Record<string, unknown> {
@@ -889,6 +953,37 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             tokenId: job.tokenId,
             jobId: job.jobId,
         };
+    }
+
+    private recordCancellationRequest(job: PersistedBiddingJobRecord): void {
+        const runtime = job.runtime;
+        if (!runtime?.activeOrderId) {
+            return;
+        }
+
+        const maker = this.selectKnownBiddingMaker.get({
+            chainId: job.chainId,
+            botKind: TRADING_BOT_KIND.Bidding,
+        }) as { address: string } | undefined;
+        const makerAddress = maker?.address?.trim().toLowerCase();
+        if (!makerAddress) {
+            return;
+        }
+
+        const now = new Date().toISOString();
+        // Record the operator-visible cancellation request before the bot processes the marketplace side effect.
+        this.insertCancellationRequest.run({
+            orderId: runtime.activeOrderId,
+            jobId: job.jobId,
+            jobRevision: job.revision,
+            makerAddress,
+            priceWei: runtime.currentPriceWei,
+            protocolAddress: runtime.activeProtocolAddress,
+            placedAt: runtime.activeOrderPlacedAt,
+            expirationTimeMs: runtime.activeExpirationTimeMs,
+            requestedAt: now,
+            updatedAt: now,
+        });
     }
 
     private requireCollectionJobById(
@@ -966,6 +1061,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         }
 
         return {
+            activeOrderJobRevision: job.revision,
             activeOrderId: job.runtime.activeOrderId,
             activeProtocolAddress: job.runtime.activeProtocolAddress,
             activeOrderPlacedAt: job.runtime.activeOrderPlacedAt,
@@ -1143,7 +1239,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
     private mapRuntimeState(
         row: BiddingJobRow,
     ): PersistedBiddingJobRuntimeState | null {
-        if (!row.runtime_updated_at) {
+        if (!row.runtime_updated_at || row.runtime_job_revision !== row.revision) {
             return null;
         }
 

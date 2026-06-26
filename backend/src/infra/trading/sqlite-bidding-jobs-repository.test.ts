@@ -9,6 +9,8 @@ import {
     TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
     TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
     TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
+    TRADING_BOT_KIND,
+    TRADING_BOT_RUNTIME_STATE,
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
@@ -265,7 +267,7 @@ describe("SqliteBiddingJobsRepository", () => {
         );
     });
 
-    it("updates an existing token bidding job, preserves job identity, and clears stale runtime state", () => {
+    it("updates an existing token bidding job, preserves job identity, and hides stale runtime by revision", () => {
         const repository = new SqliteBiddingJobsRepository();
         const created = repository.upsertTokenJob({
             chainId: 1,
@@ -285,6 +287,7 @@ describe("SqliteBiddingJobsRepository", () => {
             bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
             competitorPriceWei: "250000000000000000",
         });
+        seedBiddingBotRuntimeState();
 
         const updated = repository.upsertTokenJob({
             chainId: 1,
@@ -305,6 +308,7 @@ describe("SqliteBiddingJobsRepository", () => {
             repository.getJobById(created.job.jobId)?.runtime,
             null,
         );
+        assert.equal(countRuntimeRows(created.job.jobId), 1);
 
         assert.equal(updated.commands.length, 2);
         assert.deepEqual(
@@ -315,6 +319,7 @@ describe("SqliteBiddingJobsRepository", () => {
             ],
         );
         assert.equal(updated.commands[0]?.payload.activeOrderId, ACTIVE_ORDER_ID);
+        assert.equal(updated.commands[0]?.payload.activeOrderJobRevision, 1);
         assert.equal(
             updated.commands[0]?.payload.activeProtocolAddress,
             ACTIVE_PROTOCOL_ADDRESS,
@@ -323,6 +328,18 @@ describe("SqliteBiddingJobsRepository", () => {
             updated.commands[0]?.payload.activeOrderPlacedAt,
             ACTIVE_ORDER_PLACED_AT,
         );
+        assert.deepEqual(selectCancellationRequest(ACTIVE_ORDER_ID), {
+            order_id: ACTIVE_ORDER_ID,
+            job_id: created.job.jobId,
+            job_revision: 1,
+            maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            price_wei: "150000000000000000",
+            protocol_address: ACTIVE_PROTOCOL_ADDRESS,
+            placed_at: ACTIVE_ORDER_PLACED_AT,
+            expiration_time_ms: 1_700_000_000_000,
+            completed_at: null,
+            cancellation_error: null,
+        });
         assert.equal(updated.commands[0]?.requestedRevision, 2);
 
         const pendingCommands = repository.listPendingCommands({ limit: 10 });
@@ -399,7 +416,7 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.equal(listed[0]?.jobId, created.job.jobId);
     });
 
-    it("clears trait job runtime state across pause and reactivation on the same target", () => {
+    it("hides stale trait job runtime across pause and reactivation on the same target", () => {
         const repository = new SqliteBiddingJobsRepository();
 
         const created = repository.upsertCollectionJob({
@@ -456,6 +473,7 @@ describe("SqliteBiddingJobsRepository", () => {
             repository.getJobById(created.job.jobId)?.runtime,
             null,
         );
+        assert.equal(countRuntimeRows(created.job.jobId), 1);
 
         const reactivated = repository.upsertCollectionJob({
             chainId: 1,
@@ -487,6 +505,7 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.equal(listed.length, 1);
         assert.equal(listed[0]?.jobId, created.job.jobId);
         assert.equal(listed[0]?.runtime, null);
+        assert.equal(countRuntimeRows(created.job.jobId), 1);
     });
 
     it("resolves existing jobs by canonical target equivalence", () => {
@@ -688,6 +707,7 @@ describe("SqliteBiddingJobsRepository", () => {
 
 function seedBiddingJobRuntimeState(input: {
     jobId: string;
+    jobRevision?: number;
     currentPriceWei: string;
     activeOrderId: string;
     bidPosition: TradingBiddingJobRuntimeBidPosition;
@@ -696,6 +716,7 @@ function seedBiddingJobRuntimeState(input: {
 }): void {
     db.prepare<{
         jobId: string;
+        jobRevision: number;
         currentPriceWei: string;
         activeOrderId: string;
         activeProtocolAddress: string;
@@ -708,10 +729,11 @@ function seedBiddingJobRuntimeState(input: {
         lastError: string;
     }>(
         "INSERT INTO trading_bidding_job_runtime_state " +
-            "(job_id, current_price_wei, active_order_id, active_protocol_address, active_order_placed_at, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, last_run_at, last_error) " +
-            "VALUES (@jobId, @currentPriceWei, @activeOrderId, @activeProtocolAddress, @activeOrderPlacedAt, @activeExpirationTimeMs, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @lastRunAt, @lastError)",
+            "(job_id, job_revision, current_price_wei, active_order_id, active_protocol_address, active_order_placed_at, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, last_run_at, last_error) " +
+            "VALUES (@jobId, @jobRevision, @currentPriceWei, @activeOrderId, @activeProtocolAddress, @activeOrderPlacedAt, @activeExpirationTimeMs, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @lastRunAt, @lastError)",
     ).run({
         jobId: input.jobId,
+        jobRevision: input.jobRevision ?? 1,
         currentPriceWei: input.currentPriceWei,
         activeOrderId: input.activeOrderId,
         activeProtocolAddress: ACTIVE_PROTOCOL_ADDRESS,
@@ -723,4 +745,64 @@ function seedBiddingJobRuntimeState(input: {
         lastRunAt: "2026-04-23T12:00:00.000Z",
         lastError: "none",
     });
+}
+
+function seedBiddingBotRuntimeState(): void {
+    db.prepare(
+        "INSERT INTO trading_bot_runtime_state " +
+            "(bot_kind, chain_id, wallet_id, address, state, heartbeat_at, started_at, updated_at, last_error) " +
+            "VALUES (@botKind, 1, @walletId, @address, @state, @heartbeatAt, @startedAt, @updatedAt, NULL)",
+    ).run({
+        botKind: TRADING_BOT_KIND.Bidding,
+        walletId: "default",
+        address: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        state: TRADING_BOT_RUNTIME_STATE.Running,
+        heartbeatAt: "2026-05-17T00:00:00Z",
+        startedAt: "2026-05-17T00:00:00Z",
+        updatedAt: "2026-05-17T00:00:00Z",
+    });
+}
+
+function selectCancellationRequest(orderId: string):
+    | {
+          order_id: string;
+          job_id: string;
+          job_revision: number;
+          maker: string;
+          price_wei: string;
+          protocol_address: string;
+          placed_at: string;
+          expiration_time_ms: number;
+          completed_at: string | null;
+          cancellation_error: string | null;
+      }
+    | undefined {
+    return db
+        .prepare<{ orderId: string }>(
+            "SELECT order_id, job_id, job_revision, maker, price_wei, protocol_address, placed_at, expiration_time_ms, completed_at, cancellation_error " +
+                "FROM trading_bidding_order_cancellations WHERE order_id = @orderId",
+        )
+        .get({ orderId }) as
+        | {
+              order_id: string;
+              job_id: string;
+              job_revision: number;
+              maker: string;
+              price_wei: string;
+              protocol_address: string;
+              placed_at: string;
+              expiration_time_ms: number;
+              completed_at: string | null;
+              cancellation_error: string | null;
+          }
+        | undefined;
+}
+
+function countRuntimeRows(jobId: string): number {
+    const row = db
+        .prepare<{ jobId: string }>(
+            "SELECT COUNT(*) AS count FROM trading_bidding_job_runtime_state WHERE job_id = @jobId",
+        )
+        .get({ jobId }) as { count: number };
+    return row.count;
 }

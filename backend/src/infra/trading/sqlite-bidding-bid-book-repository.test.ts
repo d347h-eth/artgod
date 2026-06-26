@@ -488,12 +488,74 @@ describe("SqliteBiddingBidBookRepository", () => {
                 orderId: bid.orderId,
                 maker: bid.maker,
                 isOwn: bid.isOwn,
+                materialization: bid.materialization,
+                price: bid.price,
             })),
             [
                 {
                     orderId: "failed-cancel-own-order",
                     maker: BIDDING_MAKER_ADDRESS,
                     isOwn: true,
+                    materialization: {
+                        kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+                        jobId: "collection-job",
+                        status: TRADING_JOB_STATUS.Archived,
+                        phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed,
+                    },
+                    price: exactBidBookRowPrice("100"),
+                },
+            ],
+        );
+    });
+
+    it("keeps pending own cancellations visible as canceling rows after archive", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedBiddingRuntime(collectionId);
+        db.prepare(
+            "UPDATE trading_jobs SET status = @status WHERE job_id = @jobId",
+        ).run({
+            status: TRADING_JOB_STATUS.Archived,
+            jobId: "collection-job",
+        });
+        insertIndexedOrder({
+            collectionId,
+            id: "pending-cancel-own-order",
+            maker: BIDDING_MAKER_ADDRESS,
+            updatedAt: "2026-05-17T00:00:01Z",
+        });
+        insertPendingOrderCancellation({
+            collectionId,
+            orderId: "pending-cancel-own-order",
+        });
+
+        const bidBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+
+        assert.deepEqual(
+            bidBook.bids.map((bid) => ({
+                orderId: bid.orderId,
+                materialization: bid.materialization,
+                placedAt: bid.placedAt,
+                validUntil: bid.validUntil,
+            })),
+            [
+                {
+                    orderId: "pending-cancel-own-order",
+                    materialization: {
+                        kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+                        jobId: "collection-job",
+                        status: TRADING_JOB_STATUS.Archived,
+                        phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling,
+                    },
+                    placedAt: "2026-05-17T00:00:00Z",
+                    validUntil: 1_900_000_000,
                 },
             ],
         );
@@ -1142,6 +1204,7 @@ describe("SqliteBiddingBidBookRepository", () => {
         });
         seedJobRuntimeState({
             jobId: created.job.jobId,
+            jobRevision: 2,
             currentPriceWei: "180",
             activeOrderId: "own-tier-order-fresh",
             bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
@@ -1509,6 +1572,7 @@ function seedTokenBiddingJob(input: {
 
 function seedJobRuntimeState(input: {
     jobId: string;
+    jobRevision?: number;
     currentPriceWei: string;
     activeOrderId: string;
     activeOrderPlacedAt?: string | null;
@@ -1518,10 +1582,22 @@ function seedJobRuntimeState(input: {
 }): void {
     db.prepare(
         "INSERT INTO trading_bidding_job_runtime_state " +
-            "(job_id, current_price_wei, active_order_id, active_protocol_address, active_order_placed_at, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, updated_at) " +
-            "VALUES (@jobId, @currentPriceWei, @activeOrderId, NULL, @activeOrderPlacedAt, 1900000000000, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @updatedAt)",
+            "(job_id, job_revision, current_price_wei, active_order_id, active_protocol_address, active_order_placed_at, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, updated_at) " +
+            "VALUES (@jobId, @jobRevision, @currentPriceWei, @activeOrderId, NULL, @activeOrderPlacedAt, 1900000000000, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @updatedAt) " +
+            "ON CONFLICT(job_id) DO UPDATE SET " +
+            "job_revision = excluded.job_revision, " +
+            "current_price_wei = excluded.current_price_wei, " +
+            "active_order_id = excluded.active_order_id, " +
+            "active_protocol_address = excluded.active_protocol_address, " +
+            "active_order_placed_at = excluded.active_order_placed_at, " +
+            "active_expiration_time_ms = excluded.active_expiration_time_ms, " +
+            "bid_position = excluded.bid_position, " +
+            "bid_constraints_json = excluded.bid_constraints_json, " +
+            "competitor_price_wei = excluded.competitor_price_wei, " +
+            "updated_at = excluded.updated_at",
     ).run({
         jobId: input.jobId,
+        jobRevision: input.jobRevision ?? 1,
         currentPriceWei: input.currentPriceWei,
         activeOrderId: input.activeOrderId,
         activeOrderPlacedAt: input.activeOrderPlacedAt ?? null,
@@ -1540,13 +1616,21 @@ function insertCompletedOrderCancellation(input: {
 }): void {
     db.prepare(
         "INSERT INTO trading_bidding_order_cancellations " +
-            "(order_id, job_id, chain_id, collection_id, maker, requested_at, completed_at, cancellation_error, updated_at) " +
-            "VALUES (@orderId, @jobId, 1, @collectionId, @maker, @requestedAt, @completedAt, NULL, @updatedAt)",
+            "(order_id, job_id, job_revision, chain_id, collection_id, maker, price_wei, protocol_address, placed_at, expiration_time_ms, requested_at, completed_at, cancellation_error, updated_at) " +
+            "VALUES (@orderId, @jobId, 1, 1, @collectionId, @maker, @priceWei, @protocolAddress, @placedAt, @expirationTimeMs, @requestedAt, @completedAt, NULL, @updatedAt) " +
+            "ON CONFLICT(order_id) DO UPDATE SET " +
+            "completed_at = excluded.completed_at, " +
+            "cancellation_error = NULL, " +
+            "updated_at = excluded.updated_at",
     ).run({
         orderId: input.orderId,
         jobId: input.jobId ?? "collection-job",
         collectionId: input.collectionId,
-        maker: input.maker ?? "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        maker: input.maker ?? BIDDING_MAKER_ADDRESS,
+        priceWei: "100",
+        protocolAddress: "0x0000000000000068f116a894984e2db1123eb395",
+        placedAt: "2026-05-17T00:00:00Z",
+        expirationTimeMs: 1_900_000_000_000,
         requestedAt: "2026-05-17T00:00:00Z",
         completedAt: "2026-05-17T00:00:01Z",
         updatedAt: "2026-05-17T00:00:01Z",
@@ -1561,16 +1645,44 @@ function insertFailedOrderCancellation(input: {
 }): void {
     db.prepare(
         "INSERT INTO trading_bidding_order_cancellations " +
-            "(order_id, job_id, chain_id, collection_id, maker, requested_at, completed_at, cancellation_error, updated_at) " +
-            "VALUES (@orderId, @jobId, 1, @collectionId, @maker, @requestedAt, NULL, @cancellationError, @updatedAt)",
+            "(order_id, job_id, job_revision, chain_id, collection_id, maker, price_wei, protocol_address, placed_at, expiration_time_ms, requested_at, completed_at, cancellation_error, updated_at) " +
+            "VALUES (@orderId, @jobId, 1, 1, @collectionId, @maker, @priceWei, @protocolAddress, @placedAt, @expirationTimeMs, @requestedAt, NULL, @cancellationError, @updatedAt)",
     ).run({
         orderId: input.orderId,
         jobId: input.jobId ?? "collection-job",
         collectionId: input.collectionId,
         maker: input.maker ?? BIDDING_MAKER_ADDRESS,
+        priceWei: "100",
+        protocolAddress: "0x0000000000000068f116a894984e2db1123eb395",
+        placedAt: "2026-05-17T00:00:00Z",
+        expirationTimeMs: 1_900_000_000_000,
         requestedAt: "2026-05-17T00:00:00Z",
         cancellationError: "opensea cancel failed",
         updatedAt: "2026-05-17T00:00:01Z",
+    });
+}
+
+function insertPendingOrderCancellation(input: {
+    collectionId: number;
+    orderId: string;
+    jobId?: string;
+    maker?: string;
+}): void {
+    db.prepare(
+        "INSERT INTO trading_bidding_order_cancellations " +
+            "(order_id, job_id, job_revision, chain_id, collection_id, maker, price_wei, protocol_address, placed_at, expiration_time_ms, requested_at, completed_at, cancellation_error, updated_at) " +
+            "VALUES (@orderId, @jobId, 1, 1, @collectionId, @maker, @priceWei, @protocolAddress, @placedAt, @expirationTimeMs, @requestedAt, NULL, NULL, @updatedAt)",
+    ).run({
+        orderId: input.orderId,
+        jobId: input.jobId ?? "collection-job",
+        collectionId: input.collectionId,
+        maker: input.maker ?? BIDDING_MAKER_ADDRESS,
+        priceWei: "100",
+        protocolAddress: "0x0000000000000068f116a894984e2db1123eb395",
+        placedAt: "2026-05-17T00:00:00Z",
+        expirationTimeMs: 1_900_000_000_000,
+        requestedAt: "2026-05-17T00:00:00Z",
+        updatedAt: "2026-05-17T00:00:00Z",
     });
 }
 
