@@ -5,6 +5,10 @@ import {
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
 import {
+    parseBiddingConfig,
+    type BiddingConfig,
+} from "@artgod/shared/config/bidding";
+import {
     parseBoolean,
     parseNumber,
     parsePositiveInteger,
@@ -36,6 +40,8 @@ import {
     BIDDING_DEFAULT_COLLECTION_OFFERS_POLL_MS,
     BIDDING_DEFAULT_COLLECTION_OFFERS_TTL_MS,
     BIDDING_DEFAULT_CRITERIA_REFRESH_TRAITS_BY_COLLECTION,
+    BIDDING_DEFAULT_DRY_RUN,
+    BIDDING_DEFAULT_ENABLED,
     BIDDING_DEFAULT_MAX_CONCURRENT_JOBS,
     BIDDING_DEFAULT_OFFER_EXPIRATION_SECONDS,
     BIDDING_DEFAULT_ORDER_LOOKUP_MAX_PAGES,
@@ -48,6 +54,7 @@ import {
     BIDDING_DEFAULT_TX_MIN_PRIORITY_FEE_GWEI,
     BIDDING_DEFAULT_TX_PENDING_NONCE_POLICY,
     BIDDING_DEFAULT_WETH_ALLOWANCE_ETH,
+    BIDDING_RUNTIME_ENV_KEY,
 } from "./bidding-defaults.js";
 
 // Env keys that own the trading metrics scrape endpoint config.
@@ -80,6 +87,7 @@ export type EnabledBiddingConfig = {
     commandBatchSize: number;
     commandMaxAttempts: number;
     commandClaimTimeoutMs: number;
+    runtimeHeartbeat: BiddingConfig["runtimeHeartbeat"];
     criteriaRefreshTraitsByCollection: Record<string, string[]>;
     tokenCriteriaTraitsByCollection: Record<string, string[]>;
     wethAllowanceWei: bigint;
@@ -106,6 +114,7 @@ export type DisabledBiddingConfig = {
     commandBatchSize: number;
     commandMaxAttempts: number;
     commandClaimTimeoutMs: number;
+    runtimeHeartbeat: BiddingConfig["runtimeHeartbeat"];
     criteriaRefreshTraitsByCollection: Record<string, string[]>;
     tokenCriteriaTraitsByCollection: Record<string, string[]>;
     wethAllowanceWei: bigint;
@@ -162,91 +171,97 @@ export function loadTradingConfig(
     );
     const wethAddress = parseAddress(env.WETH_ADDRESS, "WETH_ADDRESS");
     const metrics = parseTradingMetricsConfig(env);
+    const sharedBiddingConfig = parseBiddingConfig(env);
 
     const biddingBase = {
-        dryRun: parseBoolean(env.BIDDING_DRY_RUN, "BIDDING_DRY_RUN", false),
+        dryRun: parseBoolean(
+            env[BIDDING_RUNTIME_ENV_KEY.DryRun],
+            BIDDING_RUNTIME_ENV_KEY.DryRun,
+            BIDDING_DEFAULT_DRY_RUN,
+        ),
         pollMs: parsePositiveInteger(
-            env.BIDDING_POLL_MS,
-            "BIDDING_POLL_MS",
+            env[BIDDING_RUNTIME_ENV_KEY.PollMs],
+            BIDDING_RUNTIME_ENV_KEY.PollMs,
             BIDDING_DEFAULT_POLL_MS,
         ),
         maxConcurrentJobs: parsePositiveInteger(
-            env.BIDDING_MAX_CONCURRENT_JOBS,
-            "BIDDING_MAX_CONCURRENT_JOBS",
+            env[BIDDING_RUNTIME_ENV_KEY.MaxConcurrentJobs],
+            BIDDING_RUNTIME_ENV_KEY.MaxConcurrentJobs,
             BIDDING_DEFAULT_MAX_CONCURRENT_JOBS,
         ),
         bootstrapConcurrency: parsePositiveInteger(
-            env.BIDDING_BOOTSTRAP_CONCURRENCY,
-            "BIDDING_BOOTSTRAP_CONCURRENCY",
+            env[BIDDING_RUNTIME_ENV_KEY.BootstrapConcurrency],
+            BIDDING_RUNTIME_ENV_KEY.BootstrapConcurrency,
             BIDDING_DEFAULT_BOOTSTRAP_CONCURRENCY,
         ),
         offerExpirationSeconds: parsePositiveInteger(
-            env.BIDDING_OFFER_EXPIRATION_SECONDS,
-            "BIDDING_OFFER_EXPIRATION_SECONDS",
+            env[BIDDING_RUNTIME_ENV_KEY.OfferExpirationSeconds],
+            BIDDING_RUNTIME_ENV_KEY.OfferExpirationSeconds,
             BIDDING_DEFAULT_OFFER_EXPIRATION_SECONDS,
         ),
         collectionOffersPollMs: parsePositiveInteger(
-            env.BIDDING_COLLECTION_OFFERS_POLL_MS,
-            "BIDDING_COLLECTION_OFFERS_POLL_MS",
+            env[BIDDING_RUNTIME_ENV_KEY.CollectionOffersPollMs],
+            BIDDING_RUNTIME_ENV_KEY.CollectionOffersPollMs,
             BIDDING_DEFAULT_COLLECTION_OFFERS_POLL_MS,
         ),
         collectionOffersTtlMs: parsePositiveInteger(
-            env.BIDDING_COLLECTION_OFFERS_TTL_MS,
-            "BIDDING_COLLECTION_OFFERS_TTL_MS",
+            env[BIDDING_RUNTIME_ENV_KEY.CollectionOffersTtlMs],
+            BIDDING_RUNTIME_ENV_KEY.CollectionOffersTtlMs,
             BIDDING_DEFAULT_COLLECTION_OFFERS_TTL_MS,
         ),
         bidBookProjectionThrottleMs: parsePositiveInteger(
-            env.BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS,
-            "BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS",
+            env[BIDDING_RUNTIME_ENV_KEY.BidBookProjectionThrottleMs],
+            BIDDING_RUNTIME_ENV_KEY.BidBookProjectionThrottleMs,
             BIDDING_DEFAULT_BID_BOOK_PROJECTION_THROTTLE_MS,
         ),
         orderLookupMaxPages: parsePositiveInteger(
-            env.BIDDING_ORDER_LOOKUP_MAX_PAGES,
-            "BIDDING_ORDER_LOOKUP_MAX_PAGES",
+            env[BIDDING_RUNTIME_ENV_KEY.OrderLookupMaxPages],
+            BIDDING_RUNTIME_ENV_KEY.OrderLookupMaxPages,
             BIDDING_DEFAULT_ORDER_LOOKUP_MAX_PAGES,
         ),
         commandPollMs: parsePositiveInteger(
-            env.BIDDING_COMMAND_POLL_MS,
-            "BIDDING_COMMAND_POLL_MS",
+            env[BIDDING_RUNTIME_ENV_KEY.CommandPollMs],
+            BIDDING_RUNTIME_ENV_KEY.CommandPollMs,
             BIDDING_DEFAULT_COMMAND_POLL_MS,
         ),
         commandBatchSize: parsePositiveInteger(
-            env.BIDDING_COMMAND_BATCH_SIZE,
-            "BIDDING_COMMAND_BATCH_SIZE",
+            env[BIDDING_RUNTIME_ENV_KEY.CommandBatchSize],
+            BIDDING_RUNTIME_ENV_KEY.CommandBatchSize,
             BIDDING_DEFAULT_COMMAND_BATCH_SIZE,
         ),
         commandMaxAttempts: parsePositiveInteger(
-            env.BIDDING_COMMAND_MAX_ATTEMPTS,
-            "BIDDING_COMMAND_MAX_ATTEMPTS",
+            env[BIDDING_RUNTIME_ENV_KEY.CommandMaxAttempts],
+            BIDDING_RUNTIME_ENV_KEY.CommandMaxAttempts,
             BIDDING_DEFAULT_COMMAND_MAX_ATTEMPTS,
         ),
         commandClaimTimeoutMs: parsePositiveInteger(
-            env.BIDDING_COMMAND_CLAIM_TIMEOUT_MS,
-            "BIDDING_COMMAND_CLAIM_TIMEOUT_MS",
+            env[BIDDING_RUNTIME_ENV_KEY.CommandClaimTimeoutMs],
+            BIDDING_RUNTIME_ENV_KEY.CommandClaimTimeoutMs,
             BIDDING_DEFAULT_COMMAND_CLAIM_TIMEOUT_MS,
         ),
+        runtimeHeartbeat: sharedBiddingConfig.runtimeHeartbeat,
         criteriaRefreshTraitsByCollection: parseStringArrayMap(
-            env.BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION,
+            env[BIDDING_RUNTIME_ENV_KEY.CriteriaRefreshTraitsByCollection],
             BIDDING_DEFAULT_CRITERIA_REFRESH_TRAITS_BY_COLLECTION,
-            "BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION",
+            BIDDING_RUNTIME_ENV_KEY.CriteriaRefreshTraitsByCollection,
         ),
         tokenCriteriaTraitsByCollection: parseStringArrayMap(
-            env.BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION,
+            env[BIDDING_RUNTIME_ENV_KEY.TokenCriteriaTraitsByCollection],
             BIDDING_DEFAULT_TOKEN_CRITERIA_TRAITS_BY_COLLECTION,
-            "BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION",
+            BIDDING_RUNTIME_ENV_KEY.TokenCriteriaTraitsByCollection,
         ),
         wethAllowanceWei: parseNonNegativeEtherToWei(
-            env.BIDDING_WETH_ALLOWANCE_ETH,
-            "BIDDING_WETH_ALLOWANCE_ETH",
+            env[BIDDING_RUNTIME_ENV_KEY.WethAllowanceEth],
+            BIDDING_RUNTIME_ENV_KEY.WethAllowanceEth,
             BIDDING_DEFAULT_WETH_ALLOWANCE_ETH,
         ),
         transactionPolicy: parseBiddingTransactionPolicy(env),
     };
 
     const biddingEnabled = parseBoolean(
-        env.BIDDING_ENABLED,
-        "BIDDING_ENABLED",
-        true,
+        env[BIDDING_RUNTIME_ENV_KEY.Enabled],
+        BIDDING_RUNTIME_ENV_KEY.Enabled,
+        BIDDING_DEFAULT_ENABLED,
     );
 
     return {
@@ -285,16 +300,16 @@ function parseOpenSeaSecrets(env: Record<string, string | undefined>): {
 } {
     const secrets = {
         streamSecretKey: parseRequiredString(
-            env.OPENSEA_STREAM_SECRET_KEY,
-            "OPENSEA_STREAM_SECRET_KEY",
+            env[BIDDING_RUNTIME_ENV_KEY.OpenSeaStreamSecretKey],
+            BIDDING_RUNTIME_ENV_KEY.OpenSeaStreamSecretKey,
         ),
         biddingSecretKey: parseRequiredString(
-            env.OPENSEA_BIDDING_SECRET_KEY,
-            "OPENSEA_BIDDING_SECRET_KEY",
+            env[BIDDING_RUNTIME_ENV_KEY.OpenSeaBiddingSecretKey],
+            BIDDING_RUNTIME_ENV_KEY.OpenSeaBiddingSecretKey,
         ),
         snapshotSecretKey: parseRequiredString(
-            env.OPENSEA_SNAPSHOT_SECRET_KEY,
-            "OPENSEA_SNAPSHOT_SECRET_KEY",
+            env[BIDDING_RUNTIME_ENV_KEY.OpenSeaSnapshotSecretKey],
+            BIDDING_RUNTIME_ENV_KEY.OpenSeaSnapshotSecretKey,
         ),
     };
 
@@ -331,35 +346,35 @@ function parseBiddingTransactionPolicy(
     return {
         fees: {
             minPriorityFeePerGasWei: parsePositiveGweiToWei(
-                env.BIDDING_TX_MIN_PRIORITY_FEE_GWEI,
-                "BIDDING_TX_MIN_PRIORITY_FEE_GWEI",
+                env[BIDDING_RUNTIME_ENV_KEY.TxMinPriorityFeeGwei],
+                BIDDING_RUNTIME_ENV_KEY.TxMinPriorityFeeGwei,
                 BIDDING_DEFAULT_TX_MIN_PRIORITY_FEE_GWEI,
             ),
             priorityFeeHistoryBlockCount: parseFeeHistoryBlockCount(
-                env.BIDDING_TX_FEE_HISTORY_BLOCKS,
-                "BIDDING_TX_FEE_HISTORY_BLOCKS",
+                env[BIDDING_RUNTIME_ENV_KEY.TxFeeHistoryBlocks],
+                BIDDING_RUNTIME_ENV_KEY.TxFeeHistoryBlocks,
                 BIDDING_DEFAULT_TX_FEE_HISTORY_BLOCKS,
             ),
             priorityFeeHistoryRewardPercentile: parseRewardPercentile(
-                env.BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE,
-                "BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE",
+                env[BIDDING_RUNTIME_ENV_KEY.TxFeeHistoryRewardPercentile],
+                BIDDING_RUNTIME_ENV_KEY.TxFeeHistoryRewardPercentile,
                 BIDDING_DEFAULT_TX_FEE_HISTORY_REWARD_PERCENTILE,
             ),
             baseFeeMultiplierBps: parseBaseFeeMultiplierBps(
-                env.BIDDING_TX_BASE_FEE_MULTIPLIER,
-                "BIDDING_TX_BASE_FEE_MULTIPLIER",
+                env[BIDDING_RUNTIME_ENV_KEY.TxBaseFeeMultiplier],
+                BIDDING_RUNTIME_ENV_KEY.TxBaseFeeMultiplier,
                 BIDDING_DEFAULT_TX_BASE_FEE_MULTIPLIER,
             ),
             maxFeePerGasWei: parsePositiveGweiToWei(
-                env.BIDDING_TX_MAX_FEE_GWEI,
-                "BIDDING_TX_MAX_FEE_GWEI",
+                env[BIDDING_RUNTIME_ENV_KEY.TxMaxFeeGwei],
+                BIDDING_RUNTIME_ENV_KEY.TxMaxFeeGwei,
                 BIDDING_DEFAULT_TX_MAX_FEE_GWEI,
             ),
         },
         nonce: {
             pendingNoncePolicy: parsePendingNoncePolicy(
-                env.BIDDING_TX_PENDING_NONCE_POLICY,
-                "BIDDING_TX_PENDING_NONCE_POLICY",
+                env[BIDDING_RUNTIME_ENV_KEY.TxPendingNoncePolicy],
+                BIDDING_RUNTIME_ENV_KEY.TxPendingNoncePolicy,
                 BIDDING_DEFAULT_TX_PENDING_NONCE_POLICY,
             ),
         },

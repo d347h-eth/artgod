@@ -2,7 +2,8 @@ import { error, redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import {
 	BackendApiError,
-	getCollectionBiddingBidBook
+	getCollectionBiddingBidBook,
+	getRuntimeConfig
 } from '$lib/backend-api';
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import { resolvePreferredCollectionBiddingNavigationHref } from '$lib/bidding-navigation-preferences';
@@ -32,17 +33,21 @@ export const load: PageLoad = async ({ fetch, url }) => {
 
 	try {
 		// Load bid-book data without exposing bidding job management.
-		const bidBookResponse = await getCollectionBiddingBidBook(
-			fetch,
-			PUBLIC_COLLECTION_SCOPE.chainRef,
-			PUBLIC_COLLECTION_SCOPE.collectionRef,
-			url.searchParams
-		);
+		const [bidBookResponse, runtimeConfigResponse] = await Promise.all([
+			getCollectionBiddingBidBook(
+				fetch,
+				PUBLIC_COLLECTION_SCOPE.chainRef,
+				PUBLIC_COLLECTION_SCOPE.collectionRef,
+				url.searchParams
+			),
+			getRuntimeConfig(fetch)
+		]);
 		return {
 			chain: bidBookResponse.chain,
 			collection: bidBookResponse.collection,
 			biddingSettings: defaultBiddingCollectionSettings(),
 			priceTiers: [],
+			bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh,
 			bidBook: bidBookResponse.bidBook,
 			tokenOfferCards: bidBookResponse.tokenOfferCards,
 			facets: bidBookResponse.traits.facets,

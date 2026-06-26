@@ -2,10 +2,18 @@ import {
     TRADING_BOT_RUNTIME_STATE,
     type TradingBotRuntimeState,
 } from "../types/trading.js";
+import {
+    DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
+    DEFAULT_BIDDING_RUNTIME_HEARTBEAT_INTERVAL_MS,
+    DEFAULT_BIDDING_RUNTIME_HEARTBEAT_STALE_MS,
+} from "../config/bidding.js";
 
-export const TRADING_BOT_RUNTIME_HEARTBEAT_INTERVAL_MS = 10_000;
-export const TRADING_BOT_RUNTIME_HEARTBEAT_STALE_MS = 30_000;
-export const TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS = 120_000;
+export const TRADING_BOT_RUNTIME_HEARTBEAT_INTERVAL_MS =
+    DEFAULT_BIDDING_RUNTIME_HEARTBEAT_INTERVAL_MS;
+export const TRADING_BOT_RUNTIME_HEARTBEAT_STALE_MS =
+    DEFAULT_BIDDING_RUNTIME_HEARTBEAT_STALE_MS;
+export const TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS =
+    DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS;
 
 export type TradingBotRuntimeHeartbeat = {
     state: TradingBotRuntimeState;
@@ -16,14 +24,11 @@ export type TradingBotRuntimeHeartbeat = {
 export function isTradingBotRuntimeHeartbeatLive(
     heartbeat: TradingBotRuntimeHeartbeat | null,
     nowMs: number = Date.now(),
+    maxAgeMs: number = TRADING_BOT_RUNTIME_HEARTBEAT_STALE_MS,
 ): boolean {
     return (
         heartbeat?.state === TRADING_BOT_RUNTIME_STATE.Running &&
-        isFreshIsoTimestamp(
-            heartbeat.heartbeatAt,
-            nowMs,
-            TRADING_BOT_RUNTIME_HEARTBEAT_STALE_MS,
-        )
+        isFreshIsoTimestamp(heartbeat.heartbeatAt, nowMs, maxAgeMs)
     );
 }
 

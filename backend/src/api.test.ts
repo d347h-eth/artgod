@@ -9,6 +9,12 @@ import {
     getSettingDefaultBoolean,
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
+import {
+    DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
+    DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
+    DEFAULT_BIDDING_RUNTIME_HEARTBEAT_INTERVAL_MS,
+    DEFAULT_BIDDING_RUNTIME_HEARTBEAT_STALE_MS,
+} from "@artgod/shared/config/bidding";
 import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc-resilience";
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from "@artgod/shared/config/bootstrap";
@@ -218,6 +224,7 @@ beforeAll(async () => {
     const getRuntimeConfigUseCase =
         new runtimeConfigUseCaseModule.GetRuntimeConfigUseCase(
             ENABLED_OPENSEA_INTEGRATION,
+            DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
         );
     const listCollectionsUseCase =
         new listCollectionsUseCaseModule.ListCollectionsUseCase(
@@ -957,6 +964,14 @@ beforeAll(async () => {
         integrations: {
             opensea: ENABLED_OPENSEA_INTEGRATION,
         },
+        bidding: {
+            bidBookLiveRefresh: DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
+            bidBookSnapshotStaleMs: DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
+            runtimeHeartbeat: {
+                intervalMs: DEFAULT_BIDDING_RUNTIME_HEARTBEAT_INTERVAL_MS,
+                staleMs: DEFAULT_BIDDING_RUNTIME_HEARTBEAT_STALE_MS,
+            },
+        },
     });
     await app.ready();
     await publicApp.ready();
@@ -990,6 +1005,9 @@ describe("backend api routes", () => {
         expect(result.statusCode).toBe(200);
         expect(result.payload.integrations.opensea).toEqual(
             ENABLED_OPENSEA_INTEGRATION,
+        );
+        expect(result.payload.bidding.bidBookLiveRefresh).toEqual(
+            DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
         );
     });
 
@@ -1696,8 +1714,8 @@ describe("backend api routes", () => {
         ).run("own-signal-job");
         db.prepare(
             "INSERT INTO trading_bidding_job_runtime_state " +
-                "(job_id, current_price_wei, active_order_id, active_protocol_address, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, updated_at) " +
-                "VALUES (?, '200000000000000000', ?, NULL, NULL, ?, ?, '210000000000000000', ?)",
+                "(job_id, job_revision, current_price_wei, active_order_id, active_protocol_address, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, updated_at) " +
+                "VALUES (?, 1, '200000000000000000', ?, NULL, NULL, ?, ?, '210000000000000000', ?)",
         ).run(
             "own-signal-job",
             "own-signal-bid",
@@ -1864,8 +1882,8 @@ describe("backend api routes", () => {
         });
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
-            TRADING_JOB_COMMAND_KIND.JobPaused,
             TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            TRADING_JOB_COMMAND_KIND.JobPaused,
         ]);
     });
 
@@ -2064,8 +2082,8 @@ describe("backend api routes", () => {
 
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
-            TRADING_JOB_COMMAND_KIND.JobPaused,
             TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            TRADING_JOB_COMMAND_KIND.JobPaused,
         ]);
     });
 
@@ -2111,8 +2129,8 @@ describe("backend api routes", () => {
 
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
-            TRADING_JOB_COMMAND_KIND.JobPaused,
             TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            TRADING_JOB_COMMAND_KIND.JobPaused,
         ]);
     });
 
@@ -2184,8 +2202,8 @@ describe("backend api routes", () => {
         expect(missing.payload.job).toBeNull();
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
-            TRADING_JOB_COMMAND_KIND.JobArchived,
             TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            TRADING_JOB_COMMAND_KIND.JobArchived,
         ]);
     });
 
@@ -2259,8 +2277,8 @@ describe("backend api routes", () => {
         expect(tokenJob.payload.job).toBeNull();
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
-            TRADING_JOB_COMMAND_KIND.JobArchived,
             TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            TRADING_JOB_COMMAND_KIND.JobArchived,
         ]);
     });
 

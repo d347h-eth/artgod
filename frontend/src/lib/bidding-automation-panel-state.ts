@@ -2,7 +2,7 @@ import {
 	TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
 	TRADING_JOB_STATUS
 } from '@artgod/shared/types';
-import type { ApiBiddingJob } from '$lib/api-types';
+import type { ApiBiddingBidBook, ApiBiddingJob } from '$lib/api-types';
 import {
 	BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
 	BIDDING_AUTOMATION_PRICING_MODE,
@@ -10,9 +10,11 @@ import {
 	type BiddingAutomationDraft,
 	type BiddingAutomationPricingMode
 } from '$lib/bidding-automation';
+import { bidBookRefreshSignalKey } from '$lib/bidding-bid-book-source';
 
 const BIDDING_PANEL_KEY_PART = {
 	EmptyJob: 'empty',
+	NoBidBookSignal: 'no-bid-book-signal',
 	NoDraft: 'no-draft'
 } as const;
 
@@ -38,7 +40,39 @@ export function resolveLoadedBiddingAutomationPanelKey(params: {
 	draft: BiddingAutomationDraft | null;
 	lookedUpJob: ApiBiddingJob | null;
 }): string {
-	return `${resolveLoadedJobKey(resolveBiddingAutomationPanelJob(params))}:${resolveDraftKey(params.draft)}`;
+	return `${resolveLoadedJobKey(resolveBiddingAutomationPanelJob(params))}:${resolveBiddingAutomationPanelDraftIdentityKey(params.draft)}`;
+}
+
+// Identifies the target and source draft whose editable fields are currently loaded.
+export function resolveBiddingAutomationPanelDraftIdentityKey(
+	draft: BiddingAutomationDraft | null
+): string {
+	return resolveDraftKey(draft);
+}
+
+// Invalidates target-job lookups when the bid-book read model advances for the same draft target.
+export function resolveBiddingAutomationPanelTargetLookupRequestKey(params: {
+	targetLookupKey: string;
+	bidBook: ApiBiddingBidBook | null;
+}): string {
+	if (!params.targetLookupKey) {
+		return '';
+	}
+	return [
+		params.targetLookupKey,
+		params.bidBook
+			? bidBookRefreshSignalKey(params.bidBook.state)
+			: BIDDING_PANEL_KEY_PART.NoBidBookSignal
+	].join(':');
+}
+
+// Keeps background refreshes from overwriting an in-progress panel edit.
+export function shouldPreserveBiddingAutomationPanelDraftOnLoadChange(params: {
+	draftInputTouched: boolean;
+	saving: boolean;
+	archiving: boolean;
+}): boolean {
+	return params.draftInputTouched || params.saving || params.archiving;
 }
 
 // Resolves the initial pricing mode from persisted job config first, then the active draft.

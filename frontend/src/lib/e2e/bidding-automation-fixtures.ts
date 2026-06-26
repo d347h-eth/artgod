@@ -11,6 +11,8 @@ import {
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	TRADING_BIDDING_BID_BOOK_SOURCE,
 	TRADING_BIDDING_BID_SCOPE_KIND,
+	TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
+	TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
 	TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND,
 	TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND,
 	TRADING_BIDDING_TIER_SELECTION_MODE,
@@ -61,6 +63,16 @@ const FIXTURE_NOW = '2026-05-01T12:00:00Z';
 
 // Stable test-only route root used by deterministic Playwright harness pages.
 export const BIDDING_AUTOMATION_E2E_COLLECTION_BASE_PATH = COLLECTION_BASE_PATH;
+
+// Opt-in harness query key for deterministic bidding lifecycle scenarios.
+export const BIDDING_E2E_SCENARIO_QUERY_PARAM = 'e2e_bidding_scenario';
+
+// Test-owned lifecycle scenarios that keep the default harness fixture stable.
+export const BIDDING_E2E_SCENARIO = {
+	CancellationPhases: 'cancellation_phases'
+} as const;
+
+type BiddingE2eScenario = (typeof BIDDING_E2E_SCENARIO)[keyof typeof BIDDING_E2E_SCENARIO];
 
 // Shared deterministic chain fixture for all bidding automation harness pages.
 export const BIDDING_E2E_CHAIN: ApiChain = {
@@ -229,7 +241,7 @@ const BASE_BID_ROWS: ApiBiddingBidBookRow[] = [
 		status: TRADING_JOB_STATUS.Enabled,
 		traits: [{ type: 'Biome', value: '42' }],
 		ownStatus: {
-			position: 'losing',
+			position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
 			constraints: [],
 			job: {
 				jobId: 'job-trait-biome-42',
@@ -257,8 +269,8 @@ const BASE_BID_ROWS: ApiBiddingBidBookRow[] = [
 		phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
 		status: TRADING_JOB_STATUS.Enabled,
 		ownStatus: {
-			position: 'losing',
-			constraints: ['ceiling'],
+			position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+			constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
 			job: {
 				jobId: 'job-token-101',
 				revision: 2,
@@ -285,8 +297,8 @@ const BASE_BID_ROWS: ApiBiddingBidBookRow[] = [
 		phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
 		status: TRADING_JOB_STATUS.Enabled,
 		ownStatus: {
-			position: 'losing',
-			constraints: ['floor'],
+			position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+			constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Floor],
 			job: {
 				jobId: 'job-token-102-low',
 				revision: 1,
@@ -304,7 +316,63 @@ const BASE_BID_ROWS: ApiBiddingBidBookRow[] = [
 	})
 ];
 
-const PRICE_TIERS: ApiBiddingPriceTier[] = [
+const CANCELLATION_PHASE_BID_ROWS: ApiBiddingBidBookRow[] = [
+	bidRow({
+		orderId: '0xtoken-103-canceling',
+		scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+		tokenId: '103',
+		priceEth: '0.245',
+		maker: OWN_ADDRESS,
+		isOwn: true,
+		jobId: 'job-token-103-canceling',
+		phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling,
+		status: TRADING_JOB_STATUS.Archived,
+		validUntil: 1_900_000_000,
+		placedAt: FIXTURE_NOW
+	}),
+	bidRow({
+		orderId: '0xtoken-104-cancel-failed',
+		scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+		tokenId: '104',
+		priceEth: '0.255',
+		maker: OWN_ADDRESS,
+		isOwn: true,
+		jobId: 'job-token-104-cancel-failed',
+		phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed,
+		status: TRADING_JOB_STATUS.Archived,
+		validUntil: 1_900_000_000,
+		placedAt: FIXTURE_NOW
+	}),
+	bidRow({
+		orderId: '0xtrait-biome-7-canceling',
+		scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+		priceEth: '0.275',
+		maker: OWN_ADDRESS,
+		isOwn: true,
+		jobId: 'job-trait-biome-7-canceling',
+		phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling,
+		status: TRADING_JOB_STATUS.Archived,
+		traits: [{ type: TERRAFORMS_BIOME_ATTRIBUTE_KEY, value: '7' }],
+		validUntil: 1_900_000_000,
+		placedAt: FIXTURE_NOW
+	}),
+	bidRow({
+		orderId: '0xtrait-zone-xleph-cancel-failed',
+		scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+		priceEth: '0.265',
+		maker: OWN_ADDRESS,
+		isOwn: true,
+		jobId: 'job-trait-zone-xleph-cancel-failed',
+		phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed,
+		status: TRADING_JOB_STATUS.Archived,
+		traits: [{ type: TERRAFORMS_ZONE_ATTRIBUTE_KEY, value: 'Xleph' }],
+		validUntil: 1_900_000_000,
+		placedAt: FIXTURE_NOW
+	})
+];
+
+// Shared deterministic price tiers used by harness pages and mocked API responses.
+export const BIDDING_E2E_PRICE_TIERS: ApiBiddingPriceTier[] = [
 	priceTier({
 		tierId: 'tier-base',
 		name: 'Base',
@@ -350,6 +418,32 @@ const JOBS: ApiBiddingJob[] = [
 		revision: 1
 	}),
 	biddingJob({
+		jobId: 'job-token-103-canceling',
+		status: TRADING_JOB_STATUS.Archived,
+		target: {
+			type: TRADING_JOB_TARGET_KIND.Token,
+			tokenId: '103'
+		},
+		floorEth: '0.240',
+		ceilingEth: '0.250',
+		deltaEth: '0.004',
+		revision: 6,
+		archivedAt: FIXTURE_NOW
+	}),
+	biddingJob({
+		jobId: 'job-token-104-cancel-failed',
+		status: TRADING_JOB_STATUS.Archived,
+		target: {
+			type: TRADING_JOB_TARGET_KIND.Token,
+			tokenId: '104'
+		},
+		floorEth: '0.250',
+		ceilingEth: '0.260',
+		deltaEth: '0.004',
+		revision: 7,
+		archivedAt: FIXTURE_NOW
+	}),
+	biddingJob({
 		jobId: 'job-trait-biome-42',
 		status: TRADING_JOB_STATUS.Enabled,
 		target: {
@@ -361,6 +455,34 @@ const JOBS: ApiBiddingJob[] = [
 		ceilingEth: '0.400',
 		deltaEth: '0.004',
 		revision: 3
+	}),
+	biddingJob({
+		jobId: 'job-trait-biome-7-canceling',
+		status: TRADING_JOB_STATUS.Archived,
+		target: {
+			type: TRADING_JOB_TARGET_KIND.Collection,
+			quantity: 1,
+			targetTraits: [{ type: TERRAFORMS_BIOME_ATTRIBUTE_KEY, value: '7' }]
+		},
+		floorEth: '0.270',
+		ceilingEth: '0.280',
+		deltaEth: '0.004',
+		revision: 8,
+		archivedAt: FIXTURE_NOW
+	}),
+	biddingJob({
+		jobId: 'job-trait-zone-xleph-cancel-failed',
+		status: TRADING_JOB_STATUS.Archived,
+		target: {
+			type: TRADING_JOB_TARGET_KIND.Collection,
+			quantity: 1,
+			targetTraits: [{ type: TERRAFORMS_ZONE_ATTRIBUTE_KEY, value: 'Xleph' }]
+		},
+		floorEth: '0.260',
+		ceilingEth: '0.270',
+		deltaEth: '0.004',
+		revision: 9,
+		archivedAt: FIXTURE_NOW
 	}),
 	biddingJob({
 		jobId: 'job-collection',
@@ -418,7 +540,7 @@ export function buildBiddingE2eCollectionDetailData(searchParams: URLSearchParam
 		tokenStatus,
 		displayMode,
 		biddingSettings: BIDDING_E2E_SETTINGS,
-		priceTiers: PRICE_TIERS
+		priceTiers: BIDDING_E2E_PRICE_TIERS
 	};
 }
 
@@ -429,25 +551,28 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 	const bidScope = parseCollectionBiddingBidScopeFilter(searchParams);
 	const traitJoinMode = parseCollectionBiddingTraitFilterJoinMode(searchParams);
 	const makerFilter = parseBidBookMakerFilter(searchParams);
+	const scenario = parseBiddingE2eScenario(searchParams);
 	const bidBook = buildBidBook({
 		bidScope,
 		traitJoinMode,
 		selectedTraits,
-		makerFilter
+		makerFilter,
+		scenario
 	});
 	const tokenOfferCards = buildTokenOfferCardsPage({
 		selectedTraits,
 		selectedTraitRanges,
 		traitJoinMode,
 		makerFilter,
-		cursor: searchParams.get('cursor')
+		cursor: searchParams.get('cursor'),
+		scenario
 	});
 
 	return {
 		chain: BIDDING_E2E_CHAIN,
 		collection: BIDDING_E2E_COLLECTION,
 		biddingSettings: BIDDING_E2E_SETTINGS,
-		priceTiers: PRICE_TIERS,
+		priceTiers: BIDDING_E2E_PRICE_TIERS,
 		bidBook,
 		tokenOfferCards,
 		facets: BIDDING_E2E_FACETS,
@@ -467,20 +592,21 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 // Builds fixture data for the token-detail bidding harness route.
 export function buildBiddingE2eTokenDetailData(tokenRef: string, searchParams: URLSearchParams) {
 	const token = tokenDetail(tokenRef);
+	const scenario = parseBiddingE2eScenario(searchParams);
 	return {
 		chain: BIDDING_E2E_CHAIN,
 		collection: BIDDING_E2E_COLLECTION,
 		media: BIDDING_E2E_MEDIA,
 		token,
 		biddingSettings: BIDDING_E2E_SETTINGS,
-		priceTiers: PRICE_TIERS,
+		priceTiers: BIDDING_E2E_PRICE_TIERS,
 		traitFilterPresentation: traitFilterPresentation(),
 		tokenBiddingJob:
 			JOBS.find(
 				(job) =>
 					job.target.type === TRADING_JOB_TARGET_KIND.Token && job.target.tokenId === tokenRef
 			) ?? null,
-		tokenBiddingBidBook: buildTokenDetailBidBook(tokenRef),
+		tokenBiddingBidBook: buildTokenDetailBidBook(tokenRef, scenario),
 		showMuted: parseShowMutedBidBook(searchParams),
 		backPath: COLLECTION_BASE_PATH,
 		backQuery: null
@@ -551,6 +677,17 @@ export function buildBiddingE2eMutationJob(body: unknown, fallbackJobId: string)
 	});
 }
 
+function parseBiddingE2eScenario(searchParams: URLSearchParams): BiddingE2eScenario | null {
+	const value = searchParams.get(BIDDING_E2E_SCENARIO_QUERY_PARAM);
+	return value === BIDDING_E2E_SCENARIO.CancellationPhases ? value : null;
+}
+
+function bidRowsForScenario(scenario: BiddingE2eScenario | null): ApiBiddingBidBookRow[] {
+	return scenario === BIDDING_E2E_SCENARIO.CancellationPhases
+		? [...BASE_BID_ROWS, ...CANCELLATION_PHASE_BID_ROWS]
+		: BASE_BID_ROWS;
+}
+
 function buildTokensPage(params: {
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
@@ -583,9 +720,11 @@ function buildTokenOfferCardsPage(params: {
 	traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 	makerFilter: string | null;
 	cursor: string | null;
+	scenario: BiddingE2eScenario | null;
 }): ApiBiddingTokenOfferCardsPage {
+	const bidRows = bidRowsForScenario(params.scenario);
 	const cards = TOKEN_CARDS.map((token) => {
-		const offers = BASE_BID_ROWS.filter(
+		const offers = bidRows.filter(
 			(row) =>
 				row.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token &&
 				row.scope.tokenId === token.tokenId &&
@@ -617,8 +756,9 @@ function buildBidBook(params: {
 	traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 	selectedTraits: ApiTokenAttribute[];
 	makerFilter: string | null;
+	scenario: BiddingE2eScenario | null;
 }): ApiBiddingBidBook {
-	const bids = BASE_BID_ROWS.filter((row) => {
+	const bids = bidRowsForScenario(params.scenario).filter((row) => {
 		if (params.bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
 			if (row.scope.kind !== TRADING_BIDDING_BID_SCOPE_KIND.Token) {
 				return false;
@@ -660,9 +800,12 @@ function buildBidBook(params: {
 	};
 }
 
-function buildTokenDetailBidBook(tokenId: string): ApiBiddingBidBook {
+function buildTokenDetailBidBook(
+	tokenId: string,
+	scenario: BiddingE2eScenario | null
+): ApiBiddingBidBook {
 	const token = tokenCardById(tokenId);
-	const bids = BASE_BID_ROWS.filter((row) => {
+	const bids = bidRowsForScenario(scenario).filter((row) => {
 		if (row.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
 			return true;
 		}
@@ -761,6 +904,7 @@ function bidRow(params: {
 	phase?: ApiBiddingBidBookRow['materialization']['phase'];
 	status?: ApiBiddingJob['status'];
 	validUntil?: number | null;
+	placedAt?: string | null;
 	ownStatus?: ApiBiddingBidBookRow['ownStatus'];
 }): ApiBiddingBidBookRow {
 	const traits = params.traits ?? [];
@@ -810,7 +954,7 @@ function bidRow(params: {
 		currencySymbol: 'WETH',
 		protocolAddress: null,
 		validUntil: params.validUntil ?? null,
-		placedAt: params.jobId ? null : FIXTURE_NOW,
+		placedAt: params.placedAt ?? (params.jobId ? null : FIXTURE_NOW),
 		snapshotRefreshedAtMs: null,
 		seenAt: FIXTURE_NOW,
 		ownStatus: params.ownStatus ?? null

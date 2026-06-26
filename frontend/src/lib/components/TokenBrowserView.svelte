@@ -150,7 +150,7 @@
 			tokenStatus,
 			media.selectedMode
 		);
-		const incoming = pageToPaginationWindow(tokens);
+		const incoming = pageToPaginationWindow(tokens, requestCursor);
 		const cached = browser ? readPaginationWindow<ApiTokenCard>(signature) : null;
 		const resolved = resolvePaginationWindow({
 			cached,

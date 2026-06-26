@@ -7,6 +7,7 @@ import {
 } from "@artgod/shared/types";
 import type { CollectionOfferSnapshot } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
 import type {
+    BiddingBidBookProjectionErrorInput,
     BiddingBidBookProjectionPort,
     BiddingBidBookProjectionResult,
 } from "../../application/use-cases/bidding/bidding-bid-book-projection.js";
@@ -73,6 +74,15 @@ export class SqliteBiddingBidBookProjection
         rowCount: number;
         durationMs: number;
         lastError: string | null;
+    }>;
+    private readonly recordStateError: BetterSqlite3NamedStatement<{
+        chainId: number;
+        collectionId: number;
+        source: typeof TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot;
+        snapshotRefreshedAtMs: number;
+        projectedAt: string;
+        durationMs: number;
+        lastError: string;
     }>;
 
     constructor(
@@ -152,6 +162,33 @@ export class SqliteBiddingBidBookProjection
             durationMs: number;
             lastError: string | null;
         }>;
+
+        this.recordStateError = db.prepare<{
+            chainId: number;
+            collectionId: number;
+            source: typeof TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot;
+            snapshotRefreshedAtMs: number;
+            projectedAt: string;
+            durationMs: number;
+            lastError: string;
+        }>(
+            "INSERT INTO trading_bidding_collection_bid_book_state " +
+                "(chain_id, collection_id, source, snapshot_refreshed_at_ms, projected_at, row_count, duration_ms, last_error) " +
+                "VALUES (@chainId, @collectionId, @source, @snapshotRefreshedAtMs, @projectedAt, 0, @durationMs, @lastError) " +
+                "ON CONFLICT(chain_id, collection_id, source) DO UPDATE SET " +
+                "snapshot_refreshed_at_ms = excluded.snapshot_refreshed_at_ms, " +
+                "projected_at = excluded.projected_at, " +
+                "duration_ms = excluded.duration_ms, " +
+                "last_error = excluded.last_error",
+        ) as BetterSqlite3NamedStatement<{
+            chainId: number;
+            collectionId: number;
+            source: typeof TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot;
+            snapshotRefreshedAtMs: number;
+            projectedAt: string;
+            durationMs: number;
+            lastError: string;
+        }>;
     }
 
     async replaceCollectionBidBook(
@@ -220,6 +257,44 @@ export class SqliteBiddingBidBookProjection
             rowCount: rows.length,
             durationMs,
         };
+    }
+
+    async recordCollectionBidBookError(
+        input: BiddingBidBookProjectionErrorInput,
+    ): Promise<void> {
+        const collection = this.selectCollection.get({
+            chainId: this.chainId,
+            collectionSlug: input.snapshot.collectionSlug,
+        }) as CollectionRow | undefined;
+        if (!collection) {
+            log.warn(
+                "collectionMissingForProjectionError",
+                "Skipping bid-book projection error record because collection was not found",
+                { collectionSlug: input.snapshot.collectionSlug },
+            );
+            return;
+        }
+
+        // Mark the bot snapshot source as unhealthy while preserving the last good rows for diagnostics.
+        this.recordStateError.run({
+            chainId: this.chainId,
+            collectionId: collection.collection_id,
+            source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+            snapshotRefreshedAtMs: input.snapshot.refreshedAt,
+            projectedAt: new Date().toISOString(),
+            durationMs: input.durationMs,
+            lastError: input.errorMessage,
+        });
+
+        log.warn(
+            "bidBookProjectionErrorRecorded",
+            "Recorded bid-book projection error",
+            {
+                collectionSlug: input.snapshot.collectionSlug,
+                reason: input.reason,
+                durationMs: input.durationMs,
+            },
+        );
     }
 
     private mapSnapshotRows(

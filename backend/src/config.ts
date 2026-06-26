@@ -12,6 +12,10 @@ import {
     getSettingDefaultCsv,
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
+import {
+    parseBiddingConfig,
+    type BiddingConfig,
+} from "@artgod/shared/config/bidding";
 import { COMMON_MEDIA_ENV_KEY } from "@artgod/shared/config/common-media";
 import {
     parseRpcEndpointConfigList,
@@ -205,6 +209,7 @@ export type BackendConfig = {
     integrations: {
         opensea: OpenSeaIntegrationStatus;
     };
+    bidding: BiddingConfig;
 };
 
 function parseAddress(value: string | undefined, name: string): string {
@@ -272,6 +277,7 @@ export function loadBackendConfig(
     const integrations = {
         opensea: openseaIntegration,
     };
+    const bidding = parseBiddingConfig(env);
 
     return {
         host,
@@ -301,6 +307,7 @@ export function loadBackendConfig(
         metrics,
         apm,
         integrations,
+        bidding,
     };
 }
 

@@ -35,6 +35,7 @@ export type BiddingAutomationController = {
 	selectExplicitTokens(tokenIds: string[]): void;
 	selectBid(selection: Omit<BiddingAutomationSelectedBidSelection, 'type'>): void;
 	toggleToken(input: ToggleBiddingTokenInput): void;
+	pruneInvisibleTokenSelection(visibleTokenIds: string[]): void;
 	clearSelection(): void;
 	isTokenSelected(tokenId: string): boolean;
 	tokenSelectionState(tokenId: string): TokenCardSelectionState;
@@ -101,6 +102,12 @@ export function createBiddingAutomationController(): BiddingAutomationController
 		}));
 	}
 
+	function pruneInvisibleTokenSelection(visibleTokenIds: string[]): void {
+		state.update((current) => ({
+			selection: nextSelectionAfterVisibleTokenPrune(current.selection, visibleTokenIds)
+		}));
+	}
+
 	function selectExplicitTokens(tokenIds: string[]): void {
 		state.set({
 			selection: tokenIds.length > 0
@@ -143,6 +150,7 @@ export function createBiddingAutomationController(): BiddingAutomationController
 		selectExplicitTokens,
 		selectBid,
 		toggleToken,
+		pruneInvisibleTokenSelection,
 		clearSelection,
 		isTokenSelected,
 		tokenSelectionState,
@@ -221,6 +229,46 @@ export function biddingAutomationTokenSelectionState(
 	return {
 		selected: isBiddingAutomationTokenSelected(selection, tokenId)
 	};
+}
+
+// Removes token-card selections that left the current visible result set.
+function nextSelectionAfterVisibleTokenPrune(
+	selection: BiddingAutomationSelection | null,
+	visibleTokenIds: string[]
+): BiddingAutomationSelection | null {
+	if (!selection) {
+		return null;
+	}
+	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens) {
+		const visibleTokenIdSet = new Set(visibleTokenIds);
+		const tokenIds = selection.tokenIds.filter((tokenId) => visibleTokenIdSet.has(tokenId));
+		return tokenIds.length > 0
+			? {
+					...selection,
+					tokenIds
+				}
+			: null;
+	}
+	if (
+		selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens &&
+		selection.targetIntent === BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch &&
+		selection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.VisibleTokenAdjustments
+	) {
+		const visibleTokenIdSet = new Set(visibleTokenIds);
+		const visibleTokenIdsAfterPrune = selection.state.visibleTokenIds.filter((tokenId) =>
+			visibleTokenIdSet.has(tokenId)
+		);
+		return visibleTokenIdsAfterPrune.length > 0
+			? {
+					...selection,
+					state: {
+						...selection.state,
+						visibleTokenIds: visibleTokenIdsAfterPrune
+					}
+				}
+			: null;
+	}
+	return selection;
 }
 
 // Treats clean filtered selections as selecting every visible card in the active view.

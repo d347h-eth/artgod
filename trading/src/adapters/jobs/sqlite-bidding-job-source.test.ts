@@ -165,6 +165,7 @@ describe("SqliteBiddingJobSource", () => {
 
         assert.deepEqual(jobsById.get("job-token"), {
             id: "job-token",
+            revision: 1,
             network: "eth",
             collectionAddress: "0x1111111111111111111111111111111111111111",
             collectionSlug: "terraforms",
@@ -182,6 +183,7 @@ describe("SqliteBiddingJobSource", () => {
 
         assert.deepEqual(jobsById.get("job-collection"), {
             id: "job-collection",
+            revision: 1,
             network: "eth",
             collectionAddress: "0x2222222222222222222222222222222222222222",
             collectionSlug: "grails",
@@ -200,6 +202,7 @@ describe("SqliteBiddingJobSource", () => {
 
         assert.deepEqual(jobsById.get("job-competitive"), {
             id: "job-competitive",
+            revision: 1,
             network: "eth",
             collectionAddress: "0x1111111111111111111111111111111111111111",
             collectionSlug: "terraforms",
@@ -244,16 +247,20 @@ describe("SqliteBiddingJobSource", () => {
         // Seed runtime state so bot restarts preserve known active order feedback.
         db.prepare<{
             jobId: string;
+            jobRevision: number;
             currentPriceWei: string;
             activeOrderId: string;
+            activeOrderPlacedAt: string;
         }>(
             "INSERT INTO trading_bidding_job_runtime_state " +
-                "(job_id, current_price_wei, active_order_id) " +
-                "VALUES (@jobId, @currentPriceWei, @activeOrderId)",
+                "(job_id, job_revision, current_price_wei, active_order_id, active_order_placed_at) " +
+                "VALUES (@jobId, @jobRevision, @currentPriceWei, @activeOrderId, @activeOrderPlacedAt)",
         ).run({
             jobId: "job-enabled",
+            jobRevision: 1,
             currentPriceWei: "150000000000000000",
             activeOrderId: "0xexisting-order",
+            activeOrderPlacedAt: "2026-05-17T00:00:00Z",
         });
 
         const source = new SqliteBiddingJobSource(1);
@@ -263,9 +270,44 @@ describe("SqliteBiddingJobSource", () => {
         assert.equal(jobs[0]?.id, "job-enabled");
         assert.deepEqual(jobs[0]?.state, {
             activeOrderId: "0xexisting-order",
+            activeOrderPlacedAt: "2026-05-17T00:00:00Z",
             currentPrice: 150000000000000000n,
             activeProtocolAddress: undefined,
             activeExpirationTimeMs: undefined,
         });
+    });
+
+    it("does not hydrate runtime state written for an older job revision", async () => {
+        seedJob({
+            jobId: "job-enabled",
+            collectionId: terraformsCollectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            targetKind: TRADING_JOB_TARGET_KIND.Token,
+            tokenId: "1",
+        });
+        db.prepare("UPDATE trading_jobs SET revision = 2 WHERE job_id = ?").run(
+            "job-enabled",
+        );
+        db.prepare<{
+            jobId: string;
+            jobRevision: number;
+            currentPriceWei: string;
+            activeOrderId: string;
+        }>(
+            "INSERT INTO trading_bidding_job_runtime_state " +
+                "(job_id, job_revision, current_price_wei, active_order_id) " +
+                "VALUES (@jobId, @jobRevision, @currentPriceWei, @activeOrderId)",
+        ).run({
+            jobId: "job-enabled",
+            jobRevision: 1,
+            currentPriceWei: "150000000000000000",
+            activeOrderId: "0xold-order",
+        });
+
+        const source = new SqliteBiddingJobSource(1);
+        const job = (await source.loadEnabledJobs())[0];
+
+        assert.equal(job?.revision, 2);
+        assert.deepEqual(job?.state, {});
     });
 });

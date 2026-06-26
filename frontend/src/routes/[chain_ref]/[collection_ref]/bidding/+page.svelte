@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CollectionBiddingView from '$lib/components/CollectionBiddingView.svelte';
+	import type { BiddingBidBookLiveRefreshConfig } from '@artgod/shared/config/bidding';
 	import type {
 		ApiBiddingBidBook,
 		ApiBiddingCollectionSettings,
@@ -26,6 +27,7 @@
 		collection: ApiCollection | null;
 		biddingSettings: ApiBiddingCollectionSettings;
 		priceTiers: ApiBiddingPriceTier[];
+		bidBookLiveRefreshConfig?: BiddingBidBookLiveRefreshConfig;
 		bidBook: ApiBiddingBidBook;
 		tokenOfferCards: ApiBiddingTokenOfferCardsPage;
 		facets: ApiTraitFacet[];
@@ -57,6 +59,7 @@
 	collection={data?.collection ?? null}
 	biddingSettings={data?.biddingSettings ?? defaultBiddingCollectionSettings()}
 	priceTiers={data?.priceTiers ?? []}
+	bidBookLiveRefreshConfig={data?.bidBookLiveRefreshConfig}
 	bidBook={data?.bidBook ?? emptyBiddingBidBook()}
 	tokenOfferCards={data?.tokenOfferCards ?? emptyBiddingTokenOfferCardsPage()}
 	facets={data?.facets ?? []}

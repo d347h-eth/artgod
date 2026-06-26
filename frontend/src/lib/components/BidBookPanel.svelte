@@ -16,6 +16,7 @@
 		oppositeCompactTimeTitle,
 		type CompactTimeDisplayMode
 	} from '$lib/compact-time-display';
+	import { BID_BOOK_RELATIVE_TIME_TICK_MS } from '$lib/bidding-bid-book-source';
 	import {
 		BID_BOOK_ROWS_TABLE_SCOPE_KIND,
 		type BidBookDemandTableGroup,
@@ -70,6 +71,7 @@
 	let {
 		bidBook,
 		job = null,
+		nextUpdateAtMs = null,
 		showScope = false,
 		showRowActions = true,
 		showMuted = false,
@@ -88,6 +90,7 @@
 	}: {
 		bidBook: ApiBiddingBidBook;
 		job?: ApiBiddingJob | null;
+		nextUpdateAtMs?: number | null;
 		showScope?: boolean;
 		showRowActions?: boolean;
 		showMuted?: boolean;
@@ -146,6 +149,7 @@
 	const bidBucketStepWei = $derived(resolveDecimalBucketStepWei(displayedBids));
 	const rowsTableRows = $derived(resolveRowsTableRows(displayedBids));
 	const demandTableGroups = $derived(resolveDemandTableGroups(visibleDemandGroups));
+	const bidBookRelativeTimeKey = $derived(resolveBidBookRelativeTimeKey(bidBook));
 
 	$effect(() => {
 		if (activeDemandTraitKey && !demandTraitTabs.some((tab) => tab.key === activeDemandTraitKey)) {
@@ -162,8 +166,12 @@
 	$effect(() => {
 		const timer = window.setInterval(() => {
 			nowMs = Date.now();
-		}, 60_000);
+		}, BID_BOOK_RELATIVE_TIME_TICK_MS);
 		return () => window.clearInterval(timer);
+	});
+
+	$effect(() => {
+		refreshRelativeClockForBidBookKey(bidBookRelativeTimeKey);
 	});
 
 	function compareBidRows(left: ApiBiddingBidBookRow, right: ApiBiddingBidBookRow): number {
@@ -173,6 +181,25 @@
 			return left.orderId.localeCompare(right.orderId);
 		}
 		return leftPrice > rightPrice ? -1 : 1;
+	}
+
+	function refreshRelativeClockForBidBookKey(_key: string): void {
+		nowMs = Date.now();
+	}
+
+	function resolveBidBookRelativeTimeKey(input: ApiBiddingBidBook): string {
+		return input.bids
+			.map((bid) =>
+				[
+					bid.orderId,
+					bid.materialization.kind,
+					bid.placedAt ?? '',
+					bid.validUntil ?? '',
+					bid.seenAt ?? '',
+					bid.snapshotRefreshedAtMs ?? ''
+				].join(':')
+			)
+			.join('|');
 	}
 
 	function compareDemandGroups(left: BidBookDemandGroup, right: BidBookDemandGroup): number {
@@ -891,7 +918,13 @@
 
 </script>
 
-<BidBookMetaBar {bidBook} {ownStateBadges} {showTraitDemandView} {displayedDemandGroupCount} />
+<BidBookMetaBar
+	{bidBook}
+	{nextUpdateAtMs}
+	{ownStateBadges}
+	{showTraitDemandView}
+	{displayedDemandGroupCount}
+/>
 
 {#if visibleBids.length === 0}
 	<section class="bid-book-table-panel">

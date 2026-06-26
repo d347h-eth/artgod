@@ -1114,6 +1114,41 @@ label = "bidding bid book projection throttle ms"
 default = "15000"
 
 [[settings]]
+key = "BIDDING_BID_BOOK_SNAPSHOT_STALE_MS"
+group = "bidding"
+label = "bidding bid book snapshot stale ms"
+help = "How long the bid book can keep using the bot snapshot before falling back to marketplace orders."
+default = "120000"
+
+[[settings]]
+key = "BIDDING_BID_BOOK_NORMAL_LIVE_POLL_MS"
+group = "bidding"
+label = "bidding bid book normal live poll ms"
+help = "How often bid books refresh while they are reading regular marketplace orders."
+default = "10000"
+
+[[settings]]
+key = "BIDDING_BID_BOOK_COMPETITIVE_LIVE_POLL_MS"
+group = "bidding"
+label = "bidding bid book competitive live poll ms"
+help = "How often bid books refresh while they are reading the active bidding bot snapshot."
+default = "5000"
+
+[[settings]]
+key = "BIDDING_RUNTIME_HEARTBEAT_INTERVAL_MS"
+group = "bidding"
+label = "bidding runtime heartbeat interval ms"
+help = "How often the bidding bot reports that it is running so bid books can trust fresh bot snapshots."
+default = "10000"
+
+[[settings]]
+key = "BIDDING_RUNTIME_HEARTBEAT_STALE_MS"
+group = "bidding"
+label = "bidding runtime heartbeat stale ms"
+help = "How old the bot heartbeat can get before bid books stop treating the bot snapshot as live."
+default = "30000"
+
+[[settings]]
 key = "BIDDING_ORDER_LOOKUP_MAX_PAGES"
 group = "bidding"
 label = "bidding order lookup max pages"

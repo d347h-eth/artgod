@@ -13,6 +13,13 @@ import {
     getDefaultHttpFetchResilienceConfig,
     HTTP_FETCH_RESILIENCE_ENV_KEY,
 } from "@artgod/shared/config/http-fetch-resilience";
+import {
+    BIDDING_CONFIG_ENV_KEY,
+    DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
+    DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
+    DEFAULT_BIDDING_RUNTIME_HEARTBEAT_INTERVAL_MS,
+    DEFAULT_BIDDING_RUNTIME_HEARTBEAT_STALE_MS,
+} from "@artgod/shared/config/bidding";
 import { COMMON_MEDIA_ENV_KEY } from "@artgod/shared/config/common-media";
 import { RPC_ENDPOINT_LIST_ENV_KEY } from "@artgod/shared/config/rpc-endpoints";
 import { loadBackendConfig } from "./config.js";
@@ -150,6 +157,42 @@ describe("loadBackendConfig", () => {
 
         expect(config.sync).toEqual({
             backfillBatchSize: 25,
+        });
+    });
+
+    it("parses bidding read-model and frontend cadence tuning", () => {
+        const config = loadBackendConfig({
+            ...createBaseEnv(),
+            [BIDDING_CONFIG_ENV_KEY.BidBookSnapshotStaleMs]: "45000",
+            [BIDDING_CONFIG_ENV_KEY.BidBookNormalLivePollMs]: "12000",
+            [BIDDING_CONFIG_ENV_KEY.BidBookCompetitiveLivePollMs]: "4000",
+            [BIDDING_CONFIG_ENV_KEY.RuntimeHeartbeatIntervalMs]: "8000",
+            [BIDDING_CONFIG_ENV_KEY.RuntimeHeartbeatStaleMs]: "24000",
+        });
+
+        expect(config.bidding).toEqual({
+            bidBookLiveRefresh: {
+                normalPollMs: 12000,
+                competitivePollMs: 4000,
+            },
+            bidBookSnapshotStaleMs: 45000,
+            runtimeHeartbeat: {
+                intervalMs: 8000,
+                staleMs: 24000,
+            },
+        });
+    });
+
+    it("defaults bidding tuning from the settings manifest", () => {
+        const config = loadBackendConfig(createBaseEnv());
+
+        expect(config.bidding).toEqual({
+            bidBookLiveRefresh: DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
+            bidBookSnapshotStaleMs: DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
+            runtimeHeartbeat: {
+                intervalMs: DEFAULT_BIDDING_RUNTIME_HEARTBEAT_INTERVAL_MS,
+                staleMs: DEFAULT_BIDDING_RUNTIME_HEARTBEAT_STALE_MS,
+            },
         });
     });
 

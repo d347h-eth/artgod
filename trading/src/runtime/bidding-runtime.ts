@@ -134,7 +134,9 @@ export async function startBiddingRuntime(
         walletId: params.walletId,
         address: params.makerAddress,
     };
-    const runtimeState = new SqliteTradingBotRuntimeState();
+    const runtimeState = new SqliteTradingBotRuntimeState(
+        params.config.bidding.runtimeHeartbeat.intervalMs,
+    );
     // Publish a bootstrapping heartbeat so backend readers can see the bot process is alive but not snapshot-ready.
     runtimeState.startHeartbeat(
         runtimeStateIdentity,

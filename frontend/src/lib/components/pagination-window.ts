@@ -3,6 +3,8 @@ export type PaginationWindowState<TItem> = {
 	rangeStart: number;
 	rangeEnd: number;
 	pagesLoaded: number;
+	// Cursor that loaded the head page, used to rebuild mutable cursor windows coherently.
+	headRequestCursor: string | null;
 	headPrevCursor: string | null;
 	tailNextCursor: string | null;
 };
@@ -13,6 +15,13 @@ export type PaginationWindowMetrics = {
 	hasNextPage: boolean;
 	visibleStartPage: number;
 	visibleEndPage: number;
+};
+
+// Result from rebuilding loaded cursor pages from the current head page.
+export type RefreshedPaginationWindow<TItem, TResponse> = {
+	headResponse: TResponse;
+	responses: TResponse[];
+	window: PaginationWindowState<TItem>;
 };
 
 type CursorPageLike<TItem> = {
@@ -63,13 +72,15 @@ export function writePaginationWindow<TItem>(
 
 // Converts a single cursor page response into the shared accumulated window shape.
 export function pageToPaginationWindow<TItem>(
-	page: CursorPageLike<TItem>
+	page: CursorPageLike<TItem>,
+	requestCursor: string | null = null
 ): PaginationWindowState<TItem> {
 	return {
 		items: page.items,
 		rangeStart: page.rangeStart,
 		rangeEnd: page.rangeEnd,
 		pagesLoaded: page.items.length === 0 ? 0 : 1,
+		headRequestCursor: requestCursor,
 		headPrevCursor: page.prevCursor,
 		tailNextCursor: page.nextCursor
 	};
@@ -127,7 +138,8 @@ export function resolvePaginationWindow<TItem>(params: {
 			rangeStart: cached.rangeStart || incoming.rangeStart,
 			rangeEnd: Math.max(cached.rangeEnd, incoming.rangeEnd),
 			pagesLoaded: cached.pagesLoaded + (incoming.items.length === 0 ? 0 : 1),
-			headPrevCursor: cached.headPrevCursor ?? incoming.headPrevCursor,
+			headRequestCursor: cached.headRequestCursor,
+			headPrevCursor: cached.headPrevCursor,
 			tailNextCursor: incoming.tailNextCursor
 		};
 	}
@@ -143,12 +155,49 @@ export function resolvePaginationWindow<TItem>(params: {
 						: cached.rangeStart,
 			rangeEnd: Math.max(cached.rangeEnd, incoming.rangeEnd),
 			pagesLoaded: cached.pagesLoaded + (incoming.items.length === 0 ? 0 : 1),
+			headRequestCursor: incoming.headRequestCursor,
 			headPrevCursor: incoming.headPrevCursor,
 			tailNextCursor: cached.tailNextCursor
 		};
 	}
 
 	return incoming;
+}
+
+// Rebuilds loaded cursor pages from the head so mutable sorts use one fresh cursor chain.
+export async function refreshPaginationWindowFromHead<TItem, TResponse>(params: {
+	pagesLoaded: number;
+	headRequestCursor: string | null;
+	loadPage: (cursor: string | null) => Promise<TResponse>;
+	pageFromResponse: (response: TResponse) => CursorPageLike<TItem>;
+	itemKey: (item: TItem) => string;
+}): Promise<RefreshedPaginationWindow<TItem, TResponse>> {
+	const pagesToRefresh = Math.max(params.pagesLoaded, 1);
+	const headResponse = await params.loadPage(params.headRequestCursor);
+	const responses = [headResponse];
+	const headPage = params.pageFromResponse(headResponse);
+	let window = pageToPaginationWindow(headPage, params.headRequestCursor);
+	let nextCursor = headPage.nextCursor;
+
+	for (let pageIndex = 1; pageIndex < pagesToRefresh && nextCursor; pageIndex += 1) {
+		const response = await params.loadPage(nextCursor);
+		responses.push(response);
+		const page = params.pageFromResponse(response);
+		const incoming = pageToPaginationWindow(page, nextCursor);
+		window = resolvePaginationWindow({
+			cached: window,
+			incoming,
+			requestCursor: nextCursor,
+			itemKey: params.itemKey
+		});
+		nextCursor = page.nextCursor;
+	}
+
+	return {
+		headResponse,
+		responses,
+		window
+	};
 }
 
 function appendUniqueItems<TItem>(

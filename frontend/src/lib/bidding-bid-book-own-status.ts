@@ -15,6 +15,8 @@ export type BidBookOwnStatusBadge = {
 };
 
 const OWN_JOB_INTENT_PHASE_LABELS = {
+	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed]: 'cancel failed',
+	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling]: 'canceling',
 	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused]: 'paused',
 	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued]: 'queued'
 } as const;
@@ -38,20 +40,20 @@ export function ownBidStatusBadges(bid: ApiBiddingBidBookRow): BidBookOwnStatusB
 	if (!bid.maker.isOwn) {
 		return [];
 	}
+	if (bid.ownStatus) {
+		return [
+			{ kind: bid.ownStatus.position, label: bid.ownStatus.position },
+			...bid.ownStatus.constraints.map((constraint) => ({
+				kind: constraint,
+				label: OWN_BID_CONSTRAINT_LABELS[constraint]
+			}))
+		];
+	}
 	if (bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent) {
 		const phase = bid.materialization.phase ?? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued;
 		return [ownJobIntentPhaseBadge(phase)];
 	}
-	if (!bid.ownStatus) {
-		return [];
-	}
-	return [
-		{ kind: bid.ownStatus.position, label: bid.ownStatus.position },
-		...bid.ownStatus.constraints.map((constraint) => ({
-			kind: constraint,
-			label: OWN_BID_CONSTRAINT_LABELS[constraint]
-		}))
-	];
+	return [];
 }
 
 // Resolves the user-facing state badges for the bidding panel from backend-owned bid-book signals.
@@ -59,11 +61,8 @@ export function ownBiddingJobStateBadges(
 	job: ApiBiddingJob | null,
 	bidBook: ApiBiddingBidBook | null
 ): BidBookOwnStatusBadge[] {
-	if (!job || job.status === TRADING_JOB_STATUS.Archived) {
+	if (!job) {
 		return [];
-	}
-	if (job.status === TRADING_JOB_STATUS.Paused) {
-		return [ownJobIntentPhaseBadge(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused)];
 	}
 
 	const marketBid = bidBook?.bids.find(
@@ -81,6 +80,14 @@ export function ownBiddingJobStateBadges(
 	);
 	if (ownIntentBid) {
 		return ownBidStatusBadges(ownIntentBid);
+	}
+
+	if (job.status === TRADING_JOB_STATUS.Archived) {
+		return [];
+	}
+
+	if (job.status === TRADING_JOB_STATUS.Paused) {
+		return [ownJobIntentPhaseBadge(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused)];
 	}
 
 	return [ownJobIntentPhaseBadge(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued)];

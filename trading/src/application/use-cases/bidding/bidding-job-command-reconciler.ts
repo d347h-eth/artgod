@@ -31,6 +31,9 @@ const log = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.BiddingCommandReconciler,
 );
 
+// Ordered command replay claims one row at a time so later commands do not hide behind an earlier retry.
+const ORDERED_COMMAND_CLAIM_LIMIT = 1;
+
 // BiddingJobCommandReconciler applies durable DB Outbox commands to the live bidder.
 export class BiddingJobCommandReconciler {
     private readonly mutex = new Mutex();
@@ -45,27 +48,33 @@ export class BiddingJobCommandReconciler {
 
     async processPendingCommands(trigger: string): Promise<number> {
         return await this.mutex.runExclusive(async () => {
-            // Claim a bounded batch from the DB Outbox before touching live bidder state.
-            const commands = await this.commandRepository.claimNextBatch({
-                limit: this.options.batchSize,
-                claimTimeoutMs: this.options.claimTimeoutMs,
-            });
-            if (commands.length === 0) {
-                return 0;
-            }
+            let processed = 0;
+            while (processed < this.options.batchSize) {
+                // Claim the next command only after all earlier commands have completed.
+                const commands = await this.commandRepository.claimNextBatch({
+                    limit: ORDERED_COMMAND_CLAIM_LIMIT,
+                    claimTimeoutMs: this.options.claimTimeoutMs,
+                });
+                const command = commands[0];
+                if (!command) {
+                    return processed;
+                }
 
-            log.info("processCommands", "Processing bidding job commands", {
-                trigger,
-                commandCount: commands.length,
-            });
-            for (const command of commands) {
-                await this.processCommand(command);
+                log.info("processCommands", "Processing bidding job commands", {
+                    trigger,
+                    commandCount: commands.length,
+                });
+                processed += 1;
+                const commandSucceeded = await this.processCommand(command);
+                if (!commandSucceeded) {
+                    break;
+                }
             }
-            return commands.length;
+            return processed;
         });
     }
 
-    private async processCommand(command: BiddingJobCommand): Promise<void> {
+    private async processCommand(command: BiddingJobCommand): Promise<boolean> {
         try {
             await this.applyCommand(command);
             await this.reconcileEnabledJobs();
@@ -73,6 +82,7 @@ export class BiddingJobCommandReconciler {
             log.info("commandCompleted", "Completed bidding job command", {
                 ...commandLogFields(command),
             });
+            return true;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             if (command.attempts >= this.options.maxAttempts) {
@@ -88,7 +98,7 @@ export class BiddingJobCommandReconciler {
                         ...toErrorLogFields(error),
                     },
                 );
-                return;
+                return false;
             }
 
             await this.commandRepository.markFailedRetry(
@@ -103,6 +113,7 @@ export class BiddingJobCommandReconciler {
                     ...toErrorLogFields(error),
                 },
             );
+            return false;
         }
     }
 
@@ -166,19 +177,33 @@ export class BiddingJobCommandReconciler {
             revision: record.revision,
         });
         // Run an immediate refresh so DB-driven changes affect market state without waiting for the next tick.
-        await this.bidder.refreshJob(record.job.id);
+        await this.bidder.refreshJobForCommand(record.job.id);
     }
 
     private removeJobFromScheduling(command: BiddingJobCommand): void {
         const removed = this.bidder.removeJob(command.jobId);
         log.info("jobRemoved", "Removed bidding job from scheduling", {
             ...commandLogFields(command),
-            removed,
+            removed: Boolean(removed),
         });
     }
 
     private async cancelActiveOffer(command: BiddingJobCommand): Promise<void> {
-        const job = await this.resolveJobForCancellation(command);
+        const inMemoryJob = this.bidder.getJob(command.jobId);
+        // Read the durable declaration before deciding whether the live schedule should stop.
+        const record = await this.jobSource.loadJobById(command.jobId);
+        const removed =
+            record?.status === TRADING_JOB_STATUS.Enabled
+                ? undefined
+                : this.bidder.removeJob(command.jobId);
+        if (removed || record?.status !== TRADING_JOB_STATUS.Enabled) {
+            log.info("jobRemoved", "Removed bidding job from scheduling", {
+                ...commandLogFields(command),
+                removed: Boolean(removed),
+            });
+        }
+
+        const job = removed ?? inMemoryJob ?? record?.job ?? null;
         if (!job) {
             log.warn(
                 "cancelMissingJob",
@@ -188,24 +213,78 @@ export class BiddingJobCommandReconciler {
             return;
         }
 
-        const cancelled = await this.bidder.cancelActiveOffersForJob(job);
-        log.info("activeOfferCancellationProcessed", "Active-offer cancellation processed", {
-            ...commandLogFields(command),
-            cancelled,
-        });
+        this.applyCancellationPayload(job, command.payload);
+        const originalRevision = job.revision;
+        const activeOrderJobRevision = parseOptionalPayloadNumber(
+            command.payload.activeOrderJobRevision,
+        );
+        if (activeOrderJobRevision !== undefined) {
+            job.revision = activeOrderJobRevision;
+        }
+        let cancelled = 0;
+        try {
+            cancelled = await this.bidder.cancelActiveOffersForJob(job);
+        } finally {
+            job.revision = originalRevision;
+        }
+        log.info(
+            "activeOfferCancellationProcessed",
+            "Active-offer cancellation processed",
+            {
+                ...commandLogFields(command),
+                cancelled,
+            },
+        );
     }
 
-    private async resolveJobForCancellation(
-        command: BiddingJobCommand,
-    ): Promise<BidderJob | null> {
-        const inMemoryJob = this.bidder.getJob(command.jobId);
-        if (inMemoryJob) {
-            return inMemoryJob;
+    private applyCancellationPayload(
+        job: BidderJob,
+        payload: Record<string, unknown>,
+    ): void {
+        if (!job.state.activeOrderId) {
+            const activeOrderId = parseOptionalPayloadString(
+                payload.activeOrderId,
+            );
+            if (activeOrderId) {
+                job.state.activeOrderId = activeOrderId;
+            }
         }
 
-        // Load archived or paused declarations too so restart recovery can still discover maker offers by target.
-        const record = await this.jobSource.loadJobById(command.jobId);
-        return record?.job ?? null;
+        if (!job.state.activeProtocolAddress) {
+            const activeProtocolAddress = parseOptionalPayloadString(
+                payload.activeProtocolAddress,
+            );
+            if (activeProtocolAddress) {
+                job.state.activeProtocolAddress = activeProtocolAddress;
+            }
+        }
+
+        if (!job.state.activeOrderPlacedAt) {
+            const activeOrderPlacedAt = parseOptionalPayloadString(
+                payload.activeOrderPlacedAt,
+            );
+            if (activeOrderPlacedAt) {
+                job.state.activeOrderPlacedAt = activeOrderPlacedAt;
+            }
+        }
+
+        if (job.state.currentPrice === undefined) {
+            const currentPrice = parseOptionalPayloadBigInt(
+                payload.currentPriceWei,
+            );
+            if (currentPrice !== undefined) {
+                job.state.currentPrice = currentPrice;
+            }
+        }
+
+        if (job.state.activeExpirationTimeMs === undefined) {
+            const activeExpirationTimeMs = parseOptionalPayloadNumber(
+                payload.activeExpirationTimeMs,
+            );
+            if (activeExpirationTimeMs !== undefined) {
+                job.state.activeExpirationTimeMs = activeExpirationTimeMs;
+            }
+        }
     }
 
     private async reconcileEnabledJobs(): Promise<void> {
@@ -213,6 +292,30 @@ export class BiddingJobCommandReconciler {
         const jobs = await this.jobSource.loadEnabledJobs();
         await this.jobPreparationPort.reconcileEnabledJobs(jobs);
     }
+}
+
+function parseOptionalPayloadString(value: unknown): string | undefined {
+    return typeof value === "string" && value.trim() !== ""
+        ? value
+        : undefined;
+}
+
+function parseOptionalPayloadBigInt(value: unknown): bigint | undefined {
+    if (typeof value !== "string" || value.trim() === "") {
+        return undefined;
+    }
+
+    try {
+        return BigInt(value);
+    } catch {
+        return undefined;
+    }
+}
+
+function parseOptionalPayloadNumber(value: unknown): number | undefined {
+    return typeof value === "number" && Number.isFinite(value)
+        ? value
+        : undefined;
 }
 
 function commandLogFields(command: BiddingJobCommand): Record<string, unknown> {

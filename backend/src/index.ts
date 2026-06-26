@@ -212,6 +212,10 @@ export function createBackendApp(
     const biddingJobsRepository = new SqliteBiddingJobsRepository();
     const biddingBidBookRepository = new SqliteBiddingBidBookRepository(
         backendObservability.apm,
+        {
+            snapshotStaleMs: config.bidding.bidBookSnapshotStaleMs,
+            runtimeHeartbeatStaleMs: config.bidding.runtimeHeartbeat.staleMs,
+        },
     );
     const biddingPriceTiersRepository = new SqliteBiddingPriceTiersRepository();
     const collectionSettingsRepository =
@@ -300,6 +304,7 @@ export function createBackendApp(
     );
     const getRuntimeConfigUseCase = new GetRuntimeConfigUseCase(
         config.integrations.opensea,
+        config.bidding.bidBookLiveRefresh,
     );
     const listCollectionsUseCase = new ListCollectionsUseCase(
         config.defaultChainId,

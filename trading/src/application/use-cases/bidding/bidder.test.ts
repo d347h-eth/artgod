@@ -3,6 +3,8 @@ import { describe, it } from "vitest";
 import {
     TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
     TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
+    type TradingBiddingJobRuntimeBidPosition,
+    type TradingBiddingJobRuntimeConstraint,
 } from "@artgod/shared/types";
 import {
     MarketEvent,
@@ -23,9 +25,19 @@ class FakeBiddingService {
     public tokenOfferLookupJobIds: string[] = [];
     public activeOffers: unknown[] = [];
     public activeOffersImpl?: (job: BidderJob) => Promise<unknown[]>;
+    public orderLookupResult: unknown = null;
+    public orderLookups: Array<{
+        orderHash: string;
+        protocolAddress?: string;
+        collectionAddress?: string;
+        tokenId?: string;
+        collectionSlug?: string;
+    }> = [];
     public placedAmounts: bigint[] = [];
     public placedExpirationTime?: number;
+    public placeError: Error | null = null;
     public canceledOrderIds: string[] = [];
+    public cancelError: Error | null = null;
 
     async getActiveOffers(job: BidderJob): Promise<unknown[]> {
         if (this.activeOffersImpl) {
@@ -42,8 +54,21 @@ class FakeBiddingService {
         return this.activeTokenOfferByMaker;
     }
 
-    async getOrder(): Promise<unknown> {
-        return null;
+    async getOrder(
+        orderHash: string,
+        protocolAddress?: string,
+        collectionAddress?: string,
+        tokenId?: string,
+        collectionSlug?: string,
+    ): Promise<unknown> {
+        this.orderLookups.push({
+            orderHash,
+            protocolAddress,
+            collectionAddress,
+            tokenId,
+            collectionSlug,
+        });
+        return this.orderLookupResult;
     }
 
     async placeOffer(
@@ -52,17 +77,25 @@ class FakeBiddingService {
     ): Promise<{
         orderHash: string;
         protocolAddress: string;
+        placedAt: string;
         expirationTime?: number;
     }> {
+        if (this.placeError) {
+            throw this.placeError;
+        }
         this.placedAmounts.push(amount);
         return {
             orderHash: "0xhash",
             protocolAddress: "0xprotocol",
+            placedAt: "2026-05-17T00:00:00Z",
             expirationTime: this.placedExpirationTime,
         };
     }
 
     async cancelOffer(_job: BidderJob, order: { id: string }): Promise<void> {
+        if (this.cancelError) {
+            throw this.cancelError;
+        }
         this.canceledOrderIds.push(order.id);
     }
 }
@@ -99,6 +132,7 @@ const makeJob = (
     configOverrides: Partial<BidderJob["config"]> = {},
 ): BidderJob => ({
     id,
+    revision: 1,
     network: "eth",
     collectionAddress: "0xcollection",
     collectionSlug: slug,
@@ -960,10 +994,142 @@ describe("Bidder stream refresh", () => {
         assert.deepEqual(biddingService.placedAmounts, [5n]);
     });
 
+    it("persists the runtime bid decision when a new offer is placed", async () => {
+        const biddingService = new FakeBiddingService();
+        biddingService.activeOffers = [
+            { id: "0xother", price: 25n, maker: "0xother", offerScope: "item" },
+        ];
+        const persistedStates: Array<{
+            jobRevision: number;
+            activeOrderId: string | null;
+            activeOrderPlacedAt: string | null;
+            currentPriceWei: string | null;
+            bidPosition: TradingBiddingJobRuntimeBidPosition | null;
+            bidConstraints: TradingBiddingJobRuntimeConstraint[];
+            competitorPriceWei: string | null;
+        }> = [];
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            {
+                dryRun: false,
+            },
+            undefined,
+            undefined,
+            {
+                persistJobRuntimeState: (snapshot) => {
+                    persistedStates.push({
+                        jobRevision: snapshot.jobRevision,
+                        activeOrderId: snapshot.activeOrderId,
+                        activeOrderPlacedAt: snapshot.activeOrderPlacedAt,
+                        currentPriceWei: snapshot.currentPriceWei,
+                        bidPosition: snapshot.bidPosition,
+                        bidConstraints: snapshot.bidConstraints,
+                        competitorPriceWei: snapshot.competitorPriceWei,
+                    });
+                },
+                recordJobOfferCancellation: () => undefined,
+            },
+        );
+
+        bidder.addJob(
+            makeJob(
+                "token-hit",
+                "terraforms",
+                { type: "token", tokenId: "123" },
+                undefined,
+                { floor: 1n, ceiling: 20n, delta: 1n },
+            ),
+        );
+
+        await bidder.refreshJob("token-hit");
+
+        assert.deepEqual(biddingService.placedAmounts, [20n]);
+        assert.deepEqual(persistedStates.at(-1), {
+            jobRevision: 1,
+            activeOrderId: "0xhash",
+            activeOrderPlacedAt: "2026-05-17T00:00:00Z",
+            currentPriceWei: "20",
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            competitorPriceWei: "25",
+        });
+    });
+
+    it("continues bid refresh when runtime persistence fails", async () => {
+        const biddingService = new FakeBiddingService();
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            {
+                dryRun: false,
+            },
+            undefined,
+            undefined,
+            {
+                persistJobRuntimeState: () => {
+                    throw new Error("runtime persistence unavailable");
+                },
+                recordJobOfferCancellation: () => undefined,
+            },
+        );
+        const job = makeJob(
+            "token-hit",
+            "terraforms",
+            { type: "token", tokenId: "123" },
+            undefined,
+            { floor: 1n, ceiling: 20n, delta: 1n },
+        );
+        bidder.addJob(job);
+
+        await bidder.refreshJob("token-hit");
+
+        assert.deepEqual(biddingService.placedAmounts, [1n]);
+        assert.equal(job.state.activeOrderId, "0xhash");
+    });
+
+    it("keeps normal bid refresh best-effort when placement fails", async () => {
+        const biddingService = new FakeBiddingService();
+        biddingService.placeError = new Error("opensea placement unavailable");
+        const persistedErrors: Array<string | null> = [];
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            {
+                dryRun: false,
+            },
+            undefined,
+            undefined,
+            {
+                persistJobRuntimeState: (snapshot) => {
+                    persistedErrors.push(snapshot.lastError);
+                },
+                recordJobOfferCancellation: () => undefined,
+            },
+        );
+        const job = makeJob(
+            "token-hit",
+            "terraforms",
+            { type: "token", tokenId: "123" },
+            undefined,
+            { floor: 1n, ceiling: 20n, delta: 1n },
+        );
+        bidder.addJob(job);
+
+        await bidder.refreshJob("token-hit");
+
+        assert.deepEqual(biddingService.placedAmounts, []);
+        assert.equal(job.state.activeOrderId, undefined);
+        assert.deepEqual(persistedErrors, ["opensea placement unavailable"]);
+    });
+
     it("optimizes a winning bid down to the minimum winning price and cancels the old bid", async () => {
         const biddingService = new FakeBiddingService();
         biddingService.activeOffers = [
-            { id: "0xmine", price: 10n, maker: "0xmaker", offerScope: "item" },
+            { id: "0xmine", price: 10n, maker: "0xMaker", offerScope: "item" },
             { id: "0xother", price: 6n, maker: "0xother", offerScope: "item" },
         ];
         const bidder = new Bidder(biddingService as any, "0xmaker", 1000, {
@@ -1002,6 +1168,7 @@ describe("Bidder stream refresh", () => {
             { id: "0xother", price: 5n, maker: "0xother", offerScope: "item" },
         ];
         const persistedStates: Array<{
+            jobRevision: number;
             activeOrderId: string | null;
             currentPriceWei: string | null;
         }> = [];
@@ -1017,10 +1184,12 @@ describe("Bidder stream refresh", () => {
             {
                 persistJobRuntimeState: (snapshot) => {
                     persistedStates.push({
+                        jobRevision: snapshot.jobRevision,
                         activeOrderId: snapshot.activeOrderId,
                         currentPriceWei: snapshot.currentPriceWei,
                     });
                 },
+                recordJobOfferCancellation: () => undefined,
             },
         );
         const job = makeJob(
@@ -1042,6 +1211,7 @@ describe("Bidder stream refresh", () => {
         assert.equal(job.state.activeOrderId, "0xhash");
         assert.ok(job.state.activeExpirationTimeMs !== undefined);
         assert.deepEqual(persistedStates.at(-1), {
+            jobRevision: 1,
             activeOrderId: "0xhash",
             currentPriceWei: "6",
         });
@@ -1224,6 +1394,7 @@ describe("Bidder stream refresh", () => {
                         competitorPriceWei: snapshot.competitorPriceWei,
                     });
                 },
+                recordJobOfferCancellation: () => undefined,
             },
         );
         const job = makeJob(
@@ -1382,6 +1553,249 @@ describe("Bidder stream refresh", () => {
         assert.equal(job.state.activeOrderId, undefined);
         assert.equal(job.state.activeProtocolAddress, undefined);
         assert.equal(job.state.currentPrice, undefined);
+    });
+
+    it("clears persisted runtime state when cancelling an unscheduled job declaration", async () => {
+        const biddingService = new FakeBiddingService();
+        biddingService.activeOffers = [
+            {
+                id: "0xmine",
+                price: 5n,
+                maker: "0xmaker",
+                protocolAddress: "0xprotocol",
+                offerScope: "item",
+            },
+        ];
+        const persistedStates: Array<{
+            jobRevision: number;
+            activeOrderId: string | null;
+            activeProtocolAddress: string | null;
+            currentPriceWei: string | null;
+            bidPosition: TradingBiddingJobRuntimeBidPosition | null;
+            bidConstraints: TradingBiddingJobRuntimeConstraint[];
+        }> = [];
+        const recordedCancellations: Array<{
+            jobRevision: number;
+            orderId: string;
+            priceWei: string;
+            protocolAddress: string | null;
+            makerAddress: string;
+            completedAt: string | null;
+            cancellationError: string | null;
+        }> = [];
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            { dryRun: false },
+            undefined,
+            undefined,
+            {
+                persistJobRuntimeState: (snapshot) => {
+                    persistedStates.push({
+                        jobRevision: snapshot.jobRevision,
+                        activeOrderId: snapshot.activeOrderId,
+                        activeProtocolAddress: snapshot.activeProtocolAddress,
+                        currentPriceWei: snapshot.currentPriceWei,
+                        bidPosition: snapshot.bidPosition,
+                        bidConstraints: snapshot.bidConstraints,
+                    });
+                },
+                recordJobOfferCancellation: (snapshot) => {
+                    recordedCancellations.push({
+                        jobRevision: snapshot.jobRevision,
+                        orderId: snapshot.orderId,
+                        priceWei: snapshot.priceWei,
+                        protocolAddress: snapshot.protocolAddress,
+                        makerAddress: snapshot.makerAddress,
+                        completedAt: snapshot.completedAt,
+                        cancellationError: snapshot.cancellationError,
+                    });
+                },
+            },
+        );
+        const job = makeJob(
+            "token-hit",
+            "terraforms",
+            { type: "token", tokenId: "123" },
+            5n,
+        );
+        job.state.activeOrderId = "0xmine";
+        job.state.activeProtocolAddress = "0xprotocol";
+        job.state.bidPosition =
+            TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning;
+        job.state.bidConstraints = [
+            TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
+        ];
+
+        const cancelled = await bidder.cancelActiveOffersForJob(job);
+
+        assert.equal(cancelled, 1);
+        assert.deepEqual(biddingService.canceledOrderIds, ["0xmine"]);
+        assert.equal(job.state.activeOrderId, undefined);
+        assert.equal(job.state.activeProtocolAddress, undefined);
+        assert.equal(job.state.currentPrice, undefined);
+        assert.deepEqual(persistedStates.at(-1), {
+            jobRevision: 1,
+            activeOrderId: null,
+            activeProtocolAddress: null,
+            currentPriceWei: null,
+            bidPosition: null,
+            bidConstraints: [],
+        });
+        assert.equal(recordedCancellations.at(0)?.orderId, "0xmine");
+        assert.equal(recordedCancellations.at(0)?.jobRevision, 1);
+        assert.equal(recordedCancellations.at(0)?.priceWei, "5");
+        assert.equal(recordedCancellations.at(0)?.protocolAddress, "0xprotocol");
+        assert.equal(recordedCancellations.at(0)?.completedAt, null);
+        const completedCancellation = recordedCancellations.at(-1);
+        assert.equal(completedCancellation?.orderId, "0xmine");
+        assert.equal(completedCancellation?.makerAddress, "0xmaker");
+        assert.ok(completedCancellation?.completedAt);
+        assert.equal(completedCancellation?.cancellationError, null);
+    });
+
+    it("cancels a tracked active order when scoped active offers omit it", async () => {
+        const biddingService = new FakeBiddingService();
+        biddingService.activeOffers = [];
+        biddingService.orderLookupResult = {
+            id: "0xmine",
+            price: 5n,
+            maker: "0xmaker",
+            protocolAddress: "0xprotocol",
+            offerScope: "item",
+        };
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            { dryRun: false },
+        );
+        const job = makeJob(
+            "token-hit",
+            "terraforms",
+            { type: "token", tokenId: "123" },
+            5n,
+        );
+        job.state.activeOrderId = "0xmine";
+        job.state.activeProtocolAddress = "0xprotocol";
+
+        const cancelled = await bidder.cancelActiveOffersForJob(job);
+
+        assert.equal(cancelled, 1);
+        assert.deepEqual(biddingService.canceledOrderIds, ["0xmine"]);
+        assert.deepEqual(biddingService.orderLookups, [
+            {
+                orderHash: "0xmine",
+                protocolAddress: "0xprotocol",
+                collectionAddress: "0xcollection",
+                tokenId: "123",
+                collectionSlug: "terraforms",
+            },
+        ]);
+        assert.equal(job.state.activeOrderId, undefined);
+    });
+
+    it("records failed cancellations without clearing tracked runtime state", async () => {
+        const biddingService = new FakeBiddingService();
+        biddingService.activeOffers = [
+            {
+                id: "0xmine",
+                price: 5n,
+                maker: "0xmaker",
+                protocolAddress: "0xprotocol",
+                offerScope: "item",
+            },
+        ];
+        biddingService.cancelError = new Error("opensea cancel failed");
+        const recordedCancellations: Array<{
+            jobRevision: number;
+            orderId: string;
+            priceWei: string;
+            completedAt: string | null;
+            cancellationError: string | null;
+        }> = [];
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            { dryRun: false },
+            undefined,
+            undefined,
+            {
+                persistJobRuntimeState: () => {},
+                recordJobOfferCancellation: (snapshot) => {
+                    recordedCancellations.push({
+                        jobRevision: snapshot.jobRevision,
+                        orderId: snapshot.orderId,
+                        priceWei: snapshot.priceWei,
+                        completedAt: snapshot.completedAt,
+                        cancellationError: snapshot.cancellationError,
+                    });
+                },
+            },
+        );
+        const job = makeJob(
+            "token-cancel-fails",
+            "terraforms",
+            { type: "token", tokenId: "123" },
+            5n,
+        );
+        job.state.activeOrderId = "0xmine";
+        job.state.activeProtocolAddress = "0xprotocol";
+
+        await assert.rejects(
+            () => bidder.cancelActiveOffersForJob(job),
+            /opensea cancel failed/,
+        );
+
+        assert.deepEqual(biddingService.canceledOrderIds, []);
+        assert.equal(job.state.activeOrderId, "0xmine");
+        assert.equal(job.state.activeProtocolAddress, "0xprotocol");
+        assert.deepEqual(recordedCancellations, [
+            {
+                jobRevision: 1,
+                orderId: "0xmine",
+                priceWei: "5",
+                completedAt: null,
+                cancellationError: null,
+            },
+            {
+                jobRevision: 1,
+                orderId: "0xmine",
+                priceWei: "5",
+                completedAt: null,
+                cancellationError: "opensea cancel failed",
+            },
+        ]);
+    });
+
+    it("keeps tracked cancellation retryable when the active order cannot be confirmed", async () => {
+        const biddingService = new FakeBiddingService();
+        biddingService.activeOffers = [];
+        biddingService.orderLookupResult = null;
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            { dryRun: false },
+        );
+        const job = makeJob(
+            "token-missing",
+            "terraforms",
+            { type: "token", tokenId: "123" },
+            5n,
+        );
+        job.state.activeOrderId = "0xmine";
+        job.state.activeProtocolAddress = "0xprotocol";
+
+        await assert.rejects(
+            () => bidder.cancelActiveOffersForJob(job),
+            /Unable to confirm tracked active offer for cancellation/,
+        );
+
+        assert.deepEqual(biddingService.canceledOrderIds, []);
+        assert.equal(job.state.activeOrderId, "0xmine");
     });
 
     it("refreshes only token jobs whose cached metadata matches every trait criterion", async () => {

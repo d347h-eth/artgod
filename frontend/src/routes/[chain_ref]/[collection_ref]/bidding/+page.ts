@@ -3,7 +3,8 @@ import type { PageLoad } from './$types';
 import {
 	BackendApiError,
 	getCollectionBiddingBidBook,
-	getCollectionBiddingPriceTiers
+	getCollectionBiddingPriceTiers,
+	getRuntimeConfig
 } from '$lib/backend-api';
 import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
@@ -81,15 +82,17 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 
 	try {
 		// Load the source-selected bid book and local bidding settings for this collection.
-		const [bidBookResponse, priceTiersResponse] = await Promise.all([
+		const [bidBookResponse, priceTiersResponse, runtimeConfigResponse] = await Promise.all([
 			getCollectionBiddingBidBook(fetch, params.chain_ref, params.collection_ref, url.searchParams),
-			getCollectionBiddingPriceTiers(fetch, params.chain_ref, params.collection_ref)
+			getCollectionBiddingPriceTiers(fetch, params.chain_ref, params.collection_ref),
+			getRuntimeConfig(fetch)
 		]);
 		return {
 			chain: bidBookResponse.chain,
 			collection: bidBookResponse.collection,
 			biddingSettings: priceTiersResponse.settings,
 			priceTiers: priceTiersResponse.tiers,
+			bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh,
 			bidBook: bidBookResponse.bidBook,
 			tokenOfferCards: bidBookResponse.tokenOfferCards,
 			facets: bidBookResponse.traits.facets,

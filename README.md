@@ -289,7 +289,7 @@ Useful optional env groups:
 - Debug payload storage (`PERSIST_RAW_DEBUG_PAYLOADS`)
 - OpenSea integration (`OPENSEA_INTEGRATION_MODE`, `OPENSEA_API_KEY`)
 - Trading bot OpenSea lanes (`OPENSEA_STREAM_SECRET_KEY`, `OPENSEA_BIDDING_SECRET_KEY`, `OPENSEA_SNAPSHOT_SECRET_KEY`)
-- Trading bot command reconciliation and bid-book projection (`BIDDING_COMMAND_*`, `BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS`)
+- Trading bot command reconciliation and bid-book freshness/live refresh (`BIDDING_COMMAND_*`, `BIDDING_BID_BOOK_*`, `BIDDING_RUNTIME_HEARTBEAT_*`)
 - Trading bot transaction policy (`BIDDING_TX_MIN_PRIORITY_FEE_GWEI`, `BIDDING_TX_FEE_HISTORY_*`, `BIDDING_TX_BASE_FEE_MULTIPLIER`, `BIDDING_TX_MAX_FEE_GWEI`, `BIDDING_TX_PENDING_NONCE_POLICY`)
 - Indexer metrics (`INDEXER_METRICS_ENABLED`, `INDEXER_METRICS_HOST`, `INDEXER_METRICS_PORT_*`)
 - Indexer APM (`INDEXER_APM_ENABLED`, `INDEXER_APM_*`)

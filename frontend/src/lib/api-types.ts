@@ -541,6 +541,7 @@ export type ApiBiddingJobRuntimeState = {
 	currentPriceEth: string | null;
 	activeOrderId: string | null;
 	activeProtocolAddress: string | null;
+	activeOrderPlacedAt: string | null;
 	activeExpirationTimeMs: number | null;
 	bidPosition: TradingBiddingJobRuntimeBidPosition | null;
 	bidConstraints: TradingBiddingJobRuntimeConstraint[];
@@ -823,6 +824,12 @@ export type ApiOpenSeaIntegrationStatus = {
 export type RuntimeConfigApiResponse = {
 	integrations: {
 		opensea: ApiOpenSeaIntegrationStatus;
+	};
+	bidding: {
+		bidBookLiveRefresh: {
+			normalPollMs: number;
+			competitivePollMs: number;
+		};
 	};
 };
 

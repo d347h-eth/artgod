@@ -37,9 +37,11 @@ export interface BidderOptions {
 
 export type BiddingJobRuntimeStateSnapshot = {
     jobId: string;
+    jobRevision: number;
     currentPriceWei: string | null;
     activeOrderId: string | null;
     activeProtocolAddress: string | null;
+    activeOrderPlacedAt: string | null;
     activeExpirationTimeMs: number | null;
     bidPosition: TradingBiddingJobRuntimeBidPosition | null;
     bidConstraints: TradingBiddingJobRuntimeConstraint[];
@@ -48,9 +50,26 @@ export type BiddingJobRuntimeStateSnapshot = {
     lastError: string | null;
 };
 
+export type BiddingJobOfferCancellationSnapshot = {
+    jobId: string;
+    jobRevision: number;
+    orderId: string;
+    priceWei: string;
+    protocolAddress: string | null;
+    placedAt: string | null;
+    expirationTimeMs: number | null;
+    makerAddress: string;
+    requestedAt: string;
+    completedAt: string | null;
+    cancellationError: string | null;
+};
+
 export interface BiddingJobRuntimeStatePort {
     persistJobRuntimeState(
         snapshot: BiddingJobRuntimeStateSnapshot,
+    ): Promise<void> | void;
+    recordJobOfferCancellation(
+        snapshot: BiddingJobOfferCancellationSnapshot,
     ): Promise<void> | void;
 }
 
@@ -115,7 +134,12 @@ interface JobExecutionState {
     pending: boolean;
     inFlightPromise?: Promise<void>;
     pendingContext?: ProgressContext;
+    pendingThrowOnFailure?: boolean;
 }
+
+type JobExecutionOptions = {
+    throwOnFailure: boolean;
+};
 
 interface RuntimeJobOverride {
     activationId: number;
@@ -125,6 +149,12 @@ interface RuntimeJobOverride {
     reason?: string;
     timer?: ReturnType<typeof setTimeout>;
 }
+
+type RuntimeBidDecisionContext = {
+    competitorPrice: bigint;
+    floor: bigint;
+    ceiling: bigint;
+};
 
 const log = createBiddingComponentLogger(BIDDING_LOG_COMPONENT.Bidder);
 
@@ -210,13 +240,32 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             );
             // Fetch active offers through the bidding service so cancellation uses the same market scope as normal refreshes.
             const offers = await this.biddingService.getActiveOffers(job);
+            const trackedOrderId = job.state.activeOrderId;
+            const trackedOrder = await this.resolveTrackedActiveOrder(
+                job,
+                offers,
+                jobRef,
+                false,
+            );
+            const cancellationCandidates =
+                trackedOrder &&
+                !offers.some((offer) => offer.id === trackedOrder.id)
+                    ? [...offers, trackedOrder]
+                    : offers;
             const makerAddress = this.makerAddress.toLowerCase();
-            const makerOffers = offers.filter(
+            const makerOffers = cancellationCandidates.filter(
                 (offer) =>
-                    offer.maker === makerAddress &&
-                    this.isOfferManagedByJob(job, offer),
+                    offer.maker.toLowerCase() === makerAddress &&
+                    (this.isOfferManagedByJob(job, offer) ||
+                        offer.id === trackedOrderId),
             );
             if (makerOffers.length === 0) {
+                if (trackedOrderId) {
+                    throw new Error(
+                        `[Bidder] Unable to confirm tracked active offer for cancellation: jobId=${job.id}, orderId=${trackedOrderId}`,
+                    );
+                }
+
                 log.info(
                     "noActiveMakerOffersForCancellation",
                     "No active maker offers found for cancellation",
@@ -227,7 +276,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                         targetType: job.target.type,
                     },
                 );
-                this.clearTrackedOrderForJobId(job.id);
+                this.clearTrackedOrder(job);
                 return 0;
             }
 
@@ -243,7 +292,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 },
             );
             await this.cancelMakerOffers(job, makerOffers);
-            this.clearTrackedOrderForJobId(job.id);
+            this.clearTrackedOrder(job);
             return makerOffers.length;
         });
     }
@@ -445,6 +494,22 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         jobId: string,
         context?: ProgressContext,
     ): Promise<void> {
+        return await this.refreshJobWithOptions(jobId, context, {
+            throwOnFailure: false,
+        });
+    }
+
+    public async refreshJobForCommand(jobId: string): Promise<void> {
+        return await this.refreshJobWithOptions(jobId, undefined, {
+            throwOnFailure: true,
+        });
+    }
+
+    private async refreshJobWithOptions(
+        jobId: string,
+        context: ProgressContext | undefined,
+        options: JobExecutionOptions,
+    ): Promise<void> {
         const state = this.getJobExecutionState(jobId);
 
         if (state.running) {
@@ -452,20 +517,25 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             if (context) {
                 state.pendingContext = context;
             }
+            state.pendingThrowOnFailure =
+                state.pendingThrowOnFailure || options.throwOnFailure;
             return state.inFlightPromise ?? Promise.resolve();
         }
 
         state.running = true;
         state.pending = false;
         state.pendingContext = undefined;
+        state.pendingThrowOnFailure = undefined;
         state.inFlightPromise = this.runJobRefreshLoop(
             jobId,
             state,
             context,
+            options,
         ).finally(() => {
             state.running = false;
             state.pending = false;
             state.pendingContext = undefined;
+            state.pendingThrowOnFailure = undefined;
             state.inFlightPromise = undefined;
         });
 
@@ -480,8 +550,10 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         jobId: string,
         state: JobExecutionState,
         context?: ProgressContext,
+        options: JobExecutionOptions = { throwOnFailure: false },
     ): Promise<void> {
         let nextContext = context;
+        let nextOptions = options;
 
         while (true) {
             await this.jobExecutionSemaphore.runExclusive(async () => {
@@ -489,7 +561,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 await jobMutex.runExclusive(async () => {
                     state.executing = true;
                     try {
-                        await this.executeJob(jobId, nextContext);
+                        await this.executeJob(jobId, nextContext, nextOptions);
                     } finally {
                         state.executing = false;
                     }
@@ -501,8 +573,12 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             }
 
             nextContext = state.pendingContext;
+            nextOptions = {
+                throwOnFailure: state.pendingThrowOnFailure === true,
+            };
             state.pending = false;
             state.pendingContext = undefined;
+            state.pendingThrowOnFailure = undefined;
         }
     }
 
@@ -555,6 +631,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     private async executeJob(
         jobId: string,
         context?: ProgressContext,
+        options: JobExecutionOptions = { throwOnFailure: false },
     ): Promise<void> {
         try {
             const job = this.jobs.get(jobId);
@@ -575,74 +652,17 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             });
 
             const offers = await this.biddingService.getActiveOffers(job);
-
-            if (job.state.activeOrderId) {
-                const activeId = job.state.activeOrderId;
-                const foundInMarket = offers.find(
-                    (offer) => offer.id === activeId,
-                );
-
-                if (!foundInMarket) {
-                    log.debug(
-                        "activeBidMissingFromMarket",
-                        "Tracked active bid was not found in market offers; checking directly",
-                        {
-                            jobId: job.id,
-                            jobRef,
-                            orderId: activeId,
-                        },
-                    );
-                    const tokenId =
-                        job.target.type === "token"
-                            ? job.target.tokenId
-                            : undefined;
-                    const recovered = await this.biddingService.getOrder(
-                        activeId,
-                        job.state.activeProtocolAddress,
-                        job.collectionAddress,
-                        tokenId,
-                        job.collectionSlug,
-                    );
-
-                    if (recovered) {
-                        log.info(
-                            "activeBidRecovered",
-                            "Recovered active bid from tracked state",
-                            {
-                                jobId: job.id,
-                                jobRef,
-                                orderId: activeId,
-                                protocolAddress:
-                                    recovered.protocolAddress ?? null,
-                            },
-                        );
-                        offers.push(recovered);
-                        if (
-                            !job.state.activeProtocolAddress &&
-                            recovered.protocolAddress
-                        ) {
-                            job.state.activeProtocolAddress =
-                                recovered.protocolAddress;
-                        }
-                    } else {
-                        log.info(
-                            "activeBidInvalid",
-                            "Tracked active bid is invalid or missing; clearing state",
-                            {
-                                jobId: job.id,
-                                jobRef,
-                                orderId: activeId,
-                            },
-                        );
-                        this.clearTrackedOrder(job);
-                    }
-                } else if (
-                    !job.state.activeProtocolAddress &&
-                    foundInMarket.protocolAddress
-                ) {
-                    job.state.activeProtocolAddress =
-                        foundInMarket.protocolAddress;
-                }
+            const trackedOrder = await this.resolveTrackedActiveOrder(
+                job,
+                offers,
+                jobRef,
+                true,
+            );
+            if (
+                trackedOrder &&
+                !offers.some((offer) => offer.id === trackedOrder.id)
+            ) {
+                offers.push(trackedOrder);
             }
 
             const sortedOffers = [...offers].sort((left, right) => {
@@ -656,14 +676,14 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             });
 
             const myAddress = this.makerAddress.toLowerCase();
-            const visibleMyOffers = sortedOffers.filter(
-                (offer) => offer.maker === myAddress,
-            );
+            const isMakerOffer = (offer: Order): boolean =>
+                offer.maker.toLowerCase() === myAddress;
+            const visibleMyOffers = sortedOffers.filter(isMakerOffer);
             const myOffers = visibleMyOffers.filter((offer) =>
                 this.isOfferManagedByJob(job, offer),
             );
             const competitorOffers = sortedOffers.filter(
-                (offer) => offer.maker !== myAddress,
+                (offer) => !isMakerOffer(offer),
             );
             const myHighest = myOffers[0];
             const competitorHighest = competitorOffers[0];
@@ -771,7 +791,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     },
                 );
                 this.clearRuntimeBidDecision(job);
-                await this.placeAndTrack(job, desiredPrice);
+                await this.placeAndTrack(job, desiredPrice, {
+                    competitorPrice,
+                    floor,
+                    ceiling,
+                });
                 return;
             }
 
@@ -791,7 +815,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     reason: renewalReason,
                 });
                 this.clearRuntimeBidDecision(job);
-                await this.placeAndTrack(job, desiredPrice);
+                await this.placeAndTrack(job, desiredPrice, {
+                    competitorPrice,
+                    floor,
+                    ceiling,
+                });
                 await this.cancelMakerOffers(job, myOffers);
                 return;
             }
@@ -865,7 +893,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 competitorPriceEth: formatUnits(competitorPrice, 18),
             });
             this.clearRuntimeBidDecision(job);
-            await this.placeAndTrack(job, desiredPrice);
+            await this.placeAndTrack(job, desiredPrice, {
+                competitorPrice,
+                floor,
+                ceiling,
+            });
             await this.cancelMakerOffers(job, myOffers);
         } catch (error: unknown) {
             const { errorMessage, ...errorFields } = toErrorLogFields(error);
@@ -877,6 +909,9 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             const job = this.jobs.get(jobId);
             if (job) {
                 this.persistJobRuntimeState(job, String(errorMessage));
+            }
+            if (options.throwOnFailure) {
+                throw error;
             }
         }
     }
@@ -1179,6 +1214,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
             job.state.activeOrderId = activeOffer.id;
             job.state.activeProtocolAddress = activeOffer.protocolAddress;
+            job.state.activeOrderPlacedAt = activeOffer.placedAt;
             job.state.currentPrice = activeOffer.price;
             job.state.activeExpirationTimeMs = this.toExpirationTimeMs(
                 activeOffer.expirationTime,
@@ -1669,7 +1705,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         return false;
     }
 
-    private async placeAndTrack(job: BidderJob, amount: bigint): Promise<void> {
+    private async placeAndTrack(
+        job: BidderJob,
+        amount: bigint,
+        decisionContext?: RuntimeBidDecisionContext,
+    ): Promise<void> {
         job.state.lastRun = Date.now();
         const jobRef = formatBidderJobReference(job);
 
@@ -1704,13 +1744,23 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             return;
         }
 
-        const { orderHash, protocolAddress, expirationTime } =
+        const { orderHash, protocolAddress, placedAt, expirationTime } =
             await this.biddingService.placeOffer(job, amount);
         job.state.activeOrderId = orderHash;
         job.state.activeProtocolAddress = protocolAddress;
+        job.state.activeOrderPlacedAt = placedAt;
         job.state.currentPrice = amount;
         job.state.activeExpirationTimeMs =
             this.toExpirationTimeMs(expirationTime);
+        if (decisionContext) {
+            this.trackRuntimeBidDecision(
+                job,
+                amount,
+                decisionContext.competitorPrice,
+                decisionContext.floor,
+                decisionContext.ceiling,
+            );
+        }
         this.persistJobRuntimeState(job);
         if (
             job.target.type === "collection" ||
@@ -1768,7 +1818,28 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             priceSource: order.priceSource ?? order.source ?? null,
             quantity: order.quantity?.toString() ?? "1",
         });
-        await this.biddingService.cancelOffer(job, order);
+        const requestedAt = new Date().toISOString();
+        this.recordJobOfferCancellation(job, order, {
+            requestedAt,
+            completedAt: null,
+            cancellationError: null,
+        });
+        try {
+            await this.biddingService.cancelOffer(job, order);
+        } catch (error: unknown) {
+            this.recordJobOfferCancellation(job, order, {
+                requestedAt,
+                completedAt: null,
+                cancellationError:
+                    error instanceof Error ? error.message : String(error),
+            });
+            throw error;
+        }
+        this.recordJobOfferCancellation(job, order, {
+            requestedAt,
+            completedAt: new Date().toISOString(),
+            cancellationError: null,
+        });
         log.info("offerCancelCompleted", "Cancelled offer", {
             jobId: job.id,
             jobRef,
@@ -1782,9 +1853,15 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             (job.state.activeOrderId === order.id
                 ? job.state.activeExpirationTimeMs
                 : undefined);
+        const nextPlacedAt =
+            order.placedAt ??
+            (job.state.activeOrderId === order.id
+                ? job.state.activeOrderPlacedAt
+                : undefined);
 
         job.state.activeOrderId = order.id;
         job.state.activeProtocolAddress = order.protocolAddress;
+        job.state.activeOrderPlacedAt = nextPlacedAt;
         job.state.currentPrice = order.price;
         job.state.activeExpirationTimeMs = nextExpirationTimeMs;
         this.persistJobRuntimeState(job);
@@ -1793,17 +1870,88 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     private clearTrackedOrder(job: BidderJob): void {
         job.state.activeOrderId = undefined;
         job.state.activeProtocolAddress = undefined;
+        job.state.activeOrderPlacedAt = undefined;
         job.state.currentPrice = undefined;
         job.state.activeExpirationTimeMs = undefined;
         this.clearRuntimeBidDecision(job);
         this.persistJobRuntimeState(job);
     }
 
-    private clearTrackedOrderForJobId(jobId: string): void {
-        const job = this.jobs.get(jobId);
-        if (job) {
+    private async resolveTrackedActiveOrder(
+        job: BidderJob,
+        offers: Order[],
+        jobRef: string,
+        clearMissing: boolean,
+    ): Promise<Order | null> {
+        const activeId = job.state.activeOrderId;
+        if (!activeId) {
+            return null;
+        }
+
+        const foundInMarket = offers.find((offer) => offer.id === activeId);
+        if (foundInMarket) {
+            if (
+                !job.state.activeProtocolAddress &&
+                foundInMarket.protocolAddress
+            ) {
+                job.state.activeProtocolAddress =
+                    foundInMarket.protocolAddress;
+            }
+            return foundInMarket;
+        }
+
+        log.debug(
+            "activeBidMissingFromMarket",
+            "Tracked active bid was not found in market offers; checking directly",
+            {
+                jobId: job.id,
+                jobRef,
+                orderId: activeId,
+            },
+        );
+        const tokenId =
+            job.target.type === "token" ? job.target.tokenId : undefined;
+        const recovered = await this.biddingService.getOrder(
+            activeId,
+            job.state.activeProtocolAddress,
+            job.collectionAddress,
+            tokenId,
+            job.collectionSlug,
+        );
+
+        if (recovered) {
+            log.info(
+                "activeBidRecovered",
+                "Recovered active bid from tracked state",
+                {
+                    jobId: job.id,
+                    jobRef,
+                    orderId: activeId,
+                    protocolAddress: recovered.protocolAddress ?? null,
+                },
+            );
+            if (
+                !job.state.activeProtocolAddress &&
+                recovered.protocolAddress
+            ) {
+                job.state.activeProtocolAddress = recovered.protocolAddress;
+            }
+            return recovered;
+        }
+
+        if (clearMissing) {
+            log.info(
+                "activeBidInvalid",
+                "Tracked active bid is invalid or missing; clearing state",
+                {
+                    jobId: job.id,
+                    jobRef,
+                    orderId: activeId,
+                },
+            );
             this.clearTrackedOrder(job);
         }
+        return null;
     }
 
     private persistJobRuntimeState(
@@ -1816,9 +1964,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
         const snapshot: BiddingJobRuntimeStateSnapshot = {
             jobId: job.id,
+            jobRevision: job.revision,
             currentPriceWei: job.state.currentPrice?.toString() ?? null,
             activeOrderId: job.state.activeOrderId ?? null,
             activeProtocolAddress: job.state.activeProtocolAddress ?? null,
+            activeOrderPlacedAt: job.state.activeOrderPlacedAt ?? null,
             activeExpirationTimeMs: job.state.activeExpirationTimeMs ?? null,
             bidPosition: job.state.bidPosition ?? null,
             bidConstraints: job.state.bidConstraints ?? [],
@@ -1829,10 +1979,10 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             lastError,
         };
 
-        // Persist runtime feedback for backend read models without changing bidder decisions if SQLite is slow or unavailable.
-        void Promise.resolve(
-            this.runtimeStatePort.persistJobRuntimeState(snapshot),
-        ).catch((error: unknown) => {
+        try {
+            // Persist runtime feedback for backend read models without changing bidder decisions if SQLite is unavailable.
+            this.runtimeStatePort.persistJobRuntimeState(snapshot);
+        } catch (error: unknown) {
             log.error(
                 "runtimeStatePersistFailed",
                 "Failed to persist bidding job runtime state",
@@ -1842,7 +1992,49 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     ...toErrorLogFields(error),
                 },
             );
-        });
+        }
+    }
+
+    private recordJobOfferCancellation(
+        job: BidderJob,
+        order: Order,
+        state: {
+            requestedAt: string;
+            completedAt: string | null;
+            cancellationError: string | null;
+        },
+    ): void {
+        if (!this.runtimeStatePort) {
+            return;
+        }
+
+        try {
+            // Persist own-order cancellation facts so read models can hide stale marketplace index rows.
+            this.runtimeStatePort.recordJobOfferCancellation({
+                jobId: job.id,
+                jobRevision: job.revision,
+                orderId: order.id,
+                priceWei: order.price.toString(),
+                protocolAddress: order.protocolAddress ?? null,
+                placedAt: order.placedAt ?? null,
+                expirationTimeMs: this.toExpirationTimeMs(order.expirationTime) ?? null,
+                makerAddress: this.makerAddress.toLowerCase(),
+                requestedAt: state.requestedAt,
+                completedAt: state.completedAt,
+                cancellationError: state.cancellationError,
+            });
+        } catch (error: unknown) {
+            log.error(
+                "offerCancellationPersistFailed",
+                "Failed to persist bidding offer cancellation state",
+                {
+                    jobId: job.id,
+                    jobRef: formatBidderJobReference(job),
+                    orderId: order.id,
+                    ...toErrorLogFields(error),
+                },
+            );
+        }
     }
 
     private trackRuntimeBidDecision(

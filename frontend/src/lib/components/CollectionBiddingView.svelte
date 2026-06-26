@@ -1,14 +1,20 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
+	import { onMount, tick } from 'svelte';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+	import {
+		DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
+		type BiddingBidBookLiveRefreshConfig
+	} from '@artgod/shared/config/bidding';
 	import type {
 		ApiBiddingBidBook,
 		ApiBiddingBidBookRow,
 		ApiBiddingCollectionSettings,
+		ApiBiddingJob,
+		ApiBiddingPriceTier,
 		ApiBiddingTokenOfferCard,
 		ApiBiddingTokenOfferCardsPage,
-		ApiBiddingPriceTier,
 		ApiChain,
 		ApiCollection,
 		ApiCollectionBiddingBidScopeFilter,
@@ -16,7 +22,8 @@
 		ApiCollectionMediaState,
 		ApiTokenAttribute,
 		ApiTraitFacet,
-		ApiTraitRangeFilter
+		ApiTraitRangeFilter,
+		CollectionBiddingBidBookApiResponse
 	} from '$lib/api-types';
 	import {
 		BID_SCOPE_QUERY_PARAM,
@@ -27,15 +34,28 @@
 		nextCollectionBiddingBidScopeFilter
 	} from '$lib/bidding-query';
 	import {
+		BID_BOOK_RELATIVE_TIME_TICK_MS,
+		bidBookNextUpdateTitle,
 		bidBookRefreshPaceLabel,
 		bidBookRefreshPaceTitle,
-		formatBidBookFreshness
+		formatBidBookNextUpdate
 	} from '$lib/bidding-bid-book-source';
+	import {
+		biddingBidBookLivePollIntervalMs,
+		captureBiddingLiveRefreshAnchor,
+		restoreBiddingLiveRefreshAnchor,
+		startBiddingBidBookLiveRefresh
+	} from '$lib/bidding-live-refresh';
 	import { resolveBiddingTokenActionLabel } from '$lib/bidding-selection-actions';
 	import { bidBookPriceEffectiveWei } from '$lib/bidding-bid-book-price';
 	import { ownBidStatusBadges, type BidBookOwnStatusBadge } from '$lib/bidding-bid-book-own-status';
+	import {
+		BID_BOOK_UPDATE_FLASH_MODE,
+		bidBookUpdateFlash
+	} from '$lib/bid-book-update-flash';
 	import { writeCollectionBiddingNavigationPreference } from '$lib/bidding-navigation-preferences';
 	import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
+	import { getCollectionBiddingBidBook } from '$lib/backend-api';
 	import {
 		buildFilteredTokenBatchBiddingSelectionInput,
 		buildFilteredTraitBiddingSelectionInput,
@@ -77,9 +97,11 @@
 		describePaginationWindow,
 		pageToPaginationWindow,
 		readPaginationWindow,
+		refreshPaginationWindowFromHead,
 		resolvePaginationWindow,
 		traitFilterPaginationSignatureParts,
-		writePaginationWindow
+		writePaginationWindow,
+		type PaginationWindowState
 	} from '$lib/components/pagination-window';
 	import TokenCardTile from '$lib/components/TokenCardTile.svelte';
 	import {
@@ -113,6 +135,7 @@
 		collection,
 		biddingSettings,
 		priceTiers = [],
+		bidBookLiveRefreshConfig = DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
 		bidBook,
 		tokenOfferCards = emptyBiddingTokenOfferCardsPage(),
 		facets,
@@ -131,6 +154,7 @@
 		collection: ApiCollection | null;
 		biddingSettings: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
+		bidBookLiveRefreshConfig?: BiddingBidBookLiveRefreshConfig;
 		bidBook: ApiBiddingBidBook;
 		tokenOfferCards?: ApiBiddingTokenOfferCardsPage;
 		facets: ApiTraitFacet[];
@@ -166,18 +190,27 @@
 	];
 	let activeBiddingSettings = $state<ApiBiddingCollectionSettings>(biddingSettings);
 	let activePriceTiers = $state<ApiBiddingPriceTier[]>(priceTiers);
+	let activeBidBook = $state<ApiBiddingBidBook>(bidBook);
+	let activeTokenOfferCardsPage =
+		$state<ApiBiddingTokenOfferCardsPage>(tokenOfferCards);
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
 	let activeTraitRanges = $state<ApiTraitRangeFilter[]>(selectedTraitRanges);
 	let visibleTokenOfferCards = $state<ApiBiddingTokenOfferCard[]>(tokenOfferCards.items);
 	let tokenOffersRangeStart = $state(tokenOfferCards.rangeStart);
 	let tokenOffersRangeEnd = $state(tokenOfferCards.rangeEnd);
 	let tokenOffersPagesLoaded = $state(tokenOfferCards.items.length === 0 ? 0 : 1);
+	let tokenOffersHeadRequestCursor = $state<string | null>(requestCursor);
 	let tokenOffersHeadPrevCursor = $state<string | null>(tokenOfferCards.prevCursor);
 	let tokenOffersTailNextCursor = $state<string | null>(tokenOfferCards.nextCursor);
 	let tokenOffersPagingPending = $state(false);
 	let lastBiddingFilterKey = $state('');
 	let biddingPanelExpandSignal = $state(0);
 	let priceTierPanelOpen = $state(false);
+	let biddingContentElement = $state<HTMLDivElement | null>(null);
+	let liveRefreshRequestId = 0;
+	let bidBookMetadataNowMs = $state(Date.now());
+	let bidBookNextUpdateAtMs = $state<number | null>(null);
+	let refreshedTokenOfferWindow: PaginationWindowState<ApiBiddingTokenOfferCard> | null = null;
 
 	const hasActiveTraitFilters = $derived(activeTraits.length > 0 || activeTraitRanges.length > 0);
 	const showBidBookFilters = $derived(
@@ -196,10 +229,10 @@
 	);
 	const tokenOfferMetrics = $derived(
 		describePaginationWindow({
-			totalItems: tokenOfferCards.totalItems,
+			totalItems: activeTokenOfferCardsPage.totalItems,
 			rangeStart: tokenOffersRangeStart,
 			rangeEnd: tokenOffersRangeEnd,
-			limit: tokenOfferCards.limit,
+			limit: activeTokenOfferCardsPage.limit,
 			tailNextCursor: tokenOffersTailNextCursor
 		})
 	);
@@ -216,7 +249,7 @@
 	const biddingSelectionSummary = $derived(
 		describeBiddingAutomationSelection(currentBiddingSelection)
 	);
-	const ownMakerAddress = $derived(bidBook.ownMakerAddress);
+	const ownMakerAddress = $derived(activeBidBook.ownMakerAddress);
 	const biddingFilterKey = $derived(activeBiddingFilterKey());
 	const canBidOnTraits = $derived(
 		canDraftTraitJobFromFilters({
@@ -224,7 +257,9 @@
 			selectedTraitRanges: activeTraitRanges
 		})
 	);
-	const canRefineTokenSelectionToVisiblePage = $derived(tokenOfferCards.totalPages > 1);
+	const canRefineTokenSelectionToVisiblePage = $derived(
+		activeTokenOfferCardsPage.totalPages > 1
+	);
 	const tokenActionLabel = $derived(
 		resolveBiddingTokenActionLabel({
 			allFilteredSelectionActive: isAllFilteredTokenSelectionActive(),
@@ -243,12 +278,38 @@
 		resolveBidBookTraitDemandGroupPreview(collection?.extensions ?? [])
 	);
 
+	onMount(() => {
+		const refresh = startBiddingBidBookLiveRefresh({
+			refresh: () => refreshCollectionBiddingData(),
+			intervalMs: () =>
+				biddingBidBookLivePollIntervalMs(activeBidBook.state.source, bidBookLiveRefreshConfig),
+			onNextUpdate: (nextUpdateAtMs) => {
+				bidBookNextUpdateAtMs = nextUpdateAtMs;
+			}
+		});
+		const metadataTimer = window.setInterval(() => {
+			bidBookMetadataNowMs = Date.now();
+		}, BID_BOOK_RELATIVE_TIME_TICK_MS);
+		return () => {
+			refresh.stop();
+			window.clearInterval(metadataTimer);
+		};
+	});
+
 	$effect(() => {
 		activeBiddingSettings = biddingSettings;
 	});
 
 	$effect(() => {
 		activePriceTiers = priceTiers;
+	});
+
+	$effect(() => {
+		activeBidBook = bidBook;
+	});
+
+	$effect(() => {
+		activeTokenOfferCardsPage = tokenOfferCards;
 	});
 
 	$effect(() => {
@@ -262,23 +323,27 @@
 	$effect(() => {
 		if (bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
 			tokenOffersPagingPending = false;
+			refreshedTokenOfferWindow = null;
 			return;
 		}
 
 		const signature = tokenOfferWindowSignature();
-		const incoming = pageToPaginationWindow(tokenOfferCards);
+		const incoming = pageToPaginationWindow(activeTokenOfferCardsPage, requestCursor);
 		const cached = browser ? readPaginationWindow<ApiBiddingTokenOfferCard>(signature) : null;
-		const resolved = resolvePaginationWindow({
-			cached,
-			incoming,
-			requestCursor,
-			itemKey: (token) => token.tokenId
-		});
+		const resolved =
+			refreshedTokenOfferWindow ??
+			resolvePaginationWindow({
+				cached,
+				incoming,
+				requestCursor,
+				itemKey: (token) => token.tokenId
+			});
 
 		visibleTokenOfferCards = resolved.items;
 		tokenOffersRangeStart = resolved.rangeStart;
 		tokenOffersRangeEnd = resolved.rangeEnd;
 		tokenOffersPagesLoaded = resolved.pagesLoaded;
+		tokenOffersHeadRequestCursor = resolved.headRequestCursor;
 		tokenOffersHeadPrevCursor = resolved.headPrevCursor;
 		tokenOffersTailNextCursor = resolved.tailNextCursor;
 
@@ -287,6 +352,14 @@
 		}
 
 		tokenOffersPagingPending = false;
+		refreshedTokenOfferWindow = null;
+	});
+
+	$effect(() => {
+		if (bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
+			return;
+		}
+		biddingAutomation.pruneInvisibleTokenSelection(visibleTokenOfferCardIds);
 	});
 
 	$effect(() => {
@@ -407,12 +480,99 @@
 			bidScope: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
 			mediaMode,
 			maker: makerFilter,
-			limit: tokenOfferCards.limit,
+			limit: activeTokenOfferCardsPage.limit,
 			cursor
 		});
 		// Keep token scope explicit on pagination so stored preferences cannot redirect away.
 		query.set(BID_SCOPE_QUERY_PARAM, COLLECTION_BIDDING_BID_SCOPE_FILTER.Token);
 		return withQuery(biddingPath(), query);
+	}
+
+	function currentBidBookQuery(cursor: string | null = requestCursor): URLSearchParams {
+		return buildCollectionBiddingQuery({
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
+			bidScope,
+			traitJoinMode,
+			mediaMode,
+			maker: makerFilter,
+			showMuted,
+			limit: activeTokenOfferCardsPage.limit,
+			cursor
+		});
+	}
+
+	async function refreshCollectionBiddingData(): Promise<void> {
+		if (!chain || !collection) return;
+		const requestId = liveRefreshRequestId + 1;
+		liveRefreshRequestId = requestId;
+		const refreshKey = activeBiddingFilterKey();
+		const anchor = captureBiddingLiveRefreshAnchor(biddingContentElement);
+
+		try {
+			// Fetch the current source-selected bid book directly so live refresh avoids route reloads.
+			const response =
+				bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+					? await refreshTokenOfferWindow({
+							chainSlug: chain.slug,
+							collectionSlug: collection.slug
+						})
+					: await getCollectionBiddingBidBook(
+							fetch,
+							chain.slug,
+							collection.slug,
+							currentBidBookQuery()
+						);
+			if (liveRefreshRequestId !== requestId || refreshKey !== activeBiddingFilterKey()) {
+				return;
+			}
+			activeBidBook = response.bidBook;
+			activeTokenOfferCardsPage = response.tokenOfferCards;
+			await tick();
+			if (liveRefreshRequestId === requestId) {
+				restoreBiddingLiveRefreshAnchor(biddingContentElement, anchor);
+			}
+		} catch {
+			// Keep the existing bid-book visible after transient live-refresh failures.
+		}
+	}
+
+	async function refreshTokenOfferWindow(params: {
+		chainSlug: string;
+		collectionSlug: string;
+	}): Promise<CollectionBiddingBidBookApiResponse> {
+		const refreshed = await refreshPaginationWindowFromHead<
+			ApiBiddingTokenOfferCard,
+			CollectionBiddingBidBookApiResponse
+		>({
+			pagesLoaded: tokenOffersPagesLoaded,
+			headRequestCursor: tokenOffersHeadRequestCursor,
+			loadPage: (cursor) =>
+				getCollectionBiddingBidBook(
+					fetch,
+					params.chainSlug,
+					params.collectionSlug,
+					currentBidBookQuery(cursor)
+				),
+			pageFromResponse: (response) => response.tokenOfferCards,
+			itemKey: (token) => token.tokenId
+		});
+
+		refreshedTokenOfferWindow = refreshed.window;
+		return {
+			...refreshed.headResponse,
+			bidBook: bidBookForTokenOfferWindow(refreshed.headResponse.bidBook, refreshed.window)
+		};
+	}
+
+	function bidBookForTokenOfferWindow(
+		bidBook: ApiBiddingBidBook,
+		window: PaginationWindowState<ApiBiddingTokenOfferCard>
+	): ApiBiddingBidBook {
+		return {
+			...bidBook,
+			bids: window.items.flatMap((token) => token.offers)
+		};
 	}
 
 	function loadPreviousTokenOffersHref(): string {
@@ -429,8 +589,8 @@
 		return buildPaginationWindowSignature([
 			basePath,
 			'token-offers',
-			tokenOfferCards.limit,
-			bidBook.state.source,
+			activeTokenOfferCardsPage.limit,
+			activeBidBook.state.source,
 			media.selectedMode,
 			makerFilter ?? 'all-makers',
 			showMuted ? 'show-muted' : 'hide-muted',
@@ -444,6 +604,10 @@
 
 	function handleBiddingSettingsChanged(nextSettings: ApiBiddingCollectionSettings): void {
 		activeBiddingSettings = nextSettings;
+	}
+
+	function handleBiddingJobsChanged(_jobs: ApiBiddingJob[]): void {
+		void refreshCollectionBiddingData();
 	}
 
 	function togglePriceTierPanel(): void {
@@ -625,7 +789,7 @@
 	}
 
 	function tokenOffersResultsSummary(): string {
-		const count = tokenOfferCards.totalItems;
+		const count = activeTokenOfferCardsPage.totalItems;
 		return count === 1 ? '1 token' : `${count} tokens`;
 	}
 
@@ -633,7 +797,7 @@
 		if (!canBidOnTraits) return;
 		biddingAutomation.selectFilteredTokens(
 			buildFilteredTraitBiddingSelectionInput({
-				tokenCount: tokenOfferCards.totalItems,
+				tokenCount: activeTokenOfferCardsPage.totalItems,
 				filter: currentBiddingFilterSnapshot()
 			})
 		);
@@ -650,7 +814,7 @@
 		}
 		biddingAutomation.selectFilteredTokens(
 			buildFilteredTokenBatchBiddingSelectionInput({
-				tokenCount: tokenOfferCards.totalItems,
+				tokenCount: activeTokenOfferCardsPage.totalItems,
 				filter: currentBiddingFilterSnapshot()
 			})
 		);
@@ -728,7 +892,7 @@
 	}
 
 	function placeCollectionBid(): void {
-		const topBid = bidBook.bids[0];
+		const topBid = activeBidBook.bids[0];
 		if (!topBid) return;
 		onBidBookSelectBid(topBid);
 	}
@@ -819,7 +983,8 @@
 
 {#snippet bidBookPanel()}
 	<BidBookPanel
-		{bidBook}
+		bidBook={activeBidBook}
+		nextUpdateAtMs={bidBookNextUpdateAtMs}
 		showScope={bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection}
 		view={bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits ? 'trait-demand' : 'rows'}
 		{showMuted}
@@ -927,7 +1092,7 @@
 						showTierAction={biddingSelectionControlPolicy.showTierAction}
 						tierActionActive={priceTierPanelOpen}
 						tokenActionLabel={tokenActionLabel}
-						tokenActionDisabled={tokenOfferCards.totalItems === 0}
+						tokenActionDisabled={activeTokenOfferCardsPage.totalItems === 0}
 						onToggleTiers={togglePriceTierPanel}
 						onBidOnTraits={bidOnFilteredTraits}
 						onBidOnTokens={bidOnFilteredTokenOffers}
@@ -943,7 +1108,7 @@
 						showCollectionAction={biddingSelectionControlPolicy.showCollectionAction}
 						showTierAction={biddingSelectionControlPolicy.showTierAction}
 						tierActionActive={priceTierPanelOpen}
-						collectionActionDisabled={bidBook.bids.length === 0}
+						collectionActionDisabled={activeBidBook.bids.length === 0}
 						onToggleTiers={togglePriceTierPanel}
 						onBidOnTokens={bidOnFilteredTokenOffers}
 						onBidOnCollection={placeCollectionBid}
@@ -962,6 +1127,7 @@
 			tiers={activePriceTiers}
 			onSettingsChange={handleBiddingSettingsChanged}
 			onTiersChange={handlePriceTiersChanged}
+			onJobsChange={handleBiddingJobsChanged}
 			onClose={togglePriceTierPanel}
 		/>
 	{/if}
@@ -977,41 +1143,50 @@
 				onApplyTraitRange={onApplyTraitRange}
 			/>
 
-			<div class="token-panel bidding-panel-main">
+			<div class="token-panel bidding-panel-main" bind:this={biddingContentElement}>
 				{#if bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token}
 					<section class="runtime-section bid-book-summary-panel">
 							<div class="runtime-kv-grid bid-book-meta">
 								<div>
 									<span class="runtime-k">refresh pace</span>
-									<span class="runtime-v" title={bidBookRefreshPaceTitle(bidBook.state.source)}>
-										{bidBookRefreshPaceLabel(bidBook.state.source)}
+									<span class="runtime-v" title={bidBookRefreshPaceTitle(activeBidBook.state.source)}>
+										{bidBookRefreshPaceLabel(activeBidBook.state.source)}
 									</span>
 								</div>
 								<div>
 									<span class="runtime-k">tokens</span>
-									<span class="runtime-v">{tokenOfferCards.totalItems}</span>
+									<span class="runtime-v">{activeTokenOfferCardsPage.totalItems}</span>
 								</div>
 								<div>
 									<span class="runtime-k">offers</span>
-									<span class="runtime-v">{tokenOfferCards.totalOffers}</span>
+									<span class="runtime-v">{activeTokenOfferCardsPage.totalOffers}</span>
 								</div>
 								<div>
-									<span class="runtime-k">updated</span>
-									<span class="runtime-v mono">{formatBidBookFreshness(bidBook.state)}</span>
+									<span class="runtime-k">next refresh</span>
+									<span
+										class="runtime-v mono bid-book-update-chip"
+										title={bidBookNextUpdateTitle(bidBookNextUpdateAtMs)}
+										use:bidBookUpdateFlash={{
+											key: bidBookNextUpdateAtMs,
+											mode: BID_BOOK_UPDATE_FLASH_MODE.Transient
+										}}
+									>
+										{formatBidBookNextUpdate(bidBookNextUpdateAtMs, bidBookMetadataNowMs)}
+									</span>
 								</div>
 							</div>
-							{#if bidBook.state.lastError}
-								<p class="runtime-error bid-book-error" role="alert">{bidBook.state.lastError}</p>
+							{#if activeBidBook.state.lastError}
+								<p class="runtime-error bid-book-error" role="alert">{activeBidBook.state.lastError}</p>
 							{/if}
 					</section>
 
 					<section class="token-offers-panel">
 							<CursorPaginationControls
 								resultsSummary={tokenOffersResultsSummary()}
-								totalItems={tokenOfferCards.totalItems}
+								totalItems={activeTokenOfferCardsPage.totalItems}
 								rangeStart={tokenOffersRangeStart}
 								rangeEnd={tokenOffersRangeEnd}
-								totalPages={tokenOfferCards.totalPages}
+								totalPages={activeTokenOfferCardsPage.totalPages}
 								visibleStartPage={tokenOfferMetrics.visibleStartPage}
 								visibleEndPage={tokenOfferMetrics.visibleEndPage}
 								remainingItems={tokenOfferMetrics.remainingItems}
@@ -1062,7 +1237,7 @@
 			</div>
 		</div>
 	{:else}
-		<div class="token-panel bidding-panel-main">
+		<div class="token-panel bidding-panel-main" bind:this={biddingContentElement}>
 			{@render bidBookPanel()}
 		</div>
 	{/if}
@@ -1074,11 +1249,12 @@
 			token={null}
 			job={null}
 			draft={selectedBiddingDraft}
-			{bidBook}
+			bidBook={activeBidBook}
 			biddingSettings={activeBiddingSettings}
 			priceTiers={activePriceTiers}
 			expandSignal={biddingPanelExpandSignal}
 			onClose={closeBiddingAutomationPanel}
+			onJobsChange={handleBiddingJobsChanged}
 		/>
 	{/if}
 </CollectionPageLayout>

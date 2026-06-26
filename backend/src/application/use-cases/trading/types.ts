@@ -52,6 +52,7 @@ export type BiddingJobView = {
         currentPriceEth: string | null;
         activeOrderId: string | null;
         activeProtocolAddress: string | null;
+        activeOrderPlacedAt: string | null;
         activeExpirationTimeMs: number | null;
         bidPosition: TradingBiddingJobRuntimeBidPosition | null;
         bidConstraints: TradingBiddingJobRuntimeConstraint[];
@@ -223,6 +224,7 @@ export function mapPersistedBiddingJobToView(
               currentPriceEth: formatOptionalWeiAsEth(job.runtime.currentPriceWei),
               activeOrderId: job.runtime.activeOrderId,
               activeProtocolAddress: job.runtime.activeProtocolAddress,
+              activeOrderPlacedAt: job.runtime.activeOrderPlacedAt,
               activeExpirationTimeMs: job.runtime.activeExpirationTimeMs,
               bidPosition: job.runtime.bidPosition,
               bidConstraints: job.runtime.bidConstraints,

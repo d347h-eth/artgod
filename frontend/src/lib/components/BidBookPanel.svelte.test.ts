@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+	TRADING_BIDDING_BID_BOOK_SOURCE,
 	TRADING_BIDDING_BID_SCOPE_KIND,
+	TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
+	TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
 	TRADING_JOB_STATUS
 } from '@artgod/shared/types';
 import type { ApiBiddingBidBook, ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
@@ -199,7 +202,7 @@ describe('BidBookPanel', () => {
 	it('keeps own low bids visible and unmuted in row views', () => {
 		const bidBook: ApiBiddingBidBook = {
 			state: {
-				source: 'bot_snapshot',
+				source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
 				updatedAt: null,
 				snapshotRefreshedAtMs: null,
 				projectedAt: null,
@@ -477,8 +480,8 @@ describe('BidBookPanel', () => {
 			},
 			price: exactPrice('200000000000000000', '0.2'),
 			ownStatus: {
-				position: 'winning' as const,
-				constraints: ['ceiling' as const],
+				position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
+				constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
 				job: {
 					jobId: 'job-token-1',
 					revision: 1,
@@ -488,7 +491,7 @@ describe('BidBookPanel', () => {
 		};
 		const bidBook: ApiBiddingBidBook = {
 			state: {
-				source: 'bot_snapshot',
+				source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
 				updatedAt: null,
 				snapshotRefreshedAtMs: null,
 				projectedAt: null,
@@ -528,6 +531,89 @@ describe('BidBookPanel', () => {
 		expect(body).toContain('>winning</span>');
 		expect(body).toContain('bid-book-own-status-ceiling');
 		expect(body).toContain('>hit ceiling</span>');
+	});
+
+	it('shows runtime status for active own job intents', () => {
+		const job: ApiBiddingJob = {
+			jobId: 'job-token-1',
+			status: TRADING_JOB_STATUS.Enabled,
+			revision: 1,
+			createdAt: '2026-01-01T00:00:00Z',
+			updatedAt: '2026-01-01T00:00:00Z',
+			archivedAt: null,
+			target: {
+				type: 'token',
+				tokenId: '1'
+			},
+			config: {
+				floorEth: '0.1',
+				ceilingEth: '0.2',
+				deltaEth: '0.01',
+				pricingSource: null
+			},
+			runtime: null
+		};
+		const activeIntent: ApiBiddingBidBookRow = {
+			...BASE_BID,
+			orderId: '0xruntime-order',
+			materialization: {
+				kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+				jobId: 'job-token-1',
+				status: TRADING_JOB_STATUS.Enabled,
+				phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued
+			},
+			scope: {
+				kind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+				label: '#1',
+				tokenId: '1',
+				traits: []
+			},
+			maker: {
+				address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+				label: 'You',
+				isOwn: true
+			},
+			price: exactPrice('200000000000000000', '0.2'),
+			ownStatus: {
+				position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+				constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+				job: {
+					jobId: 'job-token-1',
+					revision: 1,
+					status: TRADING_JOB_STATUS.Enabled
+				}
+			}
+		};
+		const bidBook: ApiBiddingBidBook = {
+			state: {
+				source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+				updatedAt: null,
+				snapshotRefreshedAtMs: null,
+				projectedAt: null,
+				rowCount: 1,
+				durationMs: null,
+				lastError: null
+			},
+			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			bids: [activeIntent]
+		};
+
+		const { body } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				job,
+				showScope: true,
+				basePath: '/ethereum/terraforms',
+				mediaMode: 'artifact'
+			}
+		});
+
+		expect(body).toContain('>You</a>');
+		expect(body).toContain('bid-book-own-status-losing');
+		expect(body).toContain('>losing</span>');
+		expect(body).toContain('bid-book-own-status-ceiling');
+		expect(body).toContain('>hit ceiling</span>');
+		expect(body).not.toContain('>queued</span>');
 	});
 
 	it('shows queued for own job intents instead of computing a market position locally', () => {
@@ -580,7 +666,7 @@ describe('BidBookPanel', () => {
 		};
 		const bidBook: ApiBiddingBidBook = {
 			state: {
-				source: 'bot_snapshot',
+				source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
 				updatedAt: null,
 				snapshotRefreshedAtMs: null,
 				projectedAt: null,
@@ -620,6 +706,62 @@ describe('BidBookPanel', () => {
 		expect(body).not.toContain('>winning</span>');
 		expect(body).not.toContain('outbid');
 		expect(body).not.toContain('no active bid');
+	});
+
+	it('shows cancellation phases for own job intents', () => {
+		const cancelingIntent: ApiBiddingBidBookRow = {
+			...BASE_BID,
+			orderId: '0xcanceling',
+			materialization: {
+				kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+				jobId: 'job-token-1',
+				status: TRADING_JOB_STATUS.Archived,
+				phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling
+			},
+			maker: {
+				address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+				label: 'You',
+				isOwn: true
+			}
+		};
+		const failedIntent: ApiBiddingBidBookRow = {
+			...cancelingIntent,
+			orderId: '0xcancel-failed',
+			materialization: {
+				kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+				jobId: 'job-token-1',
+				status: TRADING_JOB_STATUS.Archived,
+				phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed
+			}
+		};
+		const bidBook: ApiBiddingBidBook = {
+			state: {
+				source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+				updatedAt: null,
+				snapshotRefreshedAtMs: null,
+				projectedAt: null,
+				rowCount: 2,
+				durationMs: null,
+				lastError: null
+			},
+			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			bids: [cancelingIntent, failedIntent]
+		};
+
+		const { body } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				job: null,
+				showScope: true,
+				basePath: '/ethereum/terraforms',
+				mediaMode: 'artifact'
+			}
+		});
+
+		expect(body).toContain('bid-book-own-status-canceling');
+		expect(body).toContain('>canceling</span>');
+		expect(body).toContain('bid-book-own-status-cancel_failed');
+		expect(body).toContain('>cancel failed</span>');
 	});
 
 	it('renders clickable demand trait values and opens the preferred trait tab', () => {

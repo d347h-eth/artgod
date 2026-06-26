@@ -32,7 +32,10 @@
 		resolveInitialBiddingAutomationPriceTierId,
 		resolveInitialBiddingAutomationPricingMode,
 		resolveInitialBiddingAutomationStatus,
-		resolveLoadedBiddingAutomationPanelKey
+		resolveBiddingAutomationPanelDraftIdentityKey,
+		resolveBiddingAutomationPanelTargetLookupRequestKey,
+		resolveLoadedBiddingAutomationPanelKey,
+		shouldPreserveBiddingAutomationPanelDraftOnLoadChange
 	} from '$lib/bidding-automation-panel-state';
 	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 	import { ownBiddingJobStateBadges } from '$lib/bidding-bid-book-own-status';
@@ -45,12 +48,6 @@
 		type BiddingAutomationDraft,
 		type BiddingAutomationPricingMode
 	} from '$lib/bidding-automation';
-	import {
-		formatCompactTime,
-		oppositeCompactTimeTitle,
-		parseCompactTimeMs,
-		type CompactTimeDisplayMode
-	} from '$lib/compact-time-display';
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
 	import { TEST_IDS } from '$lib/test-ids';
@@ -92,6 +89,7 @@
 	const initialPanelJob = resolveBiddingAutomationPanelJob({ job, draft, lookedUpJob: null });
 	let currentJob = $state<ApiBiddingJob | null>(initialPanelJob);
 	let loadedJobKey = $state(resolveLoadedBiddingAutomationPanelKey({ job, draft, lookedUpJob: null }));
+	let loadedDraftKey = $state(resolveBiddingAutomationPanelDraftIdentityKey(draft));
 	let pricingMode = $state<BiddingAutomationPricingMode>(
 		resolveInitialBiddingAutomationPricingMode({ job: initialPanelJob, draft })
 	);
@@ -112,12 +110,11 @@
 	let saveError = $state<string | null>(null);
 	let panelCollapsed = $state(false);
 	let lastExpandSignal = $state(expandSignal);
-	let modifiedAtMode = $state<CompactTimeDisplayMode>('relative');
-	let refreshedAtMode = $state<CompactTimeDisplayMode>('relative');
-	let nowMs = $state(Date.now());
 	let armedAction = $state<ConfirmableBiddingAction | null>(null);
 	let targetLookupKey = $state('');
+	let targetLookupRequestKey = $state('');
 	let targetLookupJob = $state<ApiBiddingJob | null>(null);
+	let draftInputTouched = $state(false);
 
 	const hasExistingJob = $derived(currentJob !== null);
 	const selectedDraftUnsupported = $derived(!isBiddingAutomationDraftSubmittable(draft));
@@ -185,17 +182,6 @@
 			!!chain &&
 			!!collection
 	);
-	const modifiedAtMs = $derived(parseCompactTimeMs(currentJob?.updatedAt));
-	const refreshedAtMs = $derived(
-		parseCompactTimeMs(currentJob?.runtime?.updatedAt ?? currentJob?.runtime?.lastRunAt)
-	);
-
-	$effect(() => {
-		const timer = window.setInterval(() => {
-			nowMs = Date.now();
-		}, 60_000);
-		return () => window.clearInterval(timer);
-	});
 
 	$effect(() => {
 		const nextLoadedJobKey = resolveLoadedBiddingAutomationPanelKey({
@@ -207,8 +193,28 @@
 			return;
 		}
 
+		const nextLoadedDraftKey = resolveBiddingAutomationPanelDraftIdentityKey(draft);
+		const sameDraftTarget = nextLoadedDraftKey === loadedDraftKey;
+		const nextJob = resolveBiddingAutomationPanelJob({
+			job,
+			draft,
+			lookedUpJob: targetLookupJob
+		});
 		loadedJobKey = nextLoadedJobKey;
-		applyLoadedPanel(job, draft, targetLookupJob);
+		loadedDraftKey = nextLoadedDraftKey;
+		if (
+			sameDraftTarget &&
+			shouldPreserveBiddingAutomationPanelDraftOnLoadChange({
+				draftInputTouched,
+				saving,
+				archiving
+			})
+		) {
+			currentJob = nextJob;
+			return;
+		}
+
+		applyLoadedPanel(nextJob, draft);
 		saving = false;
 		archiving = false;
 		saveMessage = null;
@@ -232,6 +238,7 @@
 
 	function resetDraft(): void {
 		applyDraft(currentJob, draft);
+		draftInputTouched = false;
 		saveMessage = null;
 		saveError = null;
 		armedAction = null;
@@ -307,16 +314,12 @@
 	}
 
 	function applyLoadedPanel(
-		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null,
-		lookedUpJob: ApiBiddingJob | null
+		resolvedJob: ApiBiddingJob | null,
+		currentDraft: BiddingAutomationDraft | null
 	): void {
-		currentJob = resolveBiddingAutomationPanelJob({
-			job: value,
-			draft: currentDraft,
-			lookedUpJob
-		});
+		currentJob = resolvedJob;
 		applyDraft(currentJob, currentDraft);
+		draftInputTouched = false;
 	}
 
 	async function refreshTargetLookupJob(): Promise<void> {
@@ -325,11 +328,18 @@
 			collection,
 			draft
 		});
-		if (nextLookupKey === targetLookupKey) {
+		const nextLookupRequestKey = resolveBiddingAutomationPanelTargetLookupRequestKey({
+			targetLookupKey: nextLookupKey,
+			bidBook
+		});
+		if (nextLookupRequestKey === targetLookupRequestKey) {
 			return;
 		}
+		if (nextLookupKey !== targetLookupKey) {
+			targetLookupJob = null;
+		}
 		targetLookupKey = nextLookupKey;
-		targetLookupJob = null;
+		targetLookupRequestKey = nextLookupRequestKey;
 		if (!nextLookupKey) {
 			return;
 		}
@@ -342,11 +352,17 @@
 				collection,
 				draft
 			});
-			if (targetLookupKey === nextLookupKey) {
+			if (
+				targetLookupKey === nextLookupKey &&
+				targetLookupRequestKey === nextLookupRequestKey
+			) {
 				targetLookupJob = lookedUpJob;
 			}
 		} catch (error) {
-			if (targetLookupKey === nextLookupKey) {
+			if (
+				targetLookupKey === nextLookupKey &&
+				targetLookupRequestKey === nextLookupRequestKey
+			) {
 				saveError = error instanceof Error ? error.message : 'failed to look up bidding job';
 			}
 		}
@@ -395,6 +411,7 @@
 		if (!(target instanceof HTMLSelectElement)) {
 			return;
 		}
+		markDraftInputTouched();
 		selectPricingOption(target.value);
 	}
 
@@ -407,6 +424,7 @@
 	}
 
 	function selectManualPricing(): void {
+		markDraftInputTouched();
 		if (pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
 			floorEth = displayedFloorEth;
 			ceilingEth = displayedCeilingEth;
@@ -421,11 +439,16 @@
 		if (!tier) {
 			return;
 		}
+		markDraftInputTouched();
 		pricingMode = BIDDING_AUTOMATION_PRICING_MODE.Tier;
 		selectedPriceTierId = tier.tierId;
 		floorEth = tier.resolvedFloorEth ?? floorEth;
 		ceilingEth = tier.resolvedCeilingEth ?? ceilingEth;
 		deltaEth = tier.deltaEth;
+	}
+
+	function markDraftInputTouched(): void {
+		draftInputTouched = true;
 	}
 
 	function tierButtonTitle(tier: ApiBiddingPriceTier): string {
@@ -457,22 +480,6 @@
 		const maxLength = 96;
 		const trimmed = value.trim();
 		return trimmed.length <= maxLength ? trimmed : `${trimmed.slice(0, maxLength - 3)}...`;
-	}
-
-	function formatJobTime(valueMs: number | null, mode: CompactTimeDisplayMode): string {
-		return formatCompactTime(valueMs, mode, nowMs);
-	}
-
-	function jobTimeTitle(valueMs: number | null, mode: CompactTimeDisplayMode): string | undefined {
-		return oppositeCompactTimeTitle(valueMs, mode, nowMs);
-	}
-
-	function toggleModifiedAtMode(): void {
-		modifiedAtMode = modifiedAtMode === 'relative' ? 'absolute' : 'relative';
-	}
-
-	function toggleRefreshedAtMode(): void {
-		refreshedAtMode = refreshedAtMode === 'relative' ? 'absolute' : 'relative';
 	}
 
 	async function handleSave(statusOverride: EditableBiddingJobStatus | null = null): Promise<void> {
@@ -608,7 +615,7 @@
 		aria-label="bidding automation"
 	>
 		<header class="panel-header bidding-automation-panel-header">
-			<h2 class="panel-title">token bidding</h2>
+			<h2 class="panel-title">bidding</h2>
 			<button type="button" class="button-link" onclick={hidePanel}>hide</button>
 		</header>
 
@@ -627,42 +634,6 @@
 				<div>
 					<span class="runtime-k">job</span>
 					<span class="runtime-v mono">{currentJob.jobId}</span>
-				</div>
-				<div>
-					<span class="runtime-k">revision</span>
-					<span class="runtime-v mono">{currentJob.revision}</span>
-				</div>
-				<div>
-					<span class="runtime-k">modified</span>
-					{#if modifiedAtMs === null}
-						<span class="runtime-v mono">-</span>
-					{:else}
-						<button
-							type="button"
-							class="activities-time-mode-button token-bidding-time-value"
-							aria-label="toggle modified time mode"
-							title={jobTimeTitle(modifiedAtMs, modifiedAtMode)}
-							onclick={toggleModifiedAtMode}
-						>
-							{formatJobTime(modifiedAtMs, modifiedAtMode)}
-						</button>
-					{/if}
-				</div>
-				<div>
-					<span class="runtime-k">refreshed</span>
-					{#if refreshedAtMs === null}
-						<span class="runtime-v mono">-</span>
-					{:else}
-						<button
-							type="button"
-							class="activities-time-mode-button token-bidding-time-value"
-							aria-label="toggle refreshed time mode"
-							title={jobTimeTitle(refreshedAtMs, refreshedAtMode)}
-							onclick={toggleRefreshedAtMode}
-						>
-							{formatJobTime(refreshedAtMs, refreshedAtMode)}
-						</button>
-					{/if}
 				</div>
 			{/if}
 			{#if bidStateBadges.length > 0}
@@ -755,6 +726,7 @@
 						type="text"
 						inputmode="decimal"
 						bind:value={floorEth}
+						oninput={markDraftInputTouched}
 						disabled={saving || archiving || selectedDraftUnsupported}
 					/>
 				{/if}
@@ -776,6 +748,7 @@
 						type="text"
 						inputmode="decimal"
 						bind:value={ceilingEth}
+						oninput={markDraftInputTouched}
 						disabled={saving || archiving || selectedDraftUnsupported}
 					/>
 				{/if}
@@ -793,6 +766,7 @@
 							pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Manual &&
 							event.currentTarget instanceof HTMLInputElement
 						) {
+							markDraftInputTouched();
 							deltaEth = event.currentTarget.value;
 						}
 					}}
