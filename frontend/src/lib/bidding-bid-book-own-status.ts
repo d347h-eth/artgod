@@ -15,6 +15,8 @@ export type BidBookOwnStatusBadge = {
 };
 
 const OWN_JOB_INTENT_PHASE_LABELS = {
+	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed]: 'cancel failed',
+	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling]: 'canceling',
 	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused]: 'paused',
 	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued]: 'queued'
 } as const;

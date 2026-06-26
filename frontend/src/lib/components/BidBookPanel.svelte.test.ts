@@ -708,6 +708,62 @@ describe('BidBookPanel', () => {
 		expect(body).not.toContain('no active bid');
 	});
 
+	it('shows cancellation phases for own job intents', () => {
+		const cancelingIntent: ApiBiddingBidBookRow = {
+			...BASE_BID,
+			orderId: '0xcanceling',
+			materialization: {
+				kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+				jobId: 'job-token-1',
+				status: TRADING_JOB_STATUS.Archived,
+				phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling
+			},
+			maker: {
+				address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+				label: 'You',
+				isOwn: true
+			}
+		};
+		const failedIntent: ApiBiddingBidBookRow = {
+			...cancelingIntent,
+			orderId: '0xcancel-failed',
+			materialization: {
+				kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+				jobId: 'job-token-1',
+				status: TRADING_JOB_STATUS.Archived,
+				phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed
+			}
+		};
+		const bidBook: ApiBiddingBidBook = {
+			state: {
+				source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+				updatedAt: null,
+				snapshotRefreshedAtMs: null,
+				projectedAt: null,
+				rowCount: 2,
+				durationMs: null,
+				lastError: null
+			},
+			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			bids: [cancelingIntent, failedIntent]
+		};
+
+		const { body } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				job: null,
+				showScope: true,
+				basePath: '/ethereum/terraforms',
+				mediaMode: 'artifact'
+			}
+		});
+
+		expect(body).toContain('bid-book-own-status-canceling');
+		expect(body).toContain('>canceling</span>');
+		expect(body).toContain('bid-book-own-status-cancel_failed');
+		expect(body).toContain('>cancel failed</span>');
+	});
+
 	it('renders clickable demand trait values and opens the preferred trait tab', () => {
 		const bidBook: ApiBiddingBidBook = {
 			state: {

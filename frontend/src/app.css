@@ -2030,7 +2030,8 @@ th {
 }
 
 .bid-book-own-status-losing,
-.bid-book-own-status-ceiling {
+.bid-book-own-status-ceiling,
+.bid-book-own-status-cancel_failed {
 	background: var(--c-pink);
 	color: var(--c-bg);
 }
@@ -2042,7 +2043,8 @@ th {
 	color: var(--c-bg);
 }
 
-.bid-book-own-status-paused {
+.bid-book-own-status-paused,
+.bid-book-own-status-canceling {
 	background: var(--c-orange);
 	color: var(--c-bg);
 }
