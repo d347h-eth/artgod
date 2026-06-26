@@ -7,6 +7,10 @@ import { COLLECTION_STANDARD } from "../src/domain/collections.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 
+// Test-only extension key for generic bootstrap artifact task storage.
+const TEST_EXTENSION_KEY = "test-extension";
+const TEST_EXTENSION_OWNED_TOKEN_ID = "extension-owned-token";
+
 describe("bootstrap storage", () => {
     loadTestEnv();
 
@@ -137,6 +141,54 @@ describe("bootstrap storage", () => {
             failedTerminal: 0,
             total: 1,
         });
+    });
+
+    it("seeds collection-extension artifact tasks from metadata and extension-owned rows together", () => {
+        const storage = new SqliteBootstrapStorage();
+        storage.insertMetadataTasks([
+            {
+                runId: 43,
+                chainId: 1,
+                collectionId: 7,
+                contract: "0xAbCd000000000000000000000000000000000000",
+                tokenId: "5081",
+                standard: COLLECTION_STANDARD.Erc721,
+                anchorBlock: 100,
+                anchorHash: `0x${"11".repeat(32)}`,
+                anchorTimestamp: 1_726_000_000,
+            },
+        ]);
+        storage.markMetadataTaskSucceeded(43, "5081", 1);
+
+        expect(
+            storage.seedCollectionExtensionArtifactTasks({
+                runId: 43,
+                extensionKey: TEST_EXTENSION_KEY,
+                extensionOwnedTasks: [
+                    {
+                        runId: 43,
+                        chainId: 1,
+                        collectionId: 7,
+                        contract: "0xAbCd000000000000000000000000000000000000",
+                        tokenId: TEST_EXTENSION_OWNED_TOKEN_ID,
+                        extensionKey: TEST_EXTENSION_KEY,
+                    },
+                ],
+            }),
+        ).toBe(1);
+
+        expect(storage.getCollectionExtensionArtifactTaskCounts(43)).toEqual({
+            pending: 2,
+            retry: 0,
+            succeeded: 0,
+            failedTerminal: 0,
+            total: 2,
+        });
+        expect(
+            storage
+                .listCollectionExtensionArtifactTasksDueNow(43, Date.now(), 10)
+                .map((task) => task.tokenId),
+        ).toEqual(["5081", TEST_EXTENSION_OWNED_TOKEN_ID]);
     });
 
     it("tracks ownership task retries and writes idempotent snapshot rows", () => {

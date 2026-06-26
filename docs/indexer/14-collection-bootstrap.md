@@ -88,6 +88,7 @@ Current behavior:
 - bootstrap metadata snapshot completion releases canonical trait stats through the queue outbox
 - extension artifact refresh is queued afterward on the dedicated collection-extension queue
 - Terraforms may add extension-owned synthetic unminted-placement artifact tasks to that same queue after canonical metadata tasks are available
+- metadata-derived and extension-owned collection-extension artifact tasks are seeded together in one SQLite transaction
 - bootstrap does not wait for extension artifact completion before moving to image cache, ownership snapshot, or later phases
 - extension artifact terminality releases a final stats recompute that includes extension-owned normalized traits
 

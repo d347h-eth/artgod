@@ -61,16 +61,9 @@ export type CollectionExtensionArtifactRefreshContext = {
     };
 };
 
-export type CollectionExtensionBootstrapArtifactTaskPort = {
-    insertCollectionExtensionArtifactTasks(
-        rows: BootstrapCollectionExtensionArtifactTaskSeed[],
-    ): number;
-};
-
 export type CollectionExtensionBootstrapArtifactSeedContext = {
     rpc: RpcProviderPort;
     install: CollectionExtensionInstall;
-    tasks: CollectionExtensionBootstrapArtifactTaskPort;
     run: {
         runId: number;
         chainId: number;
@@ -79,9 +72,9 @@ export type CollectionExtensionBootstrapArtifactSeedContext = {
     };
 };
 
-// Reports extension-owned artifact tasks added to a bootstrap side lane.
+// Returns extension-owned bootstrap artifact tasks for atomic side-lane seeding.
 export type CollectionExtensionBootstrapArtifactSeedResult = {
-    tasksSeeded: number;
+    tasks: BootstrapCollectionExtensionArtifactTaskSeed[];
 };
 
 // Signals follow-up work needed after a collection-extension artifact refresh.

@@ -196,6 +196,8 @@ Terraforms caches version-2 media artifacts using:
 - `extension_key = "terraforms"`
 - `artifact_ref = "terraforms-v2-media"`
 - `artifact_ref = "terraforms-v2-lost-terrain"` for non-Terrain tokens only
+- Terraforms mode transitions move one way away from Terrain, so a Terrain
+  artifact refresh is not treated as a stale lost-terrain cleanup signal
 
 The backend can then resolve:
 

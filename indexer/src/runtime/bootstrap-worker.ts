@@ -116,6 +116,7 @@ import { SharpTokenImageCache } from "../infra/media/sharp-token-image-cache.js"
 import { ViemTokenUriResolver } from "../infra/metadata/viem-token-uri.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import type {
+    BootstrapCollectionExtensionArtifactTaskSeed,
     BootstrapMetadataTask,
     BootstrapSnapshotPort,
     BootstrapImageCacheTask,
@@ -1521,17 +1522,18 @@ async function scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
     const existingCounts =
         bootstrapStorage.getCollectionExtensionArtifactTaskCounts(run.runId);
     if (existingCounts.total <= 0) {
-        const extensionSeeded = await seedCollectionExtensionOwnedArtifactTasks(
-            {
+        const extensionOwnedTasks =
+            await buildCollectionExtensionOwnedArtifactTasks({
                 rpc,
-                bootstrapStorage,
                 run,
                 install,
-            },
-        );
+            });
+        const extensionSeeded = extensionOwnedTasks.length;
+        // Seed metadata-derived and extension-owned artifact tasks together.
         const seeded = bootstrapStorage.seedCollectionExtensionArtifactTasks({
             runId: run.runId,
             extensionKey: install.extensionKey,
+            extensionOwnedTasks,
         });
         const seededCounts =
             bootstrapStorage.getCollectionExtensionArtifactTaskCounts(
@@ -1614,22 +1616,20 @@ async function scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
     );
 }
 
-async function seedCollectionExtensionOwnedArtifactTasks(input: {
+async function buildCollectionExtensionOwnedArtifactTasks(input: {
     rpc: RpcProviderPort;
-    bootstrapStorage: BootstrapSnapshotPort;
     run: BootstrapRunDefinition;
     install: CollectionExtensionInstall;
-}): Promise<number> {
+}): Promise<BootstrapCollectionExtensionArtifactTaskSeed[]> {
     const extension = resolveIndexerCollectionExtension(input.install);
     if (!extension?.seedBootstrapArtifactTasks) {
-        return 0;
+        return [];
     }
 
-    // Let the installed extension add artifact tasks that do not come from metadata rows.
+    // Let the installed extension describe artifact tasks that do not come from metadata rows.
     const result = await extension.seedBootstrapArtifactTasks({
         rpc: input.rpc,
         install: input.install,
-        tasks: input.bootstrapStorage,
         run: {
             runId: input.run.runId,
             chainId: input.run.chainId,
@@ -1637,7 +1637,7 @@ async function seedCollectionExtensionOwnedArtifactTasks(input: {
             contract: input.run.requestAddress,
         },
     });
-    return result.tasksSeeded;
+    return result.tasks;
 }
 
 function enqueueBootstrapFinalStatsOnce(

@@ -207,10 +207,8 @@ export interface BootstrapSnapshotPort {
     seedCollectionExtensionArtifactTasks(input: {
         runId: number;
         extensionKey: CollectionExtensionKey;
+        extensionOwnedTasks?: readonly BootstrapCollectionExtensionArtifactTaskSeed[];
     }): number;
-    insertCollectionExtensionArtifactTasks(
-        rows: BootstrapCollectionExtensionArtifactTaskSeed[],
-    ): number;
     listCollectionExtensionArtifactTasksDueNow(
         runId: number,
         nowMs: number,

@@ -817,34 +817,24 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     seedCollectionExtensionArtifactTasks(input: {
         runId: number;
         extensionKey: CollectionExtensionKey;
+        extensionOwnedTasks?: readonly BootstrapCollectionExtensionArtifactTaskSeed[];
     }): number {
-        const result = this.seedCollectionExtensionArtifactTasksStmt.run({
-            ...input,
-            pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
-            succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
+        const seedTasks = db.raw.transaction((params: typeof input) => {
+            for (const row of params.extensionOwnedTasks ?? []) {
+                this.insertCollectionExtensionArtifactTaskStmt.run({
+                    ...row,
+                    contract: row.contract.toLowerCase(),
+                    pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
+                });
+            }
+            const result = this.seedCollectionExtensionArtifactTasksStmt.run({
+                ...params,
+                pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
+                succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
+            });
+            return result.changes;
         });
-        return result.changes;
-    }
-
-    insertCollectionExtensionArtifactTasks(
-        rows: BootstrapCollectionExtensionArtifactTaskSeed[],
-    ): number {
-        if (rows.length === 0) return 0;
-        const insertMany = db.raw.transaction(
-            (batch: BootstrapCollectionExtensionArtifactTaskSeed[]) => {
-                let inserted = 0;
-                for (const row of batch) {
-                    inserted +=
-                        this.insertCollectionExtensionArtifactTaskStmt.run({
-                            ...row,
-                            contract: row.contract.toLowerCase(),
-                            pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
-                        }).changes;
-                }
-                return inserted;
-            },
-        );
-        return insertMany(rows) as number;
+        return seedTasks(input) as number;
     }
 
     listCollectionExtensionArtifactTasksDueNow(

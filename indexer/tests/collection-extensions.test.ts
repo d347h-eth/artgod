@@ -120,11 +120,6 @@ describe("terraforms collection extension", () => {
     });
 
     it("seeds unminted bootstrap artifact tasks from minted placements", async () => {
-        const seededRows: Array<{
-            tokenId: string;
-            contract: string;
-            extensionKey: string;
-        }> = [];
         const rpc = createRpcStub({
             onReadContract({ functionName, args }) {
                 if (functionName === "totalSupply") {
@@ -141,12 +136,6 @@ describe("terraforms collection extension", () => {
             await terraformsIndexerExtension.seedBootstrapArtifactTasks?.({
                 rpc,
                 install: buildInstall(7),
-                tasks: {
-                    insertCollectionExtensionArtifactTasks(rows) {
-                        seededRows.push(...rows);
-                        return rows.length;
-                    },
-                },
                 run: {
                     runId: 41,
                     chainId: 1,
@@ -155,19 +144,19 @@ describe("terraforms collection extension", () => {
                 },
             });
 
-        expect(result).toEqual({ tasksSeeded: 11102 });
-        expect(seededRows[0]).toMatchObject({
+        expect(result?.tasks).toHaveLength(11102);
+        expect(result?.tasks[0]).toMatchObject({
             tokenId: buildTerraformsUnmintedTokenId(1n),
             contract: TERRAFORMS_ADDRESS,
             extensionKey: TERRAFORMS_EXTENSION_KEY,
         });
         expect(
-            seededRows.some(
+            result?.tasks.some(
                 (row) => row.tokenId === buildTerraformsUnmintedTokenId(0n),
             ),
         ).toBe(false);
         expect(
-            seededRows.some(
+            result?.tasks.some(
                 (row) => row.tokenId === buildTerraformsUnmintedTokenId(2n),
             ),
         ).toBe(false);

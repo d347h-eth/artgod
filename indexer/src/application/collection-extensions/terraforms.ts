@@ -387,17 +387,14 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
         );
         const unmintedPlacements =
             resolveTerraformsUnmintedPlacements(mintedPlacements);
-        const tasksSeeded =
-            context.tasks.insertCollectionExtensionArtifactTasks(
-                unmintedPlacements.map((placement) => ({
-                    runId: context.run.runId,
-                    chainId: context.run.chainId,
-                    collectionId: context.run.collectionId,
-                    contract: config.mainContractAddress,
-                    tokenId: buildTerraformsUnmintedTokenId(placement),
-                    extensionKey: TERRAFORMS_EXTENSION_KEY,
-                })),
-            );
+        const tasks = unmintedPlacements.map((placement) => ({
+            runId: context.run.runId,
+            chainId: context.run.chainId,
+            collectionId: context.run.collectionId,
+            contract: config.mainContractAddress,
+            tokenId: buildTerraformsUnmintedTokenId(placement),
+            extensionKey: TERRAFORMS_EXTENSION_KEY,
+        }));
         logger.info("Terraforms unminted artifact tasks seeded", {
             component: TERRAFORMS_COLLECTION_EXTENSION_LOG_COMPONENT,
             action: TERRAFORMS_COLLECTION_EXTENSION_LOG_ACTION.SeedBootstrapArtifactTasks,
@@ -405,9 +402,9 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
             collectionId: context.run.collectionId,
             minted: mintedPlacements.length,
             unminted: unmintedPlacements.length,
-            tasksSeeded,
+            tasksSeeded: tasks.length,
         });
-        return { tasksSeeded };
+        return { tasks };
     },
     async refreshArtifacts(context: CollectionExtensionArtifactRefreshContext) {
         const config = parseTerraformsExtensionConfig(
@@ -470,6 +467,7 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
         const artifacts: CollectionExtensionArtifactUpsertInput[] = [
             currentArtifact.artifact,
         ];
+        // TERRAFORMS_STATUS_SLUG.Terrain is one-way, so this branch never cleans up LostTerrain rows.
         if (status.slug !== TERRAFORMS_STATUS_SLUG.Terrain) {
             const lostTerrainArtifact = await renderArtifact(context, {
                 rendererV2ContractAddress: config.rendererV2ContractAddress,
