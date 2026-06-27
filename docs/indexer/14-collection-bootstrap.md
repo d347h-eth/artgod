@@ -98,8 +98,8 @@ Current behavior:
 
 This ordering is important because:
 
-- `token_extension_artifacts` references canonical `tokens` rows
-- extension-owned synthetic token rows are published atomically with their artifact and trait writes
+- `token_extension_artifacts` references `tokens` rows; normal minted refresh uses canonical rows, while unminted publication creates extension-synthetic rows
+- extension-owned synthetic token rows are published with `record_kind = "extension_synthetic"` atomically with their artifact and trait writes
 - retired synthetic identities are tombstoned so delayed bootstrap tasks cannot recreate them after a real mint refresh
 - extension logic can depend on normalized attributes already written by the canonical metadata path
 - canonical ownership correctness must not be blocked by collection-specific extras

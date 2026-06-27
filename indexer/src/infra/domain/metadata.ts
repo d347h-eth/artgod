@@ -7,6 +7,7 @@ import {
     TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     TOKEN_ATTRIBUTE_SOURCE_KIND,
 } from "@artgod/shared/types/token-attributes";
+import { TOKEN_RECORD_KIND } from "@artgod/shared/types/token-records";
 import { logger } from "@artgod/shared/utils";
 import { DOMAIN_SYNC_PROJECTION } from "../../domain/domain-jobs.js";
 import type {
@@ -114,9 +115,19 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             "block_timestamp = excluded.block_timestamp, tx_hash = excluded.tx_hash, log_index = excluded.log_index, " +
             "updated_at = CURRENT_TIMESTAMP",
     );
-    private upsertToken = db.prepare<[number, number, string, string]>(
-        "INSERT INTO tokens (chain_id, collection_id, contract_address, token_id) VALUES (?, ?, ?, ?) " +
+    private upsertToken = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        contract: string;
+        tokenId: string;
+        recordKind: string;
+    }>(
+        "INSERT INTO tokens (chain_id, collection_id, contract_address, token_id, record_kind, record_source_key) " +
+            "VALUES (@chainId, @collectionId, @contract, @tokenId, @recordKind, NULL) " +
             "ON CONFLICT(chain_id, collection_id, token_id) DO UPDATE SET " +
+            "contract_address = excluded.contract_address, " +
+            "record_kind = excluded.record_kind, " +
+            "record_source_key = excluded.record_source_key, " +
             "updated_at = CURRENT_TIMESTAMP",
     );
     private tokenAttributes = new SqliteTokenAttributeWriter();
@@ -386,7 +397,13 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         const persist = db.raw.transaction(() => {
             // Persist token identity first so future FK constraints can safely
             // reference tokens before metadata/attributes are written.
-            this.upsertToken.run(chainId, collectionId, contract, tokenId);
+            this.upsertToken.run({
+                chainId,
+                collectionId,
+                contract,
+                tokenId,
+                recordKind: TOKEN_RECORD_KIND.Canonical,
+            });
 
             this.upsertMetadata.run({
                 chainId,

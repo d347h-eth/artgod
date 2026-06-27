@@ -7,6 +7,7 @@ import type {
     CollectionExtensionInstall,
     CollectionExtensionKey,
 } from "@artgod/shared/extensions";
+import { TOKEN_RECORD_KIND } from "@artgod/shared/types/token-records";
 import type {
     CollectionExtensionAttributePort,
     CollectionExtensionArtifactPort,
@@ -108,11 +109,16 @@ export class SqliteCollectionExtensions
         collectionId: number;
         contractAddress: string;
         tokenId: string;
+        recordKind: string;
+        recordSourceKey: CollectionExtensionKey;
     }>(
-        "INSERT INTO tokens (chain_id, collection_id, contract_address, token_id) " +
-            "VALUES (@chainId, @collectionId, @contractAddress, @tokenId) " +
+        "INSERT INTO tokens (chain_id, collection_id, contract_address, token_id, record_kind, record_source_key) " +
+            "VALUES (@chainId, @collectionId, @contractAddress, @tokenId, @recordKind, @recordSourceKey) " +
             "ON CONFLICT(chain_id, collection_id, token_id) DO UPDATE SET " +
-            "contract_address = excluded.contract_address, updated_at = CURRENT_TIMESTAMP",
+            "contract_address = excluded.contract_address, " +
+            "record_kind = excluded.record_kind, " +
+            "record_source_key = excluded.record_source_key, " +
+            "updated_at = CURRENT_TIMESTAMP",
     );
 
     private upsertArtifactStmt = db.prepare<{
@@ -179,8 +185,10 @@ export class SqliteCollectionExtensions
         tokenId: string;
         extensionKey: CollectionExtensionKey;
         sourceKind: string;
+        syntheticRecordKind: string;
     }>(
         "SELECT " +
+            "EXISTS(SELECT 1 FROM tokens t WHERE t.chain_id = @chainId AND t.collection_id = @collectionId AND t.token_id = @tokenId AND NOT (t.record_kind = @syntheticRecordKind AND t.record_source_key = @extensionKey)) AS has_unowned_token_row, " +
             "EXISTS(SELECT 1 FROM token_metadata tm WHERE tm.chain_id = @chainId AND tm.collection_id = @collectionId AND tm.token_id = @tokenId) AS has_metadata, " +
             "EXISTS(SELECT 1 FROM token_attributes ta WHERE ta.chain_id = @chainId AND ta.collection_id = @collectionId AND ta.token_id = @tokenId AND NOT (ta.source_kind = @sourceKind AND ta.source_key = @extensionKey)) AS has_unowned_attributes, " +
             "EXISTS(SELECT 1 FROM token_extension_artifacts tea WHERE tea.chain_id = @chainId AND tea.collection_id = @collectionId AND tea.token_id = @tokenId AND tea.extension_key <> @extensionKey) AS has_unowned_artifacts, " +
@@ -241,10 +249,14 @@ export class SqliteCollectionExtensions
         chainId: number;
         collectionId: number;
         tokenId: string;
+        extensionKey: CollectionExtensionKey;
+        syntheticRecordKind: string;
     }>(
         "DELETE FROM tokens " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId " +
-            "AND token_id = @tokenId",
+            "AND token_id = @tokenId " +
+            "AND record_kind = @syntheticRecordKind " +
+            "AND record_source_key = @extensionKey",
     );
 
     getInstall(
@@ -311,6 +323,8 @@ export class SqliteCollectionExtensions
                 collectionId: input.collectionId,
                 contractAddress: input.contractAddress.toLowerCase(),
                 tokenId: input.tokenId,
+                recordKind: TOKEN_RECORD_KIND.ExtensionSynthetic,
+                recordSourceKey: input.extensionKey,
             });
             this.upsertArtifactRecord(
                 scopeArtifactToToken(input.artifact, input),
@@ -479,6 +493,7 @@ export class SqliteCollectionExtensions
             tokenId: input.tokenId,
             extensionKey: input.extensionKey,
             sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+            syntheticRecordKind: TOKEN_RECORD_KIND.ExtensionSynthetic,
         }) as SyntheticTokenCanonicalState;
     }
 
@@ -522,6 +537,8 @@ export class SqliteCollectionExtensions
             chainId: input.chainId,
             collectionId: input.collectionId,
             tokenId: input.tokenId,
+            extensionKey: input.extensionKey,
+            syntheticRecordKind: TOKEN_RECORD_KIND.ExtensionSynthetic,
         });
     }
 }
@@ -555,6 +572,7 @@ function mapArtifactRow(row: ArtifactRow): CollectionExtensionArtifactRecord {
 }
 
 type SyntheticTokenCanonicalState = {
+    has_unowned_token_row: number;
     has_metadata: number;
     has_unowned_attributes: number;
     has_unowned_artifacts: number;
@@ -566,6 +584,7 @@ function hasSyntheticTokenCanonicalState(
     row: SyntheticTokenCanonicalState,
 ): boolean {
     return (
+        row.has_unowned_token_row === 1 ||
         row.has_metadata === 1 ||
         row.has_unowned_attributes === 1 ||
         row.has_unowned_artifacts === 1 ||

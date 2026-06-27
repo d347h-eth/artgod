@@ -5,6 +5,7 @@ import {
     TERRAFORMS_MODE_ATTRIBUTE_VALUES,
     TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
 } from "@artgod/shared/extensions/terraforms";
+import { TOKEN_RECORD_KIND } from "@artgod/shared/types/token-records";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
 import {
@@ -16,6 +17,11 @@ import { SqliteCollectionExtensions } from "../src/infra/collection-extensions/s
 import { SqliteMetadataDomain } from "../src/infra/domain/metadata.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
+
+type TokenRecordRow = {
+    record_kind: string;
+    record_source_key: string | null;
+};
 
 describe("metadata domain anchor gating", () => {
     loadTestEnv();
@@ -140,6 +146,10 @@ describe("metadata domain anchor gating", () => {
             uri: null,
             attributes_json: null,
             raw_json: null,
+        });
+        expect(selectTokenRecord(chainId, collectionId, "1")).toEqual({
+            record_kind: TOKEN_RECORD_KIND.Canonical,
+            record_source_key: null,
         });
         expect(selectTokenAttributeValues(chainId, collectionId, "1")).toEqual([
             [
@@ -427,6 +437,20 @@ function selectMetadataDebugColumns(
         .get(chainId, collectionId, tokenId);
     expect(row).toBeDefined();
     return row!;
+}
+
+function selectTokenRecord(
+    chainId: number,
+    collectionId: number,
+    tokenId: string,
+): TokenRecordRow | null {
+    const row = db
+        .prepare<
+            [number, number, string],
+            TokenRecordRow
+        >("SELECT record_kind, record_source_key FROM tokens WHERE chain_id = ? AND collection_id = ? AND token_id = ? LIMIT 1")
+        .get(chainId, collectionId, tokenId);
+    return row ?? null;
 }
 
 function selectTokenAttributeValues(

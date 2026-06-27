@@ -133,7 +133,7 @@ The first embedded extension, `terraforms`, shadows the metadata path in a very 
 - for minted canonical tokens, it reads `tokenToPlacement(tokenId)` from the main Terraforms contract
 - for settled but unminted placements, bootstrap reads the current minted supply and `tokenToPlacement(1..totalSupply)`, then computes the placement complement inside the Terraforms max supply
 - unminted placements use extension-owned synthetic token ids from `buildTerraformsUnmintedTokenId(...)`
-- synthetic unminted rows write `tokens`, `token_extension_artifacts`, and extension-owned normalized traits, but do **not** write canonical `token_metadata`
+- synthetic unminted rows write `tokens` with `record_kind = "extension_synthetic"`, `token_extension_artifacts`, and extension-owned normalized traits, but do **not** write canonical `token_metadata`
 - it reconstructs the renderer inputs and fetches:
     - v2 `tokenURI(...)`
     - v2 `tokenHTML(...)`

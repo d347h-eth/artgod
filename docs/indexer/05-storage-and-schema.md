@@ -117,13 +117,21 @@ Defined in `010_token_sets_schema.sql` and extended by `030_tokens_numeric_sort_
 
 Purpose:
 
-- stores the canonical token universe for each indexed collection
+- stores the local token-browser row universe for each indexed collection
+- distinguishes canonical onchain token rows from extension-owned synthetic rows
 - exposes generated numeric sort columns used by backend token-browser pages
+
+Row kind columns:
+
+- `record_kind = "canonical"` marks a real onchain token identity, normally written by canonical metadata sync
+- `record_kind = "extension_synthetic"` marks a local browse-only row owned by a collection extension
+- `record_source_key` is `NULL` for canonical rows and the owning `extension_key` for extension-synthetic rows
 
 Important indexes:
 
 - primary key on `(chain_id, collection_id, token_id)`
 - unique lookup on `(chain_id, contract_address, token_id)`
+- row-kind lookup on `(chain_id, collection_id, record_kind, record_source_key)`
 - browser sort index on `(chain_id, collection_id, token_sort_bucket, token_sort_length, token_sort_value, token_id)`
 
 ### `collections`
@@ -533,7 +541,7 @@ Important semantics:
 - foreign key references `tokens(chain_id, collection_id, token_id)`
     - canonical token rows must exist first
     - this is why normal collection-extension refresh runs only after canonical metadata persistence succeeds
-    - Terraforms publishes extension-owned synthetic `tokens` rows for settled unminted placements in the same transaction as their artifact and trait writes
+    - Terraforms publishes `record_kind = "extension_synthetic"` rows for settled unminted placements in the same transaction as their artifact and trait writes
 
 Normalized token trait links in `token_attributes` are source-scoped:
 
@@ -569,7 +577,7 @@ Purpose:
 
 Important semantics:
 
-- retirement is inserted only after the synthetic row has no unexpected canonical state
+- retirement is inserted only after the synthetic row is still owned by the retiring extension and has no unexpected canonical state
 - Terraforms real-token refresh writes real extension artifacts and `Minted=true` traits in the same transaction that records the matching synthetic retirement
 - later synthetic publication attempts for the retired identity no-op instead of recreating the row
 

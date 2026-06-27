@@ -28,6 +28,7 @@ import {
     TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     TOKEN_ATTRIBUTE_SOURCE_KIND,
 } from "@artgod/shared/types/token-attributes";
+import { TOKEN_RECORD_KIND } from "@artgod/shared/types/token-records";
 import {
     buildTerraformsUnmintedTokenAttributes,
     terraformsIndexerExtension,
@@ -48,6 +49,11 @@ type ArtifactDebugColumnRow = {
     uri: string | null;
     raw_json: string | null;
     attributes_json: string | null;
+};
+
+type TokenRecordRow = {
+    record_kind: string;
+    record_source_key: string | null;
 };
 
 let dbPath = "";
@@ -951,6 +957,10 @@ describe("terraforms collection extension", () => {
         });
 
         expect(selectTokenExists(collectionId, tokenId)).toBe(true);
+        expect(selectTokenRecord(collectionId, tokenId)).toEqual({
+            record_kind: TOKEN_RECORD_KIND.ExtensionSynthetic,
+            record_source_key: TERRAFORMS_EXTENSION_KEY,
+        });
         expect(selectTokenMetadataExists(collectionId, tokenId)).toBe(false);
         expect(tokenUriArgs[0]?.[0]).toBe(42n);
         expect(tokenUriArgs[0]?.[1]).toBe(0n);
@@ -1054,6 +1064,10 @@ describe("terraforms collection extension", () => {
         });
 
         expect(selectTokenExists(collectionId, syntheticTokenId)).toBe(false);
+        expect(selectTokenRecord(collectionId, "7712")).toEqual({
+            record_kind: TOKEN_RECORD_KIND.Canonical,
+            record_source_key: null,
+        });
         expect(
             collectionExtensions.getArtifact({
                 chainId: 1,
@@ -1541,6 +1555,20 @@ function selectTokenExists(collectionId: number, tokenId: string): boolean {
         )
         .get(1, collectionId, tokenId) as { present: number } | undefined;
     return row?.present === 1;
+}
+
+function selectTokenRecord(
+    collectionId: number,
+    tokenId: string,
+): TokenRecordRow | null {
+    const row = db
+        .prepare(
+            "SELECT record_kind, record_source_key FROM tokens " +
+                "WHERE chain_id = ? AND collection_id = ? AND token_id = ? " +
+                "LIMIT 1",
+        )
+        .get(1, collectionId, tokenId) as TokenRecordRow | undefined;
+    return row ?? null;
 }
 
 function selectTokenMetadataExists(

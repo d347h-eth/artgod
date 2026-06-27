@@ -424,7 +424,7 @@ Reference docs:
 
 Use these as primary references for design and implementation details:
 
-- `docs/indexer/00-overview.md` through `docs/indexer/16-blockspace-exploration.md`
+- `docs/indexer/00-overview.md` through `docs/indexer/17-bootstrap-concurrency-audit.md`
 - `docs/extensions/01-collection-extensions.md`
 - `docs/desktop/01-tauri-build-and-runtime.md`
 - `docs/desktop/02-runtime-registry-maintenance.md`

@@ -4,6 +4,7 @@ import { db, setDbPath } from "@artgod/shared/database";
 import {
     TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     TOKEN_ATTRIBUTE_SOURCE_KIND,
+    type TokenAttributeSourceKind,
 } from "@artgod/shared/types/token-attributes";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
@@ -11,8 +12,12 @@ import { SqliteTokenSetRegistry } from "../src/infra/token-sets/sqlite.js";
 import {
     generateMerkleRoot,
     generateSchemaHash,
+    isSeaportTokenSetTokenId,
 } from "../src/application/token-sets/utils.js";
 import type { TokenSetSchema } from "../src/domain/token-sets.js";
+
+const FIXTURE_SYNTHETIC_TOKEN_ID = "synthetic-token-42";
+const FIXTURE_EXTENSION_SOURCE_KEY = "fixture-extension";
 
 describe("token set registry", () => {
     loadTestEnv();
@@ -63,6 +68,22 @@ describe("token set registry", () => {
             },
         };
         expect(generateSchemaHash(schema)).toBe(generateSchemaHash(reordered));
+    });
+
+    it("recognizes only canonical uint256 decimal ids as Seaport token-set ids", () => {
+        const maxUint256 = (2n ** 256n - 1n).toString();
+        const overflowingUint256 = (2n ** 256n).toString();
+
+        expect(isSeaportTokenSetTokenId("0")).toBe(true);
+        expect(isSeaportTokenSetTokenId("1")).toBe(true);
+        expect(isSeaportTokenSetTokenId(maxUint256)).toBe(true);
+        expect(isSeaportTokenSetTokenId(overflowingUint256)).toBe(false);
+        expect(isSeaportTokenSetTokenId("-1")).toBe(false);
+        expect(isSeaportTokenSetTokenId("01")).toBe(false);
+        expect(isSeaportTokenSetTokenId("0x1")).toBe(false);
+        expect(isSeaportTokenSetTokenId(FIXTURE_SYNTHETIC_TOKEN_ID)).toBe(
+            false,
+        );
     });
 
     it("resolves multi-trait attribute token sets and persists membership", () => {
@@ -121,6 +142,113 @@ describe("token set registry", () => {
             count: number;
         };
         expect(row.count).toBe(2);
+    });
+
+    it("excludes extension-owned attributes from attribute token-set membership", () => {
+        const chainId = 1;
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const collectionId = ensureCollection(chainId, contract);
+
+        seedAttribute(chainId, collectionId, contract, "Zone", "Mori");
+        linkToken(chainId, collectionId, contract, "42", [
+            ["Zone", "Mori"],
+        ]);
+        linkToken(
+            chainId,
+            collectionId,
+            contract,
+            "43",
+            [["Zone", "Mori"]],
+            {
+                sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+                sourceKey: FIXTURE_EXTENSION_SOURCE_KEY,
+            },
+        );
+        linkToken(
+            chainId,
+            collectionId,
+            contract,
+            FIXTURE_SYNTHETIC_TOKEN_ID,
+            [["Zone", "Mori"]],
+            {
+                sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+                sourceKey: FIXTURE_EXTENSION_SOURCE_KEY,
+            },
+        );
+
+        const registry = new SqliteTokenSetRegistry();
+        const resolved = registry.ensureTokenSet({
+            chainId,
+            collectionId,
+            schema: {
+                kind: "attribute",
+                data: {
+                    collection: contract,
+                    attributes: [{ key: "Zone", value: "Mori" }],
+                },
+            },
+        });
+        expect(resolved).not.toBeNull();
+        if (!resolved) return;
+
+        const expectedRoot = generateMerkleRoot(["42"]);
+        expect(resolved.merkleRoot).toBe(expectedRoot);
+        expect(resolved.tokenCount).toBe(1);
+
+        const rows = db
+            .prepare<{
+                chainId: number;
+                collectionId: number;
+                tokenSetId: string;
+            }>(
+                "SELECT token_id FROM token_sets_tokens " +
+                    "WHERE chain_id = @chainId AND collection_id = @collectionId AND token_set_id = @tokenSetId " +
+                    "ORDER BY token_id ASC",
+            )
+            .all({
+                chainId,
+                collectionId,
+                tokenSetId: resolved.tokenSetId,
+            }) as Array<{ token_id: string }>;
+        expect(rows.map((row) => row.token_id)).toEqual(["42"]);
+    });
+
+    it("leaves all-synthetic attribute token sets unresolved", () => {
+        const chainId = 1;
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const collectionId = ensureCollection(chainId, contract);
+
+        seedAttribute(chainId, collectionId, contract, "Zone", "Synthetic");
+        linkToken(
+            chainId,
+            collectionId,
+            contract,
+            FIXTURE_SYNTHETIC_TOKEN_ID,
+            [["Zone", "Synthetic"]],
+            {
+                sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+                sourceKey: FIXTURE_EXTENSION_SOURCE_KEY,
+            },
+        );
+
+        const registry = new SqliteTokenSetRegistry();
+        const resolved = registry.ensureTokenSet({
+            chainId,
+            collectionId,
+            schema: {
+                kind: "attribute",
+                data: {
+                    collection: contract,
+                    attributes: [{ key: "Zone", value: "Synthetic" }],
+                },
+            },
+        });
+
+        expect(resolved).toBeNull();
+        const row = db
+            .prepare("SELECT COUNT(1) AS count FROM token_sets")
+            .get() as { count: number };
+        expect(row.count).toBe(0);
     });
 
     it("resolves collection token sets from balances", () => {
@@ -200,6 +328,13 @@ function linkToken(
     contractAddress: string,
     tokenId: string,
     pairs: Array<[string, string]>,
+    source: {
+        sourceKind: TokenAttributeSourceKind;
+        sourceKey: string;
+    } = {
+        sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+        sourceKey: TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+    },
 ): void {
     db.prepare<[number, number, string, string]>(
         "INSERT OR IGNORE INTO tokens (chain_id, collection_id, contract_address, token_id) VALUES (?, ?, ?, ?)",
@@ -246,8 +381,8 @@ function linkToken(
             contractAddress,
             tokenId,
             attrRow.id,
-            TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
-            TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+            source.sourceKind,
+            source.sourceKey,
         );
     }
 }
