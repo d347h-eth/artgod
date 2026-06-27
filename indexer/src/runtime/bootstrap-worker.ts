@@ -1713,6 +1713,7 @@ async function publishCollectionExtensionArtifactTaskJobs(
             bootstrapStorage.listCollectionExtensionArtifactTasksToPublish(
                 runId,
                 cursorTokenId,
+                Date.now(),
                 BOOTSTRAP_EXTENSION_ARTIFACT_PUBLISH_BATCH_SIZE,
             );
         if (tasks.length === 0) {

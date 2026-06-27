@@ -89,6 +89,10 @@ Current behavior:
 - extension artifact refresh is queued afterward on the dedicated collection-extension queue
 - Terraforms may add extension-owned synthetic unminted-placement artifact tasks to that same queue after canonical metadata tasks are available
 - metadata-derived and extension-owned collection-extension artifact tasks are seeded together in one SQLite transaction
+- bootstrap extension artifact task rows are the concurrency boundary: workers
+  claim pending/retry rows with a persisted lease, renew the lease while
+  rendering/fetching, and only the current lease owner can settle success,
+  retry, or terminal failure
 - bootstrap does not wait for extension artifact completion before moving to image cache, ownership snapshot, or later phases
 - extension artifact terminality releases a final stats recompute that includes extension-owned normalized traits
 
@@ -233,6 +237,7 @@ Bootstrap and OpenSea lifecycle state is tracked primarily in:
 - `bootstrap_ownership_snapshot_tasks`
 - `nft_balance_snapshots`
 - `bootstrap_image_cache_tasks`
+- `bootstrap_collection_extension_artifact_tasks`
 - `token_image_cache`
 - `token_extension_artifacts`
 - `opensea_orderbook_runs`

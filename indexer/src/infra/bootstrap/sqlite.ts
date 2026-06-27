@@ -80,6 +80,8 @@ type BootstrapCollectionExtensionArtifactTaskDbRow = {
     status: BootstrapCollectionExtensionArtifactTask["status"];
     attempts: number;
     next_attempt_at: number;
+    lease_owner: string | null;
+    lease_until: number | null;
 };
 
 export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
@@ -408,23 +410,26 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         pendingStatus: BootstrapCollectionExtensionArtifactTask["status"];
         retryStatus: BootstrapCollectionExtensionArtifactTask["status"];
     }>(
-        "SELECT run_id, chain_id, collection_id, contract_address, token_id, extension_key, status, attempts, next_attempt_at " +
+        "SELECT run_id, chain_id, collection_id, contract_address, token_id, extension_key, status, attempts, next_attempt_at, lease_owner, lease_until " +
             "FROM bootstrap_collection_extension_artifact_tasks " +
             "WHERE run_id = @runId " +
             "AND status IN (@pendingStatus, @retryStatus) AND next_attempt_at <= @nowMs " +
+            "AND (lease_until IS NULL OR lease_until <= @nowMs) " +
             "ORDER BY next_attempt_at ASC, token_id ASC LIMIT @limit",
     );
     private selectCollectionExtensionArtifactTasksToPublishStmt = db.prepare<{
         runId: number;
         cursorTokenId: string | null;
+        nowMs: number;
         limit: number;
         pendingStatus: BootstrapCollectionExtensionArtifactTask["status"];
         retryStatus: BootstrapCollectionExtensionArtifactTask["status"];
     }>(
-        "SELECT run_id, chain_id, collection_id, contract_address, token_id, extension_key, status, attempts, next_attempt_at " +
+        "SELECT run_id, chain_id, collection_id, contract_address, token_id, extension_key, status, attempts, next_attempt_at, lease_owner, lease_until " +
             "FROM bootstrap_collection_extension_artifact_tasks " +
             "WHERE run_id = @runId " +
-            "AND status IN (@pendingStatus, @retryStatus) " +
+            "AND status IN (@pendingStatus, @retryStatus) AND next_attempt_at <= @nowMs " +
+            "AND (lease_until IS NULL OR lease_until <= @nowMs) " +
             "AND (@cursorTokenId IS NULL OR token_id > @cursorTokenId) " +
             "ORDER BY token_id ASC LIMIT @limit",
     );
@@ -433,38 +438,76 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         tokenId: string;
         extensionKey: CollectionExtensionKey;
     }>(
-        "SELECT run_id, chain_id, collection_id, contract_address, token_id, extension_key, status, attempts, next_attempt_at " +
+        "SELECT run_id, chain_id, collection_id, contract_address, token_id, extension_key, status, attempts, next_attempt_at, lease_owner, lease_until " +
             "FROM bootstrap_collection_extension_artifact_tasks " +
             "WHERE run_id = @runId AND token_id = @tokenId AND extension_key = @extensionKey LIMIT 1",
+    );
+    private claimCollectionExtensionArtifactTaskStmt = db.prepare<{
+        runId: number;
+        tokenId: string;
+        extensionKey: CollectionExtensionKey;
+        nowMs: number;
+        leaseOwner: string;
+        leaseUntil: number;
+        pendingStatus: BootstrapCollectionExtensionArtifactTask["status"];
+        retryStatus: BootstrapCollectionExtensionArtifactTask["status"];
+    }>(
+        "UPDATE bootstrap_collection_extension_artifact_tasks SET " +
+            "attempts = attempts + 1, lease_owner = @leaseOwner, lease_until = @leaseUntil, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND token_id = @tokenId AND extension_key = @extensionKey " +
+            "AND status IN (@pendingStatus, @retryStatus) AND next_attempt_at <= @nowMs " +
+            "AND (lease_until IS NULL OR lease_until <= @nowMs)",
+    );
+    private renewCollectionExtensionArtifactTaskLeaseStmt = db.prepare<{
+        runId: number;
+        tokenId: string;
+        extensionKey: CollectionExtensionKey;
+        leaseOwner: string;
+        leaseUntil: number;
+        pendingStatus: BootstrapCollectionExtensionArtifactTask["status"];
+        retryStatus: BootstrapCollectionExtensionArtifactTask["status"];
+    }>(
+        "UPDATE bootstrap_collection_extension_artifact_tasks SET " +
+            "lease_until = @leaseUntil, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND token_id = @tokenId AND extension_key = @extensionKey " +
+            "AND lease_owner = @leaseOwner AND status IN (@pendingStatus, @retryStatus)",
     );
     private markCollectionExtensionArtifactTaskSucceededStmt = db.prepare<{
         runId: number;
         tokenId: string;
         extensionKey: CollectionExtensionKey;
+        leaseOwner: string;
         attempts: number;
         succeededStatus: BootstrapCollectionExtensionArtifactTask["status"];
+        pendingStatus: BootstrapCollectionExtensionArtifactTask["status"];
+        retryStatus: BootstrapCollectionExtensionArtifactTask["status"];
     }>(
         "UPDATE bootstrap_collection_extension_artifact_tasks SET " +
-            "status = @succeededStatus, attempts = @attempts, next_attempt_at = 0, " +
+            "status = @succeededStatus, attempts = @attempts, next_attempt_at = 0, lease_owner = NULL, lease_until = NULL, " +
             "last_error = NULL, last_error_at = NULL, updated_at = CURRENT_TIMESTAMP " +
-            "WHERE run_id = @runId AND token_id = @tokenId AND extension_key = @extensionKey",
+            "WHERE run_id = @runId AND token_id = @tokenId AND extension_key = @extensionKey " +
+            "AND lease_owner = @leaseOwner AND attempts = @attempts AND status IN (@pendingStatus, @retryStatus)",
     );
     private markCollectionExtensionArtifactTaskRetryStmt = db.prepare<{
         runId: number;
         tokenId: string;
         extensionKey: CollectionExtensionKey;
+        leaseOwner: string;
         attempts: number;
         nextAttemptAt: number;
         lastError: string;
         failedTerminal: number;
+        pendingStatus: BootstrapCollectionExtensionArtifactTask["status"];
         retryStatus: BootstrapCollectionExtensionArtifactTask["status"];
         failedTerminalStatus: BootstrapCollectionExtensionArtifactTask["status"];
         nowMs: number;
     }>(
         "UPDATE bootstrap_collection_extension_artifact_tasks SET " +
             "status = CASE WHEN @failedTerminal = 1 THEN @failedTerminalStatus ELSE @retryStatus END, " +
-            "attempts = @attempts, next_attempt_at = @nextAttemptAt, last_error = @lastError, last_error_at = @nowMs, updated_at = CURRENT_TIMESTAMP " +
-            "WHERE run_id = @runId AND token_id = @tokenId AND extension_key = @extensionKey",
+            "attempts = @attempts, next_attempt_at = @nextAttemptAt, lease_owner = NULL, lease_until = NULL, " +
+            "last_error = @lastError, last_error_at = @nowMs, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND token_id = @tokenId AND extension_key = @extensionKey " +
+            "AND lease_owner = @leaseOwner AND attempts = @attempts AND status IN (@pendingStatus, @retryStatus)",
     );
     private selectCollectionExtensionArtifactTaskCountsStmt = db.prepare<{
         runId: number;
@@ -855,12 +898,14 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     listCollectionExtensionArtifactTasksToPublish(
         runId: number,
         cursorTokenId: string | null,
+        nowMs: number,
         limit: number,
     ): BootstrapCollectionExtensionArtifactTask[] {
         const rows =
             this.selectCollectionExtensionArtifactTasksToPublishStmt.all({
                 runId,
                 cursorTokenId,
+                nowMs,
                 limit,
                 pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
                 retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
@@ -881,34 +926,76 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             : null;
     }
 
+    claimCollectionExtensionArtifactTask(input: {
+        runId: number;
+        tokenId: string;
+        extensionKey: CollectionExtensionKey;
+        nowMs: number;
+        leaseOwner: string;
+        leaseUntil: number;
+    }): BootstrapCollectionExtensionArtifactTask | null {
+        const result = this.claimCollectionExtensionArtifactTaskStmt.run({
+            ...input,
+            pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
+            retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
+        });
+        if (result.changes <= 0) {
+            return null;
+        }
+        return this.getCollectionExtensionArtifactTask(input);
+    }
+
+    renewCollectionExtensionArtifactTaskLease(input: {
+        runId: number;
+        tokenId: string;
+        extensionKey: CollectionExtensionKey;
+        leaseOwner: string;
+        leaseUntil: number;
+    }): boolean {
+        const result = this.renewCollectionExtensionArtifactTaskLeaseStmt.run({
+            ...input,
+            pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
+            retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
+        });
+        return result.changes > 0;
+    }
+
     markCollectionExtensionArtifactTaskSucceeded(input: {
         runId: number;
         tokenId: string;
         extensionKey: CollectionExtensionKey;
+        leaseOwner: string;
         attempts: number;
-    }): void {
-        this.markCollectionExtensionArtifactTaskSucceededStmt.run({
-            ...input,
-            succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
-        });
+    }): boolean {
+        const result =
+            this.markCollectionExtensionArtifactTaskSucceededStmt.run({
+                ...input,
+                succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
+                pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
+                retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
+            });
+        return result.changes > 0;
     }
 
     markCollectionExtensionArtifactTaskRetry(input: {
         runId: number;
         tokenId: string;
         extensionKey: CollectionExtensionKey;
+        leaseOwner: string;
         attempts: number;
         nextAttemptAt: number;
         lastError: string;
         failedTerminal: boolean;
-    }): void {
-        this.markCollectionExtensionArtifactTaskRetryStmt.run({
+    }): boolean {
+        const result = this.markCollectionExtensionArtifactTaskRetryStmt.run({
             ...input,
             failedTerminal: input.failedTerminal ? 1 : 0,
+            pendingStatus: BOOTSTRAP_TASK_STATUS.Pending,
             retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
             failedTerminalStatus: BOOTSTRAP_TASK_STATUS.FailedTerminal,
             nowMs: Date.now(),
         });
+        return result.changes > 0;
     }
 
     getCollectionExtensionArtifactTaskCounts(
@@ -989,5 +1076,7 @@ function mapBootstrapCollectionExtensionArtifactTaskDbRow(
         status: row.status,
         attempts: row.attempts,
         nextAttemptAt: row.next_attempt_at,
+        leaseOwner: row.lease_owner,
+        leaseUntil: row.lease_until,
     };
 }
