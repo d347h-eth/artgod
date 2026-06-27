@@ -1692,7 +1692,10 @@ th {
 }
 
 .customization-template-input {
-	width: 26ch;
+	width: 34ch;
+	min-height: 3.4rem;
+	resize: vertical;
+	line-height: 1.25;
 }
 
 .customization-footer {
@@ -3052,6 +3055,7 @@ th {
 	font-size: 0.75rem;
 	color: var(--c-sand);
 	line-height: 1.2;
+	white-space: pre-line;
 	word-break: break-word;
 }
 
@@ -3345,7 +3349,13 @@ th {
 	white-space: nowrap;
 }
 
-.activities-traits-cell span,
+.activities-traits-cell span {
+	display: block;
+	overflow: hidden;
+	white-space: pre-line;
+	word-break: break-word;
+}
+
 .activities-traits-cell a {
 	display: block;
 	overflow: hidden;

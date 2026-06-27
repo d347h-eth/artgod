@@ -181,10 +181,57 @@ export function renderTraitSummaryTemplate(
         traitValues.set(key, trait.value);
     }
 
-    const rendered = normalized.replace(/\{([^}]+)\}/g, (_match, rawKey) => {
+    const rendered = renderTraitSummaryPlaceholders(
+        renderTraitSummaryConditionals(normalized, traitValues),
+        traitValues,
+    );
+
+    const trimmed = rendered.trim();
+    return trimmed ? trimmed : null;
+}
+
+function renderTraitSummaryConditionals(
+    template: string,
+    traitValues: ReadonlyMap<string, string>,
+): string {
+    return template.replace(
+        /\{\{#if\s+([^{}]+?)\s*\}\}([\s\S]*?)\{\{\/if\}\}/g,
+        (_match, rawCondition, conditionalTemplate) =>
+            shouldRenderTraitSummaryConditional(rawCondition, traitValues)
+                ? String(conditionalTemplate)
+                : "",
+    );
+}
+
+function shouldRenderTraitSummaryConditional(
+    rawCondition: unknown,
+    traitValues: ReadonlyMap<string, string>,
+): boolean {
+    if (typeof rawCondition !== "string") {
+        return false;
+    }
+
+    const condition = rawCondition.trim();
+    if (!condition) {
+        return false;
+    }
+
+    const equalityIndex = condition.indexOf("=");
+    if (equalityIndex >= 0) {
+        const key = condition.slice(0, equalityIndex).trim();
+        const expectedValue = condition.slice(equalityIndex + 1).trim();
+        return key.length > 0 && traitValues.get(key) === expectedValue;
+    }
+
+    return (traitValues.get(condition) ?? "").trim().length > 0;
+}
+
+function renderTraitSummaryPlaceholders(
+    template: string,
+    traitValues: ReadonlyMap<string, string>,
+): string {
+    return template.replace(/\{([^}]+)\}/g, (_match, rawKey) => {
         const key = typeof rawKey === "string" ? rawKey.trim() : "";
         return key ? (traitValues.get(key) ?? "") : "";
     });
-
-    return rendered.trim() ? rendered : null;
 }

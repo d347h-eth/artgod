@@ -77,6 +77,7 @@ describe('CollectionCustomizationView', () => {
 		expect(body).toContain('user-defined');
 		expect(body).toContain('extension-defined');
 		expect(body).toContain(TERRAFORMS_TRAIT_SUMMARY_TEMPLATE);
+		expect(body).toContain('<textarea');
 		expect(body).toContain('placeholder="empty = hidden"');
 		expect(body).toContain('>save<');
 	});

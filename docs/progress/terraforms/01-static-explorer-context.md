@@ -116,10 +116,11 @@ The Terraforms extension currently provides collection customization defaults:
 - token card trait summary template
 - activity row trait summary template
 
-The shared summary template is:
+The shared token-card and activity-row summary template is:
 
 ```text
-{Zone}/B{Biome}/{Chroma}/L{Level}
+{Zone} B{Biome} {Chroma} L{Level}
+{Mode}{{#if Antenna=On}} A{{/if}}{{#if Seasons=Season 0}} S0{{/if}}{{#if Seed Class}} {Seed Class}{{/if}}
 ```
 
 This proves that extension-owned presentation data can flow through backend read models while generic frontend components remain generic. It does not yet provide the richer static catalogs needed for Zones, Biomes, or Levels.

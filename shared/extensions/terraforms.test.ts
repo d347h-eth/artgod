@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
+import { renderTraitSummaryTemplate } from "../types/customization.js";
 import {
     buildTerraformsUnmintedTokenId,
     buildTerraformsRendererExtraCharacterRanges,
@@ -12,14 +13,24 @@ import {
     resolveTerraformsRendererSeedClass,
     resolveTerraformsSeasonValuesFromFirstAntennaModification,
     resolveTerraformsUnmintedPlacements,
+    TERRAFORMS_ANTENNA_ATTRIBUTE_KEY,
+    TERRAFORMS_ANTENNA_ATTRIBUTE_VALUES,
     TERRAFORMS_BEACON_ANTENNA_MODIFICATIONS,
+    TERRAFORMS_BIOME_ATTRIBUTE_KEY,
+    TERRAFORMS_CHROMA_ATTRIBUTE_KEY,
+    TERRAFORMS_LEVEL_ATTRIBUTE_KEY,
     TERRAFORMS_MAX_SUPPLY,
     TERRAFORMS_MODE_ATTRIBUTE_VALUES,
+    TERRAFORMS_MODE_ATTRIBUTE_KEY,
     TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_LENGTH,
     TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_STARTS,
     TERRAFORMS_SEASON_0_ANTENNA_ON_CUTOFF_TIMESTAMP,
     TERRAFORMS_SEASON_ATTRIBUTE_VALUES,
+    TERRAFORMS_SEASONS_ATTRIBUTE_KEY,
+    TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
     TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES,
+    TERRAFORMS_TRAIT_SUMMARY_TEMPLATE,
+    TERRAFORMS_ZONE_ATTRIBUTE_KEY,
 } from "./terraforms.js";
 
 describe("Terraforms canvas helpers", () => {
@@ -146,6 +157,37 @@ describe("Terraforms canvas helpers", () => {
                     TERRAFORMS_SEASON_0_ANTENNA_ON_CUTOFF_TIMESTAMP - 1n,
             }),
             [],
+        );
+    });
+
+    it("renders the Terraforms trait summary template", () => {
+        assert.equal(
+            renderTraitSummaryTemplate(
+                TERRAFORMS_TRAIT_SUMMARY_TEMPLATE,
+                [
+                    { key: TERRAFORMS_ZONE_ATTRIBUTE_KEY, value: "Kairo" },
+                    { key: TERRAFORMS_BIOME_ATTRIBUTE_KEY, value: "12" },
+                    { key: TERRAFORMS_CHROMA_ATTRIBUTE_KEY, value: "Pulse" },
+                    { key: TERRAFORMS_LEVEL_ATTRIBUTE_KEY, value: "7" },
+                    {
+                        key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+                        value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Daydream,
+                    },
+                    {
+                        key: TERRAFORMS_ANTENNA_ATTRIBUTE_KEY,
+                        value: TERRAFORMS_ANTENNA_ATTRIBUTE_VALUES.On,
+                    },
+                    {
+                        key: TERRAFORMS_SEASONS_ATTRIBUTE_KEY,
+                        value: TERRAFORMS_SEASON_ATTRIBUTE_VALUES.Season0,
+                    },
+                    {
+                        key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+                        value: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.YSeed,
+                    },
+                ],
+            ),
+            "Kairo B12 Pulse L7\nDaydream A S0 Y-Seed",
         );
     });
 

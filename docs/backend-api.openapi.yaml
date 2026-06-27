@@ -3552,6 +3552,7 @@ components:
             properties:
                 template:
                     type: string
+                    description: "Plain text trait summary template. Supports {TraitKey} placeholders plus {{#if Trait}}text{{/if}} and {{#if Trait=Value}}text{{/if}} conditional sections."
 
         TraitSummaryTemplateFeatureState:
             type: object
