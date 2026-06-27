@@ -1392,6 +1392,10 @@ th {
 	border: 1px solid var(--c-blue);
 }
 
+.trait-root-search {
+	margin: 0 0 0.75rem;
+}
+
 .trait-group summary {
 	list-style: none;
 	display: flex;
@@ -1410,6 +1414,13 @@ th {
 
 .trait-group[open] summary {
 	border-bottom: 1px solid var(--c-blue);
+}
+
+.trait-group-title {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	min-width: 0;
 }
 
 .trait-group-active {
@@ -1446,6 +1457,12 @@ th {
 	padding: 0;
 	font-size: 0.72rem;
 	line-height: 1;
+}
+
+.trait-search-jump-button {
+	width: 20px;
+	min-width: 20px;
+	padding: 0;
 }
 
 .trait-values {
