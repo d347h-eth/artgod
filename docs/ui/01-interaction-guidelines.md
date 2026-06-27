@@ -380,6 +380,11 @@ Trait summary template rules:
 - activities page shows the `traits` column only when the activity-row template feature is enabled for the current collection
 - template syntax is placeholder substitution mixed with literal text, for example `{Zone}/B{Biome}/{Chroma}/L{Level}`
 - missing placeholders render as empty strings
+- templates may include line breaks; token cards and activity rows preserve those line breaks
+- templates support constrained conditional sections:
+    - `{{#if Trait}}text{{/if}}` renders `text` when `Trait` has a non-empty value
+    - `{{#if Trait=Value}}text{{/if}}` renders `text` when `Trait` exactly matches `Value`
+- trait summary templates must not evaluate JavaScript or arbitrary expressions
 
 ## Trait Filter State
 

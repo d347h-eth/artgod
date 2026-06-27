@@ -9,6 +9,7 @@ import {
     TERRAFORMS_BEACON_EVENT_TYPE_LABELS,
     TERRAFORMS_BEACON_EVENT_TYPES,
     TERRAFORMS_BEACON_SCRIPT_COMPONENT_LABELS,
+    TERRAFORMS_BEACON_V2_READ_FUNCTIONS,
     TERRAFORMS_CANVAS_ROW_COUNT,
     TERRAFORMS_EVENT_RENDER_MODE_OPTIONS,
     TERRAFORMS_EXTENSION_ARTIFACT_REFS,
@@ -22,9 +23,13 @@ import {
     TERRAFORMS_PLACEMENT_SEED,
     TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
     TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+    TERRAFORMS_SEASONS_ATTRIBUTE_KEY,
     buildTerraformsUnmintedTokenId,
+    isTerraformsDreamMode,
     resolveTerraformsRendererSeedTraits,
+    resolveTerraformsSeasonValuesFromFirstAntennaModification,
     resolveTerraformsUnmintedPlacements,
+    type TerraformsSeasonAttributeValue,
 } from "@artgod/shared/extensions/terraforms";
 import type { CollectionExtensionInstall } from "@artgod/shared/extensions";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
@@ -230,6 +235,33 @@ const TERRAFORMS_BEACON_V2_ABI = [
     },
 ] as const;
 
+const TERRAFORMS_BEACON_V2_READ_ABI = [
+    {
+        name:
+            TERRAFORMS_BEACON_V2_READ_FUNCTIONS.GetNumberOfAntennaModifications,
+        type: "function",
+        stateMutability: "view",
+        inputs: [{ type: "uint256", name: "tokenId" }],
+        outputs: [{ type: "uint256" }],
+    },
+    {
+        name: TERRAFORMS_BEACON_V2_READ_FUNCTIONS.GetFirstAntennaModification,
+        type: "function",
+        stateMutability: "view",
+        inputs: [{ type: "uint256", name: "tokenId" }],
+        outputs: [
+            {
+                type: "tuple",
+                components: [
+                    { type: "uint8", name: "modification" },
+                    { type: "address", name: "satellite" },
+                    { type: "uint256", name: "timestamp" },
+                ],
+            },
+        ],
+    },
+] as const;
+
 const [DAYDREAMING_TOPIC] = encodeEventTopics({
     abi: TERRAFORMS_MAIN_ABI,
     eventName: "Daydreaming",
@@ -295,6 +327,11 @@ type TerraformsStatus = {
 type TerraformsRenderedArtifact = {
     metadata: TokenMetadata;
     artifact: CollectionExtensionArtifactUpsertInput;
+};
+
+type TerraformsAntennaModificationState = {
+    modification: bigint;
+    timestamp: bigint;
 };
 
 const MODE_TO_STATUS: Record<string, TerraformsStatus> = {
@@ -493,6 +530,14 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
             placement,
             placementSeed: TERRAFORMS_PLACEMENT_SEED,
         });
+        const seasonAttributes = await resolveTerraformsSeasonAttributes(
+            context,
+            {
+                beaconV2ContractAddress: config.beaconV2ContractAddress,
+                mode: tokenMode,
+                tokenId: BigInt(tokenId),
+            },
+        );
         const replacement = context.syntheticTokens.replaceSyntheticTokenWithToken({
             syntheticToken: {
                 chainId: context.payload.chainId,
@@ -510,22 +555,9 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
             },
             artifacts,
             attributes: [
-                {
-                    key: TERRAFORMS_MINTED_ATTRIBUTE_KEY,
-                    value: TERRAFORMS_MINTED_ATTRIBUTE_VALUES.True,
-                },
-                {
-                    key: TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
-                    value: seedTraits.seed.toString(),
-                },
-                ...(seedTraits.seedClass
-                    ? [
-                          {
-                              key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
-                              value: seedTraits.seedClass,
-                          },
-                      ]
-                    : []),
+                ...buildTerraformsMintedStateAttributes(true),
+                ...buildTerraformsRendererSeedAttributes(seedTraits),
+                ...seasonAttributes,
             ],
         });
         if (replacement.blockedByCanonicalState) {
@@ -585,6 +617,84 @@ async function readMintedPlacements(
         start += BigInt(batchTokenIds.length);
     }
     return placements;
+}
+
+async function resolveTerraformsSeasonAttributes(
+    context: CollectionExtensionArtifactRefreshContext,
+    params: {
+        beaconV2ContractAddress: string;
+        mode: string;
+        tokenId: bigint;
+    },
+): Promise<CollectionExtensionTokenAttributeInput[]> {
+    if (!isTerraformsDreamMode(params.mode)) {
+        return [];
+    }
+
+    // Read Beacon state directly; Season 0 is a fixed historical cutoff.
+    const firstModification = await readFirstAntennaModificationIfPresent(
+        context.rpc,
+        params.beaconV2ContractAddress,
+        params.tokenId,
+    );
+    if (!firstModification) {
+        return [];
+    }
+
+    return buildTerraformsSeasonAttributes(
+        resolveTerraformsSeasonValuesFromFirstAntennaModification(
+            firstModification,
+        ),
+    );
+}
+
+async function readFirstAntennaModificationIfPresent(
+    rpc: RpcProviderPort,
+    beaconV2ContractAddress: string,
+    tokenId: bigint,
+): Promise<TerraformsAntennaModificationState | null> {
+    const modificationCount = await rpc.readContract<bigint>({
+        address: beaconV2ContractAddress as Hex,
+        abi: TERRAFORMS_BEACON_V2_READ_ABI,
+        functionName:
+            TERRAFORMS_BEACON_V2_READ_FUNCTIONS.GetNumberOfAntennaModifications,
+        args: [tokenId],
+    });
+    if (modificationCount <= 0n) {
+        return null;
+    }
+
+    const rawModification = await rpc.readContract<unknown>({
+        address: beaconV2ContractAddress as Hex,
+        abi: TERRAFORMS_BEACON_V2_READ_ABI,
+        functionName:
+            TERRAFORMS_BEACON_V2_READ_FUNCTIONS.GetFirstAntennaModification,
+        args: [tokenId],
+    });
+    return mapAntennaModificationRecord(rawModification);
+}
+
+function mapAntennaModificationRecord(
+    raw: unknown,
+): TerraformsAntennaModificationState {
+    if (raw === null || typeof raw !== "object") {
+        throw new Error("Invalid Terraforms antenna modification payload");
+    }
+
+    const record = raw as Record<string | number, unknown>;
+    const modification = record.modification ?? record[0];
+    const timestamp = record.timestamp ?? record[2];
+    if (!isBigintLike(modification) || !isBigintLike(timestamp)) {
+        throw new Error("Invalid Terraforms antenna modification payload");
+    }
+    return {
+        modification: BigInt(modification),
+        timestamp: BigInt(timestamp),
+    };
+}
+
+function isBigintLike(value: unknown): value is bigint | number {
+    return typeof value === "bigint" || typeof value === "number";
 }
 
 async function refreshUnmintedPlacementArtifacts(
@@ -678,19 +788,42 @@ export function buildTerraformsUnmintedTokenAttributes(input: {
             attribute.key !== TERRAFORMS_MODE_ATTRIBUTE_KEY &&
             attribute.key !== TERRAFORMS_MINTED_ATTRIBUTE_KEY &&
             attribute.key !== TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY &&
-            attribute.key !== TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+            attribute.key !== TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY &&
+            attribute.key !== TERRAFORMS_SEASONS_ATTRIBUTE_KEY,
     );
 
     return [
-        {
-            key: TERRAFORMS_MINTED_ATTRIBUTE_KEY,
-            value: TERRAFORMS_MINTED_ATTRIBUTE_VALUES.False,
-        },
+        ...buildTerraformsMintedStateAttributes(false),
         {
             key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
             value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
         },
         ...rendererAttributes,
+        ...buildTerraformsRendererSeedAttributes({
+            seed: input.seed,
+            seedClass: input.seedClass,
+        }),
+    ];
+}
+
+function buildTerraformsMintedStateAttributes(
+    minted: boolean,
+): CollectionExtensionTokenAttributeInput[] {
+    return [
+        {
+            key: TERRAFORMS_MINTED_ATTRIBUTE_KEY,
+            value: minted
+                ? TERRAFORMS_MINTED_ATTRIBUTE_VALUES.True
+                : TERRAFORMS_MINTED_ATTRIBUTE_VALUES.False,
+        },
+    ];
+}
+
+function buildTerraformsRendererSeedAttributes(input: {
+    seed: bigint;
+    seedClass: string | null;
+}): CollectionExtensionTokenAttributeInput[] {
+    return [
         {
             key: TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
             value: input.seed.toString(),
@@ -704,6 +837,15 @@ export function buildTerraformsUnmintedTokenAttributes(input: {
               ]
             : []),
     ];
+}
+
+function buildTerraformsSeasonAttributes(
+    seasons: readonly TerraformsSeasonAttributeValue[],
+): CollectionExtensionTokenAttributeInput[] {
+    return seasons.map((season) => ({
+        key: TERRAFORMS_SEASONS_ATTRIBUTE_KEY,
+        value: season,
+    }));
 }
 
 async function decodeTokenRefreshLog(

@@ -145,6 +145,11 @@ The first embedded extension, `terraforms`, shadows the metadata path in a very 
     - `Mode = Terrain` for every synthetic unminted row
     - `Seed` as a range trait
     - `Seed Class` for `X-Seed`, `Y-Seed`, and `Godmode` buckets
+    - `Seasons = Season 0` when Beacon state shows the token's first antenna-on mutation happened before the fixed Season 0 cutoff
+- Season 0 derivation reads current Beacon contract state during the Terraforms extension artifact refresh:
+    - `getNumberOfAntennaModifications(tokenId)` gates the read
+    - `getFirstAntennaModification(tokenId)` provides the earliest antenna mutation timestamp
+    - the cutoff is fixed in the past, so the indexer does not add a separate historical Beacon log replay path for this trait
 - real-token artifact refresh atomically writes the real token's extension artifacts and `Minted=true` traits while recording a durable retirement for the matching synthetic id
 - delayed synthetic task retries no-op after that retirement marker instead of recreating the synthetic row
 

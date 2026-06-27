@@ -263,7 +263,7 @@
 
 	function onTemplateInput(feature: 'tokenCard' | 'activityRow', event: Event): void {
 		const target = event.currentTarget;
-		if (!(target instanceof HTMLInputElement)) return;
+		if (!(target instanceof HTMLTextAreaElement)) return;
 		if (feature === 'tokenCard') {
 			tokenCardTraitSummaryTemplate = {
 				...tokenCardTraitSummaryTemplate,
@@ -754,20 +754,18 @@
 					<div class="customization-grid-header">extension-defined</div>
 
 					<div class="mono customization-trait-key">template</div>
-					<input
+					<textarea
 						class="customization-text-input customization-template-input"
-						type="text"
 						value={tokenCardTraitSummaryTemplate.userConfig.template}
 						placeholder="empty = hidden"
 						oninput={(event) => onTemplateInput('tokenCard', event)}
-					/>
-					<input
+					></textarea>
+					<textarea
 						class="customization-readonly-input customization-template-input"
-						type="text"
 						value={tokenCardTraitSummaryTemplate.extensionConfig?.template ?? ''}
 						placeholder="not available"
 						readonly
-					/>
+					></textarea>
 				</div>
 			</div>
 
@@ -839,20 +837,18 @@
 					<div class="customization-grid-header">extension-defined</div>
 
 					<div class="mono customization-trait-key">template</div>
-					<input
+					<textarea
 						class="customization-text-input customization-template-input"
-						type="text"
 						value={activityRowTraitSummaryTemplate.userConfig.template}
 						placeholder="empty = hidden"
 						oninput={(event) => onTemplateInput('activityRow', event)}
-					/>
-					<input
+					></textarea>
+					<textarea
 						class="customization-readonly-input customization-template-input"
-						type="text"
 						value={activityRowTraitSummaryTemplate.extensionConfig?.template ?? ''}
 						placeholder="not available"
 						readonly
-					/>
+					></textarea>
 				</div>
 			</div>
 

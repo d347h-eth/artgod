@@ -198,6 +198,9 @@ Terraforms caches version-2 media artifacts using:
 - `artifact_ref = "terraforms-v2-lost-terrain"` for non-Terrain tokens only
 - Terraforms mode transitions move one way away from Terrain, so a Terrain
   artifact refresh is not treated as a stale lost-terrain cleanup signal
+- minted non-Terrain tokens can also receive `Seasons = Season 0` as an
+  extension-owned normalized trait when the Beacon contract reports a first
+  antenna-on mutation before the fixed Season 0 cutoff
 
 The backend can then resolve:
 
@@ -220,9 +223,12 @@ Current Terraforms overrides:
 - token card trait summary template
 - activity row trait summary template
 
-Current template string for both summary features:
+Current shared token-card and activity-row template:
 
-- `{Zone}/B{Biome}/{Chroma}/L{Level}`
+```text
+{Zone} B{Biome} {Chroma} L{Level}
+{Mode}{{#if Antenna=On}} A{{/if}}{{#if Seasons=Season 0}} S0{{/if}}{{#if Seed Class}} {Seed Class}{{/if}}
+```
 
 This is important because it demonstrates that extension-owned collection customization is not limited to media.
 
@@ -328,6 +334,9 @@ The renderer is intentionally simple:
 - literal text is emitted as-is
 - `{TraitKey}` placeholders are replaced from token attributes
 - missing placeholders render as empty strings
+- `{{#if Trait}}text{{/if}}` renders `text` only when `Trait` has a non-empty value
+- `{{#if Trait=Value}}text{{/if}}` renders `text` only when `Trait` exactly matches `Value`
+- templates do not evaluate JavaScript or arbitrary expressions
 
 Rendering is backend-owned so token browser cards and activity includes consume the same resolved summary behavior.
 
@@ -369,12 +378,13 @@ Current system is build-bundled only.
 
 ### 4. Richer trait summary templating
 
-Current trait summary templates support placeholder substitution only.
+Current trait summary templates support placeholder substitution plus constrained
+conditional sections for presence and exact value checks.
 
 Possible future work includes:
 
 - richer compact summary variants
-- templating helpers beyond direct placeholder replacement
+- additional safe templating helpers beyond direct placeholders and constrained conditionals
 - activity-specific formatting behavior beyond a plain text summary column
 
 ## Recommended Reading

@@ -563,7 +563,8 @@ Current Terraforms artifact usage:
 - `html_content` stores the direct v2 renderer `tokenHTML(...)` response used for backend animation override
 - backend resolves Terraforms collection browsing from `terraforms-v2-media`
 - backend exposes `terraforms-v2-lost-terrain` only as a token-local media mode on token detail / preview
-- unminted placement rows are extension-owned synthetic `tokens` without canonical `token_metadata`; Terraforms writes the extension-owned minted-state trait from `TERRAFORMS_MINTED_ATTRIBUTE_KEY` plus Terrain renderer traits
+- Terraforms writes extension-owned normalized traits such as `Minted`, renderer `Seed`, optional `Seed Class`, and optional Beacon-derived `Seasons`
+- unminted placement rows are extension-owned synthetic `tokens` without canonical `token_metadata`; Terraforms writes `Minted=false`, `Mode=Terrain`, and Terrain renderer traits for those rows
 
 ### `collection_extension_synthetic_token_retirements`
 
@@ -578,7 +579,7 @@ Purpose:
 Important semantics:
 
 - retirement is inserted only after the synthetic row is still owned by the retiring extension and has no unexpected canonical state
-- Terraforms real-token refresh writes real extension artifacts and `Minted=true` traits in the same transaction that records the matching synthetic retirement
+- Terraforms real-token refresh writes real extension artifacts and real-token extension traits in the same transaction that records the matching synthetic retirement
 - later synthetic publication attempts for the retired identity no-op instead of recreating the row
 
 ## Metadata Refresh Follow-Ups and Queue Outbox

@@ -34,16 +34,28 @@ import {
 import type { RpcRetryPolicy } from "@artgod/shared/evm/rpc-resilience";
 import { TOKEN_SET_SCHEMA_KIND } from "@artgod/shared/types/token-sets";
 import {
+    TERRAFORMS_ANTENNA_ATTRIBUTE_KEY,
+    TERRAFORMS_ANTENNA_ATTRIBUTE_VALUES,
     TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS,
     TERRAFORMS_BEACON_EVENT_GROUPS,
     TERRAFORMS_BEACON_EVENT_TYPES,
+    TERRAFORMS_BIOME_ATTRIBUTE_KEY,
+    TERRAFORMS_CHROMA_ATTRIBUTE_KEY,
     TERRAFORMS_EVENT_RENDER_MODE_OPTIONS,
     TERRAFORMS_EXTENSION_ARTIFACT_REFS,
     TERRAFORMS_EXTENSION_EVENT_KEYS,
     TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS,
     TERRAFORMS_EXTENSION_KEY,
+    TERRAFORMS_LEVEL_ATTRIBUTE_KEY,
+    TERRAFORMS_MODE_ATTRIBUTE_KEY,
+    TERRAFORMS_MODE_ATTRIBUTE_VALUES,
     TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
+    TERRAFORMS_SEASON_ATTRIBUTE_VALUES,
+    TERRAFORMS_SEASONS_ATTRIBUTE_KEY,
+    TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+    TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES,
     TERRAFORMS_TRAIT_SUMMARY_TEMPLATE,
+    TERRAFORMS_ZONE_ATTRIBUTE_KEY,
 } from "@artgod/shared/extensions/terraforms";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
@@ -3377,7 +3389,9 @@ describe("backend api routes", () => {
         expect(result.payload.tokens.items[0].image).toBe(
             "data:image/svg+xml;base64,terraforms-v2-image",
         );
-        expect(result.payload.tokens.items[0].traitSummary).toBe("/B//L");
+        expect(result.payload.tokens.items[0].traitSummary).toBe(
+            "Kairo B12 Pulse L7\nTerraform A S0 Y-Seed",
+        );
     });
 
     it("returns Terraforms collection tokens with canonical images in snapshot mode", async () => {
@@ -3428,7 +3442,7 @@ describe("backend api routes", () => {
             "data:image/svg+xml;base64,terraforms-v2-image",
         );
         expect(artifact.payload.included.tokensById["7710"].traitSummary).toBe(
-            "/B//L",
+            "Kairo B12 Pulse L7\nTerraform A S0 Y-Seed",
         );
 
         const snapshot = await resolve(
@@ -3812,15 +3826,23 @@ describe("backend api routes", () => {
             terraforms.payload.customization.tokenCardTraitSummaryTemplate,
         ).toMatchObject({
             selectedSource: "extension",
-            extensionConfig: { template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE },
-            effectiveConfig: { template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE },
+            extensionConfig: {
+                template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE,
+            },
+            effectiveConfig: {
+                template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE,
+            },
         });
         expect(
             terraforms.payload.customization.activityRowTraitSummaryTemplate,
         ).toMatchObject({
             selectedSource: "extension",
-            extensionConfig: { template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE },
-            effectiveConfig: { template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE },
+            extensionConfig: {
+                template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE,
+            },
+            effectiveConfig: {
+                template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE,
+            },
         });
         expect(terraforms.payload.customization.imageCachePolicy).toMatchObject(
             {
@@ -5660,6 +5682,75 @@ function seedData(): void {
         TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     );
 
+    const terraformsMetadataAttributeIds = [
+        insertCollectionAttribute(
+            TERRAFORMS_ADDRESS,
+            TERRAFORMS_ZONE_ATTRIBUTE_KEY,
+            "Kairo",
+        ),
+        insertCollectionAttribute(
+            TERRAFORMS_ADDRESS,
+            TERRAFORMS_BIOME_ATTRIBUTE_KEY,
+            "12",
+        ),
+        insertCollectionAttribute(
+            TERRAFORMS_ADDRESS,
+            TERRAFORMS_CHROMA_ATTRIBUTE_KEY,
+            "Pulse",
+        ),
+        insertCollectionAttribute(
+            TERRAFORMS_ADDRESS,
+            TERRAFORMS_LEVEL_ATTRIBUTE_KEY,
+            "7",
+        ),
+        insertCollectionAttribute(
+            TERRAFORMS_ADDRESS,
+            TERRAFORMS_MODE_ATTRIBUTE_KEY,
+            TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terraform,
+        ),
+        insertCollectionAttribute(
+            TERRAFORMS_ADDRESS,
+            TERRAFORMS_ANTENNA_ATTRIBUTE_KEY,
+            TERRAFORMS_ANTENNA_ATTRIBUTE_VALUES.On,
+        ),
+    ];
+    const terraformsExtensionAttributeIds = [
+        insertCollectionAttribute(
+            TERRAFORMS_ADDRESS,
+            TERRAFORMS_SEASONS_ATTRIBUTE_KEY,
+            TERRAFORMS_SEASON_ATTRIBUTE_VALUES.Season0,
+        ),
+        insertCollectionAttribute(
+            TERRAFORMS_ADDRESS,
+            TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+            TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.YSeed,
+        ),
+    ];
+
+    for (const attributeId of terraformsMetadataAttributeIds) {
+        insertTokenAttribute.run(
+            1,
+            terraformsCollectionId,
+            TERRAFORMS_ADDRESS,
+            "7710",
+            attributeId,
+            TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+            TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+        );
+    }
+
+    for (const attributeId of terraformsExtensionAttributeIds) {
+        insertTokenAttribute.run(
+            1,
+            terraformsCollectionId,
+            TERRAFORMS_ADDRESS,
+            "7710",
+            attributeId,
+            TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+            TERRAFORMS_EXTENSION_KEY,
+        );
+    }
+
     const insertTraitStats = db.prepare(
         "INSERT INTO collection_trait_stats (chain_id, collection_id, contract_address, attribute_key_id, attribute_id, token_count) VALUES (?, ?, ?, ?, ?, ?)",
     );
@@ -6490,11 +6581,14 @@ function updateCollectionLifecycle(
     );
 }
 
-function insertAttributeKey(key: string): number {
-    const collection = getCollectionFixtureByAddress(MILADY_ADDRESS);
+function insertAttributeKey(
+    key: string,
+    collectionAddress: string = MILADY_ADDRESS,
+): number {
+    const collection = getCollectionFixtureByAddress(collectionAddress);
     db.prepare(
         "INSERT INTO attribute_keys (chain_id, collection_id, contract_address, key) VALUES (?, ?, ?, ?)",
-    ).run(1, collection.collection_id, MILADY_ADDRESS, key);
+    ).run(1, collection.collection_id, collectionAddress, key);
 
     const row = db
         .prepare<
@@ -6505,11 +6599,21 @@ function insertAttributeKey(key: string): number {
     return row.id;
 }
 
-function insertAttribute(attributeKeyId: number, value: string): number {
-    const collection = getCollectionFixtureByAddress(MILADY_ADDRESS);
+function insertAttribute(
+    attributeKeyId: number,
+    value: string,
+    collectionAddress: string = MILADY_ADDRESS,
+): number {
+    const collection = getCollectionFixtureByAddress(collectionAddress);
     db.prepare(
         "INSERT INTO attributes (chain_id, collection_id, contract_address, attribute_key_id, value) VALUES (?, ?, ?, ?, ?)",
-    ).run(1, collection.collection_id, MILADY_ADDRESS, attributeKeyId, value);
+    ).run(
+        1,
+        collection.collection_id,
+        collectionAddress,
+        attributeKeyId,
+        value,
+    );
 
     const row = db
         .prepare<
@@ -6520,6 +6624,18 @@ function insertAttribute(attributeKeyId: number, value: string): number {
         | undefined;
     if (!row) throw new Error(`Missing attribute: ${value}`);
     return row.id;
+}
+
+function insertCollectionAttribute(
+    collectionAddress: string,
+    key: string,
+    value: string,
+): number {
+    return insertAttribute(
+        insertAttributeKey(key, collectionAddress),
+        value,
+        collectionAddress,
+    );
 }
 
 function getCollectionFixtureByAddress(

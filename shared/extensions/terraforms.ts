@@ -4,8 +4,11 @@ import {
     type EmbeddedCollectionExtensionMatch,
 } from "./index.js";
 import {
+    TERRAFORMS_BIOME_ATTRIBUTE_KEY,
     TERRAFORMS_HYPERCASTLE_TOTAL_PARCELS,
     TERRAFORMS_LEVEL_DIMENSIONS,
+    TERRAFORMS_LEVEL_ATTRIBUTE_KEY,
+    TERRAFORMS_ZONE_ATTRIBUTE_KEY,
 } from "./terraforms-structure.js";
 import { normalizeAddressRef } from "../utils/ref-resolver.js";
 
@@ -85,6 +88,12 @@ export const TERRAFORMS_BEACON_ANTENNA_MODIFICATIONS = {
     CapturedSatelliteConnection: 3,
 } as const;
 
+// Terraforms beacon read methods used by extension-owned trait derivation.
+export const TERRAFORMS_BEACON_V2_READ_FUNCTIONS = {
+    GetNumberOfAntennaModifications: "getNumberOfAntennaModifications",
+    GetFirstAntennaModification: "getFirstAntennaModification",
+} as const;
+
 // Compact labels for Terraforms beacon AntennaModification values.
 export const TERRAFORMS_BEACON_ANTENNA_MODIFICATION_LABELS: Readonly<
     Record<string, string>
@@ -135,6 +144,19 @@ export const TERRAFORMS_MODE_ATTRIBUTE_VALUES = {
     OriginTerraform: "Origin Terraform",
 } as const;
 
+// Terraforms metadata stores renderer activation under this trait key.
+export const TERRAFORMS_CHROMA_ATTRIBUTE_KEY = "Chroma";
+
+// Terraforms V2 renderer metadata stores Beacon antenna state under this trait key.
+export const TERRAFORMS_ANTENNA_ATTRIBUTE_KEY = "Antenna";
+
+// Terraforms V2 renderer antenna trait values mirror AntennaStatus labels.
+export const TERRAFORMS_ANTENNA_ATTRIBUTE_VALUES = {
+    Off: "Off",
+    On: "On",
+    Uplink: "Uplink",
+} as const;
+
 // Terraforms extension-owned trait key that separates real and synthetic rows.
 export const TERRAFORMS_MINTED_ATTRIBUTE_KEY = "Minted";
 
@@ -144,6 +166,20 @@ export const TERRAFORMS_MINTED_ATTRIBUTE_VALUES = {
     False: "false",
 } as const;
 
+// Terraforms extension-owned trait key for historical Beacon participation.
+export const TERRAFORMS_SEASONS_ATTRIBUTE_KEY = "Seasons";
+
+// Terraforms Season trait values are categorical filter buckets.
+export const TERRAFORMS_SEASON_ATTRIBUTE_VALUES = {
+    Season0: "Season 0",
+} as const;
+
+export type TerraformsSeasonAttributeValue =
+    (typeof TERRAFORMS_SEASON_ATTRIBUTE_VALUES)[keyof typeof TERRAFORMS_SEASON_ATTRIBUTE_VALUES];
+
+// First antenna-on timestamps before this Unix second qualify for Season 0.
+export const TERRAFORMS_SEASON_0_ANTENNA_ON_CUTOFF_TIMESTAMP = 1705122113n;
+
 // Tokens in these Mode states can have or receive owner-written dream canvases.
 export const TERRAFORMS_DREAM_MODE_ATTRIBUTE_VALUES = [
     TERRAFORMS_MODE_ATTRIBUTE_VALUES.Daydream,
@@ -151,10 +187,6 @@ export const TERRAFORMS_DREAM_MODE_ATTRIBUTE_VALUES = [
     TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream,
     TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform,
 ] as const;
-
-// Default Terraforms trait summary shown on token cards and activity rows.
-export const TERRAFORMS_TRAIT_SUMMARY_TEMPLATE =
-    "{Zone}/B{Biome}/{Chroma}/L{Level}";
 
 export const TERRAFORMS_EVENT_RENDER_MODES = {
     Network: "network",
@@ -193,6 +225,15 @@ export const TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES = {
     YSeed: "Y-Seed",
     Godmode: "Godmode",
 } as const;
+
+// Default Terraforms trait summary shared by token cards and activity rows.
+export const TERRAFORMS_TRAIT_SUMMARY_TEMPLATE =
+    `{${TERRAFORMS_ZONE_ATTRIBUTE_KEY}} B{${TERRAFORMS_BIOME_ATTRIBUTE_KEY}} ` +
+    `{${TERRAFORMS_CHROMA_ATTRIBUTE_KEY}} L{${TERRAFORMS_LEVEL_ATTRIBUTE_KEY}}\n` +
+    `{${TERRAFORMS_MODE_ATTRIBUTE_KEY}}` +
+    `{{#if ${TERRAFORMS_ANTENNA_ATTRIBUTE_KEY}=${TERRAFORMS_ANTENNA_ATTRIBUTE_VALUES.On}}} A{{/if}}` +
+    `{{#if ${TERRAFORMS_SEASONS_ATTRIBUTE_KEY}=${TERRAFORMS_SEASON_ATTRIBUTE_VALUES.Season0}}} S0{{/if}}` +
+    `{{#if ${TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY}}} {${TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY}}{{/if}}`;
 
 // Terraforms renderer seed buckets mirror animation-v2.js character-set branches.
 export const TERRAFORMS_RENDERER_SEED_THRESHOLDS = {
@@ -269,6 +310,32 @@ export function isTerraformsOriginMode(
         value === TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream ||
         value === TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform
     );
+}
+
+// Resolves Season filters from the Beacon contract's first antenna mutation.
+export function resolveTerraformsSeasonValuesFromFirstAntennaModification(params: {
+    modification: bigint | number | null | undefined;
+    timestamp: bigint | number | null | undefined;
+}): TerraformsSeasonAttributeValue[] {
+    if (params.modification === null || params.modification === undefined) {
+        return [];
+    }
+    if (params.timestamp === null || params.timestamp === undefined) {
+        return [];
+    }
+    if (
+        BigInt(params.modification) !==
+        BigInt(TERRAFORMS_BEACON_ANTENNA_MODIFICATIONS.TurnedAntennaOn)
+    ) {
+        return [];
+    }
+    if (
+        BigInt(params.timestamp) <
+        TERRAFORMS_SEASON_0_ANTENNA_ON_CUTOFF_TIMESTAMP
+    ) {
+        return [TERRAFORMS_SEASON_ATTRIBUTE_VALUES.Season0];
+    }
+    return [];
 }
 
 export type TerraformsLevelTile = {
