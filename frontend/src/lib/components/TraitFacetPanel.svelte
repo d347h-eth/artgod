@@ -1,10 +1,17 @@
 <script lang="ts">
 	import { tick } from 'svelte';
+	import { TRAIT_FILTER_DISPLAY_KIND } from '@artgod/shared/types';
 	import type {
 		ApiTokenAttribute,
 		ApiTraitFacet,
 		ApiTraitRangeFilter
 	} from '$lib/api-types';
+	import {
+		filterTraitFacetsBySearch,
+		filterTraitFacetValuesBySearch,
+		hasTraitValueSearch,
+		isTraitFacetValueSearchable
+	} from '$lib/trait-facet-search';
 	import {
 		sortTraitFacetValues,
 		type TraitFacetValueSortMode
@@ -43,13 +50,20 @@
 		) => MaybePromise<void>;
 	} = $props();
 
+	let rootTraitValueSearch = $state('');
 	let traitValueSearch = $state<Record<string, string>>({});
 	let traitValueSortMode = $state<Record<string, TraitFacetValueSortMode>>({});
 	let traitRangeDrafts = $state<Record<string, TraitRangeDraft>>({});
+	let openTraitGroups = $state<Record<string, boolean>>({});
 	const traitSearchInputs = new Map<string, HTMLInputElement>();
 	let activeTraitSet = $derived(new Set(selectedTraits.map((item) => `${item.key}:${item.value}`)));
 	let activeRangeMap = $derived(
 		new Map(selectedRanges.map((item) => [item.key, { fromValue: item.fromValue, toValue: item.toValue }]))
+	);
+	let rootTraitValueSearchActive = $derived(hasTraitValueSearch(rootTraitValueSearch));
+	let hasSearchableFacets = $derived(facets.some(isTraitFacetValueSearchable));
+	let visibleFacets = $derived(
+		rootTraitValueSearchActive ? filterTraitFacetsBySearch(facets, rootTraitValueSearch) : facets
 	);
 
 	$effect(() => {
@@ -69,6 +83,13 @@
 
 	function traitChecked(key: string, value: string): boolean {
 		return activeTraitSet.has(`${key}:${value}`);
+	}
+
+	function onRootTraitSearchInput(event: Event): void {
+		const target = event.target;
+		if (!(target instanceof HTMLInputElement)) return;
+
+		rootTraitValueSearch = target.value;
 	}
 
 	function onTraitSearchInput(key: string, event: Event): void {
@@ -98,7 +119,18 @@
 
 	function onTraitGroupToggle(facet: ApiTraitFacet, event: Event): void {
 		const details = event.currentTarget as HTMLDetailsElement | null;
-		if (!details?.open || facet.displayKind === 'range') return;
+		if (!details) return;
+		if (rootTraitValueSearchActive) {
+			if (!details.open) details.open = true;
+			return;
+		}
+
+		openTraitGroups = {
+			...openTraitGroups,
+			[facet.key]: details.open
+		};
+
+		if (!details.open || !isTraitFacetValueSearchable(facet)) return;
 		void focusTraitSearchInput(facet.key);
 	}
 
@@ -126,24 +158,37 @@
 		};
 	}
 
-	function traitValueMatches(key: string, value: string): boolean {
-		const pattern = traitSearchValue(key).trim().toLowerCase();
-		if (!pattern) return true;
-
-		const haystack = value.toLowerCase();
-		if (!pattern.includes('*')) {
-			return haystack.includes(pattern);
-		}
-
-		const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
-		return new RegExp(`^${escaped}$`).test(haystack);
-	}
-
 	function visibleFacetValues(facet: ApiTraitFacet): Array<{ value: string; tokenCount: number }> {
+		const search = rootTraitValueSearchActive ? rootTraitValueSearch : traitSearchValue(facet.key);
 		return sortTraitFacetValues(
-			facet.values.filter((item) => traitValueMatches(facet.key, item.value)),
+			filterTraitFacetValuesBySearch(facet, search),
 			traitSortMode(facet.key)
 		);
+	}
+
+	function traitGroupOpen(facet: ApiTraitFacet): boolean {
+		if (rootTraitValueSearchActive) return true;
+		return openTraitGroups[facet.key] ?? false;
+	}
+
+	function traitGroupValueCount(facet: ApiTraitFacet): number {
+		if (rootTraitValueSearchActive && isTraitFacetValueSearchable(facet)) {
+			return visibleFacetValues(facet).length;
+		}
+		return facet.values.length;
+	}
+
+	function onTraitSearchJumpClick(key: string, event: MouseEvent): void {
+		event.preventDefault();
+		event.stopPropagation();
+
+		traitValueSearch = {
+			...traitValueSearch,
+			[key]: rootTraitValueSearch
+		};
+		openTraitGroups = { [key]: true };
+		rootTraitValueSearch = '';
+		void focusTraitSearchInput(key);
 	}
 
 	function traitGroupActive(key: string): boolean {
@@ -243,45 +288,78 @@
 
 			{#if facets.length === 0}
 				<p class="muted">no trait facets yet</p>
-			{:else}
-				{#each facets as facet}
-					<details class="trait-group" ontoggle={(event) => onTraitGroupToggle(facet, event)}>
-						<summary>
-							<span class:trait-group-active={traitGroupActive(facet.key)}>{facet.key}</span>
-							<span class="muted">{facet.values.length}</span>
-						</summary>
+			{:else if hasSearchableFacets}
+				<div class="trait-root-search">
+					<input
+						class="trait-search-input"
+						type="search"
+						aria-label="search all traits"
+						placeholder="search all"
+						value={rootTraitValueSearch}
+						oninput={onRootTraitSearchInput}
+					/>
+				</div>
+			{/if}
 
-						<div class="trait-group-body">
-							{#if facet.displayKind === 'range'}
-								<div class="trait-range-group">
-									<div class="mono muted trait-range-hint">
-										<span>min </span>
-										{#if facet.minValue !== null}
-											<button
-												type="button"
-												class="trait-range-hint-button"
-												onclick={() =>
-													onRangeHintValueClick(facet.key, 'fromValue', facet.minValue)}
-											>
-												{facet.minValue}
-											</button>
-										{:else}
-											<span>-</span>
-										{/if}
-										<span> / max </span>
-										{#if facet.maxValue !== null}
-											<button
-												type="button"
-												class="trait-range-hint-button"
-												onclick={() =>
-													onRangeHintValueClick(facet.key, 'toValue', facet.maxValue)}
-											>
-												{facet.maxValue}
-											</button>
-										{:else}
-											<span>-</span>
-										{/if}
-									</div>
+			{#if facets.length > 0}
+				{#if visibleFacets.length === 0}
+					<p class="muted">no matches</p>
+				{:else}
+					{#each visibleFacets as facet (facet.key)}
+						<details
+							class="trait-group"
+							open={traitGroupOpen(facet)}
+							ontoggle={(event) => onTraitGroupToggle(facet, event)}
+						>
+							<summary>
+								<span class="trait-group-title">
+									<span class:trait-group-active={traitGroupActive(facet.key)}>{facet.key}</span>
+									{#if rootTraitValueSearchActive && isTraitFacetValueSearchable(facet)}
+										<button
+											type="button"
+											class="facet-panel-action-button trait-search-jump-button"
+											title="search this trait"
+											aria-label={`search ${facet.key}`}
+											onclick={(event) => onTraitSearchJumpClick(facet.key, event)}
+										>
+											&gt;
+										</button>
+									{/if}
+								</span>
+								<span class="muted">{traitGroupValueCount(facet)}</span>
+							</summary>
+
+							<div class="trait-group-body">
+								{#if facet.displayKind === TRAIT_FILTER_DISPLAY_KIND.Range}
+									<div class="trait-range-group">
+										<div class="mono muted trait-range-hint">
+											<span>min </span>
+											{#if facet.minValue !== null}
+												<button
+													type="button"
+													class="trait-range-hint-button"
+													onclick={() =>
+														onRangeHintValueClick(facet.key, 'fromValue', facet.minValue)}
+												>
+													{facet.minValue}
+												</button>
+											{:else}
+												<span>-</span>
+											{/if}
+											<span> / max </span>
+											{#if facet.maxValue !== null}
+												<button
+													type="button"
+													class="trait-range-hint-button"
+													onclick={() =>
+														onRangeHintValueClick(facet.key, 'toValue', facet.maxValue)}
+												>
+													{facet.maxValue}
+												</button>
+											{:else}
+												<span>-</span>
+											{/if}
+										</div>
 									{#if rangeControlsDisabled(facet)}
 										<p class="muted">no numeric values available</p>
 									{/if}
@@ -333,25 +411,27 @@
 									</div>
 								</div>
 							{:else}
-								<div class="trait-search-row">
-									<input
-										class="trait-search-input"
-										type="search"
-										placeholder="search"
-										value={traitSearchValue(facet.key)}
-										use:registerTraitSearchInput={facet.key}
-										oninput={(event) => onTraitSearchInput(facet.key, event)}
-									/>
-									<button
-										type="button"
-										class="facet-panel-action-button trait-sort-button"
-										title={traitSortModeTitle(facet.key)}
-										aria-label={traitSortModeTitle(facet.key)}
-										onclick={() => toggleTraitSortMode(facet.key)}
-									>
-										{traitSortModeLabel(facet.key)}
-									</button>
-								</div>
+								{#if !rootTraitValueSearchActive}
+									<div class="trait-search-row">
+										<input
+											class="trait-search-input"
+											type="search"
+											placeholder="search"
+											value={traitSearchValue(facet.key)}
+											use:registerTraitSearchInput={facet.key}
+											oninput={(event) => onTraitSearchInput(facet.key, event)}
+										/>
+										<button
+											type="button"
+											class="facet-panel-action-button trait-sort-button"
+											title={traitSortModeTitle(facet.key)}
+											aria-label={traitSortModeTitle(facet.key)}
+											onclick={() => toggleTraitSortMode(facet.key)}
+										>
+											{traitSortModeLabel(facet.key)}
+										</button>
+									</div>
+								{/if}
 
 								<div class="trait-values">
 									{#if visibleFacetValues(facet).length === 0}
@@ -373,9 +453,10 @@
 									{/if}
 								</div>
 							{/if}
-						</div>
-					</details>
-				{/each}
+							</div>
+						</details>
+					{/each}
+				{/if}
 			{/if}
 		</aside>
 	{/if}

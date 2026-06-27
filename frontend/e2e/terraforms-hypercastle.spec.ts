@@ -28,7 +28,7 @@ import {
 	buildTerraformsBiomeTokenHref,
 	defaultTerraformsBiomeSortColumn,
 	defaultTerraformsBiomeSortDirection,
-	formatTerraformsBiomeMintedTokenCount,
+	formatTerraformsBiomeSupplyTokenCount,
 	formatTerraformsBiomeSortLabel,
 	sortTerraformsBiomeRows,
 	TERRAFORMS_BIOME_FONT_FAMILY_NAME,
@@ -70,7 +70,7 @@ import {
 	defaultTerraformsSelectedLevelZoneSortColumn,
 	defaultTerraformsSelectedLevelZoneSortDirection,
 	formatTerraformsLevelZoneSortLabel,
-	formatTerraformsZoneMintedTokenCount,
+	formatTerraformsZoneSupplyTokenCount,
 	formatTerraformsZonePaletteCopyLabel,
 	formatTerraformsZonePaletteCopyValue,
 	sortTerraformsLevelZoneRows,
@@ -308,7 +308,7 @@ const HYPERCASTLE_E2E_TOKEN_PREVIEW_ROUTE_PATTERN = new RegExp(
 	`${escapeRegExp(HYPERCASTLE_E2E_API_BASE_PATH)}/[^/]+/preview(?:\\?.*)?$`
 );
 const HYPERCASTLE_E2E_TRAIT_SCOPE_SEPARATOR = ':';
-const HYPERCASTLE_E2E_ALL_LEVEL_MINTED_COUNT = 0;
+const HYPERCASTLE_E2E_ALL_LEVEL_SUPPLY_COUNT = 0;
 const HYPERCASTLE_E2E_SELECTED_BIOME_COUNTS = {
 	22: 8,
 	23: 13
@@ -875,14 +875,14 @@ test.describe('Terraforms Hypercastle overview', () => {
 		await assertTraitTableHeaderChrome(page, biomeTable);
 		await biomeTable
 			.getByRole(ACCESSIBLE_ROLES.button, {
-				name: formatTerraformsBiomeSortLabel(TERRAFORMS_BIOME_TABLE_COLUMNS.Minted)
+				name: formatTerraformsBiomeSortLabel(TERRAFORMS_BIOME_TABLE_COLUMNS.Supply)
 			})
 			.click();
 		await assertBiomeTableRows(
 			biomeTable,
 			sortTerraformsBiomeRows(
 				expectedUnsortedSelectedLevelBiomeRows(),
-				TERRAFORMS_BIOME_TABLE_COLUMNS.Minted,
+				TERRAFORMS_BIOME_TABLE_COLUMNS.Supply,
 				TERRAFORMS_TRAIT_TABLE_SORT_DIRECTIONS.Descending
 			)
 		);
@@ -924,15 +924,15 @@ test.describe('Terraforms Hypercastle overview', () => {
 		await expect(surfaceRerollButton).toBeVisible();
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.selectedScreenshot);
 
-		const mintedSort = zoneTable.getByRole(ACCESSIBLE_ROLES.button, {
-			name: formatTerraformsLevelZoneSortLabel(TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted)
+		const supplySort = zoneTable.getByRole(ACCESSIBLE_ROLES.button, {
+			name: formatTerraformsLevelZoneSortLabel(TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Supply)
 		});
-		await mintedSort.click();
+		await supplySort.click();
 		await assertZoneTableRows(
 			zoneTable,
 			sortTerraformsLevelZoneRows(
 				expectedUnsortedLevelZoneRows(HYPERCASTLE_DETAIL_LEVEL),
-				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted,
+				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Supply,
 				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending
 			)
 		);
@@ -1352,7 +1352,7 @@ async function assertZoneTableRows(
 			cells.nth(1).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.paletteCopyButton)
 		).toHaveCount(1);
 		await expect(cells).toHaveCount(3);
-		await expect(cells.nth(2)).toHaveText(formatTerraformsZoneMintedTokenCount(row));
+		await expect(cells.nth(2)).toHaveText(formatTerraformsZoneSupplyTokenCount(row));
 	}
 }
 
@@ -1381,7 +1381,7 @@ async function assertBiomeTableRows(
 		await expect(
 			cells.nth(1).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeCharacter)
 		).toHaveCount(row.displayCharacters.length);
-		await expect(cells.nth(2)).toHaveText(formatTerraformsBiomeMintedTokenCount(row));
+		await expect(cells.nth(2)).toHaveText(formatTerraformsBiomeSupplyTokenCount(row));
 	}
 	if (expectedRows.length === buildTerraformsBiomeRows().length) {
 		await assertBiomeDisplayCharacters(rows, expectedRows, 22);
@@ -1877,7 +1877,7 @@ function expectedAllLevelZoneRows(): TerraformsLevelZoneRow[] {
 	return sortTerraformsLevelZoneRows(
 		buildTerraformsAllLevelZoneRows().map((row) => ({
 			...row,
-			mintedTokenCount: HYPERCASTLE_E2E_ALL_LEVEL_MINTED_COUNT
+			supplyTokenCount: HYPERCASTLE_E2E_ALL_LEVEL_SUPPLY_COUNT
 		})),
 		defaultTerraformsLevelZoneSortColumn(),
 		defaultTerraformsLevelZoneSortDirection()
@@ -1897,7 +1897,7 @@ function expectedUnsortedLevelZoneRows(
 ): TerraformsLevelZoneRow[] {
 	return buildTerraformsLevelZoneRows(level).map((row, index) => ({
 		...row,
-		mintedTokenCount: index + 1
+		supplyTokenCount: index + 1
 	}));
 }
 
@@ -1922,7 +1922,7 @@ function expectedUnsortedSelectedLevelBiomeRows(): ReturnType<typeof buildTerraf
 		buildTerraformsBiomeRows(),
 		HYPERCASTLE_E2E_SELECTED_BIOME_COUNTS,
 		true,
-		{ mintedOnly: true }
+		{ nonzeroSupplyOnly: true }
 	);
 }
 

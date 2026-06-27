@@ -27,14 +27,14 @@ export type TerraformsLevelZoneRow = {
 	zoneIndex: number;
 	name: string;
 	palette: readonly string[];
-	mintedTokenCount: number | null;
+	supplyTokenCount: number | null;
 };
 
 // Sort columns are the stable contract between the table, tests, and URL-ready state.
 export const TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS = {
 	Name: 'name',
 	Palette: 'palette',
-	Minted: 'minted'
+	Supply: 'supply'
 } as const;
 
 export type TerraformsLevelZoneTableColumn = ValueOf<typeof TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS>;
@@ -61,7 +61,7 @@ export const TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_FEEDBACK_DELAY_MS = 1400;
 export const TERRAFORMS_LEVEL_ZONE_TABLE_LABELS: Record<TerraformsLevelZoneTableColumn, string> = {
 	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name]: 'name',
 	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette]: 'palette',
-	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted]: 'minted'
+	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Supply]: 'supply'
 };
 
 // Section labels distinguish all-level detail tables.
@@ -74,12 +74,12 @@ export const TERRAFORMS_LEVEL_ZONE_TABLE_COLUMN_SETS = {
 	AllLevels: [
 		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name,
 		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette,
-		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted
+		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Supply
 	],
 	SelectedLevel: [
 		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name,
 		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette,
-		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted
+		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Supply
 	]
 } as const satisfies Record<string, readonly TerraformsLevelZoneTableColumn[]>;
 
@@ -154,7 +154,7 @@ export function buildTerraformsLevelZoneRows(
 		zoneIndex: zone.index,
 		name: zone.name,
 		palette: zone.palette,
-		mintedTokenCount: null
+		supplyTokenCount: null
 	}));
 }
 
@@ -167,26 +167,26 @@ export function buildTerraformsAllLevelZoneRows(): TerraformsLevelZoneRow[] {
 		zoneIndex: zone.index,
 		name: zone.name,
 		palette: zone.palette,
-		mintedTokenCount: null
+		supplyTokenCount: null
 	}));
 }
 
-// Applies minted trait counts after the backend catalog response arrives.
+// Applies trait supply counts after the backend catalog response arrives.
 export function applyTerraformsLevelZoneTokenCounts(
 	rows: readonly TerraformsLevelZoneRow[],
 	counts: TerraformsTraitCountIndex,
 	countsLoaded: boolean,
-	options: { mintedOnly?: boolean } = {}
+	options: { nonzeroSupplyOnly?: boolean } = {}
 ): TerraformsLevelZoneRow[] {
 	const countedRows = rows.map((row) => ({
 		...row,
-		mintedTokenCount: countsLoaded ? (counts[row.name] ?? 0) : null
+		supplyTokenCount: countsLoaded ? (counts[row.name] ?? 0) : null
 	}));
-	if (!options.mintedOnly) {
+	if (!options.nonzeroSupplyOnly) {
 		return countedRows;
 	}
 	return countsLoaded
-		? countedRows.filter((row) => row.mintedTokenCount !== null && row.mintedTokenCount > 0)
+		? countedRows.filter((row) => row.supplyTokenCount !== null && row.supplyTokenCount > 0)
 		: [];
 }
 
@@ -252,11 +252,11 @@ export function defaultTerraformsSelectedLevelZoneSortDirection(): TerraformsLev
 	);
 }
 
-// Formats exact minted token counts once the trait catalog has loaded.
-export function formatTerraformsZoneMintedTokenCount(row: TerraformsLevelZoneRow): string {
-	return row.mintedTokenCount === null
+// Formats exact supply token counts once the trait catalog has loaded.
+export function formatTerraformsZoneSupplyTokenCount(row: TerraformsLevelZoneRow): string {
+	return row.supplyTokenCount === null
 		? TERRAFORMS_LEVEL_ZONE_EMPTY_STRING
-		: TERRAFORMS_LEVEL_ZONE_COUNT_FORMAT.format(row.mintedTokenCount);
+		: TERRAFORMS_LEVEL_ZONE_COUNT_FORMAT.format(row.supplyTokenCount);
 }
 
 // Formats all palette colors for clipboard copying.
@@ -340,10 +340,10 @@ function compareTerraformsLevelZoneRows(
 				left.palette.join(TERRAFORMS_LEVEL_ZONE_EMPTY_STRING),
 				right.palette.join(TERRAFORMS_LEVEL_ZONE_EMPTY_STRING)
 			);
-		case TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted:
+		case TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Supply:
 			return compareTerraformsTraitTableNullableNumbers(
-				left.mintedTokenCount,
-				right.mintedTokenCount
+				left.supplyTokenCount,
+				right.supplyTokenCount
 			);
 	}
 }

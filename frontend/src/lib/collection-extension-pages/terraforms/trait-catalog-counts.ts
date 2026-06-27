@@ -25,7 +25,7 @@ const TERRAFORMS_TRAIT_CATALOG_SCOPE_SEPARATOR = ':';
 const TERRAFORMS_TRAIT_CATALOG_KEY_SEPARATOR = ',';
 const TERRAFORMS_TRAIT_CATALOG_REQUEST_KEY_SEPARATOR = '|';
 
-// Fetches exact minted Zone and Biome counts for the current Hypercastle selection.
+// Fetches exact Zone and Biome supply counts for the current Hypercastle selection.
 export async function fetchTerraformsHypercastleTraitCounts(input: {
 	fetch: typeof fetch;
 	chainRef: string;

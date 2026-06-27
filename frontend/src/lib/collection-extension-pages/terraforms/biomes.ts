@@ -25,14 +25,14 @@ export type TerraformsBiomeRow = {
 	biomeIndex: number;
 	characters: readonly string[];
 	displayCharacters: readonly string[];
-	mintedTokenCount: number | null;
+	supplyTokenCount: number | null;
 };
 
 // Sort columns are the stable contract between the Biome table, tests, and browser probes.
 export const TERRAFORMS_BIOME_TABLE_COLUMNS = {
 	Number: 'number',
 	CharacterSet: 'character_set',
-	Minted: 'minted'
+	Supply: 'supply'
 } as const;
 
 export type TerraformsBiomeTableColumn = ValueOf<typeof TERRAFORMS_BIOME_TABLE_COLUMNS>;
@@ -45,14 +45,14 @@ export const TERRAFORMS_BIOME_TABLE_LABELS = {
 	ResetColors: 'reset colors',
 	[TERRAFORMS_BIOME_TABLE_COLUMNS.Number]: 'number',
 	[TERRAFORMS_BIOME_TABLE_COLUMNS.CharacterSet]: 'character set',
-	[TERRAFORMS_BIOME_TABLE_COLUMNS.Minted]: 'minted'
+	[TERRAFORMS_BIOME_TABLE_COLUMNS.Supply]: 'supply'
 } as const;
 
 // Biome tables use the same column order in all-level and selected-level views.
 export const TERRAFORMS_BIOME_TABLE_COLUMNS_ORDER = [
 	TERRAFORMS_BIOME_TABLE_COLUMNS.Number,
 	TERRAFORMS_BIOME_TABLE_COLUMNS.CharacterSet,
-	TERRAFORMS_BIOME_TABLE_COLUMNS.Minted
+	TERRAFORMS_BIOME_TABLE_COLUMNS.Supply
 ] as const satisfies readonly TerraformsBiomeTableColumn[];
 
 // DOM names are exported so browser probes can target extension-owned Biome UI.
@@ -150,26 +150,26 @@ export function buildTerraformsBiomeRows(
 		biomeIndex: biome.index,
 		characters: biome.characters,
 		displayCharacters: resolveTerraformsBiomeDisplayCharacters(biome),
-		mintedTokenCount: null
+		supplyTokenCount: null
 	}));
 }
 
-// Applies minted trait counts after the backend catalog response arrives.
+// Applies trait supply counts after the backend catalog response arrives.
 export function applyTerraformsBiomeTokenCounts(
 	rows: readonly TerraformsBiomeRow[],
 	counts: TerraformsTraitCountIndex,
 	countsLoaded: boolean,
-	options: { mintedOnly?: boolean } = {}
+	options: { nonzeroSupplyOnly?: boolean } = {}
 ): TerraformsBiomeRow[] {
 	const countedRows = rows.map((row) => ({
 		...row,
-		mintedTokenCount: countsLoaded ? (counts[String(row.biomeIndex)] ?? 0) : null
+		supplyTokenCount: countsLoaded ? (counts[String(row.biomeIndex)] ?? 0) : null
 	}));
-	if (!options.mintedOnly) {
+	if (!options.nonzeroSupplyOnly) {
 		return countedRows;
 	}
 	return countsLoaded
-		? countedRows.filter((row) => row.mintedTokenCount !== null && row.mintedTokenCount > 0)
+		? countedRows.filter((row) => row.supplyTokenCount !== null && row.supplyTokenCount > 0)
 		: [];
 }
 
@@ -254,11 +254,11 @@ export function formatTerraformsBiomeTokenLabel(biomeIndex: number): string {
 	);
 }
 
-// Formats exact minted token counts once the trait catalog has loaded.
-export function formatTerraformsBiomeMintedTokenCount(row: TerraformsBiomeRow): string {
-	return row.mintedTokenCount === null
+// Formats exact supply token counts once the trait catalog has loaded.
+export function formatTerraformsBiomeSupplyTokenCount(row: TerraformsBiomeRow): string {
+	return row.supplyTokenCount === null
 		? TERRAFORMS_BIOME_EMPTY_STRING
-		: TERRAFORMS_BIOME_COUNT_FORMAT.format(row.mintedTokenCount);
+		: TERRAFORMS_BIOME_COUNT_FORMAT.format(row.supplyTokenCount);
 }
 
 // Resolves the palette background fill used behind Biome glyph previews.
@@ -317,10 +317,10 @@ function compareTerraformsBiomeRows(
 				left.displayCharacters.join(TERRAFORMS_BIOME_CHARACTER_SEPARATOR),
 				right.displayCharacters.join(TERRAFORMS_BIOME_CHARACTER_SEPARATOR)
 			);
-		case TERRAFORMS_BIOME_TABLE_COLUMNS.Minted:
+		case TERRAFORMS_BIOME_TABLE_COLUMNS.Supply:
 			return compareTerraformsTraitTableNullableNumbers(
-				left.mintedTokenCount,
-				right.mintedTokenCount
+				left.supplyTokenCount,
+				right.supplyTokenCount
 			);
 	}
 }

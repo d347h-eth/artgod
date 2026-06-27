@@ -9,7 +9,7 @@ import {
 	buildTerraformsAllLevelZoneRows,
 	buildTerraformsLevelZoneRows,
 	buildTerraformsZoneTokenHref,
-	formatTerraformsZoneMintedTokenCount,
+	formatTerraformsZoneSupplyTokenCount,
 	resolveTerraformsHypercastleLevel,
 	resolveTerraformsLevelZoneAriaSort,
 	resolveTerraformsLevelZoneDefaultSortDirection,
@@ -65,13 +65,13 @@ describe('Terraforms level Zone table data', () => {
 		expect(
 			sortTerraformsLevelZoneRows(
 				countedRows,
-				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted,
+				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Supply,
 				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending
 			).map((row) => row.name)
 		).toEqual(['Muxtai X1', 'Palace']);
 	});
 
-	it('applies minted token counts to Zone rows for display and sorting', () => {
+	it('applies supply token counts to Zone rows for display and sorting', () => {
 		const rows = applyTerraformsLevelZoneTokenCounts(
 			buildTerraformsAllLevelZoneRows().filter((row) => row.name === 'Alto' || row.name === 'Holo'),
 			{
@@ -81,17 +81,17 @@ describe('Terraforms level Zone table data', () => {
 			true
 		);
 
-		expect(rows.map((row) => formatTerraformsZoneMintedTokenCount(row))).toEqual(['3', '12']);
+		expect(rows.map((row) => formatTerraformsZoneSupplyTokenCount(row))).toEqual(['3', '12']);
 		expect(
 			sortTerraformsLevelZoneRows(
 				rows,
-				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted,
+				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Supply,
 				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending
 			).map((row) => row.name)
 		).toEqual(['Holo', 'Alto']);
 	});
 
-	it('filters selected-level Zone rows to exact minted counts', () => {
+	it('filters selected-level Zone rows to exact trait supply counts', () => {
 		const rows = applyTerraformsLevelZoneTokenCounts(
 			buildTerraformsLevelZoneRows(resolveTerraformsHypercastleLevel(12)!),
 			{
@@ -99,11 +99,11 @@ describe('Terraforms level Zone table data', () => {
 				'Muxtai X1': 5
 			},
 			true,
-			{ mintedOnly: true }
+			{ nonzeroSupplyOnly: true }
 		);
 
 		expect(rows.map((row) => row.name)).toEqual(['Muxtai X1']);
-		expect(rows.map((row) => formatTerraformsZoneMintedTokenCount(row))).toEqual(['5']);
+		expect(rows.map((row) => formatTerraformsZoneSupplyTokenCount(row))).toEqual(['5']);
 	});
 
 	it('keeps table labels and aria-sort values centralized', () => {

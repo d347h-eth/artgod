@@ -158,6 +158,34 @@ test.describe('bidding automation fixture harness', () => {
 		});
 	});
 
+	test('supports root trait search and jump into a matching bucket', async ({ page }) => {
+		await installBiddingAutomationApiMock(page);
+		await openHarnessPage(page, `${COLLECTION_PATH}?token_status=${TOKEN_BROWSER_STATUS.All}`);
+		await page.getByRole('button', { name: 'expand traits panel' }).click();
+
+		const facetPanel = page.locator('.facet-panel');
+		const rootSearch = page.getByRole('searchbox', { name: 'search all traits' });
+		await expect(rootSearch).toBeVisible();
+
+		await rootSearch.fill('terra');
+
+		await expect(facetPanel.locator('details.trait-group')).toHaveCount(1);
+		const modeGroup = facetPanel.locator('details.trait-group').filter({ hasText: 'Mode' });
+		await expect(modeGroup).toHaveAttribute('open', '');
+		await expect(modeGroup.getByText('Terrain')).toBeVisible();
+		await expect(modeGroup.getByText('Daydream')).toHaveCount(0);
+		await expect(modeGroup.getByPlaceholder('search')).toHaveCount(0);
+
+		await modeGroup.getByRole('button', { name: 'search Mode' }).click();
+
+		await expect(rootSearch).toHaveValue('');
+		await expect(facetPanel.locator('details.trait-group[open]')).toHaveCount(1);
+		await expect(modeGroup).toHaveAttribute('open', '');
+		await expect(modeGroup.getByPlaceholder('search')).toHaveValue('terra');
+		await expect(modeGroup.getByText('Terrain')).toBeVisible();
+		await expect(modeGroup.getByText('Daydream')).toHaveCount(0);
+	});
+
 	test('supports token-offer visible-page refinement and own-status cards', async ({ page }) => {
 		const api = await installBiddingAutomationApiMock(page);
 		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=token`);
