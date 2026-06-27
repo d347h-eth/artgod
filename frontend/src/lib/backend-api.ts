@@ -49,6 +49,14 @@ import {
 } from '@artgod/shared/types';
 import type { BootstrapStepAction, BootstrapStepKey } from '@artgod/shared/bootstrap/pipeline';
 import {
+	API_CSRF_HEADER_NAME,
+	API_CSRF_ROUTE_PATH
+} from '@artgod/shared/http/api-security';
+import {
+	buildCreateBootstrapRunPath,
+	buildProbeBootstrapCollectionPath
+} from '@artgod/shared/http/bootstrap-routes';
+import {
 	ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME,
 	QUERY_CACHE_DEBUG_AGE_HEADER_NAME,
 	QUERY_CACHE_DEBUG_HEADER_NAME,
@@ -161,12 +169,13 @@ export async function probeBootstrapCollectionContract(
 	chainRef: string,
 	address: string
 ): Promise<BootstrapContractProbeApiResponse> {
-	const query = new URLSearchParams();
-	query.set('address', address);
-	query.set('standard', 'erc721');
 	return requestJson<BootstrapContractProbeApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/collections/bootstrap/probe?${query.toString()}`
+		buildProbeBootstrapCollectionPath({
+			chainRef,
+			address,
+			standard: 'erc721'
+		})
 	);
 }
 
@@ -744,7 +753,7 @@ export async function createBootstrapRun(
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<BootstrapRunCreateResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/collections/bootstrap`,
+		buildCreateBootstrapRunPath(chainRef),
 		'POST',
 		body
 	);
@@ -863,7 +872,7 @@ async function requestJsonWithBody<T>(
 						credentials: 'include',
 						headers: {
 							'content-type': 'application/json',
-							'x-artgod-csrf': csrfTokenCache ?? ''
+							[API_CSRF_HEADER_NAME]: csrfTokenCache ?? ''
 						},
 						body: JSON.stringify(body)
 					},
@@ -908,7 +917,7 @@ async function ensureCsrfToken(fetchFn: typeof fetch): Promise<void> {
 async function fetchCsrfToken(fetchFn: typeof fetch): Promise<void> {
 	const backendOrigin = await resolveBackendOrigin();
 	const requestFetch = selectRequestFetch(fetchFn, backendOrigin);
-	const url = `${backendOrigin}/api/security/csrf`;
+	const url = `${backendOrigin}${API_CSRF_ROUTE_PATH}`;
 	const requestLog = createSsrBackendRequestLogContext('GET', url);
 	let response: Response;
 	try {

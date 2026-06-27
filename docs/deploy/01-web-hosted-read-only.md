@@ -207,7 +207,33 @@ Grafana uses deploy-specific datasource provisioning under `observability/grafan
 
 ## Manual Admin
 
-Because public write/admin routes are not exposed in this deployment mode, do manual admin from the VPS itself at the DB/process level for now.
+Because public write/admin routes are not exposed in this deployment mode, run
+initial collection bootstrap before switching the stack to
+`PUBLIC_APP_DEPLOYMENT_MODE=public_single_collection`.
+
+For the first Terraforms load, run the deploy stack with
+`PUBLIC_APP_DEPLOYMENT_MODE=standard` or an equivalent admin-capable mode, then
+trigger bootstrap from inside the `backend` container. The trigger uses the
+backend API contract: it probes the contract, resolves the same
+extension/image-cache submit body as the frontend form, fetches CSRF, and posts
+the durable bootstrap create request.
+
+```sh
+docker compose --env-file .env.deploy -f docker-compose.deploy.yml exec backend \
+    node --require /app/.pnp.cjs \
+    --experimental-loader /app/.pnp.loader.mjs \
+    --import tsx \
+    /app/indexer/scripts/trigger-bootstrap.ts \
+    --chain-id 1 \
+    --slug terraforms \
+    --opensea-slug terraforms \
+    --address 0x4e1f41613c9084fdb9e34e11fae9412427480e56 \
+    --deployment-block 13823015 \
+    --metadata-mode strict
+```
+
+After bootstrap and the required historical backfill complete, switch the stack
+to public single-collection mode before sharing the site publicly.
 
 ## Notes
 

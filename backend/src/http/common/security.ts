@@ -7,13 +7,15 @@ import type {
 } from "fastify";
 import type { BackendSecurityConfig } from "../../config.js";
 import {
+    API_CSRF_COOKIE_NAME,
+    API_CSRF_HEADER_NAME,
+} from "@artgod/shared/http/api-security";
+import {
     createApiOriginPolicy,
     isAllowedRequestHost,
     isAllowedRequestOrigin,
 } from "./origin-policy.js";
 
-const CSRF_COOKIE_NAME = "artgod_csrf";
-const CSRF_HEADER_NAME = "x-artgod-csrf";
 const CSRF_TOKEN_PATTERN = /^[0-9a-f]{32}$/;
 
 export function registerApiSecurityHooks(
@@ -40,14 +42,14 @@ export function registerApiSecurityHooks(
             return;
         }
 
-        const headerToken = request.headers[CSRF_HEADER_NAME];
+        const headerToken = request.headers[API_CSRF_HEADER_NAME];
         if (typeof headerToken !== "string" || !headerToken.trim()) {
             rejectForbidden(reply, done, "Missing CSRF header");
             return;
         }
         const cookieToken = parseCookieToken(
             request.headers.cookie,
-            CSRF_COOKIE_NAME,
+            API_CSRF_COOKIE_NAME,
         );
         if (!cookieToken || cookieToken !== headerToken.trim()) {
             rejectForbidden(reply, done, "Invalid CSRF token");
@@ -65,7 +67,7 @@ export function createIssueCsrfTokenHandler(config: BackendSecurityConfig) {
     ): Promise<{ token: string }> {
         const existingToken = parseCookieToken(
             request.headers.cookie,
-            CSRF_COOKIE_NAME,
+            API_CSRF_COOKIE_NAME,
         );
         const token = isValidCsrfToken(existingToken)
             ? existingToken
@@ -73,7 +75,7 @@ export function createIssueCsrfTokenHandler(config: BackendSecurityConfig) {
         const secureCookieSuffix = config.csrfCookieSecure ? "; Secure" : "";
         reply.header(
             "Set-Cookie",
-            `${CSRF_COOKIE_NAME}=${token}; Path=/; Max-Age=86400; SameSite=Strict; HttpOnly${secureCookieSuffix}`,
+            `${API_CSRF_COOKIE_NAME}=${token}; Path=/; Max-Age=86400; SameSite=Strict; HttpOnly${secureCookieSuffix}`,
         );
         return { token };
     };

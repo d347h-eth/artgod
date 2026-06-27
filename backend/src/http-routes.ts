@@ -9,6 +9,8 @@ import type {
     RouteHandlerMethod,
 } from "fastify";
 import { normalizeSlugRef } from "@artgod/shared/utils/ref-resolver";
+import { API_CSRF_ROUTE_PATH } from "@artgod/shared/http/api-security";
+import { BOOTSTRAP_API_ROUTE_TEMPLATE } from "@artgod/shared/http/bootstrap-routes";
 import type {
     CreateBootstrapRunHttpAdapter,
     CreateBootstrapRunRoute,
@@ -445,7 +447,7 @@ export function registerApiRoutes(
         registerObservedGet(
             app,
             options,
-            "/api/security/csrf",
+            API_CSRF_ROUTE_PATH,
             issueCsrfTokenHandler,
         );
     }
@@ -517,13 +519,13 @@ export function registerApiRoutes(
     registerObservedPost<CreateBootstrapRunRoute>(
         app,
         options,
-        "/api/:chain_ref/collections/bootstrap",
+        BOOTSTRAP_API_ROUTE_TEMPLATE.CreateRun,
         createBootstrapRunAdapter.handle,
     );
     registerObservedGet<ProbeCollectionContractRoute>(
         app,
         options,
-        "/api/:chain_ref/collections/bootstrap/probe",
+        BOOTSTRAP_API_ROUTE_TEMPLATE.ProbeCollection,
         probeCollectionContractAdapter.handle,
     );
     registerObservedGet<ListBootstrapRunsRoute>(
