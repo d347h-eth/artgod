@@ -79,6 +79,7 @@ Current artifact storage:
 
 - `collection_extension_installs`
 - `token_extension_artifacts`
+- `collection_extension_synthetic_token_retirements`
 
 Extensions can also replace extension-owned normalized token traits in the
 shared attribute tables. These traits are first-class browse/filter traits, but
@@ -91,6 +92,8 @@ This means:
 - backend presentation can converge later once artifacts exist
 - extension-supplied traits can participate in the same facets, range filters,
   stats, and token-card attributes as tokenURI traits
+- extension-owned synthetic rows can be retired durably when real token state
+  replaces them
 
 ### 4. Backend presentation overrides
 
@@ -193,6 +196,8 @@ Terraforms caches version-2 media artifacts using:
 - `extension_key = "terraforms"`
 - `artifact_ref = "terraforms-v2-media"`
 - `artifact_ref = "terraforms-v2-lost-terrain"` for non-Terrain tokens only
+- Terraforms mode transitions move one way away from Terrain, so a Terrain
+  artifact refresh is not treated as a stale lost-terrain cleanup signal
 
 The backend can then resolve:
 

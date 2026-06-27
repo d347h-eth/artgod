@@ -3,7 +3,10 @@ import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { BOOTSTRAP_JOB_ID_SCOPE } from "@artgod/shared/bootstrap/jobs";
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
-import type { CollectionExtensionKey } from "@artgod/shared/extensions";
+import type {
+    CollectionExtensionInstall,
+    CollectionExtensionKey,
+} from "@artgod/shared/extensions";
 import { resolveEmbeddedCollectionExtensionInstallByKey } from "@artgod/shared/extensions/built-ins";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 import {
@@ -20,6 +23,7 @@ import {
 } from "@artgod/shared/media/token-image-cache";
 import { ERC721_ENUMERABLE_ABI } from "../abi/index.js";
 import { publishCollectionExtensionRefreshArtifacts } from "../application/collection-extensions/jobs.js";
+import { resolveIndexerCollectionExtension } from "../application/collection-extensions/index.js";
 import {
     BOOTSTRAP_STARTUP_RECONCILE_OUTCOME,
     BootstrapStartupReconciler,
@@ -112,6 +116,7 @@ import { SharpTokenImageCache } from "../infra/media/sharp-token-image-cache.js"
 import { ViemTokenUriResolver } from "../infra/metadata/viem-token-uri.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import type {
+    BootstrapCollectionExtensionArtifactTaskSeed,
     BootstrapMetadataTask,
     BootstrapSnapshotPort,
     BootstrapImageCacheTask,
@@ -1271,6 +1276,7 @@ async function processBootstrapMainClaimedStep(
             input.bootstrapStorage,
             input.bootstrapRuns,
             input.bootstrapSteps,
+            input.rpc,
             input.run,
             input.traceId,
             input.sourceJobId,
@@ -1479,6 +1485,7 @@ async function scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
     bootstrapStorage: BootstrapSnapshotPort,
     bootstrapRuns: BootstrapRunsPort,
     bootstrapSteps: BootstrapStepsPort,
+    rpc: RpcProviderPort,
     run: BootstrapRunDefinition,
     traceId: string,
     sourceJobId: string,
@@ -1515,9 +1522,18 @@ async function scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
     const existingCounts =
         bootstrapStorage.getCollectionExtensionArtifactTaskCounts(run.runId);
     if (existingCounts.total <= 0) {
+        const extensionOwnedTasks =
+            await buildCollectionExtensionOwnedArtifactTasks({
+                rpc,
+                run,
+                install,
+            });
+        const extensionSeeded = extensionOwnedTasks.length;
+        // Seed metadata-derived and extension-owned artifact tasks together.
         const seeded = bootstrapStorage.seedCollectionExtensionArtifactTasks({
             runId: run.runId,
             extensionKey: install.extensionKey,
+            extensionOwnedTasks,
         });
         const seededCounts =
             bootstrapStorage.getCollectionExtensionArtifactTaskCounts(
@@ -1555,6 +1571,7 @@ async function scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
                 "Bootstrap collection-extension artifacts side lane queued",
             payloadJson: JSON.stringify({
                 seeded,
+                extensionSeeded,
                 total: seededCounts.total,
                 extensionKey: install.extensionKey,
             }),
@@ -1597,6 +1614,30 @@ async function scheduleCollectionExtensionArtifactsSideLaneIfNeeded(
         run.runId,
         traceId,
     );
+}
+
+async function buildCollectionExtensionOwnedArtifactTasks(input: {
+    rpc: RpcProviderPort;
+    run: BootstrapRunDefinition;
+    install: CollectionExtensionInstall;
+}): Promise<BootstrapCollectionExtensionArtifactTaskSeed[]> {
+    const extension = resolveIndexerCollectionExtension(input.install);
+    if (!extension?.seedBootstrapArtifactTasks) {
+        return [];
+    }
+
+    // Let the installed extension describe artifact tasks that do not come from metadata rows.
+    const result = await extension.seedBootstrapArtifactTasks({
+        rpc: input.rpc,
+        install: input.install,
+        run: {
+            runId: input.run.runId,
+            chainId: input.run.chainId,
+            collectionId: input.run.collectionId,
+            contract: input.run.requestAddress,
+        },
+    });
+    return result.tasks;
 }
 
 function enqueueBootstrapFinalStatsOnce(
@@ -1672,6 +1713,7 @@ async function publishCollectionExtensionArtifactTaskJobs(
             bootstrapStorage.listCollectionExtensionArtifactTasksToPublish(
                 runId,
                 cursorTokenId,
+                Date.now(),
                 BOOTSTRAP_EXTENSION_ARTIFACT_PUBLISH_BATCH_SIZE,
             );
         if (tasks.length === 0) {

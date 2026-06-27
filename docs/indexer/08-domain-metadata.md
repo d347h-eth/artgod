@@ -111,13 +111,15 @@ Current behavior:
 2. `token_metadata` and metadata-sourced normalized attribute rows are committed
 3. bootstrap-worker publishes an early canonical metadata stats checkpoint when the bootstrap metadata snapshot completes
 4. bootstrap-worker or domain-worker publishes `collection-extension.refresh-artifacts` as a side-effect if the collection has an enabled install
-5. collection-extension-worker performs extension-specific artifact refresh
-6. collection-extension-worker replaces any extension-owned normalized traits and writes `token_extension_artifacts`
+5. bootstrap-worker can also seed extension-owned artifact tasks that do not come from canonical metadata rows, in the same transaction as metadata-derived extension tasks
+6. collection-extension-worker performs extension-specific artifact refresh
+7. collection-extension-worker replaces any extension-owned normalized traits and writes `token_extension_artifacts`
 
 This split is intentional:
 
 - canonical metadata stays authoritative for token identity and normalized traits
 - extension-owned traits are first-class normalized traits, but do not mutate `token_metadata.attributes_json`
+- extension-owned synthetic rows can participate in token browsing without creating canonical `token_metadata`
 - extension logic can fail/retry independently
 - bootstrap readiness and canonical metadata refreshes do not wait on extension artifact completion
 
@@ -126,16 +128,25 @@ This split is intentional:
 The first embedded extension, `terraforms`, shadows the metadata path in a very specific way:
 
 - it always targets the Terraforms version-2 renderer artifacts, regardless of the token owner-selected renderer version
-- it reads the normalized `Mode` attribute from SQLite joins over `attribute_keys`, `attributes`, and `token_attributes`
-- it does **not** parse `token_metadata.raw_json` to determine token state
+- for minted canonical tokens, it reads the normalized `Mode` attribute from SQLite joins over `attribute_keys`, `attributes`, and `token_attributes`
+- for minted canonical tokens, it does **not** parse `token_metadata.raw_json` to determine token state
+- for minted canonical tokens, it reads `tokenToPlacement(tokenId)` from the main Terraforms contract
+- for settled but unminted placements, bootstrap reads the current minted supply and `tokenToPlacement(1..totalSupply)`, then computes the placement complement inside the Terraforms max supply
+- unminted placements use extension-owned synthetic token ids from `buildTerraformsUnmintedTokenId(...)`
+- synthetic unminted rows write `tokens` with `record_kind = "extension_synthetic"`, `token_extension_artifacts`, and extension-owned normalized traits, but do **not** write canonical `token_metadata`
 - it reconstructs the renderer inputs and fetches:
     - v2 `tokenURI(...)`
     - v2 `tokenHTML(...)`
 - for `Daydream` and `Origin Daydream` modes it follows the canvas-override path before calling the v2 renderer
-- for non-Terrain tokens it also writes a second artifact that forces the V2 renderer through Terrain status (`terraforms-v2-lost-terrain`)
+- for non-Terrain minted tokens it also writes a second artifact that forces the V2 renderer through Terrain status (`terraforms-v2-lost-terrain`)
+- Terraforms mode transitions are one-way away from Terrain, so a Terrain refresh is not expected to remove an older lost-terrain artifact
 - it derives the hidden renderer seed from placement -> level/tile and writes:
+    - `Minted` as an extension-owned categorical trait
+    - `Mode = Terrain` for every synthetic unminted row
     - `Seed` as a range trait
     - `Seed Class` for `X-Seed`, `Y-Seed`, and `Godmode` buckets
+- real-token artifact refresh atomically writes the real token's extension artifacts and `Minted=true` traits while recording a durable retirement for the matching synthetic id
+- delayed synthetic task retries no-op after that retirement marker instead of recreating the synthetic row
 
 The resulting extension artifact row is then used later by backend read paths to override effective `image` and `animationUrl` while leaving canonical `token_metadata` untouched.
 

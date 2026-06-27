@@ -88,6 +88,19 @@ const DEFAULT_BOOTSTRAP_STEP_LEASE_MS = getSettingDefaultNumber(
 const DEFAULT_BOOTSTRAP_STEP_PROGRESS_STALE_MS = getSettingDefaultNumber(
     "BOOTSTRAP_STEP_PROGRESS_STALE_MS",
 );
+// Env keys for the delegated collection-extension artifact worker lane.
+export const BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_ENV_KEY = {
+    Concurrency: "BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_CONCURRENCY",
+    TaskLeaseMs: "BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_TASK_LEASE_MS",
+} as const;
+const DEFAULT_BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_CONCURRENCY =
+    getSettingDefaultNumber(
+        BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_ENV_KEY.Concurrency,
+    );
+const DEFAULT_BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_TASK_LEASE_MS =
+    getSettingDefaultNumber(
+        BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_ENV_KEY.TaskLeaseMs,
+    );
 const DEFAULT_BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS = getSettingDefaultNumber(
     "BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS",
 );
@@ -155,6 +168,8 @@ export type IndexerConfig = {
         schedulerPollMaxMs: number;
         stepLeaseMs: number;
         stepProgressStaleMs: number;
+        collectionExtensionArtifactConcurrency: number;
+        collectionExtensionArtifactTaskLeaseMs: number;
         metadataRetryPolicy: {
             maxAttempts: number;
             baseDelayMs: number;
@@ -323,6 +338,20 @@ export function loadConfig(
                 env.BOOTSTRAP_STEP_PROGRESS_STALE_MS,
                 "BOOTSTRAP_STEP_PROGRESS_STALE_MS",
                 DEFAULT_BOOTSTRAP_STEP_PROGRESS_STALE_MS,
+            ),
+            collectionExtensionArtifactConcurrency: parsePositiveInteger(
+                env[
+                    BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_ENV_KEY.Concurrency
+                ],
+                BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_ENV_KEY.Concurrency,
+                DEFAULT_BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_CONCURRENCY,
+            ),
+            collectionExtensionArtifactTaskLeaseMs: parsePositiveInteger(
+                env[
+                    BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_ENV_KEY.TaskLeaseMs
+                ],
+                BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_ENV_KEY.TaskLeaseMs,
+                DEFAULT_BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_TASK_LEASE_MS,
             ),
             metadataRetryPolicy: {
                 maxAttempts: parseNumber(

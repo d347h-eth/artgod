@@ -7,6 +7,12 @@ import { COLLECTION_STANDARD } from "../src/domain/collections.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 
+// Test-only extension key for generic bootstrap artifact task storage.
+const TEST_EXTENSION_KEY = "test-extension";
+const TEST_EXTENSION_OWNED_TOKEN_ID = "extension-owned-token";
+const TEST_ARTIFACT_LEASE_OWNER_A = "test-artifact-lease-a";
+const TEST_ARTIFACT_LEASE_OWNER_B = "test-artifact-lease-b";
+
 describe("bootstrap storage", () => {
     loadTestEnv();
 
@@ -137,6 +143,315 @@ describe("bootstrap storage", () => {
             failedTerminal: 0,
             total: 1,
         });
+    });
+
+    it("seeds collection-extension artifact tasks from metadata and extension-owned rows together", () => {
+        const storage = new SqliteBootstrapStorage();
+        storage.insertMetadataTasks([
+            {
+                runId: 43,
+                chainId: 1,
+                collectionId: 7,
+                contract: "0xAbCd000000000000000000000000000000000000",
+                tokenId: "5081",
+                standard: COLLECTION_STANDARD.Erc721,
+                anchorBlock: 100,
+                anchorHash: `0x${"11".repeat(32)}`,
+                anchorTimestamp: 1_726_000_000,
+            },
+        ]);
+        storage.markMetadataTaskSucceeded(43, "5081", 1);
+
+        expect(
+            storage.seedCollectionExtensionArtifactTasks({
+                runId: 43,
+                extensionKey: TEST_EXTENSION_KEY,
+                extensionOwnedTasks: [
+                    {
+                        runId: 43,
+                        chainId: 1,
+                        collectionId: 7,
+                        contract: "0xAbCd000000000000000000000000000000000000",
+                        tokenId: TEST_EXTENSION_OWNED_TOKEN_ID,
+                        extensionKey: TEST_EXTENSION_KEY,
+                    },
+                ],
+            }),
+        ).toBe(1);
+
+        expect(storage.getCollectionExtensionArtifactTaskCounts(43)).toEqual({
+            pending: 2,
+            retry: 0,
+            succeeded: 0,
+            failedTerminal: 0,
+            total: 2,
+        });
+        expect(
+            storage
+                .listCollectionExtensionArtifactTasksDueNow(43, Date.now(), 10)
+                .map((task) => task.tokenId),
+        ).toEqual(["5081", TEST_EXTENSION_OWNED_TOKEN_ID]);
+    });
+
+    it("claims collection-extension artifact tasks with a lease fence", () => {
+        const storage = new SqliteBootstrapStorage();
+        seedCollectionExtensionArtifactTask(storage, {
+            runId: 44,
+            tokenId: "1",
+        });
+
+        expect(
+            storage
+                .listCollectionExtensionArtifactTasksToPublish(
+                    44,
+                    null,
+                    1_000,
+                    10,
+                )
+                .map((task) => task.tokenId),
+        ).toEqual(["1"]);
+
+        const firstClaim = storage.claimCollectionExtensionArtifactTask({
+            runId: 44,
+            tokenId: "1",
+            extensionKey: TEST_EXTENSION_KEY,
+            nowMs: 1_000,
+            leaseOwner: TEST_ARTIFACT_LEASE_OWNER_A,
+            leaseUntil: 2_000,
+        });
+
+        expect(firstClaim).toEqual(
+            expect.objectContaining({
+                tokenId: "1",
+                attempts: 1,
+                leaseOwner: TEST_ARTIFACT_LEASE_OWNER_A,
+                leaseUntil: 2_000,
+            }),
+        );
+        expect(
+            storage.listCollectionExtensionArtifactTasksToPublish(
+                44,
+                null,
+                1_500,
+                10,
+            ),
+        ).toEqual([]);
+        expect(
+            storage.claimCollectionExtensionArtifactTask({
+                runId: 44,
+                tokenId: "1",
+                extensionKey: TEST_EXTENSION_KEY,
+                nowMs: 1_500,
+                leaseOwner: TEST_ARTIFACT_LEASE_OWNER_B,
+                leaseUntil: 2_500,
+            }),
+        ).toBeNull();
+
+        expect(
+            storage.renewCollectionExtensionArtifactTaskLease({
+                runId: 44,
+                tokenId: "1",
+                extensionKey: TEST_EXTENSION_KEY,
+                leaseOwner: TEST_ARTIFACT_LEASE_OWNER_A,
+                leaseUntil: 3_000,
+            }),
+        ).toBe(true);
+        expect(
+            storage.getCollectionExtensionArtifactTask({
+                runId: 44,
+                tokenId: "1",
+                extensionKey: TEST_EXTENSION_KEY,
+            }),
+        ).toEqual(
+            expect.objectContaining({
+                leaseOwner: TEST_ARTIFACT_LEASE_OWNER_A,
+                leaseUntil: 3_000,
+            }),
+        );
+    });
+
+    it("reclaims collection-extension artifact tasks after lease expiry", () => {
+        const storage = new SqliteBootstrapStorage();
+        seedCollectionExtensionArtifactTask(storage, {
+            runId: 45,
+            tokenId: "1",
+        });
+
+        const staleClaim = storage.claimCollectionExtensionArtifactTask({
+            runId: 45,
+            tokenId: "1",
+            extensionKey: TEST_EXTENSION_KEY,
+            nowMs: 1_000,
+            leaseOwner: TEST_ARTIFACT_LEASE_OWNER_A,
+            leaseUntil: 1_500,
+        });
+        const reclaimed = storage.claimCollectionExtensionArtifactTask({
+            runId: 45,
+            tokenId: "1",
+            extensionKey: TEST_EXTENSION_KEY,
+            nowMs: 1_501,
+            leaseOwner: TEST_ARTIFACT_LEASE_OWNER_B,
+            leaseUntil: 2_500,
+        });
+
+        expect(staleClaim).toEqual(expect.objectContaining({ attempts: 1 }));
+        expect(reclaimed).toEqual(
+            expect.objectContaining({
+                attempts: 2,
+                leaseOwner: TEST_ARTIFACT_LEASE_OWNER_B,
+            }),
+        );
+        expect(
+            storage.markCollectionExtensionArtifactTaskSucceeded({
+                runId: 45,
+                tokenId: "1",
+                extensionKey: TEST_EXTENSION_KEY,
+                leaseOwner: TEST_ARTIFACT_LEASE_OWNER_A,
+                attempts: 1,
+            }),
+        ).toBe(false);
+        expect(
+            storage.markCollectionExtensionArtifactTaskSucceeded({
+                runId: 45,
+                tokenId: "1",
+                extensionKey: TEST_EXTENSION_KEY,
+                leaseOwner: TEST_ARTIFACT_LEASE_OWNER_B,
+                attempts: 2,
+            }),
+        ).toBe(true);
+        expect(storage.getCollectionExtensionArtifactTaskCounts(45)).toEqual({
+            pending: 0,
+            retry: 0,
+            succeeded: 1,
+            failedTerminal: 0,
+            total: 1,
+        });
+    });
+
+    it("does not let stale collection-extension artifact settlements regress terminal state", () => {
+        const storage = new SqliteBootstrapStorage();
+        seedCollectionExtensionArtifactTask(storage, {
+            runId: 46,
+            tokenId: "1",
+        });
+        seedCollectionExtensionArtifactTask(storage, {
+            runId: 46,
+            tokenId: "2",
+        });
+
+        storage.claimCollectionExtensionArtifactTask({
+            runId: 46,
+            tokenId: "1",
+            extensionKey: TEST_EXTENSION_KEY,
+            nowMs: 1_000,
+            leaseOwner: TEST_ARTIFACT_LEASE_OWNER_A,
+            leaseUntil: 2_000,
+        });
+        expect(
+            storage.markCollectionExtensionArtifactTaskSucceeded({
+                runId: 46,
+                tokenId: "1",
+                extensionKey: TEST_EXTENSION_KEY,
+                leaseOwner: TEST_ARTIFACT_LEASE_OWNER_A,
+                attempts: 1,
+            }),
+        ).toBe(true);
+        expect(
+            storage.markCollectionExtensionArtifactTaskRetry({
+                runId: 46,
+                tokenId: "1",
+                extensionKey: TEST_EXTENSION_KEY,
+                leaseOwner: TEST_ARTIFACT_LEASE_OWNER_A,
+                attempts: 1,
+                nextAttemptAt: 0,
+                lastError: "stale failure",
+                failedTerminal: true,
+            }),
+        ).toBe(false);
+
+        storage.claimCollectionExtensionArtifactTask({
+            runId: 46,
+            tokenId: "2",
+            extensionKey: TEST_EXTENSION_KEY,
+            nowMs: 1_000,
+            leaseOwner: TEST_ARTIFACT_LEASE_OWNER_B,
+            leaseUntil: 2_000,
+        });
+        expect(
+            storage.markCollectionExtensionArtifactTaskRetry({
+                runId: 46,
+                tokenId: "2",
+                extensionKey: TEST_EXTENSION_KEY,
+                leaseOwner: TEST_ARTIFACT_LEASE_OWNER_B,
+                attempts: 1,
+                nextAttemptAt: 0,
+                lastError: "terminal failure",
+                failedTerminal: true,
+            }),
+        ).toBe(true);
+        expect(
+            storage.markCollectionExtensionArtifactTaskSucceeded({
+                runId: 46,
+                tokenId: "2",
+                extensionKey: TEST_EXTENSION_KEY,
+                leaseOwner: TEST_ARTIFACT_LEASE_OWNER_B,
+                attempts: 1,
+            }),
+        ).toBe(false);
+        expect(storage.getCollectionExtensionArtifactTaskCounts(46)).toEqual({
+            pending: 0,
+            retry: 0,
+            succeeded: 1,
+            failedTerminal: 1,
+            total: 2,
+        });
+    });
+
+    it("publishes retry collection-extension artifact tasks only when due", () => {
+        const storage = new SqliteBootstrapStorage();
+        seedCollectionExtensionArtifactTask(storage, {
+            runId: 47,
+            tokenId: "1",
+        });
+        storage.claimCollectionExtensionArtifactTask({
+            runId: 47,
+            tokenId: "1",
+            extensionKey: TEST_EXTENSION_KEY,
+            nowMs: 1_000,
+            leaseOwner: TEST_ARTIFACT_LEASE_OWNER_A,
+            leaseUntil: 2_000,
+        });
+        expect(
+            storage.markCollectionExtensionArtifactTaskRetry({
+                runId: 47,
+                tokenId: "1",
+                extensionKey: TEST_EXTENSION_KEY,
+                leaseOwner: TEST_ARTIFACT_LEASE_OWNER_A,
+                attempts: 1,
+                nextAttemptAt: 5_000,
+                lastError: "temporary failure",
+                failedTerminal: false,
+            }),
+        ).toBe(true);
+
+        expect(
+            storage.listCollectionExtensionArtifactTasksToPublish(
+                47,
+                null,
+                4_999,
+                10,
+            ),
+        ).toEqual([]);
+        expect(
+            storage
+                .listCollectionExtensionArtifactTasksToPublish(
+                    47,
+                    null,
+                    5_000,
+                    10,
+                )
+                .map((task) => task.tokenId),
+        ).toEqual(["1"]);
     });
 
     it("tracks ownership task retries and writes idempotent snapshot rows", () => {
@@ -309,6 +624,26 @@ describe("bootstrap storage", () => {
         expect(countTokenImageCacheRows()).toBe(0);
     });
 });
+
+function seedCollectionExtensionArtifactTask(
+    storage: SqliteBootstrapStorage,
+    input: { runId: number; tokenId: string },
+): void {
+    storage.seedCollectionExtensionArtifactTasks({
+        runId: input.runId,
+        extensionKey: TEST_EXTENSION_KEY,
+        extensionOwnedTasks: [
+            {
+                runId: input.runId,
+                chainId: 1,
+                collectionId: 7,
+                contract: "0xAbCd000000000000000000000000000000000000",
+                tokenId: input.tokenId,
+                extensionKey: TEST_EXTENSION_KEY,
+            },
+        ],
+    });
+}
 
 function seedMetadataWithImage(
     storage: SqliteBootstrapStorage,

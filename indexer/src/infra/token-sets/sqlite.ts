@@ -1,5 +1,9 @@
 import { db } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
+import {
+    TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+    TOKEN_ATTRIBUTE_SOURCE_KIND,
+} from "@artgod/shared/types/token-attributes";
 import type {
     TokenSetRegistryPort,
     TokenSetRequest,
@@ -14,6 +18,7 @@ import {
     buildTokenSetId,
     generateMerkleRoot,
     generateSchemaHash,
+    isSeaportTokenSetTokenId,
     normalizeSchema,
 } from "../../application/token-sets/utils.js";
 
@@ -81,7 +86,7 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
         const schema = normalizeSchema(request.schema);
         const schemaHash = generateSchemaHash(schema);
         const contractAddress = schema.data.collection.toLowerCase();
-        const tokenIds =
+        const resolvedTokenIds =
             schema.kind === TOKEN_SET_SCHEMA_KIND.Attribute
                 ? this.resolveTokensByAttributes(
                       request.chainId,
@@ -93,6 +98,8 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
                       request.chainId,
                       request.collectionId,
                   );
+        // Seaport leaves must be onchain token ids; this defends collection sets and bad legacy rows.
+        const tokenIds = resolvedTokenIds.filter(isSeaportTokenSetTokenId);
 
         let merkleRoot: string | null = null;
         if (tokenIds.length > 0) {
@@ -177,12 +184,14 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
         const attributes = schema.data.attributes;
         if (!attributes.length) return [];
 
-        // AND semantics: all attribute pairs must be present for the same token_id.
+        // AND semantics over canonical metadata traits; extension traits are browse-only here.
         const values: Record<string, string | number> = {
             chainId,
             collectionId,
             contractAddress,
             attributesCount: attributes.length,
+            sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+            sourceKey: TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
         };
         const clauses = attributes.map((attribute, index) => {
             const key = `key${index}`;
@@ -199,6 +208,8 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
             "JOIN attribute_keys ON attributes.attribute_key_id = attribute_keys.id " +
             "WHERE token_attributes.chain_id = @chainId " +
             "AND token_attributes.collection_id = @collectionId " +
+            "AND token_attributes.source_kind = @sourceKind " +
+            "AND token_attributes.source_key = @sourceKey " +
             "AND attributes.chain_id = @chainId " +
             "AND attributes.collection_id = @collectionId " +
             "AND attribute_keys.chain_id = @chainId " +

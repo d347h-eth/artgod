@@ -1,13 +1,17 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import {
+    buildTerraformsUnmintedTokenId,
     buildTerraformsRendererExtraCharacterRanges,
     calculateTerraformsRendererSeed,
     hashTerraformsCanvasRows,
     isTerraformsDreamMode,
+    parseTerraformsUnmintedTokenId,
     parseTerraformsCanvasRowsText,
     resolveTerraformsLevelAndTileFromPlacement,
     resolveTerraformsRendererSeedClass,
+    resolveTerraformsUnmintedPlacements,
+    TERRAFORMS_MAX_SUPPLY,
     TERRAFORMS_MODE_ATTRIBUTE_VALUES,
     TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_LENGTH,
     TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_STARTS,
@@ -87,6 +91,29 @@ describe("Terraforms canvas helpers", () => {
             level: 15n,
             tile: 67n,
         });
+    });
+
+    it("builds and parses extension-owned unminted token ids", () => {
+        assert.equal(buildTerraformsUnmintedTokenId(42n), "unminted-tile-42");
+        assert.equal(parseTerraformsUnmintedTokenId("unminted-tile-42"), 42n);
+        assert.equal(parseTerraformsUnmintedTokenId("42"), null);
+        assert.equal(parseTerraformsUnmintedTokenId("unminted-tile-x"), null);
+        assert.throws(() => buildTerraformsUnmintedTokenId(-1n), {
+            message: "Terraforms placement -1 is out of range",
+        });
+        assert.throws(() =>
+            parseTerraformsUnmintedTokenId(
+                `unminted-tile-${TERRAFORMS_MAX_SUPPLY}`,
+            ),
+        );
+    });
+
+    it("computes unminted placement complements inside Terraforms max supply", () => {
+        const unminted = resolveTerraformsUnmintedPlacements([0n, 2n, 2n]);
+
+        assert.equal(unminted.length, TERRAFORMS_MAX_SUPPLY - 2);
+        assert.deepEqual(unminted.slice(0, 3), [1n, 3n, 4n]);
+        assert.equal(unminted[unminted.length - 1], 11103n);
     });
 
     it("calculates the hidden renderer seed with Solidity packed encoding", () => {

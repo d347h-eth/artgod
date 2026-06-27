@@ -21,6 +21,7 @@ import type {
     CollectionExtensionAttributePort,
     CollectionExtensionArtifactPort,
     CollectionExtensionInstallPort,
+    CollectionExtensionSyntheticTokenPort,
 } from "../src/ports/collection-extensions.js";
 import type { MetadataFetcherPort } from "../src/ports/metadata.js";
 import type {
@@ -76,6 +77,7 @@ describe("collection extension refresh worker handler", () => {
             installs,
             artifacts,
             attributes,
+            buildSyntheticTokenPort(),
             (resolvedInstall) => {
                 expect(resolvedInstall).toBe(install);
                 return extension;
@@ -129,6 +131,7 @@ describe("collection extension refresh worker handler", () => {
             buildInstallPort(buildInstall()),
             buildArtifactPort(),
             buildAttributePort(),
+            buildSyntheticTokenPort(),
             () => extension,
         );
 
@@ -150,6 +153,7 @@ describe("collection extension refresh worker handler", () => {
             buildInstallPort(buildInstall()),
             buildArtifactPort(),
             buildAttributePort(),
+            buildSyntheticTokenPort(),
             () => extension,
         );
 
@@ -169,6 +173,7 @@ describe("collection extension refresh worker handler", () => {
                 buildInstallPort(null),
                 buildArtifactPort(),
                 buildAttributePort(),
+                buildSyntheticTokenPort(),
                 undefined,
                 { installMissingError: TEST_INSTALL_MISSING_ERROR },
             ),
@@ -189,6 +194,7 @@ describe("collection extension refresh worker handler", () => {
                 buildInstallPort(buildInstall()),
                 buildArtifactPort(),
                 buildAttributePort(),
+                buildSyntheticTokenPort(),
                 () => null,
                 {
                     implementationMissingError:
@@ -313,6 +319,30 @@ function buildArtifactPort(): CollectionExtensionArtifactPort {
 function buildAttributePort(): CollectionExtensionAttributePort {
     return {
         replaceTokenAttributes() {},
+    };
+}
+
+function buildSyntheticTokenPort(): CollectionExtensionSyntheticTokenPort {
+    return {
+        publishSyntheticToken() {
+            return {
+                published: true,
+                blockedByCanonicalState: false,
+                blockedByRetirement: false,
+            };
+        },
+        replaceSyntheticTokenWithToken() {
+            return {
+                replaced: true,
+                blockedByCanonicalState: false,
+            };
+        },
+        retireSyntheticToken() {
+            return {
+                retired: false,
+                blockedByCanonicalState: false,
+            };
+        },
     };
 }
 

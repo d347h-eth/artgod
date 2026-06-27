@@ -14,7 +14,9 @@ import type {
     CollectionExtensionAttributePort,
     CollectionExtensionArtifactPort,
     CollectionExtensionInstallPort,
+    CollectionExtensionSyntheticTokenPort,
 } from "../../ports/collection-extensions.js";
+import type { BootstrapCollectionExtensionArtifactTaskSeed } from "../../ports/bootstrap.js";
 import type { MetadataFetcherPort } from "../../ports/metadata.js";
 
 export type CollectionExtensionSyncDecodeResult = {
@@ -47,6 +49,7 @@ export type CollectionExtensionArtifactRefreshContext = {
     installs: CollectionExtensionInstallPort;
     artifacts: CollectionExtensionArtifactPort;
     attributes: CollectionExtensionAttributePort;
+    syntheticTokens: CollectionExtensionSyntheticTokenPort;
     install: CollectionExtensionInstall;
     payload: {
         chainId: number;
@@ -56,6 +59,22 @@ export type CollectionExtensionArtifactRefreshContext = {
         reason: string;
         source?: string | null;
     };
+};
+
+export type CollectionExtensionBootstrapArtifactSeedContext = {
+    rpc: RpcProviderPort;
+    install: CollectionExtensionInstall;
+    run: {
+        runId: number;
+        chainId: number;
+        collectionId: number;
+        contract: string;
+    };
+};
+
+// Returns extension-owned bootstrap artifact tasks for atomic side-lane seeding.
+export type CollectionExtensionBootstrapArtifactSeedResult = {
+    tasks: BootstrapCollectionExtensionArtifactTaskSeed[];
 };
 
 // Signals follow-up work needed after a collection-extension artifact refresh.
@@ -71,6 +90,9 @@ export interface IndexerCollectionExtension {
     buildSyncWatchSpecs(
         install: CollectionExtensionInstall,
     ): CollectionExtensionSyncWatchSpec[];
+    seedBootstrapArtifactTasks?(
+        context: CollectionExtensionBootstrapArtifactSeedContext,
+    ): Promise<CollectionExtensionBootstrapArtifactSeedResult>;
     refreshArtifacts(
         context: CollectionExtensionArtifactRefreshContext,
     ): Promise<CollectionExtensionArtifactRefreshResult>;

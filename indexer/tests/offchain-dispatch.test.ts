@@ -5,6 +5,7 @@ import { db, setDbPath } from "@artgod/shared/database";
 import {
     TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     TOKEN_ATTRIBUTE_SOURCE_KIND,
+    type TokenAttributeSourceKind,
 } from "@artgod/shared/types/token-attributes";
 import { dispatchOffchainPayload } from "../src/application/offchain/dispatch.js";
 import {
@@ -16,9 +17,14 @@ import {
     ORDER_JOB_KIND,
     type OrderUpsertPayload,
 } from "../src/domain/order-jobs.js";
+import {
+    ORDER_LOCAL_TOKEN_SET_STATUS,
+    ORDER_SOURCE_SCOPE_KIND,
+} from "../src/domain/orders.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
 import { QUEUE_NAMES, type QueueName } from "../src/domain/queues.js";
 import { SqliteTokenSetRegistry } from "../src/infra/token-sets/sqlite.js";
+import { generateMerkleRoot } from "../src/application/token-sets/utils.js";
 import type {
     QueuePort,
     QueueMessage,
@@ -37,6 +43,8 @@ const ZERO_BYTES32 =
     "0x0000000000000000000000000000000000000000000000000000000000000000";
 const MISMATCH_ROOT =
     "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const FIXTURE_SYNTHETIC_TOKEN_ID = "synthetic-token-42";
+const FIXTURE_EXTENSION_SOURCE_KEY = "fixture-extension";
 
 describe("offchain dispatch", () => {
     loadTestEnv();
@@ -159,6 +167,95 @@ describe("offchain dispatch", () => {
         });
         expect(upsert.payload.localTokenSetStatus).toBe("unresolved");
         expect(upsert.payload.rawSourceKind).toBe("rest");
+    });
+
+    it("resolves REST trait offers without extension-owned attribute membership", async () => {
+        const collectionId = ensureCollection(1, CONTRACT);
+        seedAttribute(1, collectionId, CONTRACT, "Biome", "42");
+        linkToken(1, collectionId, CONTRACT, "10", [["Biome", "42"]]);
+        linkToken(
+            1,
+            collectionId,
+            CONTRACT,
+            "11",
+            [["Biome", "42"]],
+            {
+                sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+                sourceKey: FIXTURE_EXTENSION_SOURCE_KEY,
+            },
+        );
+        linkToken(
+            1,
+            collectionId,
+            CONTRACT,
+            FIXTURE_SYNTHETIC_TOKEN_ID,
+            [["Biome", "42"]],
+            {
+                sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+                sourceKey: FIXTURE_EXTENSION_SOURCE_KEY,
+            },
+        );
+
+        const criteriaRoot = generateMerkleRoot(["10"]);
+        const restOffer = withRestOfferCriteriaRoot(
+            buildRestNumericTraitOfferRecord(),
+            criteriaRoot,
+        );
+        const queue = new QueueCapture();
+        const tokenSets = new SqliteTokenSetRegistry();
+        const payload: OffchainOrderRawPayload = {
+            source: "opensea",
+            chainId: 1,
+            collectionId,
+            receivedAt: Date.now(),
+            channel: "snapshot",
+            dedupeKey: "snapshot:test:trait-offer-extension-attributes",
+            eventType: "rest.offer.trait",
+            orderId:
+                "0xe42d30d10b52ac6e813d3ecb2e14bf79ccc61db4c65fc89d70cacb2ae9cfae52",
+            runId: 1,
+            sourceEventAt: 1773545938,
+            payload: restOffer,
+        };
+
+        const result = await dispatchOffchainPayload(
+            queue,
+            tokenSets,
+            new OrderActivityLookupStub(),
+            payload,
+        );
+
+        expect(result).toEqual({
+            handled: true,
+            upsertedOrderId: payload.orderId,
+        });
+        expect(queue.published).toHaveLength(1);
+
+        const upsert = queue.published[0] as JobEnvelope<OrderUpsertPayload>;
+        expect(upsert.payload.sourceScopeKind).toBe(
+            ORDER_SOURCE_SCOPE_KIND.Attribute,
+        );
+        expect(upsert.payload.localTokenSetStatus).toBe(
+            ORDER_LOCAL_TOKEN_SET_STATUS.Resolved,
+        );
+        expect(upsert.payload.tokenSetId).not.toBeNull();
+
+        const rows = db
+            .prepare<{
+                chainId: number;
+                collectionId: number;
+                tokenSetId: string;
+            }>(
+                "SELECT token_id FROM token_sets_tokens " +
+                    "WHERE chain_id = @chainId AND collection_id = @collectionId AND token_set_id = @tokenSetId " +
+                    "ORDER BY token_id ASC",
+            )
+            .all({
+                chainId: 1,
+                collectionId,
+                tokenSetId: upsert.payload.tokenSetId,
+            }) as Array<{ token_id: string }>;
+        expect(rows.map((row) => row.token_id)).toEqual(["10"]);
     });
 
     it("persists encoded token-set offers without collapsing them to collection scope", async () => {
@@ -523,6 +620,21 @@ function buildRestTokenSetOfferRecord(): Record<string, unknown> {
     };
 }
 
+function withRestOfferCriteriaRoot(
+    record: Record<string, unknown>,
+    criteriaRoot: string,
+): Record<string, unknown> {
+    const protocolData = record.protocol_data as {
+        parameters: { consideration: Array<Record<string, unknown>> };
+    };
+    const considerationItem = protocolData.parameters.consideration[0];
+    if (!considerationItem) {
+        throw new Error("missing consideration item");
+    }
+    considerationItem.identifierOrCriteria = criteriaRoot;
+    return record;
+}
+
 async function readFixture(file: string): Promise<Record<string, unknown>> {
     const fixturePath = resolveFixturePath(
         import.meta.url,
@@ -657,6 +769,13 @@ function linkToken(
     contractAddress: string,
     tokenId: string,
     pairs: Array<[string, string]>,
+    source: {
+        sourceKind: TokenAttributeSourceKind;
+        sourceKey: string;
+    } = {
+        sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+        sourceKey: TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+    },
 ): void {
     db.prepare(
         "INSERT OR IGNORE INTO tokens (chain_id, collection_id, contract_address, token_id) VALUES (@chainId, @collectionId, @contractAddress, @tokenId)",
@@ -699,8 +818,8 @@ function linkToken(
             contractAddress,
             tokenId,
             attributeId: attrRow.id,
-            sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
-            sourceKey: TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+            sourceKind: source.sourceKind,
+            sourceKey: source.sourceKey,
         });
     }
 }

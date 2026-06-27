@@ -41,6 +41,7 @@
         "./types": "./types/index.ts",
         "./types/browse": "./types/browse.ts",
         "./types/customization": "./types/customization.ts",
+        "./types/token-records": "./types/token-records.ts",
         "./types/token-sets": "./types/token-sets.ts",
         "./types/token-attributes": "./types/token-attributes.ts",
         "./types/sync-backfill": "./types/sync-backfill.ts",

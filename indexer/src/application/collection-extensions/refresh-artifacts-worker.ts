@@ -11,6 +11,7 @@ import type {
     CollectionExtensionAttributePort,
     CollectionExtensionArtifactPort,
     CollectionExtensionInstallPort,
+    CollectionExtensionSyntheticTokenPort,
 } from "../../ports/collection-extensions.js";
 import type { MetadataFetcherPort } from "../../ports/metadata.js";
 import type { QueuePort } from "../../ports/queue.js";
@@ -56,6 +57,7 @@ export async function handleCollectionExtensionRefreshArtifactsJob(
     installs: CollectionExtensionInstallPort,
     artifacts: CollectionExtensionArtifactPort,
     attributes: CollectionExtensionAttributePort,
+    syntheticTokens: CollectionExtensionSyntheticTokenPort,
     resolveExtension: CollectionExtensionResolver = resolveIndexerCollectionExtension,
     options: CollectionExtensionRefreshArtifactsOptions = {},
 ): Promise<CollectionExtensionRefreshArtifactsResult> {
@@ -115,6 +117,7 @@ export async function handleCollectionExtensionRefreshArtifactsJob(
         installs,
         artifacts,
         attributes,
+        syntheticTokens,
         install,
         payload: {
             chainId: job.payload.chainId,

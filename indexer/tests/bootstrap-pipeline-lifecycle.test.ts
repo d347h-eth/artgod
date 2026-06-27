@@ -25,7 +25,10 @@ import {
     parseBootstrapBackfillDelegatedRange,
     type BootstrapBackfillQueuePort,
 } from "../src/application/bootstrap-backfill-executor.js";
-import { BootstrapCollectionLiveExecutor } from "../src/application/bootstrap-collection-live-executor.js";
+import {
+    BootstrapCollectionLiveExecutor,
+    type BootstrapCollectionLiveQueuePort,
+} from "../src/application/bootstrap-collection-live-executor.js";
 import {
     BootstrapStepScheduler,
     type BootstrapStepSchedulerRunsPort,
@@ -230,8 +233,12 @@ describe("bootstrap pipeline lifecycle", () => {
         expect(bootstrapRuns.getRun(runId)?.status).toBe(
             BOOTSTRAP_RUN_STATUS.Completed,
         );
-        expect(bootstrapSteps.getStep(runId, BOOTSTRAP_STEP_KEY.Anchor)).toEqual(
-            expect.objectContaining({ status: BOOTSTRAP_STEP_STATUS.Succeeded }),
+        expect(
+            bootstrapSteps.getStep(runId, BOOTSTRAP_STEP_KEY.Anchor),
+        ).toEqual(
+            expect.objectContaining({
+                status: BOOTSTRAP_STEP_STATUS.Succeeded,
+            }),
         );
         expect(
             bootstrapSteps.getStep(runId, BOOTSTRAP_STEP_KEY.Enumeration),
@@ -242,7 +249,9 @@ describe("bootstrap pipeline lifecycle", () => {
                 progressTotal: 2,
             }),
         );
-        expect(bootstrapSteps.getStep(runId, BOOTSTRAP_STEP_KEY.Metadata)).toEqual(
+        expect(
+            bootstrapSteps.getStep(runId, BOOTSTRAP_STEP_KEY.Metadata),
+        ).toEqual(
             expect.objectContaining({
                 status: BOOTSTRAP_STEP_STATUS.Succeeded,
                 progressCompleted: 2,
@@ -258,13 +267,17 @@ describe("bootstrap pipeline lifecycle", () => {
                 progressTotal: 2,
             }),
         );
-        expect(bootstrapSteps.getStep(runId, BOOTSTRAP_STEP_KEY.Backfill)).toEqual(
+        expect(
+            bootstrapSteps.getStep(runId, BOOTSTRAP_STEP_KEY.Backfill),
+        ).toEqual(
             expect.objectContaining({ status: BOOTSTRAP_STEP_STATUS.Skipped }),
         );
         expect(
             bootstrapSteps.getStep(runId, BOOTSTRAP_STEP_KEY.CollectionLive),
         ).toEqual(
-            expect.objectContaining({ status: BOOTSTRAP_STEP_STATUS.Succeeded }),
+            expect.objectContaining({
+                status: BOOTSTRAP_STEP_STATUS.Succeeded,
+            }),
         );
         expect(bootstrapStorage.getMetadataTaskCounts(runId).total).toBe(0);
         expect(collections.getCollection(1, collectionId)).toEqual(
@@ -365,7 +378,9 @@ describe("bootstrap pipeline lifecycle", () => {
                 processClaimedStep: async ({ run, step, traceId }) => {
                     if (step.stepKey === BOOTSTRAP_STEP_KEY.Anchor) {
                         await anchorExecutor.anchor({ run, reorgDepth: 10 });
-                    } else if (step.stepKey === BOOTSTRAP_STEP_KEY.Enumeration) {
+                    } else if (
+                        step.stepKey === BOOTSTRAP_STEP_KEY.Enumeration
+                    ) {
                         if (
                             run.anchorBlock === null ||
                             run.anchorBlockHash === null ||
@@ -384,8 +399,16 @@ describe("bootstrap pipeline lifecycle", () => {
                             traceId,
                         });
                     } else if (step.stepKey === BOOTSTRAP_STEP_KEY.Metadata) {
-                        bootstrapStorage.markMetadataTaskSucceeded(run.runId, "1", 1);
-                        bootstrapStorage.markMetadataTaskSucceeded(run.runId, "2", 1);
+                        bootstrapStorage.markMetadataTaskSucceeded(
+                            run.runId,
+                            "1",
+                            1,
+                        );
+                        bootstrapStorage.markMetadataTaskSucceeded(
+                            run.runId,
+                            "2",
+                            1,
+                        );
                         bootstrapSteps.markStepSucceeded(
                             run.runId,
                             BOOTSTRAP_STEP_KEY.Metadata,
@@ -412,7 +435,9 @@ describe("bootstrap pipeline lifecycle", () => {
                             traceId,
                             sourceJobId: "scheduler-job-1",
                         });
-                    } else if (step.stepKey === BOOTSTRAP_STEP_KEY.CollectionLive) {
+                    } else if (
+                        step.stepKey === BOOTSTRAP_STEP_KEY.CollectionLive
+                    ) {
                         await collectionLiveExecutor.complete({
                             run,
                             step,
@@ -451,7 +476,9 @@ describe("bootstrap pipeline lifecycle", () => {
         expect(
             bootstrapSteps.getStep(runId, BOOTSTRAP_STEP_KEY.CollectionLive),
         ).toEqual(
-            expect.objectContaining({ status: BOOTSTRAP_STEP_STATUS.Succeeded }),
+            expect.objectContaining({
+                status: BOOTSTRAP_STEP_STATUS.Succeeded,
+            }),
         );
         expect(collections.getCollection(1, collectionId)).toEqual(
             expect.objectContaining({
@@ -572,8 +599,16 @@ describe("bootstrap pipeline lifecycle", () => {
                         return terminalStepResult();
                     }
                     if (step.stepKey === BOOTSTRAP_STEP_KEY.Metadata) {
-                        bootstrapStorage.markMetadataTaskSucceeded(run.runId, "1", 1);
-                        bootstrapStorage.markMetadataTaskSucceeded(run.runId, "2", 1);
+                        bootstrapStorage.markMetadataTaskSucceeded(
+                            run.runId,
+                            "1",
+                            1,
+                        );
+                        bootstrapStorage.markMetadataTaskSucceeded(
+                            run.runId,
+                            "2",
+                            1,
+                        );
                         bootstrapSteps.markStepSucceeded(
                             run.runId,
                             BOOTSTRAP_STEP_KEY.Metadata,
@@ -593,9 +628,10 @@ describe("bootstrap pipeline lifecycle", () => {
                         if (run.anchorBlock === null) {
                             throw new Error("Missing anchor for backfill");
                         }
-                        const delegatedRange = parseBootstrapBackfillDelegatedRange(
-                            step.resultJson,
-                        );
+                        const delegatedRange =
+                            parseBootstrapBackfillDelegatedRange(
+                                step.resultJson,
+                            );
                         const result = delegatedRange
                             ? await backfillExecutor.checkProgress({
                                   chainId: run.chainId,
@@ -614,7 +650,8 @@ describe("bootstrap pipeline lifecycle", () => {
                                   address: run.requestAddress,
                                   anchorBlock: run.anchorBlock,
                                   backfillBatchSize: 10,
-                                  openSeaIntegration: disabledOpenSeaIntegration(),
+                                  openSeaIntegration:
+                                      disabledOpenSeaIntegration(),
                                   traceId,
                                   sourceJobId: "scheduler-job-2",
                               });
@@ -730,21 +767,23 @@ function seedCollection(): number {
 }
 
 function seedBootstrapRun(collectionId: number): number {
-    const result = db.prepare(
-        "INSERT INTO bootstrap_runs " +
-            "(chain_id, collection_id, request_slug, request_address, request_standard, metadata_mode, enumeration_mode, request_image_cache_mode, status) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(
-        1,
-        collectionId,
-        "milady-by-remilia-corporation",
-        TEST_CONTRACT_ADDRESS,
-        COLLECTION_STANDARD.Erc721,
-        BOOTSTRAP_METADATA_MODE.BestEffort,
-        BOOTSTRAP_ENUMERATION_MODE.Enumerable,
-        IMAGE_CACHE_MODE.Off,
-        BOOTSTRAP_RUN_STATUS.Queued,
-    );
+    const result = db
+        .prepare(
+            "INSERT INTO bootstrap_runs " +
+                "(chain_id, collection_id, request_slug, request_address, request_standard, metadata_mode, enumeration_mode, request_image_cache_mode, status) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+            1,
+            collectionId,
+            "milady-by-remilia-corporation",
+            TEST_CONTRACT_ADDRESS,
+            COLLECTION_STANDARD.Erc721,
+            BOOTSTRAP_METADATA_MODE.BestEffort,
+            BOOTSTRAP_ENUMERATION_MODE.Enumerable,
+            IMAGE_CACHE_MODE.Off,
+            BOOTSTRAP_RUN_STATUS.Queued,
+        );
     return Number(result.lastInsertRowid);
 }
 
@@ -777,7 +816,7 @@ function backfillQueuePort(
         fromBlock: number;
         toBlock: number;
     }> = [],
-): BootstrapBackfillQueuePort {
+): BootstrapBackfillQueuePort & BootstrapCollectionLiveQueuePort {
     return {
         scheduleBackfillRange: async (request) => {
             backfillRanges.push({
@@ -785,13 +824,18 @@ function backfillQueuePort(
                 toBlock: request.toBlock,
             });
         },
-        scheduleBackfillCheck: async () => {
-        },
+        scheduleBackfillCheck: async () => {},
         scheduleOpenSeaBootstrap: async () => {
             throw new Error("OpenSea bootstrap should be skipped");
         },
         publishMetadataStatsRecompute: async (request) => {
             statsRecomputeRequests.push(request);
+        },
+        enqueueBootstrapFinalStats: async (request) => {
+            statsRecomputeRequests.push({
+                payload: request.payload,
+                traceId: request.traceId,
+            });
         },
     };
 }

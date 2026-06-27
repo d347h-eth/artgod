@@ -144,6 +144,30 @@ describe("SqliteCollectionsReadModel observability", () => {
         expect(cards[0]?.attributes).toEqual([{ key: "Power", value: "9964" }]);
     });
 
+    it("lists token rows without canonical metadata when normalized traits match", () => {
+        insertBareToken("metadata-less-token");
+        insertTokenTrait("metadata-less-token", "Power", "9964");
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
+
+        const page = readModel.listCollectionTokens({
+            chainId: 1,
+            collectionId: 1,
+            tokenStatus: TOKEN_BROWSER_STATUS.All,
+            traitFilters: [{ key: "Power", value: "9964" }],
+            limit: 1,
+        });
+
+        expect(page.items).toEqual([
+            expect.objectContaining({
+                tokenId: "metadata-less-token",
+                name: null,
+                image: null,
+                attributes: [{ key: "Power", value: "9964" }],
+            }),
+        ]);
+        expect(page.totalItems).toBe(1);
+    });
+
     it("prefers cached token image paths for token card read models", () => {
         insertToken("1", "100");
         db.prepare(
@@ -911,6 +935,12 @@ function insertToken(tokenId: string, price: string): void {
         null,
         null,
     );
+}
+
+function insertBareToken(tokenId: string): void {
+    db.prepare(
+        "INSERT INTO tokens (chain_id, collection_id, token_id) VALUES (?, ?, ?)",
+    ).run(1, 1, tokenId);
 }
 
 function insertBalance(tokenId: string, owner: string, amount = "1"): void {

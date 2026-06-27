@@ -87,16 +87,24 @@ Current behavior:
 - bootstrap metadata writes `token_metadata` and normalized attributes first
 - bootstrap metadata snapshot completion releases canonical trait stats through the queue outbox
 - extension artifact refresh is queued afterward on the dedicated collection-extension queue
+- Terraforms may add extension-owned synthetic unminted-placement artifact tasks to that same queue after canonical metadata tasks are available
+- metadata-derived and extension-owned collection-extension artifact tasks are seeded together in one SQLite transaction
+- bootstrap extension artifact task rows are the concurrency boundary: workers
+  claim pending/retry rows with a persisted lease, renew the lease while
+  rendering/fetching, and only the current lease owner can settle success,
+  retry, or terminal failure
 - bootstrap does not wait for extension artifact completion before moving to image cache, ownership snapshot, or later phases
 - extension artifact terminality releases a final stats recompute that includes extension-owned normalized traits
 
 This ordering is important because:
 
-- `token_extension_artifacts` references canonical `tokens` rows
+- `token_extension_artifacts` references `tokens` rows; normal minted refresh uses canonical rows, while unminted publication creates extension-synthetic rows
+- extension-owned synthetic token rows are published with `record_kind = "extension_synthetic"` atomically with their artifact and trait writes
+- retired synthetic identities are tombstoned so delayed bootstrap tasks cannot recreate them after a real mint refresh
 - extension logic can depend on normalized attributes already written by the canonical metadata path
 - canonical ownership correctness must not be blocked by collection-specific extras
 
-The first embedded extension, Terraforms, uses this shadow path to cache version-2 renderer artifacts and later drive backend media overrides.
+The first embedded extension, Terraforms, uses this shadow path to cache version-2 renderer artifacts, add browseable unminted placement rows, and later drive backend media overrides.
 
 ### 6. Ownership snapshot
 
@@ -229,6 +237,7 @@ Bootstrap and OpenSea lifecycle state is tracked primarily in:
 - `bootstrap_ownership_snapshot_tasks`
 - `nft_balance_snapshots`
 - `bootstrap_image_cache_tasks`
+- `bootstrap_collection_extension_artifact_tasks`
 - `token_image_cache`
 - `token_extension_artifacts`
 - `opensea_orderbook_runs`

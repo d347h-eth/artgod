@@ -19,7 +19,10 @@ import {
     RPC_ENDPOINT_LIST_ENV_KEY,
     RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY,
 } from "@artgod/shared/config/rpc-endpoints";
-import { loadConfig } from "../src/config/index.js";
+import {
+    BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_ENV_KEY,
+    loadConfig,
+} from "../src/config/index.js";
 
 const REQUIRED_ENV = {
     ARTGOD_DB_PATH: "database/sqlite/test/db",
@@ -136,6 +139,12 @@ describe("Indexer config", () => {
             stepProgressStaleMs: getSettingDefaultNumber(
                 "BOOTSTRAP_STEP_PROGRESS_STALE_MS",
             ),
+            collectionExtensionArtifactConcurrency: getSettingDefaultNumber(
+                BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_ENV_KEY.Concurrency,
+            ),
+            collectionExtensionArtifactTaskLeaseMs: getSettingDefaultNumber(
+                BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_ENV_KEY.TaskLeaseMs,
+            ),
             metadataRetryPolicy: {
                 maxAttempts: getSettingDefaultNumber(
                     "BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS",
@@ -201,6 +210,9 @@ describe("Indexer config", () => {
             BOOTSTRAP_SCHEDULER_POLL_MAX_MS: "6000",
             BOOTSTRAP_STEP_LEASE_MS: "45000",
             BOOTSTRAP_STEP_PROGRESS_STALE_MS: "900000",
+            [BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_ENV_KEY.Concurrency]: "6",
+            [BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_ENV_KEY.TaskLeaseMs]:
+                "120000",
         });
 
         expect(config.ipfs.gatewayOrigin).toBe("https://gateway.example");
@@ -214,6 +226,31 @@ describe("Indexer config", () => {
         expect(config.bootstrap.schedulerPollMaxMs).toBe(6000);
         expect(config.bootstrap.stepLeaseMs).toBe(45000);
         expect(config.bootstrap.stepProgressStaleMs).toBe(900000);
+        expect(config.bootstrap.collectionExtensionArtifactConcurrency).toBe(6);
+        expect(config.bootstrap.collectionExtensionArtifactTaskLeaseMs).toBe(
+            120000,
+        );
+    });
+
+    it("rejects non-positive collection-extension artifact worker config", () => {
+        expect(() =>
+            loadConfig({
+                ...REQUIRED_ENV,
+                [BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_ENV_KEY.Concurrency]:
+                    "0",
+            }),
+        ).toThrow(
+            `Invalid ${BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_ENV_KEY.Concurrency}`,
+        );
+        expect(() =>
+            loadConfig({
+                ...REQUIRED_ENV,
+                [BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_ENV_KEY.TaskLeaseMs]:
+                    "0",
+            }),
+        ).toThrow(
+            `Invalid ${BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_ENV_KEY.TaskLeaseMs}`,
+        );
     });
 
     it("parses shared HTTP fetch resilience config", () => {

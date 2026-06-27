@@ -103,6 +103,18 @@ export type BootstrapCollectionExtensionArtifactTask = {
     status: BootstrapTaskStatus;
     attempts: number;
     nextAttemptAt: number;
+    leaseOwner: string | null;
+    leaseUntil: number | null;
+};
+
+// Seed row supplied by collection extensions for bootstrap artifact side-lane work.
+export type BootstrapCollectionExtensionArtifactTaskSeed = {
+    runId: number;
+    chainId: number;
+    collectionId: number;
+    contract: string;
+    tokenId: string;
+    extensionKey: CollectionExtensionKey;
 };
 
 export type BootstrapCollectionExtensionArtifactTaskCounts =
@@ -197,6 +209,7 @@ export interface BootstrapSnapshotPort {
     seedCollectionExtensionArtifactTasks(input: {
         runId: number;
         extensionKey: CollectionExtensionKey;
+        extensionOwnedTasks?: readonly BootstrapCollectionExtensionArtifactTaskSeed[];
     }): number;
     listCollectionExtensionArtifactTasksDueNow(
         runId: number,
@@ -206,6 +219,7 @@ export interface BootstrapSnapshotPort {
     listCollectionExtensionArtifactTasksToPublish(
         runId: number,
         cursorTokenId: string | null,
+        nowMs: number,
         limit: number,
     ): BootstrapCollectionExtensionArtifactTask[];
     getCollectionExtensionArtifactTask(input: {
@@ -213,21 +227,38 @@ export interface BootstrapSnapshotPort {
         tokenId: string;
         extensionKey: CollectionExtensionKey;
     }): BootstrapCollectionExtensionArtifactTask | null;
+    claimCollectionExtensionArtifactTask(input: {
+        runId: number;
+        tokenId: string;
+        extensionKey: CollectionExtensionKey;
+        nowMs: number;
+        leaseOwner: string;
+        leaseUntil: number;
+    }): BootstrapCollectionExtensionArtifactTask | null;
+    renewCollectionExtensionArtifactTaskLease(input: {
+        runId: number;
+        tokenId: string;
+        extensionKey: CollectionExtensionKey;
+        leaseOwner: string;
+        leaseUntil: number;
+    }): boolean;
     markCollectionExtensionArtifactTaskSucceeded(input: {
         runId: number;
         tokenId: string;
         extensionKey: CollectionExtensionKey;
+        leaseOwner: string;
         attempts: number;
-    }): void;
+    }): boolean;
     markCollectionExtensionArtifactTaskRetry(input: {
         runId: number;
         tokenId: string;
         extensionKey: CollectionExtensionKey;
+        leaseOwner: string;
         attempts: number;
         nextAttemptAt: number;
         lastError: string;
         failedTerminal: boolean;
-    }): void;
+    }): boolean;
     getCollectionExtensionArtifactTaskCounts(
         runId: number,
     ): BootstrapCollectionExtensionArtifactTaskCounts;

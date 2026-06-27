@@ -1,34 +1,25 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
-import { isBootstrapTaskTerminalStatus } from "@artgod/shared/bootstrap/pipeline";
 import { loadConfig } from "../config/index.js";
+import { BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_FAILURE_MESSAGE } from "../application/bootstrap-collection-extension-artifacts.js";
+import { type BootstrapTemporaryDataCleanupResult } from "../application/bootstrap-temporary-data-cleanup.js";
 import {
-    BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_FAILURE_MESSAGE,
-    completeCollectionExtensionArtifactStepIfTerminal,
-    updateCollectionExtensionArtifactStepProgress,
-} from "../application/bootstrap-collection-extension-artifacts.js";
-import {
-    cleanupSuccessfulBootstrapTemporaryData,
-    type BootstrapTemporaryDataCleanupResult,
-} from "../application/bootstrap-temporary-data-cleanup.js";
-import { buildBootstrapFinalStatsFollowupRun } from "../application/metadata/refresh-followups.js";
-import {
-    COLLECTION_EXTENSION_REFRESH_ARTIFACTS_RESULT_STATUS,
     handleCollectionExtensionRefreshArtifactsJob,
     type CollectionExtensionRefreshArtifactsResult,
 } from "../application/collection-extensions/refresh-artifacts-worker.js";
+import {
+    handleCollectionExtensionRefreshArtifactsLifecycle,
+    resolveCollectionExtensionArtifactLeaseRenewMs,
+} from "../application/collection-extensions/refresh-artifacts-lifecycle.js";
 import { runWorker } from "../application/worker-runner.js";
-import { publishCollectionExtensionRefreshArtifacts } from "../application/collection-extensions/jobs.js";
 import {
     COLLECTION_EXTENSION_JOB_KIND,
     type CollectionExtensionRefreshArtifactsPayload,
 } from "../domain/collection-extension-jobs.js";
-import { METADATA_REFRESH_EXTENSION_ARTIFACT_TASK_STATUS } from "../domain/metadata-refresh-followups.js";
-import { METADATA_STATS_RECOMPUTE_REASON } from "../domain/domain-jobs.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
-import { getRetryDelayMs, type RetryPolicy } from "../domain/retry.js";
+import type { RetryPolicy } from "../domain/retry.js";
 import { SqliteBootstrapRuns } from "../infra/bootstrap/sqlite-runs.js";
 import { SqliteBootstrapSteps } from "../infra/bootstrap/sqlite-steps.js";
 import { SqliteBootstrapStorage } from "../infra/bootstrap/sqlite.js";
@@ -107,7 +98,11 @@ async function main() {
             {
                 queue: QUEUE_NAMES.CollectionExtensionArtifacts,
                 consumerName: `collection-extension-artifacts-${config.chainId}`,
-                maxInFlight: 1,
+                maxInFlight:
+                    config.bootstrap.collectionExtensionArtifactConcurrency,
+                extendLeaseMs: resolveCollectionExtensionArtifactLeaseRenewMs(
+                    config.bootstrap.collectionExtensionArtifactTaskLeaseMs,
+                ),
                 maxAttempts: COLLECTION_EXTENSION_ARTIFACT_MAX_ATTEMPTS,
                 deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
@@ -127,9 +122,13 @@ async function main() {
                     bootstrapStorage,
                     bootstrapRuns,
                     bootstrapSteps,
+                    bootstrapArtifactTaskLeaseMs:
+                        config.bootstrap.collectionExtensionArtifactTaskLeaseMs,
+                    collectionExtensionArtifactMaxAttempts:
+                        COLLECTION_EXTENSION_ARTIFACT_MAX_ATTEMPTS,
                     rpc,
                     metadataFetcher,
-                    retryPolicy: config.bootstrap.metadataRetryPolicy,
+                    bootstrapRetryPolicy: config.bootstrap.metadataRetryPolicy,
                     job,
                 });
             },
@@ -177,52 +176,27 @@ async function handleRefreshArtifactsJob(input: {
     bootstrapStorage: BootstrapSnapshotPort;
     bootstrapRuns: BootstrapRunsPort;
     bootstrapSteps: BootstrapStepsPort;
+    bootstrapArtifactTaskLeaseMs: number;
+    collectionExtensionArtifactMaxAttempts: number;
     rpc: ViemRpcProvider;
     metadataFetcher: HttpMetadataFetcher;
-    retryPolicy: RetryPolicy;
+    bootstrapRetryPolicy: RetryPolicy;
     job: JobEnvelope<CollectionExtensionRefreshArtifactsPayload>;
 }): Promise<void> {
-    const job = input.job;
-    if (isBootstrapArtifactTaskAlreadyTerminal(input)) {
-        finalizeBootstrapArtifactTaskProgress(input);
-        return;
-    }
-
-    try {
-        const result = await refreshArtifacts(input);
-        markMetadataRefreshArtifactTaskTerminal(input, result);
-        markBootstrapArtifactTaskSucceeded(input);
-    } catch (error) {
-        if (
-            job.payload.metadataRefreshRunId &&
-            isFinalCollectionExtensionArtifactAttempt(job)
-        ) {
-            markMetadataRefreshArtifactTaskFailed(input);
-        }
-        if (!job.payload.bootstrap) {
-            throw error;
-        }
-        const message = String(error);
-        await markBootstrapArtifactTaskFailed(input, message, {
-            forceTerminal: isDeterministicBootstrapArtifactFailure(message),
-        });
-    }
-}
-
-function isBootstrapArtifactTaskAlreadyTerminal(input: {
-    bootstrapStorage: BootstrapSnapshotPort;
-    job: JobEnvelope<CollectionExtensionRefreshArtifactsPayload>;
-}): boolean {
-    const bootstrap = input.job.payload.bootstrap;
-    if (!bootstrap) {
-        return false;
-    }
-    const task = input.bootstrapStorage.getCollectionExtensionArtifactTask({
-        runId: bootstrap.runId,
-        tokenId: input.job.payload.tokenId,
-        extensionKey: bootstrap.extensionKey,
+    await handleCollectionExtensionRefreshArtifactsLifecycle({
+        queue: input.queue,
+        metadataRefreshFollowups: input.metadataRefreshFollowups,
+        bootstrapStorage: input.bootstrapStorage,
+        bootstrapRuns: input.bootstrapRuns,
+        bootstrapSteps: input.bootstrapSteps,
+        bootstrapArtifactTaskLeaseMs: input.bootstrapArtifactTaskLeaseMs,
+        collectionExtensionArtifactMaxAttempts:
+            input.collectionExtensionArtifactMaxAttempts,
+        bootstrapRetryPolicy: input.bootstrapRetryPolicy,
+        job: input.job,
+        refreshArtifacts: () => refreshArtifacts(input),
+        onTemporaryDataCleanup: logBootstrapTemporaryDataCleanup,
     });
-    return task ? isBootstrapTaskTerminalStatus(task.status) : true;
 }
 
 async function refreshArtifacts(input: {
@@ -251,200 +225,10 @@ async function refreshArtifacts(input: {
         input.collectionExtensions,
         input.collectionExtensions,
         input.collectionExtensions,
+        input.collectionExtensions,
         undefined,
         bootstrapFailureOptions,
     );
-}
-
-function markMetadataRefreshArtifactTaskTerminal(
-    input: {
-        metadataRefreshFollowups: SqliteMetadataRefreshFollowups;
-        job: JobEnvelope<CollectionExtensionRefreshArtifactsPayload>;
-    },
-    result: CollectionExtensionRefreshArtifactsResult,
-): void {
-    const runId = input.job.payload.metadataRefreshRunId;
-    if (!runId) {
-        return;
-    }
-    input.metadataRefreshFollowups.markExtensionArtifactTaskTerminal({
-        runId,
-        tokenId: input.job.payload.tokenId,
-        extensionKey: resolveMetadataRefreshExtensionKey(input.job),
-        status:
-            result.status ===
-            COLLECTION_EXTENSION_REFRESH_ARTIFACTS_RESULT_STATUS.Skipped
-                ? METADATA_REFRESH_EXTENSION_ARTIFACT_TASK_STATUS.Skipped
-                : METADATA_REFRESH_EXTENSION_ARTIFACT_TASK_STATUS.Succeeded,
-    });
-}
-
-function markMetadataRefreshArtifactTaskFailed(input: {
-    metadataRefreshFollowups: SqliteMetadataRefreshFollowups;
-    job: JobEnvelope<CollectionExtensionRefreshArtifactsPayload>;
-}): void {
-    const runId = input.job.payload.metadataRefreshRunId;
-    if (!runId) {
-        return;
-    }
-    input.metadataRefreshFollowups.markExtensionArtifactTaskTerminal({
-        runId,
-        tokenId: input.job.payload.tokenId,
-        extensionKey: resolveMetadataRefreshExtensionKey(input.job),
-        status: METADATA_REFRESH_EXTENSION_ARTIFACT_TASK_STATUS.FailedTerminal,
-    });
-}
-
-function resolveMetadataRefreshExtensionKey(
-    job: JobEnvelope<CollectionExtensionRefreshArtifactsPayload>,
-): NonNullable<
-    CollectionExtensionRefreshArtifactsPayload["metadataRefreshExtensionKey"]
-> {
-    if (!job.payload.metadataRefreshExtensionKey) {
-        throw new Error(
-            "Metadata refresh extension artifact job missing extension key",
-        );
-    }
-    return job.payload.metadataRefreshExtensionKey;
-}
-
-function isFinalCollectionExtensionArtifactAttempt(
-    job: JobEnvelope<CollectionExtensionRefreshArtifactsPayload>,
-): boolean {
-    return (
-        Math.max(1, job.attempt) >= COLLECTION_EXTENSION_ARTIFACT_MAX_ATTEMPTS
-    );
-}
-
-function markBootstrapArtifactTaskSucceeded(input: {
-    metadataRefreshFollowups: SqliteMetadataRefreshFollowups;
-    bootstrapStorage: BootstrapSnapshotPort;
-    bootstrapRuns: BootstrapRunsPort;
-    bootstrapSteps: BootstrapStepsPort;
-    job: JobEnvelope<CollectionExtensionRefreshArtifactsPayload>;
-}): void {
-    const bootstrap = input.job.payload.bootstrap;
-    if (!bootstrap) {
-        return;
-    }
-    input.bootstrapStorage.markCollectionExtensionArtifactTaskSucceeded({
-        runId: bootstrap.runId,
-        tokenId: input.job.payload.tokenId,
-        extensionKey: bootstrap.extensionKey,
-        attempts: Math.max(1, input.job.attempt),
-    });
-    finalizeBootstrapArtifactTaskProgress(input);
-}
-
-async function markBootstrapArtifactTaskFailed(
-    input: {
-        queue: NatsJetStreamQueue;
-        metadataRefreshFollowups: SqliteMetadataRefreshFollowups;
-        bootstrapStorage: BootstrapSnapshotPort;
-        bootstrapRuns: BootstrapRunsPort;
-        bootstrapSteps: BootstrapStepsPort;
-        retryPolicy: RetryPolicy;
-        job: JobEnvelope<CollectionExtensionRefreshArtifactsPayload>;
-    },
-    error: string,
-    options: { forceTerminal: boolean },
-): Promise<void> {
-    const bootstrap = input.job.payload.bootstrap;
-    if (!bootstrap) {
-        return;
-    }
-
-    const attempts = Math.max(1, input.job.attempt);
-    const failedTerminal =
-        options.forceTerminal ||
-        attempts >= Math.max(1, input.retryPolicy.maxAttempts);
-    const retryDelay = getRetryDelayMs(attempts, input.retryPolicy);
-    const nextAttemptAt = failedTerminal ? 0 : Date.now() + retryDelay;
-    input.bootstrapStorage.markCollectionExtensionArtifactTaskRetry({
-        runId: bootstrap.runId,
-        tokenId: input.job.payload.tokenId,
-        extensionKey: bootstrap.extensionKey,
-        attempts,
-        nextAttemptAt,
-        lastError: error,
-        failedTerminal,
-    });
-    finalizeBootstrapArtifactTaskProgress(input);
-    if (failedTerminal) {
-        return;
-    }
-
-    await publishCollectionExtensionRefreshArtifacts(
-        input.queue,
-        input.job.payload,
-        input.job.traceId ?? input.job.jobId,
-        {
-            attempt: attempts + 1,
-            delayMs: retryDelay,
-        },
-    );
-}
-
-function isDeterministicBootstrapArtifactFailure(message: string): boolean {
-    return (
-        message ===
-            BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_FAILURE_MESSAGE.InstallMissing ||
-        message ===
-            BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_FAILURE_MESSAGE.ImplementationMissing
-    );
-}
-
-function finalizeBootstrapArtifactTaskProgress(input: {
-    metadataRefreshFollowups: SqliteMetadataRefreshFollowups;
-    bootstrapStorage: BootstrapSnapshotPort;
-    bootstrapRuns: BootstrapRunsPort;
-    bootstrapSteps: BootstrapStepsPort;
-    job: JobEnvelope<CollectionExtensionRefreshArtifactsPayload>;
-}): void {
-    const bootstrap = input.job.payload.bootstrap;
-    if (!bootstrap) {
-        return;
-    }
-    const run = input.bootstrapRuns.getRun(bootstrap.runId);
-    if (!run) {
-        return;
-    }
-    const counts =
-        input.bootstrapStorage.getCollectionExtensionArtifactTaskCounts(
-            bootstrap.runId,
-        );
-    updateCollectionExtensionArtifactStepProgress({
-        stepsPort: input.bootstrapSteps,
-        runId: bootstrap.runId,
-        counts,
-    });
-    const terminal = completeCollectionExtensionArtifactStepIfTerminal({
-        runsPort: input.bootstrapRuns,
-        stepsPort: input.bootstrapSteps,
-        run,
-        counts,
-    });
-    if (!terminal) {
-        return;
-    }
-
-    input.metadataRefreshFollowups.enqueueFinalStatsOnce({
-        run: buildBootstrapFinalStatsFollowupRun({
-            bootstrapRunId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            statsReason: METADATA_STATS_RECOMPUTE_REASON.BootstrapFinalized,
-            sourceJobId: input.job.jobId,
-            traceId: input.job.traceId ?? input.job.jobId,
-        }),
-    });
-    const cleanup = cleanupSuccessfulBootstrapTemporaryData({
-        bootstrapStorage: input.bootstrapStorage,
-        bootstrapRuns: input.bootstrapRuns,
-        runId: bootstrap.runId,
-        collectionExtensionArtifactsTerminal: true,
-    });
-    logBootstrapTemporaryDataCleanup(cleanup);
 }
 
 function logBootstrapTemporaryDataCleanup(

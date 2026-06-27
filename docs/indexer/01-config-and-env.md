@@ -41,7 +41,7 @@ The indexer reads these variables from the root `.env`:
 - `NATS_URL` (default: `nats://127.0.0.1:42720`)
 - `NATS_STREAM_PREFIX` (default: `artgod`)
 - `REORG_DEPTH` (default: 32)
-- `BACKFILL_BATCH_SIZE` (default: 50)
+- `BACKFILL_BATCH_SIZE` (default: 10)
 - `BACKFILL_WORKER_COUNT` (default: 1)
     - Controls how many backfill sync jobs may be in flight in the sync worker.
     - Only fully pre-anchor facts-only ranges run concurrently; ranges that may touch current state are serialized by the worker.
@@ -72,9 +72,20 @@ The indexer reads these variables from the root `.env`:
 - `COMMON_HTTP_FETCH_RETRY_MAX_DELAY_MS` (default: 2000)
     - Maximum exponential-backoff delay for ordinary metadata and media HTTP retries.
 - `BOOTSTRAP_SNAPSHOT_BATCH_SIZE` (default: 200)
+- `BOOTSTRAP_METADATA_BATCH_SIZE` (default: 200)
+- `BOOTSTRAP_METADATA_CONCURRENCY` (default: 8)
+    - Controls how many bootstrap metadata tasks a leased metadata step may process concurrently inside the bootstrap worker.
 - `BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE` (default: 50)
 - `BOOTSTRAP_IMAGE_CACHE_CONCURRENCY` (default: 4)
 - `BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES` (default: 26214400)
+- `BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_CONCURRENCY` (default: 2)
+    - Controls how many collection-extension artifact refresh jobs the
+      collection-extension worker may process at once.
+    - Bootstrap artifact task rows use persisted leases, so duplicate queue
+      messages cannot settle the same logical task concurrently.
+- `BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_TASK_LEASE_MS` (default: 60000)
+    - Lease duration for one bootstrap collection-extension artifact task
+      execution. Workers renew this lease while rendering/fetching artifacts.
 - `SEAPORT_CONDUIT_CONTROLLER` (required)
 
 `RPC_BACKFILL_URL_LIST`, when set, is used by backfill sync jobs; realtime sync continues to use `RPC_URL_LIST`.
@@ -119,7 +130,7 @@ WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
 NATS_URL=nats://127.0.0.1:42720
 NATS_STREAM_PREFIX=artgod
 REORG_DEPTH=32
-BACKFILL_BATCH_SIZE=50
+BACKFILL_BATCH_SIZE=10
 BACKFILL_WORKER_COUNT=1
 LOG_CHUNK_SIZE=2000
 CACHE_MAX_ENTRIES=5000
@@ -134,9 +145,13 @@ COMMON_HTTP_FETCH_RETRY_MAX_ATTEMPTS=3
 COMMON_HTTP_FETCH_RETRY_BASE_DELAY_MS=250
 COMMON_HTTP_FETCH_RETRY_MAX_DELAY_MS=2000
 BOOTSTRAP_SNAPSHOT_BATCH_SIZE=200
+BOOTSTRAP_METADATA_BATCH_SIZE=200
+BOOTSTRAP_METADATA_CONCURRENCY=8
 BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE=50
 BOOTSTRAP_IMAGE_CACHE_CONCURRENCY=4
 BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES=26214400
+BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_CONCURRENCY=2
+BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_TASK_LEASE_MS=60000
 SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63
 OPENSEA_INTEGRATION_MODE=auto
 OPENSEA_API_KEY=

@@ -117,13 +117,21 @@ Defined in `010_token_sets_schema.sql` and extended by `030_tokens_numeric_sort_
 
 Purpose:
 
-- stores the canonical token universe for each indexed collection
+- stores the local token-browser row universe for each indexed collection
+- distinguishes canonical onchain token rows from extension-owned synthetic rows
 - exposes generated numeric sort columns used by backend token-browser pages
+
+Row kind columns:
+
+- `record_kind = "canonical"` marks a real onchain token identity, normally written by canonical metadata sync
+- `record_kind = "extension_synthetic"` marks a local browse-only row owned by a collection extension
+- `record_source_key` is `NULL` for canonical rows and the owning `extension_key` for extension-synthetic rows
 
 Important indexes:
 
 - primary key on `(chain_id, collection_id, token_id)`
 - unique lookup on `(chain_id, contract_address, token_id)`
+- row-kind lookup on `(chain_id, collection_id, record_kind, record_source_key)`
 - browser sort index on `(chain_id, collection_id, token_sort_bucket, token_sort_length, token_sort_value, token_id)`
 
 ### `collections`
@@ -532,7 +540,8 @@ Important semantics:
 - writes are upserts, so the table holds current artifact state rather than history
 - foreign key references `tokens(chain_id, collection_id, token_id)`
     - canonical token rows must exist first
-    - this is why collection-extension refresh runs only after canonical metadata persistence succeeds
+    - this is why normal collection-extension refresh runs only after canonical metadata persistence succeeds
+    - Terraforms publishes `record_kind = "extension_synthetic"` rows for settled unminted placements in the same transaction as their artifact and trait writes
 
 Normalized token trait links in `token_attributes` are source-scoped:
 
@@ -554,6 +563,23 @@ Current Terraforms artifact usage:
 - `html_content` stores the direct v2 renderer `tokenHTML(...)` response used for backend animation override
 - backend resolves Terraforms collection browsing from `terraforms-v2-media`
 - backend exposes `terraforms-v2-lost-terrain` only as a token-local media mode on token detail / preview
+- unminted placement rows are extension-owned synthetic `tokens` without canonical `token_metadata`; Terraforms writes the extension-owned minted-state trait from `TERRAFORMS_MINTED_ATTRIBUTE_KEY` plus Terrain renderer traits
+
+### `collection_extension_synthetic_token_retirements`
+
+Defined in `042_collection_extension_synthetic_token_retirements.sql`.
+
+Purpose:
+
+- records synthetic token identities that an extension has retired after real token state superseded them
+- prevents delayed bootstrap or retry jobs from recreating an already-retired synthetic token row
+- keeps the retirement marker scoped to `(chain_id, collection_id, token_id, extension_key)`
+
+Important semantics:
+
+- retirement is inserted only after the synthetic row is still owned by the retiring extension and has no unexpected canonical state
+- Terraforms real-token refresh writes real extension artifacts and `Minted=true` traits in the same transaction that records the matching synthetic retirement
+- later synthetic publication attempts for the retired identity no-op instead of recreating the row
 
 ## Metadata Refresh Follow-Ups and Queue Outbox
 

@@ -804,6 +804,19 @@ label = "bootstrap step progress stale ms"
 default = "1800000"
 
 [[settings]]
+key = "BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_CONCURRENCY"
+group = "indexer"
+label = "bootstrap collection extension artifact concurrency"
+default = "2"
+view = "basic"
+
+[[settings]]
+key = "BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_TASK_LEASE_MS"
+group = "indexer"
+label = "bootstrap collection extension artifact task lease ms"
+default = "60000"
+
+[[settings]]
 key = "BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS"
 group = "indexer"
 label = "bootstrap metadata retry max attempts"

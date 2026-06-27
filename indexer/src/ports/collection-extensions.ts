@@ -34,6 +34,49 @@ export type CollectionExtensionTokenAttributesReplaceInput = {
     attributes: readonly CollectionExtensionTokenAttributeInput[];
 };
 
+// Extension-owned synthetic token rows let collection-specific artifacts browse like tokens.
+export type CollectionExtensionSyntheticTokenInput = {
+    chainId: number;
+    collectionId: number;
+    contractAddress: string;
+    tokenId: string;
+    extensionKey: CollectionExtensionKey;
+};
+
+// Synthetic publication commits the browseable row and its extension-owned surface together.
+export type CollectionExtensionSyntheticTokenPublicationInput =
+    CollectionExtensionSyntheticTokenInput & {
+        artifact: CollectionExtensionArtifactUpsertInput;
+        attributes: readonly CollectionExtensionTokenAttributeInput[];
+    };
+
+// Synthetic publication may no-op when a real token already retired that identity.
+export type CollectionExtensionSyntheticTokenPublicationResult = {
+    published: boolean;
+    blockedByCanonicalState: boolean;
+    blockedByRetirement: boolean;
+};
+
+// Synthetic retirement is blocked when non-extension-owned state exists.
+export type CollectionExtensionSyntheticTokenRetirementResult = {
+    retired: boolean;
+    blockedByCanonicalState: boolean;
+};
+
+// Real-token replacement writes extension state and retires synthetic state atomically.
+export type CollectionExtensionSyntheticTokenReplacementInput = {
+    syntheticToken: CollectionExtensionSyntheticTokenInput;
+    token: CollectionExtensionSyntheticTokenInput;
+    artifacts: readonly CollectionExtensionArtifactUpsertInput[];
+    attributes: readonly CollectionExtensionTokenAttributeInput[];
+};
+
+// Synthetic replacement is blocked only when the synthetic row has unexpected state.
+export type CollectionExtensionSyntheticTokenReplacementResult = {
+    replaced: boolean;
+    blockedByCanonicalState: boolean;
+};
+
 export type CollectionExtensionArtifactRecord = {
     chainId: number;
     collectionId: number;
@@ -85,4 +128,17 @@ export interface CollectionExtensionAttributePort {
     replaceTokenAttributes(
         input: CollectionExtensionTokenAttributesReplaceInput,
     ): void;
+}
+
+// Manages extension-owned synthetic token rows and their owned artifacts/traits.
+export interface CollectionExtensionSyntheticTokenPort {
+    publishSyntheticToken(
+        input: CollectionExtensionSyntheticTokenPublicationInput,
+    ): CollectionExtensionSyntheticTokenPublicationResult;
+    replaceSyntheticTokenWithToken(
+        input: CollectionExtensionSyntheticTokenReplacementInput,
+    ): CollectionExtensionSyntheticTokenReplacementResult;
+    retireSyntheticToken(
+        input: CollectionExtensionSyntheticTokenInput,
+    ): CollectionExtensionSyntheticTokenRetirementResult;
 }

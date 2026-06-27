@@ -8,6 +8,8 @@ import { TOKEN_SET_SCHEMA_KIND } from "../../domain/token-sets.js";
 
 const ZERO_HASH =
     "0x0000000000000000000000000000000000000000000000000000000000000000";
+const UINT256_MAX = 2n ** 256n - 1n;
+const CANONICAL_DECIMAL_TOKEN_ID = /^(0|[1-9]\d*)$/;
 
 export function buildAttributeSchema(
     collection: string,
@@ -83,7 +85,17 @@ export function generateMerkleRoot(tokenIds: string[]): string {
     return root;
 }
 
+// Seaport criteria leaves are uint256 token ids; local synthetic browse rows are not order-matchable.
+export function isSeaportTokenSetTokenId(tokenId: string): boolean {
+    if (!CANONICAL_DECIMAL_TOKEN_ID.test(tokenId)) return false;
+    const value = BigInt(tokenId);
+    return value <= UINT256_MAX;
+}
+
 function hashTokenId(tokenId: string): Hex {
+    if (!isSeaportTokenSetTokenId(tokenId)) {
+        throw new Error(`Invalid Seaport token set token id: ${tokenId}`);
+    }
     const value = BigInt(tokenId);
     const padded = toHex(value, { size: 32 });
     return keccak256(padded);
