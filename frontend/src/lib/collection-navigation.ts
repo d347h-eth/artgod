@@ -61,6 +61,11 @@ export type CollectionNavigationState = {
 	};
 };
 
+export type CollectionRouteTarget = {
+	chainRef: string;
+	collectionRef: string;
+};
+
 export type CollectionNavigation = {
 	basePath: string;
 	showBiddingOffers: boolean;
@@ -85,6 +90,11 @@ export type CollectionNavigation = {
 		extensionPage: (target: CollectionExtensionNavigationPageTarget) => string;
 	};
 };
+
+// Builds the standard collection route before section-specific helpers attach query state.
+export function buildCollectionBasePath(target: CollectionRouteTarget): string {
+	return joinPath(joinPath('/', target.chainRef), target.collectionRef);
+}
 
 export function buildCollectionNavigation(state: CollectionNavigationState): CollectionNavigation {
 	const normalizedBasePath = normalizeBasePath(state.basePath);

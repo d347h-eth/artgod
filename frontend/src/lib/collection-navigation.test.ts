@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	buildCollectionBasePath,
 	buildCollectionNavigation,
 	resolveCollectionSectionShortcutHref
 } from '$lib/collection-navigation';
@@ -7,6 +8,12 @@ import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND } from '$lib/collection-extension-navigation';
 
 describe('buildCollectionNavigation', () => {
+	it('builds the standard collection base path from route refs', () => {
+		expect(buildCollectionBasePath({ chainRef: 'ethereum', collectionRef: 'milady' })).toBe(
+			'/ethereum/milady'
+		);
+	});
+
 	it('builds collection section hrefs from explicit navigation state', () => {
 		const navigation = buildCollectionNavigation({
 			basePath: '/ethereum/milady',

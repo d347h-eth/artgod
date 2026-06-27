@@ -43,6 +43,10 @@
 		formatBlockspaceBlockRange,
 		formatBlockspaceInteger
 	} from '$lib/blockspace-format';
+	import {
+		buildCollectionBasePath,
+		buildCollectionNavigation
+	} from '$lib/collection-navigation';
 
 	type BlockRangeSelection = {
 		fromBlock: number;
@@ -148,6 +152,9 @@
 	let reservedLevelsLayoutHeight = $state(0);
 
 	let selectedCollection = $derived(blockspaceState?.context.selected ?? collection ?? BLOCKSPACE_CONTEXT_ANY);
+	let selectedCollectionJumpHref = $derived(
+		resolveSelectedCollectionJumpHref(blockspaceState, selectedCollection)
+	);
 	let currentPageKey = $derived(
 		blockspaceState
 			? `${blockspaceState.chain.slug}:${selectedCollection}:${blockspaceState.range.fromBlock}:${blockspaceState.range.toBlock}:${blockspaceState.range.bucketSize}`
@@ -301,6 +308,21 @@
 		if (!(target instanceof HTMLSelectElement)) return;
 		feedback = null;
 		void goto(queryHref(target.value, stack));
+	}
+
+	function resolveSelectedCollectionJumpHref(
+		state: BlockspaceStateApiResponse | null,
+		collectionRef: string
+	): string | null {
+		if (!state || collectionRef === BLOCKSPACE_CONTEXT_ANY) return null;
+		return buildCollectionNavigation({
+			basePath: buildCollectionBasePath({
+				chainRef: state.chain.slug,
+				collectionRef
+			}),
+			selectedTraits: [],
+			selectedTraitRanges: []
+		}).hrefs.asks;
 	}
 
 	async function handleCellClick(
@@ -1015,15 +1037,20 @@
 		</div>
 		<div class="blockspace-toolbar">
 			{#if showContextSelector}
-				<label class="status-form" for="blockspace-collection">
-					<span>context</span>
-					<select id="blockspace-collection" value={selectedCollection} onchange={onCollectionChange}>
-						<option value={BLOCKSPACE_CONTEXT_ANY}>any</option>
-						{#each blockspaceState?.context.collections ?? [] as option}
-							<option value={option.slug}>{option.slug}</option>
-						{/each}
-					</select>
-				</label>
+				<div class="status-form">
+					<label class="status-form" for="blockspace-collection">
+						<span>context</span>
+						<select id="blockspace-collection" value={selectedCollection} onchange={onCollectionChange}>
+							<option value={BLOCKSPACE_CONTEXT_ANY}>any</option>
+							{#each blockspaceState?.context.collections ?? [] as option}
+								<option value={option.slug}>{option.slug}</option>
+							{/each}
+						</select>
+					</label>
+					{#if selectedCollectionJumpHref}
+						<a class="button-link" href={selectedCollectionJumpHref}>jump to collection</a>
+					{/if}
+				</div>
 			{/if}
 			<div
 				class={backfillSelectionMode
