@@ -6,11 +6,13 @@ import { encodeAbiParameters, encodeEventTopics } from "viem";
 import { db, setDbPath } from "@artgod/shared/database";
 import {
     buildTerraformsUnmintedTokenId,
+    TERRAFORMS_BEACON_ANTENNA_MODIFICATIONS,
     TERRAFORMS_BIOME_ATTRIBUTE_KEY,
     TERRAFORMS_BEACON_ANTENNA_MODIFICATION_LABELS,
     TERRAFORMS_BEACON_EVENT_GROUPS,
     TERRAFORMS_BEACON_EVENT_TYPES,
     TERRAFORMS_BEACON_SCRIPT_COMPONENT_LABELS,
+    TERRAFORMS_BEACON_V2_READ_FUNCTIONS,
     TERRAFORMS_EXTENSION_ARTIFACT_REFS,
     TERRAFORMS_EXTENSION_EVENT_KEYS,
     TERRAFORMS_EXTENSION_KEY,
@@ -19,6 +21,9 @@ import {
     TERRAFORMS_MODE_ATTRIBUTE_KEY,
     TERRAFORMS_MODE_ATTRIBUTE_VALUES,
     TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
+    TERRAFORMS_SEASON_0_ANTENNA_ON_CUTOFF_TIMESTAMP,
+    TERRAFORMS_SEASON_ATTRIBUTE_VALUES,
+    TERRAFORMS_SEASONS_ATTRIBUTE_KEY,
     TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
     TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES,
     TERRAFORMS_ZONE_ATTRIBUTE_KEY,
@@ -508,6 +513,12 @@ describe("terraforms collection extension", () => {
                     canvasReads.push(row);
                     return row + 1n;
                 }
+                if (
+                    functionName ===
+                    TERRAFORMS_BEACON_V2_READ_FUNCTIONS.GetNumberOfAntennaModifications
+                ) {
+                    return 0n;
+                }
                 if (functionName === "tokenURI") {
                     tokenUriArgs.push([...(args ?? [])]);
                     if (tokenUriArgs.length === 2) {
@@ -723,6 +734,12 @@ describe("terraforms collection extension", () => {
                         Array.from({ length: 32 }, () => 7n),
                     );
                 }
+                if (
+                    functionName ===
+                    TERRAFORMS_BEACON_V2_READ_FUNCTIONS.GetNumberOfAntennaModifications
+                ) {
+                    return 0n;
+                }
                 if (functionName === "tokenURI") {
                     tokenUriArgs.push([...(args ?? [])]);
                     return buildMetadataDataUri({
@@ -777,6 +794,104 @@ describe("terraforms collection extension", () => {
         expect(tokenHtmlArgs[0]?.[0]).toBe(2n);
         expect(tokenHtmlArgs[1]?.[0]).toBe(0n);
         expect((tokenUriArgs[0]?.[5] as bigint[] | undefined)?.length).toBe(16);
+        expect(
+            collectionExtensions.getTokenAttributeValue({
+                chainId: 1,
+                collectionId,
+                tokenId: "7711",
+                key: TERRAFORMS_SEASONS_ATTRIBUTE_KEY,
+            }),
+        ).toBeNull();
+    });
+
+    it("writes Season 0 for first antenna-on before the cutoff", async () => {
+        resetExtensionTables();
+        const collectionId = seedCollectionToken(
+            "7713",
+            TERRAFORMS_MODE_ATTRIBUTE_VALUES.Daydream,
+        );
+
+        const collectionExtensions = new SqliteCollectionExtensions();
+        const metadataFetcher = new HttpMetadataFetcher();
+        const rpc = createRpcStub({
+            onReadContract({ functionName, args }) {
+                if (functionName === "tokenToPlacement") {
+                    return 77n;
+                }
+                if (functionName === "tokenHeightmapIndices") {
+                    return Array.from({ length: 32 }, () =>
+                        Array.from({ length: 32 }, () => 7n),
+                    );
+                }
+                if (
+                    functionName ===
+                    TERRAFORMS_BEACON_V2_READ_FUNCTIONS.GetNumberOfAntennaModifications
+                ) {
+                    expect(args?.[0]).toBe(7713n);
+                    return 1n;
+                }
+                if (
+                    functionName ===
+                    TERRAFORMS_BEACON_V2_READ_FUNCTIONS.GetFirstAntennaModification
+                ) {
+                    expect(args?.[0]).toBe(7713n);
+                    return {
+                        modification:
+                            TERRAFORMS_BEACON_ANTENNA_MODIFICATIONS.TurnedAntennaOn,
+                        satellite:
+                            "0x0000000000000000000000000000000000000000",
+                        timestamp:
+                            TERRAFORMS_SEASON_0_ANTENNA_ON_CUTOFF_TIMESTAMP -
+                            1n,
+                    };
+                }
+                if (functionName === "tokenURI") {
+                    return buildMetadataDataUri({
+                        name: "Terraform #7713 v2",
+                        image: "data:image/svg+xml;base64,season-0-v2",
+                        animation_url:
+                            "https://example.com/season-0-animation",
+                        attributes: [
+                            {
+                                trait_type: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+                                value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Daydream,
+                            },
+                        ],
+                    });
+                }
+                if (functionName === "tokenHTML") {
+                    return "<html><body>season-0-v2</body></html>";
+                }
+                throw new Error(`Unexpected contract call: ${functionName}`);
+            },
+        });
+
+        await terraformsIndexerExtension.refreshArtifacts({
+            rpc,
+            metadataFetcher,
+            installs: collectionExtensions,
+            artifacts: collectionExtensions,
+            attributes: collectionExtensions,
+            syntheticTokens: collectionExtensions,
+            install: buildInstall(collectionId),
+            payload: {
+                chainId: 1,
+                collectionId,
+                contract: TERRAFORMS_ADDRESS,
+                tokenId: "7713",
+                reason: "bootstrap-snapshot",
+                source: "bootstrap",
+            },
+        });
+
+        expect(
+            collectionExtensions.getTokenAttributeValue({
+                chainId: 1,
+                collectionId,
+                tokenId: "7713",
+                key: TERRAFORMS_SEASONS_ATTRIBUTE_KEY,
+            }),
+        ).toBe(TERRAFORMS_SEASON_ATTRIBUTE_VALUES.Season0);
     });
 
     it("skips lost-terrain artifacts for terrain mode", async () => {
@@ -873,6 +988,10 @@ describe("terraforms collection extension", () => {
                     {
                         traitType: TERRAFORMS_MINTED_ATTRIBUTE_KEY,
                         value: TERRAFORMS_MINTED_ATTRIBUTE_VALUES.True,
+                    },
+                    {
+                        traitType: TERRAFORMS_SEASONS_ATTRIBUTE_KEY,
+                        value: TERRAFORMS_SEASON_ATTRIBUTE_VALUES.Season0,
                     },
                     { traitType: TERRAFORMS_ZONE_ATTRIBUTE_KEY, value: "Alto" },
                 ],

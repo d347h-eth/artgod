@@ -85,6 +85,12 @@ export const TERRAFORMS_BEACON_ANTENNA_MODIFICATIONS = {
     CapturedSatelliteConnection: 3,
 } as const;
 
+// Terraforms beacon read methods used by extension-owned trait derivation.
+export const TERRAFORMS_BEACON_V2_READ_FUNCTIONS = {
+    GetNumberOfAntennaModifications: "getNumberOfAntennaModifications",
+    GetFirstAntennaModification: "getFirstAntennaModification",
+} as const;
+
 // Compact labels for Terraforms beacon AntennaModification values.
 export const TERRAFORMS_BEACON_ANTENNA_MODIFICATION_LABELS: Readonly<
     Record<string, string>
@@ -143,6 +149,20 @@ export const TERRAFORMS_MINTED_ATTRIBUTE_VALUES = {
     True: "true",
     False: "false",
 } as const;
+
+// Terraforms extension-owned trait key for historical Beacon participation.
+export const TERRAFORMS_SEASONS_ATTRIBUTE_KEY = "Seasons";
+
+// Terraforms Season trait values are categorical filter buckets.
+export const TERRAFORMS_SEASON_ATTRIBUTE_VALUES = {
+    Season0: "Season 0",
+} as const;
+
+export type TerraformsSeasonAttributeValue =
+    (typeof TERRAFORMS_SEASON_ATTRIBUTE_VALUES)[keyof typeof TERRAFORMS_SEASON_ATTRIBUTE_VALUES];
+
+// First antenna-on timestamps before this Unix second qualify for Season 0.
+export const TERRAFORMS_SEASON_0_ANTENNA_ON_CUTOFF_TIMESTAMP = 1705122113n;
 
 // Tokens in these Mode states can have or receive owner-written dream canvases.
 export const TERRAFORMS_DREAM_MODE_ATTRIBUTE_VALUES = [
@@ -269,6 +289,32 @@ export function isTerraformsOriginMode(
         value === TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream ||
         value === TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform
     );
+}
+
+// Resolves Season filters from the Beacon contract's first antenna mutation.
+export function resolveTerraformsSeasonValuesFromFirstAntennaModification(params: {
+    modification: bigint | number | null | undefined;
+    timestamp: bigint | number | null | undefined;
+}): TerraformsSeasonAttributeValue[] {
+    if (params.modification === null || params.modification === undefined) {
+        return [];
+    }
+    if (params.timestamp === null || params.timestamp === undefined) {
+        return [];
+    }
+    if (
+        BigInt(params.modification) !==
+        BigInt(TERRAFORMS_BEACON_ANTENNA_MODIFICATIONS.TurnedAntennaOn)
+    ) {
+        return [];
+    }
+    if (
+        BigInt(params.timestamp) <
+        TERRAFORMS_SEASON_0_ANTENNA_ON_CUTOFF_TIMESTAMP
+    ) {
+        return [TERRAFORMS_SEASON_ATTRIBUTE_VALUES.Season0];
+    }
+    return [];
 }
 
 export type TerraformsLevelTile = {

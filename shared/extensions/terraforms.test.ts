@@ -10,11 +10,15 @@ import {
     parseTerraformsCanvasRowsText,
     resolveTerraformsLevelAndTileFromPlacement,
     resolveTerraformsRendererSeedClass,
+    resolveTerraformsSeasonValuesFromFirstAntennaModification,
     resolveTerraformsUnmintedPlacements,
+    TERRAFORMS_BEACON_ANTENNA_MODIFICATIONS,
     TERRAFORMS_MAX_SUPPLY,
     TERRAFORMS_MODE_ATTRIBUTE_VALUES,
     TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_LENGTH,
     TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_STARTS,
+    TERRAFORMS_SEASON_0_ANTENNA_ON_CUTOFF_TIMESTAMP,
+    TERRAFORMS_SEASON_ATTRIBUTE_VALUES,
     TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES,
 } from "./terraforms.js";
 
@@ -114,6 +118,35 @@ describe("Terraforms canvas helpers", () => {
         assert.equal(unminted.length, TERRAFORMS_MAX_SUPPLY - 2);
         assert.deepEqual(unminted.slice(0, 3), [1n, 3n, 4n]);
         assert.equal(unminted[unminted.length - 1], 11103n);
+    });
+
+    it("resolves Season 0 only for first antenna-on timestamps before the cutoff", () => {
+        assert.deepEqual(
+            resolveTerraformsSeasonValuesFromFirstAntennaModification({
+                modification:
+                    TERRAFORMS_BEACON_ANTENNA_MODIFICATIONS.TurnedAntennaOn,
+                timestamp:
+                    TERRAFORMS_SEASON_0_ANTENNA_ON_CUTOFF_TIMESTAMP - 1n,
+            }),
+            [TERRAFORMS_SEASON_ATTRIBUTE_VALUES.Season0],
+        );
+        assert.deepEqual(
+            resolveTerraformsSeasonValuesFromFirstAntennaModification({
+                modification:
+                    TERRAFORMS_BEACON_ANTENNA_MODIFICATIONS.TurnedAntennaOn,
+                timestamp: TERRAFORMS_SEASON_0_ANTENNA_ON_CUTOFF_TIMESTAMP,
+            }),
+            [],
+        );
+        assert.deepEqual(
+            resolveTerraformsSeasonValuesFromFirstAntennaModification({
+                modification:
+                    TERRAFORMS_BEACON_ANTENNA_MODIFICATIONS.TurnedAntennaOff,
+                timestamp:
+                    TERRAFORMS_SEASON_0_ANTENNA_ON_CUTOFF_TIMESTAMP - 1n,
+            }),
+            [],
+        );
     });
 
     it("calculates the hidden renderer seed with Solidity packed encoding", () => {

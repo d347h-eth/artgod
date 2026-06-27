@@ -198,6 +198,9 @@ Terraforms caches version-2 media artifacts using:
 - `artifact_ref = "terraforms-v2-lost-terrain"` for non-Terrain tokens only
 - Terraforms mode transitions move one way away from Terrain, so a Terrain
   artifact refresh is not treated as a stale lost-terrain cleanup signal
+- minted non-Terrain tokens can also receive `Seasons = Season 0` as an
+  extension-owned normalized trait when the Beacon contract reports a first
+  antenna-on mutation before the fixed Season 0 cutoff
 
 The backend can then resolve:
 
