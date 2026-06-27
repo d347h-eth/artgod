@@ -5,7 +5,7 @@ import {
 	applyTerraformsBiomeTokenCounts,
 	buildTerraformsBiomeRows,
 	buildTerraformsBiomeTokenHref,
-	formatTerraformsBiomeMintedTokenCount,
+	formatTerraformsBiomeSupplyTokenCount,
 	resolveTerraformsBiomeAriaSort,
 	resolveTerraformsBiomeDefaultSortDirection,
 	resolveTerraformsBiomeDisplayCharacters,
@@ -100,7 +100,7 @@ describe('Terraforms Biome table data', () => {
 		);
 	});
 
-	it('applies minted token counts to Biome rows for display', () => {
+	it('applies supply token counts to Biome rows for display', () => {
 		const rows = applyTerraformsBiomeTokenCounts(
 			buildTerraformsBiomeRows().slice(22, 24),
 			{
@@ -110,7 +110,7 @@ describe('Terraforms Biome table data', () => {
 			true
 		);
 
-		expect(rows.map((row) => formatTerraformsBiomeMintedTokenCount(row))).toEqual(['8', '13']);
+		expect(rows.map((row) => formatTerraformsBiomeSupplyTokenCount(row))).toEqual(['8', '13']);
 	});
 
 	it('sorts and filters Biome rows with the shared trait table contract', () => {
@@ -122,14 +122,14 @@ describe('Terraforms Biome table data', () => {
 				24: 8
 			},
 			true,
-			{ mintedOnly: true }
+			{ nonzeroSupplyOnly: true }
 		);
 
 		expect(rows.map((row) => row.biomeIndex)).toEqual([23, 24]);
 		expect(
 			sortTerraformsBiomeRows(
 				rows,
-				TERRAFORMS_BIOME_TABLE_COLUMNS.Minted,
+				TERRAFORMS_BIOME_TABLE_COLUMNS.Supply,
 				TERRAFORMS_TRAIT_TABLE_SORT_DIRECTIONS.Descending
 			).map((row) => row.biomeIndex)
 		).toEqual([23, 24]);
@@ -145,8 +145,8 @@ describe('Terraforms Biome table data', () => {
 		);
 		expect(
 			resolveTerraformsBiomeAriaSort(
-				TERRAFORMS_BIOME_TABLE_COLUMNS.Minted,
-				TERRAFORMS_BIOME_TABLE_COLUMNS.Minted,
+				TERRAFORMS_BIOME_TABLE_COLUMNS.Supply,
+				TERRAFORMS_BIOME_TABLE_COLUMNS.Supply,
 				TERRAFORMS_TRAIT_TABLE_SORT_DIRECTIONS.Descending
 			)
 		).toBe(TERRAFORMS_TRAIT_TABLE_ARIA_SORT_VALUES.Descending);

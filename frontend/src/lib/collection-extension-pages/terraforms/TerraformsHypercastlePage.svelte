@@ -16,7 +16,7 @@
 		buildTerraformsBiomeCharacterLabels,
 		buildTerraformsBiomeRows,
 		buildTerraformsBiomeTokenHref,
-		formatTerraformsBiomeMintedTokenCount,
+		formatTerraformsBiomeSupplyTokenCount,
 		formatTerraformsBiomeSortLabel,
 		formatTerraformsBiomeTokenLabel,
 		resolveTerraformsBiomeAriaSort,
@@ -44,7 +44,7 @@
 		defaultTerraformsSelectedLevelZoneSortColumn,
 		defaultTerraformsSelectedLevelZoneSortDirection,
 		formatTerraformsLevelZoneSortLabel,
-		formatTerraformsZoneMintedTokenCount,
+		formatTerraformsZoneSupplyTokenCount,
 		formatTerraformsZonePaletteCopyLabel,
 		formatTerraformsZonePaletteCopyValue,
 		formatTerraformsZoneTokenFilterLabel,
@@ -156,7 +156,7 @@
 						: [],
 				traitCounts.zoneTokenCounts,
 				traitCountsLoaded,
-				{ mintedOnly: !allLevelsSelected }
+				{ nonzeroSupplyOnly: !allLevelsSelected }
 			),
 			activeZoneSortColumn,
 			zoneSortDirection
@@ -170,7 +170,7 @@
 				buildTerraformsBiomeRows(),
 				traitCounts.biomeTokenCounts,
 				traitCountsLoaded,
-				{ mintedOnly: !allLevelsSelected }
+				{ nonzeroSupplyOnly: !allLevelsSelected }
 			),
 			biomeSortColumn,
 			biomeSortDirection
@@ -220,7 +220,7 @@
 	});
 
 	$effect(() => {
-		// Keep minted counts aligned with the selected Hypercastle scope.
+		// Keep trait supply counts aligned with the selected Hypercastle scope.
 		if (!browser) return;
 		if (!showStructureSection) return;
 		const nextRequestKey = buildTerraformsTraitCatalogRequestKey({
@@ -567,9 +567,9 @@
 											</button>
 										</div>
 									</td>
-								{:else if column === TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted}
+								{:else if column === TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Supply}
 									<td class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.numericCell}>
-										{formatTerraformsZoneMintedTokenCount(row)}
+										{formatTerraformsZoneSupplyTokenCount(row)}
 									</td>
 								{/if}
 							{/each}
@@ -636,9 +636,9 @@
 											palette={biomePreviewPalette}
 										/>
 									</td>
-								{:else if column === TERRAFORMS_BIOME_TABLE_COLUMNS.Minted}
+								{:else if column === TERRAFORMS_BIOME_TABLE_COLUMNS.Supply}
 									<td class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.numericCell}>
-										{formatTerraformsBiomeMintedTokenCount(row)}
+										{formatTerraformsBiomeSupplyTokenCount(row)}
 									</td>
 								{/if}
 							{/each}
