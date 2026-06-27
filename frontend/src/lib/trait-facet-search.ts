@@ -3,6 +3,9 @@ import type { ApiTraitFacet } from '$lib/api-types';
 
 type TraitFacetValue = ApiTraitFacet['values'][number];
 
+// Minimum normalized input length before trait value search filters results.
+export const TRAIT_VALUE_SEARCH_MIN_LENGTH = 2;
+
 // Resolves whether a facet participates in text search over discrete values.
 export function isTraitFacetValueSearchable(facet: Pick<ApiTraitFacet, 'displayKind'>): boolean {
 	return facet.displayKind === TRAIT_FILTER_DISPLAY_KIND.Set;
@@ -15,13 +18,13 @@ export function normalizeTraitValueSearch(value: string): string {
 
 // Checks whether the user has entered a meaningful trait value search.
 export function hasTraitValueSearch(value: string): boolean {
-	return normalizeTraitValueSearch(value).length > 0;
+	return normalizeTraitValueSearch(value).length >= TRAIT_VALUE_SEARCH_MIN_LENGTH;
 }
 
 // Matches trait values with the same substring and wildcard semantics everywhere.
 export function traitValueMatchesSearch(value: string, search: string): boolean {
 	const pattern = normalizeTraitValueSearch(search);
-	if (!pattern) return true;
+	if (!hasTraitValueSearch(pattern)) return true;
 
 	const haystack = value.toLowerCase();
 	if (!pattern.includes('*')) {
