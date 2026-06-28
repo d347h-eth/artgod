@@ -1,27 +1,15 @@
-import { logger } from "@artgod/shared/utils";
 import { Chain, OpenSeaAPI } from "@opensea/sdk";
 import { normalizeOpenSeaOfferTraitCriteria } from "@artgod/shared/trading/open-sea-bidding-offers";
-
-type RetryPolicy = {
-    maxAttempts: number;
-    baseDelayMs: number;
-    maxDelayMs: number;
-    jitterRatio: number;
-};
-
-type RateLimiterConfig = {
-    getMax: number;
-    getRefillPerSecond: number;
-    postMax: number;
-    postRefillPerSecond: number;
-};
+import type { OpenSeaHttpConfig } from "@artgod/shared/config/opensea-http";
+import {
+    OpenSeaApiRateLimiter,
+    retryOpenSeaApiCall,
+} from "@artgod/shared/network/opensea-api-resilience";
 
 export type OpenSeaApiConfig = {
     apiKey: string;
     snapshotPageSize: number;
-    retryPolicy: RetryPolicy;
-    rateLimiter: RateLimiterConfig;
-};
+} & OpenSeaHttpConfig;
 
 export type OpenSeaResolvedCollection = {
     slug: string;
@@ -37,21 +25,23 @@ export type OpenSeaRestRecord = {
 type ListingRecord = Record<string, unknown>;
 type OfferRecord = Record<string, unknown>;
 
+// Logger component label emitted by the indexer OpenSea REST adapter.
+const OPENSEA_API_ADAPTER_LOG_COMPONENT = "OpenSeaApiAdapter";
 const NFT_ITEM_TYPES = new Set([2, 3, 4, 5]);
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export class OpenSeaApiAdapter {
     private readonly api: OpenSeaAPI;
-    private readonly rateLimiter: TokenBucketRateLimiter;
+    private readonly rateLimiter: OpenSeaApiRateLimiter;
     private readonly pageSize: number;
-    private readonly retryPolicy: RetryPolicy;
+    private readonly retryPolicy: OpenSeaHttpConfig["retryPolicy"];
 
     constructor(config: OpenSeaApiConfig) {
         this.api = new OpenSeaAPI({
             apiKey: config.apiKey,
             chain: Chain.Mainnet,
         });
-        this.rateLimiter = new TokenBucketRateLimiter(config.rateLimiter);
+        this.rateLimiter = new OpenSeaApiRateLimiter(config.rateLimiter);
         this.pageSize = Math.max(1, config.snapshotPageSize);
         this.retryPolicy = config.retryPolicy;
     }
@@ -126,106 +116,13 @@ export class OpenSeaApiAdapter {
         fn: () => Promise<T>,
     ): Promise<T> {
         await this.rateLimiter.wait(1, 0);
-        return retry(fn, this.retryPolicy, action);
+        return retryOpenSeaApiCall({
+            component: OPENSEA_API_ADAPTER_LOG_COMPONENT,
+            action,
+            retryPolicy: this.retryPolicy,
+            call: fn,
+        });
     }
-}
-
-class TokenBucketRateLimiter {
-    private readonly getMax: number;
-    private readonly postMax: number;
-    private readonly getRefillPerMs: number;
-    private readonly postRefillPerMs: number;
-    private getTokens: number;
-    private postTokens: number;
-    private lastRefillAt: number;
-
-    constructor(config: RateLimiterConfig) {
-        this.getMax = Math.max(1, config.getMax);
-        this.postMax = Math.max(1, config.postMax);
-        this.getRefillPerMs = Math.max(0, config.getRefillPerSecond) / 1000;
-        this.postRefillPerMs = Math.max(0, config.postRefillPerSecond) / 1000;
-        this.getTokens = this.getMax;
-        this.postTokens = this.postMax;
-        this.lastRefillAt = Date.now();
-    }
-
-    async wait(getCost: number, postCost: number): Promise<void> {
-        if (getCost <= 0 && postCost <= 0) return;
-
-        while (true) {
-            this.refill();
-            if (this.getTokens >= getCost && this.postTokens >= postCost) {
-                this.getTokens -= getCost;
-                this.postTokens -= postCost;
-                return;
-            }
-
-            const neededGet = Math.max(0, getCost - this.getTokens);
-            const neededPost = Math.max(0, postCost - this.postTokens);
-            const getWait =
-                neededGet === 0 || this.getRefillPerMs === 0
-                    ? 0
-                    : neededGet / this.getRefillPerMs;
-            const postWait =
-                neededPost === 0 || this.postRefillPerMs === 0
-                    ? 0
-                    : neededPost / this.postRefillPerMs;
-            const waitMs = Math.max(getWait, postWait, 25);
-            await sleep(Math.ceil(waitMs));
-        }
-    }
-
-    private refill(): void {
-        const now = Date.now();
-        const delta = now - this.lastRefillAt;
-        if (delta <= 0) return;
-
-        this.getTokens = Math.min(
-            this.getMax,
-            this.getTokens + delta * this.getRefillPerMs,
-        );
-        this.postTokens = Math.min(
-            this.postMax,
-            this.postTokens + delta * this.postRefillPerMs,
-        );
-        this.lastRefillAt = now;
-    }
-}
-
-async function retry<T>(
-    fn: () => Promise<T>,
-    policy: RetryPolicy,
-    action: string,
-): Promise<T> {
-    let attempt = 0;
-    let lastError: unknown;
-
-    while (attempt < policy.maxAttempts) {
-        try {
-            return await fn();
-        } catch (error) {
-            lastError = error;
-            attempt += 1;
-            if (attempt >= policy.maxAttempts) break;
-            const baseDelay = Math.min(
-                policy.maxDelayMs,
-                policy.baseDelayMs * Math.pow(2, attempt - 1),
-            );
-            const jitter =
-                baseDelay * policy.jitterRatio * (Math.random() * 2 - 1);
-            const delayMs = Math.max(0, baseDelay + jitter);
-            logger.warn("OpenSea API call failed; retrying", {
-                component: "OpenSeaApiAdapter",
-                action,
-                attempt,
-                delayMs,
-                error: String(error),
-            });
-            await sleep(delayMs);
-        }
-    }
-
-    throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 function toRestListingRecord(
@@ -388,10 +285,6 @@ function asArray(value: unknown): Array<Record<string, unknown>> {
     return value
         .filter((entry) => !!entry && typeof entry === "object")
         .map((entry) => entry as Record<string, unknown>);
-}
-
-function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isActiveStatus(value: unknown): boolean {
