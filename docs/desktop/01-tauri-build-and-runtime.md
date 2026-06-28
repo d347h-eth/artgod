@@ -563,7 +563,6 @@ Trigger:
 Build matrix:
 
 - Linux x64 (`x86_64-unknown-linux-gnu`)
-- Windows x64 (`x86_64-pc-windows-msvc`)
 - macOS universal (`universal-apple-darwin`)
 
 Outputs:
@@ -578,7 +577,8 @@ Current state:
 
 - Linux artifacts are GPG-signed (detached armor signatures).
 - macOS DMG is code-signed, notarized, and stapled in CI.
-- Windows NSIS/installer signing should use SSL.com eSigner CKA with
+- Windows release builds are deferred for the first public alpha. When Windows
+  releases are enabled later, signing should use SSL.com eSigner CKA with
   `signtool.exe` on the Windows runner.
 
 Release secrets expected by CI:
@@ -597,16 +597,11 @@ Release secrets expected by CI:
     - `APPLE_API_KEY_P8_B64` (base64 `.p8`)
     - `APPLE_API_KEY_ID`
     - `APPLE_API_ISSUER`
-- Windows:
-    - SSL.com eSigner CKA credential material, finalized with the workflow
-      implementation
-
 Windows maintainer-profile note:
 
 - The release-signing runbook treats SSL.com Personal Identity Code Signing
-  with eSigner for Code as the Windows path.
-- The workflow must sign through eSigner CKA and `signtool.exe` rather than an
-  exported certificate file.
+  with eSigner for Code as the future Windows path.
+- The alpha release workflow does not build Windows artifacts.
 
 Consumer-side verification examples:
 

@@ -6,7 +6,6 @@ The release workflow is `.github/workflows/tauri-release.yml`.
 The target release artifacts are:
 
 - Linux x64: AppImage and `.deb`
-- Windows x64: NSIS installer
 - macOS: universal DMG
 - release manifest: `SHA256SUMS.txt`
 - release signatures: Linux detached signatures and `SHA256SUMS.txt.asc`
@@ -21,7 +20,7 @@ project.
 Release-signing consequences:
 
 - macOS: use Apple Developer Program individual enrollment.
-- Windows: use SSL.com Personal Identity Code Signing with eSigner for Code.
+- Windows: deferred for the first public alpha.
 - Linux: use a dedicated GPG release key and public fingerprint publication.
 
 ## Direct Signup and Purchase Links
@@ -43,8 +42,9 @@ Recommended first purchase path:
 
 - macOS: buy only Apple Developer Program membership as an individual. Do not
   buy a separate public CA certificate for macOS Developer ID signing.
-- Windows: buy SSL.com Personal Identity Code Signing with eSigner for Code.
-  Use eSigner CKA with `signtool.exe` on the Windows runner.
+- Windows: do not buy or configure Windows signing for the first public alpha.
+  Future Windows releases should use SSL.com Personal Identity Code Signing
+  with eSigner CKA and `signtool.exe` on the Windows runner.
 - Linux: do not buy a platform certificate. Use a dedicated release GPG key and
   publish the public key/fingerprint on stable maintainer-controlled profiles.
   Detailed setup is in `docs/desktop/05-linux-gpg-release-signing.md`.
@@ -147,7 +147,11 @@ Official references:
 
 ## Windows Signing
 
-Use SSL.com Personal Identity Code Signing with eSigner for Code.
+Windows release builds are deferred for the first public alpha. The release
+workflow does not build or publish Windows artifacts.
+
+When Windows releases are enabled later, use SSL.com Personal Identity Code
+Signing with eSigner for Code.
 
 Expected shape:
 
@@ -163,7 +167,7 @@ Procedure:
 2. Select eSigner for Code as the signing method.
 3. Complete SSL.com individual identity validation.
 4. Confirm the eSigner account, credential, and automation access are active.
-5. Update `.github/workflows/tauri-release.yml` so the Windows job installs
+5. Re-enable Windows in `.github/workflows/tauri-release.yml` with a job that installs
    eSigner CKA, signs the Windows installer with `signtool.exe`, timestamps the
    signature, and verifies the result with `signtool verify`.
 6. Dry-run on a private/pre-release tag and verify the final installer shows the
@@ -243,7 +247,6 @@ Before pushing a `v*` tag:
    and Cargo package version match.
 3. Run the Linux build check workflow on the release branch.
 4. Run the release workflow once manually or on a private dry-run tag.
-5. Install each produced artifact on a clean Linux, Windows, and macOS machine.
+5. Install each produced artifact on a clean Linux and macOS machine.
 6. Verify macOS Gatekeeper opens the DMG without bypass actions.
-7. Verify Windows installer publisher is the maintainer's personal legal name.
-8. Verify Linux GPG signatures and checksum manifest from a clean keyring.
+7. Verify Linux GPG signatures and checksum manifest from a clean keyring.
