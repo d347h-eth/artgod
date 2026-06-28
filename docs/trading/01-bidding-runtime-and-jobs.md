@@ -138,12 +138,19 @@ Command effects:
 - `job_created` / `job_updated`: add or replace the in-memory job and run an immediate refresh when safe
 - `job_paused` / `job_archived`: remove the job from scheduling and request active-offer cancellation
 - `cancel_active_offer`: cancel the job-scoped active offer through the bot's OpenSea adapter
+- `cancel_active_offer` is idempotent when neither the command payload nor the recovered job state has a tracked active OpenSea order id; the bot completes the command without probing OpenSea by target
 
 Reconciliation also updates watched collections:
 
 - enabled jobs define which collection snapshots should poll
 - enabled jobs define which OpenSea stream subscriptions should be active
 - disabled or archived collections are unwatched so snapshot polling stops when no enabled jobs remain
+
+OpenSea HTTP retry behavior is shared with the main app config through
+`OPENSEA_HTTP_RETRY_*` and `OPENSEA_RATE_LIMIT_*`. The bidding OpenSea adapter
+also classifies stable OpenSea target validation errors, such as unsupported or
+missing token/trait targets, as non-retryable so one bad target does not stall
+the ordered command queue behind repeated SDK retries.
 
 ## Bid Book Projection
 
