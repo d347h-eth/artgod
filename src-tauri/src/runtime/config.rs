@@ -32,6 +32,12 @@ pub struct DesktopRuntimeConfig {
 /// App-data child directory passed as the embedded NATS store root.
 pub(crate) const NATS_STORAGE_DIR_NAME: &str = "nats";
 
+/// Directory name Tauri preserves when bundling `src-tauri/resources`.
+const TAURI_BUNDLED_RESOURCES_DIR_NAME: &str = "resources";
+
+/// macOS bundle resources directory relative to the executable directory.
+const MACOS_BUNDLE_RESOURCES_DIR_NAME: &str = "Resources";
+
 #[derive(Clone, Debug)]
 pub struct DesktopRuntimeCapabilities {
     pub opensea: RuntimeCapability,
@@ -474,28 +480,14 @@ fn resolve_runtime_resources_dir(
     app: &AppHandle,
     raw_runtime_subdir: &str,
 ) -> Result<PathBuf, String> {
-    let mut candidates = Vec::<PathBuf>::new();
-
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        candidates.push(resolve_from_base_dir(&resource_dir, raw_runtime_subdir));
-    }
-
-    if let Ok(current_exe) = std::env::current_exe()
-        && let Some(exe_dir) = current_exe.parent()
-    {
-        candidates.push(resolve_from_base_dir(exe_dir, raw_runtime_subdir));
-        candidates.push(resolve_from_base_dir(
-            exe_dir,
-            &format!("resources/{raw_runtime_subdir}"),
-        ));
-        candidates.push(resolve_from_base_dir(
-            exe_dir,
-            &format!("../Resources/{raw_runtime_subdir}"),
-        ));
-    }
-
-    let mut seen = HashSet::<String>::new();
-    candidates.retain(|path| seen.insert(path.to_string_lossy().to_string()));
+    let resource_dir = app.path().resource_dir().ok();
+    let current_exe = std::env::current_exe().ok();
+    let exe_dir = current_exe.as_deref().and_then(Path::parent);
+    let candidates = build_runtime_resources_dir_candidates(
+        resource_dir.as_deref(),
+        exe_dir,
+        raw_runtime_subdir,
+    );
 
     for candidate in &candidates {
         if candidate.exists() {
@@ -516,6 +508,38 @@ fn resolve_runtime_resources_dir(
     Err(format!(
         "DESKTOP runtime resources directory not found. Checked: {checked}. Build runtime resources with `yarn build:runtime && yarn build:desktop-runtime-resources`.",
     ))
+}
+
+fn build_runtime_resources_dir_candidates(
+    resource_dir: Option<&Path>,
+    exe_dir: Option<&Path>,
+    raw_runtime_subdir: &str,
+) -> Vec<PathBuf> {
+    let mut candidates = Vec::<PathBuf>::new();
+
+    if let Some(resource_dir) = resource_dir {
+        candidates.push(resolve_from_base_dir(resource_dir, raw_runtime_subdir));
+        candidates.push(resolve_from_base_dir(
+            resource_dir,
+            &format!("{TAURI_BUNDLED_RESOURCES_DIR_NAME}/{raw_runtime_subdir}"),
+        ));
+    }
+
+    if let Some(exe_dir) = exe_dir {
+        candidates.push(resolve_from_base_dir(exe_dir, raw_runtime_subdir));
+        candidates.push(resolve_from_base_dir(
+            exe_dir,
+            &format!("{TAURI_BUNDLED_RESOURCES_DIR_NAME}/{raw_runtime_subdir}"),
+        ));
+        candidates.push(resolve_from_base_dir(
+            exe_dir,
+            &format!("../{MACOS_BUNDLE_RESOURCES_DIR_NAME}/{raw_runtime_subdir}"),
+        ));
+    }
+
+    let mut seen = HashSet::<String>::new();
+    candidates.retain(|path| seen.insert(path.to_string_lossy().to_string()));
+    candidates
 }
 
 fn resolve_node_binary_path(runtime_dir: &Path, raw_override: Option<&str>) -> PathBuf {
@@ -599,5 +623,18 @@ mod tests {
 
         assert_eq!(store_dir, temp.path().join(NATS_STORAGE_DIR_NAME));
         assert!(store_dir.exists());
+    }
+
+    #[test]
+    fn runtime_resource_candidates_include_appimage_resource_layout() {
+        let resource_dir = Path::new("/tmp/.mount_ArtGod/usr/lib/ArtGod");
+        let exe_dir = Path::new("/tmp/.mount_ArtGod/usr/bin");
+
+        let candidates =
+            build_runtime_resources_dir_candidates(Some(resource_dir), Some(exe_dir), "runtime");
+
+        assert!(candidates.contains(&resource_dir.join("resources/runtime")));
+        assert!(candidates.contains(&resource_dir.join("runtime")));
+        assert!(candidates.contains(&exe_dir.join("runtime")));
     }
 }
