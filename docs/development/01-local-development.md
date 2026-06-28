@@ -72,9 +72,12 @@ Prerequisites:
 - Linux: Tauri WebKit/GTK dependencies plus `patchelf`, `python3`, `make`, and
   `g++`.
 - macOS: Xcode Command Line Tools.
+- Windows: Microsoft C++ Build Tools / Visual Studio Build Tools with the MSVC
+  toolchain and Windows SDK.
 
-Current public-alpha source-build instructions cover Linux and macOS. Windows
-release packaging remains deferred.
+Build on the target operating system. Official CI release packaging currently
+targets Linux and macOS only, but source builds are supported for Linux, macOS,
+and Windows.
 
 Fresh checkout build sequence:
 
@@ -98,14 +101,23 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 yarn tauri build --ci --target universal-apple-darwin --bundles dmg
 ```
 
+Windows x64 NSIS installer:
+
+```powershell
+rustup target add x86_64-pc-windows-msvc
+yarn tauri build --ci --target x86_64-pc-windows-msvc --bundles nsis
+```
+
 `yarn build:sqlite-native` is required after a fresh install because
 `.yarnrc.yml` keeps `enableScripts: false`. The command runs only the trusted
 `better-sqlite3` package-local install step from `.yarn/unplugged` and fails if
 the native SQLite binding is missing.
 
 Locally built bundles are not equivalent to official release artifacts unless
-you also provide the same signing/notarization setup. The official release
-pipeline remains documented in `docs/desktop/04-release-signing-runbook.md`.
+you also provide the same signing/notarization setup. Windows source-built
+installers are expected to be unsigned unless the builder provides their own
+code-signing setup. The official release pipeline remains documented in
+`docs/desktop/04-release-signing-runbook.md`.
 
 ## Bidding And Extension UI Tests
 
