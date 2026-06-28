@@ -5,7 +5,10 @@ import {
     type TokenMetadataTrait,
 } from "../../domain/market/token-metadata-repository.js";
 import { CollectionOfferSnapshotProvider } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
-import { OpenSeaBiddingService } from "./open-sea-bidding-service.js";
+import {
+    isRetryableOpenSeaBiddingError,
+    OpenSeaBiddingService,
+} from "./open-sea-bidding-service.js";
 import {
     OpenSeaApiClient,
     OpenSeaBiddingSdkClient,
@@ -19,11 +22,18 @@ import {
 const WETH = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
 const TEST_RETRY_POLICY = {
     maxAttempts: 1,
-    minDelayMs: 0,
+    baseDelayMs: 0,
     maxDelayMs: 0,
-    factor: 1,
     jitterRatio: 0,
 };
+const TEST_MULTI_ATTEMPT_RETRY_POLICY = {
+    maxAttempts: 5,
+    baseDelayMs: 0,
+    maxDelayMs: 0,
+    jitterRatio: 0,
+};
+const TEST_OPENSEA_NFT_NOT_FOUND_ERROR =
+    "Server Error: NFT with identifier unminted-tile-5785 not found in collection terraforms";
 
 class MockOpenSeaSdk implements OpenSeaBiddingSdkClient {
     public api: OpenSeaApiClient = {
@@ -143,6 +153,19 @@ describe("OpenSeaBiddingService", () => {
     const collectionAddress = "0xcollection";
     const protocolAddress = "0xprotocol";
     const orderHash = "0xhash";
+
+    it("classifies permanent OpenSea target errors as non-retryable", () => {
+        assert.equal(
+            isRetryableOpenSeaBiddingError(
+                new Error(TEST_OPENSEA_NFT_NOT_FOUND_ERROR),
+            ),
+            false,
+        );
+        assert.equal(
+            isRetryableOpenSeaBiddingError(new Error("network unavailable")),
+            true,
+        );
+    });
 
     it("places collection offers with expiration and quantity-aware totals", async () => {
         const sdk = new MockOpenSeaSdk();
@@ -511,6 +534,35 @@ describe("OpenSeaBiddingService", () => {
         assert.equal(result?.maker, "0xmaker");
         assert.equal(result?.price, 1_000000000000000000n);
         assert.equal(result?.expirationTime, 1234567890);
+    });
+
+    it("does not retry permanent OpenSea token-target errors", async () => {
+        const sdk = new MockOpenSeaSdk();
+        const service = new OpenSeaBiddingService(sdk as any, makerAddress, {
+            retryPolicy: TEST_MULTI_ATTEMPT_RETRY_POLICY,
+        });
+        const job = {
+            id: "job-permanent-error",
+            revision: 1,
+            network: "eth" as const,
+            collectionSlug,
+            collectionAddress,
+            target: { type: "token" as const, tokenId: "unminted-tile-5785" },
+            config: { floor: 1n, ceiling: 2n, delta: 1n },
+            state: {},
+        };
+        let calls = 0;
+        sdk.api.getOffersByNFT = async () => {
+            calls++;
+            throw new Error(TEST_OPENSEA_NFT_NOT_FOUND_ERROR);
+        };
+
+        await assert.rejects(
+            () => service.getActiveOffers(job),
+            /NFT with identifier unminted-tile-5785 not found/,
+        );
+
+        assert.equal(calls, 1);
     });
 
     it("includes collection-wide and expanded competitive-trait buckets", async () => {

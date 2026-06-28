@@ -251,12 +251,16 @@ function assertBiddingPanelMetrics(metrics: BiddingPanelMetrics, testInfo: TestI
 	const first = metrics.rows[0];
 	for (const row of metrics.rows) {
 		expect(
-			Math.abs(row.label.left - first.label.left),
-			`${testInfo.project.name} ${row.controlId} label column left edge drifted`
+			Math.abs(row.row.left - first.row.left),
+			`${testInfo.project.name} ${row.controlId} row left edge drifted`
+		).toBeLessThanOrEqual(GEOMETRY_TOLERANCE_PX);
+		expect(
+			Math.abs(row.row.right - first.row.right),
+			`${testInfo.project.name} ${row.controlId} row right edge drifted`
 		).toBeLessThanOrEqual(GEOMETRY_TOLERANCE_PX);
 		expect(
 			Math.abs(row.label.right - first.label.right),
-			`${testInfo.project.name} ${row.controlId} label column right edge drifted`
+			`${testInfo.project.name} ${row.controlId} label right edge drifted`
 		).toBeLessThanOrEqual(GEOMETRY_TOLERANCE_PX);
 		expect(
 			Math.abs(row.control.left - first.control.left),
@@ -277,8 +281,8 @@ function assertBiddingPanelMetrics(metrics: BiddingPanelMetrics, testInfo: TestI
 
 	if (metrics.leftAction) {
 		expect(
-			Math.abs(metrics.leftAction.left - first.label.left),
-			`${testInfo.project.name} left action should align to the label column`
+			Math.abs(metrics.leftAction.left - first.row.left),
+			`${testInfo.project.name} left action should align to the form grid`
 		).toBeLessThanOrEqual(GEOMETRY_TOLERANCE_PX);
 	}
 	if (metrics.rightAction) {

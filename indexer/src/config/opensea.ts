@@ -7,6 +7,11 @@ import {
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
 import {
+    parseOpenSeaHttpConfig,
+    type OpenSeaHttpRateLimiterConfig,
+    type OpenSeaHttpRetryPolicy,
+} from "@artgod/shared/config/opensea-http";
+import {
     parseIndexerApmConfig,
     parseOpenSeaMetricsConfig,
     type IndexerApmConfig,
@@ -26,18 +31,8 @@ export type OpenSeaRuntimeConfig = {
         reconcileIntervalMs: number;
         staleStartThresholdMs: number;
         subscriptionPollMs: number;
-        retryPolicy: {
-            maxAttempts: number;
-            baseDelayMs: number;
-            maxDelayMs: number;
-            jitterRatio: number;
-        };
-        rateLimiter: {
-            getMax: number;
-            getRefillPerSecond: number;
-            postMax: number;
-            postRefillPerSecond: number;
-        };
+        retryPolicy: OpenSeaHttpRetryPolicy;
+        rateLimiter: OpenSeaHttpRateLimiterConfig;
     };
     apm: IndexerApmConfig;
     metrics: OpenSeaRuntimeMetricsConfig;
@@ -69,29 +64,6 @@ const DEFAULT_OPENSEA_STALE_START_THRESHOLD_MS = getSettingDefaultNumber(
 const DEFAULT_OPENSEA_STREAM_SUBSCRIPTION_POLL_MS = getSettingDefaultNumber(
     "OPENSEA_STREAM_SUBSCRIPTION_POLL_MS",
 );
-const DEFAULT_OPENSEA_HTTP_RETRY_MAX_ATTEMPTS = getSettingDefaultNumber(
-    "OPENSEA_HTTP_RETRY_MAX_ATTEMPTS",
-);
-const DEFAULT_OPENSEA_HTTP_RETRY_BASE_DELAY_MS = getSettingDefaultNumber(
-    "OPENSEA_HTTP_RETRY_BASE_DELAY_MS",
-);
-const DEFAULT_OPENSEA_HTTP_RETRY_MAX_DELAY_MS = getSettingDefaultNumber(
-    "OPENSEA_HTTP_RETRY_MAX_DELAY_MS",
-);
-const DEFAULT_OPENSEA_HTTP_RETRY_JITTER_RATIO = getSettingDefaultNumber(
-    "OPENSEA_HTTP_RETRY_JITTER_RATIO",
-);
-const DEFAULT_OPENSEA_RATE_LIMIT_GET_MAX = getSettingDefaultNumber(
-    "OPENSEA_RATE_LIMIT_GET_MAX",
-);
-const DEFAULT_OPENSEA_RATE_LIMIT_GET_REFILL_PER_SECOND =
-    getSettingDefaultNumber("OPENSEA_RATE_LIMIT_GET_REFILL_PER_SECOND");
-const DEFAULT_OPENSEA_RATE_LIMIT_POST_MAX = getSettingDefaultNumber(
-    "OPENSEA_RATE_LIMIT_POST_MAX",
-);
-const DEFAULT_OPENSEA_RATE_LIMIT_POST_REFILL_PER_SECOND =
-    getSettingDefaultNumber("OPENSEA_RATE_LIMIT_POST_REFILL_PER_SECOND");
-
 export function loadOpenSeaConfig(
     env: Record<string, string | undefined> = process.env,
 ): OpenSeaRuntimeConfig {
@@ -99,6 +71,7 @@ export function loadOpenSeaConfig(
     const chainId = parseNumber(env.CHAIN_ID, "CHAIN_ID", DEFAULT_CHAIN_ID);
     requireOpenSeaIntegrationEnabled(env);
     const apiKey = parseRequiredString(env.OPENSEA_API_KEY, "OPENSEA_API_KEY");
+    const httpConfig = parseOpenSeaHttpConfig(env);
 
     return {
         dbPath,
@@ -129,50 +102,8 @@ export function loadOpenSeaConfig(
                 "OPENSEA_STREAM_SUBSCRIPTION_POLL_MS",
                 DEFAULT_OPENSEA_STREAM_SUBSCRIPTION_POLL_MS,
             ),
-            retryPolicy: {
-                maxAttempts: parseNumber(
-                    env.OPENSEA_HTTP_RETRY_MAX_ATTEMPTS,
-                    "OPENSEA_HTTP_RETRY_MAX_ATTEMPTS",
-                    DEFAULT_OPENSEA_HTTP_RETRY_MAX_ATTEMPTS,
-                ),
-                baseDelayMs: parseNumber(
-                    env.OPENSEA_HTTP_RETRY_BASE_DELAY_MS,
-                    "OPENSEA_HTTP_RETRY_BASE_DELAY_MS",
-                    DEFAULT_OPENSEA_HTTP_RETRY_BASE_DELAY_MS,
-                ),
-                maxDelayMs: parseNumber(
-                    env.OPENSEA_HTTP_RETRY_MAX_DELAY_MS,
-                    "OPENSEA_HTTP_RETRY_MAX_DELAY_MS",
-                    DEFAULT_OPENSEA_HTTP_RETRY_MAX_DELAY_MS,
-                ),
-                jitterRatio: parseNumber(
-                    env.OPENSEA_HTTP_RETRY_JITTER_RATIO,
-                    "OPENSEA_HTTP_RETRY_JITTER_RATIO",
-                    DEFAULT_OPENSEA_HTTP_RETRY_JITTER_RATIO,
-                ),
-            },
-            rateLimiter: {
-                getMax: parseNumber(
-                    env.OPENSEA_RATE_LIMIT_GET_MAX,
-                    "OPENSEA_RATE_LIMIT_GET_MAX",
-                    DEFAULT_OPENSEA_RATE_LIMIT_GET_MAX,
-                ),
-                getRefillPerSecond: parseNumber(
-                    env.OPENSEA_RATE_LIMIT_GET_REFILL_PER_SECOND,
-                    "OPENSEA_RATE_LIMIT_GET_REFILL_PER_SECOND",
-                    DEFAULT_OPENSEA_RATE_LIMIT_GET_REFILL_PER_SECOND,
-                ),
-                postMax: parseNumber(
-                    env.OPENSEA_RATE_LIMIT_POST_MAX,
-                    "OPENSEA_RATE_LIMIT_POST_MAX",
-                    DEFAULT_OPENSEA_RATE_LIMIT_POST_MAX,
-                ),
-                postRefillPerSecond: parseNumber(
-                    env.OPENSEA_RATE_LIMIT_POST_REFILL_PER_SECOND,
-                    "OPENSEA_RATE_LIMIT_POST_REFILL_PER_SECOND",
-                    DEFAULT_OPENSEA_RATE_LIMIT_POST_REFILL_PER_SECOND,
-                ),
-            },
+            retryPolicy: httpConfig.retryPolicy,
+            rateLimiter: httpConfig.rateLimiter,
         },
         apm: parseIndexerApmConfig(env),
         metrics: parseOpenSeaRuntimeMetricsConfig(env),

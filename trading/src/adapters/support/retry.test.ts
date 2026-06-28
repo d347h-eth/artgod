@@ -17,9 +17,8 @@ describe("retry", () => {
             },
             {
                 maxAttempts: 5,
-                minDelayMs: 100,
+                baseDelayMs: 100,
                 maxDelayMs: 1_000,
-                factor: 2,
                 jitterRatio: 0,
             },
             {
@@ -46,9 +45,8 @@ describe("retry", () => {
                     },
                     {
                         maxAttempts: 5,
-                        minDelayMs: 100,
+                        baseDelayMs: 100,
                         maxDelayMs: 1_000,
-                        factor: 2,
                         jitterRatio: 0,
                     },
                     {
@@ -67,9 +65,8 @@ describe("retry", () => {
             2,
             {
                 maxAttempts: 5,
-                minDelayMs: 100,
+                baseDelayMs: 100,
                 maxDelayMs: 1_000,
-                factor: 2,
                 jitterRatio: 0.1,
             },
             () => 0,
@@ -78,9 +75,8 @@ describe("retry", () => {
             2,
             {
                 maxAttempts: 5,
-                minDelayMs: 100,
+                baseDelayMs: 100,
                 maxDelayMs: 1_000,
-                factor: 2,
                 jitterRatio: 0.1,
             },
             () => 1,

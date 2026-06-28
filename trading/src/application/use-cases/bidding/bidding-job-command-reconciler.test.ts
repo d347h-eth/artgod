@@ -117,10 +117,16 @@ class FakeBiddingService implements BiddingService {
     cancelled: string[] = [];
     placeError: Error | null = null;
     orderLookupResult: Order | null = null;
+    activeOffersError: Error | null = null;
+    activeOfferReads = 0;
 
     constructor(private readonly offers: Order[] = []) {}
 
     async getActiveOffers(): Promise<Order[]> {
+        this.activeOfferReads++;
+        if (this.activeOffersError) {
+            throw this.activeOffersError;
+        }
         return this.offers;
     }
 
@@ -404,6 +410,50 @@ describe("BiddingJobCommandReconciler", () => {
         assert.equal(repository.retryFailures.length, 1);
         assert.equal(repository.retryFailures[0]?.commandId, 1);
         assert.deepEqual(repository.remainingCommandIds(), [2]);
+    });
+
+    it("treats no-order cancellation as idempotent and continues later commands", async () => {
+        const job = makeJob("job-archived-without-order");
+        const repository = new FakeCommandRepository([
+            makeCommand(1, job.id, TRADING_JOB_COMMAND_KIND.CancelActiveOffer),
+            makeCommand(2, job.id, TRADING_JOB_COMMAND_KIND.JobArchived),
+        ]);
+        const source = new FakeJobSource(
+            new Map([[job.id, makeRecord(job, TRADING_JOB_STATUS.Archived)]]),
+        );
+        const biddingService = new FakeBiddingService([]);
+        biddingService.activeOffersError = new Error(
+            "Server Error: NFT with identifier unminted-tile-5785 not found in collection terraforms",
+        );
+        const bidder = new Bidder(biddingService, makerAddress, 60_000);
+        bidder.addJob(job);
+        const reconciled: string[][] = [];
+        const reconciler = new BiddingJobCommandReconciler(
+            repository,
+            source,
+            bidder,
+            {
+                prepareEnabledJob: async () => undefined,
+                reconcileEnabledJobs: async (jobs) => {
+                    reconciled.push(jobs.map((item) => item.id));
+                },
+            },
+            {
+                batchSize: 10,
+                claimTimeoutMs: 300_000,
+                maxAttempts: 3,
+            },
+        );
+
+        const processed = await reconciler.processPendingCommands("test");
+
+        assert.equal(processed, 2);
+        assert.equal(bidder.getJob(job.id), undefined);
+        assert.equal(biddingService.activeOfferReads, 0);
+        assert.deepEqual(biddingService.cancelled, []);
+        assert.deepEqual(reconciled, [[], []]);
+        assert.deepEqual(repository.completed, [1, 2]);
+        assert.deepEqual(repository.retryFailures, []);
     });
 
     it("recovers cancellation state from command payload after the live job is gone", async () => {

@@ -16,6 +16,7 @@
         "./config/debug-payload-persistence": "./config/debug-payload-persistence.ts",
         "./config/generated-settings-defaults": "./config/generated-settings-defaults.ts",
         "./config/http-fetch-resilience": "./config/http-fetch-resilience.ts",
+        "./config/opensea-http": "./config/opensea-http.ts",
         "./config/opensea-integration": "./config/opensea-integration.ts",
         "./config/rpc-auto-sourcing": "./config/rpc-auto-sourcing.ts",
         "./config/rpc-endpoints": "./config/rpc-endpoints.ts",

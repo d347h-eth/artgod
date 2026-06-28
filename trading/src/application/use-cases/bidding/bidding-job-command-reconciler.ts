@@ -214,6 +214,15 @@ export class BiddingJobCommandReconciler {
         }
 
         this.applyCancellationPayload(job, command.payload);
+        if (!hasTrackedActiveOrder(job)) {
+            log.info(
+                "activeOfferCancellationSkipped",
+                "Skipped active-offer cancellation because no tracked active order exists",
+                commandLogFields(command),
+            );
+            return;
+        }
+
         const originalRevision = job.revision;
         const activeOrderJobRevision = parseOptionalPayloadNumber(
             command.payload.activeOrderJobRevision,
@@ -316,6 +325,13 @@ function parseOptionalPayloadNumber(value: unknown): number | undefined {
     return typeof value === "number" && Number.isFinite(value)
         ? value
         : undefined;
+}
+
+function hasTrackedActiveOrder(job: BidderJob): boolean {
+    return (
+        typeof job.state.activeOrderId === "string" &&
+        job.state.activeOrderId.trim() !== ""
+    );
 }
 
 function commandLogFields(command: BiddingJobCommand): Record<string, unknown> {

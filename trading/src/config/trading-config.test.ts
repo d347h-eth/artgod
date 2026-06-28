@@ -6,6 +6,10 @@ import {
     getDefaultRpcRetryPolicy,
     RPC_RESILIENCE_ENV_KEY,
 } from "@artgod/shared/config/rpc-resilience";
+import {
+    getDefaultOpenSeaHttpConfig,
+    OPENSEA_HTTP_ENV_KEY,
+} from "@artgod/shared/config/opensea-http";
 import { BIDDING_CONFIG_ENV_KEY } from "@artgod/shared/config/bidding";
 import { RPC_ENDPOINT_LIST_ENV_KEY } from "@artgod/shared/config/rpc-endpoints";
 import {
@@ -92,6 +96,10 @@ describe("loadTradingConfig", () => {
             },
         });
         assert.equal(config.bidding.openSea.streamSecretKey, "stream-key");
+        assert.deepEqual(
+            config.bidding.openSea.http,
+            getDefaultOpenSeaHttpConfig(),
+        );
         assert.deepEqual(
             config.bidding.criteriaRefreshTraitsByCollection.terraforms,
             ["Zone", "Biome", "Level"],
@@ -180,6 +188,48 @@ describe("loadTradingConfig", () => {
         assert.equal(config.bidding.openSea.streamSecretKey, "shared-key");
         assert.equal(config.bidding.openSea.biddingSecretKey, "shared-key");
         assert.equal(config.bidding.openSea.snapshotSecretKey, "shared-key");
+    });
+
+    it("parses OpenSea HTTP settings for the bidding runtime", () => {
+        const config = loadTradingConfig(
+            {
+                ...requiredBaseEnv,
+                BIDDING_ENABLED: "true",
+                OPENSEA_STREAM_SECRET_KEY: "stream-key",
+                OPENSEA_BIDDING_SECRET_KEY: "bidding-key",
+                OPENSEA_SNAPSHOT_SECRET_KEY: "snapshot-key",
+                [OPENSEA_HTTP_ENV_KEY.RetryMaxAttempts]: "4",
+                [OPENSEA_HTTP_ENV_KEY.RetryBaseDelayMs]: "125",
+                [OPENSEA_HTTP_ENV_KEY.RetryMaxDelayMs]: "900",
+                [OPENSEA_HTTP_ENV_KEY.RetryJitterRatio]: "0.1",
+                [OPENSEA_HTTP_ENV_KEY.RateLimitGetMax]: "7",
+                [OPENSEA_HTTP_ENV_KEY.RateLimitGetRefillPerSecond]: "2.5",
+                [OPENSEA_HTTP_ENV_KEY.RateLimitPostMax]: "3",
+                [OPENSEA_HTTP_ENV_KEY.RateLimitPostRefillPerSecond]: "0.75",
+            },
+            {
+                envFilePath: "/tmp/artgod/runtime.env",
+            },
+        );
+
+        if (!config.bidding.enabled) {
+            throw new Error("Expected bidding to be enabled");
+        }
+
+        assert.deepEqual(config.bidding.openSea.http, {
+            retryPolicy: {
+                maxAttempts: 4,
+                baseDelayMs: 125,
+                maxDelayMs: 900,
+                jitterRatio: 0.1,
+            },
+            rateLimiter: {
+                getMax: 7,
+                getRefillPerSecond: 2.5,
+                postMax: 3,
+                postRefillPerSecond: 0.75,
+            },
+        });
     });
 
     it("parses explicit trait map overrides", () => {

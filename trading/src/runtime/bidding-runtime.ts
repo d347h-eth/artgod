@@ -40,6 +40,7 @@ import { OpenSeaBiddingService } from "../adapters/opensea/open-sea-bidding-serv
 import { OpenSeaCollectionOfferSource } from "../adapters/opensea/open-sea-collection-offer-source.js";
 import { OpenSeaEventStream } from "../adapters/opensea/open-sea-event-stream.js";
 import { OpenSeaMarketEventFactory } from "../adapters/opensea/open-sea-market-event-factory.js";
+import { TokenBucketRateLimiter } from "../adapters/support/token-bucket-rate-limiter.js";
 import { SqliteTradingBotRuntimeState } from "../adapters/runtime/sqlite-trading-bot-runtime-state.js";
 import { ViemWethAllowanceApprovalService } from "../adapters/wallet/viem-weth-allowance-approval-service.js";
 import { ViemMakerWethBalanceService } from "../adapters/wallet/viem-maker-weth-balance-service.js";
@@ -291,6 +292,12 @@ export async function startBiddingRuntime(
             createSnapshotApiClient(
                 params.biddingConfig.openSea.snapshotSecretKey,
             ),
+            {
+                retryPolicy: params.biddingConfig.openSea.http.retryPolicy,
+                rateLimiter: new TokenBucketRateLimiter(
+                    params.biddingConfig.openSea.http.rateLimiter,
+                ),
+            },
         ),
         snapshotBackedCollectionSlugs,
         params.biddingConfig.collectionOffersPollMs,
@@ -310,6 +317,10 @@ export async function startBiddingRuntime(
             tokenMetadataRepository,
             offerExpirationSeconds: params.biddingConfig.offerExpirationSeconds,
             orderLookupMaxPages: params.biddingConfig.orderLookupMaxPages,
+            retryPolicy: params.biddingConfig.openSea.http.retryPolicy,
+            rateLimiter: new TokenBucketRateLimiter(
+                params.biddingConfig.openSea.http.rateLimiter,
+            ),
             tokenCriteriaTraitsByCollection:
                 params.biddingConfig.tokenCriteriaTraitsByCollection,
         },

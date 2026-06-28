@@ -925,48 +925,56 @@ default = "5000"
 key = "OPENSEA_HTTP_RETRY_MAX_ATTEMPTS"
 group = "opensea"
 label = "opensea http retry max attempts"
-default = "3"
+help = "How many times OpenSea HTTP calls may be attempted before the app reports the operation as failed."
+default = "5"
 
 [[settings]]
 key = "OPENSEA_HTTP_RETRY_BASE_DELAY_MS"
 group = "opensea"
 label = "opensea http retry base delay ms"
+help = "Initial delay before retrying a failed OpenSea HTTP call."
 default = "500"
 
 [[settings]]
 key = "OPENSEA_HTTP_RETRY_MAX_DELAY_MS"
 group = "opensea"
 label = "opensea http retry max delay ms"
+help = "Maximum delay between retries for a failed OpenSea HTTP call."
 default = "10000"
 
 [[settings]]
 key = "OPENSEA_HTTP_RETRY_JITTER_RATIO"
 group = "opensea"
 label = "opensea http retry jitter ratio"
+help = "Randomizes OpenSea HTTP retry delays so repeated failures do not all retry at the same instant."
 default = "0.2"
 
 [[settings]]
 key = "OPENSEA_RATE_LIMIT_GET_MAX"
 group = "opensea"
 label = "opensea rate limit get max"
+help = "Maximum number of OpenSea GET requests the local token bucket can spend immediately."
 default = "4"
 
 [[settings]]
 key = "OPENSEA_RATE_LIMIT_GET_REFILL_PER_SECOND"
 group = "opensea"
 label = "opensea rate limit get refill per second"
+help = "How quickly OpenSea GET request capacity refills while the app is running."
 default = "1"
 
 [[settings]]
 key = "OPENSEA_RATE_LIMIT_POST_MAX"
 group = "opensea"
 label = "opensea rate limit post max"
+help = "Maximum number of OpenSea POST requests the local token bucket can spend immediately."
 default = "2"
 
 [[settings]]
 key = "OPENSEA_RATE_LIMIT_POST_REFILL_PER_SECOND"
 group = "opensea"
 label = "opensea rate limit post refill per second"
+help = "How quickly OpenSea POST request capacity refills while the app is running."
 default = "0.5"
 
 [[settings]]
