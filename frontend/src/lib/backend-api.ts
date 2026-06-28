@@ -2,6 +2,7 @@ import type {
 	BootstrapRunDetailApiResponse,
 	BootstrapRetryFailedResponse,
 	BootstrapContractProbeApiResponse,
+	BootstrapOpenSeaSlugProbeApiResponse,
 	BootstrapRunCreateResponse,
 	BootstrapRunsApiResponse,
 	BootstrapStepActionApiResponse,
@@ -49,13 +50,11 @@ import {
 	type TradingBiddingTierSelectionMode
 } from '@artgod/shared/types';
 import type { BootstrapStepAction, BootstrapStepKey } from '@artgod/shared/bootstrap/pipeline';
-import {
-	API_CSRF_HEADER_NAME,
-	API_CSRF_ROUTE_PATH
-} from '@artgod/shared/http/api-security';
+import { API_CSRF_HEADER_NAME, API_CSRF_ROUTE_PATH } from '@artgod/shared/http/api-security';
 import {
 	buildCreateBootstrapRunPath,
-	buildProbeBootstrapCollectionPath
+	buildProbeBootstrapCollectionPath,
+	buildProbeBootstrapOpenSeaSlugPath
 } from '@artgod/shared/http/bootstrap-routes';
 import { buildLookupBatchTokenBiddingJobsPath } from '@artgod/shared/http/trading-routes';
 import {
@@ -763,7 +762,7 @@ export async function createBootstrapRun(
 					mode: 'manual_range';
 					startTokenId: string;
 					totalSupply: number;
-		};
+			  };
 		imageCache?: {
 			selectedSource: ApiCollectionCustomizationSource;
 			imageCacheMode: ApiImageCacheMode;
@@ -778,6 +777,20 @@ export async function createBootstrapRun(
 		buildCreateBootstrapRunPath(chainRef),
 		'POST',
 		body
+	);
+}
+
+export async function probeBootstrapOpenSeaSlug(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	address: string
+): Promise<BootstrapOpenSeaSlugProbeApiResponse> {
+	return requestJson<BootstrapOpenSeaSlugProbeApiResponse>(
+		fetchFn,
+		buildProbeBootstrapOpenSeaSlugPath({
+			chainRef,
+			address
+		})
 	);
 }
 

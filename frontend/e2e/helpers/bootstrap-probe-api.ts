@@ -1,9 +1,13 @@
 import type { Page, Request, Route } from 'playwright/test';
-import type { BootstrapContractProbeApiResponse } from '../../src/lib/api-types';
+import type {
+	BootstrapContractProbeApiResponse,
+	BootstrapOpenSeaSlugProbeApiResponse
+} from '../../src/lib/api-types';
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/bootstrap';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 import { TERRAFORMS_EXTENSION_KEY } from '@artgod/shared/extensions/terraforms';
+import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from '@artgod/shared/bootstrap/opensea-slug-probe';
 import {
 	BOOTSTRAP_PROBE_E2E_CHAIN,
 	BOOTSTRAP_PROBE_E2E_ROUTE_PATH,
@@ -32,6 +36,12 @@ export const BOOTSTRAP_PROBE_MEDIA = {
 	DynamicAnimationUrl: 'https://dynamic.example/bootstrap-preview.html'
 } as const;
 
+// Created run fixture used after the bootstrap form redirects to run detail.
+export const BOOTSTRAP_PROBE_CREATED_RUN_ID = 1;
+
+// Backend API path the redirected detail view polls in the bootstrap probe harness.
+export const BOOTSTRAP_PROBE_CREATED_RUN_API_PATH = `/api/${BOOTSTRAP_PROBE_E2E_CHAIN.slug}/bootstrap-runs/${BOOTSTRAP_PROBE_CREATED_RUN_ID}`;
+
 // Captured bootstrap writes verify the UI payload when submit behavior is tested.
 export type CapturedBootstrapMutation = {
 	method: string;
@@ -43,12 +53,14 @@ export type CapturedBootstrapMutation = {
 export type BootstrapProbeApiMock = {
 	mutations: CapturedBootstrapMutation[];
 	probeRequests: string[];
+	openSeaSlugProbeRequests: string[];
 };
 
 // Returns deterministic bootstrap probe responses while capturing write calls.
 export async function installBootstrapProbeApiMock(page: Page): Promise<BootstrapProbeApiMock> {
 	const mutations: CapturedBootstrapMutation[] = [];
 	const probeRequests: string[] = [];
+	const openSeaSlugProbeRequests: string[] = [];
 
 	await page.route('**/api/**', async (route) => {
 		const request = route.request();
@@ -75,6 +87,16 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 			return;
 		}
 
+		if (
+			request.method() === 'GET' &&
+			url.pathname.endsWith('/collections/bootstrap/opensea-slug-probe')
+		) {
+			const address = normalizeAddress(url.searchParams.get('address') ?? '');
+			openSeaSlugProbeRequests.push(address);
+			await fulfillJson(route, openSeaSlugProbeResponse(address));
+			return;
+		}
+
 		if (request.method() === 'POST' && url.pathname.endsWith('/collections/bootstrap')) {
 			const mutation = {
 				method: request.method(),
@@ -91,6 +113,89 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 			return;
 		}
 
+		if (request.method() === 'GET' && url.pathname === BOOTSTRAP_PROBE_CREATED_RUN_API_PATH) {
+			await fulfillJson(route, {
+				chain: BOOTSTRAP_PROBE_E2E_CHAIN,
+				collection: {
+					chainId: 1,
+					collectionId: BOOTSTRAP_PROBE_CREATED_RUN_ID,
+					slug: 'bootstrap-probe-created',
+					address: BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster,
+					status: 'bootstrapping'
+				},
+				run: {
+					runId: BOOTSTRAP_PROBE_CREATED_RUN_ID,
+					chainId: 1,
+					collectionId: BOOTSTRAP_PROBE_CREATED_RUN_ID,
+					requestSlug: 'bootstrap-probe-created',
+					requestOpenseaSlug: 'raster-images-2026',
+					requestAddress: BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster,
+					requestStandard: 'erc721',
+					metadataMode: 'strict',
+					enumerationMode: 'enumerable',
+					manualTokenIdsJson: null,
+					manualRangeStartTokenId: null,
+					manualRangeTotalSupply: null,
+					imageCacheMode: IMAGE_CACHE_MODE.Off,
+					imageCacheMaxDimension: null,
+					deploymentBlock: null,
+					status: 'requested',
+					anchorBlock: null,
+					anchorBlockHash: null,
+					anchorBlockTimestamp: null,
+					errorCode: null,
+					errorMessage: null,
+					createdAt: '2026-06-01T12:00:00Z',
+					updatedAt: '2026-06-01T12:00:00Z',
+					finishedAt: null
+				},
+				flow: {
+					steps: [],
+					isTerminal: false,
+					shouldPoll: false
+				},
+				metadataTasks: {
+					total: 0,
+					pending: 0,
+					processing: 0,
+					succeeded: 0,
+					failedRetryable: 0,
+					failedTerminal: 0,
+					retry: 0
+				},
+				imageCacheTasks: {
+					total: 0,
+					pending: 0,
+					processing: 0,
+					succeeded: 0,
+					failedRetryable: 0,
+					failedTerminal: 0,
+					retry: 0
+				},
+				collectionExtensionArtifactTasks: {
+					total: 0,
+					pending: 0,
+					processing: 0,
+					succeeded: 0,
+					failedRetryable: 0,
+					failedTerminal: 0,
+					retry: 0
+				},
+				ownershipTasks: {
+					total: 0,
+					pending: 0,
+					processing: 0,
+					succeeded: 0,
+					failedRetryable: 0,
+					failedTerminal: 0,
+					retry: 0
+				},
+				events: [],
+				failedMetadataTasks: []
+			});
+			return;
+		}
+
 		await route.fulfill({
 			status: 500,
 			contentType: 'application/json',
@@ -100,7 +205,40 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 
 	return {
 		mutations,
-		probeRequests
+		probeRequests,
+		openSeaSlugProbeRequests
+	};
+}
+
+function openSeaSlugProbeResponse(address: string): BootstrapOpenSeaSlugProbeApiResponse {
+	if (address === BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable) {
+		return buildOpenSeaSlugProbeResponse(address, 'non-enumerable-test-collection');
+	}
+	if (address === BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster) {
+		return buildOpenSeaSlugProbeResponse(address, 'raster-images-2026');
+	}
+	if (address === BOOTSTRAP_PROBE_CONTRACTS.EnumerableOnchainSvg) {
+		return buildOpenSeaSlugProbeResponse(address, 'terraforms');
+	}
+	return {
+		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
+		address,
+		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
+		slug: null,
+		reason: 'OpenSea did not return a collection slug for this contract'
+	};
+}
+
+function buildOpenSeaSlugProbeResponse(
+	address: string,
+	slug: string
+): BootstrapOpenSeaSlugProbeApiResponse {
+	return {
+		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
+		address,
+		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
+		slug,
+		reason: null
 	};
 }
 

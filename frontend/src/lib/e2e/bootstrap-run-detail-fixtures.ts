@@ -105,7 +105,7 @@ export function buildBootstrapRunDetailE2eDetail(
 				imageCacheStep(state.imageCachePaused)
 			],
 			isTerminal: false,
-			shouldPoll: true
+			shouldPoll: false
 		},
 		failedMetadataTasksPreview: [],
 		failedMetadataTasksPreviewLimit: 50,

@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { goto, invalidateAll } from '$app/navigation';
+	import { goto } from '$app/navigation';
 	import {
 		BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
 		BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
 		BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION
 	} from '@artgod/shared/config/bootstrap';
+	import { OPENSEA_API_KEY_ENV } from '@artgod/shared/config/opensea-integration';
 	import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 	import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
@@ -17,11 +18,13 @@
 		ApiOpenSeaIntegrationStatus,
 		ApiTokenCard,
 		BootstrapContractProbeApiResponse,
+		BootstrapOpenSeaSlugProbeApiResponse,
 		BootstrapRunsApiResponse
 	} from '$lib/api-types';
 	import {
 		createBootstrapRun,
-		probeBootstrapCollectionContract
+		probeBootstrapCollectionContract,
+		probeBootstrapOpenSeaSlug
 	} from '$lib/backend-api';
 	import {
 		bootstrapProbeFormPatch,
@@ -38,6 +41,7 @@
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import { TEST_IDS } from '$lib/test-ids';
+	import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from '@artgod/shared/bootstrap/opensea-slug-probe';
 
 	let {
 		chain,
@@ -68,6 +72,18 @@
 	const bootstrapSelectClass = 'bootstrap-control bootstrap-control-select';
 	const bootstrapTextareaClass = 'bootstrap-control bootstrap-control-textarea';
 	const bootstrapCheckboxClass = 'bootstrap-checkbox';
+	// UI-local lifecycle states for the asynchronous OpenSea slug probe.
+	const openSeaSlugProbeUiStatus = {
+		Idle: 'idle',
+		Waiting: 'waiting',
+		Loading: 'loading',
+		Ready: 'ready',
+		Error: 'error'
+	} as const;
+	type OpenSeaSlugProbeUiStatus =
+		(typeof openSeaSlugProbeUiStatus)[keyof typeof openSeaSlugProbeUiStatus];
+	const openSeaSetupMessage =
+		`Set ${OPENSEA_API_KEY_ENV} in Admin UI to sync OpenSea market/orderbook asks/offers required by built-in bidding bot features. Fully restart the app after saving the key in Admin UI.`;
 	const bootstrapPreviewMediaModes: ApiCollectionMediaMode[] = [
 		{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
 	];
@@ -120,11 +136,18 @@
 	let manualEditingAllowed = $state(false);
 	let submitting = $state(false);
 	let submitError = $state<string | null>(null);
-	let submitSuccess = $state<string | null>(null);
 	let probeStatus = $state<'idle' | 'waiting' | 'loading' | 'ready' | 'error'>('idle');
 	let probeResult = $state<BootstrapContractProbeApiResponse | null>(null);
 	let probeError = $state<string | null>(null);
 	let probeAddress = $state<string | null>(null);
+	let openSeaSlugProbeStatus = $state<OpenSeaSlugProbeUiStatus>(
+		openSeaSlugProbeUiStatus.Idle
+	);
+	let openSeaSlugProbeResult = $state<BootstrapOpenSeaSlugProbeApiResponse | null>(null);
+	let openSeaSlugProbeError = $state<string | null>(null);
+	let openSeaSlugProbeAddress = $state<string | null>(null);
+	let lastAutoFilledOpenSeaSlug: string | null = null;
+	let openSeaSlugWasAutoFilled = false;
 	let openSeaEnabled = $derived(openseaIntegration?.enabled === true);
 	let openSeaDisabledReason = $derived(
 		openseaIntegration && !openseaIntegration.enabled
@@ -146,6 +169,10 @@
 	);
 	let probeControlledDisabled = $derived(
 		probeStatus === 'ready' && probeResult !== null && latestProbeMatchesAddress && !manualEditingAllowed
+	);
+	let latestOpenSeaSlugProbeMatchesAddress = $derived(
+		openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Ready &&
+			openSeaSlugProbeAddress === normalizedBootstrapAddress
 	);
 	let imageCacheExtensionControlledDisabled = $derived(
 		probeStatus === 'ready' &&
@@ -203,6 +230,56 @@
 		};
 	});
 
+	$effect(() => {
+		if (!browser) return;
+		const chainSlug = chain?.slug ?? null;
+		const address = normalizedBootstrapAddress;
+		if (!chainSlug || !openSeaEnabled || !isBootstrapProbeableAddress(address)) {
+			openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Idle;
+			openSeaSlugProbeResult = null;
+			openSeaSlugProbeError = null;
+			openSeaSlugProbeAddress = null;
+			return;
+		}
+
+		openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Waiting;
+		openSeaSlugProbeResult = null;
+		openSeaSlugProbeAddress = null;
+		openSeaSlugProbeError = null;
+		if (openSeaSlugWasAutoFilled) {
+			bootstrapOpenSeaSlug = '';
+			lastAutoFilledOpenSeaSlug = null;
+			openSeaSlugWasAutoFilled = false;
+		}
+
+		let cancelled = false;
+		const timer = window.setTimeout(() => {
+			void (async () => {
+				openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Loading;
+				try {
+					const result = await probeBootstrapOpenSeaSlug(fetch, chainSlug, address);
+					if (cancelled) return;
+					openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Ready;
+					openSeaSlugProbeResult = result;
+					openSeaSlugProbeAddress = result.address;
+					applyOpenSeaSlugProbeResult(result);
+				} catch (error) {
+					if (cancelled) return;
+					openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Error;
+					openSeaSlugProbeResult = null;
+					openSeaSlugProbeAddress = null;
+					openSeaSlugProbeError =
+						error instanceof Error ? error.message : 'OpenSea slug probe failed';
+				}
+			})();
+		}, 450);
+
+		return () => {
+			cancelled = true;
+			window.clearTimeout(timer);
+		};
+	});
+
 	function normalizeFieldValue(value: unknown): string {
 		if (typeof value === 'string') return value.trim();
 		if (typeof value === 'number' && Number.isFinite(value)) {
@@ -212,8 +289,8 @@
 	}
 
 	function runHref(runId: number): string {
-		if (!chain) return '#';
-		return `/${chain.slug}/bootstrap-runs/${runId}`;
+		const normalizedBasePath = basePath.endsWith('/') ? basePath.slice(0, -1) : basePath;
+		return `${normalizedBasePath}/${runId}`;
 	}
 
 	function applyProbeResult(result: BootstrapContractProbeApiResponse): void {
@@ -232,11 +309,67 @@
 		applyProbeImageCacheSuggestion(result.imageCacheSuggestion);
 	}
 
+	function applyOpenSeaSlugProbeResult(result: BootstrapOpenSeaSlugProbeApiResponse): void {
+		if (
+			result.status !== BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found ||
+			!result.slug ||
+			result.address !== normalizedBootstrapAddress
+		) {
+			return;
+		}
+		if (!bootstrapOpenSeaSlug.trim() || bootstrapOpenSeaSlug === lastAutoFilledOpenSeaSlug) {
+			bootstrapOpenSeaSlug = result.slug;
+			lastAutoFilledOpenSeaSlug = result.slug;
+			openSeaSlugWasAutoFilled = true;
+		}
+	}
+
+	function onOpenSeaSlugInput(): void {
+		openSeaSlugWasAutoFilled = false;
+	}
+
 	function probeStateLabel(): string {
 		if (probeStatus === 'waiting' || probeStatus === 'loading') return 'probing';
 		if (probeStatus === 'ready' && probeResult) return bootstrapProbeStatusLabel(probeResult);
 		if (probeStatus === 'error') return 'probe failed';
 		return '';
+	}
+
+	function openSeaSlugProbeMessage(): string | null {
+		if (openSeaDisabledReason) {
+			return `${openSeaDisabledReason}. ${openSeaSetupMessage}`;
+		}
+		if (!openSeaEnabled) {
+			return openSeaSetupMessage;
+		}
+		if (
+			openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Waiting ||
+			openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Loading
+		) {
+			return 'probing OpenSea slug';
+		}
+		if (openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Error) {
+			return openSeaSlugProbeError;
+		}
+		if (
+			openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Ready &&
+			latestOpenSeaSlugProbeMatchesAddress &&
+			openSeaSlugProbeResult
+		) {
+			if (openSeaSlugProbeResult.status === BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found) {
+				return 'OpenSea slug found from contract address';
+			}
+			if (openSeaSlugProbeResult.status === BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Disabled) {
+				return `${openSeaSlugProbeResult.reason ?? 'OpenSea integration disabled'}. ${openSeaSetupMessage}`;
+			}
+			if (openSeaSlugProbeResult.status === BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing) {
+				return (
+					openSeaSlugProbeResult.reason ??
+					'No OpenSea slug found for this contract; enter it manually if needed'
+				);
+			}
+		}
+		return null;
 	}
 
 	function interfaceLabel(value: boolean | null): string {
@@ -431,7 +564,6 @@
 	async function onSubmitBootstrap(event: Event): Promise<void> {
 		event.preventDefault();
 		submitError = null;
-		submitSuccess = null;
 		if (!chain) {
 			submitError = 'chain is not ready';
 			return;
@@ -524,8 +656,7 @@
 						imageCacheMode === IMAGE_CACHE_MODE.Off ? null : imageCacheMaxDimensionValue
 				}
 			});
-			submitSuccess = `bootstrap queued (run ${result.runId})`;
-			await invalidateAll();
+			await goto(runHref(result.runId));
 		} catch (error) {
 			submitError = error instanceof Error ? error.message : 'bootstrap request failed';
 		} finally {
@@ -571,14 +702,9 @@
 	<form class="bootstrap-form bootstrap-create-form" onsubmit={onSubmitBootstrap}>
 		<div class="bootstrap-create-layout">
 			<div class="bootstrap-form-fields">
-				{#if submitSuccess || submitError}
+				{#if submitError}
 					<div class="bootstrap-form-feedback">
-						{#if submitSuccess}
-							<span class="muted">{submitSuccess}</span>
-						{/if}
-						{#if submitError}
-							<span class="muted">{submitError}</span>
-						{/if}
+						<span class="muted">{submitError}</span>
 					</div>
 				{/if}
 
@@ -610,10 +736,12 @@
 								bind:value={bootstrapOpenSeaSlug}
 								class={`${bootstrapInputClass} bootstrap-input-slug`}
 								type="text"
+								name="openseaSlug"
 								disabled={!openSeaEnabled}
+								oninput={onOpenSeaSlugInput}
 							/>
-							{#if openSeaDisabledReason}
-								<span class="muted">{openSeaDisabledReason}</span>
+							{#if openSeaSlugProbeMessage()}
+								<span class="muted">{openSeaSlugProbeMessage()}</span>
 							{/if}
 						</div>
 					</label>

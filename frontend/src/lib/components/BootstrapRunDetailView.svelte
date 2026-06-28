@@ -43,6 +43,7 @@
 	$effect(() => {
 		if (!browser || !chainRef || !runId) return;
 		stopRefreshTimer();
+		if (detail?.flow.shouldPoll === false) return;
 		void refreshRunDetail();
 		refreshTimer = setInterval(() => {
 			void refreshRunDetail();

@@ -22,6 +22,7 @@ import type {
 	BootstrapTaskCounts,
 	BootstrapTaskStatus
 } from '@artgod/shared/bootstrap/pipeline';
+import type { BootstrapOpenSeaSlugProbeStatus } from '@artgod/shared/bootstrap/opensea-slug-probe';
 
 export type ApiChain = {
 	id: number;
@@ -262,13 +263,11 @@ export type BootstrapContractProbeApiResponse = {
 	imageStorageEstimate: ApiBootstrapProbeImageStorageEstimate;
 	suggestedInput: {
 		supportsEnumerable: boolean;
-		manualInput:
-			| {
-					mode: 'manual_range';
-					startTokenId: string;
-					totalSupply: number;
-			  }
-			| null;
+		manualInput: {
+			mode: 'manual_range';
+			startTokenId: string;
+			totalSupply: number;
+		} | null;
 		ready: boolean;
 		warnings: string[];
 	};
@@ -842,6 +841,14 @@ export type ApiOpenSeaIntegrationStatus = {
 	reason: string | null;
 	missingKeys: string[];
 	requiredKeys: string[];
+};
+
+export type BootstrapOpenSeaSlugProbeApiResponse = {
+	chain: ApiChain;
+	address: string;
+	status: BootstrapOpenSeaSlugProbeStatus;
+	slug: string | null;
+	reason: string | null;
 };
 
 export type RuntimeConfigApiResponse = {
