@@ -28,6 +28,10 @@ import {
     parseRpcEndpointResilienceConfig,
     parseRpcRetryPolicy,
 } from "@artgod/shared/config/rpc-resilience";
+import {
+    parseOpenSeaHttpConfig,
+    type OpenSeaHttpConfig,
+} from "@artgod/shared/config/opensea-http";
 import { resolveRuntimeEnvPath } from "@artgod/shared/utils/runtime-env";
 import { parseEther, parseGwei } from "viem";
 import {
@@ -96,6 +100,7 @@ export type EnabledBiddingConfig = {
         streamSecretKey: string;
         biddingSecretKey: string;
         snapshotSecretKey: string;
+        http: OpenSeaHttpConfig;
     };
 };
 
@@ -284,7 +289,7 @@ export function loadTradingConfig(
             ? {
                   enabled: true,
                   ...biddingBase,
-                  openSea: parseOpenSeaSecrets(env),
+                  openSea: parseOpenSeaConfig(env),
               }
             : {
                   enabled: false,
@@ -293,10 +298,11 @@ export function loadTradingConfig(
     };
 }
 
-function parseOpenSeaSecrets(env: Record<string, string | undefined>): {
+function parseOpenSeaConfig(env: Record<string, string | undefined>): {
     streamSecretKey: string;
     biddingSecretKey: string;
     snapshotSecretKey: string;
+    http: OpenSeaHttpConfig;
 } {
     const secrets = {
         streamSecretKey: parseRequiredString(
@@ -311,6 +317,7 @@ function parseOpenSeaSecrets(env: Record<string, string | undefined>): {
             env[BIDDING_RUNTIME_ENV_KEY.OpenSeaSnapshotSecretKey],
             BIDDING_RUNTIME_ENV_KEY.OpenSeaSnapshotSecretKey,
         ),
+        http: parseOpenSeaHttpConfig(env),
     };
 
     return secrets;

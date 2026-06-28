@@ -2,9 +2,8 @@ import { sleep } from "../../utils/sleep.js";
 
 export type RetryPolicy = {
     maxAttempts: number;
-    minDelayMs: number;
+    baseDelayMs: number;
     maxDelayMs: number;
-    factor: number;
     jitterRatio: number;
 };
 
@@ -22,12 +21,13 @@ export type RetryOptions = {
 };
 
 export const defaultRetryPolicy: RetryPolicy = {
-    maxAttempts: 10,
-    minDelayMs: 2_000,
-    maxDelayMs: 30_000,
-    factor: 1.5,
+    maxAttempts: 5,
+    baseDelayMs: 500,
+    maxDelayMs: 10_000,
     jitterRatio: 0.2,
 };
+
+const RETRY_EXPONENTIAL_FACTOR = 2;
 
 // Retries transient adapter work with bounded exponential backoff and optional jitter.
 export async function retry<T>(
@@ -77,7 +77,7 @@ export function getRetryDelayMs(
     const exponent = Math.max(0, attempt - 1);
     const baseDelay = Math.min(
         policy.maxDelayMs,
-        policy.minDelayMs * Math.pow(policy.factor, exponent),
+        policy.baseDelayMs * Math.pow(RETRY_EXPONENTIAL_FACTOR, exponent),
     );
     const jitter =
         baseDelay * policy.jitterRatio * (randomFn() * 2 - 1);
