@@ -167,6 +167,7 @@ When adding a new indexer runtime (example `foo-worker`):
 
 10. Verify.
     : `yarn install --immutable`
+    : `yarn build:sqlite-native`
     : `yarn build:runtime`
     : `yarn build:desktop-runtime-resources`
     : `yarn tauri build --no-bundle --ci`
@@ -196,6 +197,7 @@ When adding a new trading bot runtime (example `foo-bot`):
 
 7. Verify.
    : `yarn install --immutable`
+   : `yarn build:sqlite-native`
    : `yarn build:runtime`
    : `yarn build:desktop-runtime-resources`
    : `yarn tauri build --no-bundle --ci`

@@ -80,6 +80,7 @@ Root build/helper commands:
 
 ```sh
 yarn install --immutable
+yarn build:sqlite-native
 yarn build:web
 yarn build:userland
 yarn build:admin
@@ -94,6 +95,10 @@ yarn tauri build --debug --no-bundle --ci
 ```
 
 What each command does:
+
+- `yarn build:sqlite-native`
+  : Runs `scripts/build/build-sqlite-native-binding.mjs`.
+  : Invokes only the trusted `better-sqlite3` package-local install step from `.yarn/unplugged` and fails if `build/Release/better_sqlite3.node` is missing.
 
 - `yarn build:web`
   : Runs `scripts/build/build-frontend-target.mjs web`.
@@ -638,7 +643,7 @@ Consumer-side verification examples:
 Common issues and checks:
 
 - Runtime artifacts missing
-  : Run `yarn install --immutable && yarn build:runtime && yarn build:desktop-runtime-resources`.
+  : Run `yarn install --immutable && yarn build:sqlite-native && yarn build:runtime && yarn build:desktop-runtime-resources`.
 
 - Stale dist/cache state
   : Run `yarn clean:build`.

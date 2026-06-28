@@ -59,12 +59,12 @@ Desktop development from a clean checkout:
 
 ```sh
 yarn install --immutable
-YARN_ENABLE_SCRIPTS=true yarn rebuild better-sqlite3
+yarn build:sqlite-native
 yarn dev:composition
 ```
 
-The rebuild step compiles the local SQLite native binding while keeping install
-scripts disabled for the rest of the dependency install.
+The SQLite build step compiles the trusted local native binding while keeping
+install scripts disabled for the rest of the dependency install.
 
 Long-form setup, configuration, versioning, test, and command details live in
 `docs/development/01-local-development.md`.
