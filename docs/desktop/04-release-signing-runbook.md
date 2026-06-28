@@ -2,6 +2,8 @@
 
 This is the operator checklist for producing the first public desktop release.
 The release workflow is `.github/workflows/tauri-release.yml`.
+Signing and notarization secrets live in the GitHub Environment named
+`desktop-release-signing`.
 
 The target release artifacts are:
 
@@ -48,6 +50,28 @@ Recommended first purchase path:
 - Linux: do not buy a platform certificate. Use a dedicated release GPG key and
   publish the public key/fingerprint on stable maintainer-controlled profiles.
   Detailed setup is in `docs/desktop/05-linux-gpg-release-signing.md`.
+
+## GitHub Environment Secret Placement
+
+Create a GitHub Environment named `desktop-release-signing` and store all
+release signing and notarization secrets there, not as repository-wide secrets.
+
+Environment protection:
+
+- Restrict deployments to release tags matching `v*` if the repository settings
+  support tag restrictions.
+- Optionally require the maintainer as reviewer before release jobs can access
+  signing material.
+
+Workflow policy:
+
+- `.github/workflows/tauri-build-check.yml` uses no secrets and runs on pull
+  requests, pushes to `main`, and manual dispatch.
+- `.github/workflows/tauri-release.yml` runs on pushed `v*` tags.
+- The release workflow `build` and `release` jobs declare
+  `environment: desktop-release-signing`.
+- Environment secrets are still referenced through the GitHub Actions
+  `secrets.NAME` context.
 
 ## Current Tauri State
 
@@ -117,7 +141,7 @@ Procedure:
    - issuer ID
    - key ID
    - team ID if needed later
-9. Set GitHub Actions secrets:
+9. Set GitHub Actions Environment secrets in `desktop-release-signing`:
    - `APPLE_CERTIFICATE`: base64 content of the exported `.p12`
    - `APPLE_CERTIFICATE_PASSWORD`: `.p12` export password
    - `APPLE_SIGNING_IDENTITY`: `Developer ID Application: <legal name> (<team id>)`
@@ -221,7 +245,7 @@ Recommended procedure:
 2. Protect every private key export with a strong passphrase.
 3. Publish the public key and full fingerprint on the project README, GitHub
    profile, and any stable personal/project site.
-4. Store GitHub Actions secrets:
+4. Store GitHub Actions Environment secrets in `desktop-release-signing`:
    - `LINUX_GPG_PRIVATE_KEY_ASC`
    - `LINUX_GPG_PASSPHRASE`
    - `LINUX_GPG_KEY_ID`
@@ -245,8 +269,8 @@ Before pushing a `v*` tag:
 1. Run `yarn sync:version`.
 2. Confirm root `package.json`, workspace manifests, `src-tauri/tauri.conf.json`,
    and Cargo package version match.
-3. Run the Linux build check workflow on the release branch.
-4. Run the release workflow once manually or on a private dry-run tag.
+3. Confirm the build check workflow passed after merge to `main`.
+4. Run the release workflow once on a private or pre-release dry-run tag.
 5. Install each produced artifact on a clean Linux and macOS machine.
 6. Verify macOS Gatekeeper opens the DMG without bypass actions.
 7. Verify Linux GPG signatures and checksum manifest from a clean keyring.

@@ -211,11 +211,11 @@ the contents of `artgod-linux-release-private.asc`.
 
 ## GitHub Actions Secret Setup
 
-Use repository secrets for the current workflow. A stronger variant is to move
-these into a protected GitHub Environment such as `release-signing`, then update
-the workflow jobs that need signing secrets to reference that environment.
+Use GitHub Environment secrets in `desktop-release-signing`, not repository-wide
+secrets. The release workflow attaches this environment to both jobs that need
+signing material.
 
-Current workflow secret values:
+Environment secret values:
 
 - `LINUX_GPG_PRIVATE_KEY_ASC`: contents of `artgod-ci-linux-signing-subkeys.asc`
   for the recommended setup, or `artgod-linux-release-private.asc` for the
@@ -228,18 +228,19 @@ Current workflow secret values:
 Browser path:
 
 1. Open the GitHub repository.
-2. Go to `Settings` / `Secrets and variables` / `Actions`.
-3. Add each secret above.
-4. Confirm the release workflow fails fast if any required Linux GPG secret is
+2. Go to `Settings` / `Environments`.
+3. Create or open `desktop-release-signing`.
+4. Add each secret above under Environment secrets.
+5. Confirm the release workflow fails fast if any required Linux GPG secret is
    missing.
 
 Optional `gh` CLI path:
 
 ```sh
-gh secret set LINUX_GPG_PRIVATE_KEY_ASC < artgod-ci-linux-signing-subkeys.asc
-gh secret set LINUX_GPG_PASSPHRASE
-printf '%s' "$PRIMARY_FPR" | gh secret set LINUX_GPG_KEY_ID
-gh secret set LINUX_GPG_OWNERTRUST < artgod-release-ownertrust.txt
+gh secret set --env desktop-release-signing LINUX_GPG_PRIVATE_KEY_ASC < artgod-ci-linux-signing-subkeys.asc
+gh secret set --env desktop-release-signing LINUX_GPG_PASSPHRASE
+printf '%s' "$PRIMARY_FPR" | gh secret set --env desktop-release-signing LINUX_GPG_KEY_ID
+gh secret set --env desktop-release-signing LINUX_GPG_OWNERTRUST < artgod-release-ownertrust.txt
 ```
 
 If using the simple setup, replace the private-key file and fingerprint with the
@@ -269,8 +270,8 @@ The release job:
 6. Publishes artifacts, signatures, checksums, and GitHub provenance
    attestations.
 
-This means the CI secret must be available to both the Linux matrix build job
-and the final release job.
+This means the `desktop-release-signing` environment must be attached to both
+the Linux matrix build job and the final release job.
 
 ## Public Key Publication
 

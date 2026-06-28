@@ -553,12 +553,23 @@ Tauri commands used by desktop frontend runtime UI/state:
 
 Public release workflow:
 
+- `.github/workflows/tauri-build-check.yml` (no-bundle Linux check)
 - `.github/workflows/tauri-release.yml`
 - `.github/workflows/tauri-repro-check.yml` (unsigned Linux reproducibility parity check)
 
 Trigger:
 
-- push tag `v*`
+- build check: pull request, push to `main`, or manual dispatch
+- release: push tag `v*`
+- reproducibility check: push tag `v*` or manual dispatch
+
+Build-check trigger policy:
+
+- Do not add `paths-ignore` for version-sync files; they are build-critical
+  inputs for Tauri, Cargo, and workspace packaging.
+- For a version-only `yarn sync:version` commit after a green merge commit on
+  `main`, use GitHub's `skip-checks: true` commit trailer only when no other
+  files changed.
 
 Build matrix:
 
@@ -582,6 +593,11 @@ Current state:
   `signtool.exe` on the Windows runner.
 
 Release secrets expected by CI:
+
+Store release signing and notarization secrets as GitHub Environment secrets in
+`desktop-release-signing`, not as repository-wide secrets. The release workflow
+declares that environment on the jobs that need secrets. The build-check and
+reproducibility workflows do not use signing secrets.
 
 - Linux GPG:
     - `LINUX_GPG_PRIVATE_KEY_ASC`

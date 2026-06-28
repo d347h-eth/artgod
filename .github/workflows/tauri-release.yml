@@ -30,6 +30,7 @@ jobs:
                       artifact_name: artgod-macos-universal
 
         runs-on: ${{ matrix.os }}
+        environment: desktop-release-signing
 
         steps:
             - name: Checkout
@@ -264,6 +265,7 @@ jobs:
     release:
         needs: build
         runs-on: ubuntu-latest
+        environment: desktop-release-signing
 
         steps:
             - name: Download all artifacts
