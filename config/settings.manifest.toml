@@ -61,31 +61,35 @@ key = "ARTGOD_DB_PATH"
 group = "chain-rpc"
 label = "artgod db path"
 defaults = { local = "database/sqlite/main/db", deploy = "/data/sqlite/main/db", desktop = "sqlite/main/db" }
-help = "SQLite database path. Desktop resolves relative paths from the app-data directory."
+help = "SQLite database file path; desktop relative paths resolve from app data."
 
 [[settings]]
 key = "BACKEND_HOST"
 group = "backend"
 label = "backend host"
 defaults = { local = "127.0.0.1", deploy = "0.0.0.0", desktop = "127.0.0.1" }
+help = "Network interface the backend listens on; keep localhost for desktop and local use."
 
 [[settings]]
 key = "BACKEND_PORT"
 group = "backend"
 label = "backend port"
 default = "42710"
+help = "Port for the local backend API and userland web server."
 
 [[settings]]
 key = "BACKEND_ALLOWED_HOSTS"
 group = "backend"
 label = "backend allowed hosts"
 default = "127.0.0.1,localhost,::1"
+help = "Comma-separated Host headers accepted by the backend."
 
 [[settings]]
 key = "BACKEND_ALLOWED_ORIGINS"
 group = "backend"
 label = "backend allowed origins"
 defaults = { local = "http://127.0.0.1:42710,http://localhost:42710,http://127.0.0.1:42701,http://localhost:42701,http://tauri.localhost,tauri://localhost", deploy = "http://127.0.0.1:42710,http://localhost:42710", desktop = "http://127.0.0.1:42710,http://localhost:42710,http://127.0.0.1:42701,http://localhost:42701,http://tauri.localhost,tauri://localhost" }
+help = "Comma-separated browser origins allowed to make authenticated backend requests."
 
 [[settings]]
 key = "BACKEND_CSRF_COOKIE_SECURE"
@@ -93,6 +97,7 @@ group = "backend"
 label = "backend csrf cookie secure"
 defaults = { local = "false", deploy = "true", desktop = "false" }
 input = "checkbox"
+help = "Requires the CSRF cookie to be sent only over HTTPS; enable for public HTTPS deploys."
 
 [[settings]]
 key = "BACKEND_QUERY_CACHE_PROVIDER"
@@ -101,49 +106,56 @@ label = "backend query cache provider"
 defaults = { local = "disabled", deploy = "memory", desktop = "disabled" }
 input = "select"
 options = ["disabled", "memory"]
-help = "Set to memory to enable the lightweight in-memory backend read-query cache."
+help = "Selects the backend read-query cache; memory helps public read-heavy pages, while disabled keeps reads uncached."
 
 [[settings]]
 key = "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES"
 group = "backend-cache"
 label = "backend query cache token preview max entries"
 default = "250"
+help = "Maximum token-preview responses kept in the backend memory cache."
 
 [[settings]]
 key = "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS"
 group = "backend-cache"
 label = "backend query cache token preview fresh ms"
 default = "600000"
+help = "How long cached token previews are served as fresh before background refresh is considered."
 
 [[settings]]
 key = "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS"
 group = "backend-cache"
 label = "backend query cache token preview stale ms"
 default = "1200000"
+help = "How long cached token previews may be served while a replacement is warming."
 
 [[settings]]
 key = "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_WARMUP_CONCURRENCY"
 group = "backend-cache"
 label = "backend query cache token preview warmup concurrency"
 default = "3"
+help = "How many token previews the backend warms in parallel after cached collection refreshes."
 
 [[settings]]
 key = "BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS"
 group = "backend-cache"
 label = "backend public collection cache refresh ms"
 default = "30000"
+help = "How often the backend refreshes the cached public collection page."
 
 [[settings]]
 key = "BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS"
 group = "backend-cache"
 label = "backend public collection preview warm refresh ms"
 default = "600000"
+help = "How often the backend warms token previews for the cached public collection page."
 
 [[settings]]
 key = "BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS"
 group = "backend"
 label = "backend public blockspace cache refresh ms"
 default = "60000"
+help = "How often the backend refreshes cached public blockspace data."
 
 [[settings]]
 key = "BACKEND_METRICS_ENABLED"
@@ -151,18 +163,21 @@ group = "backend-observability"
 label = "backend metrics enabled"
 default = "false"
 input = "checkbox"
+help = "Enables the backend Prometheus metrics endpoint."
 
 [[settings]]
 key = "BACKEND_METRICS_HOST"
 group = "backend-observability"
 label = "backend metrics host"
 default = "0.0.0.0"
+help = "Network interface for the backend metrics endpoint."
 
 [[settings]]
 key = "BACKEND_METRICS_PORT"
 group = "backend-observability"
 label = "backend metrics port"
 default = "42740"
+help = "Port for the backend Prometheus metrics endpoint."
 
 [[settings]]
 key = "BACKEND_APM_ENABLED"
@@ -170,12 +185,14 @@ group = "backend-observability"
 label = "backend apm enabled"
 default = "false"
 input = "checkbox"
+help = "Enables backend tracing and profiling exporters."
 
 [[settings]]
 key = "BACKEND_APM_SERVICE_NAMESPACE"
 group = "backend-observability"
 label = "backend apm service namespace"
 default = "artgod.backend"
+help = "Service namespace used to group backend APM signals."
 
 [[settings]]
 key = "BACKEND_APM_OTLP_HTTP_URL"
@@ -183,6 +200,7 @@ group = "backend-observability"
 label = "backend apm otlp http url"
 default = ""
 validation = "url"
+help = "Optional backend-specific OTLP HTTP trace endpoint; blank uses the shared observability endpoint."
 
 [[settings]]
 key = "BACKEND_APM_PYROSCOPE_URL"
@@ -190,6 +208,7 @@ group = "backend-observability"
 label = "backend apm pyroscope url"
 default = ""
 validation = "url"
+help = "Optional backend-specific Pyroscope profiling endpoint; blank uses the shared observability endpoint."
 
 [[settings]]
 key = "BACKEND_APM_SPAN_PROFILES_ENABLED"
@@ -197,6 +216,7 @@ group = "backend-observability"
 label = "backend apm span profiles enabled"
 default = "true"
 input = "checkbox"
+help = "Links backend span context to profiling samples when tracing and profiling are enabled."
 
 [[settings]]
 key = "BACKEND_APM_TRACES_ENABLED"
@@ -204,6 +224,7 @@ group = "backend-observability"
 label = "backend apm traces enabled"
 default = "true"
 input = "checkbox"
+help = "Exports backend traces to the configured OTLP endpoint when APM is enabled."
 
 [[settings]]
 key = "BACKEND_APM_PROFILES_ENABLED"
@@ -211,6 +232,7 @@ group = "backend-observability"
 label = "backend apm profiles enabled"
 default = "true"
 input = "checkbox"
+help = "Exports backend CPU profiles to the configured Pyroscope endpoint when APM is enabled."
 
 [[settings]]
 key = "PUBLIC_BACKEND_ORIGIN"
@@ -220,6 +242,7 @@ defaults = { local = "http://127.0.0.1:42710", deploy = "https://terraforms.artg
 targets = ["local", "deploy"]
 validation = "url"
 desktop_managed = false
+help = "Public browser origin for the backend API in hosted web deployments."
 
 [[settings]]
 key = "INTERNAL_BACKEND_ORIGIN"
@@ -229,6 +252,7 @@ defaults = { local = "", deploy = "http://backend:42710" }
 targets = ["local", "deploy"]
 validation = "url"
 desktop_managed = false
+help = "Private service origin used by server-side frontend code to reach the backend."
 
 [[settings]]
 key = "PUBLIC_APP_DEPLOYMENT_MODE"
@@ -239,6 +263,7 @@ targets = ["local", "deploy"]
 input = "select"
 options = ["standard", "public_single_collection"]
 desktop_managed = false
+help = "Selects standard multi-collection UI or public single-collection mode for hosted builds."
 
 [[settings]]
 key = "PUBLIC_APP_CHAIN_REF"
@@ -247,6 +272,7 @@ label = "public app chain ref"
 defaults = { local = "", deploy = "ethereum" }
 targets = ["local", "deploy"]
 desktop_managed = false
+help = "Chain reference used by public single-collection mode."
 
 [[settings]]
 key = "PUBLIC_APP_COLLECTION_REF"
@@ -255,6 +281,7 @@ label = "public app collection ref"
 defaults = { local = "", deploy = "terraforms" }
 targets = ["local", "deploy"]
 desktop_managed = false
+help = "Collection reference used by public single-collection mode."
 
 [[settings]]
 key = "PUBLIC_SITE_HOST"
@@ -262,7 +289,7 @@ group = "deploy"
 label = "public site host"
 defaults = { deploy = "terraforms.artgod.network" }
 targets = ["deploy"]
-help = "Public host used by the bundled deploy Caddy profile."
+help = "Public hostname served by the bundled deploy Caddy profile."
 
 [[settings]]
 key = "PUBLIC_EDGE_NETWORK"
@@ -270,7 +297,7 @@ group = "deploy"
 label = "public edge network"
 defaults = { deploy = "public-edge" }
 targets = ["deploy"]
-help = "Docker network shared with the public edge reverse proxy."
+help = "Docker network name shared with the public edge reverse proxy."
 
 [[settings]]
 key = "ETHEREUM_RPC_NETWORK"
@@ -278,7 +305,7 @@ group = "deploy"
 label = "ethereum rpc network"
 defaults = { deploy = "ethereum-rpc" }
 targets = ["deploy"]
-help = "Docker network shared with the Ethereum node RPC service."
+help = "Docker network name shared with the Ethereum RPC service."
 
 [[settings]]
 key = "OBSERVABILITY_GRAFANA_HOST_BIND_IP"
@@ -286,7 +313,7 @@ group = "deploy"
 label = "observability grafana host bind ip"
 defaults = { deploy = "10.77.0.1" }
 targets = ["deploy"]
-help = "Host interface used to expose deploy Grafana privately."
+help = "Private host interface for exposing deploy Grafana."
 
 [[settings]]
 key = "OBSERVABILITY_GRAFANA_HOST_BIND_PORT"
@@ -294,7 +321,7 @@ group = "deploy"
 label = "observability grafana host bind port"
 defaults = { deploy = "42735" }
 targets = ["deploy"]
-help = "Host port used to expose deploy Grafana privately."
+help = "Private host port for exposing deploy Grafana."
 
 [[settings]]
 key = "OBSERVABILITY_GRAFANA_ADMIN_USER"
@@ -302,6 +329,7 @@ group = "deploy"
 label = "observability grafana admin user"
 defaults = { deploy = "admin" }
 targets = ["deploy"]
+help = "Initial Grafana admin username for the deploy observability profile."
 
 [[settings]]
 key = "OBSERVABILITY_GRAFANA_ADMIN_PASSWORD"
@@ -310,6 +338,7 @@ label = "observability grafana admin password"
 defaults = { deploy = "change-me-before-exposing" }
 targets = ["deploy"]
 secret = true
+help = "Initial Grafana admin password; change before exposing Grafana beyond a trusted interface."
 
 [[settings]]
 key = "USERLAND_UI_DIST_DIR"
@@ -317,6 +346,7 @@ group = "desktop-runtime"
 label = "userland ui dist dir"
 defaults = { local = "", desktop = "frontend/userland" }
 targets = ["local", "desktop"]
+help = "Directory containing the built userland UI served by the backend."
 
 [[settings]]
 key = "DESKTOP_RUNTIME_RESOURCES_DIR"
@@ -324,6 +354,7 @@ group = "desktop-runtime"
 label = "desktop runtime resources dir"
 default = "runtime"
 targets = ["local", "desktop"]
+help = "Desktop resource directory containing bundled runtime artifacts."
 
 [[settings]]
 key = "DESKTOP_NODE_BIN"
@@ -331,6 +362,7 @@ group = "desktop-runtime"
 label = "desktop node bin"
 default = ""
 targets = ["local", "desktop"]
+help = "Optional Node executable path; blank uses the Node bundled with desktop resources."
 
 [[settings]]
 key = "DESKTOP_NATS_BINARY_PATH"
@@ -338,6 +370,7 @@ group = "desktop-runtime"
 label = "desktop nats binary path"
 default = ""
 targets = ["local", "desktop"]
+help = "Optional NATS server executable path; blank uses the NATS binary bundled with desktop resources."
 
 [[settings]]
 key = "DESKTOP_NODE_PNP_CJS"
@@ -345,6 +378,7 @@ group = "desktop-runtime"
 label = "desktop node pnp cjs"
 default = ""
 targets = ["local", "desktop"]
+help = "Optional Yarn PnP CommonJS hook path for bundled Node runtimes."
 
 [[settings]]
 key = "DESKTOP_NODE_PNP_LOADER"
@@ -352,6 +386,7 @@ group = "desktop-runtime"
 label = "desktop node pnp loader"
 default = ""
 targets = ["local", "desktop"]
+help = "Optional Yarn PnP ESM loader path for bundled Node runtimes."
 
 [[settings]]
 key = "DESKTOP_RESTART_BACKOFF_MS"
@@ -359,6 +394,7 @@ group = "desktop-runtime"
 label = "desktop restart backoff ms"
 default = "1500"
 targets = ["local", "desktop"]
+help = "Delay before the desktop supervisor restarts the core runtime after a crash."
 
 [[settings]]
 key = "DESKTOP_LOG_RETENTION_HOURS"
@@ -366,7 +402,7 @@ group = "desktop-runtime"
 label = "desktop log retention hours"
 default = "48"
 targets = ["local", "desktop"]
-help = "How long desktop app-data log files are retained. Logs are split by UTC day; 48 keeps current-day and previous-day files."
+help = "How long desktop app-data log files are retained; logs rotate by UTC day."
 validation = "positive_integer"
 
 [[settings]]
@@ -375,6 +411,7 @@ group = "desktop-runtime"
 label = "desktop wallet store dir"
 default = "wallets"
 targets = ["local", "desktop"]
+help = "Directory where desktop stores encrypted wallet keystore files."
 
 [[settings]]
 key = "DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS"
@@ -382,19 +419,21 @@ group = "desktop-runtime"
 label = "desktop bot unlock stabilization delay ms"
 default = "5000"
 targets = ["local", "desktop"]
+help = "How long the core runtime must stay healthy before Admin shows a bot unlock prompt."
 
 [[settings]]
 key = "CHAIN_ID"
 group = "chain-rpc"
 label = "chain id"
 default = "1"
+help = "EVM chain ID used by backend, indexer, and trading runtimes."
 
 [[settings]]
 key = "RPC_URL_LIST"
 group = "chain-rpc"
 label = "rpc endpoints"
 defaults = { local = "", deploy = "[{\"url\":\"http://ethereum-rpc:8545\",\"weight\":1}]", desktop = "" }
-help = "JSON array of Ethereum HTTP JSON-RPC endpoints used by backend, indexer, and trading runtimes. Each endpoint has a positive weight."
+help = "Weighted Ethereum HTTP JSON-RPC endpoints used by backend, indexer, and trading runtimes."
 input = "weighted_endpoint_list"
 required_for_launch = true
 validation = "rpc_endpoint_list"
@@ -406,7 +445,7 @@ group = "chain-rpc"
 label = "auto rpc tracking policy"
 default = "none"
 targets = ["desktop"]
-help = "Privacy filter used when Admin sources public RPC endpoints from Chainlist. none includes only providers declaring no tracking; limited also includes functional/rate-limit tracking; all includes every concrete HTTP endpoint."
+help = "Privacy filter for Admin Chainlist RPC sourcing; stricter policies exclude endpoints with more tracking."
 input = "select"
 options = ["none", "limited", "all"]
 view = "basic"
@@ -416,7 +455,7 @@ key = "RPC_BACKFILL_URL_LIST"
 group = "chain-rpc"
 label = "rpc backfill endpoints"
 default = ""
-help = "Optional JSON array of HTTP JSON-RPC endpoints used for backfill sync jobs; realtime sync keeps using RPC_URL_LIST."
+help = "Optional weighted HTTP JSON-RPC endpoints used only for historical backfill jobs."
 input = "weighted_endpoint_list"
 validation = "rpc_endpoint_list"
 
@@ -425,7 +464,7 @@ key = "RPC_WS_URL_LIST"
 group = "chain-rpc"
 label = "rpc ws endpoints"
 defaults = { local = "", deploy = "[{\"url\":\"ws://ethereum-rpc:8546\",\"weight\":1}]", desktop = "" }
-help = "Optional JSON array of weighted WebSocket RPC endpoints used to listen for new blocks faster and more cheaply, alongside periodic new-block polling."
+help = "Optional weighted WebSocket JSON-RPC endpoints for faster new-block detection."
 input = "weighted_endpoint_list"
 validation = "websocket_endpoint_list"
 view = "basic"
@@ -444,6 +483,7 @@ key = "RPC_RETRY_MAX_ATTEMPTS"
 group = "chain-rpc"
 label = "rpc retry max attempts"
 default = "10"
+help = "Maximum HTTP JSON-RPC retry attempts before the request fails."
 view = "basic"
 
 [[settings]]
@@ -451,6 +491,7 @@ key = "RPC_RETRY_BASE_DELAY_MS"
 group = "chain-rpc"
 label = "rpc retry base delay ms"
 default = "500"
+help = "Initial backoff delay between HTTP JSON-RPC retry attempts."
 view = "basic"
 
 [[settings]]
@@ -458,6 +499,7 @@ key = "RPC_RETRY_MAX_DELAY_MS"
 group = "chain-rpc"
 label = "rpc retry max delay ms"
 default = "10000"
+help = "Maximum backoff delay between HTTP JSON-RPC retry attempts."
 view = "basic"
 
 [[settings]]
@@ -465,7 +507,7 @@ key = "RPC_RATE_LIMIT_REQUESTS_PER_SECOND"
 group = "chain-rpc"
 label = "rpc rate limit requests per second"
 defaults = { local = "5", deploy = "50", desktop = "5" }
-help = "Use 0 to disable RPC request rate limiting."
+help = "Maximum HTTP JSON-RPC requests per endpoint each second; 0 disables throttling."
 view = "basic"
 
 [[settings]]
@@ -473,6 +515,7 @@ key = "RPC_RATE_LIMIT_BURST"
 group = "chain-rpc"
 label = "rpc rate limit burst"
 defaults = { local = "5", deploy = "50", desktop = "5" }
+help = "Burst capacity for each endpoint's HTTP JSON-RPC rate limiter."
 view = "basic"
 
 [[settings]]
@@ -480,30 +523,35 @@ key = "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD"
 group = "chain-rpc"
 label = "rpc circuit breaker failure threshold"
 default = "5"
+help = "Consecutive endpoint failures before the HTTP JSON-RPC circuit opens."
 
 [[settings]]
 key = "RPC_CIRCUIT_BREAKER_OPEN_MS"
 group = "chain-rpc"
 label = "rpc circuit breaker open ms"
 default = "5000"
+help = "How long an unhealthy HTTP JSON-RPC endpoint is paused before trial requests resume."
 
 [[settings]]
 key = "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS"
 group = "chain-rpc"
 label = "rpc circuit breaker half open max requests"
 default = "2"
+help = "Trial request count allowed while a paused HTTP JSON-RPC endpoint is recovering."
 
 [[settings]]
 key = "CACHE_MAX_ENTRIES"
 group = "indexer"
 label = "cache max entries"
 default = "5000"
+help = "Maximum entries in the indexer in-memory helper cache."
 
 [[settings]]
 key = "CACHE_TTL_MS"
 group = "indexer"
 label = "cache ttl ms"
 default = "30000"
+help = "How long indexer in-memory helper cache entries remain valid."
 
 [[settings]]
 key = "OFFCHAIN_PERSIST_RAW_OBSERVATIONS"
@@ -511,6 +559,7 @@ group = "indexer"
 label = "offchain persist raw observations"
 default = "false"
 input = "checkbox"
+help = "Stores raw OpenSea observations for audit/debugging; keep disabled unless you need source payload history."
 
 [[settings]]
 key = "PERSIST_RAW_DEBUG_PAYLOADS"
@@ -518,7 +567,7 @@ group = "indexer"
 label = "persist raw debug payloads"
 default = "false"
 input = "checkbox"
-help = "Stores large raw metadata/order debug payloads in SQLite. Keep disabled unless debugging source normalization."
+help = "Stores large raw metadata/order debug payloads in SQLite; keep disabled unless debugging normalization."
 
 [[settings]]
 key = "COMMON_IPFS_GATEWAY_ORIGIN"
@@ -533,7 +582,7 @@ key = "COMMON_MEDIA_CACHE_DIR"
 group = "indexer"
 label = "common media cache dir"
 defaults = { local = "", deploy = "/data/media-cache/token-images", desktop = "media-cache/token-images" }
-help = "Optional token-image cache directory. Empty stores cached token images beside the SQLite database."
+help = "Token-image cache directory; blank stores cached images beside the SQLite database."
 
 [[settings]]
 key = "COMMON_HTTP_FETCH_TIMEOUT_MS"
@@ -572,12 +621,14 @@ key = "NATS_URL"
 group = "queue"
 label = "nats url"
 defaults = { local = "nats://127.0.0.1:42720", deploy = "nats://nats:42720", desktop = "nats://127.0.0.1:42720" }
+help = "NATS server URL used by backend, indexer, and trading runtimes for queues."
 
 [[settings]]
 key = "NATS_STREAM_PREFIX"
 group = "queue"
 label = "nats stream prefix"
 default = "artgod"
+help = "Prefix added to NATS streams and durable queue names for this ArtGod instance."
 
 [[settings]]
 key = "OBSERVABILITY_OTLP_HTTP_URL"
@@ -585,6 +636,7 @@ group = "indexer-observability"
 label = "observability otlp http url"
 defaults = { local = "http://127.0.0.1:42732/v1/traces", deploy = "http://tempo:42732/v1/traces", desktop = "http://127.0.0.1:42732/v1/traces" }
 validation = "url"
+help = "Shared OTLP HTTP trace endpoint used when workspace-specific trace endpoints are blank."
 
 [[settings]]
 key = "OBSERVABILITY_PYROSCOPE_URL"
@@ -592,6 +644,7 @@ group = "indexer-observability"
 label = "observability pyroscope url"
 defaults = { local = "http://127.0.0.1:42733", deploy = "http://pyroscope:42733", desktop = "http://127.0.0.1:42733" }
 validation = "url"
+help = "Shared Pyroscope profiling endpoint used when workspace-specific profile endpoints are blank."
 
 [[settings]]
 key = "INDEXER_APM_ENABLED"
@@ -599,12 +652,14 @@ group = "indexer-observability"
 label = "indexer apm enabled"
 default = "false"
 input = "checkbox"
+help = "Enables tracing and profiling exporters for indexer and OpenSea workers."
 
 [[settings]]
 key = "INDEXER_APM_SERVICE_NAMESPACE"
 group = "indexer-observability"
 label = "indexer apm service namespace"
 default = "artgod.indexer"
+help = "Service namespace used to group indexer APM signals."
 
 [[settings]]
 key = "INDEXER_APM_OTLP_HTTP_URL"
@@ -612,6 +667,7 @@ group = "indexer-observability"
 label = "indexer apm otlp http url"
 default = ""
 validation = "url"
+help = "Optional indexer-specific OTLP HTTP trace endpoint; blank uses the shared observability endpoint."
 
 [[settings]]
 key = "INDEXER_APM_PYROSCOPE_URL"
@@ -619,6 +675,7 @@ group = "indexer-observability"
 label = "indexer apm pyroscope url"
 default = ""
 validation = "url"
+help = "Optional indexer-specific Pyroscope profiling endpoint; blank uses the shared observability endpoint."
 
 [[settings]]
 key = "INDEXER_APM_SPAN_PROFILES_ENABLED"
@@ -626,6 +683,7 @@ group = "indexer-observability"
 label = "indexer apm span profiles enabled"
 default = "true"
 input = "checkbox"
+help = "Links indexer span context to profiling samples when tracing and profiling are enabled."
 
 [[settings]]
 key = "INDEXER_APM_TRACES_ENABLED"
@@ -633,6 +691,7 @@ group = "indexer-observability"
 label = "indexer apm traces enabled"
 default = "true"
 input = "checkbox"
+help = "Exports indexer traces to the configured OTLP endpoint when APM is enabled."
 
 [[settings]]
 key = "INDEXER_APM_PROFILES_ENABLED"
@@ -640,6 +699,7 @@ group = "indexer-observability"
 label = "indexer apm profiles enabled"
 default = "true"
 input = "checkbox"
+help = "Exports indexer CPU profiles to the configured Pyroscope endpoint when APM is enabled."
 
 [[settings]]
 key = "INDEXER_METRICS_ENABLED"
@@ -647,96 +707,112 @@ group = "indexer-observability"
 label = "indexer metrics enabled"
 default = "false"
 input = "checkbox"
+help = "Enables Prometheus metrics endpoints for indexer and OpenSea workers."
 
 [[settings]]
 key = "INDEXER_METRICS_HOST"
 group = "indexer-observability"
 label = "indexer metrics host"
 default = "0.0.0.0"
+help = "Network interface for indexer metrics endpoints."
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_SCHEDULER_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port scheduler worker"
 default = "42741"
+help = "Prometheus metrics port for the scheduler worker."
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_SYNC_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port sync worker"
 default = "42742"
+help = "Prometheus metrics port for the sync worker."
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_REORG_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port reorg worker"
 default = "42743"
+help = "Prometheus metrics port for the reorg worker."
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_DOMAIN_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port domain worker"
 default = "42744"
+help = "Prometheus metrics port for the domain worker."
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_OFFCHAIN_INGEST_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port offchain ingest worker"
 default = "42745"
+help = "Prometheus metrics port for the offchain ingest worker."
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port opensea stream worker"
 default = "42746"
+help = "Prometheus metrics port for the OpenSea stream worker."
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_BOOTSTRAP_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port bootstrap worker"
 default = "42747"
+help = "Prometheus metrics port for the collection bootstrap worker."
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_DEAD_LETTER_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port dead letter worker"
 default = "42748"
+help = "Prometheus metrics port for the dead-letter worker."
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port opensea bootstrap worker"
 default = "42749"
+help = "Prometheus metrics port for the OpenSea bootstrap worker."
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port opensea reconcile worker"
 default = "42750"
+help = "Prometheus metrics port for the OpenSea reconcile worker."
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port opensea reconcile scheduler worker"
 default = "42751"
+help = "Prometheus metrics port for the OpenSea reconcile scheduler worker."
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_COLLECTION_EXTENSION_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port collection extension worker"
 default = "42752"
+help = "Prometheus metrics port for the collection-extension worker."
 
 [[settings]]
 key = "REORG_DEPTH"
 group = "indexer"
 label = "reorg depth"
 default = "32"
+help = "Number of recent blocks kept protected from finality assumptions during reorg checks."
 
 [[settings]]
 key = "BACKFILL_BATCH_SIZE"
 group = "indexer"
 label = "backfill batch size"
 default = "10"
+help = "Block range size fetched by each backfill sync job."
 view = "basic"
 
 [[settings]]
@@ -744,6 +820,7 @@ key = "BACKFILL_WORKER_COUNT"
 group = "indexer"
 label = "backfill worker count"
 default = "1"
+help = "Number of safe historical backfill jobs the sync worker may process in parallel."
 view = "basic"
 
 [[settings]]
@@ -751,12 +828,14 @@ key = "LOG_CHUNK_SIZE"
 group = "indexer"
 label = "log chunk size"
 default = "2000"
+help = "Maximum block span fetched per getLogs chunk during sync."
 
 [[settings]]
 key = "BOOTSTRAP_SNAPSHOT_BATCH_SIZE"
 group = "indexer"
 label = "bootstrap snapshot batch size"
 default = "200"
+help = "Token count per ownership snapshot task during collection bootstrap."
 view = "basic"
 
 [[settings]]
@@ -764,6 +843,7 @@ key = "BOOTSTRAP_METADATA_BATCH_SIZE"
 group = "indexer"
 label = "bootstrap metadata batch size"
 default = "200"
+help = "Token count per metadata snapshot task during collection bootstrap."
 view = "basic"
 
 [[settings]]
@@ -771,6 +851,7 @@ key = "BOOTSTRAP_METADATA_CONCURRENCY"
 group = "indexer"
 label = "bootstrap metadata concurrency"
 default = "8"
+help = "Number of metadata snapshot tasks processed in parallel by each bootstrap worker lease."
 view = "basic"
 
 [[settings]]
@@ -778,36 +859,42 @@ key = "BOOTSTRAP_METADATA_PROCESS_POLL_MS"
 group = "indexer"
 label = "bootstrap metadata process poll ms"
 default = "5000"
+help = "How often bootstrap workers poll for metadata tasks when a metadata step is active."
 
 [[settings]]
 key = "BOOTSTRAP_SCHEDULER_POLL_MIN_MS"
 group = "indexer"
 label = "bootstrap scheduler poll min ms"
 default = "250"
+help = "Minimum delay between bootstrap scheduler polls when work is available."
 
 [[settings]]
 key = "BOOTSTRAP_SCHEDULER_POLL_MAX_MS"
 group = "indexer"
 label = "bootstrap scheduler poll max ms"
 default = "5000"
+help = "Maximum delay between bootstrap scheduler polls when waiting for work."
 
 [[settings]]
 key = "BOOTSTRAP_STEP_LEASE_MS"
 group = "indexer"
 label = "bootstrap step lease ms"
 default = "60000"
+help = "How long a bootstrap step lease lasts before another worker may recover it."
 
 [[settings]]
 key = "BOOTSTRAP_STEP_PROGRESS_STALE_MS"
 group = "indexer"
 label = "bootstrap step progress stale ms"
 default = "1800000"
+help = "How long a bootstrap step can make no progress before it is treated as stale."
 
 [[settings]]
 key = "BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_CONCURRENCY"
 group = "indexer"
 label = "bootstrap collection extension artifact concurrency"
 default = "2"
+help = "Number of collection-extension artifact tasks the worker may process in parallel."
 view = "basic"
 
 [[settings]]
@@ -815,12 +902,14 @@ key = "BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_TASK_LEASE_MS"
 group = "indexer"
 label = "bootstrap collection extension artifact task lease ms"
 default = "60000"
+help = "Lease duration for one collection-extension artifact task while it is being rendered or fetched."
 
 [[settings]]
 key = "BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS"
 group = "indexer"
 label = "bootstrap metadata retry max attempts"
 defaults = { local = "3", deploy = "5", desktop = "3" }
+help = "Maximum retry attempts for failed bootstrap metadata tasks."
 view = "basic"
 
 [[settings]]
@@ -828,6 +917,7 @@ key = "BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS"
 group = "indexer"
 label = "bootstrap metadata retry base delay ms"
 default = "100"
+help = "Initial backoff delay before retrying failed bootstrap metadata tasks."
 view = "basic"
 
 [[settings]]
@@ -835,6 +925,7 @@ key = "BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS"
 group = "indexer"
 label = "bootstrap metadata retry max delay ms"
 defaults = { local = "1000", deploy = "3000", desktop = "1000" }
+help = "Maximum backoff delay before retrying failed bootstrap metadata tasks."
 view = "basic"
 
 [[settings]]
@@ -842,6 +933,7 @@ key = "BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE"
 group = "indexer"
 label = "bootstrap image cache batch size"
 default = "50"
+help = "Token count per bootstrap image-cache task."
 view = "basic"
 
 [[settings]]
@@ -849,6 +941,7 @@ key = "BOOTSTRAP_IMAGE_CACHE_CONCURRENCY"
 group = "indexer"
 label = "bootstrap image cache concurrency"
 default = "4"
+help = "Number of bootstrap image-cache tasks processed in parallel."
 view = "basic"
 
 [[settings]]
@@ -856,6 +949,7 @@ key = "BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES"
 group = "indexer"
 label = "bootstrap image cache max source bytes"
 default = "26214400"
+help = "Maximum remote image byte size accepted for bootstrap image caching."
 view = "basic"
 
 [[settings]]
@@ -863,6 +957,7 @@ key = "METADATA_REFRESH_RANGE_CHUNK_SIZE"
 group = "indexer"
 label = "metadata refresh range chunk size"
 default = "200"
+help = "Token range size processed by each metadata refresh chunk."
 view = "basic"
 
 [[settings]]
@@ -870,12 +965,14 @@ key = "WETH_ADDRESS"
 group = "chain-rpc"
 label = "weth address"
 default = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+help = "Canonical WETH contract address used for bid validation and bidding wallet checks."
 
 [[settings]]
 key = "SEAPORT_CONDUIT_CONTROLLER"
 group = "chain-rpc"
 label = "seaport conduit controller"
 default = "0x00000000f9490004c11cef243f5400493c00ad63"
+help = "Seaport ConduitController contract address used to resolve conduit approvals."
 
 [[settings]]
 key = "OPENSEA_INTEGRATION_MODE"
@@ -885,7 +982,7 @@ default = "auto"
 view = "basic"
 input = "select"
 options = ["auto", "enabled", "disabled"]
-help = "auto enables OpenSea integration only when OPENSEA_API_KEY is present; if \"enabled\" selected, the app fails fast without it."
+help = "Controls whether OpenSea workers and OpenSea-dependent bot starts are automatic, required, or disabled."
 
 [[settings]]
 key = "OPENSEA_API_KEY"
@@ -895,38 +992,42 @@ default = ""
 view = "basic"
 input = "password"
 secret = true
-help = "The OpenSea API key that is used by the indexer to fetch asks and offers data from the orderbook."
+help = "OpenSea API key for indexer order snapshots, streams, and reconcile workers."
 
 [[settings]]
 key = "OPENSEA_SNAPSHOT_PAGE_SIZE"
 group = "opensea"
 label = "opensea snapshot page size"
 default = "100"
+help = "OpenSea orderbook page size for snapshot and reconcile fetches."
 
 [[settings]]
 key = "OPENSEA_RECONCILE_INTERVAL_MS"
 group = "opensea"
 label = "opensea reconcile interval ms"
 default = "900000"
+help = "How often OpenSea reconcile workers refresh orderbooks for live collections."
 
 [[settings]]
 key = "OPENSEA_STALE_START_THRESHOLD_MS"
 group = "opensea"
 label = "opensea stale start threshold ms"
 default = "1800000"
+help = "Age after which OpenSea orderbook state is considered stale enough to reconcile on startup."
 
 [[settings]]
 key = "OPENSEA_STREAM_SUBSCRIPTION_POLL_MS"
 group = "opensea"
 label = "opensea stream subscription poll ms"
 default = "5000"
+help = "How often OpenSea stream workers check for collection subscription changes."
 
 [[settings]]
 key = "OPENSEA_HTTP_RETRY_MAX_ATTEMPTS"
 group = "opensea"
 label = "opensea http retry max attempts"
-help = "How many times OpenSea HTTP calls may be attempted before the app reports the operation as failed."
 default = "5"
+help = "How many times OpenSea HTTP calls may be attempted before the operation fails."
 
 [[settings]]
 key = "OPENSEA_HTTP_RETRY_BASE_DELAY_MS"
@@ -953,8 +1054,8 @@ default = "0.2"
 key = "OPENSEA_RATE_LIMIT_GET_MAX"
 group = "opensea"
 label = "opensea rate limit get max"
-help = "Maximum number of OpenSea GET requests the local token bucket can spend immediately."
 default = "4"
+help = "Maximum OpenSea GET requests the app may start immediately."
 
 [[settings]]
 key = "OPENSEA_RATE_LIMIT_GET_REFILL_PER_SECOND"
@@ -967,8 +1068,8 @@ default = "1"
 key = "OPENSEA_RATE_LIMIT_POST_MAX"
 group = "opensea"
 label = "opensea rate limit post max"
-help = "Maximum number of OpenSea POST requests the local token bucket can spend immediately."
 default = "2"
+help = "Maximum OpenSea POST requests the app may start immediately."
 
 [[settings]]
 key = "OPENSEA_RATE_LIMIT_POST_REFILL_PER_SECOND"
@@ -985,7 +1086,7 @@ default = ""
 view = "basic"
 input = "password"
 secret = true
-help = "Use to create a dedicated OpenSea lane for the inbound events (separate from the indexer OPENSEA_API_KEY; you can use the same key at the risk of degraded performance)."
+help = "OpenSea API key for the bidding bot stream lane; use a separate key when available."
 
 [[settings]]
 key = "OPENSEA_BIDDING_SECRET_KEY"
@@ -995,7 +1096,7 @@ default = ""
 view = "basic"
 input = "password"
 secret = true
-help = "Use to create a dedicated OpenSea lane for the outbound bidding requests (separate from the indexer OPENSEA_API_KEY; you can use the same key at the risk of degraded performance)."
+help = "OpenSea API key for bidding order placement and cancellation; use a separate key when available."
 
 [[settings]]
 key = "OPENSEA_SNAPSHOT_SECRET_KEY"
@@ -1005,7 +1106,7 @@ default = ""
 view = "basic"
 input = "password"
 secret = true
-help = "Use to create a dedicated OpenSea lane for fetching offers data from the orderbook (separate from the indexer OPENSEA_API_KEY; you can use the same key at the risk of degraded performance)."
+help = "OpenSea API key for bidding collection-offer snapshots; use a separate key when available."
 
 [[settings]]
 key = "TRADING_METRICS_ENABLED"
@@ -1013,12 +1114,14 @@ group = "trading-observability"
 label = "trading metrics enabled"
 default = "false"
 input = "checkbox"
+help = "Enables the bidding bot Prometheus metrics endpoint."
 
 [[settings]]
 key = "TRADING_METRICS_HOST"
 group = "trading-observability"
 label = "trading metrics host"
 default = "0.0.0.0"
+help = "Network interface for trading metrics endpoints."
 
 [[settings]]
 key = "TRADING_METRICS_PORT_BIDDING_BOT"
@@ -1026,6 +1129,7 @@ group = "trading-observability"
 label = "trading metrics port bidding bot"
 default = "42753"
 validation = "positive_integer"
+help = "Prometheus metrics port for the bidding bot runtime."
 
 [[settings]]
 key = "BIDDING_ENABLED"
@@ -1033,6 +1137,7 @@ group = "bidding"
 label = "bidding enabled"
 default = "true"
 input = "checkbox"
+help = "Enables wallet-bound bidding runtime startup when required OpenSea bot keys are configured."
 
 [[settings]]
 key = "BIDDING_DRY_RUN"
@@ -1040,6 +1145,7 @@ group = "bidding"
 label = "bidding dry run"
 default = "false"
 input = "checkbox"
+help = "Runs the bidding bot without placing or cancelling live orders."
 
 [[settings]]
 key = "BIDDING_WETH_ALLOWANCE_ETH"
@@ -1047,32 +1153,35 @@ group = "bidding"
 label = "bidding weth allowance eth"
 default = "0"
 view = "basic"
-help = "Static startup WETH approval target for OpenSea bidding, in Ether units. Use 0 to skip startup approval."
+help = "Startup WETH approval target for OpenSea bidding, in Ether units; 0 skips approval."
 
 [[settings]]
 key = "BIDDING_TX_MIN_PRIORITY_FEE_GWEI"
 group = "bidding"
 label = "bidding tx min priority fee gwei"
 default = "0.1"
-help = "Bidding bot EIP-1559 fee policy. Gwei values are human-readable; the min tip is used when the node reports 0."
+help = "Minimum EIP-1559 priority fee for bidding transactions, in gwei."
 
 [[settings]]
 key = "BIDDING_TX_FEE_HISTORY_BLOCKS"
 group = "bidding"
 label = "bidding tx fee history blocks"
 default = "20"
+help = "Number of recent blocks sampled when estimating bidding priority fees."
 
 [[settings]]
 key = "BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE"
 group = "bidding"
 label = "bidding tx fee history reward percentile"
 default = "70"
+help = "Reward percentile used when estimating bidding priority fees from fee history."
 
 [[settings]]
 key = "BIDDING_TX_BASE_FEE_MULTIPLIER"
 group = "bidding"
 label = "bidding tx base fee multiplier"
 default = "1.25"
+help = "Multiplier applied to the current base fee when setting bidding max fees."
 view = "basic"
 
 [[settings]]
@@ -1080,6 +1189,7 @@ key = "BIDDING_TX_MAX_FEE_GWEI"
 group = "bidding"
 label = "bidding tx max fee gwei"
 default = "10"
+help = "Upper bound for bidding transaction max fee, in gwei."
 view = "basic"
 
 [[settings]]
@@ -1089,12 +1199,14 @@ label = "bidding tx pending nonce policy"
 default = "fail"
 input = "select"
 options = ["fail"]
+help = "Policy for starting the bidding bot when the wallet already has pending transactions."
 
 [[settings]]
 key = "BIDDING_POLL_MS"
 group = "bidding"
 label = "bidding poll ms"
 default = "480000"
+help = "How often the bidding bot scans active jobs for routine work."
 view = "basic"
 
 [[settings]]
@@ -1102,18 +1214,21 @@ key = "BIDDING_MAX_CONCURRENT_JOBS"
 group = "bidding"
 label = "bidding max concurrent jobs"
 default = "1"
+help = "Maximum bidding jobs processed concurrently by one bot runtime."
 
 [[settings]]
 key = "BIDDING_BOOTSTRAP_CONCURRENCY"
 group = "bidding"
 label = "bidding bootstrap concurrency"
 default = "3"
+help = "Number of bidding jobs bootstrapped in parallel when the bot starts."
 
 [[settings]]
 key = "BIDDING_OFFER_EXPIRATION_SECONDS"
 group = "bidding"
 label = "bidding offer expiration seconds"
 default = "13920"
+help = "Lifetime assigned to newly placed OpenSea offers, in seconds."
 view = "basic"
 
 [[settings]]
@@ -1121,24 +1236,27 @@ key = "BIDDING_COLLECTION_OFFERS_POLL_MS"
 group = "bidding"
 label = "bidding collection offers poll ms"
 default = "60000"
+help = "How often the bidding bot refreshes collection-offer snapshots from OpenSea."
 
 [[settings]]
 key = "BIDDING_COLLECTION_OFFERS_TTL_MS"
 group = "bidding"
 label = "bidding collection offers ttl ms"
 default = "15000"
+help = "How long a collection-offer snapshot is considered fresh inside the bot."
 
 [[settings]]
 key = "BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS"
 group = "bidding"
 label = "bidding bid book projection throttle ms"
 default = "15000"
+help = "Minimum delay between bid-book projection writes from bot state."
 
 [[settings]]
 key = "BIDDING_BID_BOOK_SNAPSHOT_STALE_MS"
 group = "bidding"
 label = "bidding bid book snapshot stale ms"
-help = "How long the bid book can keep using the bot snapshot before falling back to marketplace orders."
+help = "How long backend bid books may trust the bot snapshot before falling back to marketplace orders."
 default = "120000"
 
 [[settings]]
@@ -1159,14 +1277,14 @@ default = "5000"
 key = "BIDDING_RUNTIME_HEARTBEAT_INTERVAL_MS"
 group = "bidding"
 label = "bidding runtime heartbeat interval ms"
-help = "How often the bidding bot reports that it is running so bid books can trust fresh bot snapshots."
+help = "How often the bidding bot writes a heartbeat for backend and UI freshness checks."
 default = "10000"
 
 [[settings]]
 key = "BIDDING_RUNTIME_HEARTBEAT_STALE_MS"
 group = "bidding"
 label = "bidding runtime heartbeat stale ms"
-help = "How old the bot heartbeat can get before bid books stop treating the bot snapshot as live."
+help = "How old a bot heartbeat may be before bid books stop treating its snapshot as live."
 default = "30000"
 
 [[settings]]
@@ -1174,30 +1292,35 @@ key = "BIDDING_ORDER_LOOKUP_MAX_PAGES"
 group = "bidding"
 label = "bidding order lookup max pages"
 default = "5"
+help = "Maximum OpenSea pages scanned when looking up existing offers for a bidding job."
 
 [[settings]]
 key = "BIDDING_COMMAND_POLL_MS"
 group = "bidding"
 label = "bidding command poll ms"
 default = "1000"
+help = "How often the bidding bot scans for DB commands such as pause, resume, or cancel."
 
 [[settings]]
 key = "BIDDING_COMMAND_BATCH_SIZE"
 group = "bidding"
 label = "bidding command batch size"
 default = "20"
+help = "Maximum DB commands claimed per bidding command reconciliation pass."
 
 [[settings]]
 key = "BIDDING_COMMAND_MAX_ATTEMPTS"
 group = "bidding"
 label = "bidding command max attempts"
 default = "5"
+help = "Maximum attempts before a failed bidding command stops retrying."
 
 [[settings]]
 key = "BIDDING_COMMAND_CLAIM_TIMEOUT_MS"
 group = "bidding"
 label = "bidding command claim timeout ms"
 default = "300000"
+help = "How long a claimed bidding command can run before another pass may recover it."
 
 [[settings]]
 key = "BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION"
@@ -1205,6 +1328,7 @@ group = "bidding"
 label = "bidding criteria refresh traits by collection"
 default = "{\"terraforms\":[\"Zone\",\"Biome\",\"Level\"]}"
 input = "textarea"
+help = "JSON map of collection IDs to traits whose criteria offer snapshots should be refreshed."
 
 [[settings]]
 key = "BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION"
@@ -1212,3 +1336,4 @@ group = "bidding"
 label = "bidding token criteria traits by collection"
 default = "{\"terraforms\":[\"Zone\",\"Biome\",\"Level\",\"Mode\"]}"
 input = "textarea"
+help = "JSON map of collection IDs to token traits used to match token bids against criteria offers."
