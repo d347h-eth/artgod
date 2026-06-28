@@ -29,6 +29,7 @@
         "build:admin": "node ./scripts/build/build-frontend-target.mjs admin",
         "build:desktop": "node ./scripts/build/build-frontend-target.mjs admin",
         "build:runtime": "node ./scripts/build/build-runtime-artifacts.mjs",
+        "build:sqlite-native": "node ./scripts/build/build-sqlite-native-binding.mjs",
         "build:desktop-runtime-resources": "node ./scripts/build/prepare-desktop-runtime-resources.mjs",
         "build:desktop-sidecars": "node ./scripts/build/prepare-desktop-sidecars.mjs",
         "config:generate": "node ./scripts/config/generate-env-example.mjs",

@@ -22,12 +22,7 @@ ENV PUBLIC_APP_COLLECTION_REF=${PUBLIC_APP_COLLECTION_REF}
 
 RUN test -n "$PUBLIC_BACKEND_ORIGIN"
 RUN yarn install --immutable --inline-builds
-RUN bash -lc 'set -euo pipefail; \
-    pkgdir="$(find /app/.yarn/unplugged -path '"'"'*better-sqlite3*/node_modules/better-sqlite3'"'"' -type d -print -quit)"; \
-    test -n "$pkgdir"; \
-    cd "$pkgdir"; \
-    npm_config_build_from_source=true yarn run install'
-RUN test -n "$(find /app/.yarn/unplugged -path '*better-sqlite3*/build/Release/better_sqlite3.node' -print -quit)"
+RUN yarn build:sqlite-native
 RUN yarn check:runtime-registry
 RUN yarn build:web
 RUN yarn build:runtime

@@ -193,6 +193,8 @@ Current build strategy details:
 Native package note:
 
 - `better-sqlite3` and `sharp` stay as runtime PnP imports because their package-local loaders need access to native files under `.yarn/unplugged`.
+- `.yarnrc.yml` keeps `enableScripts: false`; CI must not override it with `YARN_ENABLE_SCRIPTS=true`.
+- `better-sqlite3` is built through the explicit trusted step `yarn build:sqlite-native`, which runs only its package-local install script from the unplugged package directory and fails if `build/Release/better_sqlite3.node` is missing.
 - `sharp` uses its optional `@img/*` prebuilt packages; it is not enabled through a broad post-install script policy.
 - `scripts/build/check-native-runtime-dependencies.mjs` can be run after `yarn build:runtime` to verify native runtime packages load from the same package boundaries used by bundled artifacts.
 
@@ -586,6 +588,9 @@ Outputs:
 
 Current state:
 
+- Yarn package lifecycle scripts stay disabled in CI. Workflows run
+  `yarn install --immutable`, then `yarn build:sqlite-native` for the
+  allowlisted `better-sqlite3` native binding.
 - Linux artifacts are GPG-signed (detached armor signatures).
 - macOS DMG is code-signed, notarized, and stapled in CI.
 - Windows release builds are deferred for the first public alpha. When Windows
