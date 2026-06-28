@@ -72,6 +72,12 @@ const log = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.OpenSeaBiddingService,
 );
 
+const PERMANENT_OPENSEA_ERROR_PATTERNS = [
+    /\bNFT with identifier .+ not found in collection\b/i,
+    /\bunsupported trait\b/i,
+    /\btrait .+ not found\b/i,
+];
+
 const sdkCallCosts: Record<string, { get: number; post: number }> = {
     getOffersByNFT: { get: 1, post: 0 },
     getCollectionOffers: { get: 1, post: 0 },
@@ -743,6 +749,7 @@ export class OpenSeaBiddingService implements BiddingService {
                 },
                 this.retryPolicy,
                 {
+                    shouldRetry: isRetryableOpenSeaBiddingError,
                     onRetry: ({ attempt, error }) => {
                         log.info(
                             "offerCancelRetry",
@@ -788,6 +795,7 @@ export class OpenSeaBiddingService implements BiddingService {
             async () => await this.trackSdkCall(action, fn),
             this.retryPolicy,
             {
+                shouldRetry: isRetryableOpenSeaBiddingError,
                 onRetry: ({ attempt, error }) => {
                     log.info("sdkCallRetry", "Retrying OpenSea SDK call", {
                         sdkAction: action,
@@ -1699,6 +1707,14 @@ function isLegacyInactive(rawOrder: unknown): boolean {
 
     return Boolean(
         order.cancelled || order.finalized || order.markedInvalid || isExpired,
+    );
+}
+
+// isRetryableOpenSeaBiddingError separates transient provider failures from stable OpenSea validation errors.
+export function isRetryableOpenSeaBiddingError(error: unknown): boolean {
+    const message = toErrorMessage(error);
+    return !PERMANENT_OPENSEA_ERROR_PATTERNS.some((pattern) =>
+        pattern.test(message),
     );
 }
 
