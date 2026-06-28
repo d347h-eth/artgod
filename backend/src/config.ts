@@ -2,10 +2,15 @@ import dotenv from "dotenv";
 import { resolveRuntimeEnvPath } from "@artgod/shared/utils";
 import { normalizeSlugRef } from "@artgod/shared/utils/ref-resolver";
 import {
+    OPENSEA_API_KEY_ENV,
     assertOpenSeaIntegrationModeSatisfied,
     resolveOpenSeaIntegrationStatus,
     type OpenSeaIntegrationStatus,
 } from "@artgod/shared/config/opensea-integration";
+import {
+    parseOpenSeaHttpConfig,
+    type OpenSeaHttpConfig,
+} from "@artgod/shared/config/opensea-http";
 import {
     getSettingDefault,
     getSettingDefaultBoolean,
@@ -179,6 +184,11 @@ export type BackendSyncConfig = {
     backfillBatchSize: number;
 };
 
+// Authenticated OpenSea HTTP config used by backend-side OpenSea probes.
+export type BackendOpenSeaApiConfig = {
+    apiKey: string;
+} & OpenSeaHttpConfig;
+
 export type BackendConfig = {
     host: string;
     port: number;
@@ -206,6 +216,7 @@ export type BackendConfig = {
     httpFetch: HttpFetchResilienceConfig;
     metrics: BackendMetricsConfig;
     apm: BackendApmConfig;
+    openseaApi: BackendOpenSeaApiConfig | null;
     integrations: {
         opensea: OpenSeaIntegrationStatus;
     };
@@ -274,6 +285,15 @@ export function loadBackendConfig(
     const apm = parseBackendApmConfig(env);
     const openseaIntegration = resolveOpenSeaIntegrationStatus(env);
     assertOpenSeaIntegrationModeSatisfied(openseaIntegration);
+    const openseaApi = openseaIntegration.enabled
+        ? {
+              apiKey: parseRequiredString(
+                  env[OPENSEA_API_KEY_ENV],
+                  OPENSEA_API_KEY_ENV,
+              ),
+              ...parseOpenSeaHttpConfig(env),
+          }
+        : null;
     const integrations = {
         opensea: openseaIntegration,
     };
@@ -306,6 +326,7 @@ export function loadBackendConfig(
         httpFetch: parseHttpFetchResilienceConfig(env),
         metrics,
         apm,
+        openseaApi,
         integrations,
         bidding,
     };

@@ -25,6 +25,10 @@ import type {
     ProbeCollectionContractRoute,
 } from "./http/handlers/bootstrap/probe-collection-contract.js";
 import type {
+    ProbeOpenSeaCollectionSlugHttpAdapter,
+    ProbeOpenSeaCollectionSlugRoute,
+} from "./http/handlers/bootstrap/probe-opensea-collection-slug.js";
+import type {
     GetBootstrapRunDetailHttpAdapter,
     GetBootstrapRunDetailRoute,
 } from "./http/handlers/bootstrap/get-bootstrap-run-detail.js";
@@ -237,6 +241,7 @@ export function registerApiRoutes(
     ) => Promise<{ token: string }>,
     createBootstrapRunAdapter: CreateBootstrapRunHttpAdapter,
     probeCollectionContractAdapter: ProbeCollectionContractHttpAdapter,
+    probeOpenSeaCollectionSlugAdapter: ProbeOpenSeaCollectionSlugHttpAdapter,
     listBootstrapRunsAdapter: ListBootstrapRunsHttpAdapter,
     getBootstrapRunDetailAdapter: GetBootstrapRunDetailHttpAdapter,
     getBootstrapStatusAdapter: GetBootstrapStatusHttpAdapter,
@@ -539,6 +544,12 @@ export function registerApiRoutes(
         options,
         BOOTSTRAP_API_ROUTE_TEMPLATE.ProbeCollection,
         probeCollectionContractAdapter.handle,
+    );
+    registerObservedGet<ProbeOpenSeaCollectionSlugRoute>(
+        app,
+        options,
+        BOOTSTRAP_API_ROUTE_TEMPLATE.ProbeOpenSeaSlug,
+        probeOpenSeaCollectionSlugAdapter.handle,
     );
     registerObservedGet<ListBootstrapRunsRoute>(
         app,

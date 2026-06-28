@@ -21,6 +21,7 @@ import {
     DEFAULT_BIDDING_RUNTIME_HEARTBEAT_STALE_MS,
 } from "@artgod/shared/config/bidding";
 import { COMMON_MEDIA_ENV_KEY } from "@artgod/shared/config/common-media";
+import { OPENSEA_API_KEY_ENV } from "@artgod/shared/config/opensea-integration";
 import { RPC_ENDPOINT_LIST_ENV_KEY } from "@artgod/shared/config/rpc-endpoints";
 import { loadBackendConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
@@ -297,16 +298,17 @@ describe("loadBackendConfig", () => {
         expect(config.integrations.opensea).toEqual({
             enabled: false,
             mode: "auto",
-            reason: "OpenSea integration disabled because OPENSEA_API_KEY is not configured",
-            missingKeys: ["OPENSEA_API_KEY"],
-            requiredKeys: ["OPENSEA_API_KEY"],
+            reason: `OpenSea integration disabled because ${OPENSEA_API_KEY_ENV} is not configured`,
+            missingKeys: [OPENSEA_API_KEY_ENV],
+            requiredKeys: [OPENSEA_API_KEY_ENV],
         });
+        expect(config.openseaApi).toBeNull();
     });
 
     it("enables OpenSea integration when auto mode has an API key", () => {
         const config = loadBackendConfig({
             ...createBaseEnv(),
-            OPENSEA_API_KEY: "test-opensea-key",
+            [OPENSEA_API_KEY_ENV]: "test-opensea-key",
         });
 
         expect(config.integrations.opensea).toEqual({
@@ -314,8 +316,13 @@ describe("loadBackendConfig", () => {
             mode: "auto",
             reason: null,
             missingKeys: [],
-            requiredKeys: ["OPENSEA_API_KEY"],
+            requiredKeys: [OPENSEA_API_KEY_ENV],
         });
+        expect(config.openseaApi).toEqual(
+            expect.objectContaining({
+                apiKey: "test-opensea-key",
+            }),
+        );
     });
 
     it("fails fast when OpenSea integration is required without an API key", () => {
@@ -325,7 +332,7 @@ describe("loadBackendConfig", () => {
                 OPENSEA_INTEGRATION_MODE: "enabled",
             }),
         ).toThrow(
-            "OpenSea integration is enabled but OPENSEA_API_KEY is not configured",
+            `OpenSea integration is enabled but ${OPENSEA_API_KEY_ENV} is not configured`,
         );
     });
 

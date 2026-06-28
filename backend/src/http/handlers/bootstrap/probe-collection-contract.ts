@@ -1,4 +1,5 @@
 import type { FastifyRequest } from "fastify";
+import { BOOTSTRAP_API_QUERY_PARAM } from "@artgod/shared/http/bootstrap-routes";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import type {
     ProbeCollectionContractInput,
@@ -36,8 +37,13 @@ export class ProbeCollectionContractHttpAdapter {
     private mapRequestToInput(
         request: FastifyRequest<ProbeCollectionContractRoute>,
     ): ProbeCollectionContractInput {
-        const address = mustString(request.query.address, "address");
-        const standard = request.query.standard?.trim() || "erc721";
+        const address = mustString(
+            request.query[BOOTSTRAP_API_QUERY_PARAM.Address],
+            BOOTSTRAP_API_QUERY_PARAM.Address,
+        );
+        const standard =
+            request.query[BOOTSTRAP_API_QUERY_PARAM.Standard]?.trim() ||
+            "erc721";
         if (standard !== "erc721") {
             throw new ReadModelBadRequestError("Only erc721 is supported");
         }

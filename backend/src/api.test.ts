@@ -23,6 +23,7 @@ import {
     BOOTSTRAP_RUN_EVENT_CODE,
     serializeBootstrapEnumerationProgressEventPayload,
 } from "@artgod/shared/bootstrap/run-events";
+import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from "@artgod/shared/bootstrap/opensea-slug-probe";
 import {
     BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_ACTION,
@@ -93,7 +94,11 @@ import {
     QUERY_CACHE_DEBUG_HEADER_NAME,
     QUERY_CACHE_DEBUG_TTL_HEADER_NAME,
 } from "./utils/query-cache-debug.js";
-import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
+import {
+    OPENSEA_API_KEY_ENV,
+    type OpenSeaIntegrationStatus,
+} from "@artgod/shared/config/opensea-integration";
+import { getDefaultOpenSeaHttpConfig } from "@artgod/shared/config/opensea-http";
 
 const MILADY_ADDRESS = "0x1111111111111111111111111111111111111111";
 const TERRAFORMS_ADDRESS = "0x2222222222222222222222222222222222222222";
@@ -119,13 +124,17 @@ const ENABLED_OPENSEA_INTEGRATION: OpenSeaIntegrationStatus = {
     mode: "auto",
     reason: null,
     missingKeys: [],
-    requiredKeys: ["OPENSEA_API_KEY"],
+    requiredKeys: [OPENSEA_API_KEY_ENV],
 };
 // Keeps API cache-header assertions from waiting through production RPC backoff.
 const API_TEST_RPC_RETRY_POLICY: RpcRetryPolicy = {
     maxAttempts: 1,
     baseDelayMs: 0,
     maxDelayMs: 0,
+};
+const API_TEST_OPENSEA_API_CONFIG = {
+    apiKey: "test-opensea-api-key",
+    ...getDefaultOpenSeaHttpConfig(),
 };
 
 function defaultImageCachePolicyUpdateBody() {
@@ -146,6 +155,7 @@ let syncBackfillStateInputs: unknown[] = [];
 let syncBackfillRangeInputs: unknown[] = [];
 let bootstrapStartInputs: unknown[] = [];
 let bootstrapImageCacheProcessInputs: unknown[] = [];
+let openSeaSlugProbeInputs: unknown[] = [];
 
 beforeAll(async () => {
     dbPath = path.join(
@@ -566,6 +576,8 @@ beforeAll(async () => {
         await import("./application/use-cases/bootstrap/create-bootstrap-run.js");
     const probeCollectionContractUseCaseModule =
         await import("./application/use-cases/bootstrap/probe-collection-contract.js");
+    const probeOpenSeaCollectionSlugUseCaseModule =
+        await import("./application/use-cases/bootstrap/probe-opensea-collection-slug.js");
     const getBootstrapStatusUseCaseModule =
         await import("./application/use-cases/bootstrap/get-bootstrap-status.js");
     const listBootstrapRunsUseCaseModule =
@@ -575,9 +587,7 @@ beforeAll(async () => {
     const retryBootstrapRunFailedTasksUseCaseModule =
         await import("./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js");
     const applyBootstrapRunStepActionUseCaseModule =
-        await import(
-            "./application/use-cases/bootstrap/apply-bootstrap-run-step-action.js"
-        );
+        await import("./application/use-cases/bootstrap/apply-bootstrap-run-step-action.js");
 
     const bootstrapRepository =
         new bootstrapRepositoryModule.SqliteBootstrapRunsRepository();
@@ -647,6 +657,22 @@ beforeAll(async () => {
                 },
             },
             builtInCollectionExtensionResolver,
+        );
+    const probeOpenSeaCollectionSlugUseCase =
+        new probeOpenSeaCollectionSlugUseCaseModule.ProbeOpenSeaCollectionSlugUseCase(
+            1,
+            ENABLED_OPENSEA_INTEGRATION,
+            chainsReadModel,
+            {
+                async resolveCollectionSlugByContract(input: {
+                    address: string;
+                }) {
+                    openSeaSlugProbeInputs.push(input);
+                    return input.address === TERRAFORMS_ADDRESS
+                        ? "terraforms"
+                        : null;
+                },
+            },
         );
     const getBootstrapStatusUseCase =
         new getBootstrapStatusUseCaseModule.GetBootstrapStatusUseCase(
@@ -808,6 +834,7 @@ beforeAll(async () => {
     app = appModule.createApiApp(
         createBootstrapRunUseCase,
         probeCollectionContractUseCase,
+        probeOpenSeaCollectionSlugUseCase,
         listBootstrapRunsUseCase,
         getBootstrapRunDetailUseCase,
         getBootstrapStatusUseCase,
@@ -860,6 +887,7 @@ beforeAll(async () => {
     publicApp = appModule.createApiApp(
         createBootstrapRunUseCase,
         probeCollectionContractUseCase,
+        probeOpenSeaCollectionSlugUseCase,
         listBootstrapRunsUseCase,
         getBootstrapRunDetailUseCase,
         getBootstrapStatusUseCase,
@@ -989,6 +1017,7 @@ beforeAll(async () => {
         integrations: {
             opensea: ENABLED_OPENSEA_INTEGRATION,
         },
+        openseaApi: API_TEST_OPENSEA_API_CONFIG,
         bidding: {
             bidBookLiveRefresh: DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
             bidBookSnapshotStaleMs: DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
@@ -4169,15 +4198,15 @@ describe("backend api routes", () => {
         expect(create.statusCode).toBe(200);
         expect(create.payload.runId).toEqual(expect.any(Number));
         const plannedSteps = db
-            .prepare<[number]>(
-                "SELECT step_key, status, blocking, depends_on_json FROM bootstrap_run_steps WHERE run_id = ? ORDER BY rowid ASC",
-            )
+            .prepare<
+                [number]
+            >("SELECT step_key, status, blocking, depends_on_json FROM bootstrap_run_steps WHERE run_id = ? ORDER BY rowid ASC")
             .all(create.payload.runId) as Array<{
-                step_key: string;
-                status: string;
-                blocking: number;
-                depends_on_json: string;
-            }>;
+            step_key: string;
+            status: string;
+            blocking: number;
+            depends_on_json: string;
+        }>;
         expect(plannedSteps).toEqual([
             {
                 step_key: BOOTSTRAP_STEP_KEY.Anchor,
@@ -4235,7 +4264,8 @@ describe("backend api routes", () => {
         expect(createdDetail.statusCode).toBe(200);
         expect(
             createdDetail.payload.flow.steps.find(
-                (step: { key: string }) => step.key === BOOTSTRAP_STEP_KEY.Anchor,
+                (step: { key: string }) =>
+                    step.key === BOOTSTRAP_STEP_KEY.Anchor,
             ),
         ).toEqual(
             expect.objectContaining({
@@ -4284,9 +4314,8 @@ describe("backend api routes", () => {
             create.payload.runId,
             BOOTSTRAP_STEP_KEY.ImageCache,
         );
-        const { SqliteBootstrapRunsRepository } = await import(
-            "./infra/bootstrap/sqlite-bootstrap-runs.js"
-        );
+        const { SqliteBootstrapRunsRepository } =
+            await import("./infra/bootstrap/sqlite-bootstrap-runs.js");
         const raceRepository = new SqliteBootstrapRunsRepository();
         expect(
             raceRepository.pauseRunStep({
@@ -4297,9 +4326,9 @@ describe("backend api routes", () => {
         ).toBe(false);
         expect(
             db
-                .prepare<[number, string]>(
-                    "SELECT status FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?",
-                )
+                .prepare<
+                    [number, string]
+                >("SELECT status FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?")
                 .get(create.payload.runId, BOOTSTRAP_STEP_KEY.ImageCache),
         ).toEqual({ status: BOOTSTRAP_STEP_STATUS.Running });
         const pauseImageCache = await resolve(
@@ -4344,9 +4373,9 @@ describe("backend api routes", () => {
         ).toBe(false);
         expect(
             db
-                .prepare<[number, string]>(
-                    "SELECT status FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?",
-                )
+                .prepare<
+                    [number, string]
+                >("SELECT status FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?")
                 .get(create.payload.runId, BOOTSTRAP_STEP_KEY.ImageCache),
         ).toEqual({ status: BOOTSTRAP_STEP_STATUS.Paused });
         const resumeImageCache = await resolve(
@@ -4508,9 +4537,9 @@ describe("backend api routes", () => {
         ]);
         expect(
             db
-                .prepare<[number, string]>(
-                    "SELECT status FROM bootstrap_image_cache_tasks WHERE run_id = ? AND token_id = ?",
-                )
+                .prepare<
+                    [number, string]
+                >("SELECT status FROM bootstrap_image_cache_tasks WHERE run_id = ? AND token_id = ?")
                 .get(create.payload.runId, "1"),
         ).toEqual({ status: BOOTSTRAP_TASK_STATUS.Retry });
 
@@ -4562,16 +4591,16 @@ describe("backend api routes", () => {
         ]);
         expect(
             db
-                .prepare<[number, string]>(
-                    "SELECT status FROM bootstrap_ownership_snapshot_tasks WHERE run_id = ? AND token_id = ?",
-                )
+                .prepare<
+                    [number, string]
+                >("SELECT status FROM bootstrap_ownership_snapshot_tasks WHERE run_id = ? AND token_id = ?")
                 .get(create.payload.runId, "2"),
         ).toEqual({ status: BOOTSTRAP_TASK_STATUS.Retry });
         expect(
             db
-                .prepare<[number]>(
-                    "SELECT status, error_code, error_message FROM bootstrap_runs WHERE run_id = ?",
-                )
+                .prepare<
+                    [number]
+                >("SELECT status, error_code, error_message FROM bootstrap_runs WHERE run_id = ?")
                 .get(create.payload.runId),
         ).toEqual({
             status: BOOTSTRAP_RUN_STATUS.Ownership,
@@ -4593,6 +4622,27 @@ describe("backend api routes", () => {
                 ready: true,
             }),
         );
+
+        openSeaSlugProbeInputs = [];
+        const openSeaSlugProbe = await resolve(
+            "GET",
+            `/api/ethereum/collections/bootstrap/opensea-slug-probe?address=${TERRAFORMS_ADDRESS}`,
+        );
+        expect(openSeaSlugProbe.statusCode).toBe(200);
+        expect(openSeaSlugProbe.payload).toEqual({
+            chain: expect.objectContaining({
+                slug: "ethereum",
+            }),
+            address: TERRAFORMS_ADDRESS,
+            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
+            slug: "terraforms",
+            reason: null,
+        });
+        expect(openSeaSlugProbeInputs).toEqual([
+            {
+                address: TERRAFORMS_ADDRESS,
+            },
+        ]);
 
         const status = await resolve(
             "GET",
@@ -4735,7 +4785,8 @@ describe("backend api routes", () => {
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
                 imageCache: {
-                    selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
+                    selectedSource:
+                        COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
                     imageCacheMode: IMAGE_CACHE_MODE.Off,
                     maxDimension: null,
                 },
@@ -4819,7 +4870,9 @@ describe("backend api routes", () => {
         expect(userCustomizationRow?.selected_source).toBe(
             COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
         );
-        expect(JSON.parse(userCustomizationRow?.user_config_json ?? "{}")).toEqual({
+        expect(
+            JSON.parse(userCustomizationRow?.user_config_json ?? "{}"),
+        ).toEqual({
             imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
             maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
         });
@@ -6077,18 +6130,18 @@ function insertApiPurgeCollectionFixture(): number {
 
 function countCollectionById(collectionId: number): number {
     const row = db
-        .prepare<[number]>(
-            "SELECT COUNT(1) AS count FROM collections WHERE collection_id = ?",
-        )
+        .prepare<
+            [number]
+        >("SELECT COUNT(1) AS count FROM collections WHERE collection_id = ?")
         .get(collectionId) as { count: number } | undefined;
     return row?.count ?? 0;
 }
 
 function countRowsByCollection(table: string, collectionId: number): number {
     const row = db
-        .prepare<[number]>(
-            `SELECT COUNT(1) AS count FROM "${table}" WHERE collection_id = ?`,
-        )
+        .prepare<
+            [number]
+        >(`SELECT COUNT(1) AS count FROM "${table}" WHERE collection_id = ?`)
         .get(collectionId) as { count: number } | undefined;
     return row?.count ?? 0;
 }

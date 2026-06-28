@@ -1280,6 +1280,35 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/collections/bootstrap/opensea-slug-probe:
+        get:
+            tags: [Bootstrap]
+            summary: Probe OpenSea collection slug by contract address
+            description: |
+                Resolves the OpenSea collection slug for a standalone contract when OpenSea integration is enabled.
+                Returns `disabled` when the backend was started without an active OpenSea API key.
+            operationId: probeBootstrapOpenSeaSlug
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - name: address
+                  in: query
+                  required: true
+                  schema:
+                      type: string
+            responses:
+                "200":
+                    description: OpenSea slug probe result
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/BootstrapOpenSeaSlugProbeResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/{collection_ref}/bootstrap:
         get:
             tags: [Bootstrap]
@@ -4501,6 +4530,25 @@ components:
                 deploymentBlock:
                     type: integer
                     minimum: 1
+
+        BootstrapOpenSeaSlugProbeResponse:
+            type: object
+            required: [chain, address, status, slug, reason]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                address:
+                    type: string
+                status:
+                    type: string
+                    enum: [disabled, found, missing]
+                slug:
+                    type: string
+                    nullable: true
+                reason:
+                    type: string
+                    nullable: true
 
         CreateBootstrapRunResponse:
             type: object

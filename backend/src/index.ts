@@ -15,6 +15,7 @@ import { GetBootstrapRunDetailUseCase } from "./application/use-cases/bootstrap/
 import { GetBootstrapStatusUseCase } from "./application/use-cases/bootstrap/get-bootstrap-status.js";
 import { ListBootstrapRunsUseCase } from "./application/use-cases/bootstrap/list-bootstrap-runs.js";
 import { ProbeCollectionContractUseCase } from "./application/use-cases/bootstrap/probe-collection-contract.js";
+import { ProbeOpenSeaCollectionSlugUseCase } from "./application/use-cases/bootstrap/probe-opensea-collection-slug.js";
 import { RetryBootstrapRunFailedTasksUseCase } from "./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import { logger } from "@artgod/shared/utils";
 import { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
@@ -81,6 +82,7 @@ import {
 import { NatsBootstrapCommandQueue } from "./infra/bootstrap/nats-bootstrap-command-queue.js";
 import { MemoryQueryCache } from "./infra/cache/memory.js";
 import { SqliteBootstrapRunsRepository } from "./infra/bootstrap/sqlite-bootstrap-runs.js";
+import { OpenSeaCollectionSlugProbeAdapter } from "./infra/bootstrap/opensea-collection-slug-probe.js";
 import { ViemBootstrapContractProbe } from "./infra/bootstrap/viem-bootstrap-contract-probe.js";
 import { BuiltInCollectionExtensionResolver } from "./infra/collection-extensions/built-in-collection-extension-resolver.js";
 import { ExtensionAwareCollectionCustomization } from "./infra/collections/extension-aware-collection-customization.js";
@@ -254,6 +256,9 @@ export function createBackendApp(
         config.ipfs.gatewayOrigin,
         config.httpFetch,
     );
+    const openSeaCollectionSlugProbe = config.openseaApi
+        ? new OpenSeaCollectionSlugProbeAdapter(config.openseaApi)
+        : null;
     const createBootstrapRunUseCase = new CreateBootstrapRunUseCase(
         config.defaultChainId,
         config.integrations.opensea,
@@ -269,6 +274,13 @@ export function createBackendApp(
         bootstrapContractProbe,
         builtInCollectionExtensionResolver,
     );
+    const probeOpenSeaCollectionSlugUseCase =
+        new ProbeOpenSeaCollectionSlugUseCase(
+            config.defaultChainId,
+            config.integrations.opensea,
+            chainsReadModel,
+            openSeaCollectionSlugProbe,
+        );
     const getBootstrapStatusUseCase = new GetBootstrapStatusUseCase(
         config.defaultChainId,
         chainsReadModel,
@@ -441,7 +453,9 @@ export function createBackendApp(
             extensionAwareCollectionCustomization,
             {
                 deleteCollectionImageCache: (input) =>
-                    tokenImageCacheMaintenance.deleteCollectionImageCache(input),
+                    tokenImageCacheMaintenance.deleteCollectionImageCache(
+                        input,
+                    ),
                 publishCollectionImageCacheRefresh: (input) =>
                     tokenImageCacheCommandQueue.publishCollectionImageCacheRefresh(
                         input,
@@ -587,6 +601,7 @@ export function createBackendApp(
     const app = createApiApp(
         createBootstrapRunUseCase,
         probeCollectionContractUseCase,
+        probeOpenSeaCollectionSlugUseCase,
         listBootstrapRunsUseCase,
         getBootstrapRunDetailUseCase,
         getBootstrapStatusUseCase,
