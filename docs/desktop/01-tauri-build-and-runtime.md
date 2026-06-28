@@ -578,10 +578,8 @@ Current state:
 
 - Linux artifacts are GPG-signed (detached armor signatures).
 - macOS DMG is code-signed, notarized, and stapled in CI.
-- Windows NSIS/installer signing support exists in CI for Azure Artifact
-  Signing or an exportable PFX, but the target Germany-based individual
-  maintainer profile needs a vendor-specific workflow path once the Windows
-  signing provider is chosen.
+- Windows NSIS/installer signing should use SSL.com eSigner CKA with
+  `signtool.exe` on the Windows runner.
 
 Release secrets expected by CI:
 
@@ -599,28 +597,16 @@ Release secrets expected by CI:
     - `APPLE_API_KEY_P8_B64` (base64 `.p8`)
     - `APPLE_API_KEY_ID`
     - `APPLE_API_ISSUER`
-- Windows, Azure Artifact Signing path:
-    - `AZURE_ARTIFACT_SIGNING_ENDPOINT`
-    - `AZURE_ARTIFACT_SIGNING_ACCOUNT`
-    - `AZURE_ARTIFACT_SIGNING_CERT_PROFILE`
-    - `AZURE_CLIENT_ID`
-    - `AZURE_CLIENT_SECRET`
-    - `AZURE_TENANT_ID`
-- Windows, exportable PFX fallback:
-    - `WINDOWS_CERT_PFX_B64`
-    - `WINDOWS_CERT_PASSWORD`
-    - optional: `WINDOWS_CERT_SHA1`
+- Windows:
+    - SSL.com eSigner CKA credential material, finalized with the workflow
+      implementation
 
 Windows maintainer-profile note:
 
-- Azure Artifact Signing Public Trust is not the expected path for the first
-  release while the maintainer is an individual/private person based in Germany
-  without a company. Microsoft currently makes the Public Trust individual
-  developer path available only in the USA and Canada.
-- The release-signing runbook treats SignPath Foundation as the first Windows
-  option to evaluate for open-source signing, with SSL.com eSigner or Certum
-  Open Source Code Signing as paid fallback paths. The workflow must be updated
-  after the provider is selected.
+- The release-signing runbook treats SSL.com Personal Identity Code Signing
+  with eSigner for Code as the Windows path.
+- The workflow must sign through eSigner CKA and `signtool.exe` rather than an
+  exported certificate file.
 
 Consumer-side verification examples:
 
