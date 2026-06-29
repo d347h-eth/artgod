@@ -2155,12 +2155,12 @@ th {
 
 .bid-book-demand-table .bid-book-place-bid-icon-button {
 	align-self: center;
-	flex: 0 0 16px;
-	height: 16px;
-	min-height: 16px;
-	min-width: 16px;
+	flex: 0 0 32px;
+	height: 32px;
+	min-height: 32px;
+	min-width: 32px;
 	position: relative;
-	width: 16px;
+	width: 32px;
 	z-index: 2;
 }
 
@@ -3890,12 +3890,12 @@ th {
 	align-self: baseline;
 	border-color: transparent;
 	background: transparent;
-	min-width: 20px;
-	width: 20px;
-	min-height: 14px;
-	height: 14px;
+	min-width: 32px;
+	width: 32px;
+	min-height: 32px;
+	height: 32px;
 	padding: 0;
-	line-height: 12px;
+	line-height: 1;
 	vertical-align: baseline;
 }
 
