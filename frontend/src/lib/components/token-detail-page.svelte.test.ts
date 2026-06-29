@@ -11,7 +11,7 @@ import {
 	TRADING_BIDDING_BID_SCOPE_KIND
 } from '@artgod/shared/types';
 import { installBuiltInCollectionExtensions } from '$lib/collection-extension-built-ins';
-import type { ApiBiddingBidBookRow } from '$lib/api-types';
+import type { ApiBiddingBidBookRow, ApiTokenDetailTrait } from '$lib/api-types';
 import { TERRAFORMS_TOKEN_DETAIL_SECTION_LABELS } from '$lib/activity-extension-views/terraforms/constants';
 import TokenDetailPage from '../../routes/[chain_ref]/[collection_ref]/[token_ref]/+page.svelte';
 
@@ -31,6 +31,13 @@ function marketMaterialization(): ApiBiddingBidBookRow['materialization'] {
 		jobId: null,
 		status: null,
 		phase: null
+	};
+}
+
+function tokenDetailTrait(input: Omit<ApiTokenDetailTrait, 'marketplaceBiddingSupported'>): ApiTokenDetailTrait {
+	return {
+		...input,
+		marketplaceBiddingSupported: true
 	};
 }
 
@@ -82,18 +89,18 @@ describe('token detail page', () => {
 						listingCurrency: '0x0000000000000000000000000000000000000000',
 						currentHolder: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 						attributes: [
-							{
+							tokenDetailTrait({
 								key: 'Hat',
 								value: 'Beanie',
 								tokenCount: 2,
 								rarityPercent: 66.6667
-							},
-							{
+							}),
+							tokenDetailTrait({
 								key: 'Power',
 								value: '7',
 								tokenCount: 1,
 								rarityPercent: 33.3333
-							}
+							})
 						],
 						hasMetadata: true,
 						metadataUpdatedAt: '2026-01-01T00:00:00Z'
@@ -327,12 +334,12 @@ describe('token detail page', () => {
 						listingCurrency: null,
 						currentHolder: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 						attributes: [
-							{
+							tokenDetailTrait({
 								key: 'Hat',
 								value: 'Beanie',
 								tokenCount: 2,
 								rarityPercent: 66.6667
-							}
+							})
 						],
 						hasMetadata: true,
 						metadataUpdatedAt: '2026-01-01T00:00:00Z'
@@ -444,12 +451,12 @@ describe('token detail page', () => {
 						listingCurrency: null,
 						currentHolder: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 						attributes: [
-							{
+							tokenDetailTrait({
 								key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
 								value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terraform,
 								tokenCount: 1,
 								rarityPercent: 100
-							}
+							})
 						],
 						hasMetadata: true,
 						metadataUpdatedAt: '2026-01-01T00:00:00Z'
@@ -527,12 +534,12 @@ describe('token detail page', () => {
 						listingCurrency: null,
 						currentHolder: null,
 						attributes: [
-							{
+							tokenDetailTrait({
 								key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
 								value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
 								tokenCount: 1,
 								rarityPercent: 100
-							}
+							})
 						],
 						hasMetadata: true,
 						metadataUpdatedAt: '2026-01-01T00:00:00Z'

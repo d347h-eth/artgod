@@ -224,6 +224,9 @@ export function hasSubmittableBiddingTarget(input: {
 	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob) {
 		return draft.target.traits.length > 0;
 	}
+	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.UnsupportedTraitJob) {
+		return false;
+	}
 	return true;
 }
 

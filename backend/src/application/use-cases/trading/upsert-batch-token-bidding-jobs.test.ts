@@ -429,6 +429,7 @@ function bidBookRow(input: {
         maker: input.maker ?? "0x1111111111111111111111111111111111111111",
         isOwn: false,
         price: exactBidBookRowPrice(input.wei),
+        bidLimits: null,
         quantity: "1",
         currencyAddress: null,
         currencySymbol: "WETH",

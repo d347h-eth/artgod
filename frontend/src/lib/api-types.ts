@@ -362,6 +362,7 @@ export type ApiTokenDetailTrait = {
 	value: string;
 	tokenCount: number | null;
 	rarityPercent: number | null;
+	marketplaceBiddingSupported: boolean;
 };
 
 export type ApiTokenDetail = {
@@ -399,6 +400,7 @@ export type ApiTraitFacet = {
 	values: Array<{
 		value: string;
 		tokenCount: number;
+		marketplaceBiddingSupported: boolean;
 	}>;
 };
 

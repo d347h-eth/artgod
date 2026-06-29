@@ -16,6 +16,14 @@ import {
 import type { TradingJobCommandSignalPort } from "./trading-job-command-signal-port.js";
 export type { UpsertTraitBiddingJobOutput } from "./types.js";
 
+export type TraitBiddingTargetSupportReadPort = {
+    listMarketplaceBiddingSupportedTraits(params: {
+        chainId: number;
+        collectionId: number;
+        traits: { key: string; value: string }[];
+    }): { key: string; value: string }[];
+};
+
 export type UpsertTraitBiddingJobInput = {
     chainRef: string;
     collectionRef: string;
@@ -43,6 +51,7 @@ export class UpsertTraitBiddingJobUseCase {
                 collectionRef: string,
             ): CollectionListItem;
         },
+        readonly traitBiddingTargetSupportReadPort: TraitBiddingTargetSupportReadPort,
         readonly biddingJobsRepositoryPort: Pick<
             BiddingJobsRepositoryPort,
             "upsertCollectionJob"
@@ -64,6 +73,14 @@ export class UpsertTraitBiddingJobUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
+        const targetTraits = normalizeTargetTraits(input.targetTraits);
+        assertMarketplaceBiddingSupportedTargetTraits({
+            chainId: chain.publicChainId,
+            collectionId: collection.collectionId,
+            targetTraits,
+            traitBiddingTargetSupportReadPort:
+                this.traitBiddingTargetSupportReadPort,
+        });
 
         // Resolve manual or tier-backed pricing into bot-facing scalar wei values.
         const pricing = resolveBiddingJobPricing({
@@ -83,7 +100,7 @@ export class UpsertTraitBiddingJobUseCase {
             priceTierId: pricing.priceTierId,
             pricingSource: pricing.pricingSource,
             quantity: parseQuantity(input.quantity),
-            targetTraits: normalizeTargetTraits(input.targetTraits),
+            targetTraits,
         };
         // Persist the desired trait job and enqueue the matching Outbox command.
         const result = this.biddingJobsRepositoryPort.upsertCollectionJob(
@@ -99,6 +116,34 @@ export class UpsertTraitBiddingJobUseCase {
             collection,
             job: mapPersistedBiddingJobToView(result.job),
         };
+    }
+}
+
+function assertMarketplaceBiddingSupportedTargetTraits(params: {
+    chainId: number;
+    collectionId: number;
+    targetTraits: TradingTraitCriterion[];
+    traitBiddingTargetSupportReadPort: TraitBiddingTargetSupportReadPort;
+}): void {
+    const supportedTraits =
+        params.traitBiddingTargetSupportReadPort.listMarketplaceBiddingSupportedTraits({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            traits: params.targetTraits.map((trait) => ({
+                key: trait.type,
+                value: trait.value,
+            })),
+        });
+    const supportedTraitKeys = new Set(
+        supportedTraits.map((trait) => traitSignature(trait.key, trait.value)),
+    );
+    const unsupportedTrait = params.targetTraits.find(
+        (trait) => !supportedTraitKeys.has(traitSignature(trait.type, trait.value)),
+    );
+    if (unsupportedTrait) {
+        throw new TradingValidationError(
+            `target trait is not available for marketplace bidding: ${unsupportedTrait.type}=${unsupportedTrait.value}`,
+        );
     }
 }
 
@@ -152,4 +197,8 @@ function compareTraits(
 ): number {
     const typeCompare = left.type.localeCompare(right.type);
     return typeCompare === 0 ? left.value.localeCompare(right.value) : typeCompare;
+}
+
+function traitSignature(type: string, value: string): string {
+    return `${type}\u0000${value}`;
 }

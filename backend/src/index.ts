@@ -494,6 +494,7 @@ export function createBackendApp(
         config.defaultChainId,
         chainsReadModel,
         extensionAwareCollectionsReadModel,
+        collectionsReadModel,
         biddingJobsRepository,
         biddingPriceTiersRepository,
         tradingJobCommandSignalPublisher,

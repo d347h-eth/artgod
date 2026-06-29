@@ -75,6 +75,7 @@
 		buildBiddingAutomationDraftFromBid,
 		biddingTraitCriteriaToTokenAttributes,
 		canDraftTraitJobFromFilters,
+		withMarketplaceBiddingTraitSupport,
 		type BiddingAutomationTokenFilterSnapshot
 	} from '$lib/bidding-automation';
 	import {
@@ -251,6 +252,12 @@
 	);
 	const ownMakerAddress = $derived(activeBidBook.ownMakerAddress);
 	const biddingFilterKey = $derived(activeBiddingFilterKey());
+	const activeTraitsWithBiddingSupport = $derived(
+		withMarketplaceBiddingTraitSupport({
+			selectedTraits: activeTraits,
+			facets
+		})
+	);
 	const canBidOnTraits = $derived(
 		canDraftTraitJobFromFilters({
 			selectedTraits: activeTraits,
@@ -799,7 +806,9 @@
 		biddingAutomation.selectFilteredTokens(
 			buildFilteredTraitBiddingSelectionInput({
 				tokenCount: activeTokenOfferCardsPage.totalItems,
-				filter: currentBiddingFilterSnapshot()
+				filter: currentBiddingFilterSnapshot({
+					traits: activeTraitsWithBiddingSupport
+				})
 			})
 		);
 		expandBiddingAutomationPanel();

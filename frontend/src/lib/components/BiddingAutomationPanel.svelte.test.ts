@@ -12,8 +12,21 @@ import {
 	TRADING_JOB_TARGET_KIND,
 	TRADING_JOB_STATUS
 } from '@artgod/shared/types';
-import { buildBiddingAutomationDraftFromBid } from '$lib/bidding-automation';
+import {
+	BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
+	BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
+	BIDDING_AUTOMATION_FILTER_TARGET_INTENT,
+	BIDDING_AUTOMATION_PRICING_MODE,
+	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
+	BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
+	buildBiddingAutomationDraftFromBid
+} from '$lib/bidding-automation';
+import {
+	TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+	TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES
+} from '@artgod/shared/extensions/terraforms';
 import type { ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
+import { TEST_IDS } from '$lib/test-ids';
 import BiddingAutomationPanel from './BiddingAutomationPanel.svelte';
 
 function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
@@ -429,6 +442,68 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).toContain('>create<');
 		expect(body).toContain('disabled>pause<');
 		expect(body).toContain('disabled>archive<');
+	});
+
+	it('renders unsupported trait drafts without form controls or actions', () => {
+		const draft = {
+			source: {
+				type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+				targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob,
+				filter: {
+					source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+					selectedTraits: [
+						{
+							key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+							value: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
+							marketplaceBiddingSupported: false
+						}
+					],
+					selectedTraitRanges: [],
+					traitJoinMode: 'and' as const,
+					tokenStatus: null,
+					makerAddress: null
+				},
+				tokenCount: 1,
+				state: {
+					kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+				}
+			},
+			target: {
+				type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.UnsupportedTraitJob,
+				traits: [
+					{
+						key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+						value: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
+						marketplaceBiddingSupported: false
+					}
+				],
+				traitJoinMode: 'and' as const
+			},
+			pricing: {
+				mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
+				floorEth: '',
+				ceilingEth: '',
+				deltaEth: ''
+			}
+		};
+
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: testChain(),
+				collection: testCollection(),
+				token: null,
+				job: null,
+				draft,
+				onClose: () => {}
+			}
+		});
+
+		expect(body).toContain(
+			'selected trait target is not available for marketplace bidding'
+		);
+		expect(body).not.toContain('id="bidding-automation-pricing-select"');
+		expect(body).not.toContain(`data-testid="${TEST_IDS.BiddingPanelCreate}"`);
 	});
 
 	it('prefers an existing trait job config over selected-bid draft pricing', () => {

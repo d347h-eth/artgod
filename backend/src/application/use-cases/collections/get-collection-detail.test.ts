@@ -182,6 +182,12 @@ function traitFacet(key: string): TraitFacet {
         displayKind: TRAIT_FILTER_DISPLAY_KIND.Set,
         minValue: null,
         maxValue: null,
-        values: [{ value: "Beanie", tokenCount: 1 }],
+        values: [
+            {
+                value: "Beanie",
+                tokenCount: 1,
+                marketplaceBiddingSupported: true,
+            },
+        ],
     };
 }

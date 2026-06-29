@@ -121,9 +121,9 @@ export const BIDDING_E2E_FACETS: ApiTraitFacet[] = [
 		minValue: null,
 		maxValue: null,
 		values: [
-			{ value: 'Shahra', tokenCount: 2 },
-			{ value: 'Tetsu', tokenCount: 1 },
-			{ value: 'Xleph', tokenCount: 1 }
+			biddingE2eFacetValue('Shahra', 2),
+			biddingE2eFacetValue('Tetsu', 1),
+			biddingE2eFacetValue('Xleph', 1)
 		]
 	},
 	{
@@ -132,9 +132,9 @@ export const BIDDING_E2E_FACETS: ApiTraitFacet[] = [
 		minValue: null,
 		maxValue: null,
 		values: [
-			{ value: '42', tokenCount: 2 },
-			{ value: '7', tokenCount: 1 },
-			{ value: '9', tokenCount: 1 }
+			biddingE2eFacetValue('42', 2),
+			biddingE2eFacetValue('7', 1),
+			biddingE2eFacetValue('9', 1)
 		]
 	},
 	{
@@ -143,8 +143,8 @@ export const BIDDING_E2E_FACETS: ApiTraitFacet[] = [
 		minValue: null,
 		maxValue: null,
 		values: [
-			{ value: 'Terrain', tokenCount: 3 },
-			{ value: 'Daydream', tokenCount: 1 }
+			biddingE2eFacetValue('Terrain', 3),
+			biddingE2eFacetValue('Daydream', 1)
 		]
 	}
 ];
@@ -884,10 +884,22 @@ function tokenDetail(tokenId: string): ApiTokenDetail {
 				BIDDING_E2E_FACETS.find((facet) => facet.key === attribute.key)?.values.find(
 					(item) => item.value === attribute.value
 				)?.tokenCount ?? null,
-			rarityPercent: 25
+			rarityPercent: 25,
+			marketplaceBiddingSupported:
+				BIDDING_E2E_FACETS.find((facet) => facet.key === attribute.key)?.values.find(
+					(item) => item.value === attribute.value
+				)?.marketplaceBiddingSupported ?? true
 		})),
 		hasMetadata: token.hasMetadata,
 		metadataUpdatedAt: token.metadataUpdatedAt
+	};
+}
+
+function biddingE2eFacetValue(value: string, tokenCount: number): ApiTraitFacet['values'][number] {
+	return {
+		value,
+		tokenCount,
+		marketplaceBiddingSupported: true
 	};
 }
 

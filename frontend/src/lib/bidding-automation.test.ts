@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { TRADING_BIDDING_BID_SCOPE_KIND } from '@artgod/shared/types';
+import {
+	TERRAFORMS_MODE_ATTRIBUTE_KEY,
+	TERRAFORMS_MODE_ATTRIBUTE_VALUES,
+	TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+	TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES
+} from '@artgod/shared/extensions/terraforms';
 import type { ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
 import {
 	BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
@@ -16,7 +22,8 @@ import {
 	buildBiddingAutomationDraftFromBid,
 	buildBiddingAutomationDraftFromSelection,
 	buildTokenBiddingAutomationDraftFromBid,
-	isBiddingAutomationDraftSubmittable
+	isBiddingAutomationDraftSubmittable,
+	withMarketplaceBiddingTraitSupport
 } from '$lib/bidding-automation';
 
 const BASE_BID: ApiBiddingBidBookRow = {
@@ -274,6 +281,87 @@ describe('buildBiddingAutomationDraftFromSelection', () => {
 		expect(isBiddingAutomationDraftSubmittable(draft)).toBe(true);
 	});
 
+	it('blocks direct trait job drafts when every selected trait is unsupported by marketplace bidding', () => {
+		const draft = buildBiddingAutomationDraftFromSelection({
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob,
+			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+				selectedTraits: [
+					{
+						key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+						value: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
+						marketplaceBiddingSupported: false
+					}
+				],
+				selectedTraitRanges: [],
+				traitJoinMode: 'and',
+				tokenStatus: null,
+				makerAddress: null
+			},
+			tokenCount: 12,
+			state: {
+				kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+			}
+		});
+
+		expect(draft?.target).toEqual({
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.UnsupportedTraitJob,
+			traits: [
+				{
+					key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+					value: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
+					marketplaceBiddingSupported: false
+				}
+			],
+			traitJoinMode: 'and'
+		});
+		expect(isBiddingAutomationDraftSubmittable(draft)).toBe(false);
+		expect(buildBiddingJobTargetLookupRequestBody(draft)).toBeNull();
+	});
+
+	it('silently drops unsupported traits from mixed direct trait job drafts', () => {
+		const draft = buildBiddingAutomationDraftFromSelection({
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob,
+			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+				selectedTraits: [
+					{
+						key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+						value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
+						marketplaceBiddingSupported: true
+					},
+					{
+						key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+						value: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
+						marketplaceBiddingSupported: false
+					}
+				],
+				selectedTraitRanges: [],
+				traitJoinMode: 'and',
+				tokenStatus: null,
+				makerAddress: null
+			},
+			tokenCount: 12,
+			state: {
+				kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+			}
+		});
+
+		expect(draft?.target).toEqual({
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
+			traits: [
+				{
+					key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+					value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain
+				}
+			],
+			traitJoinMode: 'and'
+		});
+		expect(isBiddingAutomationDraftSubmittable(draft)).toBe(true);
+	});
+
 	it('projects OR-filtered exact traits into one AND trait job target when explicitly requested', () => {
 		const draft = buildBiddingAutomationDraftFromSelection({
 			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
@@ -417,6 +505,64 @@ describe('biddingTraitCriteriaToTokenAttributes', () => {
 		).toEqual([
 			{ key: 'Biome', value: '42' },
 			{ key: 'Mode', value: 'Terrain' }
+		]);
+	});
+});
+
+describe('withMarketplaceBiddingTraitSupport', () => {
+	it('attaches support flags from trait facets to selected filters', () => {
+		expect(
+			withMarketplaceBiddingTraitSupport({
+				selectedTraits: [
+					{
+						key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+						value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain
+					},
+					{
+						key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+						value: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed
+					}
+				],
+				facets: [
+					{
+						key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+						displayKind: 'set',
+						minValue: null,
+						maxValue: null,
+						values: [
+							{
+								value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
+								tokenCount: 1,
+								marketplaceBiddingSupported: true
+							}
+						]
+					},
+					{
+						key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+						displayKind: 'set',
+						minValue: null,
+						maxValue: null,
+						values: [
+							{
+								value: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
+								tokenCount: 1,
+								marketplaceBiddingSupported: false
+							}
+						]
+					}
+				]
+			})
+		).toEqual([
+			{
+				key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+				value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
+				marketplaceBiddingSupported: true
+			},
+			{
+				key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+				value: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
+				marketplaceBiddingSupported: false
+			}
 		]);
 	});
 });

@@ -118,6 +118,7 @@
 
 	const hasExistingJob = $derived(currentJob !== null);
 	const selectedDraftUnsupported = $derived(!isBiddingAutomationDraftSubmittable(draft));
+	const selectedDraftUnsupportedMessage = $derived(resolveSelectedDraftUnsupportedMessage());
 	const bidStateBadges = $derived(ownBiddingJobStateBadges(currentJob, bidBook));
 	const targetTokenId = $derived(biddingAutomationDraftTokenId(draft) ?? token?.tokenId ?? null);
 	const selectedPriceTier = $derived(resolveSelectedPriceTier());
@@ -470,10 +471,22 @@
 				.map((trait) => `${trimTargetText(trait.key)}=${trimTargetText(trait.value)}`)
 				.join(' + ');
 		}
+		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.UnsupportedTraitJob) {
+			return draft.target.traits
+				.map((trait) => `${trimTargetText(trait.key)}=${trimTargetText(trait.value)}`)
+				.join(' + ');
+		}
 		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch) {
 			return `${draft.target.tokenCount} filtered tokens`;
 		}
 		return 'collection';
+	}
+
+	function resolveSelectedDraftUnsupportedMessage(): string {
+		if (draft?.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.UnsupportedTraitJob) {
+			return 'selected trait target is not available for marketplace bidding';
+		}
+		return 'selected bidding target is not available';
 	}
 
 	function trimTargetText(value: string): string {
@@ -653,12 +666,17 @@
 			<p class="runtime-error token-bidding-feedback" role="alert">{currentJob.runtime.lastError}</p>
 		{/if}
 
-		<form
-			class="bootstrap-form token-bidding-form"
-			onsubmit={(event) => {
-				event.preventDefault();
-			}}
-		>
+		{#if selectedDraftUnsupported}
+			<p class="runtime-error token-bidding-feedback" role="alert">
+				{selectedDraftUnsupportedMessage}
+			</p>
+		{:else}
+			<form
+				class="bootstrap-form token-bidding-form"
+				onsubmit={(event) => {
+					event.preventDefault();
+				}}
+			>
 			<div class="bootstrap-form-row token-bidding-pricing-row">
 				<label for="bidding-automation-pricing-select"><span>pricing</span></label>
 				{#if biddingSettings.tierSelectionMode === TRADING_BIDDING_TIER_SELECTION_MODE.Dropdown}
@@ -859,6 +877,7 @@
 					{/if}
 				</div>
 			</div>
-		</form>
+			</form>
+		{/if}
 	</div>
 {/if}

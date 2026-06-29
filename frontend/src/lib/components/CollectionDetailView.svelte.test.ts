@@ -63,7 +63,7 @@ describe('CollectionDetailView', () => {
 						displayKind: 'set',
 						minValue: null,
 						maxValue: null,
-						values: [{ value: 'Beanie', tokenCount: 1 }]
+						values: [{ value: 'Beanie', tokenCount: 1, marketplaceBiddingSupported: true }]
 					}
 				],
 				selectedTraits: [{ key: 'Hat', value: 'Beanie' }],

@@ -268,7 +268,9 @@
 			return buildTraitBiddingAutomationDraftFromTrait({
 				trait: {
 					key: selectedTokenTraitTarget.key,
-					value: selectedTokenTraitTarget.value
+					value: selectedTokenTraitTarget.value,
+					marketplaceBiddingSupported:
+						selectedTokenTraitTarget.marketplaceBiddingSupported
 				},
 				tokenCount: selectedTokenTraitTarget.tokenCount
 			});

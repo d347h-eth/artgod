@@ -9,11 +9,19 @@ import {
 } from "../observability/artgod-span-attributes.js";
 import type { ApmPort, SpanAttributes } from "../observability/apm.js";
 import { TOKEN_BROWSER_STATUS } from "../types/browse.js";
+import {
+    TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+    TOKEN_ATTRIBUTE_SOURCE_KIND,
+    type TokenAttributeSourceKind,
+} from "../types/token-attributes.js";
 import { SqliteCollectionsReadModel } from "./collections.js";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const OWNER_A = "0x1111111111111111111111111111111111111111";
 const OWNER_B = "0x2222222222222222222222222222222222222222";
+const TEST_COLLECTION_EXTENSION_SOURCE_KEY = "test_extension";
+const TEST_METADATA_TRAIT = { key: "Metadata Trait", value: "Canonical" };
+const TEST_EXTENSION_TRAIT = { key: "Extension Trait", value: "Synthetic" };
 
 class CapturingApm implements ApmPort {
     readonly spans: Array<{ name: string; attributes: SpanAttributes }> = [];
@@ -307,14 +315,40 @@ describe("SqliteCollectionsReadModel observability", () => {
                 value: "Terrain",
                 tokenCount: null,
                 rarityPercent: null,
+                marketplaceBiddingSupported: true,
             },
             {
                 key: "Rank",
                 value: "7",
                 tokenCount: null,
                 rarityPercent: null,
+                marketplaceBiddingSupported: true,
             },
         ]);
+    });
+
+    it("lists only metadata-backed trait targets as marketplace-bidding supported", () => {
+        insertBareToken("1");
+        insertTokenTrait("1", TEST_METADATA_TRAIT.key, TEST_METADATA_TRAIT.value);
+        insertTokenTrait(
+            "1",
+            TEST_EXTENSION_TRAIT.key,
+            TEST_EXTENSION_TRAIT.value,
+            TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+            TEST_COLLECTION_EXTENSION_SOURCE_KEY,
+        );
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
+
+        expect(
+            readModel.listMarketplaceBiddingSupportedTraits({
+                chainId: 1,
+                collectionId: 1,
+                traits: [
+                    TEST_METADATA_TRAIT,
+                    TEST_EXTENSION_TRAIT,
+                ],
+            }),
+        ).toEqual([TEST_METADATA_TRAIT]);
     });
 
     it("short-circuits listed-token trait filters when no tokens match", () => {
@@ -611,13 +645,27 @@ describe("SqliteCollectionsReadModel observability", () => {
                 expect.objectContaining({
                     key: "Hat",
                     values: [
-                        { value: "Beanie", tokenCount: 1 },
-                        { value: "Cap", tokenCount: 1 },
+                        {
+                            value: "Beanie",
+                            tokenCount: 1,
+                            marketplaceBiddingSupported: true,
+                        },
+                        {
+                            value: "Cap",
+                            tokenCount: 1,
+                            marketplaceBiddingSupported: true,
+                        },
                     ],
                 }),
                 expect.objectContaining({
                     key: "Mode",
-                    values: [{ value: "Terrain", tokenCount: 2 }],
+                    values: [
+                        {
+                            value: "Terrain",
+                            tokenCount: 2,
+                            marketplaceBiddingSupported: true,
+                        },
+                    ],
                 }),
                 {
                     key: "Rank",
@@ -658,7 +706,13 @@ describe("SqliteCollectionsReadModel observability", () => {
         expect(facets).toEqual([
             expect.objectContaining({
                 key: "Hat",
-                values: [{ value: "Beanie", tokenCount: 2 }],
+                values: [
+                    {
+                        value: "Beanie",
+                        tokenCount: 2,
+                        marketplaceBiddingSupported: false,
+                    },
+                ],
             }),
             {
                 key: "???",
@@ -899,7 +953,9 @@ function createSchema(): void {
             chain_id INTEGER NOT NULL,
             collection_id INTEGER NOT NULL,
             token_id TEXT NOT NULL,
-            attribute_id INTEGER NOT NULL
+            attribute_id INTEGER NOT NULL,
+            source_kind TEXT NOT NULL,
+            source_key TEXT NOT NULL
         );
         CREATE TABLE nft_balances (
             chain_id INTEGER NOT NULL,
@@ -949,12 +1005,25 @@ function insertBalance(tokenId: string, owner: string, amount = "1"): void {
     ).run(1, 1, tokenId, owner, amount);
 }
 
-function insertTokenTrait(tokenId: string, key: string, value: string): void {
+function insertTokenTrait(
+    tokenId: string,
+    key: string,
+    value: string,
+    sourceKind: TokenAttributeSourceKind = TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+    sourceKey = TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+): void {
     const keyId = getOrCreateAttributeKey(key);
     const attributeId = getOrCreateAttribute(keyId, value);
     db.prepare(
-        "INSERT INTO token_attributes (chain_id, collection_id, token_id, attribute_id) VALUES (?, ?, ?, ?)",
-    ).run(1, 1, tokenId, attributeId);
+        "INSERT INTO token_attributes (chain_id, collection_id, token_id, attribute_id, source_kind, source_key) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(
+        1,
+        1,
+        tokenId,
+        attributeId,
+        sourceKind,
+        sourceKey,
+    );
 }
 
 function getOrCreateAttributeKey(key: string): number {

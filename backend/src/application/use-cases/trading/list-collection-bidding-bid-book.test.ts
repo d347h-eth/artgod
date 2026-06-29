@@ -274,7 +274,13 @@ function traitFacet(key: string): TraitFacet {
         displayKind: TRAIT_FILTER_DISPLAY_KIND.Set,
         minValue: null,
         maxValue: null,
-        values: [{ value: "Terrain", tokenCount: 1 }],
+        values: [
+            {
+                value: "Terrain",
+                tokenCount: 1,
+                marketplaceBiddingSupported: true,
+            },
+        ],
     };
 }
 
@@ -313,6 +319,7 @@ function bidRow(
         maker: "0x2222222222222222222222222222222222222222",
         isOwn: false,
         price: exactBidBookRowPrice(priceWei),
+        bidLimits: null,
         quantity: "1",
         currencyAddress: null,
         currencySymbol: null,

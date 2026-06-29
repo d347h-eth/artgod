@@ -188,6 +188,7 @@ function bid(
         maker: "0x1111111111111111111111111111111111111111",
         isOwn: false,
         price: exactBidBookRowPrice(wei ?? "1"),
+        bidLimits: null,
         quantity: "1",
         currencyAddress: null,
         currencySymbol: null,
