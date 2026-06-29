@@ -74,12 +74,11 @@
 	import { resolveBidBookTraitDemandGroupPreview } from '$lib/bid-book-trait-previews';
 	import {
 		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
-		buildBiddingAutomationTokenFilterSnapshot,
+		buildBiddingAutomationResolvedTokenFilterSnapshot,
 		buildBiddingAutomationDraftFromSelection,
 		buildBiddingAutomationDraftFromBid,
 		biddingTraitCriteriaToTokenAttributes,
 		canDraftTraitJobFromFilters,
-		withMarketplaceBiddingTraitSupport,
 		type BiddingAutomationTokenFilterSnapshot
 	} from '$lib/bidding-automation';
 	import {
@@ -271,12 +270,6 @@
 	);
 	const ownMakerAddress = $derived(activeBidBook.ownMakerAddress);
 	const biddingFilterKey = $derived(activeBiddingFilterKey());
-	const activeTraitsWithBiddingSupport = $derived(
-		withMarketplaceBiddingTraitSupport({
-			selectedTraits: activeTraits,
-			facets
-		})
-	);
 	const canBidOnTraits = $derived(
 		canDraftTraitJobFromFilters({
 			selectedTraits: activeTraits,
@@ -836,9 +829,7 @@
 		biddingAutomation.selectFilteredTokens(
 			buildFilteredTraitBiddingSelectionInput({
 				tokenCount: activeTokenOfferCardsPage.totalItems,
-				filter: currentBiddingFilterSnapshot({
-					traits: activeTraitsWithBiddingSupport
-				})
+				filter: currentBiddingFilterSnapshot()
 			})
 		);
 		expandBiddingAutomationPanel();
@@ -881,9 +872,10 @@
 		ranges?: ApiTraitRangeFilter[];
 		nextTraitJoinMode?: ApiCollectionBiddingTraitFilterJoinMode;
 	} = {}): BiddingAutomationTokenFilterSnapshot {
-		return buildBiddingAutomationTokenFilterSnapshot({
+		return buildBiddingAutomationResolvedTokenFilterSnapshot({
 			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
 			selectedTraits: params.traits ?? activeTraits,
+			facets,
 			selectedTraitRanges: params.ranges ?? activeTraitRanges,
 			traitJoinMode: params.nextTraitJoinMode ?? traitJoinMode,
 			tokenStatus: null,

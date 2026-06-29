@@ -14,17 +14,18 @@ import {
 	BIDDING_AUTOMATION_PRICING_MODE,
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
 	BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
-	bestBiddingAutomationBid,
-	biddingAutomationDraftTokenId,
-	biddingTraitCriteriaToTokenAttributes,
-	buildBiddingAutomationTokenFilterSnapshot,
-	buildBiddingJobTargetLookupRequestBody,
-	buildBiddingAutomationDraftFromBid,
-	buildBiddingAutomationDraftFromSelection,
-	buildTokenBiddingAutomationDraftFromBid,
-	isBiddingAutomationDraftSubmittable,
-	withMarketplaceBiddingTraitSupport
-} from '$lib/bidding-automation';
+		bestBiddingAutomationBid,
+		biddingAutomationDraftTokenId,
+		biddingTraitCriteriaToTokenAttributes,
+		buildBiddingAutomationResolvedTokenFilterSnapshot,
+		buildBiddingAutomationTokenFilterSnapshot,
+		buildBiddingJobTargetLookupRequestBody,
+		buildBiddingAutomationDraftFromBid,
+		buildBiddingAutomationDraftFromSelection,
+		buildTokenBiddingAutomationDraftFromBid,
+		isBiddingAutomationDraftSubmittable,
+		resolveBiddingAutomationTraitAttributes
+	} from '$lib/bidding-automation';
 
 const BASE_BID: ApiBiddingBidBookRow = {
 	orderId: '0xbase',
@@ -254,11 +255,11 @@ describe('buildBiddingAutomationDraftFromSelection', () => {
 			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
 			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob,
 			filter: {
-				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
-				selectedTraits: [
-					{ key: 'Biome', value: '42' },
-					{ key: 'Mode', value: 'Terrain' }
-				],
+					source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+					selectedTraits: [
+						{ key: 'Biome', value: '42', marketplaceBiddingSupported: true },
+						{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }
+					],
 				selectedTraitRanges: [],
 				traitJoinMode: 'and',
 				tokenStatus: null,
@@ -367,13 +368,13 @@ describe('buildBiddingAutomationDraftFromSelection', () => {
 			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
 			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob,
 			filter: {
-				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
-				selectedTraits: [
-					{ key: 'Biome', value: '42' },
-					{ key: 'Mode', value: 'Terrain' }
-				],
-				selectedTraitRanges: [],
-				traitJoinMode: 'or',
+					source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
+					selectedTraits: [
+						{ key: 'Biome', value: '42', marketplaceBiddingSupported: true },
+						{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }
+					],
+					selectedTraitRanges: [],
+					traitJoinMode: 'or',
 				tokenStatus: null,
 				makerAddress: null
 			},
@@ -397,12 +398,12 @@ describe('buildBiddingAutomationDraftFromSelection', () => {
 		const draft = buildBiddingAutomationDraftFromSelection({
 			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
 			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
-			filter: {
-				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
-				selectedTraits: [{ key: 'Biome', value: '42' }],
-				selectedTraitRanges: [],
-				traitJoinMode: 'and',
-				tokenStatus: 'all',
+				filter: {
+					source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+					selectedTraits: [{ key: 'Biome', value: '42', marketplaceBiddingSupported: true }],
+					selectedTraitRanges: [],
+					traitJoinMode: 'and',
+					tokenStatus: 'all',
 				makerAddress: null
 			},
 			tokenCount: 12,
@@ -509,10 +510,10 @@ describe('biddingTraitCriteriaToTokenAttributes', () => {
 	});
 });
 
-describe('withMarketplaceBiddingTraitSupport', () => {
+describe('resolveBiddingAutomationTraitAttributes', () => {
 	it('attaches support flags from trait facets to selected filters', () => {
 		expect(
-			withMarketplaceBiddingTraitSupport({
+			resolveBiddingAutomationTraitAttributes({
 				selectedTraits: [
 					{
 						key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
@@ -572,17 +573,65 @@ describe('buildBiddingAutomationTokenFilterSnapshot', () => {
 		expect(
 			buildBiddingAutomationTokenFilterSnapshot({
 				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
-				selectedTraits: [{ key: 'Mode', value: 'Terrain' }],
-				selectedTraitRanges: [],
-				traitJoinMode: 'or'
-			})
+					selectedTraits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
+					selectedTraitRanges: [],
+					traitJoinMode: 'or'
+				})
 		).toEqual({
-			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
-			selectedTraits: [{ key: 'Mode', value: 'Terrain' }],
-			selectedTraitRanges: [],
-			traitJoinMode: 'or',
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
+				selectedTraits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
+				selectedTraitRanges: [],
+				traitJoinMode: 'or',
 			tokenStatus: null,
 			makerAddress: null
 		});
+	});
+});
+
+describe('buildBiddingAutomationResolvedTokenFilterSnapshot', () => {
+	it('builds route-filter snapshots with backend-declared trait support from facets', () => {
+		expect(
+			buildBiddingAutomationResolvedTokenFilterSnapshot({
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+				selectedTraits: [
+					{
+						key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+						value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain
+					},
+					{
+						key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+						value: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed
+					}
+				],
+				facets: [
+					{
+						key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+						displayKind: 'set',
+						minValue: null,
+						maxValue: null,
+						values: [
+							{
+								value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
+								tokenCount: 1,
+								marketplaceBiddingSupported: true
+							}
+						]
+					}
+				],
+				selectedTraitRanges: [],
+				traitJoinMode: 'and'
+			}).selectedTraits
+		).toEqual([
+			{
+				key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+				value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
+				marketplaceBiddingSupported: true
+			},
+			{
+				key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+				value: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
+				marketplaceBiddingSupported: false
+			}
+		]);
 	});
 });

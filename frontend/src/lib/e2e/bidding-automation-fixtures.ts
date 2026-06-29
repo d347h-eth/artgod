@@ -1,6 +1,8 @@
 import {
 	TERRAFORMS_BIOME_ATTRIBUTE_KEY,
 	TERRAFORMS_EXTENSION_KEY,
+	TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+	TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES,
 	TERRAFORMS_ZONE_ATTRIBUTE_KEY
 } from '@artgod/shared/extensions/terraforms';
 import {
@@ -146,6 +148,13 @@ export const BIDDING_E2E_FACETS: ApiTraitFacet[] = [
 			biddingE2eFacetValue('Terrain', 3),
 			biddingE2eFacetValue('Daydream', 1)
 		]
+	},
+	{
+		key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+		displayKind: 'set',
+		minValue: null,
+		maxValue: null,
+		values: [biddingE2eFacetValue(TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed, 1, false)]
 	}
 ];
 
@@ -895,11 +904,15 @@ function tokenDetail(tokenId: string): ApiTokenDetail {
 	};
 }
 
-function biddingE2eFacetValue(value: string, tokenCount: number): ApiTraitFacet['values'][number] {
+function biddingE2eFacetValue(
+	value: string,
+	tokenCount: number,
+	marketplaceBiddingSupported = true
+): ApiTraitFacet['values'][number] {
 	return {
 		value,
 		tokenCount,
-		marketplaceBiddingSupported: true
+		marketplaceBiddingSupported
 	};
 }
 

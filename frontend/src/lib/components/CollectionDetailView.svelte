@@ -22,7 +22,7 @@
 	import { getBootstrapStatus } from '$lib/backend-api';
 	import {
 		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
-		buildBiddingAutomationTokenFilterSnapshot,
+		buildBiddingAutomationResolvedTokenFilterSnapshot,
 		buildBiddingAutomationDraftFromSelection,
 		canDraftTraitJobFromFilters,
 		type BiddingAutomationTokenFilterSnapshot
@@ -314,9 +314,10 @@
 	}
 
 	function currentBiddingFilterSnapshot(): BiddingAutomationTokenFilterSnapshot {
-		return buildBiddingAutomationTokenFilterSnapshot({
+		return buildBiddingAutomationResolvedTokenFilterSnapshot({
 			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
 			selectedTraits,
+			facets,
 			selectedTraitRanges,
 			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
 			tokenStatus,

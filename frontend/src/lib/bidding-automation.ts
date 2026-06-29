@@ -54,7 +54,7 @@ export type BiddingAutomationTokenFilterSource =
 	(typeof BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE)[keyof typeof BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE];
 
 export type BiddingAutomationTraitAttribute = ApiTokenAttribute & {
-	marketplaceBiddingSupported?: boolean;
+	marketplaceBiddingSupported: boolean;
 };
 
 export const BIDDING_AUTOMATION_DRAFT_TARGET_TYPE = {
@@ -95,6 +95,29 @@ export function buildBiddingAutomationTokenFilterSnapshot(params: {
 		tokenStatus: params.tokenStatus ?? null,
 		makerAddress: params.makerAddress ?? null
 	};
+}
+
+// Builds a bidding filter snapshot by injecting backend-declared trait bidding support from facets.
+export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
+	source: BiddingAutomationTokenFilterSource;
+	selectedTraits: ApiTokenAttribute[];
+	facets: ApiTraitFacet[];
+	selectedTraitRanges: ApiTraitRangeFilter[];
+	traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
+	tokenStatus?: TokenBrowserStatus | null;
+	makerAddress?: string | null;
+}): BiddingAutomationTokenFilterSnapshot {
+	return buildBiddingAutomationTokenFilterSnapshot({
+		source: params.source,
+		selectedTraits: resolveBiddingAutomationTraitAttributes({
+			selectedTraits: params.selectedTraits,
+			facets: params.facets
+		}),
+		selectedTraitRanges: params.selectedTraitRanges,
+		traitJoinMode: params.traitJoinMode,
+		tokenStatus: params.tokenStatus,
+		makerAddress: params.makerAddress
+	});
 }
 
 // Represents a clean all-filtered-tokens action or a visible-page-adjusted variant.
@@ -408,8 +431,8 @@ export function biddingTraitCriteriaToTokenAttributes(
 	}));
 }
 
-// Attaches marketplace-bidding support from the current facet read model to selected trait filters.
-export function withMarketplaceBiddingTraitSupport(params: {
+// Resolves selected trait filters against backend-provided facet marketplace bidding capability.
+export function resolveBiddingAutomationTraitAttributes(params: {
 	selectedTraits: ApiTokenAttribute[];
 	facets: ApiTraitFacet[];
 }): BiddingAutomationTraitAttribute[] {

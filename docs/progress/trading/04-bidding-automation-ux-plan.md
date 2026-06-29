@@ -782,7 +782,7 @@ The offers/bid-book and token detail bidding surfaces now keep live refresh and 
 
 Current implementation notes:
 
-- Derived or extension-owned traits that marketplaces cannot target directly are not submittable as exact trait jobs; unsupported-only selections show a compact panel error, while broader selections ignore unsupported traits and keep valid targets.
+- Derived or extension-owned traits that marketplaces cannot target directly are not submittable as exact trait jobs; backend trait read models expose canonical metadata-backed support, and shared bidding snapshots consume that resolved support across token browsing and offers.
 - Active own market rows remain visible after a job update or tier reapply until the bot writes a fresh order/runtime revision or records cancellation, so a real OpenSea offer is not replaced by a queued placeholder.
 - Bid-book rows render floor and ceiling separately from price; price is reserved for exact active marketplace bids, while queued/paused job intent rows show only their configured range.
 - The token detail bid-book meta row omits the state chip, and all live bid-book timers count down to the next refresh using the configured cadence.
