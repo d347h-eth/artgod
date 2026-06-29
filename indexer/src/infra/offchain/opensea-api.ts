@@ -5,15 +5,18 @@ import {
     OpenSeaApiRateLimiter,
     retryOpenSeaApiCall,
 } from "@artgod/shared/network/opensea-api-resilience";
+import {
+    OpenSeaContractLookupClient,
+    type OpenSeaContractLookupPort,
+    type OpenSeaResolvedContractCollection,
+} from "@artgod/shared/network/opensea-contract-lookup";
 
 export type OpenSeaApiConfig = {
     apiKey: string;
     snapshotPageSize: number;
 } & OpenSeaHttpConfig;
 
-export type OpenSeaResolvedCollection = {
-    slug: string;
-};
+export type OpenSeaResolvedCollection = OpenSeaResolvedContractCollection;
 
 export type OpenSeaRestRecord = {
     eventType: string;
@@ -32,16 +35,25 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export class OpenSeaApiAdapter {
     private readonly api: OpenSeaAPI;
+    private readonly contractLookup: OpenSeaContractLookupPort;
     private readonly rateLimiter: OpenSeaApiRateLimiter;
     private readonly pageSize: number;
     private readonly retryPolicy: OpenSeaHttpConfig["retryPolicy"];
 
-    constructor(config: OpenSeaApiConfig) {
+    constructor(
+        config: OpenSeaApiConfig,
+        contractLookup?: OpenSeaContractLookupPort,
+    ) {
         this.api = new OpenSeaAPI({
             apiKey: config.apiKey,
             chain: Chain.Mainnet,
         });
         this.rateLimiter = new OpenSeaApiRateLimiter(config.rateLimiter);
+        this.contractLookup =
+            contractLookup ??
+            new OpenSeaContractLookupClient(config, {
+                rateLimiter: this.rateLimiter,
+            });
         this.pageSize = Math.max(1, config.snapshotPageSize);
         this.retryPolicy = config.retryPolicy;
     }
@@ -49,13 +61,10 @@ export class OpenSeaApiAdapter {
     async resolveCollectionByContract(
         contractAddress: string,
     ): Promise<OpenSeaResolvedCollection | null> {
-        const response = await this.withGetCost("getContract", () =>
-            this.api.getContract(contractAddress, Chain.Mainnet),
-        );
-        if (!response?.collection) {
-            return null;
-        }
-        return { slug: String(response.collection) };
+        // Resolve collection identity through the shared OpenSea REST client.
+        return this.contractLookup.resolveCollectionByContract({
+            address: contractAddress,
+        });
     }
 
     async forEachListing(

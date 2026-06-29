@@ -4,45 +4,29 @@ import { OpenSeaCollectionSlugProbeAdapter } from "./opensea-collection-slug-pro
 const CONTRACT_ADDRESS = "0x1111111111111111111111111111111111111111";
 
 describe("OpenSeaCollectionSlugProbeAdapter", () => {
-    it("fetches the OpenSea contract endpoint with the configured API key", async () => {
-        const requests: Array<{ url: string; apiKey: string | null }> = [];
-        const adapter = new OpenSeaCollectionSlugProbeAdapter(
-            makeConfig(),
-            async (input, init) => {
-                requests.push({
-                    url: String(input),
-                    apiKey: new Headers(init?.headers).get("X-API-KEY"),
-                });
-                return Response.json({
-                    collection: "Milady-Maker",
-                });
+    it("returns the slug resolved by the shared OpenSea contract lookup client", async () => {
+        const requests: string[] = [];
+        const adapter = new OpenSeaCollectionSlugProbeAdapter({
+            async resolveCollectionByContract(input) {
+                requests.push(input.address);
+                return { slug: "milady-maker" };
             },
-        );
+        });
 
         const slug = await adapter.resolveCollectionSlugByContract({
             address: CONTRACT_ADDRESS,
         });
 
         expect(slug).toBe("milady-maker");
-        expect(requests).toEqual([
-            {
-                url: `https://api.opensea.io/api/v2/chain/ethereum/contract/${CONTRACT_ADDRESS}`,
-                apiKey: "test-opensea-api-key",
-            },
-        ]);
+        expect(requests).toEqual([CONTRACT_ADDRESS]);
     });
 
     it("returns null for contracts without an OpenSea collection", async () => {
-        const adapter = new OpenSeaCollectionSlugProbeAdapter(
-            makeConfig(),
-            async () =>
-                Response.json(
-                    { errors: ["not found"] },
-                    {
-                        status: 404,
-                    },
-                ),
-        );
+        const adapter = new OpenSeaCollectionSlugProbeAdapter({
+            async resolveCollectionByContract() {
+                return null;
+            },
+        });
 
         await expect(
             adapter.resolveCollectionSlugByContract({
@@ -51,22 +35,3 @@ describe("OpenSeaCollectionSlugProbeAdapter", () => {
         ).resolves.toBeNull();
     });
 });
-
-function makeConfig() {
-    return {
-        apiKey: "test-opensea-api-key",
-        snapshotPageSize: 100,
-        retryPolicy: {
-            maxAttempts: 1,
-            baseDelayMs: 0,
-            maxDelayMs: 0,
-            jitterRatio: 0,
-        },
-        rateLimiter: {
-            getMax: 100,
-            getRefillPerSecond: 100,
-            postMax: 1,
-            postRefillPerSecond: 1,
-        },
-    };
-}

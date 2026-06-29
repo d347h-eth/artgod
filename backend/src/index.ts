@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { DEFAULT_PAGE_LIMIT } from "@artgod/shared/config/pagination";
+import { OpenSeaContractLookupClient } from "@artgod/shared/network/opensea-contract-lookup";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
 import {
     SqliteActivitiesReadModel,
@@ -257,7 +258,9 @@ export function createBackendApp(
         config.httpFetch,
     );
     const openSeaCollectionSlugProbe = config.openseaApi
-        ? new OpenSeaCollectionSlugProbeAdapter(config.openseaApi)
+        ? new OpenSeaCollectionSlugProbeAdapter(
+              new OpenSeaContractLookupClient(config.openseaApi),
+          )
         : null;
     const createBootstrapRunUseCase = new CreateBootstrapRunUseCase(
         config.defaultChainId,

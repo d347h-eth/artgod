@@ -44,6 +44,7 @@
         "./media/token-image-cache-jobs": "./media/token-image-cache-jobs.ts",
         "./network/http-fetch-resilience": "./network/http-fetch-resilience.ts",
         "./network/opensea-api-resilience": "./network/opensea-api-resilience.ts",
+        "./network/opensea-contract-lookup": "./network/opensea-contract-lookup.ts",
         "./types": "./types/index.ts",
         "./types/browse": "./types/browse.ts",
         "./types/customization": "./types/customization.ts",
