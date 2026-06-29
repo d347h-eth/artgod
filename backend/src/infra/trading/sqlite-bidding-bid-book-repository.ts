@@ -49,6 +49,7 @@ import type {
     PersistedBiddingBidBookState,
 } from "../../application/use-cases/trading/bidding-bid-book.js";
 import {
+    bidBookBidLimits,
     exactBidBookRowPrice,
     marketBidMaterialization,
     persistedBidBookRowEffectiveWei,
@@ -1542,6 +1543,10 @@ function mapJobOverlayRow(
               floorWei: job.floorWei,
               ceilingWei: job.ceilingWei,
           });
+    const bidLimits = bidBookBidLimits({
+        floorWei: job.floorWei,
+        ceilingWei: job.ceilingWei,
+    });
 
     return {
         orderId: activeRuntime?.activeOrderId ?? `job-intent:${job.jobId}`,
@@ -1564,6 +1569,7 @@ function mapJobOverlayRow(
         maker: ownMakerAddress,
         isOwn: true,
         price,
+        bidLimits,
         quantity: String(Math.max(1, Math.floor(job.quantity ?? 1))),
         currencyAddress: null,
         currencySymbol: "WETH",
@@ -1698,6 +1704,10 @@ function mergeRuntimeOwnBidSignals(
     const runtime = job.runtime;
     return {
         ...bid,
+        bidLimits: bidBookBidLimits({
+            floorWei: job.floorWei,
+            ceilingWei: job.ceilingWei,
+        }),
         protocolAddress: runtime?.activeProtocolAddress ?? bid.protocolAddress,
         validUntil: runtime?.activeExpirationTimeMs
             ? Math.floor(runtime.activeExpirationTimeMs / 1000)
@@ -1846,6 +1856,7 @@ function mapProjectedRow(row: ProjectedBidBookRow): PersistedBiddingBidBookRow[]
             maker: row.maker,
             isOwn: row.is_own === 1,
             price: exactBidBookRowPrice(row.price_wei),
+            bidLimits: null,
             quantity: row.quantity,
             currencyAddress: row.currency_address,
             currencySymbol: row.currency_symbol,
@@ -1879,6 +1890,7 @@ function mapIndexedOrderRow(row: IndexedOrderRow): PersistedBiddingBidBookRow[] 
                 maker: row.maker.toLowerCase(),
                 isOwn: false,
                 price: exactBidBookRowPrice(row.price),
+                bidLimits: null,
                 quantity: row.quantity,
                 currencyAddress: row.currency,
                 currencySymbol: null,

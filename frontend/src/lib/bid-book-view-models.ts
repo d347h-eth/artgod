@@ -12,6 +12,8 @@ export const BID_BOOK_ROWS_TABLE_SCOPE_KIND = {
 export type BidBookRowsTableRow = {
 	bid: ApiBiddingBidBookRow;
 	price: string;
+	floor: string;
+	ceiling: string;
 	quantityPrefix: string | null;
 	makerHref: string;
 	makerHighlighted: boolean;
@@ -76,6 +78,8 @@ export type BidBookDemandTableGroup = {
 export type BidBookDemandTableBidRow = {
 	bid: ApiBiddingBidBookRow;
 	price: string;
+	floor: string;
+	ceiling: string;
 	quantityPrefix: string | null;
 	makerHref: string;
 	makerHighlighted: boolean;

@@ -753,6 +753,12 @@ describe("SqliteBiddingBidBookRepository", () => {
         });
         assert.equal(runtimeCollectionBook.bids[0]?.orderId, "0xruntime-order");
         assert.equal(runtimeCollectionBook.bids[0]?.price.kind, TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact);
+        assert.deepEqual(runtimeCollectionBook.bids[0]?.bidLimits, {
+            floorWei: "100",
+            floorEth: "0.0000000000000001",
+            ceilingWei: "200",
+            ceilingEth: "0.0000000000000002",
+        });
         assert.equal(
             runtimeCollectionBook.bids[0]
                 ? persistedBidBookRowEffectiveWei(runtimeCollectionBook.bids[0])
@@ -966,6 +972,12 @@ describe("SqliteBiddingBidBookRepository", () => {
             },
         });
         assert.deepEqual(ownPlacedBid?.price, exactBidBookRowPrice("150"));
+        assert.deepEqual(ownPlacedBid?.bidLimits, {
+            floorWei: "150",
+            floorEth: "0.00000000000000015",
+            ceilingWei: "150",
+            ceilingEth: "0.00000000000000015",
+        });
 
         const archived = jobsRepository.archiveJobById({
             chainId: 1,
@@ -1261,6 +1273,12 @@ describe("SqliteBiddingBidBookRepository", () => {
             },
         });
         assert.deepEqual(freshOwnBid?.price, exactBidBookRowPrice("180"));
+        assert.deepEqual(freshOwnBid?.bidLimits, {
+            floorWei: "120",
+            floorEth: "0.00000000000000012",
+            ceilingWei: "180",
+            ceilingEth: "0.00000000000000018",
+        });
     });
 
     it("falls back to indexed orders when enabled bot projections are stale", () => {

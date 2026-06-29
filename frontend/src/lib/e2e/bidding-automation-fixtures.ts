@@ -949,6 +949,14 @@ function bidRow(params: {
 					wei: ethToWei(params.priceEth),
 					eth: params.priceEth
 				},
+		bidLimits: hasRange
+			? {
+					floorWei: ethToWei(params.priceEth),
+					floorEth: params.priceEth,
+					ceilingWei: ethToWei(params.ceilingEth ?? params.priceEth),
+					ceilingEth: params.ceilingEth ?? params.priceEth
+				}
+			: null,
 		quantity: '1',
 		currencyAddress: WETH_ADDRESS,
 		currencySymbol: 'WETH',

@@ -585,6 +585,12 @@ export type ApiBiddingBidBookPrice =
 			ceilingWei: string;
 			ceilingEth: string;
 	  };
+export type ApiBiddingBidBookBidLimits = {
+	floorWei: string;
+	floorEth: string;
+	ceilingWei: string;
+	ceilingEth: string;
+};
 export type ApiBiddingBidBookRowMaterialization =
 	| {
 			kind: typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid;
@@ -626,6 +632,7 @@ export type ApiBiddingBidBookRow = {
 		isOwn: boolean;
 	};
 	price: ApiBiddingBidBookPrice;
+	bidLimits: ApiBiddingBidBookBidLimits | null;
 	quantity: string;
 	currencyAddress: string | null;
 	currencySymbol: string | null;

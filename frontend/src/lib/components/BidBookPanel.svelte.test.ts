@@ -36,6 +36,7 @@ const BASE_BID: ApiBiddingBidBookRow = {
 		isOwn: false
 	},
 	price: exactPrice('300000000000000000', '0.3'),
+	bidLimits: null,
 	quantity: '1',
 	currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 	currencySymbol: 'WETH',
@@ -479,6 +480,12 @@ describe('BidBookPanel', () => {
 				isOwn: true
 			},
 			price: exactPrice('200000000000000000', '0.2'),
+			bidLimits: {
+				floorWei: '100000000000000000',
+				floorEth: '0.1',
+				ceilingWei: '200000000000000000',
+				ceilingEth: '0.2'
+			},
 			ownStatus: {
 				position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
 				constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
@@ -531,6 +538,10 @@ describe('BidBookPanel', () => {
 		expect(body).toContain('>winning</span>');
 		expect(body).toContain('bid-book-own-status-ceiling');
 		expect(body).toContain('>hit ceiling</span>');
+		expect(body).toContain('>floor</th>');
+		expect(body).toContain('>ceiling</th>');
+		expect(body).toContain('>0.10</td>');
+		expect(body).toContain('>0.20</td>');
 	});
 
 	it('shows runtime status for active own job intents', () => {
@@ -574,6 +585,12 @@ describe('BidBookPanel', () => {
 				isOwn: true
 			},
 			price: exactPrice('200000000000000000', '0.2'),
+			bidLimits: {
+				floorWei: '100000000000000000',
+				floorEth: '0.1',
+				ceilingWei: '200000000000000000',
+				ceilingEth: '0.2'
+			},
 			ownStatus: {
 				position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
 				constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
@@ -614,6 +631,8 @@ describe('BidBookPanel', () => {
 		expect(body).toContain('bid-book-own-status-ceiling');
 		expect(body).toContain('>hit ceiling</span>');
 		expect(body).not.toContain('>queued</span>');
+		expect(body).toContain('>0.10</td>');
+		expect(body).toContain('>0.20</td>');
 	});
 
 	it('shows queued for own job intents instead of computing a market position locally', () => {
@@ -662,6 +681,12 @@ describe('BidBookPanel', () => {
 				floorEth: '0.1',
 				ceilingWei: '200000000000000000',
 				ceilingEth: '0.2'
+			},
+			bidLimits: {
+				floorWei: '100000000000000000',
+				floorEth: '0.1',
+				ceilingWei: '200000000000000000',
+				ceilingEth: '0.2'
 			}
 		};
 		const bidBook: ApiBiddingBidBook = {
@@ -706,6 +731,11 @@ describe('BidBookPanel', () => {
 		expect(body).not.toContain('>winning</span>');
 		expect(body).not.toContain('outbid');
 		expect(body).not.toContain('no active bid');
+		expect(body).toContain('>floor</th>');
+		expect(body).toContain('>ceiling</th>');
+		expect(body).toContain('>0.10</td>');
+		expect(body).toContain('>0.20</td>');
+		expect(body).not.toContain('0.1-0.2');
 
 		const { body: hiddenMetaBody } = render(BidBookPanel, {
 			props: {

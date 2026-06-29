@@ -168,6 +168,7 @@ describe('BiddingAutomationPanel', () => {
 								isOwn: true
 							},
 							price: exactPrice('200000000000000000', '0.2'),
+							bidLimits: null,
 							quantity: '1',
 							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 							currencySymbol: 'WETH',
@@ -240,6 +241,7 @@ describe('BiddingAutomationPanel', () => {
 								isOwn: true
 							},
 							price: exactPrice('200000000000000000', '0.2'),
+							bidLimits: null,
 							quantity: '1',
 							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 							currencySymbol: 'WETH',
@@ -312,6 +314,7 @@ describe('BiddingAutomationPanel', () => {
 								isOwn: true
 							},
 							price: exactPrice('200000000000000000', '0.2'),
+							bidLimits: null,
 							quantity: '1',
 							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 							currencySymbol: 'WETH',
@@ -378,6 +381,7 @@ describe('BiddingAutomationPanel', () => {
 				isOwn: false
 			},
 			price: exactPrice('300000000000000000', '0.3'),
+			bidLimits: null,
 			quantity: '1',
 			currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 			currencySymbol: 'WETH',
@@ -469,6 +473,7 @@ describe('BiddingAutomationPanel', () => {
 				isOwn: false
 			},
 			price: exactPrice('300000000000000000', '0.3'),
+			bidLimits: null,
 			quantity: '1',
 			currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 			currencySymbol: 'WETH',
@@ -521,6 +526,7 @@ describe('BiddingAutomationPanel', () => {
 				isOwn: false
 			},
 			price: exactPrice('300000000000000000', '0.3'),
+			bidLimits: null,
 			quantity: '1',
 			currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 			currencySymbol: 'WETH',
@@ -596,6 +602,7 @@ describe('BiddingAutomationPanel', () => {
 				isOwn: false
 			},
 			price: exactPrice('300000000000000000', '0.3'),
+			bidLimits: null,
 			quantity: '2',
 			currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 			currencySymbol: 'WETH',

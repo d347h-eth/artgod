@@ -45,6 +45,7 @@ export type PersistedBiddingBidBookRow = {
     maker: string;
     isOwn: boolean;
     price: BiddingBidBookRowPrice;
+    bidLimits: BiddingBidBookBidLimits | null;
     quantity: string;
     currencyAddress: string | null;
     currencySymbol: string | null;
@@ -83,6 +84,13 @@ export type BiddingBidBookRowPrice =
           ceilingWei: string;
           ceilingEth: string;
       };
+
+export type BiddingBidBookBidLimits = {
+    floorWei: string;
+    floorEth: string;
+    ceilingWei: string;
+    ceilingEth: string;
+};
 
 export type PersistedBiddingBidBookState = {
     source: TradingBiddingBidBookSource;
@@ -153,6 +161,7 @@ export type BiddingBidBookRowView = {
         isOwn: boolean;
     };
     price: BiddingBidBookRowPrice;
+    bidLimits: BiddingBidBookBidLimits | null;
     quantity: string;
     currencyAddress: string | null;
     currencySymbol: string | null;
@@ -237,6 +246,7 @@ export function mapPersistedBidRowsToView(
             isOwn: bid.isOwn,
         },
         price: bid.price,
+        bidLimits: bid.bidLimits,
         quantity: bid.quantity,
         currencyAddress: bid.currencyAddress,
         currencySymbol: bid.currencySymbol,
@@ -264,14 +274,23 @@ export function rangeBidBookRowPrice(params: {
     floorWei: string;
     ceilingWei: string;
 }): BiddingBidBookRowPrice {
-    const floorEth = formatEther(BigInt(params.floorWei));
-    const ceilingEth = formatEther(BigInt(params.ceilingWei));
+    const limits = bidBookBidLimits(params);
     return {
         kind: TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range,
+        ...limits,
+    };
+}
+
+// Builds the declared strategy floor/ceiling shown separately from market order prices.
+export function bidBookBidLimits(params: {
+    floorWei: string;
+    ceilingWei: string;
+}): BiddingBidBookBidLimits {
+    return {
         floorWei: params.floorWei,
-        floorEth,
+        floorEth: formatEther(BigInt(params.floorWei)),
         ceilingWei: params.ceilingWei,
-        ceilingEth,
+        ceilingEth: formatEther(BigInt(params.ceilingWei)),
     };
 }
 

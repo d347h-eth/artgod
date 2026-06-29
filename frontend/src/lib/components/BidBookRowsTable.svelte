@@ -71,6 +71,8 @@
 						<th class="bid-book-col-center">scope</th>
 					{/if}
 					<th class="bid-book-col-center">maker</th>
+					<th class="bid-book-col-right">floor</th>
+					<th class="bid-book-col-right">ceiling</th>
 					<th class="bid-book-time-header bid-book-col-center">
 						<button
 							type="button"
@@ -182,6 +184,12 @@
 							onSetHighlighted={() => setHighlighted(row)}
 							onClearHighlighted={onClearHighlighted}
 						/>
+						<td class="mono bid-book-col-right">
+							{row.floor}
+						</td>
+						<td class="mono bid-book-col-right">
+							{row.ceiling}
+						</td>
 						<td class="mono bid-book-col-center" title={row.placedAtTitle}>
 							{row.placedAtLabel}
 						</td>

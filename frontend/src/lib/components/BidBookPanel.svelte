@@ -2,6 +2,7 @@
 	import type { Component } from 'svelte';
 	import type {
 		ApiBiddingBidBook,
+		ApiBiddingBidBookBidLimits,
 		ApiBiddingBidBookRow,
 		ApiBiddingJob
 	} from '$lib/api-types';
@@ -245,20 +246,43 @@
 	}
 
 	function formatPriceAmount(bid: ApiBiddingBidBookRow): string {
-		const price =
-			bid.price.kind === TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range
-				? `${formatWeiValue(BigInt(bid.price.floorWei), priceFractionDigits)}-${formatWeiValue(
-						BigInt(bid.price.ceilingWei),
-						priceFractionDigits
-					)}`
-				: formatUnitPrice(bid);
+		if (bid.price.kind !== TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact) {
+			return '-';
+		}
+		const price = formatUnitPrice(bid);
 		const currency = shouldShowCurrency(bid.currencySymbol) ? ` ${bid.currencySymbol}` : '';
 		return `${price}${currency}`;
 	}
 
 	function formatQuantityPrefix(bid: ApiBiddingBidBookRow): string | null {
+		if (bid.price.kind !== TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact) {
+			return null;
+		}
 		const quantity = parseQuantity(bid.quantity);
 		return quantity > 1n ? `${quantity}x` : null;
+	}
+
+	function formatBidLimitAmount(
+		bid: ApiBiddingBidBookRow,
+		limit: keyof Pick<ApiBiddingBidBookBidLimits, 'floorWei' | 'ceilingWei'>
+	): string {
+		const limits = resolveBidLimits(bid);
+		if (!limits) {
+			return '-';
+		}
+		const value = formatWeiValue(BigInt(limits[limit]), priceFractionDigits);
+		const currency = shouldShowCurrency(bid.currencySymbol) ? ` ${bid.currencySymbol}` : '';
+		return `${value}${currency}`;
+	}
+
+	function resolveBidLimits(bid: ApiBiddingBidBookRow): ApiBiddingBidBookBidLimits | null {
+		if (bid.bidLimits) {
+			return bid.bidLimits;
+		}
+		if (bid.price.kind === TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range) {
+			return bid.price;
+		}
+		return null;
 	}
 
 	function formatScope(bid: ApiBiddingBidBookRow): string {
@@ -580,9 +604,22 @@
 
 	function resolvePriceFractionDigits(rows: ApiBiddingBidBookRow[]): number {
 		return rows.reduce((maxDigits, bid) => {
-			const [, fraction = ''] = bidBookPriceEffectiveEth(bid.price).split('.');
-			return Math.max(maxDigits, fraction.replace(/0+$/, '').length);
+			return Math.max(
+				maxDigits,
+				...bidPrecisionEthValues(bid).map((value) => {
+					const [, fraction = ''] = value.split('.');
+					return fraction.replace(/0+$/, '').length;
+				})
+			);
 		}, 2);
+	}
+
+	function bidPrecisionEthValues(bid: ApiBiddingBidBookRow): string[] {
+		const limits = resolveBidLimits(bid);
+		return [
+			bidBookPriceEffectiveEth(bid.price),
+			...(limits ? [limits.floorEth, limits.ceilingEth] : [])
+		];
 	}
 
 	function resolveDecimalBucketStepWei(rows: ApiBiddingBidBookRow[]): bigint | null {
@@ -746,7 +783,7 @@
 	}
 
 	function bidBookColumnCount(): number {
-		return showScope ? 5 : 4;
+		return showScope ? 7 : 6;
 	}
 
 	function resolveRowsTableRows(rows: ApiBiddingBidBookRow[]): BidBookRowsTableRow[] {
@@ -757,6 +794,8 @@
 			return {
 				bid,
 				price: formatPriceAmount(bid),
+				floor: formatBidLimitAmount(bid, 'floorWei'),
+				ceiling: formatBidLimitAmount(bid, 'ceilingWei'),
 				quantityPrefix: formatQuantityPrefix(bid),
 				makerHref: makerHref(bid),
 				makerHighlighted: isMakerHighlighted(bid),
@@ -835,6 +874,8 @@
 			return {
 				bid,
 				price: formatPriceAmount(bid),
+				floor: formatBidLimitAmount(bid, 'floorWei'),
+				ceiling: formatBidLimitAmount(bid, 'ceilingWei'),
 				quantityPrefix: formatQuantityPrefix(bid),
 				makerHref: makerHref(bid),
 				makerHighlighted: isMakerHighlighted(bid),

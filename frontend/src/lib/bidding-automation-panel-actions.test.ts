@@ -144,6 +144,7 @@ function testTraitBid(quantity: string): ApiBiddingBidBookRow {
 			isOwn: false
 		},
 		price: exactPrice('350000000000000000', '0.35'),
+		bidLimits: null,
 		quantity,
 		currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 		currencySymbol: 'WETH',

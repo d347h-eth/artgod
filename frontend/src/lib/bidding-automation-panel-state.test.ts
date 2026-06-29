@@ -131,6 +131,7 @@ function testTraitBid(orderId: string, key: string, value: string): ApiBiddingBi
 			wei: '100000000000000000',
 			eth: '0.1'
 		},
+		bidLimits: null,
 		quantity: '1',
 		currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 		currencySymbol: 'WETH',
