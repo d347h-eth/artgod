@@ -285,6 +285,7 @@
 				biddingBidBookLivePollIntervalMs(activeBidBook.state.source, bidBookLiveRefreshConfig),
 			onNextUpdate: (nextUpdateAtMs) => {
 				bidBookNextUpdateAtMs = nextUpdateAtMs;
+				bidBookMetadataNowMs = Date.now();
 			}
 		});
 		const metadataTimer = window.setInterval(() => {

@@ -74,6 +74,7 @@
 		nextUpdateAtMs = null,
 		showScope = false,
 		showRowActions = true,
+		showOwnStateBadges = true,
 		showMuted = false,
 		view = 'rows',
 		basePath = '/',
@@ -93,6 +94,7 @@
 		nextUpdateAtMs?: number | null;
 		showScope?: boolean;
 		showRowActions?: boolean;
+		showOwnStateBadges?: boolean;
 		showMuted?: boolean;
 		view?: BidBookPanelView;
 		basePath?: string;
@@ -921,7 +923,7 @@
 <BidBookMetaBar
 	{bidBook}
 	{nextUpdateAtMs}
-	{ownStateBadges}
+	ownStateBadges={showOwnStateBadges ? ownStateBadges : []}
 	{showTraitDemandView}
 	{displayedDemandGroupCount}
 />

@@ -706,6 +706,20 @@ describe('BidBookPanel', () => {
 		expect(body).not.toContain('>winning</span>');
 		expect(body).not.toContain('outbid');
 		expect(body).not.toContain('no active bid');
+
+		const { body: hiddenMetaBody } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				job,
+				showScope: true,
+				showOwnStateBadges: false,
+				basePath: '/ethereum/terraforms',
+				mediaMode: 'artifact'
+			}
+		});
+
+		expect(hiddenMetaBody).not.toContain('>state<');
+		expect(hiddenMetaBody).toContain('>queued</span>');
 	});
 
 	it('shows cancellation phases for own job intents', () => {

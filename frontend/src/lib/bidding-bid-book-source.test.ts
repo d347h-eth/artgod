@@ -57,7 +57,8 @@ describe('bidding bid-book source metadata', () => {
 		expect(formatBidBookNextUpdate(nextUpdateAtMs, Date.parse('2026-01-01T00:00:00Z'))).toBe('5s');
 		expect(formatBidBookNextUpdate(nextUpdateAtMs, Date.parse('2026-01-01T00:00:01Z'))).toBe('4s');
 		expect(formatBidBookNextUpdate(nextUpdateAtMs, Date.parse('2026-01-01T00:00:04Z'))).toBe('1s');
-		expect(formatBidBookNextUpdate(nextUpdateAtMs, Date.parse('2026-01-01T00:00:05Z'))).toBe('now');
+		expect(formatBidBookNextUpdate(nextUpdateAtMs, Date.parse('2026-01-01T00:00:05Z'))).toBe('0s');
+		expect(formatBidBookNextUpdate(nextUpdateAtMs, Date.parse('2026-01-01T00:00:06Z'))).toBe('0s');
 		expect(bidBookNextUpdateTitle(nextUpdateAtMs)).toBe('2026-01-01T00:00:05Z');
 		expect(formatBidBookNextUpdate(null, Date.parse('2026-01-01T00:00:00Z'))).toBe('-');
 		expect(bidBookNextUpdateTitle(null)).toBeUndefined();

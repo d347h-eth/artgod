@@ -749,6 +749,7 @@
 				job={tokenBiddingJob}
 				nextUpdateAtMs={tokenBiddingNextUpdateAtMs}
 				showScope
+				showOwnStateBadges={false}
 				showMuted={data?.showMuted ?? false}
 				basePath={collectionTokensBasePath()}
 				mediaMode={collectionNavigationMediaMode()}
