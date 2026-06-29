@@ -778,18 +778,38 @@ describe('BidBookPanel', () => {
 				phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed
 			}
 		};
+		const replacingIntent: ApiBiddingBidBookRow = {
+			...cancelingIntent,
+			orderId: '0xreplacing',
+			materialization: {
+				kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+				jobId: 'job-token-1',
+				status: TRADING_JOB_STATUS.Enabled,
+				phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Replacing
+			}
+		};
+		const cancelledIntent: ApiBiddingBidBookRow = {
+			...cancelingIntent,
+			orderId: '0xcancelled',
+			materialization: {
+				kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+				jobId: 'job-token-1',
+				status: TRADING_JOB_STATUS.Archived,
+				phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Cancelled
+			}
+		};
 		const bidBook: ApiBiddingBidBook = {
 			state: {
 				source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
 				updatedAt: null,
 				snapshotRefreshedAtMs: null,
 				projectedAt: null,
-				rowCount: 2,
+				rowCount: 4,
 				durationMs: null,
 				lastError: null
 			},
 			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-			bids: [cancelingIntent, failedIntent]
+			bids: [cancelingIntent, failedIntent, replacingIntent, cancelledIntent]
 		};
 
 		const { body } = render(BidBookPanel, {
@@ -806,6 +826,10 @@ describe('BidBookPanel', () => {
 		expect(body).toContain('>canceling</span>');
 		expect(body).toContain('bid-book-own-status-cancel_failed');
 		expect(body).toContain('>cancel failed</span>');
+		expect(body).toContain('bid-book-own-status-replacing');
+		expect(body).toContain('>replacing</span>');
+		expect(body).toContain('bid-book-own-status-cancelled');
+		expect(body).toContain('>cancelled</span>');
 	});
 
 	it('renders clickable demand trait values and opens the preferred trait tab', () => {

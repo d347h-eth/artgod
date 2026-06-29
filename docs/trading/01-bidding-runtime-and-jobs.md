@@ -182,6 +182,8 @@ Backend source selection:
 - public single-collection reads stay market-only and do not expose local own-job context
 - own market-position badges (`winning`, `draw`, `losing`) are attached only from the bot-persisted runtime decision for the active order id
 - runtime-backed own rows prefer the bot-persisted active order timing even when the visible row is backed by a projected or indexed market order
+- when a job revision supersedes an active order, the old exact order remains visible as a lifecycle own row while the current revision appears as a queued intent row
+- completed own cancellations suppress stale indexed own order rows, with a short `cancelled` confirmation row before disappearance
 - the backend must not infer own bid position from bid-book rows or exact-scope price comparisons
 
 Frontend labels:
@@ -195,8 +197,9 @@ Frontend labels:
 Bid-book row materialization:
 
 - `market_bid`: a real row from OpenSea order data, either the bot snapshot projection or canonical orders
-- `own_job_intent`: a local declared job rendered as the user's intended bid while the runtime order is queued, paused, or not yet visible in market data
+- `own_job_intent`: a local declared job or own active-order lifecycle row rendered from backend-owned runtime/cancellation facts
 - queued or paused own-intent rows use a floor-ceiling price range because no single market order price exists yet
+- replacing, canceling, cancel failed, and cancelled own-intent rows use the real active order id and exact current price
 - runtime-active own-intent rows use the bot-persisted active order id and exact current price until the market row appears
 
 ## Bidding Automation UI

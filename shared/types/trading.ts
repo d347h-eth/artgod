@@ -367,8 +367,10 @@ export type TradingBiddingBidBookRowMaterializationKind =
 export const TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE = {
     Queued: "queued",
     Paused: "paused",
+    Replacing: "replacing",
     Canceling: "canceling",
     CancelFailed: "cancel_failed",
+    Cancelled: "cancelled",
 } as const;
 
 export type TradingBiddingBidBookOwnJobPhase =

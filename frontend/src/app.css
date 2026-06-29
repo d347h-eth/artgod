@@ -2064,8 +2064,14 @@ th {
 }
 
 .bid-book-own-status-paused,
-.bid-book-own-status-canceling {
+.bid-book-own-status-canceling,
+.bid-book-own-status-replacing {
 	background: var(--c-orange);
+	color: var(--c-bg);
+}
+
+.bid-book-own-status-cancelled {
+	background: var(--c-yellow);
 	color: var(--c-bg);
 }
 
