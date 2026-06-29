@@ -7,7 +7,7 @@ import {
 import {
 	BIDDING_AUTOMATION_PRICING_MODE,
 	BIDDING_AUTOMATION_PRICING_MODE_LABEL
-} from '../src/lib/bidding-automation';
+} from '../src/lib/bidding-automation-contracts';
 
 const TARGET_PATH =
 	process.env.ARTGOD_E2E_BIDDING_TARGET_PATH?.trim() ||

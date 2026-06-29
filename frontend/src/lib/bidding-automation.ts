@@ -7,11 +7,17 @@ import type {
 	ApiTraitRangeFilter
 } from '$lib/api-types';
 import { bidBookRowEffectivePriceWei } from '$lib/bidding-bid-book-price';
+import { BIDDING_AUTOMATION_PRICING_MODE } from './bidding-automation-contracts';
 import {
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 	TRADING_BIDDING_BID_SCOPE_KIND,
 	type TokenBrowserStatus
 } from '@artgod/shared/types';
+export {
+	BIDDING_AUTOMATION_PRICING_MODE,
+	BIDDING_AUTOMATION_PRICING_MODE_LABEL,
+	type BiddingAutomationPricingMode
+} from './bidding-automation-contracts';
 
 export const BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE = {
 	FilteredTokens: 'filtered_tokens',
@@ -55,19 +61,6 @@ export const BIDDING_AUTOMATION_DRAFT_TARGET_TYPE = {
 
 export type BiddingAutomationDraftTargetType =
 	(typeof BIDDING_AUTOMATION_DRAFT_TARGET_TYPE)[keyof typeof BIDDING_AUTOMATION_DRAFT_TARGET_TYPE];
-
-export const BIDDING_AUTOMATION_PRICING_MODE = {
-	Manual: 'manual',
-	Tier: 'tier'
-} as const;
-
-export type BiddingAutomationPricingMode =
-	(typeof BIDDING_AUTOMATION_PRICING_MODE)[keyof typeof BIDDING_AUTOMATION_PRICING_MODE];
-
-export const BIDDING_AUTOMATION_PRICING_MODE_LABEL = {
-	[BIDDING_AUTOMATION_PRICING_MODE.Manual]: 'manual',
-	[BIDDING_AUTOMATION_PRICING_MODE.Tier]: 'tier'
-} as const;
 
 // Captures token-filter state so backend can resolve all matching tokens across pages.
 export type BiddingAutomationTokenFilterSnapshot = {
