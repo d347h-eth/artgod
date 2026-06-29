@@ -66,6 +66,18 @@ export type ApplyBiddingSelectionJobActionInput = {
 	action: BiddingSelectionJobAction;
 };
 
+export type LookupBiddingSelectionJobsInput = {
+	fetchFn: typeof fetch;
+	chainRef: string;
+	collectionRef: string;
+	draft: BiddingAutomationDraft | null;
+};
+
+export type LookupBiddingSelectionJobsResult = {
+	jobs: ApiBiddingJob[];
+	targetCount: number;
+};
+
 export type ApplyBiddingSelectionJobActionResult = {
 	jobs: ApiBiddingJob[];
 	targetCount: number;
@@ -229,6 +241,48 @@ export async function archiveBiddingAutomationJob(input: {
 export async function applyBiddingSelectionJobAction(
 	input: ApplyBiddingSelectionJobActionInput
 ): Promise<ApplyBiddingSelectionJobActionResult> {
+	const result = await lookupBiddingSelectionJobs(input);
+	const jobs = filterBiddingSelectionJobsForAction(result.jobs, input.action);
+	if (jobs.length === 0) {
+		throw new Error('no selected bidding jobs can be updated');
+	}
+
+	if (input.action === BIDDING_SELECTION_JOB_ACTION.Archive) {
+		const archivedJobs = await Promise.all(
+			jobs.map((job) =>
+				archiveBiddingAutomationJob({
+					fetchFn: input.fetchFn,
+					chainRef: input.chainRef,
+					collectionRef: input.collectionRef,
+					jobId: job.jobId
+				})
+			)
+		);
+		return { jobs: archivedJobs, targetCount: result.targetCount };
+	}
+
+	const nextStatus =
+		input.action === BIDDING_SELECTION_JOB_ACTION.Pause
+			? TRADING_JOB_STATUS.Paused
+			: TRADING_JOB_STATUS.Enabled;
+	const changedJobs = await Promise.all(
+		jobs.map((job) =>
+			saveExistingBiddingJobStatus({
+				fetchFn: input.fetchFn,
+				chainRef: input.chainRef,
+				collectionRef: input.collectionRef,
+				job,
+				nextStatus
+			})
+		)
+	);
+	return { jobs: changedJobs, targetCount: result.targetCount };
+}
+
+// Looks up declared jobs for exact selected targets before deriving mass-action availability.
+export async function lookupBiddingSelectionJobs(
+	input: LookupBiddingSelectionJobsInput
+): Promise<LookupBiddingSelectionJobsResult> {
 	const lookupBodies = biddingSelectionJobLookupBodies(input.draft);
 	if (lookupBodies.length === 0) {
 		throw new Error('select exact bidding targets first');
@@ -244,42 +298,38 @@ export async function applyBiddingSelectionJobAction(
 		throw new Error('no selected bidding jobs found');
 	}
 
-	if (input.action === BIDDING_SELECTION_JOB_ACTION.Archive) {
-		const archivedJobs = await Promise.all(
-			jobs.map((job) =>
-				archiveBiddingAutomationJob({
-					fetchFn: input.fetchFn,
-					chainRef: input.chainRef,
-					collectionRef: input.collectionRef,
-					jobId: job.jobId
-				})
-			)
-		);
-		return { jobs: archivedJobs, targetCount: lookupBodies.length };
-	}
-
-	const nextStatus =
-		input.action === BIDDING_SELECTION_JOB_ACTION.Pause
-			? TRADING_JOB_STATUS.Paused
-			: TRADING_JOB_STATUS.Enabled;
-	const changedJobs = await Promise.all(
-		jobs
-			.filter((job) => job.status !== nextStatus)
-			.map((job) =>
-				saveExistingBiddingJobStatus({
-					fetchFn: input.fetchFn,
-					chainRef: input.chainRef,
-					collectionRef: input.collectionRef,
-					job,
-					nextStatus
-				})
-			)
-	);
-	return { jobs: changedJobs, targetCount: lookupBodies.length };
+	return { jobs, targetCount: lookupBodies.length };
 }
 
-export function canApplyBiddingSelectionJobAction(draft: BiddingAutomationDraft | null): boolean {
-	return biddingSelectionJobLookupBodies(draft).length > 0;
+// Keeps mass-action visibility and execution on the same declared-job lifecycle rules.
+export function filterBiddingSelectionJobsForAction(
+	jobs: ApiBiddingJob[],
+	action: BiddingSelectionJobAction
+): ApiBiddingJob[] {
+	if (action === BIDDING_SELECTION_JOB_ACTION.Activate) {
+		return jobs.filter((job) => job.status === TRADING_JOB_STATUS.Paused);
+	}
+	if (action === BIDDING_SELECTION_JOB_ACTION.Pause) {
+		return jobs.filter((job) => job.status === TRADING_JOB_STATUS.Enabled);
+	}
+	return jobs.filter(
+		(job) => job.status === TRADING_JOB_STATUS.Enabled || job.status === TRADING_JOB_STATUS.Paused
+	);
+}
+
+// Identifies the exact selected targets whose declared jobs back panel mass actions.
+export function resolveBiddingSelectionJobsLookupKey(input: {
+	chain: ApiChain | null;
+	collection: ApiCollection | null;
+	draft: BiddingAutomationDraft | null;
+}): string {
+	if (!input.chain || !input.collection) {
+		return '';
+	}
+	const lookupBodies = biddingSelectionJobLookupBodies(input.draft);
+	return lookupBodies.length > 0
+		? `${input.chain.slug}:${input.collection.slug}:${JSON.stringify(lookupBodies)}`
+		: '';
 }
 
 export function hasSubmittableBiddingTarget(input: {

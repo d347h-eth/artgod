@@ -2918,6 +2918,21 @@ th {
 	width: var(--token-bidding-action-width);
 }
 
+.token-bidding-selection-actions {
+	grid-column: 1 / -1;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem;
+	justify-content: flex-start;
+	padding-block-start: 0.65rem;
+	border-top: 1px solid var(--c-blue);
+}
+
+.token-bidding-selection-actions button {
+	width: auto;
+	min-width: var(--token-bidding-action-width);
+}
+
 .token-bidding-action-positive:not(:disabled) {
 	border-color: var(--c-cyan);
 	color: var(--c-cyan);
@@ -3060,11 +3075,6 @@ th {
 .bidding-selection-summary {
 	color: var(--c-sand);
 	font-size: 0.76rem;
-	line-height: 20px;
-}
-
-.bidding-selection-feedback {
-	font-size: 0.72rem;
 	line-height: 20px;
 }
 

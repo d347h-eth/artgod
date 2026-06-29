@@ -46,11 +46,7 @@
 		restoreBiddingLiveRefreshAnchor,
 		startBiddingBidBookLiveRefresh
 	} from '$lib/bidding-live-refresh';
-	import {
-		BIDDING_SELECTION_JOB_ACTION,
-		resolveBiddingTokenActionLabel,
-		type BiddingSelectionJobAction
-	} from '$lib/bidding-selection-actions';
+	import { resolveBiddingTokenActionLabel } from '$lib/bidding-selection-actions';
 	import { bidBookPriceEffectiveWei } from '$lib/bidding-bid-book-price';
 	import { ownBidStatusBadges, type BidBookOwnStatusBadge } from '$lib/bidding-bid-book-own-status';
 	import {
@@ -133,10 +129,6 @@
 		nextSelectedTraits,
 		setTraitRangeFilter
 	} from '$lib/trait-filters';
-	import {
-		applyBiddingSelectionJobAction,
-		canApplyBiddingSelectionJobAction
-	} from '$lib/bidding-automation-panel-actions';
 
 	let {
 		chain,
@@ -219,12 +211,6 @@
 	let bidBookMetadataNowMs = $state(Date.now());
 	let bidBookNextUpdateAtMs = $state<number | null>(null);
 	let refreshedTokenOfferWindow: PaginationWindowState<ApiBiddingTokenOfferCard> | null = null;
-	let selectionJobActionBusy = $state<BiddingSelectionJobAction | null>(null);
-	let armedSelectionJobAction = $state<BiddingSelectionJobAction | null>(null);
-	let selectionJobActionMessage = $state<string | null>(null);
-	let selectionJobActionError = $state<string | null>(null);
-	let lastSelectionJobActionKey = $state('');
-
 	const hasActiveTraitFilters = $derived(activeTraits.length > 0 || activeTraitRanges.length > 0);
 	const showBidBookFilters = $derived(
 		bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token ||
@@ -261,12 +247,6 @@
 	);
 	const biddingSelectionSummary = $derived(
 		describeBiddingAutomationSelection(currentBiddingSelection)
-	);
-	const showSelectionJobActions = $derived(
-		!!selectedBiddingDraft && canApplyBiddingSelectionJobAction(selectedBiddingDraft)
-	);
-	const selectionJobActionDisabled = $derived(
-		!chain || !collection || !showSelectionJobActions || selectionJobActionBusy !== null
 	);
 	const ownMakerAddress = $derived(activeBidBook.ownMakerAddress);
 	const biddingFilterKey = $derived(activeBiddingFilterKey());
@@ -397,17 +377,6 @@
 		}
 		lastBiddingFilterKey = nextKey;
 		clearBiddingSelection();
-	});
-
-	$effect(() => {
-		const nextKey = biddingSelectionStateKey;
-		if (nextKey === lastSelectionJobActionKey) {
-			return;
-		}
-		lastSelectionJobActionKey = nextKey;
-		armedSelectionJobAction = null;
-		selectionJobActionMessage = null;
-		selectionJobActionError = null;
 	});
 
 	function collectionsHref(): string {
@@ -935,62 +904,10 @@
 
 	function clearBiddingSelection(): void {
 		biddingAutomation.clearSelection();
-		armedSelectionJobAction = null;
-		selectionJobActionMessage = null;
-		selectionJobActionError = null;
 	}
 
 	function expandBiddingAutomationPanel(): void {
 		biddingPanelExpandSignal += 1;
-	}
-
-	async function onSelectionJobAction(action: BiddingSelectionJobAction): Promise<void> {
-		if (armedSelectionJobAction !== action) {
-			armedSelectionJobAction = action;
-			return;
-		}
-		armedSelectionJobAction = null;
-		if (!chain || !collection || !selectedBiddingDraft || selectionJobActionBusy) {
-			return;
-		}
-
-		selectionJobActionBusy = action;
-		selectionJobActionMessage = null;
-		selectionJobActionError = null;
-		try {
-			// Fan out through existing job mutation routes so status changes preserve each job's pricing.
-			const result = await applyBiddingSelectionJobAction({
-				fetchFn: fetch,
-				chainRef: chain.slug,
-				collectionRef: collection.slug,
-				draft: selectedBiddingDraft,
-				action
-			});
-			selectionJobActionMessage = selectionJobActionResultMessage(action, result.jobs.length);
-			await refreshCollectionBiddingData();
-		} catch (error) {
-			selectionJobActionError =
-				error instanceof Error ? error.message : 'failed to update selected bidding jobs';
-		} finally {
-			selectionJobActionBusy = null;
-		}
-	}
-
-	function selectionJobActionResultMessage(
-		action: BiddingSelectionJobAction,
-		changedCount: number
-	): string {
-		if (changedCount === 0) {
-			return 'no changes';
-		}
-		const subject = changedCount === 1 ? '1 job' : `${changedCount} jobs`;
-		if (action === BIDDING_SELECTION_JOB_ACTION.Activate) {
-			return `activated ${subject}`;
-		}
-		if (action === BIDDING_SELECTION_JOB_ACTION.Pause) {
-			return `paused ${subject}`;
-		}
-		return `archived ${subject}`;
 	}
 
 	async function onLoadPreviousTokenOffers(event: MouseEvent): Promise<void> {
@@ -1174,19 +1091,12 @@
 						showTraitAction={biddingSelectionControlPolicy.showTraitAction}
 						showTokenAction={biddingSelectionControlPolicy.showTokenAction}
 						showTierAction={biddingSelectionControlPolicy.showTierAction}
-						showJobActions={showSelectionJobActions}
 						tierActionActive={priceTierPanelOpen}
 						tokenActionLabel={tokenActionLabel}
 						tokenActionDisabled={activeTokenOfferCardsPage.totalItems === 0}
-						jobActionDisabled={selectionJobActionDisabled}
-						jobActionBusy={selectionJobActionBusy}
-						armedJobAction={armedSelectionJobAction}
-						jobActionMessage={selectionJobActionMessage}
-						jobActionError={selectionJobActionError}
 						onToggleTiers={togglePriceTierPanel}
 						onBidOnTraits={bidOnFilteredTraits}
 						onBidOnTokens={bidOnFilteredTokenOffers}
-						onJobAction={onSelectionJobAction}
 						onClear={clearBiddingSelection}
 					/>
 				</div>
@@ -1198,18 +1108,11 @@
 						showTokenAction={biddingSelectionControlPolicy.showTokenAction}
 						showCollectionAction={biddingSelectionControlPolicy.showCollectionAction}
 						showTierAction={biddingSelectionControlPolicy.showTierAction}
-						showJobActions={showSelectionJobActions}
 						tierActionActive={priceTierPanelOpen}
 						collectionActionDisabled={activeBidBook.bids.length === 0}
-						jobActionDisabled={selectionJobActionDisabled}
-						jobActionBusy={selectionJobActionBusy}
-						armedJobAction={armedSelectionJobAction}
-						jobActionMessage={selectionJobActionMessage}
-						jobActionError={selectionJobActionError}
 						onToggleTiers={togglePriceTierPanel}
 						onBidOnTokens={bidOnFilteredTokenOffers}
 						onBidOnCollection={placeCollectionBid}
-						onJobAction={onSelectionJobAction}
 						onClear={clearBiddingSelection}
 					/>
 				</div>

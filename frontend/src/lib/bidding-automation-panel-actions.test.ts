@@ -15,7 +15,9 @@ import {
 import { BIDDING_SELECTION_JOB_ACTION } from '$lib/bidding-selection-actions';
 import {
 	applyBiddingSelectionJobAction,
+	filterBiddingSelectionJobsForAction,
 	lookupBiddingAutomationDraftTargetJob,
+	lookupBiddingSelectionJobs,
 	resolveBiddingAutomationDraftTargetLookupKey,
 	saveBiddingAutomationDraftJobs
 } from '$lib/bidding-automation-panel-actions';
@@ -213,6 +215,139 @@ describe('bidding automation panel actions', () => {
 		);
 	});
 
+	it('derives selected-job action eligibility from current declared job status', () => {
+		const enabledJob = testTokenJob({
+			jobId: 'job-token-101',
+			tokenId: '101',
+			floorEth: '0.1',
+			ceilingEth: '0.2',
+			deltaEth: '0.001',
+			pricingSource: null,
+			status: TRADING_JOB_STATUS.Enabled
+		});
+		const pausedJob = testTokenJob({
+			jobId: 'job-token-102',
+			tokenId: '102',
+			floorEth: '0.3',
+			ceilingEth: '0.4',
+			deltaEth: '0.002',
+			pricingSource: null,
+			status: TRADING_JOB_STATUS.Paused
+		});
+		const archivedJob = testTokenJob({
+			jobId: 'job-token-103',
+			tokenId: '103',
+			floorEth: '0.5',
+			ceilingEth: '0.6',
+			deltaEth: '0.003',
+			pricingSource: null,
+			status: TRADING_JOB_STATUS.Archived
+		});
+		const jobs = [enabledJob, pausedJob, archivedJob];
+
+		expect(filterBiddingSelectionJobsForAction(jobs, BIDDING_SELECTION_JOB_ACTION.Activate)).toEqual([
+			pausedJob
+		]);
+		expect(filterBiddingSelectionJobsForAction(jobs, BIDDING_SELECTION_JOB_ACTION.Pause)).toEqual([
+			enabledJob
+		]);
+		expect(filterBiddingSelectionJobsForAction(jobs, BIDDING_SELECTION_JOB_ACTION.Archive)).toEqual([
+			enabledJob,
+			pausedJob
+		]);
+	});
+
+	it('applies selected-job status actions only to jobs eligible for that transition', async () => {
+		const enabledJob = testTokenJob({
+			jobId: 'job-token-101',
+			tokenId: '101',
+			floorEth: '0.1',
+			ceilingEth: '0.2',
+			deltaEth: '0.001',
+			pricingSource: null,
+			status: TRADING_JOB_STATUS.Enabled
+		});
+		const pausedJob = testTokenJob({
+			jobId: 'job-token-102',
+			tokenId: '102',
+			floorEth: '0.3',
+			ceilingEth: '0.4',
+			deltaEth: '0.002',
+			pricingSource: null,
+			status: TRADING_JOB_STATUS.Paused
+		});
+		backendApiMocks.lookupBiddingJobTarget
+			.mockResolvedValueOnce({ job: enabledJob })
+			.mockResolvedValueOnce({ job: pausedJob });
+		backendApiMocks.upsertTokenBiddingJob.mockResolvedValueOnce({
+			job: { ...enabledJob, status: TRADING_JOB_STATUS.Paused }
+		});
+
+		const result = await applyBiddingSelectionJobAction({
+			fetchFn: testFetch,
+			chainRef: 'ethereum',
+			collectionRef: 'terraforms',
+			draft: buildBiddingAutomationDraftFromSelection({
+				type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
+				tokenIds: ['101', '102']
+			}),
+			action: BIDDING_SELECTION_JOB_ACTION.Pause
+		});
+
+		expect(result.jobs).toEqual([{ ...enabledJob, status: TRADING_JOB_STATUS.Paused }]);
+		expect(backendApiMocks.upsertTokenBiddingJob).toHaveBeenCalledTimes(1);
+		expect(backendApiMocks.upsertTokenBiddingJob).toHaveBeenCalledWith(
+			testFetch,
+			'ethereum',
+			'terraforms',
+			'101',
+			{
+				status: TRADING_JOB_STATUS.Paused,
+				floorEth: '0.1',
+				ceilingEth: '0.2',
+				deltaEth: '0.001',
+				priceTierId: null
+			}
+		);
+	});
+
+	it('looks up exact selected jobs for panel mass-action state', async () => {
+		const firstJob = testTokenJob({
+			jobId: 'job-token-101',
+			tokenId: '101',
+			floorEth: '0.1',
+			ceilingEth: '0.2',
+			deltaEth: '0.001',
+			pricingSource: null
+		});
+		const secondJob = testTokenJob({
+			jobId: 'job-token-102',
+			tokenId: '102',
+			floorEth: '0.3',
+			ceilingEth: '0.4',
+			deltaEth: '0.002',
+			pricingSource: null
+		});
+		backendApiMocks.lookupBiddingJobTarget
+			.mockResolvedValueOnce({ job: firstJob })
+			.mockResolvedValueOnce({ job: secondJob });
+
+		const result = await lookupBiddingSelectionJobs({
+			fetchFn: testFetch,
+			chainRef: 'ethereum',
+			collectionRef: 'terraforms',
+			draft: buildBiddingAutomationDraftFromSelection({
+				type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
+				tokenIds: ['101', '102']
+			})
+		});
+
+		expect(result).toEqual({
+			jobs: [firstJob, secondJob],
+			targetCount: 2
+		});
+	});
+
 	it('archives resolved selected jobs through the target-agnostic archive route', async () => {
 		const job = testTraitJob();
 		const archivedJob = { ...job, status: TRADING_JOB_STATUS.Archived };
@@ -309,14 +444,16 @@ function testTokenJob(input: {
 	ceilingEth: string;
 	deltaEth: string;
 	pricingSource: ApiBiddingJob['config']['pricingSource'];
+	status?: ApiBiddingJob['status'];
 }): ApiBiddingJob {
+	const status = input.status ?? TRADING_JOB_STATUS.Enabled;
 	return {
 		jobId: input.jobId,
-		status: TRADING_JOB_STATUS.Enabled,
+		status,
 		revision: 1,
 		createdAt: '2026-01-01T00:00:00Z',
 		updatedAt: '2026-01-01T12:00:00Z',
-		archivedAt: null,
+		archivedAt: status === TRADING_JOB_STATUS.Archived ? '2026-01-01T12:30:00Z' : null,
 		target: {
 			type: TRADING_JOB_TARGET_KIND.Token,
 			tokenId: input.tokenId

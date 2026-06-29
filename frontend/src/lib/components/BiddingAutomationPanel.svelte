@@ -15,13 +15,18 @@
 	} from '$lib/api-types';
 	import {
 		archiveBiddingAutomationJob,
+		applyBiddingSelectionJobAction,
+		filterBiddingSelectionJobsForAction,
 		hasSubmittableBiddingTarget,
 		lookupBiddingAutomationDraftTargetJob,
+		lookupBiddingSelectionJobs,
 		resolveBiddingAutomationDraftTargetLookupKey,
 		resolveBiddingSaveMessage,
+		resolveBiddingSelectionJobsLookupKey,
 		saveBiddingAutomationDraftJobs,
 		type BiddingAutomationPricingRequest,
-		type EditableBiddingJobStatus
+		type EditableBiddingJobStatus,
+		type LookupBiddingSelectionJobsResult
 	} from '$lib/bidding-automation-panel-actions';
 	import {
 		hasBiddingAutomationPanelDraftChanges,
@@ -48,11 +53,26 @@
 		type BiddingAutomationDraft,
 		type BiddingAutomationPricingMode
 	} from '$lib/bidding-automation';
+	import {
+		BIDDING_SELECTION_ACTION_LABEL,
+		BIDDING_SELECTION_JOB_ACTION,
+		type BiddingSelectionJobAction
+	} from '$lib/bidding-selection-actions';
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
 	import { TEST_IDS } from '$lib/test-ids';
 
-	type ConfirmableBiddingAction = 'create' | 'modify' | 'activate' | 'pause' | 'archive';
+	const BIDDING_PANEL_SELECTION_ACTION_PREFIX = 'selection-job';
+
+	type PanelSelectionBiddingAction =
+		`${typeof BIDDING_PANEL_SELECTION_ACTION_PREFIX}:${BiddingSelectionJobAction}`;
+	type ConfirmableBiddingAction =
+		| 'create'
+		| 'modify'
+		| 'activate'
+		| 'pause'
+		| 'archive'
+		| PanelSelectionBiddingAction;
 
 	let {
 		open,
@@ -114,6 +134,11 @@
 	let targetLookupKey = $state('');
 	let targetLookupRequestKey = $state('');
 	let targetLookupJob = $state<ApiBiddingJob | null>(null);
+	let selectionLookupKey = $state('');
+	let selectionLookupRequestKey = $state('');
+	let selectionLookupResult = $state<LookupBiddingSelectionJobsResult | null>(null);
+	let selectionLookupBusy = $state(false);
+	let selectionJobActionBusy = $state<BiddingSelectionJobAction | null>(null);
 	let draftInputTouched = $state(false);
 
 	const hasExistingJob = $derived(currentJob !== null);
@@ -170,18 +195,24 @@
 	);
 	const isEnabledJob = $derived(currentJob?.status === TRADING_JOB_STATUS.Enabled);
 	const isPausedJob = $derived(currentJob?.status === TRADING_JOB_STATUS.Paused);
-	const canResetDraft = $derived(!saving && !archiving && hasDraftChanges);
-	const canCreateJob = $derived(!hasExistingJob && !saving && !archiving && canSubmitDraft);
-	const canModifyJob = $derived(hasExistingJob && !saving && !archiving && hasDraftChanges && canSubmitDraft);
-	const canPauseJob = $derived(isEnabledJob && !saving && !archiving && canSubmitDraft);
-	const canActivateJob = $derived(isPausedJob && !saving && !archiving && canSubmitDraft);
+	const panelMutationBusy = $derived(saving || archiving || selectionJobActionBusy !== null);
+	const canResetDraft = $derived(!panelMutationBusy && hasDraftChanges);
+	const canCreateJob = $derived(!hasExistingJob && !panelMutationBusy && canSubmitDraft);
+	const canModifyJob = $derived(hasExistingJob && !panelMutationBusy && hasDraftChanges && canSubmitDraft);
+	const canPauseJob = $derived(isEnabledJob && !panelMutationBusy && canSubmitDraft);
+	const canActivateJob = $derived(isPausedJob && !panelMutationBusy && canSubmitDraft);
 	const canArchiveJob = $derived(
 		!!currentJob &&
 			(isEnabledJob || isPausedJob) &&
-			!saving &&
-			!archiving &&
+			!panelMutationBusy &&
 			!!chain &&
 			!!collection
+	);
+	const canActivateSelectionJobs = $derived(canApplySelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Activate));
+	const canPauseSelectionJobs = $derived(canApplySelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Pause));
+	const canArchiveSelectionJobs = $derived(canApplySelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Archive));
+	const showSelectionJobActions = $derived(
+		canActivateSelectionJobs || canPauseSelectionJobs || canArchiveSelectionJobs
 	);
 
 	$effect(() => {
@@ -208,7 +239,7 @@
 			shouldPreserveBiddingAutomationPanelDraftOnLoadChange({
 				draftInputTouched,
 				saving,
-				archiving
+				archiving: archiving || selectionJobActionBusy !== null
 			})
 		) {
 			currentJob = nextJob;
@@ -225,6 +256,10 @@
 
 	$effect(() => {
 		void refreshTargetLookupJob();
+	});
+
+	$effect(() => {
+		void refreshSelectionLookupJobs();
 	});
 
 	$effect(() => {
@@ -369,6 +404,61 @@
 		}
 	}
 
+	async function refreshSelectionLookupJobs(): Promise<void> {
+		const nextLookupKey = resolveBiddingSelectionJobsLookupKey({
+			chain,
+			collection,
+			draft
+		});
+		const nextLookupRequestKey = resolveBiddingAutomationPanelTargetLookupRequestKey({
+			targetLookupKey: nextLookupKey,
+			bidBook
+		});
+		if (nextLookupRequestKey === selectionLookupRequestKey) {
+			return;
+		}
+		if (nextLookupKey !== selectionLookupKey) {
+			selectionLookupResult = null;
+		}
+		selectionLookupKey = nextLookupKey;
+		selectionLookupRequestKey = nextLookupRequestKey;
+		if (!nextLookupKey || !chain || !collection) {
+			selectionLookupBusy = false;
+			return;
+		}
+
+		selectionLookupBusy = true;
+		try {
+			// Resolve exact selected targets to declared jobs before rendering mass actions.
+			const result = await lookupBiddingSelectionJobs({
+				fetchFn: fetch,
+				chainRef: chain.slug,
+				collectionRef: collection.slug,
+				draft
+			});
+			if (
+				selectionLookupKey === nextLookupKey &&
+				selectionLookupRequestKey === nextLookupRequestKey
+			) {
+				selectionLookupResult = result;
+			}
+		} catch {
+			if (
+				selectionLookupKey === nextLookupKey &&
+				selectionLookupRequestKey === nextLookupRequestKey
+			) {
+				selectionLookupResult = null;
+			}
+		} finally {
+			if (
+				selectionLookupKey === nextLookupKey &&
+				selectionLookupRequestKey === nextLookupRequestKey
+			) {
+				selectionLookupBusy = false;
+			}
+		}
+	}
+
 	function applyDraft(value: ApiBiddingJob | null, currentDraft: BiddingAutomationDraft | null): void {
 		pricingMode = resolveInitialBiddingAutomationPricingMode({
 			job: value,
@@ -496,7 +586,7 @@
 	}
 
 	async function handleSave(statusOverride: EditableBiddingJobStatus | null = null): Promise<void> {
-		if (!chain || !collection || selectedDraftUnsupported || saving || archiving || !canSubmitDraft) {
+		if (!chain || !collection || selectedDraftUnsupported || panelMutationBusy || !canSubmitDraft) {
 			return;
 		}
 		if (statusOverride === null && hasExistingJob && !canModifyJob) {
@@ -570,8 +660,7 @@
 			!chain ||
 			!collection ||
 			!currentJob ||
-			saving ||
-			archiving
+			panelMutationBusy
 		) {
 			return;
 		}
@@ -601,6 +690,82 @@
 		} finally {
 			archiving = false;
 		}
+	}
+
+	function canApplySelectionJobAction(action: BiddingSelectionJobAction): boolean {
+		if (
+			panelMutationBusy ||
+			selectionLookupBusy ||
+			!chain ||
+			!collection ||
+			!selectionLookupResult ||
+			selectionLookupResult.targetCount <= 1
+		) {
+			return false;
+		}
+		return filterBiddingSelectionJobsForAction(selectionLookupResult.jobs, action).length > 0;
+	}
+
+	function selectionConfirmableAction(action: BiddingSelectionJobAction): PanelSelectionBiddingAction {
+		return `${BIDDING_PANEL_SELECTION_ACTION_PREFIX}:${action}`;
+	}
+
+	async function handleSelectionJobAction(action: BiddingSelectionJobAction): Promise<void> {
+		if (!canApplySelectionJobAction(action) || !chain || !collection) {
+			return;
+		}
+
+		selectionJobActionBusy = action;
+		armedAction = null;
+		saveMessage = null;
+		saveError = null;
+
+		try {
+			// Apply the mass action through the same pricing-preserving job mutation path.
+			const result = await applyBiddingSelectionJobAction({
+				fetchFn: fetch,
+				chainRef: chain.slug,
+				collectionRef: collection.slug,
+				draft,
+				action
+			});
+			selectionLookupResult = {
+				jobs: mergeSelectionLookupJobs(selectionLookupResult?.jobs ?? [], result.jobs),
+				targetCount: result.targetCount
+			};
+			notifyJobsChanged(result.jobs);
+			saveMessage = selectionJobActionResultMessage(action, result.jobs.length);
+		} catch (error) {
+			saveError =
+				error instanceof Error ? error.message : 'failed to update selected bidding jobs';
+		} finally {
+			selectionJobActionBusy = null;
+		}
+	}
+
+	function selectionJobActionResultMessage(
+		action: BiddingSelectionJobAction,
+		changedCount: number
+	): string {
+		const subject = changedCount === 1 ? '1 job' : `${changedCount} jobs`;
+		if (action === BIDDING_SELECTION_JOB_ACTION.Activate) {
+			return `activated ${subject}`;
+		}
+		if (action === BIDDING_SELECTION_JOB_ACTION.Pause) {
+			return `paused ${subject}`;
+		}
+		return `archived ${subject}`;
+	}
+
+	function mergeSelectionLookupJobs(
+		previousJobs: ApiBiddingJob[],
+		changedJobs: ApiBiddingJob[]
+	): ApiBiddingJob[] {
+		const jobsById = new Map(previousJobs.map((job) => [job.jobId, job]));
+		for (const job of changedJobs) {
+			jobsById.set(job.jobId, job);
+		}
+		return Array.from(jobsById.values());
 	}
 </script>
 
@@ -685,7 +850,7 @@
 						class="bootstrap-control bootstrap-input-select-medium"
 						value={pricingSelectionValue()}
 						onchange={onPricingSelectionChange}
-						disabled={saving || archiving || selectedDraftUnsupported}
+						disabled={panelMutationBusy || selectedDraftUnsupported}
 					>
 						<option value={BIDDING_AUTOMATION_PRICING_MODE.Manual}>
 							{BIDDING_AUTOMATION_PRICING_MODE_LABEL[BIDDING_AUTOMATION_PRICING_MODE.Manual]}
@@ -704,7 +869,7 @@
 							type="button"
 							class:secondary-tab-active={pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Manual}
 							aria-pressed={pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Manual}
-							disabled={saving || archiving || selectedDraftUnsupported}
+							disabled={panelMutationBusy || selectedDraftUnsupported}
 							onclick={selectManualPricing}
 							title={BIDDING_AUTOMATION_PRICING_MODE_LABEL[BIDDING_AUTOMATION_PRICING_MODE.Manual]}
 						>
@@ -717,7 +882,7 @@
 									selectedPriceTierId === tier.tierId}
 								aria-pressed={pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier &&
 									selectedPriceTierId === tier.tierId}
-								disabled={saving || archiving || selectedDraftUnsupported}
+								disabled={panelMutationBusy || selectedDraftUnsupported}
 								onclick={() => selectTierPricing(tier.tierId)}
 								title={tierButtonTitle(tier)}
 							>
@@ -745,7 +910,7 @@
 						inputmode="decimal"
 						bind:value={floorEth}
 						oninput={markDraftInputTouched}
-						disabled={saving || archiving || selectedDraftUnsupported}
+						disabled={panelMutationBusy || selectedDraftUnsupported}
 					/>
 				{/if}
 			</div>
@@ -767,7 +932,7 @@
 						inputmode="decimal"
 						bind:value={ceilingEth}
 						oninput={markDraftInputTouched}
-						disabled={saving || archiving || selectedDraftUnsupported}
+						disabled={panelMutationBusy || selectedDraftUnsupported}
 					/>
 				{/if}
 			</div>
@@ -789,8 +954,7 @@
 						}
 					}}
 					disabled={pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier ||
-						saving ||
-						archiving ||
+						panelMutationBusy ||
 						selectedDraftUnsupported}
 				/>
 			</div>
@@ -868,6 +1032,64 @@
 						</button>
 					{/if}
 				</div>
+				{#if showSelectionJobActions}
+					<div class="token-bidding-selection-actions" aria-label="selected bidding target actions">
+						{#if canActivateSelectionJobs}
+							<button
+								type="button"
+								class="token-bidding-action-positive"
+								class:token-bidding-action-armed={armedAction ===
+									selectionConfirmableAction(BIDDING_SELECTION_JOB_ACTION.Activate)}
+								data-bidding-action={selectionConfirmableAction(BIDDING_SELECTION_JOB_ACTION.Activate)}
+								data-testid={TEST_IDS.BiddingPanelSelectionActivate}
+								onclick={() =>
+									void confirmBiddingAction(
+										selectionConfirmableAction(BIDDING_SELECTION_JOB_ACTION.Activate),
+										() => handleSelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Activate)
+									)}
+								disabled={!canActivateSelectionJobs}
+							>
+								{BIDDING_SELECTION_ACTION_LABEL.ActivateSelected}
+							</button>
+						{/if}
+						{#if canPauseSelectionJobs}
+							<button
+								type="button"
+								class="token-bidding-action-negative"
+								class:token-bidding-action-armed={armedAction ===
+									selectionConfirmableAction(BIDDING_SELECTION_JOB_ACTION.Pause)}
+								data-bidding-action={selectionConfirmableAction(BIDDING_SELECTION_JOB_ACTION.Pause)}
+								data-testid={TEST_IDS.BiddingPanelSelectionPause}
+								onclick={() =>
+									void confirmBiddingAction(
+										selectionConfirmableAction(BIDDING_SELECTION_JOB_ACTION.Pause),
+										() => handleSelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Pause)
+									)}
+								disabled={!canPauseSelectionJobs}
+							>
+								{BIDDING_SELECTION_ACTION_LABEL.PauseSelected}
+							</button>
+						{/if}
+						{#if canArchiveSelectionJobs}
+							<button
+								type="button"
+								class="token-bidding-action-negative"
+								class:token-bidding-action-armed={armedAction ===
+									selectionConfirmableAction(BIDDING_SELECTION_JOB_ACTION.Archive)}
+								data-bidding-action={selectionConfirmableAction(BIDDING_SELECTION_JOB_ACTION.Archive)}
+								data-testid={TEST_IDS.BiddingPanelSelectionArchive}
+								onclick={() =>
+									void confirmBiddingAction(
+										selectionConfirmableAction(BIDDING_SELECTION_JOB_ACTION.Archive),
+										() => handleSelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Archive)
+									)}
+								disabled={!canArchiveSelectionJobs}
+							>
+								{BIDDING_SELECTION_ACTION_LABEL.ArchiveSelected}
+							</button>
+						{/if}
+					</div>
+				{/if}
 				<div class="bootstrap-form-feedback">
 					{#if saveMessage}
 						<p class="runtime-pass token-bidding-feedback">{saveMessage}</p>
