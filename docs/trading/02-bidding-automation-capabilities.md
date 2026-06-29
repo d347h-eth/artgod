@@ -132,6 +132,7 @@ Own-bid display:
 - Own declared jobs can appear as `own_job_intent` rows with `queued` or `paused` phase.
 - Own active-order lifecycle rows can appear as `own_job_intent` rows with `replacing`, `canceling`, `cancel failed`, or `cancelled` phase.
 - Own-intent rows use range pricing for queued/paused intent and exact order pricing for runtime/cancellation-backed lifecycle rows.
+- Bid-book floor and ceiling columns are shown only when visible rows have bid-limit or range values.
 - Backend and frontend code must not infer own bid position from passive order rows, exact-scope grouping, or local price comparisons.
 
 Orders fallback mapper:

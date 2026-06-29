@@ -785,7 +785,7 @@ Current implementation notes:
 - Derived or extension-owned traits that marketplaces cannot target directly are not submittable as exact trait jobs; backend trait read models expose canonical metadata-backed support, and shared bidding snapshots consume that resolved support across token browsing and offers.
 - Active own market evidence remains visible after a job update or tier reapply as a `replacing` lifecycle row, while the current revision appears as its own `queued` intent row.
 - Completed cancellations render a brief `cancelled` confirmation row before disappearing, and stale indexed own order echoes stay suppressed afterward.
-- Bid-book rows render floor and ceiling separately from price; price is reserved for exact active marketplace bids, while queued/paused job intent rows show only their configured range.
+- Bid-book rows render floor and ceiling separately from price when visible rows have bid-limit/range data; price is reserved for exact active marketplace bids, while queued/paused job intent rows show only their configured range.
 - The token detail bid-book meta row omits the state chip, and all live bid-book timers count down to the next refresh using the configured cadence.
 - Selection-level job actions can pause, activate, or archive exact selected targets through existing mutation routes while preserving each job's current pricing.
 

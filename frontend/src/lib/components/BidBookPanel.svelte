@@ -152,6 +152,11 @@
 	const bidBucketStepWei = $derived(resolveDecimalBucketStepWei(displayedBids));
 	const rowsTableRows = $derived(resolveRowsTableRows(displayedBids));
 	const demandTableGroups = $derived(resolveDemandTableGroups(visibleDemandGroups));
+	const showBidLimits = $derived(
+		showTraitDemandView
+			? shouldShowDemandBidLimitColumns(visibleDemandGroups)
+			: shouldShowRowBidLimitColumns(displayedBids)
+	);
 	const bidBookRelativeTimeKey = $derived(resolveBidBookRelativeTimeKey(bidBook));
 
 	$effect(() => {
@@ -783,7 +788,23 @@
 	}
 
 	function bidBookColumnCount(): number {
-		return showScope ? 7 : 6;
+		return 4 + (showScope ? 1 : 0) + (showBidLimits ? 2 : 0);
+	}
+
+	function shouldShowRowBidLimitColumns(rows: ApiBiddingBidBookRow[]): boolean {
+		return rows.some((bid) => resolveBidLimits(bid) !== null);
+	}
+
+	function shouldShowDemandBidLimitColumns(groups: BidBookDemandGroup[]): boolean {
+		return groups.some(
+			(group) =>
+				!shouldHideDemandGroup(group) &&
+				group.bids.some(
+					(bid) =>
+						!shouldHideMutedBid(isMutedDemandBid(group, bid)) &&
+						resolveBidLimits(bid) !== null
+				)
+		);
 	}
 
 	function resolveRowsTableRows(rows: ApiBiddingBidBookRow[]): BidBookRowsTableRow[] {
@@ -977,6 +998,7 @@
 	<BidBookTraitDemandTable
 		tabs={demandTableTabs}
 		groups={demandTableGroups}
+		{showBidLimits}
 		onSetActiveTraitKey={setActiveDemandTraitKey}
 		onTogglePlacedAtMode={togglePlacedAtMode}
 		onToggleValidUntilMode={toggleValidUntilMode}
@@ -990,6 +1012,7 @@
 	<BidBookRowsTable
 		rows={rowsTableRows}
 		{showScope}
+		{showBidLimits}
 		columnCount={bidBookColumnCount()}
 		{hiddenBidCount}
 		expanded={bidBookExpanded}

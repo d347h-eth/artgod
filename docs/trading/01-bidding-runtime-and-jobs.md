@@ -201,6 +201,7 @@ Bid-book row materialization:
 - queued or paused own-intent rows use a floor-ceiling price range because no single market order price exists yet
 - replacing, canceling, cancel failed, and cancelled own-intent rows use the real active order id and exact current price
 - runtime-active own-intent rows use the bot-persisted active order id and exact current price until the market row appears
+- bid-book tables show floor and ceiling columns only when visible rows carry bid-limit or range data
 
 ## Bidding Automation UI
 

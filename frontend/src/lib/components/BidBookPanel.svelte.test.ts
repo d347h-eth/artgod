@@ -177,9 +177,11 @@ describe('BidBookPanel', () => {
 		expect(body).toMatch(/<tr(?=[^>]*hidden)(?=[^>]*bid-book-muted-demand-group)[^>]*>/);
 		expect(body).not.toContain('aria-label="Bid trait bucket index"');
 		expect(body).not.toContain('href="#bid-book-bucket-');
-		expect(body).not.toContain(
-			'bid-book-bucket-spacer" aria-hidden="true"><td colspan="4"></td></tr><!--]--> <tr class="bid-book-muted-row"'
+		expect(body).not.toMatch(
+			/bid-book-bucket-spacer" aria-hidden="true"><td colspan="\d+"><\/td><\/tr><!--\]--> <tr class="bid-book-muted-row"/
 		);
+		expect(body).not.toContain('>floor</th>');
+		expect(body).not.toContain('>ceiling</th>');
 		expect(body).toContain('targets');
 		expect(body).toContain('offers');
 		expect(body).toContain('makers');
@@ -264,6 +266,8 @@ describe('BidBookPanel', () => {
 		expect(body).toMatch(/<tr class="bid-book-own-row">[\s\S]*data-open-sea-order-hash="0xown-low"/);
 		expect(body).not.toContain('data-open-sea-order-hash="0xother-low"');
 		expect(body).toContain('expand 1');
+		expect(body).not.toContain('>floor</th>');
+		expect(body).not.toContain('>ceiling</th>');
 	});
 
 	it('uses displayed rows only when resolving row price precision', () => {
@@ -328,6 +332,8 @@ describe('BidBookPanel', () => {
 		expect(body).toContain('bid-book-price-quantity-empty');
 		expect(body).toContain('expand 1');
 		expect(body).not.toContain('0.000345');
+		expect(body).not.toContain('>floor</th>');
+		expect(body).not.toContain('>ceiling</th>');
 	});
 
 	it('renders separate trait-demand filter and bid actions', () => {
@@ -360,6 +366,44 @@ describe('BidBookPanel', () => {
 		expect(body).toContain('bid-book-place-bid-icon');
 		expect(filterButtonIndex).toBeGreaterThanOrEqual(0);
 		expect(bidIconIndex).toBeGreaterThan(filterButtonIndex);
+	});
+
+	it('shows bid limit columns in trait-demand view when visible rows have limits', () => {
+		const bidBook: ApiBiddingBidBook = {
+			state: {
+				source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+				updatedAt: null,
+				snapshotRefreshedAtMs: null,
+				projectedAt: null,
+				rowCount: 1,
+				durationMs: null,
+				lastError: null
+			},
+			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			bids: [
+				{
+					...BASE_BID,
+					bidLimits: {
+						floorWei: '100000000000000000',
+						floorEth: '0.1',
+						ceilingWei: '200000000000000000',
+						ceilingEth: '0.2'
+					}
+				}
+			]
+		};
+
+		const { body } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				view: 'trait-demand'
+			}
+		});
+
+		expect(body).toContain('>floor</th>');
+		expect(body).toContain('>ceiling</th>');
+		expect(body).toContain('>0.10</td>');
+		expect(body).toContain('>0.20</td>');
 	});
 
 	it('omits redundant trait-demand filter actions for single trait buckets', () => {
