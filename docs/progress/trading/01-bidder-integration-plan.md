@@ -315,7 +315,7 @@ Recommended config groups:
 
 - `BIDDING_ENABLED`
 - `BIDDING_DRY_RUN`
-- `BIDDING_POLL_MS`
+- `BIDDING_SCAN_SLEEP_MS`
 - `BIDDING_MAX_CONCURRENT_JOBS`
 - `BIDDING_BOOTSTRAP_CONCURRENCY`
 - `BIDDING_OFFER_EXPIRATION_SECONDS`
@@ -471,7 +471,7 @@ Bootstrap sequence:
 10. bootstrap current token-job prices
 11. attach stream listeners and bidding pipeline
 12. start snapshot cadence
-13. start bidder tick loop
+13. start bidder scan loop
 14. emit `bot_ready`
 
 `bot_ready` rule:

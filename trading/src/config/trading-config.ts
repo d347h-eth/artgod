@@ -49,7 +49,7 @@ import {
     BIDDING_DEFAULT_MAX_CONCURRENT_JOBS,
     BIDDING_DEFAULT_OFFER_EXPIRATION_SECONDS,
     BIDDING_DEFAULT_ORDER_LOOKUP_MAX_PAGES,
-    BIDDING_DEFAULT_POLL_MS,
+    BIDDING_DEFAULT_SCAN_SLEEP_MS,
     BIDDING_DEFAULT_TOKEN_CRITERIA_TRAITS_BY_COLLECTION,
     BIDDING_DEFAULT_TX_BASE_FEE_MULTIPLIER,
     BIDDING_DEFAULT_TX_FEE_HISTORY_BLOCKS,
@@ -79,7 +79,7 @@ export type TradingMetricsConfig = {
 export type EnabledBiddingConfig = {
     enabled: true;
     dryRun: boolean;
-    pollMs: number;
+    scanSleepMs: number;
     maxConcurrentJobs: number;
     bootstrapConcurrency: number;
     offerExpirationSeconds: number;
@@ -107,7 +107,7 @@ export type EnabledBiddingConfig = {
 export type DisabledBiddingConfig = {
     enabled: false;
     dryRun: boolean;
-    pollMs: number;
+    scanSleepMs: number;
     maxConcurrentJobs: number;
     bootstrapConcurrency: number;
     offerExpirationSeconds: number;
@@ -184,10 +184,10 @@ export function loadTradingConfig(
             BIDDING_RUNTIME_ENV_KEY.DryRun,
             BIDDING_DEFAULT_DRY_RUN,
         ),
-        pollMs: parsePositiveInteger(
-            env[BIDDING_RUNTIME_ENV_KEY.PollMs],
-            BIDDING_RUNTIME_ENV_KEY.PollMs,
-            BIDDING_DEFAULT_POLL_MS,
+        scanSleepMs: parsePositiveInteger(
+            env[BIDDING_RUNTIME_ENV_KEY.ScanSleepMs],
+            BIDDING_RUNTIME_ENV_KEY.ScanSleepMs,
+            BIDDING_DEFAULT_SCAN_SLEEP_MS,
         ),
         maxConcurrentJobs: parsePositiveInteger(
             env[BIDDING_RUNTIME_ENV_KEY.MaxConcurrentJobs],

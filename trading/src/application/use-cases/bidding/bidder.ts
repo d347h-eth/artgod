@@ -172,12 +172,12 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     private readonly bootstrapConcurrency: number;
     private nextActivationId = 1;
     private started = false;
-    private pollTimer?: ReturnType<typeof setTimeout>;
+    private scanSleepTimer?: ReturnType<typeof setTimeout>;
 
     constructor(
         private readonly biddingService: BiddingService,
         private readonly makerAddress: string,
-        private readonly pollIntervalMs: number,
+        private readonly scanSleepMs: number,
         private readonly options: BidderOptions = {},
         private readonly tokenMetadataRepository?: TokenMetadataRepository,
         private readonly makerWethBalanceService?: MakerWethBalanceService,
@@ -456,25 +456,25 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         }
 
         this.started = true;
-        void this.runTickLoop();
+        void this.runScanLoop();
     }
 
-    // stop cancels the recurring bidder timer so the runtime can shut down cleanly.
+    // stop cancels the between-scan sleep timer so the runtime can shut down cleanly.
     public stop(): void {
         this.started = false;
-        if (this.pollTimer) {
-            clearTimeout(this.pollTimer);
-            this.pollTimer = undefined;
+        if (this.scanSleepTimer) {
+            clearTimeout(this.scanSleepTimer);
+            this.scanSleepTimer = undefined;
         }
     }
 
-    public async tick(): Promise<void> {
+    public async scanOnce(): Promise<void> {
         const refreshed = await this.refreshCachedMakerWethBalance();
-        log.debug("tickStarted", "Bidder tick started", {
+        log.debug("scanStarted", "Bidder full job scan started", {
             makerAddress: this.makerAddress,
             makerWethBalanceWei:
                 this.cachedMakerWethBalance?.toString() ?? null,
-            makerWethBalance: this.formatTickBalanceForLog(),
+            makerWethBalance: this.formatScanBalanceForLog(),
             makerWethBalanceRefreshed: refreshed,
             makerWethBalanceCached:
                 !refreshed && this.cachedMakerWethBalance !== undefined,
@@ -606,15 +606,15 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         });
     }
 
-    private async runTickLoop(): Promise<void> {
+    private async runScanLoop(): Promise<void> {
         if (!this.started) {
             return;
         }
 
         try {
-            await this.tick();
+            await this.scanOnce();
         } catch (error: unknown) {
-            log.error("tickFailed", "Bidder tick failed", {
+            log.error("scanFailed", "Bidder full job scan failed", {
                 ...toErrorLogFields(error),
             });
         }
@@ -623,9 +623,9 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             return;
         }
 
-        this.pollTimer = setTimeout(() => {
-            void this.runTickLoop();
-        }, this.pollIntervalMs);
+        this.scanSleepTimer = setTimeout(() => {
+            void this.runScanLoop();
+        }, this.scanSleepMs);
     }
 
     private async executeJob(
@@ -1415,7 +1415,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         return desiredPrice;
     }
 
-    private formatTickBalanceForLog(): string {
+    private formatScanBalanceForLog(): string {
         if (this.cachedMakerWethBalance === undefined) {
             return "unavailable";
         }
@@ -2168,7 +2168,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         }
 
         const remainingMs = expirationTimeMs - Date.now();
-        const renewalWindowMs = this.pollIntervalMs * 2;
+        const renewalWindowMs = this.scanSleepMs * 2;
         if (remainingMs >= renewalWindowMs) {
             return undefined;
         }

@@ -82,7 +82,7 @@ Startup order:
 5. emit `bot_bootstrapping` before long allowance/snapshot/price bootstrap work
 6. approve configured WETH allowance when `BIDDING_WETH_ALLOWANCE_ETH > 0`
 7. bootstrap authoritative collection-offer snapshots and current prices
-8. start job ticks, snapshot polling, stream listeners, command reconciliation, and heartbeat
+8. start the continuous job scan loop, snapshot polling, stream listeners, command reconciliation, and heartbeat
 9. emit `bot_ready` only after bootstrap is complete
 
 `trading_bot_runtime_state` stores non-secret bot heartbeat state.
@@ -326,6 +326,7 @@ Bidding runtime groups:
 
 - snapshot cadence/freshness: `BIDDING_COLLECTION_OFFERS_*`
 - bid-book projection, backend freshness, and UI live refresh: `BIDDING_BID_BOOK_*`
+- bidding job scan sleep: `BIDDING_SCAN_SLEEP_MS`
 - bot runtime liveness: `BIDDING_RUNTIME_HEARTBEAT_*`
 - command reconciliation: `BIDDING_COMMAND_*`
 - WETH allowance: `BIDDING_WETH_ALLOWANCE_ETH`
