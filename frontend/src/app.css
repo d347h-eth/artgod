@@ -1960,6 +1960,7 @@ th {
 .bid-book-table td {
 	padding: 0.12rem 0.5rem;
 	line-height: 1.12;
+	vertical-align: middle;
 }
 
 .bid-book-own-row {
@@ -2122,8 +2123,28 @@ th {
 }
 
 .bid-book-row-scope-header {
+	--bid-book-row-action-size: 16px;
+	align-items: center;
+	flex-wrap: nowrap;
 	justify-content: center;
-	gap: 0.15rem 0.55rem;
+	gap: 0.15rem 0.3rem;
+}
+
+.bid-book-row-scope-header :is(.bid-book-scope-label, .bid-book-demand-group-title) {
+	display: inline-flex;
+	align-items: center;
+	min-height: var(--bid-book-row-action-size);
+	line-height: 1;
+}
+
+.bid-book-row-scope-header
+	:is(.bid-book-demand-trait-list, .bid-book-demand-trait-entry, .bid-book-demand-trait) {
+	align-items: center;
+	line-height: 1;
+}
+
+.bid-book-row-scope-header .bid-book-demand-trait-list {
+	flex-wrap: nowrap;
 }
 
 .bid-book-demand-group-title {
@@ -3928,6 +3949,26 @@ th {
 	stroke-width: 1.45;
 	stroke-linecap: square;
 	stroke-linejoin: miter;
+}
+
+.bid-book-row-scope-header .bid-book-place-bid-icon-button {
+	align-self: center;
+	flex: 0 0 var(--bid-book-row-action-size);
+	width: var(--bid-book-row-action-size);
+	min-width: var(--bid-book-row-action-size);
+	height: var(--bid-book-row-action-size);
+	min-height: var(--bid-book-row-action-size);
+	vertical-align: middle;
+}
+
+.bid-book-row-scope-header .bid-book-place-bid-icon-button .filter-icon,
+.bid-book-row-scope-header .bid-book-place-bid-icon {
+	width: 10px;
+	height: 10px;
+}
+
+.bid-book-row-scope-header .bid-book-place-bid-icon {
+	transform: translateY(-1px);
 }
 
 .runtime-tabs button:disabled:hover,
