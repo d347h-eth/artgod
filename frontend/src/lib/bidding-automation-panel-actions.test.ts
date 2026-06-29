@@ -2,12 +2,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	TRADING_BIDDING_BID_SCOPE_KIND,
+	TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
 	TRADING_JOB_STATUS,
 	TRADING_JOB_TARGET_KIND
 } from '@artgod/shared/types';
 import type { ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
-import { buildBiddingAutomationDraftFromBid } from '$lib/bidding-automation';
 import {
+	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
+	buildBiddingAutomationDraftFromBid,
+	buildBiddingAutomationDraftFromSelection
+} from '$lib/bidding-automation';
+import { BIDDING_SELECTION_JOB_ACTION } from '$lib/bidding-selection-actions';
+import {
+	applyBiddingSelectionJobAction,
 	lookupBiddingAutomationDraftTargetJob,
 	resolveBiddingAutomationDraftTargetLookupKey,
 	saveBiddingAutomationDraftJobs
@@ -117,6 +124,118 @@ describe('bidding automation panel actions', () => {
 			}
 		);
 	});
+
+	it('pauses exact selected token jobs through existing pricing without overwriting tiers', async () => {
+		const manualJob = testTokenJob({
+			jobId: 'job-token-101',
+			tokenId: '101',
+			floorEth: '0.1',
+			ceilingEth: '0.2',
+			deltaEth: '0.001',
+			pricingSource: null
+		});
+		const tierJob = testTokenJob({
+			jobId: 'job-token-102',
+			tokenId: '102',
+			floorEth: '0.3',
+			ceilingEth: '0.4',
+			deltaEth: '0.002',
+			pricingSource: {
+				kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
+				tierId: 'tier-1',
+				tierName: 'tier 1',
+				resolvedAt: '2026-01-01T00:00:00Z',
+				resolvedFloorWei: '300000000000000000',
+				resolvedCeilingWei: '400000000000000000',
+				deltaWei: '2000000000000000'
+			}
+		});
+		backendApiMocks.lookupBiddingJobTarget
+			.mockResolvedValueOnce({ job: manualJob })
+			.mockResolvedValueOnce({ job: tierJob });
+		backendApiMocks.upsertTokenBiddingJob
+			.mockResolvedValueOnce({
+				job: { ...manualJob, status: TRADING_JOB_STATUS.Paused }
+			})
+			.mockResolvedValueOnce({
+				job: { ...tierJob, status: TRADING_JOB_STATUS.Paused }
+			});
+
+		const result = await applyBiddingSelectionJobAction({
+			fetchFn: testFetch,
+			chainRef: 'ethereum',
+			collectionRef: 'terraforms',
+			draft: buildBiddingAutomationDraftFromSelection({
+				type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
+				tokenIds: ['101', '102']
+			}),
+			action: BIDDING_SELECTION_JOB_ACTION.Pause
+		});
+
+		expect(result.jobs).toHaveLength(2);
+		expect(backendApiMocks.lookupBiddingJobTarget).toHaveBeenNthCalledWith(
+			1,
+			testFetch,
+			'ethereum',
+			'terraforms',
+			{
+				target: {
+					type: 'token',
+					tokenId: '101'
+				}
+			}
+		);
+		expect(backendApiMocks.upsertTokenBiddingJob).toHaveBeenNthCalledWith(
+			1,
+			testFetch,
+			'ethereum',
+			'terraforms',
+			'101',
+			{
+				status: TRADING_JOB_STATUS.Paused,
+				floorEth: '0.1',
+				ceilingEth: '0.2',
+				deltaEth: '0.001',
+				priceTierId: null
+			}
+		);
+		expect(backendApiMocks.upsertTokenBiddingJob).toHaveBeenNthCalledWith(
+			2,
+			testFetch,
+			'ethereum',
+			'terraforms',
+			'102',
+			{
+				status: TRADING_JOB_STATUS.Paused,
+				priceTierId: 'tier-1',
+				deltaEth: '0.002'
+			}
+		);
+	});
+
+	it('archives resolved selected jobs through the target-agnostic archive route', async () => {
+		const job = testTraitJob();
+		const archivedJob = { ...job, status: TRADING_JOB_STATUS.Archived };
+		backendApiMocks.lookupBiddingJobTarget.mockResolvedValueOnce({ job });
+		backendApiMocks.archiveBiddingJob.mockResolvedValueOnce({ job: archivedJob });
+
+		const result = await applyBiddingSelectionJobAction({
+			fetchFn: testFetch,
+			chainRef: 'ethereum',
+			collectionRef: 'terraforms',
+			draft: buildBiddingAutomationDraftFromBid(testTraitBid('1')),
+			action: BIDDING_SELECTION_JOB_ACTION.Archive
+		});
+
+		expect(result.jobs).toEqual([archivedJob]);
+		expect(backendApiMocks.archiveBiddingJob).toHaveBeenCalledWith(
+			testFetch,
+			'ethereum',
+			'terraforms',
+			'job-trait-1'
+		);
+		expect(backendApiMocks.upsertTraitBiddingJob).not.toHaveBeenCalled();
+	});
 });
 
 function testTraitBid(quantity: string): ApiBiddingBidBookRow {
@@ -178,6 +297,35 @@ function testTraitJob(): ApiBiddingJob {
 			ceilingEth: '0.5',
 			deltaEth: '0.001',
 			pricingSource: null
+		},
+		runtime: null
+	};
+}
+
+function testTokenJob(input: {
+	jobId: string;
+	tokenId: string;
+	floorEth: string;
+	ceilingEth: string;
+	deltaEth: string;
+	pricingSource: ApiBiddingJob['config']['pricingSource'];
+}): ApiBiddingJob {
+	return {
+		jobId: input.jobId,
+		status: TRADING_JOB_STATUS.Enabled,
+		revision: 1,
+		createdAt: '2026-01-01T00:00:00Z',
+		updatedAt: '2026-01-01T12:00:00Z',
+		archivedAt: null,
+		target: {
+			type: TRADING_JOB_TARGET_KIND.Token,
+			tokenId: input.tokenId
+		},
+		config: {
+			floorEth: input.floorEth,
+			ceilingEth: input.ceilingEth,
+			deltaEth: input.deltaEth,
+			pricingSource: input.pricingSource
 		},
 		runtime: null
 	};

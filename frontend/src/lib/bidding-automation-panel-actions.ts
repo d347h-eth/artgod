@@ -1,9 +1,12 @@
 import {
 	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
-	TRADING_JOB_STATUS
+	TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
+	TRADING_JOB_STATUS,
+	TRADING_JOB_TARGET_KIND
 } from '@artgod/shared/types';
 import type {
 	ApiBiddingJob,
+	ApiBiddingJobPricingSource,
 	ApiChain,
 	ApiCollection
 } from '$lib/api-types';
@@ -21,9 +24,15 @@ import {
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
 	BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 	buildBiddingJobTargetLookupRequestBody,
+	buildTokenBiddingJobTargetLookupRequestBody,
 	canSubmitFilteredTokenBatch,
-	type BiddingAutomationDraft
+	type BiddingAutomationDraft,
+	type BiddingJobTargetLookupRequestBody
 } from '$lib/bidding-automation';
+import {
+	BIDDING_SELECTION_JOB_ACTION,
+	type BiddingSelectionJobAction
+} from '$lib/bidding-selection-actions';
 import type { EditableBiddingJobStatus } from '$lib/bidding-automation-panel-state';
 export type { EditableBiddingJobStatus } from '$lib/bidding-automation-panel-state';
 
@@ -47,6 +56,19 @@ export type SaveBiddingAutomationDraftJobsInput = {
 	targetTokenId: string | null;
 	nextStatus: EditableBiddingJobStatus;
 	pricing: BiddingAutomationPricingRequest;
+};
+
+export type ApplyBiddingSelectionJobActionInput = {
+	fetchFn: typeof fetch;
+	chainRef: string;
+	collectionRef: string;
+	draft: BiddingAutomationDraft | null;
+	action: BiddingSelectionJobAction;
+};
+
+export type ApplyBiddingSelectionJobActionResult = {
+	jobs: ApiBiddingJob[];
+	targetCount: number;
 };
 
 // Routes the current bidding draft to the one backend mutation matching its target shape.
@@ -203,6 +225,63 @@ export async function archiveBiddingAutomationJob(input: {
 	return response.job;
 }
 
+// Applies status/archive actions to exact selected targets while preserving each job's pricing.
+export async function applyBiddingSelectionJobAction(
+	input: ApplyBiddingSelectionJobActionInput
+): Promise<ApplyBiddingSelectionJobActionResult> {
+	const lookupBodies = biddingSelectionJobLookupBodies(input.draft);
+	if (lookupBodies.length === 0) {
+		throw new Error('select exact bidding targets first');
+	}
+
+	const lookupResponses = await Promise.all(
+		lookupBodies.map((body) =>
+			lookupBiddingJobTarget(input.fetchFn, input.chainRef, input.collectionRef, body)
+		)
+	);
+	const jobs = uniqueBiddingJobs(lookupResponses.flatMap((response) => response.job ?? []));
+	if (jobs.length === 0) {
+		throw new Error('no selected bidding jobs found');
+	}
+
+	if (input.action === BIDDING_SELECTION_JOB_ACTION.Archive) {
+		const archivedJobs = await Promise.all(
+			jobs.map((job) =>
+				archiveBiddingAutomationJob({
+					fetchFn: input.fetchFn,
+					chainRef: input.chainRef,
+					collectionRef: input.collectionRef,
+					jobId: job.jobId
+				})
+			)
+		);
+		return { jobs: archivedJobs, targetCount: lookupBodies.length };
+	}
+
+	const nextStatus =
+		input.action === BIDDING_SELECTION_JOB_ACTION.Pause
+			? TRADING_JOB_STATUS.Paused
+			: TRADING_JOB_STATUS.Enabled;
+	const changedJobs = await Promise.all(
+		jobs
+			.filter((job) => job.status !== nextStatus)
+			.map((job) =>
+				saveExistingBiddingJobStatus({
+					fetchFn: input.fetchFn,
+					chainRef: input.chainRef,
+					collectionRef: input.collectionRef,
+					job,
+					nextStatus
+				})
+			)
+	);
+	return { jobs: changedJobs, targetCount: lookupBodies.length };
+}
+
+export function canApplyBiddingSelectionJobAction(draft: BiddingAutomationDraft | null): boolean {
+	return biddingSelectionJobLookupBodies(draft).length > 0;
+}
+
 export function hasSubmittableBiddingTarget(input: {
 	draft: BiddingAutomationDraft | null;
 	targetTokenId: string | null;
@@ -243,4 +322,97 @@ function selectedBidQuantity(draft: BiddingAutomationDraft): number | undefined 
 	}
 	const parsed = Number(draft.source.bid.quantity);
 	return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function biddingSelectionJobLookupBodies(
+	draft: BiddingAutomationDraft | null
+): BiddingJobTargetLookupRequestBody[] {
+	if (!draft) {
+		return [];
+	}
+	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch) {
+		return draft.target.tokenIds.map((tokenId) =>
+			buildTokenBiddingJobTargetLookupRequestBody(tokenId)
+		);
+	}
+	const body = buildBiddingJobTargetLookupRequestBody(draft);
+	return body ? [body] : [];
+}
+
+function uniqueBiddingJobs(jobs: ApiBiddingJob[]): ApiBiddingJob[] {
+	const seen = new Set<string>();
+	const unique: ApiBiddingJob[] = [];
+	for (const job of jobs) {
+		if (seen.has(job.jobId)) {
+			continue;
+		}
+		seen.add(job.jobId);
+		unique.push(job);
+	}
+	return unique;
+}
+
+async function saveExistingBiddingJobStatus(input: {
+	fetchFn: typeof fetch;
+	chainRef: string;
+	collectionRef: string;
+	job: ApiBiddingJob;
+	nextStatus: EditableBiddingJobStatus;
+}): Promise<ApiBiddingJob> {
+	const pricing = existingJobPricingRequest(input.job.config);
+	if (input.job.target.type === TRADING_JOB_TARGET_KIND.Token) {
+		const response = await upsertTokenBiddingJob(
+			input.fetchFn,
+			input.chainRef,
+			input.collectionRef,
+			input.job.target.tokenId,
+			{
+				status: input.nextStatus,
+				...pricing
+			}
+		);
+		return response.job;
+	}
+	if (
+		input.job.target.type === TRADING_JOB_TARGET_KIND.Collection &&
+		input.job.target.targetTraits.length > 0
+	) {
+		const response = await upsertTraitBiddingJob(input.fetchFn, input.chainRef, input.collectionRef, {
+			status: input.nextStatus,
+			...pricing,
+			quantity: input.job.target.quantity,
+			targetTraits: input.job.target.targetTraits
+		});
+		return response.job;
+	}
+	if (input.job.target.type === TRADING_JOB_TARGET_KIND.Collection) {
+		const response = await upsertCollectionBiddingJob(
+			input.fetchFn,
+			input.chainRef,
+			input.collectionRef,
+			{
+				status: input.nextStatus,
+				...pricing,
+				quantity: input.job.target.quantity
+			}
+		);
+		return response.job;
+	}
+	throw new Error('selected job target cannot be updated from this view');
+}
+
+function existingJobPricingRequest(config: ApiBiddingJob['config']): BiddingAutomationPricingRequest {
+	const source: ApiBiddingJobPricingSource | null = config.pricingSource;
+	if (source?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier) {
+		return {
+			priceTierId: source.tierId,
+			deltaEth: config.deltaEth
+		};
+	}
+	return {
+		floorEth: config.floorEth,
+		ceilingEth: config.ceilingEth,
+		deltaEth: config.deltaEth,
+		priceTierId: null
+	};
 }

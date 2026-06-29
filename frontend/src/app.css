@@ -3036,6 +3036,11 @@ th {
 	line-height: 20px;
 }
 
+.bidding-selection-feedback {
+	font-size: 0.72rem;
+	line-height: 20px;
+}
+
 .token-grid-secondary-meta {
 	font-size: 0.68rem;
 	color: var(--c-sand);

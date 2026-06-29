@@ -332,12 +332,7 @@ export function buildBiddingJobTargetLookupRequestBody(
 	}
 	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch) {
 		return draft.target.tokenIds.length === 1
-			? {
-					target: {
-						type: 'token',
-						tokenId: draft.target.tokenIds[0]
-					}
-				}
+			? buildTokenBiddingJobTargetLookupRequestBody(draft.target.tokenIds[0])
 			: null;
 	}
 	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob) {
@@ -364,6 +359,18 @@ export function buildBiddingJobTargetLookupRequestBody(
 		};
 	}
 	return null;
+}
+
+// Builds the lookup body for one exact token-scoped bidding target.
+export function buildTokenBiddingJobTargetLookupRequestBody(
+	tokenId: string
+): BiddingJobTargetLookupRequestBody {
+	return {
+		target: {
+			type: 'token',
+			tokenId
+		}
+	};
 }
 
 // Gates drafts to target kinds that currently have a backend mutation path.
