@@ -774,6 +774,20 @@ Current implementation notes:
 - The standalone `bidding` navigation item and collection jobs table are removed.
 - Job mutations stay centralized in the shared automation panel and bid-book/token-browsing operations surfaces.
 
+### Slice 18: Bid-Book Live UX Hardening
+
+Status: complete.
+
+The offers/bid-book and token detail bidding surfaces now keep live refresh and job operations aligned with the actual marketplace state while preserving the shared automation model.
+
+Current implementation notes:
+
+- Derived or extension-owned traits that marketplaces cannot target directly are not submittable as exact trait jobs; unsupported-only selections show a compact panel error, while broader selections ignore unsupported traits and keep valid targets.
+- Active own market rows remain visible after a job update or tier reapply until the bot writes a fresh order/runtime revision or records cancellation, so a real OpenSea offer is not replaced by a queued placeholder.
+- Bid-book rows render floor and ceiling separately from price; price is reserved for exact active marketplace bids, while queued/paused job intent rows show only their configured range.
+- The token detail bid-book meta row omits the state chip, and all live bid-book timers count down to the next refresh using the configured cadence.
+- Selection-level job actions can pause, activate, or archive exact selected targets through existing mutation routes while preserving each job's current pricing.
+
 ## Resolved Decisions
 
 > Question: Should the broad filtered-token action immediately mean all matching tokens across the collection, or should the first implementation be limited to loaded token cards with a clear label?
@@ -794,6 +808,6 @@ Current implementation notes:
 ## Verification Status
 
 - Backend tests cover tier graph resolution, invalid tier shapes, collection settings, job mutation metadata, target lookup, and tier reapply.
-- Frontend tests cover selection rendering, automation panel draft modes, shortcut help, trait controls, bid-book actions, jobs-page read-only behavior, and pointer focus release.
+- Frontend tests cover selection rendering, automation panel draft modes, mass selection actions, shortcut help, trait controls, bid-book actions, jobs-page read-only behavior, and pointer focus release.
 - Attached Playwright visual QA exists for bidding panel geometry through `yarn test:bidding:attached`.
 - Manual live bidding QA should still be run before merge if the branch has drifted from the last tested desktop build.
