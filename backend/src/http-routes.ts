@@ -11,6 +11,7 @@ import type {
 import { normalizeSlugRef } from "@artgod/shared/utils/ref-resolver";
 import { API_CSRF_ROUTE_PATH } from "@artgod/shared/http/api-security";
 import { BOOTSTRAP_API_ROUTE_TEMPLATE } from "@artgod/shared/http/bootstrap-routes";
+import { TRADING_API_ROUTE_TEMPLATE } from "@artgod/shared/http/trading-routes";
 import type {
     CreateBootstrapRunHttpAdapter,
     CreateBootstrapRunRoute,
@@ -155,6 +156,10 @@ import type {
     UpsertBatchTokenBiddingJobsRoute,
 } from "./http/handlers/trading/upsert-batch-token-bidding-jobs.js";
 import type {
+    LookupBatchTokenBiddingJobsHttpAdapter,
+    LookupBatchTokenBiddingJobsRoute,
+} from "./http/handlers/trading/lookup-batch-token-bidding-jobs.js";
+import type {
     UpsertCollectionBiddingJobHttpAdapter,
     UpsertCollectionBiddingJobRoute,
 } from "./http/handlers/trading/upsert-collection-bidding-job.js";
@@ -265,6 +270,7 @@ export function registerApiRoutes(
     lookupBiddingJobTargetAdapter: LookupBiddingJobTargetHttpAdapter,
     upsertTokenBiddingJobAdapter: UpsertTokenBiddingJobHttpAdapter,
     upsertTraitBiddingJobAdapter: UpsertTraitBiddingJobHttpAdapter,
+    lookupBatchTokenBiddingJobsAdapter: LookupBatchTokenBiddingJobsHttpAdapter,
     upsertBatchTokenBiddingJobsAdapter: UpsertBatchTokenBiddingJobsHttpAdapter,
     upsertCollectionBiddingJobAdapter: UpsertCollectionBiddingJobHttpAdapter,
     upsertCollectionBiddingPriceTierAdapter: UpsertCollectionBiddingPriceTierHttpAdapter,
@@ -515,6 +521,12 @@ export function registerApiRoutes(
         options,
         "/api/:chain_ref/:collection_ref/bidding/jobs/target-lookup",
         lookupBiddingJobTargetAdapter.handle,
+    );
+    registerObservedPost<LookupBatchTokenBiddingJobsRoute>(
+        app,
+        options,
+        TRADING_API_ROUTE_TEMPLATE.LookupBatchTokenBiddingJobs,
+        lookupBatchTokenBiddingJobsAdapter.handle,
     );
     registerObservedPost<CreateBootstrapRunRoute>(
         app,

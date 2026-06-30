@@ -322,6 +322,7 @@ function createOutput(): GetCollectionDetailOutput {
             nextCursor: null,
             limit: 250,
             totalItems: 2,
+            marketplaceBiddingSupportedTotalItems: 2,
             rangeStart: 1,
             rangeEnd: 2,
             currentPage: 1,

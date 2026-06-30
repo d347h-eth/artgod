@@ -244,6 +244,7 @@ export type ForwardCursorPage<TItem> = CursorPage<TItem> & {
 
 export type TokenCursorPage = ForwardCursorPage<TokenCard> & {
     prevCursor: string | null;
+    marketplaceBiddingSupportedTotalItems: number;
 };
 
 export type CollectionHolderPage = ForwardCursorPage<CollectionHolder>;

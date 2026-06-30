@@ -57,6 +57,7 @@
 		nextCursor: null,
 		limit: DEFAULT_PAGE_LIMIT,
 		totalItems: 0,
+		marketplaceBiddingSupportedTotalItems: 0,
 		rangeStart: 0,
 		rangeEnd: 0,
 		currentPage: 0,

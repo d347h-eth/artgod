@@ -53,6 +53,7 @@ describe('CollectionDetailView', () => {
 					nextCursor: null,
 					limit: 25,
 					totalItems: 1,
+					marketplaceBiddingSupportedTotalItems: 1,
 					rangeStart: 1,
 					rangeEnd: 1,
 					currentPage: 1,

@@ -189,6 +189,7 @@ export type BiddingTokenOfferCardsPage = {
     nextCursor: string | null;
     limit: number;
     totalItems: number;
+    marketplaceBiddingSupportedTotalItems: number;
     totalOffers: number;
     rangeStart: number;
     rangeEnd: number;

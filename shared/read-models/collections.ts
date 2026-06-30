@@ -311,6 +311,12 @@ export type ListCollectionTokenCardsByIdsParams = {
     includeListings?: boolean;
 };
 
+export type CountMarketplaceBiddingSupportedTokensByIdsParams = {
+    chainId: number;
+    collectionId: number;
+    tokenIds: string[];
+};
+
 export type ListCollectionHoldersParams = {
     chainId: number;
     collectionId: number;
@@ -738,6 +744,21 @@ export class SqliteCollectionsReadModel {
                     whereValues: tokenWhereValues,
                 }),
         );
+        const marketplaceBiddingSupportedTotalItems = this.apm.withSyncSpan(
+            "backend.collection.db.tokens_count",
+            {
+                ...querySpanAttributes,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
+                    ARTGOD_COLLECTION_COUNT_KIND.Total,
+            },
+            () =>
+                countMatchingMarketplaceBiddingSupportedTokens({
+                    joinClauses: baseJoinClauses,
+                    joinValues: baseJoinValues,
+                    whereClauses: tokenWhereClauses,
+                    whereValues: tokenWhereValues,
+                }),
+        );
         const beforeItems = cursorSortKey
             ? this.apm.withSyncSpan(
                   "backend.collection.db.tokens_count",
@@ -781,6 +802,7 @@ export class SqliteCollectionsReadModel {
             nextCursor,
             limit: params.limit,
             totalItems,
+            marketplaceBiddingSupportedTotalItems,
             rangeStart,
             rangeEnd,
             currentPage,
@@ -940,6 +962,23 @@ export class SqliteCollectionsReadModel {
                               whereValues: baseWhereValues,
                           }),
                   );
+        const marketplaceBiddingSupportedTotalItems = this.apm.withSyncSpan(
+            "backend.collection.db.tokens_count",
+            {
+                ...querySpanAttributes,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
+                    ARTGOD_COLLECTION_COUNT_KIND.Total,
+            },
+            () =>
+                countMatchingListedMarketplaceBiddingSupportedTokens({
+                    joinClauses: baseJoinClauses,
+                    joinValues: baseJoinValues,
+                    listingSql,
+                    listingValues: constrainedListingValues,
+                    whereClauses: baseWhereClauses,
+                    whereValues: baseWhereValues,
+                }),
+        );
         const beforeItems = cursorKey
             ? this.apm.withSyncSpan(
                   "backend.collection.db.tokens_count",
@@ -986,6 +1025,7 @@ export class SqliteCollectionsReadModel {
             nextCursor,
             limit: params.limit,
             totalItems,
+            marketplaceBiddingSupportedTotalItems,
             rangeStart,
             rangeEnd,
             currentPage,
@@ -1149,6 +1189,21 @@ export class SqliteCollectionsReadModel {
                     whereValues: tokenWhereValues,
                 }),
         );
+        const marketplaceBiddingSupportedTotalItems = this.apm.withSyncSpan(
+            "backend.collection.db.tokens_count",
+            {
+                ...querySpanAttributes,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
+                    ARTGOD_COLLECTION_COUNT_KIND.Total,
+            },
+            () =>
+                countMatchingMarketplaceBiddingSupportedTokens({
+                    joinClauses: baseJoinClauses,
+                    joinValues: baseJoinValues,
+                    whereClauses: tokenWhereClauses,
+                    whereValues: tokenWhereValues,
+                }),
+        );
         const beforeItems = cursorKey
             ? this.apm.withSyncSpan(
                   "backend.collection.db.tokens_count",
@@ -1196,6 +1251,7 @@ export class SqliteCollectionsReadModel {
             nextCursor,
             limit: params.limit,
             totalItems,
+            marketplaceBiddingSupportedTotalItems,
             rangeStart,
             rangeEnd,
             currentPage,
@@ -1872,6 +1928,32 @@ export class SqliteCollectionsReadModel {
         });
     }
 
+    countMarketplaceBiddingSupportedTokensByIds(
+        params: CountMarketplaceBiddingSupportedTokensByIdsParams,
+    ): number {
+        const tokenIds = normalizeTokenIds(params.tokenIds);
+        if (tokenIds.length === 0) {
+            return 0;
+        }
+
+        const placeholders = tokenIds.map(() => "?").join(", ");
+        const row = db.raw
+            .prepare(
+                "SELECT COUNT(*) AS count " +
+                    "FROM tokens " +
+                    "WHERE chain_id = ? AND collection_id = ? " +
+                    `AND token_id IN (${placeholders}) ` +
+                    "AND record_kind = ?",
+            )
+            .get(
+                params.chainId,
+                params.collectionId,
+                ...tokenIds,
+                TOKEN_RECORD_KIND.Canonical,
+            ) as { count: number };
+        return row.count;
+    }
+
     listCollectionHolders(
         params: ListCollectionHoldersParams,
     ): CollectionHolderPage {
@@ -1956,6 +2038,19 @@ function countMatchingTokens(params: {
     return row.count;
 }
 
+function countMatchingMarketplaceBiddingSupportedTokens(params: {
+    joinClauses: string[];
+    joinValues: unknown[];
+    whereClauses: string[];
+    whereValues: unknown[];
+}): number {
+    return countMatchingTokens({
+        ...params,
+        whereClauses: [...params.whereClauses, "t.record_kind = ?"],
+        whereValues: [...params.whereValues, TOKEN_RECORD_KIND.Canonical],
+    });
+}
+
 function normalizeSqliteCount(
     value: number | bigint | null | undefined,
 ): number {
@@ -1987,6 +2082,21 @@ function countMatchingListedTokens(params: {
             ...params.whereValues,
         ) as { count: number };
     return row.count;
+}
+
+function countMatchingListedMarketplaceBiddingSupportedTokens(params: {
+    joinClauses: string[];
+    joinValues: unknown[];
+    listingSql: string;
+    listingValues: unknown[];
+    whereClauses: string[];
+    whereValues: unknown[];
+}): number {
+    return countMatchingListedTokens({
+        ...params,
+        whereClauses: [...params.whereClauses, "t.record_kind = ?"],
+        whereValues: [...params.whereValues, TOKEN_RECORD_KIND.Canonical],
+    });
 }
 
 function countMatchingMixedTokens(params: {
@@ -2031,6 +2141,7 @@ function emptyTokenCursorPage(limit: number): TokenCursorPage {
         nextCursor: null,
         limit,
         totalItems: 0,
+        marketplaceBiddingSupportedTotalItems: 0,
         rangeStart: 0,
         rangeEnd: 0,
         currentPage: 0,

@@ -818,7 +818,7 @@
 		}
 		biddingAutomation.selectFilteredTokens(
 			buildFilteredTokenBatchBiddingSelectionInput({
-				tokenCount: activeTokenOfferCardsPage.totalItems,
+				tokenCount: activeTokenOfferCardsPage.marketplaceBiddingSupportedTotalItems,
 				filter: currentBiddingFilterSnapshot()
 			})
 		);
@@ -1099,7 +1099,9 @@
 						showTierAction={biddingSelectionControlPolicy.showTierAction}
 						tierActionActive={priceTierPanelOpen}
 						tokenActionLabel={tokenActionLabel}
-						tokenActionDisabled={activeTokenOfferCardsPage.totalItems === 0}
+						tokenActionDisabled={
+							activeTokenOfferCardsPage.marketplaceBiddingSupportedTotalItems === 0
+						}
 						onToggleTiers={togglePriceTierPanel}
 						onBidOnTraits={bidOnFilteredTraits}
 						onBidOnTokens={bidOnFilteredTokenOffers}

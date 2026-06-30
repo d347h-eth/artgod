@@ -78,9 +78,6 @@ describe("SqliteCollectionsReadModel observability", () => {
         expect(apm.spans.map((span) => span.name)).not.toContain(
             "backend.collection.db.tokens_prev_cursor",
         );
-        expect(apm.spans.map((span) => span.name)).not.toContain(
-            "backend.collection.db.tokens_count",
-        );
         expect(apm.spans).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
@@ -372,6 +369,8 @@ describe("SqliteCollectionsReadModel observability", () => {
             tokenId: "unminted-tile-921",
         });
 
+        expect(page.totalItems).toBe(2);
+        expect(page.marketplaceBiddingSupportedTotalItems).toBe(1);
         expect(
             page.items.map((token) => ({
                 tokenId: token.tokenId,
@@ -454,9 +453,6 @@ describe("SqliteCollectionsReadModel observability", () => {
         expect(page.totalItems).toBe(2);
         expect(apm.spans.map((span) => span.name)).toContain(
             ARTGOD_SPAN_NAME.CollectionTraitFilterTokenCandidates,
-        );
-        expect(apm.spans.map((span) => span.name)).not.toContain(
-            "backend.collection.db.tokens_count",
         );
         expect(apm.spans).toContainEqual(
             expect.objectContaining({

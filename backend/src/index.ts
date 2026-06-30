@@ -61,6 +61,7 @@ import { GetTokenBiddingBidBookUseCase } from "./application/use-cases/trading/g
 import { BiddingJobTargetLookupUseCase } from "./application/use-cases/trading/bidding-job-target-lookup.js";
 import { UpsertTokenBiddingJobUseCase } from "./application/use-cases/trading/upsert-token-bidding-job.js";
 import { UpsertTraitBiddingJobUseCase } from "./application/use-cases/trading/upsert-trait-bidding-job.js";
+import { LookupBatchTokenBiddingJobsUseCase } from "./application/use-cases/trading/lookup-batch-token-bidding-jobs.js";
 import { UpsertBatchTokenBiddingJobsUseCase } from "./application/use-cases/trading/upsert-batch-token-bidding-jobs.js";
 import { UpsertCollectionBiddingJobUseCase } from "./application/use-cases/trading/upsert-collection-bidding-job.js";
 import { UpsertCollectionBiddingPriceTierUseCase } from "./application/use-cases/trading/upsert-collection-bidding-price-tier.js";
@@ -509,6 +510,14 @@ export function createBackendApp(
             biddingPriceTiersRepository,
             tradingJobCommandSignalPublisher,
         );
+    const lookupBatchTokenBiddingJobsUseCase =
+        new LookupBatchTokenBiddingJobsUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+            biddingBidBookRepository,
+            biddingJobsRepository,
+        );
     const upsertCollectionBiddingJobUseCase =
         new UpsertCollectionBiddingJobUseCase(
             config.defaultChainId,
@@ -608,6 +617,7 @@ export function createBackendApp(
         biddingJobTargetLookupUseCase,
         upsertTokenBiddingJobUseCase,
         upsertTraitBiddingJobUseCase,
+        lookupBatchTokenBiddingJobsUseCase,
         upsertBatchTokenBiddingJobsUseCase,
         upsertCollectionBiddingJobUseCase,
         upsertCollectionBiddingPriceTierUseCase,

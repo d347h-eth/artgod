@@ -40,6 +40,7 @@ import type { GetTokenBiddingBidBookUseCase } from "./application/use-cases/trad
 import type { BiddingJobTargetLookupUseCase } from "./application/use-cases/trading/bidding-job-target-lookup.js";
 import type { UpsertTokenBiddingJobUseCase } from "./application/use-cases/trading/upsert-token-bidding-job.js";
 import type { UpsertTraitBiddingJobUseCase } from "./application/use-cases/trading/upsert-trait-bidding-job.js";
+import type { LookupBatchTokenBiddingJobsUseCase } from "./application/use-cases/trading/lookup-batch-token-bidding-jobs.js";
 import type { UpsertBatchTokenBiddingJobsUseCase } from "./application/use-cases/trading/upsert-batch-token-bidding-jobs.js";
 import type { UpsertCollectionBiddingJobUseCase } from "./application/use-cases/trading/upsert-collection-bidding-job.js";
 import type { UpsertCollectionBiddingPriceTierUseCase } from "./application/use-cases/trading/upsert-collection-bidding-price-tier.js";
@@ -83,6 +84,7 @@ import { GetTokenBiddingBidBookHttpAdapter } from "./http/handlers/trading/get-t
 import { LookupBiddingJobTargetHttpAdapter } from "./http/handlers/trading/lookup-bidding-job-target.js";
 import { UpsertTokenBiddingJobHttpAdapter } from "./http/handlers/trading/upsert-token-bidding-job.js";
 import { UpsertTraitBiddingJobHttpAdapter } from "./http/handlers/trading/upsert-trait-bidding-job.js";
+import { LookupBatchTokenBiddingJobsHttpAdapter } from "./http/handlers/trading/lookup-batch-token-bidding-jobs.js";
 import { UpsertBatchTokenBiddingJobsHttpAdapter } from "./http/handlers/trading/upsert-batch-token-bidding-jobs.js";
 import { UpsertCollectionBiddingJobHttpAdapter } from "./http/handlers/trading/upsert-collection-bidding-job.js";
 import { UpsertCollectionBiddingPriceTierHttpAdapter } from "./http/handlers/trading/upsert-collection-bidding-price-tier.js";
@@ -162,6 +164,7 @@ export function createApiApp(
     biddingJobTargetLookupUseCase: BiddingJobTargetLookupUseCase,
     upsertTokenBiddingJobUseCase: UpsertTokenBiddingJobUseCase,
     upsertTraitBiddingJobUseCase: UpsertTraitBiddingJobUseCase,
+    lookupBatchTokenBiddingJobsUseCase: LookupBatchTokenBiddingJobsUseCase,
     upsertBatchTokenBiddingJobsUseCase: UpsertBatchTokenBiddingJobsUseCase,
     upsertCollectionBiddingJobUseCase: UpsertCollectionBiddingJobUseCase,
     upsertCollectionBiddingPriceTierUseCase: UpsertCollectionBiddingPriceTierUseCase,
@@ -305,6 +308,10 @@ export function createApiApp(
     const upsertTraitBiddingJobAdapter = new UpsertTraitBiddingJobHttpAdapter(
         upsertTraitBiddingJobUseCase,
     );
+    const lookupBatchTokenBiddingJobsAdapter =
+        new LookupBatchTokenBiddingJobsHttpAdapter(
+            lookupBatchTokenBiddingJobsUseCase,
+        );
     const upsertBatchTokenBiddingJobsAdapter =
         new UpsertBatchTokenBiddingJobsHttpAdapter(
             upsertBatchTokenBiddingJobsUseCase,
@@ -386,6 +393,7 @@ export function createApiApp(
         lookupBiddingJobTargetAdapter,
         upsertTokenBiddingJobAdapter,
         upsertTraitBiddingJobAdapter,
+        lookupBatchTokenBiddingJobsAdapter,
         upsertBatchTokenBiddingJobsAdapter,
         upsertCollectionBiddingJobAdapter,
         upsertCollectionBiddingPriceTierAdapter,

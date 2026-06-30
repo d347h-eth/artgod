@@ -540,6 +540,9 @@ function tokenPage(
         nextCursor,
         limit: 2,
         totalItems: tokenIds.length,
+        marketplaceBiddingSupportedTotalItems: tokenIds.filter(
+            (tokenId) => supportByTokenId[tokenId] ?? true,
+        ).length,
         rangeStart: tokenIds.length > 0 ? 1 : 0,
         rangeEnd: tokenIds.length,
         currentPage: 1,

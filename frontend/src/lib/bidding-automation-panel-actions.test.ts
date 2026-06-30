@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	TRADING_BIDDING_BID_SCOPE_KIND,
 	TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
@@ -8,7 +10,10 @@ import {
 } from '@artgod/shared/types';
 import type { ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
 import {
+	BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
+	BIDDING_AUTOMATION_FILTER_TARGET_INTENT,
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
+	BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 	buildBiddingAutomationDraftFromBid,
 	buildBiddingAutomationDraftFromSelection
 } from '$lib/bidding-automation';
@@ -24,6 +29,7 @@ import {
 
 const backendApiMocks = vi.hoisted(() => ({
 	archiveBiddingJob: vi.fn(),
+	lookupBatchTokenBiddingJobs: vi.fn(),
 	lookupBiddingJobTarget: vi.fn(),
 	upsertBatchTokenBiddingJobs: vi.fn(),
 	upsertCollectionBiddingJob: vi.fn(),
@@ -346,6 +352,71 @@ describe('bidding automation panel actions', () => {
 			jobs: [firstJob, secondJob],
 			targetCount: 2
 		});
+	});
+
+	it('looks up filtered token-offer batch jobs for panel mass-action state', async () => {
+		const firstJob = testTokenJob({
+			jobId: 'job-token-101',
+			tokenId: '101',
+			floorEth: '0.1',
+			ceilingEth: '0.2',
+			deltaEth: '0.001',
+			pricingSource: null
+		});
+		const secondJob = testTokenJob({
+			jobId: 'job-token-102',
+			tokenId: '102',
+			floorEth: '0.3',
+			ceilingEth: '0.4',
+			deltaEth: '0.002',
+			pricingSource: null
+		});
+		backendApiMocks.lookupBatchTokenBiddingJobs.mockResolvedValueOnce({
+			jobs: [firstJob, secondJob],
+			targetCount: 2
+		});
+
+		const result = await lookupBiddingSelectionJobs({
+			fetchFn: testFetch,
+			chainRef: 'ethereum',
+			collectionRef: 'terraforms',
+			draft: buildBiddingAutomationDraftFromSelection({
+				type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+				targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
+				filter: {
+					source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
+					selectedTraits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
+					selectedTraitRanges: [],
+					traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+					makerAddress: '0xcccccccccccccccccccccccccccccccccccccccc',
+					tokenStatus: null
+				},
+				tokenCount: 2,
+				state: {
+					kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+				}
+			})
+		});
+
+		expect(result).toEqual({
+			jobs: [firstJob, secondJob],
+			targetCount: 2
+		});
+		expect(backendApiMocks.lookupBatchTokenBiddingJobs).toHaveBeenCalledWith(
+			testFetch,
+			'ethereum',
+			'terraforms',
+			{
+				selection: {
+					type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
+					traits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
+					traitRanges: [],
+					traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+					makerAddress: '0xcccccccccccccccccccccccccccccccccccccccc'
+				}
+			}
+		);
+		expect(backendApiMocks.lookupBiddingJobTarget).not.toHaveBeenCalled();
 	});
 
 	it('archives resolved selected jobs through the target-agnostic archive route', async () => {

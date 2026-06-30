@@ -12,11 +12,13 @@ import type {
 } from '$lib/api-types';
 import {
 	archiveBiddingJob,
+	lookupBatchTokenBiddingJobs,
 	lookupBiddingJobTarget,
 	upsertBatchTokenBiddingJobs,
 	upsertCollectionBiddingJob,
 	upsertTokenBiddingJob,
-	upsertTraitBiddingJob
+	upsertTraitBiddingJob,
+	type BatchTokenBiddingJobSelectionRequest
 } from '$lib/backend-api';
 import {
 	BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
@@ -131,33 +133,14 @@ export async function saveBiddingAutomationDraftJobs(
 		) {
 			throw new Error('filtered token selection is not available for submit');
 		}
-		if (draft.source.filter.source === BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers) {
-			const response = await upsertBatchTokenBiddingJobs(fetchFn, chainRef, collectionRef, {
-				status: nextStatus,
-				...pricing,
-				selection: {
-					type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
-					traits: draft.source.filter.selectedTraits,
-					traitRanges: draft.source.filter.selectedTraitRanges,
-					traitJoinMode: draft.source.filter.traitJoinMode,
-					makerAddress: draft.source.filter.makerAddress
-				}
-			});
-			return response.jobs;
-		}
-		const tokenStatus = draft.source.filter.tokenStatus;
-		if (!tokenStatus) {
-			throw new Error('filtered token selection is missing token status');
+		const selection = batchTokenSelectionRequestFromFilteredDraft(draft);
+		if (!selection) {
+			throw new Error('filtered token selection is not available for submit');
 		}
 		const response = await upsertBatchTokenBiddingJobs(fetchFn, chainRef, collectionRef, {
 			status: nextStatus,
 			...pricing,
-			selection: {
-				type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
-				tokenStatus,
-				traits: draft.source.filter.selectedTraits,
-				traitRanges: draft.source.filter.selectedTraitRanges
-			}
+			selection
 		});
 		return response.jobs;
 	}
@@ -283,6 +266,20 @@ export async function applyBiddingSelectionJobAction(
 export async function lookupBiddingSelectionJobs(
 	input: LookupBiddingSelectionJobsInput
 ): Promise<LookupBiddingSelectionJobsResult> {
+	const batchSelection = batchTokenSelectionRequestFromFilteredDraft(input.draft);
+	if (batchSelection) {
+		const response = await lookupBatchTokenBiddingJobs(
+			input.fetchFn,
+			input.chainRef,
+			input.collectionRef,
+			{ selection: batchSelection }
+		);
+		if (response.jobs.length === 0) {
+			throw new Error('no selected bidding jobs found');
+		}
+		return { jobs: response.jobs, targetCount: response.targetCount };
+	}
+
 	const lookupBodies = biddingSelectionJobLookupBodies(input.draft);
 	if (lookupBodies.length === 0) {
 		throw new Error('select exact bidding targets first');
@@ -325,6 +322,10 @@ export function resolveBiddingSelectionJobsLookupKey(input: {
 }): string {
 	if (!input.chain || !input.collection) {
 		return '';
+	}
+	const batchSelection = batchTokenSelectionRequestFromFilteredDraft(input.draft);
+	if (batchSelection) {
+		return `${input.chain.slug}:${input.collection.slug}:${JSON.stringify(batchSelection)}`;
 	}
 	const lookupBodies = biddingSelectionJobLookupBodies(input.draft);
 	return lookupBodies.length > 0
@@ -372,6 +373,38 @@ function selectedBidQuantity(draft: BiddingAutomationDraft): number | undefined 
 	}
 	const parsed = Number(draft.source.bid.quantity);
 	return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function batchTokenSelectionRequestFromFilteredDraft(
+	draft: BiddingAutomationDraft | null
+): BatchTokenBiddingJobSelectionRequest | null {
+	if (
+		!draft ||
+		draft.target.type !== BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch ||
+		draft.source.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens ||
+		!canSubmitFilteredTokenBatch(draft)
+	) {
+		return null;
+	}
+	if (draft.source.filter.source === BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers) {
+		return {
+			type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
+			traits: draft.source.filter.selectedTraits,
+			traitRanges: draft.source.filter.selectedTraitRanges,
+			traitJoinMode: draft.source.filter.traitJoinMode,
+			makerAddress: draft.source.filter.makerAddress
+		};
+	}
+	const tokenStatus = draft.source.filter.tokenStatus;
+	if (!tokenStatus) {
+		throw new Error('filtered token selection is missing token status');
+	}
+	return {
+		type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
+		tokenStatus,
+		traits: draft.source.filter.selectedTraits,
+		traitRanges: draft.source.filter.selectedTraitRanges
+	};
 }
 
 function biddingSelectionJobLookupBodies(

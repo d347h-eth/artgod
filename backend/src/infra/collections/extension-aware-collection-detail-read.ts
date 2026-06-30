@@ -100,6 +100,11 @@ type CollectionDetailReadPort = {
         mediaMode?: CollectionMediaMode;
         includeListings?: boolean;
     }): TokenCard[];
+    countMarketplaceBiddingSupportedTokensByIds(params: {
+        chainId: number;
+        collectionId: number;
+        tokenIds: string[];
+    }): number;
 };
 
 export class ExtensionAwareCollectionDetailRead {
@@ -353,6 +358,14 @@ export class ExtensionAwareCollectionDetailRead {
                 artifact: artifactsByTokenId.get(token.tokenId) ?? null,
             }),
         );
+    }
+
+    countMarketplaceBiddingSupportedTokensByIds(params: {
+        chainId: number;
+        collectionId: number;
+        tokenIds: string[];
+    }): number {
+        return this.baseReadPort.countMarketplaceBiddingSupportedTokensByIds(params);
     }
 
     private listTokenCardArtifactsByTokenIds(params: {

@@ -170,6 +170,7 @@ function tokenPage(): TokenCursorPage {
         prevCursor: null,
         limit: 50,
         totalItems: 1,
+        marketplaceBiddingSupportedTotalItems: 1,
         rangeStart: 1,
         rangeEnd: 1,
         currentPage: 1,

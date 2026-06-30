@@ -389,6 +389,7 @@ export type ApiTokensPage = {
 	nextCursor: string | null;
 	limit: number;
 	totalItems: number;
+	marketplaceBiddingSupportedTotalItems: number;
 	rangeStart: number;
 	rangeEnd: number;
 	currentPage: number;
@@ -673,6 +674,7 @@ export type ApiBiddingTokenOfferCardsPage = {
 	nextCursor: string | null;
 	limit: number;
 	totalItems: number;
+	marketplaceBiddingSupportedTotalItems: number;
 	totalOffers: number;
 	rangeStart: number;
 	rangeEnd: number;
@@ -793,6 +795,14 @@ export type BatchTokenBiddingJobMutationApiResponse = {
 	collection: ApiCollection;
 	tokenIds: string[];
 	jobs: ApiBiddingJob[];
+};
+
+export type BatchTokenBiddingJobLookupApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	tokenIds: string[];
+	jobs: ApiBiddingJob[];
+	targetCount: number;
 };
 
 export type TokenDetailApiResponse = {

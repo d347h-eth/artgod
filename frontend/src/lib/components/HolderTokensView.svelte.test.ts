@@ -52,6 +52,7 @@ describe('HolderTokensView', () => {
 					nextCursor: null,
 					limit: 25,
 					totalItems: 2,
+					marketplaceBiddingSupportedTotalItems: 2,
 					rangeStart: 1,
 					rangeEnd: 1,
 					currentPage: 1,

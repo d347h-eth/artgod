@@ -213,11 +213,14 @@
 			!!chain &&
 			!!collection
 	);
+	const showActivateSelectionJobs = $derived(hasSelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Activate));
+	const showPauseSelectionJobs = $derived(hasSelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Pause));
+	const showArchiveSelectionJobs = $derived(hasSelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Archive));
 	const canActivateSelectionJobs = $derived(canApplySelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Activate));
 	const canPauseSelectionJobs = $derived(canApplySelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Pause));
 	const canArchiveSelectionJobs = $derived(canApplySelectionJobAction(BIDDING_SELECTION_JOB_ACTION.Archive));
 	const showSelectionJobActions = $derived(
-		canActivateSelectionJobs || canPauseSelectionJobs || canArchiveSelectionJobs
+		showActivateSelectionJobs || showPauseSelectionJobs || showArchiveSelectionJobs
 	);
 
 	$effect(() => {
@@ -705,10 +708,15 @@
 			panelMutationBusy ||
 			selectionLookupBusy ||
 			!chain ||
-			!collection ||
-			!selectionLookupResult ||
-			selectionLookupResult.targetCount <= 1
+			!collection
 		) {
+			return false;
+		}
+		return hasSelectionJobAction(action);
+	}
+
+	function hasSelectionJobAction(action: BiddingSelectionJobAction): boolean {
+		if (!selectionLookupResult || selectionLookupResult.targetCount <= 1) {
 			return false;
 		}
 		return filterBiddingSelectionJobsForAction(selectionLookupResult.jobs, action).length > 0;
@@ -1042,7 +1050,7 @@
 				</div>
 				{#if showSelectionJobActions}
 					<div class="token-bidding-selection-actions" aria-label="selected bidding target actions">
-						{#if canActivateSelectionJobs}
+						{#if showActivateSelectionJobs}
 							<button
 								type="button"
 								class="token-bidding-action-positive"
@@ -1060,7 +1068,7 @@
 								{BIDDING_SELECTION_ACTION_LABEL.ActivateSelected}
 							</button>
 						{/if}
-						{#if canPauseSelectionJobs}
+						{#if showPauseSelectionJobs}
 							<button
 								type="button"
 								class="token-bidding-action-negative"
@@ -1078,7 +1086,7 @@
 								{BIDDING_SELECTION_ACTION_LABEL.PauseSelected}
 							</button>
 						{/if}
-						{#if canArchiveSelectionJobs}
+						{#if showArchiveSelectionJobs}
 							<button
 								type="button"
 								class="token-bidding-action-negative"

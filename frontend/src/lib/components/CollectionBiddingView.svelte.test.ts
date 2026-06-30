@@ -281,6 +281,7 @@ describe('CollectionBiddingView', () => {
 					nextCursor: 'next-page',
 					limit: 250,
 					totalItems: 500,
+					marketplaceBiddingSupportedTotalItems: 500,
 					totalOffers: 2,
 					rangeStart: 251,
 					rangeEnd: 251,

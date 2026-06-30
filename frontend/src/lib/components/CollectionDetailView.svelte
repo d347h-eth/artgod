@@ -301,7 +301,7 @@
 		}
 		biddingAutomation.selectFilteredTokens(
 			buildFilteredTokenBatchBiddingSelectionInput({
-				tokenCount: tokens.totalItems,
+				tokenCount: tokens.marketplaceBiddingSupportedTotalItems,
 				filter: currentBiddingFilterSnapshot()
 			})
 		);
@@ -425,7 +425,7 @@
 						showTierAction={biddingSelectionControlPolicy.showTierAction}
 						tierActionActive={priceTierPanelOpen}
 						tokenActionLabel={tokenActionLabel}
-						tokenActionDisabled={tokens.totalItems === 0}
+						tokenActionDisabled={tokens.marketplaceBiddingSupportedTotalItems === 0}
 						onToggleTiers={togglePriceTierPanel}
 						onBidOnTraits={bidOnFilteredTraits}
 						onBidOnTokens={() => bidOnFilteredTokens(visibleBiddableBrowserTokenIds)}

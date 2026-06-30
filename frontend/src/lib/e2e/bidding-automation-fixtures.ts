@@ -716,6 +716,9 @@ function buildTokensPage(params: {
 		nextCursor: page.nextCursor,
 		limit: page.limit,
 		totalItems: filtered.length,
+		marketplaceBiddingSupportedTotalItems: filtered.filter(
+			(token) => token.marketplaceBiddingSupported
+		).length,
 		rangeStart: page.rangeStart,
 		rangeEnd: page.rangeEnd,
 		currentPage: page.currentPage,
@@ -752,6 +755,9 @@ function buildTokenOfferCardsPage(params: {
 		nextCursor: page.nextCursor,
 		limit: page.limit,
 		totalItems: filtered.length,
+		marketplaceBiddingSupportedTotalItems: filtered.filter(
+			(card) => card.marketplaceBiddingSupported
+		).length,
 		totalOffers: filtered.reduce((sum, card) => sum + card.offers.length, 0),
 		rangeStart: page.rangeStart,
 		rangeEnd: page.rangeEnd,

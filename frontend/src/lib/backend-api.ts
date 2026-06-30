@@ -5,6 +5,7 @@ import type {
 	BootstrapRunCreateResponse,
 	BootstrapRunsApiResponse,
 	BootstrapStepActionApiResponse,
+	BatchTokenBiddingJobLookupApiResponse,
 	BatchTokenBiddingJobMutationApiResponse,
 	BiddingPriceTierReapplyApplyApiResponse,
 	BiddingPriceTierReapplyPreviewApiResponse,
@@ -56,6 +57,7 @@ import {
 	buildCreateBootstrapRunPath,
 	buildProbeBootstrapCollectionPath
 } from '@artgod/shared/http/bootstrap-routes';
+import { buildLookupBatchTokenBiddingJobsPath } from '@artgod/shared/http/trading-routes';
 import {
 	ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME,
 	QUERY_CACHE_DEBUG_AGE_HEADER_NAME,
@@ -437,6 +439,42 @@ export async function upsertTraitBiddingJob(
 	);
 }
 
+export type BatchTokenBiddingJobSelectionRequest =
+	| {
+			type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds;
+			tokenIds: string[];
+	  }
+	| {
+			type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter;
+			tokenStatus: TokenBrowserStatus;
+			traits: { key: string; value: string }[];
+			traitRanges: { key: string; fromValue: string | null; toValue: string | null }[];
+	  }
+	| {
+			type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter;
+			traits: { key: string; value: string }[];
+			traitRanges: { key: string; fromValue: string | null; toValue: string | null }[];
+			traitJoinMode: CollectionBiddingTraitFilterJoinMode;
+			makerAddress?: string | null;
+	  };
+
+export async function lookupBatchTokenBiddingJobs(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	body: {
+		selection: BatchTokenBiddingJobSelectionRequest;
+	}
+): Promise<BatchTokenBiddingJobLookupApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<BatchTokenBiddingJobLookupApiResponse>(
+		fetchFn,
+		buildLookupBatchTokenBiddingJobsPath({ chainRef, collectionRef }),
+		'POST',
+		body
+	);
+}
+
 export async function upsertBatchTokenBiddingJobs(
 	fetchFn: typeof fetch,
 	chainRef: string,
@@ -447,24 +485,7 @@ export async function upsertBatchTokenBiddingJobs(
 		ceilingEth?: string;
 		deltaEth: string;
 		priceTierId?: string | null;
-		selection:
-			| {
-					type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds;
-					tokenIds: string[];
-			  }
-			| {
-					type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter;
-					tokenStatus: TokenBrowserStatus;
-					traits: { key: string; value: string }[];
-					traitRanges: { key: string; fromValue: string | null; toValue: string | null }[];
-			  }
-			| {
-					type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter;
-					traits: { key: string; value: string }[];
-					traitRanges: { key: string; fromValue: string | null; toValue: string | null }[];
-					traitJoinMode: CollectionBiddingTraitFilterJoinMode;
-					makerAddress?: string | null;
-			  };
+		selection: BatchTokenBiddingJobSelectionRequest;
 	}
 ): Promise<BatchTokenBiddingJobMutationApiResponse> {
 	await ensureCsrfToken(fetchFn);

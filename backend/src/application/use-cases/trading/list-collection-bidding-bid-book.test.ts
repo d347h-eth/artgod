@@ -66,6 +66,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
                 getCollectionMediaState: () => media(),
                 listCollectionTraitFacets: () => [traitFacet("Mode")],
                 listCollectionTokenCardsByIds: () => [tokenCard("7")],
+                countMarketplaceBiddingSupportedTokensByIds: () => 1,
             },
             {
                 getTraitFilterPresentationState: () => ({
@@ -181,6 +182,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
                         tokenCard(tokenId),
                     );
                 },
+                countMarketplaceBiddingSupportedTokensByIds: () => 2,
             },
             {
                 getTraitFilterPresentationState: () => ({
@@ -210,6 +212,9 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
 
         expect(hydratedTokenIds).toEqual([["1", "2"]]);
         expect(output.tokenOfferCards.totalItems).toBe(3);
+        expect(output.tokenOfferCards.marketplaceBiddingSupportedTotalItems).toBe(
+            2,
+        );
         expect(output.tokenOfferCards.totalOffers).toBe(3);
         expect(output.tokenOfferCards.items.map((card) => card.tokenId)).toEqual(
             ["1", "2"],

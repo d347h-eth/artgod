@@ -91,6 +91,11 @@ export class ListCollectionBiddingBidBookUseCase {
                 mediaMode?: string;
                 includeListings?: boolean;
             }): TokenCard[];
+            countMarketplaceBiddingSupportedTokensByIds(params: {
+                chainId: number;
+                collectionId: number;
+                tokenIds: string[];
+            }): number;
         },
         readonly customizationReadPort: {
             getTraitFilterPresentationState(params: {
@@ -359,6 +364,14 @@ export class ListCollectionBiddingBidBookUseCase {
         }
 
         if (!hasTokenOfferCardTraitFilters(params)) {
+            const marketplaceBiddingSupportedTotalItems =
+                this.collectionReadPort.countMarketplaceBiddingSupportedTokensByIds(
+                    {
+                        chainId: params.chainId,
+                        collectionId: params.collectionId,
+                        tokenIds,
+                    },
+                );
             const tokenIdPage = this.apm.withSyncSpan(
                 "backend.bidding.collection_bid_book.token_offer_cards_page",
                 {
@@ -374,6 +387,7 @@ export class ListCollectionBiddingBidBookUseCase {
                     paginateTokenOfferTokenIds({
                         tokenIds,
                         offersByTokenId,
+                        marketplaceBiddingSupportedTotalItems,
                         limit: params.limit,
                         cursor: params.cursor,
                     }),
@@ -403,6 +417,10 @@ export class ListCollectionBiddingBidBookUseCase {
                 ...attributes,
                 [BIDDING_SPAN_ATTRIBUTE.TokenOfferCardsCount]:
                     tokenOfferCards.length,
+                [BIDDING_SPAN_ATTRIBUTE.TokenOfferCardsTotalItems]:
+                    tokenOfferCards.length,
+                [BIDDING_SPAN_ATTRIBUTE.TokenOfferCardsTotalOffers]:
+                    countTokenOffers(tokenIds, offersByTokenId),
             },
             () =>
                 paginateTokenOfferCards({
@@ -526,6 +544,7 @@ function emptyTokenOfferCardsPage(limit: number): PersistedTokenOfferCardsPage {
         rangeEnd: 0,
         currentPage: 0,
         totalPages: 0,
+        marketplaceBiddingSupportedTotalItems: 0,
     };
 }
 
@@ -540,6 +559,9 @@ function paginateTokenOfferCards(params: {
         (sum, card) => sum + card.persistedOffers.length,
         0,
     );
+    const marketplaceBiddingSupportedTotalItems = params.cards.filter(
+        (card) => card.token.marketplaceBiddingSupported,
+    ).length;
     const pageItems = params.cards.slice(offset, offset + params.limit);
     const rangeStart = pageItems.length === 0 ? 0 : offset + 1;
     const rangeEnd = offset + pageItems.length;
@@ -560,6 +582,7 @@ function paginateTokenOfferCards(params: {
                 : null,
         limit: params.limit,
         totalItems,
+        marketplaceBiddingSupportedTotalItems,
         totalOffers,
         rangeStart,
         rangeEnd,
@@ -571,6 +594,7 @@ function paginateTokenOfferCards(params: {
 function paginateTokenOfferTokenIds(params: {
     tokenIds: string[];
     offersByTokenId: Map<string, PersistedBiddingBidBookRow[]>;
+    marketplaceBiddingSupportedTotalItems: number;
     limit: number;
     cursor: string | null;
 }): TokenOfferTokenIdPage {
@@ -596,6 +620,8 @@ function paginateTokenOfferTokenIds(params: {
                 : null,
         limit: params.limit,
         totalItems,
+        marketplaceBiddingSupportedTotalItems:
+            params.marketplaceBiddingSupportedTotalItems,
         totalOffers: countTokenOffers(params.tokenIds, params.offersByTokenId),
         rangeStart,
         rangeEnd,
