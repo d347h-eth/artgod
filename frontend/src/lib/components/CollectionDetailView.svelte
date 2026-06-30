@@ -13,6 +13,7 @@
 		ApiBiddingPriceTier,
 		ApiCollection,
 		ApiCollectionMediaState,
+		ApiTokenCard,
 		ApiTokenAttribute,
 		ApiTraitRangeFilter,
 		BootstrapStatusApiResponse,
@@ -104,7 +105,11 @@
 	let activeBiddingSettings = $state<ApiBiddingCollectionSettings>(biddingSettings);
 	let activePriceTiers = $state<ApiBiddingPriceTier[]>(priceTiers);
 	let priceTierPanelOpen = $state(false);
-	let visibleBrowserTokenIds = $state<string[]>(tokens.items.map((token) => token.tokenId));
+	let visibleBiddableBrowserTokenIds = $state<string[]>(
+		tokens.items
+			.filter((token) => token.marketplaceBiddingSupported)
+			.map((token) => token.tokenId)
+	);
 	let lastBiddingFilterKey = $state('');
 	let biddingPanelExpandSignal = $state(0);
 	const currentBiddingSelection = $derived($biddingAutomationState.selection);
@@ -145,7 +150,9 @@
 	});
 
 	$effect(() => {
-		visibleBrowserTokenIds = tokens.items.map((token) => token.tokenId);
+		visibleBiddableBrowserTokenIds = tokens.items
+			.filter((token) => token.marketplaceBiddingSupported)
+			.map((token) => token.tokenId);
 	});
 
 	$effect(() => {
@@ -305,8 +312,10 @@
 		biddingAutomation.toggleToken(request);
 	}
 
-	function biddingTokenSelectionState(tokenId: string, stateKey: string) {
-		return biddingAutomationTokenSelectionState(currentBiddingSelection, tokenId, stateKey);
+	function biddingTokenSelectionState(token: ApiTokenCard, stateKey: string) {
+		return biddingAutomationTokenSelectionState(currentBiddingSelection, token.tokenId, stateKey, {
+			marketplaceBiddingSupported: token.marketplaceBiddingSupported
+		});
 	}
 
 	function isAllFilteredTokenSelectionActive(): boolean {
@@ -337,8 +346,8 @@
 		biddingAutomation.clearSelection();
 	}
 
-	function handleVisibleTokenIdsChange(tokenIds: string[]): void {
-		visibleBrowserTokenIds = tokenIds;
+	function handleVisibleBiddableTokenIdsChange(tokenIds: string[]): void {
+		visibleBiddableBrowserTokenIds = tokenIds;
 	}
 
 	function togglePriceTierPanel(): void {
@@ -419,7 +428,7 @@
 						tokenActionDisabled={tokens.totalItems === 0}
 						onToggleTiers={togglePriceTierPanel}
 						onBidOnTraits={bidOnFilteredTraits}
-						onBidOnTokens={() => bidOnFilteredTokens(visibleBrowserTokenIds)}
+						onBidOnTokens={() => bidOnFilteredTokens(visibleBiddableBrowserTokenIds)}
 						onClear={clearBiddingSelection}
 					/>
 				</div>
@@ -477,7 +486,7 @@
 					onToggle: toggleVisibleTokenSelection
 				}
 			: null}
-		onVisibleTokenIdsChange={handleVisibleTokenIdsChange}
+		onVisibleBiddableTokenIdsChange={handleVisibleBiddableTokenIdsChange}
 		onToggleTiers={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ? togglePriceTierPanel : null}
 	/>
 	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && collection}

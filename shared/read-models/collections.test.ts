@@ -14,6 +14,10 @@ import {
     TOKEN_ATTRIBUTE_SOURCE_KIND,
     type TokenAttributeSourceKind,
 } from "../types/token-attributes.js";
+import {
+    TOKEN_RECORD_KIND,
+    type TokenRecordKind,
+} from "../types/token-records.js";
 import { SqliteCollectionsReadModel } from "./collections.js";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -349,6 +353,41 @@ describe("SqliteCollectionsReadModel observability", () => {
                 ],
             }),
         ).toEqual([TEST_METADATA_TRAIT]);
+    });
+
+    it("marks extension-synthetic token rows as not marketplace-bidding supported", () => {
+        insertBareToken("1");
+        insertBareToken("unminted-tile-921", TOKEN_RECORD_KIND.ExtensionSynthetic);
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
+
+        const page = readModel.listCollectionTokens({
+            chainId: 1,
+            collectionId: 1,
+            tokenStatus: TOKEN_BROWSER_STATUS.All,
+            limit: 10,
+        });
+        const syntheticDetail = readModel.getCollectionTokenDetail({
+            chainId: 1,
+            collectionId: 1,
+            tokenId: "unminted-tile-921",
+        });
+
+        expect(
+            page.items.map((token) => ({
+                tokenId: token.tokenId,
+                marketplaceBiddingSupported: token.marketplaceBiddingSupported,
+            })),
+        ).toEqual([
+            {
+                tokenId: "1",
+                marketplaceBiddingSupported: true,
+            },
+            {
+                tokenId: "unminted-tile-921",
+                marketplaceBiddingSupported: false,
+            },
+        ]);
+        expect(syntheticDetail.marketplaceBiddingSupported).toBe(false);
     });
 
     it("short-circuits listed-token trait filters when no tokens match", () => {
@@ -867,6 +906,7 @@ function createSchema(): void {
             chain_id INTEGER NOT NULL,
             collection_id INTEGER NOT NULL,
             token_id TEXT NOT NULL,
+            record_kind TEXT NOT NULL DEFAULT '${TOKEN_RECORD_KIND.Canonical}',
             token_sort_bucket INTEGER GENERATED ALWAYS AS (
                 CASE WHEN token_id <> '' AND token_id NOT GLOB '*[^0-9]*' THEN 0 ELSE 1 END
             ) VIRTUAL,
@@ -993,10 +1033,13 @@ function insertToken(tokenId: string, price: string): void {
     );
 }
 
-function insertBareToken(tokenId: string): void {
+function insertBareToken(
+    tokenId: string,
+    recordKind: TokenRecordKind = TOKEN_RECORD_KIND.Canonical,
+): void {
     db.prepare(
-        "INSERT INTO tokens (chain_id, collection_id, token_id) VALUES (?, ?, ?)",
-    ).run(1, 1, tokenId);
+        "INSERT INTO tokens (chain_id, collection_id, token_id, record_kind) VALUES (?, ?, ?, ?)",
+    ).run(1, 1, tokenId, recordKind);
 }
 
 function insertBalance(tokenId: string, owner: string, amount = "1"): void {

@@ -295,6 +295,7 @@ function createOutput(): GetCollectionDetailOutput {
             items: [
                 {
                     tokenId: "1",
+                    marketplaceBiddingSupported: true,
                     name: "Milady #1",
                     image: "https://example.com/1.png",
                     traitSummary: null,
@@ -306,6 +307,7 @@ function createOutput(): GetCollectionDetailOutput {
                 },
                 {
                     tokenId: "2",
+                    marketplaceBiddingSupported: true,
                     name: "Milady #2",
                     image: "https://example.com/2.png",
                     traitSummary: null,

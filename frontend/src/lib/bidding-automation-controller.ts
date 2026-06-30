@@ -29,6 +29,10 @@ export type ToggleBiddingTokenInput = TokenCardSelectionToggleRequest & {
 	visibleTokenIds: string[];
 };
 
+export type BiddingAutomationTokenSelectionOptions = {
+	marketplaceBiddingSupported?: boolean;
+};
+
 export type BiddingAutomationController = {
 	state: Readable<BiddingAutomationControllerState>;
 	selectFilteredTokens(input: SelectFilteredTokensInput): void;
@@ -224,10 +228,14 @@ export function biddingAutomationSelectionStateKey(
 export function biddingAutomationTokenSelectionState(
 	selection: BiddingAutomationSelection | null,
 	tokenId: string,
-	_stateKey: string = biddingAutomationSelectionStateKey(selection)
+	_stateKey: string = biddingAutomationSelectionStateKey(selection),
+	options: BiddingAutomationTokenSelectionOptions = {}
 ): TokenCardSelectionState {
+	const biddingSupported = options.marketplaceBiddingSupported !== false;
 	return {
-		selected: isBiddingAutomationTokenSelected(selection, tokenId)
+		selected: biddingSupported && isBiddingAutomationTokenSelected(selection, tokenId),
+		disabled: !biddingSupported,
+		title: biddingSupported ? null : 'token is not available for marketplace bidding'
 	};
 }
 

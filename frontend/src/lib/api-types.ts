@@ -159,6 +159,7 @@ export type ApiActivityFeedItem = {
 
 export type ApiTokenPresentationSummary = {
 	tokenId: string;
+	marketplaceBiddingSupported: boolean;
 	name: string | null;
 	image: string | null;
 	traitSummary: string | null;
@@ -347,6 +348,7 @@ export type ApiBiddingJobPricingSource = TradingBiddingJobPricingSource;
 
 export type ApiTokenCard = {
 	tokenId: string;
+	marketplaceBiddingSupported: boolean;
 	name: string | null;
 	image: string | null;
 	traitSummary: string | null;
@@ -367,6 +369,7 @@ export type ApiTokenDetailTrait = {
 
 export type ApiTokenDetail = {
 	tokenId: string;
+	marketplaceBiddingSupported: boolean;
 	name: string | null;
 	image: string | null;
 	animationUrl: string | null;

@@ -35,6 +35,7 @@ import type {
     TraitFilter,
     TraitRangeFilter,
 } from "../types/browse.js";
+import { TOKEN_RECORD_KIND, type TokenRecordKind } from "../types/token-records.js";
 import {
     normalizeTraitKeyList,
     TRAIT_FILTER_DISPLAY_KIND,
@@ -99,6 +100,7 @@ type CollectionRow = {
 
 type TokenRow = {
     token_id: string;
+    record_kind: TokenRecordKind;
     name: string | null;
     image: string | null;
     listing_price: string | null;
@@ -116,6 +118,7 @@ type HydratedTokenRow = TokenRow & {
 
 type TokenDetailRow = {
     token_id: string;
+    record_kind: TokenRecordKind;
     name: string | null;
     image: string | null;
     animation_url: string | null;
@@ -662,7 +665,7 @@ export class SqliteCollectionsReadModel {
         }
 
         const sql =
-            `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, NULL AS listing_price, NULL AS listing_currency, m.updated_at AS metadata_updated_at ` +
+            `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, NULL AS listing_price, NULL AS listing_currency, m.updated_at AS metadata_updated_at ` +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
             "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
@@ -867,7 +870,7 @@ export class SqliteCollectionsReadModel {
         const totalCountSelect =
             cursorKey === null ? ", COUNT(*) OVER () AS total_count " : " ";
         const sql =
-            `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at` +
+            `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at` +
             totalCountSelect +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
@@ -1082,7 +1085,7 @@ export class SqliteCollectionsReadModel {
         }
 
         const sql =
-            `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at ` +
+            `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at ` +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
             `LEFT JOIN (${listingSql}) l ` +
@@ -1721,6 +1724,8 @@ export class SqliteCollectionsReadModel {
 
         return {
             tokenId: row.token_id,
+            marketplaceBiddingSupported:
+                row.record_kind === TOKEN_RECORD_KIND.Canonical,
             name: row.name ?? null,
             image: this.resolveImagePresentation(row.image),
             animationUrl: this.resolveMediaPresentation(row.animation_url),
@@ -1778,7 +1783,7 @@ export class SqliteCollectionsReadModel {
 
         return db.raw
             .prepare(
-                `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at ` +
+                `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at ` +
                     "FROM tokens t " +
                     "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
                     "AND m.collection_id = t.collection_id " +
@@ -1825,7 +1830,7 @@ export class SqliteCollectionsReadModel {
         const placeholders = tokenIds.map(() => "?").join(", ");
         const rows = db.raw
             .prepare(
-                `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, ` +
+                `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, ` +
                     (includeListings
                         ? "l.price AS listing_price, l.currency AS listing_currency, "
                         : "NULL AS listing_price, NULL AS listing_currency, ") +
@@ -2950,6 +2955,8 @@ function mapTokenRow(
 ): TokenCard {
     return {
         tokenId: row.token_id,
+        marketplaceBiddingSupported:
+            row.record_kind === TOKEN_RECORD_KIND.Canonical,
         name: row.name ?? null,
         image: resolveTokenImagePresentation(row.image, tokenResourceOptions),
         traitSummary: null,

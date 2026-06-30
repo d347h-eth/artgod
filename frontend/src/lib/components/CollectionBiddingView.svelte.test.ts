@@ -210,6 +210,7 @@ describe('CollectionBiddingView', () => {
 					items: [
 						{
 							tokenId: '1',
+							marketplaceBiddingSupported: true,
 							name: 'Milady #1',
 							image: 'https://example.com/milady-1.png',
 							traitSummary: 'Hat=Beanie',

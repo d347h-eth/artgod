@@ -36,6 +36,7 @@ Token targets:
 - `bid on this page` narrows token-job creation to the currently loaded token cards.
 - `Ctrl` + left click or middle click on non-link token-card areas toggles individual selected-token targets.
 - Token-card links preserve browser-native `Ctrl` / middle-click new-tab behavior.
+- Token job targets are limited to canonical marketplace-addressable token rows; extension-synthetic token cards remain browseable but are disabled for bidding selection and rejected by backend job mutation.
 
 Trait targets:
 

@@ -257,6 +257,7 @@ function media(): CollectionMediaState {
 function tokenCard(tokenId: string): TokenCard {
     return {
         tokenId,
+        marketplaceBiddingSupported: true,
         name: `Token ${tokenId}`,
         image: null,
         listingPrice: null,

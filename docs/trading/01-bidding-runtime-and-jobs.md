@@ -31,6 +31,7 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 - Snapshot refresh entrypoints are serialized/deduped by the snapshot service.
 - Job execution remains per-job serialized.
 - Token trait matching reads normalized `token_attributes` joins; bidding hot-refresh does not parse `token_metadata.attributes_json` or `token_metadata.raw_json`.
+- Marketplace token bidding targets must be canonical `tokens` rows. Extension-synthetic tokens can be shown in browsing surfaces, but frontend bidding selection and backend job mutation exclude them before bot commands exist.
 - Human-readable config, API, UI, and logs use Ether units; low-level EVM calls and persisted amount columns may use wei strings.
 - Wallet secrets never enter env, CLI args, SQLite, frontend state, or logs.
 
@@ -218,6 +219,7 @@ Target controls:
 
 - `bid on traits`: uses the current trait filter or selected trait bucket as the declared trait target
 - `bid on all tokens`: creates token jobs for every matching token across the full filtered result set
+- token-scoped bidding keeps only canonical marketplace-addressable tokens; unsupported synthetic token cards are not selectable as bidding targets
 - `bid on this page`: narrows token jobs to currently loaded token cards
 - `place collection bid`: creates or edits the collection-wide target
 - `tiers`: opens collection price-tier management

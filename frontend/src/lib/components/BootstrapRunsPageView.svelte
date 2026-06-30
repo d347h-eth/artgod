@@ -250,6 +250,7 @@
 		if (!firstToken?.tokenId) return null;
 		return {
 			tokenId: firstToken.tokenId,
+			marketplaceBiddingSupported: true,
 			name: firstToken.name,
 			image: firstToken.image,
 			traitSummary: null,

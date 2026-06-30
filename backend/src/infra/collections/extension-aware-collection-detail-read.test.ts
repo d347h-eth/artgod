@@ -307,6 +307,7 @@ function createExtensionRecords() {
 function tokenCard(tokenId: string, image: string): TokenCard {
     return {
         tokenId,
+        marketplaceBiddingSupported: true,
         name: null,
         image,
         traitSummary: null,

@@ -82,6 +82,7 @@ describe('token detail page', () => {
 					},
 					token: {
 						tokenId: '1',
+						marketplaceBiddingSupported: true,
 						name: '',
 						image: 'https://example.com/1.png',
 						animationUrl: 'https://example.com/1.html',
@@ -327,6 +328,7 @@ describe('token detail page', () => {
 					},
 					token: {
 						tokenId: '1',
+						marketplaceBiddingSupported: true,
 						name: 'Milady #1',
 						image: 'https://example.com/1.png',
 						animationUrl: null,
@@ -444,6 +446,7 @@ describe('token detail page', () => {
 					},
 					token: {
 						tokenId: '7710',
+						marketplaceBiddingSupported: true,
 						name: 'Terraform #7710',
 						image: 'https://example.com/lost.png',
 						animationUrl: 'https://example.com/lost.html',
@@ -527,6 +530,7 @@ describe('token detail page', () => {
 					},
 					token: {
 						tokenId: '1',
+						marketplaceBiddingSupported: true,
 						name: 'Terraform #1',
 						image: 'https://example.com/1.png',
 						animationUrl: null,
@@ -595,6 +599,7 @@ describe('token detail page', () => {
 					},
 					token: {
 						tokenId: '1',
+						marketplaceBiddingSupported: true,
 						name: 'Milady #1',
 						image: 'https://example.com/1.png',
 						animationUrl: null,

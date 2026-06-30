@@ -235,7 +235,11 @@
 			tailNextCursor: tokenOffersTailNextCursor
 		})
 	);
-	const visibleTokenOfferCardIds = $derived(visibleTokenOfferCards.map((token) => token.tokenId));
+	const visibleBiddableTokenOfferCardIds = $derived(
+		visibleTokenOfferCards
+			.filter((token) => token.marketplaceBiddingSupported)
+			.map((token) => token.tokenId)
+	);
 	const currentBiddingSelection = $derived($biddingAutomationState.selection);
 	const selectionBiddingDraft = $derived(
 		currentBiddingSelection ? buildBiddingAutomationDraftFromSelection(currentBiddingSelection) : null
@@ -359,7 +363,7 @@
 		if (bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
 			return;
 		}
-		biddingAutomation.pruneInvisibleTokenSelection(visibleTokenOfferCardIds);
+		biddingAutomation.pruneInvisibleTokenSelection(visibleBiddableTokenOfferCardIds);
 	});
 
 	$effect(() => {
@@ -807,7 +811,7 @@
 	function bidOnFilteredTokenOffers(): void {
 		if (isAllFilteredTokenSelectionActive()) {
 			if (canRefineTokenSelectionToVisiblePage) {
-				biddingAutomation.selectExplicitTokens(visibleTokenOfferCardIds);
+				biddingAutomation.selectExplicitTokens(visibleBiddableTokenOfferCardIds);
 			}
 			expandBiddingAutomationPanel();
 			return;
@@ -824,12 +828,14 @@
 	function toggleVisibleTokenSelection(request: Omit<ToggleBiddingTokenInput, 'visibleTokenIds'>): void {
 		biddingAutomation.toggleToken({
 			...request,
-			visibleTokenIds: visibleTokenOfferCardIds
+			visibleTokenIds: visibleBiddableTokenOfferCardIds
 		});
 	}
 
-	function biddingTokenSelectionState(tokenId: string, stateKey: string) {
-		return biddingAutomationTokenSelectionState(currentBiddingSelection, tokenId, stateKey);
+	function biddingTokenSelectionState(token: ApiBiddingTokenOfferCard, stateKey: string) {
+		return biddingAutomationTokenSelectionState(currentBiddingSelection, token.tokenId, stateKey, {
+			marketplaceBiddingSupported: token.marketplaceBiddingSupported
+		});
 	}
 
 	function isAllFilteredTokenSelectionActive(): boolean {
@@ -1222,7 +1228,7 @@
 													metaLabel={tokenOfferMetaLabel(token)}
 													ownStatusBadges={tokenOfferOwnStatusBadges(token)}
 													selection={{
-														state: biddingTokenSelectionState(token.tokenId, biddingSelectionStateKey),
+														state: biddingTokenSelectionState(token, biddingSelectionStateKey),
 														onToggle: toggleVisibleTokenSelection
 													}}
 												/>

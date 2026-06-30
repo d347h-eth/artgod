@@ -37,6 +37,7 @@ describe('HolderTokensView', () => {
 					items: [
 						{
 							tokenId: '1',
+							marketplaceBiddingSupported: true,
 							name: 'Milady #1',
 							image: 'https://example.com/1.png',
 							traitSummary: 'L7/BForest/Alpha',

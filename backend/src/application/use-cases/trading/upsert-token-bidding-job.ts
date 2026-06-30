@@ -12,6 +12,7 @@ import {
     mapPersistedTokenBiddingJobToView,
     type TokenBiddingJobMutationStatus,
 } from "./types.js";
+import { assertTokenMarketplaceBiddingSupported } from "./token-marketplace-bidding.js";
 import type { TradingJobCommandSignalPort } from "./trading-job-command-signal-port.js";
 export type { UpsertTokenBiddingJobOutput } from "./types.js";
 
@@ -44,7 +45,7 @@ export class UpsertTokenBiddingJobUseCase {
                 chainId: number;
                 collectionId: number;
                 tokenId: string;
-            }): { tokenId: string };
+            }): { tokenId: string; marketplaceBiddingSupported: boolean };
         },
         readonly biddingJobsRepositoryPort: Pick<
             BiddingJobsRepositoryPort,
@@ -73,6 +74,7 @@ export class UpsertTokenBiddingJobUseCase {
             collectionId: collection.collectionId,
             tokenId: input.tokenRef,
         });
+        assertTokenMarketplaceBiddingSupported(token);
 
         // Resolve manual or tier-backed pricing into bot-facing scalar wei values.
         const pricing = resolveBiddingJobPricing({

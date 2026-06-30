@@ -155,6 +155,7 @@ function tokenPage(): TokenCursorPage {
         items: [
             {
                 tokenId: "1",
+                marketplaceBiddingSupported: true,
                 name: "Token 1",
                 image: null,
                 listingPrice: null,

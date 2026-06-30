@@ -208,6 +208,7 @@ function tokenCard(
 ): TokenCard {
     return {
         tokenId,
+        marketplaceBiddingSupported: true,
         name: `Token ${tokenId}`,
         image: null,
         traitSummary: null,

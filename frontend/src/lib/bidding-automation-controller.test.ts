@@ -138,6 +138,35 @@ describe('createBiddingAutomationController', () => {
 		expect(biddingAutomationTokenSelectionState(null, '123').selected).toBe(false);
 	});
 
+	it('marks unsupported token cards unavailable even for clean filtered selections', () => {
+		const selection: BiddingAutomationSelection = {
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
+			tokenCount: 16,
+			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+				selectedTraits: [{ key: 'Level', value: '1', marketplaceBiddingSupported: true }],
+				selectedTraitRanges: [],
+				traitJoinMode: 'and',
+				tokenStatus: 'all',
+				makerAddress: null
+			},
+			state: {
+				kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+			}
+		};
+
+		expect(
+			biddingAutomationTokenSelectionState(selection, 'unminted-tile-921', undefined, {
+				marketplaceBiddingSupported: false
+			})
+		).toEqual({
+			selected: false,
+			disabled: true,
+			title: 'token is not available for marketplace bidding'
+		});
+	});
+
 	it('adds explicit token selections instead of replacing the active selection', () => {
 		const controller = createBiddingAutomationController();
 

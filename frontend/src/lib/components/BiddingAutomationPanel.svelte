@@ -142,10 +142,15 @@
 	let draftInputTouched = $state(false);
 
 	const hasExistingJob = $derived(currentJob !== null);
-	const selectedDraftUnsupported = $derived(!isBiddingAutomationDraftSubmittable(draft));
+	const targetTokenId = $derived(biddingAutomationDraftTokenId(draft) ?? token?.tokenId ?? null);
+	const selectedTokenUnsupported = $derived(
+		!draft && token?.marketplaceBiddingSupported === false
+	);
+	const selectedDraftUnsupported = $derived(
+		selectedTokenUnsupported || !isBiddingAutomationDraftSubmittable(draft)
+	);
 	const selectedDraftUnsupportedMessage = $derived(resolveSelectedDraftUnsupportedMessage());
 	const bidStateBadges = $derived(ownBiddingJobStateBadges(currentJob, bidBook));
-	const targetTokenId = $derived(biddingAutomationDraftTokenId(draft) ?? token?.tokenId ?? null);
 	const selectedPriceTier = $derived(resolveSelectedPriceTier());
 	const displayedFloorEth = $derived(
 		pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier
@@ -573,6 +578,9 @@
 	}
 
 	function resolveSelectedDraftUnsupportedMessage(): string {
+		if (selectedTokenUnsupported) {
+			return 'selected token target is not available for marketplace bidding';
+		}
 		if (draft?.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.UnsupportedTraitJob) {
 			return 'selected trait target is not available for marketplace bidding';
 		}

@@ -63,6 +63,7 @@ describe('BiddingAutomationPanel', () => {
 				},
 				token: {
 					tokenId: '1',
+					marketplaceBiddingSupported: true,
 					name: 'Milady #1',
 					image: 'https://example.com/1.png',
 					animationUrl: null,
@@ -506,6 +507,30 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).not.toContain(`data-testid="${TEST_IDS.BiddingPanelCreate}"`);
 	});
 
+	it('renders unsupported exact token targets without form controls or actions', () => {
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: testChain(),
+				collection: testCollection(),
+				token: {
+					...testToken(),
+					tokenId: 'unminted-tile-921',
+					marketplaceBiddingSupported: false
+				},
+				job: null,
+				draft: null,
+				onClose: () => {}
+			}
+		});
+
+		expect(body).toContain(
+			'selected token target is not available for marketplace bidding'
+		);
+		expect(body).not.toContain('id="bidding-automation-pricing-select"');
+		expect(body).not.toContain(`data-testid="${TEST_IDS.BiddingPanelCreate}"`);
+	});
+
 	it('prefers an existing trait job config over selected-bid draft pricing', () => {
 		const existingTraitJob: ApiBiddingJob = {
 			jobId: 'job-trait-1',
@@ -750,6 +775,7 @@ describe('BiddingAutomationPanel', () => {
 				},
 				token: {
 					tokenId: '1',
+					marketplaceBiddingSupported: true,
 					name: 'Milady #1',
 					image: 'https://example.com/1.png',
 					animationUrl: null,
@@ -855,6 +881,7 @@ function testCollection() {
 function testToken() {
 	return {
 		tokenId: '1',
+		marketplaceBiddingSupported: true,
 		name: 'Milady #1',
 		image: 'https://example.com/1.png',
 		animationUrl: null,

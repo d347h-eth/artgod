@@ -861,6 +861,7 @@ function tokenCard(
 ): ApiTokenCard {
 	return {
 		tokenId,
+		marketplaceBiddingSupported: true,
 		name: `E2E Token #${tokenId}`,
 		image: null,
 		traitSummary,
@@ -880,6 +881,7 @@ function tokenDetail(tokenId: string): ApiTokenDetail {
 	const token = tokenCardById(tokenId);
 	return {
 		tokenId: token.tokenId,
+		marketplaceBiddingSupported: token.marketplaceBiddingSupported,
 		name: token.name,
 		image: token.image,
 		animationUrl: null,

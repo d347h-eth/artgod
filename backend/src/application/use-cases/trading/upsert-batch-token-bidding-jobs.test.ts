@@ -119,6 +119,65 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
         assert.deepEqual(publishedCommands, commands);
     });
 
+    it("filters synthetic tokens out of filtered token-browser selections", () => {
+        const persistedInputs: { tokenId: string }[] = [];
+        const useCase = new UpsertBatchTokenBiddingJobsUseCase(
+            1,
+            {
+                resolveChainRef: () => CHAIN,
+            },
+            {
+                resolveCollectionRef: () => COLLECTION,
+                listCollectionTokens: ({ cursor }) =>
+                    cursor === "page-2"
+                        ? tokenPage(["3"], null)
+                        : tokenPage(["1", "unminted-tile-921"], "page-2", {
+                              "unminted-tile-921": false,
+                          }),
+                listCollectionTokenCardsByIds: () => [],
+            },
+            emptyBidBookRepository(),
+            {
+                upsertTokenJobs: (inputs) => {
+                    persistedInputs.push(...inputs);
+                    return {
+                        jobs: inputs.map((input) =>
+                            buildPersistedTokenJob({ tokenId: input.tokenId }),
+                        ),
+                        commands: [],
+                    };
+                },
+            },
+            {
+                listCollectionPriceTiers: () => [],
+            },
+            {
+                publishBiddingJobCommandsChanged: () => undefined,
+            },
+        );
+
+        const result = useCase.upsertBatchTokenBiddingJobs({
+            chainRef: "ethereum",
+            collectionRef: "terraforms",
+            status: TRADING_JOB_STATUS.Enabled,
+            floorEth: "0.1",
+            ceilingEth: "0.2",
+            deltaEth: "0.001",
+            selection: {
+                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
+                tokenStatus: "all",
+                traits: [{ key: "Level", value: "1" }],
+                traitRanges: [],
+            },
+        });
+
+        assert.deepEqual(result.tokenIds, ["1", "3"]);
+        assert.deepEqual(
+            persistedInputs.map((input) => input.tokenId),
+            ["1", "3"],
+        );
+    });
+
     it("rejects explicit token IDs that do not belong to the collection", () => {
         const useCase = new UpsertBatchTokenBiddingJobsUseCase(
             1,
@@ -164,6 +223,107 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
         );
     });
 
+    it("filters synthetic tokens out of explicit token selections", () => {
+        const persistedInputs: { tokenId: string }[] = [];
+        const useCase = new UpsertBatchTokenBiddingJobsUseCase(
+            1,
+            {
+                resolveChainRef: () => CHAIN,
+            },
+            {
+                resolveCollectionRef: () => COLLECTION,
+                listCollectionTokens: () => tokenPage([], null),
+                listCollectionTokenCardsByIds: ({ tokenIds }) =>
+                    tokenIds.map((tokenId) =>
+                        tokenCard(tokenId, [], tokenId !== "unminted-tile-921"),
+                    ),
+            },
+            emptyBidBookRepository(),
+            {
+                upsertTokenJobs: (inputs) => {
+                    persistedInputs.push(...inputs);
+                    return {
+                        jobs: inputs.map((input) =>
+                            buildPersistedTokenJob({ tokenId: input.tokenId }),
+                        ),
+                        commands: [],
+                    };
+                },
+            },
+            {
+                listCollectionPriceTiers: () => [],
+            },
+            {
+                publishBiddingJobCommandsChanged: () => undefined,
+            },
+        );
+
+        const result = useCase.upsertBatchTokenBiddingJobs({
+            chainRef: "ethereum",
+            collectionRef: "terraforms",
+            status: TRADING_JOB_STATUS.Enabled,
+            floorEth: "0.1",
+            ceilingEth: "0.2",
+            deltaEth: "0.001",
+            selection: {
+                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds,
+                tokenIds: ["1", "unminted-tile-921"],
+            },
+        });
+
+        assert.deepEqual(result.tokenIds, ["1"]);
+        assert.deepEqual(
+            persistedInputs.map((input) => input.tokenId),
+            ["1"],
+        );
+    });
+
+    it("rejects explicit token selections when no canonical token remains", () => {
+        const useCase = new UpsertBatchTokenBiddingJobsUseCase(
+            1,
+            {
+                resolveChainRef: () => CHAIN,
+            },
+            {
+                resolveCollectionRef: () => COLLECTION,
+                listCollectionTokens: () => tokenPage([], null),
+                listCollectionTokenCardsByIds: ({ tokenIds }) =>
+                    tokenIds.map((tokenId) => tokenCard(tokenId, [], false)),
+            },
+            emptyBidBookRepository(),
+            {
+                upsertTokenJobs: () => {
+                    throw new Error("Unexpected token job mutation");
+                },
+            },
+            {
+                listCollectionPriceTiers: () => [],
+            },
+            {
+                publishBiddingJobCommandsChanged: () => {
+                    throw new Error("Unexpected command publish");
+                },
+            },
+        );
+
+        assert.throws(
+            () =>
+                useCase.upsertBatchTokenBiddingJobs({
+                    chainRef: "ethereum",
+                    collectionRef: "terraforms",
+                    status: TRADING_JOB_STATUS.Enabled,
+                    floorEth: "0.1",
+                    ceilingEth: "0.2",
+                    deltaEth: "0.001",
+                    selection: {
+                        type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds,
+                        tokenIds: ["unminted-tile-921"],
+                    },
+                }),
+            /token selection is empty/,
+        );
+    });
+
     it("resolves a token-offer selection across all offer pages and keeps token trait filters server-side", () => {
         const commands = buildCommands(["7", "8"]);
         const persistedInputs: { tokenId: string }[] = [];
@@ -182,6 +342,7 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
                             tokenId === "8"
                                 ? [{ key: "Chroma", value: "Plague" }]
                                 : [{ key: "Mode", value: "Terrain" }],
+                            tokenId !== "unminted-tile-921",
                         ),
                     ),
             },
@@ -197,6 +358,12 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
                               }),
                           ])
                         : bidBook([
+                              bidBookRow({
+                                  orderId: "synthetic-token",
+                                  scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                                  tokenId: "unminted-tile-921",
+                                  wei: "600000000000000000",
+                              }),
                               bidBookRow({
                                   orderId: "token-7",
                                   scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
@@ -360,9 +527,15 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
     });
 });
 
-function tokenPage(tokenIds: string[], nextCursor: string | null): TokenCursorPage {
+function tokenPage(
+    tokenIds: string[],
+    nextCursor: string | null,
+    supportByTokenId: Record<string, boolean> = {},
+): TokenCursorPage {
     return {
-        items: tokenIds.map((tokenId) => tokenCard(tokenId)),
+        items: tokenIds.map((tokenId) =>
+            tokenCard(tokenId, [], supportByTokenId[tokenId] ?? true),
+        ),
         prevCursor: null,
         nextCursor,
         limit: 2,
@@ -374,9 +547,14 @@ function tokenPage(tokenIds: string[], nextCursor: string | null): TokenCursorPa
     };
 }
 
-function tokenCard(tokenId: string, attributes: TokenCard["attributes"] = []): TokenCard {
+function tokenCard(
+    tokenId: string,
+    attributes: TokenCard["attributes"] = [],
+    marketplaceBiddingSupported = true,
+): TokenCard {
     return {
         tokenId,
+        marketplaceBiddingSupported,
         name: `Token #${tokenId}`,
         image: null,
         traitSummary: null,

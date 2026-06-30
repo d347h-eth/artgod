@@ -39,6 +39,10 @@ import {
     sortTokenIdsByTopOffer,
     tokenMatchesTraitFiltersWithJoinMode,
 } from "./bidding-token-offer-cards.js";
+import {
+    isTokenMarketplaceBiddingSupported,
+    marketplaceBiddingSupportedTokens,
+} from "./token-marketplace-bidding.js";
 export type { UpsertBatchTokenBiddingJobsOutput } from "./types.js";
 
 export type UpsertBatchTokenBiddingJobsInput = {
@@ -211,7 +215,9 @@ export class UpsertBatchTokenBiddingJobsUseCase {
                 `unknown token id ${missing[0]}`,
             );
         }
-        return tokenIds;
+        return marketplaceBiddingSupportedTokens(cards).map(
+            (card) => card.tokenId,
+        );
     }
 
     private resolveFilteredTokenIds(params: {
@@ -238,7 +244,9 @@ export class UpsertBatchTokenBiddingJobsUseCase {
                 traitRangeFilters: params.selection.traitRanges,
             });
             for (const token of page.items) {
-                tokenIds.push(token.tokenId);
+                if (isTokenMarketplaceBiddingSupported(token)) {
+                    tokenIds.push(token.tokenId);
+                }
             }
             cursor = page.nextCursor ?? undefined;
         } while (cursor);
@@ -297,6 +305,7 @@ export class UpsertBatchTokenBiddingJobsUseCase {
             const card = cardsById.get(tokenId);
             return (
                 card !== undefined &&
+                isTokenMarketplaceBiddingSupported(card) &&
                 tokenMatchesTraitFiltersWithJoinMode(
                     card,
                     params.selection.traits,

@@ -148,7 +148,12 @@ export type TraitMarketplaceBiddingSupport = {
     marketplaceBiddingSupported: boolean;
 };
 
-export type TokenPresentationSummary = {
+// Indicates whether a token row is canonical and can be targeted by marketplace bidding APIs.
+export type TokenMarketplaceBiddingSupport = {
+    marketplaceBiddingSupported: boolean;
+};
+
+export type TokenPresentationSummary = TokenMarketplaceBiddingSupport & {
     tokenId: string;
     name: string | null;
     image: string | null;
@@ -176,7 +181,7 @@ export type TokenMediaPreview = {
     animationUrl: string | null;
 };
 
-export type TokenDetail = {
+export type TokenDetail = TokenMarketplaceBiddingSupport & {
     tokenId: string;
     name: string | null;
     image: string | null;
