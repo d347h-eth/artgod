@@ -38,6 +38,7 @@ const COLLECTION_ADDRESS = "0x1111111111111111111111111111111111111111";
 const WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
 const BIDDING_MAKER_ADDRESS = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const INDEXED_ORDER_PLACED_AT = "2026-05-15T00:00:00Z";
+const ACTIVE_ORDER_VERIFIED_AT = "2026-05-17T00:00:02Z";
 
 class CapturingApm implements ApmPort {
     readonly spans: Array<{ name: string; attributes: SpanAttributes }> = [];
@@ -719,6 +720,62 @@ describe("SqliteBiddingBidBookRepository", () => {
                             status: TRADING_JOB_STATUS.Enabled,
                         },
                     },
+                },
+            ],
+        );
+    });
+
+    it("renders startup-unverified active order evidence without runtime strategy badges", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedBiddingRuntime(collectionId);
+        insertIndexedOrder({
+            collectionId,
+            id: "own-indexed-order",
+            maker: BIDDING_MAKER_ADDRESS,
+            updatedAt: "2026-05-17T00:00:01Z",
+        });
+        seedJobRuntimeState({
+            jobId: "collection-job",
+            currentPriceWei: "150",
+            activeOrderId: "own-indexed-order",
+            activeOrderPlacedAt: "2026-05-17T00:00:00Z",
+            activeOrderVerifiedAt: null,
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            competitorPriceWei: "250",
+        });
+
+        const bidBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+        const ownRows = bidBook.bids.filter((bid) => bid.isOwn);
+
+        assert.deepEqual(
+            ownRows.map((bid) => ({
+                orderId: bid.orderId,
+                materialization: bid.materialization,
+                placedAt: bid.placedAt,
+                validUntil: bid.validUntil,
+                ownStatus: bid.ownStatus,
+            })),
+            [
+                {
+                    orderId: "own-indexed-order",
+                    materialization: {
+                        kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+                        jobId: "collection-job",
+                        status: TRADING_JOB_STATUS.Enabled,
+                        phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Verifying,
+                    },
+                    placedAt: "2026-05-17T00:00:00Z",
+                    validUntil: 1_900_000_000,
+                    ownStatus: null,
                 },
             ],
         );
@@ -1773,20 +1830,22 @@ function seedJobRuntimeState(input: {
     currentPriceWei: string;
     activeOrderId: string;
     activeOrderPlacedAt?: string | null;
+    activeOrderVerifiedAt?: string | null;
     bidPosition?: string | null;
     bidConstraints?: string[];
     competitorPriceWei?: string | null;
 }): void {
     db.prepare(
         "INSERT INTO trading_bidding_job_runtime_state " +
-            "(job_id, job_revision, current_price_wei, active_order_id, active_protocol_address, active_order_placed_at, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, updated_at) " +
-            "VALUES (@jobId, @jobRevision, @currentPriceWei, @activeOrderId, NULL, @activeOrderPlacedAt, 1900000000000, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @updatedAt) " +
+            "(job_id, job_revision, current_price_wei, active_order_id, active_protocol_address, active_order_placed_at, active_order_verified_at, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, updated_at) " +
+            "VALUES (@jobId, @jobRevision, @currentPriceWei, @activeOrderId, NULL, @activeOrderPlacedAt, @activeOrderVerifiedAt, 1900000000000, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @updatedAt) " +
             "ON CONFLICT(job_id) DO UPDATE SET " +
             "job_revision = excluded.job_revision, " +
             "current_price_wei = excluded.current_price_wei, " +
             "active_order_id = excluded.active_order_id, " +
             "active_protocol_address = excluded.active_protocol_address, " +
             "active_order_placed_at = excluded.active_order_placed_at, " +
+            "active_order_verified_at = excluded.active_order_verified_at, " +
             "active_expiration_time_ms = excluded.active_expiration_time_ms, " +
             "bid_position = excluded.bid_position, " +
             "bid_constraints_json = excluded.bid_constraints_json, " +
@@ -1798,6 +1857,10 @@ function seedJobRuntimeState(input: {
         currentPriceWei: input.currentPriceWei,
         activeOrderId: input.activeOrderId,
         activeOrderPlacedAt: input.activeOrderPlacedAt ?? null,
+        activeOrderVerifiedAt:
+            input.activeOrderVerifiedAt === undefined
+                ? ACTIVE_ORDER_VERIFIED_AT
+                : input.activeOrderVerifiedAt,
         bidPosition: input.bidPosition ?? null,
         bidConstraintsJson: JSON.stringify(input.bidConstraints ?? []),
         competitorPriceWei: input.competitorPriceWei ?? null,

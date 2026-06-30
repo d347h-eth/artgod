@@ -22,6 +22,7 @@ import { SqliteBiddingJobsRepository } from "./sqlite-bidding-jobs-repository.js
 const ACTIVE_ORDER_ID = "0xactive-order";
 const ACTIVE_PROTOCOL_ADDRESS = "0x00000000006c3852cbef3e08e8df289169ede581";
 const ACTIVE_ORDER_PLACED_AT = "2026-05-17T00:00:00Z";
+const ACTIVE_ORDER_VERIFIED_AT = "2026-05-17T00:00:02Z";
 
 async function createTempDbPath(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "artgod-bidding-jobs-"));
@@ -721,6 +722,7 @@ function seedBiddingJobRuntimeState(input: {
         activeOrderId: string;
         activeProtocolAddress: string;
         activeOrderPlacedAt: string;
+        activeOrderVerifiedAt: string;
         activeExpirationTimeMs: number;
         bidPosition: string;
         bidConstraintsJson: string;
@@ -729,8 +731,8 @@ function seedBiddingJobRuntimeState(input: {
         lastError: string;
     }>(
         "INSERT INTO trading_bidding_job_runtime_state " +
-            "(job_id, job_revision, current_price_wei, active_order_id, active_protocol_address, active_order_placed_at, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, last_run_at, last_error) " +
-            "VALUES (@jobId, @jobRevision, @currentPriceWei, @activeOrderId, @activeProtocolAddress, @activeOrderPlacedAt, @activeExpirationTimeMs, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @lastRunAt, @lastError)",
+            "(job_id, job_revision, current_price_wei, active_order_id, active_protocol_address, active_order_placed_at, active_order_verified_at, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, last_run_at, last_error) " +
+            "VALUES (@jobId, @jobRevision, @currentPriceWei, @activeOrderId, @activeProtocolAddress, @activeOrderPlacedAt, @activeOrderVerifiedAt, @activeExpirationTimeMs, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @lastRunAt, @lastError)",
     ).run({
         jobId: input.jobId,
         jobRevision: input.jobRevision ?? 1,
@@ -738,6 +740,7 @@ function seedBiddingJobRuntimeState(input: {
         activeOrderId: input.activeOrderId,
         activeProtocolAddress: ACTIVE_PROTOCOL_ADDRESS,
         activeOrderPlacedAt: ACTIVE_ORDER_PLACED_AT,
+        activeOrderVerifiedAt: ACTIVE_ORDER_VERIFIED_AT,
         activeExpirationTimeMs: 1_700_000_000_000,
         bidPosition: input.bidPosition,
         bidConstraintsJson: JSON.stringify(input.bidConstraints),

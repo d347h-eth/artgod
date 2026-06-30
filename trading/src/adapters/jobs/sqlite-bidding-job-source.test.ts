@@ -251,16 +251,18 @@ describe("SqliteBiddingJobSource", () => {
             currentPriceWei: string;
             activeOrderId: string;
             activeOrderPlacedAt: string;
+            activeOrderVerifiedAt: string;
         }>(
             "INSERT INTO trading_bidding_job_runtime_state " +
-                "(job_id, job_revision, current_price_wei, active_order_id, active_order_placed_at) " +
-                "VALUES (@jobId, @jobRevision, @currentPriceWei, @activeOrderId, @activeOrderPlacedAt)",
+                "(job_id, job_revision, current_price_wei, active_order_id, active_order_placed_at, active_order_verified_at) " +
+                "VALUES (@jobId, @jobRevision, @currentPriceWei, @activeOrderId, @activeOrderPlacedAt, @activeOrderVerifiedAt)",
         ).run({
             jobId: "job-enabled",
             jobRevision: 1,
             currentPriceWei: "150000000000000000",
             activeOrderId: "0xexisting-order",
             activeOrderPlacedAt: "2026-05-17T00:00:00Z",
+            activeOrderVerifiedAt: "2026-05-17T00:00:02Z",
         });
 
         const source = new SqliteBiddingJobSource(1);
@@ -271,6 +273,7 @@ describe("SqliteBiddingJobSource", () => {
         assert.deepEqual(jobs[0]?.state, {
             activeOrderId: "0xexisting-order",
             activeOrderPlacedAt: "2026-05-17T00:00:00Z",
+            activeOrderVerifiedAt: "2026-05-17T00:00:02Z",
             currentPrice: 150000000000000000n,
             activeProtocolAddress: undefined,
             activeExpirationTimeMs: undefined,

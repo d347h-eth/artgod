@@ -14,6 +14,7 @@ export interface BidderState {
     activeOrderId?: string;
     activeProtocolAddress?: string;
     activeOrderPlacedAt?: string;
+    activeOrderVerifiedAt?: string;
     currentPrice?: bigint;
     activeExpirationTimeMs?: number;
     bidPosition?: TradingBiddingJobRuntimeBidPosition;

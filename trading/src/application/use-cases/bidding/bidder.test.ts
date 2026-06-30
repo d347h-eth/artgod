@@ -1003,6 +1003,7 @@ describe("Bidder stream refresh", () => {
             jobRevision: number;
             activeOrderId: string | null;
             activeOrderPlacedAt: string | null;
+            activeOrderVerifiedAt: string | null;
             currentPriceWei: string | null;
             bidPosition: TradingBiddingJobRuntimeBidPosition | null;
             bidConstraints: TradingBiddingJobRuntimeConstraint[];
@@ -1023,6 +1024,7 @@ describe("Bidder stream refresh", () => {
                         jobRevision: snapshot.jobRevision,
                         activeOrderId: snapshot.activeOrderId,
                         activeOrderPlacedAt: snapshot.activeOrderPlacedAt,
+                        activeOrderVerifiedAt: snapshot.activeOrderVerifiedAt,
                         currentPriceWei: snapshot.currentPriceWei,
                         bidPosition: snapshot.bidPosition,
                         bidConstraints: snapshot.bidConstraints,
@@ -1046,15 +1048,21 @@ describe("Bidder stream refresh", () => {
         await bidder.refreshJob("token-hit");
 
         assert.deepEqual(biddingService.placedAmounts, [20n]);
-        assert.deepEqual(persistedStates.at(-1), {
+        const latestState = persistedStates.at(-1);
+        assert.equal(typeof latestState?.activeOrderVerifiedAt, "string");
+        assert.deepEqual(
+            latestState ? { ...latestState, activeOrderVerifiedAt: null } : null,
+            {
             jobRevision: 1,
             activeOrderId: "0xhash",
             activeOrderPlacedAt: "2026-05-17T00:00:00Z",
+            activeOrderVerifiedAt: null,
             currentPriceWei: "20",
             bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
             bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
             competitorPriceWei: "25",
-        });
+            },
+        );
     });
 
     it("continues bid refresh when runtime persistence fails", async () => {

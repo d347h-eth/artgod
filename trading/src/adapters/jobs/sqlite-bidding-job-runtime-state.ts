@@ -1,5 +1,9 @@
 import { db } from "@artgod/shared/database";
 import type { BetterSqlite3NamedStatement } from "@artgod/shared/database";
+import {
+    TRADING_BOT_KIND,
+    TRADING_JOB_STATUS,
+} from "@artgod/shared/types";
 import type {
     BiddingJobOfferCancellationSnapshot,
     BiddingJobRuntimeStatePort,
@@ -15,23 +19,31 @@ type PersistOfferCancellationParams = BiddingJobOfferCancellationSnapshot & {
     updatedAt: string;
 };
 
+type InvalidateActiveOrderVerificationParams = {
+    chainId: number;
+    botKind: typeof TRADING_BOT_KIND.Bidding;
+    status: typeof TRADING_JOB_STATUS.Enabled;
+};
+
 export class SqliteBiddingJobRuntimeState
     implements BiddingJobRuntimeStatePort
 {
     private readonly upsertRuntimeState: BetterSqlite3NamedStatement<PersistRuntimeStateParams>;
     private readonly upsertOfferCancellation: BetterSqlite3NamedStatement<PersistOfferCancellationParams>;
+    private readonly invalidateEnabledActiveOrderVerificationStatement: BetterSqlite3NamedStatement<InvalidateActiveOrderVerificationParams>;
 
     constructor() {
         this.upsertRuntimeState = db.prepare<PersistRuntimeStateParams>(
             "INSERT INTO trading_bidding_job_runtime_state " +
-                "(job_id, job_revision, current_price_wei, active_order_id, active_protocol_address, active_order_placed_at, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, last_run_at, last_error, updated_at) " +
-                "VALUES (@jobId, @jobRevision, @currentPriceWei, @activeOrderId, @activeProtocolAddress, @activeOrderPlacedAt, @activeExpirationTimeMs, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @lastRunAt, @lastError, @updatedAt) " +
+                "(job_id, job_revision, current_price_wei, active_order_id, active_protocol_address, active_order_placed_at, active_order_verified_at, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, last_run_at, last_error, updated_at) " +
+                "VALUES (@jobId, @jobRevision, @currentPriceWei, @activeOrderId, @activeProtocolAddress, @activeOrderPlacedAt, @activeOrderVerifiedAt, @activeExpirationTimeMs, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @lastRunAt, @lastError, @updatedAt) " +
                 "ON CONFLICT(job_id) DO UPDATE SET " +
                 "job_revision = excluded.job_revision, " +
                 "current_price_wei = excluded.current_price_wei, " +
                 "active_order_id = excluded.active_order_id, " +
                 "active_protocol_address = excluded.active_protocol_address, " +
                 "active_order_placed_at = excluded.active_order_placed_at, " +
+                "active_order_verified_at = excluded.active_order_verified_at, " +
                 "active_expiration_time_ms = excluded.active_expiration_time_ms, " +
                 "bid_position = excluded.bid_position, " +
                 "bid_constraints_json = excluded.bid_constraints_json, " +
@@ -62,6 +74,17 @@ export class SqliteBiddingJobRuntimeState
                     "cancellation_error = excluded.cancellation_error, " +
                     "updated_at = excluded.updated_at",
             ) as BetterSqlite3NamedStatement<PersistOfferCancellationParams>;
+
+        this.invalidateEnabledActiveOrderVerificationStatement =
+            db.prepare<InvalidateActiveOrderVerificationParams>(
+                "UPDATE trading_bidding_job_runtime_state " +
+                    "SET active_order_verified_at = NULL " +
+                    "WHERE active_order_id IS NOT NULL " +
+                    "AND job_id IN (" +
+                    "SELECT job_id FROM trading_jobs " +
+                    "WHERE chain_id = @chainId AND bot_kind = @botKind AND status = @status" +
+                    ")",
+            ) as BetterSqlite3NamedStatement<InvalidateActiveOrderVerificationParams>;
     }
 
     persistJobRuntimeState(snapshot: BiddingJobRuntimeStateSnapshot): void {
@@ -83,6 +106,17 @@ export class SqliteBiddingJobRuntimeState
             ...snapshot,
             makerAddress: snapshot.makerAddress.toLowerCase(),
             updatedAt,
+        });
+    }
+
+    invalidateEnabledActiveOrderVerification(params: {
+        chainId: number;
+    }): void {
+        // Mark prior-process active-order evidence as unverified until this bot start proves it again.
+        this.invalidateEnabledActiveOrderVerificationStatement.run({
+            chainId: params.chainId,
+            botKind: TRADING_BOT_KIND.Bidding,
+            status: TRADING_JOB_STATUS.Enabled,
         });
     }
 }

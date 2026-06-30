@@ -42,6 +42,7 @@ export type BiddingJobRuntimeStateSnapshot = {
     activeOrderId: string | null;
     activeProtocolAddress: string | null;
     activeOrderPlacedAt: string | null;
+    activeOrderVerifiedAt: string | null;
     activeExpirationTimeMs: number | null;
     bidPosition: TradingBiddingJobRuntimeBidPosition | null;
     bidConstraints: TradingBiddingJobRuntimeConstraint[];
@@ -1215,6 +1216,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             job.state.activeOrderId = activeOffer.id;
             job.state.activeProtocolAddress = activeOffer.protocolAddress;
             job.state.activeOrderPlacedAt = activeOffer.placedAt;
+            this.markActiveOrderVerified(job);
             job.state.currentPrice = activeOffer.price;
             job.state.activeExpirationTimeMs = this.toExpirationTimeMs(
                 activeOffer.expirationTime,
@@ -1749,6 +1751,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         job.state.activeOrderId = orderHash;
         job.state.activeProtocolAddress = protocolAddress;
         job.state.activeOrderPlacedAt = placedAt;
+        this.markActiveOrderVerified(job);
         job.state.currentPrice = amount;
         job.state.activeExpirationTimeMs =
             this.toExpirationTimeMs(expirationTime);
@@ -1862,6 +1865,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         job.state.activeOrderId = order.id;
         job.state.activeProtocolAddress = order.protocolAddress;
         job.state.activeOrderPlacedAt = nextPlacedAt;
+        this.markActiveOrderVerified(job);
         job.state.currentPrice = order.price;
         job.state.activeExpirationTimeMs = nextExpirationTimeMs;
         this.persistJobRuntimeState(job);
@@ -1871,6 +1875,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         job.state.activeOrderId = undefined;
         job.state.activeProtocolAddress = undefined;
         job.state.activeOrderPlacedAt = undefined;
+        job.state.activeOrderVerifiedAt = undefined;
         job.state.currentPrice = undefined;
         job.state.activeExpirationTimeMs = undefined;
         this.clearRuntimeBidDecision(job);
@@ -1969,6 +1974,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             activeOrderId: job.state.activeOrderId ?? null,
             activeProtocolAddress: job.state.activeProtocolAddress ?? null,
             activeOrderPlacedAt: job.state.activeOrderPlacedAt ?? null,
+            activeOrderVerifiedAt: job.state.activeOrderVerifiedAt ?? null,
             activeExpirationTimeMs: job.state.activeExpirationTimeMs ?? null,
             bidPosition: job.state.bidPosition ?? null,
             bidConstraints: job.state.bidConstraints ?? [],
@@ -1993,6 +1999,10 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 },
             );
         }
+    }
+
+    private markActiveOrderVerified(job: BidderJob): void {
+        job.state.activeOrderVerifiedAt = new Date().toISOString();
     }
 
     private recordJobOfferCancellation(

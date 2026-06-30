@@ -78,16 +78,18 @@ Startup order:
 
 1. read the one-shot secret payload and construct the in-memory signer
 2. load typed trading config
-3. load enabled bidding jobs from SQLite
-4. wire OpenSea lanes, metadata lookup, WETH balance/allowance, transaction policy, and logging adapters
-5. emit `bot_bootstrapping` before long allowance/snapshot/price bootstrap work
-6. approve configured WETH allowance when `BIDDING_WETH_ALLOWANCE_ETH > 0`
-7. bootstrap authoritative collection-offer snapshots and current prices
-8. start the continuous job scan loop, snapshot polling, stream listeners, command reconciliation, and heartbeat
-9. emit `bot_ready` only after bootstrap is complete
+3. mark previously tracked active offers as unverified for enabled bidding jobs
+4. load enabled bidding jobs from SQLite
+5. wire OpenSea lanes, metadata lookup, WETH balance/allowance, transaction policy, and logging adapters
+6. emit `bot_bootstrapping` before long allowance/snapshot/price bootstrap work
+7. approve configured WETH allowance when `BIDDING_WETH_ALLOWANCE_ETH > 0`
+8. bootstrap authoritative collection-offer snapshots and current prices
+9. start the continuous job scan loop, snapshot polling, stream listeners, command reconciliation, and heartbeat
+10. emit `bot_ready` only after bootstrap is complete
 
 `trading_bot_runtime_state` stores non-secret bot heartbeat state.
 Backend bid-book reads use it to decide whether the bot snapshot projection can be treated as live.
+Active-order evidence restored from a prior bot process is rendered as `verifying` until the current process proves, replaces, or clears that order through OpenSea-backed runtime work.
 
 ## Runtime Logging
 
@@ -182,6 +184,7 @@ Backend source selection:
 - standard/admin reads may overlay own declared jobs as `own_job_intent` rows before the bot has landed a matching market offer
 - public single-collection reads stay market-only and do not expose local own-job context
 - own market-position badges (`winning`, `draw`, `losing`) are attached only from the bot-persisted runtime decision for the active order id
+- prior-process active-order evidence can keep an own row visible, but strategy badges stay hidden and the row is marked `verifying` until the running bot verifies the order in the current process
 - runtime-backed own rows prefer the bot-persisted active order timing even when the visible row is backed by a projected or indexed market order
 - when a job revision supersedes an active order, the old exact order remains visible as a lifecycle own row while the current revision appears as a queued intent row
 - completed own cancellations suppress stale indexed own order rows, with a short `cancelled` confirmation row before disappearance

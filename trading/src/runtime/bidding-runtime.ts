@@ -144,6 +144,10 @@ export async function startBiddingRuntime(
         TRADING_BOT_RUNTIME_STATE.Bootstrapping,
     );
 
+    const biddingJobRuntimeState = new SqliteBiddingJobRuntimeState();
+    biddingJobRuntimeState.invalidateEnabledActiveOrderVerification({
+        chainId: params.config.chainId,
+    });
     const biddingJobSource = new SqliteBiddingJobSource(params.config.chainId);
     // Load the authoritative enabled bidding jobs from SQLite before creating any market-facing adapters.
     log.info("loadJobs", "Loading bidding jobs from SQLite", {
@@ -336,7 +340,7 @@ export async function startBiddingRuntime(
         },
         tokenMetadataRepository,
         makerWethBalanceService,
-        new SqliteBiddingJobRuntimeState(),
+        biddingJobRuntimeState,
     );
 
     // Register all configured jobs before bootstrapping snapshot state or current prices.

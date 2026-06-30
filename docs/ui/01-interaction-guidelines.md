@@ -431,7 +431,7 @@ General rules:
 - prices align consistently and should not gain extra decimal precision from hidden or collapsed rows
 - display `WETH` only where currency disambiguation is useful
 - own bids should be visually marked and labeled as the user when the wallet identity is known
-- own-bid badges are limited to `queued`, `paused`, `replacing`, `canceling`, `cancel failed`, `cancelled`, `winning`, `draw`, `losing`, `hit ceiling`, and `at floor`
+- own-bid badges are limited to `queued`, `paused`, `verifying`, `replacing`, `canceling`, `cancel failed`, `cancelled`, `winning`, `draw`, `losing`, `hit ceiling`, and `at floor`
 - `winning`, `draw`, and `losing` must come from fresh bot runtime decision feedback, never from frontend/backend price inference
 - stale active orders must remain visible with lifecycle badges until backend cancellation evidence confirms they can disappear
 
