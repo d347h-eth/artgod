@@ -570,6 +570,13 @@ Trigger:
 - release: push tag `v*`
 - reproducibility check: push tag `v*` or manual dispatch
 
+Release metadata:
+
+- Tags with a SemVer pre-release suffix, such as `v0.1.0-alpha.1`,
+  `v0.1.0-pre-alpha.1`, or `v0.1.0-test.1`, publish as GitHub pre-releases and
+  are not marked Latest.
+- Plain stable tags such as `v1.0.0` publish as normal Latest releases.
+
 Build-check trigger policy:
 
 - Do not add `paths-ignore` for version-sync files; they are build-critical

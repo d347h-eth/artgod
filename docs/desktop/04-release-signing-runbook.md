@@ -68,6 +68,9 @@ Workflow policy:
 - `.github/workflows/tauri-build-check.yml` uses no secrets and runs on pull
   requests, pushes to `main`, and manual dispatch.
 - `.github/workflows/tauri-release.yml` runs on pushed `v*` tags.
+- Pre-release tags containing `-`, such as `v0.1.0-alpha.1` or
+  `v0.1.0-test.1`, publish as GitHub pre-releases and are not marked Latest.
+- Plain stable tags such as `v1.0.0` publish as normal Latest releases.
 - The release workflow `build` and `release` jobs declare
   `environment: desktop-release-signing`.
 - Environment secrets are still referenced through the GitHub Actions
@@ -270,7 +273,7 @@ Before pushing a `v*` tag:
 2. Confirm root `package.json`, workspace manifests, `src-tauri/tauri.conf.json`,
    and Cargo package version match.
 3. Confirm the build check workflow passed after merge to `main`.
-4. Run the release workflow once on a private or pre-release dry-run tag.
+4. Run the release workflow once on a pre-release dry-run tag.
 5. Install each produced artifact on a clean Linux and macOS machine.
 6. Verify macOS Gatekeeper opens the DMG without bypass actions.
 7. Verify Linux GPG signatures and checksum manifest from a clean keyring.
