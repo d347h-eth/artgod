@@ -2,16 +2,23 @@ import type {
 	ApiBiddingBidBookRow,
 	ApiBiddingJob,
 	ApiCollectionBiddingTraitFilterJoinMode,
+	ApiTraitFacet,
 	ApiTradingTraitCriterion,
 	ApiTokenAttribute,
 	ApiTraitRangeFilter
 } from '$lib/api-types';
 import { bidBookRowEffectivePriceWei } from '$lib/bidding-bid-book-price';
+import { BIDDING_AUTOMATION_PRICING_MODE } from './bidding-automation-contracts';
 import {
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 	TRADING_BIDDING_BID_SCOPE_KIND,
 	type TokenBrowserStatus
 } from '@artgod/shared/types';
+export {
+	BIDDING_AUTOMATION_PRICING_MODE,
+	BIDDING_AUTOMATION_PRICING_MODE_LABEL,
+	type BiddingAutomationPricingMode
+} from './bidding-automation-contracts';
 
 export const BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE = {
 	FilteredTokens: 'filtered_tokens',
@@ -46,33 +53,25 @@ export const BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE = {
 export type BiddingAutomationTokenFilterSource =
 	(typeof BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE)[keyof typeof BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE];
 
+export type BiddingAutomationTraitAttribute = ApiTokenAttribute & {
+	marketplaceBiddingSupported: boolean;
+};
+
 export const BIDDING_AUTOMATION_DRAFT_TARGET_TYPE = {
 	TokenBatch: 'token_batch',
 	FilteredTokenBatch: 'filtered_token_batch',
 	TraitJob: 'trait_job',
+	UnsupportedTraitJob: 'unsupported_trait_job',
 	CollectionJob: 'collection_job'
 } as const;
 
 export type BiddingAutomationDraftTargetType =
 	(typeof BIDDING_AUTOMATION_DRAFT_TARGET_TYPE)[keyof typeof BIDDING_AUTOMATION_DRAFT_TARGET_TYPE];
 
-export const BIDDING_AUTOMATION_PRICING_MODE = {
-	Manual: 'manual',
-	Tier: 'tier'
-} as const;
-
-export type BiddingAutomationPricingMode =
-	(typeof BIDDING_AUTOMATION_PRICING_MODE)[keyof typeof BIDDING_AUTOMATION_PRICING_MODE];
-
-export const BIDDING_AUTOMATION_PRICING_MODE_LABEL = {
-	[BIDDING_AUTOMATION_PRICING_MODE.Manual]: 'manual',
-	[BIDDING_AUTOMATION_PRICING_MODE.Tier]: 'tier'
-} as const;
-
 // Captures token-filter state so backend can resolve all matching tokens across pages.
 export type BiddingAutomationTokenFilterSnapshot = {
 	source: BiddingAutomationTokenFilterSource;
-	selectedTraits: ApiTokenAttribute[];
+	selectedTraits: BiddingAutomationTraitAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 	tokenStatus?: TokenBrowserStatus | null;
@@ -82,7 +81,7 @@ export type BiddingAutomationTokenFilterSnapshot = {
 // Builds the canonical filter snapshot consumed by bidding selection and draft flows.
 export function buildBiddingAutomationTokenFilterSnapshot(params: {
 	source: BiddingAutomationTokenFilterSource;
-	selectedTraits: ApiTokenAttribute[];
+	selectedTraits: BiddingAutomationTraitAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 	tokenStatus?: TokenBrowserStatus | null;
@@ -96,6 +95,29 @@ export function buildBiddingAutomationTokenFilterSnapshot(params: {
 		tokenStatus: params.tokenStatus ?? null,
 		makerAddress: params.makerAddress ?? null
 	};
+}
+
+// Builds a bidding filter snapshot by injecting backend-declared trait bidding support from facets.
+export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
+	source: BiddingAutomationTokenFilterSource;
+	selectedTraits: ApiTokenAttribute[];
+	facets: ApiTraitFacet[];
+	selectedTraitRanges: ApiTraitRangeFilter[];
+	traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
+	tokenStatus?: TokenBrowserStatus | null;
+	makerAddress?: string | null;
+}): BiddingAutomationTokenFilterSnapshot {
+	return buildBiddingAutomationTokenFilterSnapshot({
+		source: params.source,
+		selectedTraits: resolveBiddingAutomationTraitAttributes({
+			selectedTraits: params.selectedTraits,
+			facets: params.facets
+		}),
+		selectedTraitRanges: params.selectedTraitRanges,
+		traitJoinMode: params.traitJoinMode,
+		tokenStatus: params.tokenStatus,
+		makerAddress: params.makerAddress
+	});
 }
 
 // Represents a clean all-filtered-tokens action or a visible-page-adjusted variant.
@@ -145,6 +167,11 @@ export type BiddingAutomationDraftTarget =
 	| {
 			type: typeof BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob;
 			traits: ApiTokenAttribute[];
+			traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
+	  }
+	| {
+			type: typeof BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.UnsupportedTraitJob;
+			traits: BiddingAutomationTraitAttribute[];
 			traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 	  }
 	| {
@@ -286,7 +313,7 @@ export function buildBiddingAutomationDraftFromSelection(
 
 // Builds a direct trait-job draft from a token detail trait row action.
 export function buildTraitBiddingAutomationDraftFromTrait(params: {
-	trait: ApiTokenAttribute;
+	trait: BiddingAutomationTraitAttribute;
 	tokenCount?: number | null;
 	existingJob?: ApiBiddingJob | null;
 }): BiddingAutomationDraft | null {
@@ -328,12 +355,7 @@ export function buildBiddingJobTargetLookupRequestBody(
 	}
 	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch) {
 		return draft.target.tokenIds.length === 1
-			? {
-					target: {
-						type: 'token',
-						tokenId: draft.target.tokenIds[0]
-					}
-				}
+			? buildTokenBiddingJobTargetLookupRequestBody(draft.target.tokenIds[0])
 			: null;
 	}
 	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob) {
@@ -348,6 +370,9 @@ export function buildBiddingJobTargetLookupRequestBody(
 			}
 		};
 	}
+	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.UnsupportedTraitJob) {
+		return null;
+	}
 	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.CollectionJob) {
 		return {
 			target: {
@@ -357,6 +382,18 @@ export function buildBiddingJobTargetLookupRequestBody(
 		};
 	}
 	return null;
+}
+
+// Builds the lookup body for one exact token-scoped bidding target.
+export function buildTokenBiddingJobTargetLookupRequestBody(
+	tokenId: string
+): BiddingJobTargetLookupRequestBody {
+	return {
+		target: {
+			type: 'token',
+			tokenId
+		}
+	};
 }
 
 // Gates drafts to target kinds that currently have a backend mutation path.
@@ -369,6 +406,9 @@ export function isBiddingAutomationDraftSubmittable(draft: BiddingAutomationDraf
 	}
 	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch) {
 		return canSubmitFilteredTokenBatch(draft);
+	}
+	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.UnsupportedTraitJob) {
+		return false;
 	}
 	return true;
 }
@@ -389,6 +429,38 @@ export function biddingTraitCriteriaToTokenAttributes(
 		key: trait.type,
 		value: trait.value
 	}));
+}
+
+// Resolves selected trait filters against backend-provided facet marketplace bidding capability.
+export function resolveBiddingAutomationTraitAttributes(params: {
+	selectedTraits: ApiTokenAttribute[];
+	facets: ApiTraitFacet[];
+}): BiddingAutomationTraitAttribute[] {
+	const supportByTrait = new Map<string, boolean>();
+	for (const facet of params.facets) {
+		for (const value of facet.values) {
+			supportByTrait.set(
+				traitSignature(facet.key, value.value),
+				value.marketplaceBiddingSupported
+			);
+		}
+	}
+	return params.selectedTraits.map((trait) => ({
+		...trait,
+		marketplaceBiddingSupported: supportByTrait.get(traitSignature(trait.key, trait.value)) ?? false
+	}));
+}
+
+// Keeps only traits known to be addressable through marketplace bidding APIs.
+export function marketplaceBiddingSupportedTraits(
+	traits: BiddingAutomationTraitAttribute[]
+): ApiTokenAttribute[] {
+	return traits
+		.filter((trait) => trait.marketplaceBiddingSupported !== false)
+		.map((trait) => ({
+			key: trait.key,
+			value: trait.value
+		}));
 }
 
 function resolveDraftTargetFromBid(bid: ApiBiddingBidBookRow): BiddingAutomationDraftTarget | null {
@@ -456,9 +528,17 @@ function resolveDraftTargetFromSelection(
 			selectedTraitRanges: selection.filter.selectedTraitRanges
 		})
 	) {
+		const supportedTraits = marketplaceBiddingSupportedTraits(selection.filter.selectedTraits);
+		if (supportedTraits.length === 0) {
+			return {
+				type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.UnsupportedTraitJob,
+				traits: selection.filter.selectedTraits,
+				traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
+			};
+		}
 		return {
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
-			traits: selection.filter.selectedTraits,
+			traits: supportedTraits,
 			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
 		};
 	}
@@ -497,6 +577,10 @@ function selectedBidQuantity(draft: BiddingAutomationDraft): number | undefined 
 	}
 	const parsed = Number(draft.source.bid.quantity);
 	return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function traitSignature(key: string, value: string): string {
+	return `${key}\u0000${value}`;
 }
 
 const WEI_PER_ETH = 1_000_000_000_000_000_000n;

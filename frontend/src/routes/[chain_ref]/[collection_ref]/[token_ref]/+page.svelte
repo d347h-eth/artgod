@@ -268,7 +268,9 @@
 			return buildTraitBiddingAutomationDraftFromTrait({
 				trait: {
 					key: selectedTokenTraitTarget.key,
-					value: selectedTokenTraitTarget.value
+					value: selectedTokenTraitTarget.value,
+					marketplaceBiddingSupported:
+						selectedTokenTraitTarget.marketplaceBiddingSupported
 				},
 				tokenCount: selectedTokenTraitTarget.tokenCount
 			});
@@ -749,6 +751,7 @@
 				job={tokenBiddingJob}
 				nextUpdateAtMs={tokenBiddingNextUpdateAtMs}
 				showScope
+				showOwnStateBadges={false}
 				showMuted={data?.showMuted ?? false}
 				basePath={collectionTokensBasePath()}
 				mediaMode={collectionNavigationMediaMode()}

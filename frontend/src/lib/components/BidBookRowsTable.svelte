@@ -17,6 +17,7 @@
 	let {
 		rows,
 		showScope,
+		showBidLimits,
 		columnCount,
 		hiddenBidCount,
 		expanded,
@@ -30,6 +31,7 @@
 	}: {
 		rows: BidBookRowsTableRow[];
 		showScope: boolean;
+		showBidLimits: boolean;
 		columnCount: number;
 		hiddenBidCount: number;
 		expanded: boolean;
@@ -71,6 +73,10 @@
 						<th class="bid-book-col-center">scope</th>
 					{/if}
 					<th class="bid-book-col-center">maker</th>
+					{#if showBidLimits}
+						<th class="bid-book-col-right">floor</th>
+						<th class="bid-book-col-right">ceiling</th>
+					{/if}
 					<th class="bid-book-time-header bid-book-col-center">
 						<button
 							type="button"
@@ -182,6 +188,14 @@
 							onSetHighlighted={() => setHighlighted(row)}
 							onClearHighlighted={onClearHighlighted}
 						/>
+						{#if showBidLimits}
+							<td class="mono bid-book-col-right">
+								{row.floor}
+							</td>
+							<td class="mono bid-book-col-right">
+								{row.ceiling}
+							</td>
+						{/if}
 						<td class="mono bid-book-col-center" title={row.placedAtTitle}>
 							{row.placedAtLabel}
 						</td>

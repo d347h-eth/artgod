@@ -13,6 +13,7 @@
 		ApiBiddingPriceTier,
 		ApiCollection,
 		ApiCollectionMediaState,
+		ApiTokenCard,
 		ApiTokenAttribute,
 		ApiTraitRangeFilter,
 		BootstrapStatusApiResponse,
@@ -22,7 +23,7 @@
 	import { getBootstrapStatus } from '$lib/backend-api';
 	import {
 		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
-		buildBiddingAutomationTokenFilterSnapshot,
+		buildBiddingAutomationResolvedTokenFilterSnapshot,
 		buildBiddingAutomationDraftFromSelection,
 		canDraftTraitJobFromFilters,
 		type BiddingAutomationTokenFilterSnapshot
@@ -104,7 +105,11 @@
 	let activeBiddingSettings = $state<ApiBiddingCollectionSettings>(biddingSettings);
 	let activePriceTiers = $state<ApiBiddingPriceTier[]>(priceTiers);
 	let priceTierPanelOpen = $state(false);
-	let visibleBrowserTokenIds = $state<string[]>(tokens.items.map((token) => token.tokenId));
+	let visibleBiddableBrowserTokenIds = $state<string[]>(
+		tokens.items
+			.filter((token) => token.marketplaceBiddingSupported)
+			.map((token) => token.tokenId)
+	);
 	let lastBiddingFilterKey = $state('');
 	let biddingPanelExpandSignal = $state(0);
 	const currentBiddingSelection = $derived($biddingAutomationState.selection);
@@ -145,7 +150,9 @@
 	});
 
 	$effect(() => {
-		visibleBrowserTokenIds = tokens.items.map((token) => token.tokenId);
+		visibleBiddableBrowserTokenIds = tokens.items
+			.filter((token) => token.marketplaceBiddingSupported)
+			.map((token) => token.tokenId);
 	});
 
 	$effect(() => {
@@ -294,7 +301,7 @@
 		}
 		biddingAutomation.selectFilteredTokens(
 			buildFilteredTokenBatchBiddingSelectionInput({
-				tokenCount: tokens.totalItems,
+				tokenCount: tokens.marketplaceBiddingSupportedTotalItems,
 				filter: currentBiddingFilterSnapshot()
 			})
 		);
@@ -305,8 +312,10 @@
 		biddingAutomation.toggleToken(request);
 	}
 
-	function biddingTokenSelectionState(tokenId: string, stateKey: string) {
-		return biddingAutomationTokenSelectionState(currentBiddingSelection, tokenId, stateKey);
+	function biddingTokenSelectionState(token: ApiTokenCard, stateKey: string) {
+		return biddingAutomationTokenSelectionState(currentBiddingSelection, token.tokenId, stateKey, {
+			marketplaceBiddingSupported: token.marketplaceBiddingSupported
+		});
 	}
 
 	function isAllFilteredTokenSelectionActive(): boolean {
@@ -314,9 +323,10 @@
 	}
 
 	function currentBiddingFilterSnapshot(): BiddingAutomationTokenFilterSnapshot {
-		return buildBiddingAutomationTokenFilterSnapshot({
+		return buildBiddingAutomationResolvedTokenFilterSnapshot({
 			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
 			selectedTraits,
+			facets,
 			selectedTraitRanges,
 			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
 			tokenStatus,
@@ -336,8 +346,8 @@
 		biddingAutomation.clearSelection();
 	}
 
-	function handleVisibleTokenIdsChange(tokenIds: string[]): void {
-		visibleBrowserTokenIds = tokenIds;
+	function handleVisibleBiddableTokenIdsChange(tokenIds: string[]): void {
+		visibleBiddableBrowserTokenIds = tokenIds;
 	}
 
 	function togglePriceTierPanel(): void {
@@ -415,10 +425,10 @@
 						showTierAction={biddingSelectionControlPolicy.showTierAction}
 						tierActionActive={priceTierPanelOpen}
 						tokenActionLabel={tokenActionLabel}
-						tokenActionDisabled={tokens.totalItems === 0}
+						tokenActionDisabled={tokens.marketplaceBiddingSupportedTotalItems === 0}
 						onToggleTiers={togglePriceTierPanel}
 						onBidOnTraits={bidOnFilteredTraits}
-						onBidOnTokens={() => bidOnFilteredTokens(visibleBrowserTokenIds)}
+						onBidOnTokens={() => bidOnFilteredTokens(visibleBiddableBrowserTokenIds)}
 						onClear={clearBiddingSelection}
 					/>
 				</div>
@@ -476,7 +486,7 @@
 					onToggle: toggleVisibleTokenSelection
 				}
 			: null}
-		onVisibleTokenIdsChange={handleVisibleTokenIdsChange}
+		onVisibleBiddableTokenIdsChange={handleVisibleBiddableTokenIdsChange}
 		onToggleTiers={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ? togglePriceTierPanel : null}
 	/>
 	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && collection}

@@ -117,7 +117,7 @@ describe('CollectionActivitiesView', () => {
 						displayKind: 'set',
 						minValue: null,
 						maxValue: null,
-						values: [{ value: 'Beanie', tokenCount: 1 }]
+						values: [{ value: 'Beanie', tokenCount: 1, marketplaceBiddingSupported: true }]
 					}
 				],
 				selectedTraits: [{ key: 'Hat', value: 'Beanie' }],
@@ -128,6 +128,7 @@ describe('CollectionActivitiesView', () => {
 					tokensById: {
 						'1': {
 							tokenId: '1',
+							marketplaceBiddingSupported: true,
 							name: 'Milady #1',
 							image: 'https://example.com/1.png',
 							traitSummary: 'L7/BForest/Alpha',
@@ -299,7 +300,7 @@ describe('CollectionActivitiesView', () => {
 						displayKind: 'set',
 						minValue: null,
 						maxValue: null,
-						values: [{ value: 'Beanie', tokenCount: 1 }]
+						values: [{ value: 'Beanie', tokenCount: 1, marketplaceBiddingSupported: true }]
 					}
 				],
 				selectedTraits: [],
@@ -310,6 +311,7 @@ describe('CollectionActivitiesView', () => {
 					tokensById: {
 						'1': {
 							tokenId: '1',
+							marketplaceBiddingSupported: true,
 							name: 'Milady #1',
 							image: 'https://example.com/1.png',
 							traitSummary: null,
@@ -434,6 +436,7 @@ describe('CollectionActivitiesView', () => {
 					tokensById: {
 						'7710': {
 							tokenId: '7710',
+							marketplaceBiddingSupported: true,
 							name: 'Terraform #7710',
 							image: 'https://example.com/7710.png',
 							traitSummary: 'L7/B12/Zone',
@@ -624,6 +627,7 @@ describe('CollectionActivitiesView', () => {
 					tokensById: {
 						'7710': {
 							tokenId: '7710',
+							marketplaceBiddingSupported: true,
 							name: 'Terraform #7710',
 							image: 'https://example.com/7710.png',
 							traitSummary: 'L7/B12/Zone',

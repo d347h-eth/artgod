@@ -10,6 +10,12 @@ import {
     type PersistedCollectionBiddingJobRecord,
     type TradingJobCommandRecord,
 } from "@artgod/shared/types";
+import {
+    TERRAFORMS_MODE_ATTRIBUTE_KEY,
+    TERRAFORMS_MODE_ATTRIBUTE_VALUES,
+    TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+    TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES,
+} from "@artgod/shared/extensions/terraforms";
 import { UpsertTraitBiddingJobUseCase } from "./upsert-trait-bidding-job.js";
 import { TradingValidationError } from "./types.js";
 
@@ -67,6 +73,7 @@ describe("UpsertTraitBiddingJobUseCase", () => {
             {
                 resolveCollectionRef: () => COLLECTION,
             },
+            supportingTraitTargets(),
             {
                 upsertCollectionJob: (input) => {
                     persistedInputs.push(input);
@@ -128,6 +135,7 @@ describe("UpsertTraitBiddingJobUseCase", () => {
             {
                 resolveCollectionRef: () => COLLECTION,
             },
+            supportingTraitTargets(),
             {
                 upsertCollectionJob: () => {
                     persistenceCalls += 1;
@@ -190,7 +198,76 @@ describe("UpsertTraitBiddingJobUseCase", () => {
         );
         assert.equal(persistenceCalls, 0);
     });
+
+    it("rejects trait targets that marketplace bidding cannot address", () => {
+        let persistenceCalls = 0;
+        const useCase = new UpsertTraitBiddingJobUseCase(
+            1,
+            {
+                resolveChainRef: () => CHAIN,
+            },
+            {
+                resolveCollectionRef: () => COLLECTION,
+            },
+            {
+                listMarketplaceBiddingSupportedTraits: ({ traits }) =>
+                    traits.filter(
+                        (trait) => trait.key === TERRAFORMS_MODE_ATTRIBUTE_KEY,
+                    ),
+            },
+            {
+                upsertCollectionJob: () => {
+                    persistenceCalls += 1;
+                    throw new Error("Unexpected trait job persistence");
+                },
+            },
+            {
+                listCollectionPriceTiers: () => [],
+            },
+            {
+                publishBiddingJobCommandsChanged: () => {
+                    throw new Error("Unexpected command publish");
+                },
+            },
+        );
+
+        assert.throws(
+            () =>
+                useCase.upsertTraitBiddingJob({
+                    chainRef: "ethereum",
+                    collectionRef: "terraforms",
+                    status: TRADING_JOB_STATUS.Enabled,
+                    floorEth: "0.1",
+                    ceilingEth: "0.2",
+                    deltaEth: "0.001",
+                    targetTraits: [
+                        {
+                            type: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+                            value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
+                        },
+                        {
+                            type: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+                            value: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
+                        },
+                    ],
+                }),
+            new RegExp(
+                `target trait is not available for marketplace bidding: ${TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY}=${TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed}`,
+            ),
+        );
+        assert.equal(persistenceCalls, 0);
+    });
 });
+
+function supportingTraitTargets(): {
+    listMarketplaceBiddingSupportedTraits(params: {
+        traits: { key: string; value: string }[];
+    }): { key: string; value: string }[];
+} {
+    return {
+        listMarketplaceBiddingSupportedTraits: ({ traits }) => traits,
+    };
+}
 
 function buildPersistedTraitJob(input: {
     floorWei: string;

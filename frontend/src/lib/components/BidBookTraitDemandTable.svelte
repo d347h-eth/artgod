@@ -19,10 +19,13 @@
 
 	type MaybePromise<T> = T | Promise<T>;
 	type BidBookDemandTableRow = BidBookDemandTableGroup['rows'][number];
+	const BID_BOOK_DEMAND_TABLE_BASE_COLUMN_COUNT = 4;
+	const BID_BOOK_DEMAND_TABLE_BID_LIMIT_COLUMN_COUNT = 2;
 
 	let {
 		tabs,
 		groups,
+		showBidLimits,
 		onSetActiveTraitKey,
 		onTogglePlacedAtMode,
 		onToggleValidUntilMode,
@@ -34,6 +37,7 @@
 	}: {
 		tabs: BidBookDemandTableTab[];
 		groups: BidBookDemandTableGroup[];
+		showBidLimits: boolean;
 		onSetActiveTraitKey: (key: string | null) => void;
 		onTogglePlacedAtMode: () => void;
 		onToggleValidUntilMode: () => void;
@@ -59,6 +63,11 @@
 	function hasVisibleRows(group: BidBookDemandTableGroup): boolean {
 		return group.rows.some((row) => !row.hidden);
 	}
+
+	const columnCount = $derived(
+		BID_BOOK_DEMAND_TABLE_BASE_COLUMN_COUNT +
+			(showBidLimits ? BID_BOOK_DEMAND_TABLE_BID_LIMIT_COLUMN_COUNT : 0)
+	);
 </script>
 
 <section class="bid-book-table-panel">
@@ -81,6 +90,10 @@
 				<tr>
 					<th class="bid-book-col-right">price</th>
 					<th class="bid-book-col-center">maker</th>
+					{#if showBidLimits}
+						<th class="bid-book-col-right">floor</th>
+						<th class="bid-book-col-right">ceiling</th>
+					{/if}
 					<th class="bid-book-time-header bid-book-col-center">
 						<button
 							type="button"
@@ -107,7 +120,7 @@
 				{#each groups as group (group.key)}
 					{#if group.startsNewGroup}
 						<tr class="bid-book-demand-group-spacer" aria-hidden="true">
-							<td colspan={4}></td>
+							<td colspan={columnCount}></td>
 						</tr>
 					{/if}
 					<tr
@@ -115,7 +128,7 @@
 						class:bid-book-muted-demand-group={group.muted}
 						hidden={group.hidden}
 					>
-						<td colspan={4}>
+						<td colspan={columnCount}>
 							<div class="bid-book-demand-group-header">
 								<span class="bid-book-demand-group-title">
 									<BidBookTraitList
@@ -163,13 +176,13 @@
 					</tr>
 					{#if !group.hidden && hasVisibleRows(group)}
 						<tr class="bid-book-bucket-spacer" aria-hidden="true">
-							<td colspan={4}></td>
+							<td colspan={columnCount}></td>
 						</tr>
 					{/if}
 					{#each group.rows as row (row.bid.orderId)}
 						{#if row.startsNewBucket}
 							<tr class="bid-book-bucket-spacer" aria-hidden="true">
-								<td colspan={4}></td>
+								<td colspan={columnCount}></td>
 							</tr>
 						{/if}
 						<tr
@@ -196,6 +209,14 @@
 								onSetHighlighted={() => onSetHighlighted(row)}
 								onClearHighlighted={onClearHighlighted}
 							/>
+							{#if showBidLimits}
+								<td class="mono bid-book-col-right">
+									{row.floor}
+								</td>
+								<td class="mono bid-book-col-right">
+									{row.ceiling}
+								</td>
+							{/if}
 							<td class="mono bid-book-col-center" title={row.placedAtTitle}>
 								{row.placedAtLabel}
 							</td>
@@ -207,11 +228,11 @@
 					{#if group.activeOfferCount > 1}
 						{#if !group.hidden && hasVisibleRows(group)}
 							<tr class="bid-book-bucket-spacer" aria-hidden="true">
-								<td colspan={4}></td>
+								<td colspan={columnCount}></td>
 							</tr>
 						{/if}
 						<tr class="bid-book-demand-group-meta-row" hidden={group.hidden}>
-							<td colspan={4}>
+							<td colspan={columnCount}>
 								<div class="runtime-kv-grid bid-book-demand-group-meta">
 									<div>
 										<span class="runtime-k">total</span>

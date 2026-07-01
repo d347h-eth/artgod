@@ -114,6 +114,7 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
                         nextCursor: null,
                         limit: 250,
                         totalItems: 2,
+                        marketplaceBiddingSupportedTotalItems: 2,
                         rangeStart: 1,
                         rangeEnd: 2,
                         currentPage: 1,
@@ -307,6 +308,7 @@ function createExtensionRecords() {
 function tokenCard(tokenId: string, image: string): TokenCard {
     return {
         tokenId,
+        marketplaceBiddingSupported: true,
         name: null,
         image,
         traitSummary: null,
@@ -356,6 +358,11 @@ function createBaseReadPort() {
         },
         listCollectionTokenCardsByIds() {
             throw new Error("Unexpected listCollectionTokenCardsByIds call");
+        },
+        countMarketplaceBiddingSupportedTokensByIds() {
+            throw new Error(
+                "Unexpected countMarketplaceBiddingSupportedTokensByIds call",
+            );
         },
     };
 }

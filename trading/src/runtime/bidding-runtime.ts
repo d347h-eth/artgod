@@ -144,6 +144,10 @@ export async function startBiddingRuntime(
         TRADING_BOT_RUNTIME_STATE.Bootstrapping,
     );
 
+    const biddingJobRuntimeState = new SqliteBiddingJobRuntimeState();
+    biddingJobRuntimeState.invalidateEnabledActiveOrderVerification({
+        chainId: params.config.chainId,
+    });
     const biddingJobSource = new SqliteBiddingJobSource(params.config.chainId);
     // Load the authoritative enabled bidding jobs from SQLite before creating any market-facing adapters.
     log.info("loadJobs", "Loading bidding jobs from SQLite", {
@@ -328,7 +332,7 @@ export async function startBiddingRuntime(
     const bidder = new Bidder(
         biddingService,
         params.makerAddress,
-        params.biddingConfig.pollMs,
+        params.biddingConfig.scanSleepMs,
         {
             dryRun: params.biddingConfig.dryRun,
             maxConcurrentJobs: params.biddingConfig.maxConcurrentJobs,
@@ -336,7 +340,7 @@ export async function startBiddingRuntime(
         },
         tokenMetadataRepository,
         makerWethBalanceService,
-        new SqliteBiddingJobRuntimeState(),
+        biddingJobRuntimeState,
     );
 
     // Register all configured jobs before bootstrapping snapshot state or current prices.
@@ -503,7 +507,7 @@ export async function startBiddingRuntime(
     // Process any committed DB commands before the normal bidder loop starts.
     await commandReconciler.processPendingCommands("startup");
 
-    // Start the steady-state bidder tick loop only after stream listeners and warm state are ready.
+    // Start the steady-state bidder scan loop only after stream listeners and warm state are ready.
     bidder.start();
 
     const commandLoop = startBiddingCommandReconciliationLoop(

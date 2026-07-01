@@ -82,6 +82,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
             activeProtocolAddress:
                 "0x0000000000000068f116a894984e2db1123eb395",
             activeOrderPlacedAt: "2026-05-17T00:00:00Z",
+            activeOrderVerifiedAt: "2026-05-17T00:00:02Z",
             activeExpirationTimeMs: 1_900_000_000_000,
             bidPosition: null,
             bidConstraints: [],
@@ -92,15 +93,56 @@ describe("SqliteBiddingJobRuntimeState", () => {
 
         const row = db
             .prepare(
-                "SELECT job_revision, active_order_placed_at FROM trading_bidding_job_runtime_state WHERE job_id = ?",
+                "SELECT job_revision, active_order_placed_at, active_order_verified_at FROM trading_bidding_job_runtime_state WHERE job_id = ?",
             )
             .get("job-token") as {
                 job_revision: number;
                 active_order_placed_at: string;
+                active_order_verified_at: string;
             };
 
         assert.equal(row.job_revision, 1);
         assert.equal(row.active_order_placed_at, "2026-05-17T00:00:00Z");
+        assert.equal(row.active_order_verified_at, "2026-05-17T00:00:02Z");
+    });
+
+    it("marks enabled active-order evidence unverified on bot startup", () => {
+        const runtimeState = new SqliteBiddingJobRuntimeState();
+        db.prepare("UPDATE trading_jobs SET status = ? WHERE job_id = ?").run(
+            TRADING_JOB_STATUS.Enabled,
+            "job-token",
+        );
+
+        runtimeState.persistJobRuntimeState({
+            jobId: "job-token",
+            jobRevision: 1,
+            currentPriceWei: "150000000000000000",
+            activeOrderId: "0xmine",
+            activeProtocolAddress:
+                "0x0000000000000068f116a894984e2db1123eb395",
+            activeOrderPlacedAt: "2026-05-17T00:00:00Z",
+            activeOrderVerifiedAt: "2026-05-17T00:00:02Z",
+            activeExpirationTimeMs: 1_900_000_000_000,
+            bidPosition: null,
+            bidConstraints: [],
+            competitorPriceWei: null,
+            lastRunAt: "2026-05-17T00:00:01Z",
+            lastError: null,
+        });
+
+        runtimeState.invalidateEnabledActiveOrderVerification({ chainId: 1 });
+
+        const row = db
+            .prepare(
+                "SELECT active_order_id, active_order_verified_at FROM trading_bidding_job_runtime_state WHERE job_id = ?",
+            )
+            .get("job-token") as {
+                active_order_id: string;
+                active_order_verified_at: string | null;
+            };
+
+        assert.equal(row.active_order_id, "0xmine");
+        assert.equal(row.active_order_verified_at, null);
     });
 
     it("records completed offer cancellations with the owning collection scope", () => {

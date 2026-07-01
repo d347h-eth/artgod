@@ -35,6 +35,7 @@ function mapTokenCardToPresentationSummary(
 ): TokenPresentationSummary {
     return {
         tokenId: token.tokenId,
+        marketplaceBiddingSupported: token.marketplaceBiddingSupported,
         name: token.name,
         image: token.image,
         traitSummary: renderTraitSummaryTemplate(

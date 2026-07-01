@@ -11,7 +11,7 @@ import {
 	TRADING_BIDDING_BID_SCOPE_KIND
 } from '@artgod/shared/types';
 import { installBuiltInCollectionExtensions } from '$lib/collection-extension-built-ins';
-import type { ApiBiddingBidBookRow } from '$lib/api-types';
+import type { ApiBiddingBidBookRow, ApiTokenDetailTrait } from '$lib/api-types';
 import { TERRAFORMS_TOKEN_DETAIL_SECTION_LABELS } from '$lib/activity-extension-views/terraforms/constants';
 import TokenDetailPage from '../../routes/[chain_ref]/[collection_ref]/[token_ref]/+page.svelte';
 
@@ -31,6 +31,13 @@ function marketMaterialization(): ApiBiddingBidBookRow['materialization'] {
 		jobId: null,
 		status: null,
 		phase: null
+	};
+}
+
+function tokenDetailTrait(input: Omit<ApiTokenDetailTrait, 'marketplaceBiddingSupported'>): ApiTokenDetailTrait {
+	return {
+		...input,
+		marketplaceBiddingSupported: true
 	};
 }
 
@@ -75,6 +82,7 @@ describe('token detail page', () => {
 					},
 					token: {
 						tokenId: '1',
+						marketplaceBiddingSupported: true,
 						name: '',
 						image: 'https://example.com/1.png',
 						animationUrl: 'https://example.com/1.html',
@@ -82,18 +90,18 @@ describe('token detail page', () => {
 						listingCurrency: '0x0000000000000000000000000000000000000000',
 						currentHolder: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 						attributes: [
-							{
+							tokenDetailTrait({
 								key: 'Hat',
 								value: 'Beanie',
 								tokenCount: 2,
 								rarityPercent: 66.6667
-							},
-							{
+							}),
+							tokenDetailTrait({
 								key: 'Power',
 								value: '7',
 								tokenCount: 1,
 								rarityPercent: 33.3333
-							}
+							})
 						],
 						hasMetadata: true,
 						metadataUpdatedAt: '2026-01-01T00:00:00Z'
@@ -127,6 +135,7 @@ describe('token detail page', () => {
 										isOwn: false
 									},
 									price: exactPrice('100000000000000000', '0.1'),
+									bidLimits: null,
 									quantity: '1',
 									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 									currencySymbol: 'WETH',
@@ -153,6 +162,7 @@ describe('token detail page', () => {
 										isOwn: true
 									},
 									price: exactPrice('100000000000000000', '0.1'),
+									bidLimits: null,
 									quantity: '1',
 									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 									currencySymbol: 'WETH',
@@ -179,6 +189,7 @@ describe('token detail page', () => {
 										isOwn: false
 									},
 									price: exactPrice('100000000000000000', '0.1'),
+									bidLimits: null,
 									quantity: '1',
 									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 									currencySymbol: 'WETH',
@@ -205,6 +216,7 @@ describe('token detail page', () => {
 										isOwn: false
 									},
 									price: exactPrice('100000000000000000', '0.1'),
+									bidLimits: null,
 									quantity: '1',
 									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 									currencySymbol: 'WETH',
@@ -316,6 +328,7 @@ describe('token detail page', () => {
 					},
 					token: {
 						tokenId: '1',
+						marketplaceBiddingSupported: true,
 						name: 'Milady #1',
 						image: 'https://example.com/1.png',
 						animationUrl: null,
@@ -323,12 +336,12 @@ describe('token detail page', () => {
 						listingCurrency: null,
 						currentHolder: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 						attributes: [
-							{
+							tokenDetailTrait({
 								key: 'Hat',
 								value: 'Beanie',
 								tokenCount: 2,
 								rarityPercent: 66.6667
-							}
+							})
 						],
 						hasMetadata: true,
 						metadataUpdatedAt: '2026-01-01T00:00:00Z'
@@ -355,6 +368,7 @@ describe('token detail page', () => {
 							activeOrderId: '0xabc123',
 							activeProtocolAddress: '0xdef456',
 							activeOrderPlacedAt: '2026-01-01T12:00:00Z',
+							activeOrderVerifiedAt: '2026-01-01T12:00:02Z',
 							activeExpirationTimeMs: 1760000000000,
 							bidPosition: null,
 							bidConstraints: [],
@@ -433,6 +447,7 @@ describe('token detail page', () => {
 					},
 					token: {
 						tokenId: '7710',
+						marketplaceBiddingSupported: true,
 						name: 'Terraform #7710',
 						image: 'https://example.com/lost.png',
 						animationUrl: 'https://example.com/lost.html',
@@ -440,12 +455,12 @@ describe('token detail page', () => {
 						listingCurrency: null,
 						currentHolder: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 						attributes: [
-							{
+							tokenDetailTrait({
 								key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
 								value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terraform,
 								tokenCount: 1,
 								rarityPercent: 100
-							}
+							})
 						],
 						hasMetadata: true,
 						metadataUpdatedAt: '2026-01-01T00:00:00Z'
@@ -516,6 +531,7 @@ describe('token detail page', () => {
 					},
 					token: {
 						tokenId: '1',
+						marketplaceBiddingSupported: true,
 						name: 'Terraform #1',
 						image: 'https://example.com/1.png',
 						animationUrl: null,
@@ -523,12 +539,12 @@ describe('token detail page', () => {
 						listingCurrency: null,
 						currentHolder: null,
 						attributes: [
-							{
+							tokenDetailTrait({
 								key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
 								value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
 								tokenCount: 1,
 								rarityPercent: 100
-							}
+							})
 						],
 						hasMetadata: true,
 						metadataUpdatedAt: '2026-01-01T00:00:00Z'
@@ -584,6 +600,7 @@ describe('token detail page', () => {
 					},
 					token: {
 						tokenId: '1',
+						marketplaceBiddingSupported: true,
 						name: 'Milady #1',
 						image: 'https://example.com/1.png',
 						animationUrl: null,

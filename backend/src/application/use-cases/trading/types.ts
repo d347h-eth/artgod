@@ -53,6 +53,7 @@ export type BiddingJobView = {
         activeOrderId: string | null;
         activeProtocolAddress: string | null;
         activeOrderPlacedAt: string | null;
+        activeOrderVerifiedAt: string | null;
         activeExpirationTimeMs: number | null;
         bidPosition: TradingBiddingJobRuntimeBidPosition | null;
         bidConstraints: TradingBiddingJobRuntimeConstraint[];
@@ -225,6 +226,7 @@ export function mapPersistedBiddingJobToView(
               activeOrderId: job.runtime.activeOrderId,
               activeProtocolAddress: job.runtime.activeProtocolAddress,
               activeOrderPlacedAt: job.runtime.activeOrderPlacedAt,
+              activeOrderVerifiedAt: job.runtime.activeOrderVerifiedAt,
               activeExpirationTimeMs: job.runtime.activeExpirationTimeMs,
               bidPosition: job.runtime.bidPosition,
               bidConstraints: job.runtime.bidConstraints,

@@ -381,7 +381,7 @@ describe("Bidder stream refresh", () => {
         assert.equal(biddingService.tokenOfferLookupJobIds.length, 8);
     });
 
-    it("runs different jobs concurrently up to the configured job limit during a tick", async () => {
+    it("runs different jobs concurrently up to the configured job limit during a scan", async () => {
         const biddingService = new FakeBiddingService();
         let inFlight = 0;
         let maxInFlight = 0;
@@ -409,7 +409,7 @@ describe("Bidder stream refresh", () => {
             makeJob("token-3", "terraforms", { type: "token", tokenId: "3" }),
         );
 
-        await bidder.tick();
+        await bidder.scanOnce();
 
         assert.equal(maxInFlight, 2);
     });
@@ -833,7 +833,7 @@ describe("Bidder stream refresh", () => {
         assert.deepEqual(biddingService.placedAmounts, [5n]);
     });
 
-    it("runs runtime override activation immediately without waiting for the normal tick backlog", async () => {
+    it("runs runtime override activation immediately without waiting for the normal scan backlog", async () => {
         const biddingService = new FakeBiddingService();
         let releaseBlocker!: () => void;
         const blockerStarted = new Promise<void>((resolve) => {
@@ -883,7 +883,7 @@ describe("Bidder stream refresh", () => {
             ),
         );
 
-        const tickPromise = bidder.tick();
+        const scanPromise = bidder.scanOnce();
         await blockerStarted;
 
         const activationPromise = bidder.activateJob("target", {
@@ -906,7 +906,7 @@ describe("Bidder stream refresh", () => {
         assert.deepEqual(biddingService.placedAmounts, [4n]);
 
         releaseBlocker();
-        await tickPromise;
+        await scanPromise;
     });
 
     it("runs runtime override activation immediately after the same job finishes its current execution", async () => {
@@ -1003,6 +1003,7 @@ describe("Bidder stream refresh", () => {
             jobRevision: number;
             activeOrderId: string | null;
             activeOrderPlacedAt: string | null;
+            activeOrderVerifiedAt: string | null;
             currentPriceWei: string | null;
             bidPosition: TradingBiddingJobRuntimeBidPosition | null;
             bidConstraints: TradingBiddingJobRuntimeConstraint[];
@@ -1023,6 +1024,7 @@ describe("Bidder stream refresh", () => {
                         jobRevision: snapshot.jobRevision,
                         activeOrderId: snapshot.activeOrderId,
                         activeOrderPlacedAt: snapshot.activeOrderPlacedAt,
+                        activeOrderVerifiedAt: snapshot.activeOrderVerifiedAt,
                         currentPriceWei: snapshot.currentPriceWei,
                         bidPosition: snapshot.bidPosition,
                         bidConstraints: snapshot.bidConstraints,
@@ -1046,15 +1048,21 @@ describe("Bidder stream refresh", () => {
         await bidder.refreshJob("token-hit");
 
         assert.deepEqual(biddingService.placedAmounts, [20n]);
-        assert.deepEqual(persistedStates.at(-1), {
+        const latestState = persistedStates.at(-1);
+        assert.equal(typeof latestState?.activeOrderVerifiedAt, "string");
+        assert.deepEqual(
+            latestState ? { ...latestState, activeOrderVerifiedAt: null } : null,
+            {
             jobRevision: 1,
             activeOrderId: "0xhash",
             activeOrderPlacedAt: "2026-05-17T00:00:00Z",
+            activeOrderVerifiedAt: null,
             currentPriceWei: "20",
             bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
             bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
             competitorPriceWei: "25",
-        });
+            },
+        );
     });
 
     it("continues bid refresh when runtime persistence fails", async () => {

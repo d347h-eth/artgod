@@ -38,6 +38,7 @@ describe('CollectionDetailView', () => {
 					items: [
 						{
 							tokenId: '1',
+							marketplaceBiddingSupported: true,
 							name: 'Milady #1',
 							image: 'https://example.com/1.png',
 							traitSummary: 'L7/BForest/Alpha',
@@ -52,6 +53,7 @@ describe('CollectionDetailView', () => {
 					nextCursor: null,
 					limit: 25,
 					totalItems: 1,
+					marketplaceBiddingSupportedTotalItems: 1,
 					rangeStart: 1,
 					rangeEnd: 1,
 					currentPage: 1,
@@ -63,7 +65,7 @@ describe('CollectionDetailView', () => {
 						displayKind: 'set',
 						minValue: null,
 						maxValue: null,
-						values: [{ value: 'Beanie', tokenCount: 1 }]
+						values: [{ value: 'Beanie', tokenCount: 1, marketplaceBiddingSupported: true }]
 					}
 				],
 				selectedTraits: [{ key: 'Hat', value: 'Beanie' }],

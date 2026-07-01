@@ -29,6 +29,7 @@ export function emptyBiddingTokenOfferCardsPage(
 		nextCursor: null,
 		limit,
 		totalItems: 0,
+		marketplaceBiddingSupportedTotalItems: 0,
 		totalOffers: 0,
 		rangeStart: 0,
 		rangeEnd: 0,

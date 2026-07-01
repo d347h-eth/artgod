@@ -70,6 +70,7 @@
 		emptyMessage = 'no tokens match current filters',
 		selection = null,
 		onVisibleTokenIdsChange = null,
+		onVisibleBiddableTokenIdsChange = null,
 		onToggleTiers = null
 	}: {
 		chain: ApiChain | null;
@@ -91,10 +92,11 @@
 		emptyMessage?: string;
 		selection?: {
 			stateKey: string;
-			state: (tokenId: string, stateKey: string) => TokenCardSelectionState;
+			state: (token: ApiTokenCard, stateKey: string) => TokenCardSelectionState;
 			onToggle: (request: TokenCardSelectionToggleRequest & { visibleTokenIds: string[] }) => void;
 		} | null;
 		onVisibleTokenIdsChange?: ((tokenIds: string[]) => void) | null;
+		onVisibleBiddableTokenIdsChange?: ((tokenIds: string[]) => void) | null;
 		onToggleTiers?: (() => void) | null;
 	} = $props();
 
@@ -128,9 +130,18 @@
 	let traitColumns = $derived(resolveTraitColumns(facets));
 	let traitFacetIndex = $derived(buildTraitFacetIndex(facets));
 	let visibleTokenIds = $derived(visibleTokens.map((token) => token.tokenId));
+	let visibleBiddableTokenIds = $derived(
+		visibleTokens
+			.filter((token) => token.marketplaceBiddingSupported)
+			.map((token) => token.tokenId)
+	);
 
 	$effect(() => {
 		onVisibleTokenIdsChange?.(visibleTokenIds);
+	});
+
+	$effect(() => {
+		onVisibleBiddableTokenIdsChange?.(visibleBiddableTokenIds);
 	});
 
 	$effect(() => {
@@ -545,12 +556,12 @@
 									marketPrices={tokenMarketPrices(token)}
 									selection={selection
 										? {
-												state: selection.state(token.tokenId, selection.stateKey),
+												state: selection.state(token, selection.stateKey),
 												onToggle: (request) =>
-													selection.onToggle({
-														...request,
-														visibleTokenIds
-													})
+														selection.onToggle({
+															...request,
+															visibleTokenIds: visibleBiddableTokenIds
+														})
 											}
 										: null}
 								/>

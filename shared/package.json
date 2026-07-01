@@ -24,6 +24,7 @@
         "./config/weighted-endpoints": "./config/weighted-endpoints.ts",
         "./http/api-security": "./http/api-security.ts",
         "./http/bootstrap-routes": "./http/bootstrap-routes.ts",
+        "./http/trading-routes": "./http/trading-routes.ts",
         "./bootstrap/pipeline": "./bootstrap/pipeline.ts",
         "./bootstrap/jobs": "./bootstrap/jobs.ts",
         "./bootstrap/run-events": "./bootstrap/run-events.ts",

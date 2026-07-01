@@ -249,6 +249,7 @@ describe('Terraforms Hypercastle seed classes', () => {
 function tokenCardFixture(tokenId: string): ApiTokenCard {
 	return {
 		tokenId,
+		marketplaceBiddingSupported: true,
 		name: `Token ${tokenId}`,
 		image: null,
 		traitSummary: null,

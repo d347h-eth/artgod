@@ -70,7 +70,7 @@
 	import { resolveBidBookTraitDemandGroupPreview } from '$lib/bid-book-trait-previews';
 	import {
 		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
-		buildBiddingAutomationTokenFilterSnapshot,
+		buildBiddingAutomationResolvedTokenFilterSnapshot,
 		buildBiddingAutomationDraftFromSelection,
 		buildBiddingAutomationDraftFromBid,
 		biddingTraitCriteriaToTokenAttributes,
@@ -211,7 +211,6 @@
 	let bidBookMetadataNowMs = $state(Date.now());
 	let bidBookNextUpdateAtMs = $state<number | null>(null);
 	let refreshedTokenOfferWindow: PaginationWindowState<ApiBiddingTokenOfferCard> | null = null;
-
 	const hasActiveTraitFilters = $derived(activeTraits.length > 0 || activeTraitRanges.length > 0);
 	const showBidBookFilters = $derived(
 		bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token ||
@@ -236,7 +235,11 @@
 			tailNextCursor: tokenOffersTailNextCursor
 		})
 	);
-	const visibleTokenOfferCardIds = $derived(visibleTokenOfferCards.map((token) => token.tokenId));
+	const visibleBiddableTokenOfferCardIds = $derived(
+		visibleTokenOfferCards
+			.filter((token) => token.marketplaceBiddingSupported)
+			.map((token) => token.tokenId)
+	);
 	const currentBiddingSelection = $derived($biddingAutomationState.selection);
 	const selectionBiddingDraft = $derived(
 		currentBiddingSelection ? buildBiddingAutomationDraftFromSelection(currentBiddingSelection) : null
@@ -285,6 +288,7 @@
 				biddingBidBookLivePollIntervalMs(activeBidBook.state.source, bidBookLiveRefreshConfig),
 			onNextUpdate: (nextUpdateAtMs) => {
 				bidBookNextUpdateAtMs = nextUpdateAtMs;
+				bidBookMetadataNowMs = Date.now();
 			}
 		});
 		const metadataTimer = window.setInterval(() => {
@@ -359,7 +363,7 @@
 		if (bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
 			return;
 		}
-		biddingAutomation.pruneInvisibleTokenSelection(visibleTokenOfferCardIds);
+		biddingAutomation.pruneInvisibleTokenSelection(visibleBiddableTokenOfferCardIds);
 	});
 
 	$effect(() => {
@@ -807,14 +811,14 @@
 	function bidOnFilteredTokenOffers(): void {
 		if (isAllFilteredTokenSelectionActive()) {
 			if (canRefineTokenSelectionToVisiblePage) {
-				biddingAutomation.selectExplicitTokens(visibleTokenOfferCardIds);
+				biddingAutomation.selectExplicitTokens(visibleBiddableTokenOfferCardIds);
 			}
 			expandBiddingAutomationPanel();
 			return;
 		}
 		biddingAutomation.selectFilteredTokens(
 			buildFilteredTokenBatchBiddingSelectionInput({
-				tokenCount: activeTokenOfferCardsPage.totalItems,
+				tokenCount: activeTokenOfferCardsPage.marketplaceBiddingSupportedTotalItems,
 				filter: currentBiddingFilterSnapshot()
 			})
 		);
@@ -824,12 +828,14 @@
 	function toggleVisibleTokenSelection(request: Omit<ToggleBiddingTokenInput, 'visibleTokenIds'>): void {
 		biddingAutomation.toggleToken({
 			...request,
-			visibleTokenIds: visibleTokenOfferCardIds
+			visibleTokenIds: visibleBiddableTokenOfferCardIds
 		});
 	}
 
-	function biddingTokenSelectionState(tokenId: string, stateKey: string) {
-		return biddingAutomationTokenSelectionState(currentBiddingSelection, tokenId, stateKey);
+	function biddingTokenSelectionState(token: ApiBiddingTokenOfferCard, stateKey: string) {
+		return biddingAutomationTokenSelectionState(currentBiddingSelection, token.tokenId, stateKey, {
+			marketplaceBiddingSupported: token.marketplaceBiddingSupported
+		});
 	}
 
 	function isAllFilteredTokenSelectionActive(): boolean {
@@ -841,9 +847,10 @@
 		ranges?: ApiTraitRangeFilter[];
 		nextTraitJoinMode?: ApiCollectionBiddingTraitFilterJoinMode;
 	} = {}): BiddingAutomationTokenFilterSnapshot {
-		return buildBiddingAutomationTokenFilterSnapshot({
+		return buildBiddingAutomationResolvedTokenFilterSnapshot({
 			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
 			selectedTraits: params.traits ?? activeTraits,
+			facets,
 			selectedTraitRanges: params.ranges ?? activeTraitRanges,
 			traitJoinMode: params.nextTraitJoinMode ?? traitJoinMode,
 			tokenStatus: null,
@@ -1092,7 +1099,9 @@
 						showTierAction={biddingSelectionControlPolicy.showTierAction}
 						tierActionActive={priceTierPanelOpen}
 						tokenActionLabel={tokenActionLabel}
-						tokenActionDisabled={activeTokenOfferCardsPage.totalItems === 0}
+						tokenActionDisabled={
+							activeTokenOfferCardsPage.marketplaceBiddingSupportedTotalItems === 0
+						}
 						onToggleTiers={togglePriceTierPanel}
 						onBidOnTraits={bidOnFilteredTraits}
 						onBidOnTokens={bidOnFilteredTokenOffers}
@@ -1221,7 +1230,7 @@
 													metaLabel={tokenOfferMetaLabel(token)}
 													ownStatusBadges={tokenOfferOwnStatusBadges(token)}
 													selection={{
-														state: biddingTokenSelectionState(token.tokenId, biddingSelectionStateKey),
+														state: biddingTokenSelectionState(token, biddingSelectionStateKey),
 														onToggle: toggleVisibleTokenSelection
 													}}
 												/>

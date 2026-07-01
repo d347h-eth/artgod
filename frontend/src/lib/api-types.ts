@@ -159,6 +159,7 @@ export type ApiActivityFeedItem = {
 
 export type ApiTokenPresentationSummary = {
 	tokenId: string;
+	marketplaceBiddingSupported: boolean;
 	name: string | null;
 	image: string | null;
 	traitSummary: string | null;
@@ -347,6 +348,7 @@ export type ApiBiddingJobPricingSource = TradingBiddingJobPricingSource;
 
 export type ApiTokenCard = {
 	tokenId: string;
+	marketplaceBiddingSupported: boolean;
 	name: string | null;
 	image: string | null;
 	traitSummary: string | null;
@@ -362,10 +364,12 @@ export type ApiTokenDetailTrait = {
 	value: string;
 	tokenCount: number | null;
 	rarityPercent: number | null;
+	marketplaceBiddingSupported: boolean;
 };
 
 export type ApiTokenDetail = {
 	tokenId: string;
+	marketplaceBiddingSupported: boolean;
 	name: string | null;
 	image: string | null;
 	animationUrl: string | null;
@@ -385,6 +389,7 @@ export type ApiTokensPage = {
 	nextCursor: string | null;
 	limit: number;
 	totalItems: number;
+	marketplaceBiddingSupportedTotalItems: number;
 	rangeStart: number;
 	rangeEnd: number;
 	currentPage: number;
@@ -399,6 +404,7 @@ export type ApiTraitFacet = {
 	values: Array<{
 		value: string;
 		tokenCount: number;
+		marketplaceBiddingSupported: boolean;
 	}>;
 };
 
@@ -542,6 +548,7 @@ export type ApiBiddingJobRuntimeState = {
 	activeOrderId: string | null;
 	activeProtocolAddress: string | null;
 	activeOrderPlacedAt: string | null;
+	activeOrderVerifiedAt: string | null;
 	activeExpirationTimeMs: number | null;
 	bidPosition: TradingBiddingJobRuntimeBidPosition | null;
 	bidConstraints: TradingBiddingJobRuntimeConstraint[];
@@ -585,6 +592,12 @@ export type ApiBiddingBidBookPrice =
 			ceilingWei: string;
 			ceilingEth: string;
 	  };
+export type ApiBiddingBidBookBidLimits = {
+	floorWei: string;
+	floorEth: string;
+	ceilingWei: string;
+	ceilingEth: string;
+};
 export type ApiBiddingBidBookRowMaterialization =
 	| {
 			kind: typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid;
@@ -626,6 +639,7 @@ export type ApiBiddingBidBookRow = {
 		isOwn: boolean;
 	};
 	price: ApiBiddingBidBookPrice;
+	bidLimits: ApiBiddingBidBookBidLimits | null;
 	quantity: string;
 	currencyAddress: string | null;
 	currencySymbol: string | null;
@@ -661,6 +675,7 @@ export type ApiBiddingTokenOfferCardsPage = {
 	nextCursor: string | null;
 	limit: number;
 	totalItems: number;
+	marketplaceBiddingSupportedTotalItems: number;
 	totalOffers: number;
 	rangeStart: number;
 	rangeEnd: number;
@@ -781,6 +796,14 @@ export type BatchTokenBiddingJobMutationApiResponse = {
 	collection: ApiCollection;
 	tokenIds: string[];
 	jobs: ApiBiddingJob[];
+};
+
+export type BatchTokenBiddingJobLookupApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	tokenIds: string[];
+	jobs: ApiBiddingJob[];
+	targetCount: number;
 };
 
 export type TokenDetailApiResponse = {

@@ -12,8 +12,21 @@ import {
 	TRADING_JOB_TARGET_KIND,
 	TRADING_JOB_STATUS
 } from '@artgod/shared/types';
-import { buildBiddingAutomationDraftFromBid } from '$lib/bidding-automation';
+import {
+	BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
+	BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
+	BIDDING_AUTOMATION_FILTER_TARGET_INTENT,
+	BIDDING_AUTOMATION_PRICING_MODE,
+	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
+	BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
+	buildBiddingAutomationDraftFromBid
+} from '$lib/bidding-automation';
+import {
+	TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+	TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES
+} from '@artgod/shared/extensions/terraforms';
 import type { ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
+import { TEST_IDS } from '$lib/test-ids';
 import BiddingAutomationPanel from './BiddingAutomationPanel.svelte';
 
 function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
@@ -50,6 +63,7 @@ describe('BiddingAutomationPanel', () => {
 				},
 				token: {
 					tokenId: '1',
+					marketplaceBiddingSupported: true,
 					name: 'Milady #1',
 					image: 'https://example.com/1.png',
 					animationUrl: null,
@@ -82,6 +96,7 @@ describe('BiddingAutomationPanel', () => {
 						activeOrderId: '0xabc123',
 						activeProtocolAddress: '0xdef456',
 						activeOrderPlacedAt: '2026-01-01T12:00:00Z',
+						activeOrderVerifiedAt: '2026-01-01T12:00:02Z',
 						activeExpirationTimeMs: 1760000000000,
 						bidPosition: null,
 						bidConstraints: [],
@@ -168,6 +183,7 @@ describe('BiddingAutomationPanel', () => {
 								isOwn: true
 							},
 							price: exactPrice('200000000000000000', '0.2'),
+							bidLimits: null,
 							quantity: '1',
 							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 							currencySymbol: 'WETH',
@@ -240,6 +256,7 @@ describe('BiddingAutomationPanel', () => {
 								isOwn: true
 							},
 							price: exactPrice('200000000000000000', '0.2'),
+							bidLimits: null,
 							quantity: '1',
 							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 							currencySymbol: 'WETH',
@@ -312,6 +329,7 @@ describe('BiddingAutomationPanel', () => {
 								isOwn: true
 							},
 							price: exactPrice('200000000000000000', '0.2'),
+							bidLimits: null,
 							quantity: '1',
 							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 							currencySymbol: 'WETH',
@@ -378,6 +396,7 @@ describe('BiddingAutomationPanel', () => {
 				isOwn: false
 			},
 			price: exactPrice('300000000000000000', '0.3'),
+			bidLimits: null,
 			quantity: '1',
 			currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 			currencySymbol: 'WETH',
@@ -427,6 +446,92 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).toContain('disabled>archive<');
 	});
 
+	it('renders unsupported trait drafts without form controls or actions', () => {
+		const draft = {
+			source: {
+				type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+				targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob,
+				filter: {
+					source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+					selectedTraits: [
+						{
+							key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+							value: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
+							marketplaceBiddingSupported: false
+						}
+					],
+					selectedTraitRanges: [],
+					traitJoinMode: 'and' as const,
+					tokenStatus: null,
+					makerAddress: null
+				},
+				tokenCount: 1,
+				state: {
+					kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+				}
+			},
+			target: {
+				type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.UnsupportedTraitJob,
+				traits: [
+					{
+						key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+						value: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed,
+						marketplaceBiddingSupported: false
+					}
+				],
+				traitJoinMode: 'and' as const
+			},
+			pricing: {
+				mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
+				floorEth: '',
+				ceilingEth: '',
+				deltaEth: ''
+			}
+		};
+
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: testChain(),
+				collection: testCollection(),
+				token: null,
+				job: null,
+				draft,
+				onClose: () => {}
+			}
+		});
+
+		expect(body).toContain(
+			'selected trait target is not available for marketplace bidding'
+		);
+		expect(body).not.toContain('id="bidding-automation-pricing-select"');
+		expect(body).not.toContain(`data-testid="${TEST_IDS.BiddingPanelCreate}"`);
+	});
+
+	it('renders unsupported exact token targets without form controls or actions', () => {
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: testChain(),
+				collection: testCollection(),
+				token: {
+					...testToken(),
+					tokenId: 'unminted-tile-921',
+					marketplaceBiddingSupported: false
+				},
+				job: null,
+				draft: null,
+				onClose: () => {}
+			}
+		});
+
+		expect(body).toContain(
+			'selected token target is not available for marketplace bidding'
+		);
+		expect(body).not.toContain('id="bidding-automation-pricing-select"');
+		expect(body).not.toContain(`data-testid="${TEST_IDS.BiddingPanelCreate}"`);
+	});
+
 	it('prefers an existing trait job config over selected-bid draft pricing', () => {
 		const existingTraitJob: ApiBiddingJob = {
 			jobId: 'job-trait-1',
@@ -469,6 +574,7 @@ describe('BiddingAutomationPanel', () => {
 				isOwn: false
 			},
 			price: exactPrice('300000000000000000', '0.3'),
+			bidLimits: null,
 			quantity: '1',
 			currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 			currencySymbol: 'WETH',
@@ -521,6 +627,7 @@ describe('BiddingAutomationPanel', () => {
 				isOwn: false
 			},
 			price: exactPrice('300000000000000000', '0.3'),
+			bidLimits: null,
 			quantity: '1',
 			currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 			currencySymbol: 'WETH',
@@ -596,6 +703,7 @@ describe('BiddingAutomationPanel', () => {
 				isOwn: false
 			},
 			price: exactPrice('300000000000000000', '0.3'),
+			bidLimits: null,
 			quantity: '2',
 			currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 			currencySymbol: 'WETH',
@@ -668,6 +776,7 @@ describe('BiddingAutomationPanel', () => {
 				},
 				token: {
 					tokenId: '1',
+					marketplaceBiddingSupported: true,
 					name: 'Milady #1',
 					image: 'https://example.com/1.png',
 					animationUrl: null,
@@ -773,6 +882,7 @@ function testCollection() {
 function testToken() {
 	return {
 		tokenId: '1',
+		marketplaceBiddingSupported: true,
 		name: 'Milady #1',
 		image: 'https://example.com/1.png',
 		animationUrl: null,
@@ -813,6 +923,7 @@ function testTokenJob(
 			activeOrderId: '0xabc123',
 			activeProtocolAddress: '0xdef456',
 			activeOrderPlacedAt: '2026-01-01T12:00:00Z',
+			activeOrderVerifiedAt: '2026-01-01T12:00:02Z',
 			activeExpirationTimeMs: 1760000000000,
 			bidPosition: null,
 			bidConstraints: [],

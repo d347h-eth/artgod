@@ -49,6 +49,7 @@ import type {
     PersistedBiddingBidBookState,
 } from "../../application/use-cases/trading/bidding-bid-book.js";
 import {
+    bidBookBidLimits,
     exactBidBookRowPrice,
     marketBidMaterialization,
     persistedBidBookRowEffectiveWei,
@@ -99,7 +100,7 @@ type CompletedOwnCancellationRow = {
     order_id: string;
 };
 
-type IncompleteOwnCancellationRow = BiddingJobSignalRow & {
+type OwnCancellationSignalRow = BiddingJobSignalRow & {
     cancellation_order_id: string;
     cancellation_job_revision: number | null;
     cancellation_price_wei: string | null;
@@ -107,6 +108,7 @@ type IncompleteOwnCancellationRow = BiddingJobSignalRow & {
     cancellation_placed_at: string | null;
     cancellation_expiration_time_ms: number | null;
     cancellation_error: string | null;
+    cancellation_completed_at: string | null;
     cancellation_updated_at: string;
 };
 
@@ -126,6 +128,7 @@ type BiddingJobSignalRow = {
     active_order_id: string | null;
     active_protocol_address: string | null;
     active_order_placed_at: string | null;
+    active_order_verified_at: string | null;
     active_expiration_time_ms: number | null;
     bid_position: string | null;
     bid_constraints_json: string | null;
@@ -144,18 +147,40 @@ type BiddingJobSignal = {
     targetTraits: TradingTraitCriterion[];
     quantity: number | null;
     jobUpdatedAt: string;
-    runtime: {
-        currentPriceWei: string | null;
-        activeOrderId: string | null;
-        activeProtocolAddress: string | null;
-        activeOrderPlacedAt: string | null;
-        activeExpirationTimeMs: number | null;
-        bidPosition: TradingBiddingJobRuntimeBidPosition | null;
-        bidConstraints: TradingBiddingJobRuntimeConstraint[];
-        competitorPriceWei: string | null;
-        updatedAt: string;
-    } | null;
+    activeOrder: BiddingJobRuntimeSignal | null;
+    runtime: BiddingJobRuntimeSignal | null;
     phaseOverride?: (typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE)[keyof typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE];
+};
+
+type BiddingJobRuntimeSignal = {
+    jobRevision: number | null;
+    currentPriceWei: string | null;
+    activeOrderId: string | null;
+    activeProtocolAddress: string | null;
+    activeOrderPlacedAt: string | null;
+    activeOrderVerifiedAt: string | null;
+    activeExpirationTimeMs: number | null;
+    bidPosition: TradingBiddingJobRuntimeBidPosition | null;
+    bidConstraints: TradingBiddingJobRuntimeConstraint[];
+    competitorPriceWei: string | null;
+    updatedAt: string;
+};
+
+type BiddingJobActiveOrderSignal = BiddingJobRuntimeSignal & {
+    activeOrderId: string;
+};
+
+type BiddingJobRuntimeDecisionSignal = BiddingJobRuntimeSignal & {
+    activeOrderId: string;
+    bidPosition: TradingBiddingJobRuntimeBidPosition;
+};
+
+type BiddingJobSignalWithActiveOrder = BiddingJobSignal & {
+    activeOrder: BiddingJobActiveOrderSignal;
+};
+
+type BiddingJobSignalWithRuntimeDecision = BiddingJobSignal & {
+    runtime: BiddingJobRuntimeDecisionSignal;
 };
 
 const INDEXED_ORDER_SOURCE_SCOPE_KIND = {
@@ -199,6 +224,31 @@ const BIDDING_BID_BOOK_REPOSITORY_LOG = {
     ReasonInvalidNormalizedScope: "invalid-normalized-scope",
 } as const;
 
+// Keeps confirmed cancellation rows readable before suppressing stale indexed order echoes.
+const COMPLETED_CANCELLATION_ROW_RETENTION_MS = 3_000;
+
+// Prefixes local job-intent row ids so DOM keys change when the declared job revision changes.
+const OWN_JOB_INTENT_ORDER_ID_PREFIX = "job-intent";
+
+// Selects cancellation rows with the job/runtime fields needed to render own order lifecycle state.
+const OWN_CANCELLATION_SIGNAL_SELECT_SQL =
+    "SELECT j.job_id, j.status, j.target_kind, j.token_id, j.revision, " +
+    "j.updated_at AS job_updated_at, s.floor_wei, s.ceiling_wei, s.quantity, s.target_traits_json, " +
+    "r.job_revision AS runtime_job_revision, r.current_price_wei, r.active_order_id, r.active_protocol_address, r.active_order_placed_at, r.active_order_verified_at, r.active_expiration_time_ms, " +
+    "r.bid_position, r.bid_constraints_json, r.competitor_price_wei, r.updated_at AS runtime_updated_at, " +
+    "c.order_id AS cancellation_order_id, c.job_revision AS cancellation_job_revision, c.price_wei AS cancellation_price_wei, " +
+    "c.protocol_address AS cancellation_protocol_address, c.placed_at AS cancellation_placed_at, c.expiration_time_ms AS cancellation_expiration_time_ms, " +
+    "c.cancellation_error, c.completed_at AS cancellation_completed_at, c.updated_at AS cancellation_updated_at ";
+
+// Joins cancellation rows back to the declared job/spec and optional runtime evidence.
+const OWN_CANCELLATION_SIGNAL_FROM_SQL =
+    "FROM trading_bidding_order_cancellations c " +
+    "JOIN trading_jobs j ON j.job_id = c.job_id " +
+    "JOIN trading_bidding_job_specs s ON s.job_id = j.job_id " +
+    "LEFT JOIN trading_bidding_job_runtime_state r ON r.job_id = j.job_id " +
+    "WHERE c.chain_id = @chainId AND c.collection_id = @collectionId " +
+    "AND c.maker = @makerAddress ";
+
 export type SqliteBiddingBidBookRepositoryConfig = {
     snapshotStaleMs: number;
     runtimeHeartbeatStaleMs: number;
@@ -241,6 +291,12 @@ export class SqliteBiddingBidBookRepository
         chainId: number;
         collectionId: number;
         makerAddress: string;
+    }>;
+    private readonly selectRecentCompletedOwnCancellations: BetterSqlite3NamedStatement<{
+        chainId: number;
+        collectionId: number;
+        makerAddress: string;
+        completedAfter: string;
     }>;
     private readonly selectActiveBiddingJobs: BetterSqlite3NamedStatement<{
         chainId: number;
@@ -359,23 +415,30 @@ export class SqliteBiddingBidBookRepository
             collectionId: number;
             makerAddress: string;
         }>(
-            "SELECT j.job_id, j.status, j.target_kind, j.token_id, j.revision, " +
-                "j.updated_at AS job_updated_at, s.floor_wei, s.ceiling_wei, s.quantity, s.target_traits_json, " +
-                "r.job_revision AS runtime_job_revision, r.current_price_wei, r.active_order_id, r.active_protocol_address, r.active_order_placed_at, r.active_expiration_time_ms, " +
-                "r.bid_position, r.bid_constraints_json, r.competitor_price_wei, r.updated_at AS runtime_updated_at, " +
-                "c.order_id AS cancellation_order_id, c.job_revision AS cancellation_job_revision, c.price_wei AS cancellation_price_wei, " +
-                "c.protocol_address AS cancellation_protocol_address, c.placed_at AS cancellation_placed_at, c.expiration_time_ms AS cancellation_expiration_time_ms, " +
-                "c.cancellation_error, c.updated_at AS cancellation_updated_at " +
-                "FROM trading_bidding_order_cancellations c " +
-                "JOIN trading_jobs j ON j.job_id = c.job_id " +
-                "JOIN trading_bidding_job_specs s ON s.job_id = j.job_id " +
-                "LEFT JOIN trading_bidding_job_runtime_state r ON r.job_id = j.job_id " +
-                "WHERE c.chain_id = @chainId AND c.collection_id = @collectionId " +
-                "AND c.maker = @makerAddress AND c.completed_at IS NULL",
+            OWN_CANCELLATION_SIGNAL_SELECT_SQL +
+                OWN_CANCELLATION_SIGNAL_FROM_SQL +
+                "AND c.completed_at IS NULL",
         ) as BetterSqlite3NamedStatement<{
             chainId: number;
             collectionId: number;
             makerAddress: string;
+        }>;
+
+        this.selectRecentCompletedOwnCancellations = db.prepare<{
+            chainId: number;
+            collectionId: number;
+            makerAddress: string;
+            completedAfter: string;
+        }>(
+            OWN_CANCELLATION_SIGNAL_SELECT_SQL +
+                OWN_CANCELLATION_SIGNAL_FROM_SQL +
+                "AND c.completed_at IS NOT NULL AND c.cancellation_error IS NULL " +
+                "AND c.completed_at >= @completedAfter",
+        ) as BetterSqlite3NamedStatement<{
+            chainId: number;
+            collectionId: number;
+            makerAddress: string;
+            completedAfter: string;
         }>;
 
         this.selectActiveBiddingJobs = db.prepare<{
@@ -386,7 +449,7 @@ export class SqliteBiddingBidBookRepository
         }>(
             "SELECT j.job_id, j.status, j.target_kind, j.token_id, j.revision, " +
                 "j.updated_at AS job_updated_at, s.floor_wei, s.ceiling_wei, s.quantity, s.target_traits_json, " +
-                "r.job_revision AS runtime_job_revision, r.current_price_wei, r.active_order_id, r.active_protocol_address, r.active_order_placed_at, r.active_expiration_time_ms, " +
+                "r.job_revision AS runtime_job_revision, r.current_price_wei, r.active_order_id, r.active_protocol_address, r.active_order_placed_at, r.active_order_verified_at, r.active_expiration_time_ms, " +
                 "r.bid_position, r.bid_constraints_json, r.competitor_price_wei, r.updated_at AS runtime_updated_at " +
                 "FROM trading_jobs j " +
                 "JOIN trading_bidding_job_specs s ON s.job_id = j.job_id " +
@@ -829,7 +892,15 @@ export class SqliteBiddingBidBookRepository
             collectionId,
             ownMakerAddress,
         );
-        return mergeOwnBiddingJobSignals(activeJobs, cancellationJobs);
+        const recentlyCancelledJobs = this.loadRecentlyCompletedOwnCancellationJobs(
+            chainId,
+            collectionId,
+            ownMakerAddress,
+        );
+        return mergeOwnBiddingJobSignals(activeJobs, [
+            ...cancellationJobs,
+            ...recentlyCancelledJobs,
+        ]);
     }
 
     private loadActiveBiddingJobs(
@@ -876,8 +947,29 @@ export class SqliteBiddingBidBookRepository
             chainId,
             collectionId,
             makerAddress: ownMakerAddress,
-        }) as IncompleteOwnCancellationRow[];
-        return rows.map((row) => mapIncompleteCancellationSignalRow(row));
+        }) as OwnCancellationSignalRow[];
+        return rows.map((row) => mapCancellationSignalRow(row));
+    }
+
+    private loadRecentlyCompletedOwnCancellationJobs(
+        chainId: number,
+        collectionId: number,
+        ownMakerAddress: string | null,
+    ): BiddingJobSignal[] {
+        if (!ownMakerAddress) {
+            return [];
+        }
+
+        const completedAfter = new Date(
+            Date.now() - COMPLETED_CANCELLATION_ROW_RETENTION_MS,
+        ).toISOString();
+        const rows = this.selectRecentCompletedOwnCancellations.all({
+            chainId,
+            collectionId,
+            makerAddress: ownMakerAddress,
+            completedAfter,
+        }) as OwnCancellationSignalRow[];
+        return rows.map((row) => mapCancellationSignalRow(row));
     }
 
     private loadProjectedBidBook(
@@ -1152,6 +1244,7 @@ function jobSummarySpanAttributes(jobs: BiddingJobSignal[]): SpanAttributes {
 }
 
 function mapBiddingJobSignalRow(row: BiddingJobSignalRow): BiddingJobSignal {
+    const runtime = mapBiddingJobRuntimeSignal(row);
     return {
         jobId: row.job_id,
         status: row.status,
@@ -1163,47 +1256,74 @@ function mapBiddingJobSignalRow(row: BiddingJobSignalRow): BiddingJobSignal {
         targetTraits: parseTraitArray(row.target_traits_json),
         quantity: row.quantity,
         jobUpdatedAt: row.job_updated_at,
+        activeOrder: runtime?.activeOrderId ? runtime : null,
         runtime:
-            row.runtime_updated_at && row.runtime_job_revision === row.revision
-                ? {
-                      currentPriceWei: row.current_price_wei,
-                      activeOrderId: row.active_order_id,
-                      activeProtocolAddress: row.active_protocol_address,
-                      activeOrderPlacedAt: row.active_order_placed_at,
-                      activeExpirationTimeMs: row.active_expiration_time_ms,
-                      bidPosition: parseRuntimeBidPosition(row.bid_position),
-                      bidConstraints: parseRuntimeBidConstraints(
-                          row.bid_constraints_json,
-                      ),
-                      competitorPriceWei: row.competitor_price_wei,
-                      updatedAt: row.runtime_updated_at,
-                  }
+            runtime && row.runtime_job_revision === row.revision
+                ? runtime
                 : null,
     };
 }
 
-function mapIncompleteCancellationSignalRow(
-    row: IncompleteOwnCancellationRow,
+function mapBiddingJobRuntimeSignal(
+    row: BiddingJobSignalRow,
+): BiddingJobRuntimeSignal | null {
+    if (!row.runtime_updated_at) {
+        return null;
+    }
+
+    return {
+        jobRevision: row.runtime_job_revision,
+        currentPriceWei: row.current_price_wei,
+        activeOrderId: row.active_order_id,
+        activeProtocolAddress: row.active_protocol_address,
+        activeOrderPlacedAt: row.active_order_placed_at,
+        activeOrderVerifiedAt: row.active_order_verified_at,
+        activeExpirationTimeMs: row.active_expiration_time_ms,
+        bidPosition: parseRuntimeBidPosition(row.bid_position),
+        bidConstraints: parseRuntimeBidConstraints(
+            row.bid_constraints_json,
+        ),
+        competitorPriceWei: row.competitor_price_wei,
+        updatedAt: row.runtime_updated_at,
+    };
+}
+
+function mapCancellationSignalRow(
+    row: OwnCancellationSignalRow,
 ): BiddingJobSignal {
     const signal = mapBiddingJobSignalRow(row);
+    const activeOrder = {
+        jobRevision: row.cancellation_job_revision ?? signal.revision,
+        currentPriceWei: row.cancellation_price_wei,
+        activeOrderId: row.cancellation_order_id,
+        activeProtocolAddress: row.cancellation_protocol_address,
+        activeOrderPlacedAt: row.cancellation_placed_at,
+        activeOrderVerifiedAt: row.cancellation_updated_at,
+        activeExpirationTimeMs: row.cancellation_expiration_time_ms,
+        bidPosition: null,
+        bidConstraints: [],
+        competitorPriceWei: null,
+        updatedAt: row.cancellation_updated_at,
+    };
     return {
         ...signal,
         revision: row.cancellation_job_revision ?? signal.revision,
-        runtime: {
-            currentPriceWei: row.cancellation_price_wei,
-            activeOrderId: row.cancellation_order_id,
-            activeProtocolAddress: row.cancellation_protocol_address,
-            activeOrderPlacedAt: row.cancellation_placed_at,
-            activeExpirationTimeMs: row.cancellation_expiration_time_ms,
-            bidPosition: null,
-            bidConstraints: [],
-            competitorPriceWei: null,
-            updatedAt: row.cancellation_updated_at,
-        },
-        phaseOverride: row.cancellation_error
-            ? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed
-            : TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling,
+        activeOrder,
+        runtime: activeOrder,
+        phaseOverride: resolveCancellationPhase(row),
     };
+}
+
+function resolveCancellationPhase(
+    row: OwnCancellationSignalRow,
+): BiddingJobSignal["phaseOverride"] {
+    if (row.cancellation_error) {
+        return TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed;
+    }
+    if (row.cancellation_completed_at) {
+        return TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Cancelled;
+    }
+    return TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling;
 }
 
 function mergeOwnBiddingJobSignals(
@@ -1458,7 +1578,31 @@ function isStaleOwnJobMarketRow(
     if (matchingJobs.length === 0) {
         return false;
     }
-    if (matchingJobs.some((job) => isCancellationPhase(job.phaseOverride))) {
+    if (
+        matchingJobs.some(
+            (job) =>
+                job.phaseOverride ===
+                TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Cancelled,
+        )
+    ) {
+        return true;
+    }
+    if (
+        matchingJobs.some(
+            (job) =>
+                isCancellationPhase(job.phaseOverride) &&
+                hasRenderableActiveOrderEvidence(job),
+        )
+    ) {
+        return true;
+    }
+    if (
+        matchingJobs.some(
+            (job) =>
+                hasRenderableStaleActiveOrderEvidence(job) &&
+                activeOrderEvidenceMatchesBid(job, bid),
+        )
+    ) {
         return true;
     }
     // Orders fallback cannot provide job-authoritative own timing; the job overlay owns local bid display there.
@@ -1466,7 +1610,9 @@ function isStaleOwnJobMarketRow(
         return true;
     }
     return (
-        !matchingJobs.some((job) => activeRuntimeOrderMatchesBid(job, bid))
+        !matchingJobs.some((job) =>
+            currentRuntimeOrderEvidenceMatchesBid(job, bid),
+        )
     );
 }
 
@@ -1479,12 +1625,13 @@ function maybeAddOwnJobOverlays(
         return bidBook;
     }
 
-    const canSuppressJobIntent =
-        bidBook.state.source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot;
     const overlayRows = jobs.flatMap((job) =>
-        shouldCreateOwnJobOverlay(job, bidBook.bids, canSuppressJobIntent)
-            ? [mapJobOverlayRow(job, bidBook.state.source, ownMakerAddress)]
-            : [],
+        resolveOwnJobOverlayRows(
+            job,
+            bidBook.bids,
+            bidBook.state.source,
+            ownMakerAddress,
+        ),
     );
     if (overlayRows.length === 0) {
         return bidBook;
@@ -1502,34 +1649,63 @@ function maybeAddOwnJobOverlays(
     };
 }
 
-function shouldCreateOwnJobOverlay(
+function resolveOwnJobOverlayRows(
     job: BiddingJobSignal,
     bids: PersistedBiddingBidBookRow[],
-    canSuppressJobIntent: boolean,
+    source: TradingBiddingBidBookSource,
+    ownMakerAddress: string,
+): PersistedBiddingBidBookRow[] {
+    const rows: PersistedBiddingBidBookRow[] = [];
+    if (shouldCreateActiveOrderLifecycleOverlay(job)) {
+        rows.push(
+            mapActiveOrderLifecycleOverlayRow(
+                job,
+                source,
+                ownMakerAddress,
+            ),
+        );
+    }
+    if (shouldCreateCurrentJobIntentOverlay(job, bids, source)) {
+        rows.push(mapCurrentJobIntentOverlayRow(job, source, ownMakerAddress));
+    }
+    return rows;
+}
+
+function shouldCreateActiveOrderLifecycleOverlay(job: BiddingJobSignal): boolean {
+    if (isCancellationPhase(job.phaseOverride)) {
+        return hasRenderableActiveOrderEvidence(job);
+    }
+
+    return hasRenderableStaleActiveOrderEvidence(job);
+}
+
+function shouldCreateCurrentJobIntentOverlay(
+    job: BiddingJobSignal,
+    bids: PersistedBiddingBidBookRow[],
+    source: TradingBiddingBidBookSource,
 ): boolean {
     if (isCancellationPhase(job.phaseOverride)) {
+        return false;
+    }
+    if (job.status === TRADING_JOB_STATUS.Archived) {
+        return false;
+    }
+    if (source !== TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot) {
         return true;
     }
-
-    if (!canSuppressJobIntent) {
-        return true;
-    }
-
     if (!job.runtime?.activeOrderId) {
         return true;
     }
-
-    return !bids.some((bid) => activeRuntimeOrderMatchesBid(job, bid));
+    return !bids.some((bid) => currentRuntimeOrderEvidenceMatchesBid(job, bid));
 }
 
-function mapJobOverlayRow(
+function mapCurrentJobIntentOverlayRow(
     job: BiddingJobSignal,
     source: TradingBiddingBidBookSource,
     ownMakerAddress: string,
 ): PersistedBiddingBidBookRow {
     const activeRuntime =
-        (isCancellationPhase(job.phaseOverride) ||
-            job.status === TRADING_JOB_STATUS.Enabled) &&
+        job.status === TRADING_JOB_STATUS.Enabled &&
         job.runtime?.activeOrderId &&
         job.runtime.currentPriceWei
             ? job.runtime
@@ -1542,19 +1718,19 @@ function mapJobOverlayRow(
               floorWei: job.floorWei,
               ceilingWei: job.ceilingWei,
           });
+    const bidLimits = bidBookBidLimits({
+        floorWei: job.floorWei,
+        ceilingWei: job.ceilingWei,
+    });
 
     return {
-        orderId: activeRuntime?.activeOrderId ?? `job-intent:${job.jobId}`,
+        orderId: activeRuntime?.activeOrderId ?? ownJobIntentOrderId(job),
         source,
         materialization: {
             kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
             jobId: job.jobId,
             status: job.status,
-            phase:
-                job.phaseOverride ??
-                (job.status === TRADING_JOB_STATUS.Paused
-                    ? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused
-                    : TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued),
+            phase: resolveCurrentJobIntentPhase(job, activeRuntime),
         },
         scopeKind: scope.kind,
         scopeLabel: scope.label,
@@ -1564,6 +1740,7 @@ function mapJobOverlayRow(
         maker: ownMakerAddress,
         isOwn: true,
         price,
+        bidLimits,
         quantity: String(Math.max(1, Math.floor(job.quantity ?? 1))),
         currencyAddress: null,
         currencySymbol: "WETH",
@@ -1578,6 +1755,84 @@ function mapJobOverlayRow(
     };
 }
 
+function mapActiveOrderLifecycleOverlayRow(
+    job: BiddingJobSignal,
+    source: TradingBiddingBidBookSource,
+    ownMakerAddress: string,
+): PersistedBiddingBidBookRow {
+    const activeOrder = job.activeOrder;
+    if (!activeOrder?.activeOrderId || !activeOrder.currentPriceWei) {
+        throw new Error(
+            "Cannot map own active-order lifecycle row without order evidence",
+        );
+    }
+
+    const scope = resolveJobBidScope(job);
+    return {
+        orderId: activeOrder.activeOrderId,
+        source,
+        materialization: {
+            kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+            jobId: job.jobId,
+            status: job.status,
+            phase: resolveActiveOrderLifecyclePhase(job, activeOrder),
+        },
+        scopeKind: scope.kind,
+        scopeLabel: scope.label,
+        tokenId: scope.tokenId,
+        scopeTraits: scope.traits,
+        encodedTokenIds: null,
+        maker: ownMakerAddress,
+        isOwn: true,
+        price: exactBidBookRowPrice(activeOrder.currentPriceWei),
+        bidLimits: null,
+        quantity: String(Math.max(1, Math.floor(job.quantity ?? 1))),
+        currencyAddress: null,
+        currencySymbol: "WETH",
+        protocolAddress: activeOrder.activeProtocolAddress ?? null,
+        validUntil: activeOrder.activeExpirationTimeMs
+            ? Math.floor(activeOrder.activeExpirationTimeMs / 1000)
+            : null,
+        placedAt: activeOrder.activeOrderPlacedAt ?? null,
+        snapshotRefreshedAtMs: null,
+        seenAt: activeOrder.updatedAt,
+        ownStatus: null,
+    };
+}
+
+function ownJobIntentOrderId(job: BiddingJobSignal): string {
+    return `${OWN_JOB_INTENT_ORDER_ID_PREFIX}:${job.jobId}:${job.revision}`;
+}
+
+function resolveCurrentJobIntentPhase(
+    job: BiddingJobSignal,
+    activeRuntime: BiddingJobRuntimeSignal | null,
+): (typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE)[keyof typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE] {
+    if (job.phaseOverride) {
+        return job.phaseOverride;
+    }
+    if (activeRuntime && !isActiveOrderVerified(activeRuntime)) {
+        return TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Verifying;
+    }
+    if (job.status === TRADING_JOB_STATUS.Paused) {
+        return TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused;
+    }
+    return TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued;
+}
+
+function resolveActiveOrderLifecyclePhase(
+    job: BiddingJobSignal,
+    activeOrder: BiddingJobRuntimeSignal,
+): (typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE)[keyof typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE] {
+    if (job.phaseOverride) {
+        return job.phaseOverride;
+    }
+    if (!isActiveOrderVerified(activeOrder)) {
+        return TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Verifying;
+    }
+    return TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Replacing;
+}
+
 function isCancellationPhase(
     phase:
         | BiddingJobSignal["phaseOverride"]
@@ -1586,7 +1841,8 @@ function isCancellationPhase(
 ): boolean {
     return (
         phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling ||
-        phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed
+        phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed ||
+        phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Cancelled
     );
 }
 
@@ -1676,7 +1932,7 @@ function mapRuntimeOwnStatus(
     job: BiddingJobSignal,
 ): PersistedBiddingBidBookRow["ownStatus"] {
     const runtime = job.runtime;
-    if (!runtime?.bidPosition) {
+    if (!runtime?.bidPosition || !isActiveOrderVerified(runtime)) {
         return null;
     }
 
@@ -1698,6 +1954,10 @@ function mergeRuntimeOwnBidSignals(
     const runtime = job.runtime;
     return {
         ...bid,
+        bidLimits: bidBookBidLimits({
+            floorWei: job.floorWei,
+            ceilingWei: job.ceilingWei,
+        }),
         protocolAddress: runtime?.activeProtocolAddress ?? bid.protocolAddress,
         validUntil: runtime?.activeExpirationTimeMs
             ? Math.floor(runtime.activeExpirationTimeMs / 1000)
@@ -1711,22 +1971,79 @@ function mergeRuntimeOwnBidSignals(
 function activeRuntimeDecisionMatchesBid(
     job: BiddingJobSignal,
     bid: PersistedBiddingBidBookRow,
-): boolean {
-    return Boolean(
-        activeRuntimeOrderMatchesBid(job, bid) &&
-            job.runtime?.bidPosition,
-    );
+): job is BiddingJobSignalWithRuntimeDecision {
+    return Boolean(activeRuntimeOrderMatchesBid(job, bid));
 }
 
 function activeRuntimeOrderMatchesBid(
+    job: BiddingJobSignal,
+    bid: PersistedBiddingBidBookRow,
+): job is BiddingJobSignalWithRuntimeDecision {
+    return Boolean(
+        bid.isOwn &&
+            job.runtime?.activeOrderId &&
+            job.runtime.activeOrderVerifiedAt &&
+            job.runtime.bidPosition &&
+            bid.orderId === job.runtime.activeOrderId &&
+            jobMatchesBid(job, bid),
+    );
+}
+
+function currentRuntimeOrderEvidenceMatchesBid(
     job: BiddingJobSignal,
     bid: PersistedBiddingBidBookRow,
 ): boolean {
     return Boolean(
         bid.isOwn &&
             job.runtime?.activeOrderId &&
+            job.runtime.activeOrderVerifiedAt &&
             bid.orderId === job.runtime.activeOrderId &&
             jobMatchesBid(job, bid),
+    );
+}
+
+function activeOrderEvidenceMatchesBid(
+    job: BiddingJobSignal,
+    bid: PersistedBiddingBidBookRow,
+): job is BiddingJobSignalWithActiveOrder {
+    return Boolean(
+        bid.isOwn &&
+            job.activeOrder?.activeOrderId &&
+            bid.orderId === job.activeOrder.activeOrderId &&
+            jobMatchesBid(job, bid),
+    );
+}
+
+function isActiveOrderVerified(
+    runtime: BiddingJobRuntimeSignal | null | undefined,
+): boolean {
+    return Boolean(runtime?.activeOrderId && runtime.activeOrderVerifiedAt);
+}
+
+function hasStaleActiveOrderEvidence(
+    job: BiddingJobSignal,
+): job is BiddingJobSignalWithActiveOrder {
+    return Boolean(
+        job.activeOrder?.activeOrderId &&
+            job.activeOrder.jobRevision !== null &&
+            job.activeOrder.jobRevision !== job.revision,
+    );
+}
+
+function hasRenderableActiveOrderEvidence(
+    job: BiddingJobSignal,
+): job is BiddingJobSignalWithActiveOrder {
+    return Boolean(
+        job.activeOrder?.activeOrderId && job.activeOrder.currentPriceWei,
+    );
+}
+
+function hasRenderableStaleActiveOrderEvidence(
+    job: BiddingJobSignal,
+): job is BiddingJobSignalWithActiveOrder {
+    return (
+        hasStaleActiveOrderEvidence(job) &&
+        Boolean(job.activeOrder.currentPriceWei)
     );
 }
 
@@ -1846,6 +2163,7 @@ function mapProjectedRow(row: ProjectedBidBookRow): PersistedBiddingBidBookRow[]
             maker: row.maker,
             isOwn: row.is_own === 1,
             price: exactBidBookRowPrice(row.price_wei),
+            bidLimits: null,
             quantity: row.quantity,
             currencyAddress: row.currency_address,
             currencySymbol: row.currency_symbol,
@@ -1879,6 +2197,7 @@ function mapIndexedOrderRow(row: IndexedOrderRow): PersistedBiddingBidBookRow[] 
                 maker: row.maker.toLowerCase(),
                 isOwn: false,
                 price: exactBidBookRowPrice(row.price),
+                bidLimits: null,
                 quantity: row.quantity,
                 currencyAddress: row.currency,
                 currencySymbol: null,

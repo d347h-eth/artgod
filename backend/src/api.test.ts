@@ -390,6 +390,8 @@ beforeAll(async () => {
         await import("./application/use-cases/trading/upsert-token-bidding-job.js");
     const upsertTraitBiddingJobUseCaseModule =
         await import("./application/use-cases/trading/upsert-trait-bidding-job.js");
+    const lookupBatchTokenBiddingJobsUseCaseModule =
+        await import("./application/use-cases/trading/lookup-batch-token-bidding-jobs.js");
     const upsertBatchTokenBiddingJobsUseCaseModule =
         await import("./application/use-cases/trading/upsert-batch-token-bidding-jobs.js");
     const upsertCollectionBiddingJobUseCaseModule =
@@ -470,6 +472,7 @@ beforeAll(async () => {
             1,
             chainsReadModel,
             collectionsReadModel,
+            baseCollectionsReadModel,
             biddingJobsRepository,
             biddingPriceTiersRepository,
             tradingJobCommandSignalPort,
@@ -483,6 +486,14 @@ beforeAll(async () => {
             biddingJobsRepository,
             biddingPriceTiersRepository,
             tradingJobCommandSignalPort,
+        );
+    const lookupBatchTokenBiddingJobsUseCase =
+        new lookupBatchTokenBiddingJobsUseCaseModule.LookupBatchTokenBiddingJobsUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            biddingBidBookRepository,
+            biddingJobsRepository,
         );
     const upsertCollectionBiddingJobUseCase =
         new upsertCollectionBiddingJobUseCaseModule.UpsertCollectionBiddingJobUseCase(
@@ -827,6 +838,7 @@ beforeAll(async () => {
         biddingJobTargetLookupUseCase,
         upsertTokenBiddingJobUseCase,
         upsertTraitBiddingJobUseCase,
+        lookupBatchTokenBiddingJobsUseCase,
         upsertBatchTokenBiddingJobsUseCase,
         upsertCollectionBiddingJobUseCase,
         upsertCollectionBiddingPriceTierUseCase,
@@ -878,6 +890,7 @@ beforeAll(async () => {
         biddingJobTargetLookupUseCase,
         upsertTokenBiddingJobUseCase,
         upsertTraitBiddingJobUseCase,
+        lookupBatchTokenBiddingJobsUseCase,
         upsertBatchTokenBiddingJobsUseCase,
         upsertCollectionBiddingJobUseCase,
         upsertCollectionBiddingPriceTierUseCase,

@@ -367,8 +367,11 @@ export type TradingBiddingBidBookRowMaterializationKind =
 export const TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE = {
     Queued: "queued",
     Paused: "paused",
+    Verifying: "verifying",
+    Replacing: "replacing",
     Canceling: "canceling",
     CancelFailed: "cancel_failed",
+    Cancelled: "cancelled",
 } as const;
 
 export type TradingBiddingBidBookOwnJobPhase =
@@ -498,6 +501,7 @@ export type PersistedBiddingJobRuntimeState = {
     activeOrderId: string | null;
     activeProtocolAddress: string | null;
     activeOrderPlacedAt: string | null;
+    activeOrderVerifiedAt: string | null;
     activeExpirationTimeMs: number | null;
     bidPosition: TradingBiddingJobRuntimeBidPosition | null;
     bidConstraints: TradingBiddingJobRuntimeConstraint[];

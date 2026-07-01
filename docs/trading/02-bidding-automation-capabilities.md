@@ -36,6 +36,7 @@ Token targets:
 - `bid on this page` narrows token-job creation to the currently loaded token cards.
 - `Ctrl` + left click or middle click on non-link token-card areas toggles individual selected-token targets.
 - Token-card links preserve browser-native `Ctrl` / middle-click new-tab behavior.
+- Token job targets are limited to canonical marketplace-addressable token rows; extension-synthetic token cards remain browseable but are disabled for bidding selection and rejected by backend job mutation.
 
 Trait targets:
 
@@ -129,8 +130,10 @@ Own-bid display:
 - Rows from a live bot runtime can mark the configured bot wallet as `You`.
 - Own market rows can carry position signals: `winning`, `draw`, or `losing`, but only from a fresh bot-snapshot read and the bot-persisted runtime decision for the active order id.
 - Own market rows can carry bot-owned strategy-limit signals rendered as `hit ceiling` and `at floor`.
-- Own declared jobs can appear as `own_job_intent` rows with only `queued` or `paused` phase.
-- Own-intent rows use range pricing until runtime feedback supplies a single active order price, but that runtime feedback is not a user-facing badge state.
+- Own declared jobs can appear as `own_job_intent` rows with `queued` or `paused` phase.
+- Own active-order lifecycle rows can appear as `own_job_intent` rows with `replacing`, `canceling`, `cancel failed`, or `cancelled` phase.
+- Own-intent rows use range pricing for queued/paused intent and exact order pricing for runtime/cancellation-backed lifecycle rows.
+- Bid-book floor and ceiling columns are shown only when visible rows have bid-limit or range values.
 - Backend and frontend code must not infer own bid position from passive order rows, exact-scope grouping, or local price comparisons.
 
 Orders fallback mapper:

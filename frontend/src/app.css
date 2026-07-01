@@ -1960,6 +1960,7 @@ th {
 .bid-book-table td {
 	padding: 0.12rem 0.5rem;
 	line-height: 1.12;
+	vertical-align: middle;
 }
 
 .bid-book-own-row {
@@ -2064,8 +2065,14 @@ th {
 }
 
 .bid-book-own-status-paused,
-.bid-book-own-status-canceling {
+.bid-book-own-status-canceling,
+.bid-book-own-status-replacing {
 	background: var(--c-orange);
+	color: var(--c-bg);
+}
+
+.bid-book-own-status-cancelled {
+	background: var(--c-yellow);
 	color: var(--c-bg);
 }
 
@@ -2116,8 +2123,28 @@ th {
 }
 
 .bid-book-row-scope-header {
+	--bid-book-row-action-size: 16px;
+	align-items: center;
+	flex-wrap: nowrap;
 	justify-content: center;
-	gap: 0.15rem 0.55rem;
+	gap: 0.15rem 0.3rem;
+}
+
+.bid-book-row-scope-header :is(.bid-book-scope-label, .bid-book-demand-group-title) {
+	display: inline-flex;
+	align-items: center;
+	min-height: var(--bid-book-row-action-size);
+	line-height: 1;
+}
+
+.bid-book-row-scope-header
+	:is(.bid-book-demand-trait-list, .bid-book-demand-trait-entry, .bid-book-demand-trait) {
+	align-items: center;
+	line-height: 1;
+}
+
+.bid-book-row-scope-header .bid-book-demand-trait-list {
+	flex-wrap: nowrap;
 }
 
 .bid-book-demand-group-title {
@@ -2155,12 +2182,12 @@ th {
 
 .bid-book-demand-table .bid-book-place-bid-icon-button {
 	align-self: center;
-	flex: 0 0 16px;
-	height: 16px;
-	min-height: 16px;
-	min-width: 16px;
+	flex: 0 0 32px;
+	height: 32px;
+	min-height: 32px;
+	min-width: 32px;
 	position: relative;
-	width: 16px;
+	width: 32px;
 	z-index: 2;
 }
 
@@ -2889,6 +2916,21 @@ th {
 .token-bidding-form-actions-left button,
 .token-bidding-form-actions-right button {
 	width: var(--token-bidding-action-width);
+}
+
+.token-bidding-selection-actions {
+	grid-column: 1 / -1;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem;
+	justify-content: flex-start;
+	padding-block-start: 0.65rem;
+	border-top: 1px solid var(--c-blue);
+}
+
+.token-bidding-selection-actions button {
+	width: auto;
+	min-width: var(--token-bidding-action-width);
 }
 
 .token-bidding-action-positive:not(:disabled) {
@@ -3890,12 +3932,12 @@ th {
 	align-self: baseline;
 	border-color: transparent;
 	background: transparent;
-	min-width: 20px;
-	width: 20px;
-	min-height: 14px;
-	height: 14px;
+	min-width: 32px;
+	width: 32px;
+	min-height: 32px;
+	height: 32px;
 	padding: 0;
-	line-height: 12px;
+	line-height: 1;
 	vertical-align: baseline;
 }
 
@@ -3917,6 +3959,26 @@ th {
 	stroke-width: 1.45;
 	stroke-linecap: square;
 	stroke-linejoin: miter;
+}
+
+.bid-book-row-scope-header .bid-book-place-bid-icon-button {
+	align-self: center;
+	flex: 0 0 var(--bid-book-row-action-size);
+	width: var(--bid-book-row-action-size);
+	min-width: var(--bid-book-row-action-size);
+	height: var(--bid-book-row-action-size);
+	min-height: var(--bid-book-row-action-size);
+	vertical-align: middle;
+}
+
+.bid-book-row-scope-header .bid-book-place-bid-icon-button .filter-icon,
+.bid-book-row-scope-header .bid-book-place-bid-icon {
+	width: 10px;
+	height: 10px;
+}
+
+.bid-book-row-scope-header .bid-book-place-bid-icon {
+	transform: translateY(-1px);
 }
 
 .runtime-tabs button:disabled:hover,

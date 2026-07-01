@@ -52,6 +52,7 @@ describe("trading use-case shared types", () => {
                 activeProtocolAddress:
                     "0x0000000000000068f116a894984e2db1123eb395",
                 activeOrderPlacedAt: "2026-05-17T00:00:00Z",
+                activeOrderVerifiedAt: "2026-05-17T00:00:02Z",
                 activeExpirationTimeMs: 4_000_000_000_000,
                 bidPosition: null,
                 bidConstraints: [],
@@ -74,6 +75,7 @@ describe("trading use-case shared types", () => {
         assert.equal(view.runtime?.currentPriceEth, "0.15");
         assert.equal(view.runtime?.activeOrderId, "order-1");
         assert.equal(view.runtime?.activeOrderPlacedAt, "2026-05-17T00:00:00Z");
+        assert.equal(view.runtime?.activeOrderVerifiedAt, "2026-05-17T00:00:02Z");
         assert.equal(view.runtime?.bidPosition, null);
         assert.deepEqual(view.runtime?.bidConstraints, []);
         assert.equal(view.runtime?.competitorPriceEth, null);

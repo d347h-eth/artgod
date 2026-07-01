@@ -4,9 +4,21 @@ export const BIDDING_SELECTION_ACTION_LABEL = {
 	BidOnToken: 'bid on token',
 	BidOnTraits: 'bid on traits',
 	PlaceCollectionBid: 'place collection bid',
+	ActivateSelected: 'activate selected',
+	PauseSelected: 'pause selected',
+	ArchiveSelected: 'archive selected',
 	Tiers: 'tiers',
 	Clear: 'clear'
 } as const;
+
+export const BIDDING_SELECTION_JOB_ACTION = {
+	Activate: 'activate',
+	Pause: 'pause',
+	Archive: 'archive'
+} as const;
+
+export type BiddingSelectionJobAction =
+	(typeof BIDDING_SELECTION_JOB_ACTION)[keyof typeof BIDDING_SELECTION_JOB_ACTION];
 
 // Keeps token-scope bidding action copy consistent across collection views.
 export function resolveBiddingTokenActionLabel(input: {

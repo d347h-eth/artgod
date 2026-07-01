@@ -1,4 +1,4 @@
-import { expect, test, type Page, type TestInfo } from 'playwright/test';
+import { expect, test, type Locator, type Page, type TestInfo } from 'playwright/test';
 import {
 	assertAttachedAppReachable,
 	attachDiagnostics,
@@ -7,7 +7,7 @@ import {
 import {
 	BIDDING_AUTOMATION_PRICING_MODE,
 	BIDDING_AUTOMATION_PRICING_MODE_LABEL
-} from '../src/lib/bidding-automation';
+} from '../src/lib/bidding-automation-contracts';
 
 const TARGET_PATH =
 	process.env.ARTGOD_E2E_BIDDING_TARGET_PATH?.trim() ||
@@ -19,6 +19,7 @@ const TRAIT_TARGET_PATH =
 	'/ethereum/terraforms/bidding?bid_scope=traits';
 const PRICE_TIER_LABEL = process.env.ARTGOD_E2E_PRICE_TIER_LABEL?.trim() || null;
 const GEOMETRY_TOLERANCE_PX = 4;
+const BID_ACTION_CLICK_TIMEOUT_MS = 2_000;
 
 test('bidding automation panel keeps tier-pricing fields on a clean grid', async ({
 	page,
@@ -137,12 +138,50 @@ async function clickFirstTraitBucketBidAction(page: Page): Promise<{ firstTraitV
 			continue;
 		}
 
-		await bidButton.click();
+		await clickVisibleBidAction(bidButton);
 		return { firstTraitValue };
 	}
 
 	throw new Error(
 		`Could not find a clickable trait-bucket bid action from ${TRAIT_TARGET_PATH}. Load a trait bid-book view with at least one selectable trait bid.`
+	);
+}
+
+async function clickVisibleBidAction(locator: Locator): Promise<void> {
+	await scrollLocatorToViewportCenter(locator);
+	try {
+		await locator.click({ timeout: BID_ACTION_CLICK_TIMEOUT_MS });
+		return;
+	} catch {
+		await locator.evaluate((element) => {
+			if (!(element instanceof HTMLButtonElement) || element.disabled) {
+				throw new Error('Bid action is not an enabled button');
+			}
+
+			const rect = element.getBoundingClientRect();
+			const centerX = rect.left + rect.width / 2;
+			const centerY = rect.top + rect.height / 2;
+			const hitTarget = document.elementFromPoint(centerX, centerY);
+			if (hitTarget !== element && !element.contains(hitTarget)) {
+				throw new Error('Bid action center is not reachable');
+			}
+
+			element.click();
+		});
+	}
+}
+
+async function scrollLocatorToViewportCenter(locator: Locator): Promise<void> {
+	await locator.evaluate((element) => {
+		element.scrollIntoView({ block: 'center', inline: 'center' });
+	});
+	await locator.evaluate(
+		() =>
+			new Promise<void>((resolve) => {
+				requestAnimationFrame(() => {
+					requestAnimationFrame(resolve);
+				});
+			})
 	);
 }
 

@@ -69,12 +69,16 @@ export class UpsertBatchTokenBiddingJobsHttpAdapter {
                 request.body?.priceTierId,
                 "priceTierId",
             ),
-            selection: parseSelection(request.body?.selection),
+            selection: parseBatchTokenBiddingJobSelection(
+                request.body?.selection,
+            ),
         };
     }
 }
 
-function parseSelection(value: unknown): UpsertBatchTokenBiddingJobsInput["selection"] {
+export function parseBatchTokenBiddingJobSelection(
+    value: unknown,
+): UpsertBatchTokenBiddingJobsInput["selection"] {
     if (!value || typeof value !== "object") {
         throw new ReadModelBadRequestError("selection is required");
     }

@@ -87,6 +87,7 @@ describe('CollectionBiddingView', () => {
 								isOwn: false
 							},
 							price: exactPrice('100000000000000000', '0.1'),
+							bidLimits: null,
 							quantity: '1',
 							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 							currencySymbol: 'WETH',
@@ -105,7 +106,7 @@ describe('CollectionBiddingView', () => {
 						displayKind: 'set',
 						minValue: null,
 						maxValue: null,
-						values: [{ value: 'Beanie', tokenCount: 1 }]
+						values: [{ value: 'Beanie', tokenCount: 1, marketplaceBiddingSupported: true }]
 					}
 				],
 				media: {
@@ -192,6 +193,7 @@ describe('CollectionBiddingView', () => {
 								isOwn: false
 							},
 							price: exactPrice('420000000000000000', '0.42'),
+							bidLimits: null,
 							quantity: '1',
 							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 							currencySymbol: 'WETH',
@@ -208,6 +210,7 @@ describe('CollectionBiddingView', () => {
 					items: [
 						{
 							tokenId: '1',
+							marketplaceBiddingSupported: true,
 							name: 'Milady #1',
 							image: 'https://example.com/milady-1.png',
 							traitSummary: 'Hat=Beanie',
@@ -233,6 +236,7 @@ describe('CollectionBiddingView', () => {
 										isOwn: false
 									},
 									price: exactPrice('420000000000000000', '0.42'),
+									bidLimits: null,
 									quantity: '1',
 									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 									currencySymbol: 'WETH',
@@ -259,6 +263,7 @@ describe('CollectionBiddingView', () => {
 										isOwn: true
 									},
 									price: exactPrice('100000000000000000', '0.1'),
+									bidLimits: null,
 									quantity: '1',
 									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 									currencySymbol: 'WETH',
@@ -276,6 +281,7 @@ describe('CollectionBiddingView', () => {
 					nextCursor: 'next-page',
 					limit: 250,
 					totalItems: 500,
+					marketplaceBiddingSupportedTotalItems: 500,
 					totalOffers: 2,
 					rangeStart: 251,
 					rangeEnd: 251,
@@ -288,7 +294,7 @@ describe('CollectionBiddingView', () => {
 						displayKind: 'set',
 						minValue: null,
 						maxValue: null,
-						values: [{ value: 'Beanie', tokenCount: 1 }]
+						values: [{ value: 'Beanie', tokenCount: 1, marketplaceBiddingSupported: true }]
 					}
 				],
 				media: {

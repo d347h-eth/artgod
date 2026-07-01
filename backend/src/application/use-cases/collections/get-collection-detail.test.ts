@@ -155,6 +155,7 @@ function tokenPage(): TokenCursorPage {
         items: [
             {
                 tokenId: "1",
+                marketplaceBiddingSupported: true,
                 name: "Token 1",
                 image: null,
                 listingPrice: null,
@@ -169,6 +170,7 @@ function tokenPage(): TokenCursorPage {
         prevCursor: null,
         limit: 50,
         totalItems: 1,
+        marketplaceBiddingSupportedTotalItems: 1,
         rangeStart: 1,
         rangeEnd: 1,
         currentPage: 1,
@@ -182,6 +184,12 @@ function traitFacet(key: string): TraitFacet {
         displayKind: TRAIT_FILTER_DISPLAY_KIND.Set,
         minValue: null,
         maxValue: null,
-        values: [{ value: "Beanie", tokenCount: 1 }],
+        values: [
+            {
+                value: "Beanie",
+                tokenCount: 1,
+                marketplaceBiddingSupported: true,
+            },
+        ],
     };
 }

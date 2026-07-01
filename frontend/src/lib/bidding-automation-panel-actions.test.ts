@@ -1,20 +1,35 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	TRADING_BIDDING_BID_SCOPE_KIND,
+	TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
 	TRADING_JOB_STATUS,
 	TRADING_JOB_TARGET_KIND
 } from '@artgod/shared/types';
 import type { ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
-import { buildBiddingAutomationDraftFromBid } from '$lib/bidding-automation';
 import {
+	BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
+	BIDDING_AUTOMATION_FILTER_TARGET_INTENT,
+	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
+	BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
+	buildBiddingAutomationDraftFromBid,
+	buildBiddingAutomationDraftFromSelection
+} from '$lib/bidding-automation';
+import { BIDDING_SELECTION_JOB_ACTION } from '$lib/bidding-selection-actions';
+import {
+	applyBiddingSelectionJobAction,
+	filterBiddingSelectionJobsForAction,
 	lookupBiddingAutomationDraftTargetJob,
+	lookupBiddingSelectionJobs,
 	resolveBiddingAutomationDraftTargetLookupKey,
 	saveBiddingAutomationDraftJobs
 } from '$lib/bidding-automation-panel-actions';
 
 const backendApiMocks = vi.hoisted(() => ({
 	archiveBiddingJob: vi.fn(),
+	lookupBatchTokenBiddingJobs: vi.fn(),
 	lookupBiddingJobTarget: vi.fn(),
 	upsertBatchTokenBiddingJobs: vi.fn(),
 	upsertCollectionBiddingJob: vi.fn(),
@@ -117,6 +132,316 @@ describe('bidding automation panel actions', () => {
 			}
 		);
 	});
+
+	it('pauses exact selected token jobs through existing pricing without overwriting tiers', async () => {
+		const manualJob = testTokenJob({
+			jobId: 'job-token-101',
+			tokenId: '101',
+			floorEth: '0.1',
+			ceilingEth: '0.2',
+			deltaEth: '0.001',
+			pricingSource: null
+		});
+		const tierJob = testTokenJob({
+			jobId: 'job-token-102',
+			tokenId: '102',
+			floorEth: '0.3',
+			ceilingEth: '0.4',
+			deltaEth: '0.002',
+			pricingSource: {
+				kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
+				tierId: 'tier-1',
+				tierName: 'tier 1',
+				resolvedAt: '2026-01-01T00:00:00Z',
+				resolvedFloorWei: '300000000000000000',
+				resolvedCeilingWei: '400000000000000000',
+				deltaWei: '2000000000000000'
+			}
+		});
+		backendApiMocks.lookupBiddingJobTarget
+			.mockResolvedValueOnce({ job: manualJob })
+			.mockResolvedValueOnce({ job: tierJob });
+		backendApiMocks.upsertTokenBiddingJob
+			.mockResolvedValueOnce({
+				job: { ...manualJob, status: TRADING_JOB_STATUS.Paused }
+			})
+			.mockResolvedValueOnce({
+				job: { ...tierJob, status: TRADING_JOB_STATUS.Paused }
+			});
+
+		const result = await applyBiddingSelectionJobAction({
+			fetchFn: testFetch,
+			chainRef: 'ethereum',
+			collectionRef: 'terraforms',
+			draft: buildBiddingAutomationDraftFromSelection({
+				type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
+				tokenIds: ['101', '102']
+			}),
+			action: BIDDING_SELECTION_JOB_ACTION.Pause
+		});
+
+		expect(result.jobs).toHaveLength(2);
+		expect(backendApiMocks.lookupBiddingJobTarget).toHaveBeenNthCalledWith(
+			1,
+			testFetch,
+			'ethereum',
+			'terraforms',
+			{
+				target: {
+					type: 'token',
+					tokenId: '101'
+				}
+			}
+		);
+		expect(backendApiMocks.upsertTokenBiddingJob).toHaveBeenNthCalledWith(
+			1,
+			testFetch,
+			'ethereum',
+			'terraforms',
+			'101',
+			{
+				status: TRADING_JOB_STATUS.Paused,
+				floorEth: '0.1',
+				ceilingEth: '0.2',
+				deltaEth: '0.001',
+				priceTierId: null
+			}
+		);
+		expect(backendApiMocks.upsertTokenBiddingJob).toHaveBeenNthCalledWith(
+			2,
+			testFetch,
+			'ethereum',
+			'terraforms',
+			'102',
+			{
+				status: TRADING_JOB_STATUS.Paused,
+				priceTierId: 'tier-1',
+				deltaEth: '0.002'
+			}
+		);
+	});
+
+	it('derives selected-job action eligibility from current declared job status', () => {
+		const enabledJob = testTokenJob({
+			jobId: 'job-token-101',
+			tokenId: '101',
+			floorEth: '0.1',
+			ceilingEth: '0.2',
+			deltaEth: '0.001',
+			pricingSource: null,
+			status: TRADING_JOB_STATUS.Enabled
+		});
+		const pausedJob = testTokenJob({
+			jobId: 'job-token-102',
+			tokenId: '102',
+			floorEth: '0.3',
+			ceilingEth: '0.4',
+			deltaEth: '0.002',
+			pricingSource: null,
+			status: TRADING_JOB_STATUS.Paused
+		});
+		const archivedJob = testTokenJob({
+			jobId: 'job-token-103',
+			tokenId: '103',
+			floorEth: '0.5',
+			ceilingEth: '0.6',
+			deltaEth: '0.003',
+			pricingSource: null,
+			status: TRADING_JOB_STATUS.Archived
+		});
+		const jobs = [enabledJob, pausedJob, archivedJob];
+
+		expect(filterBiddingSelectionJobsForAction(jobs, BIDDING_SELECTION_JOB_ACTION.Activate)).toEqual([
+			pausedJob
+		]);
+		expect(filterBiddingSelectionJobsForAction(jobs, BIDDING_SELECTION_JOB_ACTION.Pause)).toEqual([
+			enabledJob
+		]);
+		expect(filterBiddingSelectionJobsForAction(jobs, BIDDING_SELECTION_JOB_ACTION.Archive)).toEqual([
+			enabledJob,
+			pausedJob
+		]);
+	});
+
+	it('applies selected-job status actions only to jobs eligible for that transition', async () => {
+		const enabledJob = testTokenJob({
+			jobId: 'job-token-101',
+			tokenId: '101',
+			floorEth: '0.1',
+			ceilingEth: '0.2',
+			deltaEth: '0.001',
+			pricingSource: null,
+			status: TRADING_JOB_STATUS.Enabled
+		});
+		const pausedJob = testTokenJob({
+			jobId: 'job-token-102',
+			tokenId: '102',
+			floorEth: '0.3',
+			ceilingEth: '0.4',
+			deltaEth: '0.002',
+			pricingSource: null,
+			status: TRADING_JOB_STATUS.Paused
+		});
+		backendApiMocks.lookupBiddingJobTarget
+			.mockResolvedValueOnce({ job: enabledJob })
+			.mockResolvedValueOnce({ job: pausedJob });
+		backendApiMocks.upsertTokenBiddingJob.mockResolvedValueOnce({
+			job: { ...enabledJob, status: TRADING_JOB_STATUS.Paused }
+		});
+
+		const result = await applyBiddingSelectionJobAction({
+			fetchFn: testFetch,
+			chainRef: 'ethereum',
+			collectionRef: 'terraforms',
+			draft: buildBiddingAutomationDraftFromSelection({
+				type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
+				tokenIds: ['101', '102']
+			}),
+			action: BIDDING_SELECTION_JOB_ACTION.Pause
+		});
+
+		expect(result.jobs).toEqual([{ ...enabledJob, status: TRADING_JOB_STATUS.Paused }]);
+		expect(backendApiMocks.upsertTokenBiddingJob).toHaveBeenCalledTimes(1);
+		expect(backendApiMocks.upsertTokenBiddingJob).toHaveBeenCalledWith(
+			testFetch,
+			'ethereum',
+			'terraforms',
+			'101',
+			{
+				status: TRADING_JOB_STATUS.Paused,
+				floorEth: '0.1',
+				ceilingEth: '0.2',
+				deltaEth: '0.001',
+				priceTierId: null
+			}
+		);
+	});
+
+	it('looks up exact selected jobs for panel mass-action state', async () => {
+		const firstJob = testTokenJob({
+			jobId: 'job-token-101',
+			tokenId: '101',
+			floorEth: '0.1',
+			ceilingEth: '0.2',
+			deltaEth: '0.001',
+			pricingSource: null
+		});
+		const secondJob = testTokenJob({
+			jobId: 'job-token-102',
+			tokenId: '102',
+			floorEth: '0.3',
+			ceilingEth: '0.4',
+			deltaEth: '0.002',
+			pricingSource: null
+		});
+		backendApiMocks.lookupBiddingJobTarget
+			.mockResolvedValueOnce({ job: firstJob })
+			.mockResolvedValueOnce({ job: secondJob });
+
+		const result = await lookupBiddingSelectionJobs({
+			fetchFn: testFetch,
+			chainRef: 'ethereum',
+			collectionRef: 'terraforms',
+			draft: buildBiddingAutomationDraftFromSelection({
+				type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
+				tokenIds: ['101', '102']
+			})
+		});
+
+		expect(result).toEqual({
+			jobs: [firstJob, secondJob],
+			targetCount: 2
+		});
+	});
+
+	it('looks up filtered token-offer batch jobs for panel mass-action state', async () => {
+		const firstJob = testTokenJob({
+			jobId: 'job-token-101',
+			tokenId: '101',
+			floorEth: '0.1',
+			ceilingEth: '0.2',
+			deltaEth: '0.001',
+			pricingSource: null
+		});
+		const secondJob = testTokenJob({
+			jobId: 'job-token-102',
+			tokenId: '102',
+			floorEth: '0.3',
+			ceilingEth: '0.4',
+			deltaEth: '0.002',
+			pricingSource: null
+		});
+		backendApiMocks.lookupBatchTokenBiddingJobs.mockResolvedValueOnce({
+			jobs: [firstJob, secondJob],
+			targetCount: 2
+		});
+
+		const result = await lookupBiddingSelectionJobs({
+			fetchFn: testFetch,
+			chainRef: 'ethereum',
+			collectionRef: 'terraforms',
+			draft: buildBiddingAutomationDraftFromSelection({
+				type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+				targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
+				filter: {
+					source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
+					selectedTraits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
+					selectedTraitRanges: [],
+					traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+					makerAddress: '0xcccccccccccccccccccccccccccccccccccccccc',
+					tokenStatus: null
+				},
+				tokenCount: 2,
+				state: {
+					kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+				}
+			})
+		});
+
+		expect(result).toEqual({
+			jobs: [firstJob, secondJob],
+			targetCount: 2
+		});
+		expect(backendApiMocks.lookupBatchTokenBiddingJobs).toHaveBeenCalledWith(
+			testFetch,
+			'ethereum',
+			'terraforms',
+			{
+				selection: {
+					type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
+					traits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
+					traitRanges: [],
+					traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+					makerAddress: '0xcccccccccccccccccccccccccccccccccccccccc'
+				}
+			}
+		);
+		expect(backendApiMocks.lookupBiddingJobTarget).not.toHaveBeenCalled();
+	});
+
+	it('archives resolved selected jobs through the target-agnostic archive route', async () => {
+		const job = testTraitJob();
+		const archivedJob = { ...job, status: TRADING_JOB_STATUS.Archived };
+		backendApiMocks.lookupBiddingJobTarget.mockResolvedValueOnce({ job });
+		backendApiMocks.archiveBiddingJob.mockResolvedValueOnce({ job: archivedJob });
+
+		const result = await applyBiddingSelectionJobAction({
+			fetchFn: testFetch,
+			chainRef: 'ethereum',
+			collectionRef: 'terraforms',
+			draft: buildBiddingAutomationDraftFromBid(testTraitBid('1')),
+			action: BIDDING_SELECTION_JOB_ACTION.Archive
+		});
+
+		expect(result.jobs).toEqual([archivedJob]);
+		expect(backendApiMocks.archiveBiddingJob).toHaveBeenCalledWith(
+			testFetch,
+			'ethereum',
+			'terraforms',
+			'job-trait-1'
+		);
+		expect(backendApiMocks.upsertTraitBiddingJob).not.toHaveBeenCalled();
+	});
 });
 
 function testTraitBid(quantity: string): ApiBiddingBidBookRow {
@@ -144,6 +469,7 @@ function testTraitBid(quantity: string): ApiBiddingBidBookRow {
 			isOwn: false
 		},
 		price: exactPrice('350000000000000000', '0.35'),
+		bidLimits: null,
 		quantity,
 		currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 		currencySymbol: 'WETH',
@@ -177,6 +503,37 @@ function testTraitJob(): ApiBiddingJob {
 			ceilingEth: '0.5',
 			deltaEth: '0.001',
 			pricingSource: null
+		},
+		runtime: null
+	};
+}
+
+function testTokenJob(input: {
+	jobId: string;
+	tokenId: string;
+	floorEth: string;
+	ceilingEth: string;
+	deltaEth: string;
+	pricingSource: ApiBiddingJob['config']['pricingSource'];
+	status?: ApiBiddingJob['status'];
+}): ApiBiddingJob {
+	const status = input.status ?? TRADING_JOB_STATUS.Enabled;
+	return {
+		jobId: input.jobId,
+		status,
+		revision: 1,
+		createdAt: '2026-01-01T00:00:00Z',
+		updatedAt: '2026-01-01T12:00:00Z',
+		archivedAt: status === TRADING_JOB_STATUS.Archived ? '2026-01-01T12:30:00Z' : null,
+		target: {
+			type: TRADING_JOB_TARGET_KIND.Token,
+			tokenId: input.tokenId
+		},
+		config: {
+			floorEth: input.floorEth,
+			ceilingEth: input.ceilingEth,
+			deltaEth: input.deltaEth,
+			pricingSource: input.pricingSource
 		},
 		runtime: null
 	};

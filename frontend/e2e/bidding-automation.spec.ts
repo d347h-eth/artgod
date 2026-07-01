@@ -9,6 +9,10 @@ import {
 	TRADING_JOB_STATUS
 } from '@artgod/shared/types';
 import { TOKEN_BROWSER_STATUS } from '@artgod/shared/types/browse';
+import {
+	TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+	TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES
+} from '@artgod/shared/extensions/terraforms';
 import { BIDDING_SELECTION_ACTION_LABEL } from '../src/lib/bidding-selection-actions';
 import { TERRAFORMS_BID_BOOK_TRAIT_PREVIEW_DOM } from '../src/lib/bid-book-trait-previews/terraforms/preview-model';
 import {
@@ -156,6 +160,27 @@ test.describe('bidding automation fixture harness', () => {
 				tokenIds: ['101', '102']
 			}
 		});
+	});
+
+	test('blocks unsupported token-browser trait bidding before submission', async ({ page }) => {
+		const api = await installBiddingAutomationApiMock(page);
+		const unsupportedTrait = `${TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY}:${TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed}`;
+		await openHarnessPage(
+			page,
+			`${COLLECTION_PATH}?token_status=${TOKEN_BROWSER_STATUS.All}&traits=${encodeURIComponent(
+				unsupportedTrait
+			)}`
+		);
+
+		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnTraits }).click();
+		const panel = page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`);
+
+		await expect(panel).toContainText('not available');
+		await expect(panel).toContainText(
+			'selected trait target is not available for marketplace bidding'
+		);
+		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanelCreate}"]`)).toHaveCount(0);
+		expect(api.mutations).toHaveLength(0);
 	});
 
 	test('supports root trait search and jump into a matching bucket', async ({ page }) => {

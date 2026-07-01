@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import { TRAIT_FILTER_DISPLAY_KIND } from '@artgod/shared/types';
+import type { ApiTraitFacet } from '$lib/api-types';
 import TraitFacetPanel from './TraitFacetPanel.svelte';
 
 describe('TraitFacetPanel', () => {
@@ -13,7 +14,7 @@ describe('TraitFacetPanel', () => {
 						displayKind: TRAIT_FILTER_DISPLAY_KIND.Set,
 						minValue: null,
 						maxValue: null,
-						values: [{ value: 'Beanie', tokenCount: 1 }]
+						values: [facetValue('Beanie', 1)]
 					}
 				],
 				selectedTraits: [{ key: 'Hat', value: 'Beanie' }],
@@ -61,8 +62,8 @@ describe('TraitFacetPanel', () => {
 						minValue: null,
 						maxValue: null,
 						values: [
-							{ value: 'Beanie', tokenCount: 1 },
-							{ value: 'Cap', tokenCount: 3 }
+							facetValue('Beanie', 1),
+							facetValue('Cap', 3)
 						]
 					}
 				],
@@ -86,7 +87,7 @@ describe('TraitFacetPanel', () => {
 						displayKind: TRAIT_FILTER_DISPLAY_KIND.Set,
 						minValue: null,
 						maxValue: null,
-						values: [{ value: 'Beanie', tokenCount: 1 }]
+						values: [facetValue('Beanie', 1)]
 					},
 					{
 						key: 'Level',
@@ -130,3 +131,11 @@ describe('TraitFacetPanel', () => {
 		expect(body).not.toContain('placeholder="search all"');
 	});
 });
+
+function facetValue(value: string, tokenCount: number): ApiTraitFacet['values'][number] {
+	return {
+		value,
+		tokenCount,
+		marketplaceBiddingSupported: true
+	};
+}

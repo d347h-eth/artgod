@@ -76,7 +76,7 @@ describe("loadTradingConfig", () => {
         if (!config.bidding.enabled) {
             throw new Error("Expected bidding to be enabled");
         }
-        assert.equal(config.bidding.pollMs, 8 * 60 * 1000);
+        assert.equal(config.bidding.scanSleepMs, 60 * 1000);
         assert.equal(config.bidding.commandPollMs, 1_000);
         assert.equal(config.bidding.bidBookProjectionThrottleMs, 15_000);
         assert.equal(config.bidding.commandBatchSize, 20);

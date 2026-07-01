@@ -30,6 +30,11 @@
 
 	let metadataNowMs = $state(Date.now());
 
+	$effect(() => {
+		nextUpdateAtMs;
+		metadataNowMs = Date.now();
+	});
+
 	onMount(() => {
 		const timer = window.setInterval(() => {
 			metadataNowMs = Date.now();

@@ -27,13 +27,13 @@ describe('trait facet search', () => {
 		const hat = facet('Hat', TRAIT_FILTER_DISPLAY_KIND.Set, ['Beanie', 'Cap']);
 		const level = facet('Level', TRAIT_FILTER_DISPLAY_KIND.Range, ['7']);
 
-		expect(filterTraitFacetValuesBySearch(hat, 'bea')).toEqual([
-			{ value: 'Beanie', tokenCount: 1 }
-		]);
-		expect(filterTraitFacetValuesBySearch(hat, 'b')).toEqual([
-			{ value: 'Beanie', tokenCount: 1 },
-			{ value: 'Cap', tokenCount: 2 }
-		]);
+	expect(filterTraitFacetValuesBySearch(hat, 'bea')).toEqual([
+		{ value: 'Beanie', tokenCount: 1, marketplaceBiddingSupported: true }
+	]);
+	expect(filterTraitFacetValuesBySearch(hat, 'b')).toEqual([
+		{ value: 'Beanie', tokenCount: 1, marketplaceBiddingSupported: true },
+		{ value: 'Cap', tokenCount: 2, marketplaceBiddingSupported: true }
+	]);
 		expect(filterTraitFacetValuesBySearch(level, '7')).toEqual([]);
 	});
 
@@ -67,6 +67,10 @@ function facet(
 		displayKind,
 		minValue: null,
 		maxValue: null,
-		values: values.map((value, index) => ({ value, tokenCount: index + 1 }))
+		values: values.map((value, index) => ({
+			value,
+			tokenCount: index + 1,
+			marketplaceBiddingSupported: true
+		}))
 	};
 }

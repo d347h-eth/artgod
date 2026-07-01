@@ -2,6 +2,7 @@
 	import type { Component } from 'svelte';
 	import type {
 		ApiBiddingBidBook,
+		ApiBiddingBidBookBidLimits,
 		ApiBiddingBidBookRow,
 		ApiBiddingJob
 	} from '$lib/api-types';
@@ -74,6 +75,7 @@
 		nextUpdateAtMs = null,
 		showScope = false,
 		showRowActions = true,
+		showOwnStateBadges = true,
 		showMuted = false,
 		view = 'rows',
 		basePath = '/',
@@ -93,6 +95,7 @@
 		nextUpdateAtMs?: number | null;
 		showScope?: boolean;
 		showRowActions?: boolean;
+		showOwnStateBadges?: boolean;
 		showMuted?: boolean;
 		view?: BidBookPanelView;
 		basePath?: string;
@@ -149,6 +152,11 @@
 	const bidBucketStepWei = $derived(resolveDecimalBucketStepWei(displayedBids));
 	const rowsTableRows = $derived(resolveRowsTableRows(displayedBids));
 	const demandTableGroups = $derived(resolveDemandTableGroups(visibleDemandGroups));
+	const showBidLimits = $derived(
+		showTraitDemandView
+			? shouldShowDemandBidLimitColumns(visibleDemandGroups)
+			: shouldShowRowBidLimitColumns(displayedBids)
+	);
 	const bidBookRelativeTimeKey = $derived(resolveBidBookRelativeTimeKey(bidBook));
 
 	$effect(() => {
@@ -243,20 +251,43 @@
 	}
 
 	function formatPriceAmount(bid: ApiBiddingBidBookRow): string {
-		const price =
-			bid.price.kind === TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range
-				? `${formatWeiValue(BigInt(bid.price.floorWei), priceFractionDigits)}-${formatWeiValue(
-						BigInt(bid.price.ceilingWei),
-						priceFractionDigits
-					)}`
-				: formatUnitPrice(bid);
+		if (bid.price.kind !== TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact) {
+			return '-';
+		}
+		const price = formatUnitPrice(bid);
 		const currency = shouldShowCurrency(bid.currencySymbol) ? ` ${bid.currencySymbol}` : '';
 		return `${price}${currency}`;
 	}
 
 	function formatQuantityPrefix(bid: ApiBiddingBidBookRow): string | null {
+		if (bid.price.kind !== TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact) {
+			return null;
+		}
 		const quantity = parseQuantity(bid.quantity);
 		return quantity > 1n ? `${quantity}x` : null;
+	}
+
+	function formatBidLimitAmount(
+		bid: ApiBiddingBidBookRow,
+		limit: keyof Pick<ApiBiddingBidBookBidLimits, 'floorWei' | 'ceilingWei'>
+	): string {
+		const limits = resolveBidLimits(bid);
+		if (!limits) {
+			return '-';
+		}
+		const value = formatWeiValue(BigInt(limits[limit]), priceFractionDigits);
+		const currency = shouldShowCurrency(bid.currencySymbol) ? ` ${bid.currencySymbol}` : '';
+		return `${value}${currency}`;
+	}
+
+	function resolveBidLimits(bid: ApiBiddingBidBookRow): ApiBiddingBidBookBidLimits | null {
+		if (bid.bidLimits) {
+			return bid.bidLimits;
+		}
+		if (bid.price.kind === TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range) {
+			return bid.price;
+		}
+		return null;
 	}
 
 	function formatScope(bid: ApiBiddingBidBookRow): string {
@@ -578,9 +609,22 @@
 
 	function resolvePriceFractionDigits(rows: ApiBiddingBidBookRow[]): number {
 		return rows.reduce((maxDigits, bid) => {
-			const [, fraction = ''] = bidBookPriceEffectiveEth(bid.price).split('.');
-			return Math.max(maxDigits, fraction.replace(/0+$/, '').length);
+			return Math.max(
+				maxDigits,
+				...bidPrecisionEthValues(bid).map((value) => {
+					const [, fraction = ''] = value.split('.');
+					return fraction.replace(/0+$/, '').length;
+				})
+			);
 		}, 2);
+	}
+
+	function bidPrecisionEthValues(bid: ApiBiddingBidBookRow): string[] {
+		const limits = resolveBidLimits(bid);
+		return [
+			bidBookPriceEffectiveEth(bid.price),
+			...(limits ? [limits.floorEth, limits.ceilingEth] : [])
+		];
 	}
 
 	function resolveDecimalBucketStepWei(rows: ApiBiddingBidBookRow[]): bigint | null {
@@ -744,7 +788,23 @@
 	}
 
 	function bidBookColumnCount(): number {
-		return showScope ? 5 : 4;
+		return 4 + (showScope ? 1 : 0) + (showBidLimits ? 2 : 0);
+	}
+
+	function shouldShowRowBidLimitColumns(rows: ApiBiddingBidBookRow[]): boolean {
+		return rows.some((bid) => resolveBidLimits(bid) !== null);
+	}
+
+	function shouldShowDemandBidLimitColumns(groups: BidBookDemandGroup[]): boolean {
+		return groups.some(
+			(group) =>
+				!shouldHideDemandGroup(group) &&
+				group.bids.some(
+					(bid) =>
+						!shouldHideMutedBid(isMutedDemandBid(group, bid)) &&
+						resolveBidLimits(bid) !== null
+				)
+		);
 	}
 
 	function resolveRowsTableRows(rows: ApiBiddingBidBookRow[]): BidBookRowsTableRow[] {
@@ -755,6 +815,8 @@
 			return {
 				bid,
 				price: formatPriceAmount(bid),
+				floor: formatBidLimitAmount(bid, 'floorWei'),
+				ceiling: formatBidLimitAmount(bid, 'ceilingWei'),
 				quantityPrefix: formatQuantityPrefix(bid),
 				makerHref: makerHref(bid),
 				makerHighlighted: isMakerHighlighted(bid),
@@ -833,6 +895,8 @@
 			return {
 				bid,
 				price: formatPriceAmount(bid),
+				floor: formatBidLimitAmount(bid, 'floorWei'),
+				ceiling: formatBidLimitAmount(bid, 'ceilingWei'),
 				quantityPrefix: formatQuantityPrefix(bid),
 				makerHref: makerHref(bid),
 				makerHighlighted: isMakerHighlighted(bid),
@@ -921,7 +985,7 @@
 <BidBookMetaBar
 	{bidBook}
 	{nextUpdateAtMs}
-	{ownStateBadges}
+	ownStateBadges={showOwnStateBadges ? ownStateBadges : []}
 	{showTraitDemandView}
 	{displayedDemandGroupCount}
 />
@@ -934,6 +998,7 @@
 	<BidBookTraitDemandTable
 		tabs={demandTableTabs}
 		groups={demandTableGroups}
+		{showBidLimits}
 		onSetActiveTraitKey={setActiveDemandTraitKey}
 		onTogglePlacedAtMode={togglePlacedAtMode}
 		onToggleValidUntilMode={toggleValidUntilMode}
@@ -947,6 +1012,7 @@
 	<BidBookRowsTable
 		rows={rowsTableRows}
 		{showScope}
+		{showBidLimits}
 		columnCount={bidBookColumnCount()}
 		{hiddenBidCount}
 		expanded={bidBookExpanded}

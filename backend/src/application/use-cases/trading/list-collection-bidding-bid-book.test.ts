@@ -66,6 +66,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
                 getCollectionMediaState: () => media(),
                 listCollectionTraitFacets: () => [traitFacet("Mode")],
                 listCollectionTokenCardsByIds: () => [tokenCard("7")],
+                countMarketplaceBiddingSupportedTokensByIds: () => 1,
             },
             {
                 getTraitFilterPresentationState: () => ({
@@ -181,6 +182,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
                         tokenCard(tokenId),
                     );
                 },
+                countMarketplaceBiddingSupportedTokensByIds: () => 2,
             },
             {
                 getTraitFilterPresentationState: () => ({
@@ -210,6 +212,9 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
 
         expect(hydratedTokenIds).toEqual([["1", "2"]]);
         expect(output.tokenOfferCards.totalItems).toBe(3);
+        expect(output.tokenOfferCards.marketplaceBiddingSupportedTotalItems).toBe(
+            2,
+        );
         expect(output.tokenOfferCards.totalOffers).toBe(3);
         expect(output.tokenOfferCards.items.map((card) => card.tokenId)).toEqual(
             ["1", "2"],
@@ -257,6 +262,7 @@ function media(): CollectionMediaState {
 function tokenCard(tokenId: string): TokenCard {
     return {
         tokenId,
+        marketplaceBiddingSupported: true,
         name: `Token ${tokenId}`,
         image: null,
         listingPrice: null,
@@ -274,7 +280,13 @@ function traitFacet(key: string): TraitFacet {
         displayKind: TRAIT_FILTER_DISPLAY_KIND.Set,
         minValue: null,
         maxValue: null,
-        values: [{ value: "Terrain", tokenCount: 1 }],
+        values: [
+            {
+                value: "Terrain",
+                tokenCount: 1,
+                marketplaceBiddingSupported: true,
+            },
+        ],
     };
 }
 
@@ -313,6 +325,7 @@ function bidRow(
         maker: "0x2222222222222222222222222222222222222222",
         isOwn: false,
         price: exactBidBookRowPrice(priceWei),
+        bidLimits: null,
         quantity: "1",
         currencyAddress: null,
         currencySymbol: null,

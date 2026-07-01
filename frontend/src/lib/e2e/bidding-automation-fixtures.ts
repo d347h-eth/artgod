@@ -1,6 +1,8 @@
 import {
 	TERRAFORMS_BIOME_ATTRIBUTE_KEY,
 	TERRAFORMS_EXTENSION_KEY,
+	TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+	TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES,
 	TERRAFORMS_ZONE_ATTRIBUTE_KEY
 } from '@artgod/shared/extensions/terraforms';
 import {
@@ -121,9 +123,9 @@ export const BIDDING_E2E_FACETS: ApiTraitFacet[] = [
 		minValue: null,
 		maxValue: null,
 		values: [
-			{ value: 'Shahra', tokenCount: 2 },
-			{ value: 'Tetsu', tokenCount: 1 },
-			{ value: 'Xleph', tokenCount: 1 }
+			biddingE2eFacetValue('Shahra', 2),
+			biddingE2eFacetValue('Tetsu', 1),
+			biddingE2eFacetValue('Xleph', 1)
 		]
 	},
 	{
@@ -132,9 +134,9 @@ export const BIDDING_E2E_FACETS: ApiTraitFacet[] = [
 		minValue: null,
 		maxValue: null,
 		values: [
-			{ value: '42', tokenCount: 2 },
-			{ value: '7', tokenCount: 1 },
-			{ value: '9', tokenCount: 1 }
+			biddingE2eFacetValue('42', 2),
+			biddingE2eFacetValue('7', 1),
+			biddingE2eFacetValue('9', 1)
 		]
 	},
 	{
@@ -143,9 +145,16 @@ export const BIDDING_E2E_FACETS: ApiTraitFacet[] = [
 		minValue: null,
 		maxValue: null,
 		values: [
-			{ value: 'Terrain', tokenCount: 3 },
-			{ value: 'Daydream', tokenCount: 1 }
+			biddingE2eFacetValue('Terrain', 3),
+			biddingE2eFacetValue('Daydream', 1)
 		]
+	},
+	{
+		key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
+		displayKind: 'set',
+		minValue: null,
+		maxValue: null,
+		values: [biddingE2eFacetValue(TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed, 1, false)]
 	}
 ];
 
@@ -707,6 +716,9 @@ function buildTokensPage(params: {
 		nextCursor: page.nextCursor,
 		limit: page.limit,
 		totalItems: filtered.length,
+		marketplaceBiddingSupportedTotalItems: filtered.filter(
+			(token) => token.marketplaceBiddingSupported
+		).length,
 		rangeStart: page.rangeStart,
 		rangeEnd: page.rangeEnd,
 		currentPage: page.currentPage,
@@ -743,6 +755,9 @@ function buildTokenOfferCardsPage(params: {
 		nextCursor: page.nextCursor,
 		limit: page.limit,
 		totalItems: filtered.length,
+		marketplaceBiddingSupportedTotalItems: filtered.filter(
+			(card) => card.marketplaceBiddingSupported
+		).length,
 		totalOffers: filtered.reduce((sum, card) => sum + card.offers.length, 0),
 		rangeStart: page.rangeStart,
 		rangeEnd: page.rangeEnd,
@@ -852,6 +867,7 @@ function tokenCard(
 ): ApiTokenCard {
 	return {
 		tokenId,
+		marketplaceBiddingSupported: true,
 		name: `E2E Token #${tokenId}`,
 		image: null,
 		traitSummary,
@@ -871,6 +887,7 @@ function tokenDetail(tokenId: string): ApiTokenDetail {
 	const token = tokenCardById(tokenId);
 	return {
 		tokenId: token.tokenId,
+		marketplaceBiddingSupported: token.marketplaceBiddingSupported,
 		name: token.name,
 		image: token.image,
 		animationUrl: null,
@@ -884,10 +901,26 @@ function tokenDetail(tokenId: string): ApiTokenDetail {
 				BIDDING_E2E_FACETS.find((facet) => facet.key === attribute.key)?.values.find(
 					(item) => item.value === attribute.value
 				)?.tokenCount ?? null,
-			rarityPercent: 25
+			rarityPercent: 25,
+			marketplaceBiddingSupported:
+				BIDDING_E2E_FACETS.find((facet) => facet.key === attribute.key)?.values.find(
+					(item) => item.value === attribute.value
+				)?.marketplaceBiddingSupported ?? true
 		})),
 		hasMetadata: token.hasMetadata,
 		metadataUpdatedAt: token.metadataUpdatedAt
+	};
+}
+
+function biddingE2eFacetValue(
+	value: string,
+	tokenCount: number,
+	marketplaceBiddingSupported = true
+): ApiTraitFacet['values'][number] {
+	return {
+		value,
+		tokenCount,
+		marketplaceBiddingSupported
 	};
 }
 
@@ -949,6 +982,14 @@ function bidRow(params: {
 					wei: ethToWei(params.priceEth),
 					eth: params.priceEth
 				},
+		bidLimits: hasRange
+			? {
+					floorWei: ethToWei(params.priceEth),
+					floorEth: params.priceEth,
+					ceilingWei: ethToWei(params.ceilingEth ?? params.priceEth),
+					ceilingEth: params.ceilingEth ?? params.priceEth
+				}
+			: null,
 		quantity: '1',
 		currencyAddress: WETH_ADDRESS,
 		currencySymbol: 'WETH',

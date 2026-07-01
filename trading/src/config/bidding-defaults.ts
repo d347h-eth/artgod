@@ -9,7 +9,7 @@ import {
 export const BIDDING_RUNTIME_ENV_KEY = {
     Enabled: "BIDDING_ENABLED",
     DryRun: "BIDDING_DRY_RUN",
-    PollMs: "BIDDING_POLL_MS",
+    ScanSleepMs: "BIDDING_SCAN_SLEEP_MS",
     MaxConcurrentJobs: "BIDDING_MAX_CONCURRENT_JOBS",
     BootstrapConcurrency: "BIDDING_BOOTSTRAP_CONCURRENCY",
     OfferExpirationSeconds: "BIDDING_OFFER_EXPIRATION_SECONDS",
@@ -45,8 +45,9 @@ export const BIDDING_DEFAULT_ENABLED = getSettingDefaultBoolean(
 export const BIDDING_DEFAULT_DRY_RUN = getSettingDefaultBoolean(
     BIDDING_RUNTIME_ENV_KEY.DryRun,
 );
-export const BIDDING_DEFAULT_POLL_MS =
-    getSettingDefaultNumber(BIDDING_RUNTIME_ENV_KEY.PollMs);
+export const BIDDING_DEFAULT_SCAN_SLEEP_MS = getSettingDefaultNumber(
+    BIDDING_RUNTIME_ENV_KEY.ScanSleepMs,
+);
 export const BIDDING_DEFAULT_MAX_CONCURRENT_JOBS = getSettingDefaultNumber(
     BIDDING_RUNTIME_ENV_KEY.MaxConcurrentJobs,
 );

@@ -31,6 +31,7 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 - Snapshot refresh entrypoints are serialized/deduped by the snapshot service.
 - Job execution remains per-job serialized.
 - Token trait matching reads normalized `token_attributes` joins; bidding hot-refresh does not parse `token_metadata.attributes_json` or `token_metadata.raw_json`.
+- Marketplace token bidding targets must be canonical `tokens` rows. Extension-synthetic tokens can be shown in browsing surfaces, but frontend bidding selection and backend job mutation exclude them before bot commands exist.
 - Human-readable config, API, UI, and logs use Ether units; low-level EVM calls and persisted amount columns may use wei strings.
 - Wallet secrets never enter env, CLI args, SQLite, frontend state, or logs.
 
@@ -77,16 +78,18 @@ Startup order:
 
 1. read the one-shot secret payload and construct the in-memory signer
 2. load typed trading config
-3. load enabled bidding jobs from SQLite
-4. wire OpenSea lanes, metadata lookup, WETH balance/allowance, transaction policy, and logging adapters
-5. emit `bot_bootstrapping` before long allowance/snapshot/price bootstrap work
-6. approve configured WETH allowance when `BIDDING_WETH_ALLOWANCE_ETH > 0`
-7. bootstrap authoritative collection-offer snapshots and current prices
-8. start job ticks, snapshot polling, stream listeners, command reconciliation, and heartbeat
-9. emit `bot_ready` only after bootstrap is complete
+3. mark previously tracked active offers as unverified for enabled bidding jobs
+4. load enabled bidding jobs from SQLite
+5. wire OpenSea lanes, metadata lookup, WETH balance/allowance, transaction policy, and logging adapters
+6. emit `bot_bootstrapping` before long allowance/snapshot/price bootstrap work
+7. approve configured WETH allowance when `BIDDING_WETH_ALLOWANCE_ETH > 0`
+8. bootstrap authoritative collection-offer snapshots and current prices
+9. start the continuous job scan loop, snapshot polling, stream listeners, command reconciliation, and heartbeat
+10. emit `bot_ready` only after bootstrap is complete
 
 `trading_bot_runtime_state` stores non-secret bot heartbeat state.
 Backend bid-book reads use it to decide whether the bot snapshot projection can be treated as live.
+Active-order evidence restored from a prior bot process is rendered as `verifying` until the current process proves, replaces, or clears that order through OpenSea-backed runtime work.
 
 ## Runtime Logging
 
@@ -181,7 +184,10 @@ Backend source selection:
 - standard/admin reads may overlay own declared jobs as `own_job_intent` rows before the bot has landed a matching market offer
 - public single-collection reads stay market-only and do not expose local own-job context
 - own market-position badges (`winning`, `draw`, `losing`) are attached only from the bot-persisted runtime decision for the active order id
+- prior-process active-order evidence can keep an own row visible, but strategy badges stay hidden and the row is marked `verifying` until the running bot verifies the order in the current process
 - runtime-backed own rows prefer the bot-persisted active order timing even when the visible row is backed by a projected or indexed market order
+- when a job revision supersedes an active order, the old exact order remains visible as a lifecycle own row while the current revision appears as a queued intent row
+- completed own cancellations suppress stale indexed own order rows, with a short `cancelled` confirmation row before disappearance
 - the backend must not infer own bid position from bid-book rows or exact-scope price comparisons
 
 Frontend labels:
@@ -195,9 +201,11 @@ Frontend labels:
 Bid-book row materialization:
 
 - `market_bid`: a real row from OpenSea order data, either the bot snapshot projection or canonical orders
-- `own_job_intent`: a local declared job rendered as the user's intended bid while the runtime order is queued, paused, or not yet visible in market data
+- `own_job_intent`: a local declared job or own active-order lifecycle row rendered from backend-owned runtime/cancellation facts
 - queued or paused own-intent rows use a floor-ceiling price range because no single market order price exists yet
+- replacing, canceling, cancel failed, and cancelled own-intent rows use the real active order id and exact current price
 - runtime-active own-intent rows use the bot-persisted active order id and exact current price until the market row appears
+- bid-book tables show floor and ceiling columns only when visible rows carry bid-limit or range data
 
 ## Bidding Automation UI
 
@@ -214,6 +222,7 @@ Target controls:
 
 - `bid on traits`: uses the current trait filter or selected trait bucket as the declared trait target
 - `bid on all tokens`: creates token jobs for every matching token across the full filtered result set
+- token-scoped bidding keeps only canonical marketplace-addressable tokens; unsupported synthetic token cards are not selectable as bidding targets
 - `bid on this page`: narrows token jobs to currently loaded token cards
 - `place collection bid`: creates or edits the collection-wide target
 - `tiers`: opens collection price-tier management
@@ -326,6 +335,7 @@ Bidding runtime groups:
 
 - snapshot cadence/freshness: `BIDDING_COLLECTION_OFFERS_*`
 - bid-book projection, backend freshness, and UI live refresh: `BIDDING_BID_BOOK_*`
+- bidding job scan sleep: `BIDDING_SCAN_SLEEP_MS`
 - bot runtime liveness: `BIDDING_RUNTIME_HEARTBEAT_*`
 - command reconciliation: `BIDDING_COMMAND_*`
 - WETH allowance: `BIDDING_WETH_ALLOWANCE_ETH`

@@ -143,7 +143,17 @@ export type TokenAttribute = {
     value: string;
 };
 
-export type TokenPresentationSummary = {
+// Indicates whether a trait value is backed by canonical token metadata and can be targeted by marketplace bidding APIs.
+export type TraitMarketplaceBiddingSupport = {
+    marketplaceBiddingSupported: boolean;
+};
+
+// Indicates whether a token row is canonical and can be targeted by marketplace bidding APIs.
+export type TokenMarketplaceBiddingSupport = {
+    marketplaceBiddingSupported: boolean;
+};
+
+export type TokenPresentationSummary = TokenMarketplaceBiddingSupport & {
     tokenId: string;
     name: string | null;
     image: string | null;
@@ -158,7 +168,7 @@ export type TokenCard = TokenPresentationSummary & {
     attributes: TokenAttribute[];
 };
 
-export type TokenDetailTrait = {
+export type TokenDetailTrait = TraitMarketplaceBiddingSupport & {
     key: string;
     value: string;
     tokenCount: number | null;
@@ -171,7 +181,7 @@ export type TokenMediaPreview = {
     animationUrl: string | null;
 };
 
-export type TokenDetail = {
+export type TokenDetail = TokenMarketplaceBiddingSupport & {
     tokenId: string;
     name: string | null;
     image: string | null;
@@ -184,7 +194,12 @@ export type TokenDetail = {
     metadataUpdatedAt: string | null;
 };
 
-export type TraitFacetValue = {
+export type TraitFacetValue = TraitMarketplaceBiddingSupport & {
+    value: string;
+    tokenCount: number;
+};
+
+export type TraitCatalogFacetValue = {
     value: string;
     tokenCount: number;
 };
@@ -199,7 +214,7 @@ export type TraitFacet = {
 
 export type TraitCatalogFacet = {
     key: string;
-    values: TraitFacetValue[];
+    values: TraitCatalogFacetValue[];
 };
 
 export type TraitCatalog = {
@@ -229,6 +244,7 @@ export type ForwardCursorPage<TItem> = CursorPage<TItem> & {
 
 export type TokenCursorPage = ForwardCursorPage<TokenCard> & {
     prevCursor: string | null;
+    marketplaceBiddingSupportedTotalItems: number;
 };
 
 export type CollectionHolderPage = ForwardCursorPage<CollectionHolder>;

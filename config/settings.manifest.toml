@@ -1202,11 +1202,11 @@ options = ["fail"]
 help = "Policy for starting the bidding bot when the wallet already has pending transactions."
 
 [[settings]]
-key = "BIDDING_POLL_MS"
+key = "BIDDING_SCAN_SLEEP_MS"
 group = "bidding"
-label = "bidding poll ms"
-default = "480000"
-help = "How often the bidding bot scans active jobs for routine work."
+label = "bidding scan sleep ms"
+default = "60000"
+help = "Delay between completed full bidding-job scans."
 view = "basic"
 
 [[settings]]

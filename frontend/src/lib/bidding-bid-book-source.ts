@@ -41,10 +41,7 @@ export function formatBidBookNextUpdate(nextUpdateAtMs: number | null, nowMs: nu
 	if (nextUpdateAtMs === null) {
 		return '-';
 	}
-	const secondsUntilUpdate = Math.ceil((nextUpdateAtMs - nowMs) / 1000);
-	if (secondsUntilUpdate <= 0) {
-		return 'now';
-	}
+	const secondsUntilUpdate = Math.max(0, Math.ceil((nextUpdateAtMs - nowMs) / 1000));
 	if (secondsUntilUpdate < 60) {
 		return `${secondsUntilUpdate}s`;
 	}

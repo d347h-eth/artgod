@@ -36,6 +36,7 @@ const BASE_BID: ApiBiddingBidBookRow = {
 		isOwn: false
 	},
 	price: exactPrice('300000000000000000', '0.3'),
+	bidLimits: null,
 	quantity: '1',
 	currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 	currencySymbol: 'WETH',
@@ -176,9 +177,11 @@ describe('BidBookPanel', () => {
 		expect(body).toMatch(/<tr(?=[^>]*hidden)(?=[^>]*bid-book-muted-demand-group)[^>]*>/);
 		expect(body).not.toContain('aria-label="Bid trait bucket index"');
 		expect(body).not.toContain('href="#bid-book-bucket-');
-		expect(body).not.toContain(
-			'bid-book-bucket-spacer" aria-hidden="true"><td colspan="4"></td></tr><!--]--> <tr class="bid-book-muted-row"'
+		expect(body).not.toMatch(
+			/bid-book-bucket-spacer" aria-hidden="true"><td colspan="\d+"><\/td><\/tr><!--\]--> <tr class="bid-book-muted-row"/
 		);
+		expect(body).not.toContain('>floor</th>');
+		expect(body).not.toContain('>ceiling</th>');
 		expect(body).toContain('targets');
 		expect(body).toContain('offers');
 		expect(body).toContain('makers');
@@ -263,6 +266,8 @@ describe('BidBookPanel', () => {
 		expect(body).toMatch(/<tr class="bid-book-own-row">[\s\S]*data-open-sea-order-hash="0xown-low"/);
 		expect(body).not.toContain('data-open-sea-order-hash="0xother-low"');
 		expect(body).toContain('expand 1');
+		expect(body).not.toContain('>floor</th>');
+		expect(body).not.toContain('>ceiling</th>');
 	});
 
 	it('uses displayed rows only when resolving row price precision', () => {
@@ -327,6 +332,8 @@ describe('BidBookPanel', () => {
 		expect(body).toContain('bid-book-price-quantity-empty');
 		expect(body).toContain('expand 1');
 		expect(body).not.toContain('0.000345');
+		expect(body).not.toContain('>floor</th>');
+		expect(body).not.toContain('>ceiling</th>');
 	});
 
 	it('renders separate trait-demand filter and bid actions', () => {
@@ -359,6 +366,44 @@ describe('BidBookPanel', () => {
 		expect(body).toContain('bid-book-place-bid-icon');
 		expect(filterButtonIndex).toBeGreaterThanOrEqual(0);
 		expect(bidIconIndex).toBeGreaterThan(filterButtonIndex);
+	});
+
+	it('shows bid limit columns in trait-demand view when visible rows have limits', () => {
+		const bidBook: ApiBiddingBidBook = {
+			state: {
+				source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+				updatedAt: null,
+				snapshotRefreshedAtMs: null,
+				projectedAt: null,
+				rowCount: 1,
+				durationMs: null,
+				lastError: null
+			},
+			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			bids: [
+				{
+					...BASE_BID,
+					bidLimits: {
+						floorWei: '100000000000000000',
+						floorEth: '0.1',
+						ceilingWei: '200000000000000000',
+						ceilingEth: '0.2'
+					}
+				}
+			]
+		};
+
+		const { body } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				view: 'trait-demand'
+			}
+		});
+
+		expect(body).toContain('>floor</th>');
+		expect(body).toContain('>ceiling</th>');
+		expect(body).toContain('>0.10</td>');
+		expect(body).toContain('>0.20</td>');
 	});
 
 	it('omits redundant trait-demand filter actions for single trait buckets', () => {
@@ -479,6 +524,12 @@ describe('BidBookPanel', () => {
 				isOwn: true
 			},
 			price: exactPrice('200000000000000000', '0.2'),
+			bidLimits: {
+				floorWei: '100000000000000000',
+				floorEth: '0.1',
+				ceilingWei: '200000000000000000',
+				ceilingEth: '0.2'
+			},
 			ownStatus: {
 				position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
 				constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
@@ -531,6 +582,10 @@ describe('BidBookPanel', () => {
 		expect(body).toContain('>winning</span>');
 		expect(body).toContain('bid-book-own-status-ceiling');
 		expect(body).toContain('>hit ceiling</span>');
+		expect(body).toContain('>floor</th>');
+		expect(body).toContain('>ceiling</th>');
+		expect(body).toContain('>0.10</td>');
+		expect(body).toContain('>0.20</td>');
 	});
 
 	it('shows runtime status for active own job intents', () => {
@@ -574,6 +629,12 @@ describe('BidBookPanel', () => {
 				isOwn: true
 			},
 			price: exactPrice('200000000000000000', '0.2'),
+			bidLimits: {
+				floorWei: '100000000000000000',
+				floorEth: '0.1',
+				ceilingWei: '200000000000000000',
+				ceilingEth: '0.2'
+			},
 			ownStatus: {
 				position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
 				constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
@@ -614,6 +675,8 @@ describe('BidBookPanel', () => {
 		expect(body).toContain('bid-book-own-status-ceiling');
 		expect(body).toContain('>hit ceiling</span>');
 		expect(body).not.toContain('>queued</span>');
+		expect(body).toContain('>0.10</td>');
+		expect(body).toContain('>0.20</td>');
 	});
 
 	it('shows queued for own job intents instead of computing a market position locally', () => {
@@ -662,6 +725,12 @@ describe('BidBookPanel', () => {
 				floorEth: '0.1',
 				ceilingWei: '200000000000000000',
 				ceilingEth: '0.2'
+			},
+			bidLimits: {
+				floorWei: '100000000000000000',
+				floorEth: '0.1',
+				ceilingWei: '200000000000000000',
+				ceilingEth: '0.2'
 			}
 		};
 		const bidBook: ApiBiddingBidBook = {
@@ -706,6 +775,25 @@ describe('BidBookPanel', () => {
 		expect(body).not.toContain('>winning</span>');
 		expect(body).not.toContain('outbid');
 		expect(body).not.toContain('no active bid');
+		expect(body).toContain('>floor</th>');
+		expect(body).toContain('>ceiling</th>');
+		expect(body).toContain('>0.10</td>');
+		expect(body).toContain('>0.20</td>');
+		expect(body).not.toContain('0.1-0.2');
+
+		const { body: hiddenMetaBody } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				job,
+				showScope: true,
+				showOwnStateBadges: false,
+				basePath: '/ethereum/terraforms',
+				mediaMode: 'artifact'
+			}
+		});
+
+		expect(hiddenMetaBody).not.toContain('>state<');
+		expect(hiddenMetaBody).toContain('>queued</span>');
 	});
 
 	it('shows cancellation phases for own job intents', () => {
@@ -734,18 +822,38 @@ describe('BidBookPanel', () => {
 				phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed
 			}
 		};
+		const replacingIntent: ApiBiddingBidBookRow = {
+			...cancelingIntent,
+			orderId: '0xreplacing',
+			materialization: {
+				kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+				jobId: 'job-token-1',
+				status: TRADING_JOB_STATUS.Enabled,
+				phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Replacing
+			}
+		};
+		const cancelledIntent: ApiBiddingBidBookRow = {
+			...cancelingIntent,
+			orderId: '0xcancelled',
+			materialization: {
+				kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+				jobId: 'job-token-1',
+				status: TRADING_JOB_STATUS.Archived,
+				phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Cancelled
+			}
+		};
 		const bidBook: ApiBiddingBidBook = {
 			state: {
 				source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
 				updatedAt: null,
 				snapshotRefreshedAtMs: null,
 				projectedAt: null,
-				rowCount: 2,
+				rowCount: 4,
 				durationMs: null,
 				lastError: null
 			},
 			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-			bids: [cancelingIntent, failedIntent]
+			bids: [cancelingIntent, failedIntent, replacingIntent, cancelledIntent]
 		};
 
 		const { body } = render(BidBookPanel, {
@@ -762,6 +870,10 @@ describe('BidBookPanel', () => {
 		expect(body).toContain('>canceling</span>');
 		expect(body).toContain('bid-book-own-status-cancel_failed');
 		expect(body).toContain('>cancel failed</span>');
+		expect(body).toContain('bid-book-own-status-replacing');
+		expect(body).toContain('>replacing</span>');
+		expect(body).toContain('bid-book-own-status-cancelled');
+		expect(body).toContain('>cancelled</span>');
 	});
 
 	it('renders clickable demand trait values and opens the preferred trait tab', () => {

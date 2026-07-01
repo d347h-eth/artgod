@@ -35,11 +35,16 @@ import type {
     TraitFilter,
     TraitRangeFilter,
 } from "../types/browse.js";
+import { TOKEN_RECORD_KIND, type TokenRecordKind } from "../types/token-records.js";
 import {
     normalizeTraitKeyList,
     TRAIT_FILTER_DISPLAY_KIND,
     type TraitFilterPresentationConfig,
 } from "../types/customization.js";
+import {
+    TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+    TOKEN_ATTRIBUTE_SOURCE_KIND,
+} from "../types/token-attributes.js";
 import { decodeOpaqueCursor, encodeOpaqueCursor } from "../utils/cursor.js";
 import {
     normalizeAddressRef,
@@ -95,6 +100,7 @@ type CollectionRow = {
 
 type TokenRow = {
     token_id: string;
+    record_kind: TokenRecordKind;
     name: string | null;
     image: string | null;
     listing_price: string | null;
@@ -112,6 +118,7 @@ type HydratedTokenRow = TokenRow & {
 
 type TokenDetailRow = {
     token_id: string;
+    record_kind: TokenRecordKind;
     name: string | null;
     image: string | null;
     animation_url: string | null;
@@ -155,6 +162,13 @@ type TraitFacetRow = {
     key: string;
     value: string;
     token_count: number;
+    marketplace_bidding_supported: number;
+};
+
+type TraitCatalogFacetRow = {
+    key: string;
+    value: string;
+    token_count: number;
 };
 
 type TraitFacetRangeRow = {
@@ -175,6 +189,7 @@ type TokenDetailTraitRow = {
     key: string;
     value: string;
     token_count: number | null;
+    marketplace_bidding_supported: number;
 };
 
 type TokenSortKey = {
@@ -296,6 +311,12 @@ export type ListCollectionTokenCardsByIdsParams = {
     includeListings?: boolean;
 };
 
+export type CountMarketplaceBiddingSupportedTokensByIdsParams = {
+    chainId: number;
+    collectionId: number;
+    tokenIds: string[];
+};
+
 export type ListCollectionHoldersParams = {
     chainId: number;
     collectionId: number;
@@ -340,8 +361,16 @@ export class SqliteCollectionsReadModel {
             "LIMIT 1",
     );
 
-    private selectTraitFacetRows = db.prepare<[number, number]>(
-        "SELECT attribute_keys.key as key, attributes.value as value, collection_trait_stats.token_count as token_count " +
+    private selectTraitFacetRows = db.prepare<[string, string, number, number]>(
+        "SELECT attribute_keys.key as key, attributes.value as value, collection_trait_stats.token_count as token_count, " +
+            "EXISTS(" +
+            "SELECT 1 FROM token_attributes support_ta " +
+            "WHERE support_ta.chain_id = collection_trait_stats.chain_id " +
+            "AND support_ta.collection_id = collection_trait_stats.collection_id " +
+            "AND support_ta.attribute_id = collection_trait_stats.attribute_id " +
+            "AND support_ta.source_kind = ? " +
+            "AND support_ta.source_key = ? " +
+            ") AS marketplace_bidding_supported " +
             "FROM collection_trait_stats " +
             "JOIN attributes ON attributes.id = collection_trait_stats.attribute_id " +
             "AND attributes.chain_id = collection_trait_stats.chain_id " +
@@ -362,8 +391,22 @@ export class SqliteCollectionsReadModel {
             "LIMIT 1",
     );
 
-    private selectTokenDetailTraitRows = db.prepare<[number, number, string]>(
-        "SELECT ak.key AS key, a.value AS value, cts.token_count AS token_count " +
+    private selectTokenDetailTraitRows = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        tokenId: string;
+        sourceKind: string;
+        sourceKey: string;
+    }>(
+        "SELECT ak.key AS key, a.value AS value, cts.token_count AS token_count, " +
+            "EXISTS(" +
+            "SELECT 1 FROM token_attributes support_ta " +
+            "WHERE support_ta.chain_id = ta.chain_id " +
+            "AND support_ta.collection_id = ta.collection_id " +
+            "AND support_ta.attribute_id = ta.attribute_id " +
+            "AND support_ta.source_kind = @sourceKind " +
+            "AND support_ta.source_key = @sourceKey " +
+            ") AS marketplace_bidding_supported " +
             "FROM token_attributes ta " +
             "JOIN attributes a ON a.id = ta.attribute_id " +
             "AND a.chain_id = ta.chain_id " +
@@ -375,8 +418,34 @@ export class SqliteCollectionsReadModel {
             "AND cts.collection_id = ta.collection_id " +
             "AND cts.attribute_key_id = a.attribute_key_id " +
             "AND cts.attribute_id = a.id " +
-            "WHERE ta.chain_id = ? AND ta.collection_id = ? AND ta.token_id = ? " +
+            "WHERE ta.chain_id = @chainId AND ta.collection_id = @collectionId AND ta.token_id = @tokenId " +
+            "GROUP BY ak.key, a.value, cts.token_count " +
             "ORDER BY ak.key ASC, a.value ASC",
+    );
+
+    private selectMarketplaceBiddingTraitSupportRow = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        sourceKind: string;
+        sourceKey: string;
+        key: string;
+        value: string;
+    }>(
+        "SELECT 1 AS supported " +
+            "FROM token_attributes ta " +
+            "JOIN attributes a ON a.id = ta.attribute_id " +
+            "AND a.chain_id = ta.chain_id " +
+            "AND a.collection_id = ta.collection_id " +
+            "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " +
+            "AND ak.chain_id = a.chain_id " +
+            "AND ak.collection_id = a.collection_id " +
+            "WHERE ta.chain_id = @chainId " +
+            "AND ta.collection_id = @collectionId " +
+            "AND ta.source_kind = @sourceKind " +
+            "AND ta.source_key = @sourceKey " +
+            "AND ak.key = @key " +
+            "AND a.value = @value " +
+            "LIMIT 1",
     );
 
     private selectTokenPreviewRow = db.prepare<{
@@ -602,7 +671,7 @@ export class SqliteCollectionsReadModel {
         }
 
         const sql =
-            `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, NULL AS listing_price, NULL AS listing_currency, m.updated_at AS metadata_updated_at ` +
+            `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, NULL AS listing_price, NULL AS listing_currency, m.updated_at AS metadata_updated_at ` +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
             "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
@@ -675,6 +744,21 @@ export class SqliteCollectionsReadModel {
                     whereValues: tokenWhereValues,
                 }),
         );
+        const marketplaceBiddingSupportedTotalItems = this.apm.withSyncSpan(
+            "backend.collection.db.tokens_count",
+            {
+                ...querySpanAttributes,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
+                    ARTGOD_COLLECTION_COUNT_KIND.Total,
+            },
+            () =>
+                countMatchingMarketplaceBiddingSupportedTokens({
+                    joinClauses: baseJoinClauses,
+                    joinValues: baseJoinValues,
+                    whereClauses: tokenWhereClauses,
+                    whereValues: tokenWhereValues,
+                }),
+        );
         const beforeItems = cursorSortKey
             ? this.apm.withSyncSpan(
                   "backend.collection.db.tokens_count",
@@ -718,6 +802,7 @@ export class SqliteCollectionsReadModel {
             nextCursor,
             limit: params.limit,
             totalItems,
+            marketplaceBiddingSupportedTotalItems,
             rangeStart,
             rangeEnd,
             currentPage,
@@ -807,7 +892,7 @@ export class SqliteCollectionsReadModel {
         const totalCountSelect =
             cursorKey === null ? ", COUNT(*) OVER () AS total_count " : " ";
         const sql =
-            `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at` +
+            `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at` +
             totalCountSelect +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
@@ -877,6 +962,23 @@ export class SqliteCollectionsReadModel {
                               whereValues: baseWhereValues,
                           }),
                   );
+        const marketplaceBiddingSupportedTotalItems = this.apm.withSyncSpan(
+            "backend.collection.db.tokens_count",
+            {
+                ...querySpanAttributes,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
+                    ARTGOD_COLLECTION_COUNT_KIND.Total,
+            },
+            () =>
+                countMatchingListedMarketplaceBiddingSupportedTokens({
+                    joinClauses: baseJoinClauses,
+                    joinValues: baseJoinValues,
+                    listingSql,
+                    listingValues: constrainedListingValues,
+                    whereClauses: baseWhereClauses,
+                    whereValues: baseWhereValues,
+                }),
+        );
         const beforeItems = cursorKey
             ? this.apm.withSyncSpan(
                   "backend.collection.db.tokens_count",
@@ -923,6 +1025,7 @@ export class SqliteCollectionsReadModel {
             nextCursor,
             limit: params.limit,
             totalItems,
+            marketplaceBiddingSupportedTotalItems,
             rangeStart,
             rangeEnd,
             currentPage,
@@ -1022,7 +1125,7 @@ export class SqliteCollectionsReadModel {
         }
 
         const sql =
-            `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at ` +
+            `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at ` +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
             `LEFT JOIN (${listingSql}) l ` +
@@ -1086,6 +1189,21 @@ export class SqliteCollectionsReadModel {
                     whereValues: tokenWhereValues,
                 }),
         );
+        const marketplaceBiddingSupportedTotalItems = this.apm.withSyncSpan(
+            "backend.collection.db.tokens_count",
+            {
+                ...querySpanAttributes,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
+                    ARTGOD_COLLECTION_COUNT_KIND.Total,
+            },
+            () =>
+                countMatchingMarketplaceBiddingSupportedTokens({
+                    joinClauses: baseJoinClauses,
+                    joinValues: baseJoinValues,
+                    whereClauses: tokenWhereClauses,
+                    whereValues: tokenWhereValues,
+                }),
+        );
         const beforeItems = cursorKey
             ? this.apm.withSyncSpan(
                   "backend.collection.db.tokens_count",
@@ -1133,6 +1251,7 @@ export class SqliteCollectionsReadModel {
             nextCursor,
             limit: params.limit,
             totalItems,
+            marketplaceBiddingSupportedTotalItems,
             rangeStart,
             rangeEnd,
             currentPage,
@@ -1246,6 +1365,8 @@ export class SqliteCollectionsReadModel {
             facet.values.push({
                 value: row.value,
                 tokenCount: row.token_count,
+                marketplaceBiddingSupported:
+                    row.marketplace_bidding_supported === 1,
             });
         }
         for (const row of rangeRows) {
@@ -1269,6 +1390,30 @@ export class SqliteCollectionsReadModel {
             facets.push(facet);
         }
         return facets;
+    }
+
+    // Returns the exact trait criteria that OpenSea-style marketplace bidding APIs can target directly.
+    listMarketplaceBiddingSupportedTraits(params: {
+        chainId: number;
+        collectionId: number;
+        traits: TraitFilter[];
+    }): TraitFilter[] {
+        const normalizedTraits = normalizeTraitFilters(params.traits);
+        const supportedTraits: TraitFilter[] = [];
+        for (const trait of normalizedTraits) {
+            const supportRow = this.selectMarketplaceBiddingTraitSupportRow.get({
+                chainId: params.chainId,
+                collectionId: params.collectionId,
+                sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+                sourceKey: TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+                key: trait.key,
+                value: trait.value,
+            }) as { supported: number } | undefined;
+            if (supportRow) {
+                supportedTraits.push(trait);
+            }
+        }
+        return supportedTraits;
     }
 
     // Lists exact minted value counts for requested trait keys within an optional trait scope.
@@ -1331,6 +1476,8 @@ export class SqliteCollectionsReadModel {
     ): TraitFacetRow[] {
         if (excludeKeys.length === 0) {
             return this.selectTraitFacetRows.all(
+                TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+                TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
                 chainId,
                 collectionId,
             ) as TraitFacetRow[];
@@ -1339,7 +1486,15 @@ export class SqliteCollectionsReadModel {
         const placeholders = excludeKeys.map(() => "?").join(", ");
         return db.raw
             .prepare(
-                "SELECT attribute_keys.key as key, attributes.value as value, collection_trait_stats.token_count as token_count " +
+                "SELECT attribute_keys.key as key, attributes.value as value, collection_trait_stats.token_count as token_count, " +
+                    "EXISTS(" +
+                    "SELECT 1 FROM token_attributes support_ta " +
+                    "WHERE support_ta.chain_id = collection_trait_stats.chain_id " +
+                    "AND support_ta.collection_id = collection_trait_stats.collection_id " +
+                    "AND support_ta.attribute_id = collection_trait_stats.attribute_id " +
+                    "AND support_ta.source_kind = ? " +
+                    "AND support_ta.source_key = ? " +
+                    ") AS marketplace_bidding_supported " +
                     "FROM collection_trait_stats " +
                     "JOIN attributes ON attributes.id = collection_trait_stats.attribute_id " +
                     "AND attributes.chain_id = collection_trait_stats.chain_id " +
@@ -1351,14 +1506,20 @@ export class SqliteCollectionsReadModel {
                     `AND attribute_keys.key NOT IN (${placeholders}) ` +
                     "ORDER BY attribute_keys.key ASC, collection_trait_stats.token_count ASC, attributes.value ASC",
             )
-            .all(chainId, collectionId, ...excludeKeys) as TraitFacetRow[];
+            .all(
+                TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+                TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+                chainId,
+                collectionId,
+                ...excludeKeys,
+            ) as TraitFacetRow[];
     }
 
     private selectTraitCatalogRowsWithOptions(
         chainId: number,
         collectionId: number,
         keys: string[],
-    ): TraitFacetRow[] {
+    ): TraitCatalogFacetRow[] {
         const keyPlaceholders = keys.map(() => "?").join(", ");
         return db.raw
             .prepare(
@@ -1374,7 +1535,7 @@ export class SqliteCollectionsReadModel {
                     `AND attribute_keys.key IN (${keyPlaceholders}) ` +
                     "ORDER BY attribute_keys.key ASC, collection_trait_stats.token_count ASC, attributes.value ASC",
             )
-            .all(chainId, collectionId, ...keys) as TraitFacetRow[];
+            .all(chainId, collectionId, ...keys) as TraitCatalogFacetRow[];
     }
 
     private selectScopedTraitCatalogRowsWithOptions(
@@ -1382,7 +1543,7 @@ export class SqliteCollectionsReadModel {
         collectionId: number,
         tokenIds: string[],
         keys: string[],
-    ): TraitFacetRow[] {
+    ): TraitCatalogFacetRow[] {
         const { whereClauses, values: tokenCandidateValues } =
             buildTokenCandidateWhereClauses({
                 tokenIds,
@@ -1411,7 +1572,7 @@ export class SqliteCollectionsReadModel {
                 collectionId,
                 ...tokenCandidateValues,
                 ...keys,
-            ) as TraitFacetRow[];
+            ) as TraitCatalogFacetRow[];
     }
 
     private selectOwnerScopedTraitFacetRowsWithOptions(
@@ -1431,7 +1592,15 @@ export class SqliteCollectionsReadModel {
                 : `AND ak.key NOT IN (${excludeKeys.map(() => "?").join(", ")}) `;
         return db.raw
             .prepare(
-                "SELECT ak.key AS key, a.value AS value, COUNT(*) AS token_count " +
+                "SELECT ak.key AS key, a.value AS value, COUNT(DISTINCT ta.token_id) AS token_count, " +
+                    "EXISTS(" +
+                    "SELECT 1 FROM token_attributes support_ta " +
+                    "WHERE support_ta.chain_id = ta.chain_id " +
+                    "AND support_ta.collection_id = ta.collection_id " +
+                    "AND support_ta.attribute_id = ta.attribute_id " +
+                    "AND support_ta.source_kind = ? " +
+                    "AND support_ta.source_key = ? " +
+                    ") AS marketplace_bidding_supported " +
                     "FROM token_attributes ta " +
                     "JOIN attributes a ON a.id = ta.attribute_id " +
                     "AND a.chain_id = ta.chain_id " +
@@ -1447,6 +1616,8 @@ export class SqliteCollectionsReadModel {
                     "ORDER BY ak.key ASC, token_count ASC, a.value ASC",
             )
             .all(
+                TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+                TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
                 chainId,
                 collectionId,
                 ...tokenCandidateValues,
@@ -1595,9 +1766,13 @@ export class SqliteCollectionsReadModel {
             params.collectionId,
         );
         const attributeRows = this.selectTokenDetailTraitRows.all(
-            params.chainId,
-            params.collectionId,
-            tokenId,
+            {
+                chainId: params.chainId,
+                collectionId: params.collectionId,
+                tokenId,
+                sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+                sourceKey: TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+            },
         ) as TokenDetailTraitRow[];
         const attributes = attributeRows.map((item) =>
             mapTokenDetailTraitRow(item, totalItems),
@@ -1605,6 +1780,8 @@ export class SqliteCollectionsReadModel {
 
         return {
             tokenId: row.token_id,
+            marketplaceBiddingSupported:
+                row.record_kind === TOKEN_RECORD_KIND.Canonical,
             name: row.name ?? null,
             image: this.resolveImagePresentation(row.image),
             animationUrl: this.resolveMediaPresentation(row.animation_url),
@@ -1662,7 +1839,7 @@ export class SqliteCollectionsReadModel {
 
         return db.raw
             .prepare(
-                `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at ` +
+                `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at ` +
                     "FROM tokens t " +
                     "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
                     "AND m.collection_id = t.collection_id " +
@@ -1709,7 +1886,7 @@ export class SqliteCollectionsReadModel {
         const placeholders = tokenIds.map(() => "?").join(", ");
         const rows = db.raw
             .prepare(
-                `SELECT t.token_id, m.name, ${TOKEN_IMAGE_SELECT_SQL}, ` +
+                `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, ` +
                     (includeListings
                         ? "l.price AS listing_price, l.currency AS listing_currency, "
                         : "NULL AS listing_price, NULL AS listing_currency, ") +
@@ -1749,6 +1926,32 @@ export class SqliteCollectionsReadModel {
             const token = byId.get(tokenId);
             return token ? [token] : [];
         });
+    }
+
+    countMarketplaceBiddingSupportedTokensByIds(
+        params: CountMarketplaceBiddingSupportedTokensByIdsParams,
+    ): number {
+        const tokenIds = normalizeTokenIds(params.tokenIds);
+        if (tokenIds.length === 0) {
+            return 0;
+        }
+
+        const placeholders = tokenIds.map(() => "?").join(", ");
+        const row = db.raw
+            .prepare(
+                "SELECT COUNT(*) AS count " +
+                    "FROM tokens " +
+                    "WHERE chain_id = ? AND collection_id = ? " +
+                    `AND token_id IN (${placeholders}) ` +
+                    "AND record_kind = ?",
+            )
+            .get(
+                params.chainId,
+                params.collectionId,
+                ...tokenIds,
+                TOKEN_RECORD_KIND.Canonical,
+            ) as { count: number };
+        return row.count;
     }
 
     listCollectionHolders(
@@ -1835,6 +2038,19 @@ function countMatchingTokens(params: {
     return row.count;
 }
 
+function countMatchingMarketplaceBiddingSupportedTokens(params: {
+    joinClauses: string[];
+    joinValues: unknown[];
+    whereClauses: string[];
+    whereValues: unknown[];
+}): number {
+    return countMatchingTokens({
+        ...params,
+        whereClauses: [...params.whereClauses, "t.record_kind = ?"],
+        whereValues: [...params.whereValues, TOKEN_RECORD_KIND.Canonical],
+    });
+}
+
 function normalizeSqliteCount(
     value: number | bigint | null | undefined,
 ): number {
@@ -1866,6 +2082,21 @@ function countMatchingListedTokens(params: {
             ...params.whereValues,
         ) as { count: number };
     return row.count;
+}
+
+function countMatchingListedMarketplaceBiddingSupportedTokens(params: {
+    joinClauses: string[];
+    joinValues: unknown[];
+    listingSql: string;
+    listingValues: unknown[];
+    whereClauses: string[];
+    whereValues: unknown[];
+}): number {
+    return countMatchingListedTokens({
+        ...params,
+        whereClauses: [...params.whereClauses, "t.record_kind = ?"],
+        whereValues: [...params.whereValues, TOKEN_RECORD_KIND.Canonical],
+    });
 }
 
 function countMatchingMixedTokens(params: {
@@ -1910,6 +2141,7 @@ function emptyTokenCursorPage(limit: number): TokenCursorPage {
         nextCursor: null,
         limit,
         totalItems: 0,
+        marketplaceBiddingSupportedTotalItems: 0,
         rangeStart: 0,
         rangeEnd: 0,
         currentPage: 0,
@@ -2632,7 +2864,7 @@ function buildTokenQueryParts(params: {
 
 function buildTraitCatalogFacets(
     keys: string[],
-    rows: TraitFacetRow[],
+    rows: TraitCatalogFacetRow[],
 ): TraitCatalogFacet[] {
     const facets: TraitCatalogFacet[] = keys.map((key) => ({
         key,
@@ -2834,6 +3066,8 @@ function mapTokenRow(
 ): TokenCard {
     return {
         tokenId: row.token_id,
+        marketplaceBiddingSupported:
+            row.record_kind === TOKEN_RECORD_KIND.Canonical,
         name: row.name ?? null,
         image: resolveTokenImagePresentation(row.image, tokenResourceOptions),
         traitSummary: null,
@@ -2920,5 +3154,6 @@ function mapTokenDetailTraitRow(
         value: row.value,
         tokenCount,
         rarityPercent,
+        marketplaceBiddingSupported: row.marketplace_bidding_supported === 1,
     };
 }

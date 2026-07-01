@@ -51,6 +51,7 @@ const BASE_BID: ApiBiddingBidBookRow = {
 		wei: '300000000000000000',
 		eth: '0.3'
 	},
+	bidLimits: null,
 	quantity: '1',
 	currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 	currencySymbol: 'WETH',
@@ -64,12 +65,12 @@ const BASE_BID: ApiBiddingBidBookRow = {
 
 describe('createBiddingAutomationController', () => {
 	it('builds shared filtered selection inputs for trait and token target controls', () => {
-		const filter = {
-			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
-			selectedTraits: [{ key: 'Mode', value: 'Terrain' }],
-			selectedTraitRanges: [],
-			traitJoinMode: 'or' as const,
-			tokenStatus: null,
+			const filter = {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
+				selectedTraits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
+				selectedTraitRanges: [],
+				traitJoinMode: 'or' as const,
+				tokenStatus: null,
 			makerAddress: null
 		};
 
@@ -91,12 +92,12 @@ describe('createBiddingAutomationController', () => {
 		controller.selectFilteredTokens({
 			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
 			tokenCount: 500,
-			filter: {
-				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
-				selectedTraits: [{ key: 'Mode', value: 'Terrain' }],
-				selectedTraitRanges: [],
-				traitJoinMode: 'and',
-				tokenStatus: 'all',
+				filter: {
+					source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+					selectedTraits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
+					selectedTraitRanges: [],
+					traitJoinMode: 'and',
+					tokenStatus: 'all',
 				makerAddress: null
 			}
 		});
@@ -117,12 +118,12 @@ describe('createBiddingAutomationController', () => {
 			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
 			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
 			tokenCount: 69,
-			filter: {
-				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
-				selectedTraits: [{ key: 'Mode', value: 'Terrain' }],
-				selectedTraitRanges: [],
-				traitJoinMode: 'and',
-				tokenStatus: 'listed',
+				filter: {
+					source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+					selectedTraits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
+					selectedTraitRanges: [],
+					traitJoinMode: 'and',
+					tokenStatus: 'listed',
 				makerAddress: null
 			},
 			state: {
@@ -135,6 +136,35 @@ describe('createBiddingAutomationController', () => {
 		expect(stateKey).toContain('filter-clean');
 		expect(biddingAutomationTokenSelectionState(selection, '123', stateKey).selected).toBe(true);
 		expect(biddingAutomationTokenSelectionState(null, '123').selected).toBe(false);
+	});
+
+	it('marks unsupported token cards unavailable even for clean filtered selections', () => {
+		const selection: BiddingAutomationSelection = {
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
+			tokenCount: 16,
+			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+				selectedTraits: [{ key: 'Level', value: '1', marketplaceBiddingSupported: true }],
+				selectedTraitRanges: [],
+				traitJoinMode: 'and',
+				tokenStatus: 'all',
+				makerAddress: null
+			},
+			state: {
+				kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+			}
+		};
+
+		expect(
+			biddingAutomationTokenSelectionState(selection, 'unminted-tile-921', undefined, {
+				marketplaceBiddingSupported: false
+			})
+		).toEqual({
+			selected: false,
+			disabled: true,
+			title: 'token is not available for marketplace bidding'
+		});
 	});
 
 	it('adds explicit token selections instead of replacing the active selection', () => {
@@ -237,12 +267,12 @@ describe('createBiddingAutomationController', () => {
 		controller.selectFilteredTokens({
 			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
 			tokenCount: 69,
-			filter: {
-				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
-				selectedTraits: [{ key: 'Mode', value: 'Terrain' }],
-				selectedTraitRanges: [],
-				traitJoinMode: 'and',
-				tokenStatus: 'listed',
+				filter: {
+					source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+					selectedTraits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
+					selectedTraitRanges: [],
+					traitJoinMode: 'and',
+					tokenStatus: 'listed',
 				makerAddress: null
 			}
 		});
@@ -268,12 +298,12 @@ describe('createBiddingAutomationController', () => {
 		controller.selectFilteredTokens({
 			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
 			tokenCount: 500,
-			filter: {
-				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
-				selectedTraits: [{ key: 'Mode', value: 'Terrain' }],
-				selectedTraitRanges: [],
-				traitJoinMode: 'and',
-				tokenStatus: null,
+				filter: {
+					source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+					selectedTraits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
+					selectedTraitRanges: [],
+					traitJoinMode: 'and',
+					tokenStatus: null,
 				makerAddress: null
 			}
 		});
