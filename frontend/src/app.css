@@ -2097,6 +2097,10 @@ th {
 
 .bid-book-demand-tabs {
 	justify-content: center;
+	align-content: center;
+	row-gap: 0.35rem;
+	max-inline-size: min(100%, 48rem);
+	margin-inline: auto;
 	margin-bottom: 0.7rem;
 }
 
