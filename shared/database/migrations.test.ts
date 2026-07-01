@@ -11,6 +11,10 @@ import { db, setDbPath } from "./db.js";
 import { MigrationRunner } from "./migrations.js";
 
 const TOKEN_ATTRIBUTE_SOURCE_MIGRATION = "040_token_attribute_sources.sql";
+const TOKEN_ATTRIBUTE_SOURCE_ATTRIBUTE_INDEX_MIGRATION =
+    "047_token_attributes_source_attribute_index.sql";
+const TOKEN_ATTRIBUTE_SOURCE_ATTRIBUTE_INDEX =
+    "token_attributes_source_attribute_idx";
 const METADATA_REFRESH_FOLLOWUPS_MIGRATION =
     "041_metadata_refresh_followups_and_queue_outbox.sql";
 const CHAIN_ID = 1;
@@ -102,6 +106,44 @@ describe("MigrationRunner token attribute source upgrades", () => {
     });
 });
 
+describe("MigrationRunner token attribute source attribute index", () => {
+    let tempDir: string;
+    let migrationsDir: string;
+
+    beforeEach(() => {
+        tempDir = mkdtempSync(join(tmpdir(), "artgod-source-attribute-index-"));
+        migrationsDir = join(tempDir, "migrations");
+        mkdirSync(migrationsDir);
+        copyFileSync(
+            resolveProjectPath(
+                `database/migrations/${TOKEN_ATTRIBUTE_SOURCE_ATTRIBUTE_INDEX_MIGRATION}`,
+            ),
+            join(migrationsDir, TOKEN_ATTRIBUTE_SOURCE_ATTRIBUTE_INDEX_MIGRATION),
+        );
+        setDbPath(join(tempDir, "test.sqlite"));
+        createTokenAttributeSourceSchema();
+    });
+
+    afterEach(() => {
+        setDbPath(
+            join(tmpdir(), "artgod-source-attribute-index-closed.sqlite"),
+        );
+        rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it("creates the source-to-attribute lookup index", async () => {
+        const migrations = new MigrationRunner(migrationsDir);
+        await migrations.runMigrations();
+
+        expect(selectTokenAttributeIndexes()).toContain(
+            TOKEN_ATTRIBUTE_SOURCE_ATTRIBUTE_INDEX,
+        );
+        expect(selectAppliedMigrationNames()).toEqual([
+            TOKEN_ATTRIBUTE_SOURCE_ATTRIBUTE_INDEX_MIGRATION,
+        ]);
+    });
+});
+
 describe("MigrationRunner metadata refresh follow-up schema", () => {
     let tempDir: string;
     let migrationsDir: string;
@@ -189,6 +231,22 @@ function createPreTokenAttributeSourceSchema(): void {
             ON token_attributes (attribute_id);
         CREATE INDEX token_attributes_collection_idx
             ON token_attributes (chain_id, collection_id, token_id);
+    `);
+}
+
+function createTokenAttributeSourceSchema(): void {
+    db.exec(`
+        CREATE TABLE token_attributes (
+            chain_id INTEGER NOT NULL,
+            collection_id INTEGER NOT NULL,
+            contract_address TEXT NOT NULL,
+            token_id TEXT NOT NULL,
+            attribute_id INTEGER NOT NULL,
+            source_kind TEXT NOT NULL,
+            source_key TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (chain_id, collection_id, token_id, attribute_id, source_kind, source_key)
+        );
     `);
 }
 

@@ -76,6 +76,30 @@ const TOKEN_IMAGE_CACHE_JOIN_SQL =
     "AND ic.token_id = t.token_id " +
     "AND ic.public_path IS NOT NULL " +
     "AND ic.source_image_url = m.image ";
+// Builds the metadata-backed attribute set once so facet support checks stay bounded.
+function marketplaceBiddingSupportedAttributeSelectSql(
+    attributeColumnSql: string,
+): string {
+    return (
+        `CASE WHEN ${attributeColumnSql} IN (` +
+        "SELECT DISTINCT attribute_id FROM token_attributes " +
+        "WHERE chain_id = ? AND collection_id = ? " +
+        "AND source_kind = ? AND source_key = ? " +
+        ") THEN 1 ELSE 0 END AS marketplace_bidding_supported "
+    );
+}
+
+function marketplaceBiddingSupportedAttributeAggregateSelectSql(
+    attributeColumnSql: string,
+): string {
+    return (
+        `MAX(CASE WHEN ${attributeColumnSql} IN (` +
+        "SELECT DISTINCT attribute_id FROM token_attributes " +
+        "WHERE chain_id = ? AND collection_id = ? " +
+        "AND source_kind = ? AND source_key = ? " +
+        ") THEN 1 ELSE 0 END) AS marketplace_bidding_supported "
+    );
+}
 
 export type CollectionReadModelMediaOptions = {
     ipfsGatewayOrigin?: string;
@@ -361,16 +385,13 @@ export class SqliteCollectionsReadModel {
             "LIMIT 1",
     );
 
-    private selectTraitFacetRows = db.prepare<[string, string, number, number]>(
+    private selectTraitFacetRows = db.prepare<
+        [number, number, string, string, number, number]
+    >(
         "SELECT attribute_keys.key as key, attributes.value as value, collection_trait_stats.token_count as token_count, " +
-            "EXISTS(" +
-            "SELECT 1 FROM token_attributes support_ta " +
-            "WHERE support_ta.chain_id = collection_trait_stats.chain_id " +
-            "AND support_ta.collection_id = collection_trait_stats.collection_id " +
-            "AND support_ta.attribute_id = collection_trait_stats.attribute_id " +
-            "AND support_ta.source_kind = ? " +
-            "AND support_ta.source_key = ? " +
-            ") AS marketplace_bidding_supported " +
+            marketplaceBiddingSupportedAttributeSelectSql(
+                "collection_trait_stats.attribute_id",
+            ) +
             "FROM collection_trait_stats " +
             "JOIN attributes ON attributes.id = collection_trait_stats.attribute_id " +
             "AND attributes.chain_id = collection_trait_stats.chain_id " +
@@ -1476,6 +1497,8 @@ export class SqliteCollectionsReadModel {
     ): TraitFacetRow[] {
         if (excludeKeys.length === 0) {
             return this.selectTraitFacetRows.all(
+                chainId,
+                collectionId,
                 TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
                 TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
                 chainId,
@@ -1487,14 +1510,9 @@ export class SqliteCollectionsReadModel {
         return db.raw
             .prepare(
                 "SELECT attribute_keys.key as key, attributes.value as value, collection_trait_stats.token_count as token_count, " +
-                    "EXISTS(" +
-                    "SELECT 1 FROM token_attributes support_ta " +
-                    "WHERE support_ta.chain_id = collection_trait_stats.chain_id " +
-                    "AND support_ta.collection_id = collection_trait_stats.collection_id " +
-                    "AND support_ta.attribute_id = collection_trait_stats.attribute_id " +
-                    "AND support_ta.source_kind = ? " +
-                    "AND support_ta.source_key = ? " +
-                    ") AS marketplace_bidding_supported " +
+                    marketplaceBiddingSupportedAttributeSelectSql(
+                        "collection_trait_stats.attribute_id",
+                    ) +
                     "FROM collection_trait_stats " +
                     "JOIN attributes ON attributes.id = collection_trait_stats.attribute_id " +
                     "AND attributes.chain_id = collection_trait_stats.chain_id " +
@@ -1507,6 +1525,8 @@ export class SqliteCollectionsReadModel {
                     "ORDER BY attribute_keys.key ASC, collection_trait_stats.token_count ASC, attributes.value ASC",
             )
             .all(
+                chainId,
+                collectionId,
                 TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
                 TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
                 chainId,
@@ -1593,14 +1613,9 @@ export class SqliteCollectionsReadModel {
         return db.raw
             .prepare(
                 "SELECT ak.key AS key, a.value AS value, COUNT(DISTINCT ta.token_id) AS token_count, " +
-                    "EXISTS(" +
-                    "SELECT 1 FROM token_attributes support_ta " +
-                    "WHERE support_ta.chain_id = ta.chain_id " +
-                    "AND support_ta.collection_id = ta.collection_id " +
-                    "AND support_ta.attribute_id = ta.attribute_id " +
-                    "AND support_ta.source_kind = ? " +
-                    "AND support_ta.source_key = ? " +
-                    ") AS marketplace_bidding_supported " +
+                    marketplaceBiddingSupportedAttributeAggregateSelectSql(
+                        "ta.attribute_id",
+                    ) +
                     "FROM token_attributes ta " +
                     "JOIN attributes a ON a.id = ta.attribute_id " +
                     "AND a.chain_id = ta.chain_id " +
@@ -1616,6 +1631,8 @@ export class SqliteCollectionsReadModel {
                     "ORDER BY ak.key ASC, token_count ASC, a.value ASC",
             )
             .all(
+                chainId,
+                collectionId,
                 TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
                 TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
                 chainId,

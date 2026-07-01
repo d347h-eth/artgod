@@ -352,6 +352,45 @@ describe("SqliteCollectionsReadModel observability", () => {
         ).toEqual([TEST_METADATA_TRAIT]);
     });
 
+    it("marks trait facets as marketplace-supported only for metadata-backed values", () => {
+        insertBareToken("1");
+        insertTraitStat(TEST_METADATA_TRAIT.key, TEST_METADATA_TRAIT.value, 1);
+        insertTraitStat(TEST_EXTENSION_TRAIT.key, TEST_EXTENSION_TRAIT.value, 1);
+        insertTokenTrait("1", TEST_METADATA_TRAIT.key, TEST_METADATA_TRAIT.value);
+        insertTokenTrait(
+            "1",
+            TEST_EXTENSION_TRAIT.key,
+            TEST_EXTENSION_TRAIT.value,
+            TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+            TEST_COLLECTION_EXTENSION_SOURCE_KEY,
+        );
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
+
+        const facets = readModel.listCollectionTraitFacets(1, 1);
+
+        expect(
+            facets.flatMap((facet) =>
+                facet.values.map((value) => ({
+                    key: facet.key,
+                    value: value.value,
+                    marketplaceBiddingSupported:
+                        value.marketplaceBiddingSupported,
+                })),
+            ),
+        ).toEqual([
+            {
+                key: TEST_EXTENSION_TRAIT.key,
+                value: TEST_EXTENSION_TRAIT.value,
+                marketplaceBiddingSupported: false,
+            },
+            {
+                key: TEST_METADATA_TRAIT.key,
+                value: TEST_METADATA_TRAIT.value,
+                marketplaceBiddingSupported: true,
+            },
+        ]);
+    });
+
     it("marks extension-synthetic token rows as not marketplace-bidding supported", () => {
         insertBareToken("1");
         insertBareToken("unminted-tile-921", TOKEN_RECORD_KIND.ExtensionSynthetic);
@@ -725,6 +764,54 @@ describe("SqliteCollectionsReadModel observability", () => {
                 }),
             }),
         );
+    });
+
+    it("keeps owner-scoped marketplace support based on collection metadata traits", () => {
+        insertTokenTrait(
+            "1",
+            TEST_METADATA_TRAIT.key,
+            TEST_METADATA_TRAIT.value,
+            TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+            TEST_COLLECTION_EXTENSION_SOURCE_KEY,
+        );
+        insertTokenTrait("2", TEST_METADATA_TRAIT.key, TEST_METADATA_TRAIT.value);
+        insertTokenTrait(
+            "1",
+            TEST_EXTENSION_TRAIT.key,
+            TEST_EXTENSION_TRAIT.value,
+            TOKEN_ATTRIBUTE_SOURCE_KIND.CollectionExtension,
+            TEST_COLLECTION_EXTENSION_SOURCE_KEY,
+        );
+        insertBalance("1", OWNER_A);
+        insertBalance("2", OWNER_B);
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
+
+        const facets = readModel.listCollectionTraitFacets(1, 1, OWNER_A);
+
+        expect(
+            facets.flatMap((facet) =>
+                facet.values.map((value) => ({
+                    key: facet.key,
+                    value: value.value,
+                    tokenCount: value.tokenCount,
+                    marketplaceBiddingSupported:
+                        value.marketplaceBiddingSupported,
+                })),
+            ),
+        ).toEqual([
+            {
+                key: TEST_EXTENSION_TRAIT.key,
+                value: TEST_EXTENSION_TRAIT.value,
+                tokenCount: 1,
+                marketplaceBiddingSupported: false,
+            },
+            {
+                key: TEST_METADATA_TRAIT.key,
+                value: TEST_METADATA_TRAIT.value,
+                tokenCount: 1,
+                marketplaceBiddingSupported: true,
+            },
+        ]);
     });
 
     it("returns range-only trait facets without high-cardinality values", () => {
