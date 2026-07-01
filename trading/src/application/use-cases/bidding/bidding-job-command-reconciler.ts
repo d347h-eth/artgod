@@ -31,6 +31,10 @@ const log = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.BiddingCommandReconciler,
 );
 
+const BIDDING_COMMAND_RECONCILER_LOG_ACTION = {
+    EnabledJobAlreadySatisfied: "enabledJobAlreadySatisfied",
+} as const;
+
 // Ordered command replay claims one row at a time so later commands do not hide behind an earlier retry.
 const ORDERED_COMMAND_CLAIM_LIMIT = 1;
 
@@ -170,14 +174,45 @@ export class BiddingJobCommandReconciler {
             return;
         }
 
+        if (this.completeAlreadySatisfiedJobCommand(command, record.job)) {
+            return;
+        }
+
         await this.jobPreparationPort.prepareEnabledJob(record.job);
         this.bidder.addJob(record.job);
+        if (this.completeAlreadySatisfiedJobCommand(command, record.job)) {
+            return;
+        }
+
         log.info("enabledJobApplied", "Applied enabled bidding job", {
             ...commandLogFields(command),
             revision: record.revision,
         });
         // Run an immediate refresh so DB-driven changes affect market state without waiting for the next tick.
         await this.bidder.refreshJobForCommand(record.job.id);
+    }
+
+    private completeAlreadySatisfiedJobCommand(
+        command: BiddingJobCommand,
+        job: BidderJob,
+    ): boolean {
+        const runtimeSnapshot = this.bidder.getSatisfiedRuntimeSnapshot(job);
+        if (!runtimeSnapshot) {
+            return false;
+        }
+
+        log.info(
+            BIDDING_COMMAND_RECONCILER_LOG_ACTION.EnabledJobAlreadySatisfied,
+            "Skipped enabled bidding job refresh because runtime state already satisfies the declaration",
+            {
+                ...commandLogFields(command),
+                revision: job.revision,
+                activeOrderId: runtimeSnapshot.activeOrderId,
+                currentPriceWei: runtimeSnapshot.currentPrice.toString(),
+                activeOrderVerifiedAt: runtimeSnapshot.activeOrderVerifiedAt,
+            },
+        );
+        return true;
     }
 
     private removeJobFromScheduling(command: BiddingJobCommand): void {

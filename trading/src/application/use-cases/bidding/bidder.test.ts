@@ -965,6 +965,86 @@ describe("Bidder stream refresh", () => {
         await scanPromise;
     });
 
+    it("runs command refresh immediately without waiting for the normal scan backlog and uses fresh WETH balance", async () => {
+        const biddingService = new FakeBiddingService();
+        let releaseBlocker!: () => void;
+        const blockerStarted = new Promise<void>((resolve) => {
+            biddingService.activeOffersImpl = async (job: BidderJob) => {
+                if (job.id === "blocker") {
+                    resolve();
+                    await new Promise<void>((blockerResolve) => {
+                        releaseBlocker = blockerResolve;
+                    });
+                    return [];
+                }
+
+                if (
+                    job.id === "target" &&
+                    biddingService.placedAmounts.includes(4n)
+                ) {
+                    return [
+                        {
+                            id: "0xmine",
+                            price: 4n,
+                            maker: "0xmaker",
+                            protocolAddress: "0xprotocol",
+                            offerScope: "item",
+                        },
+                    ];
+                }
+
+                return [];
+            };
+        });
+        const makerWethBalanceService = new FakeMakerWethBalanceService(4n);
+
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            {
+                dryRun: false,
+                maxConcurrentJobs: 1,
+            },
+            undefined,
+            makerWethBalanceService as any,
+        );
+
+        bidder.addJob(
+            makeJob("blocker", "terraforms", { type: "token", tokenId: "1" }),
+        );
+        bidder.addJob(
+            makeJob(
+                "target",
+                "terraforms",
+                { type: "token", tokenId: "2" },
+                undefined,
+                { floor: 7n, ceiling: 10n, delta: 1n },
+            ),
+        );
+
+        const scanPromise = bidder.scanOnce();
+        await blockerStarted;
+
+        const commandRefreshPromise = bidder.refreshJobForCommand("target");
+
+        await Promise.race([
+            commandRefreshPromise,
+            new Promise((_, reject) =>
+                setTimeout(
+                    () => reject(new Error("Command refresh timed out")),
+                    1000,
+                ),
+            ),
+        ]);
+
+        assert.deepEqual(biddingService.placedAmounts, [4n]);
+        assert.equal(makerWethBalanceService.calls, 2);
+
+        releaseBlocker();
+        await scanPromise;
+    });
+
     it("runs runtime override activation immediately after the same job finishes its current execution", async () => {
         const biddingService = new FakeBiddingService();
         let firstRun = true;

@@ -166,7 +166,7 @@ function makeRecord(
     return {
         job,
         status,
-        revision: 1,
+        revision: job.revision,
     };
 }
 
@@ -266,6 +266,60 @@ describe("BiddingJobCommandReconciler", () => {
             repository.retryFailures[0]?.error ?? "",
             /opensea placement unavailable/,
         );
+    });
+
+    it("completes enabled job commands without another refresh when current runtime already satisfies the same declaration", async () => {
+        const declaredJob = makeJob("job-already-satisfied");
+        const liveJob = makeJob(declaredJob.id);
+        liveJob.state.activeOrderId = "0xactive";
+        liveJob.state.activeOrderVerifiedAt = "2026-05-17T00:00:00Z";
+        liveJob.state.currentPrice = 200000000000000000n;
+        const repository = new FakeCommandRepository([
+            makeCommand(
+                1,
+                declaredJob.id,
+                TRADING_JOB_COMMAND_KIND.JobCreated,
+            ),
+        ]);
+        const source = new FakeJobSource(
+            new Map([
+                [
+                    declaredJob.id,
+                    makeRecord(declaredJob, TRADING_JOB_STATUS.Enabled),
+                ],
+            ]),
+        );
+        const biddingService = new FakeBiddingService();
+        const bidder = new Bidder(biddingService, makerAddress, 60_000);
+        bidder.addJob(liveJob);
+        const prepared: string[] = [];
+        const reconciled: string[][] = [];
+        const reconciler = new BiddingJobCommandReconciler(
+            repository,
+            source,
+            bidder,
+            {
+                prepareEnabledJob: async (preparedJob) => {
+                    prepared.push(preparedJob.id);
+                },
+                reconcileEnabledJobs: async (jobs) => {
+                    reconciled.push(jobs.map((item) => item.id));
+                },
+            },
+            {
+                batchSize: 10,
+                claimTimeoutMs: 300_000,
+                maxAttempts: 3,
+            },
+        );
+
+        const processed = await reconciler.processPendingCommands("test");
+
+        assert.equal(processed, 1);
+        assert.deepEqual(prepared, []);
+        assert.equal(biddingService.activeOfferReads, 0);
+        assert.deepEqual(reconciled, [[declaredJob.id]]);
+        assert.deepEqual(repository.completed, [1]);
     });
 
     it("cancels maker offers before removing disabled jobs from scheduling", async () => {

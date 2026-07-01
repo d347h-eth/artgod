@@ -142,6 +142,12 @@ type JobExecutionOptions = {
     throwOnFailure: boolean;
 };
 
+type RuntimeSatisfactionSnapshot = {
+    activeOrderId: string;
+    currentPrice: bigint;
+    activeOrderVerifiedAt: string;
+};
+
 interface RuntimeJobOverride {
     activationId: number;
     floor: bigint;
@@ -506,9 +512,41 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     }
 
     public async refreshJobForCommand(jobId: string): Promise<void> {
-        return await this.refreshJobWithOptions(jobId, undefined, {
+        await this.refreshCachedMakerWethBalance();
+        return await this.refreshJobImmediately(jobId, {
             throwOnFailure: true,
         });
+    }
+
+    // Reports whether this process has already verified an active order for the same durable job declaration.
+    public getSatisfiedRuntimeSnapshot(
+        desiredJob: BidderJob,
+    ): RuntimeSatisfactionSnapshot | null {
+        const currentJob = this.jobs.get(desiredJob.id);
+        if (!currentJob) {
+            return null;
+        }
+
+        if (!this.hasSameSatisfiedDeclaration(currentJob, desiredJob)) {
+            return null;
+        }
+
+        const activeOrderId = currentJob.state.activeOrderId;
+        const currentPrice = currentJob.state.currentPrice;
+        const activeOrderVerifiedAt = currentJob.state.activeOrderVerifiedAt;
+        if (
+            !activeOrderId ||
+            currentPrice === undefined ||
+            !activeOrderVerifiedAt
+        ) {
+            return null;
+        }
+
+        return {
+            activeOrderId,
+            currentPrice,
+            activeOrderVerifiedAt,
+        };
     }
 
     private async refreshBroadMatchingJobs(jobIds: string[]): Promise<void> {
@@ -611,7 +649,10 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         return state;
     }
 
-    private async refreshJobImmediately(jobId: string): Promise<void> {
+    private async refreshJobImmediately(
+        jobId: string,
+        options: JobExecutionOptions = { throwOnFailure: false },
+    ): Promise<void> {
         log.debug(
             "immediateRefreshStarted",
             "Executing immediate bidding job refresh",
@@ -621,7 +662,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         );
         const jobMutex = this.getJobMutex(jobId);
         await jobMutex.runExclusive(async () => {
-            await this.executeJob(jobId);
+            await this.executeJob(jobId, undefined, options);
         });
     }
 
@@ -2184,6 +2225,19 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         }
 
         return false;
+    }
+
+    private hasSameSatisfiedDeclaration(
+        currentJob: BidderJob,
+        desiredJob: BidderJob,
+    ): boolean {
+        return (
+            currentJob.revision === desiredJob.revision &&
+            currentJob.config.floor === desiredJob.config.floor &&
+            currentJob.config.ceiling === desiredJob.config.ceiling &&
+            currentJob.config.delta === desiredJob.config.delta &&
+            this.hasSameTargetIdentity(currentJob, desiredJob)
+        );
     }
 
     private getBidRenewalReason(

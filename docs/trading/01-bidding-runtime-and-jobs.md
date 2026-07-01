@@ -28,6 +28,8 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 - ArtGod `orders` rows are never used for bidder competitiveness or placement decisions.
 - OpenSea stream events are wake-up hints only; missed stream events are expected.
 - Broad collection and trait offer stream events are coalesced and process matched jobs one at a time so flood traffic cannot monopolize command processing.
+- User-driven job commands stay serial at the durable command layer, but their immediate job refresh runs on a command lane that is not queued behind broad hot-refresh or full-scan work for unrelated jobs.
+- Command reconciliation may complete an enabled-job command without another OpenSea pass when the current bot process has already verified an active order for the same job revision.
 - The snapshot lane polls every 60 seconds and hot-path callers force a blocking refresh when the snapshot is older than the configured stale threshold.
 - Snapshot refresh entrypoints are serialized/deduped by the snapshot service.
 - Job execution remains per-job serialized.
