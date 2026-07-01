@@ -27,6 +27,7 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 - The bot's collection-offer snapshot is the authoritative market view for bidding decisions.
 - ArtGod `orders` rows are never used for bidder competitiveness or placement decisions.
 - OpenSea stream events are wake-up hints only; missed stream events are expected.
+- Broad collection and trait offer stream events are coalesced before hot-refresh work so flood traffic cannot monopolize command processing.
 - The snapshot lane polls every 60 seconds and hot-path callers force a blocking refresh when the snapshot is older than the configured stale threshold.
 - Snapshot refresh entrypoints are serialized/deduped by the snapshot service.
 - Job execution remains per-job serialized.
@@ -336,6 +337,7 @@ Bidding runtime groups:
 - snapshot cadence/freshness: `BIDDING_COLLECTION_OFFERS_*`
 - bid-book projection, backend freshness, and UI live refresh: `BIDDING_BID_BOOK_*`
 - bidding job scan sleep: `BIDDING_SCAN_SLEEP_MS`
+- bidding hot-refresh backpressure: `BIDDING_HOT_REFRESH_*`
 - bot runtime liveness: `BIDDING_RUNTIME_HEARTBEAT_*`
 - command reconciliation: `BIDDING_COMMAND_*`
 - WETH allowance: `BIDDING_WETH_ALLOWANCE_ETH`

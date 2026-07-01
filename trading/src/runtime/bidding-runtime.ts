@@ -51,6 +51,10 @@ import { CollectionOfferSnapshotService } from "../application/use-cases/bidding
 import { AttrFilter } from "../application/use-cases/market/pipeline/lib/attr-filter.js";
 import { BidderRefresh } from "../application/use-cases/market/pipeline/lib/bidder-refresh.js";
 import { CollectionOfferSnapshotRefresh } from "../application/use-cases/market/pipeline/lib/collection-offer-snapshot-refresh.js";
+import {
+    HOT_REFRESH_BACKPRESSURE_STAGE_NAME,
+    HotRefreshBackpressure,
+} from "../application/use-cases/market/pipeline/lib/hot-refresh-backpressure.js";
 import { PipelineBuilder } from "../application/use-cases/market/pipeline/pipeline.js";
 import { StreamListener } from "../application/use-cases/stream/stream-listener.js";
 import {
@@ -394,6 +398,7 @@ export async function startBiddingRuntime(
         bidder,
         collectionOfferSnapshotService,
         params.biddingConfig.criteriaRefreshTraitsByCollection,
+        params.biddingConfig.hotRefreshBroadCooldownMs,
     );
     const bidStreams = new Map<string, RegisteredBidStream>();
     const ensureBidStream = (collectionSlug: string): boolean => {
@@ -631,6 +636,7 @@ function buildBidPipeline(
     bidder: Bidder,
     collectionOfferSnapshotService: CollectionOfferSnapshotService | undefined,
     criteriaRefreshTraitsByCollection: Record<string, string[]>,
+    hotRefreshBroadCooldownMs: number,
 ) {
     const opponentBidsFilter = new AttrFilter("opponent-bids");
     opponentBidsFilter.addCriteria("opponent-only", (marketEvent) => {
@@ -639,7 +645,14 @@ function buildBidPipeline(
         );
     });
 
-    const pipelineBuilder = new PipelineBuilder().with(opponentBidsFilter);
+    const pipelineBuilder = new PipelineBuilder().with(opponentBidsFilter).with(
+        new HotRefreshBackpressure(
+            HOT_REFRESH_BACKPRESSURE_STAGE_NAME.BroadEvents,
+            {
+                broadCooldownMs: hotRefreshBroadCooldownMs,
+            },
+        ),
+    );
     if (collectionOfferSnapshotService) {
         pipelineBuilder.with(
             new CollectionOfferSnapshotRefresh(

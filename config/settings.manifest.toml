@@ -1246,6 +1246,13 @@ default = "15000"
 help = "How long a collection-offer snapshot is considered fresh inside the bot."
 
 [[settings]]
+key = "BIDDING_HOT_REFRESH_BROAD_COOLDOWN_MS"
+group = "bidding"
+label = "bidding hot refresh broad cooldown ms"
+default = "15000"
+help = "Minimum delay between broad collection or trait offer hot-refresh passes."
+
+[[settings]]
 key = "BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS"
 group = "bidding"
 label = "bidding bid book projection throttle ms"
