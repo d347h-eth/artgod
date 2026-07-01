@@ -2099,8 +2099,8 @@ describe("backend api routes", () => {
                 ceilingEth: "0.2",
                 deltaEth: "0.01",
                 targetTraits: [
-                    { type: "Mode", value: "Terrain" },
-                    { type: "Biome", value: "42" },
+                    { type: "Mood", value: "Calm" },
+                    { type: "Hat", value: "Beanie" },
                 ],
             },
             csrf,
@@ -2110,8 +2110,8 @@ describe("backend api routes", () => {
             type: "collection",
             quantity: 1,
             targetTraits: [
-                { type: "Biome", value: "42" },
-                { type: "Mode", value: "Terrain" },
+                { type: "Hat", value: "Beanie" },
+                { type: "Mood", value: "Calm" },
             ],
         });
 
@@ -2124,8 +2124,8 @@ describe("backend api routes", () => {
                 ceilingEth: "0.22",
                 deltaEth: "0.02",
                 targetTraits: [
-                    { type: "Biome", value: "42" },
-                    { type: "Mode", value: "Terrain" },
+                    { type: "Hat", value: "Beanie" },
+                    { type: "Mood", value: "Calm" },
                 ],
             },
             csrf,
@@ -2203,8 +2203,8 @@ describe("backend api routes", () => {
                 deltaEth: "0.01",
                 quantity: 2,
                 targetTraits: [
-                    { type: "Mode", value: "Terrain" },
-                    { type: "Biome", value: "42" },
+                    { type: "Mood", value: "Calm" },
+                    { type: "Hat", value: "Beanie" },
                 ],
             },
             csrf,
@@ -2219,8 +2219,8 @@ describe("backend api routes", () => {
                     type: "trait",
                     quantity: 2,
                     targetTraits: [
-                        { type: "Biome", value: "42" },
-                        { type: "Mode", value: "Terrain" },
+                        { type: "Hat", value: "Beanie" },
+                        { type: "Mood", value: "Calm" },
                     ],
                 },
             },
@@ -2246,8 +2246,8 @@ describe("backend api routes", () => {
                     type: "trait",
                     quantity: 2,
                     targetTraits: [
-                        { type: "Biome", value: "42" },
-                        { type: "Mode", value: "Terrain" },
+                        { type: "Hat", value: "Beanie" },
+                        { type: "Mood", value: "Calm" },
                     ],
                 },
             },
@@ -2707,6 +2707,7 @@ describe("backend api routes", () => {
                 name: "Milady #1",
                 image: "https://example.com/1.png",
                 traitSummary: null,
+                marketplaceBiddingSupported: true,
                 hasMetadata: true,
                 metadataUpdatedAt: "2026-01-01T00:00:00Z",
             },
@@ -2934,6 +2935,7 @@ describe("backend api routes", () => {
                 name: "Milady #1",
                 image: "https://example.com/1.png",
                 traitSummary: null,
+                marketplaceBiddingSupported: true,
                 hasMetadata: true,
                 metadataUpdatedAt: "2026-01-01T00:00:00Z",
             },
@@ -3216,7 +3218,13 @@ describe("backend api routes", () => {
                     displayKind: "set",
                     minValue: null,
                     maxValue: null,
-                    values: [{ value: "Beanie", tokenCount: 2 }],
+                    values: [
+                        {
+                            value: "Beanie",
+                            tokenCount: 2,
+                            marketplaceBiddingSupported: true,
+                        },
+                    ],
                 }),
                 expect.objectContaining({
                     key: "Mood",
@@ -3224,8 +3232,16 @@ describe("backend api routes", () => {
                     minValue: null,
                     maxValue: null,
                     values: [
-                        { value: "Angry", tokenCount: 1 },
-                        { value: "Calm", tokenCount: 1 },
+                        {
+                            value: "Angry",
+                            tokenCount: 1,
+                            marketplaceBiddingSupported: true,
+                        },
+                        {
+                            value: "Calm",
+                            tokenCount: 1,
+                            marketplaceBiddingSupported: true,
+                        },
                     ],
                 }),
                 expect.objectContaining({
@@ -3234,8 +3250,16 @@ describe("backend api routes", () => {
                     minValue: null,
                     maxValue: null,
                     values: [
-                        { value: "2", tokenCount: 1 },
-                        { value: "7", tokenCount: 1 },
+                        {
+                            value: "2",
+                            tokenCount: 1,
+                            marketplaceBiddingSupported: true,
+                        },
+                        {
+                            value: "7",
+                            tokenCount: 1,
+                            marketplaceBiddingSupported: true,
+                        },
                     ],
                 }),
             ]),
