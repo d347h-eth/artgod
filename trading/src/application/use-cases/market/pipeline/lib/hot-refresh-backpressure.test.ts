@@ -18,6 +18,7 @@ function makeEvent(
     tokenId: string = "",
     traitCriteria: Array<{ type: string; value: string }> = [],
     orderHash: string = "0xhash",
+    unitPrice: bigint = 1n,
 ): MarketEvent {
     const event = new MarketEvent(
         new Date().toISOString(),
@@ -32,7 +33,7 @@ function makeEvent(
         scope,
         traitCriteria,
     );
-    event.setTotalPrice(1n);
+    event.setTotalPrice(unitPrice);
     return event;
 }
 
@@ -61,6 +62,38 @@ describe("HotRefreshBackpressure", () => {
         await callback(makeEvent(Type.ItemReceivedBid, Scope.Item, "123"));
 
         assert.deepEqual(calls, [Scope.Item]);
+    });
+
+    it("rejects disabled broad cooldown", () => {
+        assert.throws(
+            () =>
+                new HotRefreshBackpressure(
+                    HOT_REFRESH_BACKPRESSURE_STAGE_NAME.BroadEvents,
+                    {
+                        broadCooldownMs: 0,
+                    },
+                ),
+            /broadCooldownMs must be > 0/,
+        );
+    });
+
+    it("ignores late events after stop", async () => {
+        const stage = new HotRefreshBackpressure(
+            HOT_REFRESH_BACKPRESSURE_STAGE_NAME.BroadEvents,
+            {
+                broadCooldownMs: TEST_BROAD_COOLDOWN_MS,
+            },
+        );
+        const calls: Scope[] = [];
+        const callback = stage.getWrappingFn()(async (event) => {
+            calls.push(event.getScope());
+        });
+
+        stage.stop();
+        await callback(makeEvent(Type.ItemReceivedBid, Scope.Item, "123"));
+        await callback(makeEvent(Type.CollectionOffer, Scope.Collection));
+
+        assert.deepEqual(calls, []);
     });
 
     it("coalesces broad events while a collection pass is running", async () => {
@@ -101,7 +134,7 @@ describe("HotRefreshBackpressure", () => {
         assert.deepEqual(calls, [Scope.Collection, Scope.Trait]);
     });
 
-    it("keeps only the latest broad event for the same trait signature", async () => {
+    it("discards queued delayed broad work after stop", async () => {
         vi.useFakeTimers();
         const stage = new HotRefreshBackpressure(
             HOT_REFRESH_BACKPRESSURE_STAGE_NAME.BroadEvents,
@@ -120,32 +153,87 @@ describe("HotRefreshBackpressure", () => {
                 await firstPassGate;
             }
         });
-        const first = makeEvent(Type.TraitOffer, Scope.Trait, "", [
-            { type: "Biome", value: "53" },
-        ]);
-        const stale = makeEvent(
-            Type.TraitOffer,
-            Scope.Trait,
-            "",
-            [{ type: "Level", value: "10" }],
-            "0xstale",
+
+        await callback(
+            makeEvent(
+                Type.CollectionOffer,
+                Scope.Collection,
+                "",
+                [],
+                "0xfirst",
+            ),
         );
-        const latest = makeEvent(
+        await flushMicrotasks();
+
+        releaseFirstPass();
+        await flushMicrotasks();
+        await callback(
+            makeEvent(
+                Type.CollectionOffer,
+                Scope.Collection,
+                "",
+                [],
+                "0xqueued",
+            ),
+        );
+        stage.stop();
+        await vi.advanceTimersByTimeAsync(TEST_BROAD_COOLDOWN_MS);
+        await flushMicrotasks();
+
+        assert.deepEqual(orderHashes, ["0xfirst"]);
+    });
+
+    it("keeps the highest-priced broad event for the same trait signature", async () => {
+        vi.useFakeTimers();
+        const stage = new HotRefreshBackpressure(
+            HOT_REFRESH_BACKPRESSURE_STAGE_NAME.BroadEvents,
+            {
+                broadCooldownMs: TEST_BROAD_COOLDOWN_MS,
+            },
+        );
+        const orderHashes: string[] = [];
+        let releaseFirstPass!: () => void;
+        const firstPassGate = new Promise<void>((resolve) => {
+            releaseFirstPass = resolve;
+        });
+        const callback = stage.getWrappingFn()(async (event) => {
+            orderHashes.push(event.getOrderHash());
+            if (orderHashes.length === 1) {
+                await firstPassGate;
+            }
+        });
+        const first = makeEvent(
+            Type.TraitOffer,
+            Scope.Trait,
+            "",
+            [{ type: "Biome", value: "53" }],
+            "0xfirst",
+        );
+        const higher = makeEvent(
             Type.TraitOffer,
             Scope.Trait,
             "",
             [{ type: "Level", value: "10" }],
-            "0xlatest",
+            "0xhigher",
+            3n,
+        );
+        const lower = makeEvent(
+            Type.TraitOffer,
+            Scope.Trait,
+            "",
+            [{ type: "Level", value: "10" }],
+            "0xlower",
+            1n,
         );
 
         await callback(first);
-        await callback(stale);
-        await callback(latest);
+        await callback(higher);
+        await callback(lower);
         releaseFirstPass();
         await flushMicrotasks();
         await vi.advanceTimersByTimeAsync(TEST_BROAD_COOLDOWN_MS);
         await flushMicrotasks();
 
-        assert.deepEqual(orderHashes, ["0xhash", "0xlatest"]);
+        assert.deepEqual(orderHashes, ["0xfirst", "0xhigher"]);
     });
 });

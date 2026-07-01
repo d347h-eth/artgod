@@ -55,7 +55,10 @@ import {
     HOT_REFRESH_BACKPRESSURE_STAGE_NAME,
     HotRefreshBackpressure,
 } from "../application/use-cases/market/pipeline/lib/hot-refresh-backpressure.js";
-import { PipelineBuilder } from "../application/use-cases/market/pipeline/pipeline.js";
+import {
+    PipelineBuilder,
+    type EventCallback,
+} from "../application/use-cases/market/pipeline/pipeline.js";
 import { StreamListener } from "../application/use-cases/stream/stream-listener.js";
 import {
     EnabledBiddingConfig,
@@ -84,6 +87,11 @@ import type {
 
 type BiddingRuntimeHandle = {
     shutdown(): Promise<void>;
+};
+
+type BidPipelineHandle = {
+    callback: EventCallback;
+    stop(): void;
 };
 
 type StartBiddingRuntimeParams = {
@@ -409,7 +417,11 @@ export async function startBiddingRuntime(
         // Subscribe the direct OpenSea bid stream when a DB-driven job introduces a watched collection.
         bidStreams.set(
             collectionSlug,
-            registerBidStream(streamClient, collectionSlug, bidPipeline),
+            registerBidStream(
+                streamClient,
+                collectionSlug,
+                bidPipeline.callback,
+            ),
         );
         log.info(
             "bidStreamSubscribed",
@@ -540,6 +552,7 @@ export async function startBiddingRuntime(
     return {
         async shutdown(): Promise<void> {
             try {
+                bidPipeline.stop();
                 bidder.stop();
                 bidBookProjection.stop();
                 collectionOfferSnapshotService.stop();
@@ -637,22 +650,23 @@ function buildBidPipeline(
     collectionOfferSnapshotService: CollectionOfferSnapshotService | undefined,
     criteriaRefreshTraitsByCollection: Record<string, string[]>,
     hotRefreshBroadCooldownMs: number,
-) {
+): BidPipelineHandle {
     const opponentBidsFilter = new AttrFilter("opponent-bids");
     opponentBidsFilter.addCriteria("opponent-only", (marketEvent) => {
         return (
             marketEvent.getMaker().toLowerCase() !== makerAddress.toLowerCase()
         );
     });
-
-    const pipelineBuilder = new PipelineBuilder().with(opponentBidsFilter).with(
-        new HotRefreshBackpressure(
-            HOT_REFRESH_BACKPRESSURE_STAGE_NAME.BroadEvents,
-            {
-                broadCooldownMs: hotRefreshBroadCooldownMs,
-            },
-        ),
+    const hotRefreshBackpressure = new HotRefreshBackpressure(
+        HOT_REFRESH_BACKPRESSURE_STAGE_NAME.BroadEvents,
+        {
+            broadCooldownMs: hotRefreshBroadCooldownMs,
+        },
     );
+
+    const pipelineBuilder = new PipelineBuilder()
+        .with(opponentBidsFilter)
+        .with(hotRefreshBackpressure);
     if (collectionOfferSnapshotService) {
         pipelineBuilder.with(
             new CollectionOfferSnapshotRefresh(
@@ -666,7 +680,10 @@ function buildBidPipeline(
     }
 
     pipelineBuilder.with(new BidderRefresh("bidder-hot-refresh", bidder));
-    return pipelineBuilder.build();
+    return {
+        callback: pipelineBuilder.build(),
+        stop: () => hotRefreshBackpressure.stop(),
+    };
 }
 
 function registerBidStream(

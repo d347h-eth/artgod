@@ -46,6 +46,7 @@ const log = createBiddingComponentLogger(
 export class HotRefreshBackpressure implements EventCallbackBuilder {
     private readonly lanes = new Map<string, BroadRefreshLane>();
     private readonly broadCooldownMs: number;
+    private stopped = false;
 
     constructor(
         private readonly name: string,
@@ -53,10 +54,10 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
     ) {
         if (
             !Number.isFinite(options.broadCooldownMs) ||
-            options.broadCooldownMs < 0
+            options.broadCooldownMs <= 0
         ) {
             throw new Error(
-                `[HotRefreshBackpressure] broadCooldownMs must be >= 0. received=${options.broadCooldownMs}`,
+                `[HotRefreshBackpressure] broadCooldownMs must be > 0. received=${options.broadCooldownMs}`,
             );
         }
 
@@ -67,9 +68,27 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
         return this.name;
     }
 
+    // stop prevents late stream events or queued broad passes from outliving the runtime.
+    public stop(): void {
+        this.stopped = true;
+        for (const lane of this.lanes.values()) {
+            if (lane.timer) {
+                clearTimeout(lane.timer);
+            }
+            lane.timer = undefined;
+            lane.pendingEvents.clear();
+            lane.pendingSignalCount = 0;
+        }
+        this.lanes.clear();
+    }
+
     public getWrappingFn(): WrappingFn {
         return (callback: EventCallback): EventCallback => {
             return async (marketEvent: MarketEvent) => {
+                if (this.stopped) {
+                    return;
+                }
+
                 if (!isBroadHotRefreshEvent(marketEvent)) {
                     await callback(marketEvent);
                     return;
@@ -84,10 +103,20 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
         marketEvent: MarketEvent,
         callback: EventCallback,
     ): void {
+        if (this.stopped) {
+            return;
+        }
+
         const collectionSlug = marketEvent.getCollectionSlug();
         const lane = this.getLane(collectionSlug);
         const signature = createBroadEventSignature(marketEvent);
-        lane.pendingEvents.set(signature, marketEvent);
+        lane.pendingEvents.set(
+            signature,
+            selectConservativeBroadEvent(
+                lane.pendingEvents.get(signature),
+                marketEvent,
+            ),
+        );
         lane.pendingSignalCount += 1;
 
         if (lane.running || lane.timer) {
@@ -138,6 +167,9 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
     ): void {
         lane.timer = setTimeout(() => {
             lane.timer = undefined;
+            if (this.stopped) {
+                return;
+            }
             if (!lane.running) {
                 this.startLane(collectionSlug, lane, callback);
             }
@@ -149,6 +181,10 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
         lane: BroadRefreshLane,
         callback: EventCallback,
     ): void {
+        if (this.stopped) {
+            return;
+        }
+
         if (lane.pendingEvents.size === 0) {
             return;
         }
@@ -173,6 +209,9 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
         void (async () => {
             try {
                 for (const event of events) {
+                    if (this.stopped) {
+                        return;
+                    }
                     await callback(event);
                 }
             } catch (error: unknown) {
@@ -186,6 +225,13 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
                 );
             } finally {
                 lane.running = false;
+                if (this.stopped) {
+                    lane.pendingEvents.clear();
+                    lane.pendingSignalCount = 0;
+                    lane.timer = undefined;
+                    return;
+                }
+
                 lane.nextRunAt = Date.now() + this.broadCooldownMs;
                 if (lane.pendingEvents.size > 0) {
                     this.scheduleLane(
@@ -220,6 +266,19 @@ function isBroadHotRefreshEvent(marketEvent: MarketEvent): boolean {
         marketEvent.getScope() === Scope.Collection ||
         marketEvent.getScope() === Scope.Trait
     );
+}
+
+function selectConservativeBroadEvent(
+    existingEvent: MarketEvent | undefined,
+    incomingEvent: MarketEvent,
+): MarketEvent {
+    if (!existingEvent) {
+        return incomingEvent;
+    }
+
+    return incomingEvent.getUnitPrice() >= existingEvent.getUnitPrice()
+        ? incomingEvent
+        : existingEvent;
 }
 
 function createBroadEventSignature(marketEvent: MarketEvent): string {
