@@ -446,6 +446,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             .filter((evaluation) => evaluation.matched)
             .forEach((evaluation) => this.logHotRefreshEffect(evaluation));
 
+        if (this.isBroadHotRefreshEvent(marketEvent)) {
+            await this.refreshBroadMatchingJobs(matchingJobIds);
+            return;
+        }
+
         await Promise.all(
             matchingJobIds.map((jobId) => this.refreshJob(jobId)),
         );
@@ -504,6 +509,19 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         return await this.refreshJobWithOptions(jobId, undefined, {
             throwOnFailure: true,
         });
+    }
+
+    private async refreshBroadMatchingJobs(jobIds: string[]): Promise<void> {
+        for (const jobId of jobIds) {
+            await this.refreshJob(jobId);
+        }
+    }
+
+    private isBroadHotRefreshEvent(marketEvent: MarketEvent): boolean {
+        return (
+            marketEvent.getScope() === Scope.Collection ||
+            marketEvent.getScope() === Scope.Trait
+        );
     }
 
     private async refreshJobWithOptions(

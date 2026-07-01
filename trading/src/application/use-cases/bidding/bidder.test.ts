@@ -612,6 +612,62 @@ describe("Bidder stream refresh", () => {
         assert.deepEqual(refreshedJobIds, ["token-hit"]);
     });
 
+    it("does not pre-schedule every broad-event match while one token job is running", async () => {
+        const bidder = new Bidder(
+            new FakeBiddingService() as any,
+            "0xmaker",
+            1000,
+            { dryRun: true },
+        );
+        const refreshedJobIds: string[] = [];
+        let releaseFirstRefresh!: () => void;
+        const firstRefreshGate = new Promise<void>((resolve) => {
+            releaseFirstRefresh = resolve;
+        });
+
+        bidder.addJob(
+            makeJob(
+                "token-one",
+                "terraforms",
+                { type: "token", tokenId: "123" },
+                5n,
+            ),
+        );
+        bidder.addJob(
+            makeJob(
+                "token-two",
+                "terraforms",
+                { type: "token", tokenId: "456" },
+                5n,
+            ),
+        );
+
+        bidder.refreshJob = async (jobId: string) => {
+            refreshedJobIds.push(jobId);
+            if (refreshedJobIds.length === 1) {
+                await firstRefreshGate;
+            }
+        };
+
+        const refreshPromise = bidder.refreshMatchingJobs(
+            makeEvent(
+                Type.CollectionOffer,
+                Scope.Collection,
+                "terraforms",
+                "",
+                6n,
+            ),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        assert.deepEqual(refreshedJobIds, ["token-one"]);
+
+        releaseFirstRefresh();
+        await refreshPromise;
+
+        assert.deepEqual(refreshedJobIds, ["token-one", "token-two"]);
+    });
+
     it("refreshes maker WETH balance into the cache and clamps job ceiling to that cached balance", async () => {
         const biddingService = new FakeBiddingService();
         biddingService.activeOffers = [

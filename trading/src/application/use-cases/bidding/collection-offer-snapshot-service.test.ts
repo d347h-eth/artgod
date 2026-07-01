@@ -49,13 +49,15 @@ describe("CollectionOfferSnapshotService", () => {
             0,
         );
 
-        service.requestRefresh("terraforms", "first");
-        service.requestRefresh("terraforms", "second");
-        service.requestRefresh("terraforms", "third");
+        const refreshes = [
+            service.refreshAndWait("terraforms", "first"),
+            service.refreshAndWait("terraforms", "second"),
+            service.refreshAndWait("terraforms", "third"),
+        ];
 
         await new Promise((resolve) => setTimeout(resolve, 10));
         releaseGate();
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        await Promise.all(refreshes);
 
         assert.equal(source.calls.length, 2);
     });

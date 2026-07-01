@@ -48,8 +48,13 @@ export interface CollectionOfferSnapshotObserver {
 
 interface CollectionRefreshState {
     refreshing: boolean;
-    pendingReason?: string;
+    pendingRequest?: PendingRefreshRequest;
     inFlightPromise?: Promise<void>;
+}
+
+interface PendingRefreshRequest {
+    reason: string;
+    respectTtl: boolean;
 }
 
 const log = createBiddingComponentLogger(
@@ -227,7 +232,7 @@ export class CollectionOfferSnapshotService
             return;
         }
 
-        await this.refreshCollection(collectionSlug, reason);
+        await this.refreshCollection(collectionSlug, reason, options);
     }
 
     private async waitForFreshInFlightRefresh(
@@ -270,12 +275,16 @@ export class CollectionOfferSnapshotService
     private async refreshCollection(
         collectionSlug: string,
         reason: string,
+        options: CollectionOfferRefreshOptions,
     ): Promise<void> {
         const state = this.getRefreshState(collectionSlug);
         if (state.refreshing) {
-            state.pendingReason = this.mergeRefreshReasons(
-                state.pendingReason,
-                reason,
+            state.pendingRequest = this.mergePendingRefreshRequest(
+                state.pendingRequest,
+                {
+                    reason,
+                    respectTtl: options.respectTtl === true,
+                },
             );
             return await (state.inFlightPromise ?? Promise.resolve());
         }
@@ -298,16 +307,28 @@ export class CollectionOfferSnapshotService
                         this.observer?.onSnapshotRefreshed(snapshot, nextReason);
                     }
 
-                    if (!state.pendingReason) {
+                    const pendingRequest = state.pendingRequest;
+                    if (!pendingRequest) {
                         return;
                     }
 
-                    nextReason = state.pendingReason;
-                    state.pendingReason = undefined;
+                    state.pendingRequest = undefined;
+                    if (
+                        pendingRequest.respectTtl &&
+                        this.isSnapshotFresh(collectionSlug)
+                    ) {
+                        this.logFreshSnapshotSkip(
+                            collectionSlug,
+                            pendingRequest.reason,
+                        );
+                        return;
+                    }
+
+                    nextReason = pendingRequest.reason;
                 }
             } finally {
                 state.refreshing = false;
-                state.pendingReason = undefined;
+                state.pendingRequest = undefined;
                 state.inFlightPromise = undefined;
             }
         })();
@@ -358,6 +379,20 @@ export class CollectionOfferSnapshotService
         }
 
         return `${existing} || ${incoming}`;
+    }
+
+    private mergePendingRefreshRequest(
+        existing: PendingRefreshRequest | undefined,
+        incoming: PendingRefreshRequest,
+    ): PendingRefreshRequest {
+        if (!existing) {
+            return incoming;
+        }
+
+        return {
+            reason: this.mergeRefreshReasons(existing.reason, incoming.reason),
+            respectTtl: existing.respectTtl && incoming.respectTtl,
+        };
     }
 
     private isSnapshotFresh(collectionSlug: string): boolean {
