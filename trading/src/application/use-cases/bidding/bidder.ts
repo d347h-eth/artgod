@@ -186,6 +186,15 @@ const BIDDING_COMMAND_REQUEST_CONTEXT: BiddingServiceRequestContext = {
     priority: BIDDING_SERVICE_REQUEST_PRIORITY.UserCommand,
 };
 
+const BIDDER_LOG_ACTION = {
+    CurrentPriceBootstrapStarted: "currentPriceBootstrapStarted",
+    CurrentPriceBootstrapCandidateStarted:
+        "currentPriceBootstrapCandidateStarted",
+    CurrentPriceBootstrapCandidateComplete:
+        "currentPriceBootstrapCandidateComplete",
+    CurrentPriceBootstrapComplete: "currentPriceBootstrapComplete",
+} as const;
+
 // Bidder is the pure bidding core ported from the production bot with mechanical renames only.
 export class Bidder implements BidderRefreshPort, BidderActivationPort {
     private readonly jobs = new Map<string, BidderJob>();
@@ -417,7 +426,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         let completedCount = 0;
 
         log.debug(
-            "currentPriceBootstrapStarted",
+            BIDDER_LOG_ACTION.CurrentPriceBootstrapStarted,
             "Bootstrapping current prices",
             {
                 candidateCount: warmCandidates.length,
@@ -437,11 +446,32 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 }
                 nextCandidateIndex++;
 
+                log.debug(
+                    BIDDER_LOG_ACTION.CurrentPriceBootstrapCandidateStarted,
+                    "Bootstrapping current price candidate",
+                    {
+                        jobId: job.id,
+                        jobRef: formatBidderJobReference(job),
+                        sequence: candidateIndex + 1,
+                        total: warmCandidates.length,
+                    },
+                );
                 const warmed = await this.tryWarmCurrentPrice(job, {
                     sequence: candidateIndex + 1,
                     total: warmCandidates.length,
                 });
                 completedCount++;
+                log.debug(
+                    BIDDER_LOG_ACTION.CurrentPriceBootstrapCandidateComplete,
+                    "Current price bootstrap candidate complete",
+                    {
+                        jobId: job.id,
+                        jobRef: formatBidderJobReference(job),
+                        completed: completedCount,
+                        total: warmCandidates.length,
+                        warmed,
+                    },
+                );
                 options.onProgress?.({
                     jobId: job.id,
                     completed: completedCount,
@@ -457,7 +487,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         await Promise.all(workers);
 
         log.debug(
-            "currentPriceBootstrapComplete",
+            BIDDER_LOG_ACTION.CurrentPriceBootstrapComplete,
             "Current price bootstrap complete",
             {
                 candidateCount: warmCandidates.length,

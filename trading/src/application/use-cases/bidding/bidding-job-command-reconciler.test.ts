@@ -13,7 +13,10 @@ import type {
     BiddingJobCommand,
     BiddingJobCommandRepository,
 } from "./bidding-job-command-repository.js";
-import { BiddingJobCommandReconciler } from "./bidding-job-command-reconciler.js";
+import {
+    BiddingJobCommandReconciler,
+    type BiddingJobCommandProgress,
+} from "./bidding-job-command-reconciler.js";
 import type {
     BiddingJobSource,
     BiddingJobSourceRecord,
@@ -215,6 +218,67 @@ describe("BiddingJobCommandReconciler", () => {
         assert.deepEqual(prepared, [job.id]);
         assert.deepEqual(reconciled, [[job.id]]);
         assert.deepEqual(repository.completed, [1]);
+    });
+
+    it("reports command start and finish progress to observers", async () => {
+        const job = makeJob("job-observed");
+        const command = makeCommand(
+            1,
+            job.id,
+            TRADING_JOB_COMMAND_KIND.JobUpdated,
+        );
+        const repository = new FakeCommandRepository([command]);
+        const source = new FakeJobSource(
+            new Map([[job.id, makeRecord(job, TRADING_JOB_STATUS.Enabled)]]),
+        );
+        const biddingService = new FakeBiddingService();
+        const bidder = new Bidder(biddingService, makerAddress, 60_000, {
+            dryRun: true,
+        });
+        const reconciler = new BiddingJobCommandReconciler(
+            repository,
+            source,
+            bidder,
+            {
+                prepareEnabledJob: async () => undefined,
+                reconcileEnabledJobs: async () => undefined,
+            },
+            {
+                batchSize: 10,
+                claimTimeoutMs: 300_000,
+                maxAttempts: 3,
+            },
+        );
+        const started: BiddingJobCommandProgress[] = [];
+        const finished: Array<
+            BiddingJobCommandProgress & { succeeded: boolean }
+        > = [];
+
+        const processed = await reconciler.processPendingCommands("test", {
+            onCommandStarted: (progress) => {
+                started.push(progress);
+            },
+            onCommandFinished: (progress) => {
+                finished.push(progress);
+            },
+        });
+
+        const expectedProgress = {
+            trigger: "test",
+            commandId: command.commandId,
+            commandKind: command.commandKind,
+            jobId: command.jobId,
+            processed: 1,
+            batchSize: 10,
+        };
+        assert.equal(processed, 1);
+        assert.deepEqual(started, [expectedProgress]);
+        assert.deepEqual(finished, [
+            {
+                ...expectedProgress,
+                succeeded: true,
+            },
+        ]);
     });
 
     it("keeps enabled job commands retryable when immediate placement fails", async () => {

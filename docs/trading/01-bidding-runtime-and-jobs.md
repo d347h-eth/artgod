@@ -106,7 +106,10 @@ snapshot, retry, and error details into dedicated JSON payload fields.
 Lifecycle payloads such as `bot_bootstrapping` and `bot_ready` remain the
 supervisor control protocol and are separate from diagnostic log entries.
 Startup command replay emits the `command_reconciliation` bootstrap phase so the
-supervisor can distinguish command work from a dead startup.
+supervisor can distinguish command work from a dead startup. During startup
+command replay, each claimed command emits immediate start/finish progress and
+the current command is re-emitted on the bot heartbeat cadence while it is still
+running. Current-price bootstrap logs each token candidate start and completion.
 
 No-effect hot-refresh logs are summarized per collection/scope/type/reason so
 irrelevant stream flood remains visible without emitting one log line per event.

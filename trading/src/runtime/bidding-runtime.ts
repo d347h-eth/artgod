@@ -46,7 +46,10 @@ import { ViemWethAllowanceApprovalService } from "../adapters/wallet/viem-weth-a
 import { ViemMakerWethBalanceService } from "../adapters/wallet/viem-maker-weth-balance-service.js";
 import { Bidder } from "../application/use-cases/bidding/bidder.js";
 import { BiddingBidBookProjectionScheduler } from "../application/use-cases/bidding/bidding-bid-book-projection.js";
-import { BiddingJobCommandReconciler } from "../application/use-cases/bidding/bidding-job-command-reconciler.js";
+import {
+    BiddingJobCommandReconciler,
+    type BiddingJobCommandProgress,
+} from "../application/use-cases/bidding/bidding-job-command-reconciler.js";
 import { CollectionOfferSnapshotService } from "../application/use-cases/bidding/collection-offer-snapshot-service.js";
 import { AttrFilter } from "../application/use-cases/market/pipeline/lib/attr-filter.js";
 import { BidderRefresh } from "../application/use-cases/market/pipeline/lib/bidder-refresh.js";
@@ -114,6 +117,12 @@ const log = createBiddingComponentLogger(BIDDING_LOG_COMPONENT.BiddingRuntime);
 const openSeaSdkLog = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.OpenSeaSdk,
 );
+
+const BIDDING_RUNTIME_LOG_ACTION = {
+    CommandJobPreparationStarted: "commandJobPreparationStarted",
+    CommandSnapshotRefreshStarted: "commandSnapshotRefreshStarted",
+    CommandSnapshotRefreshComplete: "commandSnapshotRefreshComplete",
+} as const;
 
 export interface BiddingRuntimeLifecyclePort {
     bootstrapping(update: BiddingRuntimeBootstrapLifecycleUpdate): void;
@@ -510,6 +519,15 @@ export async function startBiddingRuntime(
         bidder,
         {
             prepareEnabledJob: async (job) => {
+                log.info(
+                    BIDDING_RUNTIME_LOG_ACTION.CommandJobPreparationStarted,
+                    "Preparing enabled bidding job command",
+                    {
+                        jobId: job.id,
+                        collectionSlug: job.collectionSlug,
+                        targetType: job.target.type,
+                    },
+                );
                 ensureBidStream(job.collectionSlug);
                 if (
                     job.target.type === "token" ||
@@ -518,11 +536,29 @@ export async function startBiddingRuntime(
                     collectionOfferSnapshotService.watchCollection(
                         job.collectionSlug,
                     );
+                    log.info(
+                        BIDDING_RUNTIME_LOG_ACTION.CommandSnapshotRefreshStarted,
+                        "Refreshing collection-offer snapshot for bidding job command",
+                        {
+                            jobId: job.id,
+                            collectionSlug: job.collectionSlug,
+                            targetType: job.target.type,
+                        },
+                    );
                     // Refresh the authoritative snapshot before the reconciled job performs an immediate bid pass.
                     await collectionOfferSnapshotService.refreshAndWait(
                         job.collectionSlug,
                         `job command reconciliation: ${job.id}`,
                         { respectTtl: true },
+                    );
+                    log.info(
+                        BIDDING_RUNTIME_LOG_ACTION.CommandSnapshotRefreshComplete,
+                        "Collection-offer snapshot refreshed for bidding job command",
+                        {
+                            jobId: job.id,
+                            collectionSlug: job.collectionSlug,
+                            targetType: job.target.type,
+                        },
                     );
                 }
             },
@@ -550,8 +586,26 @@ export async function startBiddingRuntime(
         total: params.biddingConfig.commandBatchSize,
         detail: "trigger=startup",
     });
-    const startupCommandCount =
-        await commandReconciler.processPendingCommands("startup");
+    const startupCommandProgress =
+        createStartupCommandProgressReporter(params);
+    const stopStartupCommandProgressPulse =
+        startBootstrapProgressPulse(startupCommandProgress);
+    let startupCommandCount = 0;
+    try {
+        startupCommandCount = await commandReconciler.processPendingCommands(
+            "startup",
+            {
+                onCommandStarted: (progress) => {
+                    startupCommandProgress.reportStarted(progress);
+                },
+                onCommandFinished: (progress) => {
+                    startupCommandProgress.reportFinished(progress);
+                },
+            },
+        );
+    } finally {
+        stopStartupCommandProgressPulse();
+    }
     params.lifecycle.progress({
         phase: "command_reconciliation",
         completed: startupCommandCount,
@@ -643,6 +697,56 @@ export function collectSnapshotBackedCollectionSlugs(
 // collectTokenWarmCandidateCount approximates the size of the current-price bootstrap pass before runtime state exists.
 export function collectTokenWarmCandidateCount(jobs: BidderJob[]): number {
     return jobs.filter((job) => job.target.type === "token").length;
+}
+
+type StartupCommandProgressReporter = {
+    reportStarted(progress: BiddingJobCommandProgress): void;
+    reportFinished(progress: BiddingJobCommandProgress & { succeeded: boolean }): void;
+    reportPulse(): void;
+    intervalMs: number;
+};
+
+function createStartupCommandProgressReporter(
+    params: StartBiddingRuntimeParams,
+): StartupCommandProgressReporter {
+    const phase: BiddingRuntimeBootstrapPhase = "command_reconciliation";
+    const total = params.biddingConfig.commandBatchSize;
+    const state = {
+        completed: 0,
+        detail: "trigger=startup",
+    };
+    const emit = (): void => {
+        params.lifecycle.progress({
+            phase,
+            completed: state.completed,
+            total,
+            detail: state.detail,
+        });
+    };
+
+    return {
+        intervalMs: params.biddingConfig.runtimeHeartbeat.intervalMs,
+        reportStarted(progress) {
+            state.completed = Math.max(0, progress.processed - 1);
+            state.detail = `commandId=${progress.commandId}, kind=${progress.commandKind}, jobId=${progress.jobId}`;
+            emit();
+        },
+        reportFinished(progress) {
+            state.completed = progress.processed;
+            state.detail = `processed=${progress.processed}, commandId=${progress.commandId}, kind=${progress.commandKind}, succeeded=${progress.succeeded}`;
+            emit();
+        },
+        reportPulse: emit,
+    };
+}
+
+function startBootstrapProgressPulse(
+    reporter: StartupCommandProgressReporter,
+): () => void {
+    const timer = setInterval(() => {
+        reporter.reportPulse();
+    }, reporter.intervalMs);
+    return () => clearInterval(timer);
 }
 
 // createCriteriaOfferRefreshReasonResolver keeps stream-side snapshot nudges limited to relevant collection/trait signals.
