@@ -47,6 +47,7 @@ import {
     BIDDING_DEFAULT_DRY_RUN,
     BIDDING_DEFAULT_ENABLED,
     BIDDING_DEFAULT_HOT_REFRESH_BROAD_COOLDOWN_MS,
+    BIDDING_DEFAULT_HOT_REFRESH_ITEM_COOLDOWN_MS,
     BIDDING_DEFAULT_MAX_CONCURRENT_JOBS,
     BIDDING_DEFAULT_OFFER_EXPIRATION_SECONDS,
     BIDDING_DEFAULT_ORDER_LOOKUP_MAX_PAGES,
@@ -87,6 +88,7 @@ export type EnabledBiddingConfig = {
     collectionOffersPollMs: number;
     collectionOffersTtlMs: number;
     hotRefreshBroadCooldownMs: number;
+    hotRefreshItemCooldownMs: number;
     bidBookProjectionThrottleMs: number;
     orderLookupMaxPages: number;
     commandPollMs: number;
@@ -116,6 +118,7 @@ export type DisabledBiddingConfig = {
     collectionOffersPollMs: number;
     collectionOffersTtlMs: number;
     hotRefreshBroadCooldownMs: number;
+    hotRefreshItemCooldownMs: number;
     bidBookProjectionThrottleMs: number;
     orderLookupMaxPages: number;
     commandPollMs: number;
@@ -221,6 +224,11 @@ export function loadTradingConfig(
             env[BIDDING_RUNTIME_ENV_KEY.HotRefreshBroadCooldownMs],
             BIDDING_RUNTIME_ENV_KEY.HotRefreshBroadCooldownMs,
             BIDDING_DEFAULT_HOT_REFRESH_BROAD_COOLDOWN_MS,
+        ),
+        hotRefreshItemCooldownMs: parsePositiveInteger(
+            env[BIDDING_RUNTIME_ENV_KEY.HotRefreshItemCooldownMs],
+            BIDDING_RUNTIME_ENV_KEY.HotRefreshItemCooldownMs,
+            BIDDING_DEFAULT_HOT_REFRESH_ITEM_COOLDOWN_MS,
         ),
         bidBookProjectionThrottleMs: parsePositiveInteger(
             env[BIDDING_RUNTIME_ENV_KEY.BidBookProjectionThrottleMs],

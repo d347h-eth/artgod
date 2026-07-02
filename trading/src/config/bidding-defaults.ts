@@ -16,6 +16,7 @@ export const BIDDING_RUNTIME_ENV_KEY = {
     CollectionOffersPollMs: "BIDDING_COLLECTION_OFFERS_POLL_MS",
     CollectionOffersTtlMs: "BIDDING_COLLECTION_OFFERS_TTL_MS",
     HotRefreshBroadCooldownMs: "BIDDING_HOT_REFRESH_BROAD_COOLDOWN_MS",
+    HotRefreshItemCooldownMs: "BIDDING_HOT_REFRESH_ITEM_COOLDOWN_MS",
     BidBookProjectionThrottleMs: "BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS",
     OrderLookupMaxPages: "BIDDING_ORDER_LOOKUP_MAX_PAGES",
     OpenSeaSnapshotPageSize: "OPENSEA_SNAPSHOT_PAGE_SIZE",
@@ -65,6 +66,8 @@ export const BIDDING_DEFAULT_COLLECTION_OFFERS_TTL_MS = getSettingDefaultNumber(
 );
 export const BIDDING_DEFAULT_HOT_REFRESH_BROAD_COOLDOWN_MS =
     getSettingDefaultNumber(BIDDING_RUNTIME_ENV_KEY.HotRefreshBroadCooldownMs);
+export const BIDDING_DEFAULT_HOT_REFRESH_ITEM_COOLDOWN_MS =
+    getSettingDefaultNumber(BIDDING_RUNTIME_ENV_KEY.HotRefreshItemCooldownMs);
 export const BIDDING_DEFAULT_BID_BOOK_PROJECTION_THROTTLE_MS =
     getSettingDefaultNumber(
         BIDDING_RUNTIME_ENV_KEY.BidBookProjectionThrottleMs,

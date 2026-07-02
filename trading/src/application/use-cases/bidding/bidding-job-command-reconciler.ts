@@ -267,7 +267,7 @@ export class BiddingJobCommandReconciler {
         }
         let cancelled = 0;
         try {
-            cancelled = await this.bidder.cancelActiveOffersForJob(job);
+            cancelled = await this.bidder.cancelActiveOffersForCommand(job);
         } finally {
             job.revision = originalRevision;
         }

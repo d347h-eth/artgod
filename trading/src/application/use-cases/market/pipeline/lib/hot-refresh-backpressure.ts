@@ -12,25 +12,32 @@ import {
 
 // Stable stage names used when wiring the bidding hot-refresh pipeline.
 export const HOT_REFRESH_BACKPRESSURE_STAGE_NAME = {
-    BroadEvents: "broad-hot-refresh-backpressure",
+    StreamEvents: "hot-refresh-backpressure",
 } as const;
 
 export interface HotRefreshBackpressureOptions {
     broadCooldownMs: number;
+    itemCooldownMs: number;
 }
 
-interface BroadRefreshLane {
+type HotRefreshLaneKind = "broad" | "item";
+
+interface HotRefreshLane {
     running: boolean;
     pendingEvents: Map<string, MarketEvent>;
     pendingSignalCount: number;
     nextRunAt: number;
     timer?: ReturnType<typeof setTimeout>;
+    kind: HotRefreshLaneKind;
 }
 
 const HOT_REFRESH_BACKPRESSURE_LOG_ACTION = {
     BroadEventQueued: "broadEventQueued",
     BroadPassStarted: "broadPassStarted",
     BroadPassFailed: "broadPassFailed",
+    ItemEventQueued: "itemEventQueued",
+    ItemPassStarted: "itemPassStarted",
+    ItemPassFailed: "itemPassFailed",
 } as const;
 
 const BROAD_EVENT_SIGNATURE_PREFIX = {
@@ -38,14 +45,17 @@ const BROAD_EVENT_SIGNATURE_PREFIX = {
     Trait: "trait",
 } as const;
 
+const ITEM_EVENT_SIGNATURE_PREFIX = "item";
+
 const log = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.HotRefreshBackpressure,
 );
 
-// HotRefreshBackpressure makes broad stream wake-ups cheap while preserving exact-token immediacy.
+// HotRefreshBackpressure makes stream wake-ups cheap while preserving the highest price signal per scope.
 export class HotRefreshBackpressure implements EventCallbackBuilder {
-    private readonly lanes = new Map<string, BroadRefreshLane>();
+    private readonly lanes = new Map<string, HotRefreshLane>();
     private readonly broadCooldownMs: number;
+    private readonly itemCooldownMs: number;
     private stopped = false;
 
     constructor(
@@ -60,15 +70,24 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
                 `[HotRefreshBackpressure] broadCooldownMs must be > 0. received=${options.broadCooldownMs}`,
             );
         }
+        if (
+            !Number.isFinite(options.itemCooldownMs) ||
+            options.itemCooldownMs <= 0
+        ) {
+            throw new Error(
+                `[HotRefreshBackpressure] itemCooldownMs must be > 0. received=${options.itemCooldownMs}`,
+            );
+        }
 
         this.broadCooldownMs = options.broadCooldownMs;
+        this.itemCooldownMs = options.itemCooldownMs;
     }
 
     public getName(): string {
         return this.name;
     }
 
-    // stop prevents late stream events or queued broad passes from outliving the runtime.
+    // stop prevents late stream events or queued hot-refresh passes from outliving the runtime.
     public stop(): void {
         this.stopped = true;
         for (const lane of this.lanes.values()) {
@@ -89,17 +108,17 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
                     return;
                 }
 
-                if (!isBroadHotRefreshEvent(marketEvent)) {
+                if (!isSupportedHotRefreshEvent(marketEvent)) {
                     await callback(marketEvent);
                     return;
                 }
 
-                this.queueBroadEvent(marketEvent, callback);
+                this.queueEvent(marketEvent, callback);
             };
         };
     }
 
-    private queueBroadEvent(
+    private queueEvent(
         marketEvent: MarketEvent,
         callback: EventCallback,
     ): void {
@@ -107,12 +126,12 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
             return;
         }
 
-        const collectionSlug = marketEvent.getCollectionSlug();
-        const lane = this.getLane(collectionSlug);
-        const signature = createBroadEventSignature(marketEvent);
+        const laneKey = createLaneKey(marketEvent);
+        const lane = this.getLane(marketEvent);
+        const signature = createEventSignature(marketEvent);
         lane.pendingEvents.set(
             signature,
-            selectConservativeBroadEvent(
+            selectConservativeEvent(
                 lane.pendingEvents.get(signature),
                 marketEvent,
             ),
@@ -121,13 +140,14 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
 
         if (lane.running || lane.timer) {
             log.debug(
-                HOT_REFRESH_BACKPRESSURE_LOG_ACTION.BroadEventQueued,
-                "Queued broad bidding hot-refresh signal",
+                this.getQueuedLogAction(lane.kind),
+                "Queued bidding hot-refresh signal",
                 {
-                    collectionSlug,
+                    collectionSlug: marketEvent.getCollectionSlug(),
                     eventType: marketEvent.getType(),
                     eventScope: marketEvent.getScope(),
                     signature,
+                    laneKey,
                     pendingEventCount: lane.pendingEvents.size,
                     pendingSignalCount: lane.pendingSignalCount,
                     running: lane.running,
@@ -139,15 +159,16 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
 
         const delayMs = Math.max(0, lane.nextRunAt - Date.now());
         if (delayMs > 0) {
-            this.scheduleLane(collectionSlug, lane, callback, delayMs);
+            this.scheduleLane(laneKey, lane, callback, delayMs);
             log.debug(
-                HOT_REFRESH_BACKPRESSURE_LOG_ACTION.BroadEventQueued,
-                "Queued broad bidding hot-refresh signal until cooldown expires",
+                this.getQueuedLogAction(lane.kind),
+                "Queued bidding hot-refresh signal until cooldown expires",
                 {
-                    collectionSlug,
+                    collectionSlug: marketEvent.getCollectionSlug(),
                     eventType: marketEvent.getType(),
                     eventScope: marketEvent.getScope(),
                     signature,
+                    laneKey,
                     delayMs,
                     pendingEventCount: lane.pendingEvents.size,
                     pendingSignalCount: lane.pendingSignalCount,
@@ -156,12 +177,12 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
             return;
         }
 
-        this.startLane(collectionSlug, lane, callback);
+        this.startLane(laneKey, lane, callback);
     }
 
     private scheduleLane(
-        collectionSlug: string,
-        lane: BroadRefreshLane,
+        laneKey: string,
+        lane: HotRefreshLane,
         callback: EventCallback,
         delayMs: number,
     ): void {
@@ -171,14 +192,14 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
                 return;
             }
             if (!lane.running) {
-                this.startLane(collectionSlug, lane, callback);
+                this.startLane(laneKey, lane, callback);
             }
         }, delayMs);
     }
 
     private startLane(
-        collectionSlug: string,
-        lane: BroadRefreshLane,
+        laneKey: string,
+        lane: HotRefreshLane,
         callback: EventCallback,
     ): void {
         if (this.stopped) {
@@ -196,13 +217,13 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
         lane.running = true;
 
         log.debug(
-            HOT_REFRESH_BACKPRESSURE_LOG_ACTION.BroadPassStarted,
-            "Started coalesced broad bidding hot-refresh pass",
+            this.getStartedLogAction(lane.kind),
+            "Started coalesced bidding hot-refresh pass",
             {
-                collectionSlug,
+                laneKey,
                 eventCount: events.length,
                 signalCount: pendingSignalCount,
-                cooldownMs: this.broadCooldownMs,
+                cooldownMs: this.getCooldownMs(lane.kind),
             },
         );
 
@@ -216,10 +237,10 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
                 }
             } catch (error: unknown) {
                 log.error(
-                    HOT_REFRESH_BACKPRESSURE_LOG_ACTION.BroadPassFailed,
-                    "Coalesced broad bidding hot-refresh pass failed",
+                    this.getFailedLogAction(lane.kind),
+                    "Coalesced bidding hot-refresh pass failed",
                     {
-                        collectionSlug,
+                        laneKey,
                         ...toErrorLogFields(error),
                     },
                 );
@@ -232,33 +253,64 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
                     return;
                 }
 
-                lane.nextRunAt = Date.now() + this.broadCooldownMs;
+                lane.nextRunAt = Date.now() + this.getCooldownMs(lane.kind);
                 if (lane.pendingEvents.size > 0) {
                     this.scheduleLane(
-                        collectionSlug,
+                        laneKey,
                         lane,
                         callback,
-                        this.broadCooldownMs,
+                        this.getCooldownMs(lane.kind),
                     );
                 }
             }
         })();
     }
 
-    private getLane(collectionSlug: string): BroadRefreshLane {
-        let lane = this.lanes.get(collectionSlug);
+    private getLane(marketEvent: MarketEvent): HotRefreshLane {
+        const laneKey = createLaneKey(marketEvent);
+        let lane = this.lanes.get(laneKey);
         if (!lane) {
             lane = {
                 running: false,
                 pendingEvents: new Map(),
                 pendingSignalCount: 0,
                 nextRunAt: 0,
+                kind: isBroadHotRefreshEvent(marketEvent) ? "broad" : "item",
             };
-            this.lanes.set(collectionSlug, lane);
+            this.lanes.set(laneKey, lane);
         }
 
         return lane;
     }
+
+    private getCooldownMs(kind: HotRefreshLaneKind): number {
+        return kind === "broad" ? this.broadCooldownMs : this.itemCooldownMs;
+    }
+
+    private getQueuedLogAction(kind: HotRefreshLaneKind): string {
+        return kind === "broad"
+            ? HOT_REFRESH_BACKPRESSURE_LOG_ACTION.BroadEventQueued
+            : HOT_REFRESH_BACKPRESSURE_LOG_ACTION.ItemEventQueued;
+    }
+
+    private getStartedLogAction(kind: HotRefreshLaneKind): string {
+        return kind === "broad"
+            ? HOT_REFRESH_BACKPRESSURE_LOG_ACTION.BroadPassStarted
+            : HOT_REFRESH_BACKPRESSURE_LOG_ACTION.ItemPassStarted;
+    }
+
+    private getFailedLogAction(kind: HotRefreshLaneKind): string {
+        return kind === "broad"
+            ? HOT_REFRESH_BACKPRESSURE_LOG_ACTION.BroadPassFailed
+            : HOT_REFRESH_BACKPRESSURE_LOG_ACTION.ItemPassFailed;
+    }
+}
+
+function isSupportedHotRefreshEvent(marketEvent: MarketEvent): boolean {
+    return (
+        isBroadHotRefreshEvent(marketEvent) ||
+        marketEvent.getScope() === Scope.Item
+    );
 }
 
 function isBroadHotRefreshEvent(marketEvent: MarketEvent): boolean {
@@ -268,7 +320,7 @@ function isBroadHotRefreshEvent(marketEvent: MarketEvent): boolean {
     );
 }
 
-function selectConservativeBroadEvent(
+function selectConservativeEvent(
     existingEvent: MarketEvent | undefined,
     incomingEvent: MarketEvent,
 ): MarketEvent {
@@ -281,7 +333,19 @@ function selectConservativeBroadEvent(
         : existingEvent;
 }
 
-function createBroadEventSignature(marketEvent: MarketEvent): string {
+function createLaneKey(marketEvent: MarketEvent): string {
+    if (marketEvent.getScope() === Scope.Item) {
+        return `${ITEM_EVENT_SIGNATURE_PREFIX}:${marketEvent.getCollectionSlug()}:${marketEvent.getItemID()}`;
+    }
+
+    return `${BROAD_EVENT_SIGNATURE_PREFIX.Collection}:${marketEvent.getCollectionSlug()}`;
+}
+
+function createEventSignature(marketEvent: MarketEvent): string {
+    if (marketEvent.getScope() === Scope.Item) {
+        return `${ITEM_EVENT_SIGNATURE_PREFIX}:${marketEvent.getItemID()}`;
+    }
+
     if (marketEvent.getScope() === Scope.Trait) {
         return `${BROAD_EVENT_SIGNATURE_PREFIX.Trait}:${formatTraitCriteriaSignature(marketEvent)}`;
     }

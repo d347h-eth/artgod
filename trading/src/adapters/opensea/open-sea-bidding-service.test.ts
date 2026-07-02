@@ -5,6 +5,8 @@ import {
     type TokenMetadataTrait,
 } from "../../domain/market/token-metadata-repository.js";
 import { CollectionOfferSnapshotProvider } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
+import { BIDDING_SERVICE_REQUEST_PRIORITY } from "../../application/use-cases/bidding/bidding-service.js";
+import { TOKEN_BUCKET_RATE_LIMIT_PRIORITY } from "../support/token-bucket-rate-limiter.js";
 import {
     isRetryableOpenSeaBiddingError,
     OpenSeaBiddingService,
@@ -214,6 +216,57 @@ describe("OpenSeaBiddingService", () => {
         assert.ok(Date.parse(result.placedAt) >= beforePlaceMs);
         assert.ok(Date.parse(result.placedAt) <= afterPlaceMs);
         assert.ok(result.expirationTime !== undefined);
+    });
+
+    it("passes command priority into OpenSea rate limiting", async () => {
+        const sdk = new MockOpenSeaSdk();
+        const waits: Array<{
+            getCost: number;
+            postCost: number;
+            priority: number | undefined;
+        }> = [];
+        const service = new OpenSeaBiddingService(sdk as any, makerAddress, {
+            retryPolicy: TEST_RETRY_POLICY,
+            rateLimiter: {
+                wait: async (
+                    getCost: number,
+                    postCost: number,
+                    options?: { priority?: number },
+                ) => {
+                    waits.push({
+                        getCost,
+                        postCost,
+                        priority: options?.priority,
+                    });
+                },
+            } as any,
+        });
+        const job = {
+            id: "job-priority",
+            revision: 1,
+            network: "eth" as const,
+            collectionSlug,
+            collectionAddress,
+            target: { type: "token" as const, tokenId: "123" },
+            config: { floor: 1n, ceiling: 2n, delta: 1n },
+            state: {},
+        };
+        sdk.createOffer = async () => ({
+            order_hash: orderHash,
+            protocol_address: protocolAddress,
+        });
+
+        await service.placeOffer(job, 1_000000000000000000n, {
+            priority: BIDDING_SERVICE_REQUEST_PRIORITY.UserCommand,
+        });
+
+        assert.deepEqual(waits, [
+            {
+                getCost: 1,
+                postCost: 2,
+                priority: TOKEN_BUCKET_RATE_LIMIT_PRIORITY.UserCommand,
+            },
+        ]);
     });
 
     it("places competitive-trait and multi-trait collection offers without drifting trait payloads", async () => {

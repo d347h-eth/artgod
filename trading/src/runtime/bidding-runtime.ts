@@ -123,7 +123,8 @@ export interface BiddingRuntimeLifecyclePort {
 export type BiddingRuntimeBootstrapPhase =
     | "allowance_approval"
     | "snapshot_bootstrap"
-    | "price_bootstrap";
+    | "price_bootstrap"
+    | "command_reconciliation";
 
 export interface BiddingRuntimeBootstrapLifecycleUpdate {
     phase: BiddingRuntimeBootstrapPhase;
@@ -407,9 +408,17 @@ export async function startBiddingRuntime(
         collectionOfferSnapshotService,
         params.biddingConfig.criteriaRefreshTraitsByCollection,
         params.biddingConfig.hotRefreshBroadCooldownMs,
+        params.biddingConfig.hotRefreshItemCooldownMs,
     );
     const bidStreams = new Map<string, RegisteredBidStream>();
+    let bidStreamSubscriptionsEnabled = false;
+    const pendingBidStreamCollections = new Set<string>();
     const ensureBidStream = (collectionSlug: string): boolean => {
+        if (!bidStreamSubscriptionsEnabled) {
+            pendingBidStreamCollections.add(collectionSlug);
+            return false;
+        }
+
         if (bidStreams.has(collectionSlug)) {
             return false;
         }
@@ -462,6 +471,14 @@ export async function startBiddingRuntime(
         let added = 0;
         let removed = 0;
 
+        if (!bidStreamSubscriptionsEnabled) {
+            pendingBidStreamCollections.clear();
+            next.forEach((collectionSlug) =>
+                pendingBidStreamCollections.add(collectionSlug),
+            );
+            return { added, removed };
+        }
+
         for (const collectionSlug of Array.from(bidStreams.keys())) {
             if (!next.has(collectionSlug) && disposeBidStream(collectionSlug)) {
                 removed += 1;
@@ -476,10 +493,15 @@ export async function startBiddingRuntime(
 
         return { added, removed };
     };
-    watchedCollectionSlugs.forEach(ensureBidStream);
-
-    // Start the steady-state snapshot polling only after bootstrap completed successfully.
-    collectionOfferSnapshotService.start();
+    const enableBidStreams = (collectionSlugs: string[]): void => {
+        bidStreamSubscriptionsEnabled = true;
+        const desiredCollections = new Set(collectionSlugs);
+        pendingBidStreamCollections.forEach((collectionSlug) =>
+            desiredCollections.add(collectionSlug),
+        );
+        pendingBidStreamCollections.clear();
+        reconcileBidStreams(Array.from(desiredCollections));
+    };
 
     const commandRepository = new SqliteBiddingJobCommandRepository();
     const commandReconciler = new BiddingJobCommandReconciler(
@@ -522,7 +544,29 @@ export async function startBiddingRuntime(
         },
     );
     // Process any committed DB commands before the normal bidder loop starts.
-    await commandReconciler.processPendingCommands("startup");
+    params.lifecycle.bootstrapping({
+        phase: "command_reconciliation",
+        completed: 0,
+        total: params.biddingConfig.commandBatchSize,
+        detail: "trigger=startup",
+    });
+    const startupCommandCount =
+        await commandReconciler.processPendingCommands("startup");
+    params.lifecycle.progress({
+        phase: "command_reconciliation",
+        completed: startupCommandCount,
+        total: params.biddingConfig.commandBatchSize,
+        detail: `processed=${startupCommandCount}`,
+    });
+
+    const startupEnabledJobs = await biddingJobSource.loadEnabledJobs();
+    enableBidStreams(collectWatchedCollectionSlugs(startupEnabledJobs));
+    collectionOfferSnapshotService.reconcileWatchedCollections(
+        collectSnapshotBackedCollectionSlugs(startupEnabledJobs),
+    );
+
+    // Start steady-state snapshot polling only after startup command replay cannot compete with poll work.
+    collectionOfferSnapshotService.start();
 
     // Start the steady-state bidder scan loop only after stream listeners and warm state are ready.
     bidder.start();
@@ -650,6 +694,7 @@ function buildBidPipeline(
     collectionOfferSnapshotService: CollectionOfferSnapshotService | undefined,
     criteriaRefreshTraitsByCollection: Record<string, string[]>,
     hotRefreshBroadCooldownMs: number,
+    hotRefreshItemCooldownMs: number,
 ): BidPipelineHandle {
     const opponentBidsFilter = new AttrFilter("opponent-bids");
     opponentBidsFilter.addCriteria("opponent-only", (marketEvent) => {
@@ -658,9 +703,10 @@ function buildBidPipeline(
         );
     });
     const hotRefreshBackpressure = new HotRefreshBackpressure(
-        HOT_REFRESH_BACKPRESSURE_STAGE_NAME.BroadEvents,
+        HOT_REFRESH_BACKPRESSURE_STAGE_NAME.StreamEvents,
         {
             broadCooldownMs: hotRefreshBroadCooldownMs,
+            itemCooldownMs: hotRefreshItemCooldownMs,
         },
     );
 

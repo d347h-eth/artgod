@@ -1253,6 +1253,13 @@ default = "15000"
 help = "Minimum delay between broad collection or trait offer hot-refresh passes."
 
 [[settings]]
+key = "BIDDING_HOT_REFRESH_ITEM_COOLDOWN_MS"
+group = "bidding"
+label = "bidding hot refresh item cooldown ms"
+default = "2000"
+help = "Minimum delay between exact-token offer hot-refresh passes for the same token."
+
+[[settings]]
 key = "BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS"
 group = "bidding"
 label = "bidding bid book projection throttle ms"

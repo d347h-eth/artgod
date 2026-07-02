@@ -27,8 +27,8 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 - The bot's collection-offer snapshot is the authoritative market view for bidding decisions.
 - ArtGod `orders` rows are never used for bidder competitiveness or placement decisions.
 - OpenSea stream events are wake-up hints only; missed stream events are expected.
-- Broad collection and trait offer stream events are coalesced and process matched jobs one at a time so flood traffic cannot monopolize command processing.
-- User-driven job commands stay serial at the durable command layer, but their immediate job refresh runs on a command lane that is not queued behind broad hot-refresh or full-scan work for unrelated jobs.
+- Broad collection/trait offer stream events and exact-token offer stream events are coalesced before bidder refresh so flood traffic cannot monopolize command processing.
+- User-driven job commands stay serial at the durable command layer, but their immediate job refresh uses command-priority OpenSea reads/writes and is not queued behind hot-refresh or full-scan work for unrelated jobs.
 - Command reconciliation may complete an enabled-job command without another OpenSea pass when the current bot process has already verified an active order for the same job revision.
 - The snapshot lane polls every 60 seconds and hot-path callers force a blocking refresh when the snapshot is older than the configured stale threshold.
 - Snapshot refresh entrypoints are serialized/deduped by the snapshot service.
@@ -87,8 +87,10 @@ Startup order:
 6. emit `bot_bootstrapping` before long allowance/snapshot/price bootstrap work
 7. approve configured WETH allowance when `BIDDING_WETH_ALLOWANCE_ETH > 0`
 8. bootstrap authoritative collection-offer snapshots and current prices
-9. start the continuous job scan loop, snapshot polling, stream listeners, command reconciliation, and heartbeat
-10. emit `bot_ready` only after bootstrap is complete
+9. replay already-committed job commands while stream listeners and snapshot polling are still inactive
+10. start OpenSea stream listeners and steady-state snapshot polling from the post-command enabled-job set
+11. start the continuous job scan loop, command reconciliation loop/listener, and heartbeat
+12. emit `bot_ready` only after bootstrap is complete
 
 `trading_bot_runtime_state` stores non-secret bot heartbeat state.
 Backend bid-book reads use it to decide whether the bot snapshot projection can be treated as live.
@@ -103,6 +105,11 @@ snapshot, retry, and error details into dedicated JSON payload fields.
 
 Lifecycle payloads such as `bot_bootstrapping` and `bot_ready` remain the
 supervisor control protocol and are separate from diagnostic log entries.
+Startup command replay emits the `command_reconciliation` bootstrap phase so the
+supervisor can distinguish command work from a dead startup.
+
+No-effect hot-refresh logs are summarized per collection/scope/type/reason so
+irrelevant stream flood remains visible without emitting one log line per event.
 
 Bot logs must never include wallet private keys, secret-envelope payloads,
 OpenSea secret keys, or raw OpenSea request/stream payloads.

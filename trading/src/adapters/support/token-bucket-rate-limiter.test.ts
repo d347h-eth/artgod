@@ -1,11 +1,17 @@
 import { strict as assert } from "node:assert";
-import { describe, it } from "vitest";
-import { TokenBucketRateLimiter } from "./token-bucket-rate-limiter.js";
+import { afterEach, describe, it, vi } from "vitest";
+import {
+    TOKEN_BUCKET_RATE_LIMIT_PRIORITY,
+    TokenBucketRateLimiter,
+} from "./token-bucket-rate-limiter.js";
 
 describe("TokenBucketRateLimiter", () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
     it("allows requests immediately while tokens are available", async () => {
         let now = 0;
-        const waits: number[] = [];
         const limiter = new TokenBucketRateLimiter(
             {
                 getMax: 2,
@@ -14,21 +20,15 @@ describe("TokenBucketRateLimiter", () => {
                 postRefillPerSecond: 1,
             },
             () => now,
-            async (ms) => {
-                waits.push(ms);
-                now += ms;
-            },
         );
 
         await limiter.wait(1, 0);
         await limiter.wait(1, 0);
-
-        assert.deepEqual(waits, []);
     });
 
     it("waits until GET tokens refill when budget is exhausted", async () => {
+        vi.useFakeTimers();
         let now = 0;
-        const waits: number[] = [];
         const limiter = new TokenBucketRateLimiter(
             {
                 getMax: 1,
@@ -37,21 +37,27 @@ describe("TokenBucketRateLimiter", () => {
                 postRefillPerSecond: 1,
             },
             () => now,
-            async (ms) => {
-                waits.push(ms);
-                now += ms;
-            },
         );
 
         await limiter.wait(1, 0);
-        await limiter.wait(1, 0);
+        let resolved = false;
+        const waitPromise = limiter.wait(1, 0).then(() => {
+            resolved = true;
+        });
+        await vi.advanceTimersByTimeAsync(499);
 
-        assert.deepEqual(waits, [500]);
+        assert.equal(resolved, false);
+
+        now = 500;
+        await vi.advanceTimersByTimeAsync(1);
+        await waitPromise;
+
+        assert.equal(resolved, true);
     });
 
     it("waits for the slower of the GET and POST deficits", async () => {
+        vi.useFakeTimers();
         let now = 0;
-        const waits: number[] = [];
         const limiter = new TokenBucketRateLimiter(
             {
                 getMax: 1,
@@ -60,15 +66,54 @@ describe("TokenBucketRateLimiter", () => {
                 postRefillPerSecond: 1,
             },
             () => now,
-            async (ms) => {
-                waits.push(ms);
-                now += ms;
-            },
         );
 
         await limiter.wait(1, 1);
-        await limiter.wait(1, 1);
+        let resolved = false;
+        const waitPromise = limiter.wait(1, 1).then(() => {
+            resolved = true;
+        });
 
-        assert.deepEqual(waits, [1000]);
+        now = 999;
+        await vi.advanceTimersByTimeAsync(999);
+        assert.equal(resolved, false);
+
+        now = 1000;
+        await vi.advanceTimersByTimeAsync(1);
+        await waitPromise;
+
+        assert.equal(resolved, true);
+    });
+
+    it("serves user command requests before background requests", async () => {
+        vi.useFakeTimers();
+        let now = 0;
+        const limiter = new TokenBucketRateLimiter(
+            {
+                getMax: 1,
+                getRefillPerSecond: 1,
+                postMax: 1,
+                postRefillPerSecond: 1,
+            },
+            () => now,
+        );
+        const completed: string[] = [];
+
+        await limiter.wait(1, 0);
+        void limiter.wait(1, 0).then(() => completed.push("background"));
+        void limiter
+            .wait(1, 0, {
+                priority: TOKEN_BUCKET_RATE_LIMIT_PRIORITY.UserCommand,
+            })
+            .then(() => completed.push("command"));
+
+        now = 1000;
+        await vi.advanceTimersByTimeAsync(1000);
+        assert.deepEqual(completed, ["command"]);
+
+        now = 2000;
+        await vi.advanceTimersByTimeAsync(1000);
+
+        assert.deepEqual(completed, ["command", "background"]);
     });
 });

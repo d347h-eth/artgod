@@ -11,6 +11,17 @@ import {
 } from "./hot-refresh-backpressure.js";
 
 const TEST_BROAD_COOLDOWN_MS = 1000;
+const TEST_ITEM_COOLDOWN_MS = 250;
+
+function makeStage(): HotRefreshBackpressure {
+    return new HotRefreshBackpressure(
+        HOT_REFRESH_BACKPRESSURE_STAGE_NAME.StreamEvents,
+        {
+            broadCooldownMs: TEST_BROAD_COOLDOWN_MS,
+            itemCooldownMs: TEST_ITEM_COOLDOWN_MS,
+        },
+    );
+}
 
 function makeEvent(
     type: Type,
@@ -47,43 +58,90 @@ describe("HotRefreshBackpressure", () => {
         vi.useRealTimers();
     });
 
-    it("lets item-scope bid events pass through synchronously", async () => {
-        const stage = new HotRefreshBackpressure(
-            HOT_REFRESH_BACKPRESSURE_STAGE_NAME.BroadEvents,
-            {
-                broadCooldownMs: TEST_BROAD_COOLDOWN_MS,
-            },
-        );
-        const calls: Scope[] = [];
+    it("coalesces repeated item-scope events for the same token", async () => {
+        vi.useFakeTimers();
+        const stage = makeStage();
+        const orderHashes: string[] = [];
+        let releaseFirstPass!: () => void;
+        const firstPassGate = new Promise<void>((resolve) => {
+            releaseFirstPass = resolve;
+        });
         const callback = stage.getWrappingFn()(async (event) => {
-            calls.push(event.getScope());
+            orderHashes.push(event.getOrderHash());
+            if (orderHashes.length === 1) {
+                await firstPassGate;
+            }
         });
 
-        await callback(makeEvent(Type.ItemReceivedBid, Scope.Item, "123"));
+        await callback(
+            makeEvent(
+                Type.ItemReceivedBid,
+                Scope.Item,
+                "123",
+                [],
+                "0xfirst",
+                1n,
+            ),
+        );
+        await callback(
+            makeEvent(
+                Type.ItemReceivedBid,
+                Scope.Item,
+                "123",
+                [],
+                "0xlower",
+                1n,
+            ),
+        );
+        await callback(
+            makeEvent(
+                Type.ItemReceivedBid,
+                Scope.Item,
+                "123",
+                [],
+                "0xhigher",
+                3n,
+            ),
+        );
+        await flushMicrotasks();
 
-        assert.deepEqual(calls, [Scope.Item]);
+        assert.deepEqual(orderHashes, ["0xfirst"]);
+
+        releaseFirstPass();
+        await flushMicrotasks();
+        await vi.advanceTimersByTimeAsync(TEST_ITEM_COOLDOWN_MS);
+        await flushMicrotasks();
+
+        assert.deepEqual(orderHashes, ["0xfirst", "0xhigher"]);
     });
 
-    it("rejects disabled broad cooldown", () => {
+    it("rejects disabled cooldowns", () => {
         assert.throws(
             () =>
                 new HotRefreshBackpressure(
-                    HOT_REFRESH_BACKPRESSURE_STAGE_NAME.BroadEvents,
+                    HOT_REFRESH_BACKPRESSURE_STAGE_NAME.StreamEvents,
                     {
                         broadCooldownMs: 0,
+                        itemCooldownMs: TEST_ITEM_COOLDOWN_MS,
                     },
                 ),
             /broadCooldownMs must be > 0/,
         );
+        assert.throws(
+            () =>
+                new HotRefreshBackpressure(
+                    HOT_REFRESH_BACKPRESSURE_STAGE_NAME.StreamEvents,
+                    {
+                        broadCooldownMs: TEST_BROAD_COOLDOWN_MS,
+                        itemCooldownMs: 0,
+                    },
+                ),
+            /itemCooldownMs must be > 0/,
+        );
     });
 
     it("ignores late events after stop", async () => {
-        const stage = new HotRefreshBackpressure(
-            HOT_REFRESH_BACKPRESSURE_STAGE_NAME.BroadEvents,
-            {
-                broadCooldownMs: TEST_BROAD_COOLDOWN_MS,
-            },
-        );
+        const stage = makeStage();
         const calls: Scope[] = [];
         const callback = stage.getWrappingFn()(async (event) => {
             calls.push(event.getScope());
@@ -98,12 +156,7 @@ describe("HotRefreshBackpressure", () => {
 
     it("coalesces broad events while a collection pass is running", async () => {
         vi.useFakeTimers();
-        const stage = new HotRefreshBackpressure(
-            HOT_REFRESH_BACKPRESSURE_STAGE_NAME.BroadEvents,
-            {
-                broadCooldownMs: TEST_BROAD_COOLDOWN_MS,
-            },
-        );
+        const stage = makeStage();
         const calls: Scope[] = [];
         let releaseFirstPass!: () => void;
         const firstPassGate = new Promise<void>((resolve) => {
@@ -136,12 +189,7 @@ describe("HotRefreshBackpressure", () => {
 
     it("discards queued delayed broad work after stop", async () => {
         vi.useFakeTimers();
-        const stage = new HotRefreshBackpressure(
-            HOT_REFRESH_BACKPRESSURE_STAGE_NAME.BroadEvents,
-            {
-                broadCooldownMs: TEST_BROAD_COOLDOWN_MS,
-            },
-        );
+        const stage = makeStage();
         const orderHashes: string[] = [];
         let releaseFirstPass!: () => void;
         const firstPassGate = new Promise<void>((resolve) => {
@@ -185,12 +233,7 @@ describe("HotRefreshBackpressure", () => {
 
     it("keeps the highest-priced broad event for the same trait signature", async () => {
         vi.useFakeTimers();
-        const stage = new HotRefreshBackpressure(
-            HOT_REFRESH_BACKPRESSURE_STAGE_NAME.BroadEvents,
-            {
-                broadCooldownMs: TEST_BROAD_COOLDOWN_MS,
-            },
-        );
+        const stage = makeStage();
         const orderHashes: string[] = [];
         let releaseFirstPass!: () => void;
         const firstPassGate = new Promise<void>((resolve) => {
