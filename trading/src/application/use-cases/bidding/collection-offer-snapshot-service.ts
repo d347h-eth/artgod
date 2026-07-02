@@ -39,6 +39,9 @@ export interface CollectionOfferBootstrapProgress {
 }
 
 export interface CollectionOfferBootstrapOptions {
+    onCollectionStarted?: (
+        progress: CollectionOfferBootstrapProgress,
+    ) => void;
     onProgress?: (progress: CollectionOfferBootstrapProgress) => void;
 }
 
@@ -60,6 +63,10 @@ interface PendingRefreshRequest {
 const log = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.CollectionOfferSnapshotService,
 );
+
+const COLLECTION_OFFER_SNAPSHOT_LOG_ACTION = {
+    SnapshotRefreshStarted: "snapshotRefreshStarted",
+} as const;
 
 // Maintains authoritative collection offer snapshots with deduped refreshes per collection.
 export class CollectionOfferSnapshotService
@@ -114,16 +121,21 @@ export class CollectionOfferSnapshotService
         let completed = 0;
 
         await Promise.all(
-            Array.from(this.watchedCollectionSlugs).map((collectionSlug) =>
-                this.refreshAndWait(collectionSlug, "bootstrap").then(() => {
+            Array.from(this.watchedCollectionSlugs).map((collectionSlug) => {
+                options.onCollectionStarted?.({
+                    collectionSlug,
+                    completed,
+                    total,
+                });
+                return this.refreshAndWait(collectionSlug, "bootstrap").then(() => {
                     completed += 1;
                     options.onProgress?.({
                         collectionSlug,
                         completed,
                         total,
                     });
-                }),
-            ),
+                });
+            }),
         );
     }
 
@@ -294,6 +306,14 @@ export class CollectionOfferSnapshotService
         state.inFlightPromise = (async () => {
             try {
                 while (true) {
+                    log.debug(
+                        COLLECTION_OFFER_SNAPSHOT_LOG_ACTION.SnapshotRefreshStarted,
+                        "Refreshing collection offer snapshot",
+                        {
+                            collectionSlug,
+                            reason: nextReason,
+                        },
+                    );
                     const offers = await this.source.getAllOffers(collectionSlug);
                     this.logSnapshotSummary(collectionSlug, offers, nextReason);
                     this.snapshots.set(collectionSlug, {

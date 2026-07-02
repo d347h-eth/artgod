@@ -50,7 +50,10 @@ import {
     BiddingJobCommandReconciler,
     type BiddingJobCommandProgress,
 } from "../application/use-cases/bidding/bidding-job-command-reconciler.js";
-import { CollectionOfferSnapshotService } from "../application/use-cases/bidding/collection-offer-snapshot-service.js";
+import {
+    CollectionOfferSnapshotService,
+    type CollectionOfferBootstrapProgress,
+} from "../application/use-cases/bidding/collection-offer-snapshot-service.js";
 import { AttrFilter } from "../application/use-cases/market/pipeline/lib/attr-filter.js";
 import { BidderRefresh } from "../application/use-cases/market/pipeline/lib/bidder-refresh.js";
 import { CollectionOfferSnapshotRefresh } from "../application/use-cases/market/pipeline/lib/collection-offer-snapshot-refresh.js";
@@ -377,15 +380,31 @@ export async function startBiddingRuntime(
             detail: `collections=${snapshotBackedCollectionSlugs.length}, tokenWarmCandidates=${tokenWarmCandidates}`,
         });
         // Build the authoritative collection snapshots before the bidder starts reacting to live stream signals.
-        await collectionOfferSnapshotService.bootstrap({
-            onProgress: ({ collectionSlug, completed, total }) => {
-                params.lifecycle.progress({
-                    phase: "snapshot_bootstrap",
-                    completed,
-                    total,
-                    detail: `collection=${collectionSlug}`,
-                });
-            },
+        const snapshotBootstrapProgress =
+            createSnapshotBootstrapProgressReporter(
+                params,
+                snapshotBackedCollectionSlugs.length,
+                tokenWarmCandidates,
+            );
+        const stopSnapshotBootstrapProgressPulse =
+            startBootstrapProgressPulse(snapshotBootstrapProgress);
+        try {
+            await collectionOfferSnapshotService.bootstrap({
+                onCollectionStarted: (progress) => {
+                    snapshotBootstrapProgress.reportStarted(progress);
+                },
+                onProgress: (progress) => {
+                    snapshotBootstrapProgress.reportFinished(progress);
+                },
+            });
+        } finally {
+            stopSnapshotBootstrapProgressPulse();
+        }
+        params.lifecycle.progress({
+            phase: "snapshot_bootstrap",
+            completed: snapshotBackedCollectionSlugs.length,
+            total: snapshotBackedCollectionSlugs.length,
+            detail: `collections=${snapshotBackedCollectionSlugs.length}, status=complete`,
         });
     }
 
@@ -699,12 +718,55 @@ export function collectTokenWarmCandidateCount(jobs: BidderJob[]): number {
     return jobs.filter((job) => job.target.type === "token").length;
 }
 
-type StartupCommandProgressReporter = {
-    reportStarted(progress: BiddingJobCommandProgress): void;
-    reportFinished(progress: BiddingJobCommandProgress & { succeeded: boolean }): void;
+type BootstrapProgressPulseReporter = {
     reportPulse(): void;
     intervalMs: number;
 };
+
+type SnapshotBootstrapProgressReporter = BootstrapProgressPulseReporter & {
+    reportStarted(progress: CollectionOfferBootstrapProgress): void;
+    reportFinished(progress: CollectionOfferBootstrapProgress): void;
+};
+
+type StartupCommandProgressReporter = BootstrapProgressPulseReporter & {
+    reportStarted(progress: BiddingJobCommandProgress): void;
+    reportFinished(progress: BiddingJobCommandProgress & { succeeded: boolean }): void;
+};
+
+function createSnapshotBootstrapProgressReporter(
+    params: StartBiddingRuntimeParams,
+    total: number,
+    tokenWarmCandidates: number,
+): SnapshotBootstrapProgressReporter {
+    const phase: BiddingRuntimeBootstrapPhase = "snapshot_bootstrap";
+    const state = {
+        completed: 0,
+        detail: `collections=${total}, tokenWarmCandidates=${tokenWarmCandidates}`,
+    };
+    const emit = (): void => {
+        params.lifecycle.progress({
+            phase,
+            completed: state.completed,
+            total,
+            detail: state.detail,
+        });
+    };
+
+    return {
+        intervalMs: params.biddingConfig.runtimeHeartbeat.intervalMs,
+        reportStarted(progress) {
+            state.completed = progress.completed;
+            state.detail = `collection=${progress.collectionSlug}, status=refreshing`;
+            emit();
+        },
+        reportFinished(progress) {
+            state.completed = progress.completed;
+            state.detail = `collection=${progress.collectionSlug}, status=refreshed`;
+            emit();
+        },
+        reportPulse: emit,
+    };
+}
 
 function createStartupCommandProgressReporter(
     params: StartBiddingRuntimeParams,
@@ -741,7 +803,7 @@ function createStartupCommandProgressReporter(
 }
 
 function startBootstrapProgressPulse(
-    reporter: StartupCommandProgressReporter,
+    reporter: BootstrapProgressPulseReporter,
 ): () => void {
     const timer = setInterval(() => {
         reporter.reportPulse();

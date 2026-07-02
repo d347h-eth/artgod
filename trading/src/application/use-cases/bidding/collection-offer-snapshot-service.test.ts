@@ -62,6 +62,61 @@ describe("CollectionOfferSnapshotService", () => {
         assert.equal(source.calls.length, 2);
     });
 
+    it("reports bootstrap collection start before long refresh completes", async () => {
+        const source = new FakeCollectionOfferSource();
+        let releaseGate!: () => void;
+        source.gate = new Promise<void>((resolve) => {
+            releaseGate = resolve;
+        });
+        source.responses.terraforms = [{ order_hash: "0x1" }];
+        const service = new CollectionOfferSnapshotService(
+            source as any,
+            ["terraforms"],
+            60000,
+            0,
+        );
+        const started: Array<{
+            collectionSlug: string;
+            completed: number;
+            total: number;
+        }> = [];
+        const completed: Array<{
+            collectionSlug: string;
+            completed: number;
+            total: number;
+        }> = [];
+
+        const bootstrap = service.bootstrap({
+            onCollectionStarted: (progress) => {
+                started.push(progress);
+            },
+            onProgress: (progress) => {
+                completed.push(progress);
+            },
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        assert.deepEqual(started, [
+            {
+                collectionSlug: "terraforms",
+                completed: 0,
+                total: 1,
+            },
+        ]);
+        assert.deepEqual(completed, []);
+
+        releaseGate();
+        await bootstrap;
+
+        assert.deepEqual(completed, [
+            {
+                collectionSlug: "terraforms",
+                completed: 1,
+                total: 1,
+            },
+        ]);
+    });
+
     it("ignores refresh requests for unwatched collections", async () => {
         const source = new FakeCollectionOfferSource();
         const service = new CollectionOfferSnapshotService(

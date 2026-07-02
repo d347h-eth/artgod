@@ -105,6 +105,9 @@ snapshot, retry, and error details into dedicated JSON payload fields.
 
 Lifecycle payloads such as `bot_bootstrapping` and `bot_ready` remain the
 supervisor control protocol and are separate from diagnostic log entries.
+Snapshot bootstrap emits collection start/progress events and repeats the current
+collection on the bot heartbeat cadence while the initial all-offers fetch is
+running.
 Startup command replay emits the `command_reconciliation` bootstrap phase so the
 supervisor can distinguish command work from a dead startup. During startup
 command replay, each claimed command emits immediate start/finish progress and
