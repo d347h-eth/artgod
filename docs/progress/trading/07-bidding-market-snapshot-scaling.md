@@ -209,10 +209,10 @@ Endpoint-specific reads still have a place for placement, cancellation, active
 own-order recovery, and fallback verification. They should not become the main
 background freshness model for alpha.
 
-## Bounded Complete Snapshot Model
+## Adaptive Complete Snapshot Model
 
 Keep one collection-level offer snapshot per watched collection, but make it
-bounded by strategy relevance and adaptive to real fetch cost.
+adaptive to real fetch cost before adding more complex pagination cutoffs.
 
 The snapshot should still cover all fetched offer kinds in one collection pass:
 
@@ -221,9 +221,16 @@ The snapshot should still cover all fetched offer kinds in one collection pass:
 - exact-token offers
 - token-set or unknown offers that the parser can classify or preserve safely
 
-The snapshot should stop fetching once it is deep enough to cover the
-competitive region needed by the strategy. The first practical cutoff is a
-collection-specific bid-wall ceiling:
+Bid-wall cutoff remains in the current plan, but should land after the simpler
+alpha-scaling changes. Local bid-book visualization suggests that cutting at the
+collection-wide bid ceiling would save roughly 20% of requests on the observed
+heavy collection. That is useful, but not enough to justify doing it before
+telemetry, adaptive cadence, command deblocking, scan fan-out reduction, and
+bid-book continuity.
+
+When cutoff is implemented, the snapshot should stop fetching once it is deep
+enough to cover the competitive region needed by the strategy. The first
+practical cutoff is a collection-specific bid-wall ceiling:
 
 - derive the cutoff from current collection/trait bid wall evidence plus active
   job ceilings
@@ -236,7 +243,7 @@ collection-specific bid-wall ceiling:
   waking command-critical strategy work
 
 The OpenSea all-offers endpoint appeared price-descending during the probe. A
-bounded fetch may use that observation conservatively:
+later bounded fetch may use that observation conservatively:
 
 - track first, last, min, and max price per page
 - stop only after the page stream has crossed the collection cutoff
@@ -251,8 +258,8 @@ The snapshot record should own:
 - last refresh duration
 - offer count and page count
 - lowest fetched price and highest fetched price
-- cutoff price, when a cutoff was applied
-- whether the fetch was complete, bounded, or degraded
+- cutoff price, when the later cutoff step applies one
+- whether the fetch was complete, bounded, or degraded, once cutoff exists
 - last error
 - next eligible refresh time
 
@@ -281,14 +288,15 @@ Hot refresh should:
 - coalesce by collection and event signature
 - keep the highest-price signal per signature
 - wake the affected jobs only when the event can change a competitive decision
-- request a collection refresh when the event crosses the current cutoff or
-  invalidates the current bid-wall view
-- ignore or summarize guaranteed-irrelevant flood below the strategy cutoff
+- request a collection refresh when a relevant event invalidates the current
+  collection-level market view
+- once cutoff exists, ignore or summarize guaranteed-irrelevant flood below the
+  strategy cutoff
 
 Bid-book projection should:
 
 - keep projecting from the bot's collection-level snapshot while the bot is live
-- project all rows present in the bounded snapshot
+- project all rows present in the complete or later bounded snapshot
 - expose source/freshness metadata clearly enough for the backend to choose
   between competitive bot projection and normal orders fallback
 - not block bidder command or hot paths
@@ -315,12 +323,12 @@ A practical first formula can be:
 - interval is capped by a configured maximum
 - failures use exponential backoff with jitter
 
-For example, a collection whose bounded snapshot takes 80 seconds should not
+For example, a collection whose complete snapshot takes 80 seconds should not
 try to refresh every 15 seconds. It should slow down automatically while still
 keeping a clear stale/freshness state for the bot and UI.
 
 Full all-offers snapshots should log duration, page count, offer count, price
-range, cutoff state, and scope distribution.
+range, scope distribution, and later cutoff state.
 
 ## Race And Resource Exhaustion Findings
 
@@ -352,22 +360,23 @@ Problems still not fully addressed:
 Recommended next steps:
 
 1. Add source-level snapshot telemetry: page count, duration, first/last price,
-   min/max price, offer count, cutoff state, and final cursor state.
+   min/max price, offer count, and final cursor state.
 2. Add adaptive per-collection snapshot freshness from app config, using recent
    refresh duration as an input.
-3. Add bounded all-offers pagination with conservative ordering guards and a
-   strategy-derived cutoff.
-4. Stop command preparation from forcing a fresh full snapshot per token or
+3. Stop command preparation from forcing a fresh full snapshot per token or
    collection command when a usable collection snapshot already exists.
-5. Classify guaranteed-loser jobs below the current bid-wall ceiling so hot
-   refresh does not keep exercising strategy for jobs that cannot win by spec.
-6. Reduce normal scan live endpoint fan-out for token jobs when the collection
+4. Reduce normal scan live endpoint fan-out for token jobs when the collection
    snapshot can answer the competitive question.
-7. Keep bid-book projection on the same collection snapshot output, including
-   bounded/completeness metadata.
-8. Add tests that simulate a heavy all-offers source and assert command
+5. Keep bid-book projection on the same collection snapshot output, including
+   completeness metadata.
+6. Add tests that simulate a heavy all-offers source and assert command
    reconciliation remains responsive.
+7. Classify guaranteed-loser jobs below the current bid-wall ceiling so hot
+   refresh does not keep exercising strategy for jobs that cannot win by spec.
+8. Add bounded all-offers pagination with conservative ordering guards and a
+   strategy-derived cutoff.
 
 The target architecture is still a background-maintained current-world market
-view. For alpha, the change is making that world view bounded and adaptive while
-keeping cache ownership collection-scoped.
+view. For alpha, the change is making that world view adaptive first, then
+bounded near the end of this plan, while keeping cache ownership
+collection-scoped.
