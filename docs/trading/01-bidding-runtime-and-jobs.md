@@ -32,6 +32,7 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 - Command reconciliation may complete an enabled-job command without another OpenSea pass when the current bot process has already verified an active order for the same job revision.
 - The snapshot lane polls every 60 seconds and hot-path callers force a blocking refresh when the snapshot is older than the configured stale threshold.
 - Snapshot refresh entrypoints are serialized/deduped by the snapshot service.
+- Heavy collection all-offers snapshots are a known scaling pressure; detailed evidence and the target bounded/adaptive snapshot refactor are tracked in `docs/progress/trading/07-bidding-market-snapshot-scaling.md`.
 - Job execution remains per-job serialized.
 - Token trait matching reads normalized `token_attributes` joins; bidding hot-refresh does not parse `token_metadata.attributes_json` or `token_metadata.raw_json`.
 - Marketplace token bidding targets must be canonical `tokens` rows. Extension-synthetic tokens can be shown in browsing surfaces, but frontend bidding selection and backend job mutation exclude them before bot commands exist.
@@ -95,6 +96,44 @@ Startup order:
 `trading_bot_runtime_state` stores non-secret bot heartbeat state.
 Backend bid-book reads use it to decide whether the bot snapshot projection can be treated as live.
 Active-order evidence restored from a prior bot process is rendered as `verifying` until the current process proves, replaces, or clears that order through OpenSea-backed runtime work.
+
+## Current Runtime Mode
+
+The current bidding runtime is optimized around a background-maintained market
+view plus narrow command and hot-refresh lanes.
+
+Command reconciliation:
+
+- claims ordered command rows one at a time
+- reloads the authoritative job declaration before mutating in-memory bidder state
+- replays committed startup commands before OpenSea stream subscriptions and
+  steady-state snapshot polling start
+- updates watched snapshot collections and direct stream subscriptions after
+  command effects
+- can finish an enabled-job command idempotently when the bot already verifies
+  an active order for the same job declaration
+
+Hot refresh:
+
+- treats stream events as signals only
+- coalesces broad collection/trait events and exact-item events separately
+- keeps the highest-price queued event per signature
+- uses cooldowns from `BIDDING_HOT_REFRESH_*`
+- cancels queued work on runtime shutdown
+- summarizes no-effect logs so spammed streams stay observable without
+  dominating logging or CPU
+
+Offer discovery:
+
+- token jobs read live exact-token offers, cached broader snapshot offers, and a
+  best-offer fallback
+- collection jobs prefer cached collection snapshots and use live collection
+  pagination only when no usable snapshot exists
+- competitive trait jobs remain on live collection and trait endpoint reads
+  because they need collection-wide context plus trait-bucket fan-out
+- full collection all-offers snapshots still back broad competition context and
+  bid-book projection, which is the next scaling boundary for heavily spammed
+  collections
 
 ## Runtime Logging
 
