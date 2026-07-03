@@ -4,7 +4,11 @@ import {
     TokenMetadataRepository,
     type TokenMetadataTrait,
 } from "../../domain/market/token-metadata-repository.js";
-import { CollectionOfferSnapshotProvider } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
+import {
+    createCollectionOfferSnapshotMetrics,
+    type CollectionOfferSnapshot,
+    type CollectionOfferSnapshotProvider,
+} from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
 import { BIDDING_SERVICE_REQUEST_PRIORITY } from "../../application/use-cases/bidding/bidding-service.js";
 import { TOKEN_BUCKET_RATE_LIMIT_PRIORITY } from "../support/token-bucket-rate-limiter.js";
 import {
@@ -97,16 +101,32 @@ class MockOpenSeaSdk implements OpenSeaBiddingSdkClient {
     }
 }
 
+type RawTestCollectionOfferSnapshot = Omit<
+    CollectionOfferSnapshot,
+    "metrics"
+> & {
+    metrics?: CollectionOfferSnapshot["metrics"];
+};
+
 class FakeCollectionOfferSnapshotProvider implements CollectionOfferSnapshotProvider {
     constructor(
-        private readonly snapshots: Record<
-            string,
-            { collectionSlug: string; offers: unknown[]; refreshedAt: number }
-        >,
+        private readonly snapshots: Record<string, RawTestCollectionOfferSnapshot>,
     ) {}
 
-    public getSnapshot(collectionSlug: string) {
-        return this.snapshots[collectionSlug] ?? null;
+    public getSnapshot(collectionSlug: string): CollectionOfferSnapshot | null {
+        const snapshot = this.snapshots[collectionSlug];
+        if (!snapshot) {
+            return null;
+        }
+
+        return {
+            ...snapshot,
+            metrics:
+                snapshot.metrics ??
+                createCollectionOfferSnapshotMetrics({
+                    offerCount: snapshot.offers.length,
+                }),
+        };
     }
 }
 

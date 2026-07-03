@@ -15,6 +15,9 @@ export const BIDDING_RUNTIME_ENV_KEY = {
     OfferExpirationSeconds: "BIDDING_OFFER_EXPIRATION_SECONDS",
     CollectionOffersPollMs: "BIDDING_COLLECTION_OFFERS_POLL_MS",
     CollectionOffersTtlMs: "BIDDING_COLLECTION_OFFERS_TTL_MS",
+    CollectionOffersMaxTtlMs: "BIDDING_COLLECTION_OFFERS_MAX_TTL_MS",
+    CollectionOffersAdaptiveTtlMultiplier:
+        "BIDDING_COLLECTION_OFFERS_ADAPTIVE_TTL_MULTIPLIER",
     HotRefreshBroadCooldownMs: "BIDDING_HOT_REFRESH_BROAD_COOLDOWN_MS",
     HotRefreshItemCooldownMs: "BIDDING_HOT_REFRESH_ITEM_COOLDOWN_MS",
     BidBookProjectionThrottleMs: "BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS",
@@ -64,6 +67,12 @@ export const BIDDING_DEFAULT_COLLECTION_OFFERS_POLL_MS =
 export const BIDDING_DEFAULT_COLLECTION_OFFERS_TTL_MS = getSettingDefaultNumber(
     BIDDING_RUNTIME_ENV_KEY.CollectionOffersTtlMs,
 );
+export const BIDDING_DEFAULT_COLLECTION_OFFERS_MAX_TTL_MS =
+    getSettingDefaultNumber(BIDDING_RUNTIME_ENV_KEY.CollectionOffersMaxTtlMs);
+export const BIDDING_DEFAULT_COLLECTION_OFFERS_ADAPTIVE_TTL_MULTIPLIER =
+    getSettingDefaultNumber(
+        BIDDING_RUNTIME_ENV_KEY.CollectionOffersAdaptiveTtlMultiplier,
+    );
 export const BIDDING_DEFAULT_HOT_REFRESH_BROAD_COOLDOWN_MS =
     getSettingDefaultNumber(BIDDING_RUNTIME_ENV_KEY.HotRefreshBroadCooldownMs);
 export const BIDDING_DEFAULT_HOT_REFRESH_ITEM_COOLDOWN_MS =

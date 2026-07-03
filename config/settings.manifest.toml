@@ -1243,7 +1243,21 @@ key = "BIDDING_COLLECTION_OFFERS_TTL_MS"
 group = "bidding"
 label = "bidding collection offers ttl ms"
 default = "15000"
-help = "How long a collection-offer snapshot is considered fresh inside the bot."
+help = "Minimum time a collection-offer snapshot is considered fresh inside the bot."
+
+[[settings]]
+key = "BIDDING_COLLECTION_OFFERS_MAX_TTL_MS"
+group = "bidding"
+label = "bidding collection offers max ttl ms"
+default = "300000"
+help = "Maximum adaptive freshness window for collection-offer snapshots."
+
+[[settings]]
+key = "BIDDING_COLLECTION_OFFERS_ADAPTIVE_TTL_MULTIPLIER"
+group = "bidding"
+label = "bidding collection offers adaptive ttl multiplier"
+default = "2"
+help = "Multiplier applied to the last snapshot fetch duration when extending snapshot freshness."
 
 [[settings]]
 key = "BIDDING_HOT_REFRESH_BROAD_COOLDOWN_MS"

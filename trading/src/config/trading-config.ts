@@ -42,6 +42,8 @@ import {
     BIDDING_DEFAULT_COMMAND_MAX_ATTEMPTS,
     BIDDING_DEFAULT_COMMAND_POLL_MS,
     BIDDING_DEFAULT_COLLECTION_OFFERS_POLL_MS,
+    BIDDING_DEFAULT_COLLECTION_OFFERS_ADAPTIVE_TTL_MULTIPLIER,
+    BIDDING_DEFAULT_COLLECTION_OFFERS_MAX_TTL_MS,
     BIDDING_DEFAULT_COLLECTION_OFFERS_TTL_MS,
     BIDDING_DEFAULT_CRITERIA_REFRESH_TRAITS_BY_COLLECTION,
     BIDDING_DEFAULT_DRY_RUN,
@@ -87,6 +89,8 @@ export type EnabledBiddingConfig = {
     offerExpirationSeconds: number;
     collectionOffersPollMs: number;
     collectionOffersTtlMs: number;
+    collectionOffersMaxTtlMs: number;
+    collectionOffersAdaptiveTtlMultiplier: number;
     hotRefreshBroadCooldownMs: number;
     hotRefreshItemCooldownMs: number;
     bidBookProjectionThrottleMs: number;
@@ -117,6 +121,8 @@ export type DisabledBiddingConfig = {
     offerExpirationSeconds: number;
     collectionOffersPollMs: number;
     collectionOffersTtlMs: number;
+    collectionOffersMaxTtlMs: number;
+    collectionOffersAdaptiveTtlMultiplier: number;
     hotRefreshBroadCooldownMs: number;
     hotRefreshItemCooldownMs: number;
     bidBookProjectionThrottleMs: number;
@@ -219,6 +225,16 @@ export function loadTradingConfig(
             env[BIDDING_RUNTIME_ENV_KEY.CollectionOffersTtlMs],
             BIDDING_RUNTIME_ENV_KEY.CollectionOffersTtlMs,
             BIDDING_DEFAULT_COLLECTION_OFFERS_TTL_MS,
+        ),
+        collectionOffersMaxTtlMs: parsePositiveInteger(
+            env[BIDDING_RUNTIME_ENV_KEY.CollectionOffersMaxTtlMs],
+            BIDDING_RUNTIME_ENV_KEY.CollectionOffersMaxTtlMs,
+            BIDDING_DEFAULT_COLLECTION_OFFERS_MAX_TTL_MS,
+        ),
+        collectionOffersAdaptiveTtlMultiplier: parsePositiveNumber(
+            env[BIDDING_RUNTIME_ENV_KEY.CollectionOffersAdaptiveTtlMultiplier],
+            BIDDING_RUNTIME_ENV_KEY.CollectionOffersAdaptiveTtlMultiplier,
+            BIDDING_DEFAULT_COLLECTION_OFFERS_ADAPTIVE_TTL_MULTIPLIER,
         ),
         hotRefreshBroadCooldownMs: parsePositiveInteger(
             env[BIDDING_RUNTIME_ENV_KEY.HotRefreshBroadCooldownMs],
@@ -477,6 +493,18 @@ function parseRewardPercentile(
 ): number {
     const parsed = parseNumber(value, name, defaultValue);
     if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 100) {
+        throw new Error(`Invalid ${name}: ${value}`);
+    }
+    return parsed;
+}
+
+function parsePositiveNumber(
+    value: string | undefined,
+    name: string,
+    defaultValue: number,
+): number {
+    const parsed = parseNumber(value, name, defaultValue);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
         throw new Error(`Invalid ${name}: ${value}`);
     }
     return parsed;

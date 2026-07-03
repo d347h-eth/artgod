@@ -5,7 +5,10 @@ import {
     type BiddingBidBookProjectionErrorInput,
     type BiddingBidBookProjectionPort,
 } from "./bidding-bid-book-projection.js";
-import type { CollectionOfferSnapshot } from "./collection-offer-snapshot-service.js";
+import {
+    createCollectionOfferSnapshotMetrics,
+    type CollectionOfferSnapshot,
+} from "./collection-offer-snapshot-service.js";
 
 class FakeProjectionPort implements BiddingBidBookProjectionPort {
     public calls: Array<{ snapshot: CollectionOfferSnapshot; reason: string }> =
@@ -97,6 +100,7 @@ function makeSnapshot(label: string): CollectionOfferSnapshot {
         collectionSlug: "terraforms",
         offers: [label],
         refreshedAt: Date.now(),
+        metrics: createCollectionOfferSnapshotMetrics({ offerCount: 1 }),
     };
 }
 

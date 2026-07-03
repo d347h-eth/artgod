@@ -1,5 +1,6 @@
-import {
+import type {
     CollectionOfferSource,
+    CollectionOfferSourceResult,
 } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
 import {
     defaultRetryPolicy,
@@ -24,6 +25,12 @@ export interface OpenSeaCollectionOfferSourceOptions {
 const log = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.OpenSeaCollectionOfferSource,
 );
+
+const OPEN_SEA_COLLECTION_OFFER_SOURCE_LOG_ACTION = {
+    GetAllOffersComplete: "getAllOffersComplete",
+    GetAllOffersRetry: "getAllOffersRetry",
+    PaginationLoopDetected: "paginationLoopDetected",
+} as const;
 
 // OpenSeaCollectionOfferSource is the snapshot lane adapter used by the shared collection offer cache.
 export class OpenSeaCollectionOfferSource implements CollectionOfferSource {
@@ -50,10 +57,16 @@ export class OpenSeaCollectionOfferSource implements CollectionOfferSource {
             });
     }
 
-    public async getAllOffers(collectionSlug: string): Promise<unknown[]> {
+    public async getAllOffers(
+        collectionSlug: string,
+    ): Promise<CollectionOfferSourceResult> {
+        const startedAt = Date.now();
         let cursor: string | undefined;
         const seenCursors = new Set<string>();
         const allOffers: unknown[] = [];
+        const priceStats = new OfferPriceStats();
+        let pageCount = 0;
+        let finalCursor: string | null = null;
 
         while (true) {
             const response = await retry(
@@ -68,28 +81,41 @@ export class OpenSeaCollectionOfferSource implements CollectionOfferSource {
                 this.retryPolicy,
                 {
                     onRetry: ({ attempt, error }) => {
-                        log.info("getAllOffersRetry", "Retrying OpenSea all-offers request", {
-                            collectionSlug,
-                            attempt,
-                            ...toErrorLogFields(error),
-                        });
+                        log.info(
+                            OPEN_SEA_COLLECTION_OFFER_SOURCE_LOG_ACTION.GetAllOffersRetry,
+                            "Retrying OpenSea all-offers request",
+                            {
+                                collectionSlug,
+                                attempt,
+                                ...toErrorLogFields(error),
+                            },
+                        );
                     },
                 },
             );
 
-            allOffers.push(...asArray(response?.offers));
+            const pageOffers = asArray(response?.offers);
+            pageCount += 1;
+            allOffers.push(...pageOffers);
+            pageOffers.forEach((offer) => priceStats.record(offer));
 
             const next =
                 typeof response?.next === "string" ? response.next : undefined;
             if (!next) {
+                finalCursor = cursor ?? null;
                 break;
             }
 
             if (seenCursors.has(next)) {
-                log.error("paginationLoopDetected", "OpenSea all-offers pagination loop detected", {
-                    collectionSlug,
-                    cursor: next,
-                });
+                log.error(
+                    OPEN_SEA_COLLECTION_OFFER_SOURCE_LOG_ACTION.PaginationLoopDetected,
+                    "OpenSea all-offers pagination loop detected",
+                    {
+                        collectionSlug,
+                        cursor: next,
+                    },
+                );
+                finalCursor = next;
                 break;
             }
 
@@ -97,10 +123,116 @@ export class OpenSeaCollectionOfferSource implements CollectionOfferSource {
             cursor = next;
         }
 
-        return allOffers;
+        const durationMs = Date.now() - startedAt;
+        const metrics = {
+            durationMs,
+            pageCount,
+            offerCount: allOffers.length,
+            firstPriceWei: priceStats.firstPriceWei,
+            lastPriceWei: priceStats.lastPriceWei,
+            minPriceWei: priceStats.minPriceWei,
+            maxPriceWei: priceStats.maxPriceWei,
+            finalCursor,
+        };
+        log.debug(
+            OPEN_SEA_COLLECTION_OFFER_SOURCE_LOG_ACTION.GetAllOffersComplete,
+            "Fetched OpenSea all-offers snapshot",
+            {
+                collectionSlug,
+                ...metrics,
+            },
+        );
+
+        return {
+            offers: allOffers,
+            metrics,
+        };
     }
 }
 
 function asArray(value: unknown): unknown[] {
     return Array.isArray(value) ? value : [];
+}
+
+class OfferPriceStats {
+    public firstPriceWei: string | null = null;
+    public lastPriceWei: string | null = null;
+    public minPriceWei: string | null = null;
+    public maxPriceWei: string | null = null;
+
+    public record(rawOffer: unknown): void {
+        const priceWei = extractOfferPriceWei(rawOffer);
+        if (!priceWei) {
+            return;
+        }
+
+        if (this.firstPriceWei === null) {
+            this.firstPriceWei = priceWei;
+        }
+        this.lastPriceWei = priceWei;
+        if (
+            this.minPriceWei === null ||
+            BigInt(priceWei) < BigInt(this.minPriceWei)
+        ) {
+            this.minPriceWei = priceWei;
+        }
+        if (
+            this.maxPriceWei === null ||
+            BigInt(priceWei) > BigInt(this.maxPriceWei)
+        ) {
+            this.maxPriceWei = priceWei;
+        }
+    }
+}
+
+function extractOfferPriceWei(rawOffer: unknown): string | null {
+    const candidates = collectPriceCandidates(rawOffer);
+    for (const candidate of candidates) {
+        if (
+            typeof candidate === "string" &&
+            /^(0|[1-9]\d*)$/.test(candidate)
+        ) {
+            return candidate;
+        }
+        if (
+            typeof candidate === "number" &&
+            Number.isSafeInteger(candidate) &&
+            candidate >= 0
+        ) {
+            return String(candidate);
+        }
+        if (typeof candidate === "bigint" && candidate >= 0n) {
+            return candidate.toString();
+        }
+    }
+
+    return null;
+}
+
+function collectPriceCandidates(rawOffer: unknown): unknown[] {
+    if (!rawOffer || typeof rawOffer !== "object") {
+        return [];
+    }
+
+    const offer = rawOffer as {
+        currentPrice?: unknown;
+        current_price?: unknown;
+        price?: {
+            current?: {
+                value?: unknown;
+                raw?: unknown;
+            };
+            value?: unknown;
+            raw?: unknown;
+        };
+    };
+
+    return [
+        offer.currentPrice,
+        offer.current_price,
+        offer.price?.current?.value,
+        offer.price?.current?.raw,
+        offer.price?.value,
+        offer.price?.raw,
+    ];
 }
