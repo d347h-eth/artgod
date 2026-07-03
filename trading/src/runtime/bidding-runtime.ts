@@ -123,6 +123,7 @@ const openSeaSdkLog = createBiddingComponentLogger(
 
 const BIDDING_RUNTIME_LOG_ACTION = {
     CommandJobPreparationStarted: "commandJobPreparationStarted",
+    CommandSnapshotRefreshQueued: "commandSnapshotRefreshQueued",
     CommandSnapshotRefreshStarted: "commandSnapshotRefreshStarted",
     CommandSnapshotRefreshComplete: "commandSnapshotRefreshComplete",
 } as const;
@@ -335,6 +336,11 @@ export async function startBiddingRuntime(
             onSnapshotRefreshed: (snapshot, reason) => {
                 bidBookProjection.requestProjection(snapshot, reason);
             },
+        },
+        {
+            maxTtlMs: params.biddingConfig.collectionOffersMaxTtlMs,
+            durationMultiplier:
+                params.biddingConfig.collectionOffersAdaptiveTtlMultiplier,
         },
     );
 
@@ -555,6 +561,30 @@ export async function startBiddingRuntime(
                     collectionOfferSnapshotService.watchCollection(
                         job.collectionSlug,
                     );
+                    const existingSnapshot =
+                        collectionOfferSnapshotService.getSnapshot(
+                            job.collectionSlug,
+                        );
+                    if (existingSnapshot) {
+                        log.info(
+                            BIDDING_RUNTIME_LOG_ACTION.CommandSnapshotRefreshQueued,
+                            "Queued collection-offer snapshot refresh for bidding job command",
+                            {
+                                jobId: job.id,
+                                collectionSlug: job.collectionSlug,
+                                targetType: job.target.type,
+                                snapshotAgeMs:
+                                    Date.now() - existingSnapshot.refreshedAt,
+                            },
+                        );
+                        // Reuse the latest market snapshot for command evaluation and refresh it asynchronously when stale.
+                        collectionOfferSnapshotService.requestRefresh(
+                            job.collectionSlug,
+                            `job command reconciliation: ${job.id}`,
+                        );
+                        return;
+                    }
+
                     log.info(
                         BIDDING_RUNTIME_LOG_ACTION.CommandSnapshotRefreshStarted,
                         "Refreshing collection-offer snapshot for bidding job command",
@@ -568,7 +598,7 @@ export async function startBiddingRuntime(
                     await collectionOfferSnapshotService.refreshAndWait(
                         job.collectionSlug,
                         `job command reconciliation: ${job.id}`,
-                        { respectTtl: true },
+                        { respectTtl: false },
                     );
                     log.info(
                         BIDDING_RUNTIME_LOG_ACTION.CommandSnapshotRefreshComplete,

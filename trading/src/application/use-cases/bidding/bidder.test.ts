@@ -275,6 +275,45 @@ describe("Bidder stream refresh", () => {
         assert.deepEqual(refreshedJobIds, []);
     });
 
+    it("skips hot refresh for token jobs that cannot beat the event price by ceiling", async () => {
+        const bidder = new Bidder(
+            new FakeBiddingService() as any,
+            "0xmaker",
+            1000,
+            { dryRun: true },
+        );
+        const refreshedJobIds: string[] = [];
+
+        bidder.addJob(
+            makeJob(
+                "token-low-ceiling",
+                "terraforms",
+                {
+                    type: "token",
+                    tokenId: "123",
+                },
+                5n,
+                { floor: 1n, ceiling: 10n, delta: 1n },
+            ),
+        );
+
+        bidder.refreshJob = async (jobId: string) => {
+            refreshedJobIds.push(jobId);
+        };
+
+        await bidder.refreshMatchingJobs(
+            makeEvent(
+                Type.CollectionOffer,
+                Scope.Collection,
+                "terraforms",
+                "",
+                10n,
+            ),
+        );
+
+        assert.deepEqual(refreshedJobIds, []);
+    });
+
     it("warms currentPrice during bootstrap from a live maker-specific token offer lookup", async () => {
         const biddingService = new FakeBiddingService();
         biddingService.activeTokenOfferByMaker = {

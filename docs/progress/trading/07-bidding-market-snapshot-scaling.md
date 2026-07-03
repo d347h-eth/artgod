@@ -234,11 +234,10 @@ Normal scans should:
 
 - read the latest usable collection snapshot from memory
 - avoid per-job all-offers refreshes
-- avoid broad per-job live endpoint fan-out when the snapshot can answer the
-  strategy question
 - schedule refresh when the snapshot is stale by its adaptive collection cadence
-- use direct narrow reads only for own-order recovery, cancellation safety, and
-  fallback verification
+- keep the existing single-job evaluation behavior intact in this pass,
+  including narrow OpenSea reads used for own-order recovery, cancellation
+  safety, and fallback verification
 
 User commands should:
 
@@ -308,25 +307,30 @@ Problems already addressed on this branch:
 - user-command OpenSea work could sit behind hot-refresh work
 - no-effect hot-refresh logs could emit at high rate during spam
 - startup command replay had silent gaps that looked like a stalled process
+- source-level collection snapshot telemetry records page count, duration,
+  offer count, first/last price, min/max price, and final cursor state
+- collection snapshot freshness is adaptive from app config, using the last
+  successful fetch duration with a configured maximum TTL
+- failed TTL-aware snapshot refreshes back off with jitter instead of retrying
+  blindly on every poll or hot signal
+- command preparation reuses an existing collection snapshot and only blocks for
+  the first missing snapshot needed to safely evaluate token/collection jobs
+- hot refresh ignores token jobs whose effective ceiling cannot beat the broad
+  market event price
 
 Problems still not fully addressed:
 
-- command preparation can force full collection snapshot refreshes
-- snapshot TTL is static and collection-size blind
-- snapshot refresh logs currently include scope counts but not page count or
-  duration at the source adapter boundary
-- full scans still mix collection-snapshot reads with per-token live reads, so
-  100+ exact-token jobs can still produce too much OpenSea traffic
+- full scans still mix collection-snapshot reads with narrow per-token live
+  reads, but single-job processing is acceptable today and should not be
+  aggressively changed in this alpha scaling pass
 - competitive trait jobs can fan out into many trait endpoint reads and need
   explicit fan-out limits
-- non-competitive job classification is not modeled yet, so jobs that cannot
-  win by declared ceiling can still receive hot-path strategy work
 - pending hot-refresh signatures are still limited only by natural collection
   and target diversity, not by an explicit hard cap
 
 ## Implementation Direction
 
-Recommended next steps:
+Implemented alpha-scaling steps:
 
 1. Add source-level snapshot telemetry: page count, duration, first/last price,
    min/max price, offer count, and final cursor state.
@@ -334,14 +338,14 @@ Recommended next steps:
    refresh duration as an input.
 3. Stop command preparation from forcing a fresh full snapshot per token or
    collection command when a usable collection snapshot already exists.
-4. Reduce normal scan live endpoint fan-out for token jobs when the collection
-   snapshot can answer the competitive question.
+4. Keep normal single-job processing behavior unchanged while reducing only
+   shared collection-snapshot and hot-path scheduling pressure.
 5. Keep bid-book projection on the same collection snapshot output, including
    completeness metadata.
 6. Classify guaranteed-loser jobs below the current bid-wall ceiling so hot
    refresh does not keep exercising strategy for jobs that cannot win by spec.
-7. Add tests that simulate a heavy all-offers source and assert command
-   reconciliation remains responsive.
+7. Add focused tests around adaptive TTL, failed refresh backoff, source
+   telemetry, and non-competitive hot-refresh filtering.
 
 The target architecture is still a background-maintained current-world market
 view. For alpha, the change is making that world view adaptive while keeping

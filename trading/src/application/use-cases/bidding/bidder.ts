@@ -1342,6 +1342,18 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             };
         }
 
+        const effectiveCeiling = this.getEffectiveCeiling(
+            this.getConfiguredCeiling(job),
+        );
+        if (marketEvent.getUnitPrice() >= effectiveCeiling) {
+            return {
+                shouldReact: false,
+                reason: "event price met or exceeded effective ceiling",
+                currentPrice: job.state.currentPrice,
+                priceDiff: marketEvent.getUnitPrice() - job.state.currentPrice,
+            };
+        }
+
         if (marketEvent.getUnitPrice() < job.state.currentPrice) {
             return {
                 shouldReact: false,
@@ -1357,6 +1369,10 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             currentPrice: job.state.currentPrice,
             priceDiff: marketEvent.getUnitPrice() - job.state.currentPrice,
         };
+    }
+
+    private getConfiguredCeiling(job: BidderJob): bigint {
+        return this.getRuntimeOverride(job.id)?.ceiling ?? job.config.ceiling;
     }
 
     private async tryWarmCurrentPrice(
