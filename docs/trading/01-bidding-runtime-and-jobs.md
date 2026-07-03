@@ -32,7 +32,7 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 - Command reconciliation may complete an enabled-job command without another OpenSea pass when the current bot process has already verified an active order for the same job revision.
 - The snapshot lane polls every 60 seconds and hot-path callers force a blocking refresh when the snapshot is older than the configured stale threshold.
 - Snapshot refresh entrypoints are serialized/deduped by the snapshot service.
-- Heavy collection all-offers snapshots are a known scaling pressure; detailed evidence and the target bounded/adaptive snapshot refactor are tracked in `docs/progress/trading/07-bidding-market-snapshot-scaling.md`.
+- Heavy collection all-offers snapshots are a known scaling pressure; detailed evidence and the target adaptive snapshot refactor are tracked in `docs/progress/trading/07-bidding-market-snapshot-scaling.md`.
 - Job execution remains per-job serialized.
 - Token trait matching reads normalized `token_attributes` joins; bidding hot-refresh does not parse `token_metadata.attributes_json` or `token_metadata.raw_json`.
 - Marketplace token bidding targets must be canonical `tokens` rows. Extension-synthetic tokens can be shown in browsing surfaces, but frontend bidding selection and backend job mutation exclude them before bot commands exist.

@@ -60,7 +60,7 @@ Hot refresh now has these protections:
 The continuous scan loop currently:
 
 - refreshes the maker WETH balance once per full scan
-- processes jobs through a bounded concurrency semaphore
+- processes jobs through a concurrency-limited semaphore
 - keeps per-job execution serialized
 - sleeps between complete full scans by `BIDDING_SCAN_SLEEP_MS`
 - uses cached collection snapshots for broad competition context
@@ -85,9 +85,8 @@ This is the main remaining mismatch:
 
 For large collections, the command path should not start a new full
 all-offers fetch for each job command. The alpha-safe direction is to keep one
-collection-scoped market snapshot, make that snapshot bounded and adaptive, and
-let commands use the latest usable snapshot while the background lane catches
-up.
+collection-scoped market snapshot, make that snapshot adaptive, and let
+commands use the latest usable snapshot while the background lane catches up.
 
 ## Heavy Collection Evidence
 
@@ -138,9 +137,7 @@ Observed live endpoint behavior against Milady:
 - `getAllOffers` appeared globally sorted by price descending across the first
   30 pages during the probe.
 - The collection floor was about 1.091799 ETH at probe time.
-- The all-offers endpoint crossed that floor around pages 27 to 29, which means
-  a floor-based cutoff could avoid most pages but would still fetch thousands of
-  offers.
+- The all-offers endpoint crossed that floor around pages 27 to 29.
 - `getCollectionOffers` returned a small collection-wide set, roughly 70 offers,
   and was cheap compared with all-offers.
 - Exact `getTraitOffers` probes were usually small.
@@ -159,7 +156,7 @@ fallbacks, and stale-data confidence checks.
 
 A clean scalable bidding design should preserve these requirements:
 
-- A full scan over 100+ jobs should be mostly cache reads and bounded local CPU
+- A full scan over 100+ jobs should be mostly cache reads and predictable local CPU
   work.
 - User commands should not wait behind unrelated full collection snapshot
   refreshes.
@@ -181,10 +178,9 @@ A clean scalable bidding design should preserve these requirements:
   snapshot output instead of requiring a parallel data assembly path.
 
 The earlier full collection snapshot invariant is still the right operational
-shape for alpha, but it is too expensive if "full" means paginating through the
-entire long tail of irrelevant offers every time. The stronger invariant is:
-the bot needs an authoritative collection-level snapshot deep enough to cover
-the competitive price region where strategy decisions can change.
+shape for alpha, but its refresh cadence must reflect real collection cost. The
+stronger immediate invariant is: the bot needs a usable collection-level market
+view without making every command wait for a newly fetched all-offers snapshot.
 
 ## Rejected Slice Model
 
@@ -212,7 +208,7 @@ background freshness model for alpha.
 ## Adaptive Complete Snapshot Model
 
 Keep one collection-level offer snapshot per watched collection, but make it
-adaptive to real fetch cost before adding more complex pagination cutoffs.
+adaptive to real fetch cost.
 
 The snapshot should still cover all fetched offer kinds in one collection pass:
 
@@ -221,36 +217,6 @@ The snapshot should still cover all fetched offer kinds in one collection pass:
 - exact-token offers
 - token-set or unknown offers that the parser can classify or preserve safely
 
-Bid-wall cutoff remains in the current plan, but should land after the simpler
-alpha-scaling changes. Local bid-book visualization suggests that cutting at the
-collection-wide bid ceiling would save roughly 20% of requests on the observed
-heavy collection. That is useful, but not enough to justify doing it before
-telemetry, adaptive cadence, command deblocking, scan fan-out reduction, and
-bid-book continuity.
-
-When cutoff is implemented, the snapshot should stop fetching once it is deep
-enough to cover the competitive region needed by the strategy. The first
-practical cutoff is a collection-specific bid-wall ceiling:
-
-- derive the cutoff from current collection/trait bid wall evidence plus active
-  job ceilings
-- keep enough depth for "keep winning" decisions and near-ceiling opponent
-  movement
-- do not chase the flooded low-price tail when every relevant active job would
-  still be a loser by its own declared ceiling
-- classify jobs whose ceilings are below the current bid-wall ceiling as
-  non-competitive for hot-path purposes, so guaranteed-loser specs do not keep
-  waking command-critical strategy work
-
-The OpenSea all-offers endpoint appeared price-descending during the probe. A
-later bounded fetch may use that observation conservatively:
-
-- track first, last, min, and max price per page
-- stop only after the page stream has crossed the collection cutoff
-- keep pagination-loop and ordering guards
-- if ordering looks inconsistent, fall back to an unbounded fetch for that run
-  or mark the snapshot as not safely bounded
-
 The snapshot record should own:
 
 - last successful refresh time
@@ -258,8 +224,6 @@ The snapshot record should own:
 - last refresh duration
 - offer count and page count
 - lowest fetched price and highest fetched price
-- cutoff price, when the later cutoff step applies one
-- whether the fetch was complete, bounded, or degraded, once cutoff exists
 - last error
 - next eligible refresh time
 
@@ -290,13 +254,11 @@ Hot refresh should:
 - wake the affected jobs only when the event can change a competitive decision
 - request a collection refresh when a relevant event invalidates the current
   collection-level market view
-- once cutoff exists, ignore or summarize guaranteed-irrelevant flood below the
-  strategy cutoff
 
 Bid-book projection should:
 
 - keep projecting from the bot's collection-level snapshot while the bot is live
-- project all rows present in the complete or later bounded snapshot
+- project all rows present in the complete snapshot
 - expose source/freshness metadata clearly enough for the backend to choose
   between competitive bot projection and normal orders fallback
 - not block bidder command or hot paths
@@ -328,7 +290,7 @@ try to refresh every 15 seconds. It should slow down automatically while still
 keeping a clear stale/freshness state for the bot and UI.
 
 Full all-offers snapshots should log duration, page count, offer count, price
-range, scope distribution, and later cutoff state.
+range, and scope distribution.
 
 ## Race And Resource Exhaustion Findings
 
@@ -351,8 +313,8 @@ Problems still not fully addressed:
 - full scans still mix collection-snapshot reads with per-token live reads, so
   100+ exact-token jobs can still produce too much OpenSea traffic
 - competitive trait jobs can fan out into many trait endpoint reads and need
-  collection-level cutoff and bounded fan-out rules
-- pending hot-refresh signatures are still bounded only by natural collection
+  explicit fan-out limits
+- pending hot-refresh signatures are still limited only by natural collection
   and target diversity, not by an explicit hard cap
 
 ## Implementation Direction
@@ -371,12 +333,32 @@ Recommended next steps:
    completeness metadata.
 6. Add tests that simulate a heavy all-offers source and assert command
    reconciliation remains responsive.
-7. Classify guaranteed-loser jobs below the current bid-wall ceiling so hot
-   refresh does not keep exercising strategy for jobs that cannot win by spec.
-8. Add bounded all-offers pagination with conservative ordering guards and a
-   strategy-derived cutoff.
 
 The target architecture is still a background-maintained current-world market
-view. For alpha, the change is making that world view adaptive first, then
-bounded near the end of this plan, while keeping cache ownership
-collection-scoped.
+view. For alpha, the change is making that world view adaptive while keeping
+cache ownership collection-scoped.
+
+## DEFERRED UNTIL FURTHER NOTICE
+
+Snapshot depth cutoff is deferred. Local bid-book visualization suggests that
+cutting at the collection-wide bid ceiling would save roughly 20% of requests on
+the observed heavy collection. That may be useful later, but it is not the next
+alpha-scaling step.
+
+Deferred cutoff-related ideas:
+
+- stop all-offers pagination only after the page stream crosses a
+  strategy-derived collection cutoff
+- derive that cutoff from current collection/trait bid-wall evidence plus active
+  job ceilings
+- keep enough depth for "keep winning" decisions and near-ceiling opponent
+  movement
+- avoid chasing the flooded low-price tail when every relevant active job would
+  still be a loser by its own declared ceiling
+- classify jobs whose ceilings are below the current bid-wall ceiling as
+  non-competitive for hot-path purposes
+- ignore or summarize guaranteed-irrelevant hot-refresh flood below the strategy
+  cutoff
+- track cutoff price and bounded/degraded fetch state in snapshot metadata
+- use the observed price-descending all-offers ordering conservatively, with
+  pagination-loop and ordering guards
