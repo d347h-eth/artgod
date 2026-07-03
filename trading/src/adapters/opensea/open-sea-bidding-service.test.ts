@@ -739,6 +739,47 @@ describe("OpenSeaBiddingService", () => {
         assert.ok(traitRequests.includes("Background:Green"));
     });
 
+    it("fails closed when competitive-trait expansion exceeds the lookup budget", async () => {
+        const sdk = new MockOpenSeaSdk();
+        const service = new OpenSeaBiddingService(sdk as any, makerAddress, {
+            competitiveTraitMaxLookupSelectors: 2,
+        });
+        const job = {
+            id: "job-competitive-too-wide",
+            revision: 1,
+            network: "eth" as const,
+            collectionSlug,
+            collectionAddress,
+            target: {
+                type: "competitiveTrait" as const,
+                quantity: 1,
+                targetTrait: { type: "Outfit", value: "Kimono" },
+                competitorTraits: [{ type: "Background" }],
+            },
+            config: { floor: 1n, ceiling: 2n, delta: 1n },
+            state: {},
+        };
+        let traitOfferCalls = 0;
+
+        sdk.api.getCollectionOffers = async () => ({ offers: [] });
+        sdk.api.getTraits = async () => ({
+            counts: {
+                Outfit: { Kimono: 10 },
+                Background: { Blue: 7, Green: 6 },
+            },
+        });
+        sdk.api.getTraitOffers = async () => {
+            traitOfferCalls++;
+            return { offers: [] };
+        };
+
+        await assert.rejects(
+            () => service.getActiveOffers(job),
+            /Competitive trait lookup selector count exceeds configured limit/,
+        );
+        assert.equal(traitOfferCalls, 0);
+    });
+
     it("uses cached snapshot discovery for multi-trait collection jobs and skips live collection fetches", async () => {
         const sdk = new MockOpenSeaSdk();
         let liveCollectionOfferCalls = 0;

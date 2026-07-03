@@ -1,6 +1,6 @@
 # Bidding Market Snapshot Scaling
 
-Status: investigation captured; implementation not started.
+Status: alpha implementation complete; snapshot depth cutoff remains deferred.
 
 This note captures the runtime behavior, evidence, and design direction surfaced
 while hardening the bidding hot path against spammed collection and trait bids.
@@ -317,16 +317,16 @@ Problems already addressed on this branch:
   the first missing snapshot needed to safely evaluate token/collection jobs
 - hot refresh ignores token jobs whose effective ceiling cannot beat the broad
   market event price
+- pending hot-refresh signatures are capped by config, with conservative
+  highest-price retention when flood exceeds the queue budget
+- competitive-trait jobs have a configured expanded-bucket lookup limit and fail
+  closed rather than bidding from incomplete competitor context
 
-Problems still not fully addressed:
+Accepted alpha tradeoff:
 
 - full scans still mix collection-snapshot reads with narrow per-token live
   reads, but single-job processing is acceptable today and should not be
   aggressively changed in this alpha scaling pass
-- competitive trait jobs can fan out into many trait endpoint reads and need
-  explicit fan-out limits
-- pending hot-refresh signatures are still limited only by natural collection
-  and target diversity, not by an explicit hard cap
 
 ## Implementation Direction
 
@@ -346,6 +346,10 @@ Implemented alpha-scaling steps:
    refresh does not keep exercising strategy for jobs that cannot win by spec.
 7. Add focused tests around adaptive TTL, failed refresh backoff, source
    telemetry, and non-competitive hot-refresh filtering.
+8. Add configured hard caps for queued hot-refresh signatures and retain the
+   strongest pending market signals when the queue is full.
+9. Add a configured competitive-trait expanded lookup limit so broad
+   type-selector jobs cannot fan out into unbounded trait endpoint calls.
 
 The target architecture is still a background-maintained current-world market
 view. For alpha, the change is making that world view adaptive while keeping

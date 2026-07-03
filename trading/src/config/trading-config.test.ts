@@ -79,7 +79,13 @@ describe("loadTradingConfig", () => {
         assert.equal(config.bidding.scanSleepMs, 60 * 1000);
         assert.equal(config.bidding.commandPollMs, 1_000);
         assert.equal(config.bidding.hotRefreshBroadCooldownMs, 15_000);
+        assert.equal(
+            config.bidding.hotRefreshBroadMaxPendingSignatures,
+            256,
+        );
         assert.equal(config.bidding.hotRefreshItemCooldownMs, 2_000);
+        assert.equal(config.bidding.hotRefreshItemMaxPendingSignatures, 512);
+        assert.equal(config.bidding.competitiveTraitMaxLookupSelectors, 64);
         assert.equal(config.bidding.bidBookProjectionThrottleMs, 15_000);
         assert.equal(config.bidding.commandBatchSize, 20);
         assert.equal(config.bidding.commandMaxAttempts, 5);

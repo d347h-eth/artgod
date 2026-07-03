@@ -17,7 +17,9 @@ export const HOT_REFRESH_BACKPRESSURE_STAGE_NAME = {
 
 export interface HotRefreshBackpressureOptions {
     broadCooldownMs: number;
+    broadMaxPendingSignatures: number;
     itemCooldownMs: number;
+    itemMaxPendingSignatures: number;
 }
 
 type HotRefreshLaneKind = "broad" | "item";
@@ -31,6 +33,13 @@ interface HotRefreshLane {
     kind: HotRefreshLaneKind;
 }
 
+interface PendingEventReference {
+    laneKey: string;
+    lane: HotRefreshLane;
+    signature: string;
+    event: MarketEvent;
+}
+
 const HOT_REFRESH_BACKPRESSURE_LOG_ACTION = {
     BroadEventQueued: "broadEventQueued",
     BroadPassStarted: "broadPassStarted",
@@ -38,6 +47,8 @@ const HOT_REFRESH_BACKPRESSURE_LOG_ACTION = {
     ItemEventQueued: "itemEventQueued",
     ItemPassStarted: "itemPassStarted",
     ItemPassFailed: "itemPassFailed",
+    PendingEventDropped: "pendingEventDropped",
+    PendingEventEvicted: "pendingEventEvicted",
 } as const;
 
 const BROAD_EVENT_SIGNATURE_PREFIX = {
@@ -55,7 +66,9 @@ const log = createBiddingComponentLogger(
 export class HotRefreshBackpressure implements EventCallbackBuilder {
     private readonly lanes = new Map<string, HotRefreshLane>();
     private readonly broadCooldownMs: number;
+    private readonly broadMaxPendingSignatures: number;
     private readonly itemCooldownMs: number;
+    private readonly itemMaxPendingSignatures: number;
     private stopped = false;
 
     constructor(
@@ -78,9 +91,27 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
                 `[HotRefreshBackpressure] itemCooldownMs must be > 0. received=${options.itemCooldownMs}`,
             );
         }
+        if (
+            !Number.isInteger(options.broadMaxPendingSignatures) ||
+            options.broadMaxPendingSignatures <= 0
+        ) {
+            throw new Error(
+                `[HotRefreshBackpressure] broadMaxPendingSignatures must be an integer > 0. received=${options.broadMaxPendingSignatures}`,
+            );
+        }
+        if (
+            !Number.isInteger(options.itemMaxPendingSignatures) ||
+            options.itemMaxPendingSignatures <= 0
+        ) {
+            throw new Error(
+                `[HotRefreshBackpressure] itemMaxPendingSignatures must be an integer > 0. received=${options.itemMaxPendingSignatures}`,
+            );
+        }
 
         this.broadCooldownMs = options.broadCooldownMs;
+        this.broadMaxPendingSignatures = options.broadMaxPendingSignatures;
         this.itemCooldownMs = options.itemCooldownMs;
+        this.itemMaxPendingSignatures = options.itemMaxPendingSignatures;
     }
 
     public getName(): string {
@@ -129,12 +160,17 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
         const laneKey = createLaneKey(marketEvent);
         const lane = this.getLane(marketEvent);
         const signature = createEventSignature(marketEvent);
+        const existingEvent = lane.pendingEvents.get(signature);
+        if (
+            !existingEvent &&
+            !this.reservePendingSignature(lane.kind, laneKey, signature, marketEvent)
+        ) {
+            return;
+        }
+
         lane.pendingEvents.set(
             signature,
-            selectConservativeEvent(
-                lane.pendingEvents.get(signature),
-                marketEvent,
-            ),
+            selectConservativeEvent(existingEvent, marketEvent),
         );
         lane.pendingSignalCount += 1;
 
@@ -285,6 +321,101 @@ export class HotRefreshBackpressure implements EventCallbackBuilder {
 
     private getCooldownMs(kind: HotRefreshLaneKind): number {
         return kind === "broad" ? this.broadCooldownMs : this.itemCooldownMs;
+    }
+
+    private getMaxPendingSignatures(kind: HotRefreshLaneKind): number {
+        return kind === "broad"
+            ? this.broadMaxPendingSignatures
+            : this.itemMaxPendingSignatures;
+    }
+
+    private reservePendingSignature(
+        kind: HotRefreshLaneKind,
+        laneKey: string,
+        signature: string,
+        marketEvent: MarketEvent,
+    ): boolean {
+        const pendingSignatureCount = this.countPendingSignatures(kind);
+        const maxPendingSignatures = this.getMaxPendingSignatures(kind);
+        if (pendingSignatureCount < maxPendingSignatures) {
+            return true;
+        }
+
+        const weakestPendingEvent = this.findWeakestPendingEvent(kind);
+        if (
+            !weakestPendingEvent ||
+            marketEvent.getUnitPrice() <= weakestPendingEvent.event.getUnitPrice()
+        ) {
+            log.debug(
+                HOT_REFRESH_BACKPRESSURE_LOG_ACTION.PendingEventDropped,
+                "Dropped bidding hot-refresh signal because the pending queue is full",
+                {
+                    laneKind: kind,
+                    laneKey,
+                    signature,
+                    eventPriceWei: marketEvent.getUnitPrice().toString(),
+                    pendingSignatureCount,
+                    maxPendingSignatures,
+                },
+            );
+            return false;
+        }
+
+        weakestPendingEvent.lane.pendingEvents.delete(
+            weakestPendingEvent.signature,
+        );
+        log.debug(
+            HOT_REFRESH_BACKPRESSURE_LOG_ACTION.PendingEventEvicted,
+            "Evicted weaker bidding hot-refresh signal from the pending queue",
+            {
+                laneKind: kind,
+                evictedLaneKey: weakestPendingEvent.laneKey,
+                evictedSignature: weakestPendingEvent.signature,
+                evictedEventPriceWei:
+                    weakestPendingEvent.event.getUnitPrice().toString(),
+                incomingLaneKey: laneKey,
+                incomingSignature: signature,
+                incomingEventPriceWei: marketEvent.getUnitPrice().toString(),
+                pendingSignatureCount,
+                maxPendingSignatures,
+            },
+        );
+        return true;
+    }
+
+    private countPendingSignatures(kind: HotRefreshLaneKind): number {
+        let count = 0;
+        for (const lane of this.lanes.values()) {
+            if (lane.kind === kind) {
+                count += lane.pendingEvents.size;
+            }
+        }
+        return count;
+    }
+
+    private findWeakestPendingEvent(
+        kind: HotRefreshLaneKind,
+    ): PendingEventReference | null {
+        let weakest: PendingEventReference | null = null;
+        for (const [laneKey, lane] of this.lanes.entries()) {
+            if (lane.kind !== kind) {
+                continue;
+            }
+            for (const [signature, event] of lane.pendingEvents.entries()) {
+                if (
+                    !weakest ||
+                    event.getUnitPrice() < weakest.event.getUnitPrice()
+                ) {
+                    weakest = {
+                        laneKey,
+                        lane,
+                        signature,
+                        event,
+                    };
+                }
+            }
+        }
+        return weakest;
     }
 
     private getQueuedLogAction(kind: HotRefreshLaneKind): string {

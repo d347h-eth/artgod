@@ -19,7 +19,13 @@ export const BIDDING_RUNTIME_ENV_KEY = {
     CollectionOffersAdaptiveTtlMultiplier:
         "BIDDING_COLLECTION_OFFERS_ADAPTIVE_TTL_MULTIPLIER",
     HotRefreshBroadCooldownMs: "BIDDING_HOT_REFRESH_BROAD_COOLDOWN_MS",
+    HotRefreshBroadMaxPendingSignatures:
+        "BIDDING_HOT_REFRESH_BROAD_MAX_PENDING_SIGNATURES",
     HotRefreshItemCooldownMs: "BIDDING_HOT_REFRESH_ITEM_COOLDOWN_MS",
+    HotRefreshItemMaxPendingSignatures:
+        "BIDDING_HOT_REFRESH_ITEM_MAX_PENDING_SIGNATURES",
+    CompetitiveTraitMaxLookupSelectors:
+        "BIDDING_COMPETITIVE_TRAIT_MAX_LOOKUP_SELECTORS",
     BidBookProjectionThrottleMs: "BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS",
     OrderLookupMaxPages: "BIDDING_ORDER_LOOKUP_MAX_PAGES",
     OpenSeaSnapshotPageSize: "OPENSEA_SNAPSHOT_PAGE_SIZE",
@@ -75,8 +81,20 @@ export const BIDDING_DEFAULT_COLLECTION_OFFERS_ADAPTIVE_TTL_MULTIPLIER =
     );
 export const BIDDING_DEFAULT_HOT_REFRESH_BROAD_COOLDOWN_MS =
     getSettingDefaultNumber(BIDDING_RUNTIME_ENV_KEY.HotRefreshBroadCooldownMs);
+export const BIDDING_DEFAULT_HOT_REFRESH_BROAD_MAX_PENDING_SIGNATURES =
+    getSettingDefaultNumber(
+        BIDDING_RUNTIME_ENV_KEY.HotRefreshBroadMaxPendingSignatures,
+    );
 export const BIDDING_DEFAULT_HOT_REFRESH_ITEM_COOLDOWN_MS =
     getSettingDefaultNumber(BIDDING_RUNTIME_ENV_KEY.HotRefreshItemCooldownMs);
+export const BIDDING_DEFAULT_HOT_REFRESH_ITEM_MAX_PENDING_SIGNATURES =
+    getSettingDefaultNumber(
+        BIDDING_RUNTIME_ENV_KEY.HotRefreshItemMaxPendingSignatures,
+    );
+export const BIDDING_DEFAULT_COMPETITIVE_TRAIT_MAX_LOOKUP_SELECTORS =
+    getSettingDefaultNumber(
+        BIDDING_RUNTIME_ENV_KEY.CompetitiveTraitMaxLookupSelectors,
+    );
 export const BIDDING_DEFAULT_BID_BOOK_PROJECTION_THROTTLE_MS =
     getSettingDefaultNumber(
         BIDDING_RUNTIME_ENV_KEY.BidBookProjectionThrottleMs,

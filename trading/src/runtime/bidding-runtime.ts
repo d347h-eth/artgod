@@ -358,6 +358,8 @@ export async function startBiddingRuntime(
             ),
             tokenCriteriaTraitsByCollection:
                 params.biddingConfig.tokenCriteriaTraitsByCollection,
+            competitiveTraitMaxLookupSelectors:
+                params.biddingConfig.competitiveTraitMaxLookupSelectors,
         },
     );
     const bidder = new Bidder(
@@ -442,7 +444,9 @@ export async function startBiddingRuntime(
         collectionOfferSnapshotService,
         params.biddingConfig.criteriaRefreshTraitsByCollection,
         params.biddingConfig.hotRefreshBroadCooldownMs,
+        params.biddingConfig.hotRefreshBroadMaxPendingSignatures,
         params.biddingConfig.hotRefreshItemCooldownMs,
+        params.biddingConfig.hotRefreshItemMaxPendingSignatures,
     );
     const bidStreams = new Map<string, RegisteredBidStream>();
     let bidStreamSubscriptionsEnabled = false;
@@ -890,7 +894,9 @@ function buildBidPipeline(
     collectionOfferSnapshotService: CollectionOfferSnapshotService | undefined,
     criteriaRefreshTraitsByCollection: Record<string, string[]>,
     hotRefreshBroadCooldownMs: number,
+    hotRefreshBroadMaxPendingSignatures: number,
     hotRefreshItemCooldownMs: number,
+    hotRefreshItemMaxPendingSignatures: number,
 ): BidPipelineHandle {
     const opponentBidsFilter = new AttrFilter("opponent-bids");
     opponentBidsFilter.addCriteria("opponent-only", (marketEvent) => {
@@ -902,7 +908,9 @@ function buildBidPipeline(
         HOT_REFRESH_BACKPRESSURE_STAGE_NAME.StreamEvents,
         {
             broadCooldownMs: hotRefreshBroadCooldownMs,
+            broadMaxPendingSignatures: hotRefreshBroadMaxPendingSignatures,
             itemCooldownMs: hotRefreshItemCooldownMs,
+            itemMaxPendingSignatures: hotRefreshItemMaxPendingSignatures,
         },
     );
 

@@ -41,6 +41,7 @@ import {
     BIDDING_DEFAULT_COMMAND_CLAIM_TIMEOUT_MS,
     BIDDING_DEFAULT_COMMAND_MAX_ATTEMPTS,
     BIDDING_DEFAULT_COMMAND_POLL_MS,
+    BIDDING_DEFAULT_COMPETITIVE_TRAIT_MAX_LOOKUP_SELECTORS,
     BIDDING_DEFAULT_COLLECTION_OFFERS_POLL_MS,
     BIDDING_DEFAULT_COLLECTION_OFFERS_ADAPTIVE_TTL_MULTIPLIER,
     BIDDING_DEFAULT_COLLECTION_OFFERS_MAX_TTL_MS,
@@ -49,7 +50,9 @@ import {
     BIDDING_DEFAULT_DRY_RUN,
     BIDDING_DEFAULT_ENABLED,
     BIDDING_DEFAULT_HOT_REFRESH_BROAD_COOLDOWN_MS,
+    BIDDING_DEFAULT_HOT_REFRESH_BROAD_MAX_PENDING_SIGNATURES,
     BIDDING_DEFAULT_HOT_REFRESH_ITEM_COOLDOWN_MS,
+    BIDDING_DEFAULT_HOT_REFRESH_ITEM_MAX_PENDING_SIGNATURES,
     BIDDING_DEFAULT_MAX_CONCURRENT_JOBS,
     BIDDING_DEFAULT_OFFER_EXPIRATION_SECONDS,
     BIDDING_DEFAULT_ORDER_LOOKUP_MAX_PAGES,
@@ -92,7 +95,10 @@ export type EnabledBiddingConfig = {
     collectionOffersMaxTtlMs: number;
     collectionOffersAdaptiveTtlMultiplier: number;
     hotRefreshBroadCooldownMs: number;
+    hotRefreshBroadMaxPendingSignatures: number;
     hotRefreshItemCooldownMs: number;
+    hotRefreshItemMaxPendingSignatures: number;
+    competitiveTraitMaxLookupSelectors: number;
     bidBookProjectionThrottleMs: number;
     orderLookupMaxPages: number;
     commandPollMs: number;
@@ -124,7 +130,10 @@ export type DisabledBiddingConfig = {
     collectionOffersMaxTtlMs: number;
     collectionOffersAdaptiveTtlMultiplier: number;
     hotRefreshBroadCooldownMs: number;
+    hotRefreshBroadMaxPendingSignatures: number;
     hotRefreshItemCooldownMs: number;
+    hotRefreshItemMaxPendingSignatures: number;
+    competitiveTraitMaxLookupSelectors: number;
     bidBookProjectionThrottleMs: number;
     orderLookupMaxPages: number;
     commandPollMs: number;
@@ -241,10 +250,25 @@ export function loadTradingConfig(
             BIDDING_RUNTIME_ENV_KEY.HotRefreshBroadCooldownMs,
             BIDDING_DEFAULT_HOT_REFRESH_BROAD_COOLDOWN_MS,
         ),
+        hotRefreshBroadMaxPendingSignatures: parsePositiveInteger(
+            env[BIDDING_RUNTIME_ENV_KEY.HotRefreshBroadMaxPendingSignatures],
+            BIDDING_RUNTIME_ENV_KEY.HotRefreshBroadMaxPendingSignatures,
+            BIDDING_DEFAULT_HOT_REFRESH_BROAD_MAX_PENDING_SIGNATURES,
+        ),
         hotRefreshItemCooldownMs: parsePositiveInteger(
             env[BIDDING_RUNTIME_ENV_KEY.HotRefreshItemCooldownMs],
             BIDDING_RUNTIME_ENV_KEY.HotRefreshItemCooldownMs,
             BIDDING_DEFAULT_HOT_REFRESH_ITEM_COOLDOWN_MS,
+        ),
+        hotRefreshItemMaxPendingSignatures: parsePositiveInteger(
+            env[BIDDING_RUNTIME_ENV_KEY.HotRefreshItemMaxPendingSignatures],
+            BIDDING_RUNTIME_ENV_KEY.HotRefreshItemMaxPendingSignatures,
+            BIDDING_DEFAULT_HOT_REFRESH_ITEM_MAX_PENDING_SIGNATURES,
+        ),
+        competitiveTraitMaxLookupSelectors: parsePositiveInteger(
+            env[BIDDING_RUNTIME_ENV_KEY.CompetitiveTraitMaxLookupSelectors],
+            BIDDING_RUNTIME_ENV_KEY.CompetitiveTraitMaxLookupSelectors,
+            BIDDING_DEFAULT_COMPETITIVE_TRAIT_MAX_LOOKUP_SELECTORS,
         ),
         bidBookProjectionThrottleMs: parsePositiveInteger(
             env[BIDDING_RUNTIME_ENV_KEY.BidBookProjectionThrottleMs],

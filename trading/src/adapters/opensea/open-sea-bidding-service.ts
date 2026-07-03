@@ -25,6 +25,7 @@ import {
     TraitTarget,
 } from "../../domain/market/strategy/job.js";
 import {
+    BIDDING_DEFAULT_COMPETITIVE_TRAIT_MAX_LOOKUP_SELECTORS,
     BIDDING_DEFAULT_OFFER_EXPIRATION_SECONDS,
     BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE,
     BIDDING_DEFAULT_ORDER_LOOKUP_MAX_PAGES,
@@ -70,6 +71,7 @@ export interface OpenSeaBiddingServiceOptions {
     orderLookupMaxPages?: number;
     offersPageSize?: number;
     tokenCriteriaTraitsByCollection?: Record<string, string[]>;
+    competitiveTraitMaxLookupSelectors?: number;
 }
 
 const OPENSEA_WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
@@ -107,6 +109,7 @@ export class OpenSeaBiddingService implements BiddingService {
     private readonly orderLookupMaxPages: number;
     private readonly offersPageSize: number;
     private readonly tokenCriteriaTraitsByCollection: Record<string, string[]>;
+    private readonly competitiveTraitMaxLookupSelectors: number;
 
     constructor(
         private readonly sdk: OpenSeaBiddingSdkClient,
@@ -140,6 +143,11 @@ export class OpenSeaBiddingService implements BiddingService {
         this.tokenCriteriaTraitsByCollection =
             options.tokenCriteriaTraitsByCollection ??
             BIDDING_DEFAULT_TOKEN_CRITERIA_TRAITS_BY_COLLECTION;
+        this.competitiveTraitMaxLookupSelectors = Math.max(
+            1,
+            options.competitiveTraitMaxLookupSelectors ??
+                BIDDING_DEFAULT_COMPETITIVE_TRAIT_MAX_LOOKUP_SELECTORS,
+        );
     }
 
     public async getActiveOffers(
@@ -273,6 +281,14 @@ export class OpenSeaBiddingService implements BiddingService {
                             context,
                         );
                     expandedTraitSelectorCount = expandedTraitTargets.length;
+                    if (
+                        expandedTraitTargets.length >
+                        this.competitiveTraitMaxLookupSelectors
+                    ) {
+                        throw new Error(
+                            `[OpenSeaBiddingService] Competitive trait lookup selector count exceeds configured limit: jobId=${job.id}, selectorCount=${expandedTraitTargets.length}, limit=${this.competitiveTraitMaxLookupSelectors}`,
+                        );
+                    }
                     log.debug(
                         "competitiveTraitLookupResolved",
                         "Competitive trait lookup resolved selectors",

@@ -12,13 +12,25 @@ import {
 
 const TEST_BROAD_COOLDOWN_MS = 1000;
 const TEST_ITEM_COOLDOWN_MS = 250;
+const TEST_BROAD_MAX_PENDING_SIGNATURES = 8;
+const TEST_ITEM_MAX_PENDING_SIGNATURES = 4;
 
-function makeStage(): HotRefreshBackpressure {
+function makeStage(
+    overrides: Partial<{
+        broadCooldownMs: number;
+        broadMaxPendingSignatures: number;
+        itemCooldownMs: number;
+        itemMaxPendingSignatures: number;
+    }> = {},
+): HotRefreshBackpressure {
     return new HotRefreshBackpressure(
         HOT_REFRESH_BACKPRESSURE_STAGE_NAME.StreamEvents,
         {
             broadCooldownMs: TEST_BROAD_COOLDOWN_MS,
+            broadMaxPendingSignatures: TEST_BROAD_MAX_PENDING_SIGNATURES,
             itemCooldownMs: TEST_ITEM_COOLDOWN_MS,
+            itemMaxPendingSignatures: TEST_ITEM_MAX_PENDING_SIGNATURES,
+            ...overrides,
         },
     );
 }
@@ -122,7 +134,11 @@ describe("HotRefreshBackpressure", () => {
                     HOT_REFRESH_BACKPRESSURE_STAGE_NAME.StreamEvents,
                     {
                         broadCooldownMs: 0,
+                        broadMaxPendingSignatures:
+                            TEST_BROAD_MAX_PENDING_SIGNATURES,
                         itemCooldownMs: TEST_ITEM_COOLDOWN_MS,
+                        itemMaxPendingSignatures:
+                            TEST_ITEM_MAX_PENDING_SIGNATURES,
                     },
                 ),
             /broadCooldownMs must be > 0/,
@@ -133,10 +149,42 @@ describe("HotRefreshBackpressure", () => {
                     HOT_REFRESH_BACKPRESSURE_STAGE_NAME.StreamEvents,
                     {
                         broadCooldownMs: TEST_BROAD_COOLDOWN_MS,
+                        broadMaxPendingSignatures:
+                            TEST_BROAD_MAX_PENDING_SIGNATURES,
                         itemCooldownMs: 0,
+                        itemMaxPendingSignatures:
+                            TEST_ITEM_MAX_PENDING_SIGNATURES,
                     },
                 ),
             /itemCooldownMs must be > 0/,
+        );
+        assert.throws(
+            () =>
+                new HotRefreshBackpressure(
+                    HOT_REFRESH_BACKPRESSURE_STAGE_NAME.StreamEvents,
+                    {
+                        broadCooldownMs: TEST_BROAD_COOLDOWN_MS,
+                        broadMaxPendingSignatures: 0,
+                        itemCooldownMs: TEST_ITEM_COOLDOWN_MS,
+                        itemMaxPendingSignatures:
+                            TEST_ITEM_MAX_PENDING_SIGNATURES,
+                    },
+                ),
+            /broadMaxPendingSignatures must be an integer > 0/,
+        );
+        assert.throws(
+            () =>
+                new HotRefreshBackpressure(
+                    HOT_REFRESH_BACKPRESSURE_STAGE_NAME.StreamEvents,
+                    {
+                        broadCooldownMs: TEST_BROAD_COOLDOWN_MS,
+                        broadMaxPendingSignatures:
+                            TEST_BROAD_MAX_PENDING_SIGNATURES,
+                        itemCooldownMs: TEST_ITEM_COOLDOWN_MS,
+                        itemMaxPendingSignatures: 0,
+                    },
+                ),
+            /itemMaxPendingSignatures must be an integer > 0/,
         );
     });
 
@@ -278,5 +326,113 @@ describe("HotRefreshBackpressure", () => {
         await flushMicrotasks();
 
         assert.deepEqual(orderHashes, ["0xfirst", "0xhigher"]);
+    });
+
+    it("drops weaker broad signatures when the pending queue is full", async () => {
+        vi.useFakeTimers();
+        const stage = makeStage({ broadMaxPendingSignatures: 1 });
+        const orderHashes: string[] = [];
+        let releaseFirstPass!: () => void;
+        const firstPassGate = new Promise<void>((resolve) => {
+            releaseFirstPass = resolve;
+        });
+        const callback = stage.getWrappingFn()(async (event) => {
+            orderHashes.push(event.getOrderHash());
+            if (orderHashes.length === 1) {
+                await firstPassGate;
+            }
+        });
+
+        await callback(
+            makeEvent(
+                Type.TraitOffer,
+                Scope.Trait,
+                "",
+                [{ type: "Biome", value: "53" }],
+                "0xfirst",
+                1n,
+            ),
+        );
+        await callback(
+            makeEvent(
+                Type.TraitOffer,
+                Scope.Trait,
+                "",
+                [{ type: "Level", value: "10" }],
+                "0xkept",
+                5n,
+            ),
+        );
+        await callback(
+            makeEvent(
+                Type.TraitOffer,
+                Scope.Trait,
+                "",
+                [{ type: "Mode", value: "Terrain" }],
+                "0xdropped",
+                2n,
+            ),
+        );
+
+        releaseFirstPass();
+        await flushMicrotasks();
+        await vi.advanceTimersByTimeAsync(TEST_BROAD_COOLDOWN_MS);
+        await flushMicrotasks();
+
+        assert.deepEqual(orderHashes, ["0xfirst", "0xkept"]);
+    });
+
+    it("evicts weaker broad signatures for stronger pending signals", async () => {
+        vi.useFakeTimers();
+        const stage = makeStage({ broadMaxPendingSignatures: 1 });
+        const orderHashes: string[] = [];
+        let releaseFirstPass!: () => void;
+        const firstPassGate = new Promise<void>((resolve) => {
+            releaseFirstPass = resolve;
+        });
+        const callback = stage.getWrappingFn()(async (event) => {
+            orderHashes.push(event.getOrderHash());
+            if (orderHashes.length === 1) {
+                await firstPassGate;
+            }
+        });
+
+        await callback(
+            makeEvent(
+                Type.TraitOffer,
+                Scope.Trait,
+                "",
+                [{ type: "Biome", value: "53" }],
+                "0xfirst",
+                1n,
+            ),
+        );
+        await callback(
+            makeEvent(
+                Type.TraitOffer,
+                Scope.Trait,
+                "",
+                [{ type: "Level", value: "10" }],
+                "0xevicted",
+                2n,
+            ),
+        );
+        await callback(
+            makeEvent(
+                Type.TraitOffer,
+                Scope.Trait,
+                "",
+                [{ type: "Mode", value: "Terrain" }],
+                "0xstronger",
+                5n,
+            ),
+        );
+
+        releaseFirstPass();
+        await flushMicrotasks();
+        await vi.advanceTimersByTimeAsync(TEST_BROAD_COOLDOWN_MS);
+        await flushMicrotasks();
+
+        assert.deepEqual(orderHashes, ["0xfirst", "0xstronger"]);
     });
 });
