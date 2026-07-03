@@ -162,6 +162,9 @@ A clean scalable bidding design should preserve these requirements:
   refreshes.
 - Hot stream events should schedule or coalesce work; they should not become a
   second command queue.
+- Jobs whose declared ceilings are below the current bid-wall ceiling should be
+  classified as non-competitive for hot-path scheduling, so guaranteed-loser
+  specs do not keep waking command-critical strategy work.
 - Cache cardinality should stay collection-scoped for alpha; maintaining one
   trait or token snapshot per active target is not scalable once users bid on
   100+ tokens or multiple trait-heavy collections.
@@ -254,6 +257,8 @@ Hot refresh should:
 - wake the affected jobs only when the event can change a competitive decision
 - request a collection refresh when a relevant event invalidates the current
   collection-level market view
+- ignore or summarize guaranteed-irrelevant hot-refresh flood for jobs that are
+  non-competitive by their declared ceiling
 
 Bid-book projection should:
 
@@ -314,6 +319,8 @@ Problems still not fully addressed:
   100+ exact-token jobs can still produce too much OpenSea traffic
 - competitive trait jobs can fan out into many trait endpoint reads and need
   explicit fan-out limits
+- non-competitive job classification is not modeled yet, so jobs that cannot
+  win by declared ceiling can still receive hot-path strategy work
 - pending hot-refresh signatures are still limited only by natural collection
   and target diversity, not by an explicit hard cap
 
@@ -331,7 +338,9 @@ Recommended next steps:
    snapshot can answer the competitive question.
 5. Keep bid-book projection on the same collection snapshot output, including
    completeness metadata.
-6. Add tests that simulate a heavy all-offers source and assert command
+6. Classify guaranteed-loser jobs below the current bid-wall ceiling so hot
+   refresh does not keep exercising strategy for jobs that cannot win by spec.
+7. Add tests that simulate a heavy all-offers source and assert command
    reconciliation remains responsive.
 
 The target architecture is still a background-maintained current-world market
@@ -355,10 +364,6 @@ Deferred cutoff-related ideas:
   movement
 - avoid chasing the flooded low-price tail when every relevant active job would
   still be a loser by its own declared ceiling
-- classify jobs whose ceilings are below the current bid-wall ceiling as
-  non-competitive for hot-path purposes
-- ignore or summarize guaranteed-irrelevant hot-refresh flood below the strategy
-  cutoff
 - track cutoff price and bounded/degraded fetch state in snapshot metadata
 - use the observed price-descending all-offers ordering conservatively, with
   pagination-loop and ordering guards
