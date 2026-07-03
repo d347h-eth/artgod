@@ -759,9 +759,13 @@ describe("OpenSeaBiddingService", () => {
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };
+        let collectionOfferCalls = 0;
         let traitOfferCalls = 0;
 
-        sdk.api.getCollectionOffers = async () => ({ offers: [] });
+        sdk.api.getCollectionOffers = async () => {
+            collectionOfferCalls++;
+            return { offers: [] };
+        };
         sdk.api.getTraits = async () => ({
             counts: {
                 Outfit: { Kimono: 10 },
@@ -777,6 +781,7 @@ describe("OpenSeaBiddingService", () => {
             () => service.getActiveOffers(job),
             /Competitive trait lookup selector count exceeds configured limit/,
         );
+        assert.equal(collectionOfferCalls, 0);
         assert.equal(traitOfferCalls, 0);
     });
 

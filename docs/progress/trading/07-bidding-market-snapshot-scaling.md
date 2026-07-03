@@ -71,17 +71,18 @@ The continuous scan loop currently:
 The branch protects the command lane from being monopolized by raw stream flood,
 but it does not solve heavy full-snapshot fetches.
 
-The current command preparation path still refreshes the full collection
-all-offers snapshot for token and collection jobs before the immediate bid pass
-when the snapshot is not fresh enough. That is reasonable for small collections,
-but it becomes a command-lane bottleneck when a collection has thousands of
+The command preparation path now reuses the latest collection all-offers
+snapshot when one exists and requests a TTL-aware background refresh instead of
+forcing every command through a fresh full fetch. It still blocks for an initial
+missing snapshot before token or collection jobs can be evaluated safely, and
+full snapshots themselves remain expensive when a collection has thousands of
 active token-scoped offers.
 
 This is the main remaining mismatch:
 
 - the intended runtime model is a background-maintained current market view
-- the current implementation can still synchronously force a complete
-  collection-wide all-offers fetch on command paths
+- the current implementation can still synchronously force the first complete
+  collection-wide all-offers fetch when no usable snapshot exists
 
 For large collections, the command path should not start a new full
 all-offers fetch for each job command. The alpha-safe direction is to keep one
@@ -340,8 +341,8 @@ Implemented alpha-scaling steps:
    collection command when a usable collection snapshot already exists.
 4. Keep normal single-job processing behavior unchanged while reducing only
    shared collection-snapshot and hot-path scheduling pressure.
-5. Keep bid-book projection on the same collection snapshot output, including
-   completeness metadata.
+5. Keep bid-book projection on the same collection snapshot output and preserve
+   snapshot freshness/row-count state for backend source selection.
 6. Classify guaranteed-loser jobs below the current bid-wall ceiling so hot
    refresh does not keep exercising strategy for jobs that cannot win by spec.
 7. Add focused tests around adaptive TTL, failed refresh backoff, source

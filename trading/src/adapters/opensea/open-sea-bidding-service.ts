@@ -247,32 +247,6 @@ export class OpenSeaBiddingService implements BiddingService {
 
                 if (job.target.type === "competitiveTrait") {
                     const competitiveTarget = job.target;
-                    // 2c. Competitive-trait jobs stay on the live path because they need collection-wide visibility plus trait-bucket fan-out.
-                    const collectionOffers =
-                        await this.fetchAllCollectionOffers(
-                            job.collectionSlug,
-                            context,
-                        );
-
-                    // Always include collection-wide offers from the live collection page.
-                    collectionOffers.forEach((rawOffer) => {
-                        if (!this.isCollectionWideOffer(rawOffer)) {
-                            return;
-                        }
-
-                        const parsed = this.parseRawOffer(
-                            rawOffer,
-                            job.collectionAddress,
-                            "collectionOffers",
-                        );
-                        if (!parsed) {
-                            return;
-                        }
-
-                        competitiveBucketCounts.collectionWide.add(parsed.id);
-                        this.addUniqueOffer(offers, parsed);
-                    });
-
                     // Expand type-only selectors into explicit trait targets before fetching each competing trait bucket.
                     const expandedTraitTargets =
                         await this.expandCompetitiveTraitSelectors(
@@ -297,6 +271,32 @@ export class OpenSeaBiddingService implements BiddingService {
                             selectorCount: expandedTraitTargets.length,
                         },
                     );
+
+                    // Competitive-trait jobs stay live, but fail the fan-out guard before expensive collection pagination.
+                    const collectionOffers =
+                        await this.fetchAllCollectionOffers(
+                            job.collectionSlug,
+                            context,
+                        );
+
+                    // Always include collection-wide offers from the live collection page.
+                    collectionOffers.forEach((rawOffer) => {
+                        if (!this.isCollectionWideOffer(rawOffer)) {
+                            return;
+                        }
+
+                        const parsed = this.parseRawOffer(
+                            rawOffer,
+                            job.collectionAddress,
+                            "collectionOffers",
+                        );
+                        if (!parsed) {
+                            return;
+                        }
+
+                        competitiveBucketCounts.collectionWide.add(parsed.id);
+                        this.addUniqueOffer(offers, parsed);
+                    });
 
                     for (const traitTarget of expandedTraitTargets) {
                         // Fetch the live offers for each explicit target or competitor trait bucket.
