@@ -113,7 +113,8 @@ export class SqliteBiddingJobRuntimeState
                     "SET cancellation_error = @cancellationError, " +
                     "completed_at = NULL, " +
                     "updated_at = @updatedAt " +
-                    "WHERE job_id = @jobId AND order_id = @orderId",
+                    "WHERE job_id = @jobId AND order_id = @orderId " +
+                    "AND completed_at IS NULL",
             ) as BetterSqlite3NamedStatement<MarkOfferCancellationFailedParams>;
 
         this.markOfferCancellationCompletedStatement =

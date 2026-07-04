@@ -191,7 +191,10 @@ describe("SqliteBiddingJobRuntimeState", () => {
         const row = db
             .prepare<{
                 orderId: string;
-            }>("SELECT order_id, job_id, job_revision, chain_id, collection_id, maker, price_wei, protocol_address, placed_at, expiration_time_ms, requested_at, completed_at, cancellation_error " + "FROM trading_bidding_order_cancellations WHERE order_id = @orderId")
+            }>(
+                "SELECT order_id, job_id, job_revision, chain_id, collection_id, maker, price_wei, protocol_address, placed_at, expiration_time_ms, requested_at, completed_at, cancellation_error " +
+                    "FROM trading_bidding_order_cancellations WHERE order_id = @orderId",
+            )
             .get({ orderId: "0xmine" }) as
             | {
                   order_id: string;
@@ -253,7 +256,9 @@ describe("SqliteBiddingJobRuntimeState", () => {
         const row = db
             .prepare<{
                 orderId: string;
-            }>("SELECT completed_at, cancellation_error FROM trading_bidding_order_cancellations WHERE order_id = @orderId")
+            }>(
+                "SELECT completed_at, cancellation_error FROM trading_bidding_order_cancellations WHERE order_id = @orderId",
+            )
             .get({ orderId: "0xmine" }) as
             | {
                   completed_at: string | null;
@@ -317,7 +322,9 @@ describe("SqliteBiddingJobRuntimeState", () => {
         const row = db
             .prepare<{
                 orderId: string;
-            }>("SELECT completed_at, cancellation_error FROM trading_bidding_order_cancellations WHERE order_id = @orderId")
+            }>(
+                "SELECT completed_at, cancellation_error FROM trading_bidding_order_cancellations WHERE order_id = @orderId",
+            )
             .get({ orderId: "0xmine" }) as
             | {
                   completed_at: string | null;
@@ -336,6 +343,30 @@ describe("SqliteBiddingJobRuntimeState", () => {
             }),
             [],
         );
+
+        runtimeState.markOfferCancellationFailed({
+            jobId: "job-token",
+            orderId: "0xmine",
+            cancellationError: "stale terminal failure",
+        });
+
+        const afterStaleFailure = db
+            .prepare<{
+                orderId: string;
+            }>(
+                "SELECT completed_at, cancellation_error FROM trading_bidding_order_cancellations WHERE order_id = @orderId",
+            )
+            .get({ orderId: "0xmine" }) as
+            | {
+                  completed_at: string | null;
+                  cancellation_error: string | null;
+              }
+            | undefined;
+
+        assert.deepEqual(afterStaleFailure, {
+            completed_at: "2026-05-17T00:00:05Z",
+            cancellation_error: null,
+        });
     });
 
     it("preserves cancellation order details when settling from partial tracked state", () => {
@@ -371,7 +402,10 @@ describe("SqliteBiddingJobRuntimeState", () => {
         const row = db
             .prepare<{
                 orderId: string;
-            }>("SELECT price_wei, protocol_address, placed_at, expiration_time_ms, requested_at, completed_at " + "FROM trading_bidding_order_cancellations WHERE order_id = @orderId")
+            }>(
+                "SELECT price_wei, protocol_address, placed_at, expiration_time_ms, requested_at, completed_at " +
+                    "FROM trading_bidding_order_cancellations WHERE order_id = @orderId",
+            )
             .get({ orderId: "0xmine" }) as
             | {
                   price_wei: string | null;

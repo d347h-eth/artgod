@@ -848,6 +848,50 @@ describe("SqliteBiddingBidBookRepository", () => {
         );
     });
 
+    it("keeps real own indexed orders as market rows when only orders fallback has live evidence", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedBiddingBotRuntimeState();
+        db.prepare(
+            "UPDATE trading_bot_runtime_state SET heartbeat_at = ? WHERE bot_kind = ?",
+        ).run("2026-05-17T00:00:00Z", TRADING_BOT_KIND.Bidding);
+        insertIndexedOrder({
+            collectionId,
+            id: "own-indexed-order",
+            maker: BIDDING_MAKER_ADDRESS,
+            updatedAt: "2026-05-17T00:00:01Z",
+        });
+
+        const bidBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+
+        assert.deepEqual(
+            bidBook.bids.map((bid) => ({
+                orderId: bid.orderId,
+                source: bid.source,
+                materializationKind: bid.materialization.kind,
+                isOwn: bid.isOwn,
+                ownStatus: bid.ownStatus,
+            })),
+            [
+                {
+                    orderId: "own-indexed-order",
+                    source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+                    materializationKind:
+                        TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid,
+                    isOwn: true,
+                    ownStatus: null,
+                },
+            ],
+        );
+    });
+
     it("keeps old active own order visible in orders fallback after job revision changes", () => {
         const jobsRepository = new SqliteBiddingJobsRepository();
         const bidBookRepository = new SqliteBiddingBidBookRepository();
