@@ -29,7 +29,7 @@ const COLLECTION: CollectionListItem = {
 };
 
 describe("UpsertTokenBiddingJobUseCase", () => {
-    it("rejects synthetic token targets before persisting bidding jobs", () => {
+    it("rejects synthetic token targets before persisting bidding jobs", async () => {
         const useCase = new UpsertTokenBiddingJobUseCase(
             1,
             {
@@ -57,17 +57,16 @@ describe("UpsertTokenBiddingJobUseCase", () => {
             },
         );
 
-        assert.throws(
-            () =>
-                useCase.upsertTokenBiddingJob({
-                    chainRef: "ethereum",
-                    collectionRef: "terraforms",
-                    tokenRef: "unminted-tile-921",
-                    status: TRADING_JOB_STATUS.Enabled,
-                    floorEth: "0.1",
-                    ceilingEth: "0.2",
-                    deltaEth: "0.001",
-                }),
+        await assert.rejects(
+            useCase.upsertTokenBiddingJob({
+                chainRef: "ethereum",
+                collectionRef: "terraforms",
+                tokenRef: "unminted-tile-921",
+                status: TRADING_JOB_STATUS.Enabled,
+                floorEth: "0.1",
+                ceilingEth: "0.2",
+                deltaEth: "0.001",
+            }),
             /selected token target is not available for marketplace bidding: unminted-tile-921/,
         );
     });

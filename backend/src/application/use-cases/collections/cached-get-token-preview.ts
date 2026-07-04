@@ -16,6 +16,9 @@ import type {
 
 type MaybePromise<T> = T | Promise<T>;
 
+// Names an omitted media mode inside preview cache keys.
+const DEFAULT_MEDIA_MODE_CACHE_KEY = "default";
+
 export type WarmTokenPreviewEntriesInput = {
     chainRef: string;
     collectionRef: string;
@@ -60,7 +63,7 @@ export class CachedGetTokenPreview
             QUERY_CACHE_NAMESPACES.TokenPreviewDefault,
             key,
         );
-        if (cached) {
+        if (cached && isTokenPreviewDefaultCacheEntryEligible(input, cached.value)) {
             const now = Date.now();
             const ageMs = Math.max(0, now - cached.storedAt);
             markCurrentQueryCacheHit({
@@ -73,13 +76,18 @@ export class CachedGetTokenPreview
             }
             return cached.value;
         }
+        if (cached) {
+            this.cache.delete(QUERY_CACHE_NAMESPACES.TokenPreviewDefault, key);
+        }
 
         const result = this.inner.getTokenPreview(input);
         if (isPromiseLike(result)) {
-            return result.then((output) => this.finalizeColdLoad(key, output));
+            return result.then((output) =>
+                this.finalizeColdLoad(key, input, output),
+            );
         }
 
-        return this.finalizeColdLoad(key, result);
+        return this.finalizeColdLoad(key, input, result);
     }
 
     warmTokenPreviews(input: WarmTokenPreviewEntriesInput): void {
@@ -112,9 +120,10 @@ export class CachedGetTokenPreview
 
     private finalizeColdLoad(
         key: string,
+        input: GetTokenPreviewInput,
         output: GetTokenPreviewOutput,
     ): GetTokenPreviewOutput {
-        if (!isTokenPreviewDefaultCacheEligible(output)) {
+        if (!isTokenPreviewDefaultCacheEntryEligible(input, output)) {
             markCurrentQueryCacheBypass();
             return output;
         }
@@ -188,7 +197,7 @@ export class CachedGetTokenPreview
         const refresh = Promise.resolve()
             .then(() => this.inner.getTokenPreview(input))
             .then((output) => {
-                if (!isTokenPreviewDefaultCacheEligible(output)) {
+                if (!isTokenPreviewDefaultCacheEntryEligible(input, output)) {
                     this.cache.delete(
                         QUERY_CACHE_NAMESPACES.TokenPreviewDefault,
                         key,
@@ -228,6 +237,20 @@ export function isTokenPreviewDefaultCacheEligible(
     return output.media.selectedMode === output.media.defaultMode;
 }
 
+function isTokenPreviewDefaultCacheEntryEligible(
+    input: GetTokenPreviewInput,
+    output: GetTokenPreviewOutput,
+): boolean {
+    if (!isTokenPreviewDefaultCacheEligible(output)) {
+        return false;
+    }
+    const requestedMode = normalizeMediaModeCacheKey(input.mediaMode);
+    if (requestedMode === DEFAULT_MEDIA_MODE_CACHE_KEY) {
+        return true;
+    }
+    return requestedMode === normalizeMediaModeCacheKey(output.media.selectedMode);
+}
+
 function buildTokenPreviewWarmupKey(params: {
     chainRef: string;
     collectionRef: string;
@@ -242,7 +265,9 @@ function buildTokenPreviewWarmupKey(params: {
 
 function normalizeMediaModeCacheKey(mediaMode: string | undefined): string {
     const normalized = mediaMode?.trim().toLowerCase();
-    return normalized && normalized.length > 0 ? normalized : "default";
+    return normalized && normalized.length > 0
+        ? normalized
+        : DEFAULT_MEDIA_MODE_CACHE_KEY;
 }
 
 function uniqueTokenRefs(tokenRefs: string[]): string[] {

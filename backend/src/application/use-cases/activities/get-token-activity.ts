@@ -13,6 +13,8 @@ import {
     collectActivityTokenIds,
 } from "./token-presentation-summary.js";
 
+type MaybePromise<T> = T | Promise<T>;
+
 export type GetTokenActivityInput = {
     chainRef: string;
     collectionRef: string;
@@ -51,7 +53,7 @@ export class GetTokenActivityUseCase {
                 collectionId: number;
                 tokenId: string;
                 mediaMode?: string;
-            }): TokenDetail;
+            }): MaybePromise<TokenDetail>;
             getCollectionTokenMediaState(params: {
                 chainId: number;
                 collectionId: number;
@@ -90,7 +92,9 @@ export class GetTokenActivityUseCase {
         },
     ) {}
 
-    getTokenActivity(input: GetTokenActivityInput): GetTokenActivityOutput {
+    async getTokenActivity(
+        input: GetTokenActivityInput,
+    ): Promise<GetTokenActivityOutput> {
         const chain = this.chainRefResolverPort.resolveChainRef(
             input.chainRef,
             this.defaultChainId,
@@ -105,7 +109,7 @@ export class GetTokenActivityUseCase {
             tokenId: input.tokenRef,
             mediaMode: input.mediaMode,
         });
-        const token = this.collectionReadPort.getCollectionTokenDetail({
+        const token = await this.collectionReadPort.getCollectionTokenDetail({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: input.tokenRef,

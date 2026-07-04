@@ -6,6 +6,8 @@ import { mapPersistedTokenBiddingJobToView } from "./types.js";
 import type { TradingJobCommandSignalPort } from "./trading-job-command-signal-port.js";
 export type { ArchiveTokenBiddingJobOutput } from "./types.js";
 
+type MaybePromise<T> = T | Promise<T>;
+
 export type ArchiveTokenBiddingJobInput = {
     chainRef: string;
     collectionRef: string;
@@ -30,7 +32,7 @@ export class ArchiveTokenBiddingJobUseCase {
                 chainId: number;
                 collectionId: number;
                 tokenId: string;
-            }): { tokenId: string };
+            }): MaybePromise<{ tokenId: string }>;
         },
         readonly biddingJobsRepositoryPort: Pick<
             BiddingJobsRepositoryPort,
@@ -39,9 +41,9 @@ export class ArchiveTokenBiddingJobUseCase {
         readonly tradingJobCommandSignalPort: TradingJobCommandSignalPort,
     ) {}
 
-    archiveTokenBiddingJob(
+    async archiveTokenBiddingJob(
         input: ArchiveTokenBiddingJobInput,
-    ): ArchiveTokenBiddingJobOutput {
+    ): Promise<ArchiveTokenBiddingJobOutput> {
         // Resolve the requested chain against the configured backend default.
         const chain = this.chainRefResolverPort.resolveChainRef(
             input.chainRef,
@@ -53,7 +55,7 @@ export class ArchiveTokenBiddingJobUseCase {
             input.collectionRef,
         );
         // Verify the token exists in this collection before archiving its job.
-        const token = this.collectionReadPort.getCollectionTokenDetail({
+        const token = await this.collectionReadPort.getCollectionTokenDetail({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: input.tokenRef,

@@ -30,6 +30,7 @@ export type BackendCollectionExtensionArtifactRecord = {
 export type BackendCollectionExtensionMediaContext = {
     mediaMode: CollectionMediaMode;
     artifact: BackendCollectionExtensionArtifactRecord | null;
+    rpc?: BackendCollectionExtensionRenderContext["rpc"];
 };
 
 export type BackendCollectionExtensionTokenMediaContext = {
@@ -110,12 +111,12 @@ export interface BackendCollectionExtension {
         install: CollectionExtensionInstall,
         token: TokenMediaPreview,
         context: BackendCollectionExtensionMediaContext,
-    ): TokenMediaPreview;
+    ): TokenMediaPreview | Promise<TokenMediaPreview>;
     resolveTokenDetail(
         install: CollectionExtensionInstall,
         token: TokenDetail,
         context: BackendCollectionExtensionMediaContext,
-    ): TokenDetail;
+    ): TokenDetail | Promise<TokenDetail>;
     resolveActivityEventPreview?(
         install: CollectionExtensionInstall,
         event: BackendCollectionExtensionActivityEventContext,

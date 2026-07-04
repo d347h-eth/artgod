@@ -5,6 +5,8 @@ import type {
     TokenMediaPreview,
 } from "@artgod/shared/types/browse";
 
+type MaybePromise<T> = T | Promise<T>;
+
 export type GetTokenPreviewInput = {
     chainRef: string;
     collectionRef: string;
@@ -32,7 +34,7 @@ type CollectionDetailReadPort = {
         collectionId: number;
         tokenId: string;
         mediaMode?: string;
-    }): TokenMediaPreview;
+    }): MaybePromise<TokenMediaPreview>;
     getCollectionTokenMediaState(params: {
         chainId: number;
         collectionId: number;
@@ -53,7 +55,9 @@ export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
         readonly collectionDetailReadPort: CollectionDetailReadPort,
     ) {}
 
-    getTokenPreview(input: GetTokenPreviewInput): GetTokenPreviewOutput {
+    async getTokenPreview(
+        input: GetTokenPreviewInput,
+    ): Promise<GetTokenPreviewOutput> {
         const chain = this.chainRefResolverPort.resolveChainRef(
             input.chainRef,
             this.defaultChainId,
@@ -68,7 +72,7 @@ export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
             tokenId: input.tokenRef,
             mediaMode: input.mediaMode,
         });
-        const token = this.collectionDetailReadPort.getCollectionTokenPreview({
+        const token = await this.collectionDetailReadPort.getCollectionTokenPreview({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: input.tokenRef,

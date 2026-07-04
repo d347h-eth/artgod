@@ -92,6 +92,64 @@ describe("CachedGetTokenPreview", () => {
         expect(inner.getTokenPreview).toHaveBeenCalledTimes(2);
     });
 
+    it("bypasses stale entries whose response media does not match the request", () => {
+        const cache = new MemoryQueryCache({ maxEntries: 8 });
+        const liveInput = createInput({ mediaMode: "live" });
+        const liveKey = buildTokenPreviewDefaultQueryCacheKey(liveInput);
+        cache.set(
+            QUERY_CACHE_NAMESPACES.TokenPreviewDefault,
+            liveKey,
+            createPreviewOutput({
+                media: {
+                    selectedMode: "live",
+                    defaultMode: "artifact",
+                    availableModes: [
+                        { key: "artifact", label: "artifact" },
+                        { key: "snapshot", label: "snapshot" },
+                        { key: "live", label: "live" },
+                    ],
+                },
+            }),
+            200,
+        );
+        const output = createPreviewOutput({
+            media: {
+                selectedMode: "live",
+                defaultMode: "artifact",
+                availableModes: [
+                    { key: "artifact", label: "artifact" },
+                    { key: "snapshot", label: "snapshot" },
+                    { key: "live", label: "live" },
+                ],
+            },
+        });
+        const inner = {
+            getTokenPreview: vi.fn(() => output),
+        };
+        const cached = new CachedGetTokenPreview(cache, inner, {
+            freshMs: 100,
+            staleMs: 200,
+            warmupConcurrency: 2,
+        });
+
+        runWithQueryCacheDebugContext(() => {
+            expect(cached.getTokenPreview(liveInput)).toBe(output);
+            expect(getCurrentQueryCacheDebugInfo()).toEqual({
+                status: QUERY_CACHE_DEBUG_STATUSES.Bypass,
+                ageMs: null,
+                ttlMs: null,
+            });
+        });
+
+        expect(inner.getTokenPreview).toHaveBeenCalledTimes(1);
+        expect(
+            cache.getEntry<GetTokenPreviewOutput>(
+                QUERY_CACHE_NAMESPACES.TokenPreviewDefault,
+                liveKey,
+            ),
+        ).toBeUndefined();
+    });
+
     it("serves stale cache hits and refreshes them in the background", async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));

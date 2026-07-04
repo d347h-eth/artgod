@@ -94,6 +94,15 @@ export const TERRAFORMS_BEACON_V2_READ_FUNCTIONS = {
     GetFirstAntennaModification: "getFirstAntennaModification",
 } as const;
 
+// Terraforms main-contract read methods used by live media and renderer lookup.
+export const TERRAFORMS_MAIN_READ_FUNCTIONS = {
+    TokenHtml: "tokenHTML",
+    TokenToPlacement: "tokenToPlacement",
+    TokenToStatus: "tokenToStatus",
+    TokenUri: "tokenURI",
+    TokenUriAddresses: "tokenURIAddresses",
+} as const;
+
 // Compact labels for Terraforms beacon AntennaModification values.
 export const TERRAFORMS_BEACON_ANTENNA_MODIFICATION_LABELS: Readonly<
     Record<string, string>
@@ -200,6 +209,13 @@ export const TERRAFORMS_EVENT_RENDER_MODE_OPTIONS = [
 
 export const TERRAFORMS_MEDIA_MODES = {
     LostTerrain: "lost-terrain",
+    Live: "live",
+} as const;
+
+// Terraforms token-local and collection-level media labels exposed by backend.
+export const TERRAFORMS_MEDIA_MODE_OPTIONS = {
+    LostTerrain: { key: TERRAFORMS_MEDIA_MODES.LostTerrain, label: "lost" },
+    Live: { key: TERRAFORMS_MEDIA_MODES.Live, label: "live" },
 } as const;
 
 export const TERRAFORMS_KNOWN_TOKEN_URI_ADDRESSES_BY_INDEX: Readonly<

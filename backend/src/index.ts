@@ -199,6 +199,7 @@ export function createBackendApp(
             collectionsReadModel,
             collectionExtensionRecords,
             backendObservability.apm,
+            backendRpcClient,
         );
     const extensionAwareCollectionCustomization =
         new ExtensionAwareCollectionCustomization(

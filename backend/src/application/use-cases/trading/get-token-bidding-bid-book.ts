@@ -7,6 +7,8 @@ import type {
 import { mapPersistedBidBookToView } from "./bidding-bid-book.js";
 export type { GetTokenBiddingBidBookOutput } from "./bidding-bid-book.js";
 
+type MaybePromise<T> = T | Promise<T>;
+
 export type GetTokenBiddingBidBookInput = {
     chainRef: string;
     collectionRef: string;
@@ -32,14 +34,14 @@ export class GetTokenBiddingBidBookUseCase {
                 chainId: number;
                 collectionId: number;
                 tokenId: string;
-            }): TokenDetail;
+            }): MaybePromise<TokenDetail>;
         },
         readonly bidBookRepositoryPort: BiddingBidBookRepositoryPort,
     ) {}
 
-    getTokenBiddingBidBook(
+    async getTokenBiddingBidBook(
         input: GetTokenBiddingBidBookInput,
-    ): GetTokenBiddingBidBookOutput {
+    ): Promise<GetTokenBiddingBidBookOutput> {
         // Resolve the requested chain before reading token-scoped bid data.
         const chain = this.chainRefResolverPort.resolveChainRef(
             input.chainRef,
@@ -51,7 +53,7 @@ export class GetTokenBiddingBidBookUseCase {
             input.collectionRef,
         );
         // Verify the token and reuse its normalized traits for applicability checks.
-        const token = this.collectionReadPort.getCollectionTokenDetail({
+        const token = await this.collectionReadPort.getCollectionTokenDetail({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: input.tokenRef,

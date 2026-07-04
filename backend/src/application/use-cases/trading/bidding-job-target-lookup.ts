@@ -13,6 +13,8 @@ import {
     mapPersistedBiddingJobToView,
 } from "./types.js";
 
+type MaybePromise<T> = T | Promise<T>;
+
 export type BiddingJobTargetLookupRequestTarget =
     | {
           type: "token";
@@ -59,7 +61,7 @@ export class BiddingJobTargetLookupUseCase {
                 chainId: number;
                 collectionId: number;
                 tokenId: string;
-            }): { tokenId: string };
+            }): MaybePromise<{ tokenId: string }>;
         },
         readonly biddingJobsRepositoryPort: Pick<
             BiddingJobsRepositoryPort,
@@ -67,9 +69,9 @@ export class BiddingJobTargetLookupUseCase {
         >,
     ) {}
 
-    lookupBiddingJobTarget(
+    async lookupBiddingJobTarget(
         input: BiddingJobTargetLookupInput,
-    ): BiddingJobTargetLookupOutput {
+    ): Promise<BiddingJobTargetLookupOutput> {
         // Resolve the requested chain against the configured backend default.
         const chain = this.chainRefResolverPort.resolveChainRef(
             input.chainRef,
@@ -80,7 +82,7 @@ export class BiddingJobTargetLookupUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
-        const target = this.mapTarget(
+        const target = await this.mapTarget(
             chain.publicChainId,
             collection.collectionId,
             input.target,
@@ -100,15 +102,15 @@ export class BiddingJobTargetLookupUseCase {
         };
     }
 
-    private mapTarget(
+    private async mapTarget(
         chainId: number,
         collectionId: number,
         target: BiddingJobTargetLookupRequestTarget,
-    ): TradingBiddingJobTargetDescriptor {
+    ): Promise<TradingBiddingJobTargetDescriptor> {
         if (target.type === "token") {
             const tokenId = parseRequiredString(target.tokenId, "target.tokenId");
             // Verify the token exists before resolving its declared job target.
-            const token = this.collectionReadPort.getCollectionTokenDetail({
+            const token = await this.collectionReadPort.getCollectionTokenDetail({
                 chainId,
                 collectionId,
                 tokenId,

@@ -48,6 +48,9 @@ import {
     TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS,
     TERRAFORMS_EXTENSION_KEY,
     TERRAFORMS_LEVEL_ATTRIBUTE_KEY,
+    TERRAFORMS_MAIN_READ_FUNCTIONS,
+    TERRAFORMS_MEDIA_MODE_OPTIONS,
+    TERRAFORMS_MEDIA_MODES,
     TERRAFORMS_MODE_ATTRIBUTE_KEY,
     TERRAFORMS_MODE_ATTRIBUTE_VALUES,
     TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
@@ -230,10 +233,34 @@ beforeAll(async () => {
         new collectionPurgeRepositoryModule.SqliteCollectionPurgeRepository();
     const collectionCustomizationRecords =
         new collectionCustomizationRecordsModule.SqliteCollectionCustomizationRecords();
+    const backendExtensionRpc = {
+        async readContract<T = unknown>(params: {
+            address: `0x${string}`;
+            abi: readonly unknown[];
+            functionName: string;
+            args?: readonly unknown[];
+            blockNumber?: number;
+        }): Promise<T> {
+            if (
+                params.functionName ===
+                TERRAFORMS_MAIN_READ_FUNCTIONS.TokenHtml
+            ) {
+                return "<html><body>terraforms-live</body></html>" as T;
+            }
+            throw new Error(
+                `Unexpected backend extension RPC read: ${params.functionName}`,
+            );
+        },
+        async getStorageAt() {
+            throw new Error("Unexpected backend extension storage read");
+        },
+    };
     const collectionsReadModel =
         new extensionAwareReadModule.ExtensionAwareCollectionDetailRead(
             baseCollectionsReadModel,
             collectionExtensionRecords,
+            undefined,
+            backendExtensionRpc,
         );
     const customizationReadModel =
         new extensionAwareCustomizationModule.ExtensionAwareCollectionCustomization(
@@ -2649,12 +2676,31 @@ describe("backend api routes", () => {
             { key: "artifact", label: "artifact" },
             { key: "lost-terrain", label: "lost" },
             { key: "snapshot", label: "snapshot" },
+            TERRAFORMS_MEDIA_MODE_OPTIONS.Live,
         ]);
         expect(result.payload.token).toEqual({
             tokenId: "7710",
             image: "data:image/svg+xml;base64,terraforms-v2-image",
             animationUrl: `data:text/html;base64,${Buffer.from("<html><body>terraforms-v2</body></html>", "utf8").toString("base64")}`,
         });
+    });
+
+    it("returns Terraforms live preview from main-contract tokenHTML", async () => {
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/terraforms/7710/preview?media_mode=live",
+        );
+
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.media.selectedMode).toBe(
+            TERRAFORMS_MEDIA_MODES.Live,
+        );
+        expect(result.payload.token.image).toBe(
+            "https://example.com/terraforms-default.png",
+        );
+        expect(result.payload.token.animationUrl).toBe(
+            `data:text/html;base64,${Buffer.from("<html><body>terraforms-live</body></html>", "utf8").toString("base64")}`,
+        );
     });
 
     it("returns Terraforms lost-terrain preview only when the token has that artifact", async () => {
@@ -2679,6 +2725,7 @@ describe("backend api routes", () => {
         expect(terrain.payload.media.availableModes).toEqual([
             { key: "artifact", label: "artifact" },
             { key: "snapshot", label: "snapshot" },
+            TERRAFORMS_MEDIA_MODE_OPTIONS.Live,
         ]);
         expect(terrain.payload.media.selectedMode).toBe("artifact");
     });
@@ -3439,6 +3486,7 @@ describe("backend api routes", () => {
             { key: "artifact", label: "artifact" },
             { key: "lost-terrain", label: "lost" },
             { key: "snapshot", label: "snapshot" },
+            TERRAFORMS_MEDIA_MODE_OPTIONS.Live,
         ]);
         expect(result.payload.token.tokenId).toBe("7710");
         expect(result.payload.token.image).toBe(
@@ -3446,6 +3494,24 @@ describe("backend api routes", () => {
         );
         expect(result.payload.token.animationUrl).toBe(
             `data:text/html;base64,${Buffer.from("<html><body>terraforms-v2</body></html>", "utf8").toString("base64")}`,
+        );
+    });
+
+    it("returns Terraforms live token detail from main-contract tokenHTML", async () => {
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/terraforms/7710?media_mode=live",
+        );
+
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.media.selectedMode).toBe(
+            TERRAFORMS_MEDIA_MODES.Live,
+        );
+        expect(result.payload.token.image).toBe(
+            "https://example.com/terraforms-default.png",
+        );
+        expect(result.payload.token.animationUrl).toBe(
+            `data:text/html;base64,${Buffer.from("<html><body>terraforms-live</body></html>", "utf8").toString("base64")}`,
         );
     });
 
@@ -3468,6 +3534,7 @@ describe("backend api routes", () => {
         expect(terrain.payload.media.availableModes).toEqual([
             { key: "artifact", label: "artifact" },
             { key: "snapshot", label: "snapshot" },
+            TERRAFORMS_MEDIA_MODE_OPTIONS.Live,
         ]);
     });
 
