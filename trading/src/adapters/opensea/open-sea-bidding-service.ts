@@ -720,6 +720,20 @@ export class OpenSeaBiddingService implements BiddingService {
         order: Order,
         context: BiddingServiceRequestContext = {},
     ): Promise<void> {
+        await this.cancelOrder(order, context);
+    }
+
+    public async cancelRecoveredOrder(
+        order: Order,
+        context: BiddingServiceRequestContext = {},
+    ): Promise<void> {
+        await this.cancelOrder(order, context);
+    }
+
+    private async cancelOrder(
+        order: Order,
+        context: BiddingServiceRequestContext,
+    ): Promise<void> {
         try {
             if (!order.protocolAddress) {
                 throw new Error(

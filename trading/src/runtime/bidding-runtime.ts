@@ -695,6 +695,8 @@ export async function startBiddingRuntime(
         {
             chainId: params.config.chainId,
             batchSize: FAILED_CANCELLATION_RECONCILIATION_BATCH_SIZE,
+            cancellationRetryMs:
+                params.biddingConfig.cancellationRemediationRetryMs,
         },
     );
     const failedCancellationLoop =

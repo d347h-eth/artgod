@@ -34,6 +34,7 @@ export const BIDDING_RUNTIME_ENV_KEY = {
     CommandMaxAttempts: "BIDDING_COMMAND_MAX_ATTEMPTS",
     CommandClaimTimeoutMs: "BIDDING_COMMAND_CLAIM_TIMEOUT_MS",
     FailedCancellationReconcileMs: "BIDDING_FAILED_CANCELLATION_RECONCILE_MS",
+    CancellationRemediationRetryMs: "BIDDING_CANCELLATION_REMEDIATION_RETRY_MS",
     WethAllowanceEth: "BIDDING_WETH_ALLOWANCE_ETH",
     TxMinPriorityFeeGwei: "BIDDING_TX_MIN_PRIORITY_FEE_GWEI",
     TxFeeHistoryBlocks: "BIDDING_TX_FEE_HISTORY_BLOCKS",
@@ -120,6 +121,10 @@ export const BIDDING_DEFAULT_COMMAND_CLAIM_TIMEOUT_MS = getSettingDefaultNumber(
 export const BIDDING_DEFAULT_FAILED_CANCELLATION_RECONCILE_MS =
     getSettingDefaultNumber(
         BIDDING_RUNTIME_ENV_KEY.FailedCancellationReconcileMs,
+    );
+export const BIDDING_DEFAULT_CANCELLATION_REMEDIATION_RETRY_MS =
+    getSettingDefaultNumber(
+        BIDDING_RUNTIME_ENV_KEY.CancellationRemediationRetryMs,
     );
 export const BIDDING_DEFAULT_WETH_ALLOWANCE_ETH = getSettingDefault(
     BIDDING_RUNTIME_ENV_KEY.WethAllowanceEth,

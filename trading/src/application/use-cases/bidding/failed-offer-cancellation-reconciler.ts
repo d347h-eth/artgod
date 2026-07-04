@@ -1,6 +1,8 @@
 import {
+    BIDDING_SERVICE_REQUEST_PRIORITY,
     BIDDING_ORDER_RECOVERY_STATUS,
     BiddingService,
+    type Order,
 } from "./bidding-service.js";
 import {
     BIDDING_LOG_COMPONENT,
@@ -12,6 +14,8 @@ export type RecoverableOfferCancellationRecord = {
     jobId: string;
     orderId: string;
     protocolAddress: string | null;
+    placedAt: string | null;
+    expirationTimeMs: number | null;
     collectionAddress: string;
     collectionSlug: string;
     tokenId: string | null;
@@ -30,6 +34,7 @@ export interface FailedOfferCancellationRepositoryPort {
     listRecoverableOfferCancellations(params: {
         chainId: number;
         limit: number;
+        retryCutoff: string;
     }):
         | Promise<RecoverableOfferCancellationRecord[]>
         | RecoverableOfferCancellationRecord[];
@@ -46,6 +51,7 @@ export interface FailedOfferCancellationRepositoryPort {
 export type FailedOfferCancellationReconcilerConfig = {
     chainId: number;
     batchSize: number;
+    cancellationRetryMs: number;
 };
 
 const log = createBiddingComponentLogger(
@@ -60,6 +66,10 @@ export const UNSETTLED_TERMINAL_CANCELLATION_ERROR =
 export const FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION = {
     Recovered: "failedCancellationRecovered",
     FailureRestored: "failedCancellationFailureRestored",
+    RetryFailed: "failedCancellationRetryFailed",
+    RetrySkippedExpired: "failedCancellationRetrySkippedExpired",
+    RetryStarted: "failedCancellationRetryStarted",
+    RetrySucceeded: "failedCancellationRetrySucceeded",
     StillActive: "failedCancellationStillActive",
     Inconclusive: "failedCancellationRecoveryInconclusive",
     Failed: "failedCancellationRecoveryFailed",
@@ -77,6 +87,9 @@ export class FailedOfferCancellationReconciler {
         const records = await this.repository.listRecoverableOfferCancellations({
             chainId: this.config.chainId,
             limit: this.config.batchSize,
+            retryCutoff: new Date(
+                Date.now() - this.config.cancellationRetryMs,
+            ).toISOString(),
         });
         let completedCount = 0;
 
@@ -114,7 +127,28 @@ export class FailedOfferCancellationReconciler {
                 }
 
                 if (result.status === BIDDING_ORDER_RECOVERY_STATUS.Active) {
+                    if (this.shouldRetryCancellation(record)) {
+                        const didComplete = await this.retryActiveCancellation(
+                            record,
+                            result.order,
+                        );
+                        if (didComplete) {
+                            completedCount += 1;
+                        }
+                        continue;
+                    }
+
                     await this.restoreTerminalFailureIfAvailable(record);
+                    log.debug(
+                        FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.RetrySkippedExpired,
+                        "Skipping failed cancellation retry because the offer is past its stored expiration",
+                        {
+                            jobId: record.jobId,
+                            orderId: record.orderId,
+                            collectionSlug: record.collectionSlug,
+                            expirationTimeMs: record.expirationTimeMs,
+                        },
+                    );
                     log.debug(
                         FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.StillActive,
                         "Failed offer cancellation still has an active order",
@@ -153,6 +187,92 @@ export class FailedOfferCancellationReconciler {
         }
 
         return completedCount;
+    }
+
+    private shouldRetryCancellation(
+        record: RecoverableOfferCancellationRecord,
+    ): boolean {
+        return (
+            record.expirationTimeMs === null ||
+            record.expirationTimeMs > Date.now()
+        );
+    }
+
+    private async retryActiveCancellation(
+        record: RecoverableOfferCancellationRecord,
+        recoveredOrder: Order,
+    ): Promise<boolean> {
+        const order = this.mergeRecoveredOrder(record, recoveredOrder);
+        log.info(
+            FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.RetryStarted,
+            "Retrying failed offer cancellation",
+            {
+                jobId: record.jobId,
+                orderId: record.orderId,
+                collectionSlug: record.collectionSlug,
+                expirationTimeMs: record.expirationTimeMs,
+            },
+        );
+
+        try {
+            await this.biddingService.cancelRecoveredOrder(order, {
+                priority: BIDDING_SERVICE_REQUEST_PRIORITY.Background,
+            });
+            const completedAt = new Date().toISOString();
+            await this.repository.markOfferCancellationCompleted({
+                jobId: record.jobId,
+                orderId: record.orderId,
+                completedAt,
+            });
+            log.info(
+                FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.RetrySucceeded,
+                "Retried failed offer cancellation successfully",
+                {
+                    jobId: record.jobId,
+                    orderId: record.orderId,
+                    collectionSlug: record.collectionSlug,
+                },
+            );
+            return true;
+        } catch (error) {
+            const cancellationError =
+                error instanceof Error ? error.message : String(error);
+            await this.repository.markOfferCancellationFailed({
+                jobId: record.jobId,
+                orderId: record.orderId,
+                cancellationError,
+            });
+            log.warn(
+                FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.RetryFailed,
+                "Failed to retry offer cancellation",
+                {
+                    jobId: record.jobId,
+                    orderId: record.orderId,
+                    collectionSlug: record.collectionSlug,
+                    ...toErrorLogFields(error),
+                },
+            );
+            return false;
+        }
+    }
+
+    private mergeRecoveredOrder(
+        record: RecoverableOfferCancellationRecord,
+        recoveredOrder: Order,
+    ): Order {
+        return {
+            ...recoveredOrder,
+            protocolAddress:
+                recoveredOrder.protocolAddress ??
+                record.protocolAddress ??
+                undefined,
+            placedAt: recoveredOrder.placedAt ?? record.placedAt ?? undefined,
+            expirationTime:
+                recoveredOrder.expirationTime ??
+                (record.expirationTimeMs === null
+                    ? undefined
+                    : Math.floor(record.expirationTimeMs / 1000)),
+        };
     }
 
     private async restoreTerminalFailureIfAvailable(

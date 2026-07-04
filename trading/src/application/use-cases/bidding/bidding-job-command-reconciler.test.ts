@@ -169,6 +169,10 @@ class FakeBiddingService implements BiddingService {
     async cancelOffer(_job: BidderJob, order: Order): Promise<void> {
         this.cancelled.push(order.id);
     }
+
+    async cancelRecoveredOrder(order: Order): Promise<void> {
+        this.cancelled.push(order.id);
+    }
 }
 
 function makeRecord(

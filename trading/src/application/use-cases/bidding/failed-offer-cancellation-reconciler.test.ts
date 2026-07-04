@@ -19,6 +19,8 @@ const FAILED_CANCELLATION_RECORD = {
     jobId: "job-token",
     orderId: "0xmine",
     protocolAddress: "0xprotocol",
+    placedAt: "2026-05-17T00:00:00Z",
+    expirationTimeMs: 1,
     collectionAddress: "0xcollection",
     collectionSlug: "terraforms",
     tokenId: "123",
@@ -35,8 +37,10 @@ class FakeFailedCancellationRepository implements FailedOfferCancellationReposit
     listRecoverableOfferCancellations(params: {
         chainId: number;
         limit: number;
+        retryCutoff: string;
     }): RecoverableOfferCancellationRecord[] {
         assert.equal(params.chainId, 1);
+        assert.ok(params.retryCutoff);
         return this.records.slice(0, params.limit);
     }
 
@@ -61,6 +65,8 @@ class FakeBiddingService implements BiddingService {
         status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
     };
     error: Error | null = null;
+    cancelError: Error | null = null;
+    cancelledOrders: Order[] = [];
 
     async getActiveOffers(): Promise<Order[]> {
         return [];
@@ -81,6 +87,8 @@ class FakeBiddingService implements BiddingService {
             jobId: FAILED_CANCELLATION_RECORD.jobId,
             orderId: orderHash,
             protocolAddress: protocolAddress ?? null,
+            placedAt: FAILED_CANCELLATION_RECORD.placedAt,
+            expirationTimeMs: FAILED_CANCELLATION_RECORD.expirationTimeMs,
             collectionAddress: collectionAddress ?? "",
             collectionSlug: collectionSlug ?? "",
             tokenId: tokenId ?? null,
@@ -107,6 +115,13 @@ class FakeBiddingService implements BiddingService {
     async cancelOffer(): Promise<void> {
         throw new Error("unused");
     }
+
+    async cancelRecoveredOrder(order: Order): Promise<void> {
+        this.cancelledOrders.push(order);
+        if (this.cancelError) {
+            throw this.cancelError;
+        }
+    }
 }
 
 function createReconciler(
@@ -116,6 +131,7 @@ function createReconciler(
     return new FailedOfferCancellationReconciler(repository, biddingService, {
         chainId: 1,
         batchSize: 10,
+        cancellationRetryMs: 300_000,
     });
 }
 
@@ -137,7 +153,7 @@ describe("FailedOfferCancellationReconciler", () => {
         assert.deepEqual(biddingService.lookups, [FAILED_CANCELLATION_RECORD]);
     });
 
-    it("leaves failed cancellation open when OpenSea still shows an active order", async () => {
+    it("leaves expired failed cancellation open when OpenSea still shows an active order", async () => {
         const repository = new FakeFailedCancellationRepository([
             FAILED_CANCELLATION_RECORD,
         ]);
@@ -157,6 +173,85 @@ describe("FailedOfferCancellationReconciler", () => {
 
         assert.equal(completedCount, 0);
         assert.deepEqual(repository.completed, []);
+        assert.deepEqual(biddingService.cancelledOrders, []);
+    });
+
+    it("retries active failed cancellation before the stored expiration threshold", async () => {
+        const repository = new FakeFailedCancellationRepository([
+            {
+                ...FAILED_CANCELLATION_RECORD,
+                expirationTimeMs: Date.now() + 60_000,
+            },
+        ]);
+        const biddingService = new FakeBiddingService();
+        biddingService.result = {
+            status: BIDDING_ORDER_RECOVERY_STATUS.Active,
+            order: {
+                id: "0xmine",
+                maker: "0xmaker",
+                price: 1n,
+                protocolAddress: "0xprotocol",
+                offerScope: "item",
+            },
+        };
+        const reconciler = createReconciler(repository, biddingService);
+
+        const completedCount = await reconciler.reconcileFailedCancellations();
+
+        assert.equal(completedCount, 1);
+        assert.equal(repository.completed.length, 1);
+        assert.equal(repository.completed[0]?.orderId, "0xmine");
+        assert.equal(biddingService.cancelledOrders.length, 1);
+        assert.equal(
+            biddingService.cancelledOrders[0]?.protocolAddress,
+            "0xprotocol",
+        );
+    });
+
+    it("keeps failed cancellation visible when slow cancellation retry fails", async () => {
+        const restoredFailures: Array<{
+            jobId: string;
+            orderId: string;
+            cancellationError: string;
+        }> = [];
+        const repository = new (class extends FakeFailedCancellationRepository {
+            override markOfferCancellationFailed(failure: {
+                jobId: string;
+                orderId: string;
+                cancellationError: string;
+            }): void {
+                restoredFailures.push(failure);
+            }
+        })([
+            {
+                ...FAILED_CANCELLATION_RECORD,
+                expirationTimeMs: Date.now() + 60_000,
+            },
+        ]);
+        const biddingService = new FakeBiddingService();
+        biddingService.result = {
+            status: BIDDING_ORDER_RECOVERY_STATUS.Active,
+            order: {
+                id: "0xmine",
+                maker: "0xmaker",
+                price: 1n,
+                protocolAddress: "0xprotocol",
+                offerScope: "item",
+            },
+        };
+        biddingService.cancelError = new Error("OpenSea cancel failed");
+        const reconciler = createReconciler(repository, biddingService);
+
+        const completedCount = await reconciler.reconcileFailedCancellations();
+
+        assert.equal(completedCount, 0);
+        assert.deepEqual(restoredFailures, [
+            {
+                jobId: "job-token",
+                orderId: "0xmine",
+                cancellationError: "OpenSea cancel failed",
+            },
+        ]);
     });
 
     it("restores terminal command failure when an unresolved cancellation has no error", async () => {

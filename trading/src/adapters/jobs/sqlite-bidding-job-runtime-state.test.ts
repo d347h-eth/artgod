@@ -14,6 +14,9 @@ import {
 } from "@artgod/shared/types";
 import { SqliteBiddingJobRuntimeState } from "./sqlite-bidding-job-runtime-state.js";
 
+const RECOVERABLE_RETRY_CUTOFF = "9999-01-01T00:00:00.000Z";
+const BEFORE_RECORDED_RETRY_CUTOFF = "1970-01-01T00:00:00.000Z";
+
 async function createTempDbPath(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "artgod-runtime-state-"));
     return join(dir, "main.sqlite");
@@ -300,6 +303,16 @@ describe("SqliteBiddingJobRuntimeState", () => {
             runtimeState.listRecoverableOfferCancellations({
                 chainId: 1,
                 limit: 10,
+                retryCutoff: BEFORE_RECORDED_RETRY_CUTOFF,
+            }),
+            [],
+        );
+
+        assert.deepEqual(
+            runtimeState.listRecoverableOfferCancellations({
+                chainId: 1,
+                limit: 10,
+                retryCutoff: RECOVERABLE_RETRY_CUTOFF,
             }),
             [
                 {
@@ -307,6 +320,8 @@ describe("SqliteBiddingJobRuntimeState", () => {
                     orderId: "0xmine",
                     protocolAddress:
                         "0x0000000000000068f116a894984e2db1123eb395",
+                    placedAt: "2026-05-17T00:00:00Z",
+                    expirationTimeMs: 1_900_000_000_000,
                     collectionAddress:
                         "0x1111111111111111111111111111111111111111",
                     collectionSlug: "terraforms",
@@ -345,6 +360,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
             runtimeState.listRecoverableOfferCancellations({
                 chainId: 1,
                 limit: 10,
+                retryCutoff: RECOVERABLE_RETRY_CUTOFF,
             }),
             [],
         );
@@ -418,6 +434,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
             runtimeState.listRecoverableOfferCancellations({
                 chainId: 1,
                 limit: 10,
+                retryCutoff: RECOVERABLE_RETRY_CUTOFF,
             }),
             [
                 {
@@ -425,6 +442,8 @@ describe("SqliteBiddingJobRuntimeState", () => {
                     orderId: "0xmine",
                     protocolAddress:
                         "0x0000000000000068f116a894984e2db1123eb395",
+                    placedAt: "2026-05-17T00:00:00Z",
+                    expirationTimeMs: 1_900_000_000_000,
                     collectionAddress:
                         "0x1111111111111111111111111111111111111111",
                     collectionSlug: "terraforms",
@@ -445,6 +464,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
             runtimeState.listRecoverableOfferCancellations({
                 chainId: 1,
                 limit: 10,
+                retryCutoff: RECOVERABLE_RETRY_CUTOFF,
             }),
             [
                 {
@@ -452,6 +472,8 @@ describe("SqliteBiddingJobRuntimeState", () => {
                     orderId: "0xmine",
                     protocolAddress:
                         "0x0000000000000068f116a894984e2db1123eb395",
+                    placedAt: "2026-05-17T00:00:00Z",
+                    expirationTimeMs: 1_900_000_000_000,
                     collectionAddress:
                         "0x1111111111111111111111111111111111111111",
                     collectionSlug: "terraforms",

@@ -37,6 +37,7 @@ type MarkOfferCancellationFailedParams = BiddingOfferCancellationFailure & {
 type ListRecoverableOfferCancellationsParams = {
     chainId: number;
     limit: number;
+    retryCutoff: string;
     botKind: typeof TRADING_BOT_KIND.Bidding;
     cancelCommandKind: typeof TRADING_JOB_COMMAND_KIND.CancelActiveOffer;
     completedStatus: typeof TRADING_JOB_COMMAND_STATUS.Completed;
@@ -47,6 +48,8 @@ type RecoverableOfferCancellationRow = {
     job_id: string;
     order_id: string;
     protocol_address: string | null;
+    placed_at: string | null;
+    expiration_time_ms: number | null;
     collection_address: string;
     collection_slug: string;
     token_id: string | null;
@@ -140,7 +143,8 @@ export class SqliteBiddingJobRuntimeState
 
         this.selectRecoverableOfferCancellations =
             db.prepare<ListRecoverableOfferCancellationsParams>(
-                "SELECT c.job_id, c.order_id, c.protocol_address, c.cancellation_error, " +
+                "SELECT c.job_id, c.order_id, c.protocol_address, " +
+                    "c.placed_at, c.expiration_time_ms, c.cancellation_error, " +
                     "EXISTS (" +
                     "SELECT 1 FROM trading_job_commands commands " +
                     "WHERE commands.job_id = c.job_id " +
@@ -166,15 +170,15 @@ export class SqliteBiddingJobRuntimeState
                     "WHERE c.chain_id = @chainId " +
                     "AND c.completed_at IS NULL " +
                     "AND (" +
-                    "c.cancellation_error IS NOT NULL " +
-                    "OR EXISTS (" +
+                    "(c.cancellation_error IS NOT NULL AND datetime(c.updated_at) <= datetime(@retryCutoff)) " +
+                    "OR (c.cancellation_error IS NULL AND EXISTS (" +
                     "SELECT 1 FROM trading_job_commands commands " +
                     "WHERE commands.job_id = c.job_id " +
                     "AND commands.bot_kind = @botKind " +
                     "AND commands.command_kind = @cancelCommandKind " +
                     "AND commands.requested_revision > COALESCE(c.job_revision, 0) " +
                     "AND commands.status IN (@completedStatus, @failedTerminalStatus)" +
-                    ")" +
+                    "))" +
                     ") " +
                     "ORDER BY c.updated_at ASC, c.requested_at ASC " +
                     "LIMIT @limit",
@@ -235,6 +239,7 @@ export class SqliteBiddingJobRuntimeState
     listRecoverableOfferCancellations(params: {
         chainId: number;
         limit: number;
+        retryCutoff: string;
     }): RecoverableOfferCancellationRecord[] {
         // Load unresolved rows that either failed already or have a terminal cancel command to audit.
         const rows = this.selectRecoverableOfferCancellations.all({
@@ -248,6 +253,8 @@ export class SqliteBiddingJobRuntimeState
             jobId: row.job_id,
             orderId: row.order_id,
             protocolAddress: row.protocol_address,
+            placedAt: row.placed_at,
+            expirationTimeMs: row.expiration_time_ms,
             collectionAddress: row.collection_address,
             collectionSlug: row.collection_slug,
             tokenId: row.token_id,

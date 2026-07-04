@@ -104,4 +104,9 @@ export interface BiddingService {
         order: Order,
         context?: BiddingServiceRequestContext,
     ): Promise<void>;
+    // Cancels a recovered order when no active job declaration should be rehydrated.
+    cancelRecoveredOrder(
+        order: Order,
+        context?: BiddingServiceRequestContext,
+    ): Promise<void>;
 }
