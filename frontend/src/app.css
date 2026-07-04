@@ -1918,6 +1918,8 @@ th {
 }
 
 .bid-book-table-panel {
+	display: grid;
+	justify-items: center;
 	margin-top: 0.65rem;
 }
 
