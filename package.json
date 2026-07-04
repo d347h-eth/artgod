@@ -20,6 +20,7 @@
     "scripts": {
         "dev": "./scripts/dev.sh",
         "dev:indexer": "./scripts/indexer-dev.sh",
+        "dev:composition": "yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources && yarn dev:desktop",
         "dev:desktop": "cargo tauri dev --no-watch",
         "tauri": "cargo tauri",
         "build": "node ./scripts/build/build-frontend-target.mjs web",
