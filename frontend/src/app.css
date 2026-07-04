@@ -296,6 +296,10 @@ a:hover {
 	grid-template-columns: minmax(0, max-content) minmax(20rem, 25rem);
 }
 
+.bootstrap-hidden-form {
+	display: none;
+}
+
 .bootstrap-form-fields {
 	display: grid;
 	gap: 0.85rem;
@@ -310,11 +314,12 @@ a:hover {
 	gap: 0.55rem;
 	width: fit-content;
 	max-width: 100%;
+	padding: 0.75rem;
+	background: rgb(0 0 0 / 33%);
 }
 
 .bootstrap-form-section + .bootstrap-form-section {
-	padding-top: 0.75rem;
-	border-top: 1px solid var(--c-blue);
+	margin-top: 0.15rem;
 }
 
 .bootstrap-form-feedback {
@@ -426,9 +431,7 @@ a:hover {
 }
 
 .bootstrap-resolution-badge {
-	color: var(--c-orange);
-	font-size: 0.72rem;
-	text-transform: uppercase;
+	margin-inline-start: 0;
 }
 
 .bootstrap-probe-section {
@@ -438,6 +441,38 @@ a:hover {
 
 .bootstrap-probe-status {
 	color: var(--c-cyan);
+}
+
+.bootstrap-probe-chip-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, max-content));
+	gap: 0.6rem;
+	align-items: stretch;
+	max-width: 100%;
+}
+
+.bootstrap-probe-chip {
+	display: grid;
+	align-content: start;
+	gap: 0.45rem;
+	padding: 0.55rem;
+	border: 1px solid color-mix(in srgb, var(--c-blue) 55%, transparent);
+	background: rgb(0 0 0 / 33%);
+}
+
+.bootstrap-probe-chip-title {
+	color: var(--c-yellow);
+	font-size: 0.68rem;
+	text-transform: uppercase;
+}
+
+.bootstrap-probe-chip-body {
+	display: grid;
+	gap: 0.42rem;
+}
+
+.bootstrap-probe-chip .bootstrap-form-row {
+	grid-template-columns: minmax(10rem, 14rem) max-content;
 }
 
 .bootstrap-probe-warning-row {
@@ -4107,6 +4142,15 @@ th {
 
 	.bootstrap-form-label-cell {
 		max-width: 100%;
+	}
+
+	.bootstrap-probe-chip-grid {
+		grid-template-columns: minmax(0, 1fr);
+		width: 100%;
+	}
+
+	.bootstrap-probe-chip .bootstrap-form-row {
+		grid-template-columns: minmax(0, 1fr);
 	}
 
 	.bootstrap-token-card-pane {
