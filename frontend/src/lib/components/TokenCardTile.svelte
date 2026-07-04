@@ -35,6 +35,7 @@
 		priceTitle = null,
 		marketPrices = [],
 		metaLabel = null,
+		showMeta = true,
 		ownStatusBadges = [],
 		selection = null
 	}: {
@@ -51,6 +52,7 @@
 		priceTitle?: string | null;
 		marketPrices?: MarketPriceItem[];
 		metaLabel?: string | null;
+		showMeta?: boolean;
 		ownStatusBadges?: BidBookOwnStatusBadge[];
 		selection?: TokenCardSelectionProps | null;
 	} = $props();
@@ -129,58 +131,60 @@
 			onclick={onSelectionRemoveClick}>x</button
 		>
 	{/if}
-	<div class="token-grid-meta">
-		<a class="mono token-grid-id" href={href}>{token.tokenId}</a>
-		{#if token.traitSummary}
-			<div class="mono token-grid-traits">{token.traitSummary}</div>
-		{/if}
-		{#if marketPrices.length > 0}
-			<div class="mono token-grid-market-prices" aria-label="market prices">
-				{#each marketPrices as price}
-					<span class={`token-grid-market-price ${price.kind}-price`} title={price.title ?? undefined}>
-						<MarketPriceIcon kind={price.kind} />
-						{#if price.href}
-							<a
-								class="token-price-link"
-								href={price.href}
-								target="_blank"
-								rel="noreferrer noopener"
-							>
-								{price.label}
-							</a>
-						{:else}
-							<span>{price.label}</span>
-						{/if}
-					</span>
-				{/each}
-			</div>
-		{:else if priceLabel}
-			<div class="mono token-grid-price" title={priceTitle ?? undefined}>
-				{#if priceHref}
-					<a
-						class="token-price-link"
-						href={priceHref}
-						target="_blank"
-						rel="noreferrer noopener"
-					>
+	{#if showMeta}
+		<div class="token-grid-meta">
+			<a class="mono token-grid-id" href={href}>{token.tokenId}</a>
+			{#if token.traitSummary}
+				<div class="mono token-grid-traits">{token.traitSummary}</div>
+			{/if}
+			{#if marketPrices.length > 0}
+				<div class="mono token-grid-market-prices" aria-label="market prices">
+					{#each marketPrices as price}
+						<span class={`token-grid-market-price ${price.kind}-price`} title={price.title ?? undefined}>
+							<MarketPriceIcon kind={price.kind} />
+							{#if price.href}
+								<a
+									class="token-price-link"
+									href={price.href}
+									target="_blank"
+									rel="noreferrer noopener"
+								>
+									{price.label}
+								</a>
+							{:else}
+								<span>{price.label}</span>
+							{/if}
+						</span>
+					{/each}
+				</div>
+			{:else if priceLabel}
+				<div class="mono token-grid-price" title={priceTitle ?? undefined}>
+					{#if priceHref}
+						<a
+							class="token-price-link"
+							href={priceHref}
+							target="_blank"
+							rel="noreferrer noopener"
+						>
+							{priceLabel}
+						</a>
+					{:else}
 						{priceLabel}
-					</a>
-				{:else}
-					{priceLabel}
-				{/if}
-			</div>
-		{/if}
-		{#if metaLabel}
-			<div class="mono token-grid-secondary-meta">{metaLabel}</div>
-		{/if}
-		{#if ownStatusBadges.length > 0}
-			<div class="token-grid-own-statuses" aria-label="own bid status">
-				{#each ownStatusBadges as badge (`${badge.kind}:${badge.label}`)}
-					<span class={`bid-book-own-status bid-book-own-status-${badge.kind}`}>
-						{badge.label}
-					</span>
-				{/each}
-			</div>
-		{/if}
-	</div>
+					{/if}
+				</div>
+			{/if}
+			{#if metaLabel}
+				<div class="mono token-grid-secondary-meta">{metaLabel}</div>
+			{/if}
+			{#if ownStatusBadges.length > 0}
+				<div class="token-grid-own-statuses" aria-label="own bid status">
+					{#each ownStatusBadges as badge (`${badge.kind}:${badge.label}`)}
+						<span class={`bid-book-own-status bid-book-own-status-${badge.kind}`}>
+							{badge.label}
+						</span>
+					{/each}
+				</div>
+			{/if}
+		</div>
+	{/if}
 </article>

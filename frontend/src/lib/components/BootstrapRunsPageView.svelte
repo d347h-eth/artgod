@@ -586,13 +586,6 @@
 		};
 	}
 
-	function firstTokenCardHref(tokenId: string): string {
-		if (!chain) return '#';
-		const slug = normalizeFieldValue(bootstrapSlug).toLowerCase();
-		if (!slug) return '#';
-		return `/${chain.slug}/${slug}/${tokenId}`;
-	}
-
 	function applyProbeImageCacheSuggestion(
 		suggestion: BootstrapContractProbeApiResponse['imageCacheSuggestion']
 	): void {
@@ -916,9 +909,7 @@
 		onsubmit={onSubmitOpenSeaSlugProbe}
 	></form>
 	<form class="bootstrap-form bootstrap-create-form" onsubmit={onSubmitBootstrap}>
-		<div
-			class={`bootstrap-create-layout ${formDetailsReady && firstTokenCard ? 'bootstrap-create-layout-expanded' : ''}`}
-		>
+		<div class="bootstrap-create-layout">
 			<div class="bootstrap-form-fields">
 				{#if submitError}
 					<div class="bootstrap-form-feedback">
@@ -926,19 +917,37 @@
 					</div>
 				{/if}
 
-				<div class="bootstrap-form-section">
-					<label class="bootstrap-form-row">
-						{@render fieldLabel('Contract address', bootstrapFieldHelp.address)}
-						<input
-							value={bootstrapAddress}
-							class={`${bootstrapInputClass} bootstrap-input-address`}
-							type="text"
-							name="address"
-							required
-							oninput={onBootstrapAddressInput}
-							onfocus={onBootstrapAddressFocus}
-						/>
-					</label>
+				<div class="bootstrap-address-preview-row">
+					<div class="bootstrap-form-section bootstrap-address-section">
+						<label class="bootstrap-form-row">
+							{@render fieldLabel('Contract address', bootstrapFieldHelp.address)}
+							<input
+								value={bootstrapAddress}
+								class={`${bootstrapInputClass} bootstrap-input-address`}
+								type="text"
+								name="address"
+								required
+								oninput={onBootstrapAddressInput}
+								onfocus={onBootstrapAddressFocus}
+							/>
+						</label>
+					</div>
+					{#if formDetailsReady && firstTokenCard}
+						<aside class="bootstrap-token-card-pane" aria-label="Token image preview">
+							<div class="bootstrap-probe-token-card" data-testid={TEST_IDS.BootstrapProbeTokenCard}>
+								<TokenCardTile
+									{chain}
+									collection={null}
+									token={firstTokenCard}
+									href="#"
+									selectedMediaMode={COLLECTION_MEDIA_MODES.Snapshot}
+									availableMediaModes={bootstrapPreviewMediaModes}
+									{tokenPreview}
+									showMeta={false}
+								/>
+							</div>
+						</aside>
+					{/if}
 				</div>
 
 				{#if probeStatus !== 'idle'}
@@ -1204,26 +1213,10 @@
 							{submitting ? 'submitting...' : 'queue bootstrap'}
 						</button>
 					</div>
-				{/if}
+					{/if}
+				</div>
 			</div>
-			{#if formDetailsReady && firstTokenCard}
-				<aside class="bootstrap-token-card-pane" aria-label="Token image preview">
-					<div class="bootstrap-probe-token-card" data-testid={TEST_IDS.BootstrapProbeTokenCard}>
-						<TokenCardTile
-							{chain}
-							collection={null}
-							token={firstTokenCard}
-							href={firstTokenCardHref(firstTokenCard.tokenId)}
-							selectedMediaMode={COLLECTION_MEDIA_MODES.Snapshot}
-							availableMediaModes={bootstrapPreviewMediaModes}
-							{tokenPreview}
-							metaLabel={firstTokenCard.name}
-						/>
-					</div>
-				</aside>
-			{/if}
-		</div>
-	</form>
+		</form>
 
 	<div class="table-wrap">
 		<table>

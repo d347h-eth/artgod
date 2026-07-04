@@ -288,12 +288,8 @@ a:hover {
 	grid-template-columns: minmax(0, max-content);
 	align-items: start;
 	gap: 1.35rem;
-	width: fit-content;
+	width: min(74rem, 100%);
 	max-width: 100%;
-}
-
-.bootstrap-create-layout-expanded {
-	grid-template-columns: minmax(0, max-content) minmax(20rem, 25rem);
 }
 
 .bootstrap-hidden-form {
@@ -305,7 +301,7 @@ a:hover {
 	gap: 0.85rem;
 	align-items: start;
 	justify-items: start;
-	width: fit-content;
+	width: min(74rem, 100%);
 	max-width: 100%;
 }
 
@@ -434,8 +430,17 @@ a:hover {
 	margin-inline-start: 0;
 }
 
+.bootstrap-address-preview-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 1.35rem;
+	flex-wrap: wrap;
+	width: min(74rem, 100%);
+	max-width: 100%;
+}
+
 .bootstrap-probe-section {
-	width: fit-content;
+	width: min(68rem, 100%);
 	max-width: 100%;
 }
 
@@ -445,10 +450,10 @@ a:hover {
 
 .bootstrap-probe-chip-grid {
 	display: grid;
-	grid-template-columns: repeat(3, minmax(13.5rem, 1fr));
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(23rem, 1.35fr);
 	gap: 0.6rem;
 	align-items: stretch;
-	width: min(46rem, 100%);
+	width: 100%;
 	max-width: 100%;
 }
 
@@ -473,21 +478,22 @@ a:hover {
 }
 
 .bootstrap-probe-chip .bootstrap-form-row {
-	grid-template-columns: minmax(0, 1fr);
-	align-items: start;
-	gap: 0.18rem;
+	grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+	align-items: baseline;
+	gap: 0.55rem;
 	width: 100%;
 }
 
 .bootstrap-probe-chip .bootstrap-form-label-cell {
-	max-width: 100%;
+	max-width: none;
 }
 
 .bootstrap-probe-chip .bootstrap-form-row > .mono {
 	min-width: 0;
 	max-width: 100%;
-	text-align: left;
-	overflow-wrap: anywhere;
+	text-align: right;
+	white-space: nowrap;
+	overflow-wrap: normal;
 }
 
 .bootstrap-probe-warning-row {
