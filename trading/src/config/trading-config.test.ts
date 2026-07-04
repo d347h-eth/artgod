@@ -79,10 +79,7 @@ describe("loadTradingConfig", () => {
         assert.equal(config.bidding.scanSleepMs, 60 * 1000);
         assert.equal(config.bidding.commandPollMs, 1_000);
         assert.equal(config.bidding.hotRefreshBroadCooldownMs, 15_000);
-        assert.equal(
-            config.bidding.hotRefreshBroadMaxPendingSignatures,
-            256,
-        );
+        assert.equal(config.bidding.hotRefreshBroadMaxPendingSignatures, 256);
         assert.equal(config.bidding.hotRefreshItemCooldownMs, 2_000);
         assert.equal(config.bidding.hotRefreshItemMaxPendingSignatures, 512);
         assert.equal(config.bidding.competitiveTraitMaxLookupSelectors, 64);
@@ -90,6 +87,8 @@ describe("loadTradingConfig", () => {
         assert.equal(config.bidding.commandBatchSize, 20);
         assert.equal(config.bidding.commandMaxAttempts, 5);
         assert.equal(config.bidding.commandClaimTimeoutMs, 300_000);
+        assert.equal(config.bidding.failedCancellationReconcileMs, 60_000);
+        assert.equal(config.bidding.cancellationRemediationRetryMs, 300_000);
         assert.equal(config.bidding.wethAllowanceWei, 0n);
         assert.deepEqual(config.bidding.transactionPolicy, {
             fees: {
@@ -257,6 +256,8 @@ describe("loadTradingConfig", () => {
                 BIDDING_HOT_REFRESH_BROAD_COOLDOWN_MS: "25000",
                 BIDDING_HOT_REFRESH_ITEM_COOLDOWN_MS: "3000",
                 BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS: "30000",
+                BIDDING_FAILED_CANCELLATION_RECONCILE_MS: "45000",
+                BIDDING_CANCELLATION_REMEDIATION_RETRY_MS: "240000",
                 [BIDDING_CONFIG_ENV_KEY.RuntimeHeartbeatIntervalMs]: "8000",
                 [BIDDING_CONFIG_ENV_KEY.RuntimeHeartbeatStaleMs]: "24000",
                 BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION:
@@ -284,6 +285,8 @@ describe("loadTradingConfig", () => {
         assert.equal(config.bidding.hotRefreshBroadCooldownMs, 25_000);
         assert.equal(config.bidding.hotRefreshItemCooldownMs, 3_000);
         assert.equal(config.bidding.bidBookProjectionThrottleMs, 30_000);
+        assert.equal(config.bidding.failedCancellationReconcileMs, 45_000);
+        assert.equal(config.bidding.cancellationRemediationRetryMs, 240_000);
         assert.deepEqual(config.bidding.runtimeHeartbeat, {
             intervalMs: 8000,
             staleMs: 24000,

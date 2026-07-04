@@ -1372,6 +1372,20 @@ default = "300000"
 help = "How long a claimed bidding command can run before another pass may recover it."
 
 [[settings]]
+key = "BIDDING_FAILED_CANCELLATION_RECONCILE_MS"
+group = "bidding"
+label = "bidding failed cancellation reconcile ms"
+default = "60000"
+help = "How often the bidding bot checks unresolved cancellations and refreshes their OpenSea state."
+
+[[settings]]
+key = "BIDDING_CANCELLATION_REMEDIATION_RETRY_MS"
+group = "bidding"
+label = "bidding cancellation remediation retry ms"
+default = "300000"
+help = "How long the bidding bot waits between slow retry attempts for failed offer cancellations."
+
+[[settings]]
 key = "BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION"
 group = "bidding"
 label = "bidding criteria refresh traits by collection"

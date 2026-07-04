@@ -54,6 +54,7 @@ import {
     CollectionOfferSnapshotService,
     type CollectionOfferBootstrapProgress,
 } from "../application/use-cases/bidding/collection-offer-snapshot-service.js";
+import { FailedOfferCancellationReconciler } from "../application/use-cases/bidding/failed-offer-cancellation-reconciler.js";
 import { AttrFilter } from "../application/use-cases/market/pipeline/lib/attr-filter.js";
 import { BidderRefresh } from "../application/use-cases/market/pipeline/lib/bidder-refresh.js";
 import { CollectionOfferSnapshotRefresh } from "../application/use-cases/market/pipeline/lib/collection-offer-snapshot-refresh.js";
@@ -78,6 +79,7 @@ import {
     toErrorLogFields,
 } from "../utils/bidding-log.js";
 import { startBiddingCommandReconciliationLoop } from "./bidding-command-reconciliation-loop.js";
+import { startBiddingFailedCancellationReconciliationLoop } from "./bidding-failed-cancellation-reconciliation-loop.js";
 import { createOpenSeaSdkRpcConnection } from "./opensea-sdk-rpc-connection.js";
 import {
     TRADING_RPC_ENDPOINT_ID_PREFIX,
@@ -127,6 +129,9 @@ const BIDDING_RUNTIME_LOG_ACTION = {
     CommandSnapshotRefreshStarted: "commandSnapshotRefreshStarted",
     CommandSnapshotRefreshComplete: "commandSnapshotRefreshComplete",
 } as const;
+
+// Failed-cancellation reconciliation stays small because it performs direct OpenSea order recovery.
+const FAILED_CANCELLATION_RECONCILIATION_BATCH_SIZE = 25;
 
 export interface BiddingRuntimeLifecyclePort {
     bootstrapping(update: BiddingRuntimeBootstrapLifecycleUpdate): void;
@@ -394,8 +399,9 @@ export async function startBiddingRuntime(
                 snapshotBackedCollectionSlugs.length,
                 tokenWarmCandidates,
             );
-        const stopSnapshotBootstrapProgressPulse =
-            startBootstrapProgressPulse(snapshotBootstrapProgress);
+        const stopSnapshotBootstrapProgressPulse = startBootstrapProgressPulse(
+            snapshotBootstrapProgress,
+        );
         try {
             await collectionOfferSnapshotService.bootstrap({
                 onCollectionStarted: (progress) => {
@@ -631,6 +637,7 @@ export async function startBiddingRuntime(
             claimTimeoutMs: params.biddingConfig.commandClaimTimeoutMs,
             maxAttempts: params.biddingConfig.commandMaxAttempts,
         },
+        biddingJobRuntimeState,
     );
     // Process any committed DB commands before the normal bidder loop starts.
     params.lifecycle.bootstrapping({
@@ -639,10 +646,10 @@ export async function startBiddingRuntime(
         total: params.biddingConfig.commandBatchSize,
         detail: "trigger=startup",
     });
-    const startupCommandProgress =
-        createStartupCommandProgressReporter(params);
-    const stopStartupCommandProgressPulse =
-        startBootstrapProgressPulse(startupCommandProgress);
+    const startupCommandProgress = createStartupCommandProgressReporter(params);
+    const stopStartupCommandProgressPulse = startBootstrapProgressPulse(
+        startupCommandProgress,
+    );
     let startupCommandCount = 0;
     try {
         startupCommandCount = await commandReconciler.processPendingCommands(
@@ -682,6 +689,21 @@ export async function startBiddingRuntime(
         commandReconciler,
         params.biddingConfig.commandPollMs,
     );
+    const failedCancellationReconciler = new FailedOfferCancellationReconciler(
+        biddingJobRuntimeState,
+        biddingService,
+        {
+            chainId: params.config.chainId,
+            batchSize: FAILED_CANCELLATION_RECONCILIATION_BATCH_SIZE,
+            cancellationRetryMs:
+                params.biddingConfig.cancellationRemediationRetryMs,
+        },
+    );
+    const failedCancellationLoop =
+        startBiddingFailedCancellationReconciliationLoop(
+            failedCancellationReconciler,
+            params.biddingConfig.failedCancellationReconcileMs,
+        );
     const signalListener = await startBiddingJobCommandSignalListener(
         params.config.queue.natsUrl,
         params.config.queue.streamPrefix,
@@ -708,6 +730,7 @@ export async function startBiddingRuntime(
                 bidBookProjection.stop();
                 collectionOfferSnapshotService.stop();
                 await commandLoop.shutdown();
+                await failedCancellationLoop.shutdown();
                 await signalListener?.shutdown();
                 bidStreams.forEach(({ stream }) => stream.dispose());
                 bidStreams.clear();
@@ -764,7 +787,9 @@ type SnapshotBootstrapProgressReporter = BootstrapProgressPulseReporter & {
 
 type StartupCommandProgressReporter = BootstrapProgressPulseReporter & {
     reportStarted(progress: BiddingJobCommandProgress): void;
-    reportFinished(progress: BiddingJobCommandProgress & { succeeded: boolean }): void;
+    reportFinished(
+        progress: BiddingJobCommandProgress & { succeeded: boolean },
+    ): void;
 };
 
 function createSnapshotBootstrapProgressReporter(

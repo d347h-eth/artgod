@@ -42,6 +42,8 @@ import {
     BIDDING_DEFAULT_COMMAND_MAX_ATTEMPTS,
     BIDDING_DEFAULT_COMMAND_POLL_MS,
     BIDDING_DEFAULT_COMPETITIVE_TRAIT_MAX_LOOKUP_SELECTORS,
+    BIDDING_DEFAULT_CANCELLATION_REMEDIATION_RETRY_MS,
+    BIDDING_DEFAULT_FAILED_CANCELLATION_RECONCILE_MS,
     BIDDING_DEFAULT_COLLECTION_OFFERS_POLL_MS,
     BIDDING_DEFAULT_COLLECTION_OFFERS_ADAPTIVE_TTL_MULTIPLIER,
     BIDDING_DEFAULT_COLLECTION_OFFERS_MAX_TTL_MS,
@@ -105,6 +107,8 @@ export type EnabledBiddingConfig = {
     commandBatchSize: number;
     commandMaxAttempts: number;
     commandClaimTimeoutMs: number;
+    failedCancellationReconcileMs: number;
+    cancellationRemediationRetryMs: number;
     runtimeHeartbeat: BiddingConfig["runtimeHeartbeat"];
     criteriaRefreshTraitsByCollection: Record<string, string[]>;
     tokenCriteriaTraitsByCollection: Record<string, string[]>;
@@ -140,6 +144,8 @@ export type DisabledBiddingConfig = {
     commandBatchSize: number;
     commandMaxAttempts: number;
     commandClaimTimeoutMs: number;
+    failedCancellationReconcileMs: number;
+    cancellationRemediationRetryMs: number;
     runtimeHeartbeat: BiddingConfig["runtimeHeartbeat"];
     criteriaRefreshTraitsByCollection: Record<string, string[]>;
     tokenCriteriaTraitsByCollection: Record<string, string[]>;
@@ -299,6 +305,16 @@ export function loadTradingConfig(
             env[BIDDING_RUNTIME_ENV_KEY.CommandClaimTimeoutMs],
             BIDDING_RUNTIME_ENV_KEY.CommandClaimTimeoutMs,
             BIDDING_DEFAULT_COMMAND_CLAIM_TIMEOUT_MS,
+        ),
+        failedCancellationReconcileMs: parsePositiveInteger(
+            env[BIDDING_RUNTIME_ENV_KEY.FailedCancellationReconcileMs],
+            BIDDING_RUNTIME_ENV_KEY.FailedCancellationReconcileMs,
+            BIDDING_DEFAULT_FAILED_CANCELLATION_RECONCILE_MS,
+        ),
+        cancellationRemediationRetryMs: parsePositiveInteger(
+            env[BIDDING_RUNTIME_ENV_KEY.CancellationRemediationRetryMs],
+            BIDDING_RUNTIME_ENV_KEY.CancellationRemediationRetryMs,
+            BIDDING_DEFAULT_CANCELLATION_REMEDIATION_RETRY_MS,
         ),
         runtimeHeartbeat: sharedBiddingConfig.runtimeHeartbeat,
         criteriaRefreshTraitsByCollection: parseStringArrayMap(

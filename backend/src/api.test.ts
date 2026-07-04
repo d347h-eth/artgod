@@ -1739,11 +1739,12 @@ describe("backend api routes", () => {
         ).run("own-signal-job");
         db.prepare(
             "INSERT INTO trading_bidding_job_runtime_state " +
-                "(job_id, job_revision, current_price_wei, active_order_id, active_protocol_address, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, updated_at) " +
-                "VALUES (?, 1, '200000000000000000', ?, NULL, NULL, ?, ?, '210000000000000000', ?)",
+                "(job_id, job_revision, current_price_wei, active_order_id, active_protocol_address, active_order_verified_at, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, updated_at) " +
+                "VALUES (?, 1, '200000000000000000', ?, NULL, ?, NULL, ?, ?, '210000000000000000', ?)",
         ).run(
             "own-signal-job",
             "own-signal-bid",
+            new Date().toISOString(),
             TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
             JSON.stringify([TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling]),
             new Date().toISOString(),

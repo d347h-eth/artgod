@@ -7,7 +7,10 @@ import {
     parseOpenSeaBiddingOffer,
 } from "@artgod/shared/trading/open-sea-bidding-offers";
 import {
+    BIDDING_ORDER_RECOVERY_REASON,
+    BIDDING_ORDER_RECOVERY_STATUS,
     BIDDING_SERVICE_REQUEST_PRIORITY,
+    BiddingOrderRecoveryResult,
     BiddingService,
     BiddingServiceRequestContext,
     OfferDiscoverySource,
@@ -468,8 +471,9 @@ export class OpenSeaBiddingService implements BiddingService {
         _tokenId?: string,
         collectionSlug?: string,
         context: BiddingServiceRequestContext = {},
-    ): Promise<Order | null> {
+    ): Promise<BiddingOrderRecoveryResult> {
         let foundOrder: unknown = null;
+        let directLookupInconclusive = false;
 
         if (protocolAddress) {
             try {
@@ -485,10 +489,7 @@ export class OpenSeaBiddingService implements BiddingService {
                     "getOrderByHash",
                     "order by hash",
                     () =>
-                        this.sdk.api.getOrderByHash(
-                            orderHash,
-                            protocolAddress,
-                        ),
+                        this.sdk.api.getOrderByHash(orderHash, protocolAddress),
                     context,
                 );
 
@@ -513,88 +514,7 @@ export class OpenSeaBiddingService implements BiddingService {
                         ...toErrorLogFields(error),
                     },
                 );
-            }
-        }
-
-        if (!foundOrder && collectionSlug) {
-            log.debug(
-                "orderCollectionScanStarted",
-                "Order not resolved via direct lookup; scanning collection offers",
-                {
-                    orderHash,
-                    collectionSlug,
-                },
-            );
-
-            let cursor: string | undefined;
-            let page = 0;
-
-            while (page < this.orderLookupMaxPages) {
-                try {
-                    const response = await this.withRetry(
-                        "getAllOffers",
-                        `all offers (page ${page + 1})`,
-                        () =>
-                            this.sdk.api.getAllOffers(
-                                collectionSlug,
-                                this.offersPageSize,
-                                cursor,
-                            ),
-                        context,
-                    );
-
-                    const offers = asArray(response?.offers);
-                    log.debug(
-                        "orderCollectionScanPageFetched",
-                        "Fetched collection offers page while scanning for order",
-                        {
-                            orderHash,
-                            collectionSlug,
-                            page: page + 1,
-                            offerCount: offers.length,
-                        },
-                    );
-
-                    foundOrder =
-                        offers.find((offer) =>
-                            matchesOrderHash(offer, orderHash),
-                        ) ?? null;
-                    if (foundOrder) {
-                        log.debug(
-                            "orderCollectionScanFound",
-                            "Found order in collection-specific offers list",
-                            {
-                                orderHash,
-                                collectionSlug,
-                                page: page + 1,
-                            },
-                        );
-                        break;
-                    }
-
-                    const next =
-                        typeof response?.next === "string"
-                            ? response.next
-                            : undefined;
-                    if (!next) {
-                        break;
-                    }
-
-                    cursor = next;
-                    page++;
-                } catch (error) {
-                    log.debug(
-                        "orderCollectionScanPageFailed",
-                        "Failed to fetch collection offers page while scanning for order",
-                        {
-                            orderHash,
-                            collectionSlug,
-                            page: page + 1,
-                            ...toErrorLogFields(error),
-                        },
-                    );
-                    throw error;
-                }
+                directLookupInconclusive = !isDirectOrderAbsentError(error);
             }
         }
 
@@ -602,8 +522,19 @@ export class OpenSeaBiddingService implements BiddingService {
             log.debug("orderNotFound", "Order not found in market", {
                 orderHash,
                 collectionSlug: collectionSlug ?? null,
+                directLookupInconclusive,
             });
-            return null;
+            if (!directLookupInconclusive) {
+                return {
+                    status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
+                };
+            }
+            return {
+                status: BIDDING_ORDER_RECOVERY_STATUS.Inconclusive,
+                reason: protocolAddress
+                    ? BIDDING_ORDER_RECOVERY_REASON.DirectLookupFailed
+                    : BIDDING_ORDER_RECOVERY_REASON.LookupUnavailable,
+            };
         }
 
         const parsed = this.parseRawOffer(
@@ -612,7 +543,10 @@ export class OpenSeaBiddingService implements BiddingService {
             "stateRecovery",
         );
         if (!parsed) {
-            return null;
+            return {
+                status: BIDDING_ORDER_RECOVERY_STATUS.Inconclusive,
+                reason: BIDDING_ORDER_RECOVERY_REASON.ParseFailed,
+            };
         }
 
         const status = stringOrUndefined(
@@ -628,14 +562,19 @@ export class OpenSeaBiddingService implements BiddingService {
                         status,
                     },
                 );
-                return null;
+                return {
+                    status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
+                };
             }
 
             log.debug("orderRecovered", "Successfully recovered order", {
                 orderHash,
                 status,
             });
-            return parsed;
+            return {
+                status: BIDDING_ORDER_RECOVERY_STATUS.Active,
+                order: parsed,
+            };
         }
 
         if (isLegacyInactive(foundOrder)) {
@@ -644,10 +583,13 @@ export class OpenSeaBiddingService implements BiddingService {
                 "Recovered order is not active by legacy checks",
                 { orderHash },
             );
-            return null;
+            return { status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing };
         }
 
-        return parsed;
+        return {
+            status: BIDDING_ORDER_RECOVERY_STATUS.Active,
+            order: parsed,
+        };
     }
 
     public async placeOffer(
@@ -777,6 +719,20 @@ export class OpenSeaBiddingService implements BiddingService {
         _job: BidderJob,
         order: Order,
         context: BiddingServiceRequestContext = {},
+    ): Promise<void> {
+        await this.cancelOrder(order, context);
+    }
+
+    public async cancelRecoveredOrder(
+        order: Order,
+        context: BiddingServiceRequestContext = {},
+    ): Promise<void> {
+        await this.cancelOrder(order, context);
+    }
+
+    private async cancelOrder(
+        order: Order,
+        context: BiddingServiceRequestContext,
     ): Promise<void> {
         try {
             if (!order.protocolAddress) {
@@ -1789,6 +1745,18 @@ function isNotFoundError(error: unknown): boolean {
         asRecord(error)?.status ?? asRecord(asRecord(error)?.response)?.status,
     );
     return message.includes("404") || status === 404;
+}
+
+function isDirectOrderAbsentError(error: unknown): boolean {
+    if (isNotFoundError(error)) {
+        return true;
+    }
+    const message = toErrorMessage(error).trim().toLowerCase();
+    return (
+        message === "not found" ||
+        /\border\b.*\bnot found\b/.test(message) ||
+        /\bnot found\b.*\border\b/.test(message)
+    );
 }
 
 function toErrorMessage(error: unknown): string {

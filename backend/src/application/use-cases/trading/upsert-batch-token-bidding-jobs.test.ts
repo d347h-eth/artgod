@@ -9,6 +9,7 @@ import {
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
+    TOKEN_BROWSER_STATUS,
     type ChainRecord,
     type CollectionListItem,
     type PersistedTokenBiddingJobRecord,
@@ -117,6 +118,60 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
         assert.equal(persistedInputs[0]?.ceilingWei, "200000000000000000");
         assert.equal(persistedInputs[0]?.deltaWei, "1000000000000000");
         assert.deepEqual(publishedCommands, commands);
+    });
+
+    it("keeps owner-scoped token-browser selections constrained to holder tokens", () => {
+        const ownersSeen: Array<string | undefined> = [];
+        const useCase = new UpsertBatchTokenBiddingJobsUseCase(
+            1,
+            {
+                resolveChainRef: () => CHAIN,
+            },
+            {
+                resolveCollectionRef: () => COLLECTION,
+                listCollectionTokens: ({ owner }) => {
+                    ownersSeen.push(owner);
+                    return tokenPage(["7", "8"], null);
+                },
+                listCollectionTokenCardsByIds: () => [],
+            },
+            emptyBidBookRepository(),
+            {
+                upsertTokenJobs: (inputs) => ({
+                    jobs: inputs.map((input) =>
+                        buildPersistedTokenJob({ tokenId: input.tokenId }),
+                    ),
+                    commands: [],
+                }),
+            },
+            {
+                listCollectionPriceTiers: () => [],
+            },
+            {
+                publishBiddingJobCommandsChanged: () => undefined,
+            },
+        );
+
+        const result = useCase.upsertBatchTokenBiddingJobs({
+            chainRef: "ethereum",
+            collectionRef: "terraforms",
+            status: TRADING_JOB_STATUS.Enabled,
+            floorEth: "0.1",
+            ceilingEth: "0.2",
+            deltaEth: "0.001",
+            selection: {
+                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
+                tokenStatus: TOKEN_BROWSER_STATUS.ListedThenUnlisted,
+                traits: [],
+                traitRanges: [],
+                ownerAddress: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            },
+        });
+
+        assert.deepEqual(result.tokenIds, ["7", "8"]);
+        assert.deepEqual(ownersSeen, [
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ]);
     });
 
     it("filters synthetic tokens out of filtered token-browser selections", () => {

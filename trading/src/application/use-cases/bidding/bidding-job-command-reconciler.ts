@@ -45,6 +45,18 @@ export interface BiddingRuntimeJobPreparationPort {
     reconcileEnabledJobs(jobs: BidderJob[]): Promise<void>;
 }
 
+export type BiddingOfferCancellationFailure = {
+    jobId: string;
+    orderId: string;
+    cancellationError: string;
+};
+
+export interface BiddingOfferCancellationLifecyclePort {
+    markOfferCancellationFailed(
+        failure: BiddingOfferCancellationFailure,
+    ): Promise<void> | void;
+}
+
 const log = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.BiddingCommandReconciler,
 );
@@ -53,6 +65,8 @@ const BIDDING_COMMAND_RECONCILER_LOG_ACTION = {
     EnabledJobAlreadySatisfied: "enabledJobAlreadySatisfied",
     CommandStarted: "commandStarted",
     CommandProgress: "commandProgress",
+    CancellationTerminalFailureRecordFailed:
+        "cancellationTerminalFailureRecordFailed",
 } as const;
 
 // Ordered command replay claims one row at a time so later commands do not hide behind an earlier retry.
@@ -68,6 +82,7 @@ export class BiddingJobCommandReconciler {
         private readonly bidder: Bidder,
         private readonly jobPreparationPort: BiddingRuntimeJobPreparationPort,
         private readonly options: BiddingJobCommandReconcilerOptions,
+        private readonly cancellationLifecyclePort?: BiddingOfferCancellationLifecyclePort,
     ) {}
 
     async processPendingCommands(
@@ -155,6 +170,7 @@ export class BiddingJobCommandReconciler {
                     command.commandId,
                     message,
                 );
+                await this.markTerminalCancellationFailure(command, message);
                 log.error(
                     "commandTerminalFailure",
                     "Bidding job command failed terminally",
@@ -179,6 +195,42 @@ export class BiddingJobCommandReconciler {
                 },
             );
             return false;
+        }
+    }
+
+    private async markTerminalCancellationFailure(
+        command: BiddingJobCommand,
+        message: string,
+    ): Promise<void> {
+        if (
+            command.commandKind !== TRADING_JOB_COMMAND_KIND.CancelActiveOffer ||
+            !this.cancellationLifecyclePort
+        ) {
+            return;
+        }
+
+        const orderId = parseOptionalPayloadString(command.payload.activeOrderId);
+        if (!orderId) {
+            return;
+        }
+
+        try {
+            // Settle the cancellation lifecycle row so the bid book never shows an endless canceling state.
+            await this.cancellationLifecyclePort.markOfferCancellationFailed({
+                jobId: command.jobId,
+                orderId,
+                cancellationError: message,
+            });
+        } catch (error) {
+            log.error(
+                BIDDING_COMMAND_RECONCILER_LOG_ACTION.CancellationTerminalFailureRecordFailed,
+                "Failed to record terminal cancellation failure",
+                {
+                    ...commandLogFields(command),
+                    orderId,
+                    ...toErrorLogFields(error),
+                },
+            );
         }
     }
 

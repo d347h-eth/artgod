@@ -234,7 +234,7 @@ Collection bidding page:
 - Lists collection bid-book rows.
 - Missing `bid_scope` defaults to `token`, which returns explicit token-scoped offers grouped as paginated token cards in `tokenOfferCards`.
 - Query `bid_scope=token` applies normal token trait filtering and returns all non-muted explicit token-scoped offers for each matching token card.
-- Token-scoped offers below 10% of the current top collection-wide bid are hidden and excluded from token-card offer counts.
+- Token-scoped offers and trait-scoped bid rows below 10% of the current top collection-wide bid are hidden; token-card offer counts exclude hidden token offers.
 - Query `bid_scope=collection` returns collection-wide bids only.
 - Query `bid_scope=traits` returns trait-scoped bids and applies repeated `traits=key:value` / `trait_ranges=key:from..to` filters.
 - Trait bid-book filtering defaults to `trait_join=or`, where any selected trait key-value or range can match a bid criterion.

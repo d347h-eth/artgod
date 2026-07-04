@@ -1,10 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
-	import {
-		COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
-		TRADING_JOB_STATUS
-	} from '@artgod/shared/types';
+	import { TRADING_JOB_STATUS } from '@artgod/shared/types';
 	import type {
 		ApiChain,
 		ApiBiddingBidBook,
@@ -23,7 +20,6 @@
 	import { getBootstrapStatus } from '$lib/backend-api';
 	import {
 		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
-		buildBiddingAutomationResolvedTokenFilterSnapshot,
 		buildBiddingAutomationDraftFromSelection,
 		canDraftTraitJobFromFilters,
 		type BiddingAutomationTokenFilterSnapshot
@@ -58,6 +54,11 @@
 		publicCollectionTokensPath
 	} from '$lib/runtime/public-deployment';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
+	import {
+		buildTokenBrowserBiddingFilterSnapshot,
+		tokenBrowserBiddingFilterKey,
+		visibleBiddableTokenIds
+	} from '$lib/token-browser-bidding';
 	import { buildTokenBrowserHref } from '$lib/token-browser-query';
 
 	let {
@@ -105,11 +106,7 @@
 	let activeBiddingSettings = $state<ApiBiddingCollectionSettings>(biddingSettings);
 	let activePriceTiers = $state<ApiBiddingPriceTier[]>(priceTiers);
 	let priceTierPanelOpen = $state(false);
-	let visibleBiddableBrowserTokenIds = $state<string[]>(
-		tokens.items
-			.filter((token) => token.marketplaceBiddingSupported)
-			.map((token) => token.tokenId)
-	);
+	let visibleBiddableBrowserTokenIds = $state<string[]>(visibleBiddableTokenIds(tokens));
 	let lastBiddingFilterKey = $state('');
 	let biddingPanelExpandSignal = $state(0);
 	const currentBiddingSelection = $derived($biddingAutomationState.selection);
@@ -150,9 +147,7 @@
 	});
 
 	$effect(() => {
-		visibleBiddableBrowserTokenIds = tokens.items
-			.filter((token) => token.marketplaceBiddingSupported)
-			.map((token) => token.tokenId);
+		visibleBiddableBrowserTokenIds = visibleBiddableTokenIds(tokens);
 	});
 
 	$effect(() => {
@@ -323,19 +318,18 @@
 	}
 
 	function currentBiddingFilterSnapshot(): BiddingAutomationTokenFilterSnapshot {
-		return buildBiddingAutomationResolvedTokenFilterSnapshot({
+		return buildTokenBrowserBiddingFilterSnapshot({
 			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
 			selectedTraits,
 			facets,
 			selectedTraitRanges,
-			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
 			tokenStatus,
 			makerAddress: null
 		});
 	}
 
 	function activeBiddingFilterKey(): string {
-		return JSON.stringify({
+		return tokenBrowserBiddingFilterKey({
 			tokenStatus,
 			selectedTraits,
 			selectedTraitRanges

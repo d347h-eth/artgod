@@ -64,6 +64,7 @@ export class UpsertBatchTokenBiddingJobsUseCase {
                 cursor?: string;
                 traitFilters?: TraitFilter[];
                 traitRangeFilters?: TraitRangeFilter[];
+                owner?: string;
             }): TokenCursorPage;
             listCollectionTokenCardsByIds(params: {
                 chainId: number;

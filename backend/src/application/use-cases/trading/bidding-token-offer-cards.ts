@@ -6,11 +6,16 @@ import {
     type TokenAttribute,
     type TokenCard,
 } from "@artgod/shared/types";
-import type { TraitFilter, TraitRangeFilter } from "@artgod/shared/types/browse";
+import type {
+    TraitFilter,
+    TraitRangeFilter,
+} from "@artgod/shared/types/browse";
 import type { PersistedBiddingBidBookRow } from "./bidding-bid-book.js";
+import { persistedBidBookRowEffectiveWei } from "./bidding-bid-book.js";
 import {
-    persistedBidBookRowEffectiveWei,
-} from "./bidding-bid-book.js";
+    bidBookRowPassesCollectionBidFloor,
+    topBidBookRowPriceWei,
+} from "./bidding-bid-book-low-signal.js";
 
 export type PersistedTokenOfferCard = {
     token: TokenCard;
@@ -22,7 +27,10 @@ export function buildTokenOfferGroups(params: {
     tokenBids: PersistedBiddingBidBookRow[];
     collectionBids: PersistedBiddingBidBookRow[];
 }): Map<string, PersistedBiddingBidBookRow[]> {
-    return groupTokenOffers(params.tokenBids, topBidPriceWei(params.collectionBids));
+    return groupTokenOffers(
+        params.tokenBids,
+        topBidBookRowPriceWei(params.collectionBids),
+    );
 }
 
 // Orders token IDs by their highest surviving token-scoped offer.
@@ -150,7 +158,10 @@ function groupTokenOffers(
         if (
             bid.scopeKind !== TRADING_BIDDING_BID_SCOPE_KIND.Token ||
             !bid.tokenId ||
-            !tokenOfferPassesCollectionBidFloor(bid, topCollectionBidWei)
+            !bidBookRowPassesCollectionBidFloor({
+                bid,
+                topCollectionBidWei,
+            })
         ) {
             continue;
         }
@@ -163,33 +174,6 @@ function groupTokenOffers(
         grouped.set(tokenId, sortOffersByPriceDesc(offers));
     }
     return grouped;
-}
-
-function tokenOfferPassesCollectionBidFloor(
-    bid: PersistedBiddingBidBookRow,
-    topCollectionBidWei: bigint | null,
-): boolean {
-    if (bid.isOwn) {
-        return true;
-    }
-    if (topCollectionBidWei === null || topCollectionBidWei <= 0n) {
-        return true;
-    }
-    return (
-        BigInt(persistedBidBookRowEffectiveWei(bid)) * 10n >=
-        topCollectionBidWei
-    );
-}
-
-function topBidPriceWei(bids: PersistedBiddingBidBookRow[]): bigint | null {
-    let top: bigint | null = null;
-    for (const bid of bids) {
-        const price = BigInt(persistedBidBookRowEffectiveWei(bid));
-        if (top === null || price > top) {
-            top = price;
-        }
-    }
-    return top;
 }
 
 function topOfferPrice(offers: PersistedBiddingBidBookRow[]): bigint {
@@ -246,7 +230,10 @@ function tokenMatchesRangeTraitFilters(
     );
 }
 
-function traitValueWithinRange(value: string, range: TraitRangeFilter): boolean {
+function traitValueWithinRange(
+    value: string,
+    range: TraitRangeFilter,
+): boolean {
     if (!/^\d+$/.test(value)) {
         return false;
     }

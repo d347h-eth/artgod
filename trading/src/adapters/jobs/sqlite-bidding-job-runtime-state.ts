@@ -2,6 +2,8 @@ import { db } from "@artgod/shared/database";
 import type { BetterSqlite3NamedStatement } from "@artgod/shared/database";
 import {
     TRADING_BOT_KIND,
+    TRADING_JOB_COMMAND_KIND,
+    TRADING_JOB_COMMAND_STATUS,
     TRADING_JOB_STATUS,
 } from "@artgod/shared/types";
 import type {
@@ -9,6 +11,15 @@ import type {
     BiddingJobRuntimeStatePort,
     BiddingJobRuntimeStateSnapshot,
 } from "../../application/use-cases/bidding/bidder.js";
+import type {
+    BiddingOfferCancellationFailure,
+    BiddingOfferCancellationLifecyclePort,
+} from "../../application/use-cases/bidding/bidding-job-command-reconciler.js";
+import type {
+    CompletedOfferCancellation,
+    RecoverableOfferCancellationRecord,
+    FailedOfferCancellationRepositoryPort,
+} from "../../application/use-cases/bidding/failed-offer-cancellation-reconciler.js";
 
 type PersistRuntimeStateParams = BiddingJobRuntimeStateSnapshot & {
     bidConstraintsJson: string;
@@ -19,6 +30,34 @@ type PersistOfferCancellationParams = BiddingJobOfferCancellationSnapshot & {
     updatedAt: string;
 };
 
+type MarkOfferCancellationFailedParams = BiddingOfferCancellationFailure & {
+    updatedAt: string;
+};
+
+type ListRecoverableOfferCancellationsParams = {
+    chainId: number;
+    limit: number;
+    retryCutoff: string;
+    botKind: typeof TRADING_BOT_KIND.Bidding;
+    cancelCommandKind: typeof TRADING_JOB_COMMAND_KIND.CancelActiveOffer;
+    completedStatus: typeof TRADING_JOB_COMMAND_STATUS.Completed;
+    failedTerminalStatus: typeof TRADING_JOB_COMMAND_STATUS.FailedTerminal;
+};
+
+type RecoverableOfferCancellationRow = {
+    job_id: string;
+    order_id: string;
+    protocol_address: string | null;
+    placed_at: string | null;
+    expiration_time_ms: number | null;
+    collection_address: string;
+    collection_slug: string;
+    token_id: string | null;
+    cancellation_error: string | null;
+    terminal_command_error: string | null;
+    has_terminal_command: number;
+};
+
 type InvalidateActiveOrderVerificationParams = {
     chainId: number;
     botKind: typeof TRADING_BOT_KIND.Bidding;
@@ -26,10 +65,16 @@ type InvalidateActiveOrderVerificationParams = {
 };
 
 export class SqliteBiddingJobRuntimeState
-    implements BiddingJobRuntimeStatePort
+    implements
+        BiddingJobRuntimeStatePort,
+        BiddingOfferCancellationLifecyclePort,
+        FailedOfferCancellationRepositoryPort
 {
     private readonly upsertRuntimeState: BetterSqlite3NamedStatement<PersistRuntimeStateParams>;
     private readonly upsertOfferCancellation: BetterSqlite3NamedStatement<PersistOfferCancellationParams>;
+    private readonly selectRecoverableOfferCancellations: BetterSqlite3NamedStatement<ListRecoverableOfferCancellationsParams>;
+    private readonly markOfferCancellationFailedStatement: BetterSqlite3NamedStatement<MarkOfferCancellationFailedParams>;
+    private readonly markOfferCancellationCompletedStatement: BetterSqlite3NamedStatement<CompletedOfferCancellation>;
     private readonly invalidateEnabledActiveOrderVerificationStatement: BetterSqlite3NamedStatement<InvalidateActiveOrderVerificationParams>;
 
     constructor() {
@@ -65,15 +110,79 @@ export class SqliteBiddingJobRuntimeState
                     "chain_id = excluded.chain_id, " +
                     "collection_id = excluded.collection_id, " +
                     "maker = excluded.maker, " +
-                    "price_wei = excluded.price_wei, " +
-                    "protocol_address = excluded.protocol_address, " +
-                    "placed_at = excluded.placed_at, " +
-                    "expiration_time_ms = excluded.expiration_time_ms, " +
-                    "requested_at = excluded.requested_at, " +
+                    "price_wei = COALESCE(excluded.price_wei, trading_bidding_order_cancellations.price_wei), " +
+                    "protocol_address = COALESCE(excluded.protocol_address, trading_bidding_order_cancellations.protocol_address), " +
+                    "placed_at = COALESCE(excluded.placed_at, trading_bidding_order_cancellations.placed_at), " +
+                    "expiration_time_ms = COALESCE(excluded.expiration_time_ms, trading_bidding_order_cancellations.expiration_time_ms), " +
+                    "requested_at = CASE " +
+                    "WHEN excluded.completed_at IS NULL AND excluded.cancellation_error IS NULL THEN excluded.requested_at " +
+                    "ELSE trading_bidding_order_cancellations.requested_at END, " +
                     "completed_at = COALESCE(excluded.completed_at, trading_bidding_order_cancellations.completed_at), " +
                     "cancellation_error = excluded.cancellation_error, " +
                     "updated_at = excluded.updated_at",
             ) as BetterSqlite3NamedStatement<PersistOfferCancellationParams>;
+
+        this.markOfferCancellationFailedStatement =
+            db.prepare<MarkOfferCancellationFailedParams>(
+                "UPDATE trading_bidding_order_cancellations " +
+                    "SET cancellation_error = @cancellationError, " +
+                    "completed_at = NULL, " +
+                    "updated_at = @updatedAt " +
+                    "WHERE job_id = @jobId AND order_id = @orderId " +
+                    "AND completed_at IS NULL",
+            ) as BetterSqlite3NamedStatement<MarkOfferCancellationFailedParams>;
+
+        this.markOfferCancellationCompletedStatement =
+            db.prepare<CompletedOfferCancellation>(
+                "UPDATE trading_bidding_order_cancellations " +
+                    "SET completed_at = @completedAt, " +
+                    "cancellation_error = NULL, " +
+                    "updated_at = @completedAt " +
+                    "WHERE job_id = @jobId AND order_id = @orderId",
+            ) as BetterSqlite3NamedStatement<CompletedOfferCancellation>;
+
+        this.selectRecoverableOfferCancellations =
+            db.prepare<ListRecoverableOfferCancellationsParams>(
+                "SELECT c.job_id, c.order_id, c.protocol_address, " +
+                    "c.placed_at, c.expiration_time_ms, c.cancellation_error, " +
+                    "EXISTS (" +
+                    "SELECT 1 FROM trading_job_commands commands " +
+                    "WHERE commands.job_id = c.job_id " +
+                    "AND commands.bot_kind = @botKind " +
+                    "AND commands.command_kind = @cancelCommandKind " +
+                    "AND commands.requested_revision > COALESCE(c.job_revision, 0) " +
+                    "AND commands.status IN (@completedStatus, @failedTerminalStatus)" +
+                    ") AS has_terminal_command, " +
+                    "(" +
+                    "SELECT commands.last_error FROM trading_job_commands commands " +
+                    "WHERE commands.job_id = c.job_id " +
+                    "AND commands.bot_kind = @botKind " +
+                    "AND commands.command_kind = @cancelCommandKind " +
+                    "AND commands.requested_revision > COALESCE(c.job_revision, 0) " +
+                    "AND commands.status = @failedTerminalStatus " +
+                    "ORDER BY commands.command_id DESC LIMIT 1" +
+                    ") AS terminal_command_error, " +
+                    "collections.address AS collection_address, collections.slug AS collection_slug, " +
+                    "j.token_id " +
+                    "FROM trading_bidding_order_cancellations c " +
+                    "JOIN collections ON collections.collection_id = c.collection_id " +
+                    "JOIN trading_jobs j ON j.job_id = c.job_id " +
+                    "WHERE c.chain_id = @chainId " +
+                    "AND c.completed_at IS NULL " +
+                    "AND (" +
+                    "(c.cancellation_error IS NOT NULL AND datetime(c.updated_at) <= datetime(@retryCutoff)) " +
+                    "OR (c.cancellation_error IS NULL AND EXISTS (" +
+                    "SELECT 1 FROM trading_job_commands commands " +
+                    "WHERE commands.job_id = c.job_id " +
+                    "AND commands.bot_kind = @botKind " +
+                    "AND commands.command_kind = @cancelCommandKind " +
+                    "AND commands.requested_revision > COALESCE(c.job_revision, 0) " +
+                    "AND commands.status IN (@completedStatus, @failedTerminalStatus)" +
+                    "))" +
+                    ") " +
+                    "ORDER BY c.updated_at ASC, c.requested_at ASC " +
+                    "LIMIT @limit",
+            ) as BetterSqlite3NamedStatement<ListRecoverableOfferCancellationsParams>;
 
         this.invalidateEnabledActiveOrderVerificationStatement =
             db.prepare<InvalidateActiveOrderVerificationParams>(
@@ -107,6 +216,52 @@ export class SqliteBiddingJobRuntimeState
             makerAddress: snapshot.makerAddress.toLowerCase(),
             updatedAt,
         });
+    }
+
+    markOfferCancellationFailed(
+        failure: BiddingOfferCancellationFailure,
+    ): void {
+        const updatedAt = new Date().toISOString();
+        // Mark terminal cancellation failure so read models do not leave the order in a pending state.
+        this.markOfferCancellationFailedStatement.run({
+            ...failure,
+            updatedAt,
+        });
+    }
+
+    markOfferCancellationCompleted(
+        cancellation: CompletedOfferCancellation,
+    ): void {
+        // Mark proven-absent cancellations complete so bid-book reads can suppress stale indexed echoes.
+        this.markOfferCancellationCompletedStatement.run(cancellation);
+    }
+
+    listRecoverableOfferCancellations(params: {
+        chainId: number;
+        limit: number;
+        retryCutoff: string;
+    }): RecoverableOfferCancellationRecord[] {
+        // Load unresolved rows that either failed already or have a terminal cancel command to audit.
+        const rows = this.selectRecoverableOfferCancellations.all({
+            ...params,
+            botKind: TRADING_BOT_KIND.Bidding,
+            cancelCommandKind: TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            completedStatus: TRADING_JOB_COMMAND_STATUS.Completed,
+            failedTerminalStatus: TRADING_JOB_COMMAND_STATUS.FailedTerminal,
+        }) as RecoverableOfferCancellationRow[];
+        return rows.map((row) => ({
+            jobId: row.job_id,
+            orderId: row.order_id,
+            protocolAddress: row.protocol_address,
+            placedAt: row.placed_at,
+            expirationTimeMs: row.expiration_time_ms,
+            collectionAddress: row.collection_address,
+            collectionSlug: row.collection_slug,
+            tokenId: row.token_id,
+            cancellationError: row.cancellation_error,
+            terminalCommandError: row.terminal_command_error,
+            hasTerminalCommand: Boolean(row.has_terminal_command),
+        }));
     }
 
     invalidateEnabledActiveOrderVerification(params: {

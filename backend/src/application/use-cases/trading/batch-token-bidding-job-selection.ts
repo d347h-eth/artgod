@@ -35,6 +35,7 @@ export type BatchTokenBiddingJobSelectionTokenReadPort = {
         cursor?: string;
         traitFilters?: TraitFilter[];
         traitRangeFilters?: TraitRangeFilter[];
+        owner?: string;
     }): TokenCursorPage;
     listCollectionTokenCardsByIds(params: {
         chainId: number;
@@ -137,6 +138,7 @@ function resolveFilteredTokenIds(params: {
             cursor,
             traitFilters: params.selection.traits,
             traitRangeFilters: params.selection.traitRanges,
+            owner: params.selection.ownerAddress ?? undefined,
         });
         for (const token of page.items) {
             if (isTokenMarketplaceBiddingSupported(token)) {

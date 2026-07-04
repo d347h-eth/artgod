@@ -1,15 +1,41 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { TOKEN_BROWSER_STATUS, TRADING_JOB_STATUS } from '@artgod/shared/types';
 	import type {
 		ApiChain,
+		ApiBiddingBidBook,
+		ApiBiddingCollectionSettings,
+		ApiBiddingJob,
+		ApiBiddingPriceTier,
 		ApiCollection,
 		ApiCollectionMediaState,
+		ApiTokenCard,
 		ApiTokenAttribute,
 		ApiTraitRangeFilter,
 		ApiTokensPage,
 		ApiTraitFacet
 	} from '$lib/api-types';
+	import {
+		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
+		buildBiddingAutomationDraftFromSelection,
+		type BiddingAutomationTokenFilterSnapshot
+	} from '$lib/bidding-automation';
+	import {
+		buildFilteredTokenBatchBiddingSelectionInput,
+		biddingAutomationSelectionStateKey,
+		biddingAutomationTokenSelectionState,
+		createBiddingAutomationController,
+		describeBiddingAutomationSelection,
+		isCleanFilteredTokenBatchSelection,
+		type ToggleBiddingTokenInput
+	} from '$lib/bidding-automation-controller';
+	import { emptyBiddingBidBook } from '$lib/bidding-empty-state';
+	import { resolveBiddingTokenActionLabel } from '$lib/bidding-selection-actions';
+	import { resolveTokenBrowserBiddingSelectionControlPolicy } from '$lib/bidding-selection-control-policy';
 	import { buildCollectionNavigation } from '$lib/collection-navigation';
+	import BiddingAutomationPanel from '$lib/components/BiddingAutomationPanel.svelte';
+	import BiddingPriceTierPanel from '$lib/components/BiddingPriceTierPanel.svelte';
+	import BiddingSelectionControls from '$lib/components/BiddingSelectionControls.svelte';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
@@ -19,6 +45,11 @@
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionTokensPath
 	} from '$lib/runtime/public-deployment';
+	import {
+		buildTokenBrowserBiddingFilterSnapshot,
+		tokenBrowserBiddingFilterKey,
+		visibleBiddableTokenIds
+	} from '$lib/token-browser-bidding';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
@@ -36,7 +67,9 @@
 		browserBasePath,
 		owner,
 		requestCursor,
-		displayMode
+		displayMode,
+		biddingSettings,
+		priceTiers = []
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
@@ -51,11 +84,73 @@
 		owner: string;
 		requestCursor: string | null;
 		displayMode: 'grid' | 'table';
+		biddingSettings: ApiBiddingCollectionSettings;
+		priceTiers?: ApiBiddingPriceTier[];
 	} = $props();
 
 	const traitFacetPanel = createTraitFacetPanelController();
 	const traitFacetPanelState = traitFacetPanel.state;
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
+	const biddingAutomation = createBiddingAutomationController();
+	const biddingAutomationState = biddingAutomation.state;
+
+	let changedBiddingJobs = $state<ApiBiddingJob[]>([]);
+	let activeBiddingSettings = $state<ApiBiddingCollectionSettings>(biddingSettings);
+	let activePriceTiers = $state<ApiBiddingPriceTier[]>(priceTiers);
+	let priceTierPanelOpen = $state(false);
+	let visibleBiddableBrowserTokenIds = $state<string[]>(visibleBiddableTokenIds(tokens));
+	let lastBiddingFilterKey = $state('');
+	let biddingPanelExpandSignal = $state(0);
+	const currentBiddingSelection = $derived($biddingAutomationState.selection);
+	const selectedBiddingDraft = $derived(
+		currentBiddingSelection ? buildBiddingAutomationDraftFromSelection(currentBiddingSelection) : null
+	);
+	const biddingAutomationPanelOpen = $derived(selectedBiddingDraft !== null);
+	const biddingSelectionStateKey = $derived(
+		biddingAutomationSelectionStateKey(currentBiddingSelection)
+	);
+	const biddingSelectionSummary = $derived(
+		describeBiddingAutomationSelection(currentBiddingSelection)
+	);
+	const biddingFilterKey = $derived(activeBiddingFilterKey());
+	const canRefineTokenSelectionToVisiblePage = $derived(tokens.totalPages > 1);
+	const tokenActionLabel = $derived(
+		resolveBiddingTokenActionLabel({
+			allFilteredSelectionActive: isAllFilteredTokenSelectionActive(),
+			canRefineTokenSelectionToVisiblePage
+		})
+	);
+	const biddingSelectionControlPolicy = $derived(
+		resolveTokenBrowserBiddingSelectionControlPolicy({
+			publicSingleCollection: IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
+			canBidOnTraits: false
+		})
+	);
+
+	$effect(() => {
+		activeBiddingSettings = biddingSettings;
+	});
+
+	$effect(() => {
+		activePriceTiers = priceTiers;
+	});
+
+	$effect(() => {
+		visibleBiddableBrowserTokenIds = visibleBiddableTokenIds(tokens);
+	});
+
+	$effect(() => {
+		const nextKey = biddingFilterKey;
+		if (!lastBiddingFilterKey) {
+			lastBiddingFilterKey = nextKey;
+			return;
+		}
+		if (nextKey === lastBiddingFilterKey) {
+			return;
+		}
+		lastBiddingFilterKey = nextKey;
+		biddingAutomation.clearSelection();
+	});
 
 	function collectionsHref(): string {
 		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) return publicCollectionTokensPath();
@@ -124,6 +219,94 @@
 			}
 		);
 	}
+
+	function bidOnFilteredTokens(nextVisibleTokenIds: string[]): void {
+		if (isAllFilteredTokenSelectionActive()) {
+			if (canRefineTokenSelectionToVisiblePage) {
+				biddingAutomation.selectExplicitTokens(nextVisibleTokenIds);
+			}
+			expandBiddingAutomationPanel();
+			return;
+		}
+		biddingAutomation.selectFilteredTokens(
+			buildFilteredTokenBatchBiddingSelectionInput({
+				tokenCount: tokens.marketplaceBiddingSupportedTotalItems,
+				filter: currentBiddingFilterSnapshot()
+			})
+		);
+		expandBiddingAutomationPanel();
+	}
+
+	function toggleVisibleTokenSelection(request: ToggleBiddingTokenInput): void {
+		biddingAutomation.toggleToken(request);
+	}
+
+	function biddingTokenSelectionState(token: ApiTokenCard, stateKey: string) {
+		return biddingAutomationTokenSelectionState(currentBiddingSelection, token.tokenId, stateKey, {
+			marketplaceBiddingSupported: token.marketplaceBiddingSupported
+		});
+	}
+
+	function isAllFilteredTokenSelectionActive(): boolean {
+		return isCleanFilteredTokenBatchSelection(currentBiddingSelection);
+	}
+
+	function currentBiddingFilterSnapshot(): BiddingAutomationTokenFilterSnapshot {
+		return buildTokenBrowserBiddingFilterSnapshot({
+			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+			selectedTraits,
+			facets,
+			selectedTraitRanges,
+			tokenStatus: TOKEN_BROWSER_STATUS.ListedThenUnlisted,
+			ownerAddress: owner,
+			makerAddress: null
+		});
+	}
+
+	function activeBiddingFilterKey(): string {
+		return tokenBrowserBiddingFilterKey({
+			tokenStatus: TOKEN_BROWSER_STATUS.ListedThenUnlisted,
+			ownerAddress: owner,
+			selectedTraits,
+			selectedTraitRanges
+		});
+	}
+
+	function clearBiddingSelection(): void {
+		biddingAutomation.clearSelection();
+	}
+
+	function handleVisibleBiddableTokenIdsChange(tokenIds: string[]): void {
+		visibleBiddableBrowserTokenIds = tokenIds;
+	}
+
+	function togglePriceTierPanel(): void {
+		priceTierPanelOpen = !priceTierPanelOpen;
+	}
+
+	function handleBiddingSettingsChanged(nextSettings: ApiBiddingCollectionSettings): void {
+		activeBiddingSettings = nextSettings;
+	}
+
+	function handlePriceTiersChanged(nextTiers: ApiBiddingPriceTier[]): void {
+		activePriceTiers = nextTiers;
+	}
+
+	function expandBiddingAutomationPanel(): void {
+		biddingPanelExpandSignal += 1;
+	}
+
+	function closeBiddingAutomationPanel(): void {
+		biddingAutomation.clearSelection();
+	}
+
+	function handleBiddingJobsChanged(jobs: ApiBiddingJob[]): void {
+		changedBiddingJobs = jobs.filter((job) => job.status !== TRADING_JOB_STATUS.Archived);
+	}
+
+	function emptyBidBook(): ApiBiddingBidBook {
+		return emptyBiddingBidBook();
+	}
 </script>
 
 <CollectionPageLayout
@@ -177,8 +360,37 @@
 				onSelectedFiltersChange={applyTraitFilters}
 			/>
 		</div>
+		{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && biddingSelectionControlPolicy.renderRow}
+			<div class="panel-top-actions-row">
+				<BiddingSelectionControls
+					summary={biddingSelectionSummary}
+					showTraitAction={biddingSelectionControlPolicy.showTraitAction}
+					showTokenAction={biddingSelectionControlPolicy.showTokenAction}
+					showTierAction={biddingSelectionControlPolicy.showTierAction}
+					tierActionActive={priceTierPanelOpen}
+					tokenActionLabel={tokenActionLabel}
+					tokenActionDisabled={tokens.marketplaceBiddingSupportedTotalItems === 0}
+					onToggleTiers={togglePriceTierPanel}
+					onBidOnTokens={() => bidOnFilteredTokens(visibleBiddableBrowserTokenIds)}
+					onClear={clearBiddingSelection}
+				/>
+			</div>
+		{/if}
 	{/if}
 	{/snippet}
+
+	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && priceTierPanelOpen && collection}
+		<BiddingPriceTierPanel
+			{chain}
+			{collection}
+			settings={activeBiddingSettings}
+			tiers={activePriceTiers}
+			onSettingsChange={handleBiddingSettingsChanged}
+			onTiersChange={handlePriceTiersChanged}
+			onJobsChange={handleBiddingJobsChanged}
+			onClose={togglePriceTierPanel}
+		/>
+	{/if}
 
 	<TokenBrowserView
 		chain={chain}
@@ -195,7 +407,32 @@
 		{traitFacetPanel}
 		{keyboardShortcutsHelp}
 		collectionNavigation={collectionNavigation()}
-		tokenStatus="listed_then_unlisted"
+		tokenStatus={TOKEN_BROWSER_STATUS.ListedThenUnlisted}
 		displayMode={displayMode}
+		selection={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+			? {
+					stateKey: biddingSelectionStateKey,
+					state: biddingTokenSelectionState,
+					onToggle: toggleVisibleTokenSelection
+				}
+			: null}
+		onVisibleBiddableTokenIdsChange={handleVisibleBiddableTokenIdsChange}
+		onToggleTiers={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ? togglePriceTierPanel : null}
 	/>
+	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && collection}
+		<BiddingAutomationPanel
+			open={biddingAutomationPanelOpen}
+			{chain}
+			{collection}
+			token={null}
+			job={changedBiddingJobs.length === 1 ? changedBiddingJobs[0] : null}
+			draft={selectedBiddingDraft}
+			bidBook={emptyBidBook()}
+			biddingSettings={activeBiddingSettings}
+			priceTiers={activePriceTiers}
+			expandSignal={biddingPanelExpandSignal}
+			onClose={closeBiddingAutomationPanel}
+			onJobsChange={handleBiddingJobsChanged}
+		/>
+	{/if}
 </CollectionPageLayout>

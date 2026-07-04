@@ -75,6 +75,7 @@ export type BiddingAutomationTokenFilterSnapshot = {
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 	tokenStatus?: TokenBrowserStatus | null;
+	ownerAddress?: string | null;
 	makerAddress?: string | null;
 };
 
@@ -85,6 +86,7 @@ export function buildBiddingAutomationTokenFilterSnapshot(params: {
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 	tokenStatus?: TokenBrowserStatus | null;
+	ownerAddress?: string | null;
 	makerAddress?: string | null;
 }): BiddingAutomationTokenFilterSnapshot {
 	return {
@@ -93,6 +95,7 @@ export function buildBiddingAutomationTokenFilterSnapshot(params: {
 		selectedTraitRanges: params.selectedTraitRanges,
 		traitJoinMode: params.traitJoinMode,
 		tokenStatus: params.tokenStatus ?? null,
+		ownerAddress: params.ownerAddress ?? null,
 		makerAddress: params.makerAddress ?? null
 	};
 }
@@ -105,6 +108,7 @@ export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 	tokenStatus?: TokenBrowserStatus | null;
+	ownerAddress?: string | null;
 	makerAddress?: string | null;
 }): BiddingAutomationTokenFilterSnapshot {
 	return buildBiddingAutomationTokenFilterSnapshot({
@@ -116,6 +120,7 @@ export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
 		selectedTraitRanges: params.selectedTraitRanges,
 		traitJoinMode: params.traitJoinMode,
 		tokenStatus: params.tokenStatus,
+		ownerAddress: params.ownerAddress,
 		makerAddress: params.makerAddress
 	});
 }

@@ -449,6 +449,7 @@ export type BatchTokenBiddingJobSelectionRequest =
 			tokenStatus: TokenBrowserStatus;
 			traits: { key: string; value: string }[];
 			traitRanges: { key: string; fromValue: string | null; toValue: string | null }[];
+			ownerAddress?: string | null;
 	  }
 	| {
 			type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter;

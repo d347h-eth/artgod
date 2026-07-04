@@ -2,7 +2,12 @@ import { error, redirect } from '@sveltejs/kit';
 import { normalizeAddressRef } from '@artgod/shared/utils/ref-resolver';
 import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import { BackendApiError, getCollectionDetailWithHeaders } from '$lib/backend-api';
+import {
+	BackendApiError,
+	getCollectionBiddingPriceTiers,
+	getCollectionDetailWithHeaders
+} from '$lib/backend-api';
+import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import { forwardQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import { withQuery } from '$lib/route-paths';
 import {
@@ -40,6 +45,7 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 				nextCursor: null,
 				limit: DEFAULT_PAGE_LIMIT,
 				totalItems: 0,
+				marketplaceBiddingSupportedTotalItems: 0,
 				rangeStart: 0,
 				rangeEnd: 0,
 				currentPage: 0,
@@ -58,17 +64,17 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 			browserBasePath: '/',
 			owner,
 			requestCursor: null,
-			displayMode
+			displayMode,
+			biddingSettings: defaultBiddingCollectionSettings(),
+			priceTiers: []
 		};
 	}
 
 	try {
-		const responseWithHeaders = await getCollectionDetailWithHeaders(
-			fetch,
-			params.chain_ref,
-			params.collection_ref,
-			query
-		);
+		const [responseWithHeaders, priceTiersResponse] = await Promise.all([
+			getCollectionDetailWithHeaders(fetch, params.chain_ref, params.collection_ref, query),
+			getCollectionBiddingPriceTiers(fetch, params.chain_ref, params.collection_ref)
+		]);
 		forwardQueryCacheResponseHeaders(setHeaders, responseWithHeaders.headers);
 		const response = responseWithHeaders.payload;
 		const collectionBasePath = `/${response.chain.slug}/${response.collection.slug}`;
@@ -87,7 +93,9 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 			browserBasePath,
 			owner,
 			requestCursor: query.get('cursor') ?? null,
-			displayMode
+			displayMode,
+			biddingSettings: priceTiersResponse.settings,
+			priceTiers: priceTiersResponse.tiers
 		};
 	} catch (cause) {
 		toKitError(cause);

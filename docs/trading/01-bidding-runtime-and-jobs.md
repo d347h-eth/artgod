@@ -91,7 +91,8 @@ Startup order:
 9. replay already-committed job commands while stream listeners and snapshot polling are still inactive
 10. start OpenSea stream listeners and steady-state snapshot polling from the post-command enabled-job set
 11. start the continuous job scan loop, command reconciliation loop/listener, and heartbeat
-12. emit `bot_ready` only after bootstrap is complete
+12. start the low-cadence failed-cancellation reconciliation loop
+13. emit `bot_ready` only after bootstrap is complete
 
 `trading_bot_runtime_state` stores non-secret bot heartbeat state.
 Backend bid-book reads use it to decide whether the bot snapshot projection can be treated as live.
@@ -169,6 +170,7 @@ Primary tables:
 - `trading_jobs`: common declared job envelope for bidding and future sniping
 - `trading_bidding_job_specs`: bidding strategy fields (`floor_wei`, `ceiling_wei`, `delta_wei`, quantity, trait criteria)
 - `trading_bidding_job_runtime_state`: bot-owned active-offer/runtime state for cancellation and diagnostics
+- `trading_bidding_order_cancellations`: bot-owned active-offer cancellation lifecycle facts for bid-book visibility and stale-index suppression
 - `trading_job_commands`: durable Outbox for bot-side effects
 
 Implemented bidding UI:
@@ -197,6 +199,10 @@ Command effects:
 - `job_paused` / `job_archived`: remove the job from scheduling and request active-offer cancellation
 - `cancel_active_offer`: cancel the job-scoped active offer through the bot's OpenSea adapter
 - `cancel_active_offer` is idempotent when neither the command payload nor the recovered job state has a tracked active OpenSea order id; the bot completes the command without probing OpenSea by target
+- `cancel_active_offer` is also idempotent when OpenSea active-offer discovery and direct order recovery prove the tracked order id is already absent; the bot records the cancellation as completed and clears runtime state
+- inconclusive direct order recovery keeps the command retryable because the bot cannot prove whether the order is still live
+- terminal cancellation failures are written back to `trading_bidding_order_cancellations` so the bid book renders `cancel failed` instead of leaving an unresolved `canceling` row
+- failed cancellation rows are periodically rechecked by `BIDDING_FAILED_CANCELLATION_RECONCILE_MS` and marked completed only after OpenSea proves the tracked order is absent
 
 Reconciliation also updates watched collections:
 
@@ -270,6 +276,7 @@ It does not change the bot's market-decision logic.
 Targeting surfaces:
 
 - `asks` and `tokens`: draft token or trait jobs from the current token-browser context
+- holder-token browser: draft token jobs from the current owner-constrained token-browser context
 - `offers` / bid book: draft token, trait, or collection jobs from bid-book context
 - token detail: edit or create the exact-token job inline
 
@@ -277,6 +284,7 @@ Target controls:
 
 - `bid on traits`: uses the current trait filter or selected trait bucket as the declared trait target
 - `bid on all tokens`: creates token jobs for every matching token across the full filtered result set
+- owner-token pages apply the current owner as an additional token-browser selection constraint for token jobs
 - token-scoped bidding keeps only canonical marketplace-addressable tokens; unsupported synthetic token cards are not selectable as bidding targets
 - `bid on this page`: narrows token jobs to currently loaded token cards
 - `place collection bid`: creates or edits the collection-wide target
@@ -360,8 +368,8 @@ The separate `OR` / `AND` control switches join mode without clearing selected f
 AND mode keeps the stricter behavior where the bid's full trait criterion set must exactly match the selected filters.
 
 Token-scoped offer cards are paginated with the same `limit` / `cursor` contract as token browsing.
-For signal quality, token-scoped offers below 10% of the current top collection-wide bid are hidden and excluded from per-card offer counts.
-If no collection-wide bid exists, token-scoped offers are not floor-filtered.
+For signal quality, token-scoped offers and trait-scoped bid rows below 10% of the current top collection-wide bid are hidden; token-card offer counts also exclude hidden token offers.
+If no collection-wide bid exists, token-scoped offers and trait-scoped bid rows are not floor-filtered.
 
 ## Secure Wallet Boundary
 
@@ -394,6 +402,7 @@ Bidding runtime groups:
 - bidding hot-refresh backpressure: `BIDDING_HOT_REFRESH_*`
 - bot runtime liveness: `BIDDING_RUNTIME_HEARTBEAT_*`
 - command reconciliation: `BIDDING_COMMAND_*`
+- failed cancellation recovery: `BIDDING_FAILED_CANCELLATION_RECONCILE_MS`
 - WETH allowance: `BIDDING_WETH_ALLOWANCE_ETH`
 - EIP-1559 fee/nonce policy: `BIDDING_TX_*`
 

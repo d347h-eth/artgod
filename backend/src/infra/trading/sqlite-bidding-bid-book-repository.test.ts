@@ -6,9 +6,7 @@ import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
 import { createMigrationRunner } from "@artgod/shared/migrations";
-import {
-    TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
-} from "@artgod/shared/trading/runtime-state";
+import { TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS } from "@artgod/shared/trading/runtime-state";
 import { TOKEN_SET_SCHEMA_KIND } from "@artgod/shared/types/token-sets";
 import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
@@ -155,8 +153,7 @@ describe("SqliteBiddingBidBookRepository", () => {
                 [BIDDING_SPAN_ATTRIBUTE.Source]:
                     TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
                 [BIDDING_SPAN_ATTRIBUTE.OrdersRowsCount]: 1,
-                [BIDDING_SPAN_ATTRIBUTE.OrdersCollectionScopeRowsCount]:
-                    1,
+                [BIDDING_SPAN_ATTRIBUTE.OrdersCollectionScopeRowsCount]: 1,
                 [BIDDING_SPAN_ATTRIBUTE.OrdersAttributeScopeRowsCount]: 0,
                 [BIDDING_SPAN_ATTRIBUTE.OrdersTokenScopeRowsCount]: 0,
                 [BIDDING_SPAN_ATTRIBUTE.OrdersTokenSetScopeRowsCount]: 0,
@@ -297,8 +294,14 @@ describe("SqliteBiddingBidBookRepository", () => {
             (bid) => bid.orderId === "own-collection",
         );
 
-        assert.equal(collectionBook.state.source, TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot);
-        assert.equal(collectionBook.ownMakerAddress, "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        assert.equal(
+            collectionBook.state.source,
+            TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+        );
+        assert.equal(
+            collectionBook.ownMakerAddress,
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        );
         assert.equal(ownBid?.placedAt, "2026-05-17T00:00:00Z");
         assert.equal(ownBid?.validUntil, 1_900_000_000);
         assert.deepEqual(ownBid?.ownStatus, {
@@ -451,8 +454,14 @@ describe("SqliteBiddingBidBookRepository", () => {
             selectedTraitRanges: [],
         });
 
-        assert.equal(bidBook.state.source, TRADING_BIDDING_BID_BOOK_SOURCE.Orders);
-        assert.equal(bidBook.ownMakerAddress, "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        assert.equal(
+            bidBook.state.source,
+            TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+        );
+        assert.equal(
+            bidBook.ownMakerAddress,
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        );
         assert.deepEqual(
             bidBook.bids.map((bid) => bid.orderId),
             ["opponent-order"],
@@ -650,7 +659,10 @@ describe("SqliteBiddingBidBookRepository", () => {
             (bid) => bid.orderId === "opponent-indexed-order",
         );
 
-        assert.equal(queuedBook.state.source, TRADING_BIDDING_BID_BOOK_SOURCE.Orders);
+        assert.equal(
+            queuedBook.state.source,
+            TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+        );
         assert.deepEqual(
             queuedOwnRows.map((bid) => ({
                 orderId: bid.orderId,
@@ -710,7 +722,8 @@ describe("SqliteBiddingBidBookRepository", () => {
                     placedAt: "2026-05-17T00:00:00Z",
                     validUntil: 1_900_000_000,
                     ownStatus: {
-                        position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+                        position:
+                            TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
                         constraints: [
                             TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
                         ],
@@ -775,6 +788,104 @@ describe("SqliteBiddingBidBookRepository", () => {
                     },
                     placedAt: "2026-05-17T00:00:00Z",
                     validUntil: 1_900_000_000,
+                    ownStatus: null,
+                },
+            ],
+        );
+    });
+
+    it("renders active order evidence as verifying when the bot heartbeat is stale", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedBiddingRuntime(collectionId);
+        db.prepare(
+            "UPDATE trading_bot_runtime_state SET heartbeat_at = ? WHERE bot_kind = ?",
+        ).run("2026-05-17T00:00:00Z", TRADING_BOT_KIND.Bidding);
+        insertIndexedOrder({
+            collectionId,
+            id: "own-indexed-order",
+            maker: BIDDING_MAKER_ADDRESS,
+            updatedAt: "2026-05-17T00:00:01Z",
+        });
+        seedJobRuntimeState({
+            jobId: "collection-job",
+            currentPriceWei: "150",
+            activeOrderId: "own-indexed-order",
+            activeOrderPlacedAt: "2026-05-17T00:00:00Z",
+            activeOrderVerifiedAt: ACTIVE_ORDER_VERIFIED_AT,
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            competitorPriceWei: "250",
+        });
+
+        const bidBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+        const ownRows = bidBook.bids.filter((bid) => bid.isOwn);
+
+        assert.deepEqual(
+            ownRows.map((bid) => ({
+                orderId: bid.orderId,
+                phase:
+                    bid.materialization.kind ===
+                    TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent
+                        ? bid.materialization.phase
+                        : null,
+                ownStatus: bid.ownStatus,
+            })),
+            [
+                {
+                    orderId: "own-indexed-order",
+                    phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Verifying,
+                    ownStatus: null,
+                },
+            ],
+        );
+    });
+
+    it("keeps real own indexed orders as market rows when only orders fallback has live evidence", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedBiddingBotRuntimeState();
+        db.prepare(
+            "UPDATE trading_bot_runtime_state SET heartbeat_at = ? WHERE bot_kind = ?",
+        ).run("2026-05-17T00:00:00Z", TRADING_BOT_KIND.Bidding);
+        insertIndexedOrder({
+            collectionId,
+            id: "own-indexed-order",
+            maker: BIDDING_MAKER_ADDRESS,
+            updatedAt: "2026-05-17T00:00:01Z",
+        });
+
+        const bidBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+
+        assert.deepEqual(
+            bidBook.bids.map((bid) => ({
+                orderId: bid.orderId,
+                source: bid.source,
+                materializationKind: bid.materialization.kind,
+                isOwn: bid.isOwn,
+                ownStatus: bid.ownStatus,
+            })),
+            [
+                {
+                    orderId: "own-indexed-order",
+                    source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+                    materializationKind:
+                        TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid,
+                    isOwn: true,
                     ownStatus: null,
                 },
             ],
@@ -954,7 +1065,10 @@ describe("SqliteBiddingBidBookRepository", () => {
             selectedTraitRanges: [],
         });
         assert.equal(runtimeCollectionBook.bids[0]?.orderId, "0xruntime-order");
-        assert.equal(runtimeCollectionBook.bids[0]?.price.kind, TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact);
+        assert.equal(
+            runtimeCollectionBook.bids[0]?.price.kind,
+            TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact,
+        );
         assert.deepEqual(runtimeCollectionBook.bids[0]?.bidLimits, {
             floorWei: "100",
             floorEth: "0.0000000000000001",
@@ -971,7 +1085,10 @@ describe("SqliteBiddingBidBookRepository", () => {
             runtimeCollectionBook.bids[0]?.materialization.phase,
             TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
         );
-        assert.equal(runtimeCollectionBook.bids[0]?.placedAt, "2026-05-17T00:00:00Z");
+        assert.equal(
+            runtimeCollectionBook.bids[0]?.placedAt,
+            "2026-05-17T00:00:00Z",
+        );
         assert.equal(runtimeCollectionBook.bids[0]?.validUntil, 1900000000);
         assert.deepEqual(runtimeCollectionBook.bids[0]?.ownStatus, {
             position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
@@ -992,9 +1109,10 @@ describe("SqliteBiddingBidBookRepository", () => {
             selectedTraits: [],
             selectedTraitRanges: [],
         });
-        assert.deepEqual(pausedTraitBook.bids.map((bid) => bid.orderId), [
-            "job-intent:paused-trait-job:1",
-        ]);
+        assert.deepEqual(
+            pausedTraitBook.bids.map((bid) => bid.orderId),
+            ["job-intent:paused-trait-job:1"],
+        );
         assert.equal(
             pausedTraitBook.bids[0]?.materialization.phase,
             TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused,
@@ -1235,7 +1353,9 @@ describe("SqliteBiddingBidBookRepository", () => {
             ["opponent-trait-order"],
         );
         assert.equal(
-            archivedBook.bids.some((bid) => bid.maker === BIDDING_MAKER_ADDRESS),
+            archivedBook.bids.some(
+                (bid) => bid.maker === BIDDING_MAKER_ADDRESS,
+            ),
             false,
         );
 
@@ -1359,8 +1479,9 @@ describe("SqliteBiddingBidBookRepository", () => {
             includeOwnJobContext: true,
         });
         assert.deepEqual(
-            beforeReapply.bids.find((bid) => bid.orderId === "own-tier-order-old")
-                ?.ownStatus,
+            beforeReapply.bids.find(
+                (bid) => bid.orderId === "own-tier-order-old",
+            )?.ownStatus,
             {
                 position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
                 constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
@@ -1532,7 +1653,10 @@ describe("SqliteBiddingBidBookRepository", () => {
             selectedTraitRanges: [],
         });
 
-        assert.equal(bidBook.state.source, TRADING_BIDDING_BID_BOOK_SOURCE.Orders);
+        assert.equal(
+            bidBook.state.source,
+            TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+        );
         assert.deepEqual(
             bidBook.bids.map((bid) => bid.orderId),
             ["fresh-indexed-order"],
@@ -1633,7 +1757,10 @@ describe("SqliteBiddingBidBookRepository", () => {
             selectedTraitRanges: [],
         });
 
-        assert.equal(bidBook.state.source, TRADING_BIDDING_BID_BOOK_SOURCE.Orders);
+        assert.equal(
+            bidBook.state.source,
+            TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+        );
         assert.equal(bidBook.state.updatedAt, "2026-05-15T01:00:00Z");
         assert.equal(bidBook.ownMakerAddress, null);
         assert.deepEqual(
@@ -1766,7 +1893,9 @@ function seedBiddingBotRuntimeState(): void {
 function seedTraitBiddingJob(input: {
     collectionId: number;
     jobId: string;
-    status: typeof TRADING_JOB_STATUS.Enabled | typeof TRADING_JOB_STATUS.Paused;
+    status:
+        | typeof TRADING_JOB_STATUS.Enabled
+        | typeof TRADING_JOB_STATUS.Paused;
     floorWei: string;
     ceilingWei: string;
     traits: Array<{ type: string; value: string }>;
@@ -1947,7 +2076,10 @@ function insertPendingOrderCancellation(input: {
     });
 }
 
-function insertProjectedState(collectionId: number, snapshotRefreshedAtMs: number): void {
+function insertProjectedState(
+    collectionId: number,
+    snapshotRefreshedAtMs: number,
+): void {
     db.prepare(
         "INSERT INTO trading_bidding_collection_bid_book_state " +
             "(chain_id, collection_id, source, snapshot_refreshed_at_ms, projected_at, row_count, duration_ms, last_error) " +
