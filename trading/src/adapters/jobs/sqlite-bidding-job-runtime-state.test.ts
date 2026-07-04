@@ -225,4 +225,96 @@ describe("SqliteBiddingJobRuntimeState", () => {
             cancellation_error: null,
         });
     });
+
+    it("marks pending offer cancellations as failed", () => {
+        const runtimeState = new SqliteBiddingJobRuntimeState();
+
+        runtimeState.recordJobOfferCancellation({
+            jobId: "job-token",
+            jobRevision: 1,
+            orderId: "0xmine",
+            priceWei: "150000000000000000",
+            protocolAddress: "0x0000000000000068f116a894984e2db1123eb395",
+            placedAt: "2026-05-17T00:00:00Z",
+            expirationTimeMs: 1_900_000_000_000,
+            makerAddress: "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa",
+            requestedAt: "2026-05-17T00:00:00Z",
+            completedAt: null,
+            cancellationError: null,
+        });
+
+        runtimeState.markOfferCancellationFailed({
+            jobId: "job-token",
+            orderId: "0xmine",
+            cancellationError: "OpenSea unavailable",
+        });
+
+        const row = db.prepare<{ orderId: string }>(
+            "SELECT completed_at, cancellation_error FROM trading_bidding_order_cancellations WHERE order_id = @orderId",
+        ).get({ orderId: "0xmine" }) as
+            | {
+                  completed_at: string | null;
+                  cancellation_error: string | null;
+              }
+            | undefined;
+
+        assert.deepEqual(row, {
+            completed_at: null,
+            cancellation_error: "OpenSea unavailable",
+        });
+    });
+
+    it("preserves cancellation order details when settling from partial tracked state", () => {
+        const runtimeState = new SqliteBiddingJobRuntimeState();
+
+        runtimeState.recordJobOfferCancellation({
+            jobId: "job-token",
+            jobRevision: 1,
+            orderId: "0xmine",
+            priceWei: "150000000000000000",
+            protocolAddress: "0x0000000000000068f116a894984e2db1123eb395",
+            placedAt: "2026-05-17T00:00:00Z",
+            expirationTimeMs: 1_900_000_000_000,
+            makerAddress: "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa",
+            requestedAt: "2026-05-17T00:00:00Z",
+            completedAt: null,
+            cancellationError: null,
+        });
+        runtimeState.recordJobOfferCancellation({
+            jobId: "job-token",
+            jobRevision: 1,
+            orderId: "0xmine",
+            priceWei: null,
+            protocolAddress: null,
+            placedAt: null,
+            expirationTimeMs: null,
+            makerAddress: "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa",
+            requestedAt: "2026-05-17T00:00:02Z",
+            completedAt: "2026-05-17T00:00:03Z",
+            cancellationError: null,
+        });
+
+        const row = db.prepare<{ orderId: string }>(
+            "SELECT price_wei, protocol_address, placed_at, expiration_time_ms, requested_at, completed_at " +
+                "FROM trading_bidding_order_cancellations WHERE order_id = @orderId",
+        ).get({ orderId: "0xmine" }) as
+            | {
+                  price_wei: string | null;
+                  protocol_address: string | null;
+                  placed_at: string | null;
+                  expiration_time_ms: number | null;
+                  requested_at: string;
+                  completed_at: string | null;
+              }
+            | undefined;
+
+        assert.deepEqual(row, {
+            price_wei: "150000000000000000",
+            protocol_address: "0x0000000000000068f116a894984e2db1123eb395",
+            placed_at: "2026-05-17T00:00:00Z",
+            expiration_time_ms: 1_900_000_000_000,
+            requested_at: "2026-05-17T00:00:00Z",
+            completed_at: "2026-05-17T00:00:03Z",
+        });
+    });
 });

@@ -1760,7 +1760,7 @@ describe("Bidder stream refresh", () => {
         const recordedCancellations: Array<{
             jobRevision: number;
             orderId: string;
-            priceWei: string;
+            priceWei: string | null;
             protocolAddress: string | null;
             makerAddress: string;
             completedAt: string | null;
@@ -1894,7 +1894,7 @@ describe("Bidder stream refresh", () => {
         const recordedCancellations: Array<{
             jobRevision: number;
             orderId: string;
-            priceWei: string;
+            priceWei: string | null;
             completedAt: string | null;
             cancellationError: string | null;
         }> = [];
@@ -1953,15 +1953,38 @@ describe("Bidder stream refresh", () => {
         ]);
     });
 
-    it("keeps tracked cancellation retryable when the active order cannot be confirmed", async () => {
+    it("treats an already-absent tracked active order as cancelled", async () => {
         const biddingService = new FakeBiddingService();
         biddingService.activeOffers = [];
         biddingService.orderLookupResult = null;
+        const recordedCancellations: Array<{
+            jobRevision: number;
+            orderId: string;
+            priceWei: string | null;
+            protocolAddress: string | null;
+            completedAt: string | null;
+            cancellationError: string | null;
+        }> = [];
         const bidder = new Bidder(
             biddingService as any,
             "0xmaker",
             1000,
             { dryRun: false },
+            undefined,
+            undefined,
+            {
+                persistJobRuntimeState: () => undefined,
+                recordJobOfferCancellation: (snapshot) => {
+                    recordedCancellations.push({
+                        jobRevision: snapshot.jobRevision,
+                        orderId: snapshot.orderId,
+                        priceWei: snapshot.priceWei,
+                        protocolAddress: snapshot.protocolAddress,
+                        completedAt: snapshot.completedAt,
+                        cancellationError: snapshot.cancellationError,
+                    });
+                },
+            },
         );
         const job = makeJob(
             "token-missing",
@@ -1971,14 +1994,25 @@ describe("Bidder stream refresh", () => {
         );
         job.state.activeOrderId = "0xmine";
         job.state.activeProtocolAddress = "0xprotocol";
+        job.state.currentPrice = 5n;
 
-        await assert.rejects(
-            () => bidder.cancelActiveOffersForJob(job),
-            /Unable to confirm tracked active offer for cancellation/,
-        );
+        const cancelled = await bidder.cancelActiveOffersForJob(job);
 
+        assert.equal(cancelled, 0);
         assert.deepEqual(biddingService.canceledOrderIds, []);
-        assert.equal(job.state.activeOrderId, "0xmine");
+        assert.equal(job.state.activeOrderId, undefined);
+        assert.equal(job.state.activeProtocolAddress, undefined);
+        assert.deepEqual(recordedCancellations, [
+            {
+                jobRevision: 1,
+                orderId: "0xmine",
+                priceWei: "5",
+                protocolAddress: "0xprotocol",
+                completedAt: recordedCancellations[0]?.completedAt ?? null,
+                cancellationError: null,
+            },
+        ]);
+        assert.ok(recordedCancellations[0]?.completedAt);
     });
 
     it("refreshes only token jobs whose cached metadata matches every trait criterion", async () => {

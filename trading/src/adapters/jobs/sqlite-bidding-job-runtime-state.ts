@@ -9,6 +9,10 @@ import type {
     BiddingJobRuntimeStatePort,
     BiddingJobRuntimeStateSnapshot,
 } from "../../application/use-cases/bidding/bidder.js";
+import type {
+    BiddingOfferCancellationFailure,
+    BiddingOfferCancellationLifecyclePort,
+} from "../../application/use-cases/bidding/bidding-job-command-reconciler.js";
 
 type PersistRuntimeStateParams = BiddingJobRuntimeStateSnapshot & {
     bidConstraintsJson: string;
@@ -19,6 +23,10 @@ type PersistOfferCancellationParams = BiddingJobOfferCancellationSnapshot & {
     updatedAt: string;
 };
 
+type MarkOfferCancellationFailedParams = BiddingOfferCancellationFailure & {
+    updatedAt: string;
+};
+
 type InvalidateActiveOrderVerificationParams = {
     chainId: number;
     botKind: typeof TRADING_BOT_KIND.Bidding;
@@ -26,10 +34,11 @@ type InvalidateActiveOrderVerificationParams = {
 };
 
 export class SqliteBiddingJobRuntimeState
-    implements BiddingJobRuntimeStatePort
+    implements BiddingJobRuntimeStatePort, BiddingOfferCancellationLifecyclePort
 {
     private readonly upsertRuntimeState: BetterSqlite3NamedStatement<PersistRuntimeStateParams>;
     private readonly upsertOfferCancellation: BetterSqlite3NamedStatement<PersistOfferCancellationParams>;
+    private readonly markOfferCancellationFailedStatement: BetterSqlite3NamedStatement<MarkOfferCancellationFailedParams>;
     private readonly invalidateEnabledActiveOrderVerificationStatement: BetterSqlite3NamedStatement<InvalidateActiveOrderVerificationParams>;
 
     constructor() {
@@ -65,15 +74,26 @@ export class SqliteBiddingJobRuntimeState
                     "chain_id = excluded.chain_id, " +
                     "collection_id = excluded.collection_id, " +
                     "maker = excluded.maker, " +
-                    "price_wei = excluded.price_wei, " +
-                    "protocol_address = excluded.protocol_address, " +
-                    "placed_at = excluded.placed_at, " +
-                    "expiration_time_ms = excluded.expiration_time_ms, " +
-                    "requested_at = excluded.requested_at, " +
+                    "price_wei = COALESCE(excluded.price_wei, trading_bidding_order_cancellations.price_wei), " +
+                    "protocol_address = COALESCE(excluded.protocol_address, trading_bidding_order_cancellations.protocol_address), " +
+                    "placed_at = COALESCE(excluded.placed_at, trading_bidding_order_cancellations.placed_at), " +
+                    "expiration_time_ms = COALESCE(excluded.expiration_time_ms, trading_bidding_order_cancellations.expiration_time_ms), " +
+                    "requested_at = CASE " +
+                    "WHEN excluded.completed_at IS NULL AND excluded.cancellation_error IS NULL THEN excluded.requested_at " +
+                    "ELSE trading_bidding_order_cancellations.requested_at END, " +
                     "completed_at = COALESCE(excluded.completed_at, trading_bidding_order_cancellations.completed_at), " +
                     "cancellation_error = excluded.cancellation_error, " +
                     "updated_at = excluded.updated_at",
             ) as BetterSqlite3NamedStatement<PersistOfferCancellationParams>;
+
+        this.markOfferCancellationFailedStatement =
+            db.prepare<MarkOfferCancellationFailedParams>(
+                "UPDATE trading_bidding_order_cancellations " +
+                    "SET cancellation_error = @cancellationError, " +
+                    "completed_at = NULL, " +
+                    "updated_at = @updatedAt " +
+                    "WHERE job_id = @jobId AND order_id = @orderId",
+            ) as BetterSqlite3NamedStatement<MarkOfferCancellationFailedParams>;
 
         this.invalidateEnabledActiveOrderVerificationStatement =
             db.prepare<InvalidateActiveOrderVerificationParams>(
@@ -105,6 +125,15 @@ export class SqliteBiddingJobRuntimeState
         this.upsertOfferCancellation.run({
             ...snapshot,
             makerAddress: snapshot.makerAddress.toLowerCase(),
+            updatedAt,
+        });
+    }
+
+    markOfferCancellationFailed(failure: BiddingOfferCancellationFailure): void {
+        const updatedAt = new Date().toISOString();
+        // Mark terminal cancellation failure so read models do not leave the order in a pending state.
+        this.markOfferCancellationFailedStatement.run({
+            ...failure,
             updatedAt,
         });
     }

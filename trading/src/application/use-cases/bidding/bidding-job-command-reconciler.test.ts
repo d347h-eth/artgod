@@ -49,6 +49,7 @@ function makeCommand(
     jobId: string,
     commandKind: BiddingJobCommand["commandKind"],
     payload: Record<string, unknown> = { jobId },
+    attempts = 1,
 ): BiddingJobCommand {
     return {
         commandId,
@@ -57,7 +58,7 @@ function makeCommand(
         status: TRADING_JOB_COMMAND_STATUS.Processing,
         requestedRevision: 1,
         payload,
-        attempts: 1,
+        attempts,
     };
 }
 
@@ -498,6 +499,7 @@ describe("BiddingJobCommandReconciler", () => {
             new Map([[job.id, makeRecord(job, TRADING_JOB_STATUS.Archived)]]),
         );
         const biddingService = new FakeBiddingService([]);
+        biddingService.activeOffersError = new Error("OpenSea unavailable");
         const bidder = new Bidder(biddingService, makerAddress, 60_000);
         bidder.addJob(job);
         const reconciled: string[][] = [];
@@ -523,11 +525,80 @@ describe("BiddingJobCommandReconciler", () => {
         assert.equal(processed, 1);
         assert.equal(bidder.getJob(job.id), undefined);
         assert.deepEqual(biddingService.cancelled, []);
+        assert.equal(biddingService.activeOfferReads, 1);
         assert.deepEqual(reconciled, []);
         assert.deepEqual(repository.completed, []);
         assert.equal(repository.retryFailures.length, 1);
         assert.equal(repository.retryFailures[0]?.commandId, 1);
         assert.deepEqual(repository.remainingCommandIds(), [2]);
+    });
+
+    it("records terminal cancellation failures in the cancellation lifecycle", async () => {
+        const job = makeJob("job-archived");
+        job.state.activeOrderId = "0xactive";
+        job.state.activeProtocolAddress =
+            "0x00000000006c3852cbef3e08e8df289169ede581";
+        const repository = new FakeCommandRepository([
+            makeCommand(
+                1,
+                job.id,
+                TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+                {
+                    jobId: job.id,
+                    activeOrderId: "0xactive",
+                    activeProtocolAddress:
+                        "0x00000000006c3852cbef3e08e8df289169ede581",
+                },
+                3,
+            ),
+        ]);
+        const source = new FakeJobSource(
+            new Map([[job.id, makeRecord(job, TRADING_JOB_STATUS.Archived)]]),
+        );
+        const biddingService = new FakeBiddingService([]);
+        biddingService.activeOffersError = new Error("OpenSea unavailable");
+        const bidder = new Bidder(biddingService, makerAddress, 60_000);
+        bidder.addJob(job);
+        const failures: Array<{
+            jobId: string;
+            orderId: string;
+            cancellationError: string;
+        }> = [];
+        const reconciler = new BiddingJobCommandReconciler(
+            repository,
+            source,
+            bidder,
+            {
+                prepareEnabledJob: async () => undefined,
+                reconcileEnabledJobs: async () => undefined,
+            },
+            {
+                batchSize: 10,
+                claimTimeoutMs: 300_000,
+                maxAttempts: 3,
+            },
+            {
+                markOfferCancellationFailed: async (failure) => {
+                    failures.push(failure);
+                },
+            },
+        );
+
+        const processed = await reconciler.processPendingCommands("test");
+
+        assert.equal(processed, 1);
+        assert.deepEqual(repository.completed, []);
+        assert.deepEqual(repository.retryFailures, []);
+        assert.deepEqual(repository.terminalFailures, [
+            { commandId: 1, error: "OpenSea unavailable" },
+        ]);
+        assert.deepEqual(failures, [
+            {
+                jobId: job.id,
+                orderId: "0xactive",
+                cancellationError: "OpenSea unavailable",
+            },
+        ]);
     });
 
     it("treats no-order cancellation as idempotent and continues later commands", async () => {

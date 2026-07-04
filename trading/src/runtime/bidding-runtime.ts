@@ -631,6 +631,7 @@ export async function startBiddingRuntime(
             claimTimeoutMs: params.biddingConfig.commandClaimTimeoutMs,
             maxAttempts: params.biddingConfig.commandMaxAttempts,
         },
+        biddingJobRuntimeState,
     );
     // Process any committed DB commands before the normal bidder loop starts.
     params.lifecycle.bootstrapping({

@@ -60,7 +60,7 @@ export type BiddingJobOfferCancellationSnapshot = {
     jobId: string;
     jobRevision: number;
     orderId: string;
-    priceWei: string;
+    priceWei: string | null;
     protocolAddress: string | null;
     placedAt: string | null;
     expirationTimeMs: number | null;
@@ -193,6 +193,8 @@ const BIDDER_LOG_ACTION = {
     CurrentPriceBootstrapCandidateComplete:
         "currentPriceBootstrapCandidateComplete",
     CurrentPriceBootstrapComplete: "currentPriceBootstrapComplete",
+    OfferCancellationPersistFailed: "offerCancellationPersistFailed",
+    TrackedActiveOfferAlreadyAbsent: "trackedActiveOfferAlreadyAbsent",
 } as const;
 
 // Bidder is the pure bidding core ported from the production bot with mechanical renames only.
@@ -309,9 +311,25 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             );
             if (makerOffers.length === 0) {
                 if (trackedOrderId) {
-                    throw new Error(
-                        `[Bidder] Unable to confirm tracked active offer for cancellation: jobId=${job.id}, orderId=${trackedOrderId}`,
+                    const completedAt = new Date().toISOString();
+                    log.info(
+                        BIDDER_LOG_ACTION.TrackedActiveOfferAlreadyAbsent,
+                        "Tracked active offer is already absent; treating cancellation as complete",
+                        {
+                            jobId: job.id,
+                            jobRef,
+                            collectionSlug: job.collectionSlug,
+                            targetType: job.target.type,
+                            orderId: trackedOrderId,
+                        },
                     );
+                    this.recordTrackedOrderCancellation(job, {
+                        requestedAt: completedAt,
+                        completedAt,
+                        cancellationError: null,
+                    });
+                    this.clearTrackedOrder(job);
+                    return 0;
                 }
 
                 log.info(
@@ -2305,12 +2323,53 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             });
         } catch (error: unknown) {
             log.error(
-                "offerCancellationPersistFailed",
+                BIDDER_LOG_ACTION.OfferCancellationPersistFailed,
                 "Failed to persist bidding offer cancellation state",
                 {
                     jobId: job.id,
                     jobRef: formatBidderJobReference(job),
                     orderId: order.id,
+                    ...toErrorLogFields(error),
+                },
+            );
+        }
+    }
+
+    private recordTrackedOrderCancellation(
+        job: BidderJob,
+        state: {
+            requestedAt: string;
+            completedAt: string | null;
+            cancellationError: string | null;
+        },
+    ): void {
+        if (!this.runtimeStatePort || !job.state.activeOrderId) {
+            return;
+        }
+
+        try {
+            // Settle a tracked order that OpenSea already reports absent from active offers.
+            this.runtimeStatePort.recordJobOfferCancellation({
+                jobId: job.id,
+                jobRevision: job.revision,
+                orderId: job.state.activeOrderId,
+                priceWei: job.state.currentPrice?.toString() ?? null,
+                protocolAddress: job.state.activeProtocolAddress ?? null,
+                placedAt: job.state.activeOrderPlacedAt ?? null,
+                expirationTimeMs: job.state.activeExpirationTimeMs ?? null,
+                makerAddress: this.makerAddress.toLowerCase(),
+                requestedAt: state.requestedAt,
+                completedAt: state.completedAt,
+                cancellationError: state.cancellationError,
+            });
+        } catch (error: unknown) {
+            log.error(
+                BIDDER_LOG_ACTION.OfferCancellationPersistFailed,
+                "Failed to persist bidding offer cancellation state",
+                {
+                    jobId: job.id,
+                    jobRef: formatBidderJobReference(job),
+                    orderId: job.state.activeOrderId,
                     ...toErrorLogFields(error),
                 },
             );
