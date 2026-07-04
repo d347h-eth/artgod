@@ -64,8 +64,13 @@ test.describe('bootstrap contract probe UI', () => {
 			BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
 		);
 		await expect(page.locator('input[name="slug"]')).toBeEnabled();
-		await expect(page.locator('input[name="openseaSlug"]')).toHaveValue('');
-		await expect(formRow(page, 'OpenSea slug').getByRole('button', { name: 'submit' })).toBeDisabled();
+		await expect(page.locator('input[name="openseaSlug"]')).toHaveValue(
+			BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
+		);
+		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
+		await expect(formRow(page, 'OpenSea slug').getByRole('button', { name: 'submit' })).toHaveCount(
+			0
+		);
 		await expect(page.getByText('Metadata size (1 token)')).toBeVisible();
 		await expect(page.getByText('Original image source size (1 token)')).toBeVisible();
 		await expect(formRow(page, 'Image cache plan')).toContainText('cache local files once');
@@ -88,7 +93,7 @@ test.describe('bootstrap contract probe UI', () => {
 		await assertTooltipText(page, 'OpenSea slug', 'Required for bidding');
 		await expect(formLabel(page, 'Metadata mode')).toHaveCount(0);
 		expect(api.probeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable]);
-		expect(api.openSeaSlugProbeRequests).toEqual([]);
+		expect(api.openSeaSlugProbeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable]);
 	});
 
 	test('disables OpenSea slug input when the API key is unavailable', async ({ page }) => {
@@ -112,10 +117,11 @@ test.describe('bootstrap contract probe UI', () => {
 		const openSeaSlugSubmit = formRow(page, 'OpenSea slug').getByRole('button', {
 			name: 'submit'
 		});
-		await expect(openSeaSlugInput).toHaveValue('');
-		await expect(openSeaSlugSubmit).toBeDisabled();
+		await expect(openSeaSlugInput).toHaveValue(BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable);
+		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
 		await openSeaSlugInput.fill('missing-opensea-slug');
 		await expect(openSeaSlugSubmit).toBeEnabled();
+		await expect(formRow(page, 'OpenSea slug')).not.toContainText('resolved');
 		expect(api.openSeaSlugVerificationRequests).toEqual([]);
 		await openSeaSlugInput.press('Enter');
 		await expect(formRow(page, 'OpenSea slug')).toContainText('incorrect');
@@ -150,8 +156,13 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(page.locator('input[name="slug"]')).toHaveValue(
 			BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster
 		);
+		await expect(page.locator('input[name="openseaSlug"]')).toHaveValue(
+			BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster
+		);
+		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
 		await page.locator('input[name="slug"]').fill('custom-raster-slug');
 		expect(api.probeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster]);
+		expect(api.openSeaSlugProbeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster]);
 		await expect(page.getByText('Manual token scope mode')).toHaveCount(0);
 		await expect(rowControl(page, 'Cached image max dimension')).toBeEnabled();
 		await expect(rowControl(page, 'Cached image max dimension')).toHaveValue(
@@ -161,7 +172,6 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(formLabel(page, 'Cached image max dimension')).toHaveCount(0);
 		await expect(page.getByText('Card image field size (1 token)')).toBeVisible();
 		await expect(formRow(page, 'Image cache plan')).toContainText('cards use image field');
-		await resolveOpenSeaSlug(page, BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster);
 		await page.getByRole('button', { name: 'queue bootstrap' }).click();
 		await expect.poll(() => api.mutations.length).toBe(1);
 		await expect(page).toHaveURL(/\/e2e-harness\/bootstrap-runs\/1$/);
@@ -197,6 +207,7 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(formRow(page, 'Image cache policy source')).toContainText(
 			`extension-defined (${TERRAFORMS_EXTENSION_KEY})`
 		);
+		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
 		const manualEditing = page.locator(`[data-testid="${TEST_IDS.BootstrapAllowManualEditing}"]`);
 		await manualEditing.check();
 		await expect(imageCacheModeSelect).toBeEnabled();
@@ -260,13 +271,6 @@ async function openBootstrapProbe(page: Page, address: string): Promise<void> {
 	await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
 	await page.locator('input[name="address"]').fill(address);
 	await expect(page.locator(`[data-testid="${TEST_IDS.BootstrapProbeTokenCard}"]`)).toBeVisible();
-}
-
-async function resolveOpenSeaSlug(page: Page, slug: string): Promise<void> {
-	const row = formRow(page, 'OpenSea slug');
-	await rowControl(page, 'OpenSea slug').fill(slug);
-	await row.getByRole('button', { name: 'submit' }).click();
-	await expect(row).toContainText('resolved');
 }
 
 function tokenCard(page: Page, tokenId: string) {

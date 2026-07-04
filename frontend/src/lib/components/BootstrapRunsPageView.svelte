@@ -382,7 +382,11 @@
 			probeAddress = result.address;
 			manualEditingAllowed = false;
 			applyProbeResult(result);
-			resetOpenSeaSlugProbeState();
+			if (openSeaEnabled) {
+				scheduleOpenSeaAddressProbe(chainSlug, result.address);
+			} else {
+				resetOpenSeaSlugProbeState();
+			}
 		} catch (error) {
 			if (requestId !== contractProbeRequestId) return;
 			probeStatus = 'error';
@@ -390,6 +394,22 @@
 			probeAddress = null;
 			probeError = error instanceof Error ? error.message : 'contract probe failed';
 		}
+	}
+
+	function scheduleOpenSeaAddressProbe(chainSlug: string, address: string): void {
+		openSeaSlugProbeRequestId += 1;
+		const requestId = openSeaSlugProbeRequestId;
+		openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Waiting;
+		openSeaSlugProbeResult = null;
+		openSeaSlugProbeError = null;
+		openSeaSlugProbeAddress = address;
+		openSeaSlugProbeRequestedSlug = null;
+		if (openSeaSlugWasAutoFilled) {
+			setOpenSeaSlugInputValue('');
+			lastAutoFilledOpenSeaSlug = null;
+			openSeaSlugWasAutoFilled = false;
+		}
+		void runOpenSeaSlugProbe(chainSlug, { address }, requestId);
 	}
 
 	function onOpenSeaSlugInput(event: Event): void {
@@ -511,7 +531,10 @@
 
 	function isOpenSeaSlugIncorrect(): boolean {
 		if (!openSeaEnabled || openSeaSlugProbeStatus !== openSeaSlugProbeUiStatus.Ready) return false;
-		return openSeaSlugProbeResult?.status === BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing;
+		return (
+			openSeaSlugProbeResult?.status === BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing &&
+			openSeaSlugProbeResult.requestedSlug !== null
+		);
 	}
 
 	function probeStateLabel(): string {

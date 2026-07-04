@@ -445,9 +445,10 @@ a:hover {
 
 .bootstrap-probe-chip-grid {
 	display: grid;
-	grid-template-columns: repeat(3, minmax(0, max-content));
+	grid-template-columns: repeat(3, minmax(13.5rem, 1fr));
 	gap: 0.6rem;
 	align-items: stretch;
+	width: min(46rem, 100%);
 	max-width: 100%;
 }
 
@@ -472,7 +473,21 @@ a:hover {
 }
 
 .bootstrap-probe-chip .bootstrap-form-row {
-	grid-template-columns: minmax(10rem, 14rem) max-content;
+	grid-template-columns: minmax(0, 1fr);
+	align-items: start;
+	gap: 0.18rem;
+	width: 100%;
+}
+
+.bootstrap-probe-chip .bootstrap-form-label-cell {
+	max-width: 100%;
+}
+
+.bootstrap-probe-chip .bootstrap-form-row > .mono {
+	min-width: 0;
+	max-width: 100%;
+	text-align: left;
+	overflow-wrap: anywhere;
 }
 
 .bootstrap-probe-warning-row {
