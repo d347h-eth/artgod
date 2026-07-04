@@ -1243,7 +1243,56 @@ key = "BIDDING_COLLECTION_OFFERS_TTL_MS"
 group = "bidding"
 label = "bidding collection offers ttl ms"
 default = "15000"
-help = "How long a collection-offer snapshot is considered fresh inside the bot."
+help = "Minimum time a collection-offer snapshot is considered fresh inside the bot."
+
+[[settings]]
+key = "BIDDING_COLLECTION_OFFERS_MAX_TTL_MS"
+group = "bidding"
+label = "bidding collection offers max ttl ms"
+default = "300000"
+help = "Maximum adaptive freshness window for collection-offer snapshots."
+
+[[settings]]
+key = "BIDDING_COLLECTION_OFFERS_ADAPTIVE_TTL_MULTIPLIER"
+group = "bidding"
+label = "bidding collection offers adaptive ttl multiplier"
+default = "2"
+help = "Multiplier applied to the last snapshot fetch duration when extending snapshot freshness."
+
+[[settings]]
+key = "BIDDING_HOT_REFRESH_BROAD_COOLDOWN_MS"
+group = "bidding"
+label = "bidding hot refresh broad cooldown ms"
+default = "15000"
+help = "Minimum delay between broad collection or trait offer hot-refresh passes."
+
+[[settings]]
+key = "BIDDING_HOT_REFRESH_BROAD_MAX_PENDING_SIGNATURES"
+group = "bidding"
+label = "bidding hot refresh broad max pending signatures"
+default = "256"
+help = "Maximum queued broad collection or trait hot-refresh signatures per bidding bot."
+
+[[settings]]
+key = "BIDDING_HOT_REFRESH_ITEM_COOLDOWN_MS"
+group = "bidding"
+label = "bidding hot refresh item cooldown ms"
+default = "2000"
+help = "Minimum delay between exact-token offer hot-refresh passes for the same token."
+
+[[settings]]
+key = "BIDDING_HOT_REFRESH_ITEM_MAX_PENDING_SIGNATURES"
+group = "bidding"
+label = "bidding hot refresh item max pending signatures"
+default = "512"
+help = "Maximum queued exact-token hot-refresh signatures per bidding bot."
+
+[[settings]]
+key = "BIDDING_COMPETITIVE_TRAIT_MAX_LOOKUP_SELECTORS"
+group = "bidding"
+label = "bidding competitive trait max lookup selectors"
+default = "64"
+help = "Maximum expanded trait buckets a competitive-trait job may query during one bid evaluation."
 
 [[settings]]
 key = "BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS"

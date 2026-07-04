@@ -26,7 +26,12 @@ import {
     BIDDER_DEFAULT_BOOTSTRAP_CONCURRENCY,
     BIDDER_DEFAULT_MAX_CONCURRENT_JOBS,
 } from "./defaults.js";
-import { BiddingService, Order } from "./bidding-service.js";
+import {
+    BIDDING_SERVICE_REQUEST_PRIORITY,
+    BiddingService,
+    type BiddingServiceRequestContext,
+    Order,
+} from "./bidding-service.js";
 import { MakerWethBalanceService } from "./maker-weth-balance-service.js";
 
 export interface BidderOptions {
@@ -113,6 +118,13 @@ interface CurrentPriceCheckResult {
     priceDiff?: bigint;
 }
 
+interface HotRefreshNoEffectLogSummary {
+    lastLoggedAt: number;
+    suppressedCount: number;
+    maxEventUnitPrice: bigint;
+    sampleEventTarget: string;
+}
+
 interface ProgressContext {
     sequence: number;
     total: number;
@@ -136,10 +148,18 @@ interface JobExecutionState {
     inFlightPromise?: Promise<void>;
     pendingContext?: ProgressContext;
     pendingThrowOnFailure?: boolean;
+    pendingRequestContext?: BiddingServiceRequestContext;
 }
 
 type JobExecutionOptions = {
     throwOnFailure: boolean;
+    requestContext?: BiddingServiceRequestContext;
+};
+
+type RuntimeSatisfactionSnapshot = {
+    activeOrderId: string;
+    currentPrice: bigint;
+    activeOrderVerifiedAt: string;
 };
 
 interface RuntimeJobOverride {
@@ -159,6 +179,22 @@ type RuntimeBidDecisionContext = {
 
 const log = createBiddingComponentLogger(BIDDING_LOG_COMPONENT.Bidder);
 
+// No-effect hot refresh logs are summarized so unrelated stream flood does not dominate operator logs.
+const BIDDER_HOT_REFRESH_NO_EFFECT_LOG_INTERVAL_MS = 10_000;
+
+const BIDDING_COMMAND_REQUEST_CONTEXT: BiddingServiceRequestContext = {
+    priority: BIDDING_SERVICE_REQUEST_PRIORITY.UserCommand,
+};
+
+const BIDDER_LOG_ACTION = {
+    CurrentPriceBootstrapStarted: "currentPriceBootstrapStarted",
+    CurrentPriceBootstrapCandidateStarted:
+        "currentPriceBootstrapCandidateStarted",
+    CurrentPriceBootstrapCandidateComplete:
+        "currentPriceBootstrapCandidateComplete",
+    CurrentPriceBootstrapComplete: "currentPriceBootstrapComplete",
+} as const;
+
 // Bidder is the pure bidding core ported from the production bot with mechanical renames only.
 export class Bidder implements BidderRefreshPort, BidderActivationPort {
     private readonly jobs = new Map<string, BidderJob>();
@@ -167,6 +203,10 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     private readonly jobExecutionStates = new Map<string, JobExecutionState>();
     private readonly jobMutexes = new Map<string, Mutex>();
     private readonly runtimeOverrides = new Map<string, RuntimeJobOverride>();
+    private readonly hotRefreshNoEffectLogSummaries = new Map<
+        string,
+        HotRefreshNoEffectLogSummary
+    >();
     private cachedMakerWethBalance?: bigint;
     private readonly jobExecutionSemaphore: Semaphore;
     private readonly maxConcurrentJobs: number;
@@ -225,7 +265,10 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         return existingJob;
     }
 
-    public async cancelActiveOffersForJob(job: BidderJob): Promise<number> {
+    public async cancelActiveOffersForJob(
+        job: BidderJob,
+        requestContext: BiddingServiceRequestContext = {},
+    ): Promise<number> {
         const jobMutex = this.getJobMutex(job.id);
         return await jobMutex.runExclusive(async () => {
             const jobRef = formatBidderJobReference(job);
@@ -240,13 +283,17 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 },
             );
             // Fetch active offers through the bidding service so cancellation uses the same market scope as normal refreshes.
-            const offers = await this.biddingService.getActiveOffers(job);
+            const offers = await this.biddingService.getActiveOffers(
+                job,
+                requestContext,
+            );
             const trackedOrderId = job.state.activeOrderId;
             const trackedOrder = await this.resolveTrackedActiveOrder(
                 job,
                 offers,
                 jobRef,
                 false,
+                requestContext,
             );
             const cancellationCandidates =
                 trackedOrder &&
@@ -292,10 +339,22 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     offerCount: makerOffers.length,
                 },
             );
-            await this.cancelMakerOffers(job, makerOffers);
+            await this.cancelMakerOffers(
+                job,
+                makerOffers,
+                undefined,
+                requestContext,
+            );
             this.clearTrackedOrder(job);
             return makerOffers.length;
         });
+    }
+
+    public async cancelActiveOffersForCommand(job: BidderJob): Promise<number> {
+        return await this.cancelActiveOffersForJob(
+            job,
+            BIDDING_COMMAND_REQUEST_CONTEXT,
+        );
     }
 
     public async activateJob(
@@ -367,7 +426,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         let completedCount = 0;
 
         log.debug(
-            "currentPriceBootstrapStarted",
+            BIDDER_LOG_ACTION.CurrentPriceBootstrapStarted,
             "Bootstrapping current prices",
             {
                 candidateCount: warmCandidates.length,
@@ -387,11 +446,32 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 }
                 nextCandidateIndex++;
 
+                log.debug(
+                    BIDDER_LOG_ACTION.CurrentPriceBootstrapCandidateStarted,
+                    "Bootstrapping current price candidate",
+                    {
+                        jobId: job.id,
+                        jobRef: formatBidderJobReference(job),
+                        sequence: candidateIndex + 1,
+                        total: warmCandidates.length,
+                    },
+                );
                 const warmed = await this.tryWarmCurrentPrice(job, {
                     sequence: candidateIndex + 1,
                     total: warmCandidates.length,
                 });
                 completedCount++;
+                log.debug(
+                    BIDDER_LOG_ACTION.CurrentPriceBootstrapCandidateComplete,
+                    "Current price bootstrap candidate complete",
+                    {
+                        jobId: job.id,
+                        jobRef: formatBidderJobReference(job),
+                        completed: completedCount,
+                        total: warmCandidates.length,
+                        warmed,
+                    },
+                );
                 options.onProgress?.({
                     jobId: job.id,
                     completed: completedCount,
@@ -407,7 +487,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         await Promise.all(workers);
 
         log.debug(
-            "currentPriceBootstrapComplete",
+            BIDDER_LOG_ACTION.CurrentPriceBootstrapComplete,
             "Current price bootstrap complete",
             {
                 candidateCount: warmCandidates.length,
@@ -445,6 +525,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         evaluations
             .filter((evaluation) => evaluation.matched)
             .forEach((evaluation) => this.logHotRefreshEffect(evaluation));
+
+        if (this.isBroadHotRefreshEvent(marketEvent)) {
+            await this.refreshBroadMatchingJobs(matchingJobIds);
+            return;
+        }
 
         await Promise.all(
             matchingJobIds.map((jobId) => this.refreshJob(jobId)),
@@ -501,9 +586,55 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     }
 
     public async refreshJobForCommand(jobId: string): Promise<void> {
-        return await this.refreshJobWithOptions(jobId, undefined, {
+        await this.refreshCachedMakerWethBalance();
+        return await this.refreshJobImmediately(jobId, {
             throwOnFailure: true,
+            requestContext: BIDDING_COMMAND_REQUEST_CONTEXT,
         });
+    }
+
+    // Reports whether this process has already verified an active order for the same durable job declaration.
+    public getSatisfiedRuntimeSnapshot(
+        desiredJob: BidderJob,
+    ): RuntimeSatisfactionSnapshot | null {
+        const currentJob = this.jobs.get(desiredJob.id);
+        if (!currentJob) {
+            return null;
+        }
+
+        if (!this.hasSameSatisfiedDeclaration(currentJob, desiredJob)) {
+            return null;
+        }
+
+        const activeOrderId = currentJob.state.activeOrderId;
+        const currentPrice = currentJob.state.currentPrice;
+        const activeOrderVerifiedAt = currentJob.state.activeOrderVerifiedAt;
+        if (
+            !activeOrderId ||
+            currentPrice === undefined ||
+            !activeOrderVerifiedAt
+        ) {
+            return null;
+        }
+
+        return {
+            activeOrderId,
+            currentPrice,
+            activeOrderVerifiedAt,
+        };
+    }
+
+    private async refreshBroadMatchingJobs(jobIds: string[]): Promise<void> {
+        for (const jobId of jobIds) {
+            await this.refreshJob(jobId);
+        }
+    }
+
+    private isBroadHotRefreshEvent(marketEvent: MarketEvent): boolean {
+        return (
+            marketEvent.getScope() === Scope.Collection ||
+            marketEvent.getScope() === Scope.Trait
+        );
     }
 
     private async refreshJobWithOptions(
@@ -520,6 +651,9 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             }
             state.pendingThrowOnFailure =
                 state.pendingThrowOnFailure || options.throwOnFailure;
+            if (options.requestContext) {
+                state.pendingRequestContext = options.requestContext;
+            }
             return state.inFlightPromise ?? Promise.resolve();
         }
 
@@ -527,6 +661,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         state.pending = false;
         state.pendingContext = undefined;
         state.pendingThrowOnFailure = undefined;
+        state.pendingRequestContext = undefined;
         state.inFlightPromise = this.runJobRefreshLoop(
             jobId,
             state,
@@ -537,6 +672,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             state.pending = false;
             state.pendingContext = undefined;
             state.pendingThrowOnFailure = undefined;
+            state.pendingRequestContext = undefined;
             state.inFlightPromise = undefined;
         });
 
@@ -576,10 +712,12 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             nextContext = state.pendingContext;
             nextOptions = {
                 throwOnFailure: state.pendingThrowOnFailure === true,
+                requestContext: state.pendingRequestContext,
             };
             state.pending = false;
             state.pendingContext = undefined;
             state.pendingThrowOnFailure = undefined;
+            state.pendingRequestContext = undefined;
         }
     }
 
@@ -593,7 +731,10 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         return state;
     }
 
-    private async refreshJobImmediately(jobId: string): Promise<void> {
+    private async refreshJobImmediately(
+        jobId: string,
+        options: JobExecutionOptions = { throwOnFailure: false },
+    ): Promise<void> {
         log.debug(
             "immediateRefreshStarted",
             "Executing immediate bidding job refresh",
@@ -603,7 +744,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         );
         const jobMutex = this.getJobMutex(jobId);
         await jobMutex.runExclusive(async () => {
-            await this.executeJob(jobId);
+            await this.executeJob(jobId, undefined, options);
         });
     }
 
@@ -652,12 +793,17 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 ...counter,
             });
 
-            const offers = await this.biddingService.getActiveOffers(job);
+            const requestContext = options.requestContext ?? {};
+            const offers = await this.biddingService.getActiveOffers(
+                job,
+                requestContext,
+            );
             const trackedOrder = await this.resolveTrackedActiveOrder(
                 job,
                 offers,
                 jobRef,
                 true,
+                requestContext,
             );
             if (
                 trackedOrder &&
@@ -762,7 +908,12 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                             offerCount: myOffers.length,
                         },
                     );
-                    await this.cancelMakerOffers(job, myOffers);
+                    await this.cancelMakerOffers(
+                        job,
+                        myOffers,
+                        undefined,
+                        requestContext,
+                    );
                     this.clearTrackedOrder(job);
                     return;
                 }
@@ -792,11 +943,16 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     },
                 );
                 this.clearRuntimeBidDecision(job);
-                await this.placeAndTrack(job, desiredPrice, {
-                    competitorPrice,
-                    floor,
-                    ceiling,
-                });
+                await this.placeAndTrack(
+                    job,
+                    desiredPrice,
+                    {
+                        competitorPrice,
+                        floor,
+                        ceiling,
+                    },
+                    requestContext,
+                );
                 return;
             }
 
@@ -816,12 +972,22 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     reason: renewalReason,
                 });
                 this.clearRuntimeBidDecision(job);
-                await this.placeAndTrack(job, desiredPrice, {
-                    competitorPrice,
-                    floor,
-                    ceiling,
-                });
-                await this.cancelMakerOffers(job, myOffers);
+                await this.placeAndTrack(
+                    job,
+                    desiredPrice,
+                    {
+                        competitorPrice,
+                        floor,
+                        ceiling,
+                    },
+                    requestContext,
+                );
+                await this.cancelMakerOffers(
+                    job,
+                    myOffers,
+                    undefined,
+                    requestContext,
+                );
                 return;
             }
 
@@ -838,6 +1004,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     job,
                     myOffers,
                     matchingMakerOffer.id,
+                    requestContext,
                 );
 
                 if (matchingMakerOffer.id !== myHighest.id) {
@@ -894,12 +1061,22 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 competitorPriceEth: formatUnits(competitorPrice, 18),
             });
             this.clearRuntimeBidDecision(job);
-            await this.placeAndTrack(job, desiredPrice, {
-                competitorPrice,
-                floor,
-                ceiling,
-            });
-            await this.cancelMakerOffers(job, myOffers);
+            await this.placeAndTrack(
+                job,
+                desiredPrice,
+                {
+                    competitorPrice,
+                    floor,
+                    ceiling,
+                },
+                requestContext,
+            );
+            await this.cancelMakerOffers(
+                job,
+                myOffers,
+                undefined,
+                requestContext,
+            );
         } catch (error: unknown) {
             const { errorMessage, ...errorFields } = toErrorLogFields(error);
             log.error("jobRefreshFailed", "Error refreshing bidding job", {
@@ -1165,6 +1342,18 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             };
         }
 
+        const effectiveCeiling = this.getEffectiveCeiling(
+            this.getConfiguredCeiling(job),
+        );
+        if (marketEvent.getUnitPrice() >= effectiveCeiling) {
+            return {
+                shouldReact: false,
+                reason: "event price met or exceeded effective ceiling",
+                currentPrice: job.state.currentPrice,
+                priceDiff: marketEvent.getUnitPrice() - job.state.currentPrice,
+            };
+        }
+
         if (marketEvent.getUnitPrice() < job.state.currentPrice) {
             return {
                 shouldReact: false,
@@ -1180,6 +1369,10 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             currentPrice: job.state.currentPrice,
             priceDiff: marketEvent.getUnitPrice() - job.state.currentPrice,
         };
+    }
+
+    private getConfiguredCeiling(job: BidderJob): bigint {
+        return this.getRuntimeOverride(job.id)?.ceiling ?? job.config.ceiling;
     }
 
     private async tryWarmCurrentPrice(
@@ -1281,6 +1474,86 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         marketEvent: MarketEvent,
         evaluations: HotRefreshEvaluation[],
     ): void {
+        const reasonSummary = this.summarizeNoEffectReasons(
+            marketEvent,
+            evaluations,
+        );
+        const eventTarget = this.formatEventTargetForLog(
+            marketEvent.getCollectionSlug(),
+            marketEvent.getScope(),
+            marketEvent.getItemID(),
+            marketEvent.getTraitCriteria(),
+        );
+        const summaryKey = this.makeNoEffectLogSummaryKey(
+            marketEvent,
+            reasonSummary,
+        );
+        const now = Date.now();
+        const existingSummary =
+            this.hotRefreshNoEffectLogSummaries.get(summaryKey);
+        if (
+            existingSummary &&
+            now - existingSummary.lastLoggedAt <
+                BIDDER_HOT_REFRESH_NO_EFFECT_LOG_INTERVAL_MS
+        ) {
+            existingSummary.suppressedCount += 1;
+            if (marketEvent.getUnitPrice() > existingSummary.maxEventUnitPrice) {
+                existingSummary.maxEventUnitPrice = marketEvent.getUnitPrice();
+                existingSummary.sampleEventTarget = eventTarget;
+            }
+            return;
+        }
+
+        const suppressedCount = existingSummary?.suppressedCount ?? 0;
+        const maxEventUnitPrice =
+            existingSummary &&
+            existingSummary.maxEventUnitPrice > marketEvent.getUnitPrice()
+                ? existingSummary.maxEventUnitPrice
+                : marketEvent.getUnitPrice();
+        const sampleEventTarget =
+            existingSummary &&
+            existingSummary.maxEventUnitPrice > marketEvent.getUnitPrice()
+                ? existingSummary.sampleEventTarget
+                : eventTarget;
+
+        log.debug(
+            "hotRefreshNoEffect",
+            "Hot refresh had no matching bidding job",
+            {
+                eventScope: marketEvent.getScope(),
+                eventTarget,
+                sampleEventTarget,
+                eventType: marketEvent.getType(),
+                eventPriceWei: marketEvent.getUnitPrice().toString(),
+                eventPrice: formatUnits(
+                    marketEvent.getUnitPrice(),
+                    marketEvent.getPaymentTokenDecimals(),
+                ),
+                maxEventPriceWei: maxEventUnitPrice.toString(),
+                maxEventPrice: formatUnits(
+                    maxEventUnitPrice,
+                    marketEvent.getPaymentTokenDecimals(),
+                ),
+                candidateCount: evaluations.length,
+                eventCount: suppressedCount + 1,
+                suppressedEventCount: suppressedCount,
+                summaryIntervalMs:
+                    BIDDER_HOT_REFRESH_NO_EFFECT_LOG_INTERVAL_MS,
+                reasons: reasonSummary,
+            },
+        );
+        this.hotRefreshNoEffectLogSummaries.set(summaryKey, {
+            lastLoggedAt: now,
+            suppressedCount: 0,
+            maxEventUnitPrice: marketEvent.getUnitPrice(),
+            sampleEventTarget: eventTarget,
+        });
+    }
+
+    private summarizeNoEffectReasons(
+        marketEvent: MarketEvent,
+        evaluations: HotRefreshEvaluation[],
+    ): string {
         const reasons = new Map<string, number>();
 
         evaluations.forEach((evaluation) => {
@@ -1294,29 +1567,19 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             .map(([reason, count]) => `${reason}=${count}`)
             .join("; ");
 
-        log.debug(
-            "hotRefreshNoEffect",
-            "Hot refresh had no matching bidding job",
-            {
-                eventScope: marketEvent.getScope(),
-                eventTarget: this.formatEventTargetForLog(
-                    marketEvent.getCollectionSlug(),
-                    marketEvent.getScope(),
-                    marketEvent.getItemID(),
-                    marketEvent.getTraitCriteria(),
-                ),
-                eventType: marketEvent.getType(),
-                eventPriceWei: marketEvent.getUnitPrice().toString(),
-                eventPrice: formatUnits(
-                    marketEvent.getUnitPrice(),
-                    marketEvent.getPaymentTokenDecimals(),
-                ),
-                candidateCount: evaluations.length,
-                reasons:
-                    reasonSummary ||
-                    this.describeNoCandidateReason(marketEvent),
-            },
-        );
+        return reasonSummary || this.describeNoCandidateReason(marketEvent);
+    }
+
+    private makeNoEffectLogSummaryKey(
+        marketEvent: MarketEvent,
+        reasonSummary: string,
+    ): string {
+        return [
+            marketEvent.getCollectionSlug(),
+            marketEvent.getScope(),
+            marketEvent.getType(),
+            reasonSummary,
+        ].join("|");
     }
 
     private formatPriceForLog(value: bigint, decimals: number = 18): string {
@@ -1711,6 +1974,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         job: BidderJob,
         amount: bigint,
         decisionContext?: RuntimeBidDecisionContext,
+        requestContext: BiddingServiceRequestContext = {},
     ): Promise<void> {
         job.state.lastRun = Date.now();
         const jobRef = formatBidderJobReference(job);
@@ -1747,7 +2011,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         }
 
         const { orderHash, protocolAddress, placedAt, expirationTime } =
-            await this.biddingService.placeOffer(job, amount);
+            await this.biddingService.placeOffer(job, amount, requestContext);
         job.state.activeOrderId = orderHash;
         job.state.activeProtocolAddress = protocolAddress;
         job.state.activeOrderPlacedAt = placedAt;
@@ -1800,7 +2064,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         }
     }
 
-    private async cancelAndTrack(job: BidderJob, order: Order): Promise<void> {
+    private async cancelAndTrack(
+        job: BidderJob,
+        order: Order,
+        requestContext: BiddingServiceRequestContext = {},
+    ): Promise<void> {
         const jobRef = formatBidderJobReference(job);
         if (this.isDryRun()) {
             log.info("dryRunOfferCancel", "Dry run would cancel offer", {
@@ -1828,7 +2096,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             cancellationError: null,
         });
         try {
-            await this.biddingService.cancelOffer(job, order);
+            await this.biddingService.cancelOffer(job, order, requestContext);
         } catch (error: unknown) {
             this.recordJobOfferCancellation(job, order, {
                 requestedAt,
@@ -1887,6 +2155,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         offers: Order[],
         jobRef: string,
         clearMissing: boolean,
+        requestContext: BiddingServiceRequestContext = {},
     ): Promise<Order | null> {
         const activeId = job.state.activeOrderId;
         if (!activeId) {
@@ -1922,6 +2191,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             job.collectionAddress,
             tokenId,
             job.collectionSlug,
+            requestContext,
         );
 
         if (recovered) {
@@ -2116,13 +2386,14 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         job: BidderJob,
         myOffers: Order[],
         keepOrderId?: string,
+        requestContext: BiddingServiceRequestContext = {},
     ): Promise<void> {
         for (const offer of myOffers) {
             if (keepOrderId && offer.id === keepOrderId) {
                 continue;
             }
 
-            await this.cancelAndTrack(job, offer);
+            await this.cancelAndTrack(job, offer, requestContext);
         }
     }
 
@@ -2166,6 +2437,19 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         }
 
         return false;
+    }
+
+    private hasSameSatisfiedDeclaration(
+        currentJob: BidderJob,
+        desiredJob: BidderJob,
+    ): boolean {
+        return (
+            currentJob.revision === desiredJob.revision &&
+            currentJob.config.floor === desiredJob.config.floor &&
+            currentJob.config.ceiling === desiredJob.config.ceiling &&
+            currentJob.config.delta === desiredJob.config.delta &&
+            this.hasSameTargetIdentity(currentJob, desiredJob)
+        );
     }
 
     private getBidRenewalReason(

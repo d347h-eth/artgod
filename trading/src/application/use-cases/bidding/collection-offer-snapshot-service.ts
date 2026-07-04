@@ -9,10 +9,44 @@ export interface CollectionOfferSnapshot {
     collectionSlug: string;
     offers: unknown[];
     refreshedAt: number;
+    metrics: CollectionOfferSnapshotMetrics;
+}
+
+export interface CollectionOfferSnapshotMetrics {
+    durationMs: number;
+    pageCount: number;
+    offerCount: number;
+    firstPriceWei: string | null;
+    lastPriceWei: string | null;
+    minPriceWei: string | null;
+    maxPriceWei: string | null;
+    finalCursor: string | null;
+}
+
+export interface CollectionOfferSourceResult {
+    offers: unknown[];
+    metrics: CollectionOfferSnapshotMetrics;
 }
 
 export interface CollectionOfferSource {
-    getAllOffers(collectionSlug: string): Promise<unknown[]>;
+    getAllOffers(collectionSlug: string): Promise<CollectionOfferSourceResult>;
+}
+
+// Builds complete snapshot metric records for adapters and tests that only know a subset of telemetry fields.
+export function createCollectionOfferSnapshotMetrics(
+    overrides: Partial<CollectionOfferSnapshotMetrics> = {},
+): CollectionOfferSnapshotMetrics {
+    return {
+        durationMs: 0,
+        pageCount: 0,
+        offerCount: 0,
+        firstPriceWei: null,
+        lastPriceWei: null,
+        minPriceWei: null,
+        maxPriceWei: null,
+        finalCursor: null,
+        ...overrides,
+    };
 }
 
 export interface CollectionOfferSnapshotProvider {
@@ -39,6 +73,9 @@ export interface CollectionOfferBootstrapProgress {
 }
 
 export interface CollectionOfferBootstrapOptions {
+    onCollectionStarted?: (
+        progress: CollectionOfferBootstrapProgress,
+    ) => void;
     onProgress?: (progress: CollectionOfferBootstrapProgress) => void;
 }
 
@@ -46,15 +83,40 @@ export interface CollectionOfferSnapshotObserver {
     onSnapshotRefreshed(snapshot: CollectionOfferSnapshot, reason: string): void;
 }
 
+export interface CollectionOfferSnapshotFreshnessOptions {
+    maxTtlMs?: number;
+    durationMultiplier?: number;
+}
+
 interface CollectionRefreshState {
     refreshing: boolean;
-    pendingReason?: string;
+    pendingRequest?: PendingRefreshRequest;
     inFlightPromise?: Promise<void>;
+    failureCount: number;
+    lastStartedAt?: number;
+    lastError?: string;
+    nextEligibleRefreshAt?: number;
+}
+
+interface PendingRefreshRequest {
+    reason: string;
+    respectTtl: boolean;
 }
 
 const log = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.CollectionOfferSnapshotService,
 );
+
+const COLLECTION_OFFER_SNAPSHOT_LOG_ACTION = {
+    FreshSnapshotSkipped: "freshSnapshotSkipped",
+    RefreshBackoffSkipped: "refreshBackoffSkipped",
+    RefreshFailed: "refreshFailed",
+    SnapshotRefreshStarted: "snapshotRefreshStarted",
+} as const;
+
+const COLLECTION_OFFER_SNAPSHOT_FAILURE_BACKOFF_MULTIPLIER = 2;
+const COLLECTION_OFFER_SNAPSHOT_FAILURE_BACKOFF_MAX_EXPONENT = 6;
+const COLLECTION_OFFER_SNAPSHOT_FAILURE_BACKOFF_JITTER_RATIO = 0.2;
 
 // Maintains authoritative collection offer snapshots with deduped refreshes per collection.
 export class CollectionOfferSnapshotService
@@ -63,6 +125,8 @@ export class CollectionOfferSnapshotService
     private readonly watchedCollectionSlugs: Set<string>;
     private readonly snapshots = new Map<string, CollectionOfferSnapshot>();
     private readonly refreshStates = new Map<string, CollectionRefreshState>();
+    private readonly refreshMaxTtlMs: number;
+    private readonly refreshDurationMultiplier: number;
     private started = false;
     private pollTimer?: ReturnType<typeof setTimeout>;
 
@@ -72,8 +136,19 @@ export class CollectionOfferSnapshotService
         private readonly pollIntervalMs: number,
         private readonly refreshTtlMs: number,
         private readonly observer?: CollectionOfferSnapshotObserver,
+        freshnessOptions: CollectionOfferSnapshotFreshnessOptions = {},
     ) {
         this.watchedCollectionSlugs = new Set(collectionSlugs);
+        this.refreshMaxTtlMs = Math.max(
+            this.refreshTtlMs,
+            freshnessOptions.maxTtlMs ?? this.refreshTtlMs,
+        );
+        this.refreshDurationMultiplier =
+            freshnessOptions.durationMultiplier &&
+            Number.isFinite(freshnessOptions.durationMultiplier) &&
+            freshnessOptions.durationMultiplier > 0
+                ? freshnessOptions.durationMultiplier
+                : 1;
     }
 
     // start begins TTL-aware polling for watched collections; per-collection refreshes remain serialized.
@@ -109,16 +184,21 @@ export class CollectionOfferSnapshotService
         let completed = 0;
 
         await Promise.all(
-            Array.from(this.watchedCollectionSlugs).map((collectionSlug) =>
-                this.refreshAndWait(collectionSlug, "bootstrap").then(() => {
+            Array.from(this.watchedCollectionSlugs).map((collectionSlug) => {
+                options.onCollectionStarted?.({
+                    collectionSlug,
+                    completed,
+                    total,
+                });
+                return this.refreshAndWait(collectionSlug, "bootstrap").then(() => {
                     completed += 1;
                     options.onProgress?.({
                         collectionSlug,
                         completed,
                         total,
                     });
-                }),
-            ),
+                });
+            }),
         );
     }
 
@@ -196,13 +276,7 @@ export class CollectionOfferSnapshotService
 
         void this.refreshAndWait(collectionSlug, reason, {
             respectTtl: true,
-        }).catch((error: unknown) => {
-            log.error("refreshFailed", "Collection offer snapshot refresh failed", {
-                collectionSlug,
-                reason,
-                ...toErrorLogFields(error),
-            });
-        });
+        }).catch(() => undefined);
     }
 
     // refreshAndWait serializes same-collection refreshes and optionally reuses fresh or in-flight snapshots via TTL.
@@ -227,7 +301,12 @@ export class CollectionOfferSnapshotService
             return;
         }
 
-        await this.refreshCollection(collectionSlug, reason);
+        if (options.respectTtl && this.isRefreshBackoffActive(collectionSlug)) {
+            this.logRefreshBackoffSkip(collectionSlug, reason);
+            return;
+        }
+
+        await this.refreshCollection(collectionSlug, reason, options);
     }
 
     private async waitForFreshInFlightRefresh(
@@ -259,23 +338,56 @@ export class CollectionOfferSnapshotService
 
     private logFreshSnapshotSkip(collectionSlug: string, reason: string): void {
         const snapshotAgeMs = this.getSnapshotAgeMs(collectionSlug);
-        log.debug("freshSnapshotSkipped", "Skipping fresh collection offer snapshot refresh", {
-            collectionSlug,
-            reason,
-            snapshotAgeMs,
-            ttlMs: this.refreshTtlMs,
-        });
+        const snapshot = this.snapshots.get(collectionSlug);
+        log.debug(
+            COLLECTION_OFFER_SNAPSHOT_LOG_ACTION.FreshSnapshotSkipped,
+            "Skipping fresh collection offer snapshot refresh",
+            {
+                collectionSlug,
+                reason,
+                snapshotAgeMs,
+                ttlMs: snapshot
+                    ? this.getSnapshotFreshnessTtlMs(snapshot)
+                    : this.refreshTtlMs,
+                baseTtlMs: this.refreshTtlMs,
+                maxTtlMs: this.refreshMaxTtlMs,
+                durationMultiplier: this.refreshDurationMultiplier,
+            },
+        );
+    }
+
+    private logRefreshBackoffSkip(collectionSlug: string, reason: string): void {
+        const state = this.refreshStates.get(collectionSlug);
+        log.debug(
+            COLLECTION_OFFER_SNAPSHOT_LOG_ACTION.RefreshBackoffSkipped,
+            "Skipping collection offer snapshot refresh during failure backoff",
+            {
+                collectionSlug,
+                reason,
+                failureCount: state?.failureCount ?? 0,
+                lastStartedAt: state?.lastStartedAt ?? null,
+                lastError: state?.lastError ?? null,
+                nextEligibleRefreshAt: state?.nextEligibleRefreshAt ?? null,
+                backoffRemainingMs: state?.nextEligibleRefreshAt
+                    ? Math.max(0, state.nextEligibleRefreshAt - Date.now())
+                    : null,
+            },
+        );
     }
 
     private async refreshCollection(
         collectionSlug: string,
         reason: string,
+        options: CollectionOfferRefreshOptions,
     ): Promise<void> {
         const state = this.getRefreshState(collectionSlug);
         if (state.refreshing) {
-            state.pendingReason = this.mergeRefreshReasons(
-                state.pendingReason,
-                reason,
+            state.pendingRequest = this.mergePendingRefreshRequest(
+                state.pendingRequest,
+                {
+                    reason,
+                    respectTtl: options.respectTtl === true,
+                },
             );
             return await (state.inFlightPromise ?? Promise.resolve());
         }
@@ -285,12 +397,39 @@ export class CollectionOfferSnapshotService
         state.inFlightPromise = (async () => {
             try {
                 while (true) {
-                    const offers = await this.source.getAllOffers(collectionSlug);
-                    this.logSnapshotSummary(collectionSlug, offers, nextReason);
+                    log.debug(
+                        COLLECTION_OFFER_SNAPSHOT_LOG_ACTION.SnapshotRefreshStarted,
+                        "Refreshing collection offer snapshot",
+                        {
+                            collectionSlug,
+                            reason: nextReason,
+                        },
+                    );
+                    state.lastStartedAt = Date.now();
+                    let sourceResult: CollectionOfferSourceResult;
+                    try {
+                        sourceResult =
+                            await this.source.getAllOffers(collectionSlug);
+                    } catch (error: unknown) {
+                        this.recordRefreshFailure(
+                            state,
+                            collectionSlug,
+                            nextReason,
+                            error,
+                        );
+                        throw error;
+                    }
+                    this.recordRefreshSuccess(state);
+                    this.logSnapshotSummary(
+                        collectionSlug,
+                        sourceResult,
+                        nextReason,
+                    );
                     this.snapshots.set(collectionSlug, {
                         collectionSlug,
-                        offers,
+                        offers: sourceResult.offers,
                         refreshedAt: Date.now(),
+                        metrics: sourceResult.metrics,
                     });
                     const snapshot = this.snapshots.get(collectionSlug);
                     if (snapshot) {
@@ -298,16 +437,28 @@ export class CollectionOfferSnapshotService
                         this.observer?.onSnapshotRefreshed(snapshot, nextReason);
                     }
 
-                    if (!state.pendingReason) {
+                    const pendingRequest = state.pendingRequest;
+                    if (!pendingRequest) {
                         return;
                     }
 
-                    nextReason = state.pendingReason;
-                    state.pendingReason = undefined;
+                    state.pendingRequest = undefined;
+                    if (
+                        pendingRequest.respectTtl &&
+                        this.isSnapshotFresh(collectionSlug)
+                    ) {
+                        this.logFreshSnapshotSkip(
+                            collectionSlug,
+                            pendingRequest.reason,
+                        );
+                        return;
+                    }
+
+                    nextReason = pendingRequest.reason;
                 }
             } finally {
                 state.refreshing = false;
-                state.pendingReason = undefined;
+                state.pendingRequest = undefined;
                 state.inFlightPromise = undefined;
             }
         })();
@@ -318,7 +469,7 @@ export class CollectionOfferSnapshotService
     private getRefreshState(collectionSlug: string): CollectionRefreshState {
         let state = this.refreshStates.get(collectionSlug);
         if (!state) {
-            state = { refreshing: false };
+            state = { refreshing: false, failureCount: 0 };
             this.refreshStates.set(collectionSlug, state);
         }
 
@@ -360,6 +511,20 @@ export class CollectionOfferSnapshotService
         return `${existing} || ${incoming}`;
     }
 
+    private mergePendingRefreshRequest(
+        existing: PendingRefreshRequest | undefined,
+        incoming: PendingRefreshRequest,
+    ): PendingRefreshRequest {
+        if (!existing) {
+            return incoming;
+        }
+
+        return {
+            reason: this.mergeRefreshReasons(existing.reason, incoming.reason),
+            respectTtl: existing.respectTtl && incoming.respectTtl,
+        };
+    }
+
     private isSnapshotFresh(collectionSlug: string): boolean {
         if (this.refreshTtlMs <= 0) {
             return false;
@@ -370,7 +535,19 @@ export class CollectionOfferSnapshotService
             return false;
         }
 
-        return Date.now() - snapshot.refreshedAt < this.refreshTtlMs;
+        return (
+            Date.now() - snapshot.refreshedAt <
+            this.getSnapshotFreshnessTtlMs(snapshot)
+        );
+    }
+
+    private isRefreshBackoffActive(collectionSlug: string): boolean {
+        const nextEligibleRefreshAt =
+            this.refreshStates.get(collectionSlug)?.nextEligibleRefreshAt;
+        return (
+            nextEligibleRefreshAt !== undefined &&
+            Date.now() < nextEligibleRefreshAt
+        );
     }
 
     private getSnapshotAgeMs(collectionSlug: string): number | null {
@@ -382,9 +559,67 @@ export class CollectionOfferSnapshotService
         return Date.now() - snapshot.refreshedAt;
     }
 
+    private getSnapshotFreshnessTtlMs(
+        snapshot: CollectionOfferSnapshot,
+    ): number {
+        const adaptiveTtlMs = Math.ceil(
+            snapshot.metrics.durationMs * this.refreshDurationMultiplier,
+        );
+        return Math.min(
+            this.refreshMaxTtlMs,
+            Math.max(this.refreshTtlMs, adaptiveTtlMs),
+        );
+    }
+
+    private recordRefreshSuccess(state: CollectionRefreshState): void {
+        state.failureCount = 0;
+        state.lastError = undefined;
+        state.nextEligibleRefreshAt = undefined;
+    }
+
+    private recordRefreshFailure(
+        state: CollectionRefreshState,
+        collectionSlug: string,
+        reason: string,
+        error: unknown,
+    ): void {
+        state.failureCount += 1;
+        state.lastError =
+            error instanceof Error ? error.message : String(error);
+        const exponent = Math.min(
+            state.failureCount - 1,
+            COLLECTION_OFFER_SNAPSHOT_FAILURE_BACKOFF_MAX_EXPONENT,
+        );
+        const rawBackoffMs =
+            this.refreshTtlMs *
+            COLLECTION_OFFER_SNAPSHOT_FAILURE_BACKOFF_MULTIPLIER ** exponent;
+        const jitterMs = Math.floor(
+            rawBackoffMs *
+                COLLECTION_OFFER_SNAPSHOT_FAILURE_BACKOFF_JITTER_RATIO *
+                Math.random(),
+        );
+        const backoffMs = Math.min(
+            this.refreshMaxTtlMs,
+            rawBackoffMs + jitterMs,
+        );
+        state.nextEligibleRefreshAt = Date.now() + backoffMs;
+        log.warn(
+            COLLECTION_OFFER_SNAPSHOT_LOG_ACTION.RefreshFailed,
+            "Collection offer snapshot refresh failed",
+            {
+                collectionSlug,
+                reason,
+                failureCount: state.failureCount,
+                backoffMs,
+                nextEligibleRefreshAt: state.nextEligibleRefreshAt,
+                ...toErrorLogFields(error),
+            },
+        );
+    }
+
     private logSnapshotSummary(
         collectionSlug: string,
-        offers: unknown[],
+        sourceResult: CollectionOfferSourceResult,
         reason: string,
     ): void {
         type SnapshotCriteria = {
@@ -399,6 +634,7 @@ export class CollectionOfferSnapshotService
         let multiTraitOffers = 0;
         let explicitItemOffers = 0;
         const seenTraitTypes = new Set<string>();
+        const offers = sourceResult.offers;
 
         for (const rawOffer of offers) {
             const parsedOffer = rawOffer as {
@@ -470,6 +706,19 @@ export class CollectionOfferSnapshotService
             collectionSlug,
             reason,
             offerCount: offers.length,
+            pageCount: sourceResult.metrics.pageCount,
+            durationMs: sourceResult.metrics.durationMs,
+            firstPriceWei: sourceResult.metrics.firstPriceWei,
+            lastPriceWei: sourceResult.metrics.lastPriceWei,
+            minPriceWei: sourceResult.metrics.minPriceWei,
+            maxPriceWei: sourceResult.metrics.maxPriceWei,
+            finalCursor: sourceResult.metrics.finalCursor,
+            adaptiveTtlMs: this.getSnapshotFreshnessTtlMs({
+                collectionSlug,
+                offers,
+                refreshedAt: Date.now(),
+                metrics: sourceResult.metrics,
+            }),
             collectionWideOfferCount: collectionWideLike,
             criteriaOfferCount: criteriaOffers,
             multiTraitOfferCount: multiTraitOffers,

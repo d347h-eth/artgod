@@ -14,6 +14,7 @@ export const BIDDING_LOG_COMPONENT = {
     BiddingRuntime: "BiddingRuntime",
     CollectionOfferSnapshotRefresh: "CollectionOfferSnapshotRefresh",
     CollectionOfferSnapshotService: "CollectionOfferSnapshotService",
+    HotRefreshBackpressure: "HotRefreshBackpressure",
     OpenSeaBiddingService: "OpenSeaBiddingService",
     OpenSeaCollectionOfferSource: "OpenSeaCollectionOfferSource",
     OpenSeaEventStream: "OpenSeaEventStream",
@@ -55,11 +56,7 @@ export function toErrorLogFields(error: unknown): BiddingLogFields {
 }
 
 // Routes bidding-core logs through ArtGod's shared structured process logger.
-function emit(
-    level: LogLevel,
-    message: string,
-    meta: BiddingLogMeta,
-): void {
+function emit(level: LogLevel, message: string, meta: BiddingLogMeta): void {
     const isTestRun =
         process.env.VITEST === "true" || process.env.NODE_ENV === "test";
     if (isTestRun && (level === "debug" || level === "info")) {
@@ -114,7 +111,11 @@ export function createBiddingComponentLogger(
     });
 
     return {
-        debug(action: string, message: string, fields?: BiddingLogFields): void {
+        debug(
+            action: string,
+            message: string,
+            fields?: BiddingLogFields,
+        ): void {
             emit("debug", message, withComponent(action, fields));
         },
         info(action: string, message: string, fields?: BiddingLogFields): void {
@@ -123,7 +124,11 @@ export function createBiddingComponentLogger(
         warn(action: string, message: string, fields?: BiddingLogFields): void {
             emit("warn", message, withComponent(action, fields));
         },
-        error(action: string, message: string, fields?: BiddingLogFields): void {
+        error(
+            action: string,
+            message: string,
+            fields?: BiddingLogFields,
+        ): void {
             emit("error", message, withComponent(action, fields));
         },
     };

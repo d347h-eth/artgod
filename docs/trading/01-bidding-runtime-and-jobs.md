@@ -27,8 +27,12 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 - The bot's collection-offer snapshot is the authoritative market view for bidding decisions.
 - ArtGod `orders` rows are never used for bidder competitiveness or placement decisions.
 - OpenSea stream events are wake-up hints only; missed stream events are expected.
+- Broad collection/trait offer stream events and exact-token offer stream events are coalesced before bidder refresh so flood traffic cannot monopolize command processing.
+- User-driven job commands stay serial at the durable command layer, but their immediate job refresh uses command-priority OpenSea reads/writes and is not queued behind hot-refresh or full-scan work for unrelated jobs.
+- Command reconciliation may complete an enabled-job command without another OpenSea pass when the current bot process has already verified an active order for the same job revision.
 - The snapshot lane polls every 60 seconds and hot-path callers force a blocking refresh when the snapshot is older than the configured stale threshold.
 - Snapshot refresh entrypoints are serialized/deduped by the snapshot service.
+- Heavy collection all-offers snapshots are a known scaling pressure; detailed evidence and the target adaptive snapshot refactor are tracked in `docs/progress/trading/07-bidding-market-snapshot-scaling.md`.
 - Job execution remains per-job serialized.
 - Token trait matching reads normalized `token_attributes` joins; bidding hot-refresh does not parse `token_metadata.attributes_json` or `token_metadata.raw_json`.
 - Marketplace token bidding targets must be canonical `tokens` rows. Extension-synthetic tokens can be shown in browsing surfaces, but frontend bidding selection and backend job mutation exclude them before bot commands exist.
@@ -84,12 +88,52 @@ Startup order:
 6. emit `bot_bootstrapping` before long allowance/snapshot/price bootstrap work
 7. approve configured WETH allowance when `BIDDING_WETH_ALLOWANCE_ETH > 0`
 8. bootstrap authoritative collection-offer snapshots and current prices
-9. start the continuous job scan loop, snapshot polling, stream listeners, command reconciliation, and heartbeat
-10. emit `bot_ready` only after bootstrap is complete
+9. replay already-committed job commands while stream listeners and snapshot polling are still inactive
+10. start OpenSea stream listeners and steady-state snapshot polling from the post-command enabled-job set
+11. start the continuous job scan loop, command reconciliation loop/listener, and heartbeat
+12. emit `bot_ready` only after bootstrap is complete
 
 `trading_bot_runtime_state` stores non-secret bot heartbeat state.
 Backend bid-book reads use it to decide whether the bot snapshot projection can be treated as live.
 Active-order evidence restored from a prior bot process is rendered as `verifying` until the current process proves, replaces, or clears that order through OpenSea-backed runtime work.
+
+## Current Runtime Mode
+
+The current bidding runtime is optimized around a background-maintained market
+view plus narrow command and hot-refresh lanes.
+
+Command reconciliation:
+
+- claims ordered command rows one at a time
+- reloads the authoritative job declaration before mutating in-memory bidder state
+- replays committed startup commands before OpenSea stream subscriptions and
+  steady-state snapshot polling start
+- updates watched snapshot collections and direct stream subscriptions after
+  command effects
+- can finish an enabled-job command idempotently when the bot already verifies
+  an active order for the same job declaration
+
+Hot refresh:
+
+- treats stream events as signals only
+- coalesces broad collection/trait events and exact-item events separately
+- keeps the highest-price queued event per signature
+- uses cooldowns from `BIDDING_HOT_REFRESH_*`
+- cancels queued work on runtime shutdown
+- summarizes no-effect logs so spammed streams stay observable without
+  dominating logging or CPU
+
+Offer discovery:
+
+- token jobs read live exact-token offers, cached broader snapshot offers, and a
+  best-offer fallback
+- collection jobs prefer cached collection snapshots and use live collection
+  pagination only when no usable snapshot exists
+- competitive trait jobs remain on live collection and trait endpoint reads
+  because they need collection-wide context plus trait-bucket fan-out
+- full collection all-offers snapshots still back broad competition context and
+  bid-book projection, which is the next scaling boundary for heavily spammed
+  collections
 
 ## Runtime Logging
 
@@ -100,6 +144,17 @@ snapshot, retry, and error details into dedicated JSON payload fields.
 
 Lifecycle payloads such as `bot_bootstrapping` and `bot_ready` remain the
 supervisor control protocol and are separate from diagnostic log entries.
+Snapshot bootstrap emits collection start/progress events and repeats the current
+collection on the bot heartbeat cadence while the initial all-offers fetch is
+running.
+Startup command replay emits the `command_reconciliation` bootstrap phase so the
+supervisor can distinguish command work from a dead startup. During startup
+command replay, each claimed command emits immediate start/finish progress and
+the current command is re-emitted on the bot heartbeat cadence while it is still
+running. Current-price bootstrap logs each token candidate start and completion.
+
+No-effect hot-refresh logs are summarized per collection/scope/type/reason so
+irrelevant stream flood remains visible without emitting one log line per event.
 
 Bot logs must never include wallet private keys, secret-envelope payloads,
 OpenSea secret keys, or raw OpenSea request/stream payloads.
@@ -336,6 +391,7 @@ Bidding runtime groups:
 - snapshot cadence/freshness: `BIDDING_COLLECTION_OFFERS_*`
 - bid-book projection, backend freshness, and UI live refresh: `BIDDING_BID_BOOK_*`
 - bidding job scan sleep: `BIDDING_SCAN_SLEEP_MS`
+- bidding hot-refresh backpressure: `BIDDING_HOT_REFRESH_*`
 - bot runtime liveness: `BIDDING_RUNTIME_HEARTBEAT_*`
 - command reconciliation: `BIDDING_COMMAND_*`
 - WETH allowance: `BIDDING_WETH_ALLOWANCE_ETH`

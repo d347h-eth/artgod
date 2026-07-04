@@ -275,6 +275,45 @@ describe("Bidder stream refresh", () => {
         assert.deepEqual(refreshedJobIds, []);
     });
 
+    it("skips hot refresh for token jobs that cannot beat the event price by ceiling", async () => {
+        const bidder = new Bidder(
+            new FakeBiddingService() as any,
+            "0xmaker",
+            1000,
+            { dryRun: true },
+        );
+        const refreshedJobIds: string[] = [];
+
+        bidder.addJob(
+            makeJob(
+                "token-low-ceiling",
+                "terraforms",
+                {
+                    type: "token",
+                    tokenId: "123",
+                },
+                5n,
+                { floor: 1n, ceiling: 10n, delta: 1n },
+            ),
+        );
+
+        bidder.refreshJob = async (jobId: string) => {
+            refreshedJobIds.push(jobId);
+        };
+
+        await bidder.refreshMatchingJobs(
+            makeEvent(
+                Type.CollectionOffer,
+                Scope.Collection,
+                "terraforms",
+                "",
+                10n,
+            ),
+        );
+
+        assert.deepEqual(refreshedJobIds, []);
+    });
+
     it("warms currentPrice during bootstrap from a live maker-specific token offer lookup", async () => {
         const biddingService = new FakeBiddingService();
         biddingService.activeTokenOfferByMaker = {
@@ -612,6 +651,62 @@ describe("Bidder stream refresh", () => {
         assert.deepEqual(refreshedJobIds, ["token-hit"]);
     });
 
+    it("does not pre-schedule every broad-event match while one token job is running", async () => {
+        const bidder = new Bidder(
+            new FakeBiddingService() as any,
+            "0xmaker",
+            1000,
+            { dryRun: true },
+        );
+        const refreshedJobIds: string[] = [];
+        let releaseFirstRefresh!: () => void;
+        const firstRefreshGate = new Promise<void>((resolve) => {
+            releaseFirstRefresh = resolve;
+        });
+
+        bidder.addJob(
+            makeJob(
+                "token-one",
+                "terraforms",
+                { type: "token", tokenId: "123" },
+                5n,
+            ),
+        );
+        bidder.addJob(
+            makeJob(
+                "token-two",
+                "terraforms",
+                { type: "token", tokenId: "456" },
+                5n,
+            ),
+        );
+
+        bidder.refreshJob = async (jobId: string) => {
+            refreshedJobIds.push(jobId);
+            if (refreshedJobIds.length === 1) {
+                await firstRefreshGate;
+            }
+        };
+
+        const refreshPromise = bidder.refreshMatchingJobs(
+            makeEvent(
+                Type.CollectionOffer,
+                Scope.Collection,
+                "terraforms",
+                "",
+                6n,
+            ),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        assert.deepEqual(refreshedJobIds, ["token-one"]);
+
+        releaseFirstRefresh();
+        await refreshPromise;
+
+        assert.deepEqual(refreshedJobIds, ["token-one", "token-two"]);
+    });
+
     it("refreshes maker WETH balance into the cache and clamps job ceiling to that cached balance", async () => {
         const biddingService = new FakeBiddingService();
         biddingService.activeOffers = [
@@ -904,6 +999,86 @@ describe("Bidder stream refresh", () => {
         ]);
 
         assert.deepEqual(biddingService.placedAmounts, [4n]);
+
+        releaseBlocker();
+        await scanPromise;
+    });
+
+    it("runs command refresh immediately without waiting for the normal scan backlog and uses fresh WETH balance", async () => {
+        const biddingService = new FakeBiddingService();
+        let releaseBlocker!: () => void;
+        const blockerStarted = new Promise<void>((resolve) => {
+            biddingService.activeOffersImpl = async (job: BidderJob) => {
+                if (job.id === "blocker") {
+                    resolve();
+                    await new Promise<void>((blockerResolve) => {
+                        releaseBlocker = blockerResolve;
+                    });
+                    return [];
+                }
+
+                if (
+                    job.id === "target" &&
+                    biddingService.placedAmounts.includes(4n)
+                ) {
+                    return [
+                        {
+                            id: "0xmine",
+                            price: 4n,
+                            maker: "0xmaker",
+                            protocolAddress: "0xprotocol",
+                            offerScope: "item",
+                        },
+                    ];
+                }
+
+                return [];
+            };
+        });
+        const makerWethBalanceService = new FakeMakerWethBalanceService(4n);
+
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            {
+                dryRun: false,
+                maxConcurrentJobs: 1,
+            },
+            undefined,
+            makerWethBalanceService as any,
+        );
+
+        bidder.addJob(
+            makeJob("blocker", "terraforms", { type: "token", tokenId: "1" }),
+        );
+        bidder.addJob(
+            makeJob(
+                "target",
+                "terraforms",
+                { type: "token", tokenId: "2" },
+                undefined,
+                { floor: 7n, ceiling: 10n, delta: 1n },
+            ),
+        );
+
+        const scanPromise = bidder.scanOnce();
+        await blockerStarted;
+
+        const commandRefreshPromise = bidder.refreshJobForCommand("target");
+
+        await Promise.race([
+            commandRefreshPromise,
+            new Promise((_, reject) =>
+                setTimeout(
+                    () => reject(new Error("Command refresh timed out")),
+                    1000,
+                ),
+            ),
+        ]);
+
+        assert.deepEqual(biddingService.placedAmounts, [4n]);
+        assert.equal(makerWethBalanceService.calls, 2);
 
         releaseBlocker();
         await scanPromise;

@@ -7,7 +7,9 @@ import {
     parseOpenSeaBiddingOffer,
 } from "@artgod/shared/trading/open-sea-bidding-offers";
 import {
+    BIDDING_SERVICE_REQUEST_PRIORITY,
     BiddingService,
+    BiddingServiceRequestContext,
     OfferDiscoverySource,
     Order,
 } from "../../application/use-cases/bidding/bidding-service.js";
@@ -23,6 +25,7 @@ import {
     TraitTarget,
 } from "../../domain/market/strategy/job.js";
 import {
+    BIDDING_DEFAULT_COMPETITIVE_TRAIT_MAX_LOOKUP_SELECTORS,
     BIDDING_DEFAULT_OFFER_EXPIRATION_SECONDS,
     BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE,
     BIDDING_DEFAULT_ORDER_LOOKUP_MAX_PAGES,
@@ -34,7 +37,11 @@ import {
     toErrorLogFields,
 } from "../../utils/bidding-log.js";
 import { defaultRetryPolicy, RetryPolicy, retry } from "../support/retry.js";
-import { TokenBucketRateLimiter } from "../support/token-bucket-rate-limiter.js";
+import {
+    TOKEN_BUCKET_RATE_LIMIT_PRIORITY,
+    TokenBucketRateLimiter,
+    type TokenBucketRateLimitPriority,
+} from "../support/token-bucket-rate-limiter.js";
 import {
     OpenSeaApiClient,
     OpenSeaBiddingSdkClient,
@@ -64,6 +71,7 @@ export interface OpenSeaBiddingServiceOptions {
     orderLookupMaxPages?: number;
     offersPageSize?: number;
     tokenCriteriaTraitsByCollection?: Record<string, string[]>;
+    competitiveTraitMaxLookupSelectors?: number;
 }
 
 const OPENSEA_WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
@@ -101,6 +109,7 @@ export class OpenSeaBiddingService implements BiddingService {
     private readonly orderLookupMaxPages: number;
     private readonly offersPageSize: number;
     private readonly tokenCriteriaTraitsByCollection: Record<string, string[]>;
+    private readonly competitiveTraitMaxLookupSelectors: number;
 
     constructor(
         private readonly sdk: OpenSeaBiddingSdkClient,
@@ -134,9 +143,17 @@ export class OpenSeaBiddingService implements BiddingService {
         this.tokenCriteriaTraitsByCollection =
             options.tokenCriteriaTraitsByCollection ??
             BIDDING_DEFAULT_TOKEN_CRITERIA_TRAITS_BY_COLLECTION;
+        this.competitiveTraitMaxLookupSelectors = Math.max(
+            1,
+            options.competitiveTraitMaxLookupSelectors ??
+                BIDDING_DEFAULT_COMPETITIVE_TRAIT_MAX_LOOKUP_SELECTORS,
+        );
     }
 
-    public async getActiveOffers(job: BidderJob): Promise<Order[]> {
+    public async getActiveOffers(
+        job: BidderJob,
+        context: BiddingServiceRequestContext = {},
+    ): Promise<Order[]> {
         const offers: Order[] = [];
         const lookupTraitSelectors = this.getLookupTraitSelectors(job);
         const isCompetitiveTraitJob = job.target.type === "competitiveTrait";
@@ -155,6 +172,7 @@ export class OpenSeaBiddingService implements BiddingService {
                     job.collectionSlug,
                     tokenTarget.tokenId,
                     "item offers",
+                    context,
                 );
 
                 for (const rawOrder of itemOffers) {
@@ -216,6 +234,7 @@ export class OpenSeaBiddingService implements BiddingService {
                         const collectionOffers =
                             await this.fetchAllCollectionOffers(
                                 job.collectionSlug,
+                                context,
                             );
                         this.getLiveCollectionTargetOffers(
                             job,
@@ -228,9 +247,37 @@ export class OpenSeaBiddingService implements BiddingService {
 
                 if (job.target.type === "competitiveTrait") {
                     const competitiveTarget = job.target;
-                    // 2c. Competitive-trait jobs stay on the live path because they need collection-wide visibility plus trait-bucket fan-out.
+                    // Expand type-only selectors into explicit trait targets before fetching each competing trait bucket.
+                    const expandedTraitTargets =
+                        await this.expandCompetitiveTraitSelectors(
+                            job,
+                            lookupTraitSelectors,
+                            context,
+                        );
+                    expandedTraitSelectorCount = expandedTraitTargets.length;
+                    if (
+                        expandedTraitTargets.length >
+                        this.competitiveTraitMaxLookupSelectors
+                    ) {
+                        throw new Error(
+                            `[OpenSeaBiddingService] Competitive trait lookup selector count exceeds configured limit: jobId=${job.id}, selectorCount=${expandedTraitTargets.length}, limit=${this.competitiveTraitMaxLookupSelectors}`,
+                        );
+                    }
+                    log.debug(
+                        "competitiveTraitLookupResolved",
+                        "Competitive trait lookup resolved selectors",
+                        {
+                            ...jobLogFields(job),
+                            selectorCount: expandedTraitTargets.length,
+                        },
+                    );
+
+                    // Competitive-trait jobs stay live, but fail the fan-out guard before expensive collection pagination.
                     const collectionOffers =
-                        await this.fetchAllCollectionOffers(job.collectionSlug);
+                        await this.fetchAllCollectionOffers(
+                            job.collectionSlug,
+                            context,
+                        );
 
                     // Always include collection-wide offers from the live collection page.
                     collectionOffers.forEach((rawOffer) => {
@@ -251,28 +298,13 @@ export class OpenSeaBiddingService implements BiddingService {
                         this.addUniqueOffer(offers, parsed);
                     });
 
-                    // Expand type-only selectors into explicit trait targets before fetching each competing trait bucket.
-                    const expandedTraitTargets =
-                        await this.expandCompetitiveTraitSelectors(
-                            job,
-                            lookupTraitSelectors,
-                        );
-                    expandedTraitSelectorCount = expandedTraitTargets.length;
-                    log.debug(
-                        "competitiveTraitLookupResolved",
-                        "Competitive trait lookup resolved selectors",
-                        {
-                            ...jobLogFields(job),
-                            selectorCount: expandedTraitTargets.length,
-                        },
-                    );
-
                     for (const traitTarget of expandedTraitTargets) {
                         // Fetch the live offers for each explicit target or competitor trait bucket.
                         const traitOffers = await this.fetchAllTraitOffers(
                             job.collectionSlug,
                             traitTarget.type,
                             traitTarget.value,
+                            context,
                         );
 
                         traitOffers.forEach((rawOffer) => {
@@ -329,6 +361,7 @@ export class OpenSeaBiddingService implements BiddingService {
                             job.collectionSlug,
                             tokenTarget.tokenId,
                         ),
+                    context,
                 );
 
                 const parsed = this.parseRawOffer(
@@ -385,6 +418,7 @@ export class OpenSeaBiddingService implements BiddingService {
     public async getActiveTokenOfferByMaker(
         job: BidderJob,
         makerAddress: string,
+        context: BiddingServiceRequestContext = {},
     ): Promise<Order | null> {
         if (job.target.type !== "token") {
             return null;
@@ -396,6 +430,7 @@ export class OpenSeaBiddingService implements BiddingService {
                 job.collectionSlug,
                 tokenTarget.tokenId,
                 "maker token offers",
+                context,
             );
 
             for (const rawOrder of tokenOffers) {
@@ -432,6 +467,7 @@ export class OpenSeaBiddingService implements BiddingService {
         collectionAddress?: string,
         _tokenId?: string,
         collectionSlug?: string,
+        context: BiddingServiceRequestContext = {},
     ): Promise<Order | null> {
         let foundOrder: unknown = null;
 
@@ -449,7 +485,11 @@ export class OpenSeaBiddingService implements BiddingService {
                     "getOrderByHash",
                     "order by hash",
                     () =>
-                        this.sdk.api.getOrderByHash(orderHash, protocolAddress),
+                        this.sdk.api.getOrderByHash(
+                            orderHash,
+                            protocolAddress,
+                        ),
+                    context,
                 );
 
                 if (matchesOrderHash(response, orderHash)) {
@@ -500,6 +540,7 @@ export class OpenSeaBiddingService implements BiddingService {
                                 this.offersPageSize,
                                 cursor,
                             ),
+                        context,
                     );
 
                     const offers = asArray(response?.offers);
@@ -612,6 +653,7 @@ export class OpenSeaBiddingService implements BiddingService {
     public async placeOffer(
         job: BidderJob,
         amount: bigint,
+        context: BiddingServiceRequestContext = {},
     ): Promise<{
         orderHash: string;
         protocolAddress: string;
@@ -663,6 +705,7 @@ export class OpenSeaBiddingService implements BiddingService {
                             traits,
                             expirationTime,
                         }),
+                    context,
                 );
                 const placedAt = new Date().toISOString();
                 if (!order) {
@@ -689,16 +732,19 @@ export class OpenSeaBiddingService implements BiddingService {
             }
             const tokenTarget = job.target;
 
-            const order = await this.trackSdkCall("createOffer", () =>
-                this.sdk.createOffer({
-                    asset: {
-                        tokenAddress: job.collectionAddress,
-                        tokenId: tokenTarget.tokenId,
-                    },
-                    accountAddress: this.makerAddress,
-                    amount: formatUnits(amount, 18),
-                    expirationTime,
-                }),
+            const order = await this.trackSdkCall(
+                "createOffer",
+                () =>
+                    this.sdk.createOffer({
+                        asset: {
+                            tokenAddress: job.collectionAddress,
+                            tokenId: tokenTarget.tokenId,
+                        },
+                        accountAddress: this.makerAddress,
+                        amount: formatUnits(amount, 18),
+                        expirationTime,
+                    }),
+                context,
             );
             const placedAt = new Date().toISOString();
             if (!order) {
@@ -727,7 +773,11 @@ export class OpenSeaBiddingService implements BiddingService {
         }
     }
 
-    public async cancelOffer(_job: BidderJob, order: Order): Promise<void> {
+    public async cancelOffer(
+        _job: BidderJob,
+        order: Order,
+        context: BiddingServiceRequestContext = {},
+    ): Promise<void> {
         try {
             if (!order.protocolAddress) {
                 throw new Error(
@@ -737,14 +787,17 @@ export class OpenSeaBiddingService implements BiddingService {
 
             await retry(
                 async () => {
-                    await this.trackSdkCall("offchainCancelOrder", () =>
-                        this.sdk.offchainCancelOrder(
-                            order.protocolAddress!,
-                            order.id,
-                            OPENSEA_MAINNET_CHAIN,
-                            undefined,
-                            true,
-                        ),
+                    await this.trackSdkCall(
+                        "offchainCancelOrder",
+                        () =>
+                            this.sdk.offchainCancelOrder(
+                                order.protocolAddress!,
+                                order.id,
+                                OPENSEA_MAINNET_CHAIN,
+                                undefined,
+                                true,
+                            ),
+                        context,
                     );
                 },
                 this.retryPolicy,
@@ -780,9 +833,12 @@ export class OpenSeaBiddingService implements BiddingService {
     private async trackSdkCall<T>(
         action: string,
         fn: () => Promise<T>,
+        context: BiddingServiceRequestContext = {},
     ): Promise<T> {
         const cost = sdkCallCosts[action] ?? { get: 1, post: 0 };
-        await this.rateLimiter.wait(cost.get, cost.post);
+        await this.rateLimiter.wait(cost.get, cost.post, {
+            priority: toRateLimitPriority(context),
+        });
         return await fn();
     }
 
@@ -790,9 +846,10 @@ export class OpenSeaBiddingService implements BiddingService {
         action: string,
         logLabel: string,
         fn: () => Promise<T>,
+        context: BiddingServiceRequestContext = {},
     ): Promise<T> {
         return await retry(
-            async () => await this.trackSdkCall(action, fn),
+            async () => await this.trackSdkCall(action, fn, context),
             this.retryPolicy,
             {
                 shouldRetry: isRetryableOpenSeaBiddingError,
@@ -812,6 +869,7 @@ export class OpenSeaBiddingService implements BiddingService {
         collectionSlug: string,
         tokenId: string,
         logLabel: string,
+        context: BiddingServiceRequestContext = {},
     ): Promise<unknown[]> {
         const offers: unknown[] = [];
         let cursor: string | undefined;
@@ -829,6 +887,7 @@ export class OpenSeaBiddingService implements BiddingService {
                         this.offersPageSize,
                         cursor,
                     ),
+                context,
             );
 
             offers.push(...asArray(response?.offers));
@@ -1392,6 +1451,7 @@ export class OpenSeaBiddingService implements BiddingService {
 
     private async fetchAllCollectionOffers(
         collectionSlug: string,
+        context: BiddingServiceRequestContext = {},
     ): Promise<unknown[]> {
         let cursor: string | undefined;
         const seenCursors = new Set<string>();
@@ -1407,6 +1467,7 @@ export class OpenSeaBiddingService implements BiddingService {
                         this.offersPageSize,
                         cursor,
                     ),
+                context,
             );
 
             allOffers.push(...asArray(response?.offers));
@@ -1436,6 +1497,7 @@ export class OpenSeaBiddingService implements BiddingService {
         collectionSlug: string,
         traitType: string,
         traitValue: string,
+        context: BiddingServiceRequestContext = {},
     ): Promise<unknown[]> {
         let cursor: string | undefined;
         const seenCursors = new Set<string>();
@@ -1453,6 +1515,7 @@ export class OpenSeaBiddingService implements BiddingService {
                         this.offersPageSize,
                         cursor,
                     ),
+                context,
             );
 
             allOffers.push(...asArray(response?.offers));
@@ -1537,6 +1600,7 @@ export class OpenSeaBiddingService implements BiddingService {
     private async expandCompetitiveTraitSelectors(
         job: BidderJob,
         selectors: TraitSelector[],
+        context: BiddingServiceRequestContext = {},
     ): Promise<TraitTarget[]> {
         const explicitTargets: TraitTarget[] = selectors
             .filter(
@@ -1561,6 +1625,7 @@ export class OpenSeaBiddingService implements BiddingService {
                 "getTraits",
                 "collection traits",
                 () => this.sdk.api.getTraits(job.collectionSlug),
+                context,
             );
         } catch (error) {
             log.error(
@@ -1728,4 +1793,12 @@ function isNotFoundError(error: unknown): boolean {
 
 function toErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+}
+
+function toRateLimitPriority(
+    context: BiddingServiceRequestContext,
+): TokenBucketRateLimitPriority {
+    return context.priority === BIDDING_SERVICE_REQUEST_PRIORITY.UserCommand
+        ? TOKEN_BUCKET_RATE_LIMIT_PRIORITY.UserCommand
+        : TOKEN_BUCKET_RATE_LIMIT_PRIORITY.Background;
 }

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import { createCollectionOfferSnapshotMetrics } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
 import { SqliteBiddingBidBookProjection } from "./sqlite-bidding-bid-book-projection.js";
 
 const COLLECTION_ADDRESS = "0x4e1f41613c9084fdb9e34e11fae9412427480e56";
@@ -212,6 +213,9 @@ describe("SqliteBiddingBidBookProjection", () => {
                         closingDate: "2026-04-27T14:44:41.397Z",
                     }),
                 ],
+                metrics: createCollectionOfferSnapshotMetrics({
+                    offerCount: 4,
+                }),
             },
             "test",
         );
@@ -315,6 +319,9 @@ describe("SqliteBiddingBidBookProjection", () => {
                         },
                     }),
                 ],
+                metrics: createCollectionOfferSnapshotMetrics({
+                    offerCount: 1,
+                }),
             },
             "initial",
         );
@@ -324,6 +331,7 @@ describe("SqliteBiddingBidBookProjection", () => {
                 collectionSlug: "terraforms",
                 refreshedAt: 5678,
                 offers: [],
+                metrics: createCollectionOfferSnapshotMetrics(),
             },
             reason: "poll cadence",
             errorMessage: "projection failed",

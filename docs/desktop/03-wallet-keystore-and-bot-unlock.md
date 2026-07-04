@@ -712,8 +712,8 @@ The bot entrypoint must:
 - overwrite the original `Buffer` after signer construction
 - refuse to start if stdin is empty, malformed, or truncated
 - emit `bot_bootstrapping` after config, jobs, wallet, and adapter setup succeeds but before configured WETH allowance approval or long snapshot/current-price warmup can block startup
-- emit `bot_bootstrap_progress` while long warmup phases are advancing
-- emit `bot_ready` only after authoritative snapshot bootstrap and current-price bootstrap complete
+- emit `bot_bootstrap_progress` while long warmup and startup command-replay phases are advancing
+- emit `bot_ready` only after authoritative snapshot bootstrap, current-price bootstrap, and startup command replay complete
 - keep lifecycle event payloads limited to non-secret runtime metadata
 - write only non-secret heartbeat/state rows to `trading_bot_runtime_state`
 - load bidding jobs from SQLite after secret handoff; the DB contains declared job config, not wallet material
