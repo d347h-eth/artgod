@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import HolderTokensView from './HolderTokensView.svelte';
 
 describe('HolderTokensView', () => {
@@ -74,7 +75,9 @@ describe('HolderTokensView', () => {
 				browserBasePath: '/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 				owner: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 				requestCursor: null,
-				displayMode: 'grid'
+				displayMode: 'grid',
+				biddingSettings: defaultBiddingCollectionSettings(),
+				priceTiers: []
 			}
 		});
 
@@ -95,6 +98,8 @@ describe('HolderTokensView', () => {
 		expect(body).not.toContain('<span class="runtime-tab-active">holders</span>');
 		expect(body).toContain('>filter<');
 		expect(body).toContain('>reset<');
+		expect(body).toContain('>bid on all tokens<');
+		expect(body).not.toContain('>bid on traits<');
 		expect(body).toContain('>Hat=Beanie<');
 		expect(body).toContain('2 held');
 		expect(body).toContain('L7/BForest/Alpha');

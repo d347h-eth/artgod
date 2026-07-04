@@ -19,6 +19,7 @@ The implementation plan and historical slice notes remain in `docs/progress/trad
 | --- | --- |
 | `asks` | Token-card browsing with bidding target controls when admin write controls are available. |
 | `tokens` | Token-card browsing with the same token/trait bidding target controls as `asks`. |
+| Holder-token browser | Owner-constrained token-card browsing with token-scoped bidding controls when admin write controls are available. |
 | `offers` with `bid_scope=token` | Explicit token-scoped offers shown as token cards with ask/bid prices and token-bidding controls. |
 | `offers` with `bid_scope=traits` | Trait-demand buckets, trait filtering, maker filtering, and per-bucket bid drafting. |
 | `offers` with `bid_scope=collection` | Collection-wide bids and collection-level bid drafting. |
@@ -33,6 +34,7 @@ It combines the bid book, maker filter, bid-scope controls, trait filters where 
 Token targets:
 
 - `bid on all tokens` creates or updates token jobs for every token matching the current filter across the full result set.
+- On holder-token pages, the same action is constrained to the current owner in addition to trait and token-status filters.
 - `bid on this page` narrows token-job creation to the currently loaded token cards.
 - `Ctrl` + left click or middle click on non-link token-card areas toggles individual selected-token targets.
 - Token-card links preserve browser-native `Ctrl` / middle-click new-tab behavior.

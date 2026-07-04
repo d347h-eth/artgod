@@ -403,7 +403,8 @@ function batchTokenSelectionRequestFromFilteredDraft(
 		type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
 		tokenStatus,
 		traits: draft.source.filter.selectedTraits,
-		traitRanges: draft.source.filter.selectedTraitRanges
+		traitRanges: draft.source.filter.selectedTraitRanges,
+		ownerAddress: draft.source.filter.ownerAddress
 	};
 }
 

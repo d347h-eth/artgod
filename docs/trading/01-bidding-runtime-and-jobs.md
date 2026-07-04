@@ -270,6 +270,7 @@ It does not change the bot's market-decision logic.
 Targeting surfaces:
 
 - `asks` and `tokens`: draft token or trait jobs from the current token-browser context
+- holder-token browser: draft token jobs from the current owner-constrained token-browser context
 - `offers` / bid book: draft token, trait, or collection jobs from bid-book context
 - token detail: edit or create the exact-token job inline
 
@@ -277,6 +278,7 @@ Target controls:
 
 - `bid on traits`: uses the current trait filter or selected trait bucket as the declared trait target
 - `bid on all tokens`: creates token jobs for every matching token across the full filtered result set
+- owner-token pages apply the current owner as an additional token-browser selection constraint for token jobs
 - token-scoped bidding keeps only canonical marketplace-addressable tokens; unsupported synthetic token cards are not selectable as bidding targets
 - `bid on this page`: narrows token jobs to currently loaded token cards
 - `place collection bid`: creates or edits the collection-wide target

@@ -113,6 +113,7 @@ Collection pages should compose the shared shell like this:
 4. `HolderTokensView.svelte`
     - row 1: owner context text
     - row 2: trait panel controls
+    - row 3: token-scoped bidding controls when admin write controls are available
     - body: `TokenBrowserView.svelte`
 
 5. `CollectionCustomizationView.svelte`
@@ -231,6 +232,7 @@ Specific controls:
 - Scope:
     - collection `asks`
     - collection `tokens`
+    - holder-token browser
     - collection bidding `bid_scope=token`
     - collection bidding `bid_scope=traits`
     - collection bidding `bid_scope=collection`
@@ -244,11 +246,12 @@ Control rules:
 - `tiers` toggles collection price-tier management.
 - `bid on traits` drafts a trait-scoped bidding target from the current trait filter or selected trait bucket.
 - `bid on all tokens` drafts token-scoped bidding targets for every token matching the current filters across the full result set.
+- On holder-token pages, `bid on all tokens` is additionally constrained to tokens currently held by that owner.
 - `bid on this page` narrows an all-pages token draft to the currently loaded page only and should only appear when it is meaningfully different.
 - `place collection bid` drafts a collection-scoped bidding target from the current collection bid context.
 - selected-count text is plain text, not a button.
 - `clear` removes only the current bidding target and must not reset trait filters.
-- asks, tokens, and offers must share this component instead of each implementing their own action row.
+- asks, tokens, holder-token pages, and offers must share this component instead of each implementing their own action row.
 - public single-collection deployments may show read-only offers, but must not expose bidding job or tier write controls.
 
 ### Button and focus behavior

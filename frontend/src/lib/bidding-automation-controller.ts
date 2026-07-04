@@ -213,6 +213,7 @@ export function biddingAutomationSelectionStateKey(
 			selection.filter.source,
 			selection.tokenCount,
 			selection.filter.tokenStatus ?? 'any-status',
+			selection.filter.ownerAddress ?? 'any-owner',
 			selection.filter.makerAddress ?? 'any-maker',
 			selection.filter.traitJoinMode,
 			...selection.filter.selectedTraits.map((trait) => `${trait.key}=${trait.value}`),

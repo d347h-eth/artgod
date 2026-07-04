@@ -8,6 +8,7 @@ import type {
 } from "@artgod/shared/types";
 import {
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    TOKEN_BROWSER_STATUS,
     TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
 } from "@artgod/shared/types";
 import type {
@@ -98,6 +99,10 @@ export function parseBatchTokenBiddingJobSelection(
             tokenStatus: parseTokenStatus(record.tokenStatus),
             traits: parseTraits(record.traits),
             traitRanges: parseTraitRanges(record.traitRanges),
+            ownerAddress: parseOptionalString(
+                record.ownerAddress,
+                "selection.ownerAddress",
+            ),
         };
     }
     if (
@@ -120,9 +125,9 @@ export function parseBatchTokenBiddingJobSelection(
 
 function parseTokenStatus(value: unknown): TokenBrowserStatus {
     if (
-        value === "listed" ||
-        value === "all" ||
-        value === "listed_then_unlisted"
+        value === TOKEN_BROWSER_STATUS.Listed ||
+        value === TOKEN_BROWSER_STATUS.All ||
+        value === TOKEN_BROWSER_STATUS.ListedThenUnlisted
     ) {
         return value;
     }

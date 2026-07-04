@@ -583,6 +583,7 @@ describe('buildBiddingAutomationTokenFilterSnapshot', () => {
 				selectedTraitRanges: [],
 				traitJoinMode: 'or',
 			tokenStatus: null,
+			ownerAddress: null,
 			makerAddress: null
 		});
 	});

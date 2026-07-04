@@ -149,6 +149,7 @@ describe("trading HTTP adapters", () => {
                         traitRanges: [
                             { key: "Level", fromValue: "1", toValue: "10" },
                         ],
+                        ownerAddress: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     },
                 },
             }),
@@ -183,6 +184,7 @@ describe("trading HTTP adapters", () => {
                     traitRanges: [
                         { key: "Level", fromValue: "1", toValue: "10" },
                     ],
+                    ownerAddress: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 },
             },
         ]);
@@ -331,6 +333,27 @@ describe("trading HTTP adapters", () => {
                     }),
                 ),
             /selection\.traitRanges entries must be objects/,
+        );
+        await assert.rejects(
+            () =>
+                adapter.handle(
+                    request({
+                        params: {
+                            chain_ref: "ethereum",
+                            collection_ref: "terraforms",
+                        },
+                        body: {
+                            status: TRADING_JOB_STATUS.Enabled,
+                            deltaEth: "0.001",
+                            selection: {
+                                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
+                                tokenStatus: "all",
+                                ownerAddress: 123,
+                            },
+                        },
+                    }),
+                ),
+            /selection\.ownerAddress must be a string/,
         );
         await assert.rejects(
             () =>
