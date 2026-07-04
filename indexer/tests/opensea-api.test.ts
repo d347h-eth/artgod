@@ -22,6 +22,9 @@ describe("OpenSeaApiAdapter", () => {
                     requests.push(input.address);
                     return { slug: "milady-maker" };
                 },
+                async resolveCollectionBySlug() {
+                    return null;
+                },
             },
         });
 

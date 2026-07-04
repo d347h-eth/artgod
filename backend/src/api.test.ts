@@ -672,6 +672,10 @@ beforeAll(async () => {
                         ? "terraforms"
                         : null;
                 },
+                async resolveCollectionSlugBySlug(input: { slug: string }) {
+                    openSeaSlugProbeInputs.push(input);
+                    return input.slug === "terraforms" ? "terraforms" : null;
+                },
             },
         );
     const getBootstrapStatusUseCase =
@@ -4658,6 +4662,7 @@ describe("backend api routes", () => {
                 slug: "ethereum",
             }),
             address: TERRAFORMS_ADDRESS,
+            requestedSlug: null,
             status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
             slug: "terraforms",
             reason: null,
@@ -4665,6 +4670,28 @@ describe("backend api routes", () => {
         expect(openSeaSlugProbeInputs).toEqual([
             {
                 address: TERRAFORMS_ADDRESS,
+            },
+        ]);
+
+        openSeaSlugProbeInputs = [];
+        const openSeaSlugVerification = await resolve(
+            "GET",
+            "/api/ethereum/collections/bootstrap/opensea-slug-probe?slug=terraforms",
+        );
+        expect(openSeaSlugVerification.statusCode).toBe(200);
+        expect(openSeaSlugVerification.payload).toEqual({
+            chain: expect.objectContaining({
+                slug: "ethereum",
+            }),
+            address: null,
+            requestedSlug: "terraforms",
+            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
+            slug: "terraforms",
+            reason: null,
+        });
+        expect(openSeaSlugProbeInputs).toEqual([
+            {
+                slug: "terraforms",
             },
         ]);
 

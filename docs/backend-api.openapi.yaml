@@ -1283,16 +1283,23 @@ paths:
     /api/{chain_ref}/collections/bootstrap/opensea-slug-probe:
         get:
             tags: [Bootstrap]
-            summary: Probe OpenSea collection slug by contract address
+            summary: Probe or verify OpenSea collection slug
             description: |
-                Resolves the OpenSea collection slug for a standalone contract when OpenSea integration is enabled.
+                Resolves the OpenSea collection slug for a standalone contract, or verifies an entered
+                OpenSea collection slug, when OpenSea integration is enabled.
+                Provide exactly one of `address` or `slug`.
                 Returns `disabled` when the backend was started without an active OpenSea API key.
             operationId: probeBootstrapOpenSeaSlug
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
                 - name: address
                   in: query
-                  required: true
+                  required: false
+                  schema:
+                      type: string
+                - name: slug
+                  in: query
+                  required: false
                   schema:
                       type: string
             responses:
@@ -4533,13 +4540,17 @@ components:
 
         BootstrapOpenSeaSlugProbeResponse:
             type: object
-            required: [chain, address, status, slug, reason]
+            required: [chain, address, requestedSlug, status, slug, reason]
             additionalProperties: false
             properties:
                 chain:
                     $ref: "#/components/schemas/ChainRecord"
                 address:
                     type: string
+                    nullable: true
+                requestedSlug:
+                    type: string
+                    nullable: true
                 status:
                     type: string
                     enum: [disabled, found, missing]

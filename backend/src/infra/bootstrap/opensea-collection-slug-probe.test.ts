@@ -11,6 +11,9 @@ describe("OpenSeaCollectionSlugProbeAdapter", () => {
                 requests.push(input.address);
                 return { slug: "milady-maker" };
             },
+            async resolveCollectionBySlug() {
+                return null;
+            },
         });
 
         const slug = await adapter.resolveCollectionSlugByContract({
@@ -26,6 +29,9 @@ describe("OpenSeaCollectionSlugProbeAdapter", () => {
             async resolveCollectionByContract() {
                 return null;
             },
+            async resolveCollectionBySlug() {
+                return null;
+            },
         });
 
         await expect(
@@ -33,5 +39,25 @@ describe("OpenSeaCollectionSlugProbeAdapter", () => {
                 address: CONTRACT_ADDRESS,
             }),
         ).resolves.toBeNull();
+    });
+
+    it("returns the slug resolved by the shared OpenSea collection lookup client", async () => {
+        const requests: string[] = [];
+        const adapter = new OpenSeaCollectionSlugProbeAdapter({
+            async resolveCollectionByContract() {
+                return null;
+            },
+            async resolveCollectionBySlug(input) {
+                requests.push(input.slug);
+                return { slug: "milady-maker" };
+            },
+        });
+
+        const slug = await adapter.resolveCollectionSlugBySlug({
+            slug: "milady-maker",
+        });
+
+        expect(slug).toBe("milady-maker");
+        expect(requests).toEqual(["milady-maker"]);
     });
 });

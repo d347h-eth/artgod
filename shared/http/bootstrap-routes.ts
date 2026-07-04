@@ -11,6 +11,7 @@ const BOOTSTRAP_API_CHAIN_REF_PARAM = ":chain_ref";
 // Query keys accepted by bootstrap probing endpoints.
 export const BOOTSTRAP_API_QUERY_PARAM = {
     Address: "address",
+    Slug: "slug",
     Standard: "standard",
 } as const;
 
@@ -37,13 +38,28 @@ export function buildProbeBootstrapCollectionPath(input: {
     )}?${query.toString()}`;
 }
 
-// Builds the backend route used to resolve an OpenSea slug from a contract address.
-export function buildProbeBootstrapOpenSeaSlugPath(input: {
-    chainRef: string;
-    address: string;
-}): string {
+type ProbeBootstrapOpenSeaSlugPathInput =
+    | {
+          chainRef: string;
+          address: string;
+          slug?: never;
+      }
+    | {
+          chainRef: string;
+          address?: never;
+          slug: string;
+      };
+
+// Builds the backend route used to resolve or verify a bootstrap OpenSea slug.
+export function buildProbeBootstrapOpenSeaSlugPath(
+    input: ProbeBootstrapOpenSeaSlugPathInput,
+): string {
     const query = new URLSearchParams();
-    query.set(BOOTSTRAP_API_QUERY_PARAM.Address, input.address);
+    if (input.address !== undefined) {
+        query.set(BOOTSTRAP_API_QUERY_PARAM.Address, input.address);
+    } else {
+        query.set(BOOTSTRAP_API_QUERY_PARAM.Slug, input.slug);
+    }
     return `${buildBootstrapChainRoute(
         BOOTSTRAP_API_ROUTE_TEMPLATE.ProbeOpenSeaSlug,
         input.chainRef,

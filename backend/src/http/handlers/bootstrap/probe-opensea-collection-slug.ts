@@ -12,6 +12,7 @@ export type ProbeOpenSeaCollectionSlugRoute = {
     };
     Querystring: {
         address?: string;
+        slug?: string;
     };
 };
 
@@ -38,17 +39,19 @@ export class ProbeOpenSeaCollectionSlugHttpAdapter {
     ): ProbeOpenSeaCollectionSlugInput {
         return {
             chainRef: request.params.chain_ref,
-            address: mustString(
+            address: optionalString(
                 request.query[BOOTSTRAP_API_QUERY_PARAM.Address],
-                BOOTSTRAP_API_QUERY_PARAM.Address,
             ),
+            slug: optionalString(request.query[BOOTSTRAP_API_QUERY_PARAM.Slug]),
         };
     }
 }
 
-function mustString(value: unknown, field: string): string {
-    if (typeof value !== "string" || !value.trim()) {
-        throw new ReadModelBadRequestError(`${field} is required`);
+function optionalString(value: unknown): string | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value !== "string") {
+        throw new ReadModelBadRequestError("query value must be a string");
     }
-    return value.trim();
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
 }

@@ -23,6 +23,13 @@ export const BOOTSTRAP_PROBE_CONTRACTS = {
 	EnumerableOnchainSvg: '0x4e1f41613c9084fdb9e34e11fae9412427480e56'
 } as const;
 
+// OpenSea slugs returned by the bootstrap probe harness.
+export const BOOTSTRAP_PROBE_OPENSEA_SLUGS = {
+	NonEnumerable: 'non-enumerable-test-collection',
+	EnumerableRaster: 'raster-images-2026',
+	EnumerableOnchainSvg: 'terraforms'
+} as const;
+
 // Inline media lets the token card render without depending on remote hosts.
 export const BOOTSTRAP_PROBE_MEDIA = {
 	NonEnumerableImage:
@@ -54,6 +61,7 @@ export type BootstrapProbeApiMock = {
 	mutations: CapturedBootstrapMutation[];
 	probeRequests: string[];
 	openSeaSlugProbeRequests: string[];
+	openSeaSlugVerificationRequests: string[];
 };
 
 // Returns deterministic bootstrap probe responses while capturing write calls.
@@ -61,6 +69,7 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 	const mutations: CapturedBootstrapMutation[] = [];
 	const probeRequests: string[] = [];
 	const openSeaSlugProbeRequests: string[] = [];
+	const openSeaSlugVerificationRequests: string[] = [];
 
 	await page.route('**/api/**', async (route) => {
 		const request = route.request();
@@ -92,8 +101,14 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 			url.pathname.endsWith('/collections/bootstrap/opensea-slug-probe')
 		) {
 			const address = normalizeAddress(url.searchParams.get('address') ?? '');
+			const slug = normalizeSlug(url.searchParams.get('slug') ?? '');
+			if (slug) {
+				openSeaSlugVerificationRequests.push(slug);
+				await fulfillJson(route, openSeaSlugProbeResponseForSlug(slug));
+				return;
+			}
 			openSeaSlugProbeRequests.push(address);
-			await fulfillJson(route, openSeaSlugProbeResponse(address));
+			await fulfillJson(route, openSeaSlugProbeResponseForAddress(address));
 			return;
 		}
 
@@ -206,38 +221,76 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 	return {
 		mutations,
 		probeRequests,
-		openSeaSlugProbeRequests
+		openSeaSlugProbeRequests,
+		openSeaSlugVerificationRequests
 	};
 }
 
-function openSeaSlugProbeResponse(address: string): BootstrapOpenSeaSlugProbeApiResponse {
+function openSeaSlugProbeResponseForAddress(address: string): BootstrapOpenSeaSlugProbeApiResponse {
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable) {
-		return buildOpenSeaSlugProbeResponse(address, 'non-enumerable-test-collection');
+		return buildOpenSeaSlugProbeResponse({
+			address,
+			requestedSlug: null,
+			slug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
+		});
 	}
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster) {
-		return buildOpenSeaSlugProbeResponse(address, 'raster-images-2026');
+		return buildOpenSeaSlugProbeResponse({
+			address,
+			requestedSlug: null,
+			slug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster
+		});
 	}
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.EnumerableOnchainSvg) {
-		return buildOpenSeaSlugProbeResponse(address, 'terraforms');
+		return buildOpenSeaSlugProbeResponse({
+			address,
+			requestedSlug: null,
+			slug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableOnchainSvg
+		});
 	}
 	return {
 		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
 		address,
+		requestedSlug: null,
 		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
 		slug: null,
 		reason: 'OpenSea did not return a collection slug for this contract'
 	};
 }
 
-function buildOpenSeaSlugProbeResponse(
-	address: string,
-	slug: string
-): BootstrapOpenSeaSlugProbeApiResponse {
+function openSeaSlugProbeResponseForSlug(slug: string): BootstrapOpenSeaSlugProbeApiResponse {
+	if (
+		slug === BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable ||
+		slug === BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster ||
+		slug === BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableOnchainSvg
+	) {
+		return buildOpenSeaSlugProbeResponse({
+			address: null,
+			requestedSlug: slug,
+			slug
+		});
+	}
 	return {
 		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
-		address,
+		address: null,
+		requestedSlug: slug,
+		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
+		slug: null,
+		reason: 'OpenSea did not confirm this collection slug'
+	};
+}
+
+function buildOpenSeaSlugProbeResponse(input: {
+	address: string | null;
+	requestedSlug: string | null;
+	slug: string;
+}): BootstrapOpenSeaSlugProbeApiResponse {
+	return {
+		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
+		address: input.address,
+		requestedSlug: input.requestedSlug,
 		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
-		slug,
+		slug: input.slug,
 		reason: null
 	};
 }
@@ -412,6 +465,10 @@ function requestBody(request: Request): unknown {
 
 function normalizeAddress(address: string): string {
 	return address.trim().toLowerCase();
+}
+
+function normalizeSlug(slug: string): string {
+	return slug.trim().toLowerCase();
 }
 
 async function fulfillJson(route: Route, body: unknown): Promise<void> {

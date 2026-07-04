@@ -783,13 +783,21 @@ export async function createBootstrapRun(
 export async function probeBootstrapOpenSeaSlug(
 	fetchFn: typeof fetch,
 	chainRef: string,
-	address: string
+	input:
+		| {
+				address: string;
+				slug?: never;
+		  }
+		| {
+				address?: never;
+				slug: string;
+		  }
 ): Promise<BootstrapOpenSeaSlugProbeApiResponse> {
 	return requestJson<BootstrapOpenSeaSlugProbeApiResponse>(
 		fetchFn,
 		buildProbeBootstrapOpenSeaSlugPath({
 			chainRef,
-			address
+			...input
 		})
 	);
 }

@@ -40,6 +40,10 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
                 calls.push(input);
                 return "ignored";
             },
+            async resolveCollectionSlugBySlug(input) {
+                calls.push(input);
+                return "ignored";
+            },
         });
 
         const result = await useCase.probe({
@@ -50,6 +54,7 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
         expect(result).toEqual({
             chain: CHAIN,
             address: CONTRACT_ADDRESS,
+            requestedSlug: null,
             status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Disabled,
             slug: null,
             reason: DISABLED_OPENSEA_INTEGRATION.reason,
@@ -65,6 +70,9 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
                 });
                 return "milady-maker";
             },
+            async resolveCollectionSlugBySlug() {
+                return null;
+            },
         });
 
         const result = await useCase.probe({
@@ -75,15 +83,72 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
         expect(result).toEqual({
             chain: CHAIN,
             address: CONTRACT_ADDRESS,
+            requestedSlug: null,
             status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
             slug: "milady-maker",
             reason: null,
         });
     });
 
+    it("returns the OpenSea slug when the entered slug resolves exactly", async () => {
+        const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
+            async resolveCollectionSlugByContract() {
+                return null;
+            },
+            async resolveCollectionSlugBySlug(input) {
+                expect(input).toEqual({
+                    slug: "milady-maker",
+                });
+                return "milady-maker";
+            },
+        });
+
+        const result = await useCase.probe({
+            chainRef: "ethereum",
+            slug: "Milady-Maker",
+        });
+
+        expect(result).toEqual({
+            chain: CHAIN,
+            address: null,
+            requestedSlug: "milady-maker",
+            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
+            slug: "milady-maker",
+            reason: null,
+        });
+    });
+
+    it("returns missing when the entered slug does not resolve exactly", async () => {
+        const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
+            async resolveCollectionSlugByContract() {
+                return null;
+            },
+            async resolveCollectionSlugBySlug() {
+                return "different-collection";
+            },
+        });
+
+        const result = await useCase.probe({
+            chainRef: "ethereum",
+            slug: "milady-maker",
+        });
+
+        expect(result).toEqual({
+            chain: CHAIN,
+            address: null,
+            requestedSlug: "milady-maker",
+            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
+            slug: null,
+            reason: "OpenSea did not confirm this collection slug",
+        });
+    });
+
     it("returns missing when OpenSea has no collection slug for the contract", async () => {
         const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
             async resolveCollectionSlugByContract() {
+                return null;
+            },
+            async resolveCollectionSlugBySlug() {
                 return null;
             },
         });
@@ -94,6 +159,7 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
         });
 
         expect(result.status).toBe(BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing);
+        expect(result.requestedSlug).toBeNull();
         expect(result.slug).toBeNull();
         expect(result.reason).toContain("OpenSea did not return");
     });

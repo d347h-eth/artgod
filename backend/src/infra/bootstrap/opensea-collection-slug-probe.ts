@@ -8,8 +8,18 @@ export class OpenSeaCollectionSlugProbeAdapter implements OpenSeaCollectionSlugP
     async resolveCollectionSlugByContract(input: {
         address: string;
     }): Promise<string | null> {
-        const collection = await this.contractLookup.resolveCollectionByContract({
-            address: input.address,
+        const collection =
+            await this.contractLookup.resolveCollectionByContract({
+                address: input.address,
+            });
+        return collection?.slug ?? null;
+    }
+
+    async resolveCollectionSlugBySlug(input: {
+        slug: string;
+    }): Promise<string | null> {
+        const collection = await this.contractLookup.resolveCollectionBySlug({
+            slug: input.slug,
         });
         return collection?.slug ?? null;
     }

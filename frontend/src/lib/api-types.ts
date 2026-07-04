@@ -845,7 +845,8 @@ export type ApiOpenSeaIntegrationStatus = {
 
 export type BootstrapOpenSeaSlugProbeApiResponse = {
 	chain: ApiChain;
-	address: string;
+	address: string | null;
+	requestedSlug: string | null;
 	status: BootstrapOpenSeaSlugProbeStatus;
 	slug: string | null;
 	reason: string | null;

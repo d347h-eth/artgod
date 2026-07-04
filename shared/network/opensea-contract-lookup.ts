@@ -14,15 +14,23 @@ export type OpenSeaContractLookupInput = {
     address: string;
 };
 
-// Collection identity returned by OpenSea contract lookup endpoints.
+// Collection slug input accepted by OpenSea collection lookup clients.
+export type OpenSeaCollectionSlugLookupInput = {
+    slug: string;
+};
+
+// Collection identity returned by OpenSea collection lookup endpoints.
 export type OpenSeaResolvedContractCollection = {
     slug: string;
 };
 
-// Shared contract lookup port used by local OpenSea integrations.
+// Shared collection lookup port used by local OpenSea integrations.
 export type OpenSeaContractLookupPort = {
     resolveCollectionByContract(
         input: OpenSeaContractLookupInput,
+    ): Promise<OpenSeaResolvedContractCollection | null>;
+    resolveCollectionBySlug(
+        input: OpenSeaCollectionSlugLookupInput,
     ): Promise<OpenSeaResolvedContractCollection | null>;
 };
 
@@ -45,6 +53,12 @@ type OpenSeaContractResponse = {
     collection?: unknown;
 };
 
+type OpenSeaCollectionResponse = {
+    collection?: unknown;
+    slug?: unknown;
+    collection_slug?: unknown;
+};
+
 // Public OpenSea REST API origin used by the official SDK.
 const OPENSEA_API_ORIGIN = "https://api.opensea.io";
 
@@ -62,6 +76,7 @@ const OPENSEA_CONTRACT_LOOKUP_LOG_COMPONENT = "OpenSeaContractLookupClient";
 
 // Low-cardinality action labels for OpenSea contract lookup retries.
 const OPENSEA_CONTRACT_LOOKUP_ACTION = {
+    FetchCollection: "fetch_collection",
     FetchContract: "fetch_contract",
 } as const;
 
@@ -80,7 +95,8 @@ export class OpenSeaContractLookupClient implements OpenSeaContractLookupPort {
         options: OpenSeaContractLookupClientOptions = {},
     ) {
         this.rateLimiter =
-            options.rateLimiter ?? new OpenSeaApiRateLimiter(config.rateLimiter);
+            options.rateLimiter ??
+            new OpenSeaApiRateLimiter(config.rateLimiter);
         this.fetchImpl = options.fetch ?? fetch;
     }
 
@@ -96,6 +112,25 @@ export class OpenSeaContractLookupClient implements OpenSeaContractLookupPort {
             call: () => this.fetchContract(input.address),
         });
         const slug = normalizeOpenSeaSlug(response?.collection);
+        return slug ? { slug } : null;
+    }
+
+    async resolveCollectionBySlug(
+        input: OpenSeaCollectionSlugLookupInput,
+    ): Promise<OpenSeaResolvedContractCollection | null> {
+        const requestedSlug = normalizeOpenSeaSlug(input.slug);
+        if (!requestedSlug) return null;
+        await this.rateLimiter.wait(1, 0);
+        const response = await retryOpenSeaApiCall({
+            component: OPENSEA_CONTRACT_LOOKUP_LOG_COMPONENT,
+            action: OPENSEA_CONTRACT_LOOKUP_ACTION.FetchCollection,
+            retryPolicy: this.config.retryPolicy,
+            shouldRetry: shouldRetryOpenSeaContractLookupError,
+            call: () => this.fetchCollection(requestedSlug),
+        });
+        const slug = normalizeOpenSeaSlug(
+            response?.collection ?? response?.slug ?? response?.collection_slug,
+        );
         return slug ? { slug } : null;
     }
 
@@ -116,6 +151,25 @@ export class OpenSeaContractLookupClient implements OpenSeaContractLookupPort {
             throw new OpenSeaContractLookupStatusError(response.status);
         }
         return (await response.json()) as OpenSeaContractResponse;
+    }
+
+    private async fetchCollection(
+        slug: string,
+    ): Promise<OpenSeaCollectionResponse | null> {
+        const response = await this.fetchImpl(buildCollectionUrl(slug), {
+            headers: {
+                [OPENSEA_API_KEY_HEADER_NAME]: this.config.apiKey,
+            },
+        });
+        if (response.status === 404) {
+            await response.body?.cancel().catch(() => undefined);
+            return null;
+        }
+        if (!response.ok) {
+            await response.body?.cancel().catch(() => undefined);
+            throw new OpenSeaContractLookupStatusError(response.status);
+        }
+        return (await response.json()) as OpenSeaCollectionResponse;
     }
 }
 
@@ -138,6 +192,14 @@ function buildContractUrl(address: string): string {
         `${OPENSEA_API_V2_PREFIX}/chain/${OPENSEA_ETHEREUM_CHAIN_SLUG}/contract/${encodeURIComponent(
             address,
         )}`,
+        OPENSEA_API_ORIGIN,
+    );
+    return url.toString();
+}
+
+function buildCollectionUrl(slug: string): string {
+    const url = new URL(
+        `${OPENSEA_API_V2_PREFIX}/collections/${encodeURIComponent(slug)}`,
         OPENSEA_API_ORIGIN,
     );
     return url.toString();
