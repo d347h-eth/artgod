@@ -563,6 +563,7 @@ Current Terraforms artifact usage:
 - `html_content` stores the direct v2 renderer `tokenHTML(...)` response used for backend animation override
 - backend resolves Terraforms collection browsing from `terraforms-v2-media`
 - backend exposes `terraforms-v2-lost-terrain` only as a token-local media mode on token detail / preview
+- Terraforms `live` media is not stored here; backend resolves it on demand from the main contract `tokenHTML(tokenId)` and preserves the canonical metadata image
 - Terraforms writes extension-owned normalized traits such as `Minted`, renderer `Seed`, optional `Seed Class`, and optional Beacon-derived `Seasons`
 - unminted placement rows are extension-owned synthetic `tokens` without canonical `token_metadata`; Terraforms writes `Minted=false`, `Mode=Terrain`, and Terrain renderer traits for those rows
 

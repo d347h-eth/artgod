@@ -106,7 +106,7 @@ Current artifact refs:
 - `terraforms-v2-media`
 - `terraforms-v2-lost-terrain` for non-Terrain tokens only
 
-The backend exposes `artifact` and `snapshot` for collection browsing. `lost-terrain` is token-local and appears only where that token has the extra artifact.
+The backend exposes `artifact`, `snapshot`, and extension-provided `live` for collection browsing. `live` keeps token cards on the canonical metadata image, while fullscreen preview and token detail resolve HTML animation from the Terraforms main contract `tokenHTML(tokenId)` in the backend request. `lost-terrain` is token-local and appears only where that token has the extra artifact.
 
 ## Existing Terraforms Trait Presentation
 
@@ -185,6 +185,7 @@ Current shared extension exports:
 - `shared/extensions/terraforms.ts`
     - `TERRAFORMS_EXTENSION_KEY = "terraforms"`
     - artifact refs for v2 media and lost terrain
+    - Terraforms-owned collection media modes, including `live`
     - Terraforms beacon/dream activity event keys
     - Terraforms mode, canvas, renderer, and config helpers
     - embedded mainnet contract match and renderer contract addresses
@@ -198,6 +199,7 @@ Current backend extension contract:
 - collection/token media mode resolution
 - artifact ref resolution
 - token card/preview/detail media override mapping
+- request-time RPC context for extension-resolved token media
 - extension activity-event preview rendering
 - extension token URI resolution
 
