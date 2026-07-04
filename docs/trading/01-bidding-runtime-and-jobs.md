@@ -368,8 +368,8 @@ The separate `OR` / `AND` control switches join mode without clearing selected f
 AND mode keeps the stricter behavior where the bid's full trait criterion set must exactly match the selected filters.
 
 Token-scoped offer cards are paginated with the same `limit` / `cursor` contract as token browsing.
-For signal quality, token-scoped offers below 10% of the current top collection-wide bid are hidden and excluded from per-card offer counts.
-If no collection-wide bid exists, token-scoped offers are not floor-filtered.
+For signal quality, token-scoped offers and trait-scoped bid rows below 10% of the current top collection-wide bid are hidden; token-card offer counts also exclude hidden token offers.
+If no collection-wide bid exists, token-scoped offers and trait-scoped bid rows are not floor-filtered.
 
 ## Secure Wallet Boundary
 

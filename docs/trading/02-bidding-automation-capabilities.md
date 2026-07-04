@@ -126,6 +126,7 @@ Bid-book filters:
 - `bid_scope=collection` shows collection-wide bids.
 - `maker` filters all bid-book representations to one maker address.
 - Trait filters support OR and AND join modes where trait bid discovery needs them.
+- Token-scoped offers and trait-scoped bid rows below 10% of the top collection-wide bid are hidden unless they are own rows.
 
 Own-bid display:
 

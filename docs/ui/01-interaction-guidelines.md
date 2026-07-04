@@ -451,8 +451,7 @@ Muted and collapsed rows:
 
 - muted bids remain useful for debugging but should be hidden by default
 - `show_muted=true` in the URL may reveal muted rows for diagnostics
-- collection and token bid lists mute bids below 10% of the top displayed bid
-- trait bid tabs also mute bids and buckets below 50% of the tab median bid
+- token-scoped offers and trait-scoped bid rows below 10% of the top collection-wide bid are hidden unless they are own rows
 - muted bids should not contribute to user-facing bucket summary stats
 - the bottom price percentile may be collapsed by default when the list is large, but expansion should not alter the primary top-row decimal formatting
 

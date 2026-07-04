@@ -41,6 +41,7 @@ import {
     sortTokenIdsByTopOffer,
     type PersistedTokenOfferCard,
 } from "./bidding-token-offer-cards.js";
+import { filterBidBookRowsByCollectionBidFloor } from "./bidding-bid-book-low-signal.js";
 export type { ListCollectionBiddingBidBookOutput } from "./bidding-bid-book.js";
 
 export type ListCollectionBiddingBidBookInput = {
@@ -219,32 +220,19 @@ export class ListCollectionBiddingBidBookUseCase {
                     makerAddress: input.makerAddress ?? null,
                 }),
         );
+        const collectionFloorBidBook = scopeUsesCollectionBidFloor(
+            input.scopeFilter,
+        )
+            ? this.listCollectionFloorBidBook({
+                  chainId: chain.publicChainId,
+                  collectionId: collection.collectionId,
+                  includeOwnJobContext: input.includeOwnJobContext,
+                  traitFilterJoinMode: input.traitFilterJoinMode,
+                  attributes,
+              })
+            : null;
         let tokenOfferCardsPage = emptyTokenOfferCardsPage(input.limit);
         if (input.scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
-            // Read collection-wide bids from the same source to derive the low-signal token-bid floor.
-            const collectionBidBook = this.apm.withSyncSpan(
-                "backend.bidding.collection_bid_book.collection_floor_bid_book",
-                {
-                    ...attributes,
-                    [BIDDING_SPAN_ATTRIBUTE.ScopeFilter]:
-                        COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
-                    [BIDDING_SPAN_ATTRIBUTE.TraitFiltersCount]: 0,
-                    [BIDDING_SPAN_ATTRIBUTE.TraitRangesCount]: 0,
-                    [BIDDING_SPAN_ATTRIBUTE.MakerFilterPresent]: false,
-                },
-                () =>
-                    this.bidBookRepositoryPort.listCollectionBidBook({
-                        chainId: chain.publicChainId,
-                        collectionId: collection.collectionId,
-                        includeOwnJobContext: input.includeOwnJobContext,
-                        scopeFilter:
-                            COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
-                        traitFilterJoinMode: input.traitFilterJoinMode,
-                        selectedTraits: [],
-                        selectedTraitRanges: [],
-                        makerAddress: null,
-                    }),
-            );
             tokenOfferCardsPage = this.apm.withSyncSpan(
                 "backend.bidding.collection_bid_book.token_offer_cards",
                 {
@@ -252,7 +240,7 @@ export class ListCollectionBiddingBidBookUseCase {
                     [BIDDING_SPAN_ATTRIBUTE.TokenBidsCount]:
                         persistedBidBook.bids.length,
                     [BIDDING_SPAN_ATTRIBUTE.CollectionBidsCount]:
-                        collectionBidBook.bids.length,
+                        collectionFloorBidBook?.bids.length ?? 0,
                 },
                 () =>
                     this.buildTokenOfferCardsPage({
@@ -260,7 +248,9 @@ export class ListCollectionBiddingBidBookUseCase {
                         collectionId: collection.collectionId,
                         mediaMode: input.mediaMode,
                         tokenBidBook: persistedBidBook,
-                        collectionBidBook,
+                        collectionBidBook:
+                            collectionFloorBidBook ??
+                            emptyBidBook(persistedBidBook),
                         selectedTraits: input.traits,
                         selectedTraitRanges: input.traitRanges,
                         limit: input.limit,
@@ -279,7 +269,18 @@ export class ListCollectionBiddingBidBookUseCase {
                       ownMakerAddress: persistedBidBook.ownMakerAddress,
                       bids: pageCards.flatMap((card) => card.persistedOffers),
                   }
-                : persistedBidBook;
+                : input.scopeFilter ===
+                        COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits &&
+                    collectionFloorBidBook
+                  ? {
+                        state: persistedBidBook.state,
+                        ownMakerAddress: persistedBidBook.ownMakerAddress,
+                        bids: filterBidBookRowsByCollectionBidFloor({
+                            bids: persistedBidBook.bids,
+                            collectionBids: collectionFloorBidBook.bids,
+                        }),
+                    }
+                  : persistedBidBook;
         const view = this.apm.withSyncSpan(
             "backend.bidding.collection_bid_book.response_map",
             {
@@ -313,6 +314,38 @@ export class ListCollectionBiddingBidBookUseCase {
             bidBook: view.bidBook,
             tokenOfferCards: view.tokenOfferCards,
         };
+    }
+
+    private listCollectionFloorBidBook(params: {
+        chainId: number;
+        collectionId: number;
+        includeOwnJobContext: boolean;
+        traitFilterJoinMode: CollectionBiddingTraitFilterJoinMode;
+        attributes: SpanAttributes;
+    }): PersistedBiddingBidBook {
+        // Read collection-wide bids from the same source to derive the shared low-signal floor.
+        return this.apm.withSyncSpan(
+            "backend.bidding.collection_bid_book.collection_floor_bid_book",
+            {
+                ...params.attributes,
+                [BIDDING_SPAN_ATTRIBUTE.ScopeFilter]:
+                    COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+                [BIDDING_SPAN_ATTRIBUTE.TraitFiltersCount]: 0,
+                [BIDDING_SPAN_ATTRIBUTE.TraitRangesCount]: 0,
+                [BIDDING_SPAN_ATTRIBUTE.MakerFilterPresent]: false,
+            },
+            () =>
+                this.bidBookRepositoryPort.listCollectionBidBook({
+                    chainId: params.chainId,
+                    collectionId: params.collectionId,
+                    includeOwnJobContext: params.includeOwnJobContext,
+                    scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+                    traitFilterJoinMode: params.traitFilterJoinMode,
+                    selectedTraits: [],
+                    selectedTraitRanges: [],
+                    makerAddress: null,
+                }),
+        );
     }
 
     private buildTokenOfferCardsPage(params: {
@@ -451,8 +484,7 @@ export class ListCollectionBiddingBidBookUseCase {
             "backend.bidding.collection_bid_book.token_offer_token_cards",
             {
                 ...params.attributes,
-                [BIDDING_SPAN_ATTRIBUTE.TokensCount]:
-                    params.tokenIds.length,
+                [BIDDING_SPAN_ATTRIBUTE.TokensCount]: params.tokenIds.length,
                 [BIDDING_SPAN_ATTRIBUTE.CollectionIncludeListings]: true,
             },
             () =>
@@ -640,13 +672,30 @@ function hasTokenOfferCardTraitFilters(params: {
     );
 }
 
+function scopeUsesCollectionBidFloor(
+    scopeFilter: CollectionBiddingBidScopeFilter,
+): boolean {
+    return (
+        scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token ||
+        scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+    );
+}
+
+function emptyBidBook(
+    template: PersistedBiddingBidBook,
+): PersistedBiddingBidBook {
+    return {
+        ...template,
+        bids: [],
+    };
+}
+
 function countTokenOffers(
     tokenIds: string[],
     offersByTokenId: Map<string, PersistedBiddingBidBookRow[]>,
 ): number {
     return tokenIds.reduce(
-        (count, tokenId) =>
-            count + (offersByTokenId.get(tokenId)?.length ?? 0),
+        (count, tokenId) => count + (offersByTokenId.get(tokenId)?.length ?? 0),
         0,
     );
 }

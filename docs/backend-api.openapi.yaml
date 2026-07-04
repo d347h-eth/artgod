@@ -616,7 +616,7 @@ paths:
             description: |
                 Returns display-only bid-book rows.
                 `bid_scope=token` also returns `tokenOfferCards`, a paginated token-card page with all non-muted explicit token-scoped offers for each returned token.
-                Token-scoped offers below 10% of the top collection-wide bid are hidden and excluded from offer counts.
+                Token-scoped offers and trait-scoped bid rows below 10% of the top collection-wide bid are hidden; token-card offer counts also exclude hidden token offers.
                 Source is `bot_snapshot` when enabled collection jobs exist, the bidding bot heartbeat is live, and projection metadata is fresh; otherwise source is `orders`.
             operationId: listCollectionBiddingBidBook
             parameters:

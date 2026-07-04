@@ -145,8 +145,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
                     attributes: expect.objectContaining({
                         [BIDDING_SPAN_ATTRIBUTE.VisibleBidsCount]: 1,
                         [BIDDING_SPAN_ATTRIBUTE.TokenOfferCardsCount]: 1,
-                        [BIDDING_SPAN_ATTRIBUTE.TokenOfferCardsTotalOffers]:
-                            1,
+                        [BIDDING_SPAN_ATTRIBUTE.TokenOfferCardsTotalOffers]: 1,
                     }),
                 }),
             ]),
@@ -157,8 +156,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
         const hydratedTokenIds: string[][] = [];
         const repository: BiddingBidBookRepositoryPort = {
             listCollectionBidBook: (params) =>
-                params.scopeFilter ===
-                COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                params.scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
                     ? bidBook([
                           bidRow("token-1-offer", "300", "1"),
                           bidRow("token-2-offer", "200", "2"),
@@ -178,9 +176,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
                 listCollectionTraitFacets: () => [],
                 listCollectionTokenCardsByIds: (params) => {
                     hydratedTokenIds.push(params.tokenIds);
-                    return params.tokenIds.map((tokenId) =>
-                        tokenCard(tokenId),
-                    );
+                    return params.tokenIds.map((tokenId) => tokenCard(tokenId));
                 },
                 countMarketplaceBiddingSupportedTokensByIds: () => 2,
             },
@@ -212,16 +208,82 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
 
         expect(hydratedTokenIds).toEqual([["1", "2"]]);
         expect(output.tokenOfferCards.totalItems).toBe(3);
-        expect(output.tokenOfferCards.marketplaceBiddingSupportedTotalItems).toBe(
-            2,
-        );
+        expect(
+            output.tokenOfferCards.marketplaceBiddingSupportedTotalItems,
+        ).toBe(2);
         expect(output.tokenOfferCards.totalOffers).toBe(3);
-        expect(output.tokenOfferCards.items.map((card) => card.tokenId)).toEqual(
-            ["1", "2"],
-        );
+        expect(
+            output.tokenOfferCards.items.map((card) => card.tokenId),
+        ).toEqual(["1", "2"]);
         expect(output.bidBook.bids.map((bid) => bid.orderId)).toEqual([
             "token-1-offer",
             "token-2-offer",
+        ]);
+    });
+
+    it("applies the shared collection bid floor to trait bid-book rows", () => {
+        const bidBookScopes: string[] = [];
+        const repository: BiddingBidBookRepositoryPort = {
+            listCollectionBidBook: (params) => {
+                bidBookScopes.push(params.scopeFilter);
+                if (
+                    params.scopeFilter ===
+                    COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
+                ) {
+                    return bidBook([
+                        traitBidRow("trait-low", "9"),
+                        traitBidRow("trait-edge", "10"),
+                        traitBidRow("trait-top", "11"),
+                        traitBidRow("trait-own-low", "1", true),
+                    ]);
+                }
+                return bidBook([bidRow("collection-floor", "100")]);
+            },
+            listTokenBidBook: () => bidBook([]),
+        };
+        const useCase = new ListCollectionBiddingBidBookUseCase(
+            1,
+            {
+                resolveChainRef: () => chain(),
+            },
+            {
+                resolveCollectionRef: () => collection(),
+                getCollectionMediaState: () => media(),
+                listCollectionTraitFacets: () => [],
+                listCollectionTokenCardsByIds: () => [],
+                countMarketplaceBiddingSupportedTokensByIds: () => 0,
+            },
+            {
+                getTraitFilterPresentationState: () => ({
+                    effectiveConfig: {
+                        rangeKeys: [],
+                    },
+                }),
+                getTokenCardTraitSummaryTemplateState: () => ({
+                    effectiveConfig: {
+                        template: "",
+                    },
+                }),
+            },
+            repository,
+        );
+
+        const output = useCase.listCollectionBiddingBidBook({
+            chainRef: "ethereum",
+            collectionRef: "terraforms",
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            traits: [],
+            traitRanges: [],
+            limit: 25,
+        });
+
+        expect(bidBookScopes).toEqual(["traits", "collection"]);
+        expect(output.bidBook.bids.map((bid) => bid.orderId)).toEqual([
+            "trait-edge",
+            "trait-top",
+            "trait-own-low",
         ]);
     });
 });
@@ -335,5 +397,19 @@ function bidRow(
         snapshotRefreshedAtMs: null,
         seenAt: "2026-01-01T00:00:00Z",
         ownStatus: null,
+    };
+}
+
+function traitBidRow(
+    orderId: string,
+    priceWei: string,
+    isOwn = false,
+): PersistedBiddingBidBookRow {
+    return {
+        ...bidRow(orderId, priceWei, null),
+        scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+        scopeLabel: "Mode=Terrain",
+        scopeTraits: [{ type: "Mode", value: "Terrain" }],
+        isOwn,
     };
 }
