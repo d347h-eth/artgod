@@ -430,18 +430,10 @@ a:hover {
 	margin-inline-start: 0;
 }
 
-.bootstrap-address-preview-row {
-	display: flex;
-	align-items: flex-start;
-	gap: 1.35rem;
-	flex-wrap: wrap;
-	width: min(74rem, 100%);
-	max-width: 100%;
-}
-
 .bootstrap-probe-section {
-	width: min(68rem, 100%);
+	width: fit-content;
 	max-width: 100%;
+	overflow-x: visible;
 }
 
 .bootstrap-probe-status {
@@ -450,10 +442,10 @@ a:hover {
 
 .bootstrap-probe-chip-grid {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(23rem, 1.35fr);
-	gap: 0.6rem;
+	grid-template-columns: max-content max-content max-content;
+	gap: 1rem;
 	align-items: stretch;
-	width: 100%;
+	width: max-content;
 	max-width: 100%;
 }
 
@@ -461,9 +453,8 @@ a:hover {
 	display: grid;
 	align-content: start;
 	gap: 0.45rem;
-	padding: 0.55rem;
-	border: 1px solid color-mix(in srgb, var(--c-blue) 55%, transparent);
-	background: rgb(0 0 0 / 33%);
+	padding: 0.25rem 0;
+	background: transparent;
 }
 
 .bootstrap-probe-chip-title {
@@ -480,7 +471,7 @@ a:hover {
 .bootstrap-probe-chip .bootstrap-form-row {
 	grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
 	align-items: baseline;
-	gap: 0.55rem;
+	gap: 0.8rem;
 	width: 100%;
 }
 
@@ -494,6 +485,10 @@ a:hover {
 	text-align: right;
 	white-space: nowrap;
 	overflow-wrap: normal;
+}
+
+.bootstrap-token-preview-section {
+	justify-items: start;
 }
 
 .bootstrap-probe-warning-row {

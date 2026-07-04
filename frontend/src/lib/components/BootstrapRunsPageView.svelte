@@ -917,22 +917,23 @@
 					</div>
 				{/if}
 
-				<div class="bootstrap-address-preview-row">
-					<div class="bootstrap-form-section bootstrap-address-section">
-						<label class="bootstrap-form-row">
-							{@render fieldLabel('Contract address', bootstrapFieldHelp.address)}
-							<input
-								value={bootstrapAddress}
-								class={`${bootstrapInputClass} bootstrap-input-address`}
-								type="text"
-								name="address"
-								required
-								oninput={onBootstrapAddressInput}
-								onfocus={onBootstrapAddressFocus}
-							/>
-						</label>
-					</div>
-					{#if formDetailsReady && firstTokenCard}
+				<div class="bootstrap-form-section bootstrap-address-section">
+					<label class="bootstrap-form-row">
+						{@render fieldLabel('Contract address', bootstrapFieldHelp.address)}
+						<input
+							value={bootstrapAddress}
+							class={`${bootstrapInputClass} bootstrap-input-address`}
+							type="text"
+							name="address"
+							required
+							oninput={onBootstrapAddressInput}
+							onfocus={onBootstrapAddressFocus}
+						/>
+					</label>
+				</div>
+
+				{#if formDetailsReady && firstTokenCard}
+					<div class="bootstrap-form-section bootstrap-token-preview-section">
 						<aside class="bootstrap-token-card-pane" aria-label="Token image preview">
 							<div class="bootstrap-probe-token-card" data-testid={TEST_IDS.BootstrapProbeTokenCard}>
 								<TokenCardTile
@@ -947,8 +948,8 @@
 								/>
 							</div>
 						</aside>
-					{/if}
-				</div>
+					</div>
+				{/if}
 
 				{#if probeStatus !== 'idle'}
 					<div class="bootstrap-form-section bootstrap-probe-section">

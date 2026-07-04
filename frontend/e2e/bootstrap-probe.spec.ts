@@ -310,34 +310,35 @@ async function assertTokenBrowserCardScale(card: ReturnType<typeof tokenCard>): 
 
 async function assertTokenCardPlacement(page: Page, testInfo: TestInfo): Promise<void> {
 	const addressBox = await page.locator('.bootstrap-address-section').boundingBox();
+	const previewBox = await page.locator('.bootstrap-token-preview-section').boundingBox();
 	const cardBox = await page
 		.locator(`[data-testid="${TEST_IDS.BootstrapProbeTokenCard}"]`)
 		.boundingBox();
 	const probeBox = await page.locator('.bootstrap-probe-section').boundingBox();
 	expect(addressBox, `${testInfo.project.name} address box should be measurable`).not.toBeNull();
+	expect(previewBox, `${testInfo.project.name} preview box should be measurable`).not.toBeNull();
 	expect(cardBox, `${testInfo.project.name} token card box should be measurable`).not.toBeNull();
 	expect(probeBox, `${testInfo.project.name} probe box should be measurable`).not.toBeNull();
-	if (!addressBox || !cardBox || !probeBox) return;
+	if (!addressBox || !previewBox || !cardBox || !probeBox) return;
 
 	const viewportWidth = page.viewportSize()?.width ?? 0;
 	if (viewportWidth >= 900) {
 		expect(
-			cardBox.x,
-			`${testInfo.project.name} token card should sit beside the address surface`
-		).toBeGreaterThan(addressBox.x + addressBox.width - 1);
-		expect(
-			Math.abs(cardBox.y - addressBox.y),
-			`${testInfo.project.name} token card should align with the address surface`
+			Math.abs(previewBox.x - addressBox.x),
+			`${testInfo.project.name} preview surface should align under the address surface`
 		).toBeLessThanOrEqual(2);
-	} else {
-		expect(
-			cardBox.y,
-			`${testInfo.project.name} token card should stack below the address surface`
-		).toBeGreaterThan(addressBox.y);
 	}
+	expect(
+		previewBox.y,
+		`${testInfo.project.name} preview surface should render below the address surface`
+	).toBeGreaterThan(addressBox.y + addressBox.height - 1);
+	expect(
+		cardBox.y,
+		`${testInfo.project.name} token card should live inside the preview surface`
+	).toBeGreaterThanOrEqual(previewBox.y);
 
 	expect(
 		probeBox.y,
 		`${testInfo.project.name} probe surface should follow the token card preview`
-	).toBeGreaterThan(cardBox.y + cardBox.height - 1);
+	).toBeGreaterThan(previewBox.y + previewBox.height - 1);
 }
