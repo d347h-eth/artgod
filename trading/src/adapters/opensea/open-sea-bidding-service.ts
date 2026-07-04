@@ -7,7 +7,10 @@ import {
     parseOpenSeaBiddingOffer,
 } from "@artgod/shared/trading/open-sea-bidding-offers";
 import {
+    BIDDING_ORDER_RECOVERY_REASON,
+    BIDDING_ORDER_RECOVERY_STATUS,
     BIDDING_SERVICE_REQUEST_PRIORITY,
+    BiddingOrderRecoveryResult,
     BiddingService,
     BiddingServiceRequestContext,
     OfferDiscoverySource,
@@ -468,8 +471,11 @@ export class OpenSeaBiddingService implements BiddingService {
         _tokenId?: string,
         collectionSlug?: string,
         context: BiddingServiceRequestContext = {},
-    ): Promise<Order | null> {
+    ): Promise<BiddingOrderRecoveryResult> {
         let foundOrder: unknown = null;
+        let directLookupInconclusive = false;
+        let collectionScanAttempted = false;
+        let collectionScanReachedEnd = false;
 
         if (protocolAddress) {
             try {
@@ -485,10 +491,7 @@ export class OpenSeaBiddingService implements BiddingService {
                     "getOrderByHash",
                     "order by hash",
                     () =>
-                        this.sdk.api.getOrderByHash(
-                            orderHash,
-                            protocolAddress,
-                        ),
+                        this.sdk.api.getOrderByHash(orderHash, protocolAddress),
                     context,
                 );
 
@@ -513,10 +516,12 @@ export class OpenSeaBiddingService implements BiddingService {
                         ...toErrorLogFields(error),
                     },
                 );
+                directLookupInconclusive = !isDirectOrderAbsentError(error);
             }
         }
 
         if (!foundOrder && collectionSlug) {
+            collectionScanAttempted = true;
             log.debug(
                 "orderCollectionScanStarted",
                 "Order not resolved via direct lookup; scanning collection offers",
@@ -577,6 +582,7 @@ export class OpenSeaBiddingService implements BiddingService {
                             ? response.next
                             : undefined;
                     if (!next) {
+                        collectionScanReachedEnd = true;
                         break;
                     }
 
@@ -602,8 +608,21 @@ export class OpenSeaBiddingService implements BiddingService {
             log.debug("orderNotFound", "Order not found in market", {
                 orderHash,
                 collectionSlug: collectionSlug ?? null,
+                directLookupInconclusive,
+                collectionScanAttempted,
+                collectionScanReachedEnd,
             });
-            return null;
+            if (!directLookupInconclusive || collectionScanReachedEnd) {
+                return {
+                    status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
+                };
+            }
+            return {
+                status: BIDDING_ORDER_RECOVERY_STATUS.Inconclusive,
+                reason: collectionScanAttempted
+                    ? BIDDING_ORDER_RECOVERY_REASON.DirectLookupFailed
+                    : BIDDING_ORDER_RECOVERY_REASON.LookupUnavailable,
+            };
         }
 
         const parsed = this.parseRawOffer(
@@ -612,7 +631,10 @@ export class OpenSeaBiddingService implements BiddingService {
             "stateRecovery",
         );
         if (!parsed) {
-            return null;
+            return {
+                status: BIDDING_ORDER_RECOVERY_STATUS.Inconclusive,
+                reason: BIDDING_ORDER_RECOVERY_REASON.ParseFailed,
+            };
         }
 
         const status = stringOrUndefined(
@@ -628,14 +650,19 @@ export class OpenSeaBiddingService implements BiddingService {
                         status,
                     },
                 );
-                return null;
+                return {
+                    status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
+                };
             }
 
             log.debug("orderRecovered", "Successfully recovered order", {
                 orderHash,
                 status,
             });
-            return parsed;
+            return {
+                status: BIDDING_ORDER_RECOVERY_STATUS.Active,
+                order: parsed,
+            };
         }
 
         if (isLegacyInactive(foundOrder)) {
@@ -644,10 +671,13 @@ export class OpenSeaBiddingService implements BiddingService {
                 "Recovered order is not active by legacy checks",
                 { orderHash },
             );
-            return null;
+            return { status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing };
         }
 
-        return parsed;
+        return {
+            status: BIDDING_ORDER_RECOVERY_STATUS.Active,
+            order: parsed,
+        };
     }
 
     public async placeOffer(
@@ -1789,6 +1819,18 @@ function isNotFoundError(error: unknown): boolean {
         asRecord(error)?.status ?? asRecord(asRecord(error)?.response)?.status,
     );
     return message.includes("404") || status === 404;
+}
+
+function isDirectOrderAbsentError(error: unknown): boolean {
+    if (isNotFoundError(error)) {
+        return true;
+    }
+    const message = toErrorMessage(error).trim().toLowerCase();
+    return (
+        message === "not found" ||
+        /\border\b.*\bnot found\b/.test(message) ||
+        /\bnot found\b.*\border\b/.test(message)
+    );
 }
 
 function toErrorMessage(error: unknown): string {

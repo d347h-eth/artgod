@@ -38,6 +38,39 @@ export interface Order {
     quantity?: bigint;
 }
 
+// BiddingOrderRecoveryStatus is the order lookup proof state used for cancellation safety.
+export const BIDDING_ORDER_RECOVERY_STATUS = {
+    Active: "active",
+    InactiveOrMissing: "inactive_or_missing",
+    Inconclusive: "inconclusive",
+} as const;
+
+export type BiddingOrderRecoveryStatus =
+    (typeof BIDDING_ORDER_RECOVERY_STATUS)[keyof typeof BIDDING_ORDER_RECOVERY_STATUS];
+
+// BiddingOrderRecoveryReason names adapter proof failures that keep cancellation retryable.
+export const BIDDING_ORDER_RECOVERY_REASON = {
+    DirectLookupFailed: "direct_lookup_failed",
+    LookupUnavailable: "lookup_unavailable",
+    ParseFailed: "parse_failed",
+} as const;
+
+export type BiddingOrderRecoveryReason =
+    (typeof BIDDING_ORDER_RECOVERY_REASON)[keyof typeof BIDDING_ORDER_RECOVERY_REASON];
+
+export type BiddingOrderRecoveryResult =
+    | {
+          status: typeof BIDDING_ORDER_RECOVERY_STATUS.Active;
+          order: Order;
+      }
+    | {
+          status: typeof BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing;
+      }
+    | {
+          status: typeof BIDDING_ORDER_RECOVERY_STATUS.Inconclusive;
+          reason: BiddingOrderRecoveryReason;
+      };
+
 export interface BiddingService {
     getActiveOffers(
         job: BidderJob,
@@ -55,7 +88,7 @@ export interface BiddingService {
         tokenId?: string,
         collectionSlug?: string,
         context?: BiddingServiceRequestContext,
-    ): Promise<Order | null>;
+    ): Promise<BiddingOrderRecoveryResult>;
     placeOffer(
         job: BidderJob,
         amount: bigint,

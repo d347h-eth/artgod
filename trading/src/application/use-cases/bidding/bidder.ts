@@ -27,6 +27,7 @@ import {
     BIDDER_DEFAULT_MAX_CONCURRENT_JOBS,
 } from "./defaults.js";
 import {
+    BIDDING_ORDER_RECOVERY_STATUS,
     BIDDING_SERVICE_REQUEST_PRIORITY,
     BiddingService,
     type BiddingServiceRequestContext,
@@ -194,6 +195,7 @@ const BIDDER_LOG_ACTION = {
         "currentPriceBootstrapCandidateComplete",
     CurrentPriceBootstrapComplete: "currentPriceBootstrapComplete",
     OfferCancellationPersistFailed: "offerCancellationPersistFailed",
+    RuntimeStatePersistFailed: "runtimeStatePersistFailed",
     TrackedActiveOfferAlreadyAbsent: "trackedActiveOfferAlreadyAbsent",
 } as const;
 
@@ -1515,7 +1517,9 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 BIDDER_HOT_REFRESH_NO_EFFECT_LOG_INTERVAL_MS
         ) {
             existingSummary.suppressedCount += 1;
-            if (marketEvent.getUnitPrice() > existingSummary.maxEventUnitPrice) {
+            if (
+                marketEvent.getUnitPrice() > existingSummary.maxEventUnitPrice
+            ) {
                 existingSummary.maxEventUnitPrice = marketEvent.getUnitPrice();
                 existingSummary.sampleEventTarget = eventTarget;
             }
@@ -1555,8 +1559,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 candidateCount: evaluations.length,
                 eventCount: suppressedCount + 1,
                 suppressedEventCount: suppressedCount,
-                summaryIntervalMs:
-                    BIDDER_HOT_REFRESH_NO_EFFECT_LOG_INTERVAL_MS,
+                summaryIntervalMs: BIDDER_HOT_REFRESH_NO_EFFECT_LOG_INTERVAL_MS,
                 reasons: reasonSummary,
             },
         );
@@ -2046,7 +2049,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 decisionContext.ceiling,
             );
         }
-        this.persistJobRuntimeState(job);
+        this.persistJobRuntimeState(job, null, { required: true });
         if (
             job.target.type === "collection" ||
             job.target.type === "competitiveTrait"
@@ -2186,8 +2189,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 !job.state.activeProtocolAddress &&
                 foundInMarket.protocolAddress
             ) {
-                job.state.activeProtocolAddress =
-                    foundInMarket.protocolAddress;
+                job.state.activeProtocolAddress = foundInMarket.protocolAddress;
             }
             return foundInMarket;
         }
@@ -2212,7 +2214,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             requestContext,
         );
 
-        if (recovered) {
+        if (recovered.status === BIDDING_ORDER_RECOVERY_STATUS.Active) {
             log.info(
                 "activeBidRecovered",
                 "Recovered active bid from tracked state",
@@ -2220,16 +2222,23 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     jobId: job.id,
                     jobRef,
                     orderId: activeId,
-                    protocolAddress: recovered.protocolAddress ?? null,
+                    protocolAddress: recovered.order.protocolAddress ?? null,
                 },
             );
             if (
                 !job.state.activeProtocolAddress &&
-                recovered.protocolAddress
+                recovered.order.protocolAddress
             ) {
-                job.state.activeProtocolAddress = recovered.protocolAddress;
+                job.state.activeProtocolAddress =
+                    recovered.order.protocolAddress;
             }
-            return recovered;
+            return recovered.order;
+        }
+
+        if (recovered.status === BIDDING_ORDER_RECOVERY_STATUS.Inconclusive) {
+            throw new Error(
+                `[Bidder] Unable to prove tracked active order status: jobId=${job.id}, orderId=${activeId}, reason=${recovered.reason}`,
+            );
         }
 
         if (clearMissing) {
@@ -2250,6 +2259,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     private persistJobRuntimeState(
         job: BidderJob,
         lastError: string | null = null,
+        options: { required?: boolean } = {},
     ): void {
         if (!this.runtimeStatePort) {
             return;
@@ -2278,7 +2288,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             this.runtimeStatePort.persistJobRuntimeState(snapshot);
         } catch (error: unknown) {
             log.error(
-                "runtimeStatePersistFailed",
+                BIDDER_LOG_ACTION.RuntimeStatePersistFailed,
                 "Failed to persist bidding job runtime state",
                 {
                     jobId: job.id,
@@ -2286,6 +2296,9 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     ...toErrorLogFields(error),
                 },
             );
+            if (options.required) {
+                throw error;
+            }
         }
     }
 
@@ -2315,7 +2328,8 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 priceWei: order.price.toString(),
                 protocolAddress: order.protocolAddress ?? null,
                 placedAt: order.placedAt ?? null,
-                expirationTimeMs: this.toExpirationTimeMs(order.expirationTime) ?? null,
+                expirationTimeMs:
+                    this.toExpirationTimeMs(order.expirationTime) ?? null,
                 makerAddress: this.makerAddress.toLowerCase(),
                 requestedAt: state.requestedAt,
                 completedAt: state.completedAt,

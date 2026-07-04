@@ -10,6 +10,7 @@ export const BIDDING_LOG_COMPONENT = {
     BiddingBotRuntime: "BiddingBotRuntime",
     BiddingCommandReconciliationLoop: "BiddingCommandReconciliationLoop",
     BiddingCommandReconciler: "BiddingCommandReconciler",
+    BiddingFailedCancellationReconciler: "BiddingFailedCancellationReconciler",
     BiddingCommandSignalListener: "BiddingCommandSignalListener",
     BiddingRuntime: "BiddingRuntime",
     CollectionOfferSnapshotRefresh: "CollectionOfferSnapshotRefresh",

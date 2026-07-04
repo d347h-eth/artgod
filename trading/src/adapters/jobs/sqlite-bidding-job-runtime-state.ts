@@ -1,9 +1,6 @@
 import { db } from "@artgod/shared/database";
 import type { BetterSqlite3NamedStatement } from "@artgod/shared/database";
-import {
-    TRADING_BOT_KIND,
-    TRADING_JOB_STATUS,
-} from "@artgod/shared/types";
+import { TRADING_BOT_KIND, TRADING_JOB_STATUS } from "@artgod/shared/types";
 import type {
     BiddingJobOfferCancellationSnapshot,
     BiddingJobRuntimeStatePort,
@@ -13,6 +10,11 @@ import type {
     BiddingOfferCancellationFailure,
     BiddingOfferCancellationLifecyclePort,
 } from "../../application/use-cases/bidding/bidding-job-command-reconciler.js";
+import type {
+    CompletedOfferCancellation,
+    FailedOfferCancellationRecord,
+    FailedOfferCancellationRepositoryPort,
+} from "../../application/use-cases/bidding/failed-offer-cancellation-reconciler.js";
 
 type PersistRuntimeStateParams = BiddingJobRuntimeStateSnapshot & {
     bidConstraintsJson: string;
@@ -27,6 +29,20 @@ type MarkOfferCancellationFailedParams = BiddingOfferCancellationFailure & {
     updatedAt: string;
 };
 
+type ListFailedOfferCancellationsParams = {
+    chainId: number;
+    limit: number;
+};
+
+type FailedOfferCancellationRow = {
+    job_id: string;
+    order_id: string;
+    protocol_address: string | null;
+    collection_address: string;
+    collection_slug: string;
+    token_id: string | null;
+};
+
 type InvalidateActiveOrderVerificationParams = {
     chainId: number;
     botKind: typeof TRADING_BOT_KIND.Bidding;
@@ -34,11 +50,16 @@ type InvalidateActiveOrderVerificationParams = {
 };
 
 export class SqliteBiddingJobRuntimeState
-    implements BiddingJobRuntimeStatePort, BiddingOfferCancellationLifecyclePort
+    implements
+        BiddingJobRuntimeStatePort,
+        BiddingOfferCancellationLifecyclePort,
+        FailedOfferCancellationRepositoryPort
 {
     private readonly upsertRuntimeState: BetterSqlite3NamedStatement<PersistRuntimeStateParams>;
     private readonly upsertOfferCancellation: BetterSqlite3NamedStatement<PersistOfferCancellationParams>;
+    private readonly selectFailedOfferCancellations: BetterSqlite3NamedStatement<ListFailedOfferCancellationsParams>;
     private readonly markOfferCancellationFailedStatement: BetterSqlite3NamedStatement<MarkOfferCancellationFailedParams>;
+    private readonly markOfferCancellationCompletedStatement: BetterSqlite3NamedStatement<CompletedOfferCancellation>;
     private readonly invalidateEnabledActiveOrderVerificationStatement: BetterSqlite3NamedStatement<InvalidateActiveOrderVerificationParams>;
 
     constructor() {
@@ -95,6 +116,30 @@ export class SqliteBiddingJobRuntimeState
                     "WHERE job_id = @jobId AND order_id = @orderId",
             ) as BetterSqlite3NamedStatement<MarkOfferCancellationFailedParams>;
 
+        this.markOfferCancellationCompletedStatement =
+            db.prepare<CompletedOfferCancellation>(
+                "UPDATE trading_bidding_order_cancellations " +
+                    "SET completed_at = @completedAt, " +
+                    "cancellation_error = NULL, " +
+                    "updated_at = @completedAt " +
+                    "WHERE job_id = @jobId AND order_id = @orderId",
+            ) as BetterSqlite3NamedStatement<CompletedOfferCancellation>;
+
+        this.selectFailedOfferCancellations =
+            db.prepare<ListFailedOfferCancellationsParams>(
+                "SELECT c.job_id, c.order_id, c.protocol_address, " +
+                    "collections.address AS collection_address, collections.slug AS collection_slug, " +
+                    "j.token_id " +
+                    "FROM trading_bidding_order_cancellations c " +
+                    "JOIN collections ON collections.collection_id = c.collection_id " +
+                    "JOIN trading_jobs j ON j.job_id = c.job_id " +
+                    "WHERE c.chain_id = @chainId " +
+                    "AND c.completed_at IS NULL " +
+                    "AND c.cancellation_error IS NOT NULL " +
+                    "ORDER BY c.updated_at ASC, c.requested_at ASC " +
+                    "LIMIT @limit",
+            ) as BetterSqlite3NamedStatement<ListFailedOfferCancellationsParams>;
+
         this.invalidateEnabledActiveOrderVerificationStatement =
             db.prepare<InvalidateActiveOrderVerificationParams>(
                 "UPDATE trading_bidding_job_runtime_state " +
@@ -129,13 +174,40 @@ export class SqliteBiddingJobRuntimeState
         });
     }
 
-    markOfferCancellationFailed(failure: BiddingOfferCancellationFailure): void {
+    markOfferCancellationFailed(
+        failure: BiddingOfferCancellationFailure,
+    ): void {
         const updatedAt = new Date().toISOString();
         // Mark terminal cancellation failure so read models do not leave the order in a pending state.
         this.markOfferCancellationFailedStatement.run({
             ...failure,
             updatedAt,
         });
+    }
+
+    markOfferCancellationCompleted(
+        cancellation: CompletedOfferCancellation,
+    ): void {
+        // Mark proven-absent cancellations complete so bid-book reads can suppress stale indexed echoes.
+        this.markOfferCancellationCompletedStatement.run(cancellation);
+    }
+
+    listFailedOfferCancellations(params: {
+        chainId: number;
+        limit: number;
+    }): FailedOfferCancellationRecord[] {
+        // Load only failed rows; active/inconclusive marketplace recovery keeps them visible as cancel failed.
+        const rows = this.selectFailedOfferCancellations.all(
+            params,
+        ) as FailedOfferCancellationRow[];
+        return rows.map((row) => ({
+            jobId: row.job_id,
+            orderId: row.order_id,
+            protocolAddress: row.protocol_address,
+            collectionAddress: row.collection_address,
+            collectionSlug: row.collection_slug,
+            tokenId: row.token_id,
+        }));
     }
 
     invalidateEnabledActiveOrderVerification(params: {

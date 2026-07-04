@@ -91,7 +91,8 @@ Startup order:
 9. replay already-committed job commands while stream listeners and snapshot polling are still inactive
 10. start OpenSea stream listeners and steady-state snapshot polling from the post-command enabled-job set
 11. start the continuous job scan loop, command reconciliation loop/listener, and heartbeat
-12. emit `bot_ready` only after bootstrap is complete
+12. start the low-cadence failed-cancellation reconciliation loop
+13. emit `bot_ready` only after bootstrap is complete
 
 `trading_bot_runtime_state` stores non-secret bot heartbeat state.
 Backend bid-book reads use it to decide whether the bot snapshot projection can be treated as live.
@@ -169,6 +170,7 @@ Primary tables:
 - `trading_jobs`: common declared job envelope for bidding and future sniping
 - `trading_bidding_job_specs`: bidding strategy fields (`floor_wei`, `ceiling_wei`, `delta_wei`, quantity, trait criteria)
 - `trading_bidding_job_runtime_state`: bot-owned active-offer/runtime state for cancellation and diagnostics
+- `trading_bidding_order_cancellations`: bot-owned active-offer cancellation lifecycle facts for bid-book visibility and stale-index suppression
 - `trading_job_commands`: durable Outbox for bot-side effects
 
 Implemented bidding UI:
@@ -198,7 +200,9 @@ Command effects:
 - `cancel_active_offer`: cancel the job-scoped active offer through the bot's OpenSea adapter
 - `cancel_active_offer` is idempotent when neither the command payload nor the recovered job state has a tracked active OpenSea order id; the bot completes the command without probing OpenSea by target
 - `cancel_active_offer` is also idempotent when OpenSea active-offer discovery and direct order recovery prove the tracked order id is already absent; the bot records the cancellation as completed and clears runtime state
+- inconclusive direct order recovery keeps the command retryable because the bot cannot prove whether the order is still live
 - terminal cancellation failures are written back to `trading_bidding_order_cancellations` so the bid book renders `cancel failed` instead of leaving an unresolved `canceling` row
+- failed cancellation rows are periodically rechecked by `BIDDING_FAILED_CANCELLATION_RECONCILE_MS` and marked completed only after OpenSea proves the tracked order is absent
 
 Reconciliation also updates watched collections:
 
@@ -398,6 +402,7 @@ Bidding runtime groups:
 - bidding hot-refresh backpressure: `BIDDING_HOT_REFRESH_*`
 - bot runtime liveness: `BIDDING_RUNTIME_HEARTBEAT_*`
 - command reconciliation: `BIDDING_COMMAND_*`
+- failed cancellation recovery: `BIDDING_FAILED_CANCELLATION_RECONCILE_MS`
 - WETH allowance: `BIDDING_WETH_ALLOWANCE_ETH`
 - EIP-1559 fee/nonce policy: `BIDDING_TX_*`
 

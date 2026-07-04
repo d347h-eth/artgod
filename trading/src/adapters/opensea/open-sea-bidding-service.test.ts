@@ -9,7 +9,11 @@ import {
     type CollectionOfferSnapshot,
     type CollectionOfferSnapshotProvider,
 } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
-import { BIDDING_SERVICE_REQUEST_PRIORITY } from "../../application/use-cases/bidding/bidding-service.js";
+import {
+    BIDDING_ORDER_RECOVERY_REASON,
+    BIDDING_ORDER_RECOVERY_STATUS,
+    BIDDING_SERVICE_REQUEST_PRIORITY,
+} from "../../application/use-cases/bidding/bidding-service.js";
 import { TOKEN_BUCKET_RATE_LIMIT_PRIORITY } from "../support/token-bucket-rate-limiter.js";
 import {
     isRetryableOpenSeaBiddingError,
@@ -110,7 +114,10 @@ type RawTestCollectionOfferSnapshot = Omit<
 
 class FakeCollectionOfferSnapshotProvider implements CollectionOfferSnapshotProvider {
     constructor(
-        private readonly snapshots: Record<string, RawTestCollectionOfferSnapshot>,
+        private readonly snapshots: Record<
+            string,
+            RawTestCollectionOfferSnapshot
+        >,
     ) {}
 
     public getSnapshot(collectionSlug: string): CollectionOfferSnapshot | null {
@@ -479,8 +486,13 @@ describe("OpenSeaBiddingService", () => {
             protocolAddress,
             collectionAddress,
         );
-        assert.ok(active);
-        assert.equal(active?.id, orderHash);
+        assert.equal(active.status, BIDDING_ORDER_RECOVERY_STATUS.Active);
+        assert.equal(
+            active.status === BIDDING_ORDER_RECOVERY_STATUS.Active
+                ? active.order.id
+                : null,
+            orderHash,
+        );
 
         sdk.api.getOrderByHash = async () => ({
             order_hash: orderHash,
@@ -499,7 +511,10 @@ describe("OpenSeaBiddingService", () => {
             protocolAddress,
             collectionAddress,
         );
-        assert.equal(inactive, null);
+        assert.equal(
+            inactive.status,
+            BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
+        );
     });
 
     it("falls back to paginated collection offer scans for order recovery", async () => {
@@ -554,9 +569,67 @@ describe("OpenSeaBiddingService", () => {
             collectionSlug,
         );
 
-        assert.ok(recovered);
-        assert.equal(recovered?.id, orderHash);
+        assert.equal(recovered.status, BIDDING_ORDER_RECOVERY_STATUS.Active);
+        assert.equal(
+            recovered.status === BIDDING_ORDER_RECOVERY_STATUS.Active
+                ? recovered.order.id
+                : null,
+            orderHash,
+        );
         assert.equal(pageCalls, 2);
+    });
+
+    it("returns inconclusive order recovery when direct lookup fails and fallback cannot prove absence", async () => {
+        const sdk = new MockOpenSeaSdk();
+        const service = new OpenSeaBiddingService(sdk as any, makerAddress, {
+            retryPolicy: TEST_RETRY_POLICY,
+            orderLookupMaxPages: 1,
+        });
+
+        sdk.api.getOrderByHash = async () => {
+            throw new Error("OpenSea unavailable");
+        };
+        sdk.api.getAllOffers = async () => ({
+            offers: [],
+            next: "next-page",
+        });
+
+        const recovered = await service.getOrder(
+            orderHash,
+            protocolAddress,
+            collectionAddress,
+            undefined,
+            collectionSlug,
+        );
+
+        assert.deepEqual(recovered, {
+            status: BIDDING_ORDER_RECOVERY_STATUS.Inconclusive,
+            reason: BIDDING_ORDER_RECOVERY_REASON.DirectLookupFailed,
+        });
+    });
+
+    it("treats direct order-not-found plus complete collection scan as absent", async () => {
+        const sdk = new MockOpenSeaSdk();
+        const service = new OpenSeaBiddingService(sdk as any, makerAddress, {
+            retryPolicy: TEST_RETRY_POLICY,
+        });
+
+        sdk.api.getOrderByHash = async () => {
+            throw new Error("Order not found");
+        };
+        sdk.api.getAllOffers = async () => ({ offers: [] });
+
+        const recovered = await service.getOrder(
+            orderHash,
+            protocolAddress,
+            collectionAddress,
+            undefined,
+            collectionSlug,
+        );
+
+        assert.deepEqual(recovered, {
+            status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
+        });
     });
 
     it("queries maker-specific token offers and returns the best parsed order", async () => {

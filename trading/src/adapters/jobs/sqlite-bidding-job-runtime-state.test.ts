@@ -18,25 +18,27 @@ async function createTempDbPath(): Promise<string> {
 }
 
 function seedCollection(): number {
-    const result = db.prepare<{
-        chainId: number;
-        slug: string;
-        address: string;
-        standard: string;
-        status: string;
-        tokenScopeKind: string;
-    }>(
-        "INSERT INTO collections " +
-            "(chain_id, slug, address, standard, status, token_scope_kind) " +
-            "VALUES (@chainId, @slug, @address, @standard, @status, @tokenScopeKind)",
-    ).run({
-        chainId: 1,
-        slug: "terraforms",
-        address: "0x1111111111111111111111111111111111111111",
-        standard: "erc721",
-        status: "live",
-        tokenScopeKind: "contract_all_tokens",
-    });
+    const result = db
+        .prepare<{
+            chainId: number;
+            slug: string;
+            address: string;
+            standard: string;
+            status: string;
+            tokenScopeKind: string;
+        }>(
+            "INSERT INTO collections " +
+                "(chain_id, slug, address, standard, status, token_scope_kind) " +
+                "VALUES (@chainId, @slug, @address, @standard, @status, @tokenScopeKind)",
+        )
+        .run({
+            chainId: 1,
+            slug: "terraforms",
+            address: "0x1111111111111111111111111111111111111111",
+            standard: "erc721",
+            status: "live",
+            tokenScopeKind: "contract_all_tokens",
+        });
     return Number(result.lastInsertRowid);
 }
 
@@ -79,8 +81,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
             jobRevision: 1,
             currentPriceWei: "150000000000000000",
             activeOrderId: "0xmine",
-            activeProtocolAddress:
-                "0x0000000000000068f116a894984e2db1123eb395",
+            activeProtocolAddress: "0x0000000000000068f116a894984e2db1123eb395",
             activeOrderPlacedAt: "2026-05-17T00:00:00Z",
             activeOrderVerifiedAt: "2026-05-17T00:00:02Z",
             activeExpirationTimeMs: 1_900_000_000_000,
@@ -96,10 +97,10 @@ describe("SqliteBiddingJobRuntimeState", () => {
                 "SELECT job_revision, active_order_placed_at, active_order_verified_at FROM trading_bidding_job_runtime_state WHERE job_id = ?",
             )
             .get("job-token") as {
-                job_revision: number;
-                active_order_placed_at: string;
-                active_order_verified_at: string;
-            };
+            job_revision: number;
+            active_order_placed_at: string;
+            active_order_verified_at: string;
+        };
 
         assert.equal(row.job_revision, 1);
         assert.equal(row.active_order_placed_at, "2026-05-17T00:00:00Z");
@@ -118,8 +119,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
             jobRevision: 1,
             currentPriceWei: "150000000000000000",
             activeOrderId: "0xmine",
-            activeProtocolAddress:
-                "0x0000000000000068f116a894984e2db1123eb395",
+            activeProtocolAddress: "0x0000000000000068f116a894984e2db1123eb395",
             activeOrderPlacedAt: "2026-05-17T00:00:00Z",
             activeOrderVerifiedAt: "2026-05-17T00:00:02Z",
             activeExpirationTimeMs: 1_900_000_000_000,
@@ -137,9 +137,9 @@ describe("SqliteBiddingJobRuntimeState", () => {
                 "SELECT active_order_id, active_order_verified_at FROM trading_bidding_job_runtime_state WHERE job_id = ?",
             )
             .get("job-token") as {
-                active_order_id: string;
-                active_order_verified_at: string | null;
-            };
+            active_order_id: string;
+            active_order_verified_at: string | null;
+        };
 
         assert.equal(row.active_order_id, "0xmine");
         assert.equal(row.active_order_verified_at, null);
@@ -188,10 +188,11 @@ describe("SqliteBiddingJobRuntimeState", () => {
             cancellationError: null,
         });
 
-        const row = db.prepare<{ orderId: string }>(
-            "SELECT order_id, job_id, job_revision, chain_id, collection_id, maker, price_wei, protocol_address, placed_at, expiration_time_ms, requested_at, completed_at, cancellation_error " +
-                "FROM trading_bidding_order_cancellations WHERE order_id = @orderId",
-        ).get({ orderId: "0xmine" }) as
+        const row = db
+            .prepare<{
+                orderId: string;
+            }>("SELECT order_id, job_id, job_revision, chain_id, collection_id, maker, price_wei, protocol_address, placed_at, expiration_time_ms, requested_at, completed_at, cancellation_error " + "FROM trading_bidding_order_cancellations WHERE order_id = @orderId")
+            .get({ orderId: "0xmine" }) as
             | {
                   order_id: string;
                   job_id: string;
@@ -249,9 +250,11 @@ describe("SqliteBiddingJobRuntimeState", () => {
             cancellationError: "OpenSea unavailable",
         });
 
-        const row = db.prepare<{ orderId: string }>(
-            "SELECT completed_at, cancellation_error FROM trading_bidding_order_cancellations WHERE order_id = @orderId",
-        ).get({ orderId: "0xmine" }) as
+        const row = db
+            .prepare<{
+                orderId: string;
+            }>("SELECT completed_at, cancellation_error FROM trading_bidding_order_cancellations WHERE order_id = @orderId")
+            .get({ orderId: "0xmine" }) as
             | {
                   completed_at: string | null;
                   cancellation_error: string | null;
@@ -262,6 +265,77 @@ describe("SqliteBiddingJobRuntimeState", () => {
             completed_at: null,
             cancellation_error: "OpenSea unavailable",
         });
+    });
+
+    it("lists failed offer cancellations and marks proven-absent rows completed", () => {
+        const runtimeState = new SqliteBiddingJobRuntimeState();
+
+        runtimeState.recordJobOfferCancellation({
+            jobId: "job-token",
+            jobRevision: 1,
+            orderId: "0xmine",
+            priceWei: "150000000000000000",
+            protocolAddress: "0x0000000000000068f116a894984e2db1123eb395",
+            placedAt: "2026-05-17T00:00:00Z",
+            expirationTimeMs: 1_900_000_000_000,
+            makerAddress: "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa",
+            requestedAt: "2026-05-17T00:00:00Z",
+            completedAt: null,
+            cancellationError: null,
+        });
+        runtimeState.markOfferCancellationFailed({
+            jobId: "job-token",
+            orderId: "0xmine",
+            cancellationError: "OpenSea unavailable",
+        });
+
+        assert.deepEqual(
+            runtimeState.listFailedOfferCancellations({
+                chainId: 1,
+                limit: 10,
+            }),
+            [
+                {
+                    jobId: "job-token",
+                    orderId: "0xmine",
+                    protocolAddress:
+                        "0x0000000000000068f116a894984e2db1123eb395",
+                    collectionAddress:
+                        "0x1111111111111111111111111111111111111111",
+                    collectionSlug: "terraforms",
+                    tokenId: "123",
+                },
+            ],
+        );
+
+        runtimeState.markOfferCancellationCompleted({
+            jobId: "job-token",
+            orderId: "0xmine",
+            completedAt: "2026-05-17T00:00:05Z",
+        });
+
+        const row = db
+            .prepare<{
+                orderId: string;
+            }>("SELECT completed_at, cancellation_error FROM trading_bidding_order_cancellations WHERE order_id = @orderId")
+            .get({ orderId: "0xmine" }) as
+            | {
+                  completed_at: string | null;
+                  cancellation_error: string | null;
+              }
+            | undefined;
+
+        assert.deepEqual(row, {
+            completed_at: "2026-05-17T00:00:05Z",
+            cancellation_error: null,
+        });
+        assert.deepEqual(
+            runtimeState.listFailedOfferCancellations({
+                chainId: 1,
+                limit: 10,
+            }),
+            [],
+        );
     });
 
     it("preserves cancellation order details when settling from partial tracked state", () => {
@@ -294,10 +368,11 @@ describe("SqliteBiddingJobRuntimeState", () => {
             cancellationError: null,
         });
 
-        const row = db.prepare<{ orderId: string }>(
-            "SELECT price_wei, protocol_address, placed_at, expiration_time_ms, requested_at, completed_at " +
-                "FROM trading_bidding_order_cancellations WHERE order_id = @orderId",
-        ).get({ orderId: "0xmine" }) as
+        const row = db
+            .prepare<{
+                orderId: string;
+            }>("SELECT price_wei, protocol_address, placed_at, expiration_time_ms, requested_at, completed_at " + "FROM trading_bidding_order_cancellations WHERE order_id = @orderId")
+            .get({ orderId: "0xmine" }) as
             | {
                   price_wei: string | null;
                   protocol_address: string | null;

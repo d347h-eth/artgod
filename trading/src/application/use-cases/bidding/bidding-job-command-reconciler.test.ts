@@ -8,7 +8,13 @@ import {
 } from "@artgod/shared/types";
 import type { BidderJob } from "../../../domain/market/strategy/job.js";
 import { Bidder } from "./bidder.js";
-import type { BiddingService, Order } from "./bidding-service.js";
+import {
+    BIDDING_ORDER_RECOVERY_REASON,
+    BIDDING_ORDER_RECOVERY_STATUS,
+    type BiddingOrderRecoveryResult,
+    type BiddingService,
+    type Order,
+} from "./bidding-service.js";
 import type {
     BiddingJobCommand,
     BiddingJobCommandRepository,
@@ -120,7 +126,9 @@ class FakeJobSource implements BiddingJobSource {
 class FakeBiddingService implements BiddingService {
     cancelled: string[] = [];
     placeError: Error | null = null;
-    orderLookupResult: Order | null = null;
+    orderLookupResult: BiddingOrderRecoveryResult = {
+        status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
+    };
     activeOffersError: Error | null = null;
     activeOfferReads = 0;
 
@@ -138,7 +146,7 @@ class FakeBiddingService implements BiddingService {
         return null;
     }
 
-    async getOrder(): Promise<Order | null> {
+    async getOrder(): Promise<BiddingOrderRecoveryResult> {
         return this.orderLookupResult;
     }
 
@@ -178,11 +186,7 @@ describe("BiddingJobCommandReconciler", () => {
     it("loads enabled job commands, prepares runtime dependencies, and refreshes the bidder", async () => {
         const job = makeJob("job-enabled");
         const repository = new FakeCommandRepository([
-            makeCommand(
-                1,
-                job.id,
-                TRADING_JOB_COMMAND_KIND.JobUpdated,
-            ),
+            makeCommand(1, job.id, TRADING_JOB_COMMAND_KIND.JobUpdated),
         ]);
         const source = new FakeJobSource(
             new Map([[job.id, makeRecord(job, TRADING_JOB_STATUS.Enabled)]]),
@@ -285,11 +289,7 @@ describe("BiddingJobCommandReconciler", () => {
     it("keeps enabled job commands retryable when immediate placement fails", async () => {
         const job = makeJob("job-enabled-place-fails");
         const repository = new FakeCommandRepository([
-            makeCommand(
-                1,
-                job.id,
-                TRADING_JOB_COMMAND_KIND.JobUpdated,
-            ),
+            makeCommand(1, job.id, TRADING_JOB_COMMAND_KIND.JobUpdated),
         ]);
         const source = new FakeJobSource(
             new Map([[job.id, makeRecord(job, TRADING_JOB_STATUS.Enabled)]]),
@@ -340,11 +340,7 @@ describe("BiddingJobCommandReconciler", () => {
         liveJob.state.activeOrderVerifiedAt = "2026-05-17T00:00:00Z";
         liveJob.state.currentPrice = 200000000000000000n;
         const repository = new FakeCommandRepository([
-            makeCommand(
-                1,
-                declaredJob.id,
-                TRADING_JOB_COMMAND_KIND.JobCreated,
-            ),
+            makeCommand(1, declaredJob.id, TRADING_JOB_COMMAND_KIND.JobCreated),
         ]);
         const source = new FakeJobSource(
             new Map([
@@ -533,6 +529,51 @@ describe("BiddingJobCommandReconciler", () => {
         assert.deepEqual(repository.remainingCommandIds(), [2]);
     });
 
+    it("keeps inconclusive tracked-order cancellation retryable", async () => {
+        const job = makeJob("job-archived");
+        job.state.activeOrderId = "0xmissing";
+        job.state.activeProtocolAddress =
+            "0x00000000006c3852cbef3e08e8df289169ede581";
+        const repository = new FakeCommandRepository([
+            makeCommand(1, job.id, TRADING_JOB_COMMAND_KIND.CancelActiveOffer),
+            makeCommand(2, job.id, TRADING_JOB_COMMAND_KIND.JobArchived),
+        ]);
+        const source = new FakeJobSource(
+            new Map([[job.id, makeRecord(job, TRADING_JOB_STATUS.Archived)]]),
+        );
+        const biddingService = new FakeBiddingService([]);
+        biddingService.orderLookupResult = {
+            status: BIDDING_ORDER_RECOVERY_STATUS.Inconclusive,
+            reason: BIDDING_ORDER_RECOVERY_REASON.DirectLookupFailed,
+        };
+        const bidder = new Bidder(biddingService, makerAddress, 60_000);
+        bidder.addJob(job);
+        const reconciler = new BiddingJobCommandReconciler(
+            repository,
+            source,
+            bidder,
+            {
+                prepareEnabledJob: async () => undefined,
+                reconcileEnabledJobs: async () => undefined,
+            },
+            {
+                batchSize: 10,
+                claimTimeoutMs: 300_000,
+                maxAttempts: 3,
+            },
+        );
+
+        const processed = await reconciler.processPendingCommands("test");
+
+        assert.equal(processed, 1);
+        assert.equal(bidder.getJob(job.id), undefined);
+        assert.deepEqual(biddingService.cancelled, []);
+        assert.deepEqual(repository.completed, []);
+        assert.equal(repository.retryFailures.length, 1);
+        assert.equal(repository.retryFailures[0]?.commandId, 1);
+        assert.deepEqual(repository.remainingCommandIds(), [2]);
+    });
+
     it("records terminal cancellation failures in the cancellation lifecycle", async () => {
         const job = makeJob("job-archived");
         job.state.activeOrderId = "0xactive";
@@ -649,32 +690,30 @@ describe("BiddingJobCommandReconciler", () => {
         const job = makeJob("job-archived");
         job.revision = 2;
         const repository = new FakeCommandRepository([
-            makeCommand(
-                1,
-                job.id,
-                TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
-                {
-                    jobId: job.id,
-                    activeOrderJobRevision: 1,
-                    activeOrderId: "0xactive",
-                    activeProtocolAddress:
-                        "0x00000000006c3852cbef3e08e8df289169ede581",
-                    activeOrderPlacedAt: "2026-05-17T00:00:00Z",
-                    currentPriceWei: "100000000000000000",
-                    activeExpirationTimeMs: 1_700_000_000_000,
-                },
-            ),
+            makeCommand(1, job.id, TRADING_JOB_COMMAND_KIND.CancelActiveOffer, {
+                jobId: job.id,
+                activeOrderJobRevision: 1,
+                activeOrderId: "0xactive",
+                activeProtocolAddress:
+                    "0x00000000006c3852cbef3e08e8df289169ede581",
+                activeOrderPlacedAt: "2026-05-17T00:00:00Z",
+                currentPriceWei: "100000000000000000",
+                activeExpirationTimeMs: 1_700_000_000_000,
+            }),
         ]);
         const source = new FakeJobSource(
             new Map([[job.id, makeRecord(job, TRADING_JOB_STATUS.Archived)]]),
         );
         const biddingService = new FakeBiddingService([]);
         biddingService.orderLookupResult = {
-            id: "0xactive",
-            maker: makerAddress,
-            price: 100000000000000000n,
-            protocolAddress: "0x00000000006c3852cbef3e08e8df289169ede581",
-            offerScope: "item",
+            status: BIDDING_ORDER_RECOVERY_STATUS.Active,
+            order: {
+                id: "0xactive",
+                maker: makerAddress,
+                price: 100000000000000000n,
+                protocolAddress: "0x00000000006c3852cbef3e08e8df289169ede581",
+                offerScope: "item",
+            },
         };
         const recordedCancellationRevisions: number[] = [];
         const bidder = new Bidder(
