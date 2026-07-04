@@ -1,16 +1,26 @@
-import { error } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { BackendApiError, getCollectionHolders } from '$lib/backend-api';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
+import { resolvePreferredCollectionMediaModeHref } from '$lib/media-mode-navigation-preferences';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
-	PUBLIC_COLLECTION_SCOPE
+	PUBLIC_COLLECTION_SCOPE,
+	publicCollectionTokensPath
 } from '$lib/runtime/public-deployment';
 import type { PageLoad } from './$types';
 
 export const load: PageLoad = async ({ fetch, url }) => {
 	if (!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT || !PUBLIC_COLLECTION_SCOPE) {
 		throw error(404, 'Not found');
+	}
+
+	const preferredMediaHref = resolvePreferredCollectionMediaModeHref({
+		url,
+		scopePath: publicCollectionTokensPath()
+	});
+	if (preferredMediaHref) {
+		throw redirect(307, preferredMediaHref);
 	}
 
 	const query = normalizeCollectionHoldersParams(url.searchParams);

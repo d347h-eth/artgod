@@ -1,7 +1,12 @@
 import { error, redirect } from '@sveltejs/kit';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import { BackendApiError, getCollectionHolders } from '$lib/backend-api';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
+import {
+	collectionMediaModePreferenceScope,
+	resolvePreferredCollectionMediaModeHref
+} from '$lib/media-mode-navigation-preferences';
 import { withQuery } from '$lib/route-paths';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -38,9 +43,20 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				totalPages: 0
 			},
 			basePath: '/',
-			selectedMediaMode: 'snapshot',
+			selectedMediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 			requestCursor: null
 		};
+	}
+
+	const preferredMediaHref = resolvePreferredCollectionMediaModeHref({
+		url,
+		scopePath: collectionMediaModePreferenceScope({
+			chainRef: params.chain_ref,
+			collectionRef: params.collection_ref
+		})
+	});
+	if (preferredMediaHref) {
+		throw redirect(307, preferredMediaHref);
 	}
 
 	const query = normalizeCollectionHoldersParams(url.searchParams);

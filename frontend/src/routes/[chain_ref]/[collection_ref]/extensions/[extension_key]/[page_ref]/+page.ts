@@ -4,6 +4,10 @@ import {
 	emptyCollectionExtensionPageLoadResult,
 	loadCollectionExtensionPage
 } from '$lib/collection-extension-pages/page-load';
+import {
+	collectionMediaModePreferenceScope,
+	resolvePreferredCollectionMediaModeHref
+} from '$lib/media-mode-navigation-preferences';
 import { withQuery } from '$lib/route-paths';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 import {
@@ -34,6 +38,17 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 
 	if (IS_ADMIN_FRONTEND_TARGET) {
 		return emptyCollectionExtensionPageLoadResult('/', page);
+	}
+
+	const preferredMediaHref = resolvePreferredCollectionMediaModeHref({
+		url,
+		scopePath: collectionMediaModePreferenceScope({
+			chainRef: params.chain_ref,
+			collectionRef: params.collection_ref
+		})
+	});
+	if (preferredMediaHref) {
+		throw redirect(307, preferredMediaHref);
 	}
 
 	return loadCollectionExtensionPage({

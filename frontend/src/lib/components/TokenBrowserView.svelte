@@ -47,6 +47,11 @@
 	} from '$lib/components/pagination-window';
 	import { buildAskMarketPrice, type MarketPriceItem } from '$lib/market-price';
 	import { appendMediaModeParam, nextMediaMode } from '$lib/media-mode';
+	import {
+		clearCollectionMediaModeNavigationPreference,
+		readCollectionMediaModeNavigationPreference,
+		writeCollectionMediaModeNavigationPreference
+	} from '$lib/media-mode-navigation-preferences';
 
 	type MaybePromise<T> = T | Promise<T>;
 
@@ -127,6 +132,8 @@
 	let isGridMode = $derived(displayMode === 'grid');
 	let showDisplayModeControls = false;
 	let hasMediaModeChoices = $derived(media.availableModes.length > 1);
+	let stickyMediaMode = $state<string | null>(null);
+	let isStickyMediaMode = $derived(stickyMediaMode === media.selectedMode);
 	let traitColumns = $derived(resolveTraitColumns(facets));
 	let traitFacetIndex = $derived(buildTraitFacetIndex(facets));
 	let visibleTokenIds = $derived(visibleTokens.map((token) => token.tokenId));
@@ -142,6 +149,15 @@
 
 	$effect(() => {
 		onVisibleBiddableTokenIdsChange?.(visibleBiddableTokenIds);
+	});
+
+	$effect(() => {
+		stickyMediaMode = browser
+			? readCollectionMediaModeNavigationPreference({
+					scopePath: collectionBasePath,
+					availableModes: media.availableModes
+				})
+			: null;
 	});
 
 	$effect(() => {
@@ -363,6 +379,21 @@
 		return nextMediaMode(media.availableModes, media.selectedMode);
 	}
 
+	function toggleStickyMediaMode(): void {
+		if (!browser) return;
+		if (isStickyMediaMode) {
+			clearCollectionMediaModeNavigationPreference({ scopePath: collectionBasePath });
+			stickyMediaMode = null;
+			return;
+		}
+		writeCollectionMediaModeNavigationPreference({
+			scopePath: collectionBasePath,
+			mediaMode: media.selectedMode,
+			availableModes: media.availableModes
+		});
+		stickyMediaMode = media.selectedMode;
+	}
+
 	async function onTraitToggleWithMode(
 		key: string,
 		value: string,
@@ -533,6 +564,17 @@
 								<a href={mediaModeHref(mode.key)}>{mode.label}</a>
 							{/if}
 						{/each}
+					</div>
+					<div class="secondary-tabs" aria-label="Sticky media mode">
+						<button
+							type="button"
+							class:secondary-tab-active={isStickyMediaMode}
+							aria-pressed={isStickyMediaMode}
+							title={isStickyMediaMode ? 'clear media mode default' : 'use media mode as default'}
+							onclick={toggleStickyMediaMode}
+						>
+							sticky
+						</button>
 					</div>
 				{/if}
 			{/snippet}

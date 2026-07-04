@@ -1,18 +1,28 @@
-import { error } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import { normalizeAddressRef } from '@artgod/shared/utils/ref-resolver';
 import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { BackendApiError, getCollectionDetailWithHeaders } from '$lib/backend-api';
+import { resolvePreferredCollectionMediaModeHref } from '$lib/media-mode-navigation-preferences';
 import { forwardQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
-	PUBLIC_COLLECTION_SCOPE
+	PUBLIC_COLLECTION_SCOPE,
+	publicCollectionTokensPath
 } from '$lib/runtime/public-deployment';
 import { normalizeTokenBrowserParams, parseDisplayMode } from '$lib/token-browser-query';
 
 export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 	if (!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT || !PUBLIC_COLLECTION_SCOPE) {
 		throw error(404, 'Not found');
+	}
+
+	const preferredMediaHref = resolvePreferredCollectionMediaModeHref({
+		url,
+		scopePath: publicCollectionTokensPath()
+	});
+	if (preferredMediaHref) {
+		throw redirect(307, preferredMediaHref);
 	}
 
 	const owner = normalizeAddressRef(params.owner_ref);

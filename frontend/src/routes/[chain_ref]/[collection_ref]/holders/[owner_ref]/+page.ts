@@ -2,6 +2,7 @@ import { error, redirect } from '@sveltejs/kit';
 import { normalizeAddressRef } from '@artgod/shared/utils/ref-resolver';
 import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
 	BackendApiError,
 	getCollectionBiddingPriceTiers,
@@ -17,6 +18,10 @@ import {
 	publicCollectionOwnerTokensPath
 } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
+import {
+	collectionMediaModePreferenceScope,
+	resolvePreferredCollectionMediaModeHref
+} from '$lib/media-mode-navigation-preferences';
 import { normalizeTokenBrowserParams, parseDisplayMode } from '$lib/token-browser-query';
 
 export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
@@ -52,9 +57,11 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 				totalPages: 0
 			},
 			media: {
-				selectedMode: 'snapshot',
-				defaultMode: 'snapshot',
-				availableModes: [{ key: 'snapshot', label: 'snapshot' }]
+				selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+				defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+				availableModes: [
+					{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
+				]
 			},
 			facets: [],
 			selectedTraits: [],
@@ -68,6 +75,17 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 			biddingSettings: defaultBiddingCollectionSettings(),
 			priceTiers: []
 		};
+	}
+
+	const preferredMediaHref = resolvePreferredCollectionMediaModeHref({
+		url,
+		scopePath: collectionMediaModePreferenceScope({
+			chainRef: params.chain_ref,
+			collectionRef: params.collection_ref
+		})
+	});
+	if (preferredMediaHref) {
+		throw redirect(307, preferredMediaHref);
 	}
 
 	try {

@@ -1,6 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
 	BackendApiError,
 	getCollectionBiddingPriceTiers,
@@ -11,11 +12,15 @@ import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settin
 import { withQuery } from '$lib/route-paths';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
-		PUBLIC_COLLECTION_SCOPE,
-		matchesPublicCollectionRoute,
-		publicCollectionTokensPath
+	PUBLIC_COLLECTION_SCOPE,
+	matchesPublicCollectionRoute,
+	publicCollectionTokensPath
 } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
+import {
+	collectionMediaModePreferenceScope,
+	resolvePreferredCollectionMediaModeHref
+} from '$lib/media-mode-navigation-preferences';
 import {
 	normalizeTokenBrowserParams,
 	parseCollectionTokenStatus,
@@ -49,9 +54,11 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 				totalPages: 0
 			},
 			media: {
-				selectedMode: 'snapshot',
-				defaultMode: 'snapshot',
-				availableModes: [{ key: 'snapshot', label: 'snapshot' }]
+				selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+				defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+				availableModes: [
+					{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
+				]
 			},
 			facets: [],
 			selectedTraits: [],
@@ -64,6 +71,18 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 			priceTiers: []
 		};
 	}
+
+	const preferredMediaHref = resolvePreferredCollectionMediaModeHref({
+		url,
+		scopePath: collectionMediaModePreferenceScope({
+			chainRef: params.chain_ref,
+			collectionRef: params.collection_ref
+		})
+	});
+	if (preferredMediaHref) {
+		throw redirect(307, preferredMediaHref);
+	}
+
 	const tokenStatus = parseCollectionTokenStatus(url.searchParams.get('token_status'));
 	const query = normalizeTokenBrowserParams(url.searchParams, tokenStatus);
 	const displayMode = parseDisplayMode(url.searchParams.get('mode'));

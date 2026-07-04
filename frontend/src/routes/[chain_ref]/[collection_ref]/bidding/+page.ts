@@ -1,5 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
+import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
 	BackendApiError,
 	getCollectionBiddingBidBook,
@@ -15,6 +16,10 @@ import {
 	parseBidBookMakerFilter,
 	parseShowMutedBidBook
 } from '$lib/bidding-query';
+import {
+	collectionMediaModePreferenceScope,
+	resolvePreferredCollectionMediaModeHref
+} from '$lib/media-mode-navigation-preferences';
 import { normalizeMediaMode } from '$lib/media-mode';
 import { withQuery } from '$lib/route-paths';
 import {
@@ -59,9 +64,11 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			tokenOfferCards: emptyBiddingTokenOfferCardsPage(),
 			facets: [],
 			media: {
-				selectedMode: 'snapshot',
-				defaultMode: 'snapshot',
-				availableModes: [{ key: 'snapshot', label: 'snapshot' }]
+				selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+				defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+				availableModes: [
+					{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
+				]
 			},
 			basePath: '/',
 			selectedTraits: parseSelectedTraits(url.searchParams),
@@ -73,6 +80,17 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode')),
 			requestCursor: url.searchParams.get('cursor')
 		};
+	}
+
+	const preferredMediaHref = resolvePreferredCollectionMediaModeHref({
+		url,
+		scopePath: collectionMediaModePreferenceScope({
+			chainRef: params.chain_ref,
+			collectionRef: params.collection_ref
+		})
+	});
+	if (preferredMediaHref) {
+		throw redirect(307, preferredMediaHref);
 	}
 
 	const preferredHref = resolvePreferredCollectionBiddingNavigationHref(url);
