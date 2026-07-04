@@ -474,8 +474,6 @@ export class OpenSeaBiddingService implements BiddingService {
     ): Promise<BiddingOrderRecoveryResult> {
         let foundOrder: unknown = null;
         let directLookupInconclusive = false;
-        let collectionScanAttempted = false;
-        let collectionScanReachedEnd = false;
 
         if (protocolAddress) {
             try {
@@ -520,106 +518,20 @@ export class OpenSeaBiddingService implements BiddingService {
             }
         }
 
-        if (!foundOrder && collectionSlug) {
-            collectionScanAttempted = true;
-            log.debug(
-                "orderCollectionScanStarted",
-                "Order not resolved via direct lookup; scanning collection offers",
-                {
-                    orderHash,
-                    collectionSlug,
-                },
-            );
-
-            let cursor: string | undefined;
-            let page = 0;
-
-            while (page < this.orderLookupMaxPages) {
-                try {
-                    const response = await this.withRetry(
-                        "getAllOffers",
-                        `all offers (page ${page + 1})`,
-                        () =>
-                            this.sdk.api.getAllOffers(
-                                collectionSlug,
-                                this.offersPageSize,
-                                cursor,
-                            ),
-                        context,
-                    );
-
-                    const offers = asArray(response?.offers);
-                    log.debug(
-                        "orderCollectionScanPageFetched",
-                        "Fetched collection offers page while scanning for order",
-                        {
-                            orderHash,
-                            collectionSlug,
-                            page: page + 1,
-                            offerCount: offers.length,
-                        },
-                    );
-
-                    foundOrder =
-                        offers.find((offer) =>
-                            matchesOrderHash(offer, orderHash),
-                        ) ?? null;
-                    if (foundOrder) {
-                        log.debug(
-                            "orderCollectionScanFound",
-                            "Found order in collection-specific offers list",
-                            {
-                                orderHash,
-                                collectionSlug,
-                                page: page + 1,
-                            },
-                        );
-                        break;
-                    }
-
-                    const next =
-                        typeof response?.next === "string"
-                            ? response.next
-                            : undefined;
-                    if (!next) {
-                        collectionScanReachedEnd = true;
-                        break;
-                    }
-
-                    cursor = next;
-                    page++;
-                } catch (error) {
-                    log.debug(
-                        "orderCollectionScanPageFailed",
-                        "Failed to fetch collection offers page while scanning for order",
-                        {
-                            orderHash,
-                            collectionSlug,
-                            page: page + 1,
-                            ...toErrorLogFields(error),
-                        },
-                    );
-                    throw error;
-                }
-            }
-        }
-
         if (!foundOrder) {
             log.debug("orderNotFound", "Order not found in market", {
                 orderHash,
                 collectionSlug: collectionSlug ?? null,
                 directLookupInconclusive,
-                collectionScanAttempted,
-                collectionScanReachedEnd,
             });
-            if (!directLookupInconclusive || collectionScanReachedEnd) {
+            if (!directLookupInconclusive) {
                 return {
                     status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
                 };
             }
             return {
                 status: BIDDING_ORDER_RECOVERY_STATUS.Inconclusive,
-                reason: collectionScanAttempted
+                reason: protocolAddress
                     ? BIDDING_ORDER_RECOVERY_REASON.DirectLookupFailed
                     : BIDDING_ORDER_RECOVERY_REASON.LookupUnavailable,
             };

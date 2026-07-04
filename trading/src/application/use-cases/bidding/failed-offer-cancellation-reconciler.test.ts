@@ -9,8 +9,9 @@ import {
 } from "./bidding-service.js";
 import {
     FailedOfferCancellationReconciler,
+    UNSETTLED_TERMINAL_CANCELLATION_ERROR,
     type CompletedOfferCancellation,
-    type FailedOfferCancellationRecord,
+    type RecoverableOfferCancellationRecord,
     type FailedOfferCancellationRepositoryPort,
 } from "./failed-offer-cancellation-reconciler.js";
 
@@ -21,17 +22,20 @@ const FAILED_CANCELLATION_RECORD = {
     collectionAddress: "0xcollection",
     collectionSlug: "terraforms",
     tokenId: "123",
-} satisfies FailedOfferCancellationRecord;
+    cancellationError: "OpenSea unavailable",
+    terminalCommandError: null,
+    hasTerminalCommand: false,
+} satisfies RecoverableOfferCancellationRecord;
 
 class FakeFailedCancellationRepository implements FailedOfferCancellationRepositoryPort {
     completed: CompletedOfferCancellation[] = [];
 
-    constructor(private readonly records: FailedOfferCancellationRecord[]) {}
+    constructor(private readonly records: RecoverableOfferCancellationRecord[]) {}
 
-    listFailedOfferCancellations(params: {
+    listRecoverableOfferCancellations(params: {
         chainId: number;
         limit: number;
-    }): FailedOfferCancellationRecord[] {
+    }): RecoverableOfferCancellationRecord[] {
         assert.equal(params.chainId, 1);
         return this.records.slice(0, params.limit);
     }
@@ -41,10 +45,18 @@ class FakeFailedCancellationRepository implements FailedOfferCancellationReposit
     ): void {
         this.completed.push(cancellation);
     }
+
+    markOfferCancellationFailed(_failure: {
+        jobId: string;
+        orderId: string;
+        cancellationError: string;
+    }): void {
+        throw new Error("unused");
+    }
 }
 
 class FakeBiddingService implements BiddingService {
-    lookups: FailedOfferCancellationRecord[] = [];
+    lookups: RecoverableOfferCancellationRecord[] = [];
     result: BiddingOrderRecoveryResult = {
         status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
     };
@@ -72,6 +84,10 @@ class FakeBiddingService implements BiddingService {
             collectionAddress: collectionAddress ?? "",
             collectionSlug: collectionSlug ?? "",
             tokenId: tokenId ?? null,
+            cancellationError: FAILED_CANCELLATION_RECORD.cancellationError,
+            terminalCommandError:
+                FAILED_CANCELLATION_RECORD.terminalCommandError,
+            hasTerminalCommand: FAILED_CANCELLATION_RECORD.hasTerminalCommand,
         });
         if (this.error) {
             throw this.error;
@@ -141,6 +157,93 @@ describe("FailedOfferCancellationReconciler", () => {
 
         assert.equal(completedCount, 0);
         assert.deepEqual(repository.completed, []);
+    });
+
+    it("restores terminal command failure when an unresolved cancellation has no error", async () => {
+        const restoredFailures: Array<{
+            jobId: string;
+            orderId: string;
+            cancellationError: string;
+        }> = [];
+        const repository = new (class extends FakeFailedCancellationRepository {
+            override markOfferCancellationFailed(failure: {
+                jobId: string;
+                orderId: string;
+                cancellationError: string;
+            }): void {
+                restoredFailures.push(failure);
+            }
+        })([
+            {
+                ...FAILED_CANCELLATION_RECORD,
+                cancellationError: null,
+                terminalCommandError: "Unable to confirm tracked active offer",
+                hasTerminalCommand: true,
+            },
+        ]);
+        const biddingService = new FakeBiddingService();
+        biddingService.result = {
+            status: BIDDING_ORDER_RECOVERY_STATUS.Active,
+            order: {
+                id: "0xmine",
+                maker: "0xmaker",
+                price: 1n,
+                offerScope: "item",
+            },
+        };
+        const reconciler = createReconciler(repository, biddingService);
+
+        const completedCount = await reconciler.reconcileFailedCancellations();
+
+        assert.equal(completedCount, 0);
+        assert.deepEqual(restoredFailures, [
+            {
+                jobId: "job-token",
+                orderId: "0xmine",
+                cancellationError: "Unable to confirm tracked active offer",
+            },
+        ]);
+    });
+
+    it("restores a generic failure when a terminal command left the cancellation unsettled", async () => {
+        const restoredFailures: Array<{
+            jobId: string;
+            orderId: string;
+            cancellationError: string;
+        }> = [];
+        const repository = new (class extends FakeFailedCancellationRepository {
+            override markOfferCancellationFailed(failure: {
+                jobId: string;
+                orderId: string;
+                cancellationError: string;
+            }): void {
+                restoredFailures.push(failure);
+            }
+        })([
+            {
+                ...FAILED_CANCELLATION_RECORD,
+                cancellationError: null,
+                terminalCommandError: null,
+                hasTerminalCommand: true,
+            },
+        ]);
+        const biddingService = new FakeBiddingService();
+        biddingService.result = {
+            status: BIDDING_ORDER_RECOVERY_STATUS.Inconclusive,
+            reason: BIDDING_ORDER_RECOVERY_REASON.DirectLookupFailed,
+        };
+        const reconciler = createReconciler(repository, biddingService);
+
+        const completedCount = await reconciler.reconcileFailedCancellations();
+
+        assert.equal(completedCount, 0);
+        assert.deepEqual(restoredFailures, [
+            {
+                jobId: "job-token",
+                orderId: "0xmine",
+                cancellationError: UNSETTLED_TERMINAL_CANCELLATION_ERROR,
+            },
+        ]);
     });
 
     it("leaves failed cancellation open when OpenSea recovery is inconclusive", async () => {

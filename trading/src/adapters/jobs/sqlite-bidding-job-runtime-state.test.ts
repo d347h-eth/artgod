@@ -7,6 +7,8 @@ import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
     TRADING_BOT_KIND,
+    TRADING_JOB_COMMAND_KIND,
+    TRADING_JOB_COMMAND_STATUS,
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
 } from "@artgod/shared/types";
@@ -272,7 +274,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
         });
     });
 
-    it("lists failed offer cancellations and marks proven-absent rows completed", () => {
+    it("lists recoverable offer cancellations and marks proven-absent rows completed", () => {
         const runtimeState = new SqliteBiddingJobRuntimeState();
 
         runtimeState.recordJobOfferCancellation({
@@ -295,7 +297,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
         });
 
         assert.deepEqual(
-            runtimeState.listFailedOfferCancellations({
+            runtimeState.listRecoverableOfferCancellations({
                 chainId: 1,
                 limit: 10,
             }),
@@ -309,6 +311,9 @@ describe("SqliteBiddingJobRuntimeState", () => {
                         "0x1111111111111111111111111111111111111111",
                     collectionSlug: "terraforms",
                     tokenId: "123",
+                    cancellationError: "OpenSea unavailable",
+                    terminalCommandError: null,
+                    hasTerminalCommand: false,
                 },
             ],
         );
@@ -337,7 +342,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
             cancellation_error: null,
         });
         assert.deepEqual(
-            runtimeState.listFailedOfferCancellations({
+            runtimeState.listRecoverableOfferCancellations({
                 chainId: 1,
                 limit: 10,
             }),
@@ -367,6 +372,96 @@ describe("SqliteBiddingJobRuntimeState", () => {
             completed_at: "2026-05-17T00:00:05Z",
             cancellation_error: null,
         });
+    });
+
+    it("lists unresolved cancellation rows when their cancel command is terminal", () => {
+        const runtimeState = new SqliteBiddingJobRuntimeState();
+
+        runtimeState.recordJobOfferCancellation({
+            jobId: "job-token",
+            jobRevision: 1,
+            orderId: "0xmine",
+            priceWei: "150000000000000000",
+            protocolAddress: "0x0000000000000068f116a894984e2db1123eb395",
+            placedAt: "2026-05-17T00:00:00Z",
+            expirationTimeMs: 1_900_000_000_000,
+            makerAddress: "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa",
+            requestedAt: "2026-05-17T00:00:00Z",
+            completedAt: null,
+            cancellationError: null,
+        });
+        db.prepare<{
+            jobId: string;
+            botKind: string;
+            commandKind: string;
+            status: string;
+            requestedRevision: number;
+            payloadJson: string;
+            attempts: number;
+            lastError: string;
+        }>(
+            "INSERT INTO trading_job_commands " +
+                "(job_id, bot_kind, command_kind, status, requested_revision, payload_json, attempts, last_error) " +
+                "VALUES (@jobId, @botKind, @commandKind, @status, @requestedRevision, @payloadJson, @attempts, @lastError)",
+        ).run({
+            jobId: "job-token",
+            botKind: TRADING_BOT_KIND.Bidding,
+            commandKind: TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            status: TRADING_JOB_COMMAND_STATUS.FailedTerminal,
+            requestedRevision: 2,
+            payloadJson: "{}",
+            attempts: 5,
+            lastError: "Unable to confirm tracked active offer",
+        });
+
+        assert.deepEqual(
+            runtimeState.listRecoverableOfferCancellations({
+                chainId: 1,
+                limit: 10,
+            }),
+            [
+                {
+                    jobId: "job-token",
+                    orderId: "0xmine",
+                    protocolAddress:
+                        "0x0000000000000068f116a894984e2db1123eb395",
+                    collectionAddress:
+                        "0x1111111111111111111111111111111111111111",
+                    collectionSlug: "terraforms",
+                    tokenId: "123",
+                    cancellationError: null,
+                    terminalCommandError:
+                        "Unable to confirm tracked active offer",
+                    hasTerminalCommand: true,
+                },
+            ],
+        );
+
+        db.prepare(
+            "UPDATE trading_job_commands SET status = ?, last_error = NULL WHERE job_id = ?",
+        ).run(TRADING_JOB_COMMAND_STATUS.Completed, "job-token");
+
+        assert.deepEqual(
+            runtimeState.listRecoverableOfferCancellations({
+                chainId: 1,
+                limit: 10,
+            }),
+            [
+                {
+                    jobId: "job-token",
+                    orderId: "0xmine",
+                    protocolAddress:
+                        "0x0000000000000068f116a894984e2db1123eb395",
+                    collectionAddress:
+                        "0x1111111111111111111111111111111111111111",
+                    collectionSlug: "terraforms",
+                    tokenId: "123",
+                    cancellationError: null,
+                    terminalCommandError: null,
+                    hasTerminalCommand: true,
+                },
+            ],
+        );
     });
 
     it("preserves cancellation order details when settling from partial tracked state", () => {

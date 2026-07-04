@@ -8,13 +8,16 @@ import {
     toErrorLogFields,
 } from "../../../utils/bidding-log.js";
 
-export type FailedOfferCancellationRecord = {
+export type RecoverableOfferCancellationRecord = {
     jobId: string;
     orderId: string;
     protocolAddress: string | null;
     collectionAddress: string;
     collectionSlug: string;
     tokenId: string | null;
+    cancellationError: string | null;
+    terminalCommandError: string | null;
+    hasTerminalCommand: boolean;
 };
 
 export type CompletedOfferCancellation = {
@@ -24,15 +27,20 @@ export type CompletedOfferCancellation = {
 };
 
 export interface FailedOfferCancellationRepositoryPort {
-    listFailedOfferCancellations(params: {
+    listRecoverableOfferCancellations(params: {
         chainId: number;
         limit: number;
     }):
-        | Promise<FailedOfferCancellationRecord[]>
-        | FailedOfferCancellationRecord[];
+        | Promise<RecoverableOfferCancellationRecord[]>
+        | RecoverableOfferCancellationRecord[];
     markOfferCancellationCompleted(
         cancellation: CompletedOfferCancellation,
     ): Promise<void> | void;
+    markOfferCancellationFailed(params: {
+        jobId: string;
+        orderId: string;
+        cancellationError: string;
+    }): Promise<void> | void;
 }
 
 export type FailedOfferCancellationReconcilerConfig = {
@@ -44,9 +52,14 @@ const log = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.BiddingFailedCancellationReconciler,
 );
 
+// Stored when a terminal cancel command left no success or failure fact on the cancellation row.
+export const UNSETTLED_TERMINAL_CANCELLATION_ERROR =
+    "Cancellation command finished before the offer cancellation was settled";
+
 // Log actions owned by the failed-cancellation recovery use case.
 export const FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION = {
     Recovered: "failedCancellationRecovered",
+    FailureRestored: "failedCancellationFailureRestored",
     StillActive: "failedCancellationStillActive",
     Inconclusive: "failedCancellationRecoveryInconclusive",
     Failed: "failedCancellationRecoveryFailed",
@@ -61,7 +74,7 @@ export class FailedOfferCancellationReconciler {
     ) {}
 
     async reconcileFailedCancellations(): Promise<number> {
-        const records = await this.repository.listFailedOfferCancellations({
+        const records = await this.repository.listRecoverableOfferCancellations({
             chainId: this.config.chainId,
             limit: this.config.batchSize,
         });
@@ -101,6 +114,7 @@ export class FailedOfferCancellationReconciler {
                 }
 
                 if (result.status === BIDDING_ORDER_RECOVERY_STATUS.Active) {
+                    await this.restoreTerminalFailureIfAvailable(record);
                     log.debug(
                         FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.StillActive,
                         "Failed offer cancellation still has an active order",
@@ -113,6 +127,7 @@ export class FailedOfferCancellationReconciler {
                     continue;
                 }
 
+                await this.restoreTerminalFailureIfAvailable(record);
                 log.debug(
                     FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.Inconclusive,
                     "Failed offer cancellation recovery was inconclusive",
@@ -138,5 +153,30 @@ export class FailedOfferCancellationReconciler {
         }
 
         return completedCount;
+    }
+
+    private async restoreTerminalFailureIfAvailable(
+        record: RecoverableOfferCancellationRecord,
+    ): Promise<void> {
+        if (record.cancellationError || !record.hasTerminalCommand) {
+            return;
+        }
+
+        await this.repository.markOfferCancellationFailed({
+            jobId: record.jobId,
+            orderId: record.orderId,
+            cancellationError:
+                record.terminalCommandError ??
+                UNSETTLED_TERMINAL_CANCELLATION_ERROR,
+        });
+        log.warn(
+            FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.FailureRestored,
+            "Restored terminal cancellation failure for unresolved offer cancellation",
+            {
+                jobId: record.jobId,
+                orderId: record.orderId,
+                collectionSlug: record.collectionSlug,
+            },
+        );
     }
 }
