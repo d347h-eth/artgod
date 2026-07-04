@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
+	import { onDestroy } from 'svelte';
 	import {
 		BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
 		BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
@@ -31,6 +32,7 @@
 		bootstrapProbeStatusLabel,
 		contractNameToBootstrapSlug,
 		formatByteSize,
+		isBootstrapAddressComplete,
 		isBootstrapProbeableAddress,
 		normalizeBootstrapAddress
 	} from '$lib/bootstrap-contract-probe';
@@ -72,6 +74,12 @@
 	const bootstrapSelectClass = 'bootstrap-control bootstrap-control-select';
 	const bootstrapTextareaClass = 'bootstrap-control bootstrap-control-textarea';
 	const bootstrapCheckboxClass = 'bootstrap-checkbox';
+	// Short paste-settle delay before the guarded contract probe starts.
+	const contractProbeDelayMs = 150;
+	// Debounce delay for manually entered OpenSea slug verification.
+	const openSeaSlugProbeDelayMs = 450;
+	// Debounce delay before image-cache plan calculations use a numeric draft.
+	const imageCacheDimensionCommitDelayMs = 450;
 	// UI-local lifecycle states for the asynchronous OpenSea slug probe.
 	const openSeaSlugProbeUiStatus = {
 		Idle: 'idle',
@@ -82,6 +90,7 @@
 	} as const;
 	type OpenSeaSlugProbeUiStatus =
 		(typeof openSeaSlugProbeUiStatus)[keyof typeof openSeaSlugProbeUiStatus];
+	type OpenSeaSlugProbeRequest = Parameters<typeof probeBootstrapOpenSeaSlug>[2];
 	const openSeaSetupMessage =
 		`Set ${OPENSEA_API_KEY_ENV} in Admin UI to sync OpenSea market/orderbook asks/offers required by built-in bidding bot features. Fully restart the app after saving the key in Admin UI.`;
 	const bootstrapPreviewMediaModes: ApiCollectionMediaMode[] = [
@@ -129,6 +138,7 @@
 	let manualRangeTotalSupply = $state('');
 	let imageCacheMode = $state<ApiImageCacheMode>(IMAGE_CACHE_MODE.CacheOnce);
 	let imageCacheMaxDimension = $state(String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION));
+	let imageCacheMaxDimensionDraft = $state(String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION));
 	let imageCachePolicySource = $state<ApiCollectionCustomizationSource>(
 		COLLECTION_CUSTOMIZATION_SOURCE_KIND.User
 	);
@@ -146,8 +156,14 @@
 	let openSeaSlugProbeResult = $state<BootstrapOpenSeaSlugProbeApiResponse | null>(null);
 	let openSeaSlugProbeError = $state<string | null>(null);
 	let openSeaSlugProbeAddress = $state<string | null>(null);
+	let openSeaSlugProbeRequestedSlug = $state<string | null>(null);
 	let lastAutoFilledOpenSeaSlug: string | null = null;
 	let openSeaSlugWasAutoFilled = false;
+	let contractProbeTimer: number | null = null;
+	let openSeaSlugProbeTimer: number | null = null;
+	let imageCacheDimensionTimer: number | null = null;
+	let contractProbeRequestId = 0;
+	let openSeaSlugProbeRequestId = 0;
 	let openSeaEnabled = $derived(openseaIntegration?.enabled === true);
 	let openSeaDisabledReason = $derived(
 		openseaIntegration && !openseaIntegration.enabled
@@ -159,125 +175,41 @@
 	let latestProbeMatchesAddress = $derived(
 		probeStatus === 'ready' && probeAddress === normalizedBootstrapAddress
 	);
+	let formDetailsReady = $derived(latestProbeMatchesAddress && probeResult !== null);
+	let openSeaSlugValue = $derived(normalizeOpenSeaSlugInput(bootstrapOpenSeaSlug));
+	let openSeaSlugProbePending = $derived(
+		openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Waiting ||
+			openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Loading
+	);
+	let openSeaSlugResolved = $derived(isOpenSeaSlugResolved());
 	let submitDisabled = $derived(
 		submitting ||
 			!chain ||
 			!addressCanBeProbed ||
-			!latestProbeMatchesAddress ||
-			probeStatus === 'waiting' ||
-			probeStatus === 'loading'
+			!formDetailsReady ||
+			openSeaSlugProbePending ||
+			(openSeaEnabled && openSeaSlugValue.length > 0 && !openSeaSlugResolved)
 	);
 	let probeControlledDisabled = $derived(
-		probeStatus === 'ready' && probeResult !== null && latestProbeMatchesAddress && !manualEditingAllowed
+		formDetailsReady && !manualEditingAllowed
 	);
 	let latestOpenSeaSlugProbeMatchesAddress = $derived(
 		openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Ready &&
 			openSeaSlugProbeAddress === normalizedBootstrapAddress
 	);
 	let imageCacheExtensionControlledDisabled = $derived(
-		probeStatus === 'ready' &&
-			probeResult !== null &&
-			latestProbeMatchesAddress &&
+		formDetailsReady &&
 			imageCachePolicySource === COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension &&
 			!manualEditingAllowed
 	);
 	let firstTokenCard = $derived(firstTokenPreviewCard());
 
-	$effect(() => {
-		if (!browser) return;
-		const chainSlug = chain?.slug ?? null;
-		const address = normalizedBootstrapAddress;
-		if (!chainSlug || !isBootstrapProbeableAddress(address)) {
-			probeStatus = 'idle';
-			probeResult = null;
-			probeError = null;
-			probeAddress = null;
-			resetImageCachePolicySource();
-			return;
-		}
-
-		probeStatus = 'waiting';
-		probeResult = null;
-		probeAddress = null;
-		probeError = null;
-		manualEditingAllowed = false;
-		resetImageCachePolicySource();
-		let cancelled = false;
-		const timer = window.setTimeout(() => {
-			void (async () => {
-				probeStatus = 'loading';
-				try {
-					const result = await probeBootstrapCollectionContract(fetch, chainSlug, address);
-					if (cancelled) return;
-					probeStatus = 'ready';
-					probeResult = result;
-					probeAddress = result.address;
-					manualEditingAllowed = false;
-					applyProbeResult(result);
-				} catch (error) {
-					if (cancelled) return;
-					probeStatus = 'error';
-					probeResult = null;
-					probeAddress = null;
-					probeError = error instanceof Error ? error.message : 'contract probe failed';
-				}
-			})();
-		}, 450);
-
-		return () => {
-			cancelled = true;
-			window.clearTimeout(timer);
-		};
-	});
-
-	$effect(() => {
-		if (!browser) return;
-		const chainSlug = chain?.slug ?? null;
-		const address = normalizedBootstrapAddress;
-		if (!chainSlug || !openSeaEnabled || !isBootstrapProbeableAddress(address)) {
-			openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Idle;
-			openSeaSlugProbeResult = null;
-			openSeaSlugProbeError = null;
-			openSeaSlugProbeAddress = null;
-			return;
-		}
-
-		openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Waiting;
-		openSeaSlugProbeResult = null;
-		openSeaSlugProbeAddress = null;
-		openSeaSlugProbeError = null;
-		if (openSeaSlugWasAutoFilled) {
-			bootstrapOpenSeaSlug = '';
-			lastAutoFilledOpenSeaSlug = null;
-			openSeaSlugWasAutoFilled = false;
-		}
-
-		let cancelled = false;
-		const timer = window.setTimeout(() => {
-			void (async () => {
-				openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Loading;
-				try {
-					const result = await probeBootstrapOpenSeaSlug(fetch, chainSlug, address);
-					if (cancelled) return;
-					openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Ready;
-					openSeaSlugProbeResult = result;
-					openSeaSlugProbeAddress = result.address;
-					applyOpenSeaSlugProbeResult(result);
-				} catch (error) {
-					if (cancelled) return;
-					openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Error;
-					openSeaSlugProbeResult = null;
-					openSeaSlugProbeAddress = null;
-					openSeaSlugProbeError =
-						error instanceof Error ? error.message : 'OpenSea slug probe failed';
-				}
-			})();
-		}, 450);
-
-		return () => {
-			cancelled = true;
-			window.clearTimeout(timer);
-		};
+	onDestroy(() => {
+		cancelContractProbeTimer();
+		cancelOpenSeaSlugProbeTimer();
+		cancelImageCacheDimensionTimer();
+		contractProbeRequestId += 1;
+		openSeaSlugProbeRequestId += 1;
 	});
 
 	function normalizeFieldValue(value: unknown): string {
@@ -291,6 +223,254 @@
 	function runHref(runId: number): string {
 		const normalizedBasePath = basePath.endsWith('/') ? basePath.slice(0, -1) : basePath;
 		return `${normalizedBasePath}/${runId}`;
+	}
+
+	function cancelContractProbeTimer(): void {
+		if (!contractProbeTimer || !browser) return;
+		window.clearTimeout(contractProbeTimer);
+		contractProbeTimer = null;
+	}
+
+	function cancelOpenSeaSlugProbeTimer(): void {
+		if (!openSeaSlugProbeTimer || !browser) return;
+		window.clearTimeout(openSeaSlugProbeTimer);
+		openSeaSlugProbeTimer = null;
+	}
+
+	function cancelImageCacheDimensionTimer(): void {
+		if (!imageCacheDimensionTimer || !browser) return;
+		window.clearTimeout(imageCacheDimensionTimer);
+		imageCacheDimensionTimer = null;
+	}
+
+	function hasStartedBootstrapSession(): boolean {
+		return (
+			probeStatus !== 'idle' ||
+			probeResult !== null ||
+			probeAddress !== null ||
+			openSeaSlugProbeStatus !== openSeaSlugProbeUiStatus.Idle ||
+			bootstrapSlug.trim().length > 0 ||
+			bootstrapOpenSeaSlug.trim().length > 0 ||
+			manualEditingAllowed
+		);
+	}
+
+	function resetBootstrapSession(nextAddress: string): void {
+		cancelContractProbeTimer();
+		cancelOpenSeaSlugProbeTimer();
+		cancelImageCacheDimensionTimer();
+		contractProbeRequestId += 1;
+		openSeaSlugProbeRequestId += 1;
+		bootstrapAddress = nextAddress;
+		bootstrapSlug = '';
+		lastAutoFilledSlug = null;
+		bootstrapOpenSeaSlug = '';
+		lastAutoFilledOpenSeaSlug = null;
+		openSeaSlugWasAutoFilled = false;
+		metadataMode = DEFAULT_BOOTSTRAP_METADATA_MODE;
+		supportsEnumerable = false;
+		manualMode = 'manual_range';
+		manualTokenIds = '';
+		manualRangeStartTokenId = '';
+		manualRangeTotalSupply = '';
+		imageCacheMode = IMAGE_CACHE_MODE.CacheOnce;
+		setImageCacheMaxDimensionValue(String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION));
+		resetImageCachePolicySource();
+		manualEditingAllowed = false;
+		submitError = null;
+		probeStatus = 'idle';
+		probeResult = null;
+		probeError = null;
+		probeAddress = null;
+		resetOpenSeaSlugProbeState();
+	}
+
+	function resetOpenSeaSlugProbeState(): void {
+		openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Idle;
+		openSeaSlugProbeResult = null;
+		openSeaSlugProbeError = null;
+		openSeaSlugProbeAddress = null;
+		openSeaSlugProbeRequestedSlug = null;
+	}
+
+	function setImageCacheMaxDimensionValue(value: string): void {
+		imageCacheMaxDimension = value;
+		imageCacheMaxDimensionDraft = value;
+	}
+
+	function onBootstrapAddressInput(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLInputElement)) return;
+		const nextAddress = target.value;
+		if (hasStartedBootstrapSession()) {
+			resetBootstrapSession(nextAddress);
+		} else {
+			bootstrapAddress = nextAddress;
+			submitError = null;
+		}
+		maybeStartContractProbe(nextAddress);
+	}
+
+	function onBootstrapAddressFocus(event: FocusEvent): void {
+		if (!formDetailsReady) return;
+		const target = event.currentTarget;
+		if (target instanceof HTMLInputElement) target.select();
+	}
+
+	function maybeStartContractProbe(addressInput: string): void {
+		cancelContractProbeTimer();
+		contractProbeRequestId += 1;
+		if (!isBootstrapAddressComplete(addressInput)) return;
+		if (!isBootstrapProbeableAddress(addressInput)) {
+			probeStatus = 'error';
+			probeError = 'contract address must be 0x plus 40 hex characters';
+			probeResult = null;
+			probeAddress = null;
+			return;
+		}
+		const chainSlug = chain?.slug ?? null;
+		if (!chainSlug) {
+			probeStatus = 'error';
+			probeError = 'chain is not ready';
+			return;
+		}
+		scheduleContractProbe(chainSlug, normalizeBootstrapAddress(addressInput));
+	}
+
+	function scheduleContractProbe(chainSlug: string, address: string): void {
+		const requestId = contractProbeRequestId;
+		probeStatus = 'waiting';
+		probeResult = null;
+		probeAddress = null;
+		probeError = null;
+		manualEditingAllowed = false;
+		resetImageCachePolicySource();
+		if (!browser) {
+			void runContractProbe(chainSlug, address, requestId);
+			return;
+		}
+		contractProbeTimer = window.setTimeout(() => {
+			void runContractProbe(chainSlug, address, requestId);
+		}, contractProbeDelayMs);
+	}
+
+	async function runContractProbe(
+		chainSlug: string,
+		address: string,
+		requestId: number
+	): Promise<void> {
+		probeStatus = 'loading';
+		try {
+			const result = await probeBootstrapCollectionContract(fetch, chainSlug, address);
+			if (requestId !== contractProbeRequestId) return;
+			probeStatus = 'ready';
+			probeResult = result;
+			probeAddress = result.address;
+			manualEditingAllowed = false;
+			applyProbeResult(result);
+			if (openSeaEnabled) {
+				scheduleOpenSeaAddressProbe(chainSlug, result.address);
+			} else {
+				resetOpenSeaSlugProbeState();
+			}
+		} catch (error) {
+			if (requestId !== contractProbeRequestId) return;
+			probeStatus = 'error';
+			probeResult = null;
+			probeAddress = null;
+			probeError = error instanceof Error ? error.message : 'contract probe failed';
+		}
+	}
+
+	function scheduleOpenSeaAddressProbe(chainSlug: string, address: string): void {
+		cancelOpenSeaSlugProbeTimer();
+		openSeaSlugProbeRequestId += 1;
+		const requestId = openSeaSlugProbeRequestId;
+		openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Waiting;
+		openSeaSlugProbeResult = null;
+		openSeaSlugProbeError = null;
+		openSeaSlugProbeAddress = address;
+		openSeaSlugProbeRequestedSlug = null;
+		if (openSeaSlugWasAutoFilled) {
+			bootstrapOpenSeaSlug = '';
+			lastAutoFilledOpenSeaSlug = null;
+			openSeaSlugWasAutoFilled = false;
+		}
+		if (!browser) {
+			void runOpenSeaSlugProbe(chainSlug, { address }, requestId);
+			return;
+		}
+		openSeaSlugProbeTimer = window.setTimeout(() => {
+			void runOpenSeaSlugProbe(chainSlug, { address }, requestId);
+		}, openSeaSlugProbeDelayMs);
+	}
+
+	function onOpenSeaSlugInput(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLInputElement)) return;
+		bootstrapOpenSeaSlug = target.value;
+		lastAutoFilledOpenSeaSlug = null;
+		openSeaSlugWasAutoFilled = false;
+		const slug = normalizeOpenSeaSlugInput(target.value);
+		if (!openSeaEnabled || !slug) {
+			cancelOpenSeaSlugProbeTimer();
+			openSeaSlugProbeRequestId += 1;
+			resetOpenSeaSlugProbeState();
+			return;
+		}
+		scheduleOpenSeaSlugVerification(slug, false);
+	}
+
+	function onOpenSeaSlugKeydown(event: KeyboardEvent): void {
+		if (event.key !== 'Enter') return;
+		event.preventDefault();
+		const slug = openSeaSlugValue;
+		if (!openSeaEnabled || !slug) return;
+		scheduleOpenSeaSlugVerification(slug, true);
+	}
+
+	function scheduleOpenSeaSlugVerification(slug: string, immediate: boolean): void {
+		const chainSlug = chain?.slug ?? null;
+		if (!chainSlug) return;
+		cancelOpenSeaSlugProbeTimer();
+		openSeaSlugProbeRequestId += 1;
+		const requestId = openSeaSlugProbeRequestId;
+		openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Waiting;
+		openSeaSlugProbeResult = null;
+		openSeaSlugProbeError = null;
+		openSeaSlugProbeAddress = null;
+		openSeaSlugProbeRequestedSlug = slug;
+		if (!browser || immediate) {
+			void runOpenSeaSlugProbe(chainSlug, { slug }, requestId);
+			return;
+		}
+		openSeaSlugProbeTimer = window.setTimeout(() => {
+			void runOpenSeaSlugProbe(chainSlug, { slug }, requestId);
+		}, openSeaSlugProbeDelayMs);
+	}
+
+	async function runOpenSeaSlugProbe(
+		chainSlug: string,
+		input: OpenSeaSlugProbeRequest,
+		requestId: number
+	): Promise<void> {
+		openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Loading;
+		try {
+			const result = await probeBootstrapOpenSeaSlug(fetch, chainSlug, input);
+			if (requestId !== openSeaSlugProbeRequestId) return;
+			openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Ready;
+			openSeaSlugProbeResult = result;
+			openSeaSlugProbeAddress = result.address;
+			openSeaSlugProbeRequestedSlug = result.requestedSlug;
+			applyOpenSeaSlugProbeResult(result);
+		} catch (error) {
+			if (requestId !== openSeaSlugProbeRequestId) return;
+			openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Error;
+			openSeaSlugProbeResult = null;
+			openSeaSlugProbeAddress = input.address ?? null;
+			openSeaSlugProbeRequestedSlug = input.slug ?? null;
+			openSeaSlugProbeError = error instanceof Error ? error.message : 'OpenSea slug probe failed';
+		}
 	}
 
 	function applyProbeResult(result: BootstrapContractProbeApiResponse): void {
@@ -310,22 +490,36 @@
 	}
 
 	function applyOpenSeaSlugProbeResult(result: BootstrapOpenSeaSlugProbeApiResponse): void {
-		if (
-			result.status !== BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found ||
-			!result.slug ||
-			result.address !== normalizedBootstrapAddress
-		) {
-			return;
-		}
-		if (!bootstrapOpenSeaSlug.trim() || bootstrapOpenSeaSlug === lastAutoFilledOpenSeaSlug) {
+		if (result.status !== BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found || !result.slug) return;
+		const resolvedSlug = normalizeOpenSeaSlugInput(result.slug);
+		if (!resolvedSlug) return;
+		if (result.address && result.address !== normalizedBootstrapAddress) return;
+		if (result.requestedSlug && result.requestedSlug !== resolvedSlug) return;
+		if (result.address && (!bootstrapOpenSeaSlug.trim() || bootstrapOpenSeaSlug === lastAutoFilledOpenSeaSlug)) {
 			bootstrapOpenSeaSlug = result.slug;
 			lastAutoFilledOpenSeaSlug = result.slug;
 			openSeaSlugWasAutoFilled = true;
+			return;
+		}
+		if (result.requestedSlug && openSeaSlugValue === resolvedSlug) {
+			bootstrapOpenSeaSlug = resolvedSlug;
 		}
 	}
 
-	function onOpenSeaSlugInput(): void {
-		openSeaSlugWasAutoFilled = false;
+	function normalizeOpenSeaSlugInput(value: string): string {
+		return value.trim().toLowerCase();
+	}
+
+	function isOpenSeaSlugResolved(): boolean {
+		if (!openSeaEnabled || openSeaSlugProbeStatus !== openSeaSlugProbeUiStatus.Ready) return false;
+		if (!openSeaSlugProbeResult) return false;
+		if (openSeaSlugProbeResult.status !== BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found) return false;
+		const resolvedSlug = normalizeOpenSeaSlugInput(openSeaSlugProbeResult.slug ?? '');
+		if (!resolvedSlug || openSeaSlugValue !== resolvedSlug) return false;
+		if (openSeaSlugProbeResult.address) {
+			return openSeaSlugProbeResult.address === normalizedBootstrapAddress;
+		}
+		return openSeaSlugProbeResult.requestedSlug === resolvedSlug;
 	}
 
 	function probeStateLabel(): string {
@@ -346,27 +540,33 @@
 			openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Waiting ||
 			openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Loading
 		) {
-			return 'probing OpenSea slug';
+			return openSeaSlugProbeRequestedSlug
+				? 'verifying OpenSea slug'
+				: 'probing OpenSea slug';
 		}
 		if (openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Error) {
 			return openSeaSlugProbeError;
 		}
 		if (
 			openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Ready &&
-			latestOpenSeaSlugProbeMatchesAddress &&
 			openSeaSlugProbeResult
 		) {
 			if (openSeaSlugProbeResult.status === BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found) {
-				return 'OpenSea slug found from contract address';
+				return null;
 			}
 			if (openSeaSlugProbeResult.status === BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Disabled) {
 				return `${openSeaSlugProbeResult.reason ?? 'OpenSea integration disabled'}. ${openSeaSetupMessage}`;
 			}
 			if (openSeaSlugProbeResult.status === BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing) {
-				return (
-					openSeaSlugProbeResult.reason ??
-					'No OpenSea slug found for this contract; enter it manually if needed'
-				);
+				if (openSeaSlugProbeResult.requestedSlug) {
+					return openSeaSlugProbeResult.reason ?? 'OpenSea did not confirm this collection slug';
+				}
+				if (latestOpenSeaSlugProbeMatchesAddress) {
+					return (
+						openSeaSlugProbeResult.reason ??
+						'No OpenSea slug found for this contract; enter it manually if needed'
+					);
+				}
 			}
 		}
 		return null;
@@ -408,7 +608,7 @@
 		imageCachePolicySource = suggestion.selectedSource;
 		imageCachePolicyExtensionKey = suggestion.extensionKey;
 		imageCacheMode = suggestion.config.imageCacheMode;
-		imageCacheMaxDimension = imageCacheMaxDimensionInputValue(suggestion.config.maxDimension);
+		setImageCacheMaxDimensionValue(imageCacheMaxDimensionInputValue(suggestion.config.maxDimension));
 	}
 
 	function resetImageCachePolicySource(): void {
@@ -439,8 +639,11 @@
 		const target = event.currentTarget;
 		if (!(target instanceof HTMLSelectElement)) return;
 		imageCacheMode = parseImageCacheMode(target.value);
-		if (imageCacheMode !== IMAGE_CACHE_MODE.Off && !normalizeFieldValue(imageCacheMaxDimension)) {
-			imageCacheMaxDimension = String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION);
+		if (
+			imageCacheMode !== IMAGE_CACHE_MODE.Off &&
+			!normalizeFieldValue(imageCacheMaxDimensionDraft)
+		) {
+			setImageCacheMaxDimensionValue(String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION));
 		}
 		markImageCacheUserSelected();
 	}
@@ -448,7 +651,21 @@
 	function onImageCacheMaxDimensionInput(event: Event): void {
 		const target = event.currentTarget;
 		if (!(target instanceof HTMLInputElement)) return;
-		imageCacheMaxDimension = target.value;
+		imageCacheMaxDimensionDraft = target.value;
+		cancelImageCacheDimensionTimer();
+		if (!browser) {
+			commitImageCacheMaxDimensionDraft();
+			return;
+		}
+		imageCacheDimensionTimer = window.setTimeout(
+			commitImageCacheMaxDimensionDraft,
+			imageCacheDimensionCommitDelayMs
+		);
+	}
+
+	function commitImageCacheMaxDimensionDraft(): void {
+		cancelImageCacheDimensionTimer();
+		imageCacheMaxDimension = imageCacheMaxDimensionDraft;
 		markImageCacheUserSelected();
 	}
 
@@ -571,11 +788,13 @@
 
 		const slug = normalizeFieldValue(bootstrapSlug).toLowerCase();
 		const address = normalizeFieldValue(bootstrapAddress).toLowerCase();
-		const openseaSlug = openSeaEnabled
-			? normalizeFieldValue(bootstrapOpenSeaSlug).toLowerCase()
-			: '';
+		const openseaSlug = openSeaEnabled ? openSeaSlugValue : '';
 		if (!slug || !address) {
 			submitError = 'slug and address are required';
+			return;
+		}
+		if (openSeaEnabled && openseaSlug && !openSeaSlugResolved) {
+			submitError = 'OpenSea slug must resolve before queueing bootstrap';
 			return;
 		}
 		const probeGuardError = probeSubmitGuard(address);
@@ -631,6 +850,7 @@
 
 		let imageCacheMaxDimensionValue: number | null = null;
 		if (imageCacheMode !== IMAGE_CACHE_MODE.Off) {
+			commitImageCacheMaxDimensionDraft();
 			try {
 				imageCacheMaxDimensionValue = parseImageCacheMaxDimension();
 			} catch (error) {
@@ -700,7 +920,9 @@
 	</header>
 
 	<form class="bootstrap-form bootstrap-create-form" onsubmit={onSubmitBootstrap}>
-		<div class="bootstrap-create-layout">
+		<div
+			class={`bootstrap-create-layout ${formDetailsReady && firstTokenCard ? 'bootstrap-create-layout-expanded' : ''}`}
+		>
 			<div class="bootstrap-form-fields">
 				{#if submitError}
 					<div class="bootstrap-form-feedback">
@@ -712,38 +934,14 @@
 					<label class="bootstrap-form-row">
 						{@render fieldLabel('Contract address', bootstrapFieldHelp.address)}
 						<input
-							bind:value={bootstrapAddress}
+							value={bootstrapAddress}
 							class={`${bootstrapInputClass} bootstrap-input-address`}
 							type="text"
 							name="address"
 							required
+							oninput={onBootstrapAddressInput}
+							onfocus={onBootstrapAddressFocus}
 						/>
-					</label>
-					<label class="bootstrap-form-row">
-						{@render fieldLabel('Collection slug', bootstrapFieldHelp.slug)}
-						<input
-							bind:value={bootstrapSlug}
-							class={`${bootstrapInputClass} bootstrap-input-slug`}
-							type="text"
-							name="slug"
-							required
-						/>
-					</label>
-					<label class="bootstrap-form-row">
-						{@render fieldLabel('OpenSea slug', bootstrapFieldHelp.openseaSlug)}
-						<div class="bootstrap-input-with-note">
-							<input
-								bind:value={bootstrapOpenSeaSlug}
-								class={`${bootstrapInputClass} bootstrap-input-slug`}
-								type="text"
-								name="openseaSlug"
-								disabled={!openSeaEnabled}
-								oninput={onOpenSeaSlugInput}
-							/>
-							{#if openSeaSlugProbeMessage()}
-								<span class="muted">{openSeaSlugProbeMessage()}</span>
-							{/if}
-						</div>
 					</label>
 				</div>
 
@@ -759,7 +957,7 @@
 								<div class="muted">{probeError}</div>
 							</div>
 						{/if}
-						{#if probeResult}
+						{#if formDetailsReady && probeResult}
 							<div class="bootstrap-form-row">
 								{@render fieldLabel('ERC721 interface', bootstrapFieldHelp.erc721Interface)}
 								<div class="mono">{interfaceLabel(probeResult.erc721.supported)}</div>
@@ -818,7 +1016,42 @@
 					</div>
 				{/if}
 
-				{#if probeResult}
+				{#if formDetailsReady}
+					<div class="bootstrap-form-section">
+						<label class="bootstrap-form-row">
+							{@render fieldLabel('Collection slug', bootstrapFieldHelp.slug)}
+							<input
+								bind:value={bootstrapSlug}
+								class={`${bootstrapInputClass} bootstrap-input-slug`}
+								type="text"
+								name="slug"
+								required
+							/>
+						</label>
+						<label class="bootstrap-form-row">
+							{@render fieldLabel('OpenSea slug', bootstrapFieldHelp.openseaSlug)}
+							<div class="bootstrap-input-with-note">
+								<div class="bootstrap-input-status-row">
+									<input
+										value={bootstrapOpenSeaSlug}
+										class={`${bootstrapInputClass} bootstrap-input-slug`}
+										type="text"
+										name="openseaSlug"
+										disabled={!openSeaEnabled || openSeaSlugProbePending}
+										oninput={onOpenSeaSlugInput}
+										onkeydown={onOpenSeaSlugKeydown}
+									/>
+									{#if openSeaSlugResolved}
+										<span class="bootstrap-resolution-badge">resolved</span>
+									{/if}
+								</div>
+								{#if openSeaSlugProbeMessage()}
+									<span class="muted">{openSeaSlugProbeMessage()}</span>
+								{/if}
+							</div>
+						</label>
+					</div>
+
 					<div class="bootstrap-form-section">
 						<label class="bootstrap-form-checkbox-row bootstrap-form-row">
 							{@render fieldLabel('Allow manual editing', bootstrapFieldHelp.manualEditing)}
@@ -833,105 +1066,105 @@
 							</div>
 						</label>
 					</div>
-				{/if}
 
-				<div class="bootstrap-form-section">
-					<label class="bootstrap-form-checkbox-row bootstrap-form-row">
-						{@render fieldLabel('Use ERC721Enumerable token enumeration', bootstrapFieldHelp.supportsEnumerable)}
-						<input
-							bind:checked={supportsEnumerable}
-							class={bootstrapCheckboxClass}
-							type="checkbox"
-							disabled={probeControlledDisabled}
-						/>
-					</label>
-				</div>
-
-				<div class="bootstrap-form-section">
-					<label class="bootstrap-form-row">
-						{@render fieldLabel('Image cache mode', bootstrapFieldHelp.imageCacheMode)}
-						<select
-							value={imageCacheMode}
-							class={`${bootstrapSelectClass} bootstrap-input-select-medium`}
-							onchange={onImageCacheModeChange}
-							disabled={imageCacheExtensionControlledDisabled}
-						>
-							<option value={IMAGE_CACHE_MODE.Off}>off</option>
-							<option value={IMAGE_CACHE_MODE.CacheOnce}>cache once</option>
-							<option value={IMAGE_CACHE_MODE.RefreshOnMetadata}>refresh on metadata</option>
-						</select>
-					</label>
-					{#if imageCacheMode !== IMAGE_CACHE_MODE.Off}
-						<label class="bootstrap-form-row">
-							{@render fieldLabel('Cached image max dimension', bootstrapFieldHelp.imageMaxDimension)}
+					<div class="bootstrap-form-section">
+						<label class="bootstrap-form-checkbox-row bootstrap-form-row">
+							{@render fieldLabel('Use ERC721Enumerable token enumeration', bootstrapFieldHelp.supportsEnumerable)}
 							<input
-								value={imageCacheMaxDimension}
-								class={`${bootstrapInputClass} bootstrap-input-total-supply`}
-								type="number"
-								min={BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION}
-								max={BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION}
-								oninput={onImageCacheMaxDimensionInput}
-								disabled={imageCacheExtensionControlledDisabled}
+								bind:checked={supportsEnumerable}
+								class={bootstrapCheckboxClass}
+								type="checkbox"
+								disabled={probeControlledDisabled}
 							/>
 						</label>
-					{/if}
-				</div>
+					</div>
 
-				{#if !supportsEnumerable}
 					<div class="bootstrap-form-section">
 						<label class="bootstrap-form-row">
-							{@render fieldLabel('Manual token scope mode', bootstrapFieldHelp.manualMode)}
+							{@render fieldLabel('Image cache mode', bootstrapFieldHelp.imageCacheMode)}
 							<select
-								bind:value={manualMode}
+								value={imageCacheMode}
 								class={`${bootstrapSelectClass} bootstrap-input-select-medium`}
-								disabled={probeControlledDisabled}
+								onchange={onImageCacheModeChange}
+								disabled={imageCacheExtensionControlledDisabled}
 							>
-								<option value="manual_range">start + total supply</option>
-								<option value="manual_token_ids">token ids list</option>
+								<option value={IMAGE_CACHE_MODE.Off}>off</option>
+								<option value={IMAGE_CACHE_MODE.CacheOnce}>cache once</option>
+								<option value={IMAGE_CACHE_MODE.RefreshOnMetadata}>refresh on metadata</option>
 							</select>
 						</label>
-						{#if manualMode === 'manual_token_ids'}
-							<label class="bootstrap-form-row bootstrap-form-row-textarea">
-								{@render fieldLabel('Manual token IDs', bootstrapFieldHelp.tokenIds)}
-								<textarea
-									bind:value={manualTokenIds}
-									class={`${bootstrapTextareaClass} bootstrap-input-token-ids`}
-									rows="4"
-									disabled={probeControlledDisabled}
-								></textarea>
-							</label>
-						{:else}
+						{#if imageCacheMode !== IMAGE_CACHE_MODE.Off}
 							<label class="bootstrap-form-row">
-								{@render fieldLabel('Manual range start token ID', bootstrapFieldHelp.startTokenId)}
+								{@render fieldLabel('Cached image max dimension', bootstrapFieldHelp.imageMaxDimension)}
 								<input
-									bind:value={manualRangeStartTokenId}
-									class={`${bootstrapInputClass} bootstrap-input-token-id`}
-									type="text"
-									disabled={probeControlledDisabled}
-								/>
-							</label>
-							<label class="bootstrap-form-row">
-								{@render fieldLabel('Manual range total supply', bootstrapFieldHelp.manualRangeTotalSupply)}
-								<input
-									bind:value={manualRangeTotalSupply}
+									value={imageCacheMaxDimensionDraft}
 									class={`${bootstrapInputClass} bootstrap-input-total-supply`}
 									type="number"
-									min="1"
-									disabled={probeControlledDisabled}
+									min={BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION}
+									max={BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION}
+									oninput={onImageCacheMaxDimensionInput}
+									disabled={imageCacheExtensionControlledDisabled}
 								/>
 							</label>
 						{/if}
 					</div>
-				{/if}
 
-				<div class="bootstrap-form-actions">
-					<button type="submit" disabled={submitDisabled}>
-						{submitting ? 'submitting...' : 'queue bootstrap'}
-					</button>
-				</div>
+					{#if !supportsEnumerable}
+						<div class="bootstrap-form-section">
+							<label class="bootstrap-form-row">
+								{@render fieldLabel('Manual token scope mode', bootstrapFieldHelp.manualMode)}
+								<select
+									bind:value={manualMode}
+									class={`${bootstrapSelectClass} bootstrap-input-select-medium`}
+									disabled={probeControlledDisabled}
+								>
+									<option value="manual_range">start + total supply</option>
+									<option value="manual_token_ids">token ids list</option>
+								</select>
+							</label>
+							{#if manualMode === 'manual_token_ids'}
+								<label class="bootstrap-form-row bootstrap-form-row-textarea">
+									{@render fieldLabel('Manual token IDs', bootstrapFieldHelp.tokenIds)}
+									<textarea
+										bind:value={manualTokenIds}
+										class={`${bootstrapTextareaClass} bootstrap-input-token-ids`}
+										rows="4"
+										disabled={probeControlledDisabled}
+									></textarea>
+								</label>
+							{:else}
+								<label class="bootstrap-form-row">
+									{@render fieldLabel('Manual range start token ID', bootstrapFieldHelp.startTokenId)}
+									<input
+										bind:value={manualRangeStartTokenId}
+										class={`${bootstrapInputClass} bootstrap-input-token-id`}
+										type="text"
+										disabled={probeControlledDisabled}
+									/>
+								</label>
+								<label class="bootstrap-form-row">
+									{@render fieldLabel('Manual range total supply', bootstrapFieldHelp.manualRangeTotalSupply)}
+									<input
+										bind:value={manualRangeTotalSupply}
+										class={`${bootstrapInputClass} bootstrap-input-total-supply`}
+										type="number"
+										min="1"
+										disabled={probeControlledDisabled}
+									/>
+								</label>
+							{/if}
+						</div>
+					{/if}
+
+					<div class="bootstrap-form-actions">
+						<button type="submit" disabled={submitDisabled}>
+							{submitting ? 'submitting...' : 'queue bootstrap'}
+						</button>
+					</div>
+				{/if}
 			</div>
-			<aside class="bootstrap-token-card-pane" aria-label="Token image preview">
-				{#if firstTokenCard}
+			{#if formDetailsReady && firstTokenCard}
+				<aside class="bootstrap-token-card-pane" aria-label="Token image preview">
 					<div class="bootstrap-probe-token-card" data-testid={TEST_IDS.BootstrapProbeTokenCard}>
 						<TokenCardTile
 							{chain}
@@ -944,10 +1177,8 @@
 							metaLabel={firstTokenCard.name}
 						/>
 					</div>
-				{:else}
-					<div class="bootstrap-probe-media-empty muted">-</div>
-				{/if}
-			</aside>
+				</aside>
+			{/if}
 		</div>
 	</form>
 

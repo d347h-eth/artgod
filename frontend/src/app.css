@@ -285,11 +285,15 @@ a:hover {
 
 .bootstrap-create-layout {
 	display: grid;
-	grid-template-columns: minmax(0, max-content) minmax(20rem, 25rem);
+	grid-template-columns: minmax(0, max-content);
 	align-items: start;
 	gap: 1.35rem;
 	width: fit-content;
 	max-width: 100%;
+}
+
+.bootstrap-create-layout-expanded {
+	grid-template-columns: minmax(0, max-content) minmax(20rem, 25rem);
 }
 
 .bootstrap-form-fields {
@@ -412,6 +416,19 @@ a:hover {
 	gap: 0.25rem;
 	width: fit-content;
 	max-width: 100%;
+}
+
+.bootstrap-input-status-row {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	max-width: 100%;
+}
+
+.bootstrap-resolution-badge {
+	color: var(--c-orange);
+	font-size: 0.72rem;
+	text-transform: uppercase;
 }
 
 .bootstrap-probe-section {
@@ -578,7 +595,13 @@ a:hover {
 	);
 	--blockspace-center-column-width: min(
 		62rem,
-		max(28rem, calc(100vw - var(--blockspace-side-panel-width) - var(--blockspace-detail-panel-stack-width) - 4rem))
+		max(
+			28rem,
+			calc(
+				100vw - var(--blockspace-side-panel-width) - var(--blockspace-detail-panel-stack-width) -
+					4rem
+			)
+		)
 	);
 	display: grid;
 	justify-content: center;
@@ -712,7 +735,8 @@ a:hover {
 	fill: var(--c-blue);
 }
 
-.blockspace-isometric-grid-selection-mode .blockspace-isometric-tile:not(.blockspace-isometric-tile-disabled) {
+.blockspace-isometric-grid-selection-mode
+	.blockspace-isometric-tile:not(.blockspace-isometric-tile-disabled) {
 	cursor: crosshair;
 }
 
