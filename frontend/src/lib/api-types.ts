@@ -278,6 +278,20 @@ export type BootstrapContractProbeApiResponse = {
 	};
 };
 
+export type BootstrapImageCacheEstimateApiResponse = {
+	chain: ApiChain;
+	sampleTokenId: string;
+	imageCacheMode: ApiImageCacheMode;
+	maxDimension: number | null;
+	sampleSourceBytes: number | null;
+	sampleCachedBytes: number;
+	projectedCachedBytes: string;
+	totalSupply: string;
+	contentType: string | null;
+	width: number | null;
+	height: number | null;
+};
+
 export type ApiTokenAttribute = {
 	key: string;
 	value: string;

@@ -69,7 +69,7 @@ test.describe('bootstrap contract probe UI', () => {
 			BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
 		);
 		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
-		await expect(formRow(page, 'OpenSea slug').getByRole('button', { name: 'submit' })).toHaveCount(
+		await expect(formRow(page, 'OpenSea slug').getByRole('button', { name: 'resolve' })).toHaveCount(
 			0
 		);
 		await expect(page.getByText('Metadata size (1 token)')).toBeVisible();
@@ -116,7 +116,7 @@ test.describe('bootstrap contract probe UI', () => {
 
 		const openSeaSlugInput = rowControl(page, 'OpenSea slug');
 		const openSeaSlugSubmit = formRow(page, 'OpenSea slug').getByRole('button', {
-			name: 'submit'
+			name: 'resolve'
 		});
 		await expect(openSeaSlugInput).toHaveValue(BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable);
 		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
@@ -169,9 +169,21 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(rowControl(page, 'Cached image max dimension')).toHaveValue(
 			String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION)
 		);
+		await formRow(page, 'Cached image max dimension')
+			.getByRole('button', { name: 'estimate' })
+			.click();
+		await expect(formRow(page, 'Cached image max dimension')).toContainText('estimated');
+		await expect(formRow(page, 'Cached image size (1 token)')).toContainText('24.0 KB');
+		await expect(formRow(page, 'Est. cached images size (full collection)')).toContainText(
+			'176 MB'
+		);
+		await rowControl(page, 'Cached image max dimension').fill('720');
+		await expect(
+			formRow(page, 'Cached image max dimension').getByRole('button', { name: 'estimate' })
+		).toBeEnabled();
 		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.Off);
 		await expect(formLabel(page, 'Cached image max dimension')).toHaveCount(0);
-		await expect(page.getByText('Card image field size (1 token)')).toBeVisible();
+		await expect(page.getByText('Original image source size (1 token)')).toBeVisible();
 		await expect(formRow(page, 'Image cache plan')).toContainText('cards use image field');
 		await page.getByRole('button', { name: 'queue bootstrap' }).click();
 		await expect.poll(() => api.mutations.length).toBe(1);
@@ -186,6 +198,15 @@ test.describe('bootstrap contract probe UI', () => {
 				maxDimension: null
 			}
 		});
+		expect(api.imageCacheEstimateRequests).toEqual([
+			expect.objectContaining({
+				sampleTokenId: '0',
+				sourceImageBytes: 98234,
+				totalSupply: '7500',
+				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+				maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
+			})
+		]);
 		expect(dynamicRequests).toEqual([]);
 	});
 
@@ -214,13 +235,13 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(imageCacheModeSelect).toBeEnabled();
 		await manualEditing.uncheck();
 		await expect(imageCacheModeSelect).toBeDisabled();
-		await expect(page.getByText('Est. card image field size (full collection)')).toBeVisible();
+		await expect(page.getByText('Est. source images size (full collection)')).toBeVisible();
 
-		const imageSizeRow = formRow(page, 'Card image field size (1 token)');
+		const imageSizeRow = formRow(page, 'Original image source size (1 token)');
 		await imageSizeRow.locator('.info-tooltip').hover();
 		await expect(imageSizeRow.locator('.info-tooltip-popup')).toBeVisible();
 		await expect(imageSizeRow.locator('.info-tooltip-popup')).toContainText(
-			'used directly when local cache is off'
+			'Fetched image file size'
 		);
 		await page.getByRole('button', { name: 'queue bootstrap' }).click();
 		await expect.poll(() => api.mutations.length).toBe(1);

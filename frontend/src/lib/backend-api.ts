@@ -2,6 +2,7 @@ import type {
 	BootstrapRunDetailApiResponse,
 	BootstrapRetryFailedResponse,
 	BootstrapContractProbeApiResponse,
+	BootstrapImageCacheEstimateApiResponse,
 	BootstrapOpenSeaSlugProbeApiResponse,
 	BootstrapRunCreateResponse,
 	BootstrapRunsApiResponse,
@@ -53,6 +54,7 @@ import type { BootstrapStepAction, BootstrapStepKey } from '@artgod/shared/boots
 import { API_CSRF_HEADER_NAME, API_CSRF_ROUTE_PATH } from '@artgod/shared/http/api-security';
 import {
 	buildCreateBootstrapRunPath,
+	buildEstimateBootstrapImageCachePath,
 	buildProbeBootstrapCollectionPath,
 	buildProbeBootstrapOpenSeaSlugPath
 } from '@artgod/shared/http/bootstrap-routes';
@@ -799,6 +801,26 @@ export async function probeBootstrapOpenSeaSlug(
 			chainRef,
 			...input
 		})
+	);
+}
+
+export async function estimateBootstrapImageCache(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	body: {
+		sampleTokenId: string;
+		sourceImageUrl: string;
+		sourceImageBytes: number | null;
+		totalSupply: string;
+		imageCacheMode: ApiImageCacheMode;
+		maxDimension: number | null;
+	}
+): Promise<BootstrapImageCacheEstimateApiResponse> {
+	return requestJsonWithBody<BootstrapImageCacheEstimateApiResponse>(
+		fetchFn,
+		buildEstimateBootstrapImageCachePath(chainRef),
+		'POST',
+		body
 	);
 }
 

@@ -62,6 +62,7 @@ export type BootstrapProbeApiMock = {
 	probeRequests: string[];
 	openSeaSlugProbeRequests: string[];
 	openSeaSlugVerificationRequests: string[];
+	imageCacheEstimateRequests: unknown[];
 };
 
 // Returns deterministic bootstrap probe responses while capturing write calls.
@@ -70,6 +71,7 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 	const probeRequests: string[] = [];
 	const openSeaSlugProbeRequests: string[] = [];
 	const openSeaSlugVerificationRequests: string[] = [];
+	const imageCacheEstimateRequests: unknown[] = [];
 
 	await page.route('**/api/**', async (route) => {
 		const request = route.request();
@@ -109,6 +111,37 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 			}
 			openSeaSlugProbeRequests.push(address);
 			await fulfillJson(route, openSeaSlugProbeResponseForAddress(address));
+			return;
+		}
+
+		if (
+			request.method() === 'POST' &&
+			url.pathname.endsWith('/collections/bootstrap/image-cache-estimate')
+		) {
+			const body = requestBody(request) as {
+				sampleTokenId?: string;
+				sourceImageBytes?: number | null;
+				totalSupply?: string;
+				imageCacheMode?: string;
+				maxDimension?: number | null;
+			};
+			imageCacheEstimateRequests.push(body);
+			const sourceBytes = body.sourceImageBytes ?? 4096;
+			const cachedBytes =
+				body.maxDimension === null ? sourceBytes : Math.max(1, Math.floor(sourceBytes / 4));
+			await fulfillJson(route, {
+				chain: BOOTSTRAP_PROBE_E2E_CHAIN,
+				sampleTokenId: body.sampleTokenId ?? '0',
+				imageCacheMode: body.imageCacheMode ?? IMAGE_CACHE_MODE.CacheOnce,
+				maxDimension: body.maxDimension ?? null,
+				sampleSourceBytes: sourceBytes,
+				sampleCachedBytes: cachedBytes,
+				projectedCachedBytes: String(cachedBytes * Number(body.totalSupply ?? '0')),
+				totalSupply: body.totalSupply ?? '0',
+				contentType: body.maxDimension === null ? 'image/png' : 'image/webp',
+				width: body.maxDimension,
+				height: body.maxDimension
+			});
 			return;
 		}
 
@@ -222,7 +255,8 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 		mutations,
 		probeRequests,
 		openSeaSlugProbeRequests,
-		openSeaSlugVerificationRequests
+		openSeaSlugVerificationRequests,
+		imageCacheEstimateRequests
 	};
 }
 

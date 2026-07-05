@@ -19,11 +19,13 @@
 		ApiOpenSeaIntegrationStatus,
 		ApiTokenCard,
 		BootstrapContractProbeApiResponse,
+		BootstrapImageCacheEstimateApiResponse,
 		BootstrapOpenSeaSlugProbeApiResponse,
 		BootstrapRunsApiResponse
 	} from '$lib/api-types';
 	import {
 		createBootstrapRun,
+		estimateBootstrapImageCache,
 		probeBootstrapCollectionContract,
 		probeBootstrapOpenSeaSlug
 	} from '$lib/backend-api';
@@ -89,6 +91,14 @@
 	type OpenSeaSlugProbeUiStatus =
 		(typeof openSeaSlugProbeUiStatus)[keyof typeof openSeaSlugProbeUiStatus];
 	type OpenSeaSlugProbeRequest = Parameters<typeof probeBootstrapOpenSeaSlug>[2];
+	const imageCacheEstimateUiStatus = {
+		Idle: 'idle',
+		Loading: 'loading',
+		Ready: 'ready',
+		Error: 'error'
+	} as const;
+	type ImageCacheEstimateUiStatus =
+		(typeof imageCacheEstimateUiStatus)[keyof typeof imageCacheEstimateUiStatus];
 	const openSeaSlugProbeFormId = 'bootstrap-opensea-slug-probe-form';
 	const openSeaSetupMessage =
 		`Set ${OPENSEA_API_KEY_ENV} in Admin UI to sync OpenSea market/orderbook asks/offers required by built-in bidding bot features. Fully restart the app after saving the key in Admin UI.`;
@@ -113,6 +123,8 @@
 		projectedTokenUriPayloadSize: 'Approximate metadata payload storage for the collection.',
 		originalImageFileSize: 'Fetched image file size from the tokenURI image property.',
 		projectedOriginalImageFileSize: 'Approximate original image storage for the collection.',
+		imageCacheSampleOutputSize: 'Sample local image-cache file size for the selected cache settings.',
+		projectedImageCacheOutputSize: 'Approximate local image-cache disk storage for the collection.',
 		cardImageFieldSize: 'Size of the tokenURI image field used directly when local cache is off.',
 		projectedCardImageFieldSize: 'Approximate token-card image field size for the collection.',
 		probeWarnings: 'Probe fallbacks or incomplete checks that may need review.',
@@ -122,6 +134,7 @@
 		imageMaxDimension: 'Maximum cached image width or height in pixels.',
 		imageCachePolicySource: 'Whether the current cache mode came from a collection extension or user selection.',
 		imageCachePlan: 'How token cards will source images after bootstrap.',
+		imageCacheEstimate: 'Most recent image cache estimate result for the selected cache settings.',
 		manualMode: 'Manual token scope used when enumerable support is unavailable.',
 		tokenIds: 'Explicit token IDs to bootstrap, separated by commas or whitespace.',
 		startTokenId: 'First token ID for manual range bootstrap.',
@@ -162,12 +175,18 @@
 	let openSeaSlugProbeError = $state<string | null>(null);
 	let openSeaSlugProbeAddress = $state<string | null>(null);
 	let openSeaSlugProbeRequestedSlug = $state<string | null>(null);
+	let imageCacheEstimateStatus = $state<ImageCacheEstimateUiStatus>(
+		imageCacheEstimateUiStatus.Idle
+	);
+	let imageCacheEstimateResult = $state<BootstrapImageCacheEstimateApiResponse | null>(null);
+	let imageCacheEstimateError = $state<string | null>(null);
 	let lastAutoFilledOpenSeaSlug: string | null = null;
 	let openSeaSlugWasAutoFilled = false;
 	let contractProbeTimer: number | null = null;
 	let imageCacheDimensionTimer: number | null = null;
 	let contractProbeRequestId = 0;
 	let openSeaSlugProbeRequestId = 0;
+	let imageCacheEstimateRequestId = 0;
 	let openSeaEnabled = $derived(openseaIntegration?.enabled === true);
 	let openSeaDisabledReason = $derived(
 		openseaIntegration && !openseaIntegration.enabled
@@ -184,6 +203,17 @@
 		openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Waiting ||
 			openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Loading
 	);
+	let imageCacheEstimatePending = $derived(
+		imageCacheEstimateStatus === imageCacheEstimateUiStatus.Loading
+	);
+	let imageCacheEstimateReady = $derived(
+		imageCacheEstimateStatus === imageCacheEstimateUiStatus.Ready &&
+			imageCacheEstimateResult !== null
+	);
+	let imageCacheEstimateFailed = $derived(
+		imageCacheEstimateStatus === imageCacheEstimateUiStatus.Error
+	);
+	let imageCacheEstimateCanRun = $derived(canRunImageCacheEstimate());
 	let openSeaSlugResolved = $derived(isOpenSeaSlugResolved());
 	let openSeaSlugIncorrect = $derived(isOpenSeaSlugIncorrect());
 	let submitDisabled = $derived(
@@ -209,6 +239,7 @@
 		cancelImageCacheDimensionTimer();
 		contractProbeRequestId += 1;
 		openSeaSlugProbeRequestId += 1;
+		imageCacheEstimateRequestId += 1;
 	});
 
 	function normalizeFieldValue(value: unknown): string {
@@ -276,6 +307,7 @@
 		probeError = null;
 		probeAddress = null;
 		resetOpenSeaSlugProbeState();
+		resetImageCacheEstimateState();
 	}
 
 	function resetOpenSeaSlugProbeState(): void {
@@ -284,6 +316,13 @@
 		openSeaSlugProbeError = null;
 		openSeaSlugProbeAddress = null;
 		openSeaSlugProbeRequestedSlug = null;
+	}
+
+	function resetImageCacheEstimateState(): void {
+		imageCacheEstimateRequestId += 1;
+		imageCacheEstimateStatus = imageCacheEstimateUiStatus.Idle;
+		imageCacheEstimateResult = null;
+		imageCacheEstimateError = null;
 	}
 
 	function setImageCacheMaxDimensionValue(value: string): void {
@@ -593,6 +632,7 @@
 		imageCachePolicyExtensionKey = suggestion.extensionKey;
 		imageCacheMode = suggestion.config.imageCacheMode;
 		setImageCacheMaxDimensionValue(imageCacheMaxDimensionInputValue(suggestion.config.maxDimension));
+		resetImageCacheEstimateState();
 	}
 
 	function resetImageCachePolicySource(): void {
@@ -630,12 +670,14 @@
 			setImageCacheMaxDimensionValue(String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION));
 		}
 		markImageCacheUserSelected();
+		resetImageCacheEstimateState();
 	}
 
 	function onImageCacheMaxDimensionInput(event: Event): void {
 		const target = event.currentTarget;
 		if (!(target instanceof HTMLInputElement)) return;
 		imageCacheMaxDimensionDraft = target.value;
+		resetImageCacheEstimateState();
 		cancelImageCacheDimensionTimer();
 		if (!browser) {
 			commitImageCacheMaxDimensionDraft();
@@ -651,6 +693,55 @@
 		cancelImageCacheDimensionTimer();
 		imageCacheMaxDimension = imageCacheMaxDimensionDraft;
 		markImageCacheUserSelected();
+	}
+
+	function canRunImageCacheEstimate(): boolean {
+		if (!formDetailsReady || imageCacheMode === IMAGE_CACHE_MODE.Off) return false;
+		if (!probeResult?.firstToken.tokenId || !probeResult.firstToken.image) return false;
+		if (!probeResult.totalSupply.value) return false;
+		return imageCacheEstimateStatus === imageCacheEstimateUiStatus.Idle;
+	}
+
+	async function onEstimateImageCache(): Promise<void> {
+		if (!chain || !probeResult || !canRunImageCacheEstimate()) return;
+		commitImageCacheMaxDimensionDraft();
+		let maxDimension: number | null;
+		try {
+			maxDimension = parseImageCacheMaxDimension();
+		} catch (error) {
+			imageCacheEstimateStatus = imageCacheEstimateUiStatus.Error;
+			imageCacheEstimateResult = null;
+			imageCacheEstimateError =
+				error instanceof Error ? error.message : 'invalid image cache setting';
+			return;
+		}
+		const firstToken = probeResult.firstToken;
+		if (!firstToken.tokenId || !firstToken.image || !probeResult.totalSupply.value) return;
+		imageCacheEstimateRequestId += 1;
+		const requestId = imageCacheEstimateRequestId;
+		imageCacheEstimateStatus = imageCacheEstimateUiStatus.Loading;
+		imageCacheEstimateResult = null;
+		imageCacheEstimateError = null;
+		try {
+			const result = await estimateBootstrapImageCache(fetch, chain.slug, {
+				sampleTokenId: firstToken.tokenId,
+				sourceImageUrl: firstToken.image,
+				sourceImageBytes: firstToken.imageBytes,
+				totalSupply: probeResult.totalSupply.value,
+				imageCacheMode,
+				maxDimension
+			});
+			if (requestId !== imageCacheEstimateRequestId) return;
+			imageCacheEstimateStatus = imageCacheEstimateUiStatus.Ready;
+			imageCacheEstimateResult = result;
+			imageCacheEstimateError = null;
+		} catch (error) {
+			if (requestId !== imageCacheEstimateRequestId) return;
+			imageCacheEstimateStatus = imageCacheEstimateUiStatus.Error;
+			imageCacheEstimateResult = null;
+			imageCacheEstimateError =
+				error instanceof Error ? error.message : 'image cache estimate failed';
+		}
 	}
 
 	function imageCachePolicySourceLabel(): string {
@@ -677,28 +768,16 @@
 		return `refresh local files on metadata; max ${imageCacheDimensionPlanLabel()}`;
 	}
 
-	function imageSizeOneTokenLabel(): string {
-		return imageCacheMode === IMAGE_CACHE_MODE.Off
-			? 'Card image field size (1 token)'
-			: 'Original image source size (1 token)';
+	function imageCacheSampleOutputValue(): string {
+		if (imageCacheMode === IMAGE_CACHE_MODE.Off) return 'not cached';
+		if (!imageCacheEstimateReady || !imageCacheEstimateResult) return 'not estimated';
+		return formatByteSize(imageCacheEstimateResult.sampleCachedBytes);
 	}
 
-	function imageSizeFullCollectionLabel(): string {
-		return imageCacheMode === IMAGE_CACHE_MODE.Off
-			? 'Est. card image field size (full collection)'
-			: 'Est. source images size (full collection)';
-	}
-
-	function imageSizeOneTokenHelp(): string {
-		return imageCacheMode === IMAGE_CACHE_MODE.Off
-			? bootstrapFieldHelp.cardImageFieldSize
-			: bootstrapFieldHelp.originalImageFileSize;
-	}
-
-	function imageSizeFullCollectionHelp(): string {
-		return imageCacheMode === IMAGE_CACHE_MODE.Off
-			? bootstrapFieldHelp.projectedCardImageFieldSize
-			: bootstrapFieldHelp.projectedOriginalImageFileSize;
+	function imageCacheProjectedOutputValue(): string {
+		if (imageCacheMode === IMAGE_CACHE_MODE.Off) return 'not cached';
+		if (!imageCacheEstimateReady || !imageCacheEstimateResult) return 'not estimated';
+		return formatByteSize(imageCacheEstimateResult.projectedCachedBytes);
 	}
 
 	function probeSubmitGuard(address: string): string | null {
@@ -987,7 +1066,7 @@
 									</div>
 								</div>
 								<div class="bootstrap-probe-chip">
-									<div class="bootstrap-probe-chip-title mono">single token</div>
+									<div class="bootstrap-probe-chip-title mono">single token & metadata</div>
 									<div class="bootstrap-probe-chip-body">
 										<div class="bootstrap-form-row">
 											{@render fieldLabel('Sample token ID', bootstrapFieldHelp.firstTokenId)}
@@ -1004,35 +1083,10 @@
 											</div>
 										</div>
 										<div class="bootstrap-form-row">
-											{@render fieldLabel(imageSizeOneTokenLabel(), imageSizeOneTokenHelp())}
-											<div class="mono">
-												{formatByteSize(probeResult.firstToken.imageBytes)}
-											</div>
-										</div>
-									</div>
-								</div>
-								<div class="bootstrap-probe-chip">
-									<div class="bootstrap-probe-chip-title mono">full supply estimates</div>
-									<div class="bootstrap-probe-chip-body">
-										<div class="bootstrap-form-row">
 											{@render fieldLabel('Est. metadata size (full collection)', bootstrapFieldHelp.projectedTokenUriPayloadSize)}
 											<div class="mono">
 												{formatByteSize(probeResult.storageEstimate?.projectedBytes)}
 											</div>
-										</div>
-										<div class="bootstrap-form-row">
-											{@render fieldLabel(imageSizeFullCollectionLabel(), imageSizeFullCollectionHelp())}
-											<div class="mono">
-												{formatByteSize(probeResult.imageStorageEstimate?.projectedBytes)}
-											</div>
-										</div>
-										<div class="bootstrap-form-row">
-											{@render fieldLabel('Image cache policy source', bootstrapFieldHelp.imageCachePolicySource)}
-											<div class="mono">{imageCachePolicySourceLabel()}</div>
-										</div>
-										<div class="bootstrap-form-row">
-											{@render fieldLabel('Image cache plan', bootstrapFieldHelp.imageCachePlan)}
-											<div class="mono">{imageCachePlanValue()}</div>
 										</div>
 									</div>
 								</div>
@@ -1094,7 +1148,7 @@
 											form={openSeaSlugProbeFormId}
 											disabled={!openSeaEnabled || !openSeaSlugInputHasValue}
 										>
-											submit
+											resolve
 										</button>
 									{/if}
 								</div>
@@ -1103,6 +1157,98 @@
 								{/if}
 							</div>
 						</label>
+					</div>
+
+					<div class="bootstrap-form-section">
+						<label class="bootstrap-form-row">
+							{@render fieldLabel('Image cache mode', bootstrapFieldHelp.imageCacheMode)}
+							<select
+								value={imageCacheMode}
+								class={`${bootstrapSelectClass} bootstrap-input-select-medium`}
+								onchange={onImageCacheModeChange}
+								disabled={imageCacheExtensionControlledDisabled}
+							>
+								<option value={IMAGE_CACHE_MODE.Off}>off</option>
+								<option value={IMAGE_CACHE_MODE.CacheOnce}>cache once</option>
+								<option value={IMAGE_CACHE_MODE.RefreshOnMetadata}>refresh on metadata</option>
+							</select>
+						</label>
+						{#if imageCacheMode !== IMAGE_CACHE_MODE.Off}
+							<label class="bootstrap-form-row">
+								{@render fieldLabel('Cached image max dimension', bootstrapFieldHelp.imageMaxDimension)}
+								<div class="bootstrap-input-status-row">
+									<input
+										value={imageCacheMaxDimensionDraft}
+										class={`${bootstrapInputClass} bootstrap-input-total-supply`}
+										type="number"
+										min={BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION}
+										max={BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION}
+										oninput={onImageCacheMaxDimensionInput}
+										disabled={imageCacheExtensionControlledDisabled}
+									/>
+									{#if imageCacheEstimateReady}
+										<span class="bid-book-own-status bid-book-own-status-draw bootstrap-resolution-badge">
+											estimated
+										</span>
+									{:else if imageCacheEstimateFailed}
+										<span class="bid-book-own-status bid-book-own-status-cancelled bootstrap-resolution-badge">
+											failed
+										</span>
+									{:else if imageCacheEstimatePending}
+										<span class="muted">estimating</span>
+									{:else}
+										<button
+											type="button"
+											disabled={!imageCacheEstimateCanRun}
+											onclick={() => void onEstimateImageCache()}
+										>
+											estimate
+										</button>
+									{/if}
+								</div>
+							</label>
+						{/if}
+						{#if imageCacheEstimateError}
+							<div class="bootstrap-form-row">
+								{@render fieldLabel('Image cache estimate', bootstrapFieldHelp.imageCacheEstimate)}
+								<span class="muted">{imageCacheEstimateError}</span>
+							</div>
+						{/if}
+						{#if probeResult}
+							<div class="bootstrap-probe-chip bootstrap-image-estimate-chip">
+								<div class="bootstrap-probe-chip-title mono">image data and storage estimates</div>
+								<div class="bootstrap-probe-chip-body">
+									<div class="bootstrap-form-row">
+										{@render fieldLabel('Original image source size (1 token)', bootstrapFieldHelp.originalImageFileSize)}
+										<div class="mono">
+											{formatByteSize(probeResult.firstToken.imageBytes)}
+										</div>
+									</div>
+									<div class="bootstrap-form-row">
+										{@render fieldLabel('Est. source images size (full collection)', bootstrapFieldHelp.projectedOriginalImageFileSize)}
+										<div class="mono">
+											{formatByteSize(probeResult.imageStorageEstimate?.projectedBytes)}
+										</div>
+									</div>
+									<div class="bootstrap-form-row">
+										{@render fieldLabel('Image cache policy source', bootstrapFieldHelp.imageCachePolicySource)}
+										<div class="mono">{imageCachePolicySourceLabel()}</div>
+									</div>
+									<div class="bootstrap-form-row">
+										{@render fieldLabel('Image cache plan', bootstrapFieldHelp.imageCachePlan)}
+										<div class="mono">{imageCachePlanValue()}</div>
+									</div>
+									<div class="bootstrap-form-row">
+										{@render fieldLabel('Cached image size (1 token)', bootstrapFieldHelp.imageCacheSampleOutputSize)}
+										<div class="mono">{imageCacheSampleOutputValue()}</div>
+									</div>
+									<div class="bootstrap-form-row">
+										{@render fieldLabel('Est. cached images size (full collection)', bootstrapFieldHelp.projectedImageCacheOutputSize)}
+										<div class="mono">{imageCacheProjectedOutputValue()}</div>
+									</div>
+								</div>
+							</div>
+						{/if}
 					</div>
 
 					<div class="bootstrap-form-section">
@@ -1130,36 +1276,6 @@
 								disabled={probeControlledDisabled}
 							/>
 						</label>
-					</div>
-
-					<div class="bootstrap-form-section">
-						<label class="bootstrap-form-row">
-							{@render fieldLabel('Image cache mode', bootstrapFieldHelp.imageCacheMode)}
-							<select
-								value={imageCacheMode}
-								class={`${bootstrapSelectClass} bootstrap-input-select-medium`}
-								onchange={onImageCacheModeChange}
-								disabled={imageCacheExtensionControlledDisabled}
-							>
-								<option value={IMAGE_CACHE_MODE.Off}>off</option>
-								<option value={IMAGE_CACHE_MODE.CacheOnce}>cache once</option>
-								<option value={IMAGE_CACHE_MODE.RefreshOnMetadata}>refresh on metadata</option>
-							</select>
-						</label>
-						{#if imageCacheMode !== IMAGE_CACHE_MODE.Off}
-							<label class="bootstrap-form-row">
-								{@render fieldLabel('Cached image max dimension', bootstrapFieldHelp.imageMaxDimension)}
-								<input
-									value={imageCacheMaxDimensionDraft}
-									class={`${bootstrapInputClass} bootstrap-input-total-supply`}
-									type="number"
-									min={BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION}
-									max={BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION}
-									oninput={onImageCacheMaxDimensionInput}
-									disabled={imageCacheExtensionControlledDisabled}
-								/>
-							</label>
-						{/if}
 					</div>
 
 					{#if !supportsEnumerable}
