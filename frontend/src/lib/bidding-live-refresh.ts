@@ -4,6 +4,10 @@ import {
 	type BiddingBidBookLiveRefreshConfig
 } from '@artgod/shared/config/bidding';
 import type { ApiBiddingBidBook } from '$lib/api-types';
+import {
+	startScheduledLiveRefresh,
+	type ScheduledLiveRefreshHandle
+} from '$lib/live-refresh';
 
 const BIDDING_LIVE_REFRESH_ANCHOR_KIND = {
 	OpenSeaOrder: 'open-sea-order',
@@ -40,10 +44,7 @@ export type BiddingLiveRefreshAnchorSnapshot = {
 	anchors: BiddingLiveRefreshAnchor[];
 };
 
-export type BiddingBidBookLiveRefreshHandle = {
-	refreshNow(): Promise<void>;
-	stop(): void;
-};
+export type BiddingBidBookLiveRefreshHandle = ScheduledLiveRefreshHandle;
 
 type BiddingBidBookLiveRefreshOptions = {
 	refresh: () => Promise<unknown> | unknown;
@@ -67,49 +68,7 @@ export function startBiddingBidBookLiveRefresh({
 	intervalMs,
 	onNextUpdate
 }: BiddingBidBookLiveRefreshOptions): BiddingBidBookLiveRefreshHandle {
-	let stopped = false;
-	let refreshInFlight = false;
-	let timer: ReturnType<typeof setTimeout> | null = null;
-
-	const scheduleNext = (): void => {
-		if (stopped) return;
-		const delayMs = intervalMs();
-		onNextUpdate?.(Date.now() + delayMs);
-		timer = setTimeout(() => {
-			void runScheduledRefresh();
-		}, delayMs);
-	};
-
-	const refreshNow = async (): Promise<void> => {
-		if (stopped || refreshInFlight) return;
-		refreshInFlight = true;
-		try {
-			await refresh();
-		} catch {
-			// Keep polling after transient backend or network failures.
-		} finally {
-			refreshInFlight = false;
-		}
-	};
-
-	const runScheduledRefresh = async (): Promise<void> => {
-		await refreshNow();
-		scheduleNext();
-	};
-
-	scheduleNext();
-
-	return {
-		refreshNow,
-		stop() {
-			stopped = true;
-			onNextUpdate?.(null);
-			if (timer) {
-				clearTimeout(timer);
-				timer = null;
-			}
-		}
-	};
+	return startScheduledLiveRefresh({ refresh, intervalMs, onNextUpdate });
 }
 
 // Captures visible bid/token anchors so silent refreshes can restore the user's viewport.

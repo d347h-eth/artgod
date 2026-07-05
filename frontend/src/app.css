@@ -161,6 +161,16 @@ a:hover {
 	gap: 0.45rem;
 }
 
+.bootstrap-detail-refresh-meta {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 0.25rem;
+}
+
+.bootstrap-detail-refresh-meta .runtime-k::after {
+	content: ':';
+}
+
 .bootstrap-flow-panel {
 	border-bottom: 1px solid var(--c-blue);
 	padding: 0.75rem;

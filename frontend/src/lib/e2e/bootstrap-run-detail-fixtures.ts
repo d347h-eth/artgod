@@ -18,6 +18,7 @@ export const BOOTSTRAP_RUN_DETAIL_E2E_RUN_ID = 77;
 
 export type BootstrapRunDetailE2eState = {
 	imageCachePaused: boolean;
+	shouldPoll?: boolean;
 };
 
 // Feeds deterministic data into the production bootstrap run-detail view.
@@ -105,7 +106,7 @@ export function buildBootstrapRunDetailE2eDetail(
 				imageCacheStep(state.imageCachePaused)
 			],
 			isTerminal: false,
-			shouldPoll: false
+			shouldPoll: state.shouldPoll ?? true
 		},
 		failedMetadataTasksPreview: [],
 		failedMetadataTasksPreviewLimit: 50,

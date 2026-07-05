@@ -280,6 +280,10 @@ test.describe('bootstrap run detail UI', () => {
 		await expect(page.getByText('600 / 1000')).toBeVisible();
 		await expect(page.getByText('60%')).toBeVisible();
 		await expect(page.getByText('collection live')).toBeVisible();
+		await expect(page.getByText('next refresh')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'refresh' })).toHaveCount(0);
+		await page.waitForTimeout(1200);
+		expect(api.detailRequests).toBe(0);
 
 		await page.getByRole('button', { name: 'pause image cache' }).click();
 		await expect.poll(() => api.actions.length).toBe(1);

@@ -1,9 +1,13 @@
 import { TRADING_BIDDING_BID_BOOK_SOURCE } from '@artgod/shared/types';
 import type { ApiBiddingBidBook } from '$lib/api-types';
-import { formatRfc3339 } from '$lib/compact-time-display';
+import {
+	LIVE_REFRESH_RELATIVE_TIME_TICK_MS,
+	formatLiveRefreshNextUpdate,
+	liveRefreshNextUpdateTitle
+} from '$lib/live-refresh';
 
 // Refreshes compact bid-book relative labels, including row times and live-refresh countdowns.
-export const BID_BOOK_RELATIVE_TIME_TICK_MS = 1_000;
+export const BID_BOOK_RELATIVE_TIME_TICK_MS = LIVE_REFRESH_RELATIVE_TIME_TICK_MS;
 
 const BID_BOOK_REFRESH_SIGNAL_KEY_PART = {
 	NoRefreshTimestamp: 'no-refresh-timestamp',
@@ -38,25 +42,12 @@ export function bidBookSourceRefreshTimestampMs(state: ApiBiddingBidBook['state'
 
 // Formats the scheduled live-refresh countdown for bid-book metadata rows.
 export function formatBidBookNextUpdate(nextUpdateAtMs: number | null, nowMs: number): string {
-	if (nextUpdateAtMs === null) {
-		return '-';
-	}
-	const secondsUntilUpdate = Math.max(0, Math.ceil((nextUpdateAtMs - nowMs) / 1000));
-	if (secondsUntilUpdate < 60) {
-		return `${secondsUntilUpdate}s`;
-	}
-	if (secondsUntilUpdate < 3600) {
-		return `${Math.ceil(secondsUntilUpdate / 60)}m`;
-	}
-	if (secondsUntilUpdate < 86_400) {
-		return `${Math.ceil(secondsUntilUpdate / 3600)}h`;
-	}
-	return `${Math.ceil(secondsUntilUpdate / 86_400)}d`;
+	return formatLiveRefreshNextUpdate(nextUpdateAtMs, nowMs);
 }
 
 // Formats the scheduled live-refresh timestamp as UTC for native title tooltips.
 export function bidBookNextUpdateTitle(nextUpdateAtMs: number | null): string | undefined {
-	return nextUpdateAtMs === null ? undefined : formatRfc3339(nextUpdateAtMs);
+	return liveRefreshNextUpdateTitle(nextUpdateAtMs);
 }
 
 // Provides a stable signal for UI effects and target lookups when bid-book data advances.

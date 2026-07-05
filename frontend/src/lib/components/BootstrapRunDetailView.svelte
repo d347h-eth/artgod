@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
+	import { onMount } from 'svelte';
 	import {
 		applyBootstrapStepAction,
 		getBootstrapRunDetail,
@@ -13,8 +13,16 @@
 		isBootstrapStepKey,
 		type BootstrapStepAction
 	} from '@artgod/shared/bootstrap/pipeline';
+	import {
+		LIVE_REFRESH_RELATIVE_TIME_TICK_MS,
+		formatLiveRefreshNextUpdate,
+		liveRefreshNextUpdateTitle,
+		startScheduledLiveRefresh,
+		type ScheduledLiveRefreshHandle
+	} from '$lib/live-refresh';
 
-	const BOOTSTRAP_POLL_INTERVAL_MS = 1_000;
+	// Bootstrap run details refresh at the same steady live cadence as compact status surfaces.
+	const BOOTSTRAP_RUN_DETAIL_LIVE_REFRESH_INTERVAL_MS = 5_000;
 
 	let {
 		chainRef,
@@ -27,28 +35,29 @@
 	} = $props();
 
 	let detail = $state<BootstrapRunDetailApiResponse | null>(initialDetail);
-	let loading = $state(false);
 	let loadError = $state<string | null>(null);
 	let retryPending = $state(false);
 	let retryMessage = $state<string | null>(null);
 	let stepActionPending = $state<string | null>(null);
 	let stepActionError = $state<string | null>(null);
+	let nextRefreshAtMs = $state<number | null>(null);
+	let refreshClockNowMs = $state(Date.now());
 	let refreshInFlight = false;
-	let refreshTimer: ReturnType<typeof setInterval> | null = null;
+	let liveRefreshHandle: ScheduledLiveRefreshHandle | null = null;
 
 	$effect(() => {
 		detail = initialDetail;
 	});
 
-	$effect(() => {
-		if (!browser || !chainRef || !runId) return;
-		stopRefreshTimer();
-		if (detail?.flow.shouldPoll === false) return;
-		void refreshRunDetail();
-		refreshTimer = setInterval(() => {
-			void refreshRunDetail();
-		}, BOOTSTRAP_POLL_INTERVAL_MS);
-		return () => stopRefreshTimer();
+	onMount(() => {
+		startDetailLiveRefresh();
+		const clockTimer = window.setInterval(() => {
+			refreshClockNowMs = Date.now();
+		}, LIVE_REFRESH_RELATIVE_TIME_TICK_MS);
+		return () => {
+			stopDetailLiveRefresh();
+			window.clearInterval(clockTimer);
+		};
 	});
 
 	function collectionHref(): string {
@@ -59,25 +68,37 @@
 	async function refreshRunDetail(): Promise<void> {
 		if (!chainRef || !runId || refreshInFlight) return;
 		refreshInFlight = true;
-		loading = true;
 		loadError = null;
 		try {
 			detail = await getBootstrapRunDetail(fetch, chainRef, runId);
 			if (detail?.flow.shouldPoll === false) {
-				stopRefreshTimer();
+				stopDetailLiveRefresh();
+			} else {
+				startDetailLiveRefresh();
 			}
 		} catch (error) {
 			loadError = error instanceof Error ? error.message : 'bootstrap run request failed';
 		} finally {
-			loading = false;
 			refreshInFlight = false;
 		}
 	}
 
-	function stopRefreshTimer(): void {
-		if (refreshTimer === null) return;
-		clearInterval(refreshTimer);
-		refreshTimer = null;
+	function startDetailLiveRefresh(): void {
+		if (liveRefreshHandle || !chainRef || !runId || detail?.flow.shouldPoll === false) return;
+		liveRefreshHandle = startScheduledLiveRefresh({
+			refresh: () => refreshRunDetail(),
+			intervalMs: () => BOOTSTRAP_RUN_DETAIL_LIVE_REFRESH_INTERVAL_MS,
+			onNextUpdate: (nextUpdateAtMs) => {
+				nextRefreshAtMs = nextUpdateAtMs;
+				refreshClockNowMs = Date.now();
+			}
+		});
+	}
+
+	function stopDetailLiveRefresh(): void {
+		if (!liveRefreshHandle) return;
+		liveRefreshHandle.stop();
+		liveRefreshHandle = null;
 	}
 
 	async function onRetryFailedTasks(): Promise<void> {
@@ -185,11 +206,17 @@
 					<div class="muted">anchor block</div>
 					<div class="mono">{detail.run.anchorBlock ?? '-'}</div>
 				</div>
+				<div class="bootstrap-detail-refresh-meta">
+					<span class="runtime-k">next refresh</span>
+					<span
+						class="runtime-v mono bid-book-update-chip"
+						title={liveRefreshNextUpdateTitle(nextRefreshAtMs)}
+					>
+						{formatLiveRefreshNextUpdate(nextRefreshAtMs, refreshClockNowMs)}
+					</span>
+				</div>
 			</div>
 			<div class="bootstrap-actions">
-				<button type="button" onclick={() => void refreshRunDetail()} disabled={loading}>
-					{loading ? 'refreshing...' : 'refresh'}
-				</button>
 				{#if detail.isLatestForCollection}
 					<button
 						type="button"
