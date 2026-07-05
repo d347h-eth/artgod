@@ -72,7 +72,7 @@ function mustString(value: unknown, field: string): string {
 
 function optionalPositiveInteger(value: unknown, field: string): number | null {
     if (value === null || value === undefined || value === "") return null;
-    if (!Number.isInteger(value) || value < 0) {
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
         throw new ReadModelBadRequestError(`${field} must be an integer`);
     }
     return value;
