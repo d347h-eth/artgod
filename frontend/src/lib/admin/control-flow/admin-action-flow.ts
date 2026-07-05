@@ -5,7 +5,7 @@ import {
 	resolveAdminLaunchConfigIssues
 } from '$lib/admin/configuration/validation';
 import type { LifecyclePhase } from '$lib/runtime/lifecycle/core/types';
-import type { RuntimeStatus } from '$lib/runtime/lifecycle/ports';
+import { RUNTIME_STATUS_STATES, type RuntimeStatus } from '$lib/runtime/lifecycle/ports';
 import { RPC_ENDPOINT_LIST_ENV_KEY } from '@artgod/shared/config/rpc-endpoints';
 
 export const ADMIN_ACTION_FLOW_LABELS = {
@@ -60,10 +60,10 @@ export type AdminActionFlow = {
 
 const ADMIN_RUNTIME_STATES = {
 	unknown: 'unknown',
-	starting: 'starting',
-	restarting: 'restarting',
-	stopping: 'stopping',
-	running: 'running'
+	starting: RUNTIME_STATUS_STATES.starting,
+	restarting: RUNTIME_STATUS_STATES.restarting,
+	stopping: RUNTIME_STATUS_STATES.stopping,
+	running: RUNTIME_STATUS_STATES.running
 } as const;
 
 const ADMIN_LIFECYCLE_PHASES = {

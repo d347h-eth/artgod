@@ -41,6 +41,34 @@ const READY_TIMEOUT_DEFAULT_MS = 30_000;
 
 const DESKTOP_SHELL_EXPECTED = isDesktopShellExpected();
 
+// Runtime store action ids shown in Admin status messages while a command is active.
+const RUNTIME_BUSY_ACTIONS = {
+	start: 'start',
+	autoStart: 'autoStart',
+	stop: 'stop',
+	restart: 'restart',
+	shutdown: 'shutdown',
+	preflight: 'preflight',
+	openConfig: 'openConfig',
+	openLogs: 'openLogs',
+	openUserlandUi: 'openUserlandUi'
+} as const;
+
+// Lifecycle event codes emitted by desktop runtime store actions.
+const RUNTIME_LIFECYCLE_EVENT_CODES = {
+	bootSessionFailed: 'boot.session.failed',
+	startRequested: 'runtime.start.requested',
+	startSent: 'runtime.start.sent',
+	stopRequested: 'runtime.stop.requested',
+	stopSent: 'runtime.stop.sent',
+	restartRequested: 'runtime.restart.requested',
+	restartSent: 'runtime.restart.sent',
+	shutdownRequested: 'runtime.shutdown.requested',
+	shutdownSent: 'runtime.shutdown.sent',
+	actionUnavailable: 'action.unavailable',
+	actionFailed: 'action.failed'
+} as const;
+
 function createDesktopRuntimeStore() {
 	const runtimePort = createTauriRuntimePort();
 	const backendProbePort = createBackendProbePort();
@@ -133,7 +161,7 @@ function createDesktopRuntimeStore() {
 				initialized: true,
 				error: message
 			}));
-			lifecycle.enterFatal(message, 'boot.session.failed');
+			lifecycle.enterFatal(message, RUNTIME_LIFECYCLE_EVENT_CODES.bootSessionFailed);
 		}
 	}
 
@@ -188,13 +216,17 @@ function createDesktopRuntimeStore() {
 		await init();
 		lifecycle.beginBoot(
 			'Starting local runtime processes...',
-			'runtime.start.requested',
+			RUNTIME_LIFECYCLE_EVENT_CODES.startRequested,
 			'Runtime start requested from UI'
 		);
-		await withBusyAction('start', async () => {
+		await withBusyAction(RUNTIME_BUSY_ACTIONS.start, async () => {
 			await runtimePort.start();
 			await hydrate(consoleSessionActive);
-			lifecycle.reportEvent('info', 'runtime.start.sent', 'Runtime start command accepted');
+			lifecycle.reportEvent(
+				'info',
+				RUNTIME_LIFECYCLE_EVENT_CODES.startSent,
+				'Runtime start command accepted'
+			);
 			void lifecycle.waitUntilReady().catch(() => {
 				// Fatal state is exposed in lifecycle events and overlay.
 			});
@@ -203,7 +235,7 @@ function createDesktopRuntimeStore() {
 
 	async function autoStart() {
 		await init();
-		await withBusyAction('autoStart', async () => {
+		await withBusyAction(RUNTIME_BUSY_ACTIONS.autoStart, async () => {
 			await lifecycle.autoStart();
 			await hydrate(consoleSessionActive);
 			if (lifecycle.shouldWaitUntilReady()) {
@@ -216,11 +248,18 @@ function createDesktopRuntimeStore() {
 
 	async function stop() {
 		await init();
-		lifecycle.setStopping('Stopping runtime processes...', 'runtime.stop.requested');
-		await withBusyAction('stop', async () => {
+		lifecycle.setStopping(
+			'Stopping runtime processes...',
+			RUNTIME_LIFECYCLE_EVENT_CODES.stopRequested
+		);
+		await withBusyAction(RUNTIME_BUSY_ACTIONS.stop, async () => {
 			await runtimePort.stop();
 			await hydrate(consoleSessionActive);
-			lifecycle.reportEvent('info', 'runtime.stop.sent', 'Runtime stop command accepted');
+			lifecycle.reportEvent(
+				'info',
+				RUNTIME_LIFECYCLE_EVENT_CODES.stopSent,
+				'Runtime stop command accepted'
+			);
 		});
 	}
 
@@ -228,21 +267,41 @@ function createDesktopRuntimeStore() {
 		await init();
 		lifecycle.beginBoot(
 			'Restarting local runtime processes...',
-			'runtime.restart.requested',
+			RUNTIME_LIFECYCLE_EVENT_CODES.restartRequested,
 			'Runtime restart requested from UI'
 		);
-		await withBusyAction('restart', async () => {
+		await withBusyAction(RUNTIME_BUSY_ACTIONS.restart, async () => {
 			await runtimePort.restart();
 			await hydrate(consoleSessionActive);
-			lifecycle.reportEvent('info', 'runtime.restart.sent', 'Runtime restart command accepted');
+			lifecycle.reportEvent(
+				'info',
+				RUNTIME_LIFECYCLE_EVENT_CODES.restartSent,
+				'Runtime restart command accepted'
+			);
 			void lifecycle.waitUntilReady().catch(() => {
 				// Fatal state is exposed in lifecycle events and overlay.
 			});
 		});
 	}
 
+	async function shutdown() {
+		await init();
+		lifecycle.setStopping(
+			'Shutting down ArtGod...',
+			RUNTIME_LIFECYCLE_EVENT_CODES.shutdownRequested
+		);
+		await withBusyAction(RUNTIME_BUSY_ACTIONS.shutdown, async () => {
+			await runtimePort.shutdown();
+			lifecycle.reportEvent(
+				'info',
+				RUNTIME_LIFECYCLE_EVENT_CODES.shutdownSent,
+				'Shutdown command accepted'
+			);
+		});
+	}
+
 	async function refreshPreflight() {
-		await withBusyAction('preflight', async () => {
+		await withBusyAction(RUNTIME_BUSY_ACTIONS.preflight, async () => {
 			const preflight = await runtimePort.preflight();
 			state.update((snapshot) => ({
 				...snapshot,
@@ -253,19 +312,19 @@ function createDesktopRuntimeStore() {
 	}
 
 	async function openConfigPath() {
-		await withBusyAction('openConfig', async () => {
+		await withBusyAction(RUNTIME_BUSY_ACTIONS.openConfig, async () => {
 			await runtimePort.openConfigPath();
 		});
 	}
 
 	async function openLogsPath() {
-		await withBusyAction('openLogs', async () => {
+		await withBusyAction(RUNTIME_BUSY_ACTIONS.openLogs, async () => {
 			await runtimePort.openLogsPath();
 		});
 	}
 
 	async function openUserlandUi() {
-		await withBusyAction('openUserlandUi', async () => {
+		await withBusyAction(RUNTIME_BUSY_ACTIONS.openUserlandUi, async () => {
 			await runtimePort.openUserlandUi();
 		});
 	}
@@ -322,7 +381,7 @@ function createDesktopRuntimeStore() {
 			}));
 			lifecycle.reportEvent(
 				'error',
-				'action.unavailable',
+				RUNTIME_LIFECYCLE_EVENT_CODES.actionUnavailable,
 				'Desktop runtime controls are unavailable'
 			);
 			return;
@@ -341,7 +400,9 @@ function createDesktopRuntimeStore() {
 				...snapshot,
 				error: errorMessage
 			}));
-			lifecycle.reportEvent('error', 'action.failed', errorMessage, { action });
+			lifecycle.reportEvent('error', RUNTIME_LIFECYCLE_EVENT_CODES.actionFailed, errorMessage, {
+				action
+			});
 		} finally {
 			state.update((snapshot) => ({
 				...snapshot,
@@ -399,6 +460,7 @@ function createDesktopRuntimeStore() {
 		start,
 		stop,
 		restart,
+		shutdown,
 		refreshPreflight,
 		openConfigPath,
 		openLogsPath,

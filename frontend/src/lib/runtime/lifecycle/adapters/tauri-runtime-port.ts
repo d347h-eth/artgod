@@ -13,6 +13,30 @@ type TauriApi = {
 	listen<T>(event: string, handler: (event: { payload: T }) => void): Promise<() => void>;
 };
 
+// Tauri IPC command names owned by the desktop runtime bridge.
+const TAURI_RUNTIME_COMMANDS = {
+	autoStart: 'runtime_auto_start',
+	start: 'runtime_start',
+	stop: 'runtime_stop',
+	restart: 'runtime_restart',
+	shutdown: 'runtime_shutdown',
+	status: 'runtime_status',
+	preflight: 'runtime_preflight',
+	getConfigPath: 'runtime_get_config_path',
+	getLogsPath: 'runtime_get_logs_path',
+	listLogProcesses: 'runtime_list_log_processes',
+	openConfigPath: 'runtime_open_config_path',
+	openLogsPath: 'runtime_open_logs_path',
+	openUserlandUi: 'runtime_open_userland_ui',
+	getLogsTail: 'runtime_get_logs_tail'
+} as const;
+
+// Tauri event names emitted by the desktop runtime supervisor.
+const TAURI_RUNTIME_EVENTS = {
+	statusChanged: 'runtime-state-changed',
+	log: 'runtime-log'
+} as const;
+
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -41,22 +65,27 @@ export function createTauriRuntimePort(): RuntimePort {
 
 	async function autoStart(): Promise<RuntimeStatus> {
 		const bridge = await requireBridge();
-		return bridge.invoke<RuntimeStatus>('runtime_auto_start');
+		return bridge.invoke<RuntimeStatus>(TAURI_RUNTIME_COMMANDS.autoStart);
 	}
 
 	async function start(): Promise<RuntimeStatus> {
 		const bridge = await requireBridge();
-		return bridge.invoke<RuntimeStatus>('runtime_start');
+		return bridge.invoke<RuntimeStatus>(TAURI_RUNTIME_COMMANDS.start);
 	}
 
 	async function stop(): Promise<RuntimeStatus> {
 		const bridge = await requireBridge();
-		return bridge.invoke<RuntimeStatus>('runtime_stop');
+		return bridge.invoke<RuntimeStatus>(TAURI_RUNTIME_COMMANDS.stop);
 	}
 
 	async function restart(): Promise<RuntimeStatus> {
 		const bridge = await requireBridge();
-		return bridge.invoke<RuntimeStatus>('runtime_restart');
+		return bridge.invoke<RuntimeStatus>(TAURI_RUNTIME_COMMANDS.restart);
+	}
+
+	async function shutdown(): Promise<void> {
+		const bridge = await requireBridge();
+		await bridge.invoke(TAURI_RUNTIME_COMMANDS.shutdown);
 	}
 
 	async function status(): Promise<RuntimeStatus | null> {
@@ -65,48 +94,48 @@ export function createTauriRuntimePort(): RuntimePort {
 			return null;
 		}
 		api = bridge;
-		return bridge.invoke<RuntimeStatus>('runtime_status').catch(() => null);
+		return bridge.invoke<RuntimeStatus>(TAURI_RUNTIME_COMMANDS.status).catch(() => null);
 	}
 
 	async function preflight(): Promise<RuntimePreflight | null> {
 		const bridge = await requireBridge();
-		return bridge.invoke<RuntimePreflight>('runtime_preflight').catch(() => null);
+		return bridge.invoke<RuntimePreflight>(TAURI_RUNTIME_COMMANDS.preflight).catch(() => null);
 	}
 
 	async function getConfigPath(): Promise<string | null> {
 		const bridge = await requireBridge();
-		return bridge.invoke<string>('runtime_get_config_path').catch(() => null);
+		return bridge.invoke<string>(TAURI_RUNTIME_COMMANDS.getConfigPath).catch(() => null);
 	}
 
 	async function getLogsPath(): Promise<string | null> {
 		const bridge = await requireBridge();
-		return bridge.invoke<string>('runtime_get_logs_path').catch(() => null);
+		return bridge.invoke<string>(TAURI_RUNTIME_COMMANDS.getLogsPath).catch(() => null);
 	}
 
 	async function listLogProcesses(): Promise<string[]> {
 		const bridge = await requireBridge();
-		return bridge.invoke<string[]>('runtime_list_log_processes').catch(() => []);
+		return bridge.invoke<string[]>(TAURI_RUNTIME_COMMANDS.listLogProcesses).catch(() => []);
 	}
 
 	async function openConfigPath(): Promise<void> {
 		const bridge = await requireBridge();
-		await bridge.invoke('runtime_open_config_path');
+		await bridge.invoke(TAURI_RUNTIME_COMMANDS.openConfigPath);
 	}
 
 	async function openLogsPath(): Promise<void> {
 		const bridge = await requireBridge();
-		await bridge.invoke('runtime_open_logs_path');
+		await bridge.invoke(TAURI_RUNTIME_COMMANDS.openLogsPath);
 	}
 
 	async function openUserlandUi(): Promise<void> {
 		const bridge = await requireBridge();
-		await bridge.invoke('runtime_open_userland_ui');
+		await bridge.invoke(TAURI_RUNTIME_COMMANDS.openUserlandUi);
 	}
 
 	async function getLogsTail(process: string, limitPerProcess: number): Promise<RuntimeLogEntry[]> {
 		const bridge = await requireBridge();
 		return bridge
-			.invoke<RuntimeLogEntry[]>('runtime_get_logs_tail', {
+			.invoke<RuntimeLogEntry[]>(TAURI_RUNTIME_COMMANDS.getLogsTail, {
 				process,
 				limitPerProcess
 			})
@@ -115,14 +144,14 @@ export function createTauriRuntimePort(): RuntimePort {
 
 	async function onStatusChanged(listener: RuntimeStatusListener): Promise<() => void> {
 		const bridge = await requireBridge();
-		return bridge.listen<RuntimeStatus>('runtime-state-changed', (event) => {
+		return bridge.listen<RuntimeStatus>(TAURI_RUNTIME_EVENTS.statusChanged, (event) => {
 			listener(event.payload);
 		});
 	}
 
 	async function onRuntimeLog(listener: RuntimeLogListener): Promise<() => void> {
 		const bridge = await requireBridge();
-		return bridge.listen<RuntimeLogEntry>('runtime-log', (event) => {
+		return bridge.listen<RuntimeLogEntry>(TAURI_RUNTIME_EVENTS.log, (event) => {
 			listener(event.payload);
 		});
 	}
@@ -145,6 +174,7 @@ export function createTauriRuntimePort(): RuntimePort {
 		start,
 		stop,
 		restart,
+		shutdown,
 		status,
 		preflight,
 		getConfigPath,

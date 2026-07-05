@@ -38,6 +38,8 @@ pub(crate) struct DesktopState {
 const TRAY_OPEN_USERLAND_ID: &str = "tray.open_userland";
 const TRAY_OPEN_ADMIN_ID: &str = "tray.open_admin";
 const TRAY_SHUTDOWN_ID: &str = "tray.shutdown";
+const ADMIN_SHUTDOWN_REQUEST_REASON: &str = "admin shutdown requested";
+const TRAY_SHUTDOWN_REQUEST_REASON: &str = "tray shutdown requested";
 const TRAY_ICON: tauri::image::Image<'_> = include_image!("./icons/tray_icon.png");
 
 #[derive(Serialize)]
@@ -79,6 +81,12 @@ fn runtime_auto_start(
 #[tauri::command]
 fn runtime_stop(app: AppHandle, state: State<'_, DesktopState>) -> Result<RuntimeStatus, String> {
     state.runtime.stop(app)
+}
+
+#[tauri::command]
+fn runtime_shutdown(app: AppHandle) -> Result<(), String> {
+    request_runtime_shutdown(&app, ADMIN_SHUTDOWN_REQUEST_REASON);
+    Ok(())
 }
 
 #[tauri::command]
@@ -393,7 +401,7 @@ pub fn run() {
                             show_admin_window(app_handle);
                         }
                         TRAY_SHUTDOWN_ID => {
-                            request_runtime_shutdown(app_handle, "tray shutdown requested");
+                            request_runtime_shutdown(app_handle, TRAY_SHUTDOWN_REQUEST_REASON);
                         }
                         _ => {}
                     }
@@ -429,6 +437,7 @@ pub fn run() {
             runtime_auto_start,
             runtime_start,
             runtime_stop,
+            runtime_shutdown,
             runtime_restart,
             runtime_status,
             runtime_get_endpoints,
