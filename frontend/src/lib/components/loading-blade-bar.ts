@@ -1,5 +1,5 @@
 export const DEFAULT_LOADING_BLADE_BAR_LENGTH = 20;
-export const DEFAULT_LOADING_BLADE_BAR_TICK_MS = 15;
+export const DEFAULT_LOADING_BLADE_BAR_TICK_MS = 45;
 
 export const LOADING_BLADE_BAR_BLADES = [
 	'███████░░████████░░███████    █',

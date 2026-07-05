@@ -6,6 +6,10 @@ export type TokenImageCacheSharpFactory = (
     input: Buffer,
     options: { animated: false },
 ) => {
+    metadata(): Promise<{
+        width?: number | null;
+        height?: number | null;
+    }>;
     rotate(): {
         resize(options: {
             width: number;
@@ -28,6 +32,27 @@ export type TokenImageCacheSharpFactory = (
 
 export type TokenImageCacheSharpLoader =
     () => Promise<TokenImageCacheSharpFactory>;
+
+// Source image geometry returned by cache/probe media inspection.
+export type TokenImageDimensions = {
+    width: number | null;
+    height: number | null;
+};
+
+// Reads the source image geometry without transforming or caching bytes.
+export async function readTokenImageSourceDimensions(input: {
+    sourceBuffer: Buffer;
+    sharpLoader: TokenImageCacheSharpLoader;
+}): Promise<TokenImageDimensions> {
+    const sharp = await input.sharpLoader();
+    const metadata = await sharp(input.sourceBuffer, {
+        animated: false,
+    }).metadata();
+    return {
+        width: metadata.width ?? null,
+        height: metadata.height ?? null,
+    };
+}
 
 export async function resizeTokenImageCacheSourceToWebp(input: {
     sourceBuffer: Buffer;

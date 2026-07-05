@@ -10,18 +10,22 @@ import {
     toBootstrapRangeTotalSupply,
     toSafeIntegerValue,
 } from "../../application/use-cases/bootstrap/probe-collection-contract.js";
+import { BootstrapValidationError } from "../../application/use-cases/bootstrap/types.js";
 import {
-    parseImageDataUriBuffer,
     parseJsonDataUriText,
     resolveTokenResourceUri,
 } from "@artgod/shared/media/token-resource-uri";
+import { fetchTokenImageCacheSource } from "@artgod/shared/media/token-image-cache-source";
+import { readTokenImageSourceDimensions } from "@artgod/shared/media/token-image-cache-transform";
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import {
     fetchWithHttpResilience,
     type HttpFetchResilienceConfig,
 } from "@artgod/shared/network/http-fetch-resilience";
+import { loadSharp } from "../media/sharp-loader.js";
 
 type BootstrapProbeRpc = {
+    getBytecode(address: `0x${string}`): Promise<`0x${string}` | null>;
     readContract<T = unknown>(params: {
         address: `0x${string}`;
         abi: readonly unknown[];
@@ -118,6 +122,9 @@ const ERC721_ENUMERABLE_INTERFACE_ID = "0x780e9d63";
 const MAX_TOKEN_URI_PAYLOAD_BYTES = 10 * 1024 * 1024;
 const MAX_MEDIA_PROBE_BYTES = 25 * 1024 * 1024;
 const DEFAULT_IPFS_GATEWAY_ORIGIN = "https://ipfs.io";
+const EMPTY_EVM_BYTECODE = "0x";
+// User-facing probe failure for addresses with no deployed EVM bytecode.
+export const NON_CONTRACT_ADDRESS_PROBE_ERROR = "address is not a contract";
 
 export class ViemBootstrapContractProbe implements CollectionContractProbePort {
     constructor(
@@ -131,6 +138,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
         address: string;
     }): Promise<CollectionContractProbeResult> {
         const address = input.address as `0x${string}`;
+        await this.assertContractAddress(address);
         const erc721 = await this.readInterfaceSupport(
             address,
             ERC721_INTERFACE_ID,
@@ -151,6 +159,13 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
             totalSupply,
             firstToken,
         };
+    }
+
+    private async assertContractAddress(address: `0x${string}`): Promise<void> {
+        const bytecode = await this.rpc.getBytecode(address);
+        if (!bytecode || bytecode === EMPTY_EVM_BYTECODE) {
+            throw new BootstrapValidationError(NON_CONTRACT_ADDRESS_PROBE_ERROR);
+        }
     }
 
     private async readInterfaceSupport(
@@ -272,6 +287,8 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
             imageBytesSource: null,
             imageContentType: null,
             imageBytesError: null,
+            imageWidth: null,
+            imageHeight: null,
             animationUrl: null,
             metadataError: "token ids 0 and 1 were not confirmed",
             candidates,
@@ -348,6 +365,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
             const imageSize = image
                 ? await probeMediaSize(
                       image,
+                      this.ipfsGatewayOrigin,
                       MAX_MEDIA_PROBE_BYTES,
                       this.fetchResilience,
                   )
@@ -365,6 +383,8 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 imageBytesSource: imageSize?.source ?? null,
                 imageContentType: imageSize?.contentType ?? null,
                 imageBytesError: imageSize?.error ?? null,
+                imageWidth: imageSize?.width ?? null,
+                imageHeight: imageSize?.height ?? null,
                 animationUrl: resolveDisplayUrl(
                     metadata.animationUrl,
                     this.ipfsGatewayOrigin,
@@ -386,6 +406,8 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 imageBytesSource: null,
                 imageContentType: null,
                 imageBytesError: null,
+                imageWidth: null,
+                imageHeight: null,
                 animationUrl: null,
                 metadataError: null,
                 candidates,
@@ -452,6 +474,8 @@ function emptyFirstTokenWithError(
         imageBytesSource: null,
         imageContentType: null,
         imageBytesError: null,
+        imageWidth: null,
+        imageHeight: null,
         animationUrl: null,
         metadataError: null,
         candidates,
@@ -563,159 +587,76 @@ function resolveDisplayUrl(
 
 async function probeMediaSize(
     uri: string,
+    ipfsGatewayOrigin: string,
     maxBytes: number,
     fetchResilience: HttpFetchResilienceConfig,
 ): Promise<{
     bytes: number | null;
-    source: "content_length" | "download" | "data_uri" | null;
+    source: "download" | "data_uri" | null;
     contentType: string | null;
-    error: string | null;
-}> {
-    if (uri.startsWith("data:")) {
-        try {
-            const data = parseImageDataUriBuffer(uri);
-            return {
-                bytes: data.buffer.byteLength,
-                source: "data_uri",
-                contentType: data.contentType,
-                error: null,
-            };
-        } catch (error) {
-            return emptyMediaSizeError(error);
-        }
-    }
-
-    if (!/^https?:\/\//i.test(uri)) {
-        return {
-            bytes: null,
-            source: null,
-            contentType: null,
-            error: "unsupported image scheme",
-        };
-    }
-
-    const head = await readContentLength(uri, fetchResilience);
-    if (head.bytes !== null) {
-        return head;
-    }
-
-    return downloadMediaSize(uri, maxBytes, fetchResilience);
-}
-
-async function readContentLength(
-    uri: string,
-    fetchResilience: HttpFetchResilienceConfig,
-): Promise<{
-    bytes: number | null;
-    source: "content_length" | null;
-    contentType: string | null;
+    width: number | null;
+    height: number | null;
     error: string | null;
 }> {
     try {
-        const response = await fetchWithHttpResilience({
-            input: uri,
-            config: fetchResilience,
-            init: {
-                method: "HEAD",
-                headers: { accept: "image/*,*/*;q=0.1" },
-            },
+        const source = await fetchTokenImageCacheSource({
+            sourceImageUrl: uri,
+            ipfsGatewayOrigin,
+            maxSourceBytes: maxBytes,
+            fetchResilience,
         });
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        const contentLength = Number(response.headers.get("content-length"));
+        const dimensionProbe = await probeImageDimensions(source.buffer);
         return {
-            bytes:
-                Number.isFinite(contentLength) && contentLength >= 0
-                    ? contentLength
-                    : null,
-            source:
-                Number.isFinite(contentLength) && contentLength >= 0
-                    ? "content_length"
-                    : null,
-            contentType: response.headers.get("content-type"),
-            error: null,
-        };
-    } catch (error) {
-        return {
-            bytes: null,
-            source: null,
-            contentType: null,
-            error: compactError(error),
-        };
-    }
-}
-
-async function downloadMediaSize(
-    uri: string,
-    maxBytes: number,
-    fetchResilience: HttpFetchResilienceConfig,
-): Promise<{
-    bytes: number | null;
-    source: "download" | null;
-    contentType: string | null;
-    error: string | null;
-}> {
-    try {
-        const response = await fetchWithHttpResilience({
-            input: uri,
-            config: fetchResilience,
-            init: {
-                headers: { accept: "image/*,*/*;q=0.1" },
-            },
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        const payload = await readResponseBytesWithLimit(response, maxBytes);
-        return {
-            bytes: payload.byteLength,
-            source: "download",
-            contentType: response.headers.get("content-type"),
-            error: null,
+            bytes: source.buffer.byteLength,
+            source: uri.startsWith("data:") ? "data_uri" : "download",
+            contentType: source.contentType,
+            width: dimensionProbe.width,
+            height: dimensionProbe.height,
+            error: dimensionProbe.error,
         };
     } catch (error) {
         return emptyMediaSizeError(error);
     }
 }
 
-async function readResponseBytesWithLimit(
-    response: Response,
-    maxBytes: number,
-): Promise<{ byteLength: number }> {
-    const body = response.body;
-    if (!body) {
-        const buffer = Buffer.from(await response.arrayBuffer());
-        if (buffer.byteLength > maxBytes) {
-            throw new Error(`image payload exceeds ${maxBytes} bytes`);
-        }
-        return { byteLength: buffer.byteLength };
+async function probeImageDimensions(buffer: Buffer): Promise<{
+    width: number | null;
+    height: number | null;
+    error: string | null;
+}> {
+    try {
+        const dimensions = await readTokenImageSourceDimensions({
+            sourceBuffer: buffer,
+            sharpLoader: loadSharp,
+        });
+        return {
+            width: dimensions.width,
+            height: dimensions.height,
+            error: null,
+        };
+    } catch (error) {
+        return {
+            width: null,
+            height: null,
+            error: compactError(error),
+        };
     }
-
-    const reader = body.getReader();
-    let received = 0;
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!value) continue;
-        received += value.byteLength;
-        if (received > maxBytes) {
-            throw new Error(`image payload exceeds ${maxBytes} bytes`);
-        }
-    }
-    return { byteLength: received };
 }
 
 function emptyMediaSizeError(error: unknown): {
     bytes: null;
     source: null;
     contentType: null;
+    width: null;
+    height: null;
     error: string;
 } {
     return {
         bytes: null,
         source: null,
         contentType: null,
+        width: null,
+        height: null,
         error: compactError(error),
     };
 }

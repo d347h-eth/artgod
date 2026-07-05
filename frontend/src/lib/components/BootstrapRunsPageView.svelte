@@ -123,8 +123,10 @@
 		tokenUriPayloadSize: 'Fetched tokenURI metadata payload size for the preview token.',
 		projectedTokenUriPayloadSize: 'Approximate metadata payload storage for the collection.',
 		originalImageFileSize: 'Fetched image file size from the tokenURI image property.',
+		originalImageDimensions: 'Original image dimensions from the contract probe sample token.',
 		projectedOriginalImageFileSize: 'Approximate original image storage for the collection.',
 		imageCacheSampleOutputSize: 'Sample local image-cache file size for the selected cache settings.',
+		imageCacheSampleOutputDimensions: 'Sample local image-cache dimensions for the selected cache settings.',
 		projectedImageCacheOutputSize: 'Approximate local image-cache disk storage for the collection.',
 		cardImageFieldSize: 'Size of the tokenURI image field used directly when local cache is off.',
 		projectedCardImageFieldSize: 'Approximate token-card image field size for the collection.',
@@ -144,6 +146,7 @@
 
 	let bootstrapSlug = $state('');
 	let collectionSlugInputElement = $state<HTMLInputElement | null>(null);
+	let collectionSlugInputHasValue = $state(false);
 	let lastAutoFilledSlug = $state<string | null>(null);
 	let bootstrapAddress = $state('');
 	let bootstrapOpenSeaSlug = $state('');
@@ -217,11 +220,13 @@
 	let imageCacheEstimateCanRun = $derived(canRunImageCacheEstimate());
 	let openSeaSlugResolved = $derived(isOpenSeaSlugResolved());
 	let openSeaSlugIncorrect = $derived(isOpenSeaSlugIncorrect());
+	let openSeaBiddingUnavailableMessage = $derived(resolveOpenSeaBiddingUnavailableMessage());
 	let submitDisabled = $derived(
 		submitting ||
 			!chain ||
 			!addressCanBeProbed ||
 			!formDetailsReady ||
+			!collectionSlugInputHasValue ||
 			openSeaSlugProbePending ||
 			(openSeaEnabled && openSeaSlugInputHasValue && !openSeaSlugResolved)
 	);
@@ -334,12 +339,19 @@
 	function setCollectionSlugInputValue(value: string): void {
 		bootstrapSlug = value;
 		if (collectionSlugInputElement) collectionSlugInputElement.value = value;
+		collectionSlugInputHasValue = normalizeFieldValue(value).length > 0;
 	}
 
 	function readCollectionSlugInputValue(): string {
 		return normalizeFieldValue(
 			collectionSlugInputElement?.value ?? bootstrapSlug
 		).toLowerCase();
+	}
+
+	function onCollectionSlugInput(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLInputElement)) return;
+		collectionSlugInputHasValue = normalizeFieldValue(target.value).length > 0;
 	}
 
 	function setOpenSeaSlugInputValue(value: string): void {
@@ -577,6 +589,16 @@
 		);
 	}
 
+	function resolveOpenSeaBiddingUnavailableMessage(): string | null {
+		if (openSeaSlugResolved) return null;
+		const baseMessage =
+			'OpenSea slug is not resolved, so automated bidding will not be available for this collection.';
+		if (!openSeaEnabled) {
+			return `${baseMessage} Set the OpenSea API key in the Admin UI config section to enable it.`;
+		}
+		return baseMessage;
+	}
+
 	function probeStateLabel(): string {
 		if (probeStatus === 'waiting' || probeStatus === 'loading') return 'probing';
 		if (probeStatus === 'ready' && probeResult) return bootstrapProbeStatusLabel(probeResult);
@@ -779,6 +801,21 @@
 		if (imageCacheMode === IMAGE_CACHE_MODE.Off) return 'not cached';
 		if (!imageCacheEstimateReady || !imageCacheEstimateResult) return 'not estimated';
 		return formatByteSize(imageCacheEstimateResult.sampleCachedBytes);
+	}
+
+	function originalImageDimensionsValue(): string {
+		if (!probeResult?.firstToken.image) return 'not available';
+		const { imageWidth, imageHeight } = probeResult.firstToken;
+		if (!imageWidth || !imageHeight) return 'unknown';
+		return `${imageWidth} x ${imageHeight}px`;
+	}
+
+	function imageCacheOutputDimensionsValue(): string {
+		if (imageCacheMode === IMAGE_CACHE_MODE.Off) return 'not cached';
+		if (!imageCacheEstimateReady || !imageCacheEstimateResult) return 'not estimated';
+		const { width, height } = imageCacheEstimateResult;
+		if (!width || !height) return 'unknown';
+		return `${width} x ${height}px`;
 	}
 
 	function imageCacheProjectedOutputValue(): string {
@@ -1139,6 +1176,7 @@
 								type="text"
 								name="slug"
 								required
+								oninput={onCollectionSlugInput}
 							/>
 						</label>
 						<label class="bootstrap-form-row">
@@ -1178,7 +1216,7 @@
 									{/if}
 								</div>
 								{#if openSeaSlugProbeMessage()}
-									<span class="muted">{openSeaSlugProbeMessage()}</span>
+									<span class="muted bootstrap-opensea-slug-note">{openSeaSlugProbeMessage()}</span>
 								{/if}
 							</div>
 						</label>
@@ -1259,8 +1297,14 @@
 										</div>
 									</div>
 									<div class="bootstrap-form-row">
+										{@render fieldLabel('Original image dimensions', bootstrapFieldHelp.originalImageDimensions)}
+										<div class="mono bootstrap-estimate-highlight">
+											{originalImageDimensionsValue()}
+										</div>
+									</div>
+									<div class="bootstrap-form-row">
 										{@render fieldLabel('Est. source images size (full collection)', bootstrapFieldHelp.projectedOriginalImageFileSize)}
-										<div class="mono">
+										<div class="mono bootstrap-estimate-highlight">
 											{formatByteSize(probeResult.imageStorageEstimate?.projectedBytes)}
 										</div>
 									</div>
@@ -1277,8 +1321,16 @@
 										<div class="mono">{imageCacheSampleOutputValue()}</div>
 									</div>
 									<div class="bootstrap-form-row">
+										{@render fieldLabel('Cached image dimensions', bootstrapFieldHelp.imageCacheSampleOutputDimensions)}
+										<div class="mono bootstrap-estimate-highlight">
+											{imageCacheOutputDimensionsValue()}
+										</div>
+									</div>
+									<div class="bootstrap-form-row">
 										{@render fieldLabel('Est. cached images size (full collection)', bootstrapFieldHelp.projectedImageCacheOutputSize)}
-										<div class="mono">{imageCacheProjectedOutputValue()}</div>
+										<div class="mono bootstrap-estimate-highlight">
+											{imageCacheProjectedOutputValue()}
+										</div>
 									</div>
 								</div>
 							</div>
@@ -1361,6 +1413,9 @@
 					{/if}
 
 					<div class="bootstrap-form-actions">
+						{#if openSeaBiddingUnavailableMessage}
+							<span class="muted">{openSeaBiddingUnavailableMessage}</span>
+						{/if}
 						<button type="button" disabled={submitDisabled} onclick={() => void onSubmitBootstrap()}>
 							{submitting ? 'submitting...' : 'queue bootstrap'}
 						</button>
@@ -1377,7 +1432,6 @@
 					<th>run</th>
 					<th>collection</th>
 					<th>status</th>
-					<th>metadata mode</th>
 					<th>enumeration</th>
 					<th>progress</th>
 					<th>updated</th>
@@ -1386,7 +1440,7 @@
 			<tbody>
 				{#if page.items.length === 0}
 					<tr>
-						<td colspan="7" class="empty-cell">no bootstrap runs found</td>
+						<td colspan="6" class="empty-cell">no bootstrap runs found</td>
 					</tr>
 				{:else}
 					{#each page.items as item}
@@ -1398,7 +1452,6 @@
 								<a href={collectionHref(item)}>{item.collection.slug}</a>
 							</td>
 							<td>{item.run.status}</td>
-							<td>{item.run.metadataMode}</td>
 							<td>{item.run.enumerationMode}</td>
 							<td class="mono">
 								{item.metadataTasks.succeeded}/{item.metadataTasks.total}

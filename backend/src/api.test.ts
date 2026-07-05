@@ -653,6 +653,8 @@ beforeAll(async () => {
                             imageBytesSource: "content_length",
                             imageContentType: "image/png",
                             imageBytesError: null,
+                            imageWidth: 2160,
+                            imageHeight: 2160,
                             animationUrl: null,
                             metadataError: null,
                             candidates: [],
@@ -681,6 +683,8 @@ beforeAll(async () => {
                         cachedBytes,
                         contentType:
                             input.maxDimension === null ? "image/png" : "image/webp",
+                        sourceWidth: 2160,
+                        sourceHeight: 2160,
                         width: input.maxDimension,
                         height: input.maxDimension,
                     };
@@ -4716,6 +4720,8 @@ describe("backend api routes", () => {
             projectedCachedBytes: "1536",
             totalSupply: "3",
             contentType: "image/webp",
+            sourceWidth: 2160,
+            sourceHeight: 2160,
             width: 1080,
             height: 1080,
         });

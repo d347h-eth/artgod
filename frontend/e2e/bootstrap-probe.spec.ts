@@ -108,6 +108,7 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(formRow(page, 'OpenSea slug')).toContainText(OPENSEA_API_KEY_ENV);
 		await expect(formRow(page, 'OpenSea slug')).toContainText('Admin UI');
 		await expect(formRow(page, 'OpenSea slug')).toContainText('Fully restart the app');
+		await assertOpenSeaDisabledNoteFitsSlugInput(page);
 		expect(api.openSeaSlugProbeRequests).toEqual([]);
 	});
 
@@ -175,7 +176,9 @@ test.describe('bootstrap contract probe UI', () => {
 			.getByRole('button', { name: 'estimate' })
 			.click();
 		await expect(formRow(page, 'Cached image max dimension')).toContainText('estimated');
+		await expect(formRow(page, 'Original image dimensions')).toContainText('2160 x 2160px');
 		await expect(formRow(page, 'Cached image size (1 token)')).toContainText('24.0 KB');
+		await expect(formRow(page, 'Cached image dimensions')).toContainText('1080 x 1080px');
 		await expect(formRow(page, 'Est. cached images size (full collection)')).toContainText(
 			'176 MB'
 		);
@@ -282,6 +285,10 @@ test.describe('bootstrap run detail UI', () => {
 		await expect(page.getByText('collection live')).toBeVisible();
 		await expect(page.getByText('next refresh')).toBeVisible();
 		await expect(page.getByRole('button', { name: 'refresh' })).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'retry failed' })).toHaveCount(0);
+		await expect(page.getByText('metadata mode')).toHaveCount(0);
+		await expect(page.getByText('enumeration')).toHaveCount(0);
+		await expect(page.getByText('anchor block')).toHaveCount(0);
 		await page.waitForTimeout(1200);
 		expect(api.detailRequests).toBe(0);
 
@@ -329,6 +336,19 @@ function rowControl(page: Page, label: string) {
 	return formRow(page, label).locator('input, select, textarea');
 }
 
+async function assertOpenSeaDisabledNoteFitsSlugInput(page: Page): Promise<void> {
+	const openSeaSlugRow = formRow(page, 'OpenSea slug');
+	const openSeaSlugInput = openSeaSlugRow.locator('input[name="openseaSlug"]');
+	const disabledNote = openSeaSlugRow.locator('.bootstrap-opensea-slug-note');
+	await expect(disabledNote).toBeVisible();
+	const inputBox = await openSeaSlugInput.boundingBox();
+	const noteBox = await disabledNote.boundingBox();
+	expect(inputBox).not.toBeNull();
+	expect(noteBox).not.toBeNull();
+	if (!inputBox || !noteBox) return;
+	expect(noteBox.width).toBeLessThanOrEqual(inputBox.width + 1);
+}
+
 async function assertEveryBootstrapRowHasInfoTooltip(page: Page): Promise<void> {
 	const rows = page.locator('.bootstrap-form-fields .bootstrap-form-row');
 	const tooltips = page.locator('.bootstrap-form-fields .bootstrap-form-row .info-tooltip');
@@ -363,6 +383,18 @@ async function assertTokenCardPlacement(page: Page, testInfo: TestInfo): Promise
 		expect(
 			Math.abs(previewBox.x - addressBox.x),
 			`${testInfo.project.name} preview surface should align under the address surface`
+		).toBeLessThanOrEqual(2);
+		expect(
+			Math.abs(previewBox.width - addressBox.width),
+			`${testInfo.project.name} preview surface should share the address surface width`
+		).toBeLessThanOrEqual(2);
+		expect(
+			Math.abs(probeBox.width - addressBox.width),
+			`${testInfo.project.name} probe surface should share the address surface width`
+		).toBeLessThanOrEqual(2);
+		expect(
+			Math.abs(cardBox.x + cardBox.width / 2 - (previewBox.x + previewBox.width / 2)),
+			`${testInfo.project.name} token card should be centered in the preview surface`
 		).toBeLessThanOrEqual(2);
 	}
 	expect(

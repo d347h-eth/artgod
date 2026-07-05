@@ -288,17 +288,18 @@ a:hover {
 }
 
 .bootstrap-create-form {
+	--bootstrap-input-slug-width: 36ch;
 	display: block;
-	width: min(74rem, 100%);
+	width: min(46rem, 100%);
 	max-width: 100%;
 }
 
 .bootstrap-create-layout {
 	display: grid;
-	grid-template-columns: minmax(0, max-content);
+	grid-template-columns: minmax(0, 1fr);
 	align-items: start;
 	gap: 1.35rem;
-	width: min(74rem, 100%);
+	width: 100%;
 	max-width: 100%;
 }
 
@@ -310,18 +311,19 @@ a:hover {
 	display: grid;
 	gap: 0.85rem;
 	align-items: start;
-	justify-items: start;
-	width: min(74rem, 100%);
+	justify-items: stretch;
+	width: 100%;
 	max-width: 100%;
 }
 
 .bootstrap-form-section {
 	display: grid;
 	gap: 0.55rem;
-	width: fit-content;
+	width: 100%;
 	max-width: 100%;
 	padding: 0.75rem;
 	background: rgb(0 0 0 / 33%);
+	box-sizing: border-box;
 }
 
 .bootstrap-form-section + .bootstrap-form-section {
@@ -335,8 +337,9 @@ a:hover {
 }
 
 .bootstrap-form-actions {
-	display: flex;
-	justify-content: flex-start;
+	display: grid;
+	gap: 0.35rem;
+	justify-items: start;
 }
 
 .bootstrap-form-row {
@@ -429,6 +432,14 @@ a:hover {
 	max-width: 100%;
 }
 
+.bootstrap-opensea-slug-note {
+	display: block;
+	max-width: var(--bootstrap-input-slug-width);
+	text-transform: none;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
 .bootstrap-input-status-row {
 	display: inline-flex;
 	align-items: center;
@@ -458,7 +469,8 @@ a:hover {
 }
 
 .bootstrap-probe-section {
-	width: fit-content;
+	gap: 0.85rem;
+	width: 100%;
 	max-width: 100%;
 	overflow-x: visible;
 }
@@ -469,8 +481,9 @@ a:hover {
 
 .bootstrap-probe-chip-grid {
 	display: grid;
-	grid-template-columns: max-content max-content max-content;
-	gap: 1rem;
+	grid-template-columns: max-content max-content;
+	column-gap: 1.8rem;
+	row-gap: 1rem;
 	align-items: stretch;
 	width: max-content;
 	max-width: 100%;
@@ -514,8 +527,18 @@ a:hover {
 	overflow-wrap: normal;
 }
 
+.bootstrap-estimate-highlight {
+	justify-self: end;
+	padding: 0 0.25rem;
+	background: var(--bid-book-own-row-background);
+}
+
+.bootstrap-image-estimate-chip {
+	width: 100%;
+}
+
 .bootstrap-token-preview-section {
-	justify-items: start;
+	justify-items: center;
 }
 
 .bootstrap-probe-warning-row {
@@ -558,7 +581,7 @@ a:hover {
 }
 
 .bootstrap-input-slug {
-	width: 24ch;
+	width: var(--bootstrap-input-slug-width);
 }
 
 .bootstrap-input-address {

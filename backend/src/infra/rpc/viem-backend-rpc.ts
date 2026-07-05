@@ -39,6 +39,11 @@ const BACKEND_RPC_SPAN_ATTRIBUTE = {
     Endpoint: "artgod.rpc.endpoint",
 } as const;
 
+// Span names owned by the backend RPC adapter.
+const BACKEND_RPC_SPAN_NAME = {
+    GetBytecode: "backend.rpc.get_bytecode",
+} as const;
+
 // Component label used to split backend RPC logs and metrics.
 const BACKEND_RPC_OBSERVABILITY_COMPONENT = "backend-rpc";
 
@@ -236,6 +241,19 @@ export class ViemBackendRpcClient {
                             : undefined,
                 });
                 return result as T;
+            },
+        );
+    }
+
+    async getBytecode(address: BackendRpcHex): Promise<BackendRpcHex | null> {
+        return this.withRpcSpan(
+            BACKEND_RPC_SPAN_NAME.GetBytecode,
+            {
+                [BACKEND_RPC_SPAN_ATTRIBUTE.ContractAddress]: address,
+            },
+            async (client) => {
+                const value = await client.getBytecode({ address });
+                return (value ?? null) as BackendRpcHex | null;
             },
         );
     }

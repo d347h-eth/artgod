@@ -4618,6 +4618,8 @@ components:
                     projectedCachedBytes,
                     totalSupply,
                     contentType,
+                    sourceWidth,
+                    sourceHeight,
                     width,
                     height,
                 ]
@@ -4645,6 +4647,12 @@ components:
                     type: string
                 contentType:
                     type: string
+                    nullable: true
+                sourceWidth:
+                    type: integer
+                    nullable: true
+                sourceHeight:
+                    type: integer
                     nullable: true
                 width:
                     type: integer

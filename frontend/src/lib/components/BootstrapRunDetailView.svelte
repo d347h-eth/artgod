@@ -2,8 +2,7 @@
 	import { onMount } from 'svelte';
 	import {
 		applyBootstrapStepAction,
-		getBootstrapRunDetail,
-		retryBootstrapFailedTasks
+		getBootstrapRunDetail
 	} from '$lib/backend-api';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import type { ApiBootstrapFlowStep, BootstrapRunDetailApiResponse } from '$lib/api-types';
@@ -36,8 +35,6 @@
 
 	let detail = $state<BootstrapRunDetailApiResponse | null>(initialDetail);
 	let loadError = $state<string | null>(null);
-	let retryPending = $state(false);
-	let retryMessage = $state<string | null>(null);
 	let stepActionPending = $state<string | null>(null);
 	let stepActionError = $state<string | null>(null);
 	let nextRefreshAtMs = $state<number | null>(null);
@@ -99,21 +96,6 @@
 		if (!liveRefreshHandle) return;
 		liveRefreshHandle.stop();
 		liveRefreshHandle = null;
-	}
-
-	async function onRetryFailedTasks(): Promise<void> {
-		if (!chainRef || !runId || retryPending) return;
-		retryPending = true;
-		retryMessage = null;
-		try {
-			const result = await retryBootstrapFailedTasks(fetch, chainRef, runId);
-			retryMessage = `retry queued for ${result.updatedCount} task(s)`;
-			await refreshRunDetail();
-		} catch (error) {
-			retryMessage = error instanceof Error ? error.message : 'retry request failed';
-		} finally {
-			retryPending = false;
-		}
 	}
 
 	async function onStepAction(
@@ -190,22 +172,6 @@
 					<div class="muted">status</div>
 					<div>{detail.run.status}</div>
 				</div>
-				<div>
-					<div class="muted">updated</div>
-					<div class="mono">{detail.run.updatedAt}</div>
-				</div>
-				<div>
-					<div class="muted">metadata mode</div>
-					<div>{detail.run.metadataMode}</div>
-				</div>
-				<div>
-					<div class="muted">enumeration</div>
-					<div>{detail.run.enumerationMode}</div>
-				</div>
-				<div>
-					<div class="muted">anchor block</div>
-					<div class="mono">{detail.run.anchorBlock ?? '-'}</div>
-				</div>
 				<div class="bootstrap-detail-refresh-meta">
 					<span class="runtime-k">next refresh</span>
 					<span
@@ -216,22 +182,6 @@
 					</span>
 				</div>
 			</div>
-			<div class="bootstrap-actions">
-				{#if detail.isLatestForCollection}
-					<button
-						type="button"
-						onclick={() => void onRetryFailedTasks()}
-						disabled={retryPending || detail.metadataTasks.failedTerminal <= 0}
-					>
-						{retryPending ? 'retrying...' : 'retry failed'}
-					</button>
-				{:else}
-					<span class="muted">retry disabled for non-latest runs</span>
-				{/if}
-			</div>
-			{#if retryMessage}
-				<div class="muted">{retryMessage}</div>
-			{/if}
 			{#if detail.run.errorMessage}
 				<div class="muted">{detail.run.errorMessage}</div>
 			{/if}

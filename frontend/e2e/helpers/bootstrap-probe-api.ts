@@ -139,6 +139,8 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 				projectedCachedBytes: String(cachedBytes * Number(body.totalSupply ?? '0')),
 				totalSupply: body.totalSupply ?? '0',
 				contentType: body.maxDimension === null ? 'image/png' : 'image/webp',
+				sourceWidth: 2160,
+				sourceHeight: 2160,
 				width: body.maxDimension,
 				height: body.maxDimension
 			});
@@ -455,6 +457,8 @@ function buildProbeResponse(input: {
 			imageBytesSource: input.firstTokenImage.startsWith('data:') ? 'data_uri' : 'download',
 			imageContentType: input.firstTokenImageContentType,
 			imageBytesError: null,
+			imageWidth: 2160,
+			imageHeight: 2160,
 			animationUrl: input.animationUrl ?? null,
 			metadataError: null,
 			candidates: []

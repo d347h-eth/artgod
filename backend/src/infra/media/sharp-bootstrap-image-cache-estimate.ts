@@ -1,11 +1,17 @@
-import type sharp from "sharp";
 import {
     fetchTokenImageCacheSource,
     normalizeImageContentType,
 } from "@artgod/shared/media/token-image-cache-source";
-import { resizeTokenImageCacheSourceToWebp } from "@artgod/shared/media/token-image-cache-transform";
+import {
+    readTokenImageSourceDimensions,
+    resizeTokenImageCacheSourceToWebp,
+} from "@artgod/shared/media/token-image-cache-transform";
 import type { HttpFetchResilienceConfig } from "@artgod/shared/network/http-fetch-resilience";
 import type { BootstrapImageCacheEstimatePort } from "../../application/use-cases/bootstrap/estimate-bootstrap-image-cache.js";
+import {
+    loadSharp,
+    type SharpFactoryLoader,
+} from "./sharp-loader.js";
 
 export type SharpBootstrapImageCacheEstimateConfig = {
     ipfsGatewayOrigin: string;
@@ -13,11 +19,6 @@ export type SharpBootstrapImageCacheEstimateConfig = {
     fetchResilience: HttpFetchResilienceConfig;
     sharpLoader?: SharpFactoryLoader;
 };
-
-export type SharpFactory = typeof sharp;
-export type SharpFactoryLoader = () => Promise<SharpFactory>;
-
-let sharpFactoryPromise: Promise<SharpFactory> | null = null;
 
 export class SharpBootstrapImageCacheEstimateAdapter
     implements BootstrapImageCacheEstimatePort
@@ -32,24 +33,21 @@ export class SharpBootstrapImageCacheEstimateAdapter
         sourceBytes: number | null;
         cachedBytes: number;
         contentType: string | null;
+        sourceWidth: number | null;
+        sourceHeight: number | null;
         width: number | null;
         height: number | null;
     }> {
-        if (input.maxDimension === null && input.sourceImageBytes !== null) {
-            return {
-                sourceBytes: input.sourceImageBytes,
-                cachedBytes: input.sourceImageBytes,
-                contentType: null,
-                width: null,
-                height: null,
-            };
-        }
-
         const source = await fetchTokenImageCacheSource({
             sourceImageUrl: input.sourceImageUrl,
             ipfsGatewayOrigin: this.config.ipfsGatewayOrigin,
             maxSourceBytes: this.config.maxSourceBytes,
             fetchResilience: this.config.fetchResilience,
+        });
+        const sharpLoader = this.config.sharpLoader ?? loadSharp;
+        const sourceDimensions = await readTokenImageSourceDimensions({
+            sourceBuffer: source.buffer,
+            sharpLoader,
         });
 
         if (input.maxDimension === null) {
@@ -57,32 +55,26 @@ export class SharpBootstrapImageCacheEstimateAdapter
                 sourceBytes: source.buffer.byteLength,
                 cachedBytes: source.buffer.byteLength,
                 contentType: normalizeImageContentType(source.contentType),
-                width: null,
-                height: null,
+                sourceWidth: sourceDimensions.width,
+                sourceHeight: sourceDimensions.height,
+                width: sourceDimensions.width,
+                height: sourceDimensions.height,
             };
         }
 
         const transformed = await resizeTokenImageCacheSourceToWebp({
             sourceBuffer: source.buffer,
             requestedMaxDimension: input.maxDimension,
-            sharpLoader: this.config.sharpLoader ?? loadSharp,
+            sharpLoader,
         });
         return {
             sourceBytes: source.buffer.byteLength,
             cachedBytes: transformed.buffer.byteLength,
             contentType: transformed.contentType,
+            sourceWidth: sourceDimensions.width,
+            sourceHeight: sourceDimensions.height,
             width: transformed.width,
             height: transformed.height,
         };
     }
-}
-
-async function loadSharp(): Promise<SharpFactory> {
-    if (!sharpFactoryPromise) {
-        sharpFactoryPromise = import("sharp").then((module) => {
-            const loaded = module as unknown as { default?: SharpFactory };
-            return loaded.default ?? (module as unknown as SharpFactory);
-        });
-    }
-    return sharpFactoryPromise;
 }
