@@ -14,6 +14,7 @@ export const TEST_IDS = {
 	BidBookRowBid: 'bid-book-row-bid',
 	BidBookRowFilter: 'bid-book-row-filter',
 	BootstrapAllowManualEditing: 'bootstrap-allow-manual-editing',
+	BootstrapCacheTokenCard: 'bootstrap-cache-token-card',
 	BootstrapProbeTokenCard: 'bootstrap-probe-token-card',
 	TokenCard: 'token-card',
 	TokenCardBiddingToggle: 'token-card-bidding-toggle'

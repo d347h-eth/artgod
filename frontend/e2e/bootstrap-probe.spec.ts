@@ -215,10 +215,19 @@ test.describe('bootstrap contract probe UI', () => {
 			String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION)
 		);
 		await expect(rowControl(page, 'Cached image max dimension')).toHaveAttribute('type', 'text');
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
 		await formRow(page, 'Cached image max dimension')
 			.getByRole('button', { name: 'estimate' })
 			.click();
 		await expect(formRow(page, 'Cached image max dimension')).toContainText('estimated');
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeEnabled();
+		const cacheCard = page.locator(`[data-testid="${TEST_IDS.BootstrapCacheTokenCard}"]`);
+		await expect(cacheCard).toBeVisible();
+		await expect(page.getByText('generated with the selected cache settings')).toBeVisible();
+		await expect(cacheCard.locator('img')).toHaveAttribute(
+			'src',
+			'data:image/webp;base64,Y2FjaGVk'
+		);
 		await expect(formRow(page, 'Original image dimensions')).toContainText('2160 x 2160px');
 		await expect(formRow(page, 'Cached image size (1 token)')).toContainText('24.0 KB');
 		await expect(formRow(page, 'Cached image dimensions')).toContainText('1080 x 1080px');
@@ -226,6 +235,8 @@ test.describe('bootstrap contract probe UI', () => {
 			'176 MB'
 		);
 		await rowControl(page, 'Cached image max dimension').fill('720');
+		await expect(cacheCard).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
 		await expect(
 			formRow(page, 'Cached image max dimension').getByRole('button', { name: 'estimate' })
 		).toBeEnabled();

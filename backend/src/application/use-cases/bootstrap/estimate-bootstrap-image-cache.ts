@@ -30,6 +30,7 @@ export type EstimateBootstrapImageCacheOutput = {
     projectedCachedBytes: string;
     totalSupply: string;
     contentType: string | null;
+    sampleCachedImageDataUrl: string | null;
     sourceWidth: number | null;
     sourceHeight: number | null;
     width: number | null;
@@ -45,6 +46,7 @@ export interface BootstrapImageCacheEstimatePort {
         sourceBytes: number | null;
         cachedBytes: number;
         contentType: string | null;
+        sampleCachedImageDataUrl: string | null;
         sourceWidth: number | null;
         sourceHeight: number | null;
         width: number | null;
@@ -86,6 +88,7 @@ export class EstimateBootstrapImageCacheUseCase {
                 projectedCachedBytes: "0",
                 totalSupply: totalSupply.toString(),
                 contentType: null,
+                sampleCachedImageDataUrl: null,
                 sourceWidth: null,
                 sourceHeight: null,
                 width: null,
@@ -118,6 +121,7 @@ export class EstimateBootstrapImageCacheUseCase {
             ).toString(),
             totalSupply: totalSupply.toString(),
             contentType: estimate.contentType,
+            sampleCachedImageDataUrl: estimate.sampleCachedImageDataUrl,
             sourceWidth: estimate.sourceWidth,
             sourceHeight: estimate.sourceHeight,
             width: estimate.width,

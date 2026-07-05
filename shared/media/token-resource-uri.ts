@@ -100,6 +100,18 @@ export function parseImageDataUriBuffer(uri: string): {
     };
 }
 
+// Encodes image bytes for one-off preview payloads that should not touch storage.
+export function buildImageDataUri(input: {
+    contentType: string;
+    buffer: Buffer;
+}): string {
+    const contentType = input.contentType.trim().toLowerCase();
+    if (!contentType.startsWith("image/")) {
+        throw new Error("Unsupported data image media type");
+    }
+    return `data:${contentType};base64,${input.buffer.toString("base64")}`;
+}
+
 function normalizeIpfsPath(uri: string): string {
     let path = uri.slice("ipfs://".length).trim();
     while (path.startsWith("/")) {

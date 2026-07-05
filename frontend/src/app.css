@@ -541,6 +541,21 @@ a:hover {
 	justify-items: center;
 }
 
+.bootstrap-cache-preview-block {
+	display: grid;
+	gap: 0.65rem;
+	justify-items: center;
+	justify-self: center;
+	width: min(25rem, 100%);
+	max-width: 25rem;
+}
+
+.bootstrap-cache-preview-block > .muted {
+	max-width: 25rem;
+	white-space: normal;
+	text-transform: none;
+}
+
 .bootstrap-probe-warning-row {
 	align-items: start;
 }

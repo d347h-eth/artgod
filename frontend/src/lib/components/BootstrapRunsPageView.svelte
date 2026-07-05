@@ -104,6 +104,8 @@
 	const imageSourceProbeFormId = 'bootstrap-image-source-probe-form';
 	const openSeaSetupMessage =
 		`Set ${OPENSEA_API_KEY_ENV} in Admin UI to sync OpenSea market/orderbook asks/offers required by built-in bidding bot features. Fully restart the app after saving the key in Admin UI.`;
+	const imageCachePreviewMessage =
+		'This preview was generated with the selected cache settings. If it looks wrong or does not render, choose caching: off.';
 	const bootstrapPreviewMediaModes: ApiCollectionMediaMode[] = [
 		{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
 	];
@@ -244,6 +246,7 @@
 			!formDetailsReady ||
 			!collectionSlugInputHasValue ||
 			openSeaSlugProbePending ||
+			(imageCacheMode !== IMAGE_CACHE_MODE.Off && !imageCacheEstimateReady) ||
 			(openSeaEnabled && openSeaSlugInputHasValue && !openSeaSlugResolved)
 	);
 	let probeControlledDisabled = $derived(
@@ -255,6 +258,7 @@
 			!manualEditingAllowed
 	);
 	let firstTokenCard = $derived(firstTokenPreviewCard());
+	let cachedTokenCard = $derived(cachedTokenPreviewCard());
 
 	onDestroy(() => {
 		cancelContractProbeTimer();
@@ -750,6 +754,30 @@
 		};
 	}
 
+	function cachedTokenPreviewCard(): ApiTokenCard | null {
+		const firstToken = probeResult?.firstToken;
+		if (
+			imageCacheMode === IMAGE_CACHE_MODE.Off ||
+			!imageCacheEstimateReady ||
+			!imageCacheEstimateResult?.sampleCachedImageDataUrl ||
+			!firstToken?.tokenId
+		) {
+			return null;
+		}
+		return {
+			tokenId: firstToken.tokenId,
+			marketplaceBiddingSupported: true,
+			name: firstToken.name,
+			image: imageCacheEstimateResult.sampleCachedImageDataUrl,
+			traitSummary: null,
+			listingPrice: null,
+			listingCurrency: null,
+			attributes: [],
+			hasMetadata: firstToken.metadataError === null,
+			metadataUpdatedAt: null
+		};
+	}
+
 	function applyProbeImageCacheSuggestion(
 		suggestion: BootstrapContractProbeApiResponse['imageCacheSuggestion']
 	): void {
@@ -1075,6 +1103,10 @@
 				imageCacheMaxDimensionValue = parseImageCacheMaxDimension();
 			} catch (error) {
 				submitError = error instanceof Error ? error.message : 'invalid image cache setting';
+				return;
+			}
+			if (!imageCacheEstimateReady) {
+				submitError = 'Run image cache estimate before queueing bootstrap';
 				return;
 			}
 		}
@@ -1491,6 +1523,28 @@
 										</div>
 									</div>
 								</div>
+							</div>
+						{/if}
+						{#if cachedTokenCard}
+							<div class="bootstrap-cache-preview-block">
+								<span class="muted">{imageCachePreviewMessage}</span>
+								<aside class="bootstrap-token-card-pane" aria-label="Cached token image preview">
+									<div
+										class="bootstrap-probe-token-card"
+										data-testid={TEST_IDS.BootstrapCacheTokenCard}
+									>
+										<TokenCardTile
+											{chain}
+											collection={null}
+											token={cachedTokenCard}
+											href="#"
+											selectedMediaMode={COLLECTION_MEDIA_MODES.Snapshot}
+											availableMediaModes={bootstrapPreviewMediaModes}
+											{tokenPreview}
+											showMeta={false}
+										/>
+									</div>
+								</aside>
 							</div>
 						{/if}
 					</div>

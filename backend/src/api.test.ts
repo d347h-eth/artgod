@@ -712,6 +712,10 @@ beforeAll(async () => {
                         cachedBytes,
                         contentType:
                             input.maxDimension === null ? "image/png" : "image/webp",
+                        sampleCachedImageDataUrl:
+                            input.maxDimension === null
+                                ? "data:image/png;base64,Y2FjaGVk"
+                                : "data:image/webp;base64,Y2FjaGVk",
                         sourceWidth: 2160,
                         sourceHeight: 2160,
                         width: input.maxDimension,
@@ -4790,6 +4794,7 @@ describe("backend api routes", () => {
             projectedCachedBytes: "1536",
             totalSupply: "3",
             contentType: "image/webp",
+            sampleCachedImageDataUrl: "data:image/webp;base64,Y2FjaGVk",
             sourceWidth: 2160,
             sourceHeight: 2160,
             width: 1080,

@@ -151,6 +151,10 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 				projectedCachedBytes: String(cachedBytes * Number(body.totalSupply ?? '0')),
 				totalSupply: body.totalSupply ?? '0',
 				contentType: body.maxDimension === null ? 'image/png' : 'image/webp',
+				sampleCachedImageDataUrl:
+					body.maxDimension === null
+						? 'data:image/png;base64,Y2FjaGVk'
+						: 'data:image/webp;base64,Y2FjaGVk',
 				sourceWidth: 2160,
 				sourceHeight: 2160,
 				width: body.maxDimension,

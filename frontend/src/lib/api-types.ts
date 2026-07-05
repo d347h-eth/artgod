@@ -291,6 +291,7 @@ export type BootstrapImageCacheEstimateApiResponse = {
 	projectedCachedBytes: string;
 	totalSupply: string;
 	contentType: string | null;
+	sampleCachedImageDataUrl: string | null;
 	sourceWidth: number | null;
 	sourceHeight: number | null;
 	width: number | null;
