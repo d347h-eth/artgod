@@ -33,9 +33,15 @@ const NATS_STORE_DIR_ARG: &str = "--store_dir";
 const STARTUP_PORT_TIMEOUT: Duration = Duration::from_secs(30);
 const STARTUP_RUNTIME_HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
 const MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(500);
-const PROCESS_STOP_GRACE_PERIOD: Duration = Duration::from_secs(10);
+const PROCESS_STOP_GRACE_PERIOD: Duration = Duration::from_secs(30);
 const PROCESS_STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const STARTUP_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(150);
+/// Supervisor lifecycle log level for routine process events.
+const SUPERVISOR_LOG_LEVEL_INFO: &str = "info";
+/// Supervisor lifecycle log level for recoverable shutdown anomalies.
+const SUPERVISOR_LOG_LEVEL_WARN: &str = "warn";
+/// Supervisor lifecycle log level for terminal shutdown failures.
+const SUPERVISOR_LOG_LEVEL_ERROR: &str = "error";
 // Trading bots must quickly prove they entered their managed bootstrap path after unlock/start.
 const BOT_START_SIGNAL_TIMEOUT: Duration = Duration::from_secs(30);
 // Once bootstrapping started, long warmup is allowed as long as the bot keeps reporting progress.
@@ -606,7 +612,7 @@ fn run_supervisor_loop(
                     "info",
                     "Stop requested; shutting down all runtime processes",
                 );
-                stop_all_processes(&mut processes);
+                stop_all_processes(&app, &config.logs_dir, &mut processes);
                 update_status(&status_ref, &app, |status| {
                     status.state = "stopped".to_owned();
                     status.running_processes.clear();
@@ -617,7 +623,7 @@ fn run_supervisor_loop(
             MonitorOutcome::ProcessExited { process, status } => {
                 let error = format!("Process {process} exited unexpectedly: {status}");
                 emit_supervisor_log(&app, &config.logs_dir, "error", &error);
-                stop_all_processes(&mut processes);
+                stop_all_processes(&app, &config.logs_dir, &mut processes);
                 restart_count = restart_count.saturating_add(1);
                 update_status(&status_ref, &app, |status_ref| {
                     status_ref.state = "restarting".to_owned();
@@ -648,7 +654,7 @@ fn run_supervisor_loop(
             MonitorOutcome::ProcessFailure { process, error } => {
                 let details = format!("Process {process} monitor failure: {error}");
                 emit_supervisor_log(&app, &config.logs_dir, "error", &details);
-                stop_all_processes(&mut processes);
+                stop_all_processes(&app, &config.logs_dir, &mut processes);
                 restart_count = restart_count.saturating_add(1);
                 update_status(&status_ref, &app, |status_ref| {
                     status_ref.state = "restarting".to_owned();
@@ -770,7 +776,11 @@ fn run_bot_runtime_loop(
     };
 
     if let Err(error) = send_bot_secret_envelope(&mut process.stdin, secret_envelope) {
-        stop_all_processes(std::slice::from_mut(&mut process.process));
+        stop_all_processes(
+            &app,
+            &config.logs_dir,
+            std::slice::from_mut(&mut process.process),
+        );
         update_bot_runtime_state(
             &app,
             &status_ref,
@@ -839,7 +849,11 @@ fn run_bot_runtime_loop(
                     );
                 }
                 BotBootstrapOutcome::StoppedByRequest => {
-                    stop_all_processes(std::slice::from_mut(&mut process.process));
+                    stop_all_processes(
+                        &app,
+                        &config.logs_dir,
+                        std::slice::from_mut(&mut process.process),
+                    );
                     update_bot_runtime_state(
                         &app,
                         &status_ref,
@@ -851,7 +865,11 @@ fn run_bot_runtime_loop(
                     return;
                 }
                 BotBootstrapOutcome::BootstrapFailure(error) => {
-                    stop_all_processes(std::slice::from_mut(&mut process.process));
+                    stop_all_processes(
+                        &app,
+                        &config.logs_dir,
+                        std::slice::from_mut(&mut process.process),
+                    );
                     update_bot_runtime_state(
                         &app,
                         &status_ref,
@@ -865,7 +883,11 @@ fn run_bot_runtime_loop(
                 BotBootstrapOutcome::CriticalDependencyUnavailable {
                     process: dependency,
                 } => {
-                    stop_all_processes(std::slice::from_mut(&mut process.process));
+                    stop_all_processes(
+                        &app,
+                        &config.logs_dir,
+                        std::slice::from_mut(&mut process.process),
+                    );
                     update_bot_runtime_state(
                         &app,
                         &status_ref,
@@ -884,7 +906,11 @@ fn run_bot_runtime_loop(
                         "{} exited during bootstrapping: {status}",
                         spec.process_name
                     );
-                    stop_all_processes(std::slice::from_mut(&mut process.process));
+                    stop_all_processes(
+                        &app,
+                        &config.logs_dir,
+                        std::slice::from_mut(&mut process.process),
+                    );
                     update_bot_runtime_state(
                         &app,
                         &status_ref,
@@ -896,7 +922,11 @@ fn run_bot_runtime_loop(
                     return;
                 }
                 BotBootstrapOutcome::ProcessFailure { error } => {
-                    stop_all_processes(std::slice::from_mut(&mut process.process));
+                    stop_all_processes(
+                        &app,
+                        &config.logs_dir,
+                        std::slice::from_mut(&mut process.process),
+                    );
                     update_bot_runtime_state(
                         &app,
                         &status_ref,
@@ -930,7 +960,11 @@ fn run_bot_runtime_loop(
             );
         }
         BotStartOutcome::StoppedByRequest => {
-            stop_all_processes(std::slice::from_mut(&mut process.process));
+            stop_all_processes(
+                &app,
+                &config.logs_dir,
+                std::slice::from_mut(&mut process.process),
+            );
             update_bot_runtime_state(
                 &app,
                 &status_ref,
@@ -942,7 +976,11 @@ fn run_bot_runtime_loop(
             return;
         }
         BotStartOutcome::StartupFailure(error) => {
-            stop_all_processes(std::slice::from_mut(&mut process.process));
+            stop_all_processes(
+                &app,
+                &config.logs_dir,
+                std::slice::from_mut(&mut process.process),
+            );
             update_bot_runtime_state(
                 &app,
                 &status_ref,
@@ -958,7 +996,11 @@ fn run_bot_runtime_loop(
                 "{} exited before bootstrapping or readiness: {status}",
                 spec.process_name
             );
-            stop_all_processes(std::slice::from_mut(&mut process.process));
+            stop_all_processes(
+                &app,
+                &config.logs_dir,
+                std::slice::from_mut(&mut process.process),
+            );
             update_bot_runtime_state(
                 &app,
                 &status_ref,
@@ -970,7 +1012,11 @@ fn run_bot_runtime_loop(
             return;
         }
         BotStartOutcome::ProcessFailure { error } => {
-            stop_all_processes(std::slice::from_mut(&mut process.process));
+            stop_all_processes(
+                &app,
+                &config.logs_dir,
+                std::slice::from_mut(&mut process.process),
+            );
             update_bot_runtime_state(
                 &app,
                 &status_ref,
@@ -991,7 +1037,11 @@ fn run_bot_runtime_loop(
         &stop_signal,
     ) {
         BotMonitorOutcome::StoppedByRequest => {
-            stop_all_processes(std::slice::from_mut(&mut process.process));
+            stop_all_processes(
+                &app,
+                &config.logs_dir,
+                std::slice::from_mut(&mut process.process),
+            );
             update_bot_runtime_state(
                 &app,
                 &status_ref,
@@ -1004,7 +1054,11 @@ fn run_bot_runtime_loop(
         BotMonitorOutcome::CriticalDependencyUnavailable {
             process: dependency_process,
         } => {
-            stop_all_processes(std::slice::from_mut(&mut process.process));
+            stop_all_processes(
+                &app,
+                &config.logs_dir,
+                std::slice::from_mut(&mut process.process),
+            );
             let error = format!("Critical dependency became unavailable: {dependency_process}");
             update_bot_runtime_state(
                 &app,
@@ -1017,7 +1071,11 @@ fn run_bot_runtime_loop(
         }
         BotMonitorOutcome::ProcessExited { status } => {
             let error = format!("{} exited unexpectedly: {status}", spec.process_name);
-            stop_all_processes(std::slice::from_mut(&mut process.process));
+            stop_all_processes(
+                &app,
+                &config.logs_dir,
+                std::slice::from_mut(&mut process.process),
+            );
             update_bot_runtime_state(
                 &app,
                 &status_ref,
@@ -1029,7 +1087,11 @@ fn run_bot_runtime_loop(
         }
         BotMonitorOutcome::ProcessFailure { error } => {
             let details = format!("{} monitor failure: {error}", spec.process_name);
-            stop_all_processes(std::slice::from_mut(&mut process.process));
+            stop_all_processes(
+                &app,
+                &config.logs_dir,
+                std::slice::from_mut(&mut process.process),
+            );
             update_bot_runtime_state(
                 &app,
                 &status_ref,
@@ -1517,7 +1579,7 @@ fn spawn_runtime_processes(
     let nats_process = match spawn_nats_process(app, config) {
         Ok(process) => process,
         Err(error) => {
-            stop_all_processes(&mut processes);
+            stop_all_processes(app, &config.logs_dir, &mut processes);
             return Err(SpawnRuntimeError::Failed(error));
         }
     };
@@ -1536,7 +1598,7 @@ fn spawn_runtime_processes(
         stop_rx,
         stop_signal,
     ) {
-        stop_all_processes(&mut processes);
+        stop_all_processes(app, &config.logs_dir, &mut processes);
         return Err(map_startup_wait_error(error));
     }
 
@@ -1544,7 +1606,7 @@ fn spawn_runtime_processes(
         match spawn_node_process(app, config, BACKEND_PROCESS_NAME, BACKEND_ARTIFACT) {
             Ok(process) => process,
             Err(error) => {
-                stop_all_processes(&mut processes);
+                stop_all_processes(app, &config.logs_dir, &mut processes);
                 return Err(SpawnRuntimeError::Failed(error));
             }
         };
@@ -1563,13 +1625,13 @@ fn spawn_runtime_processes(
         stop_rx,
         stop_signal,
     ) {
-        stop_all_processes(&mut processes);
+        stop_all_processes(app, &config.logs_dir, &mut processes);
         return Err(map_startup_wait_error(error));
     }
 
     for (name, artifact) in INDEXER_WORKERS {
         if stop_requested(stop_rx, stop_signal) {
-            stop_all_processes(&mut processes);
+            stop_all_processes(app, &config.logs_dir, &mut processes);
             return Err(SpawnRuntimeError::Cancelled);
         }
         if is_opensea_worker(name) && !config.capabilities.opensea.enabled {
@@ -1590,7 +1652,7 @@ fn spawn_runtime_processes(
         let process = match spawn_node_process(app, config, name, artifact) {
             Ok(process) => process,
             Err(error) => {
-                stop_all_processes(&mut processes);
+                stop_all_processes(app, &config.logs_dir, &mut processes);
                 return Err(SpawnRuntimeError::Failed(error));
             }
         };
@@ -1609,7 +1671,7 @@ fn spawn_runtime_processes(
         stop_rx,
         stop_signal,
     ) {
-        stop_all_processes(&mut processes);
+        stop_all_processes(app, &config.logs_dir, &mut processes);
         return Err(map_startup_wait_error(error));
     }
 
@@ -1925,13 +1987,29 @@ fn monitor_processes(
     }
 }
 
-fn stop_all_processes(processes: &mut [ManagedProcess]) {
-    for process in processes.iter_mut() {
-        request_process_stop(&mut process.child);
-    }
+fn stop_all_processes(
+    app: &AppHandle,
+    logs_dir: &std::path::Path,
+    processes: &mut [ManagedProcess],
+) {
+    let should_wait_for_exit = processes
+        .iter_mut()
+        .map(|process| {
+            request_process_stop(app, logs_dir, process.name.as_str(), &mut process.child)
+        })
+        .collect::<Vec<_>>();
 
-    for process in processes.iter_mut() {
-        wait_for_process_exit_or_kill(&mut process.child, PROCESS_STOP_GRACE_PERIOD);
+    for (process, should_wait) in processes.iter_mut().zip(should_wait_for_exit) {
+        if !should_wait {
+            continue;
+        }
+        wait_for_process_exit_or_kill(
+            app,
+            logs_dir,
+            process.name.as_str(),
+            &mut process.child,
+            PROCESS_STOP_GRACE_PERIOD,
+        );
     }
     for process in processes.iter_mut() {
         for thread in process.output_threads.drain(..) {
@@ -1949,40 +2027,168 @@ fn stop_all_processes(processes: &mut [ManagedProcess]) {
     }
 }
 
-fn request_process_stop(child: &mut Child) {
-    if child.try_wait().ok().flatten().is_some() {
-        return;
+fn request_process_stop(
+    app: &AppHandle,
+    logs_dir: &std::path::Path,
+    process_name: &str,
+    child: &mut Child,
+) -> bool {
+    let pid = child.id();
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            emit_supervisor_log(
+                app,
+                logs_dir,
+                SUPERVISOR_LOG_LEVEL_INFO,
+                &format!(
+                    "Process {process_name} already exited before shutdown signal (pid={pid}, status={status})"
+                ),
+            );
+            return false;
+        }
+        Ok(None) => {}
+        Err(error) => {
+            emit_supervisor_log(
+                app,
+                logs_dir,
+                SUPERVISOR_LOG_LEVEL_WARN,
+                &format!(
+                    "Failed to poll process {process_name} before shutdown signal: {error} (pid={pid})"
+                ),
+            );
+        }
     }
 
     #[cfg(unix)]
     {
-        let _ = Command::new("kill")
+        emit_supervisor_log(
+            app,
+            logs_dir,
+            SUPERVISOR_LOG_LEVEL_INFO,
+            &format!("Sending SIGTERM to process {process_name} (pid={pid})"),
+        );
+        match Command::new("kill")
             .arg("-TERM")
-            .arg(child.id().to_string())
+            .arg(pid.to_string())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status();
+            .status()
+        {
+            Ok(status) if status.success() => {}
+            Ok(status) => emit_supervisor_log(
+                app,
+                logs_dir,
+                SUPERVISOR_LOG_LEVEL_WARN,
+                &format!(
+                    "SIGTERM command for process {process_name} exited with {status} (pid={pid})"
+                ),
+            ),
+            Err(error) => emit_supervisor_log(
+                app,
+                logs_dir,
+                SUPERVISOR_LOG_LEVEL_WARN,
+                &format!("Failed to send SIGTERM to process {process_name}: {error} (pid={pid})"),
+            ),
+        }
     }
 
     #[cfg(not(unix))]
     {
-        let _ = child.kill();
+        emit_supervisor_log(
+            app,
+            logs_dir,
+            SUPERVISOR_LOG_LEVEL_INFO,
+            &format!("Sending force stop to process {process_name} (pid={pid})"),
+        );
+        if let Err(error) = child.kill() {
+            emit_supervisor_log(
+                app,
+                logs_dir,
+                SUPERVISOR_LOG_LEVEL_WARN,
+                &format!("Failed to force stop process {process_name}: {error} (pid={pid})"),
+            );
+        }
     }
+
+    true
 }
 
-fn wait_for_process_exit_or_kill(child: &mut Child, grace_period: Duration) {
+fn wait_for_process_exit_or_kill(
+    app: &AppHandle,
+    logs_dir: &std::path::Path,
+    process_name: &str,
+    child: &mut Child,
+    grace_period: Duration,
+) {
+    let pid = child.id();
+    let started_at = Instant::now();
     let deadline = Instant::now() + grace_period;
 
     loop {
         match child.try_wait() {
-            Ok(Some(_)) => return,
+            Ok(Some(status)) => {
+                emit_supervisor_log(
+                    app,
+                    logs_dir,
+                    SUPERVISOR_LOG_LEVEL_INFO,
+                    &format!(
+                        "Process {process_name} exited during graceful shutdown (pid={pid}, status={status}, elapsedMs={})",
+                        started_at.elapsed().as_millis()
+                    ),
+                );
+                return;
+            }
             Ok(None) => {}
-            Err(_) => return,
+            Err(error) => {
+                emit_supervisor_log(
+                    app,
+                    logs_dir,
+                    SUPERVISOR_LOG_LEVEL_ERROR,
+                    &format!(
+                        "Failed to poll process {process_name} shutdown status: {error} (pid={pid})"
+                    ),
+                );
+                return;
+            }
         }
 
         if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
+            emit_supervisor_log(
+                app,
+                logs_dir,
+                SUPERVISOR_LOG_LEVEL_WARN,
+                &format!(
+                    "Process {process_name} did not exit within {}s; sending force kill (pid={pid})",
+                    grace_period.as_secs()
+                ),
+            );
+            match child.kill() {
+                Ok(()) => match child.wait() {
+                    Ok(status) => emit_supervisor_log(
+                        app,
+                        logs_dir,
+                        SUPERVISOR_LOG_LEVEL_WARN,
+                        &format!(
+                            "Process {process_name} force kill completed (pid={pid}, status={status}, elapsedMs={})",
+                            started_at.elapsed().as_millis()
+                        ),
+                    ),
+                    Err(error) => emit_supervisor_log(
+                        app,
+                        logs_dir,
+                        SUPERVISOR_LOG_LEVEL_ERROR,
+                        &format!(
+                            "Force kill wait failed for process {process_name}: {error} (pid={pid})"
+                        ),
+                    ),
+                },
+                Err(error) => emit_supervisor_log(
+                    app,
+                    logs_dir,
+                    SUPERVISOR_LOG_LEVEL_ERROR,
+                    &format!("Failed to force kill process {process_name}: {error} (pid={pid})"),
+                ),
+            }
             return;
         }
 
