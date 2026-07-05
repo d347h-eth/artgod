@@ -225,6 +225,7 @@ export type ApiBootstrapProbeFirstToken = {
 	tokenUriPayloadTruncated: boolean;
 	tokenUriPayloadError: string | null;
 	name: string | null;
+	imageSourceField: string | null;
 	image: string | null;
 	imageBytes: number | null;
 	imageBytesSource: 'content_length' | 'download' | 'data_uri' | null;
@@ -890,6 +891,7 @@ export type ApiBootstrapRun = {
 	requestOpenseaSlug: string | null;
 	requestAddress: string;
 	requestStandard: 'erc721' | 'erc1155';
+	imageSourceField: string | null;
 	metadataMode: 'strict' | 'best_effort';
 	enumerationMode: 'enumerable' | 'manual_token_ids' | 'manual_range';
 	manualTokenIdsJson: string | null;

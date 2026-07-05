@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
+import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-image-source';
 import { BOOTSTRAP_STEP_ACTION, BOOTSTRAP_STEP_KEY } from '@artgod/shared/bootstrap/pipeline';
 import type { ApiBootstrapFlowStep } from '$lib/api-types';
 import BootstrapRunDetailView from './BootstrapRunDetailView.svelte';
@@ -34,6 +35,7 @@ describe('BootstrapRunDetailView', () => {
 						requestAddress: '0x1111111111111111111111111111111111111111',
 						requestOpenseaSlug: null,
 						requestStandard: 'erc721',
+						imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
 						metadataMode: 'best_effort',
 						enumerationMode: 'enumerable',
 						manualTokenIdsJson: null,
@@ -122,6 +124,7 @@ describe('BootstrapRunDetailView', () => {
 						requestAddress: '0x1111111111111111111111111111111111111111',
 						requestOpenseaSlug: null,
 						requestStandard: 'erc721',
+						imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
 						metadataMode: 'best_effort',
 						enumerationMode: 'enumerable',
 						manualTokenIdsJson: null,
@@ -193,6 +196,7 @@ describe('BootstrapRunDetailView', () => {
 						requestAddress: '0x1111111111111111111111111111111111111111',
 						requestOpenseaSlug: null,
 						requestStandard: 'erc721',
+						imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
 						metadataMode: 'best_effort',
 						enumerationMode: 'enumerable',
 						manualTokenIdsJson: null,
@@ -290,6 +294,7 @@ describe('BootstrapRunDetailView', () => {
 						requestAddress: '0x1111111111111111111111111111111111111111',
 						requestOpenseaSlug: null,
 						requestStandard: 'erc721',
+						imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
 						metadataMode: 'best_effort',
 						enumerationMode: 'enumerable',
 						manualTokenIdsJson: null,

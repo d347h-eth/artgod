@@ -108,6 +108,7 @@ function makeProbe(input: {
 			tokenUriPayloadTruncated: false,
 			tokenUriPayloadError: null,
 			name: null,
+			imageSourceField: null,
 			image: null,
 			imageBytes: null,
 			imageBytesSource: null,

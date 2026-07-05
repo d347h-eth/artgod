@@ -170,14 +170,18 @@ export async function scheduleBlockspaceBackfill(
 export async function probeBootstrapCollectionContract(
 	fetchFn: typeof fetch,
 	chainRef: string,
-	address: string
+	address: string,
+	options: {
+		imageSourceField?: string | null;
+	} = {}
 ): Promise<BootstrapContractProbeApiResponse> {
 	return requestJson<BootstrapContractProbeApiResponse>(
 		fetchFn,
 		buildProbeBootstrapCollectionPath({
 			chainRef,
 			address,
-			standard: 'erc721'
+			standard: 'erc721',
+			imageSourceField: options.imageSourceField
 		})
 	);
 }
@@ -752,6 +756,7 @@ export async function createBootstrapRun(
 		slug: string;
 		address: string;
 		openseaSlug?: string;
+		imageSourceField: string;
 		standard: 'erc721';
 		metadataMode: 'strict' | 'best_effort';
 		supportsEnumerable: boolean;

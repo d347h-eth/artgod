@@ -5,6 +5,7 @@ import { OPENSEA_API_KEY_ENV } from '@artgod/shared/config/opensea-integration';
 import { TERRAFORMS_EXTENSION_KEY } from '@artgod/shared/extensions/terraforms';
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 import { BOOTSTRAP_STEP_ACTION, BOOTSTRAP_STEP_KEY } from '@artgod/shared/bootstrap/pipeline';
+import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-image-source';
 import { TEST_IDS } from '../src/lib/test-ids';
 import { DEFAULT_BOOTSTRAP_METADATA_MODE } from '../src/lib/bootstrap-metadata-mode';
 import {
@@ -39,6 +40,7 @@ test.describe('bootstrap contract probe UI', () => {
 		await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
 
 		await expect(page.locator('input[name="address"]')).toBeVisible();
+		await expect(formLabel(page, 'Image source field')).toHaveCount(0);
 		await expect(formLabel(page, 'Collection slug')).toHaveCount(0);
 		await expect(formLabel(page, 'OpenSea slug')).toHaveCount(0);
 		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toHaveCount(0);
@@ -64,6 +66,10 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(page.locator('input[name="slug"]')).toHaveValue(
 			BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
 		);
+		await expect(rowControl(page, 'Image source field')).toHaveValue(
+			TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image
+		);
+		await expect(formRow(page, 'Image source field')).toContainText('resolved');
 		await expect(page.locator('input[name="slug"]')).toBeEnabled();
 		await expect(page.locator('input[name="openseaSlug"]')).toHaveValue(
 			BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
@@ -95,7 +101,41 @@ test.describe('bootstrap contract probe UI', () => {
 		await assertTooltipText(page, 'OpenSea slug', 'Required for bidding');
 		await expect(formLabel(page, 'Metadata mode')).toHaveCount(0);
 		expect(api.probeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable]);
+		expect(api.probeRequestImageSourceFields).toEqual([null]);
 		expect(api.openSeaSlugProbeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable]);
+	});
+
+	test('requires manual image source overrides to probe again before showing the full form', async ({
+		page
+	}) => {
+		const api = await installBootstrapProbeApiMock(page);
+		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+
+		const imageSourceInput = rowControl(page, 'Image source field');
+		await expect(imageSourceInput).toHaveValue(TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image);
+		await imageSourceInput.fill(TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData);
+
+		await expect(formLabel(page, 'Collection slug')).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toHaveCount(0);
+		await expect(
+			formRow(page, 'Image source field').getByRole('button', { name: 'probe again' })
+		).toBeEnabled();
+
+		await imageSourceInput.press('Enter');
+		await expect(rowControl(page, 'Image source field')).toHaveValue(
+			TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData
+		);
+		await expect(formRow(page, 'Image source field')).toContainText('resolved');
+		await expect(formLabel(page, 'Collection slug')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeVisible();
+		expect(api.probeRequests).toEqual([
+			BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable,
+			BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable
+		]);
+		expect(api.probeRequestImageSourceFields).toEqual([
+			null,
+			TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData
+		]);
 	});
 
 	test('disables OpenSea slug input when the API key is unavailable', async ({ page }) => {
@@ -159,6 +199,9 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(page.locator('input[name="slug"]')).toHaveValue(
 			BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster
 		);
+		await expect(rowControl(page, 'Image source field')).toHaveValue(
+			TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image
+		);
 		await expect(page.locator('input[name="openseaSlug"]')).toHaveValue(
 			BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster
 		);
@@ -199,6 +242,7 @@ test.describe('bootstrap contract probe UI', () => {
 		expect(api.mutations[0]?.body).toMatchObject({
 			slug: 'custom-raster-slug',
 			metadataMode: DEFAULT_BOOTSTRAP_METADATA_MODE,
+			imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
 			openseaSlug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster,
 			imageCache: {
 				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
@@ -237,6 +281,9 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(page.locator('input[name="slug"]')).toHaveValue(
 			BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableOnchainSvg
 		);
+		await expect(rowControl(page, 'Image source field')).toHaveValue(
+			TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData
+		);
 		const imageCacheModeSelect = rowControl(page, 'Image cache mode');
 		await expect(imageCacheModeSelect).toHaveValue(IMAGE_CACHE_MODE.Off);
 		await expect(imageCacheModeSelect).toBeDisabled();
@@ -262,6 +309,7 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect.poll(() => api.mutations.length).toBe(1);
 		expect(api.mutations[0]?.body).toMatchObject({
 			metadataMode: DEFAULT_BOOTSTRAP_METADATA_MODE,
+			imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData,
 			imageCache: {
 				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
 				imageCacheMode: IMAGE_CACHE_MODE.Off,

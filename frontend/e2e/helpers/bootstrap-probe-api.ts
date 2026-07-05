@@ -4,6 +4,8 @@ import type {
 	BootstrapOpenSeaSlugProbeApiResponse
 } from '../../src/lib/api-types';
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/bootstrap';
+import { BOOTSTRAP_API_QUERY_PARAM } from '@artgod/shared/http/bootstrap-routes';
+import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-image-source';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 import { TERRAFORMS_EXTENSION_KEY } from '@artgod/shared/extensions/terraforms';
@@ -60,6 +62,7 @@ export type CapturedBootstrapMutation = {
 export type BootstrapProbeApiMock = {
 	mutations: CapturedBootstrapMutation[];
 	probeRequests: string[];
+	probeRequestImageSourceFields: (string | null)[];
 	openSeaSlugProbeRequests: string[];
 	openSeaSlugVerificationRequests: string[];
 	imageCacheEstimateRequests: unknown[];
@@ -69,6 +72,7 @@ export type BootstrapProbeApiMock = {
 export async function installBootstrapProbeApiMock(page: Page): Promise<BootstrapProbeApiMock> {
 	const mutations: CapturedBootstrapMutation[] = [];
 	const probeRequests: string[] = [];
+	const probeRequestImageSourceFields: (string | null)[] = [];
 	const openSeaSlugProbeRequests: string[] = [];
 	const openSeaSlugVerificationRequests: string[] = [];
 	const imageCacheEstimateRequests: unknown[] = [];
@@ -92,9 +96,15 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 		}
 
 		if (request.method() === 'GET' && url.pathname.endsWith('/collections/bootstrap/probe')) {
-			const address = normalizeAddress(url.searchParams.get('address') ?? '');
+			const address = normalizeAddress(
+				url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.Address) ?? ''
+			);
+			const imageSourceField = normalizeImageSourceField(
+				url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.ImageSourceField)
+			);
 			probeRequests.push(address);
-			await fulfillJson(route, probeResponse(address));
+			probeRequestImageSourceFields.push(imageSourceField);
+			await fulfillJson(route, probeResponse(address, imageSourceField));
 			return;
 		}
 
@@ -102,8 +112,10 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 			request.method() === 'GET' &&
 			url.pathname.endsWith('/collections/bootstrap/opensea-slug-probe')
 		) {
-			const address = normalizeAddress(url.searchParams.get('address') ?? '');
-			const slug = normalizeSlug(url.searchParams.get('slug') ?? '');
+			const address = normalizeAddress(
+				url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.Address) ?? ''
+			);
+			const slug = normalizeSlug(url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.Slug) ?? '');
 			if (slug) {
 				openSeaSlugVerificationRequests.push(slug);
 				await fulfillJson(route, openSeaSlugProbeResponseForSlug(slug));
@@ -180,6 +192,7 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 					requestSlug: 'bootstrap-probe-created',
 					requestOpenseaSlug: 'raster-images-2026',
 					requestAddress: BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster,
+					imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
 					requestStandard: 'erc721',
 					metadataMode: 'strict',
 					enumerationMode: 'enumerable',
@@ -256,6 +269,7 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 	return {
 		mutations,
 		probeRequests,
+		probeRequestImageSourceFields,
 		openSeaSlugProbeRequests,
 		openSeaSlugVerificationRequests,
 		imageCacheEstimateRequests
@@ -331,7 +345,10 @@ function buildOpenSeaSlugProbeResponse(input: {
 	};
 }
 
-function probeResponse(address: string): BootstrapContractProbeApiResponse {
+function probeResponse(
+	address: string,
+	requestedImageSourceField: string | null
+): BootstrapContractProbeApiResponse {
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable) {
 		return buildProbeResponse({
 			address,
@@ -341,6 +358,8 @@ function probeResponse(address: string): BootstrapContractProbeApiResponse {
 			firstTokenId: '1',
 			firstTokenName: 'Non Enumerable #1',
 			firstTokenImage: BOOTSTRAP_PROBE_MEDIA.NonEnumerableImage,
+			firstTokenImageSourceField:
+				requestedImageSourceField ?? TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
 			firstTokenImageBytes: 34567,
 			firstTokenImageContentType: 'image/png',
 			firstTokenSource: 'candidate_token_uri',
@@ -363,6 +382,8 @@ function probeResponse(address: string): BootstrapContractProbeApiResponse {
 			firstTokenId: '0',
 			firstTokenName: 'Raster #0',
 			firstTokenImage: BOOTSTRAP_PROBE_MEDIA.RasterImage,
+			firstTokenImageSourceField:
+				requestedImageSourceField ?? TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
 			firstTokenImageBytes: 98234,
 			firstTokenImageContentType: 'image/png',
 			firstTokenSource: 'token_by_index',
@@ -382,6 +403,8 @@ function probeResponse(address: string): BootstrapContractProbeApiResponse {
 			firstTokenId: '1',
 			firstTokenName: 'Onchain SVG #1',
 			firstTokenImage: BOOTSTRAP_PROBE_MEDIA.OnchainSvgImage,
+			firstTokenImageSourceField:
+				requestedImageSourceField ?? TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData,
 			firstTokenImageBytes: 612,
 			firstTokenImageContentType: 'image/svg+xml',
 			firstTokenSource: 'token_by_index',
@@ -410,6 +433,7 @@ function buildProbeResponse(input: {
 	firstTokenId: string;
 	firstTokenName: string;
 	firstTokenImage: string;
+	firstTokenImageSourceField: string;
 	firstTokenImageBytes: number;
 	firstTokenImageContentType: string;
 	firstTokenSource: 'token_by_index' | 'candidate_token_uri';
@@ -453,6 +477,7 @@ function buildProbeResponse(input: {
 			tokenUriPayloadError: null,
 			name: input.firstTokenName,
 			image: input.firstTokenImage,
+			imageSourceField: input.firstTokenImageSourceField,
 			imageBytes: input.firstTokenImageBytes,
 			imageBytesSource: input.firstTokenImage.startsWith('data:') ? 'data_uri' : 'download',
 			imageContentType: input.firstTokenImageContentType,
@@ -507,6 +532,11 @@ function normalizeAddress(address: string): string {
 
 function normalizeSlug(slug: string): string {
 	return slug.trim().toLowerCase();
+}
+
+function normalizeImageSourceField(value: string | null): string | null {
+	const trimmed = value?.trim();
+	return trimmed ? trimmed : null;
 }
 
 async function fulfillJson(route: Route, body: unknown): Promise<void> {

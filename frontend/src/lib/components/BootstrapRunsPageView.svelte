@@ -101,6 +101,7 @@
 	type ImageCacheEstimateUiStatus =
 		(typeof imageCacheEstimateUiStatus)[keyof typeof imageCacheEstimateUiStatus];
 	const openSeaSlugProbeFormId = 'bootstrap-opensea-slug-probe-form';
+	const imageSourceProbeFormId = 'bootstrap-image-source-probe-form';
 	const openSeaSetupMessage =
 		`Set ${OPENSEA_API_KEY_ENV} in Admin UI to sync OpenSea market/orderbook asks/offers required by built-in bidding bot features. Fully restart the app after saving the key in Admin UI.`;
 	const bootstrapPreviewMediaModes: ApiCollectionMediaMode[] = [
@@ -109,6 +110,7 @@
 	const tokenPreview = getTokenPreviewController();
 	const bootstrapFieldHelp = {
 		address: 'ERC721 contract address to probe and bootstrap.',
+		imageSourceField: 'Metadata field used as the original token image source.',
 		slug: 'Local collection slug used in ArtGod URLs.',
 		openseaSlug:
 			'Required for bidding. OpenSea event streams and orderbook require the OpenSea collection slug.',
@@ -149,6 +151,9 @@
 	let collectionSlugInputHasValue = $state(false);
 	let lastAutoFilledSlug = $state<string | null>(null);
 	let bootstrapAddress = $state('');
+	let imageSourceField = $state('');
+	let imageSourceFieldInputElement = $state<HTMLInputElement | null>(null);
+	let imageSourceFieldDirty = $state(false);
 	let bootstrapOpenSeaSlug = $state('');
 	let openSeaSlugInputElement = $state<HTMLInputElement | null>(null);
 	let openSeaSlugInputHasValue = $state(false);
@@ -202,7 +207,18 @@
 	let latestProbeMatchesAddress = $derived(
 		probeStatus === 'ready' && probeAddress === normalizedBootstrapAddress
 	);
-	let formDetailsReady = $derived(latestProbeMatchesAddress && probeResult !== null);
+	let contractProbePending = $derived(probeStatus === 'waiting' || probeStatus === 'loading');
+	let imageSourceFieldSectionVisible = $derived(
+		(probeAddress === normalizedBootstrapAddress && probeResult !== null) ||
+			(contractProbePending && imageSourceFieldDirty)
+	);
+	let imageSourceFieldResolved = $derived(isImageSourceFieldResolved());
+	let imageSourceProbeButtonVisible = $derived(
+		imageSourceFieldSectionVisible && !imageSourceFieldResolved && !contractProbePending
+	);
+	let formDetailsReady = $derived(
+		latestProbeMatchesAddress && probeResult !== null && imageSourceFieldResolved
+	);
 	let openSeaSlugProbePending = $derived(
 		openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Waiting ||
 			openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Loading
@@ -278,6 +294,8 @@
 			probeStatus !== 'idle' ||
 			probeResult !== null ||
 			probeAddress !== null ||
+			imageSourceField.trim().length > 0 ||
+			imageSourceFieldDirty ||
 			openSeaSlugProbeStatus !== openSeaSlugProbeUiStatus.Idle ||
 			bootstrapSlug.trim().length > 0 ||
 			bootstrapOpenSeaSlug.trim().length > 0 ||
@@ -291,6 +309,8 @@
 		contractProbeRequestId += 1;
 		openSeaSlugProbeRequestId += 1;
 		bootstrapAddress = nextAddress;
+		setImageSourceFieldValue('');
+		imageSourceFieldDirty = false;
 		setCollectionSlugInputValue('');
 		lastAutoFilledSlug = null;
 		setOpenSeaSlugInputValue('');
@@ -312,6 +332,30 @@
 		probeResult = null;
 		probeError = null;
 		probeAddress = null;
+		resetOpenSeaSlugProbeState();
+		resetImageCacheEstimateState();
+	}
+
+	function resetFormBelowImageSourceField(): void {
+		openSeaSlugProbeRequestId += 1;
+		imageCacheEstimateRequestId += 1;
+		setCollectionSlugInputValue('');
+		lastAutoFilledSlug = null;
+		setOpenSeaSlugInputValue('');
+		openSeaSlugInputHasValue = false;
+		lastAutoFilledOpenSeaSlug = null;
+		openSeaSlugWasAutoFilled = false;
+		metadataMode = DEFAULT_BOOTSTRAP_METADATA_MODE;
+		supportsEnumerable = false;
+		manualMode = 'manual_range';
+		manualTokenIds = '';
+		manualRangeStartTokenId = '';
+		manualRangeTotalSupply = '';
+		imageCacheMode = IMAGE_CACHE_MODE.CacheOnce;
+		setImageCacheMaxDimensionValue(String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION));
+		resetImageCachePolicySource();
+		manualEditingAllowed = false;
+		submitError = null;
 		resetOpenSeaSlugProbeState();
 		resetImageCacheEstimateState();
 	}
@@ -348,6 +392,15 @@
 		).toLowerCase();
 	}
 
+	function setImageSourceFieldValue(value: string): void {
+		imageSourceField = value;
+		if (imageSourceFieldInputElement) imageSourceFieldInputElement.value = value;
+	}
+
+	function readImageSourceFieldInputValue(): string {
+		return normalizeFieldValue(imageSourceFieldInputElement?.value ?? imageSourceField);
+	}
+
 	function onCollectionSlugInput(event: Event): void {
 		const target = event.currentTarget;
 		if (!(target instanceof HTMLInputElement)) return;
@@ -378,9 +431,29 @@
 	}
 
 	function onBootstrapAddressFocus(event: FocusEvent): void {
-		if (!formDetailsReady) return;
+		if (!latestProbeMatchesAddress) return;
 		const target = event.currentTarget;
 		if (target instanceof HTMLInputElement) target.select();
+	}
+
+	function onImageSourceFieldInput(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLInputElement)) return;
+		cancelContractProbeTimer();
+		contractProbeRequestId += 1;
+		imageSourceField = target.value;
+		imageSourceFieldDirty = true;
+		probeError = null;
+		resetFormBelowImageSourceField();
+	}
+
+	function onSubmitImageSourceProbe(event: SubmitEvent): void {
+		event.preventDefault();
+		const chainSlug = chain?.slug ?? null;
+		const address = normalizeBootstrapAddress(bootstrapAddress);
+		if (!chainSlug || !isBootstrapProbeableAddress(address)) return;
+		contractProbeRequestId += 1;
+		scheduleContractProbe(chainSlug, address, readImageSourceFieldInputValue(), false);
 	}
 
 	function maybeStartContractProbe(addressInput: string): void {
@@ -400,41 +473,51 @@
 			probeError = 'chain is not ready';
 			return;
 		}
-		scheduleContractProbe(chainSlug, normalizeBootstrapAddress(addressInput));
+		scheduleContractProbe(chainSlug, normalizeBootstrapAddress(addressInput), null, true);
 	}
 
-	function scheduleContractProbe(chainSlug: string, address: string): void {
+	function scheduleContractProbe(
+		chainSlug: string,
+		address: string,
+		imageSourceFieldOverride: string | null,
+		useDelay: boolean
+	): void {
 		const requestId = contractProbeRequestId;
 		probeStatus = 'waiting';
-		probeResult = null;
-		probeAddress = null;
+		if (!imageSourceFieldSectionVisible) {
+			probeResult = null;
+			probeAddress = null;
+		}
 		probeError = null;
 		manualEditingAllowed = false;
 		resetImageCachePolicySource();
-		if (!browser) {
-			void runContractProbe(chainSlug, address, requestId);
+		if (!browser || !useDelay) {
+			void runContractProbe(chainSlug, address, requestId, imageSourceFieldOverride);
 			return;
 		}
 		contractProbeTimer = window.setTimeout(() => {
-			void runContractProbe(chainSlug, address, requestId);
+			void runContractProbe(chainSlug, address, requestId, imageSourceFieldOverride);
 		}, contractProbeDelayMs);
 	}
 
 	async function runContractProbe(
 		chainSlug: string,
 		address: string,
-		requestId: number
+		requestId: number,
+		imageSourceFieldOverride: string | null
 	): Promise<void> {
 		probeStatus = 'loading';
 		try {
-			const result = await probeBootstrapCollectionContract(fetch, chainSlug, address);
+			const result = await probeBootstrapCollectionContract(fetch, chainSlug, address, {
+				imageSourceField: imageSourceFieldOverride
+			});
 			if (requestId !== contractProbeRequestId) return;
 			probeStatus = 'ready';
 			probeResult = result;
 			probeAddress = result.address;
 			manualEditingAllowed = false;
-			applyProbeResult(result);
-			if (openSeaEnabled) {
+			applyProbeResult(result, imageSourceFieldOverride);
+			if (isImageSourceFieldResolved() && openSeaEnabled) {
 				scheduleOpenSeaAddressProbe(chainSlug, result.address);
 			} else {
 				resetOpenSeaSlugProbeState();
@@ -442,8 +525,12 @@
 		} catch (error) {
 			if (requestId !== contractProbeRequestId) return;
 			probeStatus = 'error';
-			probeResult = null;
-			probeAddress = null;
+			if (imageSourceFieldOverride === null) {
+				probeResult = null;
+				probeAddress = null;
+			} else {
+				probeAddress = address;
+			}
 			probeError = error instanceof Error ? error.message : 'contract probe failed';
 		}
 	}
@@ -529,9 +616,17 @@
 		}
 	}
 
-	function applyProbeResult(result: BootstrapContractProbeApiResponse): void {
+	function applyProbeResult(
+		result: BootstrapContractProbeApiResponse,
+		requestedImageSourceField: string | null
+	): void {
 		const patch = bootstrapProbeFormPatch(result);
 		const slugSuggestion = contractNameToBootstrapSlug(result.contractName);
+		const resolvedImageSourceField = normalizeFieldValue(result.firstToken.imageSourceField);
+		setImageSourceFieldValue(
+			resolvedImageSourceField || normalizeFieldValue(requestedImageSourceField)
+		);
+		imageSourceFieldDirty = false;
 		if (slugSuggestion && (!bootstrapSlug.trim() || bootstrapSlug === lastAutoFilledSlug)) {
 			setCollectionSlugInputValue(slugSuggestion);
 			lastAutoFilledSlug = slugSuggestion;
@@ -567,6 +662,13 @@
 
 	function normalizeOpenSeaSlugInput(value: string): string {
 		return value.trim().toLowerCase();
+	}
+
+	function isImageSourceFieldResolved(): boolean {
+		if (!latestProbeMatchesAddress || !probeResult) return false;
+		const resolvedField = normalizeFieldValue(probeResult.firstToken.imageSourceField);
+		if (!resolvedField || !probeResult.firstToken.image) return false;
+		return normalizeFieldValue(imageSourceField) === resolvedField && !imageSourceFieldDirty;
 	}
 
 	function isOpenSeaSlugResolved(): boolean {
@@ -827,6 +929,7 @@
 	function probeSubmitGuard(address: string): string | null {
 		if (!isBootstrapProbeableAddress(address)) return 'valid address is required';
 		if (!latestProbeMatchesAddress) return 'contract probe must complete before queueing bootstrap';
+		if (!imageSourceFieldResolved) return 'image source field must resolve before queueing bootstrap';
 		if (supportsEnumerable && probeResult?.enumerable.supported !== true) {
 			return 'enumerable support was not confirmed';
 		}
@@ -912,6 +1015,13 @@
 			submitError = probeGuardError;
 			return;
 		}
+		const resolvedImageSourceField = normalizeFieldValue(
+			probeResult?.firstToken.imageSourceField
+		);
+		if (!resolvedImageSourceField) {
+			submitError = 'image source field is required';
+			return;
+		}
 
 		let manualInput:
 			| {
@@ -975,6 +1085,7 @@
 				slug,
 				address,
 				openseaSlug: openseaSlug || undefined,
+				imageSourceField: resolvedImageSourceField,
 				standard: 'erc721',
 				metadataMode,
 				supportsEnumerable,
@@ -1041,6 +1152,11 @@
 		class="bootstrap-hidden-form"
 		onsubmit={onSubmitOpenSeaSlugProbe}
 	></form>
+	<form
+		id={imageSourceProbeFormId}
+		class="bootstrap-hidden-form"
+		onsubmit={onSubmitImageSourceProbe}
+	></form>
 	<form class="bootstrap-form bootstrap-create-form" onsubmit={onBootstrapFormSubmit}>
 		<div class="bootstrap-create-layout">
 			<div class="bootstrap-form-fields">
@@ -1065,6 +1181,48 @@
 					</label>
 				</div>
 
+				{#if imageSourceFieldSectionVisible}
+					<div class="bootstrap-form-section bootstrap-image-source-section">
+						<label class="bootstrap-form-row">
+							{@render fieldLabel('Image source field', bootstrapFieldHelp.imageSourceField)}
+							<div class="bootstrap-input-status-row">
+								<input
+									bind:this={imageSourceFieldInputElement}
+									value={imageSourceField}
+									class={`${bootstrapInputClass} bootstrap-input-slug`}
+									type="text"
+									name="imageSourceField"
+									form={imageSourceProbeFormId}
+									oninput={onImageSourceFieldInput}
+								/>
+								{#if imageSourceFieldResolved}
+									<span class="bid-book-own-status bid-book-own-status-draw bootstrap-resolution-badge">
+										resolved
+									</span>
+								{:else if contractProbePending}
+									<span class="muted">
+										{@render inProgressStatus('probing', 'probing image source field')}
+									</span>
+								{:else if imageSourceProbeButtonVisible}
+									<button
+										type="submit"
+										form={imageSourceProbeFormId}
+										disabled={!addressCanBeProbed}
+									>
+										probe again
+									</button>
+								{/if}
+							</div>
+						</label>
+						{#if probeError}
+							<div class="bootstrap-form-row">
+								{@render fieldLabel('Probe error', bootstrapFieldHelp.probeError)}
+								<div class="muted">{probeError}</div>
+							</div>
+						{/if}
+					</div>
+				{/if}
+
 				{#if formDetailsReady && firstTokenCard}
 					<div class="bootstrap-form-section bootstrap-token-preview-section">
 						<aside class="bootstrap-token-card-pane" aria-label="Token image preview">
@@ -1084,7 +1242,7 @@
 					</div>
 				{/if}
 
-				{#if probeStatus !== 'idle'}
+				{#if probeStatus !== 'idle' && (!imageSourceFieldSectionVisible || formDetailsReady)}
 					<div class="bootstrap-form-section bootstrap-probe-section">
 						<div class="bootstrap-form-row">
 							{@render fieldLabel('Contract probe status', bootstrapFieldHelp.probeStatus)}
