@@ -27,6 +27,7 @@
 		loading,
 		busyAction = null,
 		errorMessage = null,
+		infraRunning = false,
 		onSave,
 		onBenchmarkRpcEndpoints,
 		onClose
@@ -35,6 +36,7 @@
 		loading: boolean;
 		busyAction?: string | null;
 		errorMessage?: string | null;
+		infraRunning?: boolean;
 		onSave: (input: AdminConfigSaveInput) => Promise<void>;
 		onBenchmarkRpcEndpoints: (input: {
 			source: string;
@@ -346,7 +348,12 @@
 									reset defaults
 								</button>
 							</div>
-							<div class="admin-config-action-group">
+							<div class="admin-config-action-group admin-config-save-action-group">
+								{#if infraRunning}
+									<p class="admin-config-restart-note">
+										Saved changes apply after you stop and restart infra.
+									</p>
+								{/if}
 								<button type="submit" class="action-button-positive" disabled={saveDisabled}>
 									{busyAction === 'save' ? 'saving...' : 'save'}
 								</button>
@@ -469,6 +476,19 @@
 
 	.admin-config-action-group:last-child {
 		justify-self: end;
+	}
+
+	.admin-config-save-action-group {
+		justify-content: flex-end;
+	}
+
+	.admin-config-restart-note {
+		margin: 0;
+		max-width: 16.5rem;
+		color: var(--c-yellow);
+		font-size: 0.72rem;
+		line-height: 1.25;
+		text-align: right;
 	}
 
 	.admin-config-actions button {
