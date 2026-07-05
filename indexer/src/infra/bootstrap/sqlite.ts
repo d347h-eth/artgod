@@ -25,6 +25,15 @@ import type {
 const ZERO_HASH =
     "0x0000000000000000000000000000000000000000000000000000000000000000";
 
+// Bootstrap task queues sort token_id as numeric text so token 2 runs before token 10 without unsafe integer casts.
+const TOKEN_ID_NUMERIC_SORT_VALUE_SQL =
+    "CASE WHEN LTRIM(token_id, '0') = '' THEN '0' ELSE LTRIM(token_id, '0') END";
+const TOKEN_ID_NUMERIC_ORDER_SQL =
+    "CASE WHEN token_id <> '' AND token_id NOT GLOB '*[^0-9]*' THEN 0 ELSE 1 END ASC, " +
+    `LENGTH(${TOKEN_ID_NUMERIC_SORT_VALUE_SQL}) ASC, ` +
+    `${TOKEN_ID_NUMERIC_SORT_VALUE_SQL} ASC, token_id ASC`;
+const BOOTSTRAP_TASK_DUE_ORDER_SQL = `ORDER BY next_attempt_at ASC, ${TOKEN_ID_NUMERIC_ORDER_SQL}`;
+
 // Raw row shape returned by sqlite for due metadata snapshot task queries.
 // We keep it explicit so storage-to-domain mapping stays centralized and reusable.
 type BootstrapMetadataTaskDbRow = {
@@ -147,7 +156,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             "FROM bootstrap_metadata_snapshot_tasks " +
             "WHERE run_id = @runId " +
             "AND status IN (@pendingStatus, @retryStatus) AND next_attempt_at <= @nowMs " +
-            "ORDER BY next_attempt_at ASC, token_id ASC LIMIT @limit",
+            `${BOOTSTRAP_TASK_DUE_ORDER_SQL} LIMIT @limit`,
     );
     private markMetadataTaskSucceededStmt = db.prepare<{
         runId: number;
@@ -182,7 +191,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     private selectMetadataTaskTokenIdsStmt = db.prepare<{ runId: number }>(
         "SELECT token_id FROM bootstrap_metadata_snapshot_tasks " +
             "WHERE run_id = @runId " +
-            "ORDER BY token_id ASC",
+            `ORDER BY ${TOKEN_ID_NUMERIC_ORDER_SQL}`,
     );
     private resetImageCacheTasksStmt = db.prepare<{ runId: number }>(
         "DELETE FROM bootstrap_image_cache_tasks WHERE run_id = @runId",
@@ -228,7 +237,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             "FROM bootstrap_image_cache_tasks " +
             "WHERE run_id = @runId " +
             "AND status IN (@pendingStatus, @retryStatus) AND next_attempt_at <= @nowMs " +
-            "ORDER BY next_attempt_at ASC, token_id ASC LIMIT @limit",
+            `${BOOTSTRAP_TASK_DUE_ORDER_SQL} LIMIT @limit`,
     );
     private markImageCacheTaskSucceededStmt = db.prepare<{
         runId: number;
@@ -328,7 +337,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             "FROM bootstrap_ownership_snapshot_tasks " +
             "WHERE run_id = @runId " +
             "AND status IN (@pendingStatus, @retryStatus) AND next_attempt_at <= @nowMs " +
-            "ORDER BY next_attempt_at ASC, token_id ASC LIMIT @limit",
+            `${BOOTSTRAP_TASK_DUE_ORDER_SQL} LIMIT @limit`,
     );
     private markOwnershipTaskSucceededStmt = db.prepare<{
         runId: number;
@@ -415,7 +424,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             "WHERE run_id = @runId " +
             "AND status IN (@pendingStatus, @retryStatus) AND next_attempt_at <= @nowMs " +
             "AND (lease_until IS NULL OR lease_until <= @nowMs) " +
-            "ORDER BY next_attempt_at ASC, token_id ASC LIMIT @limit",
+            `${BOOTSTRAP_TASK_DUE_ORDER_SQL} LIMIT @limit`,
     );
     private selectCollectionExtensionArtifactTasksToPublishStmt = db.prepare<{
         runId: number;
