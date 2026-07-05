@@ -8,7 +8,7 @@
 		BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION
 	} from '@artgod/shared/config/bootstrap';
 	import { OPENSEA_API_KEY_ENV } from '@artgod/shared/config/opensea-integration';
-	import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
+	import { IMAGE_CACHE_MODE, imageCacheModeLabel } from '@artgod/shared/media/token-image-cache';
 	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 	import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 	import type {
@@ -772,7 +772,7 @@
 		if (imageCacheMode === IMAGE_CACHE_MODE.CacheOnce) {
 			return `cache local files once; max ${imageCacheDimensionPlanLabel()}`;
 		}
-		return `refresh local files on metadata; max ${imageCacheDimensionPlanLabel()}`;
+		return `${imageCacheModeLabel(IMAGE_CACHE_MODE.RefreshOnMetadata)}; max ${imageCacheDimensionPlanLabel()}`;
 	}
 
 	function imageCacheSampleOutputValue(): string {
@@ -1193,9 +1193,15 @@
 								onchange={onImageCacheModeChange}
 								disabled={imageCacheExtensionControlledDisabled}
 							>
-								<option value={IMAGE_CACHE_MODE.Off}>off</option>
-								<option value={IMAGE_CACHE_MODE.CacheOnce}>cache once</option>
-								<option value={IMAGE_CACHE_MODE.RefreshOnMetadata}>refresh on metadata</option>
+								<option value={IMAGE_CACHE_MODE.Off}>
+									{imageCacheModeLabel(IMAGE_CACHE_MODE.Off)}
+								</option>
+								<option value={IMAGE_CACHE_MODE.CacheOnce}>
+									{imageCacheModeLabel(IMAGE_CACHE_MODE.CacheOnce)}
+								</option>
+								<option value={IMAGE_CACHE_MODE.RefreshOnMetadata}>
+									{imageCacheModeLabel(IMAGE_CACHE_MODE.RefreshOnMetadata)}
+								</option>
 							</select>
 						</label>
 						{#if imageCacheMode !== IMAGE_CACHE_MODE.Off}
