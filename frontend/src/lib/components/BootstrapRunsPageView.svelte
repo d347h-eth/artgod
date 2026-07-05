@@ -30,6 +30,7 @@
 		probeBootstrapOpenSeaSlug
 	} from '$lib/backend-api';
 	import {
+		bootstrapProbeNeedsManualScope,
 		bootstrapProbeFormPatch,
 		bootstrapProbeStatusLabel,
 		contractNameToBootstrapSlug,
@@ -46,7 +47,12 @@
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import { TEST_IDS } from '$lib/test-ids';
+	import { BOOTSTRAP_ENUMERATION_MODE } from '@artgod/shared/bootstrap/pipeline';
 	import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from '@artgod/shared/bootstrap/opensea-slug-probe';
+
+	type BootstrapManualEnumerationMode =
+		| typeof BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
+		| typeof BOOTSTRAP_ENUMERATION_MODE.ManualRange;
 
 	let {
 		chain,
@@ -106,6 +112,8 @@
 		`Set ${OPENSEA_API_KEY_ENV} in Admin UI to sync OpenSea market/orderbook asks/offers required by built-in bidding bot features. Fully restart the app after saving the key in Admin UI.`;
 	const imageCachePreviewMessage =
 		'This preview was generated with the selected cache settings. If it looks wrong or does not render, choose caching: off.';
+	const manualScopeProbeMessage =
+		'The probe could not confirm the collection supply. This usually means the collection is on a shared contract. Enable manual editing below, then set the manual scope and supply for this collection.';
 	const bootstrapPreviewMediaModes: ApiCollectionMediaMode[] = [
 		{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
 	];
@@ -161,7 +169,9 @@
 	let openSeaSlugInputHasValue = $state(false);
 	let metadataMode = $state(DEFAULT_BOOTSTRAP_METADATA_MODE);
 	let supportsEnumerable = $state(false);
-	let manualMode = $state<'manual_token_ids' | 'manual_range'>('manual_range');
+	let manualMode = $state<BootstrapManualEnumerationMode>(
+		BOOTSTRAP_ENUMERATION_MODE.ManualRange
+	);
 	let manualTokenIds = $state('');
 	let manualRangeStartTokenId = $state('');
 	let manualRangeTotalSupply = $state('');
@@ -239,16 +249,8 @@
 	let openSeaSlugResolved = $derived(isOpenSeaSlugResolved());
 	let openSeaSlugIncorrect = $derived(isOpenSeaSlugIncorrect());
 	let openSeaBiddingUnavailableMessage = $derived(resolveOpenSeaBiddingUnavailableMessage());
-	let submitDisabled = $derived(
-		submitting ||
-			!chain ||
-			!addressCanBeProbed ||
-			!formDetailsReady ||
-			!collectionSlugInputHasValue ||
-			openSeaSlugProbePending ||
-			(imageCacheMode !== IMAGE_CACHE_MODE.Off && !imageCacheEstimateReady) ||
-			(openSeaEnabled && openSeaSlugInputHasValue && !openSeaSlugResolved)
-	);
+	let queueBootstrapBlockers = $derived(resolveQueueBootstrapBlockers());
+	let submitDisabled = $derived(submitting || queueBootstrapBlockers.length > 0);
 	let probeControlledDisabled = $derived(
 		formDetailsReady && !manualEditingAllowed
 	);
@@ -323,7 +325,7 @@
 		openSeaSlugWasAutoFilled = false;
 		metadataMode = DEFAULT_BOOTSTRAP_METADATA_MODE;
 		supportsEnumerable = false;
-		manualMode = 'manual_range';
+		manualMode = BOOTSTRAP_ENUMERATION_MODE.ManualRange;
 		manualTokenIds = '';
 		manualRangeStartTokenId = '';
 		manualRangeTotalSupply = '';
@@ -351,7 +353,7 @@
 		openSeaSlugWasAutoFilled = false;
 		metadataMode = DEFAULT_BOOTSTRAP_METADATA_MODE;
 		supportsEnumerable = false;
-		manualMode = 'manual_range';
+		manualMode = BOOTSTRAP_ENUMERATION_MODE.ManualRange;
 		manualTokenIds = '';
 		manualRangeStartTokenId = '';
 		manualRangeTotalSupply = '';
@@ -636,8 +638,8 @@
 			lastAutoFilledSlug = slugSuggestion;
 		}
 		supportsEnumerable = patch.supportsEnumerable;
-		if (patch.manualMode === 'manual_range') {
-			manualMode = 'manual_range';
+		if (!patch.supportsEnumerable) {
+			manualMode = patch.manualMode ?? BOOTSTRAP_ENUMERATION_MODE.ManualRange;
 			manualRangeStartTokenId = patch.manualRangeStartTokenId;
 			manualRangeTotalSupply = patch.manualRangeTotalSupply;
 		}
@@ -710,6 +712,16 @@
 		if (probeStatus === 'ready' && probeResult) return bootstrapProbeStatusLabel(probeResult);
 		if (probeStatus === 'error') return 'probe failed';
 		return '';
+	}
+
+	function probeNeedsManualScope(): boolean {
+		return probeStatus === 'ready' && probeResult !== null && bootstrapProbeNeedsManualScope(probeResult);
+	}
+
+	function probeStatusValueClass(): string {
+		return probeNeedsManualScope()
+			? 'bootstrap-probe-status mono bootstrap-probe-status-action-required'
+			: 'bootstrap-probe-status mono';
 	}
 
 	function openSeaSlugProbeMessage(): string | null {
@@ -848,6 +860,37 @@
 		void onEstimateImageCache();
 	}
 
+	function onManualScopeModeChange(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLSelectElement)) return;
+		manualMode =
+			target.value === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
+				? BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
+				: BOOTSTRAP_ENUMERATION_MODE.ManualRange;
+		resetImageCacheEstimateState();
+	}
+
+	function onManualTokenIdsInput(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLTextAreaElement)) return;
+		manualTokenIds = target.value;
+		resetImageCacheEstimateState();
+	}
+
+	function onManualRangeStartTokenIdInput(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLInputElement)) return;
+		manualRangeStartTokenId = target.value;
+		resetImageCacheEstimateState();
+	}
+
+	function onManualRangeTotalSupplyInput(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLInputElement)) return;
+		manualRangeTotalSupply = target.value;
+		resetImageCacheEstimateState();
+	}
+
 	function commitImageCacheMaxDimensionDraft(): void {
 		cancelImageCacheDimensionTimer();
 		imageCacheMaxDimension = imageCacheMaxDimensionDraft;
@@ -857,7 +900,7 @@
 	function canRunImageCacheEstimate(): boolean {
 		if (!formDetailsReady || imageCacheMode === IMAGE_CACHE_MODE.Off) return false;
 		if (!probeResult?.firstToken.tokenId || !probeResult.firstToken.image) return false;
-		if (!probeResult.totalSupply.value) return false;
+		if (!resolvedBootstrapScopeTotalSupply()) return false;
 		return imageCacheEstimateStatus === imageCacheEstimateUiStatus.Idle;
 	}
 
@@ -875,7 +918,8 @@
 			return;
 		}
 		const firstToken = probeResult.firstToken;
-		if (!firstToken.tokenId || !firstToken.image || !probeResult.totalSupply.value) return;
+		const totalSupply = resolvedBootstrapScopeTotalSupply();
+		if (!firstToken.tokenId || !firstToken.image || !totalSupply) return;
 		imageCacheEstimateRequestId += 1;
 		const requestId = imageCacheEstimateRequestId;
 		imageCacheEstimateStatus = imageCacheEstimateUiStatus.Loading;
@@ -886,7 +930,7 @@
 				sampleTokenId: firstToken.tokenId,
 				sourceImageUrl: firstToken.image,
 				sourceImageBytes: firstToken.imageBytes,
-				totalSupply: probeResult.totalSupply.value,
+				totalSupply,
 				imageCacheMode,
 				maxDimension
 			});
@@ -901,6 +945,92 @@
 			imageCacheEstimateError =
 				error instanceof Error ? error.message : 'image cache estimate failed';
 		}
+	}
+
+	function manualTokenIdList(): string[] {
+		return manualTokenIds
+			.split(/[\s,]+/)
+			.map((value) => value.trim())
+			.filter(Boolean);
+	}
+
+	function normalizedManualRangeStartTokenId(): string {
+		return normalizeFieldValue(manualRangeStartTokenId);
+	}
+
+	function normalizedManualRangeTotalSupply(): string {
+		const value = normalizeFieldValue(manualRangeTotalSupply);
+		return /^\d+$/.test(value) && BigInt(value) > 0n ? value : '';
+	}
+
+	function resolvedBootstrapScopeTotalSupply(): string | null {
+		if (!formDetailsReady || !probeResult) return null;
+		if (supportsEnumerable) {
+			return probeResult.totalSupply.value ?? null;
+		}
+		if (manualMode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds) {
+			const tokenIds = manualTokenIdList();
+			return tokenIds.length > 0 ? String(tokenIds.length) : null;
+		}
+		return normalizedManualRangeTotalSupply() || null;
+	}
+
+	function manualScopeBlocker(): string | null {
+		if (!formDetailsReady || supportsEnumerable) return null;
+		if (manualMode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds) {
+			return manualTokenIdList().length === 0
+				? 'Manual token IDs are required before queueing bootstrap.'
+				: null;
+		}
+
+		const startTokenId = normalizedManualRangeStartTokenId();
+		if (!startTokenId) {
+			return 'Manual range start token ID is required before queueing bootstrap.';
+		}
+		const totalSupply = normalizedManualRangeTotalSupply();
+		if (!totalSupply) {
+			return 'Manual range total supply must be a positive integer.';
+		}
+
+		const inferred = probeResult?.suggestedInput.manualInput;
+		if (
+			inferred &&
+			(inferred.startTokenId !== startTokenId || String(inferred.totalSupply) !== totalSupply)
+		) {
+			return 'Manual scope must match the latest contract probe.';
+		}
+		return null;
+	}
+
+	function imageCacheEstimateBlocker(): string | null {
+		if (imageCacheMode === IMAGE_CACHE_MODE.Off || imageCacheEstimateReady) return null;
+		if (imageCacheEstimateFailed) {
+			return 'Image cache estimate must succeed before queueing bootstrap.';
+		}
+		if (!probeResult?.firstToken.tokenId || !probeResult.firstToken.image) {
+			return 'Token image source must resolve before estimating image cache.';
+		}
+		if (!resolvedBootstrapScopeTotalSupply()) {
+			return 'Set collection scope and supply before estimating image cache.';
+		}
+		return 'Run image cache estimate before queueing bootstrap.';
+	}
+
+	function resolveQueueBootstrapBlockers(): string[] {
+		const blockers: string[] = [];
+		if (!chain) blockers.push('Chain configuration is still loading.');
+		if (!addressCanBeProbed) blockers.push('Enter a valid contract address.');
+		if (!formDetailsReady) blockers.push('Contract probe must finish before queueing bootstrap.');
+		if (!collectionSlugInputHasValue) blockers.push('Collection slug is required.');
+		if (openSeaSlugProbePending) blockers.push('OpenSea slug resolution is still running.');
+		if (openSeaEnabled && openSeaSlugInputHasValue && !openSeaSlugResolved) {
+			blockers.push('OpenSea slug must resolve before queueing bootstrap.');
+		}
+		const scopeBlocker = manualScopeBlocker();
+		if (scopeBlocker) blockers.push(scopeBlocker);
+		const cacheBlocker = imageCacheEstimateBlocker();
+		if (cacheBlocker) blockers.push(cacheBlocker);
+		return blockers;
 	}
 
 	function imageCachePolicySourceLabel(): string {
@@ -940,6 +1070,27 @@
 		return `${imageWidth} x ${imageHeight}px`;
 	}
 
+	function projectedTokenUriPayloadSizeValue(): string {
+		const projectedBytes = probeResult?.storageEstimate?.projectedBytes;
+		if (projectedBytes) return formatByteSize(projectedBytes);
+		const sampleBytes = probeResult?.firstToken.tokenUriPayloadBytes;
+		return projectedByteSizeValue(sampleBytes);
+	}
+
+	function projectedOriginalImageSizeValue(): string {
+		const projectedBytes = probeResult?.imageStorageEstimate?.projectedBytes;
+		if (projectedBytes) return formatByteSize(projectedBytes);
+		const sampleBytes = probeResult?.firstToken.imageBytes;
+		return projectedByteSizeValue(sampleBytes);
+	}
+
+	function projectedByteSizeValue(sampleBytes: number | null | undefined): string {
+		if (sampleBytes === null || sampleBytes === undefined) return '-';
+		const totalSupply = resolvedBootstrapScopeTotalSupply();
+		if (!totalSupply) return '-';
+		return formatByteSize((BigInt(sampleBytes) * BigInt(totalSupply)).toString());
+	}
+
 	function imageCacheOutputDimensionsValue(): string {
 		if (imageCacheMode === IMAGE_CACHE_MODE.Off) return 'not cached';
 		if (!imageCacheEstimateReady || !imageCacheEstimateResult) return 'not estimated';
@@ -961,16 +1112,8 @@
 		if (supportsEnumerable && probeResult?.enumerable.supported !== true) {
 			return 'enumerable support was not confirmed';
 		}
-		if (!supportsEnumerable && manualMode === 'manual_range') {
-			const inferred = probeResult?.suggestedInput.manualInput;
-			if (
-				inferred &&
-				(inferred.startTokenId !== normalizeFieldValue(manualRangeStartTokenId) ||
-					String(inferred.totalSupply) !== normalizeFieldValue(manualRangeTotalSupply))
-			) {
-				return 'scope fields must match the latest contract probe';
-			}
-		}
+		const scopeBlocker = manualScopeBlocker();
+		if (scopeBlocker) return scopeBlocker;
 		return null;
 	}
 
@@ -1053,33 +1196,30 @@
 
 		let manualInput:
 			| {
-					mode: 'manual_token_ids';
+					mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds;
 					tokenIds: string[];
 			  }
 			| {
-					mode: 'manual_range';
+					mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualRange;
 					startTokenId: string;
 					totalSupply: number;
 			  }
 			| undefined;
 
 		if (!supportsEnumerable) {
-			if (manualMode === 'manual_token_ids') {
-				const tokenIds = manualTokenIds
-					.split(/[\s,]+/)
-					.map((value) => value.trim())
-					.filter(Boolean);
+			if (manualMode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds) {
+				const tokenIds = manualTokenIdList();
 				if (tokenIds.length === 0) {
 					submitError = 'token ids are required';
 					return;
 				}
 				manualInput = {
-					mode: 'manual_token_ids',
+					mode: BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds,
 					tokenIds
 				};
 			} else {
-				const startTokenId = normalizeFieldValue(manualRangeStartTokenId);
-				const totalSupply = Number(manualRangeTotalSupply);
+				const startTokenId = normalizedManualRangeStartTokenId();
+				const totalSupply = Number(normalizedManualRangeTotalSupply());
 				if (!startTokenId) {
 					submitError = 'start token id is required';
 					return;
@@ -1089,7 +1229,7 @@
 					return;
 				}
 				manualInput = {
-					mode: 'manual_range',
+					mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
 					startTokenId,
 					totalSupply
 				};
@@ -1278,11 +1418,18 @@
 					<div class="bootstrap-form-section bootstrap-probe-section">
 						<div class="bootstrap-form-row">
 							{@render fieldLabel('Contract probe status', bootstrapFieldHelp.probeStatus)}
-							<div class="bootstrap-probe-status mono">
+							<div class={probeStatusValueClass()}>
 								{#if probeStatus === 'waiting' || probeStatus === 'loading'}
 									{@render inProgressStatus('probing', 'probing contract')}
 								{:else}
-									{probeStateLabel()}
+									<span>{probeStateLabel()}</span>
+									{#if probeNeedsManualScope()}
+										<InfoTooltip
+											text={manualScopeProbeMessage}
+											tone="warning"
+											className="bootstrap-probe-status-tooltip"
+										/>
+									{/if}
 								{/if}
 							</div>
 						</div>
@@ -1335,7 +1482,7 @@
 										<div class="bootstrap-form-row">
 											{@render fieldLabel('Est. metadata size (full collection)', bootstrapFieldHelp.projectedTokenUriPayloadSize)}
 											<div class="mono">
-												{formatByteSize(probeResult.storageEstimate?.projectedBytes)}
+												{projectedTokenUriPayloadSizeValue()}
 											</div>
 										</div>
 									</div>
@@ -1411,6 +1558,85 @@
 							</div>
 						</label>
 					</div>
+
+					<div class="bootstrap-form-section">
+						<label class="bootstrap-form-checkbox-row bootstrap-form-row">
+							{@render fieldLabel('Allow manual editing', bootstrapFieldHelp.manualEditing)}
+							<div class="bootstrap-manual-edit-control">
+								<input
+									bind:checked={manualEditingAllowed}
+									class={bootstrapCheckboxClass}
+									type="checkbox"
+									data-testid={TEST_IDS.BootstrapAllowManualEditing}
+								/>
+								<span class="muted">use only if you know what you are doing</span>
+							</div>
+						</label>
+					</div>
+
+					<div class="bootstrap-form-section">
+						<label class="bootstrap-form-checkbox-row bootstrap-form-row">
+							{@render fieldLabel('Use ERC721Enumerable token enumeration', bootstrapFieldHelp.supportsEnumerable)}
+							<input
+								bind:checked={supportsEnumerable}
+								class={bootstrapCheckboxClass}
+								type="checkbox"
+								disabled={probeControlledDisabled}
+							/>
+						</label>
+					</div>
+
+					{#if !supportsEnumerable}
+						<div class="bootstrap-form-section">
+							<label class="bootstrap-form-row">
+								{@render fieldLabel('Manual token scope mode', bootstrapFieldHelp.manualMode)}
+								<select
+									value={manualMode}
+									class={`${bootstrapSelectClass} bootstrap-input-select-medium`}
+									onchange={onManualScopeModeChange}
+									disabled={probeControlledDisabled}
+								>
+									<option value={BOOTSTRAP_ENUMERATION_MODE.ManualRange}>start + total supply</option>
+									<option value={BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds}>token ids list</option>
+								</select>
+							</label>
+							{#if manualMode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds}
+								<label class="bootstrap-form-row bootstrap-form-row-textarea">
+									{@render fieldLabel('Manual token IDs', bootstrapFieldHelp.tokenIds)}
+									<textarea
+										value={manualTokenIds}
+										class={`${bootstrapTextareaClass} bootstrap-input-token-ids`}
+										rows="4"
+										oninput={onManualTokenIdsInput}
+										disabled={probeControlledDisabled}
+									></textarea>
+								</label>
+							{:else}
+								<label class="bootstrap-form-row">
+									{@render fieldLabel('Manual range start token ID', bootstrapFieldHelp.startTokenId)}
+									<input
+										value={manualRangeStartTokenId}
+										class={`${bootstrapInputClass} bootstrap-input-token-id`}
+										type="text"
+										oninput={onManualRangeStartTokenIdInput}
+										disabled={probeControlledDisabled}
+									/>
+								</label>
+								<label class="bootstrap-form-row">
+									{@render fieldLabel('Manual range total supply', bootstrapFieldHelp.manualRangeTotalSupply)}
+									<input
+										value={manualRangeTotalSupply}
+										class={`${bootstrapInputClass} bootstrap-input-total-supply`}
+										type="text"
+										inputmode="numeric"
+										pattern="[0-9]*"
+										oninput={onManualRangeTotalSupplyInput}
+										disabled={probeControlledDisabled}
+									/>
+								</label>
+							{/if}
+						</div>
+					{/if}
 
 					<div class="bootstrap-form-section">
 						<label class="bootstrap-form-row">
@@ -1495,7 +1721,7 @@
 									<div class="bootstrap-form-row">
 										{@render fieldLabel('Est. source images size (full collection)', bootstrapFieldHelp.projectedOriginalImageFileSize)}
 										<div class="mono bootstrap-estimate-highlight">
-											{formatByteSize(probeResult.imageStorageEstimate?.projectedBytes)}
+											{projectedOriginalImageSizeValue()}
 										</div>
 									</div>
 									<div class="bootstrap-form-row">
@@ -1549,82 +1775,10 @@
 						{/if}
 					</div>
 
-					<div class="bootstrap-form-section">
-						<label class="bootstrap-form-checkbox-row bootstrap-form-row">
-							{@render fieldLabel('Allow manual editing', bootstrapFieldHelp.manualEditing)}
-							<div class="bootstrap-manual-edit-control">
-								<input
-									bind:checked={manualEditingAllowed}
-									class={bootstrapCheckboxClass}
-									type="checkbox"
-									data-testid={TEST_IDS.BootstrapAllowManualEditing}
-								/>
-								<span class="muted">use only if you know what you are doing</span>
-							</div>
-						</label>
-					</div>
-
-					<div class="bootstrap-form-section">
-						<label class="bootstrap-form-checkbox-row bootstrap-form-row">
-							{@render fieldLabel('Use ERC721Enumerable token enumeration', bootstrapFieldHelp.supportsEnumerable)}
-							<input
-								bind:checked={supportsEnumerable}
-								class={bootstrapCheckboxClass}
-								type="checkbox"
-								disabled={probeControlledDisabled}
-							/>
-						</label>
-					</div>
-
-					{#if !supportsEnumerable}
-						<div class="bootstrap-form-section">
-							<label class="bootstrap-form-row">
-								{@render fieldLabel('Manual token scope mode', bootstrapFieldHelp.manualMode)}
-								<select
-									bind:value={manualMode}
-									class={`${bootstrapSelectClass} bootstrap-input-select-medium`}
-									disabled={probeControlledDisabled}
-								>
-									<option value="manual_range">start + total supply</option>
-									<option value="manual_token_ids">token ids list</option>
-								</select>
-							</label>
-							{#if manualMode === 'manual_token_ids'}
-								<label class="bootstrap-form-row bootstrap-form-row-textarea">
-									{@render fieldLabel('Manual token IDs', bootstrapFieldHelp.tokenIds)}
-									<textarea
-										bind:value={manualTokenIds}
-										class={`${bootstrapTextareaClass} bootstrap-input-token-ids`}
-										rows="4"
-										disabled={probeControlledDisabled}
-									></textarea>
-								</label>
-							{:else}
-								<label class="bootstrap-form-row">
-									{@render fieldLabel('Manual range start token ID', bootstrapFieldHelp.startTokenId)}
-									<input
-										bind:value={manualRangeStartTokenId}
-										class={`${bootstrapInputClass} bootstrap-input-token-id`}
-										type="text"
-										disabled={probeControlledDisabled}
-									/>
-								</label>
-								<label class="bootstrap-form-row">
-									{@render fieldLabel('Manual range total supply', bootstrapFieldHelp.manualRangeTotalSupply)}
-									<input
-										bind:value={manualRangeTotalSupply}
-										class={`${bootstrapInputClass} bootstrap-input-total-supply`}
-										type="text"
-										inputmode="numeric"
-										pattern="[0-9]*"
-										disabled={probeControlledDisabled}
-									/>
-								</label>
-							{/if}
-						</div>
-					{/if}
-
 					<div class="bootstrap-form-actions">
+						{#each queueBootstrapBlockers as blocker}
+							<span class="muted">{blocker}</span>
+						{/each}
 						{#if openSeaBiddingUnavailableMessage}
 							<span class="muted">{openSeaBiddingUnavailableMessage}</span>
 						{/if}

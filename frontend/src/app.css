@@ -479,6 +479,23 @@ a:hover {
 	color: var(--c-cyan);
 }
 
+.bootstrap-probe-status-action-required {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	padding: 0 0.25rem;
+	background: color-mix(in srgb, var(--c-pink) 22%, transparent);
+	color: var(--c-pink);
+}
+
+.bootstrap-probe-status-tooltip.info-tooltip-warning {
+	color: var(--c-pink);
+}
+
+.bootstrap-probe-status-tooltip.info-tooltip-warning .info-tooltip-popup {
+	border-color: var(--c-pink);
+}
+
 .bootstrap-probe-chip-grid {
 	display: grid;
 	grid-template-columns: max-content max-content;

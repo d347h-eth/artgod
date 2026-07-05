@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/bootstrap';
+import { BOOTSTRAP_ENUMERATION_MODE } from '@artgod/shared/bootstrap/pipeline';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 import {
+	BOOTSTRAP_PROBE_STATUS_LABEL,
 	bootstrapProbeFormPatch,
+	bootstrapProbeNeedsManualScope,
+	bootstrapProbeStatusLabel,
 	contractNameToBootstrapSlug,
 	formatByteSize,
 	isBootstrapProbeableAddress,
@@ -40,10 +44,54 @@ describe('bootstrap contract probe helpers', () => {
 			)
 		).toEqual({
 			supportsEnumerable: false,
-			manualMode: 'manual_range',
+			manualMode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
 			manualRangeStartTokenId: '1',
 			manualRangeTotalSupply: '999'
 		});
+	});
+
+	it('maps shared-contract probes onto manual scope fields', () => {
+		const probe = makeProbe({
+			enumerable: false,
+			startTokenId: '0'
+		});
+		expect(bootstrapProbeFormPatch(probe)).toEqual({
+			supportsEnumerable: false,
+			manualMode: null,
+			manualRangeStartTokenId: '0',
+			manualRangeTotalSupply: ''
+		});
+		expect(bootstrapProbeStatusLabel(probe)).toBe(BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope);
+		expect(bootstrapProbeNeedsManualScope(probe)).toBe(true);
+	});
+
+	it('pre-fills known supply when only the token start is missing', () => {
+		const probe = makeProbe({
+			enumerable: false,
+			totalSupply: 940
+		});
+		expect(bootstrapProbeFormPatch(probe)).toEqual({
+			supportsEnumerable: false,
+			manualMode: null,
+			manualRangeStartTokenId: '',
+			manualRangeTotalSupply: '940'
+		});
+		expect(bootstrapProbeStatusLabel(probe)).toBe(BOOTSTRAP_PROBE_STATUS_LABEL.NeedsTokenStart);
+	});
+
+	it('labels enumerable and inferred-range probes', () => {
+		expect(bootstrapProbeStatusLabel(makeProbe({ enumerable: true, totalSupply: 940 }))).toBe(
+			BOOTSTRAP_PROBE_STATUS_LABEL.Enumerable
+		);
+		expect(
+			bootstrapProbeStatusLabel(
+				makeProbe({
+					enumerable: false,
+					startTokenId: '1',
+					totalSupply: 940
+				})
+			)
+		).toBe(BOOTSTRAP_PROBE_STATUS_LABEL.RangeInferred);
 	});
 
 	it('formats byte counts for tokenURI payload estimates', () => {
@@ -70,7 +118,7 @@ function makeProbe(input: {
 		input.enumerable || !input.startTokenId || !input.totalSupply
 			? null
 			: {
-					mode: 'manual_range' as const,
+					mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
 					startTokenId: input.startTokenId,
 					totalSupply: input.totalSupply
 				};

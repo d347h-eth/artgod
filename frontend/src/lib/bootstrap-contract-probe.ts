@@ -1,8 +1,9 @@
 import type { BootstrapContractProbeApiResponse } from '$lib/api-types';
+import { BOOTSTRAP_ENUMERATION_MODE } from '@artgod/shared/bootstrap/pipeline';
 
 export type BootstrapContractProbeFormPatch = {
 	supportsEnumerable: boolean;
-	manualMode: 'manual_range' | null;
+	manualMode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualRange | null;
 	manualRangeStartTokenId: string;
 	manualRangeTotalSupply: string;
 };
@@ -11,6 +12,14 @@ const BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH = 64;
 
 // Complete EVM contract-address length required before bootstrap probing starts.
 export const BOOTSTRAP_CONTRACT_ADDRESS_LENGTH = 42;
+
+// Contract probe status labels drive bootstrap form flow hints.
+export const BOOTSTRAP_PROBE_STATUS_LABEL = {
+	Enumerable: 'enumerable',
+	RangeInferred: 'range inferred',
+	NeedsTokenStart: 'needs token start',
+	NeedsManualScope: 'needs manual scope'
+} as const;
 
 export function isBootstrapAddressComplete(value: string): boolean {
 	return value.trim().length === BOOTSTRAP_CONTRACT_ADDRESS_LENGTH;
@@ -59,10 +68,17 @@ export function bootstrapProbeFormPatch(
 	const manualInput = probe.suggestedInput.manualInput;
 	return {
 		supportsEnumerable: false,
-		manualMode: manualInput?.mode === 'manual_range' ? 'manual_range' : null,
-		manualRangeStartTokenId: manualInput?.startTokenId ?? '',
+		manualMode:
+			manualInput?.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
+				? BOOTSTRAP_ENUMERATION_MODE.ManualRange
+				: null,
+		manualRangeStartTokenId: manualInput?.startTokenId ?? probe.firstToken.tokenId ?? '',
 		manualRangeTotalSupply:
-			manualInput && Number.isFinite(manualInput.totalSupply) ? String(manualInput.totalSupply) : ''
+			manualInput && Number.isFinite(manualInput.totalSupply)
+				? String(manualInput.totalSupply)
+				: probe.totalSupply.bootstrapRangeValue !== null
+					? String(probe.totalSupply.bootstrapRangeValue)
+					: ''
 	};
 }
 
@@ -82,10 +98,14 @@ export function formatByteSize(value: number | string | null | undefined): strin
 }
 
 export function bootstrapProbeStatusLabel(probe: BootstrapContractProbeApiResponse): string {
-	if (probe.enumerable.supported === true) return 'enumerable';
-	if (probe.suggestedInput.manualInput) return 'range inferred';
-	if (probe.totalSupply.status === 'available') return 'needs token start';
-	return 'needs manual scope';
+	if (probe.enumerable.supported === true) return BOOTSTRAP_PROBE_STATUS_LABEL.Enumerable;
+	if (probe.suggestedInput.manualInput) return BOOTSTRAP_PROBE_STATUS_LABEL.RangeInferred;
+	if (probe.totalSupply.status === 'available') return BOOTSTRAP_PROBE_STATUS_LABEL.NeedsTokenStart;
+	return BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope;
+}
+
+export function bootstrapProbeNeedsManualScope(probe: BootstrapContractProbeApiResponse): boolean {
+	return bootstrapProbeStatusLabel(probe) === BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope;
 }
 
 function parseByteString(value: string): bigint | null {

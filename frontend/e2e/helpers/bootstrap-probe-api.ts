@@ -4,6 +4,7 @@ import type {
 	BootstrapOpenSeaSlugProbeApiResponse
 } from '../../src/lib/api-types';
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/bootstrap';
+import { BOOTSTRAP_ENUMERATION_MODE } from '@artgod/shared/bootstrap/pipeline';
 import { BOOTSTRAP_API_QUERY_PARAM } from '@artgod/shared/http/bootstrap-routes';
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-image-source';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
@@ -22,14 +23,16 @@ export { BOOTSTRAP_PROBE_E2E_ROUTE_PATH };
 export const BOOTSTRAP_PROBE_CONTRACTS = {
 	NonEnumerable: '0xd3d9ddd0cf0a5f0bfb8f7fceae075df687eaebab',
 	EnumerableRaster: '0x5af0d9827e0c53e4799bb226655a1de152a425a5',
-	EnumerableOnchainSvg: '0x4e1f41613c9084fdb9e34e11fae9412427480e56'
+	EnumerableOnchainSvg: '0x4e1f41613c9084fdb9e34e11fae9412427480e56',
+	SharedManualScope: '0x145789247973c5d612bf121e9e4eef84b63eb707'
 } as const;
 
 // OpenSea slugs returned by the bootstrap probe harness.
 export const BOOTSTRAP_PROBE_OPENSEA_SLUGS = {
 	NonEnumerable: 'non-enumerable-test-collection',
 	EnumerableRaster: 'raster-images-2026',
-	EnumerableOnchainSvg: 'terraforms'
+	EnumerableOnchainSvg: 'terraforms',
+	SharedManualScope: 'shared-manual-scope'
 } as const;
 
 // Inline media lets the token card render without depending on remote hosts.
@@ -38,6 +41,8 @@ export const BOOTSTRAP_PROBE_MEDIA = {
 		'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
 	RasterImage:
 		'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFElEQVR42mP8z8BQz0AEYBxVSFUBAFgSAf+D1M2sAAAAAElFTkSuQmCC',
+	SharedManualScopeImage:
+		'https://media-proxy.artblocks.io/1/0x145789247973c5d612bf121e9e4eef84b63eb707/0.png',
 	OnchainSvgImage: `data:image/svg+xml;base64,${Buffer.from(
 		'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" fill="#05070a"/><path d="M20 90h80L60 20z" fill="#1dd6ff"/><circle cx="60" cy="66" r="14" fill="#ff7a1a"/></svg>',
 		'utf8'
@@ -302,6 +307,13 @@ function openSeaSlugProbeResponseForAddress(address: string): BootstrapOpenSeaSl
 			slug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableOnchainSvg
 		});
 	}
+	if (address === BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope) {
+		return buildOpenSeaSlugProbeResponse({
+			address,
+			requestedSlug: null,
+			slug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.SharedManualScope
+		});
+	}
 	return {
 		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
 		address,
@@ -316,7 +328,8 @@ function openSeaSlugProbeResponseForSlug(slug: string): BootstrapOpenSeaSlugProb
 	if (
 		slug === BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable ||
 		slug === BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster ||
-		slug === BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableOnchainSvg
+		slug === BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableOnchainSvg ||
+		slug === BOOTSTRAP_PROBE_OPENSEA_SLUGS.SharedManualScope
 	) {
 		return buildOpenSeaSlugProbeResponse({
 			address: null,
@@ -369,7 +382,7 @@ function probeResponse(
 			firstTokenSource: 'candidate_token_uri',
 			tokenUriPayloadBytes: 2048,
 			manualInput: {
-				mode: 'manual_range',
+				mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
 				startTokenId: '1',
 				totalSupply: 1000
 			},
@@ -426,6 +439,26 @@ function probeResponse(
 		});
 	}
 
+	if (address === BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope) {
+		return buildProbeResponse({
+			address,
+			contractName: 'Shared Manual Scope',
+			enumerable: false,
+			totalSupply: null,
+			firstTokenId: '0',
+			firstTokenName: 'Shared #0',
+			firstTokenImage: BOOTSTRAP_PROBE_MEDIA.SharedManualScopeImage,
+			firstTokenImageSourceField:
+				requestedImageSourceField ?? TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+			firstTokenImageBytes: 7088374,
+			firstTokenImageContentType: 'image/png',
+			firstTokenSource: 'candidate_token_uri',
+			tokenUriPayloadBytes: 2048,
+			manualInput: null,
+			warnings: ['totalSupply could not be read']
+		});
+	}
+
 	throw new Error(`No bootstrap probe fixture for ${address}`);
 }
 
@@ -433,7 +466,7 @@ function buildProbeResponse(input: {
 	address: string;
 	contractName: string;
 	enumerable: boolean;
-	totalSupply: string;
+	totalSupply: string | null;
 	firstTokenId: string;
 	firstTokenName: string;
 	firstTokenImage: string;
@@ -444,14 +477,14 @@ function buildProbeResponse(input: {
 	tokenUriPayloadBytes: number;
 	animationUrl?: string;
 	manualInput: {
-		mode: 'manual_range';
+		mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualRange;
 		startTokenId: string;
 		totalSupply: number;
 	} | null;
 	warnings: string[];
 	imageCacheSuggestion?: BootstrapContractProbeApiResponse['imageCacheSuggestion'];
 }): BootstrapContractProbeApiResponse {
-	const totalSupply = Number(input.totalSupply);
+	const totalSupply = input.totalSupply === null ? null : Number(input.totalSupply);
 	return {
 		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
 		address: input.address,
@@ -466,11 +499,11 @@ function buildProbeResponse(input: {
 			error: input.enumerable ? null : 'ContractFunctionZeroDataError'
 		},
 		totalSupply: {
-			status: 'available',
+			status: input.totalSupply === null ? 'unavailable' : 'available',
 			value: input.totalSupply,
 			safeIntegerValue: totalSupply,
 			bootstrapRangeValue: totalSupply,
-			error: null
+			error: input.totalSupply === null ? 'totalSupply unavailable for shared contract' : null
 		},
 		firstToken: {
 			tokenId: input.firstTokenId,
@@ -492,23 +525,29 @@ function buildProbeResponse(input: {
 			metadataError: null,
 			candidates: []
 		},
-		storageEstimate: {
-			sampleTokenId: input.firstTokenId,
-			samplePayloadBytes: input.tokenUriPayloadBytes,
-			projectedBytes: String(input.tokenUriPayloadBytes * totalSupply),
-			totalSupply: input.totalSupply
-		},
-		imageStorageEstimate: {
-			sampleTokenId: input.firstTokenId,
-			sampleImageBytes: input.firstTokenImageBytes,
-			projectedBytes: String(input.firstTokenImageBytes * totalSupply),
-			totalSupply: input.totalSupply,
-			contentType: input.firstTokenImageContentType
-		},
+		storageEstimate:
+			input.totalSupply === null
+				? null
+				: {
+						sampleTokenId: input.firstTokenId,
+						samplePayloadBytes: input.tokenUriPayloadBytes,
+						projectedBytes: String(input.tokenUriPayloadBytes * totalSupply!),
+						totalSupply: input.totalSupply
+					},
+		imageStorageEstimate:
+			input.totalSupply === null
+				? null
+				: {
+						sampleTokenId: input.firstTokenId,
+						sampleImageBytes: input.firstTokenImageBytes,
+						projectedBytes: String(input.firstTokenImageBytes * totalSupply!),
+						totalSupply: input.totalSupply,
+						contentType: input.firstTokenImageContentType
+					},
 		suggestedInput: {
 			supportsEnumerable: input.enumerable,
 			manualInput: input.manualInput,
-			ready: true,
+			ready: input.enumerable || input.manualInput !== null,
 			warnings: input.warnings
 		},
 		imageCacheSuggestion: input.imageCacheSuggestion ?? {
