@@ -41,6 +41,7 @@
 	import { DEFAULT_BOOTSTRAP_METADATA_MODE } from '$lib/bootstrap-metadata-mode';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import InfoTooltip from '$lib/components/InfoTooltip.svelte';
+	import LoadingBladeBar from '$lib/components/LoadingBladeBar.svelte';
 	import TokenCardTile from '$lib/components/TokenCardTile.svelte';
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import { APP_VERSION } from '$lib/runtime/app-version';
@@ -689,6 +690,12 @@
 		);
 	}
 
+	function onImageCacheMaxDimensionKeydown(event: KeyboardEvent): void {
+		if (event.key !== 'Enter') return;
+		event.preventDefault();
+		void onEstimateImageCache();
+	}
+
 	function commitImageCacheMaxDimensionDraft(): void {
 		cancelImageCacheDimensionTimer();
 		imageCacheMaxDimension = imageCacheMaxDimensionDraft;
@@ -841,8 +848,11 @@
 		void goto(suffix ? `${basePath}?${suffix}` : basePath);
 	}
 
-	async function onSubmitBootstrap(event: Event): Promise<void> {
+	function onBootstrapFormSubmit(event: SubmitEvent): void {
 		event.preventDefault();
+	}
+
+	async function onSubmitBootstrap(): Promise<void> {
 		submitError = null;
 		if (!chain) {
 			submitError = 'chain is not ready';
@@ -955,6 +965,13 @@
 	</span>
 {/snippet}
 
+{#snippet inProgressStatus(label: string, ariaLabel: string)}
+	<span class="bootstrap-inline-progress">
+		<span>{label}</span>
+		<LoadingBladeBar {ariaLabel} barLength={2} />
+	</span>
+{/snippet}
+
 <section class="panel">
 	<header class="panel-header">
 		<h1 class="app-title">ArtGod {APP_VERSION}</h1>
@@ -987,7 +1004,7 @@
 		class="bootstrap-hidden-form"
 		onsubmit={onSubmitOpenSeaSlugProbe}
 	></form>
-	<form class="bootstrap-form bootstrap-create-form" onsubmit={onSubmitBootstrap}>
+	<form class="bootstrap-form bootstrap-create-form" onsubmit={onBootstrapFormSubmit}>
 		<div class="bootstrap-create-layout">
 			<div class="bootstrap-form-fields">
 				{#if submitError}
@@ -1034,7 +1051,13 @@
 					<div class="bootstrap-form-section bootstrap-probe-section">
 						<div class="bootstrap-form-row">
 							{@render fieldLabel('Contract probe status', bootstrapFieldHelp.probeStatus)}
-							<div class="bootstrap-probe-status mono">{probeStateLabel()}</div>
+							<div class="bootstrap-probe-status mono">
+								{#if probeStatus === 'waiting' || probeStatus === 'loading'}
+									{@render inProgressStatus('probing', 'probing contract')}
+								{:else}
+									{probeStateLabel()}
+								{/if}
+							</div>
 						</div>
 						{#if probeError}
 							<div class="bootstrap-form-row">
@@ -1066,7 +1089,7 @@
 									</div>
 								</div>
 								<div class="bootstrap-probe-chip">
-									<div class="bootstrap-probe-chip-title mono">single token & metadata</div>
+									<div class="bootstrap-probe-chip-title mono">sample token & metadata</div>
 									<div class="bootstrap-probe-chip-body">
 										<div class="bootstrap-form-row">
 											{@render fieldLabel('Sample token ID', bootstrapFieldHelp.firstTokenId)}
@@ -1141,7 +1164,9 @@
 											incorrect
 										</span>
 									{:else if openSeaSlugProbePending}
-										<span class="muted">resolving</span>
+										<span class="muted">
+											{@render inProgressStatus('resolving', 'resolving OpenSea slug')}
+										</span>
 									{:else}
 										<button
 											type="submit"
@@ -1180,10 +1205,11 @@
 									<input
 										value={imageCacheMaxDimensionDraft}
 										class={`${bootstrapInputClass} bootstrap-input-total-supply`}
-										type="number"
-										min={BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION}
-										max={BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION}
+										type="text"
+										inputmode="numeric"
+										pattern="[0-9]*"
 										oninput={onImageCacheMaxDimensionInput}
+										onkeydown={onImageCacheMaxDimensionKeydown}
 										disabled={imageCacheExtensionControlledDisabled}
 									/>
 									{#if imageCacheEstimateReady}
@@ -1195,7 +1221,9 @@
 											failed
 										</span>
 									{:else if imageCacheEstimatePending}
-										<span class="muted">estimating</span>
+										<span class="muted">
+											{@render inProgressStatus('estimating', 'estimating image cache size')}
+										</span>
 									{:else}
 										<button
 											type="button"
@@ -1316,8 +1344,9 @@
 									<input
 										bind:value={manualRangeTotalSupply}
 										class={`${bootstrapInputClass} bootstrap-input-total-supply`}
-										type="number"
-										min="1"
+										type="text"
+										inputmode="numeric"
+										pattern="[0-9]*"
 										disabled={probeControlledDisabled}
 									/>
 								</label>
@@ -1326,7 +1355,7 @@
 					{/if}
 
 					<div class="bootstrap-form-actions">
-						<button type="submit" disabled={submitDisabled}>
+						<button type="button" disabled={submitDisabled} onclick={() => void onSubmitBootstrap()}>
 							{submitting ? 'submitting...' : 'queue bootstrap'}
 						</button>
 					</div>

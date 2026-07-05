@@ -430,6 +430,23 @@ a:hover {
 	margin-inline-start: 0;
 }
 
+.bootstrap-inline-progress {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	white-space: nowrap;
+}
+
+.bootstrap-inline-progress .loading-blade-bar {
+	font-size: 0.82rem;
+	line-height: 1;
+	min-width: 2ch;
+}
+
+.bootstrap-inline-progress .loading-blade-bar-frame {
+	min-width: 2ch;
+}
+
 .bootstrap-probe-section {
 	width: fit-content;
 	max-width: 100%;

@@ -81,6 +81,7 @@ test.describe('bootstrap contract probe UI', () => {
 		const totalSupplyInput = rowControl(page, 'Manual range total supply');
 		await expect(startTokenInput).toHaveValue('1');
 		await expect(totalSupplyInput).toHaveValue('1000');
+		await expect(totalSupplyInput).toHaveAttribute('type', 'text');
 		await expect(startTokenInput).toBeDisabled();
 		await expect(totalSupplyInput).toBeDisabled();
 
@@ -169,6 +170,7 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(rowControl(page, 'Cached image max dimension')).toHaveValue(
 			String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION)
 		);
+		await expect(rowControl(page, 'Cached image max dimension')).toHaveAttribute('type', 'text');
 		await formRow(page, 'Cached image max dimension')
 			.getByRole('button', { name: 'estimate' })
 			.click();
@@ -181,6 +183,9 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(
 			formRow(page, 'Cached image max dimension').getByRole('button', { name: 'estimate' })
 		).toBeEnabled();
+		await rowControl(page, 'Cached image max dimension').press('Enter');
+		await expect.poll(() => api.imageCacheEstimateRequests.length).toBe(2);
+		expect(api.mutations).toEqual([]);
 		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.Off);
 		await expect(formLabel(page, 'Cached image max dimension')).toHaveCount(0);
 		await expect(page.getByText('Original image source size (1 token)')).toBeVisible();
@@ -205,6 +210,13 @@ test.describe('bootstrap contract probe UI', () => {
 				totalSupply: '7500',
 				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
 				maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
+			}),
+			expect.objectContaining({
+				sampleTokenId: '0',
+				sourceImageBytes: 98234,
+				totalSupply: '7500',
+				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+				maxDimension: 720
 			})
 		]);
 		expect(dynamicRequests).toEqual([]);
