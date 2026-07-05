@@ -13,10 +13,6 @@ import {
 	parseCollectionActivityExtensionEvent,
 	parseCollectionActivityKind
 } from '$lib/activity-query';
-import {
-	collectionMediaModePreferenceScope,
-	resolvePreferredCollectionMediaModeHref
-} from '$lib/media-mode-navigation-preferences';
 import { withQuery } from '$lib/route-paths';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -73,17 +69,6 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			extensionEvent: null,
 			activityFilters: emptyActivityFilters()
 		};
-	}
-
-	const preferredMediaHref = resolvePreferredCollectionMediaModeHref({
-		url,
-		scopePath: collectionMediaModePreferenceScope({
-			chainRef: params.chain_ref,
-			collectionRef: params.collection_ref
-		})
-	});
-	if (preferredMediaHref) {
-		throw redirect(307, preferredMediaHref);
 	}
 
 	const extensionEvent = parseCollectionActivityExtensionEvent(

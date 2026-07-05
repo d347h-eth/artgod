@@ -12,10 +12,6 @@ import {
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import { parseShowMutedBidBook } from '$lib/bidding-query';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
-import {
-	collectionMediaModePreferenceScope,
-	resolvePreferredCollectionMediaModeHref
-} from '$lib/media-mode-navigation-preferences';
 import { withQuery } from '$lib/route-paths';
 import { defaultTraitFilterPresentationState } from '$lib/trait-filter-presentation';
 import {
@@ -72,17 +68,6 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			backPath,
 			backQuery
 		};
-	}
-
-	const preferredMediaHref = resolvePreferredCollectionMediaModeHref({
-		url,
-		scopePath: collectionMediaModePreferenceScope({
-			chainRef: params.chain_ref,
-			collectionRef: params.collection_ref
-		})
-	});
-	if (preferredMediaHref) {
-		throw redirect(307, preferredMediaHref);
 	}
 
 	try {

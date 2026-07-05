@@ -1,4 +1,4 @@
-import { error, redirect } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import {
@@ -8,11 +8,9 @@ import {
 	getDefaultChain
 } from '$lib/backend-api';
 import { forwardQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
-import { resolvePreferredCollectionMediaModeHref } from '$lib/media-mode-navigation-preferences';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
-	PUBLIC_COLLECTION_SCOPE,
-	publicCollectionTokensPath
+	PUBLIC_COLLECTION_SCOPE
 } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 import { shouldDeferInitialBackendLoad } from '$lib/runtime/initial-load';
@@ -26,14 +24,6 @@ export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
 	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
 		if (!PUBLIC_COLLECTION_SCOPE) {
 			throw error(500, 'Public collection scope is not configured');
-		}
-
-		const preferredMediaHref = resolvePreferredCollectionMediaModeHref({
-			url,
-			scopePath: publicCollectionTokensPath()
-		});
-		if (preferredMediaHref) {
-			throw redirect(307, preferredMediaHref);
 		}
 
 		const tokenStatus = parseCollectionTokenStatus(url.searchParams.get('token_status'));

@@ -18,10 +18,6 @@ import {
 } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 import {
-	collectionMediaModePreferenceScope,
-	resolvePreferredCollectionMediaModeHref
-} from '$lib/media-mode-navigation-preferences';
-import {
 	normalizeTokenBrowserParams,
 	parseCollectionTokenStatus,
 	parseDisplayMode
@@ -70,17 +66,6 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 			biddingSettings: defaultBiddingCollectionSettings(),
 			priceTiers: []
 		};
-	}
-
-	const preferredMediaHref = resolvePreferredCollectionMediaModeHref({
-		url,
-		scopePath: collectionMediaModePreferenceScope({
-			chainRef: params.chain_ref,
-			collectionRef: params.collection_ref
-		})
-	});
-	if (preferredMediaHref) {
-		throw redirect(307, preferredMediaHref);
 	}
 
 	const tokenStatus = parseCollectionTokenStatus(url.searchParams.get('token_status'));

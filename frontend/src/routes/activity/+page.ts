@@ -1,4 +1,4 @@
-import { error, redirect } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { BackendApiError, getCollectionActivities } from '$lib/backend-api';
 import {
@@ -12,25 +12,15 @@ import {
 	parseCollectionActivityExtensionEvent,
 	parseCollectionActivityKind
 } from '$lib/activity-query';
-import { resolvePreferredCollectionMediaModeHref } from '$lib/media-mode-navigation-preferences';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
-	PUBLIC_COLLECTION_SCOPE,
-	publicCollectionTokensPath
+	PUBLIC_COLLECTION_SCOPE
 } from '$lib/runtime/public-deployment';
 import type { PageLoad } from './$types';
 
 export const load: PageLoad = async ({ fetch, url }) => {
 	if (!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT || !PUBLIC_COLLECTION_SCOPE) {
 		throw error(404, 'Not found');
-	}
-
-	const preferredMediaHref = resolvePreferredCollectionMediaModeHref({
-		url,
-		scopePath: publicCollectionTokensPath()
-	});
-	if (preferredMediaHref) {
-		throw redirect(307, preferredMediaHref);
 	}
 
 	const extensionEvent = parseCollectionActivityExtensionEvent(

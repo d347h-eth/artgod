@@ -1,4 +1,4 @@
-import { error, redirect } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import {
 	BackendApiError,
@@ -7,12 +7,10 @@ import {
 } from '$lib/backend-api';
 import { parseShowMutedBidBook } from '$lib/bidding-query';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
-import { resolvePreferredCollectionMediaModeHref } from '$lib/media-mode-navigation-preferences';
 import { defaultTraitFilterPresentationState } from '$lib/trait-filter-presentation';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
-	PUBLIC_COLLECTION_SCOPE,
-	publicCollectionTokensPath
+	PUBLIC_COLLECTION_SCOPE
 } from '$lib/runtime/public-deployment';
 
 export const load: PageLoad = async ({ fetch, params, url }) => {
@@ -22,14 +20,6 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 
 	const { backPath, backQuery } = normalizeReturnState(url.searchParams);
 	const mediaMode = normalizeMediaMode(url.searchParams.get('media_mode'));
-
-	const preferredMediaHref = resolvePreferredCollectionMediaModeHref({
-		url,
-		scopePath: publicCollectionTokensPath()
-	});
-	if (preferredMediaHref) {
-		throw redirect(307, preferredMediaHref);
-	}
 
 	try {
 		// Load token media/details and read-only bid book without exposing bidding job controls.

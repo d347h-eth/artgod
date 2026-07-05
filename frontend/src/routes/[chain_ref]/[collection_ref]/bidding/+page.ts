@@ -16,10 +16,6 @@ import {
 	parseBidBookMakerFilter,
 	parseShowMutedBidBook
 } from '$lib/bidding-query';
-import {
-	collectionMediaModePreferenceScope,
-	resolvePreferredCollectionMediaModeHref
-} from '$lib/media-mode-navigation-preferences';
 import { normalizeMediaMode } from '$lib/media-mode';
 import { withQuery } from '$lib/route-paths';
 import {
@@ -80,17 +76,6 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode')),
 			requestCursor: url.searchParams.get('cursor')
 		};
-	}
-
-	const preferredMediaHref = resolvePreferredCollectionMediaModeHref({
-		url,
-		scopePath: collectionMediaModePreferenceScope({
-			chainRef: params.chain_ref,
-			collectionRef: params.collection_ref
-		})
-	});
-	if (preferredMediaHref) {
-		throw redirect(307, preferredMediaHref);
 	}
 
 	const preferredHref = resolvePreferredCollectionBiddingNavigationHref(url);

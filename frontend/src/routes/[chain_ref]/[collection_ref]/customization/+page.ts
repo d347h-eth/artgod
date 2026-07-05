@@ -1,10 +1,6 @@
-import { error, redirect } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { BackendApiError, getCollectionCustomization } from '$lib/backend-api';
-import {
-	collectionMediaModePreferenceScope,
-	resolvePreferredCollectionMediaModeHref
-} from '$lib/media-mode-navigation-preferences';
 import { normalizeMediaMode } from '$lib/media-mode';
 import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
@@ -25,17 +21,6 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			selectedTraitRanges: parseSelectedTraitRanges(url.searchParams),
 			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode'))
 		};
-	}
-
-	const preferredMediaHref = resolvePreferredCollectionMediaModeHref({
-		url,
-		scopePath: collectionMediaModePreferenceScope({
-			chainRef: params.chain_ref,
-			collectionRef: params.collection_ref
-		})
-	});
-	if (preferredMediaHref) {
-		throw redirect(307, preferredMediaHref);
 	}
 
 	try {

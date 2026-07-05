@@ -47,7 +47,6 @@
 	} from '$lib/components/pagination-window';
 	import { buildAskMarketPrice, type MarketPriceItem } from '$lib/market-price';
 	import { appendMediaModeParam, nextMediaMode } from '$lib/media-mode';
-	import { writeCollectionMediaModeNavigationPreference } from '$lib/media-mode-navigation-preferences';
 
 	type MaybePromise<T> = T | Promise<T>;
 
@@ -357,15 +356,6 @@
 		});
 	}
 
-	function persistMediaModeNavigationPreference(nextMediaMode: string): void {
-		if (!browser) return;
-		writeCollectionMediaModeNavigationPreference({
-			scopePath: collectionBasePath,
-			mediaMode: nextMediaMode,
-			availableModes: media.availableModes
-		});
-	}
-
 	function nextPageMediaMode(): string | null {
 		if (media.availableModes.length <= 1) {
 			return null;
@@ -540,12 +530,7 @@
 							{#if mode.key === media.selectedMode}
 								<span class="secondary-tab-active">{mode.label}</span>
 							{:else}
-								<a
-									href={mediaModeHref(mode.key)}
-									onclick={() => persistMediaModeNavigationPreference(mode.key)}
-								>
-									{mode.label}
-								</a>
+								<a href={mediaModeHref(mode.key)}>{mode.label}</a>
 							{/if}
 						{/each}
 					</div>
