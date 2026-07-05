@@ -107,10 +107,8 @@ describe("loadTradingConfig", () => {
             config.bidding.openSea.http,
             getDefaultOpenSeaHttpConfig(),
         );
-        assert.deepEqual(
-            config.bidding.criteriaRefreshTraitsByCollection.terraforms,
-            ["Zone", "Biome", "Level"],
-        );
+        assert.deepEqual(config.bidding.criteriaRefreshTraitsByCollection, {});
+        assert.deepEqual(config.bidding.tokenCriteriaTraitsByCollection, {});
     });
 
     it("parses weighted RPC endpoint pools", () => {

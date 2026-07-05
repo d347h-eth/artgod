@@ -149,7 +149,7 @@ export const BIDDING_DEFAULT_TX_PENDING_NONCE_POLICY = getSettingDefault(
     BIDDING_RUNTIME_ENV_KEY.TxPendingNoncePolicy,
 );
 
-// These tracked trait sets preserve the production token-criteria matching behavior by collection.
+// These optional trait maps let operators narrow hot criteria refresh and token criteria matching by collection.
 export const BIDDING_DEFAULT_CRITERIA_REFRESH_TRAITS_BY_COLLECTION =
     parseDefaultTraitMap(
         BIDDING_RUNTIME_ENV_KEY.CriteriaRefreshTraitsByCollection,

@@ -120,6 +120,9 @@ Hot refresh:
 - coalesces broad collection/trait events and exact-item events separately
 - keeps the highest-price queued event per signature
 - uses cooldowns from `BIDDING_HOT_REFRESH_*`
+- criteria-offer snapshot refresh from hot-path events is opt-in through
+  `BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION`; the default empty map keeps
+  hot refresh behind the normal coalescing and snapshot freshness gates
 - cancels queued work on runtime shutdown
 - summarizes no-effect logs so spammed streams stay observable without
   dominating logging or CPU
@@ -128,6 +131,10 @@ Offer discovery:
 
 - token jobs read live exact-token offers, cached broader snapshot offers, and a
   best-offer fallback
+- token jobs include collection-wide offers directly and match broader
+  criteria offers against normalized token metadata unless an operator-supplied
+  `BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION` entry intentionally restricts
+  which criteria trait types are considered for that collection
 - collection jobs prefer cached collection snapshots and use live collection
   pagination only when no usable snapshot exists
 - competitive trait jobs remain on live collection and trait endpoint reads
