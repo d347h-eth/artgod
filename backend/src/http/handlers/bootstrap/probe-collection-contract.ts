@@ -12,6 +12,7 @@ export type ProbeCollectionContractRoute = {
     };
     Querystring: {
         address?: string;
+        [BOOTSTRAP_API_QUERY_PARAM.ImageSourceField]?: string;
         standard?: string;
     };
 };
@@ -51,6 +52,9 @@ export class ProbeCollectionContractHttpAdapter {
             chainRef: request.params.chain_ref,
             address,
             standard,
+            imageSourceField: optionalString(
+                request.query[BOOTSTRAP_API_QUERY_PARAM.ImageSourceField],
+            ),
         };
     }
 }
@@ -60,4 +64,13 @@ function mustString(value: unknown, field: string): string {
         throw new ReadModelBadRequestError(`${field} is required`);
     }
     return value.trim();
+}
+
+function optionalString(value: unknown): string | undefined {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "string") {
+        throw new ReadModelBadRequestError("Expected string");
+    }
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
 }

@@ -4,6 +4,7 @@ import {
     defaultImageCachePolicyConfig,
     type ImageCachePolicyConfig,
 } from "@artgod/shared/media/token-image-cache";
+import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from "@artgod/shared/types";
 import {
@@ -46,6 +47,7 @@ describe("ProbeCollectionContractUseCase", () => {
                 tokenUriPayloadTruncated: false,
                 tokenUriPayloadError: null,
                 name: null,
+                imageSourceField: null,
                 image: null,
                 imageBytes: null,
                 imageBytesSource: null,
@@ -107,6 +109,7 @@ describe("ProbeCollectionContractUseCase", () => {
                 tokenUriPayloadTruncated: false,
                 tokenUriPayloadError: null,
                 name: null,
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 image: null,
                 imageBytes: 2048,
                 imageBytesSource: "download",
@@ -178,6 +181,7 @@ describe("ProbeCollectionContractUseCase", () => {
                     tokenUriPayloadTruncated: false,
                     tokenUriPayloadError: null,
                     name: null,
+                    imageSourceField: null,
                     image: null,
                     imageBytes: null,
                     imageBytesSource: null,
@@ -254,6 +258,7 @@ function makeUseCase(
             tokenUriPayloadTruncated: false,
             tokenUriPayloadError: null,
             name: null,
+            imageSourceField: null,
             image: null,
             imageBytes: null,
             imageBytesSource: null,

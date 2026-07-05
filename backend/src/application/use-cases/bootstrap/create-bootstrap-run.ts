@@ -35,6 +35,7 @@ import {
     normalizeImageCachePolicyConfig,
     type ImageCachePolicyConfig,
 } from "@artgod/shared/media/token-image-cache";
+import { normalizeTokenMetadataImageSourceField } from "@artgod/shared/media/token-metadata-image-source";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 
 export type EmbeddedCollectionExtensionResolveInput = {
@@ -78,6 +79,9 @@ export class CreateBootstrapRunUseCase {
         const slug = normalizeSlug(input.slug);
         const address = normalizeAddress(input.address);
         const openseaSlug = normalizeOptionalSlug(input.openseaSlug);
+        const imageSourceField = normalizeRequiredImageSourceField(
+            input.imageSourceField,
+        );
         assertOpenSeaSlugIsAllowed(openseaSlug, this.openseaIntegration);
         const metadataMode = input.metadataMode;
         if (
@@ -183,6 +187,7 @@ export class CreateBootstrapRunUseCase {
             requestOpenseaSlug: openseaSlug,
             requestAddress: address,
             requestStandard: "erc721",
+            imageSourceField,
             requestExtensionKey,
             metadataMode,
             enumerationMode: enumeration.mode,
@@ -277,6 +282,14 @@ function resolveImageCacheInput(
         selectedSource: input.selectedSource,
         config: normalized,
     };
+}
+
+function normalizeRequiredImageSourceField(raw: string): string {
+    const value = normalizeTokenMetadataImageSourceField(raw);
+    if (!value) {
+        throw new BootstrapValidationError("Image source field is required");
+    }
+    return value;
 }
 
 function assertImageCacheSourceMatchesExtension(

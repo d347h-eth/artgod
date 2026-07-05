@@ -10,6 +10,7 @@ import {
 } from "@artgod/shared/bootstrap/pipeline";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
+import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import { TERRAFORMS_EXTENSION_KEY } from "@artgod/shared/extensions/terraforms";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import {
@@ -346,6 +347,7 @@ function buildRun(input: {
         requestSlug: "milady-by-remilia-corporation",
         requestAddress: TEST_CONTRACT_ADDRESS,
         requestStandard: COLLECTION_STANDARD.Erc721,
+        imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
         requestExtensionKey: input.requestExtensionKey ?? null,
         metadataMode: BOOTSTRAP_METADATA_MODE.BestEffort,
         enumerationMode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,

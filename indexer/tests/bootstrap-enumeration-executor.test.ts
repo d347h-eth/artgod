@@ -9,6 +9,7 @@ import {
 } from "@artgod/shared/bootstrap/pipeline";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
+import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import {
     BOOTSTRAP_ENUMERATION_EXECUTOR_OUTCOME,
     BOOTSTRAP_ENUMERATION_FAILURE_CODE,
@@ -340,6 +341,7 @@ function buildRun(): BootstrapRunDefinition {
         requestSlug: "milady-by-remilia-corporation",
         requestAddress: TEST_CONTRACT_ADDRESS,
         requestStandard: COLLECTION_STANDARD.Erc721,
+        imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
         requestExtensionKey: null,
         metadataMode: BOOTSTRAP_METADATA_MODE.BestEffort,
         enumerationMode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,

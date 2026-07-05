@@ -13,6 +13,7 @@ const BOOTSTRAP_API_CHAIN_REF_PARAM = ":chain_ref";
 // Query keys accepted by bootstrap probing endpoints.
 export const BOOTSTRAP_API_QUERY_PARAM = {
     Address: "address",
+    ImageSourceField: "image_source_field",
     Slug: "slug",
     Standard: "standard",
 } as const;
@@ -30,10 +31,17 @@ export function buildProbeBootstrapCollectionPath(input: {
     chainRef: string;
     address: string;
     standard: string;
+    imageSourceField?: string | null;
 }): string {
     const query = new URLSearchParams();
     query.set(BOOTSTRAP_API_QUERY_PARAM.Address, input.address);
     query.set(BOOTSTRAP_API_QUERY_PARAM.Standard, input.standard);
+    if (input.imageSourceField?.trim()) {
+        query.set(
+            BOOTSTRAP_API_QUERY_PARAM.ImageSourceField,
+            input.imageSourceField.trim(),
+        );
+    }
     return `${buildBootstrapChainRoute(
         BOOTSTRAP_API_ROUTE_TEMPLATE.ProbeCollection,
         input.chainRef,

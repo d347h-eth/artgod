@@ -95,6 +95,8 @@ Large debug-only metadata fields are controlled separately:
 Bootstrap token-image caching is intentionally downstream from this metadata write:
 
 - the cache reads canonical `token_metadata.image`
+- bootstrap runs may override which source metadata field is normalized into
+  canonical `token_metadata.image` through `request_image_source_field`
 - it does not cache `animation_url`
 - cache output affects read-model presentation through `/media/token-images/...`, without mutating canonical metadata
 - when no cached image is available, backend read models resolve IPFS image and

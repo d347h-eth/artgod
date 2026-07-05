@@ -19,6 +19,7 @@ import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from "@artgod/shared/config/bootstrap";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
+import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import {
     BOOTSTRAP_RUN_EVENT_CODE,
     serializeBootstrapEnumerationProgressEventPayload,
@@ -675,6 +676,7 @@ beforeAll(async () => {
                             tokenUriPayloadTruncated: false,
                             tokenUriPayloadError: null,
                             name: "Milady 1",
+                            imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                             image: "https://example.com/1.png",
                             imageBytes: 1024,
                             imageBytesSource: "content_length",
@@ -4311,6 +4313,7 @@ describe("backend api routes", () => {
             {
                 slug: "terraforms",
                 address: TERRAFORMS_ADDRESS,
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
@@ -4887,6 +4890,7 @@ describe("backend api routes", () => {
             {
                 slug: "csrf-multi-tab-bootstrap",
                 address: "0x7777777777777777777777777777777777777777",
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
@@ -4921,6 +4925,7 @@ describe("backend api routes", () => {
             {
                 slug: "public-origin-bootstrap",
                 address: "0x4444444444444444444444444444444444444444",
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
@@ -4974,6 +4979,7 @@ describe("backend api routes", () => {
             {
                 slug: "terraforms-embedded-extension",
                 address: EMBEDDED_TERRAFORMS_MAIN_ADDRESS,
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
@@ -5030,6 +5036,7 @@ describe("backend api routes", () => {
             {
                 slug: "terraforms-embedded-extension",
                 address: EMBEDDED_TERRAFORMS_MAIN_ADDRESS,
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
@@ -5366,6 +5373,7 @@ describe("backend api routes", () => {
             {
                 slug: "terraforms",
                 address: TERRAFORMS_ADDRESS,
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
@@ -5388,6 +5396,7 @@ describe("backend api routes", () => {
             {
                 slug: "terraforms-2",
                 address: "0x3333333333333333333333333333333333333333",
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
@@ -5409,6 +5418,7 @@ describe("backend api routes", () => {
             {
                 slug: "forbidden-host",
                 address: "0x5555555555555555555555555555555555555555",
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,

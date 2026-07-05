@@ -62,6 +62,12 @@ Current v1 limits:
 
 When the bootstrap request enables image caching, the worker seeds a dedicated cache task for each successful metadata row with a non-empty `token_metadata.image`.
 
+The bootstrap probe selects the metadata field that should populate canonical
+`token_metadata.image`. It prefers `image`, `image_url`, `image_data`, and
+`svg_image_data`, then falls back to image-like metadata fields or values. The
+created run persists the selected field in `request_image_source_field`, and
+bootstrap metadata fetching uses that field when normalizing each token.
+
 - image-cache work is published to the `collection-bootstrap-image-cache` queue
 - the main bootstrap path continues to ownership/backfill/live without waiting
   for image-cache completion

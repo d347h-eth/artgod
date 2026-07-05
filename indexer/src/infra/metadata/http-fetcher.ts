@@ -9,6 +9,7 @@ import {
     parseJsonDataUriText,
     resolveTokenResourceUri,
 } from "@artgod/shared/media/token-resource-uri";
+import { selectTokenMetadataImageSource } from "@artgod/shared/media/token-metadata-image-source";
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import {
     fetchWithHttpResilience,
@@ -38,7 +39,12 @@ export class HttpMetadataFetcher implements MetadataFetcherPort {
         this.metrics = config.metrics;
     }
 
-    async fetchMetadata(uri: string): Promise<TokenMetadata | null> {
+    async fetchMetadata(
+        uri: string,
+        options?: {
+            imageSourceField?: string | null;
+        },
+    ): Promise<TokenMetadata | null> {
         const resolved = resolveTokenResourceUri(uri, {
             ipfsGatewayOrigin: this.ipfsGatewayOrigin,
         });
@@ -59,7 +65,10 @@ export class HttpMetadataFetcher implements MetadataFetcherPort {
             const raw = resolved.startsWith("data:")
                 ? parseDataUri(resolved)
                 : await fetchJson(resolved, this.fetchResilience);
-            const metadata = normalizeMetadata(uri, raw);
+            const metadata = normalizeMetadata(uri, raw, {
+                imageSourceField: options?.imageSourceField ?? null,
+                ipfsGatewayOrigin: this.ipfsGatewayOrigin,
+            });
             if (!metadata) {
                 this.metrics?.increment("metadata.fetch.failure", 1, {
                     reason: "invalid_json",
@@ -114,16 +123,28 @@ function parseDataUri(uri: string): unknown {
     return JSON.parse(parseJsonDataUriText(uri));
 }
 
-function normalizeMetadata(uri: string, raw: unknown): TokenMetadata | null {
+function normalizeMetadata(
+    uri: string,
+    raw: unknown,
+    options: {
+        imageSourceField: string | null;
+        ipfsGatewayOrigin: string;
+    },
+): TokenMetadata | null {
     if (!raw || typeof raw !== "object") return null;
     const data = raw as Record<string, unknown>;
     const attributes = normalizeAttributes(data.attributes);
+    const imageSource = selectTokenMetadataImageSource({
+        metadata: data,
+        requestedField: options.imageSourceField,
+        ipfsGatewayOrigin: options.ipfsGatewayOrigin,
+    });
 
     return {
         uri,
         name: asString(data.name),
         description: asString(data.description),
-        image: asString(data.image ?? data.image_url),
+        image: imageSource?.value,
         animationUrl: asString(data.animation_url ?? data.animationUrl),
         externalUrl: asString(data.external_url ?? data.externalUrl),
         attributes,

@@ -25,6 +25,7 @@ export type CreateBootstrapRunRoute = {
         slug?: string;
         address?: string;
         openseaSlug?: string;
+        imageSourceField?: string;
         standard?: string;
         metadataMode?: string;
         supportsEnumerable?: boolean;
@@ -69,6 +70,10 @@ export class CreateBootstrapRunHttpAdapter {
         const slug = mustString(body.slug, "slug");
         const address = mustString(body.address, "address");
         const openseaSlug = optionalString(body.openseaSlug);
+        const imageSourceField = mustString(
+            body.imageSourceField,
+            "imageSourceField",
+        );
         const standard = mustString(body.standard, "standard");
         const metadataMode = mustString(body.metadataMode, "metadataMode");
         const supportsEnumerable = body.supportsEnumerable;
@@ -90,6 +95,7 @@ export class CreateBootstrapRunHttpAdapter {
             slug,
             address,
             openseaSlug: openseaSlug ?? undefined,
+            imageSourceField,
             standard: standard as "erc721",
             metadataMode: metadataMode as "strict" | "best_effort",
             supportsEnumerable,

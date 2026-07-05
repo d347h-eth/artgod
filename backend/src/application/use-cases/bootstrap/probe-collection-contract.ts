@@ -12,6 +12,7 @@ import {
     defaultImageCachePolicyConfig,
     type ImageCachePolicyConfig,
 } from "@artgod/shared/media/token-image-cache";
+import { normalizeTokenMetadataImageSourceField } from "@artgod/shared/media/token-metadata-image-source";
 import type { ChainRefResolverPort } from "./ports.js";
 import { BootstrapValidationError } from "./types.js";
 import { BOOTSTRAP_MANUAL_RANGE_TOTAL_SUPPLY_LIMIT } from "./bootstrap-limits.js";
@@ -46,6 +47,7 @@ export type BootstrapProbeFirstToken = {
     tokenUriPayloadTruncated: boolean;
     tokenUriPayloadError: string | null;
     name: string | null;
+    imageSourceField: string | null;
     image: string | null;
     imageBytes: number | null;
     imageBytesSource: "content_length" | "download" | "data_uri" | null;
@@ -97,6 +99,7 @@ export type ProbeCollectionContractInput = {
     chainRef: string;
     address: string;
     standard: "erc721";
+    imageSourceField?: string;
 };
 
 export type ProbeCollectionContractOutput = {
@@ -128,6 +131,7 @@ export type CollectionContractProbeResult = Omit<
 export interface CollectionContractProbePort {
     probeErc721Contract(input: {
         address: string;
+        imageSourceField: string | null;
     }): Promise<CollectionContractProbeResult>;
 }
 
@@ -163,11 +167,15 @@ export class ProbeCollectionContractUseCase {
             throw new BootstrapValidationError("Only erc721 is supported");
         }
         const address = normalizeAddress(input.address);
+        const imageSourceField = normalizeTokenMetadataImageSourceField(
+            input.imageSourceField,
+        );
 
         // Probe the unregistered contract before the user starts bootstrap.
         const probe = await this.collectionContractProbePort.probeErc721Contract(
             {
                 address,
+                imageSourceField,
             },
         );
         const storageEstimate = estimateStorage(probe);

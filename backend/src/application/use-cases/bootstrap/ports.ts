@@ -93,6 +93,7 @@ export interface BootstrapRunsWritePort {
         requestOpenseaSlug: string | null;
         requestAddress: string;
         requestStandard: "erc721" | "erc1155";
+        imageSourceField: string;
         requestExtensionKey: CollectionExtensionKey | null;
         metadataMode: BootstrapMetadataMode;
         enumerationMode: BootstrapEnumerationMode;

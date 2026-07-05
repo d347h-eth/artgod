@@ -9,6 +9,7 @@ import {
     type BootstrapStepKey,
 } from "@artgod/shared/bootstrap/pipeline";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
+import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import {
     BOOTSTRAP_STEP_ORCHESTRATOR_LOG_ACTION,
     BOOTSTRAP_STEP_ORCHESTRATION_ERROR,
@@ -814,6 +815,7 @@ function buildRun(): BootstrapRunDefinition {
         requestSlug: "milady-by-remilia-corporation",
         requestAddress: "0x0000000000000000000000000000000000000001",
         requestStandard: COLLECTION_STANDARD.Erc721,
+        imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
         requestExtensionKey: null,
         metadataMode: BOOTSTRAP_METADATA_MODE.BestEffort,
         enumerationMode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,
