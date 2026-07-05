@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import type { ApiCollectionMediaMode } from '$lib/api-types';
 import {
-	clearCollectionMediaModeNavigationPreference,
 	collectionMediaModePreferenceScope,
 	readCollectionMediaModeNavigationPreference,
 	resolvePreferredCollectionMediaModeHref,
@@ -13,6 +12,7 @@ const EXTENSION_MEDIA_MODE_KEY = 'live';
 const UNAVAILABLE_MEDIA_MODE_KEY = 'token-local-mode';
 
 const AVAILABLE_MEDIA_MODES: ApiCollectionMediaMode[] = [
+	{ key: COLLECTION_MEDIA_MODES.Artifact, label: COLLECTION_MEDIA_MODES.Artifact },
 	{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot },
 	{ key: EXTENSION_MEDIA_MODE_KEY, label: EXTENSION_MEDIA_MODE_KEY }
 ];
@@ -97,7 +97,7 @@ describe('collection media mode navigation preferences', () => {
 		).toBeNull();
 	});
 
-	it('clears only the selected collection scope', () => {
+	it('replaces the selected collection media mode preference', () => {
 		const storage = new MemoryStorage();
 		writeCollectionMediaModeNavigationPreference({
 			scopePath: '/ethereum/terraforms',
@@ -106,14 +106,9 @@ describe('collection media mode navigation preferences', () => {
 			storage
 		});
 		writeCollectionMediaModeNavigationPreference({
-			scopePath: '/ethereum/other',
-			mediaMode: EXTENSION_MEDIA_MODE_KEY,
-			availableModes: AVAILABLE_MEDIA_MODES,
-			storage
-		});
-
-		clearCollectionMediaModeNavigationPreference({
 			scopePath: '/ethereum/terraforms',
+			mediaMode: COLLECTION_MEDIA_MODES.Artifact,
+			availableModes: AVAILABLE_MEDIA_MODES,
 			storage
 		});
 
@@ -123,14 +118,7 @@ describe('collection media mode navigation preferences', () => {
 				availableModes: AVAILABLE_MEDIA_MODES,
 				storage
 			})
-		).toBeNull();
-		expect(
-			readCollectionMediaModeNavigationPreference({
-				scopePath: '/ethereum/other',
-				availableModes: AVAILABLE_MEDIA_MODES,
-				storage
-			})
-		).toBe(EXTENSION_MEDIA_MODE_KEY);
+		).toBe(COLLECTION_MEDIA_MODES.Artifact);
 	});
 });
 

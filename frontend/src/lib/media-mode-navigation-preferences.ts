@@ -8,7 +8,7 @@ type StoredMediaModePreferences = Record<string, string>;
 type MediaModePreferenceReadStorage = Pick<Storage, 'getItem'>;
 type MediaModePreferenceWriteStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
-// Builds the collection scope used for sticky media-mode preferences.
+// Builds the collection scope used for media-mode navigation preferences.
 export function collectionMediaModePreferenceScope(params: {
 	chainRef: string;
 	collectionRef: string;
@@ -46,22 +46,10 @@ export function writeCollectionMediaModeNavigationPreference(params: {
 	try {
 		const stored = readStoredPreferences(storage);
 		stored[normalizeScopePath(params.scopePath)] = mode;
-		storage.setItem(LOCAL_STORAGE_KEYS.collectionMediaModeNavigationPreferences, JSON.stringify(stored));
-	} catch {
-		// Ignore storage failures and keep navigation state URL-driven.
-	}
-}
-
-export function clearCollectionMediaModeNavigationPreference(params: {
-	scopePath: string;
-	storage?: MediaModePreferenceWriteStorage;
-}): void {
-	const storage = params.storage ?? browserLocalStorage();
-	if (!storage) return;
-	try {
-		const stored = readStoredPreferences(storage);
-		delete stored[normalizeScopePath(params.scopePath)];
-		storage.setItem(LOCAL_STORAGE_KEYS.collectionMediaModeNavigationPreferences, JSON.stringify(stored));
+		storage.setItem(
+			LOCAL_STORAGE_KEYS.collectionMediaModeNavigationPreferences,
+			JSON.stringify(stored)
+		);
 	} catch {
 		// Ignore storage failures and keep navigation state URL-driven.
 	}
@@ -86,7 +74,9 @@ export function resolvePreferredCollectionMediaModeHref(params: {
 	return `${params.url.pathname}${nextQuery ? `?${nextQuery}` : ''}`;
 }
 
-function readStoredPreferences(storage: MediaModePreferenceReadStorage): StoredMediaModePreferences {
+function readStoredPreferences(
+	storage: MediaModePreferenceReadStorage
+): StoredMediaModePreferences {
 	const raw = storage.getItem(LOCAL_STORAGE_KEYS.collectionMediaModeNavigationPreferences);
 	if (!raw) return {};
 	const parsed = JSON.parse(raw) as unknown;

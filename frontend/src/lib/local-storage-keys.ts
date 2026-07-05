@@ -2,7 +2,7 @@
 export const LOCAL_STORAGE_KEYS = {
 	// Remembers the last selected bidding bid-book scope globally.
 	collectionBiddingNavigationPreferences: 'artgod.collectionBidding.navigationPreferences.v1',
-	// Remembers the sticky collection media mode by collection path.
+	// Remembers the selected collection media mode by collection path.
 	collectionMediaModeNavigationPreferences: 'artgod.collectionMediaMode.navigationPreferences.v1',
 	// Remembers whether the reusable trait facet panel is collapsed.
 	traitFacetPanelCollapsed: 'artgod.traitFacetPanel.collapsed',
