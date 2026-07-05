@@ -169,10 +169,8 @@ export const SETTINGS_DEFAULTS = {
     BIDDING_COMMAND_CLAIM_TIMEOUT_MS: "300000",
     BIDDING_FAILED_CANCELLATION_RECONCILE_MS: "60000",
     BIDDING_CANCELLATION_REMEDIATION_RETRY_MS: "300000",
-    BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION:
-        '{"terraforms":["Zone","Biome","Level"]}',
-    BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION:
-        '{"terraforms":["Zone","Biome","Level","Mode"]}',
+    BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION: "{}",
+    BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION: "{}",
 } as const;
 
 // Settings keys known to the generated defaults module.

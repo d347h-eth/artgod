@@ -1389,14 +1389,14 @@ help = "How long the bidding bot waits between slow retry attempts for failed of
 key = "BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION"
 group = "bidding"
 label = "bidding criteria refresh traits by collection"
-default = "{\"terraforms\":[\"Zone\",\"Biome\",\"Level\"]}"
+default = "{}"
 input = "textarea"
-help = "JSON map of collection IDs to traits whose criteria offer snapshots should be refreshed."
+help = "Optional JSON map of collection IDs to criteria trait types that may force snapshot refresh from hot-path events."
 
 [[settings]]
 key = "BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION"
 group = "bidding"
 label = "bidding token criteria traits by collection"
-default = "{\"terraforms\":[\"Zone\",\"Biome\",\"Level\",\"Mode\"]}"
+default = "{}"
 input = "textarea"
-help = "JSON map of collection IDs to token traits used to match token bids against criteria offers."
+help = "Optional JSON map of collection IDs to criteria trait types the bot may match for token jobs; leave empty to match all criteria against token metadata."

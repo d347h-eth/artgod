@@ -948,11 +948,11 @@ export class OpenSeaBiddingService implements BiddingService {
         });
     }
 
-    private getTrackedCriteriaTraitTypes(
+    private getRestrictedCriteriaTraitTypes(
         collectionSlug: string,
     ): Set<string> | null {
         const traitTypes = this.tokenCriteriaTraitsByCollection[collectionSlug];
-        if (!traitTypes) {
+        if (!traitTypes || traitTypes.length === 0) {
             return null;
         }
 
@@ -1109,12 +1109,10 @@ export class OpenSeaBiddingService implements BiddingService {
             }
         });
 
-        const trackedTraitTypes = this.getTrackedCriteriaTraitTypes(
+        const restrictedTraitTypes = this.getRestrictedCriteriaTraitTypes(
             job.collectionSlug,
         );
-        const canUseMetadataMatching = Boolean(
-            trackedTraitTypes && this.tokenMetadataRepository,
-        );
+        const canUseMetadataMatching = Boolean(this.tokenMetadataRepository);
         if (!canUseMetadataMatching) {
             this.logCachedSnapshotSummary(job, snapshot, {
                 ...summary,
@@ -1188,8 +1186,9 @@ export class OpenSeaBiddingService implements BiddingService {
             }
 
             if (
+                restrictedTraitTypes &&
                 criteriaTraits.some(
-                    (criterion) => !trackedTraitTypes!.has(criterion.type),
+                    (criterion) => !restrictedTraitTypes.has(criterion.type),
                 )
             ) {
                 summary.criteriaUntracked!++;

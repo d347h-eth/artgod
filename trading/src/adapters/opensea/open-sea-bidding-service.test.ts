@@ -970,6 +970,16 @@ describe("OpenSeaBiddingService", () => {
                         },
                     ),
                     makeOffer(
+                        "0xencoded-miss-traits-match",
+                        "0xother5",
+                        "350000000000000000",
+                        collectionAddress,
+                        {
+                            encoded_token_ids: "999,1000",
+                            traits: [{ type: "Zone", value: "8" }],
+                        },
+                    ),
+                    makeOffer(
                         "0xunsupported-trait",
                         "0xother4",
                         "400000000000000000",
@@ -1012,7 +1022,142 @@ describe("OpenSeaBiddingService", () => {
         assert.ok(ids.includes("0xmulti-trait"));
         assert.ok(!ids.includes("0xother-token-item"));
         assert.ok(!ids.includes("0xnon-match"));
+        assert.ok(!ids.includes("0xencoded-miss-traits-match"));
         assert.ok(ids.includes("0xunsupported-trait"));
         assert.equal(collectionOfferCalls, 0);
+    });
+
+    it("matches wildcard and criteria-only token snapshot offers against token metadata by default", async () => {
+        const sdk = new MockOpenSeaSdk();
+        sdk.api.getOffersByNFT = async () => ({ offers: [] });
+        sdk.api.getCollectionOffers = async () => ({ offers: [] });
+        sdk.api.getBestOffer = async () => null;
+
+        const snapshotProvider = new FakeCollectionOfferSnapshotProvider({
+            terraforms: {
+                collectionSlug: "terraforms",
+                refreshedAt: Date.now(),
+                offers: [
+                    makeOffer(
+                        "0xwildcard-zone",
+                        "0xother1",
+                        "100000000000000000",
+                        collectionAddress,
+                        {
+                            encoded_token_ids: "*",
+                            traits: [{ type: "Zone", value: "8" }],
+                        },
+                    ),
+                    makeOffer(
+                        "0xcriteria-only-biome",
+                        "0xother2",
+                        "200000000000000000",
+                        collectionAddress,
+                        {
+                            traits: [{ type: "Biome", value: "53" }],
+                        },
+                    ),
+                    makeOffer(
+                        "0xcriteria-only-miss",
+                        "0xother3",
+                        "300000000000000000",
+                        collectionAddress,
+                        {
+                            traits: [{ type: "Mode", value: "Day" }],
+                        },
+                    ),
+                ],
+            },
+        });
+        const tokenMetadataRepository = new FakeTokenMetadataRepository({
+            "terraforms:123": [
+                { type: "Zone", value: "8" },
+                { type: "Biome", value: "53" },
+            ],
+        });
+        const service = new OpenSeaBiddingService(sdk as any, makerAddress, {
+            collectionOfferSnapshotProvider: snapshotProvider,
+            tokenMetadataRepository,
+        });
+        const job = {
+            id: "token-job",
+            revision: 1,
+            network: "eth" as const,
+            collectionSlug: "terraforms",
+            collectionAddress,
+            target: { type: "token" as const, tokenId: "123" },
+            config: { floor: 1n, ceiling: 2n, delta: 1n },
+            state: {},
+        };
+
+        const offers = await service.getActiveOffers(job);
+        const ids = offers.map((offer) => offer.id);
+
+        assert.ok(ids.includes("0xwildcard-zone"));
+        assert.ok(ids.includes("0xcriteria-only-biome"));
+        assert.ok(!ids.includes("0xcriteria-only-miss"));
+    });
+
+    it("uses configured token criteria traits as an optional matching restriction", async () => {
+        const sdk = new MockOpenSeaSdk();
+        sdk.api.getOffersByNFT = async () => ({ offers: [] });
+        sdk.api.getCollectionOffers = async () => ({ offers: [] });
+        sdk.api.getBestOffer = async () => null;
+
+        const snapshotProvider = new FakeCollectionOfferSnapshotProvider({
+            terraforms: {
+                collectionSlug: "terraforms",
+                refreshedAt: Date.now(),
+                offers: [
+                    makeOffer(
+                        "0xconfigured-zone",
+                        "0xother1",
+                        "100000000000000000",
+                        collectionAddress,
+                        {
+                            traits: [{ type: "Zone", value: "8" }],
+                        },
+                    ),
+                    makeOffer(
+                        "0xrestricted-biome",
+                        "0xother2",
+                        "200000000000000000",
+                        collectionAddress,
+                        {
+                            traits: [{ type: "Biome", value: "53" }],
+                        },
+                    ),
+                ],
+            },
+        });
+        const tokenMetadataRepository = new FakeTokenMetadataRepository({
+            "terraforms:123": [
+                { type: "Zone", value: "8" },
+                { type: "Biome", value: "53" },
+            ],
+        });
+        const service = new OpenSeaBiddingService(sdk as any, makerAddress, {
+            collectionOfferSnapshotProvider: snapshotProvider,
+            tokenMetadataRepository,
+            tokenCriteriaTraitsByCollection: {
+                terraforms: ["Zone"],
+            },
+        });
+        const job = {
+            id: "token-job",
+            revision: 1,
+            network: "eth" as const,
+            collectionSlug: "terraforms",
+            collectionAddress,
+            target: { type: "token" as const, tokenId: "123" },
+            config: { floor: 1n, ceiling: 2n, delta: 1n },
+            state: {},
+        };
+
+        const offers = await service.getActiveOffers(job);
+        const ids = offers.map((offer) => offer.id);
+
+        assert.ok(ids.includes("0xconfigured-zone"));
+        assert.ok(!ids.includes("0xrestricted-biome"));
     });
 });
