@@ -2,10 +2,15 @@ import dotenv from "dotenv";
 import { resolveRuntimeEnvPath } from "@artgod/shared/utils";
 import { normalizeSlugRef } from "@artgod/shared/utils/ref-resolver";
 import {
+    OPENSEA_API_KEY_ENV,
     assertOpenSeaIntegrationModeSatisfied,
     resolveOpenSeaIntegrationStatus,
     type OpenSeaIntegrationStatus,
 } from "@artgod/shared/config/opensea-integration";
+import {
+    parseOpenSeaHttpConfig,
+    type OpenSeaHttpConfig,
+} from "@artgod/shared/config/opensea-http";
 import {
     getSettingDefault,
     getSettingDefaultBoolean,
@@ -117,6 +122,9 @@ const DEFAULT_COMMON_IPFS_GATEWAY_ORIGIN = getSettingDefault(
 const DEFAULT_COMMON_MEDIA_CACHE_DIR = getSettingDefault(
     COMMON_MEDIA_ENV_KEY.MediaCacheDir,
 );
+const DEFAULT_BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES = getSettingDefaultNumber(
+    "BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES",
+);
 
 export type BackendSecurityConfig = {
     allowedHosts: string[];
@@ -179,6 +187,15 @@ export type BackendSyncConfig = {
     backfillBatchSize: number;
 };
 
+export type BackendBootstrapConfig = {
+    imageCacheMaxSourceBytes: number;
+};
+
+// Authenticated OpenSea HTTP config used by backend-side OpenSea probes.
+export type BackendOpenSeaApiConfig = {
+    apiKey: string;
+} & OpenSeaHttpConfig;
+
 export type BackendConfig = {
     host: string;
     port: number;
@@ -197,6 +214,7 @@ export type BackendConfig = {
     deployment: BackendDeploymentConfig;
     queryCache: BackendQueryCacheConfig;
     sync: BackendSyncConfig;
+    bootstrap: BackendBootstrapConfig;
     ipfs: {
         gatewayOrigin: string;
     };
@@ -206,6 +224,7 @@ export type BackendConfig = {
     httpFetch: HttpFetchResilienceConfig;
     metrics: BackendMetricsConfig;
     apm: BackendApmConfig;
+    openseaApi: BackendOpenSeaApiConfig | null;
     integrations: {
         opensea: OpenSeaIntegrationStatus;
     };
@@ -260,6 +279,7 @@ export function loadBackendConfig(
     const deployment = parseDeploymentConfig(env);
     const queryCache = parseQueryCacheConfig(env);
     const sync = parseBackendSyncConfig(env);
+    const bootstrap = parseBackendBootstrapConfig(env);
     const ipfsGatewayOrigin = normalizeIpfsGatewayOrigin(
         env[COMMON_MEDIA_ENV_KEY.IpfsGatewayOrigin] ??
             DEFAULT_COMMON_IPFS_GATEWAY_ORIGIN,
@@ -274,6 +294,15 @@ export function loadBackendConfig(
     const apm = parseBackendApmConfig(env);
     const openseaIntegration = resolveOpenSeaIntegrationStatus(env);
     assertOpenSeaIntegrationModeSatisfied(openseaIntegration);
+    const openseaApi = openseaIntegration.enabled
+        ? {
+              apiKey: parseRequiredString(
+                  env[OPENSEA_API_KEY_ENV],
+                  OPENSEA_API_KEY_ENV,
+              ),
+              ...parseOpenSeaHttpConfig(env),
+          }
+        : null;
     const integrations = {
         opensea: openseaIntegration,
     };
@@ -297,6 +326,7 @@ export function loadBackendConfig(
         deployment,
         queryCache,
         sync,
+        bootstrap,
         ipfs: {
             gatewayOrigin: ipfsGatewayOrigin,
         },
@@ -306,6 +336,7 @@ export function loadBackendConfig(
         httpFetch: parseHttpFetchResilienceConfig(env),
         metrics,
         apm,
+        openseaApi,
         integrations,
         bidding,
     };
@@ -319,6 +350,18 @@ function parseBackendSyncConfig(
             env.BACKFILL_BATCH_SIZE,
             "BACKFILL_BATCH_SIZE",
             DEFAULT_BACKFILL_BATCH_SIZE,
+        ),
+    };
+}
+
+function parseBackendBootstrapConfig(
+    env: Record<string, string | undefined>,
+): BackendBootstrapConfig {
+    return {
+        imageCacheMaxSourceBytes: parsePositiveInteger(
+            env.BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES,
+            "BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES",
+            DEFAULT_BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES,
         ),
     };
 }

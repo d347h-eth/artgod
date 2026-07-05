@@ -52,9 +52,6 @@ dotenv.config({ path: resolveRuntimeEnvPath(process.env, ".env") });
 const DEFAULT_CHAIN_ID = getSettingDefaultNumber("CHAIN_ID");
 const DEFAULT_NATS_URL = getSettingDefault("NATS_URL");
 const DEFAULT_NATS_STREAM_PREFIX = getSettingDefault("NATS_STREAM_PREFIX");
-const DEFAULT_OPENSEA_SNAPSHOT_PAGE_SIZE = getSettingDefaultNumber(
-    "OPENSEA_SNAPSHOT_PAGE_SIZE",
-);
 const DEFAULT_OPENSEA_RECONCILE_INTERVAL_MS = getSettingDefaultNumber(
     "OPENSEA_RECONCILE_INTERVAL_MS",
 );
@@ -85,7 +82,7 @@ export function loadOpenSeaConfig(
             snapshotPageSize: parseNumber(
                 env.OPENSEA_SNAPSHOT_PAGE_SIZE,
                 "OPENSEA_SNAPSHOT_PAGE_SIZE",
-                DEFAULT_OPENSEA_SNAPSHOT_PAGE_SIZE,
+                getSettingDefaultNumber("OPENSEA_SNAPSHOT_PAGE_SIZE"),
             ),
             reconcileIntervalMs: parseNumber(
                 env.OPENSEA_RECONCILE_INTERVAL_MS,

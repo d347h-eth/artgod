@@ -9,8 +9,15 @@ export type BootstrapContractProbeFormPatch = {
 
 const BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH = 64;
 
+// Complete EVM contract-address length required before bootstrap probing starts.
+export const BOOTSTRAP_CONTRACT_ADDRESS_LENGTH = 42;
+
+export function isBootstrapAddressComplete(value: string): boolean {
+	return value.trim().length === BOOTSTRAP_CONTRACT_ADDRESS_LENGTH;
+}
+
 export function isBootstrapProbeableAddress(value: string): boolean {
-	return /^0x[a-fA-F0-9]{40}$/.test(value.trim());
+	return isBootstrapAddressComplete(value) && /^0x[a-fA-F0-9]{40}$/.test(value.trim());
 }
 
 export function normalizeBootstrapAddress(value: string): string {
@@ -55,9 +62,7 @@ export function bootstrapProbeFormPatch(
 		manualMode: manualInput?.mode === 'manual_range' ? 'manual_range' : null,
 		manualRangeStartTokenId: manualInput?.startTokenId ?? '',
 		manualRangeTotalSupply:
-			manualInput && Number.isFinite(manualInput.totalSupply)
-				? String(manualInput.totalSupply)
-				: ''
+			manualInput && Number.isFinite(manualInput.totalSupply) ? String(manualInput.totalSupply) : ''
 	};
 }
 

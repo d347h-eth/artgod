@@ -1,4 +1,5 @@
 import { BLOCKSPACE_QUERY_PARAMS } from "../config/blockspace.js";
+import { BOOTSTRAP_API_QUERY_PARAM } from "../http/bootstrap-routes.js";
 import { PAGINATION_QUERY_PARAMS } from "../config/pagination.js";
 import { COLLECTION_MEDIA_QUERY_PARAMS } from "../extensions/index.js";
 import {
@@ -10,9 +11,7 @@ import {
     ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS,
     ACTIVITY_FEED_QUERY_PARAMS,
 } from "../types/activity-feed.js";
-import {
-    COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS,
-} from "../types/trading.js";
+import { COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS } from "../types/trading.js";
 
 // Correlates frontend SSR backend fetch logs with backend API response logs.
 export const ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME =
@@ -58,6 +57,7 @@ const HTTP_OBSERVABILITY_ALLOWED_QUERY_PARAM_NAMES = new Set<string>([
     ...Object.values(ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS),
     ...Object.values(ACTIVITY_FEED_QUERY_PARAMS),
     ...Object.values(BLOCKSPACE_QUERY_PARAMS),
+    ...Object.values(BOOTSTRAP_API_QUERY_PARAM),
     ...Object.values(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS),
     ...Object.values(COLLECTION_DETAIL_QUERY_PARAMS),
     ...Object.values(COLLECTION_MEDIA_QUERY_PARAMS),
@@ -75,7 +75,9 @@ export function sanitizeHttpRequestTarget(
         const parsed = new URL(url, "http://artgod.local");
         const rawKeys = Array.from(parsed.searchParams.keys());
         const queryKeys = rawKeys
-            .filter((key) => HTTP_OBSERVABILITY_ALLOWED_QUERY_PARAM_NAMES.has(key))
+            .filter((key) =>
+                HTTP_OBSERVABILITY_ALLOWED_QUERY_PARAM_NAMES.has(key),
+            )
             .sort();
         return {
             path: parsed.pathname,

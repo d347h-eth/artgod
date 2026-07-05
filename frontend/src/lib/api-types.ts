@@ -22,6 +22,7 @@ import type {
 	BootstrapTaskCounts,
 	BootstrapTaskStatus
 } from '@artgod/shared/bootstrap/pipeline';
+import type { BootstrapOpenSeaSlugProbeStatus } from '@artgod/shared/bootstrap/opensea-slug-probe';
 
 export type ApiChain = {
 	id: number;
@@ -229,6 +230,8 @@ export type ApiBootstrapProbeFirstToken = {
 	imageBytesSource: 'content_length' | 'download' | 'data_uri' | null;
 	imageContentType: string | null;
 	imageBytesError: string | null;
+	imageWidth: number | null;
+	imageHeight: number | null;
 	animationUrl: string | null;
 	metadataError: string | null;
 	candidates: ApiBootstrapProbeTokenCandidate[];
@@ -262,13 +265,11 @@ export type BootstrapContractProbeApiResponse = {
 	imageStorageEstimate: ApiBootstrapProbeImageStorageEstimate;
 	suggestedInput: {
 		supportsEnumerable: boolean;
-		manualInput:
-			| {
-					mode: 'manual_range';
-					startTokenId: string;
-					totalSupply: number;
-			  }
-			| null;
+		manualInput: {
+			mode: 'manual_range';
+			startTokenId: string;
+			totalSupply: number;
+		} | null;
 		ready: boolean;
 		warnings: string[];
 	};
@@ -277,6 +278,22 @@ export type BootstrapContractProbeApiResponse = {
 		extensionKey: string | null;
 		config: ApiImageCachePolicyConfig;
 	};
+};
+
+export type BootstrapImageCacheEstimateApiResponse = {
+	chain: ApiChain;
+	sampleTokenId: string;
+	imageCacheMode: ApiImageCacheMode;
+	maxDimension: number | null;
+	sampleSourceBytes: number | null;
+	sampleCachedBytes: number;
+	projectedCachedBytes: string;
+	totalSupply: string;
+	contentType: string | null;
+	sourceWidth: number | null;
+	sourceHeight: number | null;
+	width: number | null;
+	height: number | null;
 };
 
 export type ApiTokenAttribute = {
@@ -842,6 +859,15 @@ export type ApiOpenSeaIntegrationStatus = {
 	reason: string | null;
 	missingKeys: string[];
 	requiredKeys: string[];
+};
+
+export type BootstrapOpenSeaSlugProbeApiResponse = {
+	chain: ApiChain;
+	address: string | null;
+	requestedSlug: string | null;
+	status: BootstrapOpenSeaSlugProbeStatus;
+	slug: string | null;
+	reason: string | null;
 };
 
 export type RuntimeConfigApiResponse = {

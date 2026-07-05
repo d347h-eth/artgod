@@ -47,14 +47,14 @@
 	});
 </script>
 
-<div
+<span
 	class="loading-blade-bar"
 	style={`--loading-blade-bar-length:${Math.max(1, Math.floor(barLength))};`}
 	role="img"
 	aria-label={ariaLabel}
 >
 	<span class="loading-blade-bar-frame">{frame}</span>
-</div>
+</span>
 
 <style>
 	.loading-blade-bar {

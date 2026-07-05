@@ -1,9 +1,8 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
+	import { onMount } from 'svelte';
 	import {
 		applyBootstrapStepAction,
-		getBootstrapRunDetail,
-		retryBootstrapFailedTasks
+		getBootstrapRunDetail
 	} from '$lib/backend-api';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import type { ApiBootstrapFlowStep, BootstrapRunDetailApiResponse } from '$lib/api-types';
@@ -13,8 +12,16 @@
 		isBootstrapStepKey,
 		type BootstrapStepAction
 	} from '@artgod/shared/bootstrap/pipeline';
+	import {
+		LIVE_REFRESH_RELATIVE_TIME_TICK_MS,
+		formatLiveRefreshNextUpdate,
+		liveRefreshNextUpdateTitle,
+		startScheduledLiveRefresh,
+		type ScheduledLiveRefreshHandle
+	} from '$lib/live-refresh';
 
-	const BOOTSTRAP_POLL_INTERVAL_MS = 1_000;
+	// Bootstrap run details refresh at the same steady live cadence as compact status surfaces.
+	const BOOTSTRAP_RUN_DETAIL_LIVE_REFRESH_INTERVAL_MS = 5_000;
 
 	let {
 		chainRef,
@@ -27,27 +34,27 @@
 	} = $props();
 
 	let detail = $state<BootstrapRunDetailApiResponse | null>(initialDetail);
-	let loading = $state(false);
 	let loadError = $state<string | null>(null);
-	let retryPending = $state(false);
-	let retryMessage = $state<string | null>(null);
 	let stepActionPending = $state<string | null>(null);
 	let stepActionError = $state<string | null>(null);
+	let nextRefreshAtMs = $state<number | null>(null);
+	let refreshClockNowMs = $state(Date.now());
 	let refreshInFlight = false;
-	let refreshTimer: ReturnType<typeof setInterval> | null = null;
+	let liveRefreshHandle: ScheduledLiveRefreshHandle | null = null;
 
 	$effect(() => {
 		detail = initialDetail;
 	});
 
-	$effect(() => {
-		if (!browser || !chainRef || !runId) return;
-		stopRefreshTimer();
-		void refreshRunDetail();
-		refreshTimer = setInterval(() => {
-			void refreshRunDetail();
-		}, BOOTSTRAP_POLL_INTERVAL_MS);
-		return () => stopRefreshTimer();
+	onMount(() => {
+		startDetailLiveRefresh();
+		const clockTimer = window.setInterval(() => {
+			refreshClockNowMs = Date.now();
+		}, LIVE_REFRESH_RELATIVE_TIME_TICK_MS);
+		return () => {
+			stopDetailLiveRefresh();
+			window.clearInterval(clockTimer);
+		};
 	});
 
 	function collectionHref(): string {
@@ -58,40 +65,37 @@
 	async function refreshRunDetail(): Promise<void> {
 		if (!chainRef || !runId || refreshInFlight) return;
 		refreshInFlight = true;
-		loading = true;
 		loadError = null;
 		try {
 			detail = await getBootstrapRunDetail(fetch, chainRef, runId);
 			if (detail?.flow.shouldPoll === false) {
-				stopRefreshTimer();
+				stopDetailLiveRefresh();
+			} else {
+				startDetailLiveRefresh();
 			}
 		} catch (error) {
 			loadError = error instanceof Error ? error.message : 'bootstrap run request failed';
 		} finally {
-			loading = false;
 			refreshInFlight = false;
 		}
 	}
 
-	function stopRefreshTimer(): void {
-		if (refreshTimer === null) return;
-		clearInterval(refreshTimer);
-		refreshTimer = null;
+	function startDetailLiveRefresh(): void {
+		if (liveRefreshHandle || !chainRef || !runId || detail?.flow.shouldPoll === false) return;
+		liveRefreshHandle = startScheduledLiveRefresh({
+			refresh: () => refreshRunDetail(),
+			intervalMs: () => BOOTSTRAP_RUN_DETAIL_LIVE_REFRESH_INTERVAL_MS,
+			onNextUpdate: (nextUpdateAtMs) => {
+				nextRefreshAtMs = nextUpdateAtMs;
+				refreshClockNowMs = Date.now();
+			}
+		});
 	}
 
-	async function onRetryFailedTasks(): Promise<void> {
-		if (!chainRef || !runId || retryPending) return;
-		retryPending = true;
-		retryMessage = null;
-		try {
-			const result = await retryBootstrapFailedTasks(fetch, chainRef, runId);
-			retryMessage = `retry queued for ${result.updatedCount} task(s)`;
-			await refreshRunDetail();
-		} catch (error) {
-			retryMessage = error instanceof Error ? error.message : 'retry request failed';
-		} finally {
-			retryPending = false;
-		}
+	function stopDetailLiveRefresh(): void {
+		if (!liveRefreshHandle) return;
+		liveRefreshHandle.stop();
+		liveRefreshHandle = null;
 	}
 
 	async function onStepAction(
@@ -168,42 +172,16 @@
 					<div class="muted">status</div>
 					<div>{detail.run.status}</div>
 				</div>
-				<div>
-					<div class="muted">updated</div>
-					<div class="mono">{detail.run.updatedAt}</div>
-				</div>
-				<div>
-					<div class="muted">metadata mode</div>
-					<div>{detail.run.metadataMode}</div>
-				</div>
-				<div>
-					<div class="muted">enumeration</div>
-					<div>{detail.run.enumerationMode}</div>
-				</div>
-				<div>
-					<div class="muted">anchor block</div>
-					<div class="mono">{detail.run.anchorBlock ?? '-'}</div>
-				</div>
-			</div>
-			<div class="bootstrap-actions">
-				<button type="button" onclick={() => void refreshRunDetail()} disabled={loading}>
-					{loading ? 'refreshing...' : 'refresh'}
-				</button>
-				{#if detail.isLatestForCollection}
-					<button
-						type="button"
-						onclick={() => void onRetryFailedTasks()}
-						disabled={retryPending || detail.metadataTasks.failedTerminal <= 0}
+				<div class="bootstrap-detail-refresh-meta">
+					<span class="runtime-k">next refresh</span>
+					<span
+						class="runtime-v mono bid-book-update-chip"
+						title={liveRefreshNextUpdateTitle(nextRefreshAtMs)}
 					>
-						{retryPending ? 'retrying...' : 'retry failed'}
-					</button>
-				{:else}
-					<span class="muted">retry disabled for non-latest runs</span>
-				{/if}
+						{formatLiveRefreshNextUpdate(nextRefreshAtMs, refreshClockNowMs)}
+					</span>
+				</div>
 			</div>
-			{#if retryMessage}
-				<div class="muted">{retryMessage}</div>
-			{/if}
 			{#if detail.run.errorMessage}
 				<div class="muted">{detail.run.errorMessage}</div>
 			{/if}

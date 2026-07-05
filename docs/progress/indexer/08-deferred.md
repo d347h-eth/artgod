@@ -195,3 +195,35 @@ Impact if deferred:
 
 - Collections without ERC721Enumerable cannot be auto-bootstrapped yet.
 - This is acceptable while we prioritize ERC‑721 collections that support enumeration.
+
+## Collection Media Mapping and Cache Policy
+
+Context:
+
+- Bootstrap contract probing can fetch and validate a sample `tokenURI` JSON payload.
+- Current metadata ingestion normalizes known media fields such as `image` and `animation_url`.
+- Raw token metadata JSON is a bootstrap-time inspection aid only; runtime media routing must not depend on `token_metadata.raw_json`, because raw payload persistence is disabled by default.
+- Current image-cache behavior is collection-level and assumes one effective token-card media source, with resized cache output reused for every frontend media purpose.
+
+Desired future behavior:
+
+- Let advanced users inspect the probed sample metadata payload in a collapsed bootstrap section that expands into inert, pretty-printed plaintext.
+- Detect media-pointer fields from that payload using the existing media URI normalization path.
+- Let users map each detected media field to:
+    - persistence plan: none, resized cache, original passthrough, or both resized and original where supported
+    - frontend purpose: token card preview, fullscreen preview, token detail, or none
+- Preserve the current happy path as the default policy: use the effective image source for resized token-card cache and present it consistently across frontend purposes unless the user changes the mapping.
+
+Design notes:
+
+- Persist the selected mapping as a collection media policy during bootstrap. Do not carry the raw metadata payload past bootstrap except as optional debug storage.
+- Model cache entries by token, source field, cache variant, and purpose instead of assuming one cached image per token.
+- Metadata refresh should recompute only the configured media sources and cache variants.
+- Read models should expose resolved media by frontend purpose so token browser components do not branch on raw metadata keys.
+- The frontend should consume purpose-level media fields; it should not inspect arbitrary token metadata JSON during normal browsing.
+- Collection-extension media behavior can be a reference point, but the generic policy should not import extension-specific literals or route through extension hooks by default.
+
+Decision:
+
+- Defer until the media cache schema, bootstrap policy contract, metadata refresh behavior, and token browser read model can be designed together.
+- Do not add ad-hoc per-field cache switches to the current bootstrap form before that contract exists.

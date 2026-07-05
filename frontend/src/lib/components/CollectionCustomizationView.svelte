@@ -5,7 +5,7 @@
 		BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
 		BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION
 	} from '@artgod/shared/config/bootstrap';
-	import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
+	import { IMAGE_CACHE_MODE, imageCacheModeLabel } from '@artgod/shared/media/token-image-cache';
 	import type {
 		ApiChain,
 		ApiCollection,
@@ -165,12 +165,6 @@
 
 	function sourceButtonLabel(source: ApiCollectionCustomizationSource): string {
 		return source === 'user' ? 'user-defined' : 'extension-defined';
-	}
-
-	function imageCacheModeLabel(mode: ApiImageCacheMode): string {
-		if (mode === IMAGE_CACHE_MODE.Off) return 'off';
-		if (mode === IMAGE_CACHE_MODE.CacheOnce) return 'cache once';
-		return 'refresh on metadata';
 	}
 
 	function imageCacheMaxDimensionLabel(value: number | null): string {
@@ -650,9 +644,15 @@
 						value={imageCachePolicy.userConfig.imageCacheMode}
 						onchange={onImageCacheModeChange}
 					>
-						<option value={IMAGE_CACHE_MODE.Off}>off</option>
-						<option value={IMAGE_CACHE_MODE.CacheOnce}>cache once</option>
-						<option value={IMAGE_CACHE_MODE.RefreshOnMetadata}>refresh on metadata</option>
+						<option value={IMAGE_CACHE_MODE.Off}>
+							{imageCacheModeLabel(IMAGE_CACHE_MODE.Off)}
+						</option>
+						<option value={IMAGE_CACHE_MODE.CacheOnce}>
+							{imageCacheModeLabel(IMAGE_CACHE_MODE.CacheOnce)}
+						</option>
+						<option value={IMAGE_CACHE_MODE.RefreshOnMetadata}>
+							{imageCacheModeLabel(IMAGE_CACHE_MODE.RefreshOnMetadata)}
+						</option>
 					</select>
 					<input
 						class="customization-readonly-input"

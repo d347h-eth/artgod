@@ -103,6 +103,9 @@ describe('BootstrapRunDetailView', () => {
 		expect(body).toContain('75%');
 		expect(body).toContain('retry 1');
 		expect(body).toContain('opensea ready');
+		expect(body).toContain('next refresh');
+		expect(body).not.toContain('metadata mode');
+		expect(body).not.toContain('anchor block');
 	});
 
 	it('suppresses opensea steps for non-latest runs', () => {
@@ -173,7 +176,7 @@ describe('BootstrapRunDetailView', () => {
 
 		expect(body).toContain('collection live');
 		expect(body).not.toContain('opensea ready');
-		expect(body).toContain('retry disabled for non-latest runs');
+		expect(body).not.toContain('retry disabled for non-latest runs');
 	});
 
 	it('renders persisted step actions inside the flow chip', () => {

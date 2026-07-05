@@ -5,6 +5,8 @@ import type { GetBootstrapRunDetailUseCase } from "./application/use-cases/boots
 import type { GetBootstrapStatusUseCase } from "./application/use-cases/bootstrap/get-bootstrap-status.js";
 import type { ListBootstrapRunsUseCase } from "./application/use-cases/bootstrap/list-bootstrap-runs.js";
 import type { ProbeCollectionContractUseCase } from "./application/use-cases/bootstrap/probe-collection-contract.js";
+import type { EstimateBootstrapImageCacheUseCase } from "./application/use-cases/bootstrap/estimate-bootstrap-image-cache.js";
+import type { ProbeOpenSeaCollectionSlugUseCase } from "./application/use-cases/bootstrap/probe-opensea-collection-slug.js";
 import type { RetryBootstrapRunFailedTasksUseCase } from "./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import type { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
 import type { GetRuntimeConfigUseCase } from "./application/use-cases/config/get-runtime-config.js";
@@ -56,6 +58,8 @@ import { GetBootstrapRunDetailHttpAdapter } from "./http/handlers/bootstrap/get-
 import { GetBootstrapStatusHttpAdapter } from "./http/handlers/bootstrap/get-bootstrap-status.js";
 import { ListBootstrapRunsHttpAdapter } from "./http/handlers/bootstrap/list-bootstrap-runs.js";
 import { ProbeCollectionContractHttpAdapter } from "./http/handlers/bootstrap/probe-collection-contract.js";
+import { EstimateBootstrapImageCacheHttpAdapter } from "./http/handlers/bootstrap/estimate-bootstrap-image-cache.js";
+import { ProbeOpenSeaCollectionSlugHttpAdapter } from "./http/handlers/bootstrap/probe-opensea-collection-slug.js";
 import { RetryBootstrapRunFailedTasksHttpAdapter } from "./http/handlers/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import { GetDefaultChainHttpAdapter } from "./http/handlers/chains/get-default-chain.js";
 import { GetRuntimeConfigHttpAdapter } from "./http/handlers/config/get-runtime-config.js";
@@ -134,6 +138,8 @@ type ScheduleSyncBackfillPort = {
 export function createApiApp(
     createBootstrapRunUseCase: CreateBootstrapRunUseCase,
     probeCollectionContractUseCase: ProbeCollectionContractUseCase,
+    estimateBootstrapImageCacheUseCase: EstimateBootstrapImageCacheUseCase,
+    probeOpenSeaCollectionSlugUseCase: ProbeOpenSeaCollectionSlugUseCase,
     listBootstrapRunsUseCase: ListBootstrapRunsUseCase,
     getBootstrapRunDetailUseCase: GetBootstrapRunDetailUseCase,
     getBootstrapStatusUseCase: GetBootstrapStatusUseCase,
@@ -194,6 +200,14 @@ export function createApiApp(
     );
     const probeCollectionContractAdapter =
         new ProbeCollectionContractHttpAdapter(probeCollectionContractUseCase);
+    const estimateBootstrapImageCacheAdapter =
+        new EstimateBootstrapImageCacheHttpAdapter(
+            estimateBootstrapImageCacheUseCase,
+        );
+    const probeOpenSeaCollectionSlugAdapter =
+        new ProbeOpenSeaCollectionSlugHttpAdapter(
+            probeOpenSeaCollectionSlugUseCase,
+        );
     const listBootstrapRunsAdapter = new ListBootstrapRunsHttpAdapter(
         listBootstrapRunsUseCase,
     );
@@ -360,6 +374,8 @@ export function createApiApp(
         issueCsrfTokenHandler,
         createBootstrapRunAdapter,
         probeCollectionContractAdapter,
+        estimateBootstrapImageCacheAdapter,
+        probeOpenSeaCollectionSlugAdapter,
         listBootstrapRunsAdapter,
         getBootstrapRunDetailAdapter,
         getBootstrapStatusAdapter,

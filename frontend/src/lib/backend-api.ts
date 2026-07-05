@@ -2,6 +2,8 @@ import type {
 	BootstrapRunDetailApiResponse,
 	BootstrapRetryFailedResponse,
 	BootstrapContractProbeApiResponse,
+	BootstrapImageCacheEstimateApiResponse,
+	BootstrapOpenSeaSlugProbeApiResponse,
 	BootstrapRunCreateResponse,
 	BootstrapRunsApiResponse,
 	BootstrapStepActionApiResponse,
@@ -49,13 +51,12 @@ import {
 	type TradingBiddingTierSelectionMode
 } from '@artgod/shared/types';
 import type { BootstrapStepAction, BootstrapStepKey } from '@artgod/shared/bootstrap/pipeline';
-import {
-	API_CSRF_HEADER_NAME,
-	API_CSRF_ROUTE_PATH
-} from '@artgod/shared/http/api-security';
+import { API_CSRF_HEADER_NAME, API_CSRF_ROUTE_PATH } from '@artgod/shared/http/api-security';
 import {
 	buildCreateBootstrapRunPath,
-	buildProbeBootstrapCollectionPath
+	buildEstimateBootstrapImageCachePath,
+	buildProbeBootstrapCollectionPath,
+	buildProbeBootstrapOpenSeaSlugPath
 } from '@artgod/shared/http/bootstrap-routes';
 import { buildLookupBatchTokenBiddingJobsPath } from '@artgod/shared/http/trading-routes';
 import {
@@ -763,7 +764,7 @@ export async function createBootstrapRun(
 					mode: 'manual_range';
 					startTokenId: string;
 					totalSupply: number;
-		};
+			  };
 		imageCache?: {
 			selectedSource: ApiCollectionCustomizationSource;
 			imageCacheMode: ApiImageCacheMode;
@@ -776,6 +777,48 @@ export async function createBootstrapRun(
 	return requestJsonWithBody<BootstrapRunCreateResponse>(
 		fetchFn,
 		buildCreateBootstrapRunPath(chainRef),
+		'POST',
+		body
+	);
+}
+
+export async function probeBootstrapOpenSeaSlug(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	input:
+		| {
+				address: string;
+				slug?: never;
+		  }
+		| {
+				address?: never;
+				slug: string;
+		  }
+): Promise<BootstrapOpenSeaSlugProbeApiResponse> {
+	return requestJson<BootstrapOpenSeaSlugProbeApiResponse>(
+		fetchFn,
+		buildProbeBootstrapOpenSeaSlugPath({
+			chainRef,
+			...input
+		})
+	);
+}
+
+export async function estimateBootstrapImageCache(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	body: {
+		sampleTokenId: string;
+		sourceImageUrl: string;
+		sourceImageBytes: number | null;
+		totalSupply: string;
+		imageCacheMode: ApiImageCacheMode;
+		maxDimension: number | null;
+	}
+): Promise<BootstrapImageCacheEstimateApiResponse> {
+	return requestJsonWithBody<BootstrapImageCacheEstimateApiResponse>(
+		fetchFn,
+		buildEstimateBootstrapImageCachePath(chainRef),
 		'POST',
 		body
 	);

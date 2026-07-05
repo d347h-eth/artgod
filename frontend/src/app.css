@@ -161,6 +161,16 @@ a:hover {
 	gap: 0.45rem;
 }
 
+.bootstrap-detail-refresh-meta {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 0.25rem;
+}
+
+.bootstrap-detail-refresh-meta .runtime-k::after {
+	content: ':';
+}
+
 .bootstrap-flow-panel {
 	border-bottom: 1px solid var(--c-blue);
 	padding: 0.75rem;
@@ -278,39 +288,46 @@ a:hover {
 }
 
 .bootstrap-create-form {
+	--bootstrap-input-slug-width: 36ch;
 	display: block;
-	width: min(74rem, 100%);
+	width: min(46rem, 100%);
 	max-width: 100%;
 }
 
 .bootstrap-create-layout {
 	display: grid;
-	grid-template-columns: minmax(0, max-content) minmax(20rem, 25rem);
+	grid-template-columns: minmax(0, 1fr);
 	align-items: start;
 	gap: 1.35rem;
-	width: fit-content;
+	width: 100%;
 	max-width: 100%;
+}
+
+.bootstrap-hidden-form {
+	display: none;
 }
 
 .bootstrap-form-fields {
 	display: grid;
 	gap: 0.85rem;
 	align-items: start;
-	justify-items: start;
-	width: fit-content;
+	justify-items: stretch;
+	width: 100%;
 	max-width: 100%;
 }
 
 .bootstrap-form-section {
 	display: grid;
 	gap: 0.55rem;
-	width: fit-content;
+	width: 100%;
 	max-width: 100%;
+	padding: 0.75rem;
+	background: rgb(0 0 0 / 33%);
+	box-sizing: border-box;
 }
 
 .bootstrap-form-section + .bootstrap-form-section {
-	padding-top: 0.75rem;
-	border-top: 1px solid var(--c-blue);
+	margin-top: 0.15rem;
 }
 
 .bootstrap-form-feedback {
@@ -320,8 +337,9 @@ a:hover {
 }
 
 .bootstrap-form-actions {
-	display: flex;
-	justify-content: flex-start;
+	display: grid;
+	gap: 0.35rem;
+	justify-items: start;
 }
 
 .bootstrap-form-row {
@@ -414,13 +432,113 @@ a:hover {
 	max-width: 100%;
 }
 
-.bootstrap-probe-section {
-	width: fit-content;
+.bootstrap-opensea-slug-note {
+	display: block;
+	max-width: var(--bootstrap-input-slug-width);
+	text-transform: none;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.bootstrap-input-status-row {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
 	max-width: 100%;
+}
+
+.bootstrap-resolution-badge {
+	margin-inline-start: 0;
+}
+
+.bootstrap-inline-progress {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	white-space: nowrap;
+}
+
+.bootstrap-inline-progress .loading-blade-bar {
+	font-size: 0.82rem;
+	line-height: 1;
+	min-width: 2ch;
+}
+
+.bootstrap-inline-progress .loading-blade-bar-frame {
+	min-width: 2ch;
+}
+
+.bootstrap-probe-section {
+	gap: 0.85rem;
+	width: 100%;
+	max-width: 100%;
+	overflow-x: visible;
 }
 
 .bootstrap-probe-status {
 	color: var(--c-cyan);
+}
+
+.bootstrap-probe-chip-grid {
+	display: grid;
+	grid-template-columns: max-content max-content;
+	column-gap: 1.8rem;
+	row-gap: 1rem;
+	align-items: stretch;
+	width: max-content;
+	max-width: 100%;
+}
+
+.bootstrap-probe-chip {
+	display: grid;
+	align-content: start;
+	gap: 0.45rem;
+	padding: 0.25rem 0;
+	background: transparent;
+}
+
+.bootstrap-probe-chip-title {
+	color: var(--c-yellow);
+	font-size: 0.68rem;
+	text-transform: uppercase;
+}
+
+.bootstrap-probe-chip-body {
+	display: grid;
+	gap: 0.42rem;
+}
+
+.bootstrap-probe-chip .bootstrap-form-row {
+	grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+	align-items: baseline;
+	gap: 0.8rem;
+	width: 100%;
+}
+
+.bootstrap-probe-chip .bootstrap-form-label-cell {
+	max-width: none;
+}
+
+.bootstrap-probe-chip .bootstrap-form-row > .mono {
+	min-width: 0;
+	max-width: 100%;
+	text-align: right;
+	white-space: nowrap;
+	overflow-wrap: normal;
+}
+
+.bootstrap-estimate-highlight {
+	justify-self: end;
+	padding: 0 0.25rem;
+	background: var(--bid-book-own-row-background);
+}
+
+.bootstrap-image-estimate-chip {
+	width: 100%;
+}
+
+.bootstrap-token-preview-section {
+	justify-items: center;
 }
 
 .bootstrap-probe-warning-row {
@@ -463,7 +581,7 @@ a:hover {
 }
 
 .bootstrap-input-slug {
-	width: 24ch;
+	width: var(--bootstrap-input-slug-width);
 }
 
 .bootstrap-input-address {
@@ -578,7 +696,13 @@ a:hover {
 	);
 	--blockspace-center-column-width: min(
 		62rem,
-		max(28rem, calc(100vw - var(--blockspace-side-panel-width) - var(--blockspace-detail-panel-stack-width) - 4rem))
+		max(
+			28rem,
+			calc(
+				100vw - var(--blockspace-side-panel-width) - var(--blockspace-detail-panel-stack-width) -
+					4rem
+			)
+		)
 	);
 	display: grid;
 	justify-content: center;
@@ -712,7 +836,8 @@ a:hover {
 	fill: var(--c-blue);
 }
 
-.blockspace-isometric-grid-selection-mode .blockspace-isometric-tile:not(.blockspace-isometric-tile-disabled) {
+.blockspace-isometric-grid-selection-mode
+	.blockspace-isometric-tile:not(.blockspace-isometric-tile-disabled) {
 	cursor: crosshair;
 }
 
@@ -4083,6 +4208,15 @@ th {
 
 	.bootstrap-form-label-cell {
 		max-width: 100%;
+	}
+
+	.bootstrap-probe-chip-grid {
+		grid-template-columns: minmax(0, 1fr);
+		width: 100%;
+	}
+
+	.bootstrap-probe-chip .bootstrap-form-row {
+		grid-template-columns: minmax(0, 1fr);
 	}
 
 	.bootstrap-token-card-pane {

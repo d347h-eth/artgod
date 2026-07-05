@@ -1,9 +1,13 @@
 import type { Page, Request, Route } from 'playwright/test';
-import type { BootstrapContractProbeApiResponse } from '../../src/lib/api-types';
+import type {
+	BootstrapContractProbeApiResponse,
+	BootstrapOpenSeaSlugProbeApiResponse
+} from '../../src/lib/api-types';
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/bootstrap';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 import { TERRAFORMS_EXTENSION_KEY } from '@artgod/shared/extensions/terraforms';
+import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from '@artgod/shared/bootstrap/opensea-slug-probe';
 import {
 	BOOTSTRAP_PROBE_E2E_CHAIN,
 	BOOTSTRAP_PROBE_E2E_ROUTE_PATH,
@@ -19,6 +23,13 @@ export const BOOTSTRAP_PROBE_CONTRACTS = {
 	EnumerableOnchainSvg: '0x4e1f41613c9084fdb9e34e11fae9412427480e56'
 } as const;
 
+// OpenSea slugs returned by the bootstrap probe harness.
+export const BOOTSTRAP_PROBE_OPENSEA_SLUGS = {
+	NonEnumerable: 'non-enumerable-test-collection',
+	EnumerableRaster: 'raster-images-2026',
+	EnumerableOnchainSvg: 'terraforms'
+} as const;
+
 // Inline media lets the token card render without depending on remote hosts.
 export const BOOTSTRAP_PROBE_MEDIA = {
 	NonEnumerableImage:
@@ -32,6 +43,12 @@ export const BOOTSTRAP_PROBE_MEDIA = {
 	DynamicAnimationUrl: 'https://dynamic.example/bootstrap-preview.html'
 } as const;
 
+// Created run fixture used after the bootstrap form redirects to run detail.
+export const BOOTSTRAP_PROBE_CREATED_RUN_ID = 1;
+
+// Backend API path the redirected detail view polls in the bootstrap probe harness.
+export const BOOTSTRAP_PROBE_CREATED_RUN_API_PATH = `/api/${BOOTSTRAP_PROBE_E2E_CHAIN.slug}/bootstrap-runs/${BOOTSTRAP_PROBE_CREATED_RUN_ID}`;
+
 // Captured bootstrap writes verify the UI payload when submit behavior is tested.
 export type CapturedBootstrapMutation = {
 	method: string;
@@ -43,12 +60,18 @@ export type CapturedBootstrapMutation = {
 export type BootstrapProbeApiMock = {
 	mutations: CapturedBootstrapMutation[];
 	probeRequests: string[];
+	openSeaSlugProbeRequests: string[];
+	openSeaSlugVerificationRequests: string[];
+	imageCacheEstimateRequests: unknown[];
 };
 
 // Returns deterministic bootstrap probe responses while capturing write calls.
 export async function installBootstrapProbeApiMock(page: Page): Promise<BootstrapProbeApiMock> {
 	const mutations: CapturedBootstrapMutation[] = [];
 	const probeRequests: string[] = [];
+	const openSeaSlugProbeRequests: string[] = [];
+	const openSeaSlugVerificationRequests: string[] = [];
+	const imageCacheEstimateRequests: unknown[] = [];
 
 	await page.route('**/api/**', async (route) => {
 		const request = route.request();
@@ -75,6 +98,55 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 			return;
 		}
 
+		if (
+			request.method() === 'GET' &&
+			url.pathname.endsWith('/collections/bootstrap/opensea-slug-probe')
+		) {
+			const address = normalizeAddress(url.searchParams.get('address') ?? '');
+			const slug = normalizeSlug(url.searchParams.get('slug') ?? '');
+			if (slug) {
+				openSeaSlugVerificationRequests.push(slug);
+				await fulfillJson(route, openSeaSlugProbeResponseForSlug(slug));
+				return;
+			}
+			openSeaSlugProbeRequests.push(address);
+			await fulfillJson(route, openSeaSlugProbeResponseForAddress(address));
+			return;
+		}
+
+		if (
+			request.method() === 'POST' &&
+			url.pathname.endsWith('/collections/bootstrap/image-cache-estimate')
+		) {
+			const body = requestBody(request) as {
+				sampleTokenId?: string;
+				sourceImageBytes?: number | null;
+				totalSupply?: string;
+				imageCacheMode?: string;
+				maxDimension?: number | null;
+			};
+			imageCacheEstimateRequests.push(body);
+			const sourceBytes = body.sourceImageBytes ?? 4096;
+			const cachedBytes =
+				body.maxDimension === null ? sourceBytes : Math.max(1, Math.floor(sourceBytes / 4));
+			await fulfillJson(route, {
+				chain: BOOTSTRAP_PROBE_E2E_CHAIN,
+				sampleTokenId: body.sampleTokenId ?? '0',
+				imageCacheMode: body.imageCacheMode ?? IMAGE_CACHE_MODE.CacheOnce,
+				maxDimension: body.maxDimension ?? null,
+				sampleSourceBytes: sourceBytes,
+				sampleCachedBytes: cachedBytes,
+				projectedCachedBytes: String(cachedBytes * Number(body.totalSupply ?? '0')),
+				totalSupply: body.totalSupply ?? '0',
+				contentType: body.maxDimension === null ? 'image/png' : 'image/webp',
+				sourceWidth: 2160,
+				sourceHeight: 2160,
+				width: body.maxDimension,
+				height: body.maxDimension
+			});
+			return;
+		}
+
 		if (request.method() === 'POST' && url.pathname.endsWith('/collections/bootstrap')) {
 			const mutation = {
 				method: request.method(),
@@ -91,6 +163,89 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 			return;
 		}
 
+		if (request.method() === 'GET' && url.pathname === BOOTSTRAP_PROBE_CREATED_RUN_API_PATH) {
+			await fulfillJson(route, {
+				chain: BOOTSTRAP_PROBE_E2E_CHAIN,
+				collection: {
+					chainId: 1,
+					collectionId: BOOTSTRAP_PROBE_CREATED_RUN_ID,
+					slug: 'bootstrap-probe-created',
+					address: BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster,
+					status: 'bootstrapping'
+				},
+				run: {
+					runId: BOOTSTRAP_PROBE_CREATED_RUN_ID,
+					chainId: 1,
+					collectionId: BOOTSTRAP_PROBE_CREATED_RUN_ID,
+					requestSlug: 'bootstrap-probe-created',
+					requestOpenseaSlug: 'raster-images-2026',
+					requestAddress: BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster,
+					requestStandard: 'erc721',
+					metadataMode: 'strict',
+					enumerationMode: 'enumerable',
+					manualTokenIdsJson: null,
+					manualRangeStartTokenId: null,
+					manualRangeTotalSupply: null,
+					imageCacheMode: IMAGE_CACHE_MODE.Off,
+					imageCacheMaxDimension: null,
+					deploymentBlock: null,
+					status: 'requested',
+					anchorBlock: null,
+					anchorBlockHash: null,
+					anchorBlockTimestamp: null,
+					errorCode: null,
+					errorMessage: null,
+					createdAt: '2026-06-01T12:00:00Z',
+					updatedAt: '2026-06-01T12:00:00Z',
+					finishedAt: null
+				},
+				flow: {
+					steps: [],
+					isTerminal: false,
+					shouldPoll: false
+				},
+				metadataTasks: {
+					total: 0,
+					pending: 0,
+					processing: 0,
+					succeeded: 0,
+					failedRetryable: 0,
+					failedTerminal: 0,
+					retry: 0
+				},
+				imageCacheTasks: {
+					total: 0,
+					pending: 0,
+					processing: 0,
+					succeeded: 0,
+					failedRetryable: 0,
+					failedTerminal: 0,
+					retry: 0
+				},
+				collectionExtensionArtifactTasks: {
+					total: 0,
+					pending: 0,
+					processing: 0,
+					succeeded: 0,
+					failedRetryable: 0,
+					failedTerminal: 0,
+					retry: 0
+				},
+				ownershipTasks: {
+					total: 0,
+					pending: 0,
+					processing: 0,
+					succeeded: 0,
+					failedRetryable: 0,
+					failedTerminal: 0,
+					retry: 0
+				},
+				events: [],
+				failedMetadataTasks: []
+			});
+			return;
+		}
+
 		await route.fulfill({
 			status: 500,
 			contentType: 'application/json',
@@ -100,7 +255,79 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 
 	return {
 		mutations,
-		probeRequests
+		probeRequests,
+		openSeaSlugProbeRequests,
+		openSeaSlugVerificationRequests,
+		imageCacheEstimateRequests
+	};
+}
+
+function openSeaSlugProbeResponseForAddress(address: string): BootstrapOpenSeaSlugProbeApiResponse {
+	if (address === BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable) {
+		return buildOpenSeaSlugProbeResponse({
+			address,
+			requestedSlug: null,
+			slug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
+		});
+	}
+	if (address === BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster) {
+		return buildOpenSeaSlugProbeResponse({
+			address,
+			requestedSlug: null,
+			slug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster
+		});
+	}
+	if (address === BOOTSTRAP_PROBE_CONTRACTS.EnumerableOnchainSvg) {
+		return buildOpenSeaSlugProbeResponse({
+			address,
+			requestedSlug: null,
+			slug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableOnchainSvg
+		});
+	}
+	return {
+		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
+		address,
+		requestedSlug: null,
+		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
+		slug: null,
+		reason: 'OpenSea did not return a collection slug for this contract'
+	};
+}
+
+function openSeaSlugProbeResponseForSlug(slug: string): BootstrapOpenSeaSlugProbeApiResponse {
+	if (
+		slug === BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable ||
+		slug === BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster ||
+		slug === BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableOnchainSvg
+	) {
+		return buildOpenSeaSlugProbeResponse({
+			address: null,
+			requestedSlug: slug,
+			slug
+		});
+	}
+	return {
+		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
+		address: null,
+		requestedSlug: slug,
+		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
+		slug: null,
+		reason: 'OpenSea did not confirm this collection slug'
+	};
+}
+
+function buildOpenSeaSlugProbeResponse(input: {
+	address: string | null;
+	requestedSlug: string | null;
+	slug: string;
+}): BootstrapOpenSeaSlugProbeApiResponse {
+	return {
+		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
+		address: input.address,
+		requestedSlug: input.requestedSlug,
+		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
+		slug: input.slug,
+		reason: null
 	};
 }
 
@@ -230,6 +457,8 @@ function buildProbeResponse(input: {
 			imageBytesSource: input.firstTokenImage.startsWith('data:') ? 'data_uri' : 'download',
 			imageContentType: input.firstTokenImageContentType,
 			imageBytesError: null,
+			imageWidth: 2160,
+			imageHeight: 2160,
 			animationUrl: input.animationUrl ?? null,
 			metadataError: null,
 			candidates: []
@@ -274,6 +503,10 @@ function requestBody(request: Request): unknown {
 
 function normalizeAddress(address: string): string {
 	return address.trim().toLowerCase();
+}
+
+function normalizeSlug(slug: string): string {
+	return slug.trim().toLowerCase();
 }
 
 async function fulfillJson(route: Route, body: unknown): Promise<void> {

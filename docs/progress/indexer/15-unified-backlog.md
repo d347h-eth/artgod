@@ -123,6 +123,8 @@ Priority legend:
       Sources: `docs/indexer/04-sync-pipeline.md`, user notes
 - [ ] `BKL-044` Explore trusted remote or onchain-backed collection-extension distribution beyond build-bundled embedded installs.
       Sources: `docs/indexer/00-overview.md`, user notes
+- [ ] `BKL-048` Design generalized collection media mapping and cache policy for bootstrap, metadata refresh, and token-browser presentation.
+      Sources: `docs/progress/indexer/08-deferred.md`, user notes
 
 ## Maintenance
 

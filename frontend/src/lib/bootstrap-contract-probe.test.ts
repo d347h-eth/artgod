@@ -113,6 +113,8 @@ function makeProbe(input: {
 			imageBytesSource: null,
 			imageContentType: null,
 			imageBytesError: null,
+			imageWidth: null,
+			imageHeight: null,
 			animationUrl: null,
 			metadataError: null,
 			candidates: []

@@ -24,6 +24,13 @@ export type ImageCachePolicyConfig = {
     maxDimension: number | null;
 };
 
+// Converts image-cache mode values into their compact UI labels.
+export function imageCacheModeLabel(mode: ImageCacheMode): string {
+    if (mode === IMAGE_CACHE_MODE.Off) return "off";
+    if (mode === IMAGE_CACHE_MODE.CacheOnce) return "cache once";
+    return "refresh together with token metadata updates";
+}
+
 // Returns the generic image-cache policy used when no extension overrides it.
 export function defaultImageCachePolicyConfig(): ImageCachePolicyConfig {
     return {

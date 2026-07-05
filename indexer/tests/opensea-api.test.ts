@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { OpenSeaContractLookupPort } from "@artgod/shared/network/opensea-contract-lookup";
 import {
     OpenSeaApiAdapter,
     type OpenSeaRestRecord,
@@ -12,7 +13,27 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const ZERO_BYTES32 =
     "0x0000000000000000000000000000000000000000000000000000000000000000";
 
-describe("OpenSeaApiAdapter REST records", () => {
+describe("OpenSeaApiAdapter", () => {
+    it("resolves collections through the shared contract lookup client", async () => {
+        const requests: string[] = [];
+        const adapter = createAdapter({
+            contractLookup: {
+                async resolveCollectionByContract(input) {
+                    requests.push(input.address);
+                    return { slug: "milady-maker" };
+                },
+                async resolveCollectionBySlug() {
+                    return null;
+                },
+            },
+        });
+
+        await expect(
+            adapter.instance.resolveCollectionByContract(CONTRACT),
+        ).resolves.toEqual({ slug: "milady-maker" });
+        expect(requests).toEqual([CONTRACT]);
+    });
+
     it("emits raw listing records with rest.listing type", async () => {
         const listing = buildListingRecord();
         const adapter = createAdapter();
@@ -72,26 +93,33 @@ describe("OpenSeaApiAdapter REST records", () => {
     });
 });
 
-function createAdapter(): {
+type CreateAdapterOptions = {
+    contractLookup?: OpenSeaContractLookupPort;
+};
+
+function createAdapter(options: CreateAdapterOptions = {}): {
     instance: OpenSeaApiAdapter;
     api: Record<string, unknown>;
 } {
-    const instance = new OpenSeaApiAdapter({
-        apiKey: "test-api-key",
-        snapshotPageSize: 50,
-        retryPolicy: {
-            maxAttempts: 1,
-            baseDelayMs: 1,
-            maxDelayMs: 1,
-            jitterRatio: 0,
+    const instance = new OpenSeaApiAdapter(
+        {
+            apiKey: "test-api-key",
+            snapshotPageSize: 50,
+            retryPolicy: {
+                maxAttempts: 1,
+                baseDelayMs: 1,
+                maxDelayMs: 1,
+                jitterRatio: 0,
+            },
+            rateLimiter: {
+                getMax: 100,
+                getRefillPerSecond: 100,
+                postMax: 1,
+                postRefillPerSecond: 1,
+            },
         },
-        rateLimiter: {
-            getMax: 100,
-            getRefillPerSecond: 100,
-            postMax: 1,
-            postRefillPerSecond: 1,
-        },
-    }) as OpenSeaApiAdapter & { api: Record<string, unknown> };
+        options.contractLookup,
+    ) as OpenSeaApiAdapter & { api: Record<string, unknown> };
 
     return {
         instance,

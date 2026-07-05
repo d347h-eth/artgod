@@ -23,6 +23,7 @@ import {
     BOOTSTRAP_RUN_EVENT_CODE,
     serializeBootstrapEnumerationProgressEventPayload,
 } from "@artgod/shared/bootstrap/run-events";
+import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from "@artgod/shared/bootstrap/opensea-slug-probe";
 import {
     BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_ACTION,
@@ -93,7 +94,11 @@ import {
     QUERY_CACHE_DEBUG_HEADER_NAME,
     QUERY_CACHE_DEBUG_TTL_HEADER_NAME,
 } from "./utils/query-cache-debug.js";
-import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
+import {
+    OPENSEA_API_KEY_ENV,
+    type OpenSeaIntegrationStatus,
+} from "@artgod/shared/config/opensea-integration";
+import { getDefaultOpenSeaHttpConfig } from "@artgod/shared/config/opensea-http";
 
 const MILADY_ADDRESS = "0x1111111111111111111111111111111111111111";
 const TERRAFORMS_ADDRESS = "0x2222222222222222222222222222222222222222";
@@ -119,13 +124,17 @@ const ENABLED_OPENSEA_INTEGRATION: OpenSeaIntegrationStatus = {
     mode: "auto",
     reason: null,
     missingKeys: [],
-    requiredKeys: ["OPENSEA_API_KEY"],
+    requiredKeys: [OPENSEA_API_KEY_ENV],
 };
 // Keeps API cache-header assertions from waiting through production RPC backoff.
 const API_TEST_RPC_RETRY_POLICY: RpcRetryPolicy = {
     maxAttempts: 1,
     baseDelayMs: 0,
     maxDelayMs: 0,
+};
+const API_TEST_OPENSEA_API_CONFIG = {
+    apiKey: "test-opensea-api-key",
+    ...getDefaultOpenSeaHttpConfig(),
 };
 
 function defaultImageCachePolicyUpdateBody() {
@@ -146,6 +155,7 @@ let syncBackfillStateInputs: unknown[] = [];
 let syncBackfillRangeInputs: unknown[] = [];
 let bootstrapStartInputs: unknown[] = [];
 let bootstrapImageCacheProcessInputs: unknown[] = [];
+let openSeaSlugProbeInputs: unknown[] = [];
 
 beforeAll(async () => {
     dbPath = path.join(
@@ -566,6 +576,12 @@ beforeAll(async () => {
         await import("./application/use-cases/bootstrap/create-bootstrap-run.js");
     const probeCollectionContractUseCaseModule =
         await import("./application/use-cases/bootstrap/probe-collection-contract.js");
+    const estimateBootstrapImageCacheUseCaseModule =
+        await import(
+            "./application/use-cases/bootstrap/estimate-bootstrap-image-cache.js"
+        );
+    const probeOpenSeaCollectionSlugUseCaseModule =
+        await import("./application/use-cases/bootstrap/probe-opensea-collection-slug.js");
     const getBootstrapStatusUseCaseModule =
         await import("./application/use-cases/bootstrap/get-bootstrap-status.js");
     const listBootstrapRunsUseCaseModule =
@@ -575,9 +591,7 @@ beforeAll(async () => {
     const retryBootstrapRunFailedTasksUseCaseModule =
         await import("./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js");
     const applyBootstrapRunStepActionUseCaseModule =
-        await import(
-            "./application/use-cases/bootstrap/apply-bootstrap-run-step-action.js"
-        );
+        await import("./application/use-cases/bootstrap/apply-bootstrap-run-step-action.js");
 
     const bootstrapRepository =
         new bootstrapRepositoryModule.SqliteBootstrapRunsRepository();
@@ -639,6 +653,8 @@ beforeAll(async () => {
                             imageBytesSource: "content_length",
                             imageContentType: "image/png",
                             imageBytesError: null,
+                            imageWidth: 2160,
+                            imageHeight: 2160,
                             animationUrl: null,
                             metadataError: null,
                             candidates: [],
@@ -647,6 +663,53 @@ beforeAll(async () => {
                 },
             },
             builtInCollectionExtensionResolver,
+        );
+    const estimateBootstrapImageCacheUseCase =
+        new estimateBootstrapImageCacheUseCaseModule.EstimateBootstrapImageCacheUseCase(
+            1,
+            chainsReadModel,
+            {
+                async estimateCacheOutput(input: {
+                    sourceImageBytes: number | null;
+                    maxDimension: number | null;
+                }) {
+                    const sourceBytes = input.sourceImageBytes ?? 4096;
+                    const cachedBytes =
+                        input.maxDimension === null
+                            ? sourceBytes
+                            : Math.max(1, Math.floor(sourceBytes / 2));
+                    return {
+                        sourceBytes,
+                        cachedBytes,
+                        contentType:
+                            input.maxDimension === null ? "image/png" : "image/webp",
+                        sourceWidth: 2160,
+                        sourceHeight: 2160,
+                        width: input.maxDimension,
+                        height: input.maxDimension,
+                    };
+                },
+            },
+        );
+    const probeOpenSeaCollectionSlugUseCase =
+        new probeOpenSeaCollectionSlugUseCaseModule.ProbeOpenSeaCollectionSlugUseCase(
+            1,
+            ENABLED_OPENSEA_INTEGRATION,
+            chainsReadModel,
+            {
+                async resolveCollectionSlugByContract(input: {
+                    address: string;
+                }) {
+                    openSeaSlugProbeInputs.push(input);
+                    return input.address === TERRAFORMS_ADDRESS
+                        ? "terraforms"
+                        : null;
+                },
+                async resolveCollectionSlugBySlug(input: { slug: string }) {
+                    openSeaSlugProbeInputs.push(input);
+                    return input.slug === "terraforms" ? "terraforms" : null;
+                },
+            },
         );
     const getBootstrapStatusUseCase =
         new getBootstrapStatusUseCaseModule.GetBootstrapStatusUseCase(
@@ -808,6 +871,8 @@ beforeAll(async () => {
     app = appModule.createApiApp(
         createBootstrapRunUseCase,
         probeCollectionContractUseCase,
+        estimateBootstrapImageCacheUseCase,
+        probeOpenSeaCollectionSlugUseCase,
         listBootstrapRunsUseCase,
         getBootstrapRunDetailUseCase,
         getBootstrapStatusUseCase,
@@ -860,6 +925,8 @@ beforeAll(async () => {
     publicApp = appModule.createApiApp(
         createBootstrapRunUseCase,
         probeCollectionContractUseCase,
+        estimateBootstrapImageCacheUseCase,
+        probeOpenSeaCollectionSlugUseCase,
         listBootstrapRunsUseCase,
         getBootstrapRunDetailUseCase,
         getBootstrapStatusUseCase,
@@ -957,6 +1024,9 @@ beforeAll(async () => {
                 warmupConcurrency: 2,
             },
         },
+        bootstrap: {
+            imageCacheMaxSourceBytes: 26214400,
+        },
         sync: {
             backfillBatchSize: 50,
         },
@@ -989,6 +1059,7 @@ beforeAll(async () => {
         integrations: {
             opensea: ENABLED_OPENSEA_INTEGRATION,
         },
+        openseaApi: API_TEST_OPENSEA_API_CONFIG,
         bidding: {
             bidBookLiveRefresh: DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
             bidBookSnapshotStaleMs: DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
@@ -2070,8 +2141,8 @@ describe("backend api routes", () => {
                 ceilingEth: "0.2",
                 deltaEth: "0.01",
                 targetTraits: [
-                    { type: "Mode", value: "Terrain" },
-                    { type: "Biome", value: "42" },
+                    { type: "Mood", value: "Calm" },
+                    { type: "Hat", value: "Beanie" },
                 ],
             },
             csrf,
@@ -2081,8 +2152,8 @@ describe("backend api routes", () => {
             type: "collection",
             quantity: 1,
             targetTraits: [
-                { type: "Biome", value: "42" },
-                { type: "Mode", value: "Terrain" },
+                { type: "Hat", value: "Beanie" },
+                { type: "Mood", value: "Calm" },
             ],
         });
 
@@ -2095,8 +2166,8 @@ describe("backend api routes", () => {
                 ceilingEth: "0.22",
                 deltaEth: "0.02",
                 targetTraits: [
-                    { type: "Biome", value: "42" },
-                    { type: "Mode", value: "Terrain" },
+                    { type: "Hat", value: "Beanie" },
+                    { type: "Mood", value: "Calm" },
                 ],
             },
             csrf,
@@ -2174,8 +2245,8 @@ describe("backend api routes", () => {
                 deltaEth: "0.01",
                 quantity: 2,
                 targetTraits: [
-                    { type: "Mode", value: "Terrain" },
-                    { type: "Biome", value: "42" },
+                    { type: "Mood", value: "Calm" },
+                    { type: "Hat", value: "Beanie" },
                 ],
             },
             csrf,
@@ -2190,8 +2261,8 @@ describe("backend api routes", () => {
                     type: "trait",
                     quantity: 2,
                     targetTraits: [
-                        { type: "Biome", value: "42" },
-                        { type: "Mode", value: "Terrain" },
+                        { type: "Hat", value: "Beanie" },
+                        { type: "Mood", value: "Calm" },
                     ],
                 },
             },
@@ -2217,8 +2288,8 @@ describe("backend api routes", () => {
                     type: "trait",
                     quantity: 2,
                     targetTraits: [
-                        { type: "Biome", value: "42" },
-                        { type: "Mode", value: "Terrain" },
+                        { type: "Hat", value: "Beanie" },
+                        { type: "Mood", value: "Calm" },
                     ],
                 },
             },
@@ -2678,6 +2749,7 @@ describe("backend api routes", () => {
                 name: "Milady #1",
                 image: "https://example.com/1.png",
                 traitSummary: null,
+                marketplaceBiddingSupported: true,
                 hasMetadata: true,
                 metadataUpdatedAt: "2026-01-01T00:00:00Z",
             },
@@ -2905,6 +2977,7 @@ describe("backend api routes", () => {
                 name: "Milady #1",
                 image: "https://example.com/1.png",
                 traitSummary: null,
+                marketplaceBiddingSupported: true,
                 hasMetadata: true,
                 metadataUpdatedAt: "2026-01-01T00:00:00Z",
             },
@@ -3187,7 +3260,13 @@ describe("backend api routes", () => {
                     displayKind: "set",
                     minValue: null,
                     maxValue: null,
-                    values: [{ value: "Beanie", tokenCount: 2 }],
+                    values: [
+                        {
+                            value: "Beanie",
+                            tokenCount: 2,
+                            marketplaceBiddingSupported: true,
+                        },
+                    ],
                 }),
                 expect.objectContaining({
                     key: "Mood",
@@ -3195,8 +3274,16 @@ describe("backend api routes", () => {
                     minValue: null,
                     maxValue: null,
                     values: [
-                        { value: "Angry", tokenCount: 1 },
-                        { value: "Calm", tokenCount: 1 },
+                        {
+                            value: "Angry",
+                            tokenCount: 1,
+                            marketplaceBiddingSupported: true,
+                        },
+                        {
+                            value: "Calm",
+                            tokenCount: 1,
+                            marketplaceBiddingSupported: true,
+                        },
                     ],
                 }),
                 expect.objectContaining({
@@ -3205,8 +3292,16 @@ describe("backend api routes", () => {
                     minValue: null,
                     maxValue: null,
                     values: [
-                        { value: "2", tokenCount: 1 },
-                        { value: "7", tokenCount: 1 },
+                        {
+                            value: "2",
+                            tokenCount: 1,
+                            marketplaceBiddingSupported: true,
+                        },
+                        {
+                            value: "7",
+                            tokenCount: 1,
+                            marketplaceBiddingSupported: true,
+                        },
                     ],
                 }),
             ]),
@@ -4169,15 +4264,15 @@ describe("backend api routes", () => {
         expect(create.statusCode).toBe(200);
         expect(create.payload.runId).toEqual(expect.any(Number));
         const plannedSteps = db
-            .prepare<[number]>(
-                "SELECT step_key, status, blocking, depends_on_json FROM bootstrap_run_steps WHERE run_id = ? ORDER BY rowid ASC",
-            )
+            .prepare<
+                [number]
+            >("SELECT step_key, status, blocking, depends_on_json FROM bootstrap_run_steps WHERE run_id = ? ORDER BY rowid ASC")
             .all(create.payload.runId) as Array<{
-                step_key: string;
-                status: string;
-                blocking: number;
-                depends_on_json: string;
-            }>;
+            step_key: string;
+            status: string;
+            blocking: number;
+            depends_on_json: string;
+        }>;
         expect(plannedSteps).toEqual([
             {
                 step_key: BOOTSTRAP_STEP_KEY.Anchor,
@@ -4235,7 +4330,8 @@ describe("backend api routes", () => {
         expect(createdDetail.statusCode).toBe(200);
         expect(
             createdDetail.payload.flow.steps.find(
-                (step: { key: string }) => step.key === BOOTSTRAP_STEP_KEY.Anchor,
+                (step: { key: string }) =>
+                    step.key === BOOTSTRAP_STEP_KEY.Anchor,
             ),
         ).toEqual(
             expect.objectContaining({
@@ -4284,9 +4380,8 @@ describe("backend api routes", () => {
             create.payload.runId,
             BOOTSTRAP_STEP_KEY.ImageCache,
         );
-        const { SqliteBootstrapRunsRepository } = await import(
-            "./infra/bootstrap/sqlite-bootstrap-runs.js"
-        );
+        const { SqliteBootstrapRunsRepository } =
+            await import("./infra/bootstrap/sqlite-bootstrap-runs.js");
         const raceRepository = new SqliteBootstrapRunsRepository();
         expect(
             raceRepository.pauseRunStep({
@@ -4297,9 +4392,9 @@ describe("backend api routes", () => {
         ).toBe(false);
         expect(
             db
-                .prepare<[number, string]>(
-                    "SELECT status FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?",
-                )
+                .prepare<
+                    [number, string]
+                >("SELECT status FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?")
                 .get(create.payload.runId, BOOTSTRAP_STEP_KEY.ImageCache),
         ).toEqual({ status: BOOTSTRAP_STEP_STATUS.Running });
         const pauseImageCache = await resolve(
@@ -4344,9 +4439,9 @@ describe("backend api routes", () => {
         ).toBe(false);
         expect(
             db
-                .prepare<[number, string]>(
-                    "SELECT status FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?",
-                )
+                .prepare<
+                    [number, string]
+                >("SELECT status FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?")
                 .get(create.payload.runId, BOOTSTRAP_STEP_KEY.ImageCache),
         ).toEqual({ status: BOOTSTRAP_STEP_STATUS.Paused });
         const resumeImageCache = await resolve(
@@ -4508,9 +4603,9 @@ describe("backend api routes", () => {
         ]);
         expect(
             db
-                .prepare<[number, string]>(
-                    "SELECT status FROM bootstrap_image_cache_tasks WHERE run_id = ? AND token_id = ?",
-                )
+                .prepare<
+                    [number, string]
+                >("SELECT status FROM bootstrap_image_cache_tasks WHERE run_id = ? AND token_id = ?")
                 .get(create.payload.runId, "1"),
         ).toEqual({ status: BOOTSTRAP_TASK_STATUS.Retry });
 
@@ -4562,16 +4657,16 @@ describe("backend api routes", () => {
         ]);
         expect(
             db
-                .prepare<[number, string]>(
-                    "SELECT status FROM bootstrap_ownership_snapshot_tasks WHERE run_id = ? AND token_id = ?",
-                )
+                .prepare<
+                    [number, string]
+                >("SELECT status FROM bootstrap_ownership_snapshot_tasks WHERE run_id = ? AND token_id = ?")
                 .get(create.payload.runId, "2"),
         ).toEqual({ status: BOOTSTRAP_TASK_STATUS.Retry });
         expect(
             db
-                .prepare<[number]>(
-                    "SELECT status, error_code, error_message FROM bootstrap_runs WHERE run_id = ?",
-                )
+                .prepare<
+                    [number]
+                >("SELECT status, error_code, error_message FROM bootstrap_runs WHERE run_id = ?")
                 .get(create.payload.runId),
         ).toEqual({
             status: BOOTSTRAP_RUN_STATUS.Ownership,
@@ -4593,6 +4688,87 @@ describe("backend api routes", () => {
                 ready: true,
             }),
         );
+        const imageCacheEstimate = await resolve(
+            "POST",
+            "/api/ethereum/collections/bootstrap/image-cache-estimate",
+            {
+                sampleTokenId: "1",
+                sourceImageUrl: probe.payload.firstToken.image,
+                sourceImageBytes: probe.payload.firstToken.imageBytes,
+                totalSupply: probe.payload.totalSupply.value,
+                imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+                maxDimension: 1080,
+            },
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(imageCacheEstimate.statusCode).toBe(200);
+        expect(imageCacheEstimate.payload).toEqual({
+            chain: expect.objectContaining({
+                slug: "ethereum",
+            }),
+            sampleTokenId: "1",
+            imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+            maxDimension: 1080,
+            sampleSourceBytes: 1024,
+            sampleCachedBytes: 512,
+            projectedCachedBytes: "1536",
+            totalSupply: "3",
+            contentType: "image/webp",
+            sourceWidth: 2160,
+            sourceHeight: 2160,
+            width: 1080,
+            height: 1080,
+        });
+
+        openSeaSlugProbeInputs = [];
+        const openSeaSlugProbe = await resolve(
+            "GET",
+            `/api/ethereum/collections/bootstrap/opensea-slug-probe?address=${TERRAFORMS_ADDRESS}`,
+        );
+        expect(openSeaSlugProbe.statusCode).toBe(200);
+        expect(openSeaSlugProbe.payload).toEqual({
+            chain: expect.objectContaining({
+                slug: "ethereum",
+            }),
+            address: TERRAFORMS_ADDRESS,
+            requestedSlug: null,
+            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
+            slug: "terraforms",
+            reason: null,
+        });
+        expect(openSeaSlugProbeInputs).toEqual([
+            {
+                address: TERRAFORMS_ADDRESS,
+            },
+        ]);
+
+        openSeaSlugProbeInputs = [];
+        const openSeaSlugVerification = await resolve(
+            "GET",
+            "/api/ethereum/collections/bootstrap/opensea-slug-probe?slug=terraforms",
+        );
+        expect(openSeaSlugVerification.statusCode).toBe(200);
+        expect(openSeaSlugVerification.payload).toEqual({
+            chain: expect.objectContaining({
+                slug: "ethereum",
+            }),
+            address: null,
+            requestedSlug: "terraforms",
+            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
+            slug: "terraforms",
+            reason: null,
+        });
+        expect(openSeaSlugProbeInputs).toEqual([
+            {
+                slug: "terraforms",
+            },
+        ]);
 
         const status = await resolve(
             "GET",
@@ -4735,7 +4911,8 @@ describe("backend api routes", () => {
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
                 imageCache: {
-                    selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
+                    selectedSource:
+                        COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
                     imageCacheMode: IMAGE_CACHE_MODE.Off,
                     maxDimension: null,
                 },
@@ -4819,7 +4996,9 @@ describe("backend api routes", () => {
         expect(userCustomizationRow?.selected_source).toBe(
             COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
         );
-        expect(JSON.parse(userCustomizationRow?.user_config_json ?? "{}")).toEqual({
+        expect(
+            JSON.parse(userCustomizationRow?.user_config_json ?? "{}"),
+        ).toEqual({
             imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
             maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
         });
@@ -6077,18 +6256,18 @@ function insertApiPurgeCollectionFixture(): number {
 
 function countCollectionById(collectionId: number): number {
     const row = db
-        .prepare<[number]>(
-            "SELECT COUNT(1) AS count FROM collections WHERE collection_id = ?",
-        )
+        .prepare<
+            [number]
+        >("SELECT COUNT(1) AS count FROM collections WHERE collection_id = ?")
         .get(collectionId) as { count: number } | undefined;
     return row?.count ?? 0;
 }
 
 function countRowsByCollection(table: string, collectionId: number): number {
     const row = db
-        .prepare<[number]>(
-            `SELECT COUNT(1) AS count FROM "${table}" WHERE collection_id = ?`,
-        )
+        .prepare<
+            [number]
+        >(`SELECT COUNT(1) AS count FROM "${table}" WHERE collection_id = ?`)
         .get(collectionId) as { count: number } | undefined;
     return row?.count ?? 0;
 }

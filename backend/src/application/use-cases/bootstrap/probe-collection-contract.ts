@@ -51,6 +51,8 @@ export type BootstrapProbeFirstToken = {
     imageBytesSource: "content_length" | "download" | "data_uri" | null;
     imageContentType: string | null;
     imageBytesError: string | null;
+    imageWidth: number | null;
+    imageHeight: number | null;
     animationUrl: string | null;
     metadataError: string | null;
     candidates: BootstrapProbeTokenCandidate[];
