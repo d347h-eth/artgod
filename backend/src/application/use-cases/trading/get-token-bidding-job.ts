@@ -4,6 +4,8 @@ import type { GetTokenBiddingJobOutput } from "./types.js";
 import { mapPersistedTokenBiddingJobToView } from "./types.js";
 export type { GetTokenBiddingJobOutput } from "./types.js";
 
+type MaybePromise<T> = T | Promise<T>;
+
 export type GetTokenBiddingJobInput = {
     chainRef: string;
     collectionRef: string;
@@ -28,7 +30,7 @@ export class GetTokenBiddingJobUseCase {
                 chainId: number;
                 collectionId: number;
                 tokenId: string;
-            }): { tokenId: string };
+            }): MaybePromise<{ tokenId: string }>;
         },
         readonly biddingJobsRepositoryPort: Pick<
             BiddingJobsRepositoryPort,
@@ -36,9 +38,9 @@ export class GetTokenBiddingJobUseCase {
         >,
     ) {}
 
-    getTokenBiddingJob(
+    async getTokenBiddingJob(
         input: GetTokenBiddingJobInput,
-    ): GetTokenBiddingJobOutput {
+    ): Promise<GetTokenBiddingJobOutput> {
         // Resolve the requested chain against the configured backend default.
         const chain = this.chainRefResolverPort.resolveChainRef(
             input.chainRef,
@@ -50,7 +52,7 @@ export class GetTokenBiddingJobUseCase {
             input.collectionRef,
         );
         // Verify the token exists in this collection before returning its job.
-        const token = this.collectionReadPort.getCollectionTokenDetail({
+        const token = await this.collectionReadPort.getCollectionTokenDetail({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: input.tokenRef,

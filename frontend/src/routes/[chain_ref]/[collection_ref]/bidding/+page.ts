@@ -1,5 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
+import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
 	BackendApiError,
 	getCollectionBiddingBidBook,
@@ -59,9 +60,11 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			tokenOfferCards: emptyBiddingTokenOfferCardsPage(),
 			facets: [],
 			media: {
-				selectedMode: 'snapshot',
-				defaultMode: 'snapshot',
-				availableModes: [{ key: 'snapshot', label: 'snapshot' }]
+				selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+				defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+				availableModes: [
+					{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
+				]
 			},
 			basePath: '/',
 			selectedTraits: parseSelectedTraits(url.searchParams),

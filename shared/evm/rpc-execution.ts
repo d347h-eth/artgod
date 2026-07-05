@@ -32,6 +32,7 @@ export type RpcEndpointAttemptWrapper<TEndpoint> = <TValue>(
 export type ObservedRpcEndpointCallOptions<TEndpoint, TValue> = {
     selector: WeightedEndpointSelector<TEndpoint>;
     method: string;
+    logFields?: Record<string, unknown>;
     execute: (
         endpoint: WeightedEndpointSelection<TEndpoint>,
     ) => Promise<TValue>;
@@ -71,7 +72,10 @@ type RpcEndpointAttemptInput<TEndpoint, TValue> = {
 export async function executeObservedRpcEndpointCall<TEndpoint, TValue>(
     options: ObservedRpcEndpointCallOptions<TEndpoint, TValue>,
 ): Promise<TValue> {
-    const call = options.rpcObservability?.startCall(options.method);
+    const call = options.rpcObservability?.startCall(
+        options.method,
+        options.logFields,
+    );
     let lastEndpoint: WeightedEndpointSelection<TEndpoint> | null = null;
     const executeAttempt = (attempt: number) =>
         executeObservedRpcEndpointAttempt({
@@ -97,6 +101,7 @@ export async function executeObservedRpcEndpointCall<TEndpoint, TValue>(
                           attempt,
                           nextAttempt,
                           delayMs,
+                          logFields: options.logFields,
                       });
                   },
               })
@@ -123,9 +128,13 @@ export function startObservedRpcEndpointAttempt<TEndpoint>(input: {
     selector: WeightedEndpointSelector<TEndpoint>;
     method: string;
     rpcObservability: RpcObservability;
+    logFields?: Record<string, unknown>;
     attempt?: number;
 }): ObservedRpcEndpointAttempt<TEndpoint> {
-    const call = input.rpcObservability.startCall(input.method);
+    const call = input.rpcObservability.startCall(
+        input.method,
+        input.logFields,
+    );
     const endpoint = input.selector.select();
     const attempt = input.rpcObservability.startEndpointAttempt(
         call,
@@ -209,6 +218,7 @@ async function executeObservedRpcEndpointAttempt<TEndpoint, TValue>(
                 input.options.method,
                 updatedEndpoint,
                 error,
+                input.options.logFields,
             );
         }
         if (attemptContext) {
@@ -265,6 +275,7 @@ async function runWithOptionalRateLimit<TEndpoint, TValue>(
             method: options.method,
             endpoint,
             waitedMs,
+            logFields: options.logFields,
         });
     }
     return run();

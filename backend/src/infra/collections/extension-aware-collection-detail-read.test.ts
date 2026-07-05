@@ -1,15 +1,29 @@
 import { describe, expect, it } from "vitest";
 import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
 import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
-import { TERRAFORMS_EXTENSION_KEY } from "@artgod/shared/extensions/terraforms";
+import {
+    TERRAFORMS_EXTENSION_KEY,
+    TERRAFORMS_MAIN_READ_FUNCTIONS,
+    TERRAFORMS_MEDIA_MODES,
+} from "@artgod/shared/extensions/terraforms";
 import type {
     CollectionListItem,
     TokenCard,
+    TokenMediaPreview,
     TokenBrowserStatus,
     TraitCatalogFacet,
     TraitFacet,
 } from "@artgod/shared/types";
 import { ExtensionAwareCollectionDetailRead } from "./extension-aware-collection-detail-read.js";
+
+const TERRAFORMS_MAIN_CONTRACT =
+    "0x4e1f41613c9084fdb9e34e11fae9412427480e56";
+const TERRAFORMS_RENDERER_V2_CONTRACT =
+    "0x8af860c8f157f4e3b6a54913bfa6bb96ab2605c2";
+const TERRAFORMS_TOKEN_URI_V2_CONTRACT =
+    "0xfca647387e28e73e291dd90e7b09fa32bcbb2604";
+const TERRAFORMS_BEACON_V2_CONTRACT =
+    "0x331512a28a4cf80221af949b5d43041ff0fc7f01";
 
 class CapturingApm implements ApmPort {
     readonly spans: Array<{ name: string; attributes: SpanAttributes }> = [];
@@ -225,6 +239,110 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
         });
     });
 
+    it("keeps live collection cards on canonical media without artifact or RPC reads", () => {
+        const readModel = new ExtensionAwareCollectionDetailRead(
+            {
+                ...createBaseReadPort(),
+                listCollectionTokens() {
+                    return {
+                        items: [tokenCard("1", "canonical-1")],
+                        prevCursor: null,
+                        nextCursor: null,
+                        limit: 250,
+                        totalItems: 1,
+                        marketplaceBiddingSupportedTotalItems: 1,
+                        rangeStart: 1,
+                        rangeEnd: 1,
+                        currentPage: 1,
+                        totalPages: 1,
+                    };
+                },
+            },
+            {
+                ...createLiveExtensionRecords(),
+                getArtifact() {
+                    throw new Error("Unexpected token-card artifact read");
+                },
+                listTokenCardArtifactsByTokenIds() {
+                    throw new Error("Unexpected token-card artifact batch");
+                },
+            },
+            undefined,
+            {
+                async readContract() {
+                    throw new Error("Unexpected token-card RPC read");
+                },
+                async getStorageAt() {
+                    throw new Error("Unexpected token-card storage read");
+                },
+            },
+        );
+
+        const page = readModel.listCollectionTokens({
+            chainId: 1,
+            collectionId: 7,
+            tokenStatus: "listed",
+            limit: 250,
+            mediaMode: TERRAFORMS_MEDIA_MODES.Live,
+        });
+
+        expect(page.items.map((token) => token.image)).toEqual(["canonical-1"]);
+    });
+
+    it("resolves live previews through the injected backend RPC client", async () => {
+        const calls: Array<{ functionName: string; args?: readonly unknown[] }> =
+            [];
+        const readModel = new ExtensionAwareCollectionDetailRead(
+            {
+                ...createBaseReadPort(),
+                getCollectionTokenPreview(): TokenMediaPreview {
+                    return {
+                        tokenId: "7710",
+                        image: "canonical-image",
+                        animationUrl: "snapshot-animation",
+                    };
+                },
+            },
+            createLiveExtensionRecords(),
+            undefined,
+            {
+                async readContract<T = unknown>(params: {
+                    functionName: string;
+                    args?: readonly unknown[];
+                }): Promise<T> {
+                    calls.push({
+                        functionName: params.functionName,
+                        args: params.args,
+                    });
+                    return "<html>live</html>" as T;
+                },
+                async getStorageAt() {
+                    throw new Error("Unexpected storage read");
+                },
+            },
+        );
+
+        const token = await readModel.getCollectionTokenPreview({
+            chainId: 1,
+            collectionId: 7,
+            tokenId: "7710",
+            mediaMode: TERRAFORMS_MEDIA_MODES.Live,
+        });
+
+        expect(calls).toEqual([
+            {
+                functionName: TERRAFORMS_MAIN_READ_FUNCTIONS.TokenHtml,
+                args: [7710n],
+            },
+        ]);
+        expect(token.image).toBe("canonical-image");
+        expect(
+            Buffer.from(token.animationUrl!.split(",")[1]!, "base64").toString(
+                "utf8",
+            ),
+        ).toBe("<html>live</html>");
+    });
+
     it("passes caller range-only trait facets before reading stats", () => {
         let receivedRangeOnlyKeys: string[] | undefined;
         const readModel = new ExtensionAwareCollectionDetailRead(
@@ -305,6 +423,28 @@ function createExtensionRecords() {
     };
 }
 
+function createLiveExtensionRecords() {
+    return {
+        ...createExtensionRecords(),
+        getInstallByCollectionId() {
+            return {
+                chainId: 1,
+                collectionId: 7,
+                extensionKey: TERRAFORMS_EXTENSION_KEY,
+                enabled: true,
+                configJson: JSON.stringify({
+                    mainContractAddress: TERRAFORMS_MAIN_CONTRACT,
+                    rendererV2ContractAddress: TERRAFORMS_RENDERER_V2_CONTRACT,
+                    tokenUriV2ContractAddress: TERRAFORMS_TOKEN_URI_V2_CONTRACT,
+                    beaconV2ContractAddress: TERRAFORMS_BEACON_V2_CONTRACT,
+                }),
+                createdAt: "2026-01-01T00:00:00Z",
+                updatedAt: "2026-01-01T00:00:00Z",
+            };
+        },
+    };
+}
+
 function tokenCard(tokenId: string, image: string): TokenCard {
     return {
         tokenId,
@@ -325,7 +465,7 @@ function createBaseReadPort() {
         chainId: 1,
         collectionId: 7,
         slug: "terraforms",
-        address: "0x4e1f41613c9084fdb9e34e11fae9412427480e56",
+        address: TERRAFORMS_MAIN_CONTRACT,
         standard: "erc721",
         status: "live",
         deploymentBlock: 12_345,

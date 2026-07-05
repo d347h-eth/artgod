@@ -101,7 +101,7 @@ Backend resolves effective token presentation through an extension-aware read la
 
 Today that includes:
 
-- collection media mode resolution (`artifact` / `snapshot`)
+- collection media mode resolution, including extension-provided modes exposed through the normal `media_mode` URL contract
 - token-local media mode enrichment when an extension can expose extra token-specific artifacts
 - token card image override
 - token detail image / animation override
@@ -186,7 +186,7 @@ It should be treated as the blueprint implementation for the current extension s
 2. Sync-time custom watch specs
 3. Artifact refresh into `token_extension_artifacts`
 4. Extension-owned normalized trait enrichment
-5. Backend media override from artifact-backed token media
+5. Backend media override from artifact-backed and request-time extension media
 6. Extension-defined collection customization override
 
 ### Current Terraforms artifact usage
@@ -207,10 +207,13 @@ The backend can then resolve:
 - `artifact` mode -> extension-backed effective media when artifact exists
 - `lost-terrain` mode -> token-local bonus mode when `terraforms-v2-lost-terrain` exists for that token
 - `snapshot` mode -> canonical media from base token metadata
+- `live` mode -> canonical image from base token metadata plus request-time HTML animation from the Terraforms main contract `tokenHTML(tokenId)` response
 
 Important scope rule:
 
-- collection browser surfaces still expose only `artifact` and `snapshot`
+- collection browser surfaces expose `artifact`, `snapshot`, and extension-provided `live`
+- token cards in `live` still use the canonical metadata image and do not perform per-card live contract reads
+- fullscreen preview and token detail in `live` resolve animation HTML by same-request backend RPC; failures use normal request error behavior
 - `lost-terrain` is token-local and appears only on token detail / preview for eligible non-Terrain tokens
 
 ### Current Terraforms customization override

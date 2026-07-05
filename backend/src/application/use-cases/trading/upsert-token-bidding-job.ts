@@ -16,6 +16,8 @@ import { assertTokenMarketplaceBiddingSupported } from "./token-marketplace-bidd
 import type { TradingJobCommandSignalPort } from "./trading-job-command-signal-port.js";
 export type { UpsertTokenBiddingJobOutput } from "./types.js";
 
+type MaybePromise<T> = T | Promise<T>;
+
 export type UpsertTokenBiddingJobInput = {
     chainRef: string;
     collectionRef: string;
@@ -45,7 +47,10 @@ export class UpsertTokenBiddingJobUseCase {
                 chainId: number;
                 collectionId: number;
                 tokenId: string;
-            }): { tokenId: string; marketplaceBiddingSupported: boolean };
+            }): MaybePromise<{
+                tokenId: string;
+                marketplaceBiddingSupported: boolean;
+            }>;
         },
         readonly biddingJobsRepositoryPort: Pick<
             BiddingJobsRepositoryPort,
@@ -55,9 +60,9 @@ export class UpsertTokenBiddingJobUseCase {
         readonly tradingJobCommandSignalPort: TradingJobCommandSignalPort,
     ) {}
 
-    upsertTokenBiddingJob(
+    async upsertTokenBiddingJob(
         input: UpsertTokenBiddingJobInput,
-    ): UpsertTokenBiddingJobOutput {
+    ): Promise<UpsertTokenBiddingJobOutput> {
         // Resolve the requested chain against the configured backend default.
         const chain = this.chainRefResolverPort.resolveChainRef(
             input.chainRef,
@@ -69,7 +74,7 @@ export class UpsertTokenBiddingJobUseCase {
             input.collectionRef,
         );
         // Verify the token exists in this collection before mutating its job.
-        const token = this.collectionReadPort.getCollectionTokenDetail({
+        const token = await this.collectionReadPort.getCollectionTokenDetail({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: input.tokenRef,

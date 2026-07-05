@@ -36,7 +36,7 @@ const COLLECTION: CollectionListItem = {
 };
 
 describe("BiddingJobTargetLookupUseCase", () => {
-    it("verifies token existence before resolving token job targets", () => {
+    it("verifies token existence before resolving token job targets", async () => {
         let tokenLookupCalled = false;
         let capturedTarget: TradingBiddingJobTargetDescriptor | null = null;
         const useCase = buildUseCase({
@@ -50,7 +50,7 @@ describe("BiddingJobTargetLookupUseCase", () => {
             },
         });
 
-        const result = useCase.lookupBiddingJobTarget({
+        const result = await useCase.lookupBiddingJobTarget({
             chainRef: "ethereum",
             collectionRef: "terraforms",
             target: {
@@ -67,7 +67,7 @@ describe("BiddingJobTargetLookupUseCase", () => {
         assert.equal(result.job?.target.type, "token");
     });
 
-    it("maps collection targets with default quantity", () => {
+    it("maps collection targets with default quantity", async () => {
         let capturedTarget: TradingBiddingJobTargetDescriptor | null = null;
         const useCase = buildUseCase({
             findJobByTarget: ({ target }) => {
@@ -76,7 +76,7 @@ describe("BiddingJobTargetLookupUseCase", () => {
             },
         });
 
-        const result = useCase.lookupBiddingJobTarget({
+        const result = await useCase.lookupBiddingJobTarget({
             chainRef: "ethereum",
             collectionRef: "terraforms",
             target: {
@@ -92,7 +92,7 @@ describe("BiddingJobTargetLookupUseCase", () => {
         });
     });
 
-    it("normalizes trait targets before repository lookup", () => {
+    it("normalizes trait targets before repository lookup", async () => {
         let capturedTarget: TradingBiddingJobTargetDescriptor | null = null;
         const useCase = buildUseCase({
             findJobByTarget: ({ target }) => {
@@ -101,7 +101,7 @@ describe("BiddingJobTargetLookupUseCase", () => {
             },
         });
 
-        useCase.lookupBiddingJobTarget({
+        await useCase.lookupBiddingJobTarget({
             chainRef: "ethereum",
             collectionRef: "terraforms",
             target: {
@@ -124,46 +124,43 @@ describe("BiddingJobTargetLookupUseCase", () => {
         });
     });
 
-    it("rejects invalid target quantities and duplicate traits", () => {
+    it("rejects invalid target quantities and duplicate traits", async () => {
         const useCase = buildUseCase({});
 
-        assert.throws(
-            () =>
-                useCase.lookupBiddingJobTarget({
-                    chainRef: "ethereum",
-                    collectionRef: "terraforms",
-                    target: {
-                        type: "collection",
-                        quantity: 0,
-                    },
-                }),
+        await assert.rejects(
+            useCase.lookupBiddingJobTarget({
+                chainRef: "ethereum",
+                collectionRef: "terraforms",
+                target: {
+                    type: "collection",
+                    quantity: 0,
+                },
+            }),
             /target.quantity must be an integer > 0/,
         );
-        assert.throws(
-            () =>
-                useCase.lookupBiddingJobTarget({
-                    chainRef: "ethereum",
-                    collectionRef: "terraforms",
-                    target: {
-                        type: "trait",
-                        targetTraits: [
-                            { type: "Mode", value: "Terrain" },
-                            { type: "Mode", value: "Terrain" },
-                        ],
-                    },
-                }),
+        await assert.rejects(
+            useCase.lookupBiddingJobTarget({
+                chainRef: "ethereum",
+                collectionRef: "terraforms",
+                target: {
+                    type: "trait",
+                    targetTraits: [
+                        { type: "Mode", value: "Terrain" },
+                        { type: "Mode", value: "Terrain" },
+                    ],
+                },
+            }),
             /duplicate target trait Mode=Terrain/,
         );
-        assert.throws(
-            () =>
-                useCase.lookupBiddingJobTarget({
-                    chainRef: "ethereum",
-                    collectionRef: "terraforms",
-                    target: {
-                        type: "trait",
-                        targetTraits: [],
-                    },
-                }),
+        await assert.rejects(
+            useCase.lookupBiddingJobTarget({
+                chainRef: "ethereum",
+                collectionRef: "terraforms",
+                target: {
+                    type: "trait",
+                    targetTraits: [],
+                },
+            }),
             TradingValidationError,
         );
     });

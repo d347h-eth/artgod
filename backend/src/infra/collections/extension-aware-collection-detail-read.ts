@@ -6,7 +6,10 @@ import {
 } from "@artgod/shared/extensions";
 import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
-import type { BackendCollectionExtensionArtifactRecord } from "../../application/collection-extensions/types.js";
+import type {
+    BackendCollectionExtensionArtifactRecord,
+    BackendCollectionExtensionRenderContext,
+} from "../../application/collection-extensions/types.js";
 import type {
     CollectionMediaState,
     CollectionHolderPage,
@@ -22,6 +25,8 @@ import type {
     TraitRangeFilter,
 } from "@artgod/shared/types/browse";
 import { resolveBackendCollectionExtension } from "../../application/collection-extensions/index.js";
+
+type MaybePromise<T> = T | Promise<T>;
 
 type CollectionExtensionRecordsPort = {
     getInstallByCollectionId(
@@ -112,6 +117,7 @@ export class ExtensionAwareCollectionDetailRead {
         private readonly baseReadPort: CollectionDetailReadPort,
         private readonly extensionRecords: CollectionExtensionRecordsPort,
         private readonly apm: ApmPort = NOOP_APM,
+        private readonly rpc?: BackendCollectionExtensionRenderContext["rpc"],
     ) {}
 
     resolveCollectionRef(
@@ -239,7 +245,7 @@ export class ExtensionAwareCollectionDetailRead {
         collectionId: number;
         tokenId: string;
         mediaMode?: CollectionMediaMode;
-    }): TokenDetail {
+    }): MaybePromise<TokenDetail> {
         const token = this.baseReadPort.getCollectionTokenDetail(params);
         const mediaState = this.resolveTokenMediaState(params);
         if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Snapshot) {
@@ -278,7 +284,7 @@ export class ExtensionAwareCollectionDetailRead {
         collectionId: number;
         tokenId: string;
         mediaMode?: CollectionMediaMode;
-    }): TokenMediaPreview {
+    }): MaybePromise<TokenMediaPreview> {
         const token = this.baseReadPort.getCollectionTokenPreview(params);
         const mediaState = this.resolveTokenMediaState(params);
         if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Snapshot) {
@@ -562,6 +568,7 @@ export class ExtensionAwareCollectionDetailRead {
         return {
             mediaMode,
             artifact,
+            rpc: this.rpc,
         };
     }
 }

@@ -6,6 +6,8 @@ import type {
 } from "@artgod/shared/types/browse";
 import type { TraitFilterPresentationFeatureState } from "@artgod/shared/types";
 
+type MaybePromise<T> = T | Promise<T>;
+
 export type GetTokenDetailInput = {
     chainRef: string;
     collectionRef: string;
@@ -40,7 +42,7 @@ export class GetTokenDetailUseCase {
                 collectionId: number;
                 tokenId: string;
                 mediaMode?: string;
-            }): TokenDetail;
+            }): MaybePromise<TokenDetail>;
             getCollectionTokenMediaState(params: {
                 chainId: number;
                 collectionId: number;
@@ -57,7 +59,9 @@ export class GetTokenDetailUseCase {
         },
     ) {}
 
-    getTokenDetail(input: GetTokenDetailInput): GetTokenDetailOutput {
+    async getTokenDetail(
+        input: GetTokenDetailInput,
+    ): Promise<GetTokenDetailOutput> {
         const chain = this.chainRefResolverPort.resolveChainRef(
             input.chainRef,
             this.defaultChainId,
@@ -75,7 +79,7 @@ export class GetTokenDetailUseCase {
             mediaMode: input.mediaMode,
         });
 
-        const token = this.collectionDetailReadPort.getCollectionTokenDetail({
+        const token = await this.collectionDetailReadPort.getCollectionTokenDetail({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: input.tokenRef,

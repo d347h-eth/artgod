@@ -15,7 +15,7 @@ Current implementation snapshot:
 - Domain projections for orders, metadata, and activities are implemented.
 - Offchain ingestion includes OpenSea live stream ingestion, bootstrap snapshots, periodic reconciliation, and normalization into canonical order state.
 - Collection extensions are build-bundled and DB-activated; Terraforms is the first embedded extension for metadata-side artifacts, sync enrichment, and backend media overrides.
-    - collection browsing stays on `artifact` / `snapshot`, while Terraforms token detail and preview can expose a token-local `lost` mode when the extra V2 lost-terrain artifact exists
+    - Terraforms collection browsing exposes `artifact`, `snapshot`, and extension-provided `live`; token detail and preview can also expose a token-local `lost` mode when the extra V2 lost-terrain artifact exists
 - Userland collection browsing includes shared collection-page chrome, tokens / activities / holders sections, reusable trait facets, collection activity feeds, and owner-scoped token browsing.
 - Blockspace exploration is implemented with stacked isometric levels, stable bucket ranges, live coverage refresh, manual backfill selection, and public single-collection cache diagnostics.
 - Local observability stack is available (logs, metrics, traces, profiles).

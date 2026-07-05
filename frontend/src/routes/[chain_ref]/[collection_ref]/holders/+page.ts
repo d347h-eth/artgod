@@ -1,5 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import { BackendApiError, getCollectionHolders } from '$lib/backend-api';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
 import { withQuery } from '$lib/route-paths';
@@ -38,7 +39,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				totalPages: 0
 			},
 			basePath: '/',
-			selectedMediaMode: 'snapshot',
+			selectedMediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 			requestCursor: null
 		};
 	}

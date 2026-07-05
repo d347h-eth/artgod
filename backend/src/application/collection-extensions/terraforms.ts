@@ -14,6 +14,8 @@ import {
     TERRAFORMS_EXTENSION_EVENT_KEYS,
     TERRAFORMS_EXTENSION_KEY,
     TERRAFORMS_KNOWN_TOKEN_URI_ADDRESSES_BY_INDEX,
+    TERRAFORMS_MAIN_READ_FUNCTIONS,
+    TERRAFORMS_MEDIA_MODE_OPTIONS,
     TERRAFORMS_MEDIA_MODES,
     TERRAFORMS_PLACEMENT_SEED,
     TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
@@ -47,32 +49,39 @@ const TERRAFORMS_BEACON_ACTIVITY_FILTER_LABELS = {
 
 const TERRAFORMS_MAIN_ABI = [
     {
-        name: "tokenToPlacement",
+        name: TERRAFORMS_MAIN_READ_FUNCTIONS.TokenToPlacement,
         type: "function",
         stateMutability: "view",
         inputs: [{ type: "uint256", name: "tokenId" }],
         outputs: [{ type: "uint256" }],
     },
     {
-        name: "tokenToStatus",
+        name: TERRAFORMS_MAIN_READ_FUNCTIONS.TokenToStatus,
         type: "function",
         stateMutability: "view",
         inputs: [{ type: "uint256", name: "tokenId" }],
         outputs: [{ type: "uint8" }],
     },
     {
-        name: "tokenURI",
+        name: TERRAFORMS_MAIN_READ_FUNCTIONS.TokenUri,
         type: "function",
         stateMutability: "view",
         inputs: [{ type: "uint256", name: "tokenId" }],
         outputs: [{ type: "string" }],
     },
     {
-        name: "tokenURIAddresses",
+        name: TERRAFORMS_MAIN_READ_FUNCTIONS.TokenUriAddresses,
         type: "function",
         stateMutability: "view",
         inputs: [{ type: "uint256", name: "index" }],
         outputs: [{ type: "address" }],
+    },
+    {
+        name: TERRAFORMS_MAIN_READ_FUNCTIONS.TokenHtml,
+        type: "function",
+        stateMutability: "view",
+        inputs: [{ type: "uint256", name: "tokenId" }],
+        outputs: [{ type: "string" }],
     },
 ] as const;
 
@@ -173,6 +182,7 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
                     key: COLLECTION_MEDIA_MODES.Snapshot,
                     label: "snapshot",
                 },
+                { ...TERRAFORMS_MEDIA_MODE_OPTIONS.Live },
             ];
         },
         defaultMediaMode() {
@@ -189,8 +199,7 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
                 )
                     ? [
                           {
-                              key: TERRAFORMS_MEDIA_MODES.LostTerrain,
-                              label: "lost",
+                              ...TERRAFORMS_MEDIA_MODE_OPTIONS.LostTerrain,
                           },
                       ]
                     : []),
@@ -198,6 +207,7 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
                     key: COLLECTION_MEDIA_MODES.Snapshot,
                     label: "snapshot",
                 },
+                { ...TERRAFORMS_MEDIA_MODE_OPTIONS.Live },
             ];
             const defaultMode = COLLECTION_MEDIA_MODES.Artifact;
             const selectedMode =
@@ -239,11 +249,20 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
                 image: context.artifact.image ?? token.image,
             };
         },
-        resolveTokenPreview(
+        async resolveTokenPreview(
             install: CollectionExtensionInstall,
             token: TokenMediaPreview,
             context,
-        ): TokenMediaPreview {
+        ): Promise<TokenMediaPreview> {
+            if (context.mediaMode === TERRAFORMS_MEDIA_MODES.Live) {
+                return {
+                    ...token,
+                    animationUrl: buildHtmlDataUrl(
+                        await resolveLiveTokenHtml(install, token.tokenId, context),
+                    ),
+                };
+            }
+
             if (
                 install.extensionKey !== TERRAFORMS_EXTENSION_KEY ||
                 !isTerraformsArtifact(context.artifact)
@@ -259,11 +278,20 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
                     token.animationUrl,
             };
         },
-        resolveTokenDetail(
+        async resolveTokenDetail(
             install: CollectionExtensionInstall,
             token: TokenDetail,
             context,
-        ): TokenDetail {
+        ): Promise<TokenDetail> {
+            if (context.mediaMode === TERRAFORMS_MEDIA_MODES.Live) {
+                return {
+                    ...token,
+                    animationUrl: buildHtmlDataUrl(
+                        await resolveLiveTokenHtml(install, token.tokenId, context),
+                    ),
+                };
+            }
+
             if (
                 install.extensionKey !== TERRAFORMS_EXTENSION_KEY ||
                 !isTerraformsArtifact(context.artifact)
@@ -339,7 +367,7 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
             return context.rpc.readContract<string>({
                 address: config.mainContractAddress as BackendRpcHex,
                 abi: TERRAFORMS_MAIN_ABI,
-                functionName: "tokenURI",
+                functionName: TERRAFORMS_MAIN_READ_FUNCTIONS.TokenUri,
                 args: [BigInt(input.tokenId)],
             });
         },
@@ -355,6 +383,24 @@ function buildHtmlDataUrl(htmlContent: string | null): string | null {
     }
     const encoded = Buffer.from(htmlContent, "utf8").toString("base64");
     return `data:text/html;base64,${encoded}`;
+}
+
+async function resolveLiveTokenHtml(
+    install: CollectionExtensionInstall,
+    tokenId: string,
+    context: { rpc?: BackendCollectionExtensionRenderContext["rpc"] },
+): Promise<string> {
+    if (!context.rpc) {
+        throw new Error("Terraforms live media requires backend RPC context");
+    }
+    const config = parseTerraformsExtensionConfig(install.configJson);
+    // Read live HTML from the main contract so owner-selected render version is honored.
+    return context.rpc.readContract<string>({
+        address: config.mainContractAddress as BackendRpcHex,
+        abi: TERRAFORMS_MAIN_ABI,
+        functionName: TERRAFORMS_MAIN_READ_FUNCTIONS.TokenHtml,
+        args: [BigInt(tokenId)],
+    });
 }
 
 function resolveTerraformsRenderMode(
@@ -383,14 +429,14 @@ async function resolveTerraformedEventRenderArgs(
         context.rpc.readContract<bigint>({
             address: mainContractAddress as BackendRpcHex,
             abi: TERRAFORMS_MAIN_ABI,
-            functionName: "tokenToPlacement",
+            functionName: TERRAFORMS_MAIN_READ_FUNCTIONS.TokenToPlacement,
             args: [tokenId],
             blockNumber,
         }),
         context.rpc.readContract<bigint | number>({
             address: mainContractAddress as BackendRpcHex,
             abi: TERRAFORMS_MAIN_ABI,
-            functionName: "tokenToStatus",
+            functionName: TERRAFORMS_MAIN_READ_FUNCTIONS.TokenToStatus,
             args: [tokenId],
         }),
     ]);
@@ -443,7 +489,7 @@ async function resolveNetworkRendererAddress(
     const address = await context.rpc.readContract<string>({
         address: mainContractAddress as BackendRpcHex,
         abi: TERRAFORMS_MAIN_ABI,
-        functionName: "tokenURIAddresses",
+        functionName: TERRAFORMS_MAIN_READ_FUNCTIONS.TokenUriAddresses,
         args: [index],
     });
     return address.toLowerCase();

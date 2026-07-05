@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { COLLECTION_MEDIA_MODES } from "@artgod/shared/extensions";
 import {
     TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS,
     TERRAFORMS_EVENT_RENDER_MODES,
     TERRAFORMS_EXTENSION_EVENT_KEYS,
     TERRAFORMS_EXTENSION_KEY,
+    TERRAFORMS_MAIN_READ_FUNCTIONS,
+    TERRAFORMS_MEDIA_MODE_OPTIONS,
+    TERRAFORMS_MEDIA_MODES,
 } from "@artgod/shared/extensions/terraforms";
 import { terraformsBackendCollectionExtension } from "./terraforms.js";
 import type {
@@ -46,6 +50,70 @@ describe("terraformsBackendCollectionExtension", () => {
                 }),
             ]),
         );
+    });
+
+    it("exposes live as an extension-provided media mode", () => {
+        expect(
+            terraformsBackendCollectionExtension.listMediaModes(
+                buildTerraformsInstall(),
+            ),
+        ).toEqual([
+            { key: COLLECTION_MEDIA_MODES.Artifact, label: "artifact" },
+            { key: COLLECTION_MEDIA_MODES.Snapshot, label: "snapshot" },
+            TERRAFORMS_MEDIA_MODE_OPTIONS.Live,
+        ]);
+    });
+
+    it("resolves live token previews through main-contract tokenHTML", async () => {
+        const calls: Array<{
+            address: string;
+            functionName: string;
+            args?: readonly unknown[];
+        }> = [];
+        const token = await terraformsBackendCollectionExtension.resolveTokenPreview(
+            buildTerraformsInstall(),
+            {
+                tokenId: "7710",
+                image: "canonical-image",
+                animationUrl: "snapshot-animation",
+            },
+            {
+                mediaMode: TERRAFORMS_MEDIA_MODES.Live,
+                artifact: null,
+                rpc: {
+                    async readContract<T = unknown>(params: {
+                        address: `0x${string}`;
+                        abi: readonly unknown[];
+                        functionName: string;
+                        args?: readonly unknown[];
+                    }): Promise<T> {
+                        calls.push({
+                            address: params.address,
+                            functionName: params.functionName,
+                            args: params.args,
+                        });
+                        return "<html>live</html>" as T;
+                    },
+                    async getStorageAt() {
+                        throw new Error("Unexpected storage read");
+                    },
+                },
+            },
+        );
+
+        expect(calls).toEqual([
+            {
+                address: MAIN_CONTRACT,
+                functionName: TERRAFORMS_MAIN_READ_FUNCTIONS.TokenHtml,
+                args: [7710n],
+            },
+        ]);
+        expect(token.image).toBe("canonical-image");
+        expect(
+            Buffer.from(token.animationUrl!.split(",")[1]!, "base64").toString(
+                "utf8",
+            ),
+        ).toBe("<html>live</html>");
     });
 
     it("renders Terraformed activity previews through tokenHTML without fetching SVG", async () => {
