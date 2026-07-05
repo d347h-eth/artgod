@@ -358,4 +358,87 @@ describe('BootstrapRunDetailView', () => {
 		expect(body).toContain('aria-label="retry image cache"');
 		expect(body).toContain('retry');
 	});
+
+	it('renders failed metadata retry action when failed tasks are settled', () => {
+		const { body } = render(BootstrapRunDetailView, {
+			props: {
+				chainRef: 'ethereum',
+				runId: 10,
+				initialDetail: {
+					run: {
+						runId: 10,
+						chainId: 1,
+						collectionId: 1,
+						requestSlug: 'milady',
+						requestAddress: '0x1111111111111111111111111111111111111111',
+						requestOpenseaSlug: null,
+						requestStandard: 'erc721',
+						imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+						metadataMode: 'best_effort',
+						enumerationMode: 'enumerable',
+						manualTokenIdsJson: null,
+						manualRangeStartTokenId: null,
+						manualRangeTotalSupply: null,
+						imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+						imageCacheMaxDimension: 1024,
+						deploymentBlock: null,
+						status: 'completed',
+						anchorBlock: 24500000,
+						anchorBlockHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+						anchorBlockTimestamp: 1726000000,
+						errorCode: null,
+						errorMessage: null,
+						createdAt: '2026-02-01T00:00:00Z',
+						updatedAt: '2026-02-01T00:02:00Z',
+						finishedAt: '2026-02-01T00:02:00Z'
+					},
+					collection: {
+						chainId: 1,
+						collectionId: 1,
+						slug: 'milady',
+						address: '0x1111111111111111111111111111111111111111',
+						status: 'live'
+					},
+					metadataTasks: {
+						pending: 0,
+						retry: 0,
+						succeeded: 837,
+						failedTerminal: 103,
+						total: 940
+					},
+					flow: {
+						steps: [
+							flowStep({
+								key: BOOTSTRAP_STEP_KEY.Metadata,
+								label: 'metadata',
+								state: 'completed',
+								detailText: 'failed 103',
+								progress: {
+									completed: 940,
+									total: 940
+								}
+							})
+						],
+						isTerminal: true,
+						shouldPoll: false
+					},
+					failedMetadataTasksPreview: [
+						{
+							tokenId: '100',
+							status: 'failed_terminal',
+							attempts: 3,
+							nextAttemptAt: 0,
+							lastError: 'Metadata URI or payload unavailable',
+							lastErrorAt: null
+						}
+					],
+					failedMetadataTasksPreviewLimit: 50,
+					isLatestForCollection: true
+				}
+			}
+		});
+
+		expect(body).toContain('aria-label="retry failed metadata"');
+		expect(body).toContain('retry failed metadata');
+	});
 });

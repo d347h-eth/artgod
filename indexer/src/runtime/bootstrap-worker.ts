@@ -22,6 +22,7 @@ import {
     type ImageCacheMode,
 } from "@artgod/shared/media/token-image-cache";
 import { ERC721_ENUMERABLE_ABI } from "../abi/index.js";
+import { COLLECTION_STATUS } from "@artgod/shared/types";
 import { publishCollectionExtensionRefreshArtifacts } from "../application/collection-extensions/jobs.js";
 import { resolveIndexerCollectionExtension } from "../application/collection-extensions/index.js";
 import {
@@ -1391,20 +1392,36 @@ async function processBootstrapMetadataStep(input: {
         return readyStepResult(Date.now() + Math.max(1, metadataPollMs));
     }
 
-    if (collection.status === "live") {
-        logger.debug("Metadata process skipped (collection already live)", {
-            component: BOOTSTRAP_WORKER_COMPONENT,
-            action: BOOTSTRAP_WORKER_ACTION.MetadataStep,
-            runId: payload.runId,
-            chainId: payload.chainId,
-            collectionId: payload.collectionId,
-        });
-        bootstrapSteps.markStepSkipped(
-            payload.runId,
-            BOOTSTRAP_STEP_KEY.Metadata,
-            BOOTSTRAP_METADATA_SKIP_REASON.CollectionAlreadyLive,
-        );
-        return terminalStepResult();
+    if (collection.status === COLLECTION_STATUS.Live) {
+        const hasDueMetadataWork =
+            bootstrapStorage.listMetadataTasksDueNow(
+                payload.runId,
+                Date.now(),
+                1,
+            ).length > 0;
+        if (hasDueMetadataWork) {
+            logger.info("Metadata process continuing for live collection retry", {
+                component: BOOTSTRAP_WORKER_COMPONENT,
+                action: BOOTSTRAP_WORKER_ACTION.MetadataStep,
+                runId: payload.runId,
+                chainId: payload.chainId,
+                collectionId: payload.collectionId,
+            });
+        } else {
+            logger.debug("Metadata process skipped (collection already live)", {
+                component: BOOTSTRAP_WORKER_COMPONENT,
+                action: BOOTSTRAP_WORKER_ACTION.MetadataStep,
+                runId: payload.runId,
+                chainId: payload.chainId,
+                collectionId: payload.collectionId,
+            });
+            bootstrapSteps.markStepSkipped(
+                payload.runId,
+                BOOTSTRAP_STEP_KEY.Metadata,
+                BOOTSTRAP_METADATA_SKIP_REASON.CollectionAlreadyLive,
+            );
+            return terminalStepResult();
+        }
     }
 
     const processed = await processDueMetadataTasks(

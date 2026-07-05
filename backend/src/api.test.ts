@@ -32,6 +32,8 @@ import {
     BOOTSTRAP_STEP_STATUS,
     BOOTSTRAP_TASK_STATUS,
     serializeBootstrapStepDependencies,
+    type BootstrapStepKey,
+    type BootstrapStepStatus,
 } from "@artgod/shared/bootstrap/pipeline";
 import type { RpcRetryPolicy } from "@artgod/shared/evm/rpc-resilience";
 import { TOKEN_SET_SCHEMA_KIND } from "@artgod/shared/types/token-sets";
@@ -5304,19 +5306,41 @@ describe("backend api routes", () => {
         ).toBe(false);
     });
 
-    it("retries failed tasks for a specific run", async () => {
+    it("retries settled failed metadata tasks for a specific run", async () => {
         const runId = insertBootstrapRun({
             chainId: 1,
             collectionAddress: MILADY_ADDRESS,
-            status: "metadata",
-            metadataMode: "strict",
+            status: "completed",
+            metadataMode: "best_effort",
             anchorBlock: 24_500_123,
             anchorBlockHash:
                 "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             anchorBlockTimestamp: 1_726_000_123,
         });
+        db.prepare(
+            "UPDATE bootstrap_runs SET request_image_cache_mode = ?, request_image_cache_max_dimension = ? WHERE run_id = ?",
+        ).run(IMAGE_CACHE_MODE.CacheOnce, 512, runId);
+        insertBootstrapRunStep({
+            runId,
+            stepKey: BOOTSTRAP_STEP_KEY.Metadata,
+            status: BOOTSTRAP_STEP_STATUS.Succeeded,
+            blocking: true,
+            dependsOn: [BOOTSTRAP_STEP_KEY.Enumeration],
+            progressCompleted: 940,
+            progressTotal: 940,
+        });
+        insertBootstrapRunStep({
+            runId,
+            stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+            status: BOOTSTRAP_STEP_STATUS.Succeeded,
+            blocking: false,
+            dependsOn: [BOOTSTRAP_STEP_KEY.Metadata],
+            progressCompleted: 837,
+            progressTotal: 837,
+        });
         insertBootstrapMetadataTask(runId, "100", "failed_terminal");
         insertBootstrapMetadataTask(runId, "101", "failed_terminal");
+        insertBootstrapImageCacheTask(runId, "100", "succeeded");
 
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
             host: "127.0.0.1:42710",
@@ -5325,6 +5349,7 @@ describe("backend api routes", () => {
         const token = csrf.payload.token as string;
         const cookie = csrf.headers["set-cookie"] as string;
 
+        bootstrapStartInputs = [];
         const retried = await resolve(
             "POST",
             `/api/ethereum/bootstrap-runs/${runId}/retry-failed`,
@@ -5341,6 +5366,12 @@ describe("backend api routes", () => {
         expect(retried.payload.runId).toBe(runId);
         expect(retried.payload.updatedCount).toBe(2);
         expect(retried.payload.status).toBe("metadata");
+        expect(bootstrapStartInputs).toEqual([
+            expect.objectContaining({
+                runId,
+                collectionId: expect.any(Number),
+            }),
+        ]);
 
         const statuses = db
             .prepare<
@@ -5348,6 +5379,35 @@ describe("backend api routes", () => {
             >("SELECT status FROM bootstrap_metadata_snapshot_tasks WHERE run_id = ? ORDER BY token_id ASC")
             .all(runId) as Array<{ status: string }>;
         expect(statuses.map((item) => item.status)).toEqual(["retry", "retry"]);
+        expect(
+            db
+                .prepare<
+                    [number, string]
+                >("SELECT status, progress_completed, progress_total FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?")
+                .get(runId, BOOTSTRAP_STEP_KEY.Metadata),
+        ).toEqual({
+            status: BOOTSTRAP_STEP_STATUS.Ready,
+            progress_completed: 0,
+            progress_total: 2,
+        });
+        expect(
+            db
+                .prepare<
+                    [number, string]
+                >("SELECT status, progress_completed, progress_total FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?")
+                .get(runId, BOOTSTRAP_STEP_KEY.ImageCache),
+        ).toEqual({
+            status: BOOTSTRAP_STEP_STATUS.Pending,
+            progress_completed: 0,
+            progress_total: null,
+        });
+        expect(
+            db
+                .prepare<
+                    [number]
+                >("SELECT COUNT(*) AS count FROM bootstrap_image_cache_tasks WHERE run_id = ?")
+                .get(runId),
+        ).toEqual({ count: 0 });
     });
 
     it("removes legacy collection-scoped bootstrap mutation endpoints", async () => {
@@ -6601,6 +6661,30 @@ function insertBootstrapRun(input: {
         throw new Error("Failed to resolve inserted bootstrap run");
     }
     return row.run_id;
+}
+
+function insertBootstrapRunStep(input: {
+    runId: number;
+    stepKey: BootstrapStepKey;
+    status: BootstrapStepStatus;
+    blocking: boolean;
+    dependsOn: BootstrapStepKey[];
+    progressCompleted?: number;
+    progressTotal?: number | null;
+}): void {
+    db.prepare(
+        "INSERT INTO bootstrap_run_steps " +
+            "(run_id, step_key, status, blocking, depends_on_json, progress_completed, progress_total) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+        input.runId,
+        input.stepKey,
+        input.status,
+        input.blocking ? 1 : 0,
+        serializeBootstrapStepDependencies(input.dependsOn),
+        input.progressCompleted ?? 0,
+        input.progressTotal ?? null,
+    );
 }
 
 function insertNftBalance(

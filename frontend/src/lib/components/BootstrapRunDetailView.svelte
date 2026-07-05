@@ -2,12 +2,14 @@
 	import { onMount } from 'svelte';
 	import {
 		applyBootstrapStepAction,
-		getBootstrapRunDetail
+		getBootstrapRunDetail,
+		retryBootstrapFailedTasks
 	} from '$lib/backend-api';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import type { ApiBootstrapFlowStep, BootstrapRunDetailApiResponse } from '$lib/api-types';
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import {
+		BOOTSTRAP_RUN_STATUS,
 		BOOTSTRAP_STEP_ACTION,
 		isBootstrapStepKey,
 		type BootstrapStepAction
@@ -37,6 +39,8 @@
 	let loadError = $state<string | null>(null);
 	let stepActionPending = $state<string | null>(null);
 	let stepActionError = $state<string | null>(null);
+	let failedMetadataRetryPending = $state(false);
+	let failedMetadataRetryError = $state<string | null>(null);
 	let nextRefreshAtMs = $state<number | null>(null);
 	let refreshClockNowMs = $state(Date.now());
 	let refreshInFlight = false;
@@ -118,6 +122,31 @@
 		}
 	}
 
+	async function onFailedMetadataRetry(): Promise<void> {
+		if (!chainRef || !runId || !canRetryFailedMetadataTasks() || failedMetadataRetryPending) return;
+		failedMetadataRetryPending = true;
+		failedMetadataRetryError = null;
+		try {
+			await retryBootstrapFailedTasks(fetch, chainRef, runId);
+			await refreshRunDetail();
+		} catch (error) {
+			failedMetadataRetryError =
+				error instanceof Error ? error.message : 'failed metadata retry request failed';
+		} finally {
+			failedMetadataRetryPending = false;
+		}
+	}
+
+	function canRetryFailedMetadataTasks(): boolean {
+		if (!detail?.isLatestForCollection) return false;
+		if (detail.run.status === BOOTSTRAP_RUN_STATUS.Failed) return false;
+		return (
+			detail.metadataTasks.failedTerminal > 0 &&
+			detail.metadataTasks.pending === 0 &&
+			detail.metadataTasks.retry === 0
+		);
+	}
+
 	function stepActionKey(step: ApiBootstrapFlowStep, action: BootstrapStepAction): string {
 		return `${step.key}:${action}`;
 	}
@@ -191,6 +220,9 @@
 			{#if stepActionError}
 				<div class="muted">{stepActionError}</div>
 			{/if}
+			{#if failedMetadataRetryError}
+				<div class="muted">{failedMetadataRetryError}</div>
+			{/if}
 		</section>
 
 		<section class="bootstrap-flow-panel">
@@ -235,11 +267,28 @@
 
 		{#if detail.failedMetadataTasksPreview.length > 0}
 			<section class="bootstrap-failed-tasks">
-				<div class="panel-header">
-					<h2 class="panel-title">Failed Metadata Tasks</h2>
-					<span class="muted"
-						>first {detail.failedMetadataTasksPreviewLimit} failed_terminal tasks in this run</span
-					>
+				<div class="panel-header bootstrap-failed-tasks-header">
+					<div class="bootstrap-failed-tasks-heading">
+						<h2 class="panel-title">Failed Metadata Tasks</h2>
+						<span class="muted"
+							>first {detail.failedMetadataTasksPreviewLimit} failed_terminal tasks in this run</span
+						>
+						{#if canRetryFailedMetadataTasks()}
+							<button
+								type="button"
+								class="bootstrap-flow-step-action"
+								onclick={() => void onFailedMetadataRetry()}
+								disabled={failedMetadataRetryPending}
+								aria-label="retry failed metadata"
+							>
+								{#if failedMetadataRetryPending}
+									retry failed metadata...
+								{:else}
+									retry failed metadata
+								{/if}
+							</button>
+						{/if}
+					</div>
 				</div>
 				<div class="table-wrap">
 					<table>

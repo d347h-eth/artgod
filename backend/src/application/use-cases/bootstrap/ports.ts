@@ -164,6 +164,15 @@ export interface BootstrapRunsWritePort {
         stepUpdated: boolean;
         taskUpdatedCount: number;
     };
+    retryFailedMetadataTasks(input: {
+        runId: number;
+        resetImageCacheStep: boolean;
+    }): {
+        updatedCount: number;
+        metadataStepUpdated: boolean;
+        imageCacheStepReset: boolean;
+        imageCacheTasksDeleted: number;
+    };
     listRunMetadataTasks(params: {
         runId: number;
         status?: BootstrapMetadataTaskStatus;
@@ -173,7 +182,6 @@ export interface BootstrapRunsWritePort {
         items: BootstrapMetadataTaskListItem[];
         nextCursor: string | null;
     };
-    retryFailedTasks(runId: number): number;
 }
 
 export interface BootstrapCommandQueuePort {

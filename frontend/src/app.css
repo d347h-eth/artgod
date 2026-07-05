@@ -668,6 +668,17 @@ a:hover {
 	border-bottom: 1px solid var(--c-blue);
 }
 
+.bootstrap-failed-tasks-header {
+	justify-content: flex-start;
+}
+
+.bootstrap-failed-tasks-heading {
+	display: flex;
+	align-items: flex-end;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+}
+
 .blockspace-controls-header {
 	align-items: flex-start;
 	justify-content: flex-start;
