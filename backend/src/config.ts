@@ -122,6 +122,9 @@ const DEFAULT_COMMON_IPFS_GATEWAY_ORIGIN = getSettingDefault(
 const DEFAULT_COMMON_MEDIA_CACHE_DIR = getSettingDefault(
     COMMON_MEDIA_ENV_KEY.MediaCacheDir,
 );
+const DEFAULT_BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES = getSettingDefaultNumber(
+    "BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES",
+);
 
 export type BackendSecurityConfig = {
     allowedHosts: string[];
@@ -184,6 +187,10 @@ export type BackendSyncConfig = {
     backfillBatchSize: number;
 };
 
+export type BackendBootstrapConfig = {
+    imageCacheMaxSourceBytes: number;
+};
+
 // Authenticated OpenSea HTTP config used by backend-side OpenSea probes.
 export type BackendOpenSeaApiConfig = {
     apiKey: string;
@@ -207,6 +214,7 @@ export type BackendConfig = {
     deployment: BackendDeploymentConfig;
     queryCache: BackendQueryCacheConfig;
     sync: BackendSyncConfig;
+    bootstrap: BackendBootstrapConfig;
     ipfs: {
         gatewayOrigin: string;
     };
@@ -271,6 +279,7 @@ export function loadBackendConfig(
     const deployment = parseDeploymentConfig(env);
     const queryCache = parseQueryCacheConfig(env);
     const sync = parseBackendSyncConfig(env);
+    const bootstrap = parseBackendBootstrapConfig(env);
     const ipfsGatewayOrigin = normalizeIpfsGatewayOrigin(
         env[COMMON_MEDIA_ENV_KEY.IpfsGatewayOrigin] ??
             DEFAULT_COMMON_IPFS_GATEWAY_ORIGIN,
@@ -317,6 +326,7 @@ export function loadBackendConfig(
         deployment,
         queryCache,
         sync,
+        bootstrap,
         ipfs: {
             gatewayOrigin: ipfsGatewayOrigin,
         },
@@ -340,6 +350,18 @@ function parseBackendSyncConfig(
             env.BACKFILL_BATCH_SIZE,
             "BACKFILL_BATCH_SIZE",
             DEFAULT_BACKFILL_BATCH_SIZE,
+        ),
+    };
+}
+
+function parseBackendBootstrapConfig(
+    env: Record<string, string | undefined>,
+): BackendBootstrapConfig {
+    return {
+        imageCacheMaxSourceBytes: parsePositiveInteger(
+            env.BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES,
+            "BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES",
+            DEFAULT_BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES,
         ),
     };
 }

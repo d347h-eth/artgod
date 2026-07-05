@@ -25,6 +25,10 @@ import type {
     ProbeCollectionContractRoute,
 } from "./http/handlers/bootstrap/probe-collection-contract.js";
 import type {
+    EstimateBootstrapImageCacheHttpAdapter,
+    EstimateBootstrapImageCacheRoute,
+} from "./http/handlers/bootstrap/estimate-bootstrap-image-cache.js";
+import type {
     ProbeOpenSeaCollectionSlugHttpAdapter,
     ProbeOpenSeaCollectionSlugRoute,
 } from "./http/handlers/bootstrap/probe-opensea-collection-slug.js";
@@ -241,6 +245,7 @@ export function registerApiRoutes(
     ) => Promise<{ token: string }>,
     createBootstrapRunAdapter: CreateBootstrapRunHttpAdapter,
     probeCollectionContractAdapter: ProbeCollectionContractHttpAdapter,
+    estimateBootstrapImageCacheAdapter: EstimateBootstrapImageCacheHttpAdapter,
     probeOpenSeaCollectionSlugAdapter: ProbeOpenSeaCollectionSlugHttpAdapter,
     listBootstrapRunsAdapter: ListBootstrapRunsHttpAdapter,
     getBootstrapRunDetailAdapter: GetBootstrapRunDetailHttpAdapter,
@@ -544,6 +549,12 @@ export function registerApiRoutes(
         options,
         BOOTSTRAP_API_ROUTE_TEMPLATE.ProbeCollection,
         probeCollectionContractAdapter.handle,
+    );
+    registerObservedPost<EstimateBootstrapImageCacheRoute>(
+        app,
+        options,
+        BOOTSTRAP_API_ROUTE_TEMPLATE.EstimateImageCache,
+        estimateBootstrapImageCacheAdapter.handle,
     );
     registerObservedGet<ProbeOpenSeaCollectionSlugRoute>(
         app,

@@ -16,6 +16,7 @@ import { GetBootstrapRunDetailUseCase } from "./application/use-cases/bootstrap/
 import { GetBootstrapStatusUseCase } from "./application/use-cases/bootstrap/get-bootstrap-status.js";
 import { ListBootstrapRunsUseCase } from "./application/use-cases/bootstrap/list-bootstrap-runs.js";
 import { ProbeCollectionContractUseCase } from "./application/use-cases/bootstrap/probe-collection-contract.js";
+import { EstimateBootstrapImageCacheUseCase } from "./application/use-cases/bootstrap/estimate-bootstrap-image-cache.js";
 import { ProbeOpenSeaCollectionSlugUseCase } from "./application/use-cases/bootstrap/probe-opensea-collection-slug.js";
 import { RetryBootstrapRunFailedTasksUseCase } from "./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import { logger } from "@artgod/shared/utils";
@@ -85,6 +86,7 @@ import { MemoryQueryCache } from "./infra/cache/memory.js";
 import { SqliteBootstrapRunsRepository } from "./infra/bootstrap/sqlite-bootstrap-runs.js";
 import { OpenSeaCollectionSlugProbeAdapter } from "./infra/bootstrap/opensea-collection-slug-probe.js";
 import { ViemBootstrapContractProbe } from "./infra/bootstrap/viem-bootstrap-contract-probe.js";
+import { SharpBootstrapImageCacheEstimateAdapter } from "./infra/media/sharp-bootstrap-image-cache-estimate.js";
 import { BuiltInCollectionExtensionResolver } from "./infra/collection-extensions/built-in-collection-extension-resolver.js";
 import { ExtensionAwareCollectionCustomization } from "./infra/collections/extension-aware-collection-customization.js";
 import { ExtensionAwareCollectionDetailRead } from "./infra/collections/extension-aware-collection-detail-read.js";
@@ -257,6 +259,12 @@ export function createBackendApp(
         config.ipfs.gatewayOrigin,
         config.httpFetch,
     );
+    const bootstrapImageCacheEstimate =
+        new SharpBootstrapImageCacheEstimateAdapter({
+            ipfsGatewayOrigin: config.ipfs.gatewayOrigin,
+            maxSourceBytes: config.bootstrap.imageCacheMaxSourceBytes,
+            fetchResilience: config.httpFetch,
+        });
     const openSeaCollectionSlugProbe = config.openseaApi
         ? new OpenSeaCollectionSlugProbeAdapter(
               new OpenSeaContractLookupClient(config.openseaApi),
@@ -277,6 +285,12 @@ export function createBackendApp(
         bootstrapContractProbe,
         builtInCollectionExtensionResolver,
     );
+    const estimateBootstrapImageCacheUseCase =
+        new EstimateBootstrapImageCacheUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            bootstrapImageCacheEstimate,
+        );
     const probeOpenSeaCollectionSlugUseCase =
         new ProbeOpenSeaCollectionSlugUseCase(
             config.defaultChainId,
@@ -604,6 +618,7 @@ export function createBackendApp(
     const app = createApiApp(
         createBootstrapRunUseCase,
         probeCollectionContractUseCase,
+        estimateBootstrapImageCacheUseCase,
         probeOpenSeaCollectionSlugUseCase,
         listBootstrapRunsUseCase,
         getBootstrapRunDetailUseCase,

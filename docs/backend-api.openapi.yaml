@@ -1280,6 +1280,43 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/collections/bootstrap/image-cache-estimate:
+        post:
+            tags: [Bootstrap]
+            summary: Estimate bootstrap image-cache output
+            description: |
+                Estimates local token-image cache output for the already-probed sample image and
+                selected image-cache settings. The endpoint downloads the sample source image only
+                when needed and uses the same resize/WebP behavior as the image-cache worker.
+                Mutating-route CSRF checks apply even though the endpoint does not persist data.
+            operationId: estimateBootstrapImageCache
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/BootstrapImageCacheEstimateRequest"
+            responses:
+                "200":
+                    description: Image-cache estimate for the selected settings
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/BootstrapImageCacheEstimateResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/collections/bootstrap/opensea-slug-probe:
         get:
             tags: [Bootstrap]
@@ -4537,6 +4574,84 @@ components:
                 deploymentBlock:
                     type: integer
                     minimum: 1
+
+        BootstrapImageCacheEstimateRequest:
+            type: object
+            required:
+                [
+                    sampleTokenId,
+                    sourceImageUrl,
+                    totalSupply,
+                    imageCacheMode,
+                    maxDimension,
+                ]
+            additionalProperties: false
+            properties:
+                sampleTokenId:
+                    type: string
+                sourceImageUrl:
+                    type: string
+                sourceImageBytes:
+                    type: integer
+                    nullable: true
+                    minimum: 0
+                totalSupply:
+                    type: string
+                imageCacheMode:
+                    $ref: "#/components/schemas/ImageCacheMode"
+                maxDimension:
+                    type: integer
+                    nullable: true
+                    minimum: 64
+                    maximum: 4096
+
+        BootstrapImageCacheEstimateResponse:
+            type: object
+            required:
+                [
+                    chain,
+                    sampleTokenId,
+                    imageCacheMode,
+                    maxDimension,
+                    sampleSourceBytes,
+                    sampleCachedBytes,
+                    projectedCachedBytes,
+                    totalSupply,
+                    contentType,
+                    width,
+                    height,
+                ]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                sampleTokenId:
+                    type: string
+                imageCacheMode:
+                    $ref: "#/components/schemas/ImageCacheMode"
+                maxDimension:
+                    type: integer
+                    nullable: true
+                sampleSourceBytes:
+                    type: integer
+                    nullable: true
+                    minimum: 0
+                sampleCachedBytes:
+                    type: integer
+                    minimum: 0
+                projectedCachedBytes:
+                    type: string
+                totalSupply:
+                    type: string
+                contentType:
+                    type: string
+                    nullable: true
+                width:
+                    type: integer
+                    nullable: true
+                height:
+                    type: integer
+                    nullable: true
 
         BootstrapOpenSeaSlugProbeResponse:
             type: object

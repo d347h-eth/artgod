@@ -2,6 +2,8 @@
 export const BOOTSTRAP_API_ROUTE_TEMPLATE = {
     CreateRun: "/api/:chain_ref/collections/bootstrap",
     ProbeCollection: "/api/:chain_ref/collections/bootstrap/probe",
+    EstimateImageCache:
+        "/api/:chain_ref/collections/bootstrap/image-cache-estimate",
     ProbeOpenSeaSlug:
         "/api/:chain_ref/collections/bootstrap/opensea-slug-probe",
 } as const;
@@ -36,6 +38,14 @@ export function buildProbeBootstrapCollectionPath(input: {
         BOOTSTRAP_API_ROUTE_TEMPLATE.ProbeCollection,
         input.chainRef,
     )}?${query.toString()}`;
+}
+
+// Builds the backend route used to estimate sample-image cache output.
+export function buildEstimateBootstrapImageCachePath(chainRef: string): string {
+    return buildBootstrapChainRoute(
+        BOOTSTRAP_API_ROUTE_TEMPLATE.EstimateImageCache,
+        chainRef,
+    );
 }
 
 type ProbeBootstrapOpenSeaSlugPathInput =

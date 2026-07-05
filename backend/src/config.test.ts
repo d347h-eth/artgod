@@ -154,10 +154,14 @@ describe("loadBackendConfig", () => {
         const config = loadBackendConfig({
             ...createBaseEnv(),
             BACKFILL_BATCH_SIZE: "25",
+            BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES: "1024",
         });
 
         expect(config.sync).toEqual({
             backfillBatchSize: 25,
+        });
+        expect(config.bootstrap).toEqual({
+            imageCacheMaxSourceBytes: 1024,
         });
     });
 

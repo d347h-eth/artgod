@@ -4,14 +4,12 @@ import path from "node:path";
 import type sharp from "sharp";
 import { buildTokenImageCachePublicPath } from "@artgod/shared/media/token-image-cache";
 import {
-    parseImageDataUriBuffer,
-    resolveTokenResourceUri,
-} from "@artgod/shared/media/token-resource-uri";
+    fetchTokenImageCacheSource,
+    normalizeImageContentType,
+} from "@artgod/shared/media/token-image-cache-source";
+import { resizeTokenImageCacheSourceToWebp } from "@artgod/shared/media/token-image-cache-transform";
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
-import {
-    fetchWithHttpResilience,
-    type HttpFetchResilienceConfig,
-} from "@artgod/shared/network/http-fetch-resilience";
+import type { HttpFetchResilienceConfig } from "@artgod/shared/network/http-fetch-resilience";
 import { logger } from "@artgod/shared/utils";
 import type {
     TokenImageCacheInput,
@@ -35,7 +33,6 @@ type SourceImagePayload = {
 export type SharpFactory = typeof sharp;
 export type SharpFactoryLoader = () => Promise<SharpFactory>;
 
-const DEFAULT_WEBP_QUALITY = 85;
 let sharpFactoryPromise: Promise<SharpFactory> | null = null;
 
 export class SharpTokenImageCache implements TokenImageCachePort {
@@ -105,58 +102,12 @@ export class SharpTokenImageCache implements TokenImageCachePort {
     }
 
     private async fetchSourceImage(uri: string): Promise<SourceImagePayload> {
-        const resolved = resolveTokenResourceUri(uri, {
+        return await fetchTokenImageCacheSource({
+            sourceImageUrl: uri,
             ipfsGatewayOrigin: this.config.ipfsGatewayOrigin,
+            maxSourceBytes: this.config.maxSourceBytes,
+            fetchResilience: this.fetchResilience,
         });
-        if (!resolved) {
-            throw new Error("Unsupported image URI");
-        }
-
-        if (resolved.startsWith("data:")) {
-            const data = parseImageDataUriBuffer(resolved);
-            assertSourceLimit(
-                data.buffer.byteLength,
-                this.config.maxSourceBytes,
-            );
-            return {
-                buffer: data.buffer,
-                contentType: data.contentType,
-            };
-        }
-
-        if (!/^https?:\/\//i.test(resolved)) {
-            throw new Error("Unsupported image URI");
-        }
-
-        const response = await fetchWithHttpResilience({
-            input: resolved,
-            config: this.fetchResilience,
-            init: {
-                headers: { accept: "image/*,*/*;q=0.1" },
-            },
-        });
-        if (!response.ok) {
-            throw new Error(`Image fetch failed: HTTP ${response.status}`);
-        }
-        const contentLength = Number(response.headers.get("content-length"));
-        if (
-            Number.isFinite(contentLength) &&
-            contentLength > this.config.maxSourceBytes
-        ) {
-            throw new Error(
-                `Image payload exceeds ${this.config.maxSourceBytes} bytes`,
-            );
-        }
-
-        return {
-            buffer: await readResponseBufferWithLimit(
-                response,
-                this.config.maxSourceBytes,
-            ),
-            contentType: normalizeContentType(
-                response.headers.get("content-type"),
-            ),
-        };
     }
 }
 
@@ -172,30 +123,15 @@ async function transformImage(
     height: number | null;
 }> {
     if (input.requestedMaxDimension !== null) {
-        const sharp = await sharpLoader();
-        const output = await sharp(source.buffer, {
-            animated: false,
-        })
-            .rotate()
-            .resize({
-                width: input.requestedMaxDimension,
-                height: input.requestedMaxDimension,
-                fit: "inside",
-                withoutEnlargement: true,
-            })
-            .webp({ quality: DEFAULT_WEBP_QUALITY })
-            .toBuffer({ resolveWithObject: true });
-        return {
-            buffer: output.data,
-            contentType: "image/webp",
-            extension: "webp",
-            width: output.info.width ?? null,
-            height: output.info.height ?? null,
-        };
+        return await resizeTokenImageCacheSourceToWebp({
+            sourceBuffer: source.buffer,
+            requestedMaxDimension: input.requestedMaxDimension,
+            sharpLoader,
+        });
     }
 
     const contentType =
-        normalizeContentType(source.contentType) ??
+        normalizeImageContentType(source.contentType) ??
         inferImageContentType(source.buffer) ??
         "application/octet-stream";
     return {
@@ -216,31 +152,6 @@ async function loadSharp(): Promise<SharpFactory> {
         });
     }
     return sharpFactoryPromise;
-}
-
-async function readResponseBufferWithLimit(
-    response: Response,
-    maxBytes: number,
-): Promise<Buffer> {
-    const body = response.body;
-    if (!body) {
-        const buffer = Buffer.from(await response.arrayBuffer());
-        assertSourceLimit(buffer.byteLength, maxBytes);
-        return buffer;
-    }
-
-    const reader = body.getReader();
-    const chunks: Uint8Array[] = [];
-    let received = 0;
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!value) continue;
-        received += value.byteLength;
-        assertSourceLimit(received, maxBytes);
-        chunks.push(value);
-    }
-    return Buffer.concat(chunks, received);
 }
 
 function buildCacheKey(input: TokenImageCacheInput): string {
@@ -289,17 +200,6 @@ function safeTokenPathSegment(tokenId: string): string {
         .update(tokenId)
         .digest("hex")
         .slice(0, 32);
-}
-
-function assertSourceLimit(bytes: number, maxBytes: number): void {
-    if (bytes > maxBytes) {
-        throw new Error(`Image payload exceeds ${maxBytes} bytes`);
-    }
-}
-
-function normalizeContentType(value: string | null): string | null {
-    const normalized = value?.split(";")[0]?.trim().toLowerCase() ?? "";
-    return normalized || null;
 }
 
 function inferImageContentType(buffer: Buffer): string | null {

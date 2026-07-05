@@ -576,6 +576,10 @@ beforeAll(async () => {
         await import("./application/use-cases/bootstrap/create-bootstrap-run.js");
     const probeCollectionContractUseCaseModule =
         await import("./application/use-cases/bootstrap/probe-collection-contract.js");
+    const estimateBootstrapImageCacheUseCaseModule =
+        await import(
+            "./application/use-cases/bootstrap/estimate-bootstrap-image-cache.js"
+        );
     const probeOpenSeaCollectionSlugUseCaseModule =
         await import("./application/use-cases/bootstrap/probe-opensea-collection-slug.js");
     const getBootstrapStatusUseCaseModule =
@@ -657,6 +661,31 @@ beforeAll(async () => {
                 },
             },
             builtInCollectionExtensionResolver,
+        );
+    const estimateBootstrapImageCacheUseCase =
+        new estimateBootstrapImageCacheUseCaseModule.EstimateBootstrapImageCacheUseCase(
+            1,
+            chainsReadModel,
+            {
+                async estimateCacheOutput(input: {
+                    sourceImageBytes: number | null;
+                    maxDimension: number | null;
+                }) {
+                    const sourceBytes = input.sourceImageBytes ?? 4096;
+                    const cachedBytes =
+                        input.maxDimension === null
+                            ? sourceBytes
+                            : Math.max(1, Math.floor(sourceBytes / 2));
+                    return {
+                        sourceBytes,
+                        cachedBytes,
+                        contentType:
+                            input.maxDimension === null ? "image/png" : "image/webp",
+                        width: input.maxDimension,
+                        height: input.maxDimension,
+                    };
+                },
+            },
         );
     const probeOpenSeaCollectionSlugUseCase =
         new probeOpenSeaCollectionSlugUseCaseModule.ProbeOpenSeaCollectionSlugUseCase(
@@ -838,6 +867,7 @@ beforeAll(async () => {
     app = appModule.createApiApp(
         createBootstrapRunUseCase,
         probeCollectionContractUseCase,
+        estimateBootstrapImageCacheUseCase,
         probeOpenSeaCollectionSlugUseCase,
         listBootstrapRunsUseCase,
         getBootstrapRunDetailUseCase,
@@ -891,6 +921,7 @@ beforeAll(async () => {
     publicApp = appModule.createApiApp(
         createBootstrapRunUseCase,
         probeCollectionContractUseCase,
+        estimateBootstrapImageCacheUseCase,
         probeOpenSeaCollectionSlugUseCase,
         listBootstrapRunsUseCase,
         getBootstrapRunDetailUseCase,
@@ -988,6 +1019,9 @@ beforeAll(async () => {
                 staleMs: 1_200_000,
                 warmupConcurrency: 2,
             },
+        },
+        bootstrap: {
+            imageCacheMaxSourceBytes: 26214400,
         },
         sync: {
             backfillBatchSize: 50,
@@ -4650,6 +4684,41 @@ describe("backend api routes", () => {
                 ready: true,
             }),
         );
+        const imageCacheEstimate = await resolve(
+            "POST",
+            "/api/ethereum/collections/bootstrap/image-cache-estimate",
+            {
+                sampleTokenId: "1",
+                sourceImageUrl: probe.payload.firstToken.image,
+                sourceImageBytes: probe.payload.firstToken.imageBytes,
+                totalSupply: probe.payload.totalSupply.value,
+                imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+                maxDimension: 1080,
+            },
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(imageCacheEstimate.statusCode).toBe(200);
+        expect(imageCacheEstimate.payload).toEqual({
+            chain: expect.objectContaining({
+                slug: "ethereum",
+            }),
+            sampleTokenId: "1",
+            imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+            maxDimension: 1080,
+            sampleSourceBytes: 1024,
+            sampleCachedBytes: 512,
+            projectedCachedBytes: "1536",
+            totalSupply: "3",
+            contentType: "image/webp",
+            width: 1080,
+            height: 1080,
+        });
 
         openSeaSlugProbeInputs = [];
         const openSeaSlugProbe = await resolve(
