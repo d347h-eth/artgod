@@ -144,6 +144,7 @@ export type RpcObservabilityConfig = {
 export type RpcCallContext = {
     method: string;
     startedAtMs: number;
+    logFields?: Record<string, unknown>;
 };
 
 export type RpcEndpointAttemptContext = RpcCallContext & {
@@ -158,12 +159,14 @@ export type RpcRetryScheduledInput = {
     attempt: number;
     nextAttempt: number;
     delayMs: number;
+    logFields?: Record<string, unknown>;
 };
 
 export type RpcRateLimitWaitInput = {
     method: string;
     endpoint: RpcEndpointSnapshot;
     waitedMs: number;
+    logFields?: Record<string, unknown>;
 };
 
 export type RpcEndpointEventInput = {
@@ -197,10 +200,14 @@ export class RpcObservability {
         });
     }
 
-    startCall(method: string): RpcCallContext {
+    startCall(
+        method: string,
+        logFields?: Record<string, unknown>,
+    ): RpcCallContext {
         return {
             method,
             startedAtMs: Date.now(),
+            ...(logFields ? { logFields } : {}),
         };
     }
 
@@ -221,6 +228,7 @@ export class RpcObservability {
                 RPC_OBSERVABILITY_LOG_ACTION.EndpointAttemptStarted,
                 call.method,
             ),
+            ...this.rpcCallLogFields(call),
             ...this.endpointLogFields(endpoint),
             attempt,
         });
@@ -243,6 +251,7 @@ export class RpcObservability {
                 RPC_OBSERVABILITY_LOG_ACTION.EndpointAttemptSucceeded,
                 context.method,
             ),
+            ...this.rpcCallLogFields(context),
             ...this.endpointLogFields(endpoint),
             attempt: context.attempt,
             durationMs,
@@ -274,6 +283,7 @@ export class RpcObservability {
                 RPC_OBSERVABILITY_LOG_ACTION.EndpointAttemptFailed,
                 context.method,
             ),
+            ...this.rpcCallLogFields(context),
             ...this.endpointLogFields(endpoint),
             ...errorLogFields(error),
             attempt: context.attempt,
@@ -305,6 +315,7 @@ export class RpcObservability {
                 RPC_OBSERVABILITY_LOG_ACTION.CallSucceeded,
                 call.method,
             ),
+            ...this.rpcCallLogFields(call),
             ...this.endpointLogFields(endpoint),
             durationMs,
         });
@@ -329,6 +340,7 @@ export class RpcObservability {
                 RPC_OBSERVABILITY_LOG_ACTION.CallFailed,
                 call.method,
             ),
+            ...this.rpcCallLogFields(call),
             ...(endpoint ? this.endpointLogFields(endpoint) : {}),
             ...errorLogFields(error),
             durationMs,
@@ -348,6 +360,7 @@ export class RpcObservability {
                 RPC_OBSERVABILITY_LOG_ACTION.RetryScheduled,
                 input.method,
             ),
+            ...(input.logFields ?? {}),
             ...this.endpointLogFields(input.endpoint),
             attempt: input.attempt,
             nextAttempt: input.nextAttempt,
@@ -371,6 +384,7 @@ export class RpcObservability {
                 RPC_OBSERVABILITY_LOG_ACTION.RateLimiterWaited,
                 input.method,
             ),
+            ...(input.logFields ?? {}),
             ...this.endpointLogFields(input.endpoint),
             waitedMs: input.waitedMs,
         });
@@ -392,12 +406,14 @@ export class RpcObservability {
         method: string,
         endpoint: RpcEndpointSnapshot,
         error: unknown,
+        logFields?: Record<string, unknown>,
     ): void {
         this.log.warn(RPC_OBSERVABILITY_LOG_MESSAGE.CircuitOpen, {
             ...this.baseLogFields(
                 RPC_OBSERVABILITY_LOG_ACTION.CircuitOpen,
                 method,
             ),
+            ...(logFields ?? {}),
             ...this.endpointLogFields(endpoint),
             ...errorLogFields(error),
         });
@@ -544,6 +560,10 @@ export class RpcObservability {
             configuredWeight: endpoint.configuredWeight,
             effectiveWeight: endpoint.effectiveWeight,
         };
+    }
+
+    private rpcCallLogFields(context: RpcCallContext): Record<string, unknown> {
+        return context.logFields ?? {};
     }
 }
 

@@ -39,6 +39,15 @@ const BACKEND_RPC_SPAN_ATTRIBUTE = {
     Endpoint: "artgod.rpc.endpoint",
 } as const;
 
+// Structured log fields that identify backend contract reads.
+export const BACKEND_RPC_LOG_FIELD = {
+    Args: "args",
+    ArgsCount: "argsCount",
+    BlockNumber: "blockNumber",
+    ContractAddress: "contractAddress",
+    FunctionName: "functionName",
+} as const;
+
 // Span names owned by the backend RPC adapter.
 const BACKEND_RPC_SPAN_NAME = {
     GetBytecode: "backend.rpc.get_bytecode",
@@ -57,6 +66,10 @@ const BACKEND_RPC_LOG_COMPONENT = "BackendRpc";
 const BACKEND_RPC_SPAN_PREFIX = "backend.rpc.";
 
 const CURRENT_BLOCK_NUMBER_CACHE_TTL_MS = 2_000;
+const BACKEND_RPC_LOG_ARG_LIMIT = 8;
+const BACKEND_RPC_LOG_ARG_STRING_LIMIT = 96;
+const BACKEND_RPC_LOG_ARG_TRUNCATION_SUFFIX = "...";
+const BACKEND_RPC_LOG_ARG_OMITTED_LABEL = "...more";
 type BackendViemClient = ReturnType<typeof createPublicClient>;
 export type BackendRpcClientFactory = (url: string) => BackendViemClient;
 type BackendRpcEndpoint = {
@@ -242,6 +255,7 @@ export class ViemBackendRpcClient {
                 });
                 return result as T;
             },
+            buildReadContractLogFields(params),
         );
     }
 
@@ -294,11 +308,13 @@ export class ViemBackendRpcClient {
         name: string,
         attributes: Record<string, unknown>,
         read: (client: BackendViemClient) => Promise<T>,
+        logFields?: Record<string, unknown>,
     ): Promise<T> {
         const method = backendRpcMethodLabel(name);
         return executeObservedRpcEndpointCall({
             selector: this.endpointSelector,
             method,
+            logFields,
             rpcObservability: this.rpcObservability,
             retryPolicy: this.retryPolicy,
             sleep: this.options.sleep,
@@ -316,6 +332,71 @@ export class ViemBackendRpcClient {
                 ),
         });
     }
+}
+
+function buildReadContractLogFields(params: {
+    address: BackendRpcHex;
+    functionName: string;
+    args?: readonly unknown[];
+    blockNumber?: number;
+}): Record<string, unknown> {
+    const args = params.args ?? [];
+    return {
+        [BACKEND_RPC_LOG_FIELD.ContractAddress]: params.address,
+        [BACKEND_RPC_LOG_FIELD.FunctionName]: params.functionName,
+        [BACKEND_RPC_LOG_FIELD.Args]: formatBackendRpcContractArgs(args),
+        [BACKEND_RPC_LOG_FIELD.ArgsCount]: args.length,
+        ...(params.blockNumber !== undefined
+            ? {
+                  [BACKEND_RPC_LOG_FIELD.BlockNumber]: params.blockNumber,
+              }
+            : {}),
+    };
+}
+
+function formatBackendRpcContractArgs(args: readonly unknown[]): unknown[] {
+    const formatted = args
+        .slice(0, BACKEND_RPC_LOG_ARG_LIMIT)
+        .map(formatBackendRpcContractArg);
+    if (args.length > BACKEND_RPC_LOG_ARG_LIMIT) {
+        formatted.push(
+            `${BACKEND_RPC_LOG_ARG_OMITTED_LABEL}:${args.length - BACKEND_RPC_LOG_ARG_LIMIT}`,
+        );
+    }
+    return formatted;
+}
+
+function formatBackendRpcContractArg(value: unknown): unknown {
+    if (typeof value === "bigint") {
+        return value.toString();
+    }
+    if (typeof value === "string") {
+        return truncateBackendRpcLogString(value);
+    }
+    if (
+        typeof value === "number" ||
+        typeof value === "boolean" ||
+        value === null
+    ) {
+        return value;
+    }
+    if (Array.isArray(value)) {
+        return `[${formatBackendRpcContractArgs(value).map(String).join(",")}]`;
+    }
+    if (value === undefined) {
+        return "undefined";
+    }
+    return typeof value;
+}
+
+function truncateBackendRpcLogString(value: string): string {
+    if (value.length <= BACKEND_RPC_LOG_ARG_STRING_LIMIT) {
+        return value;
+    }
+    return `${value.slice(
+        0,
+        BACKEND_RPC_LOG_ARG_STRING_LIMIT,
+    )}${BACKEND_RPC_LOG_ARG_TRUNCATION_SUFFIX}`;
 }
 
 function backendRpcMethodLabel(spanName: string): string {
