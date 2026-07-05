@@ -24,6 +24,7 @@ export const BOOTSTRAP_PROBE_CONTRACTS = {
 	NonEnumerable: '0xd3d9ddd0cf0a5f0bfb8f7fceae075df687eaebab',
 	EnumerableRaster: '0x5af0d9827e0c53e4799bb226655a1de152a425a5',
 	EnumerableOnchainSvg: '0x4e1f41613c9084fdb9e34e11fae9412427480e56',
+	NeedsTokenStart: '0x6b175474e89094c44da98b954eedeac495271d0f',
 	SharedManualScope: '0x145789247973c5d612bf121e9e4eef84b63eb707'
 } as const;
 
@@ -32,6 +33,7 @@ export const BOOTSTRAP_PROBE_OPENSEA_SLUGS = {
 	NonEnumerable: 'non-enumerable-test-collection',
 	EnumerableRaster: 'raster-images-2026',
 	EnumerableOnchainSvg: 'terraforms',
+	NeedsTokenStart: 'needs-token-start',
 	SharedManualScope: 'shared-manual-scope'
 } as const;
 
@@ -307,6 +309,13 @@ function openSeaSlugProbeResponseForAddress(address: string): BootstrapOpenSeaSl
 			slug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableOnchainSvg
 		});
 	}
+	if (address === BOOTSTRAP_PROBE_CONTRACTS.NeedsTokenStart) {
+		return buildOpenSeaSlugProbeResponse({
+			address,
+			requestedSlug: null,
+			slug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.NeedsTokenStart
+		});
+	}
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope) {
 		return buildOpenSeaSlugProbeResponse({
 			address,
@@ -329,6 +338,7 @@ function openSeaSlugProbeResponseForSlug(slug: string): BootstrapOpenSeaSlugProb
 		slug === BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable ||
 		slug === BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster ||
 		slug === BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableOnchainSvg ||
+		slug === BOOTSTRAP_PROBE_OPENSEA_SLUGS.NeedsTokenStart ||
 		slug === BOOTSTRAP_PROBE_OPENSEA_SLUGS.SharedManualScope
 	) {
 		return buildOpenSeaSlugProbeResponse({
@@ -439,6 +449,25 @@ function probeResponse(
 		});
 	}
 
+	if (address === BOOTSTRAP_PROBE_CONTRACTS.NeedsTokenStart) {
+		return buildProbeResponse({
+			address,
+			contractName: 'Needs Token Start',
+			enumerable: false,
+			totalSupply: '940',
+			firstTokenId: null,
+			firstTokenName: null,
+			firstTokenImage: null,
+			firstTokenImageSourceField: null,
+			firstTokenImageBytes: null,
+			firstTokenImageContentType: null,
+			firstTokenSource: null,
+			tokenUriPayloadBytes: null,
+			manualInput: null,
+			warnings: ['token id 0 and 1 could not be confirmed']
+		});
+	}
+
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope) {
 		return buildProbeResponse({
 			address,
@@ -467,14 +496,14 @@ function buildProbeResponse(input: {
 	contractName: string;
 	enumerable: boolean;
 	totalSupply: string | null;
-	firstTokenId: string;
-	firstTokenName: string;
-	firstTokenImage: string;
-	firstTokenImageSourceField: string;
-	firstTokenImageBytes: number;
-	firstTokenImageContentType: string;
-	firstTokenSource: 'token_by_index' | 'candidate_token_uri';
-	tokenUriPayloadBytes: number;
+	firstTokenId: string | null;
+	firstTokenName: string | null;
+	firstTokenImage: string | null;
+	firstTokenImageSourceField: string | null;
+	firstTokenImageBytes: number | null;
+	firstTokenImageContentType: string | null;
+	firstTokenSource: 'token_by_index' | 'candidate_token_uri' | null;
+	tokenUriPayloadBytes: number | null;
 	animationUrl?: string;
 	manualInput: {
 		mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualRange;
@@ -516,7 +545,12 @@ function buildProbeResponse(input: {
 			image: input.firstTokenImage,
 			imageSourceField: input.firstTokenImageSourceField,
 			imageBytes: input.firstTokenImageBytes,
-			imageBytesSource: input.firstTokenImage.startsWith('data:') ? 'data_uri' : 'download',
+			imageBytesSource:
+				input.firstTokenImage === null
+					? null
+					: input.firstTokenImage.startsWith('data:')
+						? 'data_uri'
+						: 'download',
 			imageContentType: input.firstTokenImageContentType,
 			imageBytesError: null,
 			imageWidth: 2160,
@@ -526,7 +560,9 @@ function buildProbeResponse(input: {
 			candidates: []
 		},
 		storageEstimate:
-			input.totalSupply === null
+			input.totalSupply === null ||
+			input.firstTokenId === null ||
+			input.tokenUriPayloadBytes === null
 				? null
 				: {
 						sampleTokenId: input.firstTokenId,
@@ -535,7 +571,9 @@ function buildProbeResponse(input: {
 						totalSupply: input.totalSupply
 					},
 		imageStorageEstimate:
-			input.totalSupply === null
+			input.totalSupply === null ||
+			input.firstTokenId === null ||
+			input.firstTokenImageBytes === null
 				? null
 				: {
 						sampleTokenId: input.firstTokenId,

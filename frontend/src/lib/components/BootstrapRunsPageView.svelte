@@ -231,6 +231,7 @@
 	let formDetailsReady = $derived(
 		latestProbeMatchesAddress && probeResult !== null && imageSourceFieldResolved
 	);
+	let probeStatusSectionVisible = $derived(resolveProbeStatusSectionVisible());
 	let openSeaSlugProbePending = $derived(
 		openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Waiting ||
 			openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Loading
@@ -716,6 +717,12 @@
 
 	function probeNeedsManualScope(): boolean {
 		return probeStatus === 'ready' && probeResult !== null && bootstrapProbeNeedsManualScope(probeResult);
+	}
+
+	function resolveProbeStatusSectionVisible(): boolean {
+		if (probeStatus === 'idle') return false;
+		if (!imageSourceFieldSectionVisible || formDetailsReady) return true;
+		return !imageSourceFieldDirty && !normalizeFieldValue(imageSourceField);
 	}
 
 	function probeStatusValueClass(): string {
@@ -1414,7 +1421,7 @@
 					</div>
 				{/if}
 
-				{#if probeStatus !== 'idle' && (!imageSourceFieldSectionVisible || formDetailsReady)}
+				{#if probeStatusSectionVisible}
 					<div class="bootstrap-form-section bootstrap-probe-section">
 						<div class="bootstrap-form-row">
 							{@render fieldLabel('Contract probe status', bootstrapFieldHelp.probeStatus)}
@@ -1488,16 +1495,16 @@
 									</div>
 								</div>
 							</div>
-							{#if probeResult.suggestedInput.warnings.length > 0}
-								<div class="bootstrap-form-row bootstrap-probe-warning-row">
-									{@render fieldLabel('Probe warnings', bootstrapFieldHelp.probeWarnings)}
-									<div class="bootstrap-probe-warnings">
-										{#each probeResult.suggestedInput.warnings as warning}
-											<span class="muted">{warning}</span>
-										{/each}
-									</div>
+						{/if}
+						{#if probeResult && probeResult.suggestedInput.warnings.length > 0}
+							<div class="bootstrap-form-row bootstrap-probe-warning-row">
+								{@render fieldLabel('Probe warnings', bootstrapFieldHelp.probeWarnings)}
+								<div class="bootstrap-probe-warnings">
+									{#each probeResult.suggestedInput.warnings as warning}
+										<span class="muted">{warning}</span>
+									{/each}
 								</div>
-							{/if}
+							</div>
 						{/if}
 					</div>
 				{/if}

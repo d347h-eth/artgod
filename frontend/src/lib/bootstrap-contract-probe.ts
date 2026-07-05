@@ -100,7 +100,9 @@ export function formatByteSize(value: number | string | null | undefined): strin
 export function bootstrapProbeStatusLabel(probe: BootstrapContractProbeApiResponse): string {
 	if (probe.enumerable.supported === true) return BOOTSTRAP_PROBE_STATUS_LABEL.Enumerable;
 	if (probe.suggestedInput.manualInput) return BOOTSTRAP_PROBE_STATUS_LABEL.RangeInferred;
-	if (probe.totalSupply.status === 'available') return BOOTSTRAP_PROBE_STATUS_LABEL.NeedsTokenStart;
+	if (!probe.firstToken.tokenId && probe.totalSupply.bootstrapRangeValue !== null) {
+		return BOOTSTRAP_PROBE_STATUS_LABEL.NeedsTokenStart;
+	}
 	return BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope;
 }
 

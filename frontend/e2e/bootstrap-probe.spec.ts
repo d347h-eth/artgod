@@ -28,6 +28,7 @@ import {
 	BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH,
 	installBootstrapRunDetailApiMock
 } from './helpers/bootstrap-run-detail-api';
+import { BOOTSTRAP_PROBE_STATUS_LABEL } from '../src/lib/bootstrap-contract-probe';
 
 const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
 
@@ -107,6 +108,28 @@ test.describe('bootstrap contract probe UI', () => {
 		expect(api.probeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable]);
 		expect(api.probeRequestImageSourceFields).toEqual([null]);
 		expect(api.openSeaSlugProbeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable]);
+	});
+
+	test('shows needs token start when supply is known but no sample token is confirmed', async ({
+		page
+	}) => {
+		const api = await installBootstrapProbeApiMock(page);
+		await openBootstrapProbeStatusOnly(
+			page,
+			BOOTSTRAP_PROBE_CONTRACTS.NeedsTokenStart,
+			BOOTSTRAP_PROBE_STATUS_LABEL.NeedsTokenStart
+		);
+
+		const statusRow = formRow(page, 'Contract probe status');
+		await expect(statusRow.locator('.bootstrap-probe-status-action-required')).toHaveCount(0);
+		await expect(rowControl(page, 'Image source field')).toHaveValue('');
+		await expect(formRow(page, 'Probe warnings')).toContainText(
+			'token id 0 and 1 could not be confirmed'
+		);
+		await expect(formLabel(page, 'Collection slug')).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toHaveCount(0);
+		expect(api.probeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.NeedsTokenStart]);
+		expect(api.openSeaSlugProbeRequests).toEqual([]);
 	});
 
 	test('requires manual image source overrides to probe again before showing the full form', async ({
@@ -290,7 +313,7 @@ test.describe('bootstrap contract probe UI', () => {
 
 		const statusRow = formRow(page, 'Contract probe status');
 		await expect(statusRow.locator('.bootstrap-probe-status-action-required')).toContainText(
-			'needs manual scope'
+			BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope
 		);
 		await statusRow.locator('.bootstrap-probe-status-tooltip').hover();
 		await expect(
@@ -443,6 +466,16 @@ async function openBootstrapProbe(page: Page, address: string): Promise<void> {
 	await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
 	await page.locator('input[name="address"]').fill(address);
 	await expect(page.locator(`[data-testid="${TEST_IDS.BootstrapProbeTokenCard}"]`)).toBeVisible();
+}
+
+async function openBootstrapProbeStatusOnly(
+	page: Page,
+	address: string,
+	expectedStatus: string
+): Promise<void> {
+	await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
+	await page.locator('input[name="address"]').fill(address);
+	await expect(formRow(page, 'Contract probe status')).toContainText(expectedStatus);
 }
 
 function tokenCard(page: Page, tokenId: string) {
