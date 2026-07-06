@@ -93,6 +93,7 @@ import {
     TRADING_JOB_STATUS,
     COLLECTION_CUSTOMIZATION_FEATURE_KEY,
     COLLECTION_CUSTOMIZATION_SOURCE_KIND,
+    COLLECTION_MEDIA_SOURCE,
 } from "@artgod/shared/types";
 import type { BackendSecurityConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
@@ -150,6 +151,17 @@ function defaultImageCachePolicyUpdateBody() {
         userConfig: {
             imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
             maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
+        },
+    };
+}
+
+function defaultMediaPurposePolicyUpdateBody() {
+    return {
+        selectedSource: "user" as const,
+        userConfig: {
+            tokenCard: COLLECTION_MEDIA_SOURCE.Image,
+            fullscreenPreview: COLLECTION_MEDIA_SOURCE.Image,
+            tokenDetail: COLLECTION_MEDIA_SOURCE.Image,
         },
     };
 }
@@ -366,6 +378,7 @@ beforeAll(async () => {
             1,
             chainsReadModel,
             collectionsReadModel,
+            customizationReadModel,
         );
     const getTokenUriUseCase = new tokenUriUseCaseModule.GetTokenUriUseCase(
         1,
@@ -2624,16 +2637,14 @@ describe("backend api routes", () => {
         expect(result.payload.tokens.items[1].listingPrice).toBeNull();
     });
 
-    it("returns token detail with animation_url fallback data and rarity stats", async () => {
+    it("returns token detail with snapshot image media and rarity stats", async () => {
         const result = await resolve("GET", "/api/ethereum/milady/1");
         expect(result.statusCode).toBe(200);
         expect(result.payload.collection.slug).toBe("milady");
         expect(result.payload.token.tokenId).toBe("1");
         expect(result.payload.token.name).toBe("Milady #1");
         expect(result.payload.token.image).toBe("https://example.com/1.png");
-        expect(result.payload.token.animationUrl).toBe(
-            "https://example.com/1.html",
-        );
+        expect(result.payload.token.animationUrl).toBeNull();
         expect(result.payload.token.listingPrice).toBe("500000000000000000");
         expect(result.payload.token.listingCurrency).toBe(
             "0x0000000000000000000000000000000000000000",
@@ -3986,6 +3997,15 @@ describe("backend api routes", () => {
             },
             extensionConfig: null,
         });
+        expect(milady.payload.customization.mediaPurposePolicy).toMatchObject({
+            selectedSource: "user",
+            userConfig: {
+                tokenCard: COLLECTION_MEDIA_SOURCE.Image,
+                fullscreenPreview: COLLECTION_MEDIA_SOURCE.Image,
+                tokenDetail: COLLECTION_MEDIA_SOURCE.Image,
+            },
+            extensionConfig: null,
+        });
 
         const terraforms = await resolve(
             "GET",
@@ -4042,6 +4062,21 @@ describe("backend api routes", () => {
                 },
             },
         );
+        expect(
+            terraforms.payload.customization.mediaPurposePolicy,
+        ).toMatchObject({
+            selectedSource: "extension",
+            extensionConfig: {
+                tokenCard: COLLECTION_MEDIA_SOURCE.Image,
+                fullscreenPreview: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+                tokenDetail: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+            },
+            effectiveConfig: {
+                tokenCard: COLLECTION_MEDIA_SOURCE.Image,
+                fullscreenPreview: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+                tokenDetail: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+            },
+        });
     });
 
     it("updates collection trait filter presentation and applies range filtering to tokens and activities", async () => {
@@ -4075,6 +4110,7 @@ describe("backend api routes", () => {
                     },
                 },
                 imageCachePolicy: defaultImageCachePolicyUpdateBody(),
+                mediaPurposePolicy: defaultMediaPurposePolicyUpdateBody(),
             },
             {
                 host: "127.0.0.1:42710",
@@ -4163,6 +4199,7 @@ describe("backend api routes", () => {
                     },
                 },
                 imageCachePolicy: defaultImageCachePolicyUpdateBody(),
+                mediaPurposePolicy: defaultMediaPurposePolicyUpdateBody(),
             },
             {
                 host: "127.0.0.1:42710",
@@ -4205,6 +4242,7 @@ describe("backend api routes", () => {
                     },
                 },
                 imageCachePolicy: defaultImageCachePolicyUpdateBody(),
+                mediaPurposePolicy: defaultMediaPurposePolicyUpdateBody(),
             },
             {
                 host: "127.0.0.1:42710",
@@ -4268,6 +4306,112 @@ describe("backend api routes", () => {
                     },
                 },
                 imageCachePolicy: defaultImageCachePolicyUpdateBody(),
+                mediaPurposePolicy: defaultMediaPurposePolicyUpdateBody(),
+            },
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+            },
+        );
+        expect(revert.statusCode).toBe(200);
+    });
+
+    it("updates media purpose policy and applies it to preview and detail media", async () => {
+        const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
+        });
+        const token = csrf.payload.token as string;
+        const cookie = csrf.headers["set-cookie"] as string;
+
+        const update = await resolve(
+            "PUT",
+            "/api/ethereum/milady/customization",
+            {
+                traitFilterPresentation: {
+                    selectedSource: "user",
+                    userConfig: {
+                        rangeKeys: [],
+                    },
+                },
+                tokenCardTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
+                    },
+                },
+                activityRowTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
+                    },
+                },
+                imageCachePolicy: defaultImageCachePolicyUpdateBody(),
+                mediaPurposePolicy: {
+                    selectedSource: "user",
+                    userConfig: {
+                        tokenCard: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+                        fullscreenPreview: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+                        tokenDetail: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+                    },
+                },
+            },
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+            },
+        );
+        expect(update.statusCode).toBe(200);
+
+        const detail = await resolve("GET", "/api/ethereum/milady/1");
+        expect(detail.statusCode).toBe(200);
+        expect(detail.payload.token.animationUrl).toBe(
+            "https://example.com/1.html",
+        );
+
+        const collection = await resolve(
+            "GET",
+            "/api/ethereum/milady?token_status=all&limit=1",
+        );
+        expect(collection.statusCode).toBe(200);
+        expect(collection.payload.tokens.items[0].image).toBe(
+            "https://example.com/1.html",
+        );
+
+        const preview = await resolve("GET", "/api/ethereum/milady/1/preview");
+        expect(preview.statusCode).toBe(200);
+        expect(preview.payload.token.animationUrl).toBe(
+            "https://example.com/1.html",
+        );
+
+        const revert = await resolve(
+            "PUT",
+            "/api/ethereum/milady/customization",
+            {
+                traitFilterPresentation: {
+                    selectedSource: "user",
+                    userConfig: {
+                        rangeKeys: [],
+                    },
+                },
+                tokenCardTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
+                    },
+                },
+                activityRowTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
+                    },
+                },
+                imageCachePolicy: defaultImageCachePolicyUpdateBody(),
+                mediaPurposePolicy: defaultMediaPurposePolicyUpdateBody(),
             },
             {
                 host: "127.0.0.1:42710",

@@ -16,6 +16,17 @@ describe("token resource URI helpers", () => {
         ).toBe("https://gateway.example/ipfs/QmHash/metadata%201.json");
     });
 
+    it("preserves IPFS URI query strings when resolving gateway URLs", () => {
+        expect(
+            resolveTokenResourceUri(
+                "ipfs://QmHash/?payload=abc%3D%3D#token",
+                {
+                    ipfsGatewayOrigin: "https://gateway.example/ipfs",
+                },
+            ),
+        ).toBe("https://gateway.example/ipfs/QmHash/?payload=abc%3D%3D#token");
+    });
+
     it("decodes JSON and image data URIs", () => {
         expect(
             parseJsonDataUriText(

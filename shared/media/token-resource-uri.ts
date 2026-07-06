@@ -18,7 +18,8 @@ export function resolveTokenResourceUri(
         const gateway = normalizeIpfsGatewayOrigin(
             options.ipfsGatewayOrigin ?? DEFAULT_IPFS_GATEWAY_ORIGIN,
         );
-        return `${gateway}/ipfs/${normalizeIpfsPath(normalized)}`;
+        const parsed = parseIpfsUri(normalized);
+        return `${gateway}/ipfs/${normalizeIpfsPath(parsed.path)}${parsed.suffix}`;
     }
 
     if (
@@ -112,7 +113,7 @@ export function buildImageDataUri(input: {
     return `data:${contentType};base64,${input.buffer.toString("base64")}`;
 }
 
-function normalizeIpfsPath(uri: string): string {
+function parseIpfsUri(uri: string): { path: string; suffix: string } {
     let path = uri.slice("ipfs://".length).trim();
     while (path.startsWith("/")) {
         path = path.slice(1);
@@ -120,6 +121,25 @@ function normalizeIpfsPath(uri: string): string {
     if (path.toLowerCase().startsWith("ipfs/")) {
         path = path.slice("ipfs/".length);
     }
+
+    const queryIndex = path.indexOf("?");
+    const fragmentIndex = path.indexOf("#");
+    const suffixIndex =
+        queryIndex >= 0 && fragmentIndex >= 0
+            ? Math.min(queryIndex, fragmentIndex)
+            : Math.max(queryIndex, fragmentIndex);
+
+    if (suffixIndex < 0) {
+        return { path, suffix: "" };
+    }
+
+    return {
+        path: path.slice(0, suffixIndex),
+        suffix: path.slice(suffixIndex),
+    };
+}
+
+function normalizeIpfsPath(path: string): string {
     if (!path) {
         throw new Error("Invalid IPFS URI");
     }

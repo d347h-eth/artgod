@@ -4,6 +4,12 @@ import type {
     CollectionListItem,
     TokenMediaPreview,
 } from "@artgod/shared/types/browse";
+import { COLLECTION_MEDIA_MODES } from "@artgod/shared/extensions";
+import {
+    COLLECTION_MEDIA_PURPOSE,
+    type MediaPurposePolicyFeatureState,
+} from "@artgod/shared/types";
+import { applyMediaPurposePolicyToTokenMedia } from "./media-purpose-policy.js";
 
 type MaybePromise<T> = T | Promise<T>;
 
@@ -53,6 +59,12 @@ export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
             ): ChainRecord;
         },
         readonly collectionDetailReadPort: CollectionDetailReadPort,
+        readonly customizationReadPort: {
+            getMediaPurposePolicyState(params: {
+                chainId: number;
+                collectionId: number;
+            }): MediaPurposePolicyFeatureState;
+        },
     ) {}
 
     async getTokenPreview(
@@ -78,13 +90,26 @@ export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
             tokenId: input.tokenRef,
             mediaMode: media.selectedMode,
         });
+        const mediaPurposePolicy =
+            this.customizationReadPort.getMediaPurposePolicyState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+            });
+        const presentedToken =
+            media.selectedMode === COLLECTION_MEDIA_MODES.Snapshot
+                ? applyMediaPurposePolicyToTokenMedia({
+                      token,
+                      config: mediaPurposePolicy.effectiveConfig,
+                      purpose: COLLECTION_MEDIA_PURPOSE.FullscreenPreview,
+                  })
+                : token;
 
         return {
             media,
             token: {
-                tokenId: token.tokenId,
-                image: token.image,
-                animationUrl: token.animationUrl,
+                tokenId: presentedToken.tokenId,
+                image: presentedToken.image,
+                animationUrl: presentedToken.animationUrl,
             },
         };
     }

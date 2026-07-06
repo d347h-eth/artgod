@@ -127,6 +127,7 @@ type TokenRow = {
     record_kind: TokenRecordKind;
     name: string | null;
     image: string | null;
+    animation_url: string | null;
     listing_price: string | null;
     listing_currency: string | null;
     metadata_updated_at: string | null;
@@ -692,7 +693,7 @@ export class SqliteCollectionsReadModel {
         }
 
         const sql =
-            `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, NULL AS listing_price, NULL AS listing_currency, m.updated_at AS metadata_updated_at ` +
+            `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, NULL AS listing_price, NULL AS listing_currency, m.updated_at AS metadata_updated_at ` +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
             "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
@@ -913,7 +914,7 @@ export class SqliteCollectionsReadModel {
         const totalCountSelect =
             cursorKey === null ? ", COUNT(*) OVER () AS total_count " : " ";
         const sql =
-            `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at` +
+            `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at` +
             totalCountSelect +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
@@ -1146,7 +1147,7 @@ export class SqliteCollectionsReadModel {
         }
 
         const sql =
-            `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at ` +
+            `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, l.price AS listing_price, l.currency AS listing_currency, m.updated_at AS metadata_updated_at ` +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
             `LEFT JOIN (${listingSql}) l ` +
@@ -1903,7 +1904,7 @@ export class SqliteCollectionsReadModel {
         const placeholders = tokenIds.map(() => "?").join(", ");
         const rows = db.raw
             .prepare(
-                `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, ` +
+                `SELECT t.token_id, t.record_kind, m.name, ${TOKEN_IMAGE_SELECT_SQL}, m.animation_url, ` +
                     (includeListings
                         ? "l.price AS listing_price, l.currency AS listing_currency, "
                         : "NULL AS listing_price, NULL AS listing_currency, ") +
@@ -3087,6 +3088,10 @@ function mapTokenRow(
             row.record_kind === TOKEN_RECORD_KIND.Canonical,
         name: row.name ?? null,
         image: resolveTokenImagePresentation(row.image, tokenResourceOptions),
+        animationUrl: resolveTokenResourceUri(
+            row.animation_url,
+            tokenResourceOptions,
+        ),
         traitSummary: null,
         listingPrice: row.listing_price ?? null,
         listingCurrency: row.listing_currency ?? null,

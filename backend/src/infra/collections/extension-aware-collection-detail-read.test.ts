@@ -451,6 +451,7 @@ function tokenCard(tokenId: string, image: string): TokenCard {
         marketplaceBiddingSupported: true,
         name: null,
         image,
+        animationUrl: null,
         traitSummary: null,
         hasMetadata: true,
         metadataUpdatedAt: "2026-01-01T00:00:00Z",

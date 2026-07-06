@@ -4,7 +4,13 @@ import type {
     CollectionListItem,
     TokenDetail,
 } from "@artgod/shared/types/browse";
-import type { TraitFilterPresentationFeatureState } from "@artgod/shared/types";
+import { COLLECTION_MEDIA_MODES } from "@artgod/shared/extensions";
+import {
+    COLLECTION_MEDIA_PURPOSE,
+    type MediaPurposePolicyFeatureState,
+    type TraitFilterPresentationFeatureState,
+} from "@artgod/shared/types";
+import { applyMediaPurposePolicyToTokenMedia } from "./media-purpose-policy.js";
 
 type MaybePromise<T> = T | Promise<T>;
 
@@ -56,6 +62,10 @@ export class GetTokenDetailUseCase {
                 collectionId: number;
                 availableTraitKeys?: string[];
             }): TraitFilterPresentationFeatureState;
+            getMediaPurposePolicyState(params: {
+                chainId: number;
+                collectionId: number;
+            }): MediaPurposePolicyFeatureState;
         },
     ) {}
 
@@ -85,18 +95,33 @@ export class GetTokenDetailUseCase {
             tokenId: input.tokenRef,
             mediaMode: media.selectedMode,
         });
+        const mediaPurposePolicy =
+            this.customizationReadPort.getMediaPurposePolicyState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+            });
+        const presentedToken =
+            media.selectedMode === COLLECTION_MEDIA_MODES.Snapshot
+                ? applyMediaPurposePolicyToTokenMedia({
+                      token,
+                      config: mediaPurposePolicy.effectiveConfig,
+                      purpose: COLLECTION_MEDIA_PURPOSE.TokenDetail,
+                  })
+                : token;
         const traitFilterPresentation =
             this.customizationReadPort.getTraitFilterPresentationState({
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,
-                availableTraitKeys: token.attributes.map((attribute) => attribute.key),
+                availableTraitKeys: presentedToken.attributes.map(
+                    (attribute) => attribute.key,
+                ),
             });
 
         return {
             chain,
             collection,
             media,
-            token,
+            token: presentedToken,
             traitFilterPresentation,
         };
     }

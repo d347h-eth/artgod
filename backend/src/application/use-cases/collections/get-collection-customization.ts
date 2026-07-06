@@ -53,6 +53,10 @@ export class GetCollectionCustomizationUseCase {
                 chainId: number;
                 collectionId: number;
             }): CollectionCustomization["imageCachePolicy"];
+            getMediaPurposePolicyState(params: {
+                chainId: number;
+                collectionId: number;
+            }): CollectionCustomization["mediaPurposePolicy"];
         },
     ) {}
 
@@ -91,6 +95,11 @@ export class GetCollectionCustomizationUseCase {
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,
             });
+        const mediaPurposePolicy =
+            this.customizationReadPort.getMediaPurposePolicyState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+            });
 
         return {
             chain,
@@ -100,6 +109,7 @@ export class GetCollectionCustomizationUseCase {
                 tokenCardTraitSummaryTemplate,
                 activityRowTraitSummaryTemplate,
                 imageCachePolicy,
+                mediaPurposePolicy,
             },
         };
     }

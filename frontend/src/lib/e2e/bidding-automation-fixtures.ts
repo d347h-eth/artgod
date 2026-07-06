@@ -870,6 +870,7 @@ function tokenCard(
 		marketplaceBiddingSupported: true,
 		name: `E2E Token #${tokenId}`,
 		image: null,
+		animationUrl: null,
 		traitSummary,
 		listingPrice: listingPriceEth ? ethToWei(listingPriceEth) : null,
 		listingCurrency,

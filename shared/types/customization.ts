@@ -19,6 +19,7 @@ export const COLLECTION_CUSTOMIZATION_FEATURE_KEY = {
     TokenCardTraitSummaryTemplate: "token_card_trait_summary_template",
     ActivityRowTraitSummaryTemplate: "activity_row_trait_summary_template",
     ImageCachePolicy: "image_cache_policy",
+    MediaPurposePolicy: "media_purpose_policy",
 } as const;
 
 export type CollectionCustomizationFeatureKey =
@@ -62,11 +63,44 @@ export type ImageCachePolicyFeatureState = {
     effectiveConfig: ImageCachePolicyConfig;
 };
 
+// Names canonical metadata media fields that collection presentation can prefer.
+export const COLLECTION_MEDIA_SOURCE = {
+    Image: "image",
+    AnimationUrl: "animation_url",
+} as const;
+
+export type CollectionMediaSource =
+    (typeof COLLECTION_MEDIA_SOURCE)[keyof typeof COLLECTION_MEDIA_SOURCE];
+
+// Names frontend media purposes controlled by collection media policy.
+export const COLLECTION_MEDIA_PURPOSE = {
+    TokenCard: "token_card",
+    FullscreenPreview: "fullscreen_preview",
+    TokenDetail: "token_detail",
+} as const;
+
+export type CollectionMediaPurpose =
+    (typeof COLLECTION_MEDIA_PURPOSE)[keyof typeof COLLECTION_MEDIA_PURPOSE];
+
+export type MediaPurposePolicyConfig = {
+    tokenCard: CollectionMediaSource;
+    fullscreenPreview: CollectionMediaSource;
+    tokenDetail: CollectionMediaSource;
+};
+
+export type MediaPurposePolicyFeatureState = {
+    selectedSource: CollectionCustomizationSourceKind;
+    userConfig: MediaPurposePolicyConfig;
+    extensionConfig: MediaPurposePolicyConfig | null;
+    effectiveConfig: MediaPurposePolicyConfig;
+};
+
 export type CollectionCustomization = {
     traitFilterPresentation: TraitFilterPresentationFeatureState;
     tokenCardTraitSummaryTemplate: TraitSummaryTemplateFeatureState;
     activityRowTraitSummaryTemplate: TraitSummaryTemplateFeatureState;
     imageCachePolicy: ImageCachePolicyFeatureState;
+    mediaPurposePolicy: MediaPurposePolicyFeatureState;
 };
 
 export function defaultTraitFilterPresentationConfig(): TraitFilterPresentationConfig {
@@ -107,6 +141,46 @@ export function normalizeImageCachePolicyFeatureConfig(
     input: ImageCachePolicyConfig | null | undefined,
 ): ImageCachePolicyConfig {
     return normalizeImageCachePolicyConfig(input);
+}
+
+// Returns the generic snapshot-media policy when no extension override exists.
+export function defaultMediaPurposePolicyConfig(): MediaPurposePolicyConfig {
+    return {
+        tokenCard: COLLECTION_MEDIA_SOURCE.Image,
+        fullscreenPreview: COLLECTION_MEDIA_SOURCE.Image,
+        tokenDetail: COLLECTION_MEDIA_SOURCE.Image,
+    };
+}
+
+// Normalizes persisted/user-provided media-purpose policy values.
+export function normalizeMediaPurposePolicyConfig(
+    input: MediaPurposePolicyConfig | null | undefined,
+): MediaPurposePolicyConfig {
+    if (!input) {
+        return defaultMediaPurposePolicyConfig();
+    }
+
+    return {
+        tokenCard: normalizeCollectionMediaSource(input.tokenCard),
+        fullscreenPreview: normalizeCollectionMediaSource(
+            input.fullscreenPreview,
+        ),
+        tokenDetail: normalizeCollectionMediaSource(input.tokenDetail),
+    };
+}
+
+// Resolves which canonical media field should serve one frontend purpose.
+export function mediaPurposePolicySourceForPurpose(
+    config: MediaPurposePolicyConfig,
+    purpose: CollectionMediaPurpose,
+): CollectionMediaSource {
+    if (purpose === COLLECTION_MEDIA_PURPOSE.TokenCard) {
+        return config.tokenCard;
+    }
+    if (purpose === COLLECTION_MEDIA_PURPOSE.FullscreenPreview) {
+        return config.fullscreenPreview;
+    }
+    return config.tokenDetail;
 }
 
 // Resolves whether user or extension customization config should be active.
@@ -161,6 +235,16 @@ export function resolveTraitFilterDisplayKind(
     return config.rangeKeys.includes(key)
         ? TRAIT_FILTER_DISPLAY_KIND.Range
         : TRAIT_FILTER_DISPLAY_KIND.Set;
+}
+
+function normalizeCollectionMediaSource(value: unknown): CollectionMediaSource {
+    if (
+        value === COLLECTION_MEDIA_SOURCE.Image ||
+        value === COLLECTION_MEDIA_SOURCE.AnimationUrl
+    ) {
+        return value;
+    }
+    return COLLECTION_MEDIA_SOURCE.Image;
 }
 
 export function renderTraitSummaryTemplate(

@@ -3,6 +3,7 @@ import {
     type CollectionExtensionInstall,
 } from "@artgod/shared/extensions";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
+import { COLLECTION_MEDIA_SOURCE } from "@artgod/shared/types";
 import {
     normalizeTerraformsCanvasRows,
     parseTerraformsExtensionConfig,
@@ -137,6 +138,13 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
             return {
                 imageCacheMode: IMAGE_CACHE_MODE.Off,
                 maxDimension: null,
+            };
+        },
+        resolveMediaPurposePolicyConfig() {
+            return {
+                tokenCard: COLLECTION_MEDIA_SOURCE.Image,
+                fullscreenPreview: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+                tokenDetail: COLLECTION_MEDIA_SOURCE.AnimationUrl,
             };
         },
         listActivityEventFeeds() {

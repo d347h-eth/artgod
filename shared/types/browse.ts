@@ -163,6 +163,7 @@ export type TokenPresentationSummary = TokenMarketplaceBiddingSupport & {
 };
 
 export type TokenCard = TokenPresentationSummary & {
+    animationUrl: string | null;
     listingPrice: string | null;
     listingCurrency: string | null;
     attributes: TokenAttribute[];

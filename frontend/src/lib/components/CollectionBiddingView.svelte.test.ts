@@ -213,6 +213,7 @@ describe('CollectionBiddingView', () => {
 							marketplaceBiddingSupported: true,
 							name: 'Milady #1',
 							image: 'https://example.com/milady-1.png',
+							animationUrl: null,
 							traitSummary: 'Hat=Beanie',
 							listingPrice: '500000000000000000',
 							listingCurrency: '0x0000000000000000000000000000000000000000',

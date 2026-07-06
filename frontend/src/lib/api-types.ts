@@ -3,6 +3,7 @@ import {
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	type CollectionBiddingBidScopeFilter,
 	type CollectionBiddingTraitFilterJoinMode,
+	type CollectionMediaSource,
 	type CollectionStatus,
 	type TradingBiddingBidBookSource,
 	type TradingBiddingBidBookOwnJobPhase,
@@ -89,6 +90,7 @@ export type OwnerRefResolutionApiResponse = {
 };
 
 export type ApiCollectionCustomizationSource = 'user' | 'extension';
+export type ApiCollectionMediaSource = CollectionMediaSource;
 
 export type ApiImageCacheMode = ImageCacheMode;
 export type ApiBiddingJobStatus = 'enabled' | 'paused' | 'archived';
@@ -370,6 +372,7 @@ export type ApiTokenCard = {
 	marketplaceBiddingSupported: boolean;
 	name: string | null;
 	image: string | null;
+	animationUrl: string | null;
 	traitSummary: string | null;
 	listingPrice: string | null;
 	listingCurrency: string | null;
@@ -475,6 +478,19 @@ export type ApiImageCachePolicyFeatureState = {
 	effectiveConfig: ApiImageCachePolicyConfig;
 };
 
+export type ApiMediaPurposePolicyConfig = {
+	tokenCard: ApiCollectionMediaSource;
+	fullscreenPreview: ApiCollectionMediaSource;
+	tokenDetail: ApiCollectionMediaSource;
+};
+
+export type ApiMediaPurposePolicyFeatureState = {
+	selectedSource: ApiCollectionCustomizationSource;
+	userConfig: ApiMediaPurposePolicyConfig;
+	extensionConfig: ApiMediaPurposePolicyConfig | null;
+	effectiveConfig: ApiMediaPurposePolicyConfig;
+};
+
 export type CollectionsApiResponse = {
 	chain: ApiChain;
 	filters: {
@@ -542,6 +558,7 @@ export type CollectionCustomizationApiResponse = {
 		tokenCardTraitSummaryTemplate: ApiTraitSummaryTemplateFeatureState;
 		activityRowTraitSummaryTemplate: ApiTraitSummaryTemplateFeatureState;
 		imageCachePolicy: ApiImageCachePolicyFeatureState;
+		mediaPurposePolicy: ApiMediaPurposePolicyFeatureState;
 	};
 };
 

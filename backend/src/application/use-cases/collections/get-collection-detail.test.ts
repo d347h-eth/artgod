@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
 import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
 import {
+    COLLECTION_CUSTOMIZATION_SOURCE_KIND,
+    defaultMediaPurposePolicyConfig,
     TOKEN_BROWSER_STATUS,
     TRAIT_FILTER_DISPLAY_KIND,
 } from "@artgod/shared/types";
@@ -67,6 +69,12 @@ describe("GetCollectionDetailUseCase observability", () => {
                     effectiveConfig: {
                         template: "{Power}",
                     },
+                }),
+                getMediaPurposePolicyState: () => ({
+                    selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+                    userConfig: defaultMediaPurposePolicyConfig(),
+                    extensionConfig: null,
+                    effectiveConfig: defaultMediaPurposePolicyConfig(),
                 }),
             },
             apm,
@@ -158,6 +166,7 @@ function tokenPage(): TokenCursorPage {
                 marketplaceBiddingSupported: true,
                 name: "Token 1",
                 image: null,
+                animationUrl: null,
                 listingPrice: null,
                 listingCurrency: null,
                 attributes: [{ key: "Power", value: "7" }],

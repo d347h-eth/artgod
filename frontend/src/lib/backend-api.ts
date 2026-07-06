@@ -656,6 +656,14 @@ export async function updateCollectionCustomization(
 				maxDimension: number | null;
 			};
 		};
+		mediaPurposePolicy: {
+			selectedSource: 'user' | 'extension';
+			userConfig: {
+				tokenCard: CollectionCustomizationApiResponse['customization']['mediaPurposePolicy']['userConfig']['tokenCard'];
+				fullscreenPreview: CollectionCustomizationApiResponse['customization']['mediaPurposePolicy']['userConfig']['fullscreenPreview'];
+				tokenDetail: CollectionCustomizationApiResponse['customization']['mediaPurposePolicy']['userConfig']['tokenDetail'];
+			};
+		};
 	}
 ): Promise<CollectionCustomizationApiResponse> {
 	await ensureCsrfToken(fetchFn);
