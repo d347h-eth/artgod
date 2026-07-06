@@ -15,6 +15,7 @@ import {
     parseJsonDataUriText,
     resolveTokenResourceUri,
 } from "@artgod/shared/media/token-resource-uri";
+import { selectTokenMetadataAnimationSource } from "@artgod/shared/media/token-metadata-animation-source";
 import { selectTokenMetadataImageSource } from "@artgod/shared/media/token-metadata-image-source";
 import { fetchTokenImageCacheSource } from "@artgod/shared/media/token-image-cache-source";
 import { readTokenImageSourceDimensions } from "@artgod/shared/media/token-image-cache-transform";
@@ -594,7 +595,7 @@ function parseMetadataPayload(
                 requestedField: requestedImageSourceField,
                 ipfsGatewayOrigin,
             }),
-            animationUrl: asString(raw.animation_url ?? raw.animationUrl),
+            animationUrl: selectTokenMetadataAnimationSource(raw),
             error: null,
         };
     } catch (error) {

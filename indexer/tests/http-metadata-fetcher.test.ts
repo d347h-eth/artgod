@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TOKEN_METADATA_ANIMATION_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-animation-source";
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import { HttpMetadataFetcher } from "../src/infra/metadata/http-fetcher.js";
 import {
@@ -12,6 +13,18 @@ const TEST_FEATURE_ATTRIBUTE_KEY_WITH_SPACE = "Brush Style";
 const TEST_FEATURE_ATTRIBUTE_KEY_WITH_PIPE = "Diptych IDs";
 
 describe("HttpMetadataFetcher", () => {
+    it("uses generator_url as the animation fallback", async () => {
+        const generatorUrl = "https://generator.example/token/1";
+        const uri = buildMetadataDataUri({
+            [TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl]: generatorUrl,
+        });
+        const fetcher = new HttpMetadataFetcher();
+
+        const metadata = await fetcher.fetchMetadata(uri);
+
+        expect(metadata?.animationUrl).toBe(generatorUrl);
+    });
+
     it("uses requested bootstrap image source field for canonical image", async () => {
         const imageData = "data:image/svg+xml;base64,PHN2Zy8+";
         const uri = buildMetadataDataUri({

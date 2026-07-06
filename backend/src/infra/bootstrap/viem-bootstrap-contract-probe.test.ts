@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TOKEN_METADATA_ANIMATION_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-animation-source";
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import { BootstrapValidationError } from "../../application/use-cases/bootstrap/types.js";
 import {
@@ -79,6 +80,40 @@ describe("ViemBootstrapContractProbe", () => {
         expect(result.firstToken.imageBytes).toBeGreaterThan(0);
         expect(result.firstToken.imageWidth).toBe(1);
         expect(result.firstToken.imageHeight).toBe(1);
+    });
+
+    it("uses generator_url as the sample token animation fallback", async () => {
+        const generatorUrl = "https://generator.example/token/1";
+        const tokenUri = `data:application/json,${encodeURIComponent(
+            JSON.stringify({
+                name: "Sample 1",
+                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]: TEST_ONE_PIXEL_PNG,
+                [TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl]:
+                    generatorUrl,
+            }),
+        )}`;
+        const probe = new ViemBootstrapContractProbe({
+            async getBytecode() {
+                return "0x01";
+            },
+            async readContract<T = unknown>(params: {
+                functionName: string;
+            }): Promise<T> {
+                if (params.functionName === "supportsInterface") return true as T;
+                if (params.functionName === "name") return "Sample" as T;
+                if (params.functionName === "totalSupply") return 1n as T;
+                if (params.functionName === "tokenByIndex") return 1n as T;
+                if (params.functionName === "tokenURI") return tokenUri as T;
+                throw new Error(`unexpected read ${params.functionName}`);
+            },
+        });
+
+        const result = await probe.probeErc721Contract({
+            address: TEST_CONTRACT_ADDRESS,
+            imageSourceField: null,
+        });
+
+        expect(result.firstToken.animationUrl).toBe(generatorUrl);
     });
 
     it("selects onchain image_data when canonical image fields are absent", async () => {

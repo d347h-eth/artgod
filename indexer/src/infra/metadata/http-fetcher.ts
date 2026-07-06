@@ -12,6 +12,7 @@ import {
     parseJsonDataUriText,
     resolveTokenResourceUri,
 } from "@artgod/shared/media/token-resource-uri";
+import { selectTokenMetadataAnimationSource } from "@artgod/shared/media/token-metadata-animation-source";
 import { selectTokenMetadataImageSource } from "@artgod/shared/media/token-metadata-image-source";
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import {
@@ -148,7 +149,7 @@ function normalizeMetadata(
         name: asString(data.name),
         description: asString(data.description),
         image: imageSource?.value,
-        animationUrl: asString(data.animation_url ?? data.animationUrl),
+        animationUrl: selectTokenMetadataAnimationSource(data) ?? undefined,
         externalUrl: asString(data.external_url ?? data.externalUrl),
         attributes,
         rawJson: JSON.stringify(data),
