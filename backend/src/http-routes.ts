@@ -11,11 +11,16 @@ import type {
 import { normalizeSlugRef } from "@artgod/shared/utils/ref-resolver";
 import { API_CSRF_ROUTE_PATH } from "@artgod/shared/http/api-security";
 import { BOOTSTRAP_API_ROUTE_TEMPLATE } from "@artgod/shared/http/bootstrap-routes";
+import { COLLECTION_API_ROUTE_TEMPLATE } from "@artgod/shared/http/collection-routes";
 import { TRADING_API_ROUTE_TEMPLATE } from "@artgod/shared/http/trading-routes";
 import type {
     CreateBootstrapRunHttpAdapter,
     CreateBootstrapRunRoute,
 } from "./http/handlers/bootstrap/create-bootstrap-run.js";
+import type {
+    StartCollectionBootstrapHttpAdapter,
+    StartCollectionBootstrapRoute,
+} from "./http/handlers/collections/start-collection-bootstrap.js";
 import type {
     ApplyBootstrapRunStepActionHttpAdapter,
     ApplyBootstrapRunStepActionRoute,
@@ -102,6 +107,10 @@ import type {
     PurgeCollectionHttpAdapter,
     PurgeCollectionRoute,
 } from "./http/handlers/collections/purge-collection.js";
+import type {
+    StartCollectionOpenSeaSyncHttpAdapter,
+    StartCollectionOpenSeaSyncRoute,
+} from "./http/handlers/collections/start-collection-opensea-sync.js";
 import type {
     UpdateCollectionCustomizationHttpAdapter,
     UpdateCollectionCustomizationRoute,
@@ -244,6 +253,7 @@ export function registerApiRoutes(
         reply: FastifyReply,
     ) => Promise<{ token: string }>,
     createBootstrapRunAdapter: CreateBootstrapRunHttpAdapter,
+    startCollectionBootstrapAdapter: StartCollectionBootstrapHttpAdapter,
     probeCollectionContractAdapter: ProbeCollectionContractHttpAdapter,
     estimateBootstrapImageCacheAdapter: EstimateBootstrapImageCacheHttpAdapter,
     probeOpenSeaCollectionSlugAdapter: ProbeOpenSeaCollectionSlugHttpAdapter,
@@ -261,6 +271,7 @@ export function registerApiRoutes(
     publicGetBlockspaceRangeSummaryAdapter: GetBlockspaceRangeSummaryHttpAdapter | null,
     scheduleBlockspaceBackfillAdapter: ScheduleBlockspaceBackfillHttpAdapter,
     purgeCollectionAdapter: PurgeCollectionHttpAdapter,
+    startCollectionOpenSeaSyncAdapter: StartCollectionOpenSeaSyncHttpAdapter,
     resolveOwnerRefAdapter: ResolveOwnerRefHttpAdapter,
     getCollectionActivityAdapter: GetCollectionActivityHttpAdapter,
     getActivityEventPreviewAdapter: GetActivityEventPreviewHttpAdapter,
@@ -502,6 +513,12 @@ export function registerApiRoutes(
         "/api/:chain_ref/:collection_ref",
         purgeCollectionAdapter.handle,
     );
+    registerObservedPost<StartCollectionOpenSeaSyncRoute>(
+        app,
+        options,
+        COLLECTION_API_ROUTE_TEMPLATE.StartOpenSeaSync,
+        startCollectionOpenSeaSyncAdapter.handle,
+    );
     registerObservedGet<GetCollectionCustomizationRoute>(
         app,
         options,
@@ -543,6 +560,12 @@ export function registerApiRoutes(
         options,
         BOOTSTRAP_API_ROUTE_TEMPLATE.CreateRun,
         createBootstrapRunAdapter.handle,
+    );
+    registerObservedPost<StartCollectionBootstrapRoute>(
+        app,
+        options,
+        COLLECTION_API_ROUTE_TEMPLATE.StartBootstrap,
+        startCollectionBootstrapAdapter.handle,
     );
     registerObservedGet<ProbeCollectionContractRoute>(
         app,

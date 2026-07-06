@@ -8,9 +8,12 @@ import {
     EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND,
     type CollectionExtensionKey,
     type EmbeddedCollectionExtensionScope,
+    type EmbeddedCollectionExtensionScopeKind,
 } from "@artgod/shared/extensions";
 import {
+    COLLECTION_STANDARD,
     COLLECTION_CUSTOMIZATION_SOURCE_KIND,
+    COLLECTION_STATUS,
     type CollectionCustomizationSourceKind,
     type ImageCachePolicyFeatureState,
 } from "@artgod/shared/types";
@@ -94,8 +97,8 @@ export class CreateBootstrapRunUseCase {
         ) {
             throw new BootstrapValidationError("Invalid metadata mode");
         }
-        if (input.standard !== "erc721") {
-            throw new BootstrapValidationError("Only erc721 is supported");
+        if (input.standard !== COLLECTION_STANDARD.Erc721) {
+            throw new BootstrapValidationError("Only ERC-721 is supported");
         }
 
         const enumeration = resolveEnumerationInput(
@@ -114,7 +117,7 @@ export class CreateBootstrapRunUseCase {
             chain.publicChainId,
             slug,
         );
-        if (existing && existing.status === "live") {
+        if (existing && existing.status === COLLECTION_STATUS.Live) {
             throw new BootstrapConflictError(
                 "This collection has already been bootstrapped and is live, so a new bootstrap run cannot be created for it.",
             );
@@ -143,7 +146,7 @@ export class CreateBootstrapRunUseCase {
             slug,
             address,
             openseaSlug,
-            standard: "erc721",
+            standard: COLLECTION_STANDARD.Erc721,
             tokenScopeKind: enumeration.tokenScopeKind,
             scopeStartTokenId: enumeration.scopeStartTokenId,
             scopeTotalSupply: enumeration.scopeTotalSupply,
@@ -190,7 +193,7 @@ export class CreateBootstrapRunUseCase {
             requestSlug: slug,
             requestOpenseaSlug: openseaSlug,
             requestAddress: address,
-            requestStandard: "erc721",
+            requestStandard: COLLECTION_STANDARD.Erc721,
             imageSourceField,
             animationSourceField,
             requestExtensionKey,
@@ -250,12 +253,13 @@ export class CreateBootstrapRunUseCase {
     }
 }
 
-type ResolvedBootstrapImageCache = {
+export type ResolvedBootstrapImageCache = {
     selectedSource: CollectionCustomizationSourceKind;
     config: ImageCachePolicyConfig;
 };
 
-function resolveImageCacheInput(
+// Normalizes request image-cache settings into the persisted bootstrap policy.
+export function resolveImageCacheInput(
     input: CreateBootstrapRunInput["imageCache"],
 ): ResolvedBootstrapImageCache {
     if (!input) {
@@ -297,7 +301,8 @@ function normalizeRequiredImageSourceField(raw: string): string {
     return value;
 }
 
-function assertImageCacheSourceMatchesExtension(
+// Guards extension-sourced image-cache policies against unmatched collections.
+export function assertImageCacheSourceMatchesExtension(
     selectedSource: CollectionCustomizationSourceKind,
     requestExtensionKey: CollectionExtensionKey | null,
 ): void {
@@ -324,15 +329,13 @@ function assertOpenSeaSlugIsAllowed(
     );
 }
 
-function resolveRequestedExtensionKey(
+// Resolves the embedded extension key for the requested bootstrap token scope.
+export function resolveRequestedExtensionKey(
     embeddedExtensionResolverPort: EmbeddedCollectionExtensionResolverPort,
     chainId: number,
     address: string,
     enumeration: {
-        tokenScopeKind:
-            | "contract_all_tokens"
-            | "token_range"
-            | "explicit_token_ids";
+        tokenScopeKind: EmbeddedCollectionExtensionScopeKind;
         scopeStartTokenId: string | null;
         scopeTotalSupply: number | null;
         explicitTokenIds: string[];
@@ -346,10 +349,7 @@ function resolveRequestedExtensionKey(
 }
 
 function toEmbeddedCollectionExtensionScope(input: {
-    tokenScopeKind:
-        | "contract_all_tokens"
-        | "token_range"
-        | "explicit_token_ids";
+    tokenScopeKind: EmbeddedCollectionExtensionScopeKind;
     scopeStartTokenId: string | null;
     scopeTotalSupply: number | null;
     explicitTokenIds: string[];
@@ -419,10 +419,7 @@ function resolveEnumerationInput(
     manualInput: CreateBootstrapRunInput["manualInput"],
 ): {
     mode: "enumerable" | "manual_token_ids" | "manual_range";
-    tokenScopeKind:
-        | "contract_all_tokens"
-        | "token_range"
-        | "explicit_token_ids";
+    tokenScopeKind: EmbeddedCollectionExtensionScopeKind;
     scopeStartTokenId: string | null;
     scopeTotalSupply: number | null;
     explicitTokenIds: string[];
@@ -433,7 +430,8 @@ function resolveEnumerationInput(
     if (supportsEnumerable) {
         return {
             mode: "enumerable",
-            tokenScopeKind: "contract_all_tokens",
+            tokenScopeKind:
+                EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
             scopeStartTokenId: null,
             scopeTotalSupply: null,
             explicitTokenIds: [],
@@ -463,7 +461,8 @@ function resolveEnumerationInput(
         );
         return {
             mode: "manual_token_ids",
-            tokenScopeKind: "explicit_token_ids",
+            tokenScopeKind:
+                EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.ExplicitTokenIds,
             scopeStartTokenId: null,
             scopeTotalSupply: null,
             explicitTokenIds: normalized,
@@ -485,7 +484,7 @@ function resolveEnumerationInput(
     }
     return {
         mode: "manual_range",
-        tokenScopeKind: "token_range",
+        tokenScopeKind: EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.TokenRange,
         scopeStartTokenId: startTokenId,
         scopeTotalSupply: totalSupply,
         explicitTokenIds: [],
@@ -506,23 +505,18 @@ function normalizeTokenId(raw: string): string {
     return value;
 }
 
-function assertCollectionScopeDoesNotOverlap(
+// Protects bootstrap collection scopes from overlapping existing collections.
+export function assertCollectionScopeDoesNotOverlap(
     chainId: number,
     siblingCollections: Array<{
         collectionId: number;
-        tokenScopeKind:
-            | "contract_all_tokens"
-            | "token_range"
-            | "explicit_token_ids";
+        tokenScopeKind: EmbeddedCollectionExtensionScopeKind;
         scopeStartTokenId: string | null;
         scopeTotalSupply: number | null;
         slug: string;
     }>,
     nextScope: {
-        tokenScopeKind:
-            | "contract_all_tokens"
-            | "token_range"
-            | "explicit_token_ids";
+        tokenScopeKind: EmbeddedCollectionExtensionScopeKind;
         scopeStartTokenId: string | null;
         scopeTotalSupply: number | null;
         explicitTokenIds: string[];
@@ -539,7 +533,8 @@ function assertCollectionScopeDoesNotOverlap(
                 scopeStartTokenId: sibling.scopeStartTokenId,
                 scopeTotalSupply: sibling.scopeTotalSupply,
                 explicitTokenIds:
-                    sibling.tokenScopeKind === "explicit_token_ids"
+                    sibling.tokenScopeKind ===
+                    EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.ExplicitTokenIds
                         ? bootstrapRunsPort.listCollectionScopeTokenIds(
                               chainId,
                               sibling.collectionId,
@@ -556,34 +551,32 @@ function assertCollectionScopeDoesNotOverlap(
 
 function scopesOverlap(
     left: {
-        tokenScopeKind:
-            | "contract_all_tokens"
-            | "token_range"
-            | "explicit_token_ids";
+        tokenScopeKind: EmbeddedCollectionExtensionScopeKind;
         scopeStartTokenId: string | null;
         scopeTotalSupply: number | null;
         explicitTokenIds: string[];
     },
     right: {
-        tokenScopeKind:
-            | "contract_all_tokens"
-            | "token_range"
-            | "explicit_token_ids";
+        tokenScopeKind: EmbeddedCollectionExtensionScopeKind;
         scopeStartTokenId: string | null;
         scopeTotalSupply: number | null;
         explicitTokenIds: string[];
     },
 ): boolean {
     if (
-        left.tokenScopeKind === "contract_all_tokens" ||
-        right.tokenScopeKind === "contract_all_tokens"
+        left.tokenScopeKind ===
+            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens ||
+        right.tokenScopeKind ===
+            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens
     ) {
         return true;
     }
 
     if (
-        left.tokenScopeKind === "token_range" &&
-        right.tokenScopeKind === "token_range"
+        left.tokenScopeKind ===
+            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.TokenRange &&
+        right.tokenScopeKind ===
+            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.TokenRange
     ) {
         return rangeOverlapsRange(
             left.scopeStartTokenId,
@@ -594,8 +587,10 @@ function scopesOverlap(
     }
 
     if (
-        left.tokenScopeKind === "token_range" &&
-        right.tokenScopeKind === "explicit_token_ids"
+        left.tokenScopeKind ===
+            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.TokenRange &&
+        right.tokenScopeKind ===
+            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.ExplicitTokenIds
     ) {
         return tokenIdsOverlapRange(
             right.explicitTokenIds,
@@ -605,8 +600,10 @@ function scopesOverlap(
     }
 
     if (
-        left.tokenScopeKind === "explicit_token_ids" &&
-        right.tokenScopeKind === "token_range"
+        left.tokenScopeKind ===
+            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.ExplicitTokenIds &&
+        right.tokenScopeKind ===
+            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.TokenRange
     ) {
         return tokenIdsOverlapRange(
             left.explicitTokenIds,

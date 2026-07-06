@@ -6,6 +6,7 @@ import {
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 import type { BootstrapRunsPort } from "../ports/bootstrap-runs.js";
 import type { BootstrapStepsPort } from "../ports/bootstrap-steps.js";
+import type { OpenSeaBootstrapCollectionPayload } from "../domain/opensea-jobs.js";
 import {
     type BootstrapTemporaryDataCleanupResult,
 } from "./bootstrap-temporary-data-cleanup.js";
@@ -125,11 +126,9 @@ export interface BootstrapBackfillQueuePort {
         fromBlock: number;
         toBlock: number;
     }): Promise<void>;
-    scheduleOpenSeaBootstrap(input: {
-        chainId: number;
-        runId: number;
-        collectionId: number;
-    }): Promise<void>;
+    scheduleOpenSeaBootstrap(
+        input: OpenSeaBootstrapCollectionPayload,
+    ): Promise<void>;
 }
 
 export interface BootstrapBackfillRunsPort
@@ -389,8 +388,10 @@ export class BootstrapBackfillExecutor {
         this.collectionPort.markOpenSeaPending(input.chainId, input.collectionId);
         await this.queuePort.scheduleOpenSeaBootstrap({
             chainId: input.chainId,
-            runId: input.runId,
             collectionId: input.collectionId,
+            bootstrap: {
+                runId: input.runId,
+            },
         });
     }
 

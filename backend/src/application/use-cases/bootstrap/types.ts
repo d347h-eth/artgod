@@ -1,7 +1,14 @@
-import type { ChainRecord } from "@artgod/shared/types/browse";
+import {
+    COLLECTION_STANDARD,
+    type ChainRecord,
+} from "@artgod/shared/types/browse";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import type { ImageCacheMode } from "@artgod/shared/media/token-image-cache";
-import type { CollectionCustomizationSourceKind } from "@artgod/shared/types";
+import type {
+    CollectionCustomizationSourceKind,
+    CollectionStandard,
+    CollectionStatus,
+} from "@artgod/shared/types";
 import type {
     BootstrapEnumerationMode,
     BootstrapFlowStepKey,
@@ -46,7 +53,7 @@ export type CreateBootstrapRunInput = {
     openseaSlug?: string;
     imageSourceField: string;
     animationSourceField?: string | null;
-    standard: "erc721";
+    standard: typeof COLLECTION_STANDARD.Erc721;
     metadataMode: BootstrapMetadataMode;
     supportsEnumerable: boolean;
     manualInput?: BootstrapManualInput;
@@ -72,7 +79,7 @@ export type BootstrapRunRow = {
     requestSlug: string;
     requestOpenseaSlug: string | null;
     requestAddress: string;
-    requestStandard: "erc721" | "erc1155";
+    requestStandard: CollectionStandard;
     imageSourceField: string | null;
     animationSourceField: string | null;
     requestExtensionKey: CollectionExtensionKey | null;
@@ -153,7 +160,7 @@ export type BootstrapRunCollectionSummary = {
     collectionId: number;
     slug: string;
     address: string;
-    status: "bootstrapping" | "live" | "paused" | "disabled";
+    status: CollectionStatus;
 };
 
 export type BootstrapRunListItem = {
@@ -190,8 +197,8 @@ export type BootstrapStatusOutput = {
         collectionId: number;
         slug: string;
         address: string;
-        standard: "erc721" | "erc1155";
-        status: "bootstrapping" | "live" | "paused" | "disabled";
+        standard: CollectionStandard;
+        status: CollectionStatus;
         deploymentBlock: number | null;
         bootstrapAnchorBlock: number | null;
         bootstrapStartedAt: string | null;

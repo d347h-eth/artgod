@@ -30,6 +30,7 @@ import {
 import type {
     BootstrapFlowStep,
     BootstrapFlowStepState,
+    BootstrapRunCollectionSummary,
     BootstrapRunDetailOutput,
     BootstrapRunEventRecord,
     BootstrapRunRow,
@@ -127,13 +128,9 @@ export class GetBootstrapRunDetailUseCase {
     }
 }
 
-function mapCollectionSummary(collection: CollectionBootstrapState): {
-    chainId: number;
-    collectionId: number;
-    slug: string;
-    address: string;
-    status: "bootstrapping" | "live" | "paused" | "disabled";
-} {
+function mapCollectionSummary(
+    collection: CollectionBootstrapState,
+): BootstrapRunCollectionSummary {
     return {
         chainId: collection.chainId,
         collectionId: collection.collectionId,

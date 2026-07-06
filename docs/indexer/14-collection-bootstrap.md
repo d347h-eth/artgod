@@ -27,7 +27,7 @@ written yet.
 
 Terraforms is currently the only prepared preset. The preset contract lives in
 `shared/extensions/terraforms.ts` as `TERRAFORMS_MAINNET_PRESET_COLLECTION`,
-and migration `049_preset_terraforms_collection.sql` persists it as collection
+and migration `051_preset_terraforms_collection.sql` persists it as collection
 ID 1 on Ethereum mainnet. The row stores the Terraforms contract identity,
 token-scope/deployment hints, and OpenSea slug so the first operator action can
 be `start bootstrapping` instead of contract probing plus manual run creation.

@@ -1,10 +1,19 @@
 import { db } from "@artgod/shared/database";
-import type { CollectionExtensionKey } from "@artgod/shared/extensions";
+import {
+    EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND,
+    type CollectionExtensionKey,
+    type EmbeddedCollectionExtensionScopeKind,
+} from "@artgod/shared/extensions";
 import {
     IMAGE_CACHE_MODE,
     type ImageCacheMode,
 } from "@artgod/shared/media/token-image-cache";
-import type { OpenSeaCollectionStatus } from "@artgod/shared/types";
+import {
+    COLLECTION_STATUS,
+    type CollectionStandard,
+    type CollectionStatus,
+    type OpenSeaCollectionStatus,
+} from "@artgod/shared/types";
 import {
     BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_KEY,
@@ -39,12 +48,9 @@ type CollectionRow = {
     collection_id: number;
     slug: string;
     address: string;
-    standard: string;
-    status: BootstrapRunStatus;
-    token_scope_kind:
-        | "contract_all_tokens"
-        | "token_range"
-        | "explicit_token_ids";
+    standard: CollectionStandard;
+    status: CollectionStatus;
+    token_scope_kind: EmbeddedCollectionExtensionScopeKind;
     scope_start_token_id: string | null;
     scope_total_supply: number | null;
     deployment_block: number | null;
@@ -67,7 +73,7 @@ type BootstrapRunDbRow = {
     request_slug: string;
     request_opensea_slug: string | null;
     request_address: string;
-    request_standard: string;
+    request_standard: CollectionStandard;
     request_image_source_field: string | null;
     request_animation_source_field: string | null;
     request_extension_key: CollectionExtensionKey | null;
@@ -159,26 +165,38 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         slug: string;
         address: string;
         openseaSlug: string | null;
-        standard: string;
-        tokenScopeKind:
-            | "contract_all_tokens"
-            | "token_range"
-            | "explicit_token_ids";
+        standard: CollectionStandard;
+        bootstrappingStatus: CollectionStatus;
+        tokenScopeKind: EmbeddedCollectionExtensionScopeKind;
         scopeStartTokenId: string | null;
         scopeTotalSupply: number | null;
         deploymentBlock: number | null;
     }>(
         "INSERT INTO collections " +
             "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply, deployment_block, bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block, opensea_slug) " +
-            "VALUES (@chainId, @slug, @address, @standard, 'bootstrapping', @tokenScopeKind, @scopeStartTokenId, @scopeTotalSupply, @deploymentBlock, NULL, NULL, NULL, NULL, @openseaSlug) " +
+            "VALUES (@chainId, @slug, @address, @standard, @bootstrappingStatus, @tokenScopeKind, @scopeStartTokenId, @scopeTotalSupply, @deploymentBlock, NULL, NULL, NULL, NULL, @openseaSlug) " +
             "ON CONFLICT(chain_id, slug) DO UPDATE SET " +
-            "address = excluded.address, standard = excluded.standard, status = 'bootstrapping', " +
+            "address = excluded.address, standard = excluded.standard, status = excluded.status, " +
             "token_scope_kind = excluded.token_scope_kind, " +
             "scope_start_token_id = excluded.scope_start_token_id, " +
             "scope_total_supply = excluded.scope_total_supply, " +
             "deployment_block = COALESCE(excluded.deployment_block, collections.deployment_block), " +
             "opensea_slug = excluded.opensea_slug, " +
             "bootstrap_finished_at = NULL, updated_at = CURRENT_TIMESTAMP",
+    );
+
+    private markCollectionBootstrappingStmt = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        status: CollectionStatus;
+    }>(
+        "UPDATE collections SET " +
+            "status = @status, " +
+            "bootstrap_started_at = COALESCE(bootstrap_started_at, CURRENT_TIMESTAMP), " +
+            "bootstrap_finished_at = NULL, " +
+            "bootstrap_last_synced_block = NULL, " +
+            "updated_at = CURRENT_TIMESTAMP " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId",
     );
 
     private deleteCollectionScopeTokens = db.prepare<{
@@ -520,11 +538,8 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         slug: string;
         address: string;
         openseaSlug: string | null;
-        standard: "erc721" | "erc1155";
-        tokenScopeKind:
-            | "contract_all_tokens"
-            | "token_range"
-            | "explicit_token_ids";
+        standard: CollectionStandard;
+        tokenScopeKind: EmbeddedCollectionExtensionScopeKind;
         scopeStartTokenId: string | null;
         scopeTotalSupply: number | null;
         explicitTokenIds: string[];
@@ -537,6 +552,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
                 address: input.address.toLowerCase(),
                 openseaSlug: input.openseaSlug,
                 standard: input.standard,
+                bootstrappingStatus: COLLECTION_STATUS.Bootstrapping,
                 tokenScopeKind: input.tokenScopeKind,
                 scopeStartTokenId: input.scopeStartTokenId,
                 scopeTotalSupply: input.scopeTotalSupply,
@@ -554,7 +570,10 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
                 chainId: input.chainId,
                 collectionId: row.collection_id,
             });
-            if (input.tokenScopeKind === "explicit_token_ids") {
+            if (
+                input.tokenScopeKind ===
+                EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.ExplicitTokenIds
+            ) {
                 for (const tokenId of input.explicitTokenIds) {
                     this.insertCollectionScopeToken.run({
                         chainId: input.chainId,
@@ -567,6 +586,18 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
             return mapCollection(row);
         });
         return run();
+    }
+
+    markCollectionBootstrapping(
+        chainId: number,
+        collectionId: number,
+    ): CollectionBootstrapState | null {
+        this.markCollectionBootstrappingStmt.run({
+            chainId,
+            collectionId,
+            status: COLLECTION_STATUS.Bootstrapping,
+        });
+        return this.getCollectionById(chainId, collectionId);
     }
 
     hasActiveRun(chainId: number, collectionId: number): boolean {
@@ -589,7 +620,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         requestSlug: string;
         requestOpenseaSlug: string | null;
         requestAddress: string;
-        requestStandard: "erc721" | "erc1155";
+        requestStandard: CollectionStandard;
         imageSourceField: string;
         animationSourceField: string | null;
         requestExtensionKey: CollectionExtensionKey | null;
@@ -1011,8 +1042,8 @@ function mapCollection(row: CollectionRow): CollectionBootstrapState {
         collectionId: row.collection_id,
         slug: row.slug,
         address: row.address.toLowerCase(),
-        standard: row.standard as "erc721" | "erc1155",
-        status: row.status as "bootstrapping" | "live" | "paused" | "disabled",
+        standard: row.standard,
+        status: row.status as CollectionStatus,
         tokenScopeKind: row.token_scope_kind,
         scopeStartTokenId: row.scope_start_token_id,
         scopeTotalSupply: row.scope_total_supply,
@@ -1057,7 +1088,7 @@ function mapRun(row: BootstrapRunDbRow): BootstrapRunRow {
         requestSlug: row.request_slug,
         requestOpenseaSlug: row.request_opensea_slug,
         requestAddress: row.request_address,
-        requestStandard: row.request_standard as "erc721" | "erc1155",
+        requestStandard: row.request_standard,
         imageSourceField: row.request_image_source_field,
         animationSourceField: row.request_animation_source_field,
         requestExtensionKey: row.request_extension_key,

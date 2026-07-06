@@ -1,8 +1,13 @@
 import type {
     ChainRecord,
+    CollectionStandard,
+    CollectionStatus,
     OpenSeaCollectionStatus,
 } from "@artgod/shared/types";
-import type { CollectionExtensionKey } from "@artgod/shared/extensions";
+import type {
+    CollectionExtensionKey,
+    EmbeddedCollectionExtensionScopeKind,
+} from "@artgod/shared/extensions";
 import type { ImageCacheMode } from "@artgod/shared/media/token-image-cache";
 import type {
     BootstrapEnumerationMode,
@@ -21,12 +26,9 @@ export type CollectionBootstrapState = {
     collectionId: number;
     slug: string;
     address: string;
-    standard: "erc721" | "erc1155";
-    status: "bootstrapping" | "live" | "paused" | "disabled";
-    tokenScopeKind:
-        | "contract_all_tokens"
-        | "token_range"
-        | "explicit_token_ids";
+    standard: CollectionStandard;
+    status: CollectionStatus;
+    tokenScopeKind: EmbeddedCollectionExtensionScopeKind;
     scopeStartTokenId: string | null;
     scopeTotalSupply: number | null;
     deploymentBlock: number | null;
@@ -75,16 +77,17 @@ export interface BootstrapRunsWritePort {
         slug: string;
         address: string;
         openseaSlug: string | null;
-        standard: "erc721" | "erc1155";
-        tokenScopeKind:
-            | "contract_all_tokens"
-            | "token_range"
-            | "explicit_token_ids";
+        standard: CollectionStandard;
+        tokenScopeKind: EmbeddedCollectionExtensionScopeKind;
         scopeStartTokenId: string | null;
         scopeTotalSupply: number | null;
         explicitTokenIds: string[];
         deploymentBlock: number | null;
     }): CollectionBootstrapState;
+    markCollectionBootstrapping(
+        chainId: number,
+        collectionId: number,
+    ): CollectionBootstrapState | null;
     hasActiveRun(chainId: number, collectionId: number): boolean;
     createRun(input: {
         chainId: number;
@@ -92,7 +95,7 @@ export interface BootstrapRunsWritePort {
         requestSlug: string;
         requestOpenseaSlug: string | null;
         requestAddress: string;
-        requestStandard: "erc721" | "erc1155";
+        requestStandard: CollectionStandard;
         imageSourceField: string;
         animationSourceField: string | null;
         requestExtensionKey: CollectionExtensionKey | null;
@@ -196,7 +199,7 @@ export interface BootstrapCommandQueuePort {
         runId: number;
         collectionId: number;
         address: string;
-        standard: "erc721" | "erc1155";
+        standard: CollectionStandard;
         metadataMode: BootstrapMetadataMode;
         anchorBlock: number;
         anchorHash: string;
@@ -207,7 +210,7 @@ export interface BootstrapCommandQueuePort {
         runId: number;
         collectionId: number;
         address: string;
-        standard: "erc721" | "erc1155";
+        standard: CollectionStandard;
         anchorBlock: number;
         anchorHash: string;
         anchorTimestamp: number;

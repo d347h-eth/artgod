@@ -4,7 +4,11 @@ import type {
     ChainRefResolverPort,
     CollectionBootstrapState,
 } from "./ports.js";
-import type { BootstrapRunStatus, ListBootstrapRunsOutput } from "./types.js";
+import type {
+    BootstrapRunCollectionSummary,
+    BootstrapRunStatus,
+    ListBootstrapRunsOutput,
+} from "./types.js";
 
 export type ListBootstrapRunsInput = {
     chainRef: string;
@@ -75,13 +79,9 @@ function parseCursorRunId(raw: string | undefined): number | undefined {
     return parsed;
 }
 
-function mapCollectionSummary(collection: CollectionBootstrapState): {
-    chainId: number;
-    collectionId: number;
-    slug: string;
-    address: string;
-    status: "bootstrapping" | "live" | "paused" | "disabled";
-} {
+function mapCollectionSummary(
+    collection: CollectionBootstrapState,
+): BootstrapRunCollectionSummary {
     return {
         chainId: collection.chainId,
         collectionId: collection.collectionId,

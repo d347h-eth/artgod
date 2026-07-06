@@ -12,7 +12,7 @@ import {
     COLLECTION_BIDDING_BID_SCOPE_FILTERS,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODES,
-    COLLECTION_STATUS,
+    COLLECTION_STATUSES,
     TRAIT_FILTER_QUERY_PARAMS,
     TOKEN_BROWSER_STATUS,
     type ActivityFeedFilterKind,
@@ -34,12 +34,9 @@ import type {
     BootstrapRunStatus,
 } from "../../application/use-cases/bootstrap/types.js";
 
-const ALLOWED_COLLECTION_STATUSES = new Set<CollectionStatus>([
-    COLLECTION_STATUS.Bootstrapping,
-    COLLECTION_STATUS.Live,
-    COLLECTION_STATUS.Paused,
-    COLLECTION_STATUS.Disabled,
-]);
+const ALLOWED_COLLECTION_STATUSES = new Set<CollectionStatus>(
+    COLLECTION_STATUSES,
+);
 
 const ALLOWED_TOKEN_BROWSER_STATUSES = new Set<TokenBrowserStatus>([
     TOKEN_BROWSER_STATUS.Listed,

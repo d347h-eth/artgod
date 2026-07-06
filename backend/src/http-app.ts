@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import type { CreateBootstrapRunUseCase } from "./application/use-cases/bootstrap/create-bootstrap-run.js";
+import type { StartPreparedCollectionBootstrapUseCase } from "./application/use-cases/bootstrap/start-prepared-collection-bootstrap.js";
 import type { ApplyBootstrapRunStepActionUseCase } from "./application/use-cases/bootstrap/apply-bootstrap-run-step-action.js";
 import type { GetBootstrapRunDetailUseCase } from "./application/use-cases/bootstrap/get-bootstrap-run-detail.js";
 import type { GetBootstrapStatusUseCase } from "./application/use-cases/bootstrap/get-bootstrap-status.js";
@@ -21,6 +22,7 @@ import type { GetTokenDetailUseCase } from "./application/use-cases/collections/
 import type { GetTokenPreviewPort } from "./application/use-cases/collections/get-token-preview.js";
 import type { GetTokenUriUseCase } from "./application/use-cases/collections/get-token-uri.js";
 import type { PurgeCollectionUseCase } from "./application/use-cases/collections/purge-collection.js";
+import type { StartOpenSeaCollectionSyncUseCase } from "./application/use-cases/collections/start-opensea-collection-sync.js";
 import type { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import type { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import type {
@@ -74,6 +76,8 @@ import { GetTokenDetailHttpAdapter } from "./http/handlers/collections/get-token
 import { GetTokenPreviewHttpAdapter } from "./http/handlers/collections/get-token-preview.js";
 import { GetTokenUriHttpAdapter } from "./http/handlers/collections/get-token-uri.js";
 import { PurgeCollectionHttpAdapter } from "./http/handlers/collections/purge-collection.js";
+import { StartCollectionBootstrapHttpAdapter } from "./http/handlers/collections/start-collection-bootstrap.js";
+import { StartCollectionOpenSeaSyncHttpAdapter } from "./http/handlers/collections/start-collection-opensea-sync.js";
 import { UpdateCollectionCustomizationHttpAdapter } from "./http/handlers/collections/update-collection-customization.js";
 import { ListCollectionsHttpAdapter } from "./http/handlers/collections/list-collections.js";
 import { GetBlockspaceRangeSummaryHttpAdapter } from "./http/handlers/blockspace/get-blockspace-range-summary.js";
@@ -137,6 +141,7 @@ type ScheduleSyncBackfillPort = {
 
 export function createApiApp(
     createBootstrapRunUseCase: CreateBootstrapRunUseCase,
+    startPreparedCollectionBootstrapUseCase: StartPreparedCollectionBootstrapUseCase,
     probeCollectionContractUseCase: ProbeCollectionContractUseCase,
     estimateBootstrapImageCacheUseCase: EstimateBootstrapImageCacheUseCase,
     probeOpenSeaCollectionSlugUseCase: ProbeOpenSeaCollectionSlugUseCase,
@@ -151,6 +156,7 @@ export function createApiApp(
     getSyncBackfillStateUseCase: GetSyncBackfillStatePort,
     scheduleSyncBackfillUseCase: ScheduleSyncBackfillPort,
     purgeCollectionUseCase: PurgeCollectionUseCase,
+    startOpenSeaCollectionSyncUseCase: StartOpenSeaCollectionSyncUseCase,
     resolveOwnerRefUseCase: ResolveOwnerRefUseCase,
     getCollectionActivityUseCase: GetCollectionActivityUseCase,
     getActivityEventPreviewUseCase: GetActivityEventPreviewUseCase,
@@ -198,6 +204,10 @@ export function createApiApp(
     const createBootstrapRunAdapter = new CreateBootstrapRunHttpAdapter(
         createBootstrapRunUseCase,
     );
+    const startCollectionBootstrapAdapter =
+        new StartCollectionBootstrapHttpAdapter(
+            startPreparedCollectionBootstrapUseCase,
+        );
     const probeCollectionContractAdapter =
         new ProbeCollectionContractHttpAdapter(probeCollectionContractUseCase);
     const estimateBootstrapImageCacheAdapter =
@@ -234,6 +244,10 @@ export function createApiApp(
     const listCollectionsAdapter = new ListCollectionsHttpAdapter(
         listCollectionsUseCase,
     );
+    const startCollectionOpenSeaSyncAdapter =
+        new StartCollectionOpenSeaSyncHttpAdapter(
+            startOpenSeaCollectionSyncUseCase,
+        );
     const getBlockspaceStateAdapter = new GetBlockspaceStateHttpAdapter(
         getSyncBackfillStateUseCase,
     );
@@ -373,6 +387,7 @@ export function createApiApp(
         commonHandlers,
         issueCsrfTokenHandler,
         createBootstrapRunAdapter,
+        startCollectionBootstrapAdapter,
         probeCollectionContractAdapter,
         estimateBootstrapImageCacheAdapter,
         probeOpenSeaCollectionSlugAdapter,
@@ -390,6 +405,7 @@ export function createApiApp(
         publicGetBlockspaceRangeSummaryAdapter,
         scheduleBlockspaceBackfillAdapter,
         purgeCollectionAdapter,
+        startCollectionOpenSeaSyncAdapter,
         resolveOwnerRefAdapter,
         getCollectionActivityAdapter,
         getActivityEventPreviewAdapter,

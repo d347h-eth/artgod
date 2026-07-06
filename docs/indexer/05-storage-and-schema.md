@@ -163,7 +163,7 @@ Important semantic split:
 - `opensea_status = ready` means the first OpenSea snapshot finished successfully
 
 Fresh installs seed Terraforms as the first prepared collection row through
-`049_preset_terraforms_collection.sql`. The preset stores enough collection
+`051_preset_terraforms_collection.sql`. The preset stores enough collection
 identity and scope data to start a normal bootstrap run, but intentionally does
 not seed tokens, bootstrap runs, extension installs, or OpenSea lifecycle state.
 
