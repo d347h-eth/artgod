@@ -94,6 +94,7 @@ import {
     COLLECTION_CUSTOMIZATION_FEATURE_KEY,
     COLLECTION_CUSTOMIZATION_SOURCE_KIND,
     COLLECTION_MEDIA_SOURCE,
+    defaultMediaPurposePolicyConfig,
 } from "@artgod/shared/types";
 import type { BackendSecurityConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
@@ -158,11 +159,7 @@ function defaultImageCachePolicyUpdateBody() {
 function defaultMediaPurposePolicyUpdateBody() {
     return {
         selectedSource: "user" as const,
-        userConfig: {
-            tokenCard: COLLECTION_MEDIA_SOURCE.Image,
-            fullscreenPreview: COLLECTION_MEDIA_SOURCE.Image,
-            tokenDetail: COLLECTION_MEDIA_SOURCE.Image,
-        },
+        userConfig: defaultMediaPurposePolicyConfig(),
     };
 }
 
@@ -2637,14 +2634,16 @@ describe("backend api routes", () => {
         expect(result.payload.tokens.items[1].listingPrice).toBeNull();
     });
 
-    it("returns token detail with snapshot image media and rarity stats", async () => {
+    it("returns token detail with snapshot animation media and rarity stats", async () => {
         const result = await resolve("GET", "/api/ethereum/milady/1");
         expect(result.statusCode).toBe(200);
         expect(result.payload.collection.slug).toBe("milady");
         expect(result.payload.token.tokenId).toBe("1");
         expect(result.payload.token.name).toBe("Milady #1");
         expect(result.payload.token.image).toBe("https://example.com/1.png");
-        expect(result.payload.token.animationUrl).toBeNull();
+        expect(result.payload.token.animationUrl).toBe(
+            "https://example.com/1.html",
+        );
         expect(result.payload.token.listingPrice).toBe("500000000000000000");
         expect(result.payload.token.listingCurrency).toBe(
             "0x0000000000000000000000000000000000000000",
@@ -4001,8 +4000,8 @@ describe("backend api routes", () => {
             selectedSource: "user",
             userConfig: {
                 tokenCard: COLLECTION_MEDIA_SOURCE.Image,
-                fullscreenPreview: COLLECTION_MEDIA_SOURCE.Image,
-                tokenDetail: COLLECTION_MEDIA_SOURCE.Image,
+                fullscreenPreview: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+                tokenDetail: COLLECTION_MEDIA_SOURCE.AnimationUrl,
             },
             extensionConfig: null,
         });

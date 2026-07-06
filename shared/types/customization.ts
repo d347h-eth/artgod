@@ -147,8 +147,8 @@ export function normalizeImageCachePolicyFeatureConfig(
 export function defaultMediaPurposePolicyConfig(): MediaPurposePolicyConfig {
     return {
         tokenCard: COLLECTION_MEDIA_SOURCE.Image,
-        fullscreenPreview: COLLECTION_MEDIA_SOURCE.Image,
-        tokenDetail: COLLECTION_MEDIA_SOURCE.Image,
+        fullscreenPreview: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+        tokenDetail: COLLECTION_MEDIA_SOURCE.AnimationUrl,
     };
 }
 

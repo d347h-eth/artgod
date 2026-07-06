@@ -5,7 +5,10 @@
 		BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
 		BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION
 	} from '@artgod/shared/config/bootstrap';
-	import { COLLECTION_MEDIA_SOURCE } from '@artgod/shared/types';
+	import {
+		COLLECTION_MEDIA_SOURCE,
+		defaultMediaPurposePolicyConfig
+	} from '@artgod/shared/types';
 	import { IMAGE_CACHE_MODE, imageCacheModeLabel } from '@artgod/shared/media/token-image-cache';
 	import type {
 		ApiChain,
@@ -168,19 +171,12 @@
 	}
 
 	function fallbackMediaPurposePolicyState(): MediaPurposePolicyState {
+		const defaultConfig = defaultMediaPurposePolicyConfig();
 		return {
 			selectedSource: 'user',
-			userConfig: {
-				tokenCard: COLLECTION_MEDIA_SOURCE.Image,
-				fullscreenPreview: COLLECTION_MEDIA_SOURCE.Image,
-				tokenDetail: COLLECTION_MEDIA_SOURCE.Image
-			},
+			userConfig: defaultConfig,
 			extensionConfig: null,
-			effectiveConfig: {
-				tokenCard: COLLECTION_MEDIA_SOURCE.Image,
-				fullscreenPreview: COLLECTION_MEDIA_SOURCE.Image,
-				tokenDetail: COLLECTION_MEDIA_SOURCE.Image
-			}
+			effectiveConfig: defaultConfig
 		};
 	}
 

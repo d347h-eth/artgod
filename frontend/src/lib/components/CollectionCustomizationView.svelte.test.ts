@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import { TERRAFORMS_TRAIT_SUMMARY_TEMPLATE } from '@artgod/shared/extensions/terraforms';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
-import { COLLECTION_MEDIA_SOURCE } from '@artgod/shared/types';
+import {
+	COLLECTION_MEDIA_SOURCE,
+	defaultMediaPurposePolicyConfig
+} from '@artgod/shared/types';
 import CollectionCustomizationView from './CollectionCustomizationView.svelte';
 
 describe('CollectionCustomizationView', () => {
@@ -65,11 +68,7 @@ describe('CollectionCustomizationView', () => {
 					},
 					mediaPurposePolicy: {
 						selectedSource: 'extension',
-						userConfig: {
-							tokenCard: COLLECTION_MEDIA_SOURCE.Image,
-							fullscreenPreview: COLLECTION_MEDIA_SOURCE.Image,
-							tokenDetail: COLLECTION_MEDIA_SOURCE.Image
-						},
+						userConfig: defaultMediaPurposePolicyConfig(),
 						extensionConfig: {
 							tokenCard: COLLECTION_MEDIA_SOURCE.Image,
 							fullscreenPreview: COLLECTION_MEDIA_SOURCE.AnimationUrl,
