@@ -101,6 +101,9 @@ These assumptions are relied on by the implementation and should be preserved in
 8. OpenSea readiness is separate from collection `status = live`.
     - onchain `live` means bootstrap ownership/backfill is done.
     - OpenSea `ready` means the initial offchain snapshot has succeeded.
+    - a live collection with a persisted OpenSea slug can start the OpenSea
+      bootstrap snapshot later through the collection-table action after
+      OpenSea credentials are configured.
 9. Collection extensions are build-bundled and DB-activated.
     - v1 supports at most one enabled extension install per collection.
     - bootstrap auto-installs known embedded extensions by `chain_id + contract + token_scope`.
@@ -134,15 +137,16 @@ These assumptions are relied on by the implementation and should be preserved in
 ### OpenSea offchain flow
 
 1. Bootstrap completes local metadata + ownership capture for a collection.
-2. Bootstrap schedules short onchain backfill and an OpenSea bootstrap job in parallel.
+2. Bootstrap schedules short onchain backfill and, when OpenSea is enabled, an OpenSea bootstrap job in parallel.
 3. OpenSea bootstrap worker resolves OpenSea slug, marks offchain snapshot running, and streams the full orderbook through the offchain raw queue.
-4. OpenSea stream worker maintains live subscriptions for `live` collections with known OpenSea slug and publishes raw events into the same offchain raw queue.
-5. Offchain ingest worker records raw observations and normalizes:
+4. If OpenSea was skipped during bootstrap, the backend can enqueue the same OpenSea bootstrap job later for a live collection with a persisted slug.
+5. OpenSea stream worker maintains live subscriptions for `live` collections with known OpenSea slug and publishes raw events into the same offchain raw queue.
+6. Offchain ingest worker records raw observations and normalizes:
     - canonical order upserts
     - source-status updates by order id
     - maker revalidation hints
     - metadata refresh hints
-6. Domain worker persists canonical orders, then validates Seaport orders asynchronously from canonical `seaport_data_json`.
+7. Domain worker persists canonical orders, then validates Seaport orders asynchronously from canonical `seaport_data_json`.
 7. OpenSea reconcile worker periodically re-fetches the full orderbook and marks locally active-but-missing orders `source_status = inactive`.
 
 ### Collection extension flow

@@ -30,6 +30,7 @@ import type {
     TokenCursor,
     TokenAttribute,
     CollectionTokenScopeSummary,
+    CollectionStatus,
     TraitCatalogFacet,
     TraitFacet,
     TraitFilter,
@@ -112,6 +113,8 @@ type CollectionRow = {
     address: string;
     standard: string;
     status: string;
+    opensea_slug: string | null;
+    opensea_status: string | null;
     deployment_block: number | null;
     bootstrap_anchor_block: number | null;
     token_scope_kind: string;
@@ -287,6 +290,7 @@ const ATTRIBUTE_VALUE_NORMALIZED_NUMERIC_SQL =
     "CASE WHEN LTRIM(a.value, '0') = '' THEN '0' ELSE LTRIM(a.value, '0') END";
 const COLLECTION_SELECT_COLUMNS =
     "chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, " +
+    "opensea_slug, opensea_status, " +
     "token_scope_kind, scope_start_token_id, scope_total_supply, " +
     "(SELECT COUNT(1) FROM collection_scope_tokens " +
     "WHERE collection_scope_tokens.chain_id = collections.chain_id " +
@@ -295,7 +299,7 @@ const COLLECTION_SELECT_COLUMNS =
 
 export type ListCollectionsParams = {
     chainId: number;
-    status?: "bootstrapping" | "live" | "paused" | "disabled";
+    status?: CollectionStatus;
     limit: number;
     cursor?: string;
 };
@@ -3022,6 +3026,8 @@ function mapCollectionRow(row: CollectionRow): CollectionListItem {
         address: row.address.toLowerCase(),
         standard: row.standard as CollectionListItem["standard"],
         status: row.status as CollectionListItem["status"],
+        openseaSlug: row.opensea_slug,
+        openseaStatus: row.opensea_status as CollectionListItem["openseaStatus"],
         deploymentBlock: row.deployment_block,
         bootstrapAnchorBlock: row.bootstrap_anchor_block,
         createdAt: row.created_at,

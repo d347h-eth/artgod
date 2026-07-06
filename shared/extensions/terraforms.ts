@@ -11,13 +11,50 @@ import {
     TERRAFORMS_ZONE_ATTRIBUTE_KEY,
 } from "./terraforms-structure.js";
 import { normalizeAddressRef } from "../utils/ref-resolver.js";
+import {
+    COLLECTION_STANDARD,
+    COLLECTION_STATUS,
+} from "../types/browse.js";
 
 export * from "./terraforms-structure.js";
 
 export const TERRAFORMS_EXTENSION_KEY = "terraforms";
 
+// Preset collection slug used for first-launch Terraforms bootstrap setup.
+export const TERRAFORMS_COLLECTION_SLUG = "terraforms";
+
+// Ethereum mainnet chain id for the embedded Terraforms collection preset.
+export const TERRAFORMS_MAINNET_CHAIN_ID = 1;
+
+// Deployed Terraforms main contract used by embedded extension matching.
+export const TERRAFORMS_MAINNET_CONTRACT_ADDRESS = normalizeAddressRef(
+    "0x4E1f41613c9084FdB9E34E11fAE9412427480e56",
+);
+
+// Terraforms deployment block used as the bootstrap lower-bound hint.
+export const TERRAFORMS_MAINNET_DEPLOYMENT_BLOCK = 13_823_015;
+
+// OpenSea collection slug for Terraforms market/orderbook sync.
+export const TERRAFORMS_OPENSEA_SLUG = TERRAFORMS_COLLECTION_SLUG;
+
+// ERC token standard exposed by the Terraforms main contract.
+export const TERRAFORMS_COLLECTION_STANDARD = COLLECTION_STANDARD.Erc721;
+
 // Terraforms main-contract max supply and placement domain size.
 export const TERRAFORMS_MAX_SUPPLY = TERRAFORMS_HYPERCASTLE_TOTAL_PARCELS;
+
+// First-launch collection preset persisted without token/bootstrap rows.
+export const TERRAFORMS_MAINNET_PRESET_COLLECTION = {
+    chainId: TERRAFORMS_MAINNET_CHAIN_ID,
+    collectionId: 1,
+    slug: TERRAFORMS_COLLECTION_SLUG,
+    address: TERRAFORMS_MAINNET_CONTRACT_ADDRESS,
+    standard: TERRAFORMS_COLLECTION_STANDARD,
+    status: COLLECTION_STATUS.Prepared,
+    tokenScopeKind: EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
+    deploymentBlock: TERRAFORMS_MAINNET_DEPLOYMENT_BLOCK,
+    openseaSlug: TERRAFORMS_OPENSEA_SLUG,
+} as const;
 
 // Extension-owned token id prefix for settled placements that have not minted.
 export const TERRAFORMS_UNMINTED_TOKEN_ID_PREFIX = "unminted-tile";
@@ -576,19 +613,15 @@ export type TerraformsExtensionConfig = {
 export const TERRAFORMS_EMBEDDED_EXTENSION_MATCHES: readonly EmbeddedCollectionExtensionMatch[] =
     [
         {
-            chainId: 1,
-            contractAddress: normalizeAddressRef(
-                "0x4E1f41613c9084FdB9E34E11fAE9412427480e56",
-            ),
+            chainId: TERRAFORMS_MAINNET_CHAIN_ID,
+            contractAddress: TERRAFORMS_MAINNET_CONTRACT_ADDRESS,
             scope: {
                 kind: EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
             },
             install: {
                 extensionKey: TERRAFORMS_EXTENSION_KEY,
                 configJson: JSON.stringify({
-                    mainContractAddress: normalizeAddressRef(
-                        "0x4E1f41613c9084FdB9E34E11fAE9412427480e56",
-                    ),
+                    mainContractAddress: TERRAFORMS_MAINNET_CONTRACT_ADDRESS,
                     rendererV2ContractAddress: normalizeAddressRef(
                         "0x8aF860C8F157F4E3B6A54913BFA6Bb96ab2605C2",
                     ),

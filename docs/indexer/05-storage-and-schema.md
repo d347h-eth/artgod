@@ -141,7 +141,7 @@ Tracked by `database/migrations/007_collections_schema.sql`, `008_bootstrap_sche
 Current important columns:
 
 - onchain bootstrap state
-    - `status` (`bootstrapping`, `live`, `paused`, `disabled`)
+    - `status` (`prepared`, `bootstrapping`, `live`, `paused`, `disabled`)
     - `bootstrap_anchor_block`
     - `bootstrap_started_at`, `bootstrap_finished_at`
     - `bootstrap_last_synced_block`
@@ -157,8 +157,15 @@ Current important columns:
 
 Important semantic split:
 
+- `status = prepared` means collection identity/scope hints are persisted, but
+  no bootstrap data has been written yet
 - `status = live` means onchain bootstrap finished
 - `opensea_status = ready` means the first OpenSea snapshot finished successfully
+
+Fresh installs seed Terraforms as the first prepared collection row through
+`049_preset_terraforms_collection.sql`. The preset stores enough collection
+identity and scope data to start a normal bootstrap run, but intentionally does
+not seed tokens, bootstrap runs, extension installs, or OpenSea lifecycle state.
 
 ### `collection_extension_installs`
 

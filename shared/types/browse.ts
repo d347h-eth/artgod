@@ -5,10 +5,18 @@ import type {
 import type { ActivityExtensionEventFeed } from "./activity-feed.js";
 import type { TraitFilterDisplayKind } from "./customization.js";
 
-export type CollectionStandard = "erc721" | "erc1155";
+// Names NFT token standards accepted by collection bootstrap and browse flows.
+export const COLLECTION_STANDARD = {
+    Erc721: "erc721",
+    Erc1155: "erc1155",
+} as const;
+
+export type CollectionStandard =
+    (typeof COLLECTION_STANDARD)[keyof typeof COLLECTION_STANDARD];
 
 // Names collection lifecycle states shared by backend, frontend, and workers.
 export const COLLECTION_STATUS = {
+    Prepared: "prepared",
     Bootstrapping: "bootstrapping",
     Live: "live",
     Paused: "paused",
@@ -17,6 +25,15 @@ export const COLLECTION_STATUS = {
 
 export type CollectionStatus =
     (typeof COLLECTION_STATUS)[keyof typeof COLLECTION_STATUS];
+
+// Ordered collection lifecycle states accepted by API filters and UI controls.
+export const COLLECTION_STATUSES = [
+    COLLECTION_STATUS.Prepared,
+    COLLECTION_STATUS.Bootstrapping,
+    COLLECTION_STATUS.Live,
+    COLLECTION_STATUS.Paused,
+    COLLECTION_STATUS.Disabled,
+] as const satisfies readonly CollectionStatus[];
 
 // Names OpenSea collection bootstrap states persisted on collections.
 export const OPENSEA_COLLECTION_STATUS = {
@@ -65,6 +82,8 @@ export type CollectionListItem = {
     address: string;
     standard: CollectionStandard;
     status: CollectionStatus;
+    openseaSlug?: string | null;
+    openseaStatus?: OpenSeaCollectionStatus | null;
     deploymentBlock: number | null;
     bootstrapAnchorBlock: number | null;
     createdAt: string;
