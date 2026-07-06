@@ -1,4 +1,5 @@
 import {
+	COLLECTION_MEDIA_SOURCE,
 	TRADING_BIDDING_BID_BOOK_PRICE_KIND,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	type CollectionBiddingBidScopeFilter,
@@ -480,7 +481,7 @@ export type ApiImageCachePolicyFeatureState = {
 };
 
 export type ApiMediaPurposePolicyConfig = {
-	tokenCard: ApiCollectionMediaSource;
+	tokenCard: typeof COLLECTION_MEDIA_SOURCE.Image;
 	fullscreenPreview: ApiCollectionMediaSource;
 	tokenDetail: ApiCollectionMediaSource;
 };

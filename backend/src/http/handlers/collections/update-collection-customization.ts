@@ -299,7 +299,7 @@ function parseMediaPurposePolicyConfig(value: unknown): MediaPurposePolicyConfig
         tokenDetail?: unknown;
     };
     return {
-        tokenCard: parseMediaSource(
+        tokenCard: parseTokenCardMediaSource(
             source.tokenCard,
             "mediaPurposePolicy.userConfig.tokenCard",
         ),
@@ -325,4 +325,16 @@ function parseMediaSource(
         return value;
     }
     throw new ReadModelBadRequestError(`${field} is invalid`);
+}
+
+function parseTokenCardMediaSource(
+    value: unknown,
+    field: string,
+): typeof COLLECTION_MEDIA_SOURCE.Image {
+    if (value === COLLECTION_MEDIA_SOURCE.Image) {
+        return value;
+    }
+    throw new ReadModelBadRequestError(
+        `${field} must be ${COLLECTION_MEDIA_SOURCE.Image}`,
+    );
 }

@@ -83,7 +83,7 @@ export type CollectionMediaPurpose =
     (typeof COLLECTION_MEDIA_PURPOSE)[keyof typeof COLLECTION_MEDIA_PURPOSE];
 
 export type MediaPurposePolicyConfig = {
-    tokenCard: CollectionMediaSource;
+    tokenCard: typeof COLLECTION_MEDIA_SOURCE.Image;
     fullscreenPreview: CollectionMediaSource;
     tokenDetail: CollectionMediaSource;
 };
@@ -161,7 +161,7 @@ export function normalizeMediaPurposePolicyConfig(
     }
 
     return {
-        tokenCard: normalizeCollectionMediaSource(input.tokenCard),
+        tokenCard: normalizeTokenCardMediaSource(input.tokenCard),
         fullscreenPreview: normalizeCollectionMediaSource(
             input.fullscreenPreview,
         ),
@@ -242,6 +242,15 @@ function normalizeCollectionMediaSource(value: unknown): CollectionMediaSource {
         value === COLLECTION_MEDIA_SOURCE.Image ||
         value === COLLECTION_MEDIA_SOURCE.AnimationUrl
     ) {
+        return value;
+    }
+    return COLLECTION_MEDIA_SOURCE.Image;
+}
+
+function normalizeTokenCardMediaSource(
+    value: unknown,
+): typeof COLLECTION_MEDIA_SOURCE.Image {
+    if (value === COLLECTION_MEDIA_SOURCE.Image) {
         return value;
     }
     return COLLECTION_MEDIA_SOURCE.Image;

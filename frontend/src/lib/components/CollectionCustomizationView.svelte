@@ -371,18 +371,6 @@
 			: COLLECTION_MEDIA_SOURCE.Image;
 	}
 
-	function onTokenCardMediaPurposeSourceChange(event: Event): void {
-		const nextSource = readMediaPurposeSourceFromSelect(event);
-		if (!nextSource) return;
-		mediaPurposePolicy = {
-			...mediaPurposePolicy,
-			userConfig: {
-				...mediaPurposePolicy.userConfig,
-				tokenCard: nextSource
-			}
-		};
-	}
-
 	function onFullscreenPreviewMediaPurposeSourceChange(event: Event): void {
 		const nextSource = readMediaPurposeSourceFromSelect(event);
 		if (!nextSource) return;
@@ -862,13 +850,10 @@
 					<select
 						class="customization-select"
 						value={mediaPurposePolicy.userConfig.tokenCard}
-						onchange={onTokenCardMediaPurposeSourceChange}
+						disabled
 					>
 						<option value={COLLECTION_MEDIA_SOURCE.Image}>
 							{mediaSourceLabel(COLLECTION_MEDIA_SOURCE.Image)}
-						</option>
-						<option value={COLLECTION_MEDIA_SOURCE.AnimationUrl}>
-							{mediaSourceLabel(COLLECTION_MEDIA_SOURCE.AnimationUrl)}
 						</option>
 					</select>
 					<select
@@ -879,9 +864,6 @@
 						<option value="">not available</option>
 						<option value={COLLECTION_MEDIA_SOURCE.Image}>
 							{mediaSourceLabel(COLLECTION_MEDIA_SOURCE.Image)}
-						</option>
-						<option value={COLLECTION_MEDIA_SOURCE.AnimationUrl}>
-							{mediaSourceLabel(COLLECTION_MEDIA_SOURCE.AnimationUrl)}
 						</option>
 					</select>
 

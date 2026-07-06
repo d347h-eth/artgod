@@ -4326,7 +4326,7 @@ describe("backend api routes", () => {
         const token = csrf.payload.token as string;
         const cookie = csrf.headers["set-cookie"] as string;
 
-        const update = await resolve(
+        const unsafeTokenCardUpdate = await resolve(
             "PUT",
             "/api/ethereum/milady/customization",
             {
@@ -4365,6 +4365,47 @@ describe("backend api routes", () => {
                 "x-artgod-csrf": token,
             },
         );
+        expect(unsafeTokenCardUpdate.statusCode).toBe(400);
+
+        const update = await resolve(
+            "PUT",
+            "/api/ethereum/milady/customization",
+            {
+                traitFilterPresentation: {
+                    selectedSource: "user",
+                    userConfig: {
+                        rangeKeys: [],
+                    },
+                },
+                tokenCardTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
+                    },
+                },
+                activityRowTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
+                    },
+                },
+                imageCachePolicy: defaultImageCachePolicyUpdateBody(),
+                mediaPurposePolicy: {
+                    selectedSource: "user",
+                    userConfig: {
+                        tokenCard: COLLECTION_MEDIA_SOURCE.Image,
+                        fullscreenPreview: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+                        tokenDetail: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+                    },
+                },
+            },
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+            },
+        );
         expect(update.statusCode).toBe(200);
 
         const detail = await resolve("GET", "/api/ethereum/milady/1");
@@ -4379,7 +4420,7 @@ describe("backend api routes", () => {
         );
         expect(collection.statusCode).toBe(200);
         expect(collection.payload.tokens.items[0].image).toBe(
-            "https://example.com/1.html",
+            "https://example.com/1.png",
         );
 
         const preview = await resolve("GET", "/api/ethereum/milady/1/preview");

@@ -8,15 +8,10 @@ import type {
     TraitFilter,
     TraitRangeFilter,
 } from "@artgod/shared/types/browse";
-import { COLLECTION_MEDIA_MODES } from "@artgod/shared/extensions";
 import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import { applyTraitFilterPresentationToFacets } from "@artgod/shared/read-models/collections";
-import {
-    renderTraitSummaryTemplate,
-    type MediaPurposePolicyFeatureState,
-} from "@artgod/shared/types";
-import { applyMediaPurposePolicyToTokenCards } from "./media-purpose-policy.js";
+import { renderTraitSummaryTemplate } from "@artgod/shared/types";
 
 export type GetCollectionDetailInput = {
     chainRef: string;
@@ -105,10 +100,6 @@ export class GetCollectionDetailUseCase {
                     template: string;
                 };
             };
-            getMediaPurposePolicyState(params: {
-                chainId: number;
-                collectionId: number;
-            }): MediaPurposePolicyFeatureState;
         },
         readonly apm: ApmPort = NOOP_APM,
     ) {}
@@ -238,21 +229,6 @@ export class GetCollectionDetailUseCase {
                     tokenCardTraitSummaryTemplate.effectiveConfig.template,
                 ),
         );
-        const mediaPurposePolicy =
-            this.customizationReadPort.getMediaPurposePolicyState({
-                chainId: chain.publicChainId,
-                collectionId: collection.collectionId,
-            });
-        const presentedTokens =
-            media.selectedMode === COLLECTION_MEDIA_MODES.Snapshot
-                ? {
-                      ...tokensWithTraitSummary,
-                      items: applyMediaPurposePolicyToTokenCards({
-                          tokens: tokensWithTraitSummary.items,
-                          config: mediaPurposePolicy.effectiveConfig,
-                      }),
-                  }
-                : tokensWithTraitSummary;
 
         return {
             chain,
@@ -263,7 +239,7 @@ export class GetCollectionDetailUseCase {
                 facets,
             },
             media,
-            tokens: presentedTokens,
+            tokens: tokensWithTraitSummary,
         };
     }
 }

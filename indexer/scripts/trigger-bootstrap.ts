@@ -35,6 +35,8 @@ try {
             `openseaSlug=${input.openseaSlug ?? "none"}`,
             `metadataMode=${input.metadataMode}`,
             `supportsEnumerable=${String(requestBody.supportsEnumerable)}`,
+            `imageSourceField=${requestBody.imageSourceField}`,
+            `animationSourceField=${requestBody.animationSourceField ?? "none"}`,
             `imageCacheSource=${requestBody.imageCache.selectedSource}`,
             `imageCacheMode=${requestBody.imageCache.imageCacheMode}`,
             `deploymentBlock=${input.deploymentBlock ?? "none"}`,
