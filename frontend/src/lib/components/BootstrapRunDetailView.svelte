@@ -276,7 +276,7 @@
 						{#if canRetryFailedMetadataTasks()}
 							<button
 								type="button"
-								class="bootstrap-flow-step-action"
+								class="facet-panel-action-button"
 								onclick={() => void onFailedMetadataRetry()}
 								disabled={failedMetadataRetryPending}
 								aria-label="retry failed metadata"

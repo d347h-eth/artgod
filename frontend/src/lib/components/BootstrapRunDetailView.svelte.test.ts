@@ -439,6 +439,7 @@ describe('BootstrapRunDetailView', () => {
 		});
 
 		expect(body).toContain('aria-label="retry failed metadata"');
+		expect(body).toContain('class="facet-panel-action-button"');
 		expect(body).toContain('retry failed metadata');
 	});
 });
