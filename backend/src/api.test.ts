@@ -26,6 +26,7 @@ import {
 } from "@artgod/shared/bootstrap/run-events";
 import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from "@artgod/shared/bootstrap/opensea-slug-probe";
 import {
+    BOOTSTRAP_METADATA_MODE,
     BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_ACTION,
     BOOTSTRAP_STEP_KEY,
@@ -5408,6 +5409,95 @@ describe("backend api routes", () => {
                 >("SELECT COUNT(*) AS count FROM bootstrap_image_cache_tasks WHERE run_id = ?")
                 .get(runId),
         ).toEqual({ count: 0 });
+    });
+
+    it("waits for active image cache before retrying failed metadata tasks", async () => {
+        const runId = insertBootstrapRun({
+            chainId: 1,
+            collectionAddress: MILADY_ADDRESS,
+            status: BOOTSTRAP_RUN_STATUS.ImageCache,
+            metadataMode: BOOTSTRAP_METADATA_MODE.BestEffort,
+            anchorBlock: 24_500_123,
+            anchorBlockHash:
+                "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            anchorBlockTimestamp: 1_726_000_123,
+        });
+        db.prepare(
+            "UPDATE bootstrap_runs SET request_image_cache_mode = ?, request_image_cache_max_dimension = ? WHERE run_id = ?",
+        ).run(IMAGE_CACHE_MODE.CacheOnce, 512, runId);
+        insertBootstrapRunStep({
+            runId,
+            stepKey: BOOTSTRAP_STEP_KEY.Metadata,
+            status: BOOTSTRAP_STEP_STATUS.Succeeded,
+            blocking: true,
+            dependsOn: [BOOTSTRAP_STEP_KEY.Enumeration],
+            progressCompleted: 940,
+            progressTotal: 940,
+        });
+        insertBootstrapRunStep({
+            runId,
+            stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+            status: BOOTSTRAP_STEP_STATUS.Running,
+            blocking: false,
+            dependsOn: [BOOTSTRAP_STEP_KEY.Metadata],
+            progressCompleted: 512,
+            progressTotal: 837,
+        });
+        insertBootstrapMetadataTask(
+            runId,
+            "100",
+            BOOTSTRAP_TASK_STATUS.FailedTerminal,
+        );
+        insertBootstrapImageCacheTask(
+            runId,
+            "1",
+            BOOTSTRAP_TASK_STATUS.Succeeded,
+        );
+
+        const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
+        });
+        const token = csrf.payload.token as string;
+        const cookie = csrf.headers["set-cookie"] as string;
+
+        bootstrapStartInputs = [];
+        const retried = await resolve(
+            "POST",
+            `/api/ethereum/bootstrap-runs/${runId}/retry-failed`,
+            {},
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+
+        expect(retried.statusCode).toBe(409);
+        expect(retried.payload.message).toBe(
+            "Failed metadata tasks can only be retried after image cache settles",
+        );
+        expect(bootstrapStartInputs).toEqual([]);
+        expect(
+            db
+                .prepare<
+                    [number]
+                >("SELECT status FROM bootstrap_metadata_snapshot_tasks WHERE run_id = ?")
+                .get(runId),
+        ).toEqual({ status: BOOTSTRAP_TASK_STATUS.FailedTerminal });
+        expect(
+            db
+                .prepare<
+                    [number, string]
+                >("SELECT status, progress_completed, progress_total FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?")
+                .get(runId, BOOTSTRAP_STEP_KEY.ImageCache),
+        ).toEqual({
+            status: BOOTSTRAP_STEP_STATUS.Running,
+            progress_completed: 512,
+            progress_total: 837,
+        });
     });
 
     it("removes legacy collection-scoped bootstrap mutation endpoints", async () => {

@@ -4,6 +4,7 @@ import {
     BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_KEY,
     BOOTSTRAP_STEP_STATUS,
+    isBootstrapStepTerminalStatus,
     type BootstrapRunStatus,
 } from "@artgod/shared/bootstrap/pipeline";
 import { isImageCachePolicyActive } from "@artgod/shared/media/token-image-cache";
@@ -101,12 +102,30 @@ export class RetryBootstrapRunFailedTasksUseCase {
             );
         }
 
+        const imageCacheActive = isImageCachePolicyActive({
+            imageCacheMode: run.imageCacheMode,
+            maxDimension: run.imageCacheMaxDimension,
+        });
+        if (imageCacheActive) {
+            const imageCacheStep = this.bootstrapRunsPort.getRunStep(
+                run.runId,
+                BOOTSTRAP_STEP_KEY.ImageCache,
+            );
+            if (!imageCacheStep) {
+                throw new ReadModelNotFoundError(
+                    "Unknown image-cache bootstrap step",
+                );
+            }
+            if (!isBootstrapStepTerminalStatus(imageCacheStep.status)) {
+                throw new BootstrapConflictError(
+                    "Failed metadata tasks can only be retried after image cache settles",
+                );
+            }
+        }
+
         const retry = this.bootstrapRunsPort.retryFailedMetadataTasks({
             runId: run.runId,
-            resetImageCacheStep: isImageCachePolicyActive({
-                imageCacheMode: run.imageCacheMode,
-                maxDimension: run.imageCacheMaxDimension,
-            }),
+            resetImageCacheStep: imageCacheActive,
         });
         if (!retry.metadataStepUpdated || retry.updatedCount <= 0) {
             throw new BootstrapConflictError(

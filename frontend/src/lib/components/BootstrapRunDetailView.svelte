@@ -9,8 +9,10 @@
 	import type { ApiBootstrapFlowStep, BootstrapRunDetailApiResponse } from '$lib/api-types';
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import {
+		BOOTSTRAP_FLOW_STEP_STATE,
 		BOOTSTRAP_RUN_STATUS,
 		BOOTSTRAP_STEP_ACTION,
+		BOOTSTRAP_STEP_KEY,
 		isBootstrapStepKey,
 		type BootstrapStepAction
 	} from '@artgod/shared/bootstrap/pipeline';
@@ -141,9 +143,31 @@
 		if (!detail?.isLatestForCollection) return false;
 		if (detail.run.status === BOOTSTRAP_RUN_STATUS.Failed) return false;
 		return (
+			metadataFailedTasksSettled() &&
+			imageCacheSettledForMetadataRetry()
+		);
+	}
+
+	function failedMetadataRetryWaitMessage(): string | null {
+		if (!metadataFailedTasksSettled() || imageCacheSettledForMetadataRetry()) return null;
+		return 'retry will be available after the first image-cache pass settles';
+	}
+
+	function metadataFailedTasksSettled(): boolean {
+		if (!detail) return false;
+		return (
 			detail.metadataTasks.failedTerminal > 0 &&
 			detail.metadataTasks.pending === 0 &&
 			detail.metadataTasks.retry === 0
+		);
+	}
+
+	function imageCacheSettledForMetadataRetry(): boolean {
+		const imageCacheStep = detail?.flow.steps.find((step) => step.key === BOOTSTRAP_STEP_KEY.ImageCache);
+		if (!imageCacheStep) return true;
+		return (
+			imageCacheStep.state === BOOTSTRAP_FLOW_STEP_STATE.Completed ||
+			imageCacheStep.state === BOOTSTRAP_FLOW_STEP_STATE.Failed
 		);
 	}
 
@@ -273,12 +297,12 @@
 						<span class="muted"
 							>first {detail.failedMetadataTasksPreviewLimit} failed_terminal tasks in this run</span
 						>
-						{#if canRetryFailedMetadataTasks()}
+						{#if metadataFailedTasksSettled()}
 							<button
 								type="button"
 								class="facet-panel-action-button"
 								onclick={() => void onFailedMetadataRetry()}
-								disabled={failedMetadataRetryPending}
+								disabled={failedMetadataRetryPending || !canRetryFailedMetadataTasks()}
 								aria-label="retry failed metadata"
 							>
 								{#if failedMetadataRetryPending}
@@ -287,6 +311,9 @@
 									retry failed metadata
 								{/if}
 							</button>
+						{/if}
+						{#if failedMetadataRetryWaitMessage()}
+							<span class="muted">{failedMetadataRetryWaitMessage()}</span>
 						{/if}
 					</div>
 				</div>
