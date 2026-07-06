@@ -82,9 +82,10 @@ struct ManagedBotRuntimeStatus {
     last_error: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct RuntimeManager {
     status: Arc<Mutex<RuntimeStatus>>,
-    controller: Mutex<Option<RuntimeController>>,
+    controller: Arc<Mutex<Option<RuntimeController>>>,
     core_running_since: Arc<Mutex<Option<Instant>>>,
     bot_statuses: Arc<Mutex<HashMap<BotKind, ManagedBotRuntimeStatus>>>,
     bot_controllers: Arc<Mutex<HashMap<BotKind, BotRuntimeController>>>,
@@ -102,7 +103,7 @@ impl RuntimeManager {
                 nats_url: String::new(),
                 config_path: String::new(),
             })),
-            controller: Mutex::new(None),
+            controller: Arc::new(Mutex::new(None)),
             core_running_since: Arc::new(Mutex::new(None)),
             bot_statuses: Arc::new(Mutex::new(HashMap::new())),
             bot_controllers: Arc::new(Mutex::new(HashMap::new())),
@@ -197,6 +198,12 @@ impl RuntimeManager {
         });
 
         self.status()
+    }
+
+    /// Restarts the supervised core runtime through the standard stop/start sequence.
+    pub fn restart(&self, app: AppHandle) -> Result<RuntimeStatus, String> {
+        self.stop(app.clone())?;
+        self.start(app)
     }
 
     pub fn status(&self) -> Result<RuntimeStatus, String> {

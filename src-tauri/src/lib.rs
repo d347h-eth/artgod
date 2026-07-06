@@ -79,8 +79,12 @@ fn runtime_auto_start(
 }
 
 #[tauri::command]
-fn runtime_stop(app: AppHandle, state: State<'_, DesktopState>) -> Result<RuntimeStatus, String> {
-    state.runtime.stop(app)
+async fn runtime_stop(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<RuntimeStatus, String> {
+    let runtime = state.runtime.clone();
+    run_blocking_runtime_command(move || runtime.stop(app)).await
 }
 
 #[tauri::command]
@@ -95,12 +99,12 @@ fn runtime_status(state: State<'_, DesktopState>) -> Result<RuntimeStatus, Strin
 }
 
 #[tauri::command]
-fn runtime_restart(
+async fn runtime_restart(
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<RuntimeStatus, String> {
-    state.runtime.stop(app.clone())?;
-    state.runtime.start(app)
+    let runtime = state.runtime.clone();
+    run_blocking_runtime_command(move || runtime.restart(app)).await
 }
 
 #[tauri::command]
@@ -329,6 +333,16 @@ fn runtime_preflight(app: AppHandle, state: State<'_, DesktopState>) -> RuntimeP
         ok: checks.iter().all(|check| check.status != "fail"),
         checks,
     }
+}
+
+async fn run_blocking_runtime_command<F>(command: F) -> Result<RuntimeStatus, String>
+where
+    F: FnOnce() -> Result<RuntimeStatus, String> + Send + 'static,
+{
+    // Runtime stop/restart joins child-process supervisor threads; keep it off Tauri's IPC thread.
+    tauri::async_runtime::spawn_blocking(command)
+        .await
+        .map_err(|error| format!("Runtime command task failed: {error}"))?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
