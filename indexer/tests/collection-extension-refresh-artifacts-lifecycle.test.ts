@@ -570,6 +570,7 @@ function buildRun(): BootstrapRunDefinition {
         requestAddress: TEST_CONTRACT,
         requestStandard: "erc721",
         imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+        animationSourceField: null,
         requestExtensionKey: TERRAFORMS_EXTENSION_KEY,
         metadataMode: BOOTSTRAP_METADATA_MODE.Strict,
         enumerationMode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,

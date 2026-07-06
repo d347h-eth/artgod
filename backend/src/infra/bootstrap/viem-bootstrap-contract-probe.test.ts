@@ -32,6 +32,7 @@ describe("ViemBootstrapContractProbe", () => {
             await probe.probeErc721Contract({
                 address: TEST_EMPTY_ADDRESS,
                 imageSourceField: null,
+                animationSourceField: null,
             });
         } catch (error) {
             thrown = error;
@@ -51,25 +52,12 @@ describe("ViemBootstrapContractProbe", () => {
                 [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]: TEST_ONE_PIXEL_PNG,
             }),
         )}`;
-        const probe = new ViemBootstrapContractProbe({
-            async getBytecode() {
-                return "0x01";
-            },
-            async readContract<T = unknown>(params: {
-                functionName: string;
-            }): Promise<T> {
-                if (params.functionName === "supportsInterface") return true as T;
-                if (params.functionName === "name") return "Sample" as T;
-                if (params.functionName === "totalSupply") return 1n as T;
-                if (params.functionName === "tokenByIndex") return 1n as T;
-                if (params.functionName === "tokenURI") return tokenUri as T;
-                throw new Error(`unexpected read ${params.functionName}`);
-            },
-        });
+        const probe = makeEnumerableProbe(tokenUri);
 
         const result = await probe.probeErc721Contract({
             address: TEST_CONTRACT_ADDRESS,
             imageSourceField: null,
+            animationSourceField: null,
         });
 
         expect(result.firstToken.imageSourceField).toBe(
@@ -92,28 +80,66 @@ describe("ViemBootstrapContractProbe", () => {
                     generatorUrl,
             }),
         )}`;
-        const probe = new ViemBootstrapContractProbe({
-            async getBytecode() {
-                return "0x01";
-            },
-            async readContract<T = unknown>(params: {
-                functionName: string;
-            }): Promise<T> {
-                if (params.functionName === "supportsInterface") return true as T;
-                if (params.functionName === "name") return "Sample" as T;
-                if (params.functionName === "totalSupply") return 1n as T;
-                if (params.functionName === "tokenByIndex") return 1n as T;
-                if (params.functionName === "tokenURI") return tokenUri as T;
-                throw new Error(`unexpected read ${params.functionName}`);
-            },
-        });
+        const probe = makeEnumerableProbe(tokenUri);
 
         const result = await probe.probeErc721Contract({
             address: TEST_CONTRACT_ADDRESS,
             imageSourceField: null,
+            animationSourceField: null,
         });
 
+        expect(result.firstToken.animationSourceField).toBe(
+            TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl,
+        );
         expect(result.firstToken.animationUrl).toBe(generatorUrl);
+    });
+
+    it("uses the requested animation source field when supplied", async () => {
+        const generatorUrl = "https://generator.example/token/1";
+        const tokenUri = `data:application/json,${encodeURIComponent(
+            JSON.stringify({
+                [TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl]:
+                    "https://example.com/animation.html",
+                [TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl]:
+                    generatorUrl,
+                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]: TEST_ONE_PIXEL_PNG,
+            }),
+        )}`;
+        const probe = makeEnumerableProbe(tokenUri);
+
+        const result = await probe.probeErc721Contract({
+            address: TEST_CONTRACT_ADDRESS,
+            imageSourceField: null,
+            animationSourceField:
+                TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl,
+        });
+
+        expect(result.firstToken.animationSourceField).toBe(
+            TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl,
+        );
+        expect(result.firstToken.animationUrl).toBe(generatorUrl);
+    });
+
+    it("does not fall back when the requested animation source field is invalid", async () => {
+        const tokenUri = `data:application/json,${encodeURIComponent(
+            JSON.stringify({
+                [TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl]: "not a uri",
+                [TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl]:
+                    "https://generator.example/token/1",
+                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]: TEST_ONE_PIXEL_PNG,
+            }),
+        )}`;
+        const probe = makeEnumerableProbe(tokenUri);
+
+        const result = await probe.probeErc721Contract({
+            address: TEST_CONTRACT_ADDRESS,
+            imageSourceField: null,
+            animationSourceField:
+                TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl,
+        });
+
+        expect(result.firstToken.animationSourceField).toBeNull();
+        expect(result.firstToken.animationUrl).toBeNull();
     });
 
     it("selects onchain image_data when canonical image fields are absent", async () => {
@@ -123,25 +149,12 @@ describe("ViemBootstrapContractProbe", () => {
                 [TOKEN_METADATA_IMAGE_SOURCE_FIELD.ImageData]: TEST_ONE_PIXEL_PNG,
             }),
         )}`;
-        const probe = new ViemBootstrapContractProbe({
-            async getBytecode() {
-                return "0x01";
-            },
-            async readContract<T = unknown>(params: {
-                functionName: string;
-            }): Promise<T> {
-                if (params.functionName === "supportsInterface") return true as T;
-                if (params.functionName === "name") return "Onchain" as T;
-                if (params.functionName === "totalSupply") return 1n as T;
-                if (params.functionName === "tokenByIndex") return 1n as T;
-                if (params.functionName === "tokenURI") return tokenUri as T;
-                throw new Error(`unexpected read ${params.functionName}`);
-            },
-        });
+        const probe = makeEnumerableProbe(tokenUri);
 
         const result = await probe.probeErc721Contract({
             address: TEST_CONTRACT_ADDRESS,
             imageSourceField: null,
+            animationSourceField: null,
         });
 
         expect(result.firstToken.imageSourceField).toBe(
@@ -161,25 +174,12 @@ describe("ViemBootstrapContractProbe", () => {
                     TEST_ONE_PIXEL_PNG,
             }),
         )}`;
-        const probe = new ViemBootstrapContractProbe({
-            async getBytecode() {
-                return "0x01";
-            },
-            async readContract<T = unknown>(params: {
-                functionName: string;
-            }): Promise<T> {
-                if (params.functionName === "supportsInterface") return true as T;
-                if (params.functionName === "name") return "Onchain" as T;
-                if (params.functionName === "totalSupply") return 1n as T;
-                if (params.functionName === "tokenByIndex") return 1n as T;
-                if (params.functionName === "tokenURI") return tokenUri as T;
-                throw new Error(`unexpected read ${params.functionName}`);
-            },
-        });
+        const probe = makeEnumerableProbe(tokenUri);
 
         const result = await probe.probeErc721Contract({
             address: TEST_CONTRACT_ADDRESS,
             imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData,
+            animationSourceField: null,
         });
 
         expect(result.firstToken.imageSourceField).toBe(
@@ -188,3 +188,21 @@ describe("ViemBootstrapContractProbe", () => {
         expect(result.firstToken.image).toBe(TEST_ONE_PIXEL_PNG);
     });
 });
+
+function makeEnumerableProbe(tokenUri: string): ViemBootstrapContractProbe {
+    return new ViemBootstrapContractProbe({
+        async getBytecode() {
+            return "0x01";
+        },
+        async readContract<T = unknown>(params: {
+            functionName: string;
+        }): Promise<T> {
+            if (params.functionName === "supportsInterface") return true as T;
+            if (params.functionName === "name") return "Sample" as T;
+            if (params.functionName === "totalSupply") return 1n as T;
+            if (params.functionName === "tokenByIndex") return 1n as T;
+            if (params.functionName === "tokenURI") return tokenUri as T;
+            throw new Error(`unexpected read ${params.functionName}`);
+        },
+    });
+}

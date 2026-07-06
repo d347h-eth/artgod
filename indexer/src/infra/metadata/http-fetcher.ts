@@ -47,6 +47,7 @@ export class HttpMetadataFetcher implements MetadataFetcherPort {
         uri: string,
         options?: {
             imageSourceField?: string | null;
+            animationSourceField?: string | null;
         },
     ): Promise<TokenMetadata | null> {
         const resolved = resolveTokenResourceUri(uri, {
@@ -71,6 +72,7 @@ export class HttpMetadataFetcher implements MetadataFetcherPort {
                 : await fetchJson(resolved, this.fetchResilience);
             const metadata = normalizeMetadata(uri, raw, {
                 imageSourceField: options?.imageSourceField ?? null,
+                animationSourceField: options?.animationSourceField,
                 ipfsGatewayOrigin: this.ipfsGatewayOrigin,
             });
             if (!metadata) {
@@ -132,6 +134,7 @@ function normalizeMetadata(
     raw: unknown,
     options: {
         imageSourceField: string | null;
+        animationSourceField?: string | null;
         ipfsGatewayOrigin: string;
     },
 ): TokenMetadata | null {
@@ -143,13 +146,21 @@ function normalizeMetadata(
         requestedField: options.imageSourceField,
         ipfsGatewayOrigin: options.ipfsGatewayOrigin,
     });
+    const animationSource =
+        options.animationSourceField === null
+            ? null
+            : selectTokenMetadataAnimationSource({
+                  metadata: data,
+                  requestedField: options.animationSourceField,
+                  ipfsGatewayOrigin: options.ipfsGatewayOrigin,
+              });
 
     return {
         uri,
         name: asString(data.name),
         description: asString(data.description),
         image: imageSource?.value,
-        animationUrl: selectTokenMetadataAnimationSource(data) ?? undefined,
+        animationUrl: animationSource?.value,
         externalUrl: asString(data.external_url ?? data.externalUrl),
         attributes,
         rawJson: JSON.stringify(data),

@@ -14,6 +14,7 @@ export interface MetadataFetcherPort {
         uri: string,
         options?: {
             imageSourceField?: string | null;
+            animationSourceField?: string | null;
         },
     ): Promise<TokenMetadata | null>;
 }

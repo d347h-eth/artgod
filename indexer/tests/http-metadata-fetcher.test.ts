@@ -25,6 +25,37 @@ describe("HttpMetadataFetcher", () => {
         expect(metadata?.animationUrl).toBe(generatorUrl);
     });
 
+    it("uses requested bootstrap animation source field for canonical animation", async () => {
+        const generatorUrl = "https://generator.example/token/1";
+        const uri = buildMetadataDataUri({
+            [TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl]:
+                "https://example.com/animation.html",
+            [TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl]: generatorUrl,
+        });
+        const fetcher = new HttpMetadataFetcher();
+
+        const metadata = await fetcher.fetchMetadata(uri, {
+            animationSourceField:
+                TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl,
+        });
+
+        expect(metadata?.animationUrl).toBe(generatorUrl);
+    });
+
+    it("omits animation_url when bootstrap animation source capture is disabled", async () => {
+        const uri = buildMetadataDataUri({
+            [TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl]:
+                "https://example.com/animation.html",
+        });
+        const fetcher = new HttpMetadataFetcher();
+
+        const metadata = await fetcher.fetchMetadata(uri, {
+            animationSourceField: null,
+        });
+
+        expect(metadata?.animationUrl).toBeUndefined();
+    });
+
     it("uses requested bootstrap image source field for canonical image", async () => {
         const imageData = "data:image/svg+xml;base64,PHN2Zy8+";
         const uri = buildMetadataDataUri({

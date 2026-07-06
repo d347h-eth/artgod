@@ -235,6 +235,7 @@ export type ApiBootstrapProbeFirstToken = {
 	imageBytesError: string | null;
 	imageWidth: number | null;
 	imageHeight: number | null;
+	animationSourceField: string | null;
 	animationUrl: string | null;
 	metadataError: string | null;
 	candidates: ApiBootstrapProbeTokenCandidate[];
@@ -910,6 +911,7 @@ export type ApiBootstrapRun = {
 	requestAddress: string;
 	requestStandard: 'erc721' | 'erc1155';
 	imageSourceField: string | null;
+	animationSourceField: string | null;
 	metadataMode: 'strict' | 'best_effort';
 	enumerationMode: 'enumerable' | 'manual_token_ids' | 'manual_range';
 	manualTokenIdsJson: string | null;

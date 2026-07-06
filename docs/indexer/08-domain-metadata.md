@@ -97,6 +97,10 @@ Bootstrap token-image caching is intentionally downstream from this metadata wri
 - the cache reads canonical `token_metadata.image`
 - bootstrap runs may override which source metadata field is normalized into
   canonical `token_metadata.image` through `request_image_source_field`
+- bootstrap runs may override which source metadata field is normalized into
+  canonical `token_metadata.animation_url` through `request_animation_source_field`
+- a null `request_animation_source_field` disables animation capture for that
+  bootstrap run
 - it does not cache `animation_url`
 - cache output affects read-model presentation through `/media/token-images/...`, without mutating canonical metadata
 - when no cached image is available, backend read models resolve IPFS image and

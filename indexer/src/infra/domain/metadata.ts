@@ -305,6 +305,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
 
         const metadata = await this.fetcher.fetchMetadata(uri, {
             imageSourceField: payload.imageSourceField ?? null,
+            animationSourceField: payload.animationSourceField,
         });
         if (!metadata) {
             logger.debug("Metadata refresh fetch failed", {

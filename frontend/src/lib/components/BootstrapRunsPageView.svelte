@@ -44,7 +44,13 @@
 	import InfoTooltip from '$lib/components/InfoTooltip.svelte';
 	import LoadingBladeBar from '$lib/components/LoadingBladeBar.svelte';
 	import TokenCardTile from '$lib/components/TokenCardTile.svelte';
+	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
+	import {
+		resolveTokenMediaIframeSource,
+		tokenMediaTitle,
+		type TokenMediaIframeSource
+	} from '$lib/token-media';
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import { TEST_IDS } from '$lib/test-ids';
 	import { BOOTSTRAP_ENUMERATION_MODE } from '@artgod/shared/bootstrap/pipeline';
@@ -106,8 +112,23 @@
 	} as const;
 	type ImageCacheEstimateUiStatus =
 		(typeof imageCacheEstimateUiStatus)[keyof typeof imageCacheEstimateUiStatus];
+	const animationSourceProbeUiStatus = {
+		Idle: 'idle',
+		Loading: 'loading',
+		Ready: 'ready',
+		Error: 'error'
+	} as const;
+	type AnimationSourceProbeUiStatus =
+		(typeof animationSourceProbeUiStatus)[keyof typeof animationSourceProbeUiStatus];
+	const BOOTSTRAP_PREVIEW_SOURCE = {
+		Image: 'image',
+		Animation: 'animation'
+	} as const;
+	type BootstrapPreviewSource =
+		(typeof BOOTSTRAP_PREVIEW_SOURCE)[keyof typeof BOOTSTRAP_PREVIEW_SOURCE];
 	const openSeaSlugProbeFormId = 'bootstrap-opensea-slug-probe-form';
 	const imageSourceProbeFormId = 'bootstrap-image-source-probe-form';
+	const animationSourceProbeFormId = 'bootstrap-animation-source-probe-form';
 	const openSeaSetupMessage =
 		`Set ${OPENSEA_API_KEY_ENV} in Admin UI to sync OpenSea market/orderbook asks/offers required by built-in bidding bot features. Fully restart the app after saving the key in Admin UI.`;
 	const imageCachePreviewMessage =
@@ -121,6 +142,7 @@
 	const bootstrapFieldHelp = {
 		address: 'ERC721 contract address to probe and bootstrap.',
 		imageSourceField: 'Metadata field used as the original token image source.',
+		animationSourceField: 'Metadata field used as the original token animation source.',
 		slug: 'Local collection slug used in ArtGod URLs.',
 		openseaSlug:
 			'Required for bidding. OpenSea event streams and orderbook require the OpenSea collection slug.',
@@ -164,6 +186,13 @@
 	let imageSourceField = $state('');
 	let imageSourceFieldInputElement = $state<HTMLInputElement | null>(null);
 	let imageSourceFieldDirty = $state(false);
+	let animationSourceField = $state('');
+	let animationSourceFieldInputElement = $state<HTMLInputElement | null>(null);
+	let animationSourceFieldInputHasValue = $state(false);
+	let animationSourceFieldDirty = $state(false);
+	let selectedBootstrapPreviewSource = $state<BootstrapPreviewSource>(
+		BOOTSTRAP_PREVIEW_SOURCE.Image
+	);
 	let bootstrapOpenSeaSlug = $state('');
 	let openSeaSlugInputElement = $state<HTMLInputElement | null>(null);
 	let openSeaSlugInputHasValue = $state(false);
@@ -196,6 +225,10 @@
 	let openSeaSlugProbeError = $state<string | null>(null);
 	let openSeaSlugProbeAddress = $state<string | null>(null);
 	let openSeaSlugProbeRequestedSlug = $state<string | null>(null);
+	let animationSourceProbeStatus = $state<AnimationSourceProbeUiStatus>(
+		animationSourceProbeUiStatus.Idle
+	);
+	let animationSourceProbeError = $state<string | null>(null);
 	let imageCacheEstimateStatus = $state<ImageCacheEstimateUiStatus>(
 		imageCacheEstimateUiStatus.Idle
 	);
@@ -207,6 +240,7 @@
 	let imageCacheDimensionTimer: number | null = null;
 	let contractProbeRequestId = 0;
 	let openSeaSlugProbeRequestId = 0;
+	let animationSourceProbeRequestId = 0;
 	let imageCacheEstimateRequestId = 0;
 	let openSeaEnabled = $derived(openseaIntegration?.enabled === true);
 	let openSeaDisabledReason = $derived(
@@ -231,6 +265,11 @@
 	let formDetailsReady = $derived(
 		latestProbeMatchesAddress && probeResult !== null && imageSourceFieldResolved
 	);
+	let animationSourceProbePending = $derived(
+		animationSourceProbeStatus === animationSourceProbeUiStatus.Loading
+	);
+	let animationSourceFieldResolved = $derived(isAnimationSourceFieldResolved());
+	let animationSourceFieldIncorrect = $derived(isAnimationSourceFieldIncorrect());
 	let probeStatusSectionVisible = $derived(resolveProbeStatusSectionVisible());
 	let openSeaSlugProbePending = $derived(
 		openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Waiting ||
@@ -262,12 +301,15 @@
 	);
 	let firstTokenCard = $derived(firstTokenPreviewCard());
 	let cachedTokenCard = $derived(cachedTokenPreviewCard());
+	let animationPreviewIframeSource = $derived(resolveAnimationPreviewIframeSource());
+	let animationPreviewAvailable = $derived(animationPreviewIframeSource !== null);
 
 	onDestroy(() => {
 		cancelContractProbeTimer();
 		cancelImageCacheDimensionTimer();
 		contractProbeRequestId += 1;
 		openSeaSlugProbeRequestId += 1;
+		animationSourceProbeRequestId += 1;
 		imageCacheEstimateRequestId += 1;
 	});
 
@@ -303,6 +345,9 @@
 			probeAddress !== null ||
 			imageSourceField.trim().length > 0 ||
 			imageSourceFieldDirty ||
+			animationSourceField.trim().length > 0 ||
+			animationSourceFieldDirty ||
+			animationSourceProbeStatus !== animationSourceProbeUiStatus.Idle ||
 			openSeaSlugProbeStatus !== openSeaSlugProbeUiStatus.Idle ||
 			bootstrapSlug.trim().length > 0 ||
 			bootstrapOpenSeaSlug.trim().length > 0 ||
@@ -315,9 +360,11 @@
 		cancelImageCacheDimensionTimer();
 		contractProbeRequestId += 1;
 		openSeaSlugProbeRequestId += 1;
+		animationSourceProbeRequestId += 1;
 		bootstrapAddress = nextAddress;
 		setImageSourceFieldValue('');
 		imageSourceFieldDirty = false;
+		clearAnimationSourceFieldState();
 		setCollectionSlugInputValue('');
 		lastAutoFilledSlug = null;
 		setOpenSeaSlugInputValue('');
@@ -346,6 +393,8 @@
 	function resetFormBelowImageSourceField(): void {
 		openSeaSlugProbeRequestId += 1;
 		imageCacheEstimateRequestId += 1;
+		animationSourceProbeRequestId += 1;
+		clearAnimationSourceFieldState();
 		setCollectionSlugInputValue('');
 		lastAutoFilledSlug = null;
 		setOpenSeaSlugInputValue('');
@@ -373,6 +422,18 @@
 		openSeaSlugProbeError = null;
 		openSeaSlugProbeAddress = null;
 		openSeaSlugProbeRequestedSlug = null;
+	}
+
+	function resetAnimationSourceProbeState(): void {
+		animationSourceProbeStatus = animationSourceProbeUiStatus.Idle;
+		animationSourceProbeError = null;
+	}
+
+	function clearAnimationSourceFieldState(): void {
+		setAnimationSourceFieldValue('');
+		animationSourceFieldDirty = false;
+		resetAnimationSourceProbeState();
+		selectedBootstrapPreviewSource = BOOTSTRAP_PREVIEW_SOURCE.Image;
 	}
 
 	function resetImageCacheEstimateState(): void {
@@ -406,6 +467,16 @@
 
 	function readImageSourceFieldInputValue(): string {
 		return normalizeFieldValue(imageSourceFieldInputElement?.value ?? imageSourceField);
+	}
+
+	function setAnimationSourceFieldValue(value: string): void {
+		animationSourceField = value;
+		if (animationSourceFieldInputElement) animationSourceFieldInputElement.value = value;
+		animationSourceFieldInputHasValue = normalizeFieldValue(value).length > 0;
+	}
+
+	function readAnimationSourceFieldInputValue(): string {
+		return normalizeFieldValue(animationSourceFieldInputElement?.value ?? animationSourceField);
 	}
 
 	function onCollectionSlugInput(event: Event): void {
@@ -454,6 +525,23 @@
 		resetFormBelowImageSourceField();
 	}
 
+	function onAnimationSourceFieldInput(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLInputElement)) return;
+		animationSourceProbeRequestId += 1;
+		const nextValue = target.value;
+		setAnimationSourceFieldValue(nextValue);
+		if (!normalizeFieldValue(nextValue)) {
+			animationSourceFieldDirty = false;
+			resetAnimationSourceProbeState();
+			selectedBootstrapPreviewSource = BOOTSTRAP_PREVIEW_SOURCE.Image;
+			return;
+		}
+		animationSourceFieldDirty = true;
+		resetAnimationSourceProbeState();
+		selectedBootstrapPreviewSource = BOOTSTRAP_PREVIEW_SOURCE.Image;
+	}
+
 	function onSubmitImageSourceProbe(event: SubmitEvent): void {
 		event.preventDefault();
 		const chainSlug = chain?.slug ?? null;
@@ -461,6 +549,16 @@
 		if (!chainSlug || !isBootstrapProbeableAddress(address)) return;
 		contractProbeRequestId += 1;
 		scheduleContractProbe(chainSlug, address, readImageSourceFieldInputValue(), false);
+	}
+
+	function onSubmitAnimationSourceProbe(event: SubmitEvent): void {
+		event.preventDefault();
+		const requestedField = readAnimationSourceFieldInputValue();
+		if (!requestedField) {
+			clearAnimationSourceFieldState();
+			return;
+		}
+		void runAnimationSourceProbe(requestedField);
 	}
 
 	function maybeStartContractProbe(addressInput: string): void {
@@ -487,7 +585,8 @@
 		chainSlug: string,
 		address: string,
 		imageSourceFieldOverride: string | null,
-		useDelay: boolean
+		useDelay: boolean,
+		animationSourceFieldOverride?: string | null
 	): void {
 		const requestId = contractProbeRequestId;
 		probeStatus = 'waiting';
@@ -499,11 +598,23 @@
 		manualEditingAllowed = false;
 		resetImageCachePolicySource();
 		if (!browser || !useDelay) {
-			void runContractProbe(chainSlug, address, requestId, imageSourceFieldOverride);
+			void runContractProbe(
+				chainSlug,
+				address,
+				requestId,
+				imageSourceFieldOverride,
+				animationSourceFieldOverride
+			);
 			return;
 		}
 		contractProbeTimer = window.setTimeout(() => {
-			void runContractProbe(chainSlug, address, requestId, imageSourceFieldOverride);
+			void runContractProbe(
+				chainSlug,
+				address,
+				requestId,
+				imageSourceFieldOverride,
+				animationSourceFieldOverride
+			);
 		}, contractProbeDelayMs);
 	}
 
@@ -511,19 +622,21 @@
 		chainSlug: string,
 		address: string,
 		requestId: number,
-		imageSourceFieldOverride: string | null
+		imageSourceFieldOverride: string | null,
+		animationSourceFieldOverride?: string | null
 	): Promise<void> {
 		probeStatus = 'loading';
 		try {
 			const result = await probeBootstrapCollectionContract(fetch, chainSlug, address, {
-				imageSourceField: imageSourceFieldOverride
+				imageSourceField: imageSourceFieldOverride,
+				animationSourceField: animationSourceFieldOverride
 			});
 			if (requestId !== contractProbeRequestId) return;
 			probeStatus = 'ready';
 			probeResult = result;
 			probeAddress = result.address;
 			manualEditingAllowed = false;
-			applyProbeResult(result, imageSourceFieldOverride);
+			applyProbeResult(result, imageSourceFieldOverride, animationSourceFieldOverride);
 			if (isImageSourceFieldResolved() && openSeaEnabled) {
 				scheduleOpenSeaAddressProbe(chainSlug, result.address);
 			} else {
@@ -539,6 +652,34 @@
 				probeAddress = address;
 			}
 			probeError = error instanceof Error ? error.message : 'contract probe failed';
+		}
+	}
+
+	async function runAnimationSourceProbe(requestedField: string): Promise<void> {
+		const chainSlug = chain?.slug ?? null;
+		const address = normalizeBootstrapAddress(bootstrapAddress);
+		const imageSourceFieldForProbe = normalizeFieldValue(probeResult?.firstToken.imageSourceField);
+		if (!chainSlug || !isBootstrapProbeableAddress(address) || !imageSourceFieldForProbe) return;
+		animationSourceProbeRequestId += 1;
+		const requestId = animationSourceProbeRequestId;
+		animationSourceProbeStatus = animationSourceProbeUiStatus.Loading;
+		animationSourceProbeError = null;
+		try {
+			const result = await probeBootstrapCollectionContract(fetch, chainSlug, address, {
+				imageSourceField: imageSourceFieldForProbe,
+				animationSourceField: requestedField
+			});
+			if (requestId !== animationSourceProbeRequestId) return;
+			probeResult = result;
+			probeAddress = result.address;
+			probeStatus = 'ready';
+			applyAnimationSourceProbeResult(result, requestedField);
+		} catch (error) {
+			if (requestId !== animationSourceProbeRequestId) return;
+			animationSourceProbeStatus = animationSourceProbeUiStatus.Error;
+			animationSourceProbeError =
+				error instanceof Error ? error.message : 'animation source probe failed';
+			selectedBootstrapPreviewSource = BOOTSTRAP_PREVIEW_SOURCE.Image;
 		}
 	}
 
@@ -625,15 +766,35 @@
 
 	function applyProbeResult(
 		result: BootstrapContractProbeApiResponse,
-		requestedImageSourceField: string | null
+		requestedImageSourceField: string | null,
+		requestedAnimationSourceField?: string | null
 	): void {
 		const patch = bootstrapProbeFormPatch(result);
 		const slugSuggestion = contractNameToBootstrapSlug(result.contractName);
 		const resolvedImageSourceField = normalizeFieldValue(result.firstToken.imageSourceField);
+		const resolvedAnimationSourceField = normalizeFieldValue(
+			result.firstToken.animationSourceField
+		);
 		setImageSourceFieldValue(
 			resolvedImageSourceField || normalizeFieldValue(requestedImageSourceField)
 		);
+		if (requestedAnimationSourceField !== undefined) {
+			setAnimationSourceFieldValue(
+				resolvedAnimationSourceField || normalizeFieldValue(requestedAnimationSourceField)
+			);
+			animationSourceProbeStatus = animationSourceProbeUiStatus.Ready;
+		} else {
+			setAnimationSourceFieldValue(resolvedAnimationSourceField);
+			animationSourceProbeStatus = resolvedAnimationSourceField
+				? animationSourceProbeUiStatus.Ready
+				: animationSourceProbeUiStatus.Idle;
+		}
 		imageSourceFieldDirty = false;
+		animationSourceFieldDirty = false;
+		animationSourceProbeError = null;
+		if (!resolvedAnimationSourceField) {
+			selectedBootstrapPreviewSource = BOOTSTRAP_PREVIEW_SOURCE.Image;
+		}
 		if (slugSuggestion && (!bootstrapSlug.trim() || bootstrapSlug === lastAutoFilledSlug)) {
 			setCollectionSlugInputValue(slugSuggestion);
 			lastAutoFilledSlug = slugSuggestion;
@@ -645,6 +806,24 @@
 			manualRangeTotalSupply = patch.manualRangeTotalSupply;
 		}
 		applyProbeImageCacheSuggestion(result.imageCacheSuggestion);
+	}
+
+	function applyAnimationSourceProbeResult(
+		result: BootstrapContractProbeApiResponse,
+		requestedAnimationSourceField: string
+	): void {
+		const resolvedAnimationSourceField = normalizeFieldValue(
+			result.firstToken.animationSourceField
+		);
+		setAnimationSourceFieldValue(
+			resolvedAnimationSourceField || normalizeFieldValue(requestedAnimationSourceField)
+		);
+		animationSourceFieldDirty = false;
+		animationSourceProbeStatus = animationSourceProbeUiStatus.Ready;
+		animationSourceProbeError = null;
+		if (!resolvedAnimationSourceField) {
+			selectedBootstrapPreviewSource = BOOTSTRAP_PREVIEW_SOURCE.Image;
+		}
 	}
 
 	function applyOpenSeaSlugProbeResult(result: BootstrapOpenSeaSlugProbeApiResponse): void {
@@ -676,6 +855,21 @@
 		const resolvedField = normalizeFieldValue(probeResult.firstToken.imageSourceField);
 		if (!resolvedField || !probeResult.firstToken.image) return false;
 		return normalizeFieldValue(imageSourceField) === resolvedField && !imageSourceFieldDirty;
+	}
+
+	function isAnimationSourceFieldResolved(): boolean {
+		if (!latestProbeMatchesAddress || !probeResult) return false;
+		const resolvedField = normalizeFieldValue(probeResult.firstToken.animationSourceField);
+		if (!resolvedField || !probeResult.firstToken.animationUrl) return false;
+		return (
+			normalizeFieldValue(animationSourceField) === resolvedField && !animationSourceFieldDirty
+		);
+	}
+
+	function isAnimationSourceFieldIncorrect(): boolean {
+		if (!animationSourceFieldInputHasValue || animationSourceFieldDirty) return false;
+		if (animationSourceProbeStatus !== animationSourceProbeUiStatus.Ready) return false;
+		return !isAnimationSourceFieldResolved();
 	}
 
 	function isOpenSeaSlugResolved(): boolean {
@@ -772,6 +966,25 @@
 			hasMetadata: firstToken.metadataError === null,
 			metadataUpdatedAt: null
 		};
+	}
+
+	function resolveAnimationPreviewIframeSource(): TokenMediaIframeSource | null {
+		const firstToken = probeResult?.firstToken;
+		if (!animationSourceFieldResolved || !firstToken?.tokenId || !firstToken.animationUrl) {
+			return null;
+		}
+		return resolveTokenMediaIframeSource(
+			firstToken.animationUrl,
+			null,
+			tokenMediaTitle(firstToken.tokenId)
+		);
+	}
+
+	function selectBootstrapPreviewSource(source: BootstrapPreviewSource): void {
+		if (source === BOOTSTRAP_PREVIEW_SOURCE.Animation && !animationPreviewAvailable) {
+			return;
+		}
+		selectedBootstrapPreviewSource = source;
 	}
 
 	function cachedTokenPreviewCard(): ApiTokenCard | null {
@@ -1035,6 +1248,13 @@
 		if (openSeaEnabled && openSeaSlugInputHasValue && !openSeaSlugResolved) {
 			blockers.push('OpenSea slug must resolve before queueing bootstrap.');
 		}
+		if (animationSourceProbePending) {
+			blockers.push('Animation source field resolution is still running.');
+		} else if (animationSourceFieldInputHasValue && !animationSourceFieldResolved) {
+			blockers.push(
+				'Animation source field must resolve before queueing bootstrap, or clear it to skip animation capture.'
+			);
+		}
 		const scopeBlocker = manualScopeBlocker();
 		if (scopeBlocker) blockers.push(scopeBlocker);
 		const cacheBlocker = imageCacheEstimateBlocker();
@@ -1118,6 +1338,9 @@
 		if (!isBootstrapProbeableAddress(address)) return 'valid address is required';
 		if (!latestProbeMatchesAddress) return 'contract probe must complete before queueing bootstrap';
 		if (!imageSourceFieldResolved) return 'image source field must resolve before queueing bootstrap';
+		if (animationSourceFieldInputHasValue && !animationSourceFieldResolved) {
+			return 'animation source field must resolve before queueing bootstrap, or clear it to skip animation capture';
+		}
 		if (supportsEnumerable && probeResult?.enumerable.supported !== true) {
 			return 'enumerable support was not confirmed';
 		}
@@ -1202,6 +1425,9 @@
 			submitError = 'image source field is required';
 			return;
 		}
+		const resolvedAnimationSourceField = animationSourceFieldResolved
+			? normalizeFieldValue(probeResult?.firstToken.animationSourceField)
+			: null;
 
 		let manualInput:
 			| {
@@ -1267,6 +1493,7 @@
 				address,
 				openseaSlug: openseaSlug || undefined,
 				imageSourceField: resolvedImageSourceField,
+				animationSourceField: resolvedAnimationSourceField,
 				standard: 'erc721',
 				metadataMode,
 				supportsEnumerable,
@@ -1338,6 +1565,11 @@
 		class="bootstrap-hidden-form"
 		onsubmit={onSubmitImageSourceProbe}
 	></form>
+	<form
+		id={animationSourceProbeFormId}
+		class="bootstrap-hidden-form"
+		onsubmit={onSubmitAnimationSourceProbe}
+	></form>
 	<form class="bootstrap-form bootstrap-create-form" onsubmit={onBootstrapFormSubmit}>
 		<div class="bootstrap-create-layout">
 			<div class="bootstrap-form-fields">
@@ -1398,21 +1630,101 @@
 					</div>
 				{/if}
 
+				{#if formDetailsReady}
+					<div class="bootstrap-form-section bootstrap-animation-source-section">
+						<label class="bootstrap-form-row">
+							{@render fieldLabel('Animation source field', bootstrapFieldHelp.animationSourceField)}
+							<div class="bootstrap-input-status-row">
+								<input
+									bind:this={animationSourceFieldInputElement}
+									value={animationSourceField}
+									class={`${bootstrapInputClass} bootstrap-input-slug`}
+									type="text"
+									name="animationSourceField"
+									form={animationSourceProbeFormId}
+									oninput={onAnimationSourceFieldInput}
+								/>
+								{#if animationSourceFieldResolved}
+									<span class="bid-book-own-status bid-book-own-status-draw bootstrap-resolution-badge">
+										resolved
+									</span>
+								{:else if animationSourceFieldIncorrect}
+									<span class="bid-book-own-status bid-book-own-status-cancelled bootstrap-resolution-badge">
+										incorrect
+									</span>
+								{:else if animationSourceProbePending}
+									<span class="muted">
+										{@render inProgressStatus('resolving', 'resolving animation source field')}
+									</span>
+								{:else}
+									<button
+										type="submit"
+										form={animationSourceProbeFormId}
+										disabled={!addressCanBeProbed || !animationSourceFieldInputHasValue}
+									>
+										resolve
+									</button>
+								{/if}
+							</div>
+						</label>
+						{#if animationSourceProbeError}
+							<div class="bootstrap-form-row">
+								{@render fieldLabel('Probe error', bootstrapFieldHelp.probeError)}
+								<div class="muted">{animationSourceProbeError}</div>
+							</div>
+						{/if}
+					</div>
+				{/if}
+
 				{#if formDetailsReady && firstTokenCard}
 					<div class="bootstrap-form-section bootstrap-token-preview-section">
+						<div class="secondary-tabs bootstrap-preview-source-tabs" aria-label="Sample token preview source">
+							{#if selectedBootstrapPreviewSource === BOOTSTRAP_PREVIEW_SOURCE.Image}
+								<button type="button" class="secondary-tab-active" disabled>image</button>
+							{:else}
+								<button
+									type="button"
+									onclick={() => selectBootstrapPreviewSource(BOOTSTRAP_PREVIEW_SOURCE.Image)}
+								>
+									image
+								</button>
+							{/if}
+							{#if selectedBootstrapPreviewSource === BOOTSTRAP_PREVIEW_SOURCE.Animation}
+								<button type="button" class="secondary-tab-active" disabled>animation</button>
+							{:else}
+								<button
+									type="button"
+									class:secondary-tab-disabled={!animationPreviewAvailable}
+									disabled={!animationPreviewAvailable}
+									onclick={() => selectBootstrapPreviewSource(BOOTSTRAP_PREVIEW_SOURCE.Animation)}
+								>
+									animation
+								</button>
+							{/if}
+						</div>
 						<aside class="bootstrap-token-card-pane" aria-label="Token image preview">
-							<div class="bootstrap-probe-token-card" data-testid={TEST_IDS.BootstrapProbeTokenCard}>
-								<TokenCardTile
-									{chain}
-									collection={null}
-									token={firstTokenCard}
-									href="#"
-									selectedMediaMode={COLLECTION_MEDIA_MODES.Snapshot}
-									availableMediaModes={bootstrapPreviewMediaModes}
-									{tokenPreview}
-									showMeta={false}
-								/>
-							</div>
+							{#if selectedBootstrapPreviewSource === BOOTSTRAP_PREVIEW_SOURCE.Animation && animationPreviewIframeSource}
+								<div class="bootstrap-animation-preview-frame-wrap">
+									<TokenMediaFrame
+										className="bootstrap-animation-preview-frame"
+										iframeSource={animationPreviewIframeSource}
+										title={`${tokenMediaTitle(firstTokenCard.tokenId)} animation preview`}
+									/>
+								</div>
+							{:else}
+								<div class="bootstrap-probe-token-card" data-testid={TEST_IDS.BootstrapProbeTokenCard}>
+									<TokenCardTile
+										{chain}
+										collection={null}
+										token={firstTokenCard}
+										href="#"
+										selectedMediaMode={COLLECTION_MEDIA_MODES.Snapshot}
+										availableMediaModes={bootstrapPreviewMediaModes}
+										{tokenPreview}
+										showMeta={false}
+									/>
+								</div>
+							{/if}
 						</aside>
 					</div>
 				{/if}

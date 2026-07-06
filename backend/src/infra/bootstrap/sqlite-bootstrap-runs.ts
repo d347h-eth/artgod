@@ -69,6 +69,7 @@ type BootstrapRunDbRow = {
     request_address: string;
     request_standard: string;
     request_image_source_field: string | null;
+    request_animation_source_field: string | null;
     request_extension_key: CollectionExtensionKey | null;
     metadata_mode: "strict" | "best_effort";
     enumeration_mode: "enumerable" | "manual_token_ids" | "manual_range";
@@ -90,7 +91,7 @@ type BootstrapRunDbRow = {
 };
 
 const BOOTSTRAP_RUN_SELECT_COLUMNS =
-    "run_id, chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_image_source_field, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, request_image_cache_mode, request_image_cache_max_dimension, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at";
+    "run_id, chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_image_source_field, request_animation_source_field, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, request_image_cache_mode, request_image_cache_max_dimension, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at";
 
 type BootstrapTaskDbRow = {
     token_id: string;
@@ -225,6 +226,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         requestAddress: string;
         requestStandard: string;
         imageSourceField: string;
+        animationSourceField: string | null;
         requestExtensionKey: CollectionExtensionKey | null;
         metadataMode: string;
         enumerationMode: string;
@@ -237,8 +239,8 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         requestedStatus: BootstrapRunStatus;
     }>(
         "INSERT INTO bootstrap_runs " +
-            "(chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_image_source_field, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, request_image_cache_mode, request_image_cache_max_dimension, deployment_block, status) " +
-            "VALUES (@chainId, @collectionId, @requestSlug, @requestOpenseaSlug, @requestAddress, @requestStandard, @imageSourceField, @requestExtensionKey, @metadataMode, @enumerationMode, @manualTokenIdsJson, @manualRangeStartTokenId, @manualRangeTotalSupply, @imageCacheMode, @imageCacheMaxDimension, @deploymentBlock, @requestedStatus)",
+            "(chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_image_source_field, request_animation_source_field, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, request_image_cache_mode, request_image_cache_max_dimension, deployment_block, status) " +
+            "VALUES (@chainId, @collectionId, @requestSlug, @requestOpenseaSlug, @requestAddress, @requestStandard, @imageSourceField, @animationSourceField, @requestExtensionKey, @metadataMode, @enumerationMode, @manualTokenIdsJson, @manualRangeStartTokenId, @manualRangeTotalSupply, @imageCacheMode, @imageCacheMaxDimension, @deploymentBlock, @requestedStatus)",
     );
 
     private insertRunStep = db.prepare<{
@@ -589,6 +591,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         requestAddress: string;
         requestStandard: "erc721" | "erc1155";
         imageSourceField: string;
+        animationSourceField: string | null;
         requestExtensionKey: CollectionExtensionKey | null;
         metadataMode: "strict" | "best_effort";
         enumerationMode: "enumerable" | "manual_token_ids" | "manual_range";
@@ -1056,6 +1059,7 @@ function mapRun(row: BootstrapRunDbRow): BootstrapRunRow {
         requestAddress: row.request_address,
         requestStandard: row.request_standard as "erc721" | "erc1155",
         imageSourceField: row.request_image_source_field,
+        animationSourceField: row.request_animation_source_field,
         requestExtensionKey: row.request_extension_key,
         metadataMode: row.metadata_mode,
         enumerationMode: row.enumeration_mode,

@@ -10,6 +10,7 @@ import {
 	BOOTSTRAP_STEP_KEY
 } from '@artgod/shared/bootstrap/pipeline';
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-image-source';
+import { TOKEN_METADATA_ANIMATION_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-animation-source';
 import { TEST_IDS } from '../src/lib/test-ids';
 import { DEFAULT_BOOTSTRAP_METADATA_MODE } from '../src/lib/bootstrap-metadata-mode';
 import {
@@ -281,6 +282,7 @@ test.describe('bootstrap contract probe UI', () => {
 			slug: 'custom-raster-slug',
 			metadataMode: DEFAULT_BOOTSTRAP_METADATA_MODE,
 			imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+			animationSourceField: TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl,
 			openseaSlug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster,
 			imageCache: {
 				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
@@ -305,6 +307,45 @@ test.describe('bootstrap contract probe UI', () => {
 			})
 		]);
 		expect(dynamicRequests).toEqual([]);
+	});
+
+	test('lets optional animation source overrides resolve or be cleared', async ({ page }) => {
+		const api = await installBootstrapProbeApiMock(page);
+		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+
+		const animationRow = formRow(page, 'Animation source field');
+		await expect(rowControl(page, 'Animation source field')).toHaveValue(
+			TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl
+		);
+		await expect(animationRow).toContainText('resolved');
+		await expect(page.getByRole('button', { name: 'animation' })).toBeEnabled();
+		await page.getByRole('button', { name: 'animation' }).click();
+		await expect(page.locator('iframe.bootstrap-animation-preview-frame')).toHaveAttribute(
+			'src',
+			BOOTSTRAP_PROBE_MEDIA.DynamicAnimationUrl
+		);
+		await page.getByRole('button', { name: 'image' }).click();
+
+		await rowControl(page, 'Animation source field').fill('missing_animation');
+		await expect(animationRow.getByRole('button', { name: 'resolve' })).toBeEnabled();
+		await animationRow.getByRole('button', { name: 'resolve' }).click();
+		await expect(animationRow).toContainText('incorrect');
+		await expect(
+			page.getByText('Animation source field must resolve before queueing bootstrap')
+		).toBeVisible();
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
+
+		await rowControl(page, 'Animation source field').fill('');
+		await expect(animationRow).not.toContainText('incorrect');
+		await expect(page.getByRole('button', { name: 'animation' })).toBeDisabled();
+		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.Off);
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeEnabled();
+		await page.getByRole('button', { name: 'queue bootstrap' }).click();
+		await expect.poll(() => api.mutations.length).toBe(1);
+		expect(api.mutations[0]?.body).toMatchObject({
+			imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+			animationSourceField: null
+		});
 	});
 
 	test('requires manual supply before cache estimate for shared contracts', async ({ page }) => {
@@ -358,6 +399,7 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect.poll(() => api.mutations.length).toBe(1);
 		expect(api.mutations[0]?.body).toMatchObject({
 			imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+			animationSourceField: null,
 			manualInput: {
 				mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
 				startTokenId: '0',
@@ -412,6 +454,7 @@ test.describe('bootstrap contract probe UI', () => {
 		expect(api.mutations[0]?.body).toMatchObject({
 			metadataMode: DEFAULT_BOOTSTRAP_METADATA_MODE,
 			imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData,
+			animationSourceField: null,
 			imageCache: {
 				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
 				imageCacheMode: IMAGE_CACHE_MODE.Off,

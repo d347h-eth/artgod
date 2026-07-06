@@ -342,6 +342,7 @@ function buildRun(): BootstrapRunDefinition {
         requestAddress: TEST_CONTRACT_ADDRESS,
         requestStandard: COLLECTION_STANDARD.Erc721,
         imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+        animationSourceField: null,
         requestExtensionKey: null,
         metadataMode: BOOTSTRAP_METADATA_MODE.BestEffort,
         enumerationMode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,

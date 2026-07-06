@@ -13,6 +13,7 @@ export type ProbeCollectionContractRoute = {
     Querystring: {
         address?: string;
         [BOOTSTRAP_API_QUERY_PARAM.ImageSourceField]?: string;
+        [BOOTSTRAP_API_QUERY_PARAM.AnimationSourceField]?: string;
         standard?: string;
     };
 };
@@ -54,6 +55,9 @@ export class ProbeCollectionContractHttpAdapter {
             standard,
             imageSourceField: optionalString(
                 request.query[BOOTSTRAP_API_QUERY_PARAM.ImageSourceField],
+            ),
+            animationSourceField: optionalString(
+                request.query[BOOTSTRAP_API_QUERY_PARAM.AnimationSourceField],
             ),
         };
     }

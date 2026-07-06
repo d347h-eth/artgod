@@ -6,6 +6,7 @@ import type {
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/bootstrap';
 import { BOOTSTRAP_ENUMERATION_MODE } from '@artgod/shared/bootstrap/pipeline';
 import { BOOTSTRAP_API_QUERY_PARAM } from '@artgod/shared/http/bootstrap-routes';
+import { TOKEN_METADATA_ANIMATION_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-animation-source';
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-image-source';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
@@ -109,9 +110,12 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 			const imageSourceField = normalizeImageSourceField(
 				url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.ImageSourceField)
 			);
+			const animationSourceField = normalizeImageSourceField(
+				url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.AnimationSourceField)
+			);
 			probeRequests.push(address);
 			probeRequestImageSourceFields.push(imageSourceField);
-			await fulfillJson(route, probeResponse(address, imageSourceField));
+			await fulfillJson(route, probeResponse(address, imageSourceField, animationSourceField));
 			return;
 		}
 
@@ -204,6 +208,7 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 					requestOpenseaSlug: 'raster-images-2026',
 					requestAddress: BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster,
 					imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+					animationSourceField: null,
 					requestStandard: 'erc721',
 					metadataMode: 'strict',
 					enumerationMode: 'enumerable',
@@ -374,7 +379,8 @@ function buildOpenSeaSlugProbeResponse(input: {
 
 function probeResponse(
 	address: string,
-	requestedImageSourceField: string | null
+	requestedImageSourceField: string | null,
+	requestedAnimationSourceField: string | null
 ): BootstrapContractProbeApiResponse {
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable) {
 		return buildProbeResponse({
@@ -401,6 +407,11 @@ function probeResponse(
 	}
 
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster) {
+		const resolvedAnimationSourceField =
+			requestedAnimationSourceField === null ||
+			requestedAnimationSourceField === TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl
+				? TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl
+				: null;
 		return buildProbeResponse({
 			address,
 			contractName: 'Raster Images / 2026',
@@ -415,7 +426,10 @@ function probeResponse(
 			firstTokenImageContentType: 'image/png',
 			firstTokenSource: 'token_by_index',
 			tokenUriPayloadBytes: 4096,
-			animationUrl: BOOTSTRAP_PROBE_MEDIA.DynamicAnimationUrl,
+			animationUrl: resolvedAnimationSourceField
+				? BOOTSTRAP_PROBE_MEDIA.DynamicAnimationUrl
+				: null,
+			animationSourceField: resolvedAnimationSourceField,
 			manualInput: null,
 			warnings: []
 		});
@@ -504,7 +518,8 @@ function buildProbeResponse(input: {
 	firstTokenImageContentType: string | null;
 	firstTokenSource: 'token_by_index' | 'candidate_token_uri' | null;
 	tokenUriPayloadBytes: number | null;
-	animationUrl?: string;
+	animationUrl?: string | null;
+	animationSourceField?: string | null;
 	manualInput: {
 		mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualRange;
 		startTokenId: string;
@@ -555,6 +570,7 @@ function buildProbeResponse(input: {
 			imageBytesError: null,
 			imageWidth: 2160,
 			imageHeight: 2160,
+			animationSourceField: input.animationSourceField ?? null,
 			animationUrl: input.animationUrl ?? null,
 			metadataError: null,
 			candidates: []

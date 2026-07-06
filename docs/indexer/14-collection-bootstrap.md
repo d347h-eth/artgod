@@ -68,6 +68,12 @@ The bootstrap probe selects the metadata field that should populate canonical
 created run persists the selected field in `request_image_source_field`, and
 bootstrap metadata fetching uses that field when normalizing each token.
 
+The probe also selects the optional metadata field that should populate
+canonical `token_metadata.animation_url`. It prefers `animation_url`,
+`animationUrl`, `generator_url`, and `generatorUrl`. A bootstrap run persists
+the selected field in `request_animation_source_field`; `NULL` means bootstrap
+metadata fetching intentionally skips animation capture for the collection.
+
 - image-cache work is published to the `collection-bootstrap-image-cache` queue
 - the main bootstrap path continues to ownership/backfill/live without waiting
   for image-cache completion

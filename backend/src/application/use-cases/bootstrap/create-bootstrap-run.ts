@@ -35,6 +35,7 @@ import {
     normalizeImageCachePolicyConfig,
     type ImageCachePolicyConfig,
 } from "@artgod/shared/media/token-image-cache";
+import { normalizeTokenMetadataAnimationSourceField } from "@artgod/shared/media/token-metadata-animation-source";
 import { normalizeTokenMetadataImageSourceField } from "@artgod/shared/media/token-metadata-image-source";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 
@@ -81,6 +82,9 @@ export class CreateBootstrapRunUseCase {
         const openseaSlug = normalizeOptionalSlug(input.openseaSlug);
         const imageSourceField = normalizeRequiredImageSourceField(
             input.imageSourceField,
+        );
+        const animationSourceField = normalizeTokenMetadataAnimationSourceField(
+            input.animationSourceField,
         );
         assertOpenSeaSlugIsAllowed(openseaSlug, this.openseaIntegration);
         const metadataMode = input.metadataMode;
@@ -188,6 +192,7 @@ export class CreateBootstrapRunUseCase {
             requestAddress: address,
             requestStandard: "erc721",
             imageSourceField,
+            animationSourceField,
             requestExtensionKey,
             metadataMode,
             enumerationMode: enumeration.mode,

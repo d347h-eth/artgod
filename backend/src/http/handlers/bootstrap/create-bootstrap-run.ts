@@ -26,6 +26,7 @@ export type CreateBootstrapRunRoute = {
         address?: string;
         openseaSlug?: string;
         imageSourceField?: string;
+        animationSourceField?: string | null;
         standard?: string;
         metadataMode?: string;
         supportsEnumerable?: boolean;
@@ -74,6 +75,7 @@ export class CreateBootstrapRunHttpAdapter {
             body.imageSourceField,
             "imageSourceField",
         );
+        const animationSourceField = optionalString(body.animationSourceField);
         const standard = mustString(body.standard, "standard");
         const metadataMode = mustString(body.metadataMode, "metadataMode");
         const supportsEnumerable = body.supportsEnumerable;
@@ -96,6 +98,7 @@ export class CreateBootstrapRunHttpAdapter {
             address,
             openseaSlug: openseaSlug ?? undefined,
             imageSourceField,
+            animationSourceField,
             standard: standard as "erc721",
             metadataMode: metadataMode as "strict" | "best_effort",
             supportsEnumerable,

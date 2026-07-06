@@ -139,6 +139,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
     async probeErc721Contract(input: {
         address: string;
         imageSourceField: string | null;
+        animationSourceField: string | null;
     }): Promise<CollectionContractProbeResult> {
         const address = input.address as `0x${string}`;
         await this.assertContractAddress(address);
@@ -157,6 +158,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
             address,
             enumerable,
             input.imageSourceField,
+            input.animationSourceField,
         );
 
         return {
@@ -239,6 +241,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
         address: `0x${string}`,
         enumerable: BootstrapProbeInterfaceCheck,
         imageSourceField: string | null,
+        animationSourceField: string | null,
     ): Promise<BootstrapProbeFirstToken> {
         const candidates: BootstrapProbeTokenCandidate[] = [];
         if (enumerable.supported === true) {
@@ -256,6 +259,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                     candidates,
                     null,
                     imageSourceField,
+                    animationSourceField,
                 );
             } catch {
                 // Fall back to token id start probing below.
@@ -280,6 +284,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                     candidates,
                     candidate.tokenUri,
                     imageSourceField,
+                    animationSourceField,
                 );
             }
         }
@@ -300,6 +305,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
             imageBytesError: null,
             imageWidth: null,
             imageHeight: null,
+            animationSourceField: null,
             animationUrl: null,
             metadataError: "token ids 0 and 1 were not confirmed",
             candidates,
@@ -353,6 +359,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
         candidates: BootstrapProbeTokenCandidate[],
         knownTokenUri: string | null,
         requestedImageSourceField: string | null,
+        requestedAnimationSourceField: string | null,
     ): Promise<BootstrapProbeFirstToken> {
         const tokenUri = knownTokenUri ?? (await this.readTokenUri(address, tokenId));
         if (typeof tokenUri !== "string" && !tokenUri.ok) {
@@ -375,6 +382,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
             const metadata = parseMetadataPayload(
                 payload.text,
                 requestedImageSourceField,
+                requestedAnimationSourceField,
                 this.ipfsGatewayOrigin,
             );
             const image = resolveDisplayUrl(
@@ -405,8 +413,9 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 imageBytesError: imageSize?.error ?? null,
                 imageWidth: imageSize?.width ?? null,
                 imageHeight: imageSize?.height ?? null,
+                animationSourceField: metadata.animationSource?.field ?? null,
                 animationUrl: resolveDisplayUrl(
-                    metadata.animationUrl,
+                    metadata.animationSource?.value ?? null,
                     this.ipfsGatewayOrigin,
                 ),
                 metadataError: metadata.error,
@@ -429,6 +438,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 imageBytesError: null,
                 imageWidth: null,
                 imageHeight: null,
+                animationSourceField: null,
                 animationUrl: null,
                 metadataError: null,
                 candidates,
@@ -498,6 +508,7 @@ function emptyFirstTokenWithError(
         imageBytesError: null,
         imageWidth: null,
         imageHeight: null,
+        animationSourceField: null,
         animationUrl: null,
         metadataError: null,
         candidates,
@@ -579,11 +590,12 @@ async function readResponseTextWithLimit(
 function parseMetadataPayload(
     text: string,
     requestedImageSourceField: string | null,
+    requestedAnimationSourceField: string | null,
     ipfsGatewayOrigin: string,
 ): {
     name: string | null;
     imageSource: { field: string; value: string } | null;
-    animationUrl: string | null;
+    animationSource: { field: string; value: string } | null;
     error: string | null;
 } {
     try {
@@ -595,14 +607,18 @@ function parseMetadataPayload(
                 requestedField: requestedImageSourceField,
                 ipfsGatewayOrigin,
             }),
-            animationUrl: selectTokenMetadataAnimationSource(raw),
+            animationSource: selectTokenMetadataAnimationSource({
+                metadata: raw,
+                requestedField: requestedAnimationSourceField,
+                ipfsGatewayOrigin,
+            }),
             error: null,
         };
     } catch (error) {
         return {
             name: null,
             imageSource: null,
-            animationUrl: null,
+            animationSource: null,
             error: compactError(error),
         };
     }

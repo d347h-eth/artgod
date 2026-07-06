@@ -186,6 +186,7 @@ function makeProbe(input: {
 			imageBytesError: null,
 			imageWidth: null,
 			imageHeight: null,
+			animationSourceField: null,
 			animationUrl: null,
 			metadataError: null,
 			candidates: []

@@ -23,6 +23,7 @@ type BootstrapRunDbRow = {
     request_address: string;
     request_standard: "erc721" | "erc1155";
     request_image_source_field: string | null;
+    request_animation_source_field: string | null;
     request_extension_key: CollectionExtensionKey | null;
     metadata_mode: "strict" | "best_effort";
     enumeration_mode: "enumerable" | "manual_token_ids" | "manual_range";
@@ -39,7 +40,7 @@ type BootstrapRunDbRow = {
 };
 
 const BOOTSTRAP_RUN_SELECT_COLUMNS =
-    "run_id, chain_id, collection_id, request_slug, request_address, request_standard, request_image_source_field, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, request_image_cache_mode, request_image_cache_max_dimension, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp";
+    "run_id, chain_id, collection_id, request_slug, request_address, request_standard, request_image_source_field, request_animation_source_field, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, request_image_cache_mode, request_image_cache_max_dimension, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp";
 
 export class SqliteBootstrapRuns implements BootstrapRunsPort {
     private selectRunStmt = db.prepare<{ runId: number }>(
@@ -175,6 +176,7 @@ function mapRun(row: BootstrapRunDbRow): BootstrapRunDefinition {
         requestAddress: row.request_address,
         requestStandard: row.request_standard,
         imageSourceField: row.request_image_source_field,
+        animationSourceField: row.request_animation_source_field,
         requestExtensionKey: row.request_extension_key,
         metadataMode: row.metadata_mode,
         enumerationMode: row.enumeration_mode,

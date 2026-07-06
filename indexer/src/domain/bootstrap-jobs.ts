@@ -18,6 +18,7 @@ export type BootstrapMetadataProcessPayload = {
     address: string;
     standard: CollectionStandard;
     imageSourceField: string | null;
+    animationSourceField: string | null;
     metadataSnapshotMode: BootstrapMetadataSnapshotMode;
     anchorBlock: number;
     anchorHash: string;

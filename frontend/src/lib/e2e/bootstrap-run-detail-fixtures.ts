@@ -45,6 +45,7 @@ export function buildBootstrapRunDetailE2eDetail(
 			requestOpenseaSlug: 'milady',
 			requestStandard: 'erc721',
 			imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+			animationSourceField: null,
 			metadataMode: BOOTSTRAP_METADATA_MODE.BestEffort,
 			enumerationMode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,
 			manualTokenIdsJson: null,

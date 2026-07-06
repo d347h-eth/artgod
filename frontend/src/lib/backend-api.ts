@@ -173,6 +173,7 @@ export async function probeBootstrapCollectionContract(
 	address: string,
 	options: {
 		imageSourceField?: string | null;
+		animationSourceField?: string | null;
 	} = {}
 ): Promise<BootstrapContractProbeApiResponse> {
 	return requestJson<BootstrapContractProbeApiResponse>(
@@ -181,7 +182,8 @@ export async function probeBootstrapCollectionContract(
 			chainRef,
 			address,
 			standard: 'erc721',
-			imageSourceField: options.imageSourceField
+			imageSourceField: options.imageSourceField,
+			animationSourceField: options.animationSourceField
 		})
 	);
 }
@@ -765,6 +767,7 @@ export async function createBootstrapRun(
 		address: string;
 		openseaSlug?: string;
 		imageSourceField: string;
+		animationSourceField?: string | null;
 		standard: 'erc721';
 		metadataMode: 'strict' | 'best_effort';
 		supportsEnumerable: boolean;
