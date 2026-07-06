@@ -497,7 +497,7 @@
 			minmax(9rem, max-content);
 		align-items: center;
 		column-gap: 0.55rem;
-		row-gap: 0.78rem;
+		row-gap: 1.15rem;
 		width: fit-content;
 		max-width: 100%;
 		overflow: visible;
@@ -578,14 +578,16 @@
 		z-index: 2;
 	}
 
-	.admin-flow-action:not(:disabled):hover,
-	.admin-flow-action:not(:disabled):focus-visible {
+	.admin-flow-action:not(:disabled):not(.admin-flow-action-selected):hover,
+	.admin-flow-action:not(:disabled):not(.admin-flow-action-selected):focus-visible {
 		border-color: var(--c-blue);
 		color: var(--c-ice);
 		background: color-mix(in srgb, var(--c-blue) 45%, var(--c-bg));
 	}
 
 	.admin-flow-action-selected,
+	.admin-flow-action-selected:hover,
+	.admin-flow-action-selected:focus-visible,
 	.admin-flow-action-selected:disabled,
 	.admin-flow-action-selected:disabled:hover,
 	.admin-flow-action-selected:disabled:focus-visible {
