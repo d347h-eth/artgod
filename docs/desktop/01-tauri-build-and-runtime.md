@@ -36,6 +36,35 @@ The desktop build/runtime pipeline is designed to:
 
 The desktop shell does not replace backend/indexer/trading logic. It orchestrates existing runtimes.
 
+## Executable Lifecycle Summary
+
+1. Rust app process initializes and exposes runtime commands. Startup is
+   deferred; there is no immediate supervisor auto-start in `setup`.
+2. System tray is initialized with native actions: `open ArtGod in browser`,
+   `open admin UI`, and `shutdown`.
+3. Admin UI runs in the native Tauri window and exposes the privileged desktop
+   control plane: `config`, `system`, `control`, `wallets`, `bots`, `logs`, and
+   the userland-open action.
+4. Userland UI runs in a regular browser tab and is served by the local backend
+   origin.
+5. Frontend boot lifecycle orchestrator initializes, waits for Tauri bridge
+   readiness, then invokes `runtime_auto_start`; unconfigured installs and
+   installs with `autostart infra` disabled stay stopped behind the Admin header
+   action sequence.
+6. When startup is requested, the supervisor starts local NATS from bundled
+   `nats-server`, then backend, then enabled indexer workers from bundled
+   resources using bundled Node and Yarn PnP hooks. OpenSea workers are skipped
+   when OpenSea integration is disabled, and wallet-bound trading bots are
+   staged but start only on explicit operator action after unlock.
+7. Boot lifecycle console stays visible until lifecycle backend readiness probe
+   succeeds, not merely until process state is `running`.
+8. Any core composition process exit triggers fail-fast full stack restart.
+   Wallet-bound trading bots are supervised separately and stop only when they
+   crash or when one of their declared critical dependencies becomes unhealthy.
+9. Closing the admin window hides it. The runtime keeps running in the tray.
+   Graceful runtime shutdown is triggered explicitly via tray `shutdown` or app
+   exit.
+
 ## Build Commands
 
 Root build/helper commands:
