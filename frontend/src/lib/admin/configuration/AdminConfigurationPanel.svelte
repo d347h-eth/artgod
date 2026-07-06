@@ -5,6 +5,7 @@
 	import type {
 		AdminConfigField,
 		AdminConfigGroup,
+		AdminRpcEndpointBenchmarkInput,
 		AdminRpcEndpointBenchmarkResult,
 		AdminConfigSaveInput,
 		AdminConfigState
@@ -38,10 +39,9 @@
 		errorMessage?: string | null;
 		infraRunning?: boolean;
 		onSave: (input: AdminConfigSaveInput) => Promise<void>;
-		onBenchmarkRpcEndpoints: (input: {
-			source: string;
-			trackingPolicy: string;
-		}) => Promise<AdminRpcEndpointBenchmarkResult>;
+		onBenchmarkRpcEndpoints: (
+			input: AdminRpcEndpointBenchmarkInput
+		) => Promise<AdminRpcEndpointBenchmarkResult>;
 		onClose: () => void;
 	} = $props();
 
@@ -49,6 +49,7 @@
 	let values = $state<Record<string, string>>({});
 	let autoLaunchOnStartup = $state(false);
 	let configView = $state<AdminConfigView>('basic');
+	let rpcCurrentBenchmarkSummary = $state<string | null>(null);
 	let rpcSourcingSummary = $state<string | null>(null);
 
 	const editableGroups = $derived(resolveEditableGroups(config?.groups ?? [], configView));
@@ -67,7 +68,7 @@
 		appliedConfig = next;
 		values = { ...next.values };
 		autoLaunchOnStartup = next.autoLaunchOnStartup;
-		rpcSourcingSummary = null;
+		clearRpcBenchmarkSummaries();
 	}
 
 	function setValue(key: string, value: string): void {
@@ -83,7 +84,7 @@
 		}
 		values = { ...config.defaults };
 		autoLaunchOnStartup = false;
-		rpcSourcingSummary = null;
+		clearRpcBenchmarkSummaries();
 	}
 
 	async function saveConfig(): Promise<void> {
@@ -108,22 +109,47 @@
 		return validationIssues.find((issue) => issue.key === field.key) ?? null;
 	}
 
-	async function benchmarkRpcEndpointSource(source: string): Promise<void> {
-		if (formDisabled) {
-			return;
-		}
-		rpcSourcingSummary = null;
-		let result: AdminRpcEndpointBenchmarkResult;
-		try {
-			result = await onBenchmarkRpcEndpoints({
-				source,
-				trackingPolicy: resolveRpcAutoSourcingTrackingPolicy()
-			});
-		} catch {
+	async function benchmarkCurrentRpcEndpoints(field: AdminConfigField): Promise<void> {
+		// Benchmark the unsaved endpoint draft currently shown in the config inputs.
+		const result = await benchmarkRpcEndpoints({
+			source: RPC_ENDPOINT_BENCHMARK_SOURCES.configuredEndpoints,
+			trackingPolicy: resolveRpcAutoSourcingTrackingPolicy(),
+			rpcUrlList: fieldValue(field)
+		});
+		if (!result) {
 			return;
 		}
 		setValue(RPC_ENDPOINT_LIST_ENV_KEY, result.encodedEndpoints);
-		rpcSourcingSummary = formatRpcSourcingSummary(result);
+		rpcCurrentBenchmarkSummary = formatRpcBenchmarkSummary(result);
+	}
+
+	async function benchmarkRpcEndpointSource(source: string): Promise<void> {
+		// Source a replacement endpoint list from the configured Chainlist source.
+		const result = await benchmarkRpcEndpoints({
+			source,
+			trackingPolicy: resolveRpcAutoSourcingTrackingPolicy()
+		});
+		if (!result) {
+			return;
+		}
+		setValue(RPC_ENDPOINT_LIST_ENV_KEY, result.encodedEndpoints);
+		rpcSourcingSummary = formatRpcBenchmarkSummary(result);
+	}
+
+	async function benchmarkRpcEndpoints(
+		input: AdminRpcEndpointBenchmarkInput
+	): Promise<AdminRpcEndpointBenchmarkResult | null> {
+		if (formDisabled) {
+			return null;
+		}
+		clearRpcBenchmarkSummaries();
+		let result: AdminRpcEndpointBenchmarkResult;
+		try {
+			result = await onBenchmarkRpcEndpoints(input);
+		} catch {
+			return null;
+		}
+		return result;
 	}
 
 	function resolveRpcAutoSourcingTrackingPolicy(): string {
@@ -132,9 +158,17 @@
 		);
 	}
 
-	function formatRpcSourcingSummary(result: AdminRpcEndpointBenchmarkResult): string {
+	function formatRpcBenchmarkSummary(result: AdminRpcEndpointBenchmarkResult): string {
+		if (result.source === RPC_ENDPOINT_BENCHMARK_SOURCES.configuredEndpoints) {
+			return `${result.sourceDescription}: ${result.successCount}/${result.eligibleCount} endpoints passed`;
+		}
 		const trackedCount = result.trackingCounts.yes + result.trackingCounts.unspecified;
 		return `${result.sourceDescription}: ${result.successCount}/${result.eligibleCount} endpoints passed, tracking none ${result.trackingCounts.none}, limited ${result.trackingCounts.limited}, tracked ${trackedCount}`;
+	}
+
+	function clearRpcBenchmarkSummaries(): void {
+		rpcCurrentBenchmarkSummary = null;
+		rpcSourcingSummary = null;
 	}
 
 	function resolveEditableGroups(groups: AdminConfigGroup[], view: AdminConfigView): AdminConfigGroup[] {
@@ -240,15 +274,12 @@
 											endpointLabel={field.validation === 'websocket_endpoint_list'
 												? 'WebSocket endpoint'
 												: 'RPC endpoint'}
-											sourcingSummary={fieldSupportsRpcAutoSourcing(field) ? rpcSourcingSummary : null}
-											onBenchmarkSavedList={fieldSupportsRpcAutoSourcing(field)
+											currentBenchmarkSummary={fieldSupportsRpcAutoSourcing(field)
+												? rpcCurrentBenchmarkSummary
+												: null}
+											onBenchmarkCurrentEndpoints={fieldSupportsRpcAutoSourcing(field)
 												? async () => {
-														await benchmarkRpcEndpointSource(RPC_ENDPOINT_BENCHMARK_SOURCES.savedChainlist);
-													}
-												: undefined}
-											onBenchmarkFreshList={fieldSupportsRpcAutoSourcing(field)
-												? async () => {
-														await benchmarkRpcEndpointSource(RPC_ENDPOINT_BENCHMARK_SOURCES.freshChainlist);
+														await benchmarkCurrentRpcEndpoints(field);
 													}
 												: undefined}
 											onChange={(value) => {
@@ -256,6 +287,34 @@
 											}}
 										/>
 									</div>
+									{#if fieldSupportsRpcAutoSourcing(field)}
+										<div class="admin-config-row admin-config-sourcing-row">
+											<span class="admin-config-label-cell">RPC endpoints sourcing</span>
+											<div class="admin-config-sourcing-cell">
+												<div class="admin-config-sourcing-actions">
+													<button
+														type="button"
+														disabled={formDisabled}
+														onclick={() =>
+															void benchmarkRpcEndpointSource(RPC_ENDPOINT_BENCHMARK_SOURCES.savedChainlist)}
+													>
+														benchmark embedded list
+													</button>
+													<button
+														type="button"
+														disabled={formDisabled}
+														onclick={() =>
+															void benchmarkRpcEndpointSource(RPC_ENDPOINT_BENCHMARK_SOURCES.freshChainlist)}
+													>
+														fetch fresh list from chainlist.org & benchmark
+													</button>
+												</div>
+												{#if rpcSourcingSummary}
+													<p class="admin-config-benchmark-summary">{rpcSourcingSummary}</p>
+												{/if}
+											</div>
+										</div>
+									{/if}
 								{:else}
 									<label
 										class="admin-config-row"
@@ -441,6 +500,37 @@
 
 	.admin-config-textarea-row {
 		align-items: start;
+	}
+
+	.admin-config-sourcing-row {
+		align-items: start;
+	}
+
+	.admin-config-sourcing-cell {
+		display: grid;
+		gap: 0.45rem;
+		width: min(25.85rem, 100%);
+	}
+
+	.admin-config-sourcing-actions {
+		display: flex;
+		align-items: center;
+		justify-content: flex-start;
+		gap: 0.45rem;
+		flex-wrap: wrap;
+	}
+
+	.admin-config-sourcing-actions button {
+		min-width: 8.75rem;
+		white-space: normal;
+		text-align: left;
+	}
+
+	.admin-config-benchmark-summary {
+		margin: 0;
+		font-size: 0.78rem;
+		color: var(--c-sand);
+		line-height: 1.35;
 	}
 
 	.admin-config-control {

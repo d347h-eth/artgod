@@ -17,9 +17,8 @@
 		invalid = false,
 		validation = 'rpc_endpoint_list',
 		endpointLabel = 'RPC endpoint',
-		sourcingSummary = null,
-		onBenchmarkSavedList,
-		onBenchmarkFreshList,
+		currentBenchmarkSummary = null,
+		onBenchmarkCurrentEndpoints,
 		onChange
 	}: {
 		value: string;
@@ -27,13 +26,12 @@
 		invalid?: boolean;
 		validation?: AdminConfigValidationRule | null;
 		endpointLabel?: string;
-		sourcingSummary?: string | null;
-		onBenchmarkSavedList?: () => Promise<void>;
-		onBenchmarkFreshList?: () => Promise<void>;
+		currentBenchmarkSummary?: string | null;
+		onBenchmarkCurrentEndpoints?: () => Promise<void>;
 		onChange: (value: string) => void;
 	} = $props();
 
-	const sourcingEnabled = $derived(onBenchmarkSavedList !== undefined && onBenchmarkFreshList !== undefined);
+	const currentBenchmarkEnabled = $derived(onBenchmarkCurrentEndpoints !== undefined);
 
 	let appliedValue = $state<string | null>(null);
 	let drafts = $state<RpcEndpointDraft[]>([emptyDraft()]);
@@ -121,18 +119,11 @@
 			: parseRpcEndpointConfigList(raw);
 	}
 
-	async function benchmarkSavedList(): Promise<void> {
-		if (disabled || !onBenchmarkSavedList) {
+	async function benchmarkCurrentEndpoints(): Promise<void> {
+		if (disabled || !onBenchmarkCurrentEndpoints) {
 			return;
 		}
-		await onBenchmarkSavedList();
-	}
-
-	async function benchmarkFreshList(): Promise<void> {
-		if (disabled || !onBenchmarkFreshList) {
-			return;
-		}
-		await onBenchmarkFreshList();
+		await onBenchmarkCurrentEndpoints();
 	}
 </script>
 
@@ -179,18 +170,20 @@
 			</div>
 		</div>
 	{/each}
-	{#if sourcingEnabled}
-		<div class="rpc-endpoint-source-actions">
-			<button type="button" disabled={disabled} onclick={() => void benchmarkSavedList()}>
-				benchmark saved list
-			</button>
-			<button type="button" disabled={disabled} onclick={() => void benchmarkFreshList()}>
-				fetch & benchmark fresh list
+	{#if currentBenchmarkEnabled}
+		<div class="rpc-endpoint-current-actions">
+			<button
+				type="button"
+				disabled={disabled || invalid}
+				onclick={() => void benchmarkCurrentEndpoints()}
+			>
+				benchmark current endpoints
 			</button>
 		</div>
-		{#if sourcingSummary}
-			<p class="rpc-endpoint-source-summary">{sourcingSummary}</p>
+		{#if currentBenchmarkSummary}
+			<p class="rpc-endpoint-benchmark-summary">{currentBenchmarkSummary}</p>
 		{/if}
+		<div class="rpc-endpoint-benchmark-separator" aria-hidden="true"></div>
 	{/if}
 </div>
 
@@ -226,7 +219,7 @@
 		min-width: 2rem;
 	}
 
-	.rpc-endpoint-source-actions {
+	.rpc-endpoint-current-actions {
 		display: flex;
 		align-items: center;
 		justify-content: flex-start;
@@ -234,15 +227,19 @@
 		flex-wrap: wrap;
 	}
 
-	.rpc-endpoint-source-actions button {
+	.rpc-endpoint-current-actions button {
 		min-width: 8.75rem;
 	}
 
-	.rpc-endpoint-source-summary {
+	.rpc-endpoint-benchmark-summary {
 		margin: 0;
 		font-size: 0.78rem;
 		color: var(--c-sand);
 		line-height: 1.35;
+	}
+
+	.rpc-endpoint-benchmark-separator {
+		border-top: 1px solid color-mix(in srgb, var(--c-blue) 70%, transparent);
 	}
 
 	@media (max-width: 640px) {
