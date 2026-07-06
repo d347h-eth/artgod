@@ -167,6 +167,9 @@ function normalizeMetadataAttributes(
             data[TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Traits],
             { allowGenericTraitKeys: false },
         ) ??
+        normalizeAttributeObjectMap(
+            data[TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Features],
+        ) ??
         normalizeHeuristicAttributes(data)
     );
 }
@@ -178,6 +181,12 @@ function normalizeHeuristicAttributes(
         if (isKnownAttributeContainerField(fieldName)) continue;
         const allowGenericTraitKeys =
             isLikelyAttributeContainerFieldName(fieldName);
+        if (allowGenericTraitKeys) {
+            const objectMapAttributes = normalizeAttributeObjectMap(value);
+            if (objectMapAttributes) {
+                return objectMapAttributes;
+            }
+        }
         if (
             !allowGenericTraitKeys &&
             !hasExplicitTraitKeyAttributeCandidate(value)
@@ -226,7 +235,46 @@ function normalizeAttributes(
             value: rawValue as string | number | boolean,
         });
     }
+    if (out.length === 0 || hasDuplicateTraitType(out)) {
+        return null;
+    }
+    return out;
+}
+
+function normalizeAttributeObjectMap(value: unknown): MetadataAttribute[] | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return null;
+    }
+    const out: MetadataAttribute[] = [];
+    for (const [key, rawValue] of Object.entries(
+        value as Record<string, unknown>,
+    )) {
+        const traitType = key.trim();
+        if (!traitType) continue;
+        if (
+            rawValue === null ||
+            rawValue === undefined ||
+            typeof rawValue === "object"
+        ) {
+            continue;
+        }
+        out.push({
+            traitType,
+            value: rawValue as string | number | boolean,
+        });
+    }
     return out.length > 0 ? out : null;
+}
+
+function hasDuplicateTraitType(attributes: readonly MetadataAttribute[]): boolean {
+    const seen = new Set<string>();
+    for (const attribute of attributes) {
+        const traitType = attribute.traitType?.trim();
+        if (!traitType) continue;
+        if (seen.has(traitType)) return true;
+        seen.add(traitType);
+    }
+    return false;
 }
 
 function asString(value: unknown): string | undefined {
@@ -265,6 +313,7 @@ function hasExplicitTraitKeyAttributeCandidate(value: unknown): boolean {
 function isKnownAttributeContainerField(fieldName: string): boolean {
     return (
         fieldName === TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Attributes ||
+        fieldName === TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Features ||
         fieldName === TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Traits
     );
 }
@@ -313,6 +362,7 @@ const ATTRIBUTE_VALUE_FIELD_PRIORITY = [
 
 const ATTRIBUTE_CONTAINER_FIELD_FRAGMENTS = [
     TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD_FRAGMENT.Attribute,
+    TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD_FRAGMENT.Feature,
     TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD_FRAGMENT.Trait,
     TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD_FRAGMENT.Property,
 ] as const;

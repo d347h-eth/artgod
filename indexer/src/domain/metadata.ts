@@ -9,6 +9,7 @@ export type MetadataAttribute = {
 // Token metadata attribute container fields seen in NFT JSON payloads.
 export const TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD = {
     Attributes: "attributes",
+    Features: "features",
     Traits: "traits",
 } as const;
 
@@ -36,6 +37,7 @@ export const TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD = {
 // Trait-like container-name fragments gate broad heuristic key/value parsing.
 export const TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD_FRAGMENT = {
     Attribute: "attribute",
+    Feature: "feature",
     Trait: "trait",
     Property: "propert",
 } as const;

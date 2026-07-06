@@ -8,6 +8,8 @@ import {
 
 const TEST_HEURISTIC_ATTRIBUTE_CONTAINER_FIELD = "properties";
 const TEST_EXPLICIT_TRAIT_CONTAINER_FIELD = "details";
+const TEST_FEATURE_ATTRIBUTE_KEY_WITH_SPACE = "Brush Style";
+const TEST_FEATURE_ATTRIBUTE_KEY_WITH_PIPE = "Diptych IDs";
 
 describe("HttpMetadataFetcher", () => {
     it("uses requested bootstrap image source field for canonical image", async () => {
@@ -46,6 +48,69 @@ describe("HttpMetadataFetcher", () => {
                 traitType: "Metropolis",
                 displayType: undefined,
                 value: "Palette: Vermeer",
+            },
+        ]);
+    });
+
+    it("uses features object traits when fallback traits repeat the same key", async () => {
+        const uri = buildMetadataDataUri({
+            [TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Traits]: [
+                {
+                    [TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.TraitType]:
+                        "Metropolis",
+                    [TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.Value]:
+                        "City: Berlin",
+                },
+                {
+                    [TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.TraitType]:
+                        "Metropolis",
+                    [TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.Value]:
+                        "Paper: White",
+                },
+            ],
+            [TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Features]: {
+                City: "Berlin",
+                Paper: "White",
+                Signed: "No",
+                Palette: "Mariposa",
+                [TEST_FEATURE_ATTRIBUTE_KEY_WITH_SPACE]: "Oil",
+                [TEST_FEATURE_ATTRIBUTE_KEY_WITH_PIPE]: "100 | 647",
+            },
+        });
+        const fetcher = new HttpMetadataFetcher();
+
+        const metadata = await fetcher.fetchMetadata(uri);
+
+        expect(metadata?.attributes).toEqual([
+            {
+                traitType: "City",
+                displayType: undefined,
+                value: "Berlin",
+            },
+            {
+                traitType: "Paper",
+                displayType: undefined,
+                value: "White",
+            },
+            {
+                traitType: "Signed",
+                displayType: undefined,
+                value: "No",
+            },
+            {
+                traitType: "Palette",
+                displayType: undefined,
+                value: "Mariposa",
+            },
+            {
+                traitType: TEST_FEATURE_ATTRIBUTE_KEY_WITH_SPACE,
+                displayType: undefined,
+                value: "Oil",
+            },
+            {
+                traitType: TEST_FEATURE_ATTRIBUTE_KEY_WITH_PIPE,
+                displayType: undefined,
+                value: "100 | 647",
             },
         ]);
     });
