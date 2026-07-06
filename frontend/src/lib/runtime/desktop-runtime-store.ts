@@ -126,6 +126,7 @@ function createDesktopRuntimeStore() {
 	let initPromise: Promise<void> | null = null;
 	let activeLogProcess = DEFAULT_LOG_PROCESS;
 	let logTailRequestToken = 0;
+	let busyActionToken = 0;
 
 	async function init(): Promise<void> {
 		if (initPromise) {
@@ -320,7 +321,7 @@ function createDesktopRuntimeStore() {
 	async function openLogsPath() {
 		await withBusyAction(RUNTIME_BUSY_ACTIONS.openLogs, async () => {
 			await runtimePort.openLogsPath();
-		});
+		}, false);
 	}
 
 	async function openUserlandUi() {
@@ -369,7 +370,11 @@ function createDesktopRuntimeStore() {
 		}));
 	}
 
-	async function withBusyAction(action: string, run: () => Promise<void>): Promise<void> {
+	async function withBusyAction(
+		action: string,
+		run: () => Promise<void>,
+		trackBusyAction: boolean = true
+	): Promise<void> {
 		const bridgeAvailable =
 			runtimePort.isBridgeAvailable() ||
 			(await runtimePort.loadBridge(TAURI_BRIDGE_INIT_WAIT_MS, TAURI_BRIDGE_INIT_POLL_MS));
@@ -387,10 +392,13 @@ function createDesktopRuntimeStore() {
 			return;
 		}
 
-		state.update((snapshot) => ({
-			...snapshot,
-			busyAction: action
-		}));
+		const actionToken = trackBusyAction ? ++busyActionToken : null;
+		if (trackBusyAction) {
+			state.update((snapshot) => ({
+				...snapshot,
+				busyAction: action
+			}));
+		}
 
 		try {
 			await run();
@@ -404,10 +412,16 @@ function createDesktopRuntimeStore() {
 				action
 			});
 		} finally {
-			state.update((snapshot) => ({
-				...snapshot,
-				busyAction: null
-			}));
+			if (trackBusyAction) {
+				state.update((snapshot) =>
+					actionToken === busyActionToken && snapshot.busyAction === action
+						? {
+								...snapshot,
+								busyAction: null
+							}
+						: snapshot
+				);
+			}
 		}
 	}
 
