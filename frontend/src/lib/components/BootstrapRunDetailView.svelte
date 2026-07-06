@@ -150,7 +150,7 @@
 
 	function failedMetadataRetryWaitMessage(): string | null {
 		if (!metadataFailedTasksSettled() || imageCacheSettledForMetadataRetry()) return null;
-		return 'retry will be available after the first image-cache pass settles';
+		return 'retry will be available after the image-cache pass settles';
 	}
 
 	function metadataFailedTasksSettled(): boolean {

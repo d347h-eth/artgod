@@ -1339,12 +1339,6 @@
 	<form class="bootstrap-form bootstrap-create-form" onsubmit={onBootstrapFormSubmit}>
 		<div class="bootstrap-create-layout">
 			<div class="bootstrap-form-fields">
-				{#if submitError}
-					<div class="bootstrap-form-feedback">
-						<span class="muted">{submitError}</span>
-					</div>
-				{/if}
-
 				<div class="bootstrap-form-section bootstrap-address-section">
 					<label class="bootstrap-form-row">
 						{@render fieldLabel('Contract address', bootstrapFieldHelp.address)}
@@ -1783,6 +1777,11 @@
 					</div>
 
 					<div class="bootstrap-form-actions">
+						{#if submitError}
+							<div class="bootstrap-form-feedback" role="alert">
+								<span class="muted">{submitError}</span>
+							</div>
+						{/if}
 						{#each queueBootstrapBlockers as blocker}
 							<span class="muted">{blocker}</span>
 						{/each}

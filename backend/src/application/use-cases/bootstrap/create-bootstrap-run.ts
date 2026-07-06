@@ -112,7 +112,7 @@ export class CreateBootstrapRunUseCase {
         );
         if (existing && existing.status === "live") {
             throw new BootstrapConflictError(
-                "Collection is live; bootstrap run creation is not allowed",
+                "This collection has already been bootstrapped and is live, so a new bootstrap run cannot be created for it.",
             );
         }
         if (existing && existing.address !== address) {

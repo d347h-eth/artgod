@@ -553,6 +553,6 @@ describe('BootstrapRunDetailView', () => {
 
 		expect(body).toContain('aria-label="retry failed metadata"');
 		expect(body).toContain('disabled');
-		expect(body).toContain('retry will be available after the first image-cache pass settles');
+		expect(body).toContain('retry will be available after the image-cache pass settles');
 	});
 });
