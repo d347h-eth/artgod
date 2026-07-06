@@ -3,6 +3,10 @@ import {
 	parseRpcEndpointConfigList,
 	parseRpcWebSocketEndpointConfigList
 } from '@artgod/shared/config/rpc-endpoints';
+import {
+	parseTransactionExplorerUrlTemplate,
+	TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY
+} from '@artgod/shared/config/transaction-explorer';
 
 export const ADMIN_CONFIG_VALIDATION_RULES = {
 	url: 'url',
@@ -79,6 +83,20 @@ export function validateAdminConfigField(
 	value: string
 ): AdminConfigValidationIssue | null {
 	const trimmed = value.trim();
+	if (field.key === TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY) {
+		try {
+			parseTransactionExplorerUrlTemplate(value);
+		} catch (error) {
+			return buildValidationIssue(
+				field,
+				ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.url,
+				error instanceof Error
+					? error.message
+					: `${field.key} must be a valid transaction explorer URL template.`
+			);
+		}
+		return null;
+	}
 	if (field.requiredForLaunch && trimmed.length === 0) {
 		return buildValidationIssue(
 			field,

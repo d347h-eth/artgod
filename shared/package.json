@@ -22,6 +22,7 @@
         "./config/rpc-auto-sourcing": "./config/rpc-auto-sourcing.ts",
         "./config/rpc-endpoints": "./config/rpc-endpoints.ts",
         "./config/rpc-resilience": "./config/rpc-resilience.ts",
+        "./config/transaction-explorer": "./config/transaction-explorer.ts",
         "./config/weighted-endpoints": "./config/weighted-endpoints.ts",
         "./http/api-security": "./http/api-security.ts",
         "./http/bootstrap-routes": "./http/bootstrap-routes.ts",

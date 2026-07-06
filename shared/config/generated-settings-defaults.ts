@@ -44,6 +44,7 @@ export const SETTINGS_DEFAULTS = {
     DESKTOP_WALLET_STORE_DIR: "wallets",
     DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS: "5000",
     CHAIN_ID: "1",
+    TRANSACTION_EXPLORER_URL_TEMPLATE: "https://etherscan.io/tx/{tx_hash}",
     RPC_URL_LIST: "",
     RPC_BACKFILL_URL_LIST: "",
     RPC_WS_URL_LIST: "",

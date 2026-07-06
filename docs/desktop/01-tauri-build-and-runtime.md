@@ -274,6 +274,10 @@ Desktop-specific optional overrides:
 - `DESKTOP_NODE_PNP_CJS` (default `.pnp.cjs`, resolved from runtime resources dir)
 - `DESKTOP_NODE_PNP_LOADER` (default `.pnp.loader.mjs`, resolved from runtime resources dir)
 
+Userland link settings:
+
+- `TRANSACTION_EXPLORER_URL_TEMPLATE` controls transaction links and must include `{tx_hash}`.
+
 Desktop-specific wallet/bot keys:
 
 - `DESKTOP_WALLET_STORE_DIR` (defaults to `wallets`, resolved relative to app-data dir unless absolute)

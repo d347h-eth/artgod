@@ -27,6 +27,9 @@ The indexer reads these variables from the root `.env`:
 - `ARTGOD_DB_PATH` (required)
     - Path to SQLite file. Relative paths are resolved from repo root.
 - `CHAIN_ID` (default: 1)
+- `TRANSACTION_EXPLORER_URL_TEMPLATE` (default: `https://etherscan.io/tx/{tx_hash}`)
+    - URL template used for userland transaction links.
+    - The template must include `{tx_hash}` so the frontend can substitute the transaction hash.
 - `RPC_URL_LIST` (required)
     - HTTP JSON-RPC endpoint pool used by backend, indexer, and trading runtimes.
     - Supply a JSON array of endpoint objects, for example `[{"url":"https://rpc-a.example","weight":2},{"url":"https://rpc-b.example","weight":1}]`.

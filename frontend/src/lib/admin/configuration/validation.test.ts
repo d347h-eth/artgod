@@ -3,6 +3,10 @@ import {
 	RPC_ENDPOINT_LIST_ENV_KEY,
 	RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY
 } from '@artgod/shared/config/rpc-endpoints';
+import {
+	TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER,
+	TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY
+} from '@artgod/shared/config/transaction-explorer';
 
 import {
 	formatLaunchConfigIssueSummary,
@@ -44,6 +48,18 @@ const DESKTOP_LOG_RETENTION_HOURS_FIELD: AdminConfigField = {
 	help: '',
 	requiredForLaunch: false,
 	validation: 'positive_integer',
+	view: 'basic'
+};
+
+const TRANSACTION_EXPLORER_FIELD: AdminConfigField = {
+	key: TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY,
+	label: 'preferred transaction explorer',
+	inputKind: 'text',
+	secret: false,
+	options: [],
+	help: '',
+	requiredForLaunch: false,
+	validation: 'url',
 	view: 'basic'
 };
 
@@ -202,5 +218,37 @@ describe('admin config validation', () => {
 		expect(issues.map((issue) => issue.message)).toEqual([
 			'DESKTOP_LOG_RETENTION_HOURS must be a positive whole number.'
 		]);
+	});
+
+	it('requires a transaction hash placeholder in transaction explorer templates', () => {
+		const issues = resolveAdminConfigValidationIssues(
+			config({ [TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY]: 'https://explorer.example/tx/' }, [
+				TRANSACTION_EXPLORER_FIELD
+			]),
+			{
+				[TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY]: 'https://explorer.example/tx/'
+			}
+		);
+
+		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
+		expect(issues.map((issue) => issue.message)).toEqual([
+			`${TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY} must include ${TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER}.`
+		]);
+	});
+
+	it('accepts transaction explorer templates with a transaction hash placeholder', () => {
+		expect(
+			resolveAdminConfigValidationIssues(
+				config(
+					{
+						[TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY]: `https://explorer.example/tx/${TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER}`
+					},
+					[TRANSACTION_EXPLORER_FIELD]
+				),
+				{
+					[TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY]: `https://explorer.example/tx/${TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER}`
+				}
+			)
+		).toEqual([]);
 	});
 });
