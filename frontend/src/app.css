@@ -292,6 +292,7 @@ a:hover {
 	display: block;
 	width: min(46rem, 100%);
 	max-width: 100%;
+	margin-bottom: 4.5rem;
 }
 
 .bootstrap-create-layout {
@@ -339,7 +340,9 @@ a:hover {
 .bootstrap-form-actions {
 	display: grid;
 	gap: 0.35rem;
-	justify-items: start;
+	justify-items: center;
+	width: 100%;
+	text-align: center;
 }
 
 .bootstrap-form-row {
