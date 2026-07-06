@@ -28,6 +28,9 @@ Core release characteristics:
 - Realtime sync, backfill sync, and reorg checks are implemented.
 - Collection bootstrap is implemented: metadata first, optional local token
   image cache, then ownership snapshot plus short backfill.
+- Fresh installs seed Terraforms as the first prepared collection row, visible
+  for manual `start bootstrapping` or immediate purge without writing token or
+  bootstrap data.
 - Domain projections for orders, metadata, and activities are implemented.
 - Offchain ingestion includes OpenSea live stream ingestion, bootstrap
   snapshots, periodic reconciliation, and normalization into canonical order
@@ -48,8 +51,8 @@ Core release characteristics:
   profiles.
 - Tauri desktop runtime supervisor composes local NATS, backend, and indexer
   workers from production runtime artifacts.
-- Desktop Admin UI includes header config actions plus system, control, wallets,
-  bots, and logs surfaces behind the native Tauri shell.
+- Desktop Admin UI includes header launch, logs, stop, and shutdown actions plus
+  system, wallets, and bots surfaces behind the native Tauri shell.
 - Desktop wallet custody is implemented with Rust-owned Ethereum keystore
   storage, native secret prompts, and one-shot stdin secret handoff into
   wallet-bound trading runtimes.
@@ -93,6 +96,9 @@ Canonical backlog and priorities live in
   gated by config.
 - Extension behavior is build-bundled and DB-activated; remote or dynamically
   loaded extensions are not part of the alpha scope.
+- Append-only migrations may seed prepared collection rows; the current
+  fresh-install preset is Terraforms collection ID 1 with no out-of-box token or
+  run data.
 
 ## Related Docs
 

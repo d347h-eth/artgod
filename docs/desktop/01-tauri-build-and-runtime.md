@@ -43,8 +43,8 @@ The desktop shell does not replace backend/indexer/trading logic. It orchestrate
 2. System tray is initialized with native actions: `open ArtGod in browser`,
    `open admin UI`, and `shutdown`.
 3. Admin UI runs in the native Tauri window and exposes the privileged desktop
-   control plane: `config`, `system`, `control`, `wallets`, `bots`, `logs`, and
-   the userland-open action.
+   control plane: `config`, `system`, `wallets`, `bots`, and header
+   logs/open/stop/shutdown actions.
 4. Userland UI runs in a regular browser tab and is served by the local backend
    origin.
 5. Frontend boot lifecycle orchestrator initializes, waits for Tauri bridge

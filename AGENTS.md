@@ -52,23 +52,21 @@ Agent is not allowed to work on 'main' or 'dev' branch. Agent is not allowed to 
   one, stop and refactor before continuing.
 
 This file is agent-specific guidance.
-Project/product status and architecture are canonical in `README.md`.
+Project overview and documentation navigation are canonical in `README.md`.
+Detailed public-alpha status lives in `docs/project/01-public-alpha-scope.md`.
 
 ## Read Order
 
-Before making substantial changes, read these sections in `README.md`:
+Before making substantial changes, read these orientation docs:
 
-1. `Canonical Status`
-2. `Architecture Overview`
-3. `Indexer Runtime Topology`
-4. `Core Invariants`
-5. `Bootstrap Lifecycle`
-6. `Database & Migrations`
-7. `Canonical Docs`
+1. `README.md`
+2. `docs/project/01-public-alpha-scope.md`
+3. `docs/development/01-local-development.md`
+4. the relevant component docs from the README `Documentation Map`
 
 For implementation details, use:
 
-- `docs/indexer/00-overview.md` through `docs/indexer/15-fill-decoding.md`
+- `docs/indexer/00-overview.md` through `docs/indexer/17-bootstrap-concurrency-audit.md`
 - `docs/progress/indexer/15-unified-backlog.md`
 
 ## Agent-Only Rules
