@@ -47,6 +47,7 @@ import {
     BootstrapCollectionLiveExecutor,
     type BootstrapCollectionLiveQueuePort,
 } from "../application/bootstrap-collection-live-executor.js";
+import { BootstrapLiveRunCompletionReconciler } from "../application/bootstrap-live-run-completion-reconciler.js";
 import {
     BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME,
     BootstrapBackfillExecutor,
@@ -297,6 +298,13 @@ async function main() {
                     metadataRefreshFollowups,
                 ),
             );
+        const bootstrapLiveRunCompletionReconciler =
+            new BootstrapLiveRunCompletionReconciler(
+                collections,
+                bootstrapRuns,
+                bootstrapSteps,
+                bootstrapStorage,
+            );
         const metadataResolver = new ViemTokenUriResolver({
             endpoints: config.rpc.endpoints,
             metrics: runtimeMetrics.metrics,
@@ -341,6 +349,7 @@ async function main() {
                 bootstrapEnumerationExecutor,
                 bootstrapBackfillExecutor,
                 bootstrapCollectionLiveExecutor,
+                bootstrapLiveRunCompletionReconciler,
                 rpc,
                 metadataDomain,
                 reorgDepth: config.sync.reorgDepth,
@@ -370,6 +379,7 @@ async function main() {
                 bootstrapRuns,
                 bootstrapSteps,
                 bootstrapStepProgressObserver,
+                bootstrapLiveRunCompletionReconciler,
                 tokenImageCache,
                 imageCacheBatchSize: config.bootstrap.imageCacheBatchSize,
                 imageCacheConcurrency: config.bootstrap.imageCacheConcurrency,
@@ -998,6 +1008,7 @@ type BootstrapMainStepLoopInput = {
     bootstrapEnumerationExecutor: BootstrapEnumerationExecutor;
     bootstrapBackfillExecutor: BootstrapBackfillExecutor;
     bootstrapCollectionLiveExecutor: BootstrapCollectionLiveExecutor;
+    bootstrapLiveRunCompletionReconciler: BootstrapLiveRunCompletionReconciler;
     rpc: RpcProviderPort;
     metadataDomain: SqliteMetadataDomain;
     reorgDepth: number;
@@ -1024,6 +1035,7 @@ type BootstrapImageCacheStepLoopInput = {
     bootstrapRuns: BootstrapRunsPort;
     bootstrapSteps: BootstrapStepsPort;
     bootstrapStepProgressObserver: BootstrapStepProgressObserverPort;
+    bootstrapLiveRunCompletionReconciler: BootstrapLiveRunCompletionReconciler;
     tokenImageCache: TokenImageCachePort;
     imageCacheBatchSize: number;
     imageCacheConcurrency: number;
@@ -1076,6 +1088,10 @@ async function runBootstrapMainStepLoop(
         runLimit: BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT,
         retryPolicy: input.metadataRetryPolicy,
     });
+    reconcileLiveRunCompletion(
+        input.bootstrapLiveRunCompletionReconciler,
+        result.runIds,
+    );
     logger.debug("Bootstrap main step loop completed", {
         component: BOOTSTRAP_WORKER_COMPONENT,
         action: BOOTSTRAP_WORKER_ACTION.MainStepLoop,
@@ -1130,6 +1146,10 @@ async function runBootstrapImageCacheStepLoop(
         runLimit: BOOTSTRAP_STARTUP_SWEEP_RUN_LIMIT,
         retryPolicy: input.imageCacheRetryPolicy,
     });
+    reconcileLiveRunCompletion(
+        input.bootstrapLiveRunCompletionReconciler,
+        result.runIds,
+    );
     logger.debug("Bootstrap image-cache step loop completed", {
         component: BOOTSTRAP_WORKER_COMPONENT,
         action: BOOTSTRAP_WORKER_ACTION.ImageCacheStepLoop,
@@ -1141,6 +1161,16 @@ async function runBootstrapImageCacheStepLoop(
         nextDueAt: result.nextDueAt,
     });
     return result;
+}
+
+function reconcileLiveRunCompletion(
+    reconciler: BootstrapLiveRunCompletionReconciler,
+    runIds: readonly number[],
+): void {
+    for (const runId of runIds) {
+        const result = reconciler.reconcile(runId);
+        logBootstrapTemporaryDataCleanup(result.cleanup);
+    }
 }
 
 function buildBootstrapStepLeaseOwner(scope: string): string {
