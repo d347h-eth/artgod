@@ -13,7 +13,7 @@
 	import AdminBotsPanel from '$lib/admin/bots/AdminBotsPanel.svelte';
 	import AdminWalletsPanel from '$lib/admin/wallets/AdminWalletsPanel.svelte';
 	import InfoTooltip from '$lib/components/InfoTooltip.svelte';
-	import { adminRuntimeStore } from '$lib/admin/runtime/store';
+	import { RUNTIME_BUSY_ACTIONS, adminRuntimeStore } from '$lib/admin/runtime/store';
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import type { AdminConsoleTab } from '$lib/runtime/lifecycle-ui-policy';
 	import { RUNTIME_STATUS_STATES } from '$lib/runtime/lifecycle/ports';
@@ -70,6 +70,7 @@
 		config !== null && (config.values[OPENSEA_API_KEY_ENV] ?? '').trim().length === 0
 	);
 	const stopInfraDisabled = $derived(actionFlow.userland.disabled);
+	const shutdownDisabled = $derived($runtimeState.busyAction === RUNTIME_BUSY_ACTIONS.stop);
 	const configRestartNoticeVisible = $derived(
 		$runtimeState.status?.state === RUNTIME_STATUS_STATES.running
 	);
@@ -241,6 +242,9 @@
 	}
 
 	function handleShutdown(): void {
+		if (shutdownDisabled) {
+			return;
+		}
 		void adminRuntimeStore.shutdown();
 	}
 
@@ -369,6 +373,7 @@
 					type="button"
 					class="admin-flow-action admin-flow-secondary-shutdown"
 					onclick={handleShutdown}
+					disabled={shutdownDisabled}
 				>
 					shutdown
 				</button>

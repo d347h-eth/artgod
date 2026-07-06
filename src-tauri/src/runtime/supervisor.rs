@@ -86,6 +86,7 @@ struct ManagedBotRuntimeStatus {
 pub struct RuntimeManager {
     status: Arc<Mutex<RuntimeStatus>>,
     controller: Arc<Mutex<Option<RuntimeController>>>,
+    stop_gate: Arc<Mutex<()>>,
     core_running_since: Arc<Mutex<Option<Instant>>>,
     bot_statuses: Arc<Mutex<HashMap<BotKind, ManagedBotRuntimeStatus>>>,
     bot_controllers: Arc<Mutex<HashMap<BotKind, BotRuntimeController>>>,
@@ -104,6 +105,7 @@ impl RuntimeManager {
                 config_path: String::new(),
             })),
             controller: Arc::new(Mutex::new(None)),
+            stop_gate: Arc::new(Mutex::new(())),
             core_running_since: Arc::new(Mutex::new(None)),
             bot_statuses: Arc::new(Mutex::new(HashMap::new())),
             bot_controllers: Arc::new(Mutex::new(HashMap::new())),
@@ -173,6 +175,12 @@ impl RuntimeManager {
     }
 
     pub fn stop(&self, app: AppHandle) -> Result<RuntimeStatus, String> {
+        // Serialize stop callers so shutdown waits for an active stop/join instead of racing it.
+        let _stop_guard = self
+            .stop_gate
+            .lock()
+            .map_err(|_| "Failed to lock runtime stop state".to_owned())?;
+
         self.stop_all_bots(&app);
 
         let controller = {

@@ -42,7 +42,7 @@ const READY_TIMEOUT_DEFAULT_MS = 30_000;
 const DESKTOP_SHELL_EXPECTED = isDesktopShellExpected();
 
 // Runtime store action ids shown in Admin status messages while a command is active.
-const RUNTIME_BUSY_ACTIONS = {
+export const RUNTIME_BUSY_ACTIONS = {
 	start: 'start',
 	autoStart: 'autoStart',
 	stop: 'stop',
