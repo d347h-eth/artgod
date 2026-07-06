@@ -1,9 +1,21 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { BackendApiError, getBootstrapStatus, purgeCollection } from '$lib/backend-api';
+	import {
+		BackendApiError,
+		getBootstrapStatus,
+		purgeCollection,
+		startCollectionBootstrap,
+		startCollectionOpenSeaSync
+	} from '$lib/backend-api';
 	import type { ApiChain, ApiCollection, ApiCollectionsPage } from '$lib/api-types';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import { APP_VERSION } from '$lib/runtime/app-version';
+	import {
+		COLLECTION_STATUS,
+		COLLECTION_STATUSES,
+		OPENSEA_COLLECTION_STATUS,
+		type OpenSeaCollectionStatus
+	} from '@artgod/shared/types';
 
 	let {
 		chain,
@@ -17,8 +29,22 @@
 		basePath: string;
 	} = $props();
 
-	const statusOptions = ['', 'bootstrapping', 'live', 'paused', 'disabled'];
+	const COLLECTION_TABLE_ACTION = {
+		StartBootstrap: 'start_bootstrap',
+		StartOpenSeaSync: 'start_opensea_sync'
+	} as const;
+	const ACTIVE_OPENSEA_COLLECTION_STATUSES = new Set<OpenSeaCollectionStatus>([
+		OPENSEA_COLLECTION_STATUS.Pending,
+		OPENSEA_COLLECTION_STATUS.IdentityRunning,
+		OPENSEA_COLLECTION_STATUS.Subscribing,
+		OPENSEA_COLLECTION_STATUS.SnapshotPending,
+		OPENSEA_COLLECTION_STATUS.SnapshotRunning,
+		OPENSEA_COLLECTION_STATUS.Retrying
+	]);
+	const statusOptions = ['', ...COLLECTION_STATUSES];
 	let latestRunHrefByCollection = $state<Record<string, string | null>>({});
+	let collectionActionPending = $state<string | null>(null);
+	let collectionActionError = $state<string | null>(null);
 	let purgeTarget = $state<ApiCollection | null>(null);
 	let purgeConfirmation = $state('');
 	let purgeError = $state<string | null>(null);
@@ -33,7 +59,9 @@
 			latestRunHrefByCollection = {};
 			return;
 		}
-		const bootstrappingItems = page.items.filter((item) => item.status === 'bootstrapping');
+		const bootstrappingItems = page.items.filter(
+			(item) => item.status === COLLECTION_STATUS.Bootstrapping
+		);
 		if (bootstrappingItems.length === 0) {
 			latestRunHrefByCollection = {};
 			return;
@@ -80,6 +108,18 @@
 		return `/${chain.slug}/${collectionRef(collection)}`;
 	}
 
+	function actionKey(collection: ApiCollection, action: string): string {
+		return `${collectionKey(collection)}:${action}`;
+	}
+
+	function currentCollectionsHref(): string {
+		const query = new URLSearchParams();
+		if (status) query.set('status', status);
+		query.set('limit', String(page.limit));
+		const suffix = query.toString();
+		return suffix ? `${basePath}?${suffix}` : basePath;
+	}
+
 	function loadMoreHref(): string {
 		if (!page.nextCursor) return '#';
 		const query = new URLSearchParams();
@@ -105,6 +145,54 @@
 		purgeTarget = collection;
 		purgeConfirmation = '';
 		purgeError = null;
+	}
+
+	function canStartBootstrap(collection: ApiCollection): boolean {
+		return collection.status === COLLECTION_STATUS.Prepared;
+	}
+
+	function canStartOpenSeaSync(collection: ApiCollection): boolean {
+		return (
+			collection.status === COLLECTION_STATUS.Live &&
+			Boolean(collection.openseaSlug) &&
+			collection.openseaStatus !== OPENSEA_COLLECTION_STATUS.Ready &&
+			!(
+				collection.openseaStatus &&
+				ACTIVE_OPENSEA_COLLECTION_STATUSES.has(collection.openseaStatus)
+			)
+		);
+	}
+
+	async function startBootstrap(collection: ApiCollection): Promise<void> {
+		if (!chain || collectionActionPending) return;
+		const pendingKey = actionKey(collection, COLLECTION_TABLE_ACTION.StartBootstrap);
+		collectionActionPending = pendingKey;
+		collectionActionError = null;
+		try {
+			const result = await startCollectionBootstrap(fetch, chain.slug, collectionRef(collection));
+			await goto(`/${chain.slug}/bootstrap-runs/${result.runId}`);
+		} catch (cause) {
+			collectionActionError =
+				cause instanceof BackendApiError ? cause.message : 'bootstrap start failed';
+		} finally {
+			collectionActionPending = null;
+		}
+	}
+
+	async function startOpenSeaSync(collection: ApiCollection): Promise<void> {
+		if (!chain || collectionActionPending) return;
+		const pendingKey = actionKey(collection, COLLECTION_TABLE_ACTION.StartOpenSeaSync);
+		collectionActionPending = pendingKey;
+		collectionActionError = null;
+		try {
+			await startCollectionOpenSeaSync(fetch, chain.slug, collectionRef(collection));
+			await goto(currentCollectionsHref(), { invalidateAll: true });
+		} catch (cause) {
+			collectionActionError =
+				cause instanceof BackendApiError ? cause.message : 'OpenSea sync start failed';
+		} finally {
+			collectionActionPending = null;
+		}
 	}
 
 	function closePurgeModal(): void {
@@ -199,7 +287,7 @@
 							</td>
 							<td class="mono">{collection.address}</td>
 							<td>
-								{#if collection.status === 'bootstrapping' && latestRunHrefByCollection[collectionKey(collection)]}
+								{#if collection.status === COLLECTION_STATUS.Bootstrapping && latestRunHrefByCollection[collectionKey(collection)]}
 									<a href={latestRunHrefByCollection[collectionKey(collection)] ?? '#'}>
 										{collection.status}
 									</a>
@@ -209,13 +297,42 @@
 							</td>
 							<td>{collection.tokenScope?.label ?? 'scope unavailable'}</td>
 							<td>
-								<button
-									type="button"
-									class="button-link collection-purge-button"
-									onclick={() => openPurgeModal(collection)}
-								>
-									purge
-								</button>
+								<div class="collection-actions">
+									{#if canStartBootstrap(collection)}
+										<button
+											type="button"
+											class="button-link"
+											onclick={() => void startBootstrap(collection)}
+											disabled={collectionActionPending !== null}
+										>
+											{collectionActionPending ===
+											actionKey(collection, COLLECTION_TABLE_ACTION.StartBootstrap)
+												? 'starting...'
+												: 'start bootstrapping'}
+										</button>
+									{/if}
+									{#if canStartOpenSeaSync(collection)}
+										<button
+											type="button"
+											class="button-link"
+											onclick={() => void startOpenSeaSync(collection)}
+											disabled={collectionActionPending !== null}
+										>
+											{collectionActionPending ===
+											actionKey(collection, COLLECTION_TABLE_ACTION.StartOpenSeaSync)
+												? 'starting...'
+												: 'start opensea sync'}
+										</button>
+									{/if}
+									<button
+										type="button"
+										class="button-link collection-purge-button"
+										onclick={() => openPurgeModal(collection)}
+										disabled={collectionActionPending !== null}
+									>
+										purge
+									</button>
+								</div>
 							</td>
 						</tr>
 					{/each}
@@ -225,6 +342,9 @@
 	</div>
 
 	<footer class="panel-footer">
+		{#if collectionActionError}
+			<span class="collection-action-error">{collectionActionError}</span>
+		{/if}
 		{#if page.nextCursor}
 			<a class="button-link" href={loadMoreHref()}>load more</a>
 		{:else}
@@ -304,8 +424,19 @@
 {/if}
 
 <style>
+	.collection-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		align-items: center;
+	}
+
 	.collection-purge-button {
 		border-color: var(--c-pink);
+		color: var(--c-pink);
+	}
+
+	.collection-action-error {
 		color: var(--c-pink);
 	}
 

@@ -2,10 +2,12 @@ import {
 	COLLECTION_MEDIA_SOURCE,
 	TRADING_BIDDING_BID_BOOK_PRICE_KIND,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+	type CollectionStandard,
 	type CollectionBiddingBidScopeFilter,
 	type CollectionBiddingTraitFilterJoinMode,
 	type CollectionMediaSource,
 	type CollectionStatus,
+	type OpenSeaCollectionStatus,
 	type TradingBiddingBidBookSource,
 	type TradingBiddingBidBookOwnJobPhase,
 	type TradingBiddingJobRuntimeBidPosition,
@@ -43,8 +45,10 @@ export type ApiCollection = {
 	collectionId: number;
 	slug: string;
 	address: string;
-	standard: 'erc721' | 'erc1155';
+	standard: CollectionStandard;
 	status: CollectionStatus;
+	openseaSlug?: string | null;
+	openseaStatus?: OpenSeaCollectionStatus | null;
 	deploymentBlock: number | null;
 	bootstrapAnchorBlock: number | null;
 	createdAt: string;
@@ -518,6 +522,19 @@ export type CollectionPurgeApiResponse = {
 	totalDeletedRows: number;
 };
 
+export type OpenSeaCollectionSyncApiResponse = {
+	chain: ApiChain;
+	collection: {
+		chainId: number;
+		collectionId: number;
+		slug: string;
+		status: CollectionStatus;
+		openseaSlug: string | null;
+		openseaStatus: OpenSeaCollectionStatus | null;
+	};
+	openseaStatus: OpenSeaCollectionStatus;
+};
+
 export type CollectionDetailApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;
@@ -960,7 +977,7 @@ export type ApiBootstrapRunCollectionSummary = {
 	collectionId: number;
 	slug: string;
 	address: string;
-	status: 'bootstrapping' | 'live' | 'paused' | 'disabled';
+	status: CollectionStatus;
 };
 
 export type ApiBootstrapRunTaskCounts = BootstrapTaskCounts;
