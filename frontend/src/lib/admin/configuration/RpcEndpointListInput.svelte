@@ -207,6 +207,14 @@
 
 	.rpc-endpoint-weight {
 		width: 4.6rem;
+		appearance: textfield;
+		-moz-appearance: textfield;
+	}
+
+	.rpc-endpoint-weight::-webkit-inner-spin-button,
+	.rpc-endpoint-weight::-webkit-outer-spin-button {
+		margin: 0;
+		-webkit-appearance: none;
 	}
 
 	.rpc-endpoint-actions {
