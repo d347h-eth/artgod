@@ -9,6 +9,7 @@ import {
 	TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS,
 	TERRAFORMS_EXTENSION_KEY
 } from '@artgod/shared/extensions/terraforms';
+import { TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER } from '@artgod/shared/config/transaction-explorer';
 import { installBuiltInCollectionExtensions } from '$lib/collection-extension-built-ins';
 import CollectionActivitiesView from './CollectionActivitiesView.svelte';
 
@@ -138,7 +139,8 @@ describe('CollectionActivitiesView', () => {
 					}
 				},
 				basePath: '/ethereum/milady',
-				filterKind: 'sales'
+				filterKind: 'sales',
+				transactionExplorerUrlTemplate: `https://explorer.example/transaction/${TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER}`
 			}
 		});
 
@@ -190,7 +192,7 @@ describe('CollectionActivitiesView', () => {
 		);
 		expect(body).toContain('title="2024-09-10 20:33:20 UTC"');
 		expect(body).toContain(
-			'https://etherscan.io/tx/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+			'https://explorer.example/transaction/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 		);
 		expect(body).toContain('older');
 		expect(body).toContain('class="activities-day-break-label">2024-09-09 UTC</span>');

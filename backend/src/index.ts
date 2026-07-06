@@ -356,6 +356,7 @@ export function createBackendApp(
     );
     const getRuntimeConfigUseCase = new GetRuntimeConfigUseCase(
         config.integrations.opensea,
+        config.transactionExplorer,
         config.bidding.bidBookLiveRefresh,
     );
     const listCollectionsUseCase = new ListCollectionsUseCase(

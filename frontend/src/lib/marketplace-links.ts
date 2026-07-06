@@ -1,3 +1,8 @@
+import {
+	buildTransactionExplorerUrl,
+	getDefaultTransactionExplorerUrlTemplate
+} from '@artgod/shared/config/transaction-explorer';
+
 export function openseaItemHref(params: {
 	chainSlug: string | null;
 	collectionAddress: string | null;
@@ -9,11 +14,15 @@ export function openseaItemHref(params: {
 	return `https://opensea.io/item/${params.chainSlug}/${params.collectionAddress}/${encodeURIComponent(params.tokenId)}`;
 }
 
-export function etherscanTransactionHref(txHash: string | null): string | null {
-	if (!txHash) {
+export function transactionExplorerHref(
+	txHash: string | null,
+	urlTemplate = getDefaultTransactionExplorerUrlTemplate()
+): string | null {
+	try {
+		return buildTransactionExplorerUrl({ txHash, urlTemplate });
+	} catch {
 		return null;
 	}
-	return `https://etherscan.io/tx/${encodeURIComponent(txHash)}`;
 }
 
 export function etherscanAddressHref(address: string | null): string | null {

@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import { BackendApiError, getCollectionActivities } from '$lib/backend-api';
+import { BackendApiError, getCollectionActivities, getRuntimeConfig } from '$lib/backend-api';
 import {
 	ACTIVITY_EXTENSION_EVENT_QUERY_PARAM,
 	ACTIVITY_CONTENT_HASH_QUERY_PARAM,
@@ -34,12 +34,15 @@ export const load: PageLoad = async ({ fetch, url }) => {
 	);
 
 	try {
-		const response = await getCollectionActivities(
-			fetch,
-			PUBLIC_COLLECTION_SCOPE.chainRef,
-			PUBLIC_COLLECTION_SCOPE.collectionRef,
-			query
-		);
+		const [response, runtimeConfigResponse] = await Promise.all([
+			getCollectionActivities(
+				fetch,
+				PUBLIC_COLLECTION_SCOPE.chainRef,
+				PUBLIC_COLLECTION_SCOPE.collectionRef,
+				query
+			),
+			getRuntimeConfig(fetch)
+		]);
 		return {
 			chain: response.chain,
 			collection: response.collection,
@@ -52,7 +55,8 @@ export const load: PageLoad = async ({ fetch, url }) => {
 			basePath: '/',
 			filterKind,
 			extensionEvent,
-			activityFilters: readActivityFilters(url.searchParams)
+			activityFilters: readActivityFilters(url.searchParams),
+			transactionExplorerUrlTemplate: runtimeConfigResponse.transactionExplorer.urlTemplate
 		};
 	} catch (cause) {
 		toKitError(cause);

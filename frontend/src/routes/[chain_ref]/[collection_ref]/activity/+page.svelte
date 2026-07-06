@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+	import { getDefaultTransactionExplorerUrlTemplate } from '@artgod/shared/config/transaction-explorer';
 	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 	import { ACTIVITY_FEED_FILTER_KIND } from '@artgod/shared/types';
 	import CollectionActivitiesView from '$lib/components/CollectionActivitiesView.svelte';
@@ -39,6 +40,7 @@
 			contentHash: string | null;
 			eventGroup: string | null;
 		};
+		transactionExplorerUrlTemplate: string;
 	};
 
 	const fallbackActivities: ApiActivitiesPage = {
@@ -77,4 +79,6 @@
 	filterKind={data?.filterKind ?? (data?.extensionEvent ? null : ACTIVITY_FEED_FILTER_KIND.Sales)}
 	extensionEvent={data?.extensionEvent ?? null}
 	activityFilters={data?.activityFilters ?? { tokenId: null, maker: null, contentHash: null, eventGroup: null }}
+	transactionExplorerUrlTemplate={data?.transactionExplorerUrlTemplate ??
+		getDefaultTransactionExplorerUrlTemplate()}
 />

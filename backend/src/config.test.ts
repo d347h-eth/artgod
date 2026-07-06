@@ -23,6 +23,11 @@ import {
 import { COMMON_MEDIA_ENV_KEY } from "@artgod/shared/config/common-media";
 import { OPENSEA_API_KEY_ENV } from "@artgod/shared/config/opensea-integration";
 import { RPC_ENDPOINT_LIST_ENV_KEY } from "@artgod/shared/config/rpc-endpoints";
+import {
+    getDefaultTransactionExplorerUrlTemplate,
+    TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER,
+    TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY,
+} from "@artgod/shared/config/transaction-explorer";
 import { loadBackendConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
 
@@ -199,6 +204,37 @@ describe("loadBackendConfig", () => {
                 staleMs: DEFAULT_BIDDING_RUNTIME_HEARTBEAT_STALE_MS,
             },
         });
+    });
+
+    it("defaults the transaction explorer template from the settings manifest", () => {
+        const config = loadBackendConfig(createBaseEnv());
+
+        expect(config.transactionExplorer).toEqual({
+            urlTemplate: getDefaultTransactionExplorerUrlTemplate(),
+        });
+    });
+
+    it("parses custom transaction explorer URL templates", () => {
+        const config = loadBackendConfig({
+            ...createBaseEnv(),
+            [TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY]: `https://explorer.example/transaction/${TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER}`,
+        });
+
+        expect(config.transactionExplorer).toEqual({
+            urlTemplate: `https://explorer.example/transaction/${TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER}`,
+        });
+    });
+
+    it("fails fast when the transaction explorer template is missing the hash placeholder", () => {
+        expect(() =>
+            loadBackendConfig({
+                ...createBaseEnv(),
+                [TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY]:
+                    "https://explorer.example/transaction/",
+            }),
+        ).toThrow(
+            `${TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY} must include ${TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER}.`,
+        );
     });
 
     it("defaults backend observability to disabled runtime endpoints", () => {

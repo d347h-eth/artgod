@@ -919,6 +919,9 @@ export type RuntimeConfigApiResponse = {
 	integrations: {
 		opensea: ApiOpenSeaIntegrationStatus;
 	};
+	transactionExplorer: {
+		urlTemplate: string;
+	};
 	bidding: {
 		bidBookLiveRefresh: {
 			normalPollMs: number;

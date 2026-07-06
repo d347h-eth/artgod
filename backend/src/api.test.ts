@@ -118,6 +118,7 @@ import {
     type OpenSeaIntegrationStatus,
 } from "@artgod/shared/config/opensea-integration";
 import { getDefaultOpenSeaHttpConfig } from "@artgod/shared/config/opensea-http";
+import { getDefaultTransactionExplorerUrlTemplate } from "@artgod/shared/config/transaction-explorer";
 import {
     BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE,
     BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE,
@@ -311,6 +312,7 @@ beforeAll(async () => {
     const getRuntimeConfigUseCase =
         new runtimeConfigUseCaseModule.GetRuntimeConfigUseCase(
             ENABLED_OPENSEA_INTEGRATION,
+            { urlTemplate: getDefaultTransactionExplorerUrlTemplate() },
             DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
         );
     const listCollectionsUseCase =
@@ -1118,6 +1120,9 @@ beforeAll(async () => {
         mediaCache: {
             tokenImagesDir: "/tmp/artgod-api-test-media-cache",
         },
+        transactionExplorer: {
+            urlTemplate: getDefaultTransactionExplorerUrlTemplate(),
+        },
         httpFetch: getDefaultHttpFetchResilienceConfig(),
         security: API_SECURITY_CONFIG,
         deployment: {
@@ -1221,6 +1226,9 @@ describe("backend api routes", () => {
         expect(result.payload.integrations.opensea).toEqual(
             ENABLED_OPENSEA_INTEGRATION,
         );
+        expect(result.payload.transactionExplorer).toEqual({
+            urlTemplate: getDefaultTransactionExplorerUrlTemplate(),
+        });
         expect(result.payload.bidding.bidBookLiveRefresh).toEqual(
             DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
         );
