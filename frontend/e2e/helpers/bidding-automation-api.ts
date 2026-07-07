@@ -28,6 +28,10 @@ export type BiddingAutomationApiMock = {
 	nextMutation(): Promise<CapturedBiddingMutation>;
 };
 
+const BIDDING_E2E_API_PATH_SUFFIX = {
+	BatchTokenLookup: '/bidding/jobs/tokens/lookup'
+} as const;
+
 // Captures bidding write calls while returning deterministic API responses to the real UI.
 export async function installBiddingAutomationApiMock(page: Page): Promise<BiddingAutomationApiMock> {
 	const mutations: CapturedBiddingMutation[] = [];
@@ -55,6 +59,15 @@ export async function installBiddingAutomationApiMock(page: Page): Promise<Biddi
 					collection: BIDDING_E2E_COLLECTION,
 					job: findBiddingE2eJobForTarget(body)
 				})
+			});
+			return;
+		}
+
+		if (url.pathname.endsWith(BIDDING_E2E_API_PATH_SUFFIX.BatchTokenLookup)) {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify(batchTokenLookupResponse(body))
 			});
 			return;
 		}
@@ -398,6 +411,16 @@ function batchMutationTokenIds(body: unknown): string[] {
 		return body.selection.tokenIds;
 	}
 	return ['101', '102'];
+}
+
+function batchTokenLookupResponse(body: unknown): unknown {
+	const tokenIds = batchMutationTokenIds(body);
+	return {
+		chain: BIDDING_E2E_CHAIN,
+		collection: BIDDING_E2E_COLLECTION,
+		jobs: [],
+		targetCount: tokenIds.length
+	};
 }
 
 function mutationTargetTraits(body: unknown): { type: string; value: string }[] {
