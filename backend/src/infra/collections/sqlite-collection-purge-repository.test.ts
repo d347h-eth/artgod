@@ -5,7 +5,14 @@ import { strict as assert } from "node:assert";
 import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
-import { SqliteCollectionPurgeRepository } from "./sqlite-collection-purge-repository.js";
+import {
+    TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+    TOKEN_ATTRIBUTE_SOURCE_KIND,
+} from "@artgod/shared/types/token-attributes";
+import {
+    COLLECTION_PURGE_LATE_SCHEMA_TABLE,
+    SqliteCollectionPurgeRepository,
+} from "./sqlite-collection-purge-repository.js";
 
 const COLLECTION_ADDRESS = "0x1111111111111111111111111111111111111111";
 const OTHER_COLLECTION_ADDRESS = "0x2222222222222222222222222222222222222222";
@@ -59,6 +66,20 @@ describe("SqliteCollectionPurgeRepository", () => {
         assert.equal(countRows("bootstrap_runs", collectionId), 0);
         assert.equal(countRows("trading_jobs", collectionId), 0);
         assert.equal(countRows("token_extension_artifacts", collectionId), 0);
+        assert.equal(
+            countRows(
+                COLLECTION_PURGE_LATE_SCHEMA_TABLE.SyntheticTokenRetirements,
+                collectionId,
+            ),
+            0,
+        );
+        assert.equal(
+            countRows(
+                COLLECTION_PURGE_LATE_SCHEMA_TABLE.BiddingOrderCancellations,
+                collectionId,
+            ),
+            0,
+        );
         assert.equal(countRows("collection_sync_blocks", collectionId), 0);
         assert.equal(countRows("bootstrap_image_cache_tasks", collectionId), 0);
         assert.equal(countRows("token_image_cache", collectionId), 0);
@@ -96,6 +117,20 @@ describe("SqliteCollectionPurgeRepository", () => {
             countRows("token_extension_artifacts", otherCollectionId),
             1,
         );
+        assert.equal(
+            countRows(
+                COLLECTION_PURGE_LATE_SCHEMA_TABLE.SyntheticTokenRetirements,
+                otherCollectionId,
+            ),
+            1,
+        );
+        assert.equal(
+            countRows(
+                COLLECTION_PURGE_LATE_SCHEMA_TABLE.BiddingOrderCancellations,
+                otherCollectionId,
+            ),
+            1,
+        );
         assert.equal(countRows("collection_sync_blocks", otherCollectionId), 1);
         assert.equal(
             countRows("bootstrap_image_cache_tasks", otherCollectionId),
@@ -124,7 +159,7 @@ describe("SqliteCollectionPurgeRepository", () => {
         );
         assert.equal(countActivitySources(otherCollectionId), 1);
         assert.equal(countBootstrapRunSteps(otherCollectionId), 1);
-        assert.equal(countTradingJobChildren(otherCollectionId), 3);
+        assert.equal(countTradingJobChildren(otherCollectionId), 4);
     });
 });
 
@@ -333,9 +368,15 @@ function seedTokenRows(
     ).run(collectionId, address);
     db.prepare(
         "INSERT INTO token_attributes " +
-            "(chain_id, collection_id, contract_address, token_id, attribute_id) " +
-            "VALUES (1, ?, ?, '1', ?)",
-    ).run(collectionId, address, attributeId);
+            "(chain_id, collection_id, contract_address, token_id, attribute_id, source_kind, source_key) " +
+            "VALUES (1, ?, ?, '1', ?, ?, ?)",
+    ).run(
+        collectionId,
+        address,
+        attributeId,
+        TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+        TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+    );
     db.prepare(
         "INSERT INTO collection_trait_stats " +
             "(chain_id, collection_id, contract_address, attribute_key_id, attribute_id, token_count) " +
@@ -409,6 +450,11 @@ function seedExtensionRows(collectionId: number, address: string): void {
             "VALUES (1, ?, ?, '1', 'test-extension', 'artifact')",
     ).run(collectionId, address);
     db.prepare(
+        `INSERT INTO ${quoteIdentifier(COLLECTION_PURGE_LATE_SCHEMA_TABLE.SyntheticTokenRetirements)} ` +
+            "(chain_id, collection_id, contract_address, token_id, extension_key) " +
+            "VALUES (1, ?, ?, 'synthetic-1', 'test-extension')",
+    ).run(collectionId, address);
+    db.prepare(
         "INSERT INTO collection_extension_events " +
             "(chain_id, collection_id, extension_key, event_key, contract_address, token_id, block_number, block_hash, block_timestamp, tx_hash, log_index) " +
             "VALUES (1, ?, 'test-extension', 'event', ?, '1', 11, '0xblock', 1100, ?, 3)",
@@ -450,6 +496,11 @@ function seedTradingRows(collectionId: number): void {
     db.prepare(
         "INSERT INTO trading_bidding_job_runtime_state (job_id) VALUES (?)",
     ).run(jobId);
+    db.prepare(
+        `INSERT INTO ${quoteIdentifier(COLLECTION_PURGE_LATE_SCHEMA_TABLE.BiddingOrderCancellations)} ` +
+            "(order_id, job_id, chain_id, collection_id, maker, requested_at) " +
+            "VALUES (?, ?, 1, ?, ?, CURRENT_TIMESTAMP)",
+    ).run(`cancel-${collectionId}`, jobId, collectionId, MAKER_ADDRESS);
     db.prepare(
         "INSERT INTO trading_job_commands " +
             "(job_id, bot_kind, command_kind, status, requested_revision, payload_json) " +
@@ -501,6 +552,7 @@ function countTradingJobChildren(collectionId: number): number {
         "trading_job_commands",
         "trading_bidding_job_runtime_state",
         "trading_bidding_job_specs",
+        COLLECTION_PURGE_LATE_SCHEMA_TABLE.BiddingOrderCancellations,
     ];
     return tables.reduce((sum, table) => {
         const row = db
@@ -510,4 +562,8 @@ function countTradingJobChildren(collectionId: number): number {
             .get(jobId) as { count: number } | undefined;
         return sum + (row?.count ?? 0);
     }, 0);
+}
+
+function quoteIdentifier(identifier: string): string {
+    return `"${identifier.replace(/"/g, '""')}"`;
 }
