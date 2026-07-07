@@ -6,9 +6,15 @@ import {
 } from "@artgod/shared/media/token-image-cache";
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
+import { BOOTSTRAP_ENUMERATION_MODE } from "@artgod/shared/bootstrap/pipeline";
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from "@artgod/shared/types";
 import {
+    BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE,
+    BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE,
+    BOOTSTRAP_PROBE_READ_STATUS,
+    BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE,
     ProbeCollectionContractUseCase,
+    type CollectionContractProbePort,
     type ProbeCollectionExtensionResolverPort,
 } from "./probe-collection-contract.js";
 import type { CollectionContractProbeResult } from "./probe-collection-contract.js";
@@ -33,7 +39,7 @@ describe("ProbeCollectionContractUseCase", () => {
                 error: null,
             },
             totalSupply: {
-                status: "available",
+                status: BOOTSTRAP_PROBE_READ_STATUS.Available,
                 value: "3",
                 safeIntegerValue: 3,
                 bootstrapRangeValue: 3,
@@ -41,7 +47,7 @@ describe("ProbeCollectionContractUseCase", () => {
             },
             firstToken: {
                 tokenId: "1",
-                source: "token_by_index",
+                source: BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.TokenByIndex,
                 tokenUri: "data:application/json,%7B%7D",
                 tokenUriPayloadBytes: 100,
                 tokenUriPayloadTruncated: false,
@@ -96,7 +102,7 @@ describe("ProbeCollectionContractUseCase", () => {
                 error: null,
             },
             totalSupply: {
-                status: "available",
+                status: BOOTSTRAP_PROBE_READ_STATUS.Available,
                 value: "999",
                 safeIntegerValue: 999,
                 bootstrapRangeValue: 999,
@@ -104,7 +110,7 @@ describe("ProbeCollectionContractUseCase", () => {
             },
             firstToken: {
                 tokenId: "0",
-                source: "candidate_token_uri",
+                source: BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.CandidateTokenUri,
                 tokenUri: "data:application/json,%7B%7D",
                 tokenUriPayloadBytes: 10,
                 tokenUriPayloadTruncated: false,
@@ -113,7 +119,7 @@ describe("ProbeCollectionContractUseCase", () => {
                 imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 image: null,
                 imageBytes: 2048,
-                imageBytesSource: "download",
+                imageBytesSource: BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE.Download,
                 imageContentType: "image/png",
                 imageBytesError: null,
                 imageWidth: 1000,
@@ -125,7 +131,7 @@ describe("ProbeCollectionContractUseCase", () => {
                     {
                         tokenId: "0",
                         exists: true,
-                        source: "token_uri",
+                        source: BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE.TokenUri,
                         error: null,
                     },
                 ],
@@ -141,7 +147,7 @@ describe("ProbeCollectionContractUseCase", () => {
         expect(result.suggestedInput).toEqual({
             supportsEnumerable: false,
             manualInput: {
-                mode: "manual_range",
+                mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
                 startTokenId: "0",
                 totalSupply: 999,
             },
@@ -169,7 +175,7 @@ describe("ProbeCollectionContractUseCase", () => {
                     error: null,
                 },
                 totalSupply: {
-                    status: "available",
+                    status: BOOTSTRAP_PROBE_READ_STATUS.Available,
                     value: "3",
                     safeIntegerValue: 3,
                     bootstrapRangeValue: 3,
@@ -177,7 +183,7 @@ describe("ProbeCollectionContractUseCase", () => {
                 },
                 firstToken: {
                     tokenId: "1",
-                    source: "token_by_index",
+                    source: BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.TokenByIndex,
                     tokenUri: "data:application/json,%7B%7D",
                     tokenUriPayloadBytes: 100,
                     tokenUriPayloadTruncated: false,
@@ -223,6 +229,97 @@ describe("ProbeCollectionContractUseCase", () => {
             config: extensionConfig,
         });
     });
+
+    it("forwards a trimmed custom sample token id to the contract probe", async () => {
+        const probeInputs: Array<{
+            sampleTokenId: string | null;
+        }> = [];
+        const useCase = makeUseCase(
+            {
+                enumerable: {
+                    supported: true,
+                    error: null,
+                },
+                totalSupply: {
+                    status: BOOTSTRAP_PROBE_READ_STATUS.Available,
+                    value: "3",
+                    safeIntegerValue: 3,
+                    bootstrapRangeValue: 3,
+                    error: null,
+                },
+            },
+            undefined,
+            (input) => {
+                probeInputs.push({
+                    sampleTokenId: input.sampleTokenId,
+                });
+            },
+        );
+
+        await useCase.probe({
+            chainRef: "ethereum",
+            address: "0x3333333333333333333333333333333333333333",
+            standard: "erc721",
+            sampleTokenId: "  token-42  ",
+        });
+
+        expect(probeInputs).toEqual([
+            {
+                sampleTokenId: "token-42",
+            },
+        ]);
+    });
+
+    it("does not infer collection scope from a custom sample token id", async () => {
+        const useCase = makeUseCase({
+            enumerable: {
+                supported: false,
+                error: null,
+            },
+            totalSupply: {
+                status: BOOTSTRAP_PROBE_READ_STATUS.Available,
+                value: "999",
+                safeIntegerValue: 999,
+                bootstrapRangeValue: 999,
+                error: null,
+            },
+            firstToken: {
+                tokenId: "42",
+                source: BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.CandidateTokenUri,
+                tokenUri: "data:application/json,%7B%7D",
+                tokenUriPayloadBytes: 10,
+                tokenUriPayloadTruncated: false,
+                tokenUriPayloadError: null,
+                name: null,
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+                image: null,
+                imageBytes: null,
+                imageBytesSource: null,
+                imageContentType: null,
+                imageBytesError: null,
+                imageWidth: null,
+                imageHeight: null,
+                animationSourceField: null,
+                animationUrl: null,
+                metadataError: null,
+                candidates: [],
+            },
+        });
+
+        const result = await useCase.probe({
+            chainRef: "ethereum",
+            address: "0x3333333333333333333333333333333333333333",
+            standard: "erc721",
+            sampleTokenId: "42",
+        });
+
+        expect(result.suggestedInput).toEqual({
+            supportsEnumerable: false,
+            manualInput: null,
+            ready: false,
+            warnings: [],
+        });
+    });
 });
 
 function makeUseCase(
@@ -235,8 +332,14 @@ function makeUseCase(
             return null;
         },
     },
+    onProbeInput: (
+        input: Parameters<
+            CollectionContractProbePort["probeErc721Contract"]
+        >[0],
+    ) => void = () => {},
 ) {
     const probe: CollectionContractProbeResult = {
+        proxy: null,
         contractName: null,
         erc721: {
             supported: true,
@@ -247,7 +350,7 @@ function makeUseCase(
             error: null,
         },
         totalSupply: {
-            status: "unavailable",
+            status: BOOTSTRAP_PROBE_READ_STATUS.Unavailable,
             value: null,
             safeIntegerValue: null,
             bootstrapRangeValue: null,
@@ -284,7 +387,8 @@ function makeUseCase(
             },
         },
         {
-            async probeErc721Contract() {
+            async probeErc721Contract(input) {
+                onProbeInput(input);
                 return probe;
             },
         },

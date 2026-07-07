@@ -174,6 +174,7 @@ export async function probeBootstrapCollectionContract(
 	options: {
 		imageSourceField?: string | null;
 		animationSourceField?: string | null;
+		sampleTokenId?: string | null;
 	} = {}
 ): Promise<BootstrapContractProbeApiResponse> {
 	return requestJson<BootstrapContractProbeApiResponse>(
@@ -183,7 +184,8 @@ export async function probeBootstrapCollectionContract(
 			address,
 			standard: 'erc721',
 			imageSourceField: options.imageSourceField,
-			animationSourceField: options.animationSourceField
+			animationSourceField: options.animationSourceField,
+			sampleTokenId: options.sampleTokenId
 		})
 	);
 }

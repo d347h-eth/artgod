@@ -129,8 +129,31 @@ test.describe('bootstrap contract probe UI', () => {
 		);
 		await expect(formLabel(page, 'Collection slug')).toHaveCount(0);
 		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toHaveCount(0);
-		expect(api.probeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.NeedsTokenStart]);
 		expect(api.openSeaSlugProbeRequests).toEqual([]);
+		const sampleTokenRow = page.locator('.bootstrap-sample-token-section .bootstrap-form-row');
+		const sampleTokenInput = sampleTokenRow.locator('input[name="sampleTokenId"]');
+		await sampleTokenInput.fill('462000384');
+		await sampleTokenInput.press('Enter');
+
+		await expect(sampleTokenInput).toHaveValue('462000384');
+		await expect(sampleTokenRow).toContainText('resolved');
+		await expect(rowControl(page, 'Image source field')).toHaveValue(
+			TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image
+		);
+		await expect(rowControl(page, 'Animation source field')).toHaveValue(
+			TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl
+		);
+		await expect(formRow(page, 'Animation source field')).toContainText('resolved');
+		await expect(page.getByRole('button', { name: 'animation' })).toBeEnabled();
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeVisible();
+		expect(api.probeRequests).toEqual([
+			BOOTSTRAP_PROBE_CONTRACTS.NeedsTokenStart,
+			BOOTSTRAP_PROBE_CONTRACTS.NeedsTokenStart
+		]);
+		expect(api.probeRequestSampleTokenIds).toEqual([null, '462000384']);
+		expect(api.probeRequestAnimationSourceFields).toEqual([null, null]);
+		await expect.poll(() => api.openSeaSlugProbeRequests.length).toBe(1);
+		expect(api.openSeaSlugProbeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.NeedsTokenStart]);
 	});
 
 	test('requires manual image source overrides to probe again before showing the full form', async ({
@@ -164,6 +187,40 @@ test.describe('bootstrap contract probe UI', () => {
 			null,
 			TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData
 		]);
+	});
+
+	test('requires manual sample token overrides to probe again before showing the full form', async ({
+		page
+	}) => {
+		const api = await installBootstrapProbeApiMock(page);
+		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+
+		const sampleTokenRow = page.locator('.bootstrap-sample-token-section .bootstrap-form-row');
+		const sampleTokenInput = sampleTokenRow.locator('input[name="sampleTokenId"]');
+		await expect(sampleTokenInput).toHaveValue('1');
+		await expect(sampleTokenRow).toContainText('resolved');
+
+		await sampleTokenInput.fill('42');
+		await expect(formLabel(page, 'Collection slug')).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toHaveCount(0);
+		await expect(
+			sampleTokenRow.getByRole('button', { name: 'probe again' })
+		).toBeEnabled();
+
+		await sampleTokenInput.press('Enter');
+		await expect(sampleTokenInput).toHaveValue('42');
+		await expect(sampleTokenRow).toContainText('resolved');
+		await expect(tokenCard(page, '42')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeVisible();
+		expect(api.probeRequests).toEqual([
+			BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable,
+			BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable
+		]);
+		expect(api.probeRequestImageSourceFields).toEqual([
+			null,
+			TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image
+		]);
+		expect(api.probeRequestSampleTokenIds).toEqual([null, '42']);
 	});
 
 	test('disables OpenSea slug input when the API key is unavailable', async ({ page }) => {

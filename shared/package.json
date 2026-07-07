@@ -30,6 +30,7 @@
         "./bootstrap/opensea-slug-probe": "./bootstrap/opensea-slug-probe.ts",
         "./bootstrap/run-events": "./bootstrap/run-events.ts",
         "./evm/transactions": "./evm/transactions.ts",
+        "./evm/proxy-detection": "./evm/proxy-detection.ts",
         "./evm/rpc-errors": "./evm/rpc-errors.ts",
         "./evm/rpc-execution": "./evm/rpc-execution.ts",
         "./evm/rpc-resilience": "./evm/rpc-resilience.ts",

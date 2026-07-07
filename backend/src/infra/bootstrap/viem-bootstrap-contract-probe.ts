@@ -1,4 +1,6 @@
 import type {
+    BootstrapProbeFirstTokenSource,
+    BootstrapProbeImageBytesSource,
     BootstrapProbeFirstToken,
     BootstrapProbeInterfaceCheck,
     BootstrapProbeTokenCandidate,
@@ -7,6 +9,10 @@ import type {
     CollectionContractProbeResult,
 } from "../../application/use-cases/bootstrap/probe-collection-contract.js";
 import {
+    BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE,
+    BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE,
+    BOOTSTRAP_PROBE_READ_STATUS,
+    BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE,
     toBootstrapRangeTotalSupply,
     toSafeIntegerValue,
 } from "../../application/use-cases/bootstrap/probe-collection-contract.js";
@@ -24,10 +30,22 @@ import {
     fetchWithHttpResilience,
     type HttpFetchResilienceConfig,
 } from "@artgod/shared/network/http-fetch-resilience";
+import {
+    detectErc1967BeaconProxy,
+    detectErc1967ImplementationProxy,
+    detectEvmProxy,
+    EVM_PROXY_STORAGE_SLOT,
+    readErc1967BeaconAddress,
+    type EvmProxyResolution,
+} from "@artgod/shared/evm/proxy-detection";
 import { loadSharp } from "../media/sharp-loader.js";
 
 type BootstrapProbeRpc = {
     getBytecode(address: `0x${string}`): Promise<`0x${string}` | null>;
+    getStorageAt(params: {
+        address: `0x${string}`;
+        slot: `0x${string}`;
+    }): Promise<`0x${string}` | null>;
     readContract<T = unknown>(params: {
         address: `0x${string}`;
         abi: readonly unknown[];
@@ -56,9 +74,21 @@ type CandidateProbeResult = BootstrapProbeTokenCandidate & {
     tokenUri: string | null;
 };
 
+type ContractProbeTarget = {
+    address: `0x${string}`;
+    proxy: EvmProxyResolution | null;
+};
+
+const ERC165_SUPPORTS_INTERFACE_FUNCTION = "supportsInterface";
+const ERC721_TOKEN_BY_INDEX_FUNCTION = "tokenByIndex";
+const ERC721_TOKEN_URI_FUNCTION = "tokenURI";
+const ERC721_NAME_FUNCTION = "name";
+const ERC721_OWNER_OF_FUNCTION = "ownerOf";
+const ERC721_TOTAL_SUPPLY_FUNCTION = "totalSupply";
+
 const ERC165_ABI = [
     {
-        name: "supportsInterface",
+        name: ERC165_SUPPORTS_INTERFACE_FUNCTION,
         type: "function",
         stateMutability: "view",
         inputs: [{ type: "bytes4", name: "interfaceId" }],
@@ -68,7 +98,7 @@ const ERC165_ABI = [
 
 const ERC721_ENUMERABLE_ABI = [
     {
-        name: "tokenByIndex",
+        name: ERC721_TOKEN_BY_INDEX_FUNCTION,
         type: "function",
         stateMutability: "view",
         inputs: [{ type: "uint256", name: "index" }],
@@ -78,7 +108,7 @@ const ERC721_ENUMERABLE_ABI = [
 
 const ERC721_METADATA_ABI = [
     {
-        name: "tokenURI",
+        name: ERC721_TOKEN_URI_FUNCTION,
         type: "function",
         stateMutability: "view",
         inputs: [{ type: "uint256", name: "tokenId" }],
@@ -88,7 +118,7 @@ const ERC721_METADATA_ABI = [
 
 const ERC721_NAME_ABI = [
     {
-        name: "name",
+        name: ERC721_NAME_FUNCTION,
         type: "function",
         stateMutability: "view",
         inputs: [],
@@ -98,7 +128,7 @@ const ERC721_NAME_ABI = [
 
 const ERC721_OWNER_ABI = [
     {
-        name: "ownerOf",
+        name: ERC721_OWNER_OF_FUNCTION,
         type: "function",
         stateMutability: "view",
         inputs: [{ type: "uint256", name: "tokenId" }],
@@ -108,11 +138,24 @@ const ERC721_OWNER_ABI = [
 
 const ERC721_SUPPLY_ABI = [
     {
-        name: "totalSupply",
+        name: ERC721_TOTAL_SUPPLY_FUNCTION,
         type: "function",
         stateMutability: "view",
         inputs: [],
         outputs: [{ type: "uint256" }],
+    },
+] as const;
+
+// Standard beacon proxy read used to resolve the current implementation address.
+export const BEACON_PROXY_IMPLEMENTATION_FUNCTION = "implementation";
+
+const BEACON_PROXY_ABI = [
+    {
+        name: BEACON_PROXY_IMPLEMENTATION_FUNCTION,
+        type: "function",
+        stateMutability: "view",
+        inputs: [],
+        outputs: [{ type: "address" }],
     },
 ] as const;
 
@@ -132,36 +175,38 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
     constructor(
         private readonly rpc: BootstrapProbeRpc,
         private readonly ipfsGatewayOrigin: string = DEFAULT_IPFS_GATEWAY_ORIGIN,
-        private readonly fetchResilience: HttpFetchResilienceConfig =
-            getDefaultHttpFetchResilienceConfig(),
+        private readonly fetchResilience: HttpFetchResilienceConfig = getDefaultHttpFetchResilienceConfig(),
     ) {}
 
     async probeErc721Contract(input: {
         address: string;
         imageSourceField: string | null;
         animationSourceField: string | null;
+        sampleTokenId: string | null;
     }): Promise<CollectionContractProbeResult> {
         const address = input.address as `0x${string}`;
-        await this.assertContractAddress(address);
+        const target = await this.resolveContractProbeTarget(address);
         const erc721 = await this.readInterfaceSupport(
-            address,
+            target.address,
             ERC721_INTERFACE_ID,
         );
         const enumerable = await this.readInterfaceSupport(
-            address,
+            target.address,
             ERC721_ENUMERABLE_INTERFACE_ID,
         );
         // Read name() only to suggest an editable local collection slug.
-        const contractName = await this.readContractName(address);
-        const totalSupply = await this.readTotalSupply(address);
+        const contractName = await this.readContractName(target.address);
+        const totalSupply = await this.readTotalSupply(target.address);
         const firstToken = await this.probeFirstToken(
-            address,
+            target.address,
             enumerable,
             input.imageSourceField,
             input.animationSourceField,
+            input.sampleTokenId,
         );
 
         return {
+            proxy: target.proxy,
             contractName,
             erc721,
             enumerable,
@@ -170,10 +215,78 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
         };
     }
 
-    private async assertContractAddress(address: `0x${string}`): Promise<void> {
+    private async resolveContractProbeTarget(
+        address: `0x${string}`,
+    ): Promise<ContractProbeTarget> {
         const bytecode = await this.rpc.getBytecode(address);
         if (!bytecode || bytecode === EMPTY_EVM_BYTECODE) {
-            throw new BootstrapValidationError(NON_CONTRACT_ADDRESS_PROBE_ERROR);
+            throw new BootstrapValidationError(
+                NON_CONTRACT_ADDRESS_PROBE_ERROR,
+            );
+        }
+        const bytecodeProxy = detectEvmProxy(bytecode);
+        if (bytecodeProxy) {
+            return {
+                address,
+                proxy: bytecodeProxy,
+            };
+        }
+
+        return {
+            address,
+            proxy: await this.readErc1967Proxy(address),
+        };
+    }
+
+    private async readErc1967Proxy(
+        address: `0x${string}`,
+    ): Promise<EvmProxyResolution | null> {
+        const implementationProxy =
+            await this.readErc1967ImplementationProxy(address);
+        if (implementationProxy) return implementationProxy;
+
+        return await this.readErc1967BeaconProxy(address);
+    }
+
+    private async readErc1967ImplementationProxy(
+        address: `0x${string}`,
+    ): Promise<EvmProxyResolution | null> {
+        try {
+            // Read the deterministic ERC-1967 implementation slot after bytecode detection misses.
+            const slotValue = await this.rpc.getStorageAt({
+                address,
+                slot: EVM_PROXY_STORAGE_SLOT.Erc1967Implementation,
+            });
+            return detectErc1967ImplementationProxy(slotValue);
+        } catch {
+            return null;
+        }
+    }
+
+    private async readErc1967BeaconProxy(
+        address: `0x${string}`,
+    ): Promise<EvmProxyResolution | null> {
+        try {
+            // Read the deterministic ERC-1967 beacon slot before asking the beacon for its implementation.
+            const beaconSlotValue = await this.rpc.getStorageAt({
+                address,
+                slot: EVM_PROXY_STORAGE_SLOT.Erc1967Beacon,
+            });
+            const beaconAddress = readErc1967BeaconAddress(beaconSlotValue);
+            if (!beaconAddress) return null;
+
+            const implementationAddress =
+                await this.rpc.readContract<`0x${string}`>({
+                    address: beaconAddress,
+                    abi: BEACON_PROXY_ABI,
+                    functionName: BEACON_PROXY_IMPLEMENTATION_FUNCTION,
+                });
+            return detectErc1967BeaconProxy({
+                beaconAddress,
+                implementationAddress,
+            });
+        } catch {
+            return null;
         }
     }
 
@@ -185,7 +298,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
             const supported = await this.rpc.readContract<boolean>({
                 address,
                 abi: ERC165_ABI,
-                functionName: "supportsInterface",
+                functionName: ERC165_SUPPORTS_INTERFACE_FUNCTION,
                 args: [interfaceId],
             });
             return {
@@ -200,12 +313,14 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
         }
     }
 
-    private async readContractName(address: `0x${string}`): Promise<string | null> {
+    private async readContractName(
+        address: `0x${string}`,
+    ): Promise<string | null> {
         try {
             const name = await this.rpc.readContract<string>({
                 address,
                 abi: ERC721_NAME_ABI,
-                functionName: "name",
+                functionName: ERC721_NAME_FUNCTION,
             });
             return name.trim() || null;
         } catch {
@@ -220,13 +335,13 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
             const value = await this.rpc.readContract<bigint>({
                 address,
                 abi: ERC721_SUPPLY_ABI,
-                functionName: "totalSupply",
+                functionName: ERC721_TOTAL_SUPPLY_FUNCTION,
             });
             if (value <= 0n) {
                 return unavailableTotalSupply("totalSupply is not positive");
             }
             return {
-                status: "available",
+                status: BOOTSTRAP_PROBE_READ_STATUS.Available,
                 value: value.toString(),
                 safeIntegerValue: toSafeIntegerValue(value),
                 bootstrapRangeValue: toBootstrapRangeTotalSupply(value),
@@ -242,20 +357,31 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
         enumerable: BootstrapProbeInterfaceCheck,
         imageSourceField: string | null,
         animationSourceField: string | null,
+        sampleTokenId: string | null,
     ): Promise<BootstrapProbeFirstToken> {
         const candidates: BootstrapProbeTokenCandidate[] = [];
+        if (sampleTokenId) {
+            return this.probeRequestedSampleToken(
+                address,
+                sampleTokenId,
+                candidates,
+                imageSourceField,
+                animationSourceField,
+            );
+        }
+
         if (enumerable.supported === true) {
             try {
                 const tokenId = await this.rpc.readContract<bigint>({
                     address,
                     abi: ERC721_ENUMERABLE_ABI,
-                    functionName: "tokenByIndex",
+                    functionName: ERC721_TOKEN_BY_INDEX_FUNCTION,
                     args: [0n],
                 });
                 return this.readFirstTokenMetadata(
                     address,
                     tokenId.toString(),
-                    "token_by_index",
+                    BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.TokenByIndex,
                     candidates,
                     null,
                     imageSourceField,
@@ -278,9 +404,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 return this.readFirstTokenMetadata(
                     address,
                     tokenId,
-                    candidate.source === "token_uri"
-                        ? "candidate_token_uri"
-                        : "candidate_owner_of",
+                    firstTokenSourceForCandidate(candidate.source),
                     candidates,
                     candidate.tokenUri,
                     imageSourceField,
@@ -312,6 +436,40 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
         };
     }
 
+    private async probeRequestedSampleToken(
+        address: `0x${string}`,
+        tokenId: string,
+        candidates: BootstrapProbeTokenCandidate[],
+        imageSourceField: string | null,
+        animationSourceField: string | null,
+    ): Promise<BootstrapProbeFirstToken> {
+        const candidate = await this.probeTokenCandidate(address, tokenId);
+        candidates.push({
+            tokenId: candidate.tokenId,
+            exists: candidate.exists,
+            source: candidate.source,
+            error: candidate.error,
+        });
+        if (candidate.exists) {
+            return this.readFirstTokenMetadata(
+                address,
+                tokenId,
+                firstTokenSourceForCandidate(candidate.source),
+                candidates,
+                candidate.tokenUri,
+                imageSourceField,
+                animationSourceField,
+            );
+        }
+
+        return emptyFirstTokenWithError(
+            tokenId,
+            null,
+            candidates,
+            candidate.error ?? "sample token was not confirmed",
+        );
+    }
+
     private async probeTokenCandidate(
         address: `0x${string}`,
         tokenId: string,
@@ -321,7 +479,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
             return {
                 tokenId,
                 exists: true,
-                source: "token_uri",
+                source: BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE.TokenUri,
                 error: null,
                 tokenUri: tokenUri.uri,
             };
@@ -331,13 +489,13 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
             await this.rpc.readContract<string>({
                 address,
                 abi: ERC721_OWNER_ABI,
-                functionName: "ownerOf",
+                functionName: ERC721_OWNER_OF_FUNCTION,
                 args: [BigInt(tokenId)],
             });
             return {
                 tokenId,
                 exists: true,
-                source: "owner_of",
+                source: BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE.OwnerOf,
                 error: tokenUri.error,
                 tokenUri: null,
             };
@@ -361,7 +519,8 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
         requestedImageSourceField: string | null,
         requestedAnimationSourceField: string | null,
     ): Promise<BootstrapProbeFirstToken> {
-        const tokenUri = knownTokenUri ?? (await this.readTokenUri(address, tokenId));
+        const tokenUri =
+            knownTokenUri ?? (await this.readTokenUri(address, tokenId));
         if (typeof tokenUri !== "string" && !tokenUri.ok) {
             return emptyFirstTokenWithError(
                 tokenId,
@@ -454,7 +613,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
             const uri = await this.rpc.readContract<string>({
                 address,
                 abi: ERC721_METADATA_ABI,
-                functionName: "tokenURI",
+                functionName: ERC721_TOKEN_URI_FUNCTION,
                 args: [BigInt(tokenId)],
             });
             if (!uri.trim()) {
@@ -478,7 +637,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
 
 function unavailableTotalSupply(error: string): BootstrapProbeTotalSupply {
     return {
-        status: "unavailable",
+        status: BOOTSTRAP_PROBE_READ_STATUS.Unavailable,
         value: null,
         safeIntegerValue: null,
         bootstrapRangeValue: null,
@@ -513,6 +672,18 @@ function emptyFirstTokenWithError(
         metadataError: null,
         candidates,
     };
+}
+
+function firstTokenSourceForCandidate(
+    source: BootstrapProbeTokenCandidate["source"],
+): BootstrapProbeFirstTokenSource | null {
+    if (source === BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE.TokenUri) {
+        return BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.CandidateTokenUri;
+    }
+    if (source === BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE.OwnerOf) {
+        return BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.CandidateOwnerOf;
+    }
+    return null;
 }
 
 async function fetchTokenUriPayload(
@@ -638,7 +809,7 @@ async function probeMediaSize(
     fetchResilience: HttpFetchResilienceConfig,
 ): Promise<{
     bytes: number | null;
-    source: "download" | "data_uri" | null;
+    source: BootstrapProbeImageBytesSource | null;
     contentType: string | null;
     width: number | null;
     height: number | null;
@@ -654,7 +825,9 @@ async function probeMediaSize(
         const dimensionProbe = await probeImageDimensions(source.buffer);
         return {
             bytes: source.buffer.byteLength,
-            source: uri.startsWith("data:") ? "data_uri" : "download",
+            source: uri.startsWith("data:")
+                ? BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE.DataUri
+                : BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE.Download,
             contentType: source.contentType,
             width: dimensionProbe.width,
             height: dimensionProbe.height,

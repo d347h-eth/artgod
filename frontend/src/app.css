@@ -618,6 +618,7 @@ a:hover {
 	width: min(25rem, 100%);
 	aspect-ratio: 1;
 	background: var(--c-bg);
+	overflow: hidden;
 }
 
 .bootstrap-animation-preview-frame {
@@ -625,6 +626,7 @@ a:hover {
 	width: 100%;
 	height: 100%;
 	border: 0;
+	overflow: hidden;
 }
 
 .bootstrap-manual-edit-control {

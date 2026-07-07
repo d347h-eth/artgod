@@ -4,12 +4,17 @@
 	let {
 		iframeSource,
 		title,
-		className = ''
+		className = '',
+		hideScrollbars = false
 	}: {
 		iframeSource: TokenMediaIframeSource;
 		title: string;
 		className?: string;
+		hideScrollbars?: boolean;
 	} = $props();
+
+	// Legacy iframe scrolling control still applies before isolated documents load.
+	const IFRAME_SCROLLING_DISABLED = 'no';
 </script>
 
 <iframe
@@ -19,4 +24,5 @@
 	{title}
 	sandbox="allow-scripts"
 	referrerpolicy="no-referrer"
+	scrolling={hideScrollbars ? IFRAME_SCROLLING_DISABLED : undefined}
 ></iframe>

@@ -15,6 +15,7 @@ export const BOOTSTRAP_API_QUERY_PARAM = {
     Address: "address",
     AnimationSourceField: "animation_source_field",
     ImageSourceField: "image_source_field",
+    SampleTokenId: "sample_token_id",
     Slug: "slug",
     Standard: "standard",
 } as const;
@@ -34,6 +35,7 @@ export function buildProbeBootstrapCollectionPath(input: {
     standard: string;
     imageSourceField?: string | null;
     animationSourceField?: string | null;
+    sampleTokenId?: string | null;
 }): string {
     const query = new URLSearchParams();
     query.set(BOOTSTRAP_API_QUERY_PARAM.Address, input.address);
@@ -48,6 +50,12 @@ export function buildProbeBootstrapCollectionPath(input: {
         query.set(
             BOOTSTRAP_API_QUERY_PARAM.AnimationSourceField,
             input.animationSourceField.trim(),
+        );
+    }
+    if (input.sampleTokenId?.trim()) {
+        query.set(
+            BOOTSTRAP_API_QUERY_PARAM.SampleTokenId,
+            input.sampleTokenId.trim(),
         );
     }
     return `${buildBootstrapChainRoute(
