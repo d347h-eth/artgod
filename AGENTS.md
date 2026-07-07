@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## Critical Worktree/Branch Rule
+
+Agent is not allowed to work on 'main' or 'dev' branch. Agent is not allowed to switch worktrees or branches at will - this is blocking rule. Switching worktree/branch can be done only after receiving direct instructions about it.
+
 ## Critical Agent Standard
 
 - Challenge every prompt against project context, existing architecture, and industry best practices before acting. If the user's requested path is ad hoc, duplicative, unsafe, or worse than an established project/industry pattern, say so directly and steer the work toward the better standard.

@@ -8,6 +8,7 @@ import {
 	BOOTSTRAP_STEP_STATUS
 } from '@artgod/shared/bootstrap/pipeline';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
+import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-image-source';
 import { COLLECTION_STATUS } from '@artgod/shared/types';
 import type { ApiBootstrapFlowStep, BootstrapRunDetailApiResponse } from '../api-types';
 import { BOOTSTRAP_PROBE_E2E_CHAIN } from './bootstrap-probe-fixtures';
@@ -43,6 +44,8 @@ export function buildBootstrapRunDetailE2eDetail(
 			requestAddress: '0x1111111111111111111111111111111111111111',
 			requestOpenseaSlug: 'milady',
 			requestStandard: 'erc721',
+			imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+			animationSourceField: null,
 			metadataMode: BOOTSTRAP_METADATA_MODE.BestEffort,
 			enumerationMode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,
 			manualTokenIdsJson: null,

@@ -4,7 +4,13 @@ import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/b
 import { OPENSEA_API_KEY_ENV } from '@artgod/shared/config/opensea-integration';
 import { TERRAFORMS_EXTENSION_KEY } from '@artgod/shared/extensions/terraforms';
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
-import { BOOTSTRAP_STEP_ACTION, BOOTSTRAP_STEP_KEY } from '@artgod/shared/bootstrap/pipeline';
+import {
+	BOOTSTRAP_ENUMERATION_MODE,
+	BOOTSTRAP_STEP_ACTION,
+	BOOTSTRAP_STEP_KEY
+} from '@artgod/shared/bootstrap/pipeline';
+import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-image-source';
+import { TOKEN_METADATA_ANIMATION_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-animation-source';
 import { TEST_IDS } from '../src/lib/test-ids';
 import { DEFAULT_BOOTSTRAP_METADATA_MODE } from '../src/lib/bootstrap-metadata-mode';
 import {
@@ -23,6 +29,7 @@ import {
 	BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH,
 	installBootstrapRunDetailApiMock
 } from './helpers/bootstrap-run-detail-api';
+import { BOOTSTRAP_PROBE_STATUS_LABEL } from '../src/lib/bootstrap-contract-probe';
 
 const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
 
@@ -39,6 +46,7 @@ test.describe('bootstrap contract probe UI', () => {
 		await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
 
 		await expect(page.locator('input[name="address"]')).toBeVisible();
+		await expect(formLabel(page, 'Image source field')).toHaveCount(0);
 		await expect(formLabel(page, 'Collection slug')).toHaveCount(0);
 		await expect(formLabel(page, 'OpenSea slug')).toHaveCount(0);
 		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toHaveCount(0);
@@ -64,6 +72,10 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(page.locator('input[name="slug"]')).toHaveValue(
 			BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
 		);
+		await expect(rowControl(page, 'Image source field')).toHaveValue(
+			TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image
+		);
+		await expect(formRow(page, 'Image source field')).toContainText('resolved');
 		await expect(page.locator('input[name="slug"]')).toBeEnabled();
 		await expect(page.locator('input[name="openseaSlug"]')).toHaveValue(
 			BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
@@ -95,7 +107,63 @@ test.describe('bootstrap contract probe UI', () => {
 		await assertTooltipText(page, 'OpenSea slug', 'Required for bidding');
 		await expect(formLabel(page, 'Metadata mode')).toHaveCount(0);
 		expect(api.probeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable]);
+		expect(api.probeRequestImageSourceFields).toEqual([null]);
 		expect(api.openSeaSlugProbeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable]);
+	});
+
+	test('shows needs token start when supply is known but no sample token is confirmed', async ({
+		page
+	}) => {
+		const api = await installBootstrapProbeApiMock(page);
+		await openBootstrapProbeStatusOnly(
+			page,
+			BOOTSTRAP_PROBE_CONTRACTS.NeedsTokenStart,
+			BOOTSTRAP_PROBE_STATUS_LABEL.NeedsTokenStart
+		);
+
+		const statusRow = formRow(page, 'Contract probe status');
+		await expect(statusRow.locator('.bootstrap-probe-status-action-required')).toHaveCount(0);
+		await expect(rowControl(page, 'Image source field')).toHaveValue('');
+		await expect(formRow(page, 'Probe warnings')).toContainText(
+			'token id 0 and 1 could not be confirmed'
+		);
+		await expect(formLabel(page, 'Collection slug')).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toHaveCount(0);
+		expect(api.probeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.NeedsTokenStart]);
+		expect(api.openSeaSlugProbeRequests).toEqual([]);
+	});
+
+	test('requires manual image source overrides to probe again before showing the full form', async ({
+		page
+	}) => {
+		const api = await installBootstrapProbeApiMock(page);
+		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+
+		const imageSourceInput = rowControl(page, 'Image source field');
+		await expect(imageSourceInput).toHaveValue(TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image);
+		await imageSourceInput.fill(TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData);
+
+		await expect(formLabel(page, 'Collection slug')).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toHaveCount(0);
+		await expect(
+			formRow(page, 'Image source field').getByRole('button', { name: 'probe again' })
+		).toBeEnabled();
+
+		await imageSourceInput.press('Enter');
+		await expect(rowControl(page, 'Image source field')).toHaveValue(
+			TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData
+		);
+		await expect(formRow(page, 'Image source field')).toContainText('resolved');
+		await expect(formLabel(page, 'Collection slug')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeVisible();
+		expect(api.probeRequests).toEqual([
+			BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable,
+			BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable
+		]);
+		expect(api.probeRequestImageSourceFields).toEqual([
+			null,
+			TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData
+		]);
 	});
 
 	test('disables OpenSea slug input when the API key is unavailable', async ({ page }) => {
@@ -159,6 +227,9 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(page.locator('input[name="slug"]')).toHaveValue(
 			BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster
 		);
+		await expect(rowControl(page, 'Image source field')).toHaveValue(
+			TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image
+		);
 		await expect(page.locator('input[name="openseaSlug"]')).toHaveValue(
 			BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster
 		);
@@ -172,10 +243,19 @@ test.describe('bootstrap contract probe UI', () => {
 			String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION)
 		);
 		await expect(rowControl(page, 'Cached image max dimension')).toHaveAttribute('type', 'text');
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
 		await formRow(page, 'Cached image max dimension')
 			.getByRole('button', { name: 'estimate' })
 			.click();
 		await expect(formRow(page, 'Cached image max dimension')).toContainText('estimated');
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeEnabled();
+		const cacheCard = page.locator(`[data-testid="${TEST_IDS.BootstrapCacheTokenCard}"]`);
+		await expect(cacheCard).toBeVisible();
+		await expect(page.getByText('generated with the selected cache settings')).toBeVisible();
+		await expect(cacheCard.locator('img')).toHaveAttribute(
+			'src',
+			'data:image/webp;base64,Y2FjaGVk'
+		);
 		await expect(formRow(page, 'Original image dimensions')).toContainText('2160 x 2160px');
 		await expect(formRow(page, 'Cached image size (1 token)')).toContainText('24.0 KB');
 		await expect(formRow(page, 'Cached image dimensions')).toContainText('1080 x 1080px');
@@ -183,6 +263,8 @@ test.describe('bootstrap contract probe UI', () => {
 			'176 MB'
 		);
 		await rowControl(page, 'Cached image max dimension').fill('720');
+		await expect(cacheCard).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
 		await expect(
 			formRow(page, 'Cached image max dimension').getByRole('button', { name: 'estimate' })
 		).toBeEnabled();
@@ -199,6 +281,8 @@ test.describe('bootstrap contract probe UI', () => {
 		expect(api.mutations[0]?.body).toMatchObject({
 			slug: 'custom-raster-slug',
 			metadataMode: DEFAULT_BOOTSTRAP_METADATA_MODE,
+			imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+			animationSourceField: TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl,
 			openseaSlug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster,
 			imageCache: {
 				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
@@ -225,6 +309,110 @@ test.describe('bootstrap contract probe UI', () => {
 		expect(dynamicRequests).toEqual([]);
 	});
 
+	test('lets optional animation source overrides resolve or be cleared', async ({ page }) => {
+		const api = await installBootstrapProbeApiMock(page);
+		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+
+		const animationRow = formRow(page, 'Animation source field');
+		await expect(rowControl(page, 'Animation source field')).toHaveValue(
+			TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl
+		);
+		await expect(animationRow).toContainText('resolved');
+		await expect(page.getByRole('button', { name: 'animation' })).toBeEnabled();
+		await page.getByRole('button', { name: 'animation' }).click();
+		await expect(page.locator('iframe.bootstrap-animation-preview-frame')).toHaveAttribute(
+			'src',
+			BOOTSTRAP_PROBE_MEDIA.DynamicAnimationUrl
+		);
+		await page.getByRole('button', { name: 'image' }).click();
+
+		await rowControl(page, 'Animation source field').fill('missing_animation');
+		await expect(animationRow.getByRole('button', { name: 'resolve' })).toBeEnabled();
+		await animationRow.getByRole('button', { name: 'resolve' }).click();
+		await expect(animationRow).toContainText('incorrect');
+		await expect(
+			page.getByText('Animation source field must resolve before queueing bootstrap')
+		).toBeVisible();
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
+
+		await rowControl(page, 'Animation source field').fill('');
+		await expect(animationRow).not.toContainText('incorrect');
+		await expect(page.getByRole('button', { name: 'animation' })).toBeDisabled();
+		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.Off);
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeEnabled();
+		await page.getByRole('button', { name: 'queue bootstrap' }).click();
+		await expect.poll(() => api.mutations.length).toBe(1);
+		expect(api.mutations[0]?.body).toMatchObject({
+			imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+			animationSourceField: null
+		});
+	});
+
+	test('requires manual supply before cache estimate for shared contracts', async ({ page }) => {
+		const api = await installBootstrapProbeApiMock(page);
+		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
+
+		const statusRow = formRow(page, 'Contract probe status');
+		await expect(statusRow.locator('.bootstrap-probe-status-action-required')).toContainText(
+			BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope
+		);
+		await statusRow.locator('.bootstrap-probe-status-tooltip').hover();
+		await expect(
+			statusRow.locator('.bootstrap-probe-status-tooltip .info-tooltip-popup')
+		).toContainText('shared contract');
+		await expect(rowControl(page, 'Manual range start token ID')).toHaveValue('0');
+		await expect(rowControl(page, 'Manual range total supply')).toHaveValue('');
+		await expect(formRow(page, 'Est. source images size (full collection)')).toContainText('-');
+		await expect(
+			formRow(page, 'Cached image max dimension').getByRole('button', { name: 'estimate' })
+		).toBeDisabled();
+		await expect(page.getByText('Manual range total supply must be a positive integer')).toBeVisible();
+		await expect(page.getByText('Set collection scope and supply before estimating image cache')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
+
+		await page.locator(`[data-testid="${TEST_IDS.BootstrapAllowManualEditing}"]`).check();
+		await rowControl(page, 'Manual range total supply').fill('940');
+		await expect(formRow(page, 'Est. source images size (full collection)')).toContainText(
+			'6.21 GB'
+		);
+		await expect(
+			formRow(page, 'Cached image max dimension').getByRole('button', { name: 'estimate' })
+		).toBeEnabled();
+		await expect(page.getByText('Run image cache estimate before queueing bootstrap')).toBeVisible();
+
+		await formRow(page, 'Cached image max dimension')
+			.getByRole('button', { name: 'estimate' })
+			.click();
+		await expect(formRow(page, 'Cached image max dimension')).toContainText('estimated');
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeEnabled();
+		expect(api.imageCacheEstimateRequests).toEqual([
+			expect.objectContaining({
+				sampleTokenId: '0',
+				sourceImageBytes: 7088374,
+				totalSupply: '940',
+				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+				maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
+			})
+		]);
+
+		await page.getByRole('button', { name: 'queue bootstrap' }).click();
+		await expect.poll(() => api.mutations.length).toBe(1);
+		expect(api.mutations[0]?.body).toMatchObject({
+			imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+			animationSourceField: null,
+			manualInput: {
+				mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
+				startTokenId: '0',
+				totalSupply: 940
+			},
+			imageCache: {
+				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+				maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
+			}
+		});
+	});
+
 	test('renders enumerable onchain SVG image data with extension image cache off', async ({
 		page
 	}) => {
@@ -236,6 +424,9 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(card.locator('img')).toHaveAttribute('src', BOOTSTRAP_PROBE_MEDIA.OnchainSvgImage);
 		await expect(page.locator('input[name="slug"]')).toHaveValue(
 			BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableOnchainSvg
+		);
+		await expect(rowControl(page, 'Image source field')).toHaveValue(
+			TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData
 		);
 		const imageCacheModeSelect = rowControl(page, 'Image cache mode');
 		await expect(imageCacheModeSelect).toHaveValue(IMAGE_CACHE_MODE.Off);
@@ -262,6 +453,8 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect.poll(() => api.mutations.length).toBe(1);
 		expect(api.mutations[0]?.body).toMatchObject({
 			metadataMode: DEFAULT_BOOTSTRAP_METADATA_MODE,
+			imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData,
+			animationSourceField: null,
 			imageCache: {
 				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
 				imageCacheMode: IMAGE_CACHE_MODE.Off,
@@ -318,6 +511,16 @@ async function openBootstrapProbe(page: Page, address: string): Promise<void> {
 	await expect(page.locator(`[data-testid="${TEST_IDS.BootstrapProbeTokenCard}"]`)).toBeVisible();
 }
 
+async function openBootstrapProbeStatusOnly(
+	page: Page,
+	address: string,
+	expectedStatus: string
+): Promise<void> {
+	await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
+	await page.locator('input[name="address"]').fill(address);
+	await expect(formRow(page, 'Contract probe status')).toContainText(expectedStatus);
+}
+
 function tokenCard(page: Page, tokenId: string) {
 	return page.locator(`[data-testid="${TEST_IDS.TokenCard}"][data-token-id="${tokenId}"]`);
 }
@@ -351,7 +554,9 @@ async function assertOpenSeaDisabledNoteFitsSlugInput(page: Page): Promise<void>
 
 async function assertEveryBootstrapRowHasInfoTooltip(page: Page): Promise<void> {
 	const rows = page.locator('.bootstrap-form-fields .bootstrap-form-row');
-	const tooltips = page.locator('.bootstrap-form-fields .bootstrap-form-row .info-tooltip');
+	const tooltips = page.locator(
+		'.bootstrap-form-fields .bootstrap-form-row .bootstrap-form-label-cell .info-tooltip'
+	);
 	expect(await tooltips.count()).toBe(await rows.count());
 }
 

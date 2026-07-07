@@ -1,8 +1,10 @@
 import {
+	COLLECTION_MEDIA_SOURCE,
 	TRADING_BIDDING_BID_BOOK_PRICE_KIND,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	type CollectionBiddingBidScopeFilter,
 	type CollectionBiddingTraitFilterJoinMode,
+	type CollectionMediaSource,
 	type CollectionStatus,
 	type TradingBiddingBidBookSource,
 	type TradingBiddingBidBookOwnJobPhase,
@@ -89,6 +91,7 @@ export type OwnerRefResolutionApiResponse = {
 };
 
 export type ApiCollectionCustomizationSource = 'user' | 'extension';
+export type ApiCollectionMediaSource = CollectionMediaSource;
 
 export type ApiImageCacheMode = ImageCacheMode;
 export type ApiBiddingJobStatus = 'enabled' | 'paused' | 'archived';
@@ -225,6 +228,7 @@ export type ApiBootstrapProbeFirstToken = {
 	tokenUriPayloadTruncated: boolean;
 	tokenUriPayloadError: string | null;
 	name: string | null;
+	imageSourceField: string | null;
 	image: string | null;
 	imageBytes: number | null;
 	imageBytesSource: 'content_length' | 'download' | 'data_uri' | null;
@@ -232,6 +236,7 @@ export type ApiBootstrapProbeFirstToken = {
 	imageBytesError: string | null;
 	imageWidth: number | null;
 	imageHeight: number | null;
+	animationSourceField: string | null;
 	animationUrl: string | null;
 	metadataError: string | null;
 	candidates: ApiBootstrapProbeTokenCandidate[];
@@ -290,6 +295,7 @@ export type BootstrapImageCacheEstimateApiResponse = {
 	projectedCachedBytes: string;
 	totalSupply: string;
 	contentType: string | null;
+	sampleCachedImageDataUrl: string | null;
 	sourceWidth: number | null;
 	sourceHeight: number | null;
 	width: number | null;
@@ -368,6 +374,7 @@ export type ApiTokenCard = {
 	marketplaceBiddingSupported: boolean;
 	name: string | null;
 	image: string | null;
+	animationUrl: string | null;
 	traitSummary: string | null;
 	listingPrice: string | null;
 	listingCurrency: string | null;
@@ -473,6 +480,19 @@ export type ApiImageCachePolicyFeatureState = {
 	effectiveConfig: ApiImageCachePolicyConfig;
 };
 
+export type ApiMediaPurposePolicyConfig = {
+	tokenCard: typeof COLLECTION_MEDIA_SOURCE.Image;
+	fullscreenPreview: ApiCollectionMediaSource;
+	tokenDetail: ApiCollectionMediaSource;
+};
+
+export type ApiMediaPurposePolicyFeatureState = {
+	selectedSource: ApiCollectionCustomizationSource;
+	userConfig: ApiMediaPurposePolicyConfig;
+	extensionConfig: ApiMediaPurposePolicyConfig | null;
+	effectiveConfig: ApiMediaPurposePolicyConfig;
+};
+
 export type CollectionsApiResponse = {
 	chain: ApiChain;
 	filters: {
@@ -540,6 +560,7 @@ export type CollectionCustomizationApiResponse = {
 		tokenCardTraitSummaryTemplate: ApiTraitSummaryTemplateFeatureState;
 		activityRowTraitSummaryTemplate: ApiTraitSummaryTemplateFeatureState;
 		imageCachePolicy: ApiImageCachePolicyFeatureState;
+		mediaPurposePolicy: ApiMediaPurposePolicyFeatureState;
 	};
 };
 
@@ -890,6 +911,8 @@ export type ApiBootstrapRun = {
 	requestOpenseaSlug: string | null;
 	requestAddress: string;
 	requestStandard: 'erc721' | 'erc1155';
+	imageSourceField: string | null;
+	animationSourceField: string | null;
 	metadataMode: 'strict' | 'best_effort';
 	enumerationMode: 'enumerable' | 'manual_token_ids' | 'manual_range';
 	manualTokenIdsJson: string | null;

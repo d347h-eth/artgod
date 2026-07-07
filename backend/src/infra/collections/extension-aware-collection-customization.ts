@@ -2,9 +2,11 @@ import {
     COLLECTION_CUSTOMIZATION_SOURCE_KIND,
     COLLECTION_CUSTOMIZATION_FEATURE_KEY,
     defaultImageCachePolicyFeatureConfig,
+    defaultMediaPurposePolicyConfig,
     defaultTraitFilterPresentationConfig,
     defaultTraitSummaryTemplateConfig,
     normalizeImageCachePolicyFeatureConfig,
+    normalizeMediaPurposePolicyConfig,
     normalizeTraitFilterPresentationConfig,
     normalizeTraitKeyList,
     normalizeTraitSummaryTemplateConfig,
@@ -12,6 +14,8 @@ import {
     type CollectionCustomizationSourceKind,
     type ImageCachePolicyFeatureState,
     type ImageCachePolicyConfig,
+    type MediaPurposePolicyFeatureState,
+    type MediaPurposePolicyConfig,
     type TraitSummaryTemplateConfig,
     type TraitSummaryTemplateFeatureState,
     type TraitFilterPresentationConfig,
@@ -231,6 +235,41 @@ export class ExtensionAwareCollectionCustomization {
         };
     }
 
+    getMediaPurposePolicyState(params: {
+        chainId: number;
+        collectionId: number;
+    }): MediaPurposePolicyFeatureState {
+        const install = this.extensionRecords.getInstallByCollectionId(
+            params.chainId,
+            params.collectionId,
+        );
+        const extensionConfig = resolveExtensionMediaPurposePolicyConfig(install);
+        const record = this.customizationRecords.getFeature({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            featureKey: COLLECTION_CUSTOMIZATION_FEATURE_KEY.MediaPurposePolicy,
+        });
+        const userConfig = parseMediaPurposePolicyConfigJson(
+            record?.userConfigJson ?? null,
+        );
+        const selectedSource = resolveCollectionCustomizationSelectedSource({
+            requestedSource: record?.selectedSource ?? null,
+            hasExtensionConfig: extensionConfig !== null,
+        });
+        const effectiveConfig =
+            selectedSource === COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension &&
+            extensionConfig
+                ? extensionConfig
+                : userConfig;
+
+        return {
+            selectedSource,
+            userConfig,
+            extensionConfig,
+            effectiveConfig,
+        };
+    }
+
     updateActivityRowTraitSummaryTemplateState(params: {
         chainId: number;
         collectionId: number;
@@ -284,6 +323,33 @@ export class ExtensionAwareCollectionCustomization {
         });
 
         return this.getImageCachePolicyState(params);
+    }
+
+    updateMediaPurposePolicyState(params: {
+        chainId: number;
+        collectionId: number;
+        selectedSource: CollectionCustomizationSourceKind;
+        userConfig: MediaPurposePolicyConfig;
+    }): MediaPurposePolicyFeatureState {
+        const normalizedUserConfig = normalizeMediaPurposePolicyConfig(
+            params.userConfig,
+        );
+        const currentState = this.getMediaPurposePolicyState(params);
+        assertExtensionConfigAvailable(
+            params.selectedSource,
+            currentState.extensionConfig,
+            "Extension media purpose policy unavailable",
+        );
+
+        this.customizationRecords.upsertFeature({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            featureKey: COLLECTION_CUSTOMIZATION_FEATURE_KEY.MediaPurposePolicy,
+            selectedSource: params.selectedSource,
+            userConfigJson: JSON.stringify(normalizedUserConfig),
+        });
+
+        return this.getMediaPurposePolicyState(params);
     }
 
     private resolveExtensionTraitFilterPresentationConfig(
@@ -361,6 +427,26 @@ function parseImageCachePolicyConfigJson(
         );
     } catch {
         return defaultImageCachePolicyFeatureConfig();
+    }
+}
+
+function parseMediaPurposePolicyConfigJson(
+    raw: string | null,
+): MediaPurposePolicyConfig {
+    if (!raw) {
+        return defaultMediaPurposePolicyConfig();
+    }
+
+    try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (!parsed || typeof parsed !== "object") {
+            return defaultMediaPurposePolicyConfig();
+        }
+        return normalizeMediaPurposePolicyConfig(
+            parsed as MediaPurposePolicyConfig,
+        );
+    } catch {
+        return defaultMediaPurposePolicyConfig();
     }
 }
 
@@ -449,6 +535,22 @@ function resolveExtensionImageCachePolicyConfig(
     return normalizeImageCachePolicyFeatureConfig(
         extension.resolveImageCachePolicyConfig(install),
     );
+}
+
+function resolveExtensionMediaPurposePolicyConfig(
+    install: CollectionExtensionInstall | null,
+): MediaPurposePolicyConfig | null {
+    if (!install?.enabled) {
+        return null;
+    }
+
+    const extension = resolveBackendCollectionExtension(install);
+    if (!extension) {
+        return null;
+    }
+
+    const config = extension.resolveMediaPurposePolicyConfig(install);
+    return config ? normalizeMediaPurposePolicyConfig(config) : null;
 }
 
 function assertExtensionConfigAvailable(

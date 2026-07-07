@@ -10,5 +10,11 @@ export interface TokenUriResolverPort {
 }
 
 export interface MetadataFetcherPort {
-    fetchMetadata(uri: string): Promise<TokenMetadata | null>;
+    fetchMetadata(
+        uri: string,
+        options?: {
+            imageSourceField?: string | null;
+            animationSourceField?: string | null;
+        },
+    ): Promise<TokenMetadata | null>;
 }

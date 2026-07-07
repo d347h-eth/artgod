@@ -4,6 +4,7 @@ import type {
     CollectionCustomizationSourceKind,
     ImageCachePolicyConfig,
     CollectionListItem,
+    MediaPurposePolicyConfig,
     TraitFacet,
     TraitFilterPresentationConfig,
     TraitSummaryTemplateConfig,
@@ -32,6 +33,10 @@ export type UpdateCollectionCustomizationInput = {
     imageCachePolicy: {
         selectedSource: CollectionCustomizationSourceKind;
         userConfig: ImageCachePolicyConfig;
+    };
+    mediaPurposePolicy: {
+        selectedSource: CollectionCustomizationSourceKind;
+        userConfig: MediaPurposePolicyConfig;
     };
 };
 
@@ -90,6 +95,12 @@ export class UpdateCollectionCustomizationUseCase {
                 selectedSource: CollectionCustomizationSourceKind;
                 userConfig: ImageCachePolicyConfig;
             }): CollectionCustomization["imageCachePolicy"];
+            updateMediaPurposePolicyState(params: {
+                chainId: number;
+                collectionId: number;
+                selectedSource: CollectionCustomizationSourceKind;
+                userConfig: MediaPurposePolicyConfig;
+            }): CollectionCustomization["mediaPurposePolicy"];
         },
         readonly imageCachePolicyTransitionPort: {
             deleteCollectionImageCache(input: {
@@ -155,6 +166,13 @@ export class UpdateCollectionCustomizationUseCase {
                 selectedSource: input.imageCachePolicy.selectedSource,
                 userConfig: input.imageCachePolicy.userConfig,
             });
+        const mediaPurposePolicy =
+            this.customizationWritePort.updateMediaPurposePolicyState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+                selectedSource: input.mediaPurposePolicy.selectedSource,
+                userConfig: input.mediaPurposePolicy.userConfig,
+            });
 
         await this.applyImageCachePolicyTransition({
             chainId: chain.publicChainId,
@@ -171,6 +189,7 @@ export class UpdateCollectionCustomizationUseCase {
                 tokenCardTraitSummaryTemplate,
                 activityRowTraitSummaryTemplate,
                 imageCachePolicy,
+                mediaPurposePolicy,
             },
         };
     }

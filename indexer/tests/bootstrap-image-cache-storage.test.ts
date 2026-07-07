@@ -12,6 +12,8 @@ const TEST_EXTENSION_KEY = "test-extension";
 const TEST_EXTENSION_OWNED_TOKEN_ID = "extension-owned-token";
 const TEST_ARTIFACT_LEASE_OWNER_A = "test-artifact-lease-a";
 const TEST_ARTIFACT_LEASE_OWNER_B = "test-artifact-lease-b";
+const TEST_UNSORTED_TOKEN_IDS = ["1", "10", "2", "100", "0003", "abc"] as const;
+const TEST_NUMERIC_TOKEN_ORDER = ["1", "2", "0003", "10", "100", "abc"];
 
 describe("bootstrap storage", () => {
     loadTestEnv();
@@ -60,6 +62,64 @@ describe("bootstrap storage", () => {
             failedTerminal: 0,
             total: 1,
         });
+    });
+
+    it("lists bootstrap token tasks in numeric token-id order", () => {
+        const storage = new SqliteBootstrapStorage();
+        storage.insertMetadataTasks(
+            TEST_UNSORTED_TOKEN_IDS.map((tokenId) =>
+                buildMetadataTaskSeed({ runId: 901, tokenId }),
+            ),
+        );
+
+        expect(
+            storage
+                .listMetadataTasksDueNow(901, 0, 10)
+                .map((task) => task.tokenId),
+        ).toEqual(TEST_NUMERIC_TOKEN_ORDER);
+        expect(storage.listMetadataTaskTokenIds(901)).toEqual(
+            TEST_NUMERIC_TOKEN_ORDER,
+        );
+
+        for (const tokenId of TEST_UNSORTED_TOKEN_IDS) {
+            seedMetadataWithImage(storage, {
+                runId: 902,
+                tokenId,
+                image: `ipfs://image-${tokenId}`,
+            });
+        }
+        storage.seedImageCacheTasks({
+            runId: 902,
+            requestedMaxDimension: 512,
+        });
+        expect(
+            storage
+                .listImageCacheTasksDueNow(902, 0, 10)
+                .map((task) => task.tokenId),
+        ).toEqual(TEST_NUMERIC_TOKEN_ORDER);
+
+        storage.insertOwnershipTasks(
+            TEST_UNSORTED_TOKEN_IDS.map((tokenId) =>
+                buildMetadataTaskSeed({ runId: 903, tokenId }),
+            ),
+        );
+        expect(
+            storage
+                .listOwnershipTasksDueNow(903, 0, 10)
+                .map((task) => task.tokenId),
+        ).toEqual(TEST_NUMERIC_TOKEN_ORDER);
+
+        for (const tokenId of TEST_UNSORTED_TOKEN_IDS) {
+            seedCollectionExtensionArtifactTask(storage, {
+                runId: 904,
+                tokenId,
+            });
+        }
+        expect(
+            storage
+                .listCollectionExtensionArtifactTasksDueNow(904, 0, 10)
+                .map((task) => task.tokenId),
+        ).toEqual(TEST_NUMERIC_TOKEN_ORDER);
     });
 
     it("seeds image cache tasks from successful metadata tasks", () => {
@@ -653,19 +713,7 @@ function seedMetadataWithImage(
         image: string;
     },
 ): void {
-    storage.insertMetadataTasks([
-        {
-            runId: input.runId,
-            chainId: 1,
-            collectionId: 7,
-            contract: "0xAbCd000000000000000000000000000000000000",
-            tokenId: input.tokenId,
-            standard: COLLECTION_STANDARD.Erc721,
-            anchorBlock: 100,
-            anchorHash: `0x${"11".repeat(32)}`,
-            anchorTimestamp: 1_726_000_000,
-        },
-    ]);
+    storage.insertMetadataTasks([buildMetadataTaskSeed(input)]);
     storage.markMetadataTaskSucceeded(input.runId, input.tokenId, 1);
     db.prepare(
         "INSERT INTO token_metadata " +
@@ -680,6 +728,20 @@ function seedMetadataWithImage(
         input.image,
         "[]",
     );
+}
+
+function buildMetadataTaskSeed(input: { runId: number; tokenId: string }) {
+    return {
+        runId: input.runId,
+        chainId: 1,
+        collectionId: 7,
+        contract: "0xAbCd000000000000000000000000000000000000",
+        tokenId: input.tokenId,
+        standard: COLLECTION_STANDARD.Erc721,
+        anchorBlock: 100,
+        anchorHash: `0x${"11".repeat(32)}`,
+        anchorTimestamp: 1_726_000_000,
+    };
 }
 
 function countTokenImageCacheRows(): number {

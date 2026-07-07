@@ -19,18 +19,22 @@ import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from "@artgod/shared/config/bootstrap";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
+import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import {
     BOOTSTRAP_RUN_EVENT_CODE,
     serializeBootstrapEnumerationProgressEventPayload,
 } from "@artgod/shared/bootstrap/run-events";
 import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from "@artgod/shared/bootstrap/opensea-slug-probe";
 import {
+    BOOTSTRAP_METADATA_MODE,
     BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_ACTION,
     BOOTSTRAP_STEP_KEY,
     BOOTSTRAP_STEP_STATUS,
     BOOTSTRAP_TASK_STATUS,
     serializeBootstrapStepDependencies,
+    type BootstrapStepKey,
+    type BootstrapStepStatus,
 } from "@artgod/shared/bootstrap/pipeline";
 import type { RpcRetryPolicy } from "@artgod/shared/evm/rpc-resilience";
 import { TOKEN_SET_SCHEMA_KIND } from "@artgod/shared/types/token-sets";
@@ -89,6 +93,8 @@ import {
     TRADING_JOB_STATUS,
     COLLECTION_CUSTOMIZATION_FEATURE_KEY,
     COLLECTION_CUSTOMIZATION_SOURCE_KIND,
+    COLLECTION_MEDIA_SOURCE,
+    defaultMediaPurposePolicyConfig,
 } from "@artgod/shared/types";
 import type { BackendSecurityConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
@@ -147,6 +153,13 @@ function defaultImageCachePolicyUpdateBody() {
             imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
             maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
         },
+    };
+}
+
+function defaultMediaPurposePolicyUpdateBody() {
+    return {
+        selectedSource: "user" as const,
+        userConfig: defaultMediaPurposePolicyConfig(),
     };
 }
 
@@ -362,6 +375,7 @@ beforeAll(async () => {
             1,
             chainsReadModel,
             collectionsReadModel,
+            customizationReadModel,
         );
     const getTokenUriUseCase = new tokenUriUseCaseModule.GetTokenUriUseCase(
         1,
@@ -675,6 +689,7 @@ beforeAll(async () => {
                             tokenUriPayloadTruncated: false,
                             tokenUriPayloadError: null,
                             name: "Milady 1",
+                            imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                             image: "https://example.com/1.png",
                             imageBytes: 1024,
                             imageBytesSource: "content_length",
@@ -682,6 +697,7 @@ beforeAll(async () => {
                             imageBytesError: null,
                             imageWidth: 2160,
                             imageHeight: 2160,
+                            animationSourceField: null,
                             animationUrl: null,
                             metadataError: null,
                             candidates: [],
@@ -710,6 +726,10 @@ beforeAll(async () => {
                         cachedBytes,
                         contentType:
                             input.maxDimension === null ? "image/png" : "image/webp",
+                        sampleCachedImageDataUrl:
+                            input.maxDimension === null
+                                ? "data:image/png;base64,Y2FjaGVk"
+                                : "data:image/webp;base64,Y2FjaGVk",
                         sourceWidth: 2160,
                         sourceHeight: 2160,
                         width: input.maxDimension,
@@ -2615,7 +2635,7 @@ describe("backend api routes", () => {
         expect(result.payload.tokens.items[1].listingPrice).toBeNull();
     });
 
-    it("returns token detail with animation_url fallback data and rarity stats", async () => {
+    it("returns token detail with snapshot animation media and rarity stats", async () => {
         const result = await resolve("GET", "/api/ethereum/milady/1");
         expect(result.statusCode).toBe(200);
         expect(result.payload.collection.slug).toBe("milady");
@@ -3977,6 +3997,15 @@ describe("backend api routes", () => {
             },
             extensionConfig: null,
         });
+        expect(milady.payload.customization.mediaPurposePolicy).toMatchObject({
+            selectedSource: "user",
+            userConfig: {
+                tokenCard: COLLECTION_MEDIA_SOURCE.Image,
+                fullscreenPreview: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+                tokenDetail: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+            },
+            extensionConfig: null,
+        });
 
         const terraforms = await resolve(
             "GET",
@@ -4033,6 +4062,21 @@ describe("backend api routes", () => {
                 },
             },
         );
+        expect(
+            terraforms.payload.customization.mediaPurposePolicy,
+        ).toMatchObject({
+            selectedSource: "extension",
+            extensionConfig: {
+                tokenCard: COLLECTION_MEDIA_SOURCE.Image,
+                fullscreenPreview: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+                tokenDetail: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+            },
+            effectiveConfig: {
+                tokenCard: COLLECTION_MEDIA_SOURCE.Image,
+                fullscreenPreview: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+                tokenDetail: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+            },
+        });
     });
 
     it("updates collection trait filter presentation and applies range filtering to tokens and activities", async () => {
@@ -4066,6 +4110,7 @@ describe("backend api routes", () => {
                     },
                 },
                 imageCachePolicy: defaultImageCachePolicyUpdateBody(),
+                mediaPurposePolicy: defaultMediaPurposePolicyUpdateBody(),
             },
             {
                 host: "127.0.0.1:42710",
@@ -4154,6 +4199,7 @@ describe("backend api routes", () => {
                     },
                 },
                 imageCachePolicy: defaultImageCachePolicyUpdateBody(),
+                mediaPurposePolicy: defaultMediaPurposePolicyUpdateBody(),
             },
             {
                 host: "127.0.0.1:42710",
@@ -4196,6 +4242,7 @@ describe("backend api routes", () => {
                     },
                 },
                 imageCachePolicy: defaultImageCachePolicyUpdateBody(),
+                mediaPurposePolicy: defaultMediaPurposePolicyUpdateBody(),
             },
             {
                 host: "127.0.0.1:42710",
@@ -4259,6 +4306,153 @@ describe("backend api routes", () => {
                     },
                 },
                 imageCachePolicy: defaultImageCachePolicyUpdateBody(),
+                mediaPurposePolicy: defaultMediaPurposePolicyUpdateBody(),
+            },
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+            },
+        );
+        expect(revert.statusCode).toBe(200);
+    });
+
+    it("updates media purpose policy and applies it to preview and detail media", async () => {
+        const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
+        });
+        const token = csrf.payload.token as string;
+        const cookie = csrf.headers["set-cookie"] as string;
+
+        const unsafeTokenCardUpdate = await resolve(
+            "PUT",
+            "/api/ethereum/milady/customization",
+            {
+                traitFilterPresentation: {
+                    selectedSource: "user",
+                    userConfig: {
+                        rangeKeys: [],
+                    },
+                },
+                tokenCardTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
+                    },
+                },
+                activityRowTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
+                    },
+                },
+                imageCachePolicy: defaultImageCachePolicyUpdateBody(),
+                mediaPurposePolicy: {
+                    selectedSource: "user",
+                    userConfig: {
+                        tokenCard: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+                        fullscreenPreview: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+                        tokenDetail: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+                    },
+                },
+            },
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+            },
+        );
+        expect(unsafeTokenCardUpdate.statusCode).toBe(400);
+
+        const update = await resolve(
+            "PUT",
+            "/api/ethereum/milady/customization",
+            {
+                traitFilterPresentation: {
+                    selectedSource: "user",
+                    userConfig: {
+                        rangeKeys: [],
+                    },
+                },
+                tokenCardTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
+                    },
+                },
+                activityRowTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
+                    },
+                },
+                imageCachePolicy: defaultImageCachePolicyUpdateBody(),
+                mediaPurposePolicy: {
+                    selectedSource: "user",
+                    userConfig: {
+                        tokenCard: COLLECTION_MEDIA_SOURCE.Image,
+                        fullscreenPreview: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+                        tokenDetail: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+                    },
+                },
+            },
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+            },
+        );
+        expect(update.statusCode).toBe(200);
+
+        const detail = await resolve("GET", "/api/ethereum/milady/1");
+        expect(detail.statusCode).toBe(200);
+        expect(detail.payload.token.animationUrl).toBe(
+            "https://example.com/1.html",
+        );
+
+        const collection = await resolve(
+            "GET",
+            "/api/ethereum/milady?token_status=all&limit=1",
+        );
+        expect(collection.statusCode).toBe(200);
+        expect(collection.payload.tokens.items[0].image).toBe(
+            "https://example.com/1.png",
+        );
+
+        const preview = await resolve("GET", "/api/ethereum/milady/1/preview");
+        expect(preview.statusCode).toBe(200);
+        expect(preview.payload.token.animationUrl).toBe(
+            "https://example.com/1.html",
+        );
+
+        const revert = await resolve(
+            "PUT",
+            "/api/ethereum/milady/customization",
+            {
+                traitFilterPresentation: {
+                    selectedSource: "user",
+                    userConfig: {
+                        rangeKeys: [],
+                    },
+                },
+                tokenCardTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
+                    },
+                },
+                activityRowTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
+                    },
+                },
+                imageCachePolicy: defaultImageCachePolicyUpdateBody(),
+                mediaPurposePolicy: defaultMediaPurposePolicyUpdateBody(),
             },
             {
                 host: "127.0.0.1:42710",
@@ -4311,6 +4505,8 @@ describe("backend api routes", () => {
             {
                 slug: "terraforms",
                 address: TERRAFORMS_ADDRESS,
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+                animationSourceField: null,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
@@ -4787,6 +4983,7 @@ describe("backend api routes", () => {
             projectedCachedBytes: "1536",
             totalSupply: "3",
             contentType: "image/webp",
+            sampleCachedImageDataUrl: "data:image/webp;base64,Y2FjaGVk",
             sourceWidth: 2160,
             sourceHeight: 2160,
             width: 1080,
@@ -4887,6 +5084,7 @@ describe("backend api routes", () => {
             {
                 slug: "csrf-multi-tab-bootstrap",
                 address: "0x7777777777777777777777777777777777777777",
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
@@ -4921,6 +5119,7 @@ describe("backend api routes", () => {
             {
                 slug: "public-origin-bootstrap",
                 address: "0x4444444444444444444444444444444444444444",
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
@@ -4974,6 +5173,7 @@ describe("backend api routes", () => {
             {
                 slug: "terraforms-embedded-extension",
                 address: EMBEDDED_TERRAFORMS_MAIN_ADDRESS,
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
@@ -5030,6 +5230,7 @@ describe("backend api routes", () => {
             {
                 slug: "terraforms-embedded-extension",
                 address: EMBEDDED_TERRAFORMS_MAIN_ADDRESS,
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
@@ -5292,19 +5493,41 @@ describe("backend api routes", () => {
         ).toBe(false);
     });
 
-    it("retries failed tasks for a specific run", async () => {
+    it("retries settled failed metadata tasks for a specific run", async () => {
         const runId = insertBootstrapRun({
             chainId: 1,
             collectionAddress: MILADY_ADDRESS,
-            status: "metadata",
-            metadataMode: "strict",
+            status: "completed",
+            metadataMode: "best_effort",
             anchorBlock: 24_500_123,
             anchorBlockHash:
                 "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             anchorBlockTimestamp: 1_726_000_123,
         });
+        db.prepare(
+            "UPDATE bootstrap_runs SET request_image_cache_mode = ?, request_image_cache_max_dimension = ? WHERE run_id = ?",
+        ).run(IMAGE_CACHE_MODE.CacheOnce, 512, runId);
+        insertBootstrapRunStep({
+            runId,
+            stepKey: BOOTSTRAP_STEP_KEY.Metadata,
+            status: BOOTSTRAP_STEP_STATUS.Succeeded,
+            blocking: true,
+            dependsOn: [BOOTSTRAP_STEP_KEY.Enumeration],
+            progressCompleted: 940,
+            progressTotal: 940,
+        });
+        insertBootstrapRunStep({
+            runId,
+            stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+            status: BOOTSTRAP_STEP_STATUS.Succeeded,
+            blocking: false,
+            dependsOn: [BOOTSTRAP_STEP_KEY.Metadata],
+            progressCompleted: 837,
+            progressTotal: 837,
+        });
         insertBootstrapMetadataTask(runId, "100", "failed_terminal");
         insertBootstrapMetadataTask(runId, "101", "failed_terminal");
+        insertBootstrapImageCacheTask(runId, "100", "succeeded");
 
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
             host: "127.0.0.1:42710",
@@ -5313,6 +5536,7 @@ describe("backend api routes", () => {
         const token = csrf.payload.token as string;
         const cookie = csrf.headers["set-cookie"] as string;
 
+        bootstrapStartInputs = [];
         const retried = await resolve(
             "POST",
             `/api/ethereum/bootstrap-runs/${runId}/retry-failed`,
@@ -5329,6 +5553,12 @@ describe("backend api routes", () => {
         expect(retried.payload.runId).toBe(runId);
         expect(retried.payload.updatedCount).toBe(2);
         expect(retried.payload.status).toBe("metadata");
+        expect(bootstrapStartInputs).toEqual([
+            expect.objectContaining({
+                runId,
+                collectionId: expect.any(Number),
+            }),
+        ]);
 
         const statuses = db
             .prepare<
@@ -5336,6 +5566,124 @@ describe("backend api routes", () => {
             >("SELECT status FROM bootstrap_metadata_snapshot_tasks WHERE run_id = ? ORDER BY token_id ASC")
             .all(runId) as Array<{ status: string }>;
         expect(statuses.map((item) => item.status)).toEqual(["retry", "retry"]);
+        expect(
+            db
+                .prepare<
+                    [number, string]
+                >("SELECT status, progress_completed, progress_total FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?")
+                .get(runId, BOOTSTRAP_STEP_KEY.Metadata),
+        ).toEqual({
+            status: BOOTSTRAP_STEP_STATUS.Ready,
+            progress_completed: 0,
+            progress_total: 2,
+        });
+        expect(
+            db
+                .prepare<
+                    [number, string]
+                >("SELECT status, progress_completed, progress_total FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?")
+                .get(runId, BOOTSTRAP_STEP_KEY.ImageCache),
+        ).toEqual({
+            status: BOOTSTRAP_STEP_STATUS.Pending,
+            progress_completed: 0,
+            progress_total: null,
+        });
+        expect(
+            db
+                .prepare<
+                    [number]
+                >("SELECT COUNT(*) AS count FROM bootstrap_image_cache_tasks WHERE run_id = ?")
+                .get(runId),
+        ).toEqual({ count: 0 });
+    });
+
+    it("waits for active image cache before retrying failed metadata tasks", async () => {
+        const runId = insertBootstrapRun({
+            chainId: 1,
+            collectionAddress: MILADY_ADDRESS,
+            status: BOOTSTRAP_RUN_STATUS.ImageCache,
+            metadataMode: BOOTSTRAP_METADATA_MODE.BestEffort,
+            anchorBlock: 24_500_123,
+            anchorBlockHash:
+                "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            anchorBlockTimestamp: 1_726_000_123,
+        });
+        db.prepare(
+            "UPDATE bootstrap_runs SET request_image_cache_mode = ?, request_image_cache_max_dimension = ? WHERE run_id = ?",
+        ).run(IMAGE_CACHE_MODE.CacheOnce, 512, runId);
+        insertBootstrapRunStep({
+            runId,
+            stepKey: BOOTSTRAP_STEP_KEY.Metadata,
+            status: BOOTSTRAP_STEP_STATUS.Succeeded,
+            blocking: true,
+            dependsOn: [BOOTSTRAP_STEP_KEY.Enumeration],
+            progressCompleted: 940,
+            progressTotal: 940,
+        });
+        insertBootstrapRunStep({
+            runId,
+            stepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+            status: BOOTSTRAP_STEP_STATUS.Running,
+            blocking: false,
+            dependsOn: [BOOTSTRAP_STEP_KEY.Metadata],
+            progressCompleted: 512,
+            progressTotal: 837,
+        });
+        insertBootstrapMetadataTask(
+            runId,
+            "100",
+            BOOTSTRAP_TASK_STATUS.FailedTerminal,
+        );
+        insertBootstrapImageCacheTask(
+            runId,
+            "1",
+            BOOTSTRAP_TASK_STATUS.Succeeded,
+        );
+
+        const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
+        });
+        const token = csrf.payload.token as string;
+        const cookie = csrf.headers["set-cookie"] as string;
+
+        bootstrapStartInputs = [];
+        const retried = await resolve(
+            "POST",
+            `/api/ethereum/bootstrap-runs/${runId}/retry-failed`,
+            {},
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+
+        expect(retried.statusCode).toBe(409);
+        expect(retried.payload.message).toBe(
+            "Failed metadata tasks can only be retried after image cache settles",
+        );
+        expect(bootstrapStartInputs).toEqual([]);
+        expect(
+            db
+                .prepare<
+                    [number]
+                >("SELECT status FROM bootstrap_metadata_snapshot_tasks WHERE run_id = ?")
+                .get(runId),
+        ).toEqual({ status: BOOTSTRAP_TASK_STATUS.FailedTerminal });
+        expect(
+            db
+                .prepare<
+                    [number, string]
+                >("SELECT status, progress_completed, progress_total FROM bootstrap_run_steps WHERE run_id = ? AND step_key = ?")
+                .get(runId, BOOTSTRAP_STEP_KEY.ImageCache),
+        ).toEqual({
+            status: BOOTSTRAP_STEP_STATUS.Running,
+            progress_completed: 512,
+            progress_total: 837,
+        });
     });
 
     it("removes legacy collection-scoped bootstrap mutation endpoints", async () => {
@@ -5366,6 +5714,7 @@ describe("backend api routes", () => {
             {
                 slug: "terraforms",
                 address: TERRAFORMS_ADDRESS,
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
@@ -5388,6 +5737,7 @@ describe("backend api routes", () => {
             {
                 slug: "terraforms-2",
                 address: "0x3333333333333333333333333333333333333333",
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
@@ -5409,6 +5759,7 @@ describe("backend api routes", () => {
             {
                 slug: "forbidden-host",
                 address: "0x5555555555555555555555555555555555555555",
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 standard: "erc721",
                 metadataMode: "best_effort",
                 supportsEnumerable: true,
@@ -6586,6 +6937,30 @@ function insertBootstrapRun(input: {
         throw new Error("Failed to resolve inserted bootstrap run");
     }
     return row.run_id;
+}
+
+function insertBootstrapRunStep(input: {
+    runId: number;
+    stepKey: BootstrapStepKey;
+    status: BootstrapStepStatus;
+    blocking: boolean;
+    dependsOn: BootstrapStepKey[];
+    progressCompleted?: number;
+    progressTotal?: number | null;
+}): void {
+    db.prepare(
+        "INSERT INTO bootstrap_run_steps " +
+            "(run_id, step_key, status, blocking, depends_on_json, progress_completed, progress_total) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+        input.runId,
+        input.stepKey,
+        input.status,
+        input.blocking ? 1 : 0,
+        serializeBootstrapStepDependencies(input.dependsOn),
+        input.progressCompleted ?? 0,
+        input.progressTotal ?? null,
+    );
 }
 
 function insertNftBalance(

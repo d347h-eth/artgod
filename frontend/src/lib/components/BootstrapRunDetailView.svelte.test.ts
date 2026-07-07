@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
-import { BOOTSTRAP_STEP_ACTION, BOOTSTRAP_STEP_KEY } from '@artgod/shared/bootstrap/pipeline';
+import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-image-source';
+import { COLLECTION_STATUS } from '@artgod/shared/types';
+import {
+	BOOTSTRAP_ENUMERATION_MODE,
+	BOOTSTRAP_FLOW_STEP_STATE,
+	BOOTSTRAP_METADATA_MODE,
+	BOOTSTRAP_RUN_STATUS,
+	BOOTSTRAP_STEP_ACTION,
+	BOOTSTRAP_STEP_KEY,
+	BOOTSTRAP_TASK_STATUS
+} from '@artgod/shared/bootstrap/pipeline';
 import type { ApiBootstrapFlowStep } from '$lib/api-types';
 import BootstrapRunDetailView from './BootstrapRunDetailView.svelte';
 
@@ -34,6 +44,8 @@ describe('BootstrapRunDetailView', () => {
 						requestAddress: '0x1111111111111111111111111111111111111111',
 						requestOpenseaSlug: null,
 						requestStandard: 'erc721',
+						imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+						animationSourceField: null,
 						metadataMode: 'best_effort',
 						enumerationMode: 'enumerable',
 						manualTokenIdsJson: null,
@@ -122,6 +134,8 @@ describe('BootstrapRunDetailView', () => {
 						requestAddress: '0x1111111111111111111111111111111111111111',
 						requestOpenseaSlug: null,
 						requestStandard: 'erc721',
+						imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+						animationSourceField: null,
 						metadataMode: 'best_effort',
 						enumerationMode: 'enumerable',
 						manualTokenIdsJson: null,
@@ -193,6 +207,8 @@ describe('BootstrapRunDetailView', () => {
 						requestAddress: '0x1111111111111111111111111111111111111111',
 						requestOpenseaSlug: null,
 						requestStandard: 'erc721',
+						imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+						animationSourceField: null,
 						metadataMode: 'best_effort',
 						enumerationMode: 'enumerable',
 						manualTokenIdsJson: null,
@@ -290,6 +306,8 @@ describe('BootstrapRunDetailView', () => {
 						requestAddress: '0x1111111111111111111111111111111111111111',
 						requestOpenseaSlug: null,
 						requestStandard: 'erc721',
+						imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+						animationSourceField: null,
 						metadataMode: 'best_effort',
 						enumerationMode: 'enumerable',
 						manualTokenIdsJson: null,
@@ -352,5 +370,195 @@ describe('BootstrapRunDetailView', () => {
 
 		expect(body).toContain('aria-label="retry image cache"');
 		expect(body).toContain('retry');
+	});
+
+	it('renders failed metadata retry action when failed tasks are settled', () => {
+		const { body } = render(BootstrapRunDetailView, {
+			props: {
+				chainRef: 'ethereum',
+				runId: 10,
+				initialDetail: {
+					run: {
+						runId: 10,
+						chainId: 1,
+						collectionId: 1,
+						requestSlug: 'milady',
+						requestAddress: '0x1111111111111111111111111111111111111111',
+						requestOpenseaSlug: null,
+						requestStandard: 'erc721',
+						imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+						animationSourceField: null,
+						metadataMode: 'best_effort',
+						enumerationMode: 'enumerable',
+						manualTokenIdsJson: null,
+						manualRangeStartTokenId: null,
+						manualRangeTotalSupply: null,
+						imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+						imageCacheMaxDimension: 1024,
+						deploymentBlock: null,
+						status: 'completed',
+						anchorBlock: 24500000,
+						anchorBlockHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+						anchorBlockTimestamp: 1726000000,
+						errorCode: null,
+						errorMessage: null,
+						createdAt: '2026-02-01T00:00:00Z',
+						updatedAt: '2026-02-01T00:02:00Z',
+						finishedAt: '2026-02-01T00:02:00Z'
+					},
+					collection: {
+						chainId: 1,
+						collectionId: 1,
+						slug: 'milady',
+						address: '0x1111111111111111111111111111111111111111',
+						status: 'live'
+					},
+					metadataTasks: {
+						pending: 0,
+						retry: 0,
+						succeeded: 837,
+						failedTerminal: 103,
+						total: 940
+					},
+					flow: {
+						steps: [
+							flowStep({
+								key: BOOTSTRAP_STEP_KEY.Metadata,
+								label: 'metadata',
+								state: BOOTSTRAP_FLOW_STEP_STATE.Completed,
+								detailText: 'failed 103',
+								progress: {
+									completed: 940,
+									total: 940
+								}
+							}),
+							flowStep({
+								key: BOOTSTRAP_STEP_KEY.ImageCache,
+								label: 'image cache',
+								state: BOOTSTRAP_FLOW_STEP_STATE.Completed,
+								detailText: null,
+								progress: {
+									completed: 837,
+									total: 837
+								}
+							})
+						],
+						isTerminal: true,
+						shouldPoll: false
+					},
+					failedMetadataTasksPreview: [
+						{
+							tokenId: '100',
+							status: BOOTSTRAP_TASK_STATUS.FailedTerminal,
+							attempts: 3,
+							nextAttemptAt: 0,
+							lastError: 'Metadata URI or payload unavailable',
+							lastErrorAt: null
+						}
+					],
+					failedMetadataTasksPreviewLimit: 50,
+					isLatestForCollection: true
+				}
+			}
+		});
+
+		expect(body).toContain('aria-label="retry failed metadata"');
+		expect(body).toContain('class="facet-panel-action-button"');
+		expect(body).toContain('retry failed metadata');
+	});
+
+	it('disables failed metadata retry action while image cache is still active', () => {
+		const { body } = render(BootstrapRunDetailView, {
+			props: {
+				chainRef: 'ethereum',
+				runId: 10,
+				initialDetail: {
+					run: {
+						runId: 10,
+						chainId: 1,
+						collectionId: 1,
+						requestSlug: 'milady',
+						requestAddress: '0x1111111111111111111111111111111111111111',
+						requestOpenseaSlug: null,
+						requestStandard: 'erc721',
+						imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+						animationSourceField: null,
+						metadataMode: BOOTSTRAP_METADATA_MODE.BestEffort,
+						enumerationMode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,
+						manualTokenIdsJson: null,
+						manualRangeStartTokenId: null,
+						manualRangeTotalSupply: null,
+						imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+						imageCacheMaxDimension: 1024,
+						deploymentBlock: null,
+						status: BOOTSTRAP_RUN_STATUS.ImageCache,
+						anchorBlock: 24500000,
+						anchorBlockHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+						anchorBlockTimestamp: 1726000000,
+						errorCode: null,
+						errorMessage: null,
+						createdAt: '2026-02-01T00:00:00Z',
+						updatedAt: '2026-02-01T00:02:00Z',
+						finishedAt: null
+					},
+					collection: {
+						chainId: 1,
+						collectionId: 1,
+						slug: 'milady',
+						address: '0x1111111111111111111111111111111111111111',
+						status: COLLECTION_STATUS.Bootstrapping
+					},
+					metadataTasks: {
+						pending: 0,
+						retry: 0,
+						succeeded: 837,
+						failedTerminal: 103,
+						total: 940
+					},
+					flow: {
+						steps: [
+							flowStep({
+								key: BOOTSTRAP_STEP_KEY.Metadata,
+								label: 'metadata',
+								state: BOOTSTRAP_FLOW_STEP_STATE.Completed,
+								detailText: 'failed 103',
+								progress: {
+									completed: 940,
+									total: 940
+								}
+							}),
+							flowStep({
+								key: BOOTSTRAP_STEP_KEY.ImageCache,
+								label: 'image cache',
+								state: BOOTSTRAP_FLOW_STEP_STATE.Active,
+								detailText: null,
+								progress: {
+									completed: 420,
+									total: 837
+								}
+							})
+						],
+						isTerminal: false,
+						shouldPoll: true
+					},
+					failedMetadataTasksPreview: [
+						{
+							tokenId: '100',
+							status: BOOTSTRAP_TASK_STATUS.FailedTerminal,
+							attempts: 3,
+							nextAttemptAt: 0,
+							lastError: 'Metadata URI or payload unavailable',
+							lastErrorAt: null
+						}
+					],
+					failedMetadataTasksPreviewLimit: 50,
+					isLatestForCollection: true
+				}
+			}
+		});
+
+		expect(body).toContain('aria-label="retry failed metadata"');
+		expect(body).toContain('disabled');
+		expect(body).toContain('retry will be available after the image-cache pass settles');
 	});
 });

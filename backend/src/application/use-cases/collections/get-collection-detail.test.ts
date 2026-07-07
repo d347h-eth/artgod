@@ -158,6 +158,7 @@ function tokenPage(): TokenCursorPage {
                 marketplaceBiddingSupported: true,
                 name: "Token 1",
                 image: null,
+                animationUrl: null,
                 listingPrice: null,
                 listingCurrency: null,
                 attributes: [{ key: "Power", value: "7" }],

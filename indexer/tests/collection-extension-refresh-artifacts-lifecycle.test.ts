@@ -8,6 +8,7 @@ import {
     type BootstrapTaskCounts,
 } from "@artgod/shared/bootstrap/pipeline";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
+import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import { TERRAFORMS_EXTENSION_KEY } from "@artgod/shared/extensions/terraforms";
 import {
     BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_FAILURE_MESSAGE,
@@ -568,6 +569,8 @@ function buildRun(): BootstrapRunDefinition {
         requestSlug: "test-collection",
         requestAddress: TEST_CONTRACT,
         requestStandard: "erc721",
+        imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+        animationSourceField: null,
         requestExtensionKey: TERRAFORMS_EXTENSION_KEY,
         metadataMode: BOOTSTRAP_METADATA_MODE.Strict,
         enumerationMode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,

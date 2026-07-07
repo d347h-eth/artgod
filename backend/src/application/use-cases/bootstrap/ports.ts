@@ -93,6 +93,8 @@ export interface BootstrapRunsWritePort {
         requestOpenseaSlug: string | null;
         requestAddress: string;
         requestStandard: "erc721" | "erc1155";
+        imageSourceField: string;
+        animationSourceField: string | null;
         requestExtensionKey: CollectionExtensionKey | null;
         metadataMode: BootstrapMetadataMode;
         enumerationMode: BootstrapEnumerationMode;
@@ -163,6 +165,15 @@ export interface BootstrapRunsWritePort {
         stepUpdated: boolean;
         taskUpdatedCount: number;
     };
+    retryFailedMetadataTasks(input: {
+        runId: number;
+        resetImageCacheStep: boolean;
+    }): {
+        updatedCount: number;
+        metadataStepUpdated: boolean;
+        imageCacheStepReset: boolean;
+        imageCacheTasksDeleted: number;
+    };
     listRunMetadataTasks(params: {
         runId: number;
         status?: BootstrapMetadataTaskStatus;
@@ -172,7 +183,6 @@ export interface BootstrapRunsWritePort {
         items: BootstrapMetadataTaskListItem[];
         nextCursor: string | null;
     };
-    retryFailedTasks(runId: number): number;
 }
 
 export interface BootstrapCommandQueuePort {

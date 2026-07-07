@@ -2,6 +2,7 @@ import {
     fetchTokenImageCacheSource,
     normalizeImageContentType,
 } from "@artgod/shared/media/token-image-cache-source";
+import { buildImageDataUri } from "@artgod/shared/media/token-resource-uri";
 import {
     readTokenImageSourceDimensions,
     resizeTokenImageCacheSourceToWebp,
@@ -33,6 +34,7 @@ export class SharpBootstrapImageCacheEstimateAdapter
         sourceBytes: number | null;
         cachedBytes: number;
         contentType: string | null;
+        sampleCachedImageDataUrl: string | null;
         sourceWidth: number | null;
         sourceHeight: number | null;
         width: number | null;
@@ -51,10 +53,17 @@ export class SharpBootstrapImageCacheEstimateAdapter
         });
 
         if (input.maxDimension === null) {
+            const contentType = normalizeImageContentType(source.contentType);
             return {
                 sourceBytes: source.buffer.byteLength,
                 cachedBytes: source.buffer.byteLength,
-                contentType: normalizeImageContentType(source.contentType),
+                contentType,
+                sampleCachedImageDataUrl: contentType
+                    ? buildImageDataUri({
+                          contentType,
+                          buffer: source.buffer,
+                      })
+                    : null,
                 sourceWidth: sourceDimensions.width,
                 sourceHeight: sourceDimensions.height,
                 width: sourceDimensions.width,
@@ -71,6 +80,10 @@ export class SharpBootstrapImageCacheEstimateAdapter
             sourceBytes: source.buffer.byteLength,
             cachedBytes: transformed.buffer.byteLength,
             contentType: transformed.contentType,
+            sampleCachedImageDataUrl: buildImageDataUri({
+                contentType: transformed.contentType,
+                buffer: transformed.buffer,
+            }),
             sourceWidth: sourceDimensions.width,
             sourceHeight: sourceDimensions.height,
             width: transformed.width,

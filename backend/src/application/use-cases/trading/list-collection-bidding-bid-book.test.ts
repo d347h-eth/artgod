@@ -327,6 +327,7 @@ function tokenCard(tokenId: string): TokenCard {
         marketplaceBiddingSupported: true,
         name: `Token ${tokenId}`,
         image: null,
+        animationUrl: null,
         listingPrice: null,
         listingCurrency: null,
         attributes: [{ key: "Mode", value: "Terrain" }],

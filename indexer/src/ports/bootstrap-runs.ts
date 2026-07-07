@@ -13,6 +13,8 @@ export type BootstrapRunDefinition = {
     requestSlug: string;
     requestAddress: string;
     requestStandard: "erc721" | "erc1155";
+    imageSourceField: string | null;
+    animationSourceField: string | null;
     requestExtensionKey: CollectionExtensionKey | null;
     metadataMode: BootstrapMetadataMode;
     enumerationMode: BootstrapEnumerationMode;

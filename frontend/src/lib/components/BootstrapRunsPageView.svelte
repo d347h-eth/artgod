@@ -30,6 +30,7 @@
 		probeBootstrapOpenSeaSlug
 	} from '$lib/backend-api';
 	import {
+		bootstrapProbeNeedsManualScope,
 		bootstrapProbeFormPatch,
 		bootstrapProbeStatusLabel,
 		contractNameToBootstrapSlug,
@@ -43,10 +44,21 @@
 	import InfoTooltip from '$lib/components/InfoTooltip.svelte';
 	import LoadingBladeBar from '$lib/components/LoadingBladeBar.svelte';
 	import TokenCardTile from '$lib/components/TokenCardTile.svelte';
+	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
+	import {
+		resolveTokenMediaIframeSource,
+		tokenMediaTitle,
+		type TokenMediaIframeSource
+	} from '$lib/token-media';
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import { TEST_IDS } from '$lib/test-ids';
+	import { BOOTSTRAP_ENUMERATION_MODE } from '@artgod/shared/bootstrap/pipeline';
 	import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from '@artgod/shared/bootstrap/opensea-slug-probe';
+
+	type BootstrapManualEnumerationMode =
+		| typeof BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
+		| typeof BOOTSTRAP_ENUMERATION_MODE.ManualRange;
 
 	let {
 		chain,
@@ -100,15 +112,37 @@
 	} as const;
 	type ImageCacheEstimateUiStatus =
 		(typeof imageCacheEstimateUiStatus)[keyof typeof imageCacheEstimateUiStatus];
+	const animationSourceProbeUiStatus = {
+		Idle: 'idle',
+		Loading: 'loading',
+		Ready: 'ready',
+		Error: 'error'
+	} as const;
+	type AnimationSourceProbeUiStatus =
+		(typeof animationSourceProbeUiStatus)[keyof typeof animationSourceProbeUiStatus];
+	const BOOTSTRAP_PREVIEW_SOURCE = {
+		Image: 'image',
+		Animation: 'animation'
+	} as const;
+	type BootstrapPreviewSource =
+		(typeof BOOTSTRAP_PREVIEW_SOURCE)[keyof typeof BOOTSTRAP_PREVIEW_SOURCE];
 	const openSeaSlugProbeFormId = 'bootstrap-opensea-slug-probe-form';
+	const imageSourceProbeFormId = 'bootstrap-image-source-probe-form';
+	const animationSourceProbeFormId = 'bootstrap-animation-source-probe-form';
 	const openSeaSetupMessage =
 		`Set ${OPENSEA_API_KEY_ENV} in Admin UI to sync OpenSea market/orderbook asks/offers required by built-in bidding bot features. Fully restart the app after saving the key in Admin UI.`;
+	const imageCachePreviewMessage =
+		'This preview was generated with the selected cache settings. If it looks wrong or does not render, choose caching: off.';
+	const manualScopeProbeMessage =
+		'The probe could not confirm the collection supply. This usually means the collection is on a shared contract. Enable manual editing below, then set the manual scope and supply for this collection.';
 	const bootstrapPreviewMediaModes: ApiCollectionMediaMode[] = [
 		{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
 	];
 	const tokenPreview = getTokenPreviewController();
 	const bootstrapFieldHelp = {
 		address: 'ERC721 contract address to probe and bootstrap.',
+		imageSourceField: 'Metadata field used as the original token image source.',
+		animationSourceField: 'Metadata field used as the original token animation source.',
 		slug: 'Local collection slug used in ArtGod URLs.',
 		openseaSlug:
 			'Required for bidding. OpenSea event streams and orderbook require the OpenSea collection slug.',
@@ -149,12 +183,24 @@
 	let collectionSlugInputHasValue = $state(false);
 	let lastAutoFilledSlug = $state<string | null>(null);
 	let bootstrapAddress = $state('');
+	let imageSourceField = $state('');
+	let imageSourceFieldInputElement = $state<HTMLInputElement | null>(null);
+	let imageSourceFieldDirty = $state(false);
+	let animationSourceField = $state('');
+	let animationSourceFieldInputElement = $state<HTMLInputElement | null>(null);
+	let animationSourceFieldInputHasValue = $state(false);
+	let animationSourceFieldDirty = $state(false);
+	let selectedBootstrapPreviewSource = $state<BootstrapPreviewSource>(
+		BOOTSTRAP_PREVIEW_SOURCE.Image
+	);
 	let bootstrapOpenSeaSlug = $state('');
 	let openSeaSlugInputElement = $state<HTMLInputElement | null>(null);
 	let openSeaSlugInputHasValue = $state(false);
 	let metadataMode = $state(DEFAULT_BOOTSTRAP_METADATA_MODE);
 	let supportsEnumerable = $state(false);
-	let manualMode = $state<'manual_token_ids' | 'manual_range'>('manual_range');
+	let manualMode = $state<BootstrapManualEnumerationMode>(
+		BOOTSTRAP_ENUMERATION_MODE.ManualRange
+	);
 	let manualTokenIds = $state('');
 	let manualRangeStartTokenId = $state('');
 	let manualRangeTotalSupply = $state('');
@@ -179,6 +225,10 @@
 	let openSeaSlugProbeError = $state<string | null>(null);
 	let openSeaSlugProbeAddress = $state<string | null>(null);
 	let openSeaSlugProbeRequestedSlug = $state<string | null>(null);
+	let animationSourceProbeStatus = $state<AnimationSourceProbeUiStatus>(
+		animationSourceProbeUiStatus.Idle
+	);
+	let animationSourceProbeError = $state<string | null>(null);
 	let imageCacheEstimateStatus = $state<ImageCacheEstimateUiStatus>(
 		imageCacheEstimateUiStatus.Idle
 	);
@@ -190,6 +240,7 @@
 	let imageCacheDimensionTimer: number | null = null;
 	let contractProbeRequestId = 0;
 	let openSeaSlugProbeRequestId = 0;
+	let animationSourceProbeRequestId = 0;
 	let imageCacheEstimateRequestId = 0;
 	let openSeaEnabled = $derived(openseaIntegration?.enabled === true);
 	let openSeaDisabledReason = $derived(
@@ -202,7 +253,24 @@
 	let latestProbeMatchesAddress = $derived(
 		probeStatus === 'ready' && probeAddress === normalizedBootstrapAddress
 	);
-	let formDetailsReady = $derived(latestProbeMatchesAddress && probeResult !== null);
+	let contractProbePending = $derived(probeStatus === 'waiting' || probeStatus === 'loading');
+	let imageSourceFieldSectionVisible = $derived(
+		(probeAddress === normalizedBootstrapAddress && probeResult !== null) ||
+			(contractProbePending && imageSourceFieldDirty)
+	);
+	let imageSourceFieldResolved = $derived(isImageSourceFieldResolved());
+	let imageSourceProbeButtonVisible = $derived(
+		imageSourceFieldSectionVisible && !imageSourceFieldResolved && !contractProbePending
+	);
+	let formDetailsReady = $derived(
+		latestProbeMatchesAddress && probeResult !== null && imageSourceFieldResolved
+	);
+	let animationSourceProbePending = $derived(
+		animationSourceProbeStatus === animationSourceProbeUiStatus.Loading
+	);
+	let animationSourceFieldResolved = $derived(isAnimationSourceFieldResolved());
+	let animationSourceFieldIncorrect = $derived(isAnimationSourceFieldIncorrect());
+	let probeStatusSectionVisible = $derived(resolveProbeStatusSectionVisible());
 	let openSeaSlugProbePending = $derived(
 		openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Waiting ||
 			openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Loading
@@ -221,15 +289,8 @@
 	let openSeaSlugResolved = $derived(isOpenSeaSlugResolved());
 	let openSeaSlugIncorrect = $derived(isOpenSeaSlugIncorrect());
 	let openSeaBiddingUnavailableMessage = $derived(resolveOpenSeaBiddingUnavailableMessage());
-	let submitDisabled = $derived(
-		submitting ||
-			!chain ||
-			!addressCanBeProbed ||
-			!formDetailsReady ||
-			!collectionSlugInputHasValue ||
-			openSeaSlugProbePending ||
-			(openSeaEnabled && openSeaSlugInputHasValue && !openSeaSlugResolved)
-	);
+	let queueBootstrapBlockers = $derived(resolveQueueBootstrapBlockers());
+	let submitDisabled = $derived(submitting || queueBootstrapBlockers.length > 0);
 	let probeControlledDisabled = $derived(
 		formDetailsReady && !manualEditingAllowed
 	);
@@ -239,12 +300,16 @@
 			!manualEditingAllowed
 	);
 	let firstTokenCard = $derived(firstTokenPreviewCard());
+	let cachedTokenCard = $derived(cachedTokenPreviewCard());
+	let animationPreviewIframeSource = $derived(resolveAnimationPreviewIframeSource());
+	let animationPreviewAvailable = $derived(animationPreviewIframeSource !== null);
 
 	onDestroy(() => {
 		cancelContractProbeTimer();
 		cancelImageCacheDimensionTimer();
 		contractProbeRequestId += 1;
 		openSeaSlugProbeRequestId += 1;
+		animationSourceProbeRequestId += 1;
 		imageCacheEstimateRequestId += 1;
 	});
 
@@ -278,6 +343,11 @@
 			probeStatus !== 'idle' ||
 			probeResult !== null ||
 			probeAddress !== null ||
+			imageSourceField.trim().length > 0 ||
+			imageSourceFieldDirty ||
+			animationSourceField.trim().length > 0 ||
+			animationSourceFieldDirty ||
+			animationSourceProbeStatus !== animationSourceProbeUiStatus.Idle ||
 			openSeaSlugProbeStatus !== openSeaSlugProbeUiStatus.Idle ||
 			bootstrapSlug.trim().length > 0 ||
 			bootstrapOpenSeaSlug.trim().length > 0 ||
@@ -290,7 +360,11 @@
 		cancelImageCacheDimensionTimer();
 		contractProbeRequestId += 1;
 		openSeaSlugProbeRequestId += 1;
+		animationSourceProbeRequestId += 1;
 		bootstrapAddress = nextAddress;
+		setImageSourceFieldValue('');
+		imageSourceFieldDirty = false;
+		clearAnimationSourceFieldState();
 		setCollectionSlugInputValue('');
 		lastAutoFilledSlug = null;
 		setOpenSeaSlugInputValue('');
@@ -299,7 +373,7 @@
 		openSeaSlugWasAutoFilled = false;
 		metadataMode = DEFAULT_BOOTSTRAP_METADATA_MODE;
 		supportsEnumerable = false;
-		manualMode = 'manual_range';
+		manualMode = BOOTSTRAP_ENUMERATION_MODE.ManualRange;
 		manualTokenIds = '';
 		manualRangeStartTokenId = '';
 		manualRangeTotalSupply = '';
@@ -316,12 +390,50 @@
 		resetImageCacheEstimateState();
 	}
 
+	function resetFormBelowImageSourceField(): void {
+		openSeaSlugProbeRequestId += 1;
+		imageCacheEstimateRequestId += 1;
+		animationSourceProbeRequestId += 1;
+		clearAnimationSourceFieldState();
+		setCollectionSlugInputValue('');
+		lastAutoFilledSlug = null;
+		setOpenSeaSlugInputValue('');
+		openSeaSlugInputHasValue = false;
+		lastAutoFilledOpenSeaSlug = null;
+		openSeaSlugWasAutoFilled = false;
+		metadataMode = DEFAULT_BOOTSTRAP_METADATA_MODE;
+		supportsEnumerable = false;
+		manualMode = BOOTSTRAP_ENUMERATION_MODE.ManualRange;
+		manualTokenIds = '';
+		manualRangeStartTokenId = '';
+		manualRangeTotalSupply = '';
+		imageCacheMode = IMAGE_CACHE_MODE.CacheOnce;
+		setImageCacheMaxDimensionValue(String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION));
+		resetImageCachePolicySource();
+		manualEditingAllowed = false;
+		submitError = null;
+		resetOpenSeaSlugProbeState();
+		resetImageCacheEstimateState();
+	}
+
 	function resetOpenSeaSlugProbeState(): void {
 		openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Idle;
 		openSeaSlugProbeResult = null;
 		openSeaSlugProbeError = null;
 		openSeaSlugProbeAddress = null;
 		openSeaSlugProbeRequestedSlug = null;
+	}
+
+	function resetAnimationSourceProbeState(): void {
+		animationSourceProbeStatus = animationSourceProbeUiStatus.Idle;
+		animationSourceProbeError = null;
+	}
+
+	function clearAnimationSourceFieldState(): void {
+		setAnimationSourceFieldValue('');
+		animationSourceFieldDirty = false;
+		resetAnimationSourceProbeState();
+		selectedBootstrapPreviewSource = BOOTSTRAP_PREVIEW_SOURCE.Image;
 	}
 
 	function resetImageCacheEstimateState(): void {
@@ -346,6 +458,25 @@
 		return normalizeFieldValue(
 			collectionSlugInputElement?.value ?? bootstrapSlug
 		).toLowerCase();
+	}
+
+	function setImageSourceFieldValue(value: string): void {
+		imageSourceField = value;
+		if (imageSourceFieldInputElement) imageSourceFieldInputElement.value = value;
+	}
+
+	function readImageSourceFieldInputValue(): string {
+		return normalizeFieldValue(imageSourceFieldInputElement?.value ?? imageSourceField);
+	}
+
+	function setAnimationSourceFieldValue(value: string): void {
+		animationSourceField = value;
+		if (animationSourceFieldInputElement) animationSourceFieldInputElement.value = value;
+		animationSourceFieldInputHasValue = normalizeFieldValue(value).length > 0;
+	}
+
+	function readAnimationSourceFieldInputValue(): string {
+		return normalizeFieldValue(animationSourceFieldInputElement?.value ?? animationSourceField);
 	}
 
 	function onCollectionSlugInput(event: Event): void {
@@ -378,9 +509,56 @@
 	}
 
 	function onBootstrapAddressFocus(event: FocusEvent): void {
-		if (!formDetailsReady) return;
+		if (!latestProbeMatchesAddress) return;
 		const target = event.currentTarget;
 		if (target instanceof HTMLInputElement) target.select();
+	}
+
+	function onImageSourceFieldInput(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLInputElement)) return;
+		cancelContractProbeTimer();
+		contractProbeRequestId += 1;
+		imageSourceField = target.value;
+		imageSourceFieldDirty = true;
+		probeError = null;
+		resetFormBelowImageSourceField();
+	}
+
+	function onAnimationSourceFieldInput(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLInputElement)) return;
+		animationSourceProbeRequestId += 1;
+		const nextValue = target.value;
+		setAnimationSourceFieldValue(nextValue);
+		if (!normalizeFieldValue(nextValue)) {
+			animationSourceFieldDirty = false;
+			resetAnimationSourceProbeState();
+			selectedBootstrapPreviewSource = BOOTSTRAP_PREVIEW_SOURCE.Image;
+			return;
+		}
+		animationSourceFieldDirty = true;
+		resetAnimationSourceProbeState();
+		selectedBootstrapPreviewSource = BOOTSTRAP_PREVIEW_SOURCE.Image;
+	}
+
+	function onSubmitImageSourceProbe(event: SubmitEvent): void {
+		event.preventDefault();
+		const chainSlug = chain?.slug ?? null;
+		const address = normalizeBootstrapAddress(bootstrapAddress);
+		if (!chainSlug || !isBootstrapProbeableAddress(address)) return;
+		contractProbeRequestId += 1;
+		scheduleContractProbe(chainSlug, address, readImageSourceFieldInputValue(), false);
+	}
+
+	function onSubmitAnimationSourceProbe(event: SubmitEvent): void {
+		event.preventDefault();
+		const requestedField = readAnimationSourceFieldInputValue();
+		if (!requestedField) {
+			clearAnimationSourceFieldState();
+			return;
+		}
+		void runAnimationSourceProbe(requestedField);
 	}
 
 	function maybeStartContractProbe(addressInput: string): void {
@@ -400,41 +578,66 @@
 			probeError = 'chain is not ready';
 			return;
 		}
-		scheduleContractProbe(chainSlug, normalizeBootstrapAddress(addressInput));
+		scheduleContractProbe(chainSlug, normalizeBootstrapAddress(addressInput), null, true);
 	}
 
-	function scheduleContractProbe(chainSlug: string, address: string): void {
+	function scheduleContractProbe(
+		chainSlug: string,
+		address: string,
+		imageSourceFieldOverride: string | null,
+		useDelay: boolean,
+		animationSourceFieldOverride?: string | null
+	): void {
 		const requestId = contractProbeRequestId;
 		probeStatus = 'waiting';
-		probeResult = null;
-		probeAddress = null;
+		if (!imageSourceFieldSectionVisible) {
+			probeResult = null;
+			probeAddress = null;
+		}
 		probeError = null;
 		manualEditingAllowed = false;
 		resetImageCachePolicySource();
-		if (!browser) {
-			void runContractProbe(chainSlug, address, requestId);
+		if (!browser || !useDelay) {
+			void runContractProbe(
+				chainSlug,
+				address,
+				requestId,
+				imageSourceFieldOverride,
+				animationSourceFieldOverride
+			);
 			return;
 		}
 		contractProbeTimer = window.setTimeout(() => {
-			void runContractProbe(chainSlug, address, requestId);
+			void runContractProbe(
+				chainSlug,
+				address,
+				requestId,
+				imageSourceFieldOverride,
+				animationSourceFieldOverride
+			);
 		}, contractProbeDelayMs);
 	}
 
 	async function runContractProbe(
 		chainSlug: string,
 		address: string,
-		requestId: number
+		requestId: number,
+		imageSourceFieldOverride: string | null,
+		animationSourceFieldOverride?: string | null
 	): Promise<void> {
 		probeStatus = 'loading';
 		try {
-			const result = await probeBootstrapCollectionContract(fetch, chainSlug, address);
+			const result = await probeBootstrapCollectionContract(fetch, chainSlug, address, {
+				imageSourceField: imageSourceFieldOverride,
+				animationSourceField: animationSourceFieldOverride
+			});
 			if (requestId !== contractProbeRequestId) return;
 			probeStatus = 'ready';
 			probeResult = result;
 			probeAddress = result.address;
 			manualEditingAllowed = false;
-			applyProbeResult(result);
-			if (openSeaEnabled) {
+			applyProbeResult(result, imageSourceFieldOverride, animationSourceFieldOverride);
+			if (isImageSourceFieldResolved() && openSeaEnabled) {
 				scheduleOpenSeaAddressProbe(chainSlug, result.address);
 			} else {
 				resetOpenSeaSlugProbeState();
@@ -442,9 +645,41 @@
 		} catch (error) {
 			if (requestId !== contractProbeRequestId) return;
 			probeStatus = 'error';
-			probeResult = null;
-			probeAddress = null;
+			if (imageSourceFieldOverride === null) {
+				probeResult = null;
+				probeAddress = null;
+			} else {
+				probeAddress = address;
+			}
 			probeError = error instanceof Error ? error.message : 'contract probe failed';
+		}
+	}
+
+	async function runAnimationSourceProbe(requestedField: string): Promise<void> {
+		const chainSlug = chain?.slug ?? null;
+		const address = normalizeBootstrapAddress(bootstrapAddress);
+		const imageSourceFieldForProbe = normalizeFieldValue(probeResult?.firstToken.imageSourceField);
+		if (!chainSlug || !isBootstrapProbeableAddress(address) || !imageSourceFieldForProbe) return;
+		animationSourceProbeRequestId += 1;
+		const requestId = animationSourceProbeRequestId;
+		animationSourceProbeStatus = animationSourceProbeUiStatus.Loading;
+		animationSourceProbeError = null;
+		try {
+			const result = await probeBootstrapCollectionContract(fetch, chainSlug, address, {
+				imageSourceField: imageSourceFieldForProbe,
+				animationSourceField: requestedField
+			});
+			if (requestId !== animationSourceProbeRequestId) return;
+			probeResult = result;
+			probeAddress = result.address;
+			probeStatus = 'ready';
+			applyAnimationSourceProbeResult(result, requestedField);
+		} catch (error) {
+			if (requestId !== animationSourceProbeRequestId) return;
+			animationSourceProbeStatus = animationSourceProbeUiStatus.Error;
+			animationSourceProbeError =
+				error instanceof Error ? error.message : 'animation source probe failed';
+			selectedBootstrapPreviewSource = BOOTSTRAP_PREVIEW_SOURCE.Image;
 		}
 	}
 
@@ -529,20 +764,66 @@
 		}
 	}
 
-	function applyProbeResult(result: BootstrapContractProbeApiResponse): void {
+	function applyProbeResult(
+		result: BootstrapContractProbeApiResponse,
+		requestedImageSourceField: string | null,
+		requestedAnimationSourceField?: string | null
+	): void {
 		const patch = bootstrapProbeFormPatch(result);
 		const slugSuggestion = contractNameToBootstrapSlug(result.contractName);
+		const resolvedImageSourceField = normalizeFieldValue(result.firstToken.imageSourceField);
+		const resolvedAnimationSourceField = normalizeFieldValue(
+			result.firstToken.animationSourceField
+		);
+		setImageSourceFieldValue(
+			resolvedImageSourceField || normalizeFieldValue(requestedImageSourceField)
+		);
+		if (requestedAnimationSourceField !== undefined) {
+			setAnimationSourceFieldValue(
+				resolvedAnimationSourceField || normalizeFieldValue(requestedAnimationSourceField)
+			);
+			animationSourceProbeStatus = animationSourceProbeUiStatus.Ready;
+		} else {
+			setAnimationSourceFieldValue(resolvedAnimationSourceField);
+			animationSourceProbeStatus = resolvedAnimationSourceField
+				? animationSourceProbeUiStatus.Ready
+				: animationSourceProbeUiStatus.Idle;
+		}
+		imageSourceFieldDirty = false;
+		animationSourceFieldDirty = false;
+		animationSourceProbeError = null;
+		if (!resolvedAnimationSourceField) {
+			selectedBootstrapPreviewSource = BOOTSTRAP_PREVIEW_SOURCE.Image;
+		}
 		if (slugSuggestion && (!bootstrapSlug.trim() || bootstrapSlug === lastAutoFilledSlug)) {
 			setCollectionSlugInputValue(slugSuggestion);
 			lastAutoFilledSlug = slugSuggestion;
 		}
 		supportsEnumerable = patch.supportsEnumerable;
-		if (patch.manualMode === 'manual_range') {
-			manualMode = 'manual_range';
+		if (!patch.supportsEnumerable) {
+			manualMode = patch.manualMode ?? BOOTSTRAP_ENUMERATION_MODE.ManualRange;
 			manualRangeStartTokenId = patch.manualRangeStartTokenId;
 			manualRangeTotalSupply = patch.manualRangeTotalSupply;
 		}
 		applyProbeImageCacheSuggestion(result.imageCacheSuggestion);
+	}
+
+	function applyAnimationSourceProbeResult(
+		result: BootstrapContractProbeApiResponse,
+		requestedAnimationSourceField: string
+	): void {
+		const resolvedAnimationSourceField = normalizeFieldValue(
+			result.firstToken.animationSourceField
+		);
+		setAnimationSourceFieldValue(
+			resolvedAnimationSourceField || normalizeFieldValue(requestedAnimationSourceField)
+		);
+		animationSourceFieldDirty = false;
+		animationSourceProbeStatus = animationSourceProbeUiStatus.Ready;
+		animationSourceProbeError = null;
+		if (!resolvedAnimationSourceField) {
+			selectedBootstrapPreviewSource = BOOTSTRAP_PREVIEW_SOURCE.Image;
+		}
 	}
 
 	function applyOpenSeaSlugProbeResult(result: BootstrapOpenSeaSlugProbeApiResponse): void {
@@ -567,6 +848,28 @@
 
 	function normalizeOpenSeaSlugInput(value: string): string {
 		return value.trim().toLowerCase();
+	}
+
+	function isImageSourceFieldResolved(): boolean {
+		if (!latestProbeMatchesAddress || !probeResult) return false;
+		const resolvedField = normalizeFieldValue(probeResult.firstToken.imageSourceField);
+		if (!resolvedField || !probeResult.firstToken.image) return false;
+		return normalizeFieldValue(imageSourceField) === resolvedField && !imageSourceFieldDirty;
+	}
+
+	function isAnimationSourceFieldResolved(): boolean {
+		if (!latestProbeMatchesAddress || !probeResult) return false;
+		const resolvedField = normalizeFieldValue(probeResult.firstToken.animationSourceField);
+		if (!resolvedField || !probeResult.firstToken.animationUrl) return false;
+		return (
+			normalizeFieldValue(animationSourceField) === resolvedField && !animationSourceFieldDirty
+		);
+	}
+
+	function isAnimationSourceFieldIncorrect(): boolean {
+		if (!animationSourceFieldInputHasValue || animationSourceFieldDirty) return false;
+		if (animationSourceProbeStatus !== animationSourceProbeUiStatus.Ready) return false;
+		return !isAnimationSourceFieldResolved();
 	}
 
 	function isOpenSeaSlugResolved(): boolean {
@@ -606,6 +909,22 @@
 		return '';
 	}
 
+	function probeNeedsManualScope(): boolean {
+		return probeStatus === 'ready' && probeResult !== null && bootstrapProbeNeedsManualScope(probeResult);
+	}
+
+	function resolveProbeStatusSectionVisible(): boolean {
+		if (probeStatus === 'idle') return false;
+		if (!imageSourceFieldSectionVisible || formDetailsReady) return true;
+		return !imageSourceFieldDirty && !normalizeFieldValue(imageSourceField);
+	}
+
+	function probeStatusValueClass(): string {
+		return probeNeedsManualScope()
+			? 'bootstrap-probe-status mono bootstrap-probe-status-action-required'
+			: 'bootstrap-probe-status mono';
+	}
+
 	function openSeaSlugProbeMessage(): string | null {
 		if (openSeaDisabledReason) {
 			return `${openSeaDisabledReason}. ${openSeaSetupMessage}`;
@@ -639,6 +958,51 @@
 			marketplaceBiddingSupported: true,
 			name: firstToken.name,
 			image: firstToken.image,
+			animationUrl: firstToken.animationUrl,
+			traitSummary: null,
+			listingPrice: null,
+			listingCurrency: null,
+			attributes: [],
+			hasMetadata: firstToken.metadataError === null,
+			metadataUpdatedAt: null
+		};
+	}
+
+	function resolveAnimationPreviewIframeSource(): TokenMediaIframeSource | null {
+		const firstToken = probeResult?.firstToken;
+		if (!animationSourceFieldResolved || !firstToken?.tokenId || !firstToken.animationUrl) {
+			return null;
+		}
+		return resolveTokenMediaIframeSource(
+			firstToken.animationUrl,
+			null,
+			tokenMediaTitle(firstToken.tokenId)
+		);
+	}
+
+	function selectBootstrapPreviewSource(source: BootstrapPreviewSource): void {
+		if (source === BOOTSTRAP_PREVIEW_SOURCE.Animation && !animationPreviewAvailable) {
+			return;
+		}
+		selectedBootstrapPreviewSource = source;
+	}
+
+	function cachedTokenPreviewCard(): ApiTokenCard | null {
+		const firstToken = probeResult?.firstToken;
+		if (
+			imageCacheMode === IMAGE_CACHE_MODE.Off ||
+			!imageCacheEstimateReady ||
+			!imageCacheEstimateResult?.sampleCachedImageDataUrl ||
+			!firstToken?.tokenId
+		) {
+			return null;
+		}
+		return {
+			tokenId: firstToken.tokenId,
+			marketplaceBiddingSupported: true,
+			name: firstToken.name,
+			image: imageCacheEstimateResult.sampleCachedImageDataUrl,
+			animationUrl: null,
 			traitSummary: null,
 			listingPrice: null,
 			listingCurrency: null,
@@ -718,6 +1082,37 @@
 		void onEstimateImageCache();
 	}
 
+	function onManualScopeModeChange(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLSelectElement)) return;
+		manualMode =
+			target.value === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
+				? BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
+				: BOOTSTRAP_ENUMERATION_MODE.ManualRange;
+		resetImageCacheEstimateState();
+	}
+
+	function onManualTokenIdsInput(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLTextAreaElement)) return;
+		manualTokenIds = target.value;
+		resetImageCacheEstimateState();
+	}
+
+	function onManualRangeStartTokenIdInput(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLInputElement)) return;
+		manualRangeStartTokenId = target.value;
+		resetImageCacheEstimateState();
+	}
+
+	function onManualRangeTotalSupplyInput(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLInputElement)) return;
+		manualRangeTotalSupply = target.value;
+		resetImageCacheEstimateState();
+	}
+
 	function commitImageCacheMaxDimensionDraft(): void {
 		cancelImageCacheDimensionTimer();
 		imageCacheMaxDimension = imageCacheMaxDimensionDraft;
@@ -727,7 +1122,7 @@
 	function canRunImageCacheEstimate(): boolean {
 		if (!formDetailsReady || imageCacheMode === IMAGE_CACHE_MODE.Off) return false;
 		if (!probeResult?.firstToken.tokenId || !probeResult.firstToken.image) return false;
-		if (!probeResult.totalSupply.value) return false;
+		if (!resolvedBootstrapScopeTotalSupply()) return false;
 		return imageCacheEstimateStatus === imageCacheEstimateUiStatus.Idle;
 	}
 
@@ -745,7 +1140,8 @@
 			return;
 		}
 		const firstToken = probeResult.firstToken;
-		if (!firstToken.tokenId || !firstToken.image || !probeResult.totalSupply.value) return;
+		const totalSupply = resolvedBootstrapScopeTotalSupply();
+		if (!firstToken.tokenId || !firstToken.image || !totalSupply) return;
 		imageCacheEstimateRequestId += 1;
 		const requestId = imageCacheEstimateRequestId;
 		imageCacheEstimateStatus = imageCacheEstimateUiStatus.Loading;
@@ -756,7 +1152,7 @@
 				sampleTokenId: firstToken.tokenId,
 				sourceImageUrl: firstToken.image,
 				sourceImageBytes: firstToken.imageBytes,
-				totalSupply: probeResult.totalSupply.value,
+				totalSupply,
 				imageCacheMode,
 				maxDimension
 			});
@@ -771,6 +1167,99 @@
 			imageCacheEstimateError =
 				error instanceof Error ? error.message : 'image cache estimate failed';
 		}
+	}
+
+	function manualTokenIdList(): string[] {
+		return manualTokenIds
+			.split(/[\s,]+/)
+			.map((value) => value.trim())
+			.filter(Boolean);
+	}
+
+	function normalizedManualRangeStartTokenId(): string {
+		return normalizeFieldValue(manualRangeStartTokenId);
+	}
+
+	function normalizedManualRangeTotalSupply(): string {
+		const value = normalizeFieldValue(manualRangeTotalSupply);
+		return /^\d+$/.test(value) && BigInt(value) > 0n ? value : '';
+	}
+
+	function resolvedBootstrapScopeTotalSupply(): string | null {
+		if (!formDetailsReady || !probeResult) return null;
+		if (supportsEnumerable) {
+			return probeResult.totalSupply.value ?? null;
+		}
+		if (manualMode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds) {
+			const tokenIds = manualTokenIdList();
+			return tokenIds.length > 0 ? String(tokenIds.length) : null;
+		}
+		return normalizedManualRangeTotalSupply() || null;
+	}
+
+	function manualScopeBlocker(): string | null {
+		if (!formDetailsReady || supportsEnumerable) return null;
+		if (manualMode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds) {
+			return manualTokenIdList().length === 0
+				? 'Manual token IDs are required before queueing bootstrap.'
+				: null;
+		}
+
+		const startTokenId = normalizedManualRangeStartTokenId();
+		if (!startTokenId) {
+			return 'Manual range start token ID is required before queueing bootstrap.';
+		}
+		const totalSupply = normalizedManualRangeTotalSupply();
+		if (!totalSupply) {
+			return 'Manual range total supply must be a positive integer.';
+		}
+
+		const inferred = probeResult?.suggestedInput.manualInput;
+		if (
+			inferred &&
+			(inferred.startTokenId !== startTokenId || String(inferred.totalSupply) !== totalSupply)
+		) {
+			return 'Manual scope must match the latest contract probe.';
+		}
+		return null;
+	}
+
+	function imageCacheEstimateBlocker(): string | null {
+		if (imageCacheMode === IMAGE_CACHE_MODE.Off || imageCacheEstimateReady) return null;
+		if (imageCacheEstimateFailed) {
+			return 'Image cache estimate must succeed before queueing bootstrap.';
+		}
+		if (!probeResult?.firstToken.tokenId || !probeResult.firstToken.image) {
+			return 'Token image source must resolve before estimating image cache.';
+		}
+		if (!resolvedBootstrapScopeTotalSupply()) {
+			return 'Set collection scope and supply before estimating image cache.';
+		}
+		return 'Run image cache estimate before queueing bootstrap.';
+	}
+
+	function resolveQueueBootstrapBlockers(): string[] {
+		const blockers: string[] = [];
+		if (!chain) blockers.push('Chain configuration is still loading.');
+		if (!addressCanBeProbed) blockers.push('Enter a valid contract address.');
+		if (!formDetailsReady) blockers.push('Contract probe must finish before queueing bootstrap.');
+		if (!collectionSlugInputHasValue) blockers.push('Collection slug is required.');
+		if (openSeaSlugProbePending) blockers.push('OpenSea slug resolution is still running.');
+		if (openSeaEnabled && openSeaSlugInputHasValue && !openSeaSlugResolved) {
+			blockers.push('OpenSea slug must resolve before queueing bootstrap.');
+		}
+		if (animationSourceProbePending) {
+			blockers.push('Animation source field resolution is still running.');
+		} else if (animationSourceFieldInputHasValue && !animationSourceFieldResolved) {
+			blockers.push(
+				'Animation source field must resolve before queueing bootstrap, or clear it to skip animation capture.'
+			);
+		}
+		const scopeBlocker = manualScopeBlocker();
+		if (scopeBlocker) blockers.push(scopeBlocker);
+		const cacheBlocker = imageCacheEstimateBlocker();
+		if (cacheBlocker) blockers.push(cacheBlocker);
+		return blockers;
 	}
 
 	function imageCachePolicySourceLabel(): string {
@@ -810,6 +1299,27 @@
 		return `${imageWidth} x ${imageHeight}px`;
 	}
 
+	function projectedTokenUriPayloadSizeValue(): string {
+		const projectedBytes = probeResult?.storageEstimate?.projectedBytes;
+		if (projectedBytes) return formatByteSize(projectedBytes);
+		const sampleBytes = probeResult?.firstToken.tokenUriPayloadBytes;
+		return projectedByteSizeValue(sampleBytes);
+	}
+
+	function projectedOriginalImageSizeValue(): string {
+		const projectedBytes = probeResult?.imageStorageEstimate?.projectedBytes;
+		if (projectedBytes) return formatByteSize(projectedBytes);
+		const sampleBytes = probeResult?.firstToken.imageBytes;
+		return projectedByteSizeValue(sampleBytes);
+	}
+
+	function projectedByteSizeValue(sampleBytes: number | null | undefined): string {
+		if (sampleBytes === null || sampleBytes === undefined) return '-';
+		const totalSupply = resolvedBootstrapScopeTotalSupply();
+		if (!totalSupply) return '-';
+		return formatByteSize((BigInt(sampleBytes) * BigInt(totalSupply)).toString());
+	}
+
 	function imageCacheOutputDimensionsValue(): string {
 		if (imageCacheMode === IMAGE_CACHE_MODE.Off) return 'not cached';
 		if (!imageCacheEstimateReady || !imageCacheEstimateResult) return 'not estimated';
@@ -827,19 +1337,15 @@
 	function probeSubmitGuard(address: string): string | null {
 		if (!isBootstrapProbeableAddress(address)) return 'valid address is required';
 		if (!latestProbeMatchesAddress) return 'contract probe must complete before queueing bootstrap';
+		if (!imageSourceFieldResolved) return 'image source field must resolve before queueing bootstrap';
+		if (animationSourceFieldInputHasValue && !animationSourceFieldResolved) {
+			return 'animation source field must resolve before queueing bootstrap, or clear it to skip animation capture';
+		}
 		if (supportsEnumerable && probeResult?.enumerable.supported !== true) {
 			return 'enumerable support was not confirmed';
 		}
-		if (!supportsEnumerable && manualMode === 'manual_range') {
-			const inferred = probeResult?.suggestedInput.manualInput;
-			if (
-				inferred &&
-				(inferred.startTokenId !== normalizeFieldValue(manualRangeStartTokenId) ||
-					String(inferred.totalSupply) !== normalizeFieldValue(manualRangeTotalSupply))
-			) {
-				return 'scope fields must match the latest contract probe';
-			}
-		}
+		const scopeBlocker = manualScopeBlocker();
+		if (scopeBlocker) return scopeBlocker;
 		return null;
 	}
 
@@ -912,36 +1418,43 @@
 			submitError = probeGuardError;
 			return;
 		}
+		const resolvedImageSourceField = normalizeFieldValue(
+			probeResult?.firstToken.imageSourceField
+		);
+		if (!resolvedImageSourceField) {
+			submitError = 'image source field is required';
+			return;
+		}
+		const resolvedAnimationSourceField = animationSourceFieldResolved
+			? normalizeFieldValue(probeResult?.firstToken.animationSourceField)
+			: null;
 
 		let manualInput:
 			| {
-					mode: 'manual_token_ids';
+					mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds;
 					tokenIds: string[];
 			  }
 			| {
-					mode: 'manual_range';
+					mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualRange;
 					startTokenId: string;
 					totalSupply: number;
 			  }
 			| undefined;
 
 		if (!supportsEnumerable) {
-			if (manualMode === 'manual_token_ids') {
-				const tokenIds = manualTokenIds
-					.split(/[\s,]+/)
-					.map((value) => value.trim())
-					.filter(Boolean);
+			if (manualMode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds) {
+				const tokenIds = manualTokenIdList();
 				if (tokenIds.length === 0) {
 					submitError = 'token ids are required';
 					return;
 				}
 				manualInput = {
-					mode: 'manual_token_ids',
+					mode: BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds,
 					tokenIds
 				};
 			} else {
-				const startTokenId = normalizeFieldValue(manualRangeStartTokenId);
-				const totalSupply = Number(manualRangeTotalSupply);
+				const startTokenId = normalizedManualRangeStartTokenId();
+				const totalSupply = Number(normalizedManualRangeTotalSupply());
 				if (!startTokenId) {
 					submitError = 'start token id is required';
 					return;
@@ -951,7 +1464,7 @@
 					return;
 				}
 				manualInput = {
-					mode: 'manual_range',
+					mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
 					startTokenId,
 					totalSupply
 				};
@@ -967,6 +1480,10 @@
 				submitError = error instanceof Error ? error.message : 'invalid image cache setting';
 				return;
 			}
+			if (!imageCacheEstimateReady) {
+				submitError = 'Run image cache estimate before queueing bootstrap';
+				return;
+			}
 		}
 
 		submitting = true;
@@ -975,6 +1492,8 @@
 				slug,
 				address,
 				openseaSlug: openseaSlug || undefined,
+				imageSourceField: resolvedImageSourceField,
+				animationSourceField: resolvedAnimationSourceField,
 				standard: 'erc721',
 				metadataMode,
 				supportsEnumerable,
@@ -1041,15 +1560,19 @@
 		class="bootstrap-hidden-form"
 		onsubmit={onSubmitOpenSeaSlugProbe}
 	></form>
+	<form
+		id={imageSourceProbeFormId}
+		class="bootstrap-hidden-form"
+		onsubmit={onSubmitImageSourceProbe}
+	></form>
+	<form
+		id={animationSourceProbeFormId}
+		class="bootstrap-hidden-form"
+		onsubmit={onSubmitAnimationSourceProbe}
+	></form>
 	<form class="bootstrap-form bootstrap-create-form" onsubmit={onBootstrapFormSubmit}>
 		<div class="bootstrap-create-layout">
 			<div class="bootstrap-form-fields">
-				{#if submitError}
-					<div class="bootstrap-form-feedback">
-						<span class="muted">{submitError}</span>
-					</div>
-				{/if}
-
 				<div class="bootstrap-form-section bootstrap-address-section">
 					<label class="bootstrap-form-row">
 						{@render fieldLabel('Contract address', bootstrapFieldHelp.address)}
@@ -1065,34 +1588,163 @@
 					</label>
 				</div>
 
+				{#if imageSourceFieldSectionVisible}
+					<div class="bootstrap-form-section bootstrap-image-source-section">
+						<label class="bootstrap-form-row">
+							{@render fieldLabel('Image source field', bootstrapFieldHelp.imageSourceField)}
+							<div class="bootstrap-input-status-row">
+								<input
+									bind:this={imageSourceFieldInputElement}
+									value={imageSourceField}
+									class={`${bootstrapInputClass} bootstrap-input-slug`}
+									type="text"
+									name="imageSourceField"
+									form={imageSourceProbeFormId}
+									oninput={onImageSourceFieldInput}
+								/>
+								{#if imageSourceFieldResolved}
+									<span class="bid-book-own-status bid-book-own-status-draw bootstrap-resolution-badge">
+										resolved
+									</span>
+								{:else if contractProbePending}
+									<span class="muted">
+										{@render inProgressStatus('probing', 'probing image source field')}
+									</span>
+								{:else if imageSourceProbeButtonVisible}
+									<button
+										type="submit"
+										form={imageSourceProbeFormId}
+										disabled={!addressCanBeProbed}
+									>
+										probe again
+									</button>
+								{/if}
+							</div>
+						</label>
+						{#if probeError}
+							<div class="bootstrap-form-row">
+								{@render fieldLabel('Probe error', bootstrapFieldHelp.probeError)}
+								<div class="muted">{probeError}</div>
+							</div>
+						{/if}
+					</div>
+				{/if}
+
+				{#if formDetailsReady}
+					<div class="bootstrap-form-section bootstrap-animation-source-section">
+						<label class="bootstrap-form-row">
+							{@render fieldLabel('Animation source field', bootstrapFieldHelp.animationSourceField)}
+							<div class="bootstrap-input-status-row">
+								<input
+									bind:this={animationSourceFieldInputElement}
+									value={animationSourceField}
+									class={`${bootstrapInputClass} bootstrap-input-slug`}
+									type="text"
+									name="animationSourceField"
+									form={animationSourceProbeFormId}
+									oninput={onAnimationSourceFieldInput}
+								/>
+								{#if animationSourceFieldResolved}
+									<span class="bid-book-own-status bid-book-own-status-draw bootstrap-resolution-badge">
+										resolved
+									</span>
+								{:else if animationSourceFieldIncorrect}
+									<span class="bid-book-own-status bid-book-own-status-cancelled bootstrap-resolution-badge">
+										incorrect
+									</span>
+								{:else if animationSourceProbePending}
+									<span class="muted">
+										{@render inProgressStatus('resolving', 'resolving animation source field')}
+									</span>
+								{:else}
+									<button
+										type="submit"
+										form={animationSourceProbeFormId}
+										disabled={!addressCanBeProbed || !animationSourceFieldInputHasValue}
+									>
+										resolve
+									</button>
+								{/if}
+							</div>
+						</label>
+						{#if animationSourceProbeError}
+							<div class="bootstrap-form-row">
+								{@render fieldLabel('Probe error', bootstrapFieldHelp.probeError)}
+								<div class="muted">{animationSourceProbeError}</div>
+							</div>
+						{/if}
+					</div>
+				{/if}
+
 				{#if formDetailsReady && firstTokenCard}
 					<div class="bootstrap-form-section bootstrap-token-preview-section">
+						<div class="secondary-tabs bootstrap-preview-source-tabs" aria-label="Sample token preview source">
+							{#if selectedBootstrapPreviewSource === BOOTSTRAP_PREVIEW_SOURCE.Image}
+								<button type="button" class="secondary-tab-active" disabled>image</button>
+							{:else}
+								<button
+									type="button"
+									onclick={() => selectBootstrapPreviewSource(BOOTSTRAP_PREVIEW_SOURCE.Image)}
+								>
+									image
+								</button>
+							{/if}
+							{#if selectedBootstrapPreviewSource === BOOTSTRAP_PREVIEW_SOURCE.Animation}
+								<button type="button" class="secondary-tab-active" disabled>animation</button>
+							{:else}
+								<button
+									type="button"
+									class:secondary-tab-disabled={!animationPreviewAvailable}
+									disabled={!animationPreviewAvailable}
+									onclick={() => selectBootstrapPreviewSource(BOOTSTRAP_PREVIEW_SOURCE.Animation)}
+								>
+									animation
+								</button>
+							{/if}
+						</div>
 						<aside class="bootstrap-token-card-pane" aria-label="Token image preview">
-							<div class="bootstrap-probe-token-card" data-testid={TEST_IDS.BootstrapProbeTokenCard}>
-								<TokenCardTile
-									{chain}
-									collection={null}
-									token={firstTokenCard}
-									href="#"
-									selectedMediaMode={COLLECTION_MEDIA_MODES.Snapshot}
-									availableMediaModes={bootstrapPreviewMediaModes}
-									{tokenPreview}
-									showMeta={false}
-								/>
-							</div>
+							{#if selectedBootstrapPreviewSource === BOOTSTRAP_PREVIEW_SOURCE.Animation && animationPreviewIframeSource}
+								<div class="bootstrap-animation-preview-frame-wrap">
+									<TokenMediaFrame
+										className="bootstrap-animation-preview-frame"
+										iframeSource={animationPreviewIframeSource}
+										title={`${tokenMediaTitle(firstTokenCard.tokenId)} animation preview`}
+									/>
+								</div>
+							{:else}
+								<div class="bootstrap-probe-token-card" data-testid={TEST_IDS.BootstrapProbeTokenCard}>
+									<TokenCardTile
+										{chain}
+										collection={null}
+										token={firstTokenCard}
+										href="#"
+										selectedMediaMode={COLLECTION_MEDIA_MODES.Snapshot}
+										availableMediaModes={bootstrapPreviewMediaModes}
+										{tokenPreview}
+										showMeta={false}
+									/>
+								</div>
+							{/if}
 						</aside>
 					</div>
 				{/if}
 
-				{#if probeStatus !== 'idle'}
+				{#if probeStatusSectionVisible}
 					<div class="bootstrap-form-section bootstrap-probe-section">
 						<div class="bootstrap-form-row">
 							{@render fieldLabel('Contract probe status', bootstrapFieldHelp.probeStatus)}
-							<div class="bootstrap-probe-status mono">
+							<div class={probeStatusValueClass()}>
 								{#if probeStatus === 'waiting' || probeStatus === 'loading'}
 									{@render inProgressStatus('probing', 'probing contract')}
 								{:else}
-									{probeStateLabel()}
+									<span>{probeStateLabel()}</span>
+									{#if probeNeedsManualScope()}
+										<InfoTooltip
+											text={manualScopeProbeMessage}
+											tone="warning"
+											className="bootstrap-probe-status-tooltip"
+										/>
+									{/if}
 								{/if}
 							</div>
 						</div>
@@ -1145,22 +1797,22 @@
 										<div class="bootstrap-form-row">
 											{@render fieldLabel('Est. metadata size (full collection)', bootstrapFieldHelp.projectedTokenUriPayloadSize)}
 											<div class="mono">
-												{formatByteSize(probeResult.storageEstimate?.projectedBytes)}
+												{projectedTokenUriPayloadSizeValue()}
 											</div>
 										</div>
 									</div>
 								</div>
 							</div>
-							{#if probeResult.suggestedInput.warnings.length > 0}
-								<div class="bootstrap-form-row bootstrap-probe-warning-row">
-									{@render fieldLabel('Probe warnings', bootstrapFieldHelp.probeWarnings)}
-									<div class="bootstrap-probe-warnings">
-										{#each probeResult.suggestedInput.warnings as warning}
-											<span class="muted">{warning}</span>
-										{/each}
-									</div>
+						{/if}
+						{#if probeResult && probeResult.suggestedInput.warnings.length > 0}
+							<div class="bootstrap-form-row bootstrap-probe-warning-row">
+								{@render fieldLabel('Probe warnings', bootstrapFieldHelp.probeWarnings)}
+								<div class="bootstrap-probe-warnings">
+									{#each probeResult.suggestedInput.warnings as warning}
+										<span class="muted">{warning}</span>
+									{/each}
 								</div>
-							{/if}
+							</div>
 						{/if}
 					</div>
 				{/if}
@@ -1221,6 +1873,85 @@
 							</div>
 						</label>
 					</div>
+
+					<div class="bootstrap-form-section">
+						<label class="bootstrap-form-checkbox-row bootstrap-form-row">
+							{@render fieldLabel('Allow manual editing', bootstrapFieldHelp.manualEditing)}
+							<div class="bootstrap-manual-edit-control">
+								<input
+									bind:checked={manualEditingAllowed}
+									class={bootstrapCheckboxClass}
+									type="checkbox"
+									data-testid={TEST_IDS.BootstrapAllowManualEditing}
+								/>
+								<span class="muted">use only if you know what you are doing</span>
+							</div>
+						</label>
+					</div>
+
+					<div class="bootstrap-form-section">
+						<label class="bootstrap-form-checkbox-row bootstrap-form-row">
+							{@render fieldLabel('Use ERC721Enumerable token enumeration', bootstrapFieldHelp.supportsEnumerable)}
+							<input
+								bind:checked={supportsEnumerable}
+								class={bootstrapCheckboxClass}
+								type="checkbox"
+								disabled={probeControlledDisabled}
+							/>
+						</label>
+					</div>
+
+					{#if !supportsEnumerable}
+						<div class="bootstrap-form-section">
+							<label class="bootstrap-form-row">
+								{@render fieldLabel('Manual token scope mode', bootstrapFieldHelp.manualMode)}
+								<select
+									value={manualMode}
+									class={`${bootstrapSelectClass} bootstrap-input-select-medium`}
+									onchange={onManualScopeModeChange}
+									disabled={probeControlledDisabled}
+								>
+									<option value={BOOTSTRAP_ENUMERATION_MODE.ManualRange}>start + total supply</option>
+									<option value={BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds}>token ids list</option>
+								</select>
+							</label>
+							{#if manualMode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds}
+								<label class="bootstrap-form-row bootstrap-form-row-textarea">
+									{@render fieldLabel('Manual token IDs', bootstrapFieldHelp.tokenIds)}
+									<textarea
+										value={manualTokenIds}
+										class={`${bootstrapTextareaClass} bootstrap-input-token-ids`}
+										rows="4"
+										oninput={onManualTokenIdsInput}
+										disabled={probeControlledDisabled}
+									></textarea>
+								</label>
+							{:else}
+								<label class="bootstrap-form-row">
+									{@render fieldLabel('Manual range start token ID', bootstrapFieldHelp.startTokenId)}
+									<input
+										value={manualRangeStartTokenId}
+										class={`${bootstrapInputClass} bootstrap-input-token-id`}
+										type="text"
+										oninput={onManualRangeStartTokenIdInput}
+										disabled={probeControlledDisabled}
+									/>
+								</label>
+								<label class="bootstrap-form-row">
+									{@render fieldLabel('Manual range total supply', bootstrapFieldHelp.manualRangeTotalSupply)}
+									<input
+										value={manualRangeTotalSupply}
+										class={`${bootstrapInputClass} bootstrap-input-total-supply`}
+										type="text"
+										inputmode="numeric"
+										pattern="[0-9]*"
+										oninput={onManualRangeTotalSupplyInput}
+										disabled={probeControlledDisabled}
+									/>
+								</label>
+							{/if}
+						</div>
+					{/if}
 
 					<div class="bootstrap-form-section">
 						<label class="bootstrap-form-row">
@@ -1305,7 +2036,7 @@
 									<div class="bootstrap-form-row">
 										{@render fieldLabel('Est. source images size (full collection)', bootstrapFieldHelp.projectedOriginalImageFileSize)}
 										<div class="mono bootstrap-estimate-highlight">
-											{formatByteSize(probeResult.imageStorageEstimate?.projectedBytes)}
+											{projectedOriginalImageSizeValue()}
 										</div>
 									</div>
 									<div class="bootstrap-form-row">
@@ -1335,84 +2066,39 @@
 								</div>
 							</div>
 						{/if}
-					</div>
-
-					<div class="bootstrap-form-section">
-						<label class="bootstrap-form-checkbox-row bootstrap-form-row">
-							{@render fieldLabel('Allow manual editing', bootstrapFieldHelp.manualEditing)}
-							<div class="bootstrap-manual-edit-control">
-								<input
-									bind:checked={manualEditingAllowed}
-									class={bootstrapCheckboxClass}
-									type="checkbox"
-									data-testid={TEST_IDS.BootstrapAllowManualEditing}
-								/>
-								<span class="muted">use only if you know what you are doing</span>
+						{#if cachedTokenCard}
+							<div class="bootstrap-cache-preview-block">
+								<span class="muted">{imageCachePreviewMessage}</span>
+								<aside class="bootstrap-token-card-pane" aria-label="Cached token image preview">
+									<div
+										class="bootstrap-probe-token-card"
+										data-testid={TEST_IDS.BootstrapCacheTokenCard}
+									>
+										<TokenCardTile
+											{chain}
+											collection={null}
+											token={cachedTokenCard}
+											href="#"
+											selectedMediaMode={COLLECTION_MEDIA_MODES.Snapshot}
+											availableMediaModes={bootstrapPreviewMediaModes}
+											{tokenPreview}
+											showMeta={false}
+										/>
+									</div>
+								</aside>
 							</div>
-						</label>
+						{/if}
 					</div>
-
-					<div class="bootstrap-form-section">
-						<label class="bootstrap-form-checkbox-row bootstrap-form-row">
-							{@render fieldLabel('Use ERC721Enumerable token enumeration', bootstrapFieldHelp.supportsEnumerable)}
-							<input
-								bind:checked={supportsEnumerable}
-								class={bootstrapCheckboxClass}
-								type="checkbox"
-								disabled={probeControlledDisabled}
-							/>
-						</label>
-					</div>
-
-					{#if !supportsEnumerable}
-						<div class="bootstrap-form-section">
-							<label class="bootstrap-form-row">
-								{@render fieldLabel('Manual token scope mode', bootstrapFieldHelp.manualMode)}
-								<select
-									bind:value={manualMode}
-									class={`${bootstrapSelectClass} bootstrap-input-select-medium`}
-									disabled={probeControlledDisabled}
-								>
-									<option value="manual_range">start + total supply</option>
-									<option value="manual_token_ids">token ids list</option>
-								</select>
-							</label>
-							{#if manualMode === 'manual_token_ids'}
-								<label class="bootstrap-form-row bootstrap-form-row-textarea">
-									{@render fieldLabel('Manual token IDs', bootstrapFieldHelp.tokenIds)}
-									<textarea
-										bind:value={manualTokenIds}
-										class={`${bootstrapTextareaClass} bootstrap-input-token-ids`}
-										rows="4"
-										disabled={probeControlledDisabled}
-									></textarea>
-								</label>
-							{:else}
-								<label class="bootstrap-form-row">
-									{@render fieldLabel('Manual range start token ID', bootstrapFieldHelp.startTokenId)}
-									<input
-										bind:value={manualRangeStartTokenId}
-										class={`${bootstrapInputClass} bootstrap-input-token-id`}
-										type="text"
-										disabled={probeControlledDisabled}
-									/>
-								</label>
-								<label class="bootstrap-form-row">
-									{@render fieldLabel('Manual range total supply', bootstrapFieldHelp.manualRangeTotalSupply)}
-									<input
-										bind:value={manualRangeTotalSupply}
-										class={`${bootstrapInputClass} bootstrap-input-total-supply`}
-										type="text"
-										inputmode="numeric"
-										pattern="[0-9]*"
-										disabled={probeControlledDisabled}
-									/>
-								</label>
-							{/if}
-						</div>
-					{/if}
 
 					<div class="bootstrap-form-actions">
+						{#if submitError}
+							<div class="bootstrap-form-feedback" role="alert">
+								<span class="muted">{submitError}</span>
+							</div>
+						{/if}
+						{#each queueBootstrapBlockers as blocker}
+							<span class="muted">{blocker}</span>
+						{/each}
 						{#if openSeaBiddingUnavailableMessage}
 							<span class="muted">{openSeaBiddingUnavailableMessage}</span>
 						{/if}

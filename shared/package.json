@@ -38,6 +38,8 @@
         "./extensions/built-ins": "./extensions/built-ins.ts",
         "./extensions/terraforms": "./extensions/terraforms.ts",
         "./media/token-resource-uri": "./media/token-resource-uri.ts",
+        "./media/token-metadata-animation-source": "./media/token-metadata-animation-source.ts",
+        "./media/token-metadata-image-source": "./media/token-metadata-image-source.ts",
         "./media/token-image-cache": "./media/token-image-cache.ts",
         "./media/token-image-cache-source": "./media/token-image-cache-source.ts",
         "./media/token-image-cache-paths": "./media/token-image-cache-paths.ts",

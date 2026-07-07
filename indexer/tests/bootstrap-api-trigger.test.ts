@@ -9,6 +9,12 @@ import {
     BOOTSTRAP_RUN_STATUS,
 } from "@artgod/shared/bootstrap/pipeline";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
+import {
+    TOKEN_METADATA_ANIMATION_SOURCE_FIELD,
+} from "@artgod/shared/media/token-metadata-animation-source";
+import {
+    TOKEN_METADATA_IMAGE_SOURCE_FIELD,
+} from "@artgod/shared/media/token-metadata-image-source";
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from "@artgod/shared/types";
 import {
     BOOTSTRAP_TRIGGER_CLI_FLAG,
@@ -30,6 +36,9 @@ const TEST_CHAIN_ID = 1;
 const TEST_CHAIN_REF = "1";
 const TEST_DEPLOYMENT_BLOCK = 13_823_015;
 const TEST_CSRF_TOKEN = "0123456789abcdef0123456789abcdef";
+const TEST_IMAGE_SOURCE_FIELD = TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image;
+const TEST_ANIMATION_SOURCE_FIELD =
+    TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl;
 
 describe("bootstrap API trigger", () => {
     it("keeps the old Terraforms CLI shape while targeting the backend API", () => {
@@ -82,6 +91,8 @@ describe("bootstrap API trigger", () => {
             slug: TEST_SLUG,
             address: TEST_ADDRESS,
             openseaSlug: TEST_OPENSEA_SLUG,
+            imageSourceField: TEST_IMAGE_SOURCE_FIELD,
+            animationSourceField: TEST_ANIMATION_SOURCE_FIELD,
             standard: COLLECTION_STANDARD.Erc721,
             metadataMode: BOOTSTRAP_METADATA_MODE.Strict,
             supportsEnumerable: true,
@@ -185,6 +196,10 @@ describe("bootstrap API trigger", () => {
 
 function enumerableProbe(): BootstrapProbeApiResponse {
     return {
+        firstToken: {
+            imageSourceField: TEST_IMAGE_SOURCE_FIELD,
+            animationSourceField: TEST_ANIMATION_SOURCE_FIELD,
+        },
         suggestedInput: {
             supportsEnumerable: true,
             manualInput: null,
@@ -204,6 +219,10 @@ function enumerableProbe(): BootstrapProbeApiResponse {
 
 function manualRangeProbe(): BootstrapProbeApiResponse {
     return {
+        firstToken: {
+            imageSourceField: TEST_IMAGE_SOURCE_FIELD,
+            animationSourceField: null,
+        },
         suggestedInput: {
             supportsEnumerable: false,
             manualInput: {

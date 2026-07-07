@@ -44,6 +44,8 @@ export type CreateBootstrapRunInput = {
     slug: string;
     address: string;
     openseaSlug?: string;
+    imageSourceField: string;
+    animationSourceField?: string | null;
     standard: "erc721";
     metadataMode: BootstrapMetadataMode;
     supportsEnumerable: boolean;
@@ -71,6 +73,8 @@ export type BootstrapRunRow = {
     requestOpenseaSlug: string | null;
     requestAddress: string;
     requestStandard: "erc721" | "erc1155";
+    imageSourceField: string | null;
+    animationSourceField: string | null;
     requestExtensionKey: CollectionExtensionKey | null;
     metadataMode: BootstrapMetadataMode;
     enumerationMode: BootstrapEnumerationMode;

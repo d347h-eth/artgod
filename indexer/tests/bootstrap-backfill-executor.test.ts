@@ -14,6 +14,7 @@ import {
     type OpenSeaIntegrationStatus,
 } from "@artgod/shared/config/opensea-integration";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
+import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import {
     BOOTSTRAP_BACKFILL_EXECUTOR_OUTCOME,
     BOOTSTRAP_BACKFILL_STEP_RESULT_REASON,
@@ -526,6 +527,8 @@ function buildRun(input: {
         requestSlug: "milady-by-remilia-corporation",
         requestAddress: TEST_CONTRACT_ADDRESS,
         requestStandard: COLLECTION_STANDARD.Erc721,
+        imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+        animationSourceField: null,
         requestExtensionKey: null,
         metadataMode: BOOTSTRAP_METADATA_MODE.BestEffort,
         enumerationMode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,

@@ -252,6 +252,7 @@ function tokenCardFixture(tokenId: string): ApiTokenCard {
 		marketplaceBiddingSupported: true,
 		name: `Token ${tokenId}`,
 		image: null,
+		animationUrl: null,
 		traitSummary: null,
 		listingPrice: null,
 		listingCurrency: null,

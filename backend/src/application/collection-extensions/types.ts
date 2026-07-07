@@ -9,6 +9,7 @@ import type {
     ActivityExtensionEventFeed,
     TraitFilterPresentationConfig,
     TraitSummaryTemplateConfig,
+    MediaPurposePolicyConfig,
 } from "@artgod/shared/types";
 import type { ImageCachePolicyConfig } from "@artgod/shared/media/token-image-cache";
 import type {
@@ -87,6 +88,9 @@ export interface BackendCollectionExtension {
     resolveImageCachePolicyConfig(
         install: CollectionExtensionInstall,
     ): ImageCachePolicyConfig | null;
+    resolveMediaPurposePolicyConfig(
+        install: CollectionExtensionInstall,
+    ): MediaPurposePolicyConfig | null;
     listActivityEventFeeds(
         install: CollectionExtensionInstall,
     ): ActivityExtensionEventFeed[];

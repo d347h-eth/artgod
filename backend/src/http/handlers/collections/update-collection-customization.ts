@@ -1,9 +1,12 @@
 import type { FastifyRequest } from "fastify";
 import {
+    COLLECTION_MEDIA_SOURCE,
     COLLECTION_CUSTOMIZATION_SOURCE_KIND,
     normalizeTraitFilterPresentationConfig,
     normalizeTraitSummaryTemplateConfig,
+    type CollectionMediaSource,
     type CollectionCustomizationSourceKind,
+    type MediaPurposePolicyConfig,
 } from "@artgod/shared/types";
 import {
     BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
@@ -49,6 +52,14 @@ export type UpdateCollectionCustomizationRoute = {
             userConfig?: {
                 imageCacheMode?: unknown;
                 maxDimension?: unknown;
+            };
+        };
+        mediaPurposePolicy?: {
+            selectedSource?: unknown;
+            userConfig?: {
+                tokenCard?: unknown;
+                fullscreenPreview?: unknown;
+                tokenDetail?: unknown;
             };
         };
     };
@@ -107,6 +118,10 @@ export class UpdateCollectionCustomizationHttpAdapter {
         if (!imageCachePolicy || typeof imageCachePolicy !== "object") {
             throw new ReadModelBadRequestError("imageCachePolicy is required");
         }
+        const mediaPurposePolicy = request.body?.mediaPurposePolicy;
+        if (!mediaPurposePolicy || typeof mediaPurposePolicy !== "object") {
+            throw new ReadModelBadRequestError("mediaPurposePolicy is required");
+        }
 
         const selectedSource = parseSelectedSource(
             traitFilterPresentation.selectedSource,
@@ -145,6 +160,13 @@ export class UpdateCollectionCustomizationHttpAdapter {
         const imageCacheUserConfig = parseImageCachePolicyConfig(
             imageCachePolicy.userConfig,
         );
+        const mediaPurposeSelectedSource = parseSelectedSource(
+            mediaPurposePolicy.selectedSource,
+            "mediaPurposePolicy.selectedSource",
+        );
+        const mediaPurposeUserConfig = parseMediaPurposePolicyConfig(
+            mediaPurposePolicy.userConfig,
+        );
 
         return {
             chainRef: request.params.chain_ref,
@@ -164,6 +186,10 @@ export class UpdateCollectionCustomizationHttpAdapter {
             imageCachePolicy: {
                 selectedSource: imageCacheSelectedSource,
                 userConfig: imageCacheUserConfig,
+            },
+            mediaPurposePolicy: {
+                selectedSource: mediaPurposeSelectedSource,
+                userConfig: mediaPurposeUserConfig,
             },
         };
     }
@@ -258,5 +284,57 @@ function parseImageCacheMode(value: unknown): ImageCacheMode {
     }
     throw new ReadModelBadRequestError(
         "imageCachePolicy.userConfig.imageCacheMode is invalid",
+    );
+}
+
+function parseMediaPurposePolicyConfig(value: unknown): MediaPurposePolicyConfig {
+    if (!value || typeof value !== "object") {
+        throw new ReadModelBadRequestError(
+            "mediaPurposePolicy.userConfig must be an object",
+        );
+    }
+    const source = value as {
+        tokenCard?: unknown;
+        fullscreenPreview?: unknown;
+        tokenDetail?: unknown;
+    };
+    return {
+        tokenCard: parseTokenCardMediaSource(
+            source.tokenCard,
+            "mediaPurposePolicy.userConfig.tokenCard",
+        ),
+        fullscreenPreview: parseMediaSource(
+            source.fullscreenPreview,
+            "mediaPurposePolicy.userConfig.fullscreenPreview",
+        ),
+        tokenDetail: parseMediaSource(
+            source.tokenDetail,
+            "mediaPurposePolicy.userConfig.tokenDetail",
+        ),
+    };
+}
+
+function parseMediaSource(
+    value: unknown,
+    field: string,
+): CollectionMediaSource {
+    if (
+        value === COLLECTION_MEDIA_SOURCE.Image ||
+        value === COLLECTION_MEDIA_SOURCE.AnimationUrl
+    ) {
+        return value;
+    }
+    throw new ReadModelBadRequestError(`${field} is invalid`);
+}
+
+function parseTokenCardMediaSource(
+    value: unknown,
+    field: string,
+): typeof COLLECTION_MEDIA_SOURCE.Image {
+    if (value === COLLECTION_MEDIA_SOURCE.Image) {
+        return value;
+    }
+    throw new ReadModelBadRequestError(
+        `${field} must be ${COLLECTION_MEDIA_SOURCE.Image}`,
     );
 }

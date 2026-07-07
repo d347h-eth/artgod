@@ -138,6 +138,7 @@ function tokenCard(
         marketplaceBiddingSupported,
         name: `Token #${tokenId}`,
         image: null,
+        animationUrl: null,
         traitSummary: null,
         listingPrice: null,
         listingCurrency: null,

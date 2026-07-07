@@ -35,6 +35,8 @@ import {
     normalizeImageCachePolicyConfig,
     type ImageCachePolicyConfig,
 } from "@artgod/shared/media/token-image-cache";
+import { normalizeTokenMetadataAnimationSourceField } from "@artgod/shared/media/token-metadata-animation-source";
+import { normalizeTokenMetadataImageSourceField } from "@artgod/shared/media/token-metadata-image-source";
 import { BOOTSTRAP_RUN_EVENT_CODE } from "@artgod/shared/bootstrap/run-events";
 
 export type EmbeddedCollectionExtensionResolveInput = {
@@ -78,6 +80,12 @@ export class CreateBootstrapRunUseCase {
         const slug = normalizeSlug(input.slug);
         const address = normalizeAddress(input.address);
         const openseaSlug = normalizeOptionalSlug(input.openseaSlug);
+        const imageSourceField = normalizeRequiredImageSourceField(
+            input.imageSourceField,
+        );
+        const animationSourceField = normalizeTokenMetadataAnimationSourceField(
+            input.animationSourceField,
+        );
         assertOpenSeaSlugIsAllowed(openseaSlug, this.openseaIntegration);
         const metadataMode = input.metadataMode;
         if (
@@ -108,7 +116,7 @@ export class CreateBootstrapRunUseCase {
         );
         if (existing && existing.status === "live") {
             throw new BootstrapConflictError(
-                "Collection is live; bootstrap run creation is not allowed",
+                "This collection has already been bootstrapped and is live, so a new bootstrap run cannot be created for it.",
             );
         }
         if (existing && existing.address !== address) {
@@ -183,6 +191,8 @@ export class CreateBootstrapRunUseCase {
             requestOpenseaSlug: openseaSlug,
             requestAddress: address,
             requestStandard: "erc721",
+            imageSourceField,
+            animationSourceField,
             requestExtensionKey,
             metadataMode,
             enumerationMode: enumeration.mode,
@@ -277,6 +287,14 @@ function resolveImageCacheInput(
         selectedSource: input.selectedSource,
         config: normalized,
     };
+}
+
+function normalizeRequiredImageSourceField(raw: string): string {
+    const value = normalizeTokenMetadataImageSourceField(raw);
+    if (!value) {
+        throw new BootstrapValidationError("Image source field is required");
+    }
+    return value;
 }
 
 function assertImageCacheSourceMatchesExtension(

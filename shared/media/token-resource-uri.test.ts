@@ -1,5 +1,7 @@
+import { Buffer } from "node:buffer";
 import { describe, expect, it } from "vitest";
 import {
+    buildImageDataUri,
     parseImageDataUriBuffer,
     parseJsonDataUriText,
     resolveTokenResourceUri,
@@ -14,6 +16,17 @@ describe("token resource URI helpers", () => {
         ).toBe("https://gateway.example/ipfs/QmHash/metadata%201.json");
     });
 
+    it("preserves IPFS URI query strings when resolving gateway URLs", () => {
+        expect(
+            resolveTokenResourceUri(
+                "ipfs://QmHash/?payload=abc%3D%3D#token",
+                {
+                    ipfsGatewayOrigin: "https://gateway.example/ipfs",
+                },
+            ),
+        ).toBe("https://gateway.example/ipfs/QmHash/?payload=abc%3D%3D#token");
+    });
+
     it("decodes JSON and image data URIs", () => {
         expect(
             parseJsonDataUriText(
@@ -26,5 +39,14 @@ describe("token resource URI helpers", () => {
         );
         expect(image.contentType).toBe("image/png");
         expect(image.buffer.toString("utf8")).toBe("hello");
+    });
+
+    it("encodes image bytes as a data URI", () => {
+        expect(
+            buildImageDataUri({
+                contentType: "image/webp",
+                buffer: Buffer.from("cache-preview", "utf8"),
+            }),
+        ).toBe("data:image/webp;base64,Y2FjaGUtcHJldmlldw==");
     });
 });

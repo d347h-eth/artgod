@@ -1,14 +1,19 @@
 import { logger } from "@artgod/shared/utils";
 import type { Metrics } from "@artgod/shared/observability/metrics";
 import type { MetadataFetcherPort } from "../../ports/metadata.js";
-import type {
-    MetadataAttribute,
-    TokenMetadata,
+import {
+    TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD,
+    TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD_FRAGMENT,
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD,
+    type MetadataAttribute,
+    type TokenMetadata,
 } from "../../domain/metadata.js";
 import {
     parseJsonDataUriText,
     resolveTokenResourceUri,
 } from "@artgod/shared/media/token-resource-uri";
+import { selectTokenMetadataAnimationSource } from "@artgod/shared/media/token-metadata-animation-source";
+import { selectTokenMetadataImageSource } from "@artgod/shared/media/token-metadata-image-source";
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import {
     fetchWithHttpResilience,
@@ -38,7 +43,13 @@ export class HttpMetadataFetcher implements MetadataFetcherPort {
         this.metrics = config.metrics;
     }
 
-    async fetchMetadata(uri: string): Promise<TokenMetadata | null> {
+    async fetchMetadata(
+        uri: string,
+        options?: {
+            imageSourceField?: string | null;
+            animationSourceField?: string | null;
+        },
+    ): Promise<TokenMetadata | null> {
         const resolved = resolveTokenResourceUri(uri, {
             ipfsGatewayOrigin: this.ipfsGatewayOrigin,
         });
@@ -59,7 +70,11 @@ export class HttpMetadataFetcher implements MetadataFetcherPort {
             const raw = resolved.startsWith("data:")
                 ? parseDataUri(resolved)
                 : await fetchJson(resolved, this.fetchResilience);
-            const metadata = normalizeMetadata(uri, raw);
+            const metadata = normalizeMetadata(uri, raw, {
+                imageSourceField: options?.imageSourceField ?? null,
+                animationSourceField: options?.animationSourceField,
+                ipfsGatewayOrigin: this.ipfsGatewayOrigin,
+            });
             if (!metadata) {
                 this.metrics?.increment("metadata.fetch.failure", 1, {
                     reason: "invalid_json",
@@ -114,32 +129,111 @@ function parseDataUri(uri: string): unknown {
     return JSON.parse(parseJsonDataUriText(uri));
 }
 
-function normalizeMetadata(uri: string, raw: unknown): TokenMetadata | null {
+function normalizeMetadata(
+    uri: string,
+    raw: unknown,
+    options: {
+        imageSourceField: string | null;
+        animationSourceField?: string | null;
+        ipfsGatewayOrigin: string;
+    },
+): TokenMetadata | null {
     if (!raw || typeof raw !== "object") return null;
     const data = raw as Record<string, unknown>;
-    const attributes = normalizeAttributes(data.attributes);
+    const attributes = normalizeMetadataAttributes(data);
+    const imageSource = selectTokenMetadataImageSource({
+        metadata: data,
+        requestedField: options.imageSourceField,
+        ipfsGatewayOrigin: options.ipfsGatewayOrigin,
+    });
+    const animationSource =
+        options.animationSourceField === null
+            ? null
+            : selectTokenMetadataAnimationSource({
+                  metadata: data,
+                  requestedField: options.animationSourceField,
+                  ipfsGatewayOrigin: options.ipfsGatewayOrigin,
+              });
 
     return {
         uri,
         name: asString(data.name),
         description: asString(data.description),
-        image: asString(data.image ?? data.image_url),
-        animationUrl: asString(data.animation_url ?? data.animationUrl),
+        image: imageSource?.value,
+        animationUrl: animationSource?.value,
         externalUrl: asString(data.external_url ?? data.externalUrl),
         attributes,
         rawJson: JSON.stringify(data),
     };
 }
 
-function normalizeAttributes(value: unknown): MetadataAttribute[] {
-    if (!Array.isArray(value)) return [];
+function normalizeMetadataAttributes(
+    data: Record<string, unknown>,
+): MetadataAttribute[] {
+    return (
+        normalizeAttributes(
+            data[TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Attributes],
+            { allowGenericTraitKeys: false },
+        ) ??
+        normalizeAttributes(
+            data[TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Traits],
+            { allowGenericTraitKeys: false },
+        ) ??
+        normalizeAttributeObjectMap(
+            data[TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Features],
+        ) ??
+        normalizeHeuristicAttributes(data)
+    );
+}
+
+function normalizeHeuristicAttributes(
+    data: Record<string, unknown>,
+): MetadataAttribute[] {
+    for (const [fieldName, value] of Object.entries(data)) {
+        if (isKnownAttributeContainerField(fieldName)) continue;
+        const allowGenericTraitKeys =
+            isLikelyAttributeContainerFieldName(fieldName);
+        if (allowGenericTraitKeys) {
+            const objectMapAttributes = normalizeAttributeObjectMap(value);
+            if (objectMapAttributes) {
+                return objectMapAttributes;
+            }
+        }
+        if (
+            !allowGenericTraitKeys &&
+            !hasExplicitTraitKeyAttributeCandidate(value)
+        ) {
+            continue;
+        }
+        const attributes = normalizeAttributes(value, {
+            allowGenericTraitKeys,
+        });
+        if (attributes) {
+            return attributes;
+        }
+    }
+    return [];
+}
+
+function normalizeAttributes(
+    value: unknown,
+    options: { allowGenericTraitKeys: boolean },
+): MetadataAttribute[] | null {
+    if (!Array.isArray(value)) return null;
     const out: MetadataAttribute[] = [];
     for (const item of value) {
         if (!item || typeof item !== "object") continue;
         const record = item as Record<string, unknown>;
-        const traitType = asString(record.trait_type ?? record.traitType);
-        const displayType = asString(record.display_type ?? record.displayType);
-        const rawValue = record.value;
+        const traitType = asString(
+            firstDefined(record, ATTRIBUTE_TRAIT_TYPE_FIELD_PRIORITY) ??
+                (options.allowGenericTraitKeys
+                    ? firstDefined(record, GENERIC_ATTRIBUTE_TRAIT_TYPE_FIELD_PRIORITY)
+                    : undefined),
+        );
+        const displayType = asString(
+            firstDefined(record, ATTRIBUTE_DISPLAY_TYPE_FIELD_PRIORITY),
+        );
+        const rawValue = firstDefined(record, ATTRIBUTE_VALUE_FIELD_PRIORITY);
         if (
             rawValue === null ||
             rawValue === undefined ||
@@ -153,7 +247,46 @@ function normalizeAttributes(value: unknown): MetadataAttribute[] {
             value: rawValue as string | number | boolean,
         });
     }
+    if (out.length === 0 || hasDuplicateTraitType(out)) {
+        return null;
+    }
     return out;
+}
+
+function normalizeAttributeObjectMap(value: unknown): MetadataAttribute[] | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return null;
+    }
+    const out: MetadataAttribute[] = [];
+    for (const [key, rawValue] of Object.entries(
+        value as Record<string, unknown>,
+    )) {
+        const traitType = key.trim();
+        if (!traitType) continue;
+        if (
+            rawValue === null ||
+            rawValue === undefined ||
+            typeof rawValue === "object"
+        ) {
+            continue;
+        }
+        out.push({
+            traitType,
+            value: rawValue as string | number | boolean,
+        });
+    }
+    return out.length > 0 ? out : null;
+}
+
+function hasDuplicateTraitType(attributes: readonly MetadataAttribute[]): boolean {
+    const seen = new Set<string>();
+    for (const attribute of attributes) {
+        const traitType = attribute.traitType?.trim();
+        if (!traitType) continue;
+        if (seen.has(traitType)) return true;
+        seen.add(traitType);
+    }
+    return false;
 }
 
 function asString(value: unknown): string | undefined {
@@ -163,3 +296,85 @@ function asString(value: unknown): string | undefined {
     }
     return undefined;
 }
+
+function firstDefined(
+    record: Record<string, unknown>,
+    fields: readonly TokenMetadataAttributeItemField[],
+): unknown {
+    for (const field of fields) {
+        if (record[field] !== undefined) {
+            return record[field];
+        }
+    }
+    return undefined;
+}
+
+function hasExplicitTraitKeyAttributeCandidate(value: unknown): boolean {
+    if (!Array.isArray(value)) return false;
+    return value.some((item) => {
+        if (!item || typeof item !== "object") return false;
+        const record = item as Record<string, unknown>;
+        return (
+            firstDefined(record, ATTRIBUTE_TRAIT_TYPE_FIELD_PRIORITY) !==
+                undefined &&
+            firstDefined(record, ATTRIBUTE_VALUE_FIELD_PRIORITY) !== undefined
+        );
+    });
+}
+
+function isKnownAttributeContainerField(fieldName: string): boolean {
+    return (
+        fieldName === TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Attributes ||
+        fieldName === TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Features ||
+        fieldName === TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD.Traits
+    );
+}
+
+function isLikelyAttributeContainerFieldName(fieldName: string): boolean {
+    const normalized = fieldName.toLowerCase();
+    return ATTRIBUTE_CONTAINER_FIELD_FRAGMENTS.some((fragment) =>
+        normalized.includes(fragment),
+    );
+}
+
+type TokenMetadataAttributeItemField = ValueOf<
+    typeof TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD
+>;
+
+type ValueOf<T> = T[keyof T];
+
+const ATTRIBUTE_TRAIT_TYPE_FIELD_PRIORITY = [
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.TraitType,
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.TraitTypeCamel,
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.Trait,
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.TraitName,
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.TraitNameCamel,
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.AttributeType,
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.AttributeTypeCamel,
+] as const;
+
+const GENERIC_ATTRIBUTE_TRAIT_TYPE_FIELD_PRIORITY = [
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.Type,
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.Key,
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.Name,
+] as const;
+
+const ATTRIBUTE_DISPLAY_TYPE_FIELD_PRIORITY = [
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.DisplayType,
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.DisplayTypeCamel,
+] as const;
+
+const ATTRIBUTE_VALUE_FIELD_PRIORITY = [
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.Value,
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.TraitValue,
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.TraitValueCamel,
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.AttributeValue,
+    TOKEN_METADATA_ATTRIBUTE_ITEM_FIELD.AttributeValueCamel,
+] as const;
+
+const ATTRIBUTE_CONTAINER_FIELD_FRAGMENTS = [
+    TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD_FRAGMENT.Attribute,
+    TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD_FRAGMENT.Feature,
+    TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD_FRAGMENT.Trait,
+    TOKEN_METADATA_ATTRIBUTE_CONTAINER_FIELD_FRAGMENT.Property,
+] as const;

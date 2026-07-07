@@ -15,6 +15,8 @@ import {
     parseJsonDataUriText,
     resolveTokenResourceUri,
 } from "@artgod/shared/media/token-resource-uri";
+import { selectTokenMetadataAnimationSource } from "@artgod/shared/media/token-metadata-animation-source";
+import { selectTokenMetadataImageSource } from "@artgod/shared/media/token-metadata-image-source";
 import { fetchTokenImageCacheSource } from "@artgod/shared/media/token-image-cache-source";
 import { readTokenImageSourceDimensions } from "@artgod/shared/media/token-image-cache-transform";
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
@@ -136,6 +138,8 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
 
     async probeErc721Contract(input: {
         address: string;
+        imageSourceField: string | null;
+        animationSourceField: string | null;
     }): Promise<CollectionContractProbeResult> {
         const address = input.address as `0x${string}`;
         await this.assertContractAddress(address);
@@ -150,7 +154,12 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
         // Read name() only to suggest an editable local collection slug.
         const contractName = await this.readContractName(address);
         const totalSupply = await this.readTotalSupply(address);
-        const firstToken = await this.probeFirstToken(address, enumerable);
+        const firstToken = await this.probeFirstToken(
+            address,
+            enumerable,
+            input.imageSourceField,
+            input.animationSourceField,
+        );
 
         return {
             contractName,
@@ -231,6 +240,8 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
     private async probeFirstToken(
         address: `0x${string}`,
         enumerable: BootstrapProbeInterfaceCheck,
+        imageSourceField: string | null,
+        animationSourceField: string | null,
     ): Promise<BootstrapProbeFirstToken> {
         const candidates: BootstrapProbeTokenCandidate[] = [];
         if (enumerable.supported === true) {
@@ -247,6 +258,8 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                     "token_by_index",
                     candidates,
                     null,
+                    imageSourceField,
+                    animationSourceField,
                 );
             } catch {
                 // Fall back to token id start probing below.
@@ -270,6 +283,8 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                         : "candidate_owner_of",
                     candidates,
                     candidate.tokenUri,
+                    imageSourceField,
+                    animationSourceField,
                 );
             }
         }
@@ -282,6 +297,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
             tokenUriPayloadTruncated: false,
             tokenUriPayloadError: null,
             name: null,
+            imageSourceField: null,
             image: null,
             imageBytes: null,
             imageBytesSource: null,
@@ -289,6 +305,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
             imageBytesError: null,
             imageWidth: null,
             imageHeight: null,
+            animationSourceField: null,
             animationUrl: null,
             metadataError: "token ids 0 and 1 were not confirmed",
             candidates,
@@ -341,6 +358,8 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
         source: BootstrapProbeFirstToken["source"],
         candidates: BootstrapProbeTokenCandidate[],
         knownTokenUri: string | null,
+        requestedImageSourceField: string | null,
+        requestedAnimationSourceField: string | null,
     ): Promise<BootstrapProbeFirstToken> {
         const tokenUri = knownTokenUri ?? (await this.readTokenUri(address, tokenId));
         if (typeof tokenUri !== "string" && !tokenUri.ok) {
@@ -360,8 +379,16 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 this.fetchResilience,
                 MAX_TOKEN_URI_PAYLOAD_BYTES,
             );
-            const metadata = parseMetadataPayload(payload.text);
-            const image = resolveDisplayUrl(metadata.image, this.ipfsGatewayOrigin);
+            const metadata = parseMetadataPayload(
+                payload.text,
+                requestedImageSourceField,
+                requestedAnimationSourceField,
+                this.ipfsGatewayOrigin,
+            );
+            const image = resolveDisplayUrl(
+                metadata.imageSource?.value ?? null,
+                this.ipfsGatewayOrigin,
+            );
             const imageSize = image
                 ? await probeMediaSize(
                       image,
@@ -378,6 +405,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 tokenUriPayloadTruncated: payload.truncated,
                 tokenUriPayloadError: null,
                 name: metadata.name,
+                imageSourceField: metadata.imageSource?.field ?? null,
                 image,
                 imageBytes: imageSize?.bytes ?? null,
                 imageBytesSource: imageSize?.source ?? null,
@@ -385,8 +413,9 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 imageBytesError: imageSize?.error ?? null,
                 imageWidth: imageSize?.width ?? null,
                 imageHeight: imageSize?.height ?? null,
+                animationSourceField: metadata.animationSource?.field ?? null,
                 animationUrl: resolveDisplayUrl(
-                    metadata.animationUrl,
+                    metadata.animationSource?.value ?? null,
                     this.ipfsGatewayOrigin,
                 ),
                 metadataError: metadata.error,
@@ -401,6 +430,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 tokenUriPayloadTruncated: false,
                 tokenUriPayloadError: compactError(error),
                 name: null,
+                imageSourceField: null,
                 image: null,
                 imageBytes: null,
                 imageBytesSource: null,
@@ -408,6 +438,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 imageBytesError: null,
                 imageWidth: null,
                 imageHeight: null,
+                animationSourceField: null,
                 animationUrl: null,
                 metadataError: null,
                 candidates,
@@ -469,6 +500,7 @@ function emptyFirstTokenWithError(
         tokenUriPayloadTruncated: false,
         tokenUriPayloadError: error,
         name: null,
+        imageSourceField: null,
         image: null,
         imageBytes: null,
         imageBytesSource: null,
@@ -476,6 +508,7 @@ function emptyFirstTokenWithError(
         imageBytesError: null,
         imageWidth: null,
         imageHeight: null,
+        animationSourceField: null,
         animationUrl: null,
         metadataError: null,
         candidates,
@@ -554,25 +587,38 @@ async function readResponseTextWithLimit(
     };
 }
 
-function parseMetadataPayload(text: string): {
+function parseMetadataPayload(
+    text: string,
+    requestedImageSourceField: string | null,
+    requestedAnimationSourceField: string | null,
+    ipfsGatewayOrigin: string,
+): {
     name: string | null;
-    image: string | null;
-    animationUrl: string | null;
+    imageSource: { field: string; value: string } | null;
+    animationSource: { field: string; value: string } | null;
     error: string | null;
 } {
     try {
         const raw = JSON.parse(text) as Record<string, unknown>;
         return {
             name: asString(raw.name),
-            image: asString(raw.image ?? raw.image_url),
-            animationUrl: asString(raw.animation_url ?? raw.animationUrl),
+            imageSource: selectTokenMetadataImageSource({
+                metadata: raw,
+                requestedField: requestedImageSourceField,
+                ipfsGatewayOrigin,
+            }),
+            animationSource: selectTokenMetadataAnimationSource({
+                metadata: raw,
+                requestedField: requestedAnimationSourceField,
+                ipfsGatewayOrigin,
+            }),
             error: null,
         };
     } catch (error) {
         return {
             name: null,
-            image: null,
-            animationUrl: null,
+            imageSource: null,
+            animationSource: null,
             error: compactError(error),
         };
     }

@@ -5,10 +5,15 @@
 		BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
 		BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION
 	} from '@artgod/shared/config/bootstrap';
+	import {
+		COLLECTION_MEDIA_SOURCE,
+		defaultMediaPurposePolicyConfig
+	} from '@artgod/shared/types';
 	import { IMAGE_CACHE_MODE, imageCacheModeLabel } from '@artgod/shared/media/token-image-cache';
 	import type {
 		ApiChain,
 		ApiCollection,
+		ApiCollectionMediaSource,
 		ApiCollectionCustomizationSource,
 		ApiImageCacheMode,
 		ApiTokenAttribute,
@@ -37,6 +42,8 @@
 		CollectionCustomizationApiResponse['customization']['tokenCardTraitSummaryTemplate'];
 	type ImageCachePolicyState =
 		CollectionCustomizationApiResponse['customization']['imageCachePolicy'];
+	type MediaPurposePolicyState =
+		CollectionCustomizationApiResponse['customization']['mediaPurposePolicy'];
 
 	let {
 		chain,
@@ -70,6 +77,9 @@
 	let imageCachePolicy = $state<ImageCachePolicyState>(
 		customization?.imageCachePolicy ?? fallbackImageCachePolicyState()
 	);
+	let mediaPurposePolicy = $state<MediaPurposePolicyState>(
+		customization?.mediaPurposePolicy ?? fallbackMediaPurposePolicyState()
+	);
 	let traitFilterSaving = $state(false);
 	let traitFilterSaveMessage = $state<string | null>(null);
 	let traitFilterSaveError = $state<string | null>(null);
@@ -82,6 +92,9 @@
 	let imageCachePolicySaving = $state(false);
 	let imageCachePolicySaveMessage = $state<string | null>(null);
 	let imageCachePolicySaveError = $state<string | null>(null);
+	let mediaPurposePolicySaving = $state(false);
+	let mediaPurposePolicySaveMessage = $state<string | null>(null);
+	let mediaPurposePolicySaveError = $state<string | null>(null);
 
 	$effect(() => {
 		traitFilterPresentation =
@@ -91,6 +104,7 @@
 		activityRowTraitSummaryTemplate =
 			customization?.activityRowTraitSummaryTemplate ?? fallbackTraitSummaryTemplateState();
 		imageCachePolicy = customization?.imageCachePolicy ?? fallbackImageCachePolicyState();
+		mediaPurposePolicy = customization?.mediaPurposePolicy ?? fallbackMediaPurposePolicyState();
 		resetSaveState();
 	});
 
@@ -156,6 +170,16 @@
 		};
 	}
 
+	function fallbackMediaPurposePolicyState(): MediaPurposePolicyState {
+		const defaultConfig = defaultMediaPurposePolicyConfig();
+		return {
+			selectedSource: 'user',
+			userConfig: defaultConfig,
+			extensionConfig: null,
+			effectiveConfig: defaultConfig
+		};
+	}
+
 	function displayKindForConfig(
 		rangeKeys: string[],
 		key: string
@@ -173,6 +197,10 @@
 
 	function imageCacheMaxDimensionInputValue(value: number | null): string {
 		return value === null ? '' : String(value);
+	}
+
+	function mediaSourceLabel(source: ApiCollectionMediaSource): string {
+		return source;
 	}
 
 	function extensionDisplayKindValue(key: string): ApiTraitFilterDisplayKind | '' {
@@ -236,6 +264,16 @@
 		}
 		imageCachePolicy = {
 			...imageCachePolicy,
+			selectedSource: nextSource
+		};
+	}
+
+	function setMediaPurposePolicySelectedSource(nextSource: ApiCollectionCustomizationSource): void {
+		if (nextSource === 'extension' && !extensionSourceAvailable(mediaPurposePolicy)) {
+			return;
+		}
+		mediaPurposePolicy = {
+			...mediaPurposePolicy,
 			selectedSource: nextSource
 		};
 	}
@@ -325,6 +363,38 @@
 		};
 	}
 
+	function readMediaPurposeSourceFromSelect(event: Event): ApiCollectionMediaSource | null {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLSelectElement)) return null;
+		return target.value === COLLECTION_MEDIA_SOURCE.AnimationUrl
+			? COLLECTION_MEDIA_SOURCE.AnimationUrl
+			: COLLECTION_MEDIA_SOURCE.Image;
+	}
+
+	function onFullscreenPreviewMediaPurposeSourceChange(event: Event): void {
+		const nextSource = readMediaPurposeSourceFromSelect(event);
+		if (!nextSource) return;
+		mediaPurposePolicy = {
+			...mediaPurposePolicy,
+			userConfig: {
+				...mediaPurposePolicy.userConfig,
+				fullscreenPreview: nextSource
+			}
+		};
+	}
+
+	function onTokenDetailMediaPurposeSourceChange(event: Event): void {
+		const nextSource = readMediaPurposeSourceFromSelect(event);
+		if (!nextSource) return;
+		mediaPurposePolicy = {
+			...mediaPurposePolicy,
+			userConfig: {
+				...mediaPurposePolicy.userConfig,
+				tokenDetail: nextSource
+			}
+		};
+	}
+
 	function parseImageCacheMode(value: string): ApiImageCacheMode {
 		if (
 			value === IMAGE_CACHE_MODE.Off ||
@@ -343,6 +413,7 @@
 		tokenCardTraitSummaryTemplate = nextCustomization.tokenCardTraitSummaryTemplate;
 		activityRowTraitSummaryTemplate = nextCustomization.activityRowTraitSummaryTemplate;
 		imageCachePolicy = nextCustomization.imageCachePolicy;
+		mediaPurposePolicy = nextCustomization.mediaPurposePolicy;
 	}
 
 	function buildCustomizationBody() {
@@ -374,6 +445,14 @@
 							? null
 							: imageCachePolicy.userConfig.maxDimension
 				}
+			},
+			mediaPurposePolicy: {
+				selectedSource: selectedSource(mediaPurposePolicy),
+				userConfig: {
+					tokenCard: mediaPurposePolicy.userConfig.tokenCard,
+					fullscreenPreview: mediaPurposePolicy.userConfig.fullscreenPreview,
+					tokenDetail: mediaPurposePolicy.userConfig.tokenDetail
+				}
 			}
 		};
 	}
@@ -387,17 +466,25 @@
 		activityRowSaveError = null;
 		imageCachePolicySaveMessage = null;
 		imageCachePolicySaveError = null;
+		mediaPurposePolicySaveMessage = null;
+		mediaPurposePolicySaveError = null;
 	}
 
 	async function onSave(
-		feature: 'traitFilter' | 'tokenCard' | 'activityRow' | 'imageCachePolicy'
+		feature:
+			| 'traitFilter'
+			| 'tokenCard'
+			| 'activityRow'
+			| 'imageCachePolicy'
+			| 'mediaPurposePolicy'
 	): Promise<void> {
 		if (!chain || !collection) return;
 		if (
 			(feature === 'traitFilter' && traitFilterSaving) ||
 			(feature === 'tokenCard' && tokenCardSaving) ||
 			(feature === 'activityRow' && activityRowSaving) ||
-			(feature === 'imageCachePolicy' && imageCachePolicySaving)
+			(feature === 'imageCachePolicy' && imageCachePolicySaving) ||
+			(feature === 'mediaPurposePolicy' && mediaPurposePolicySaving)
 		) {
 			return;
 		}
@@ -414,10 +501,14 @@
 			activityRowSaving = true;
 			activityRowSaveMessage = null;
 			activityRowSaveError = null;
-		} else {
+		} else if (feature === 'imageCachePolicy') {
 			imageCachePolicySaving = true;
 			imageCachePolicySaveMessage = null;
 			imageCachePolicySaveError = null;
+		} else {
+			mediaPurposePolicySaving = true;
+			mediaPurposePolicySaveMessage = null;
+			mediaPurposePolicySaveError = null;
 		}
 
 		try {
@@ -434,8 +525,10 @@
 				tokenCardSaveMessage = 'saved';
 			} else if (feature === 'activityRow') {
 				activityRowSaveMessage = 'saved';
-			} else {
+			} else if (feature === 'imageCachePolicy') {
 				imageCachePolicySaveMessage = 'saved';
+			} else {
+				mediaPurposePolicySaveMessage = 'saved';
 			}
 		} catch (error) {
 			const message =
@@ -446,8 +539,10 @@
 				tokenCardSaveError = message;
 			} else if (feature === 'activityRow') {
 				activityRowSaveError = message;
-			} else {
+			} else if (feature === 'imageCachePolicy') {
 				imageCachePolicySaveError = message;
+			} else {
+				mediaPurposePolicySaveError = message;
 			}
 		} finally {
 			if (feature === 'traitFilter') {
@@ -456,8 +551,10 @@
 				tokenCardSaving = false;
 			} else if (feature === 'activityRow') {
 				activityRowSaving = false;
-			} else {
+			} else if (feature === 'imageCachePolicy') {
 				imageCachePolicySaving = false;
+			} else {
+				mediaPurposePolicySaving = false;
 			}
 		}
 	}
@@ -703,6 +800,146 @@
 					disabled={imageCachePolicySaving}
 					aria-busy={imageCachePolicySaving}
 					onclick={() => void onSave('imageCachePolicy')}
+				>
+					save
+				</button>
+			</footer>
+		</section>
+
+		<section class="customization-feature-panel">
+			<header class="panel-header">
+				<div>
+					<h2 class="customization-title">media purpose policy</h2>
+				</div>
+			</header>
+
+			<div class="customization-section">
+				<h3 class="customization-section-title">active source</h3>
+				<div class="secondary-tabs" aria-label="Media purpose policy source">
+					{#if selectedSource(mediaPurposePolicy) === 'user'}
+						<span class="secondary-tab-active">{sourceButtonLabel('user')}</span>
+					{:else}
+						<button type="button" onclick={() => setMediaPurposePolicySelectedSource('user')}>
+							{sourceButtonLabel('user')}
+						</button>
+					{/if}
+					{#if extensionSourceAvailable(mediaPurposePolicy)}
+						{#if selectedSource(mediaPurposePolicy) === 'extension'}
+							<span class="secondary-tab-active">{sourceButtonLabel('extension')}</span>
+						{:else}
+							<button type="button" onclick={() => setMediaPurposePolicySelectedSource('extension')}>
+								{sourceButtonLabel('extension')}
+							</button>
+						{/if}
+					{:else}
+						<span class="secondary-tab-disabled">{sourceButtonLabel('extension')}</span>
+					{/if}
+				</div>
+				{#if !extensionSourceAvailable(mediaPurposePolicy)}
+					<p class="muted">no extension override available for this feature</p>
+				{/if}
+			</div>
+
+			<div class="customization-grid-wrap">
+				<div class="customization-grid">
+					<div class="customization-grid-header mono">purpose</div>
+					<div class="customization-grid-header">user-defined</div>
+					<div class="customization-grid-header">extension-defined</div>
+
+					<div class="mono customization-trait-key">token card</div>
+					<select
+						class="customization-select"
+						value={mediaPurposePolicy.userConfig.tokenCard}
+						disabled
+					>
+						<option value={COLLECTION_MEDIA_SOURCE.Image}>
+							{mediaSourceLabel(COLLECTION_MEDIA_SOURCE.Image)}
+						</option>
+					</select>
+					<select
+						class="customization-select"
+						value={mediaPurposePolicy.extensionConfig?.tokenCard ?? ''}
+						disabled
+					>
+						<option value="">not available</option>
+						<option value={COLLECTION_MEDIA_SOURCE.Image}>
+							{mediaSourceLabel(COLLECTION_MEDIA_SOURCE.Image)}
+						</option>
+					</select>
+
+					<div class="mono customization-trait-key">fullscreen preview</div>
+					<select
+						class="customization-select"
+						value={mediaPurposePolicy.userConfig.fullscreenPreview}
+						onchange={onFullscreenPreviewMediaPurposeSourceChange}
+					>
+						<option value={COLLECTION_MEDIA_SOURCE.Image}>
+							{mediaSourceLabel(COLLECTION_MEDIA_SOURCE.Image)}
+						</option>
+						<option value={COLLECTION_MEDIA_SOURCE.AnimationUrl}>
+							{mediaSourceLabel(COLLECTION_MEDIA_SOURCE.AnimationUrl)}
+						</option>
+					</select>
+					<select
+						class="customization-select"
+						value={mediaPurposePolicy.extensionConfig?.fullscreenPreview ?? ''}
+						disabled
+					>
+						<option value="">not available</option>
+						<option value={COLLECTION_MEDIA_SOURCE.Image}>
+							{mediaSourceLabel(COLLECTION_MEDIA_SOURCE.Image)}
+						</option>
+						<option value={COLLECTION_MEDIA_SOURCE.AnimationUrl}>
+							{mediaSourceLabel(COLLECTION_MEDIA_SOURCE.AnimationUrl)}
+						</option>
+					</select>
+
+					<div class="mono customization-trait-key">token detail</div>
+					<select
+						class="customization-select"
+						value={mediaPurposePolicy.userConfig.tokenDetail}
+						onchange={onTokenDetailMediaPurposeSourceChange}
+					>
+						<option value={COLLECTION_MEDIA_SOURCE.Image}>
+							{mediaSourceLabel(COLLECTION_MEDIA_SOURCE.Image)}
+						</option>
+						<option value={COLLECTION_MEDIA_SOURCE.AnimationUrl}>
+							{mediaSourceLabel(COLLECTION_MEDIA_SOURCE.AnimationUrl)}
+						</option>
+					</select>
+					<select
+						class="customization-select"
+						value={mediaPurposePolicy.extensionConfig?.tokenDetail ?? ''}
+						disabled
+					>
+						<option value="">not available</option>
+						<option value={COLLECTION_MEDIA_SOURCE.Image}>
+							{mediaSourceLabel(COLLECTION_MEDIA_SOURCE.Image)}
+						</option>
+						<option value={COLLECTION_MEDIA_SOURCE.AnimationUrl}>
+							{mediaSourceLabel(COLLECTION_MEDIA_SOURCE.AnimationUrl)}
+						</option>
+					</select>
+				</div>
+			</div>
+
+			<footer class="panel-footer customization-footer">
+				<span class="muted">
+					effective source:
+					<span class="mono">{sourceButtonLabel(selectedSource(mediaPurposePolicy))}</span>
+				</span>
+				{#if mediaPurposePolicySaveMessage}
+					<span class="muted">{mediaPurposePolicySaveMessage}</span>
+				{/if}
+				{#if mediaPurposePolicySaveError}
+					<span class="muted">{mediaPurposePolicySaveError}</span>
+				{/if}
+				<button
+					type="button"
+					class="button-link"
+					disabled={mediaPurposePolicySaving}
+					aria-busy={mediaPurposePolicySaving}
+					onclick={() => void onSave('mediaPurposePolicy')}
 				>
 					save
 				</button>

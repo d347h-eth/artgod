@@ -170,14 +170,20 @@ export async function scheduleBlockspaceBackfill(
 export async function probeBootstrapCollectionContract(
 	fetchFn: typeof fetch,
 	chainRef: string,
-	address: string
+	address: string,
+	options: {
+		imageSourceField?: string | null;
+		animationSourceField?: string | null;
+	} = {}
 ): Promise<BootstrapContractProbeApiResponse> {
 	return requestJson<BootstrapContractProbeApiResponse>(
 		fetchFn,
 		buildProbeBootstrapCollectionPath({
 			chainRef,
 			address,
-			standard: 'erc721'
+			standard: 'erc721',
+			imageSourceField: options.imageSourceField,
+			animationSourceField: options.animationSourceField
 		})
 	);
 }
@@ -652,6 +658,14 @@ export async function updateCollectionCustomization(
 				maxDimension: number | null;
 			};
 		};
+		mediaPurposePolicy: {
+			selectedSource: 'user' | 'extension';
+			userConfig: {
+				tokenCard: CollectionCustomizationApiResponse['customization']['mediaPurposePolicy']['userConfig']['tokenCard'];
+				fullscreenPreview: CollectionCustomizationApiResponse['customization']['mediaPurposePolicy']['userConfig']['fullscreenPreview'];
+				tokenDetail: CollectionCustomizationApiResponse['customization']['mediaPurposePolicy']['userConfig']['tokenDetail'];
+			};
+		};
 	}
 ): Promise<CollectionCustomizationApiResponse> {
 	await ensureCsrfToken(fetchFn);
@@ -752,6 +766,8 @@ export async function createBootstrapRun(
 		slug: string;
 		address: string;
 		openseaSlug?: string;
+		imageSourceField: string;
+		animationSourceField?: string | null;
 		standard: 'erc721';
 		metadataMode: 'strict' | 'best_effort';
 		supportsEnumerable: boolean;

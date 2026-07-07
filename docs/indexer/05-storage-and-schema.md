@@ -200,6 +200,8 @@ Key columns:
 - `request_opensea_slug`
 - `request_address`
 - `request_standard`
+- `request_image_source_field`
+- `request_animation_source_field`
 - `request_extension_key`
 - `metadata_mode`
 - `enumeration_mode`
@@ -214,6 +216,8 @@ Important contract:
 
 - `request_extension_key` is resolved during bootstrap run creation from `chain_id + contract_address + token_scope`
 - bootstrap-worker later installs that requested embedded extension by `collection_id`, without re-resolving by contract
+- `request_image_source_field` records the metadata field normalized into canonical `token_metadata.image`
+- `request_animation_source_field` records the metadata field normalized into canonical `token_metadata.animation_url`; `NULL` disables animation capture for the run
 - `request_image_cache_*` records the requested image cache mode and optional max resize dimension used by the later image-cache phase
 
 ### `bootstrap_run_steps`

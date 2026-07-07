@@ -4,6 +4,7 @@ import {
     defaultImageCachePolicyConfig,
     type ImageCachePolicyConfig,
 } from "@artgod/shared/media/token-image-cache";
+import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from "@artgod/shared/types";
 import {
@@ -46,6 +47,7 @@ describe("ProbeCollectionContractUseCase", () => {
                 tokenUriPayloadTruncated: false,
                 tokenUriPayloadError: null,
                 name: null,
+                imageSourceField: null,
                 image: null,
                 imageBytes: null,
                 imageBytesSource: null,
@@ -53,6 +55,7 @@ describe("ProbeCollectionContractUseCase", () => {
                 imageBytesError: null,
                 imageWidth: null,
                 imageHeight: null,
+                animationSourceField: null,
                 animationUrl: null,
                 metadataError: null,
                 candidates: [],
@@ -107,6 +110,7 @@ describe("ProbeCollectionContractUseCase", () => {
                 tokenUriPayloadTruncated: false,
                 tokenUriPayloadError: null,
                 name: null,
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 image: null,
                 imageBytes: 2048,
                 imageBytesSource: "download",
@@ -114,6 +118,7 @@ describe("ProbeCollectionContractUseCase", () => {
                 imageBytesError: null,
                 imageWidth: 1000,
                 imageHeight: 1000,
+                animationSourceField: null,
                 animationUrl: null,
                 metadataError: null,
                 candidates: [
@@ -178,6 +183,7 @@ describe("ProbeCollectionContractUseCase", () => {
                     tokenUriPayloadTruncated: false,
                     tokenUriPayloadError: null,
                     name: null,
+                    imageSourceField: null,
                     image: null,
                     imageBytes: null,
                     imageBytesSource: null,
@@ -185,6 +191,7 @@ describe("ProbeCollectionContractUseCase", () => {
                     imageBytesError: null,
                     imageWidth: null,
                     imageHeight: null,
+                    animationSourceField: null,
                     animationUrl: null,
                     metadataError: null,
                     candidates: [],
@@ -254,6 +261,7 @@ function makeUseCase(
             tokenUriPayloadTruncated: false,
             tokenUriPayloadError: null,
             name: null,
+            imageSourceField: null,
             image: null,
             imageBytes: null,
             imageBytesSource: null,
@@ -261,6 +269,7 @@ function makeUseCase(
             imageBytesError: null,
             imageWidth: null,
             imageHeight: null,
+            animationSourceField: null,
             animationUrl: null,
             metadataError: null,
             candidates: [],

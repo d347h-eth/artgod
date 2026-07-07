@@ -64,6 +64,8 @@ export type MetadataRefreshPayload = {
     tokenId: string;
     standard?: "erc721" | "erc1155";
     metadataUrl?: string | null;
+    imageSourceField?: string | null;
+    animationSourceField?: string | null;
     blockNumber?: number;
     blockHash?: string;
     blockTimestamp?: number;

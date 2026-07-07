@@ -8,6 +8,7 @@ import {
     type BootstrapStepKey,
 } from "@artgod/shared/bootstrap/pipeline";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
+import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import {
     BOOTSTRAP_STARTUP_RECONCILE_OUTCOME,
     BootstrapStartupReconciler,
@@ -229,6 +230,8 @@ function buildRun(runId: number): BootstrapRunDefinition {
         requestSlug: `collection-${runId}`,
         requestAddress: "0x0000000000000000000000000000000000000001",
         requestStandard: COLLECTION_STANDARD.Erc721,
+        imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+        animationSourceField: null,
         requestExtensionKey: null,
         metadataMode: BOOTSTRAP_METADATA_MODE.BestEffort,
         enumerationMode: BOOTSTRAP_ENUMERATION_MODE.Enumerable,

@@ -554,6 +554,7 @@ paths:
                                     tokenCardTraitSummaryTemplate,
                                     activityRowTraitSummaryTemplate,
                                     imageCachePolicy,
+                                    mediaPurposePolicy,
                                 ]
                             additionalProperties: false
                             properties:
@@ -593,6 +594,15 @@ paths:
                                             $ref: "#/components/schemas/CollectionCustomizationSource"
                                         userConfig:
                                             $ref: "#/components/schemas/ImageCachePolicyConfig"
+                                mediaPurposePolicy:
+                                    type: object
+                                    required: [selectedSource, userConfig]
+                                    additionalProperties: false
+                                    properties:
+                                        selectedSource:
+                                            $ref: "#/components/schemas/CollectionCustomizationSource"
+                                        userConfig:
+                                            $ref: "#/components/schemas/MediaPurposePolicyConfig"
             responses:
                 "200":
                     description: Updated effective collection customization state
@@ -1240,6 +1250,52 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/collections/bootstrap/probe:
+        get:
+            tags: [Bootstrap]
+            summary: Probe an ERC721 contract before bootstrap
+            description: |
+                Reads onchain ERC721/Enumerable state plus one sample token URI payload so the
+                bootstrap form can prefill source fields, supply scope, and cache policy inputs.
+            operationId: probeBootstrapCollectionContract
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - name: address
+                  in: query
+                  required: true
+                  schema:
+                      type: string
+                - name: standard
+                  in: query
+                  required: false
+                  schema:
+                      type: string
+                      enum: [erc721]
+                      default: erc721
+                - name: image_source_field
+                  in: query
+                  required: false
+                  schema:
+                      type: string
+                - name: animation_source_field
+                  in: query
+                  required: false
+                  schema:
+                      type: string
+            responses:
+                "200":
+                    description: Contract probe result used by the bootstrap form
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/BootstrapContractProbeResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/collections/bootstrap:
         post:
             tags: [Bootstrap]
@@ -1814,7 +1870,7 @@ components:
             additionalProperties: false
             properties:
                 chain:
-                    $ref: "#/components/schemas/Chain"
+                    $ref: "#/components/schemas/ChainRecord"
                 collection:
                     $ref: "#/components/schemas/CollectionListItem"
                 deletedRows:
@@ -3657,6 +3713,40 @@ components:
                     minimum: 64
                     maximum: 4096
 
+        CollectionMediaSource:
+            type: string
+            enum: [image, animation_url]
+
+        MediaPurposePolicyConfig:
+            type: object
+            required: [tokenCard, fullscreenPreview, tokenDetail]
+            additionalProperties: false
+            properties:
+                tokenCard:
+                    type: string
+                    enum: [image]
+                fullscreenPreview:
+                    $ref: "#/components/schemas/CollectionMediaSource"
+                tokenDetail:
+                    $ref: "#/components/schemas/CollectionMediaSource"
+
+        MediaPurposePolicyFeatureState:
+            type: object
+            required:
+                [selectedSource, userConfig, extensionConfig, effectiveConfig]
+            additionalProperties: false
+            properties:
+                selectedSource:
+                    $ref: "#/components/schemas/CollectionCustomizationSource"
+                userConfig:
+                    $ref: "#/components/schemas/MediaPurposePolicyConfig"
+                extensionConfig:
+                    allOf:
+                        - $ref: "#/components/schemas/MediaPurposePolicyConfig"
+                    nullable: true
+                effectiveConfig:
+                    $ref: "#/components/schemas/MediaPurposePolicyConfig"
+
         ImageCachePolicyFeatureState:
             type: object
             required:
@@ -3682,6 +3772,7 @@ components:
                     tokenCardTraitSummaryTemplate,
                     activityRowTraitSummaryTemplate,
                     imageCachePolicy,
+                    mediaPurposePolicy,
                 ]
             additionalProperties: false
             properties:
@@ -3693,6 +3784,8 @@ components:
                     $ref: "#/components/schemas/TraitSummaryTemplateFeatureState"
                 imageCachePolicy:
                     $ref: "#/components/schemas/ImageCachePolicyFeatureState"
+                mediaPurposePolicy:
+                    $ref: "#/components/schemas/MediaPurposePolicyFeatureState"
 
         CollectionHolder:
             type: object
@@ -4144,6 +4237,289 @@ components:
             type: string
             enum: [enumerable, manual_token_ids, manual_range]
 
+        BootstrapProbeInterfaceCheck:
+            type: object
+            required: [supported, error]
+            additionalProperties: false
+            properties:
+                supported:
+                    type: boolean
+                    nullable: true
+                error:
+                    type: string
+                    nullable: true
+
+        BootstrapProbeTotalSupply:
+            type: object
+            required:
+                [
+                    status,
+                    value,
+                    safeIntegerValue,
+                    bootstrapRangeValue,
+                    error,
+                ]
+            additionalProperties: false
+            properties:
+                status:
+                    type: string
+                    enum: [available, unavailable]
+                value:
+                    type: string
+                    nullable: true
+                safeIntegerValue:
+                    type: integer
+                    nullable: true
+                bootstrapRangeValue:
+                    type: integer
+                    nullable: true
+                error:
+                    type: string
+                    nullable: true
+
+        BootstrapProbeTokenCandidate:
+            type: object
+            required: [tokenId, exists, source, error]
+            additionalProperties: false
+            properties:
+                tokenId:
+                    type: string
+                exists:
+                    type: boolean
+                    nullable: true
+                source:
+                    type: string
+                    enum: [token_uri, owner_of]
+                    nullable: true
+                error:
+                    type: string
+                    nullable: true
+
+        BootstrapProbeFirstToken:
+            type: object
+            required:
+                [
+                    tokenId,
+                    source,
+                    tokenUri,
+                    tokenUriPayloadBytes,
+                    tokenUriPayloadTruncated,
+                    tokenUriPayloadError,
+                    name,
+                    imageSourceField,
+                    image,
+                    imageBytes,
+                    imageBytesSource,
+                    imageContentType,
+                    imageBytesError,
+                    imageWidth,
+                    imageHeight,
+                    animationSourceField,
+                    animationUrl,
+                    metadataError,
+                    candidates,
+                ]
+            additionalProperties: false
+            properties:
+                tokenId:
+                    type: string
+                    nullable: true
+                source:
+                    type: string
+                    enum:
+                        [
+                            token_by_index,
+                            candidate_token_uri,
+                            candidate_owner_of,
+                        ]
+                    nullable: true
+                tokenUri:
+                    type: string
+                    nullable: true
+                tokenUriPayloadBytes:
+                    type: integer
+                    nullable: true
+                    minimum: 0
+                tokenUriPayloadTruncated:
+                    type: boolean
+                tokenUriPayloadError:
+                    type: string
+                    nullable: true
+                name:
+                    type: string
+                    nullable: true
+                imageSourceField:
+                    type: string
+                    nullable: true
+                image:
+                    type: string
+                    nullable: true
+                imageBytes:
+                    type: integer
+                    nullable: true
+                    minimum: 0
+                imageBytesSource:
+                    type: string
+                    enum: [content_length, download, data_uri]
+                    nullable: true
+                imageContentType:
+                    type: string
+                    nullable: true
+                imageBytesError:
+                    type: string
+                    nullable: true
+                imageWidth:
+                    type: integer
+                    nullable: true
+                    minimum: 1
+                imageHeight:
+                    type: integer
+                    nullable: true
+                    minimum: 1
+                animationSourceField:
+                    type: string
+                    nullable: true
+                animationUrl:
+                    type: string
+                    nullable: true
+                metadataError:
+                    type: string
+                    nullable: true
+                candidates:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BootstrapProbeTokenCandidate"
+
+        BootstrapProbeStorageEstimate:
+            type: object
+            nullable: true
+            required:
+                [sampleTokenId, samplePayloadBytes, projectedBytes, totalSupply]
+            additionalProperties: false
+            properties:
+                sampleTokenId:
+                    type: string
+                samplePayloadBytes:
+                    type: integer
+                    minimum: 0
+                projectedBytes:
+                    type: string
+                totalSupply:
+                    type: string
+
+        BootstrapProbeImageStorageEstimate:
+            type: object
+            nullable: true
+            required:
+                [
+                    sampleTokenId,
+                    sampleImageBytes,
+                    projectedBytes,
+                    totalSupply,
+                    contentType,
+                ]
+            additionalProperties: false
+            properties:
+                sampleTokenId:
+                    type: string
+                sampleImageBytes:
+                    type: integer
+                    minimum: 0
+                projectedBytes:
+                    type: string
+                totalSupply:
+                    type: string
+                contentType:
+                    type: string
+                    nullable: true
+
+        BootstrapProbeSuggestedInput:
+            type: object
+            required: [supportsEnumerable, manualInput, ready, warnings]
+            additionalProperties: false
+            properties:
+                supportsEnumerable:
+                    type: boolean
+                manualInput:
+                    type: object
+                    nullable: true
+                    required: [mode, startTokenId, totalSupply]
+                    additionalProperties: false
+                    properties:
+                        mode:
+                            type: string
+                            enum: [manual_range]
+                        startTokenId:
+                            type: string
+                        totalSupply:
+                            type: integer
+                            minimum: 1
+                ready:
+                    type: boolean
+                warnings:
+                    type: array
+                    items:
+                        type: string
+
+        BootstrapProbeImageCacheSuggestion:
+            type: object
+            required: [selectedSource, extensionKey, config]
+            additionalProperties: false
+            properties:
+                selectedSource:
+                    $ref: "#/components/schemas/CollectionCustomizationSource"
+                extensionKey:
+                    type: string
+                    nullable: true
+                config:
+                    $ref: "#/components/schemas/ImageCachePolicyConfig"
+
+        BootstrapContractProbeResponse:
+            type: object
+            required:
+                [
+                    chain,
+                    address,
+                    standard,
+                    contractName,
+                    erc721,
+                    enumerable,
+                    totalSupply,
+                    firstToken,
+                    storageEstimate,
+                    imageStorageEstimate,
+                    suggestedInput,
+                    imageCacheSuggestion,
+                ]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                address:
+                    type: string
+                standard:
+                    type: string
+                    enum: [erc721]
+                contractName:
+                    type: string
+                    nullable: true
+                erc721:
+                    $ref: "#/components/schemas/BootstrapProbeInterfaceCheck"
+                enumerable:
+                    $ref: "#/components/schemas/BootstrapProbeInterfaceCheck"
+                totalSupply:
+                    $ref: "#/components/schemas/BootstrapProbeTotalSupply"
+                firstToken:
+                    $ref: "#/components/schemas/BootstrapProbeFirstToken"
+                storageEstimate:
+                    $ref: "#/components/schemas/BootstrapProbeStorageEstimate"
+                imageStorageEstimate:
+                    $ref: "#/components/schemas/BootstrapProbeImageStorageEstimate"
+                suggestedInput:
+                    $ref: "#/components/schemas/BootstrapProbeSuggestedInput"
+                imageCacheSuggestion:
+                    $ref: "#/components/schemas/BootstrapProbeImageCacheSuggestion"
+
         BootstrapRunStatus:
             type: string
             enum:
@@ -4168,6 +4544,8 @@ components:
                 - requestOpenseaSlug
                 - requestAddress
                 - requestStandard
+                - imageSourceField
+                - animationSourceField
                 - requestExtensionKey
                 - metadataMode
                 - enumerationMode
@@ -4203,6 +4581,12 @@ components:
                     type: string
                 requestStandard:
                     $ref: "#/components/schemas/CollectionStandard"
+                imageSourceField:
+                    type: string
+                    nullable: true
+                animationSourceField:
+                    type: string
+                    nullable: true
                 requestExtensionKey:
                     type: string
                     nullable: true
@@ -4516,7 +4900,14 @@ components:
         CreateBootstrapRunRequest:
             type: object
             required:
-                [slug, address, standard, metadataMode, supportsEnumerable]
+                [
+                    slug,
+                    address,
+                    imageSourceField,
+                    standard,
+                    metadataMode,
+                    supportsEnumerable,
+                ]
             additionalProperties: false
             properties:
                 slug:
@@ -4525,6 +4916,11 @@ components:
                     type: string
                     description: Lower/upper case accepted, normalized to lowercase by backend
                 openseaSlug:
+                    type: string
+                    nullable: true
+                imageSourceField:
+                    type: string
+                animationSourceField:
                     type: string
                     nullable: true
                 standard:
@@ -4561,9 +4957,11 @@ components:
                                   minimum: 1
                 imageCache:
                     type: object
-                    required: [imageCacheMode, maxDimension]
+                    required: [selectedSource, imageCacheMode, maxDimension]
                     additionalProperties: false
                     properties:
+                        selectedSource:
+                            $ref: "#/components/schemas/CollectionCustomizationSource"
                         imageCacheMode:
                             $ref: "#/components/schemas/ImageCacheMode"
                         maxDimension:
@@ -4618,6 +5016,7 @@ components:
                     projectedCachedBytes,
                     totalSupply,
                     contentType,
+                    sampleCachedImageDataUrl,
                     sourceWidth,
                     sourceHeight,
                     width,
@@ -4646,6 +5045,9 @@ components:
                 totalSupply:
                     type: string
                 contentType:
+                    type: string
+                    nullable: true
+                sampleCachedImageDataUrl:
                     type: string
                     nullable: true
                 sourceWidth:

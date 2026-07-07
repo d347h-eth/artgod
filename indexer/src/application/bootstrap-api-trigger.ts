@@ -86,6 +86,10 @@ type BootstrapManualInput =
       };
 
 export type BootstrapProbeApiResponse = {
+    firstToken: {
+        imageSourceField: string | null;
+        animationSourceField: string | null;
+    };
     suggestedInput: {
         supportsEnumerable: boolean;
         manualInput: BootstrapManualInput | null;
@@ -106,6 +110,8 @@ export type BootstrapRunCreateBody = {
     slug: string;
     address: string;
     openseaSlug?: string;
+    imageSourceField: string;
+    animationSourceField: string | null;
     standard: typeof COLLECTION_STANDARD.Erc721;
     metadataMode: BootstrapMetadataMode;
     supportsEnumerable: boolean;
@@ -234,9 +240,21 @@ export function buildBootstrapRunCreateBody(
         throw new Error(`Bootstrap probe did not produce ready input${suffix}`);
     }
 
+    const imageSourceField = normalizeProbeField(
+        probe.firstToken.imageSourceField,
+    );
+    if (!imageSourceField) {
+        throw new Error("Bootstrap probe did not resolve image source field");
+    }
+    const animationSourceField = normalizeProbeField(
+        probe.firstToken.animationSourceField,
+    );
+
     const body: BootstrapRunCreateBody = {
         slug: input.slug,
         address: input.address,
+        imageSourceField,
+        animationSourceField,
         standard: COLLECTION_STANDARD.Erc721,
         metadataMode: input.metadataMode,
         supportsEnumerable: probe.suggestedInput.supportsEnumerable,
@@ -483,6 +501,11 @@ function normalizeOptionalSlug(raw: string | undefined): string | null {
         return null;
     }
     return normalizeSlug(value);
+}
+
+function normalizeProbeField(raw: string | null | undefined): string | null {
+    const value = raw?.trim();
+    return value ? value : null;
 }
 
 function parseMetadataModeFlag(raw: string): BootstrapMetadataMode {

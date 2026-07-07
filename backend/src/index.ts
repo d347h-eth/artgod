@@ -401,6 +401,7 @@ export function createBackendApp(
         config.defaultChainId,
         chainsReadModel,
         extensionAwareCollectionsReadModel,
+        extensionAwareCollectionCustomization,
     );
     const tokenPreview = maybeCreateCachedGetTokenPreviewPort(
         config,

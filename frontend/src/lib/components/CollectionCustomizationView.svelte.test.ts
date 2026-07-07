@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import { TERRAFORMS_TRAIT_SUMMARY_TEMPLATE } from '@artgod/shared/extensions/terraforms';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
+import {
+	COLLECTION_MEDIA_SOURCE,
+	defaultMediaPurposePolicyConfig
+} from '@artgod/shared/types';
 import CollectionCustomizationView from './CollectionCustomizationView.svelte';
 
 describe('CollectionCustomizationView', () => {
@@ -61,6 +65,20 @@ describe('CollectionCustomizationView', () => {
 							imageCacheMode: IMAGE_CACHE_MODE.Off,
 							maxDimension: null
 						}
+					},
+					mediaPurposePolicy: {
+						selectedSource: 'extension',
+						userConfig: defaultMediaPurposePolicyConfig(),
+						extensionConfig: {
+							tokenCard: COLLECTION_MEDIA_SOURCE.Image,
+							fullscreenPreview: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+							tokenDetail: COLLECTION_MEDIA_SOURCE.AnimationUrl
+						},
+						effectiveConfig: {
+							tokenCard: COLLECTION_MEDIA_SOURCE.Image,
+							fullscreenPreview: COLLECTION_MEDIA_SOURCE.AnimationUrl,
+							tokenDetail: COLLECTION_MEDIA_SOURCE.AnimationUrl
+						}
 					}
 				},
 				basePath: '/ethereum/terraforms',
@@ -72,6 +90,7 @@ describe('CollectionCustomizationView', () => {
 
 		expect(body).toContain('trait filter presentation');
 		expect(body).toContain('image cache policy');
+		expect(body).toContain('media purpose policy');
 		expect(body).toContain('token card trait summary template');
 		expect(body).toContain('activity row trait summary template');
 		expect(body).toContain('user-defined');
