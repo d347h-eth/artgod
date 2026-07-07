@@ -2,7 +2,8 @@ import {
 	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
 	TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
 	TRADING_JOB_STATUS,
-	TRADING_JOB_TARGET_KIND
+	TRADING_JOB_TARGET_KIND,
+	type TraitFilter
 } from '@artgod/shared/types';
 import type {
 	ApiBiddingJob,
@@ -29,6 +30,7 @@ import {
 	buildTokenBiddingJobTargetLookupRequestBody,
 	canSubmitFilteredTokenBatch,
 	type BiddingAutomationDraft,
+	type BiddingAutomationTraitAttribute,
 	type BiddingJobTargetLookupRequestBody
 } from '$lib/bidding-automation';
 import {
@@ -391,7 +393,7 @@ function batchTokenSelectionRequestFromFilteredDraft(
 	if (draft.source.filter.source === BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers) {
 		return {
 			type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
-			traits: draft.source.filter.selectedTraits,
+			traits: batchTokenSelectionTraits(draft.source.filter.selectedTraits),
 			traitRanges: draft.source.filter.selectedTraitRanges,
 			traitJoinMode: draft.source.filter.traitJoinMode,
 			makerAddress: draft.source.filter.makerAddress
@@ -404,10 +406,17 @@ function batchTokenSelectionRequestFromFilteredDraft(
 	return {
 		type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
 		tokenStatus,
-		traits: draft.source.filter.selectedTraits,
+		traits: batchTokenSelectionTraits(draft.source.filter.selectedTraits),
 		traitRanges: draft.source.filter.selectedTraitRanges,
 		ownerAddress: draft.source.filter.ownerAddress
 	};
+}
+
+function batchTokenSelectionTraits(traits: BiddingAutomationTraitAttribute[]): TraitFilter[] {
+	return traits.map((trait) => ({
+		key: trait.key,
+		value: trait.value
+	}));
 }
 
 function biddingSelectionJobLookupBodies(

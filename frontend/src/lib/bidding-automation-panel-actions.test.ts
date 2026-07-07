@@ -499,7 +499,7 @@ describe('bidding automation panel actions', () => {
 			{
 				selection: {
 					type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
-					traits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
+					traits: [{ key: 'Mode', value: 'Terrain' }],
 					traitRanges: [],
 					traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
 					makerAddress: '0xcccccccccccccccccccccccccccccccccccccccc'
@@ -551,7 +551,7 @@ describe('bidding automation panel actions', () => {
 				selection: {
 					type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
 					tokenStatus: 'listed',
-					traits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
+					traits: [{ key: 'Mode', value: 'Terrain' }],
 					traitRanges: [],
 					ownerAddress: undefined
 				}
