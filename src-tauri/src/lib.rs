@@ -38,6 +38,8 @@ pub(crate) struct DesktopState {
 const TRAY_OPEN_USERLAND_ID: &str = "tray.open_userland";
 const TRAY_OPEN_ADMIN_ID: &str = "tray.open_admin";
 const TRAY_SHUTDOWN_ID: &str = "tray.shutdown";
+const ADMIN_SHUTDOWN_REQUEST_REASON: &str = "admin shutdown requested";
+const TRAY_SHUTDOWN_REQUEST_REASON: &str = "tray shutdown requested";
 const TRAY_ICON: tauri::image::Image<'_> = include_image!("./icons/tray_icon.png");
 
 #[derive(Serialize)]
@@ -77,8 +79,18 @@ fn runtime_auto_start(
 }
 
 #[tauri::command]
-fn runtime_stop(app: AppHandle, state: State<'_, DesktopState>) -> Result<RuntimeStatus, String> {
-    state.runtime.stop(app)
+async fn runtime_stop(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<RuntimeStatus, String> {
+    let runtime = state.runtime.clone();
+    run_blocking_runtime_command(move || runtime.stop(app)).await
+}
+
+#[tauri::command]
+fn runtime_shutdown(app: AppHandle) -> Result<(), String> {
+    request_runtime_shutdown(&app, ADMIN_SHUTDOWN_REQUEST_REASON);
+    Ok(())
 }
 
 #[tauri::command]
@@ -87,12 +99,12 @@ fn runtime_status(state: State<'_, DesktopState>) -> Result<RuntimeStatus, Strin
 }
 
 #[tauri::command]
-fn runtime_restart(
+async fn runtime_restart(
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<RuntimeStatus, String> {
-    state.runtime.stop(app.clone())?;
-    state.runtime.start(app)
+    let runtime = state.runtime.clone();
+    run_blocking_runtime_command(move || runtime.restart(app)).await
 }
 
 #[tauri::command]
@@ -323,6 +335,16 @@ fn runtime_preflight(app: AppHandle, state: State<'_, DesktopState>) -> RuntimeP
     }
 }
 
+async fn run_blocking_runtime_command<F>(command: F) -> Result<RuntimeStatus, String>
+where
+    F: FnOnce() -> Result<RuntimeStatus, String> + Send + 'static,
+{
+    // Runtime stop/restart joins child-process supervisor threads; keep it off Tauri's IPC thread.
+    tauri::async_runtime::spawn_blocking(command)
+        .await
+        .map_err(|error| format!("Runtime command task failed: {error}"))?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -393,7 +415,7 @@ pub fn run() {
                             show_admin_window(app_handle);
                         }
                         TRAY_SHUTDOWN_ID => {
-                            request_runtime_shutdown(app_handle, "tray shutdown requested");
+                            request_runtime_shutdown(app_handle, TRAY_SHUTDOWN_REQUEST_REASON);
                         }
                         _ => {}
                     }
@@ -429,6 +451,7 @@ pub fn run() {
             runtime_auto_start,
             runtime_start,
             runtime_stop,
+            runtime_shutdown,
             runtime_restart,
             runtime_status,
             runtime_get_endpoints,

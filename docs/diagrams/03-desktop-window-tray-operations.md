@@ -31,9 +31,17 @@ sequenceDiagram
     S->>S: Graceful stop (force kill fallback)
     S-->>R: stopped
     R->>R: app exit
+
+    U->>W: Click "shutdown"
+    W->>R: runtime_shutdown
+    R->>S: stop()
+    S->>S: Graceful stop (force kill fallback)
+    S-->>R: stopped
+    R->>R: app exit
 ```
 
 ## Notes
 
 - Admin shell header action to enter the userland triggers the same open-userland action.
+- Admin shell shutdown triggers the same graceful runtime shutdown path as the tray action.
 - Tray double-click can also trigger open-userland where supported by the platform.

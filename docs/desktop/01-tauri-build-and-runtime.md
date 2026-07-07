@@ -450,16 +450,6 @@ plus the previous two days. The desktop app runs periodic staging and cleanup
 while it is open and also cleans up immediately after Admin config save/default
 reset, so retention changes apply without requiring app relaunch.
 
-It also emits log lines to frontend runtime event stream.
-This includes wallet-bound bot process logs once those runtimes are started.
-
-Admin runtime drawer process dropdown behavior:
-
-- process list is sourced from:
-  : explicit log file enumeration (`runtime_list_log_processes`) when hydrating runtime state
-  : plus live `runtime-log` event process names as they appear
-- this makes all existing process logs selectable even before supervisor transitions status to `running`
-
 ## Runtime Operations UI
 
 Desktop UI is split into:
@@ -469,13 +459,12 @@ Desktop UI is split into:
 
 Admin UI mounts a dedicated shell in root layout (`frontend/src/routes/+layout.svelte`):
 
-- shell tabs: `system`, `control`, `wallets`, `bots`, `logs`
+- shell tabs: `system`, `wallets`, `bots`
 - header action sequence: `config` -> `start infra` -> `enter the userland`
+- secondary header actions: `logs`, `stop infra`, `shutdown`
 - Admin configuration controls: edit manifest-backed runtime settings grouped by topic, render `.env`, and toggle `autostart infra`
 - live runtime state (`runtime-state-changed` event)
-- live log stream (`runtime-log` event)
-- controls: start / stop / restart / preflight
-- paths: settings/env/logs paths, with settings/env existence status and open actions
+- logs folder opener: opens the app-data logs directory in the native file browser
 - wallet metadata controls: import / export / remove
 - bot controls: list / assign wallet / start / stop
 
@@ -493,6 +482,7 @@ Tauri commands used by desktop frontend runtime UI/state:
 - `runtime_auto_start` (boot lifecycle orchestrator startup handshake)
 - `runtime_start`
 - `runtime_stop`
+- `runtime_shutdown`
 - `runtime_restart`
 - `runtime_status`
 - `runtime_preflight`

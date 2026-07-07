@@ -1,3 +1,12 @@
+// Frontend-owned constants for the runtime status values sent by the Tauri supervisor.
+export const RUNTIME_STATUS_STATES = {
+	starting: 'starting',
+	restarting: 'restarting',
+	stopping: 'stopping',
+	running: 'running',
+	stopped: 'stopped'
+} as const;
+
 export type RuntimeStatus = {
 	state: string;
 	restartCount: number;
@@ -34,6 +43,7 @@ export interface RuntimePort {
 	start(): Promise<RuntimeStatus>;
 	stop(): Promise<RuntimeStatus>;
 	restart(): Promise<RuntimeStatus>;
+	shutdown(): Promise<void>;
 	status(): Promise<RuntimeStatus | null>;
 	preflight(): Promise<RuntimePreflight | null>;
 	getConfigPath(): Promise<string | null>;

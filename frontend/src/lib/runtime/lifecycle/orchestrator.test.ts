@@ -65,6 +65,10 @@ class FakeRuntimePort implements RuntimePort {
 		return makeStatus('restarting');
 	}
 
+	async shutdown(): Promise<void> {
+		return;
+	}
+
 	async status(): Promise<RuntimeStatus | null> {
 		this.statusCalls += 1;
 		return this.statusValue;

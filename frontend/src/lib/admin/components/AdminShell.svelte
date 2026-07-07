@@ -13,17 +13,19 @@
 	import AdminBotsPanel from '$lib/admin/bots/AdminBotsPanel.svelte';
 	import AdminWalletsPanel from '$lib/admin/wallets/AdminWalletsPanel.svelte';
 	import InfoTooltip from '$lib/components/InfoTooltip.svelte';
-	import { adminRuntimeStore } from '$lib/admin/runtime/store';
+	import { RUNTIME_BUSY_ACTIONS, adminRuntimeStore } from '$lib/admin/runtime/store';
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import type { AdminConsoleTab } from '$lib/runtime/lifecycle-ui-policy';
+	import { RUNTIME_STATUS_STATES } from '$lib/runtime/lifecycle/ports';
 	import {
 		RPC_AUTO_SOURCING_TRACKING_POLICY_ENV_KEY,
 		RPC_ENDPOINT_BENCHMARK_SOURCES,
 		normalizeRpcAutoSourcingTrackingPolicy
 	} from '@artgod/shared/config/rpc-auto-sourcing';
+	import { OPENSEA_API_KEY_ENV } from '@artgod/shared/config/opensea-integration';
 	import { RPC_ENDPOINT_LIST_ENV_KEY } from '@artgod/shared/config/rpc-endpoints';
 
-	type AdminShellTab = 'config' | 'system' | 'control' | 'wallets' | 'bots' | 'logs';
+	type AdminShellTab = 'config' | 'system' | 'wallets' | 'bots';
 
 	const configPort = createTauriAdminConfigPort();
 	const runtimeState = adminRuntimeStore.state;
@@ -34,6 +36,8 @@
 		rpcSanityCheck: 'rpc_sanity_check',
 		rpcBenchmark: 'rpc_benchmark'
 	} as const;
+	const MISSING_OPENSEA_API_KEY_WARNING =
+		'Set the OpenSea API key to enable market data and bidding bot features.';
 
 	let activeTab = $state<AdminShellTab | null>(null);
 	let config = $state<AdminConfigState | null>(null);
@@ -46,10 +50,8 @@
 
 	const tabs: Array<{ id: AdminShellTab; label: string }> = [
 		{ id: 'system', label: 'system' },
-		{ id: 'control', label: 'control' },
 		{ id: 'wallets', label: 'wallets' },
-		{ id: 'bots', label: 'bots' },
-		{ id: 'logs', label: 'logs' }
+		{ id: 'bots', label: 'bots' }
 	];
 
 	const actionFlow = $derived(
@@ -64,6 +66,17 @@
 			rpcAutoSourcingFailed
 		})
 	);
+	const openSeaApiKeyMissing = $derived(
+		config !== null && (config.values[OPENSEA_API_KEY_ENV] ?? '').trim().length === 0
+	);
+	const stopInfraDisabled = $derived(actionFlow.userland.disabled);
+	const shutdownDisabled = $derived($runtimeState.busyAction === RUNTIME_BUSY_ACTIONS.stop);
+	const configRestartNoticeVisible = $derived(
+		$runtimeState.status?.state === RUNTIME_STATUS_STATES.running
+	);
+	const hasHeaderMessages = $derived(
+		configError !== null || $runtimeState.error !== null || configNotice !== null
+	);
 
 	onMount(() => {
 		void loadConfig();
@@ -76,12 +89,6 @@
 	function resolveRuntimeTab(tab: AdminShellTab | null): AdminConsoleTab | null {
 		if (tab === 'system') {
 			return 'lifecycle';
-		}
-		if (tab === 'control') {
-			return 'status';
-		}
-		if (tab === 'logs') {
-			return 'logs';
 		}
 		return null;
 	}
@@ -222,6 +229,25 @@
 		void adminRuntimeStore.openUserlandUi();
 	}
 
+	function handleOpenLogs(): void {
+		void adminRuntimeStore.openLogsPath();
+	}
+
+	function handleStopInfra(): void {
+		if (stopInfraDisabled) {
+			return;
+		}
+		activeTab = 'system';
+		void adminRuntimeStore.stop();
+	}
+
+	function handleShutdown(): void {
+		if (shutdownDisabled) {
+			return;
+		}
+		void adminRuntimeStore.shutdown();
+	}
+
 	async function withConfigAction(action: string, work: () => Promise<void>): Promise<boolean> {
 		if (configBusyAction !== null) {
 			return false;
@@ -280,18 +306,28 @@
 				<h1>ArtGod</h1>
 				<p class="admin-shell-eyebrow">{APP_VERSION}</p>
 			</div>
-			<div class="admin-flow-actions" aria-label="Admin launch sequence">
-				<button
-					type="button"
-					class="admin-flow-action"
-					class:admin-flow-action-selected={activeTab === 'config'}
-					onclick={openConfiguration}
-					disabled={actionFlow.configure.disabled}
-				>
-					{actionFlow.configure.label}
-				</button>
-				<span class="admin-flow-arrow" aria-hidden="true">⇨</span>
-				<span class="admin-flow-action-shell">
+			<div class="admin-flow-action-grid" aria-label="Admin launch sequence">
+				<span class="admin-flow-action-shell admin-flow-primary-config">
+					<button
+						type="button"
+						class="admin-flow-action"
+						class:admin-flow-action-selected={activeTab === 'config'}
+						class:admin-flow-action-has-warning={openSeaApiKeyMissing}
+						onclick={openConfiguration}
+						disabled={actionFlow.configure.disabled}
+					>
+						{actionFlow.configure.label}
+					</button>
+					{#if openSeaApiKeyMissing}
+						<InfoTooltip
+							text={MISSING_OPENSEA_API_KEY_WARNING}
+							tone="warning"
+							className="admin-flow-warning-tooltip"
+						/>
+					{/if}
+				</span>
+				<span class="admin-flow-arrow admin-flow-arrow-config" aria-hidden="true">⇨</span>
+				<span class="admin-flow-action-shell admin-flow-primary-boot">
 					<button
 						type="button"
 						class="admin-flow-action"
@@ -309,24 +345,51 @@
 						/>
 					{/if}
 				</span>
-				<span class="admin-flow-arrow" aria-hidden="true">⇨</span>
+				<span class="admin-flow-arrow admin-flow-arrow-userland" aria-hidden="true">⇨</span>
 				<button
 					type="button"
-					class="admin-flow-action"
+					class="admin-flow-action admin-flow-primary-userland"
 					onclick={handleEnterUserland}
 					disabled={actionFlow.userland.disabled}
 				>
 					{actionFlow.userland.label}
 				</button>
+				<button
+					type="button"
+					class="admin-flow-action admin-flow-secondary-logs"
+					onclick={handleOpenLogs}
+				>
+					logs
+				</button>
+				<button
+					type="button"
+					class="admin-flow-action admin-flow-secondary-stop"
+					onclick={handleStopInfra}
+					disabled={stopInfraDisabled}
+				>
+					stop infra
+				</button>
+				<button
+					type="button"
+					class="admin-flow-action admin-flow-secondary-shutdown"
+					onclick={handleShutdown}
+					disabled={shutdownDisabled}
+				>
+					shutdown
+				</button>
 			</div>
-			{#if configError}
-				<p class="runtime-error" role="alert">{configError}</p>
-			{/if}
-			{#if $runtimeState.error}
-				<p class="runtime-error" role="alert">{$runtimeState.error}</p>
-			{/if}
-			{#if configNotice}
-				<p class="runtime-pass">{configNotice}</p>
+			{#if hasHeaderMessages}
+				<div class="admin-shell-message-stack">
+					{#if configError}
+						<p class="runtime-error" role="alert">{configError}</p>
+					{/if}
+					{#if $runtimeState.error}
+						<p class="runtime-error" role="alert">{$runtimeState.error}</p>
+					{/if}
+					{#if configNotice}
+						<p class="runtime-pass">{configNotice}</p>
+					{/if}
+				</div>
 			{/if}
 		</header>
 
@@ -362,6 +425,7 @@
 						errorMessage={configError}
 						onSave={saveConfig}
 						onBenchmarkRpcEndpoints={benchmarkRpcEndpoints}
+						infraRunning={configRestartNoticeVisible}
 						onClose={() => {
 							activeTab = null;
 							configNotice = null;
@@ -431,17 +495,21 @@
 		color: var(--c-yellow);
 	}
 
-	.admin-flow-actions {
-		display: flex;
+	.admin-flow-action-grid {
+		display: grid;
+		grid-template-columns:
+			minmax(9rem, max-content) auto minmax(9rem, max-content) auto
+			minmax(9rem, max-content);
 		align-items: center;
-		gap: 0.55rem;
+		column-gap: 0.55rem;
+		row-gap: 1.15rem;
 		width: fit-content;
 		max-width: 100%;
 		overflow: visible;
 		justify-self: center;
 	}
 
-	.admin-flow-actions button {
+	.admin-flow-action-grid button {
 		white-space: nowrap;
 	}
 
@@ -449,6 +517,8 @@
 		position: relative;
 		display: inline-flex;
 		align-items: center;
+		width: 100%;
+		min-width: 0;
 	}
 
 	.admin-flow-action {
@@ -458,6 +528,47 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		min-width: 9rem;
+		width: 100%;
+	}
+
+	.admin-flow-primary-config {
+		grid-column: 1;
+		grid-row: 1;
+	}
+
+	.admin-flow-arrow-config {
+		grid-column: 2;
+		grid-row: 1;
+	}
+
+	.admin-flow-primary-boot {
+		grid-column: 3;
+		grid-row: 1;
+	}
+
+	.admin-flow-arrow-userland {
+		grid-column: 4;
+		grid-row: 1;
+	}
+
+	.admin-flow-primary-userland {
+		grid-column: 5;
+		grid-row: 1;
+	}
+
+	.admin-flow-secondary-logs {
+		grid-column: 1;
+		grid-row: 2;
+	}
+
+	.admin-flow-secondary-stop {
+		grid-column: 3;
+		grid-row: 2;
+	}
+
+	.admin-flow-secondary-shutdown {
+		grid-column: 5;
+		grid-row: 2;
 	}
 
 	.admin-flow-action-has-warning {
@@ -472,14 +583,16 @@
 		z-index: 2;
 	}
 
-	.admin-flow-action:not(:disabled):hover,
-	.admin-flow-action:not(:disabled):focus-visible {
+	.admin-flow-action:not(:disabled):not(.admin-flow-action-selected):hover,
+	.admin-flow-action:not(:disabled):not(.admin-flow-action-selected):focus-visible {
 		border-color: var(--c-blue);
 		color: var(--c-ice);
 		background: color-mix(in srgb, var(--c-blue) 45%, var(--c-bg));
 	}
 
 	.admin-flow-action-selected,
+	.admin-flow-action-selected:hover,
+	.admin-flow-action-selected:focus-visible,
 	.admin-flow-action-selected:disabled,
 	.admin-flow-action-selected:disabled:hover,
 	.admin-flow-action-selected:disabled:focus-visible {
@@ -497,9 +610,19 @@
 		opacity: 0.78;
 	}
 
+	.admin-shell-message-stack {
+		display: grid;
+		gap: 0.45rem;
+		justify-items: center;
+	}
+
+	.admin-shell-message-stack p {
+		margin: 0;
+	}
+
 	.admin-shell-tabs {
 		display: grid;
-		grid-template-columns: repeat(5, minmax(0, 1fr));
+		grid-template-columns: repeat(3, minmax(0, 1fr));
 		align-items: stretch;
 		width: 100%;
 	}

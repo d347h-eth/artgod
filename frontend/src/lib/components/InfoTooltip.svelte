@@ -1,5 +1,6 @@
 <script lang="ts">
 	import InfoIcon from '$lib/components/InfoIcon.svelte';
+	import WarningIcon from '$lib/components/WarningIcon.svelte';
 
 	let {
 		text,
@@ -20,7 +21,11 @@
 		aria-label={normalizedText}
 	>
 		<span class="info-tooltip-mark" aria-hidden="true">
-			<InfoIcon />
+			{#if tone === 'warning'}
+				<WarningIcon />
+			{:else}
+				<InfoIcon />
+			{/if}
 		</span>
 		<span class="info-tooltip-popup" role="tooltip">{normalizedText}</span>
 	</span>

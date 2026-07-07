@@ -42,6 +42,8 @@ const SUPERVISOR_LOG_LEVEL_INFO: &str = "info";
 const SUPERVISOR_LOG_LEVEL_WARN: &str = "warn";
 /// Supervisor lifecycle log level for terminal shutdown failures.
 const SUPERVISOR_LOG_LEVEL_ERROR: &str = "error";
+/// Error returned when the core runtime lifecycle mutex is unavailable.
+const RUNTIME_LIFECYCLE_LOCK_ERROR: &str = "Failed to lock runtime lifecycle state";
 // Trading bots must quickly prove they entered their managed bootstrap path after unlock/start.
 const BOT_START_SIGNAL_TIMEOUT: Duration = Duration::from_secs(30);
 // Once bootstrapping started, long warmup is allowed as long as the bot keeps reporting progress.
@@ -82,9 +84,11 @@ struct ManagedBotRuntimeStatus {
     last_error: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct RuntimeManager {
     status: Arc<Mutex<RuntimeStatus>>,
-    controller: Mutex<Option<RuntimeController>>,
+    controller: Arc<Mutex<Option<RuntimeController>>>,
+    lifecycle_gate: Arc<Mutex<()>>,
     core_running_since: Arc<Mutex<Option<Instant>>>,
     bot_statuses: Arc<Mutex<HashMap<BotKind, ManagedBotRuntimeStatus>>>,
     bot_controllers: Arc<Mutex<HashMap<BotKind, BotRuntimeController>>>,
@@ -102,7 +106,8 @@ impl RuntimeManager {
                 nats_url: String::new(),
                 config_path: String::new(),
             })),
-            controller: Mutex::new(None),
+            controller: Arc::new(Mutex::new(None)),
+            lifecycle_gate: Arc::new(Mutex::new(())),
             core_running_since: Arc::new(Mutex::new(None)),
             bot_statuses: Arc::new(Mutex::new(HashMap::new())),
             bot_controllers: Arc::new(Mutex::new(HashMap::new())),
@@ -110,6 +115,11 @@ impl RuntimeManager {
     }
 
     pub fn auto_start(&self, app: AppHandle) -> Result<(), String> {
+        let _lifecycle_guard = self.lock_lifecycle()?;
+        self.auto_start_locked(app)
+    }
+
+    fn auto_start_locked(&self, app: AppHandle) -> Result<(), String> {
         let app_config = load_app_config_state(&app)?;
         if !app_config.configured {
             self.update_status(&app, |status| {
@@ -157,6 +167,11 @@ impl RuntimeManager {
     }
 
     pub fn start(&self, app: AppHandle) -> Result<RuntimeStatus, String> {
+        let _lifecycle_guard = self.lock_lifecycle()?;
+        self.start_locked(app)
+    }
+
+    fn start_locked(&self, app: AppHandle) -> Result<RuntimeStatus, String> {
         let config = match DesktopRuntimeConfig::load_or_create(&app) {
             Ok(config) => config,
             Err(error) => {
@@ -172,6 +187,11 @@ impl RuntimeManager {
     }
 
     pub fn stop(&self, app: AppHandle) -> Result<RuntimeStatus, String> {
+        let _lifecycle_guard = self.lock_lifecycle()?;
+        self.stop_locked(app)
+    }
+
+    fn stop_locked(&self, app: AppHandle) -> Result<RuntimeStatus, String> {
         self.stop_all_bots(&app);
 
         let controller = {
@@ -197,6 +217,13 @@ impl RuntimeManager {
         });
 
         self.status()
+    }
+
+    /// Restarts the supervised core runtime through the standard stop/start sequence.
+    pub fn restart(&self, app: AppHandle) -> Result<RuntimeStatus, String> {
+        let _lifecycle_guard = self.lock_lifecycle()?;
+        self.stop_locked(app.clone())?;
+        self.start_locked(app)
     }
 
     pub fn status(&self) -> Result<RuntimeStatus, String> {
@@ -301,6 +328,12 @@ impl RuntimeManager {
         }
 
         self.status()
+    }
+
+    fn lock_lifecycle(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {
+        self.lifecycle_gate
+            .lock()
+            .map_err(|_| RUNTIME_LIFECYCLE_LOCK_ERROR.to_owned())
     }
 
     pub fn set_bot_runtime_state(
