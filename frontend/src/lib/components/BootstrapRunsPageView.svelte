@@ -1708,6 +1708,7 @@
 									<TokenMediaFrame
 										className="bootstrap-animation-preview-frame"
 										iframeSource={animationPreviewIframeSource}
+										hideScrollbars
 										title={`${tokenMediaTitle(firstTokenCard.tokenId)} animation preview`}
 									/>
 								</div>
