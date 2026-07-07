@@ -68,6 +68,11 @@ The bootstrap probe selects the metadata field that should populate canonical
 created run persists the selected field in `request_image_source_field`, and
 bootstrap metadata fetching uses that field when normalizing each token.
 
+The probe can also accept an explicit sample token id. This changes only the
+representative `tokenURI` payload used by the pre-bootstrap form for preview and
+storage estimates. It is not persisted to the bootstrap run and does not change
+the collection token scope or later metadata enumeration.
+
 When the probed contract is a recognized deterministic proxy, the probe response
 includes the implementation address for operator visibility. Supported proxy
 patterns are EIP-1167 minimal proxies and ERC-1967 implementation or beacon

@@ -18,6 +18,7 @@ import {
 import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc-resilience";
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from "@artgod/shared/config/bootstrap";
+import { BOOTSTRAP_API_QUERY_PARAM } from "@artgod/shared/http/bootstrap-routes";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import {
@@ -108,6 +109,11 @@ import {
     type OpenSeaIntegrationStatus,
 } from "@artgod/shared/config/opensea-integration";
 import { getDefaultOpenSeaHttpConfig } from "@artgod/shared/config/opensea-http";
+import {
+    BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE,
+    BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE,
+    BOOTSTRAP_PROBE_READ_STATUS,
+} from "./application/use-cases/bootstrap/probe-collection-contract.js";
 
 const MILADY_ADDRESS = "0x1111111111111111111111111111111111111111";
 const TERRAFORMS_ADDRESS = "0x2222222222222222222222222222222222222222";
@@ -255,8 +261,7 @@ beforeAll(async () => {
             blockNumber?: number;
         }): Promise<T> {
             if (
-                params.functionName ===
-                TERRAFORMS_MAIN_READ_FUNCTIONS.TokenHtml
+                params.functionName === TERRAFORMS_MAIN_READ_FUNCTIONS.TokenHtml
             ) {
                 return "<html><body>terraforms-live</body></html>" as T;
             }
@@ -618,9 +623,7 @@ beforeAll(async () => {
     const probeCollectionContractUseCaseModule =
         await import("./application/use-cases/bootstrap/probe-collection-contract.js");
     const estimateBootstrapImageCacheUseCaseModule =
-        await import(
-            "./application/use-cases/bootstrap/estimate-bootstrap-image-cache.js"
-        );
+        await import("./application/use-cases/bootstrap/estimate-bootstrap-image-cache.js");
     const probeOpenSeaCollectionSlugUseCaseModule =
         await import("./application/use-cases/bootstrap/probe-opensea-collection-slug.js");
     const getBootstrapStatusUseCaseModule =
@@ -662,7 +665,9 @@ beforeAll(async () => {
             1,
             chainsReadModel,
             {
-                async probeErc721Contract() {
+                async probeErc721Contract(input: {
+                    sampleTokenId: string | null;
+                }) {
                     return {
                         proxy: null,
                         contractName: null,
@@ -675,25 +680,27 @@ beforeAll(async () => {
                             error: null,
                         },
                         totalSupply: {
-                            status: "available",
+                            status: BOOTSTRAP_PROBE_READ_STATUS.Available,
                             value: "3",
                             safeIntegerValue: 3,
                             bootstrapRangeValue: 3,
                             error: null,
                         },
                         firstToken: {
-                            tokenId: "1",
-                            source: "token_by_index",
+                            tokenId: input.sampleTokenId ?? "1",
+                            source: BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.TokenByIndex,
                             tokenUri:
                                 "data:application/json,%7B%22name%22%3A%22Milady%201%22%7D",
                             tokenUriPayloadBytes: 19,
                             tokenUriPayloadTruncated: false,
                             tokenUriPayloadError: null,
                             name: "Milady 1",
-                            imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+                            imageSourceField:
+                                TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                             image: "https://example.com/1.png",
                             imageBytes: 1024,
-                            imageBytesSource: "content_length",
+                            imageBytesSource:
+                                BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE.ContentLength,
                             imageContentType: "image/png",
                             imageBytesError: null,
                             imageWidth: 2160,
@@ -726,7 +733,9 @@ beforeAll(async () => {
                         sourceBytes,
                         cachedBytes,
                         contentType:
-                            input.maxDimension === null ? "image/png" : "image/webp",
+                            input.maxDimension === null
+                                ? "image/png"
+                                : "image/webp",
                         sampleCachedImageDataUrl:
                             input.maxDimension === null
                                 ? "data:image/png;base64,Y2FjaGVk"
@@ -4940,11 +4949,11 @@ describe("backend api routes", () => {
 
         const probe = await resolve(
             "GET",
-            `/api/ethereum/collections/bootstrap/probe?address=${TERRAFORMS_ADDRESS}`,
+            `/api/ethereum/collections/bootstrap/probe?address=${TERRAFORMS_ADDRESS}&${BOOTSTRAP_API_QUERY_PARAM.SampleTokenId}=42`,
         );
         expect(probe.statusCode).toBe(200);
         expect(probe.payload.enumerable.supported).toBe(true);
-        expect(probe.payload.firstToken.tokenId).toBe("1");
+        expect(probe.payload.firstToken.tokenId).toBe("42");
         expect(probe.payload.storageEstimate.projectedBytes).toBe("57");
         expect(probe.payload.suggestedInput).toEqual(
             expect.objectContaining({
@@ -4956,7 +4965,7 @@ describe("backend api routes", () => {
             "POST",
             "/api/ethereum/collections/bootstrap/image-cache-estimate",
             {
-                sampleTokenId: "1",
+                sampleTokenId: probe.payload.firstToken.tokenId,
                 sourceImageUrl: probe.payload.firstToken.image,
                 sourceImageBytes: probe.payload.firstToken.imageBytes,
                 totalSupply: probe.payload.totalSupply.value,
@@ -4976,7 +4985,7 @@ describe("backend api routes", () => {
             chain: expect.objectContaining({
                 slug: "ethereum",
             }),
-            sampleTokenId: "1",
+            sampleTokenId: "42",
             imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
             maxDimension: 1080,
             sampleSourceBytes: 1024,

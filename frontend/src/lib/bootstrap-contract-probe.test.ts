@@ -65,6 +65,23 @@ describe('bootstrap contract probe helpers', () => {
 		expect(bootstrapProbeNeedsManualScope(probe)).toBe(true);
 	});
 
+	it('does not map a custom sample token onto manual scope fields', () => {
+		const probe = makeProbe({
+			enumerable: false,
+			startTokenId: '42'
+		});
+		expect(
+			bootstrapProbeFormPatch(probe, {
+				useFirstTokenAsManualRangeStart: false
+			})
+		).toEqual({
+			supportsEnumerable: false,
+			manualMode: null,
+			manualRangeStartTokenId: '',
+			manualRangeTotalSupply: ''
+		});
+	});
+
 	it('pre-fills known supply when only the token start is missing', () => {
 		const probe = makeProbe({
 			enumerable: false,

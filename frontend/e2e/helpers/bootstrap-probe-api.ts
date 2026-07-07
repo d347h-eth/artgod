@@ -71,6 +71,8 @@ export type BootstrapProbeApiMock = {
 	mutations: CapturedBootstrapMutation[];
 	probeRequests: string[];
 	probeRequestImageSourceFields: (string | null)[];
+	probeRequestAnimationSourceFields: (string | null)[];
+	probeRequestSampleTokenIds: (string | null)[];
 	openSeaSlugProbeRequests: string[];
 	openSeaSlugVerificationRequests: string[];
 	imageCacheEstimateRequests: unknown[];
@@ -81,6 +83,8 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 	const mutations: CapturedBootstrapMutation[] = [];
 	const probeRequests: string[] = [];
 	const probeRequestImageSourceFields: (string | null)[] = [];
+	const probeRequestAnimationSourceFields: (string | null)[] = [];
+	const probeRequestSampleTokenIds: (string | null)[] = [];
 	const openSeaSlugProbeRequests: string[] = [];
 	const openSeaSlugVerificationRequests: string[] = [];
 	const imageCacheEstimateRequests: unknown[] = [];
@@ -113,9 +117,17 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 			const animationSourceField = normalizeImageSourceField(
 				url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.AnimationSourceField)
 			);
+			const sampleTokenId = normalizeProbeTokenId(
+				url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.SampleTokenId)
+			);
 			probeRequests.push(address);
 			probeRequestImageSourceFields.push(imageSourceField);
-			await fulfillJson(route, probeResponse(address, imageSourceField, animationSourceField));
+			probeRequestAnimationSourceFields.push(animationSourceField);
+			probeRequestSampleTokenIds.push(sampleTokenId);
+			await fulfillJson(
+				route,
+				probeResponse(address, imageSourceField, animationSourceField, sampleTokenId)
+			);
 			return;
 		}
 
@@ -286,6 +298,8 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 		mutations,
 		probeRequests,
 		probeRequestImageSourceFields,
+		probeRequestAnimationSourceFields,
+		probeRequestSampleTokenIds,
 		openSeaSlugProbeRequests,
 		openSeaSlugVerificationRequests,
 		imageCacheEstimateRequests
@@ -380,7 +394,8 @@ function buildOpenSeaSlugProbeResponse(input: {
 function probeResponse(
 	address: string,
 	requestedImageSourceField: string | null,
-	requestedAnimationSourceField: string | null
+	requestedAnimationSourceField: string | null,
+	requestedSampleTokenId: string | null
 ): BootstrapContractProbeApiResponse {
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable) {
 		return buildProbeResponse({
@@ -388,7 +403,7 @@ function probeResponse(
 			contractName: 'Non Enumerable: Test Collection!',
 			enumerable: false,
 			totalSupply: '1000',
-			firstTokenId: '1',
+			firstTokenId: requestedSampleTokenId ?? '1',
 			firstTokenName: 'Non Enumerable #1',
 			firstTokenImage: BOOTSTRAP_PROBE_MEDIA.NonEnumerableImage,
 			firstTokenImageSourceField:
@@ -417,7 +432,7 @@ function probeResponse(
 			contractName: 'Raster Images / 2026',
 			enumerable: true,
 			totalSupply: '7500',
-			firstTokenId: '0',
+			firstTokenId: requestedSampleTokenId ?? '0',
 			firstTokenName: 'Raster #0',
 			firstTokenImage: BOOTSTRAP_PROBE_MEDIA.RasterImage,
 			firstTokenImageSourceField:
@@ -426,9 +441,7 @@ function probeResponse(
 			firstTokenImageContentType: 'image/png',
 			firstTokenSource: 'token_by_index',
 			tokenUriPayloadBytes: 4096,
-			animationUrl: resolvedAnimationSourceField
-				? BOOTSTRAP_PROBE_MEDIA.DynamicAnimationUrl
-				: null,
+			animationUrl: resolvedAnimationSourceField ? BOOTSTRAP_PROBE_MEDIA.DynamicAnimationUrl : null,
 			animationSourceField: resolvedAnimationSourceField,
 			manualInput: null,
 			warnings: []
@@ -441,7 +454,7 @@ function probeResponse(
 			contractName: 'Terraforms',
 			enumerable: true,
 			totalSupply: '9900',
-			firstTokenId: '1',
+			firstTokenId: requestedSampleTokenId ?? '1',
 			firstTokenName: 'Onchain SVG #1',
 			firstTokenImage: BOOTSTRAP_PROBE_MEDIA.OnchainSvgImage,
 			firstTokenImageSourceField:
@@ -464,20 +477,38 @@ function probeResponse(
 	}
 
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.NeedsTokenStart) {
+		const resolvedAnimationSourceField =
+			requestedSampleTokenId &&
+			(requestedAnimationSourceField === null ||
+				requestedAnimationSourceField === TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl)
+				? TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl
+				: null;
 		return buildProbeResponse({
 			address,
 			contractName: 'Needs Token Start',
 			enumerable: false,
 			totalSupply: '940',
-			firstTokenId: null,
+			firstTokenId: requestedSampleTokenId,
 			firstTokenName: null,
-			firstTokenImage: null,
-			firstTokenImageSourceField: null,
-			firstTokenImageBytes: null,
-			firstTokenImageContentType: null,
-			firstTokenSource: null,
-			tokenUriPayloadBytes: null,
-			manualInput: null,
+			firstTokenImage: requestedSampleTokenId ? BOOTSTRAP_PROBE_MEDIA.RasterImage : null,
+			firstTokenImageSourceField: requestedSampleTokenId
+				? (requestedImageSourceField ?? TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image)
+				: null,
+			firstTokenImageBytes: requestedSampleTokenId ? 98234 : null,
+			firstTokenImageContentType: requestedSampleTokenId ? 'image/png' : null,
+			firstTokenSource: requestedSampleTokenId ? 'candidate_token_uri' : null,
+			tokenUriPayloadBytes: requestedSampleTokenId ? 4096 : null,
+			animationUrl: resolvedAnimationSourceField
+				? BOOTSTRAP_PROBE_MEDIA.DynamicAnimationUrl
+				: null,
+			animationSourceField: resolvedAnimationSourceField,
+			manualInput: requestedSampleTokenId
+				? {
+						mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
+						startTokenId: requestedSampleTokenId,
+						totalSupply: 940
+					}
+				: null,
 			warnings: ['token id 0 and 1 could not be confirmed']
 		});
 	}
@@ -488,7 +519,7 @@ function probeResponse(
 			contractName: 'Shared Manual Scope',
 			enumerable: false,
 			totalSupply: null,
-			firstTokenId: '0',
+			firstTokenId: requestedSampleTokenId ?? '0',
 			firstTokenName: 'Shared #0',
 			firstTokenImage: BOOTSTRAP_PROBE_MEDIA.SharedManualScopeImage,
 			firstTokenImageSourceField:
@@ -632,6 +663,11 @@ function normalizeSlug(slug: string): string {
 }
 
 function normalizeImageSourceField(value: string | null): string | null {
+	const trimmed = value?.trim();
+	return trimmed ? trimmed : null;
+}
+
+function normalizeProbeTokenId(value: string | null): string | null {
 	const trimmed = value?.trim();
 	return trimmed ? trimmed : null;
 }

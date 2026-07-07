@@ -8,6 +8,10 @@ export type BootstrapContractProbeFormPatch = {
 	manualRangeTotalSupply: string;
 };
 
+export type BootstrapContractProbeFormPatchOptions = {
+	useFirstTokenAsManualRangeStart?: boolean;
+};
+
 const BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH = 64;
 
 // Complete EVM contract-address length required before bootstrap probing starts.
@@ -54,7 +58,8 @@ export function contractNameToBootstrapSlug(value: string | null | undefined): s
 }
 
 export function bootstrapProbeFormPatch(
-	probe: BootstrapContractProbeApiResponse
+	probe: BootstrapContractProbeApiResponse,
+	options: BootstrapContractProbeFormPatchOptions = {}
 ): BootstrapContractProbeFormPatch {
 	if (probe.suggestedInput.supportsEnumerable) {
 		return {
@@ -66,13 +71,16 @@ export function bootstrapProbeFormPatch(
 	}
 
 	const manualInput = probe.suggestedInput.manualInput;
+	const useFirstTokenAsManualRangeStart = options.useFirstTokenAsManualRangeStart ?? true;
 	return {
 		supportsEnumerable: false,
 		manualMode:
 			manualInput?.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
 				? BOOTSTRAP_ENUMERATION_MODE.ManualRange
 				: null,
-		manualRangeStartTokenId: manualInput?.startTokenId ?? probe.firstToken.tokenId ?? '',
+		manualRangeStartTokenId:
+			manualInput?.startTokenId ??
+			(useFirstTokenAsManualRangeStart ? (probe.firstToken.tokenId ?? '') : ''),
 		manualRangeTotalSupply:
 			manualInput && Number.isFinite(manualInput.totalSupply)
 				? String(manualInput.totalSupply)

@@ -1257,6 +1257,8 @@ paths:
             description: |
                 Reads onchain ERC721/Enumerable state plus one sample token URI payload so the
                 bootstrap form can prefill source fields, supply scope, and cache policy inputs.
+                When `sample_token_id` is present, that token is used for the sample metadata
+                probe instead of automatic tokenByIndex / 0 / 1 discovery.
             operationId: probeBootstrapCollectionContract
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
@@ -1278,6 +1280,11 @@ paths:
                   schema:
                       type: string
                 - name: animation_source_field
+                  in: query
+                  required: false
+                  schema:
+                      type: string
+                - name: sample_token_id
                   in: query
                   required: false
                   schema:
@@ -4252,13 +4259,7 @@ components:
         BootstrapProbeTotalSupply:
             type: object
             required:
-                [
-                    status,
-                    value,
-                    safeIntegerValue,
-                    bootstrapRangeValue,
-                    error,
-                ]
+                [status, value, safeIntegerValue, bootstrapRangeValue, error]
             additionalProperties: false
             properties:
                 status:

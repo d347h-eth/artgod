@@ -1,5 +1,6 @@
 import type { ChainRecord } from "@artgod/shared/types/browse";
 import type { EvmProxyResolution } from "@artgod/shared/evm/proxy-detection";
+import { BOOTSTRAP_ENUMERATION_MODE } from "@artgod/shared/bootstrap/pipeline";
 import {
     EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND,
     type CollectionExtensionKey,
@@ -19,7 +20,43 @@ import type { ChainRefResolverPort } from "./ports.js";
 import { BootstrapValidationError } from "./types.js";
 import { BOOTSTRAP_MANUAL_RANGE_TOTAL_SUPPLY_LIMIT } from "./bootstrap-limits.js";
 
-export type BootstrapProbeReadStatus = "available" | "unavailable";
+// Serialized availability states returned by bootstrap contract probes.
+export const BOOTSTRAP_PROBE_READ_STATUS = {
+    Available: "available",
+    Unavailable: "unavailable",
+} as const;
+
+export type BootstrapProbeReadStatus =
+    (typeof BOOTSTRAP_PROBE_READ_STATUS)[keyof typeof BOOTSTRAP_PROBE_READ_STATUS];
+
+// Candidate token lookup mechanisms exposed in bootstrap probe diagnostics.
+export const BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE = {
+    TokenUri: "token_uri",
+    OwnerOf: "owner_of",
+} as const;
+
+export type BootstrapProbeTokenCandidateSource =
+    (typeof BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE)[keyof typeof BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE];
+
+// Sample token source states exposed in bootstrap probe responses.
+export const BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE = {
+    TokenByIndex: "token_by_index",
+    CandidateTokenUri: "candidate_token_uri",
+    CandidateOwnerOf: "candidate_owner_of",
+} as const;
+
+export type BootstrapProbeFirstTokenSource =
+    (typeof BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE)[keyof typeof BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE];
+
+// Image byte-size measurement sources exposed in bootstrap probe responses.
+export const BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE = {
+    ContentLength: "content_length",
+    Download: "download",
+    DataUri: "data_uri",
+} as const;
+
+export type BootstrapProbeImageBytesSource =
+    (typeof BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE)[keyof typeof BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE];
 
 export type BootstrapProbeInterfaceCheck = {
     supported: boolean | null;
@@ -37,13 +74,13 @@ export type BootstrapProbeTotalSupply = {
 export type BootstrapProbeTokenCandidate = {
     tokenId: string;
     exists: boolean | null;
-    source: "token_uri" | "owner_of" | null;
+    source: BootstrapProbeTokenCandidateSource | null;
     error: string | null;
 };
 
 export type BootstrapProbeFirstToken = {
     tokenId: string | null;
-    source: "token_by_index" | "candidate_token_uri" | "candidate_owner_of" | null;
+    source: BootstrapProbeFirstTokenSource | null;
     tokenUri: string | null;
     tokenUriPayloadBytes: number | null;
     tokenUriPayloadTruncated: boolean;
@@ -52,7 +89,7 @@ export type BootstrapProbeFirstToken = {
     imageSourceField: string | null;
     image: string | null;
     imageBytes: number | null;
-    imageBytesSource: "content_length" | "download" | "data_uri" | null;
+    imageBytesSource: BootstrapProbeImageBytesSource | null;
     imageContentType: string | null;
     imageBytesError: string | null;
     imageWidth: number | null;
@@ -80,13 +117,11 @@ export type BootstrapProbeImageStorageEstimate = {
 
 export type BootstrapProbeSuggestedInput = {
     supportsEnumerable: boolean;
-    manualInput:
-        | {
-              mode: "manual_range";
-              startTokenId: string;
-              totalSupply: number;
-          }
-        | null;
+    manualInput: {
+        mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualRange;
+        startTokenId: string;
+        totalSupply: number;
+    } | null;
     ready: boolean;
     warnings: string[];
 };
@@ -107,6 +142,7 @@ export type ProbeCollectionContractInput = {
     standard: "erc721";
     imageSourceField?: string;
     animationSourceField?: string;
+    sampleTokenId?: string;
 };
 
 export type ProbeCollectionContractOutput = {
@@ -141,6 +177,7 @@ export interface CollectionContractProbePort {
         address: string;
         imageSourceField: string | null;
         animationSourceField: string | null;
+        sampleTokenId: string | null;
     }): Promise<CollectionContractProbeResult>;
 }
 
@@ -182,18 +219,22 @@ export class ProbeCollectionContractUseCase {
         const animationSourceField = normalizeTokenMetadataAnimationSourceField(
             input.animationSourceField,
         );
+        const sampleTokenId = normalizeOptionalTokenId(input.sampleTokenId);
 
         // Probe the unregistered contract before the user starts bootstrap.
-        const probe = await this.collectionContractProbePort.probeErc721Contract(
-            {
+        const probe =
+            await this.collectionContractProbePort.probeErc721Contract({
                 address,
                 imageSourceField,
                 animationSourceField,
-            },
-        );
+                sampleTokenId,
+            });
         const storageEstimate = estimateStorage(probe);
         const imageStorageEstimate = estimateImageStorage(probe);
-        const suggestedInput = buildSuggestedInput(probe);
+        const suggestedInput = buildSuggestedInput(
+            probe,
+            sampleTokenId !== null,
+        );
         return {
             chain,
             address,
@@ -221,8 +262,15 @@ function normalizeAddress(raw: string): string {
     return value;
 }
 
+function normalizeOptionalTokenId(raw: string | undefined): string | null {
+    if (raw === undefined) return null;
+    const value = raw.trim();
+    return value ? value : null;
+}
+
 function buildSuggestedInput(
     probe: CollectionContractProbeResult,
+    customSampleTokenRequested: boolean,
 ): BootstrapProbeSuggestedInput {
     const warnings: string[] = [];
     if (probe.erc721.supported === false) {
@@ -233,7 +281,9 @@ function buildSuggestedInput(
             warnings.push("totalSupply is unavailable for the size estimate");
         }
         if (!probe.firstToken.tokenId) {
-            warnings.push("first token could not be resolved through tokenByIndex");
+            warnings.push(
+                "first token could not be resolved through tokenByIndex",
+            );
         }
         return {
             supportsEnumerable: true,
@@ -253,13 +303,17 @@ function buildSuggestedInput(
         probe.totalSupply.value !== null &&
         probe.totalSupply.bootstrapRangeValue === null
     ) {
-        warnings.push("totalSupply is too large for the current bootstrap range limit");
+        warnings.push(
+            "totalSupply is too large for the current bootstrap range limit",
+        );
     }
 
     const manualInput =
-        probe.firstToken.tokenId && probe.totalSupply.bootstrapRangeValue
+        !customSampleTokenRequested &&
+        probe.firstToken.tokenId &&
+        probe.totalSupply.bootstrapRangeValue
             ? {
-                  mode: "manual_range" as const,
+                  mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
                   startTokenId: probe.firstToken.tokenId,
                   totalSupply: probe.totalSupply.bootstrapRangeValue,
               }
@@ -330,7 +384,10 @@ function toEmbeddedCollectionExtensionScope(
         };
     }
 
-    if (suggestedInput.manualInput?.mode === "manual_range") {
+    if (
+        suggestedInput.manualInput?.mode ===
+        BOOTSTRAP_ENUMERATION_MODE.ManualRange
+    ) {
         return {
             kind: EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.TokenRange,
             startTokenId: suggestedInput.manualInput.startTokenId,
