@@ -24,6 +24,7 @@ import {
 	lookupBiddingAutomationDraftTargetJob,
 	lookupBiddingSelectionJobs,
 	resolveBiddingAutomationDraftTargetLookupKey,
+	resolveBiddingSelectionJobsLookupKey,
 	resolveBiddingSaveMessage,
 	saveBiddingAutomationDraftJobs
 } from '$lib/bidding-automation-panel-actions';
@@ -132,6 +133,67 @@ describe('bidding automation panel actions', () => {
 				}
 			}
 		);
+	});
+
+	it('does not build selection lookup keys for single-target drafts', () => {
+		const singleTokenDraft = buildBiddingAutomationDraftFromSelection({
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
+			tokenIds: ['101']
+		});
+		const traitDraft = buildBiddingAutomationDraftFromBid(testTraitBid('1'));
+
+		expect(
+			resolveBiddingSelectionJobsLookupKey({
+				chain: testChain(),
+				collection: testCollection(),
+				draft: singleTokenDraft
+			})
+		).toBe('');
+		expect(
+			resolveBiddingSelectionJobsLookupKey({
+				chain: testChain(),
+				collection: testCollection(),
+				draft: traitDraft
+			})
+		).toBe('');
+	});
+
+	it('builds selection lookup keys only for mass-action targets', () => {
+		const exactBatchDraft = buildBiddingAutomationDraftFromSelection({
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
+			tokenIds: ['101', '102']
+		});
+		const filteredBatchDraft = buildBiddingAutomationDraftFromSelection({
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
+			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+				selectedTraits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
+				selectedTraitRanges: [],
+				traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+				makerAddress: null,
+				tokenStatus: 'listed'
+			},
+			tokenCount: 2,
+			state: {
+				kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+			}
+		});
+
+		expect(
+			resolveBiddingSelectionJobsLookupKey({
+				chain: testChain(),
+				collection: testCollection(),
+				draft: exactBatchDraft
+			})
+		).toContain('ethereum:terraforms:');
+		expect(
+			resolveBiddingSelectionJobsLookupKey({
+				chain: testChain(),
+				collection: testCollection(),
+				draft: filteredBatchDraft
+			})
+		).toContain('ethereum:terraforms:');
 	});
 
 	it('pauses exact selected token jobs through existing pricing without overwriting tiers', async () => {

@@ -323,7 +323,7 @@ export function resolveBiddingSelectionJobsLookupKey(input: {
 		return `${input.chain.slug}:${input.collection.slug}:${JSON.stringify(batchSelection)}`;
 	}
 	const lookupBodies = biddingSelectionJobLookupBodies(input.draft);
-	return lookupBodies.length > 0
+	return lookupBodies.length > 1
 		? `${input.chain.slug}:${input.collection.slug}:${JSON.stringify(lookupBodies)}`
 		: '';
 }
