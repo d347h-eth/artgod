@@ -154,6 +154,7 @@ function makeProbe(input: {
 		},
 		address: '0x1111111111111111111111111111111111111111',
 		standard: 'erc721',
+		proxy: null,
 		contractName: null,
 		erc721: {
 			supported: true,

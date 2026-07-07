@@ -664,6 +664,7 @@ beforeAll(async () => {
             {
                 async probeErc721Contract() {
                     return {
+                        proxy: null,
                         contractName: null,
                         erc721: {
                             supported: true,

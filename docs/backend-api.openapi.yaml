@@ -4474,6 +4474,17 @@ components:
                 config:
                     $ref: "#/components/schemas/ImageCachePolicyConfig"
 
+        BootstrapProbeContractProxy:
+            type: object
+            required: [kind, implementationAddress]
+            additionalProperties: false
+            properties:
+                kind:
+                    type: string
+                    enum: [eip1167_minimal]
+                implementationAddress:
+                    type: string
+
         BootstrapContractProbeResponse:
             type: object
             required:
@@ -4481,6 +4492,7 @@ components:
                     chain,
                     address,
                     standard,
+                    proxy,
                     contractName,
                     erc721,
                     enumerable,
@@ -4500,6 +4512,10 @@ components:
                 standard:
                     type: string
                     enum: [erc721]
+                proxy:
+                    allOf:
+                        - $ref: "#/components/schemas/BootstrapProbeContractProxy"
+                    nullable: true
                 contractName:
                     type: string
                     nullable: true

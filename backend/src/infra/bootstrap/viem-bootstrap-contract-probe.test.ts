@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TOKEN_METADATA_ANIMATION_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-animation-source";
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
+import { EVM_PROXY_KIND } from "@artgod/shared/evm/proxy-detection";
 import { BootstrapValidationError } from "../../application/use-cases/bootstrap/types.js";
 import {
     NON_CONTRACT_ADDRESS_PROBE_ERROR,
@@ -9,6 +10,11 @@ import {
 
 const TEST_EMPTY_ADDRESS = "0xae59ef400dec8fc951f2ec6de2af1b0500ef62eb";
 const TEST_CONTRACT_ADDRESS = "0x1111111111111111111111111111111111111111";
+const TEST_PROXY_ADDRESS = "0xc292e3e1160500cb9832b7e40f5585d66c639503";
+const TEST_PROXY_IMPLEMENTATION_ADDRESS =
+    "0xa968ab882ad106b14c3d2c60686315a7c4d0d2f4";
+const TEST_EIP1167_PROXY_BYTECODE =
+    "0x363d3d373d3d3d363d73a968ab882ad106b14c3d2c60686315a7c4d0d2f45af43d82803e903d91602b57fd5bf3";
 const TEST_ONE_PIXEL_PNG =
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
@@ -186,6 +192,60 @@ describe("ViemBootstrapContractProbe", () => {
             TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData,
         );
         expect(result.firstToken.image).toBe(TEST_ONE_PIXEL_PNG);
+    });
+
+    it("detects EIP-1167 minimal proxies while probing through the proxy address", async () => {
+        const tokenUri = `data:application/json,${encodeURIComponent(
+            JSON.stringify({
+                name: "Proxy Sample 0",
+                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]: TEST_ONE_PIXEL_PNG,
+            }),
+        )}`;
+        const readAddresses: string[] = [];
+        const probe = new ViemBootstrapContractProbe({
+            async getBytecode(address) {
+                expect(address).toBe(TEST_PROXY_ADDRESS);
+                return TEST_EIP1167_PROXY_BYTECODE;
+            },
+            async readContract<T = unknown>(params: {
+                address: string;
+                functionName: string;
+                args?: readonly unknown[];
+            }): Promise<T> {
+                readAddresses.push(params.address);
+                if (params.functionName === "supportsInterface") {
+                    return (params.args?.[0] === "0x80ac58cd") as T;
+                }
+                if (params.functionName === "name") return "Sketchbook B" as T;
+                if (params.functionName === "totalSupply") return 64n as T;
+                if (params.functionName === "tokenURI") return tokenUri as T;
+                if (params.functionName === "ownerOf") {
+                    return "0x2222222222222222222222222222222222222222" as T;
+                }
+                throw new Error(`unexpected read ${params.functionName}`);
+            },
+        });
+
+        const result = await probe.probeErc721Contract({
+            address: TEST_PROXY_ADDRESS,
+            imageSourceField: null,
+            animationSourceField: null,
+        });
+
+        expect(result.proxy).toEqual({
+            kind: EVM_PROXY_KIND.Eip1167Minimal,
+            implementationAddress: TEST_PROXY_IMPLEMENTATION_ADDRESS,
+        });
+        expect(result.contractName).toBe("Sketchbook B");
+        expect(result.erc721.supported).toBe(true);
+        expect(result.enumerable.supported).toBe(false);
+        expect(result.totalSupply.value).toBe("64");
+        expect(result.firstToken.tokenId).toBe("0");
+        expect(result.firstToken.source).toBe("candidate_token_uri");
+        expect(result.firstToken.imageSourceField).toBe(
+            TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+        );
+        expect(new Set(readAddresses)).toEqual(new Set([TEST_PROXY_ADDRESS]));
     });
 });
 

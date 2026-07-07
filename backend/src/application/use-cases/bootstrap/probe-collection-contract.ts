@@ -1,4 +1,5 @@
 import type { ChainRecord } from "@artgod/shared/types/browse";
+import type { EvmProxyResolution } from "@artgod/shared/evm/proxy-detection";
 import {
     EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND,
     type CollectionExtensionKey,
@@ -97,6 +98,9 @@ export type BootstrapProbeImageCacheSuggestion = {
     config: ImageCachePolicyConfig;
 };
 
+// Proxy bytecode identity included in bootstrap probe responses when detected.
+export type BootstrapProbeContractProxy = EvmProxyResolution;
+
 export type ProbeCollectionContractInput = {
     chainRef: string;
     address: string;
@@ -109,6 +113,7 @@ export type ProbeCollectionContractOutput = {
     chain: ChainRecord;
     address: string;
     standard: "erc721";
+    proxy: BootstrapProbeContractProxy | null;
     contractName: string | null;
     erc721: BootstrapProbeInterfaceCheck;
     enumerable: BootstrapProbeInterfaceCheck;

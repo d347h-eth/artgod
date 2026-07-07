@@ -24,6 +24,10 @@ import {
     fetchWithHttpResilience,
     type HttpFetchResilienceConfig,
 } from "@artgod/shared/network/http-fetch-resilience";
+import {
+    detectEvmProxy,
+    type EvmProxyResolution,
+} from "@artgod/shared/evm/proxy-detection";
 import { loadSharp } from "../media/sharp-loader.js";
 
 type BootstrapProbeRpc = {
@@ -54,6 +58,11 @@ type TokenUriReadResult =
 
 type CandidateProbeResult = BootstrapProbeTokenCandidate & {
     tokenUri: string | null;
+};
+
+type ContractProbeTarget = {
+    address: `0x${string}`;
+    proxy: EvmProxyResolution | null;
 };
 
 const ERC165_ABI = [
@@ -142,26 +151,27 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
         animationSourceField: string | null;
     }): Promise<CollectionContractProbeResult> {
         const address = input.address as `0x${string}`;
-        await this.assertContractAddress(address);
+        const target = await this.resolveContractProbeTarget(address);
         const erc721 = await this.readInterfaceSupport(
-            address,
+            target.address,
             ERC721_INTERFACE_ID,
         );
         const enumerable = await this.readInterfaceSupport(
-            address,
+            target.address,
             ERC721_ENUMERABLE_INTERFACE_ID,
         );
         // Read name() only to suggest an editable local collection slug.
-        const contractName = await this.readContractName(address);
-        const totalSupply = await this.readTotalSupply(address);
+        const contractName = await this.readContractName(target.address);
+        const totalSupply = await this.readTotalSupply(target.address);
         const firstToken = await this.probeFirstToken(
-            address,
+            target.address,
             enumerable,
             input.imageSourceField,
             input.animationSourceField,
         );
 
         return {
+            proxy: target.proxy,
             contractName,
             erc721,
             enumerable,
@@ -170,11 +180,17 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
         };
     }
 
-    private async assertContractAddress(address: `0x${string}`): Promise<void> {
+    private async resolveContractProbeTarget(
+        address: `0x${string}`,
+    ): Promise<ContractProbeTarget> {
         const bytecode = await this.rpc.getBytecode(address);
         if (!bytecode || bytecode === EMPTY_EVM_BYTECODE) {
             throw new BootstrapValidationError(NON_CONTRACT_ADDRESS_PROBE_ERROR);
         }
+        return {
+            address,
+            proxy: detectEvmProxy(bytecode),
+        };
     }
 
     private async readInterfaceSupport(

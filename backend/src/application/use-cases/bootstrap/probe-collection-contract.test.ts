@@ -237,6 +237,7 @@ function makeUseCase(
     },
 ) {
     const probe: CollectionContractProbeResult = {
+        proxy: null,
         contractName: null,
         erc721: {
             supported: true,
