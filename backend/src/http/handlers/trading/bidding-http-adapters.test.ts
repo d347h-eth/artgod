@@ -11,25 +11,13 @@ import {
     TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 } from "@artgod/shared/types";
-import {
-    ArchiveCollectionBiddingPriceTierHttpAdapter,
-} from "./archive-collection-bidding-price-tier.js";
-import {
-    ApplyBiddingPriceTierReapplyHttpAdapter,
-} from "./apply-bidding-price-tier-reapply.js";
+import { ArchiveCollectionBiddingPriceTierHttpAdapter } from "./archive-collection-bidding-price-tier.js";
+import { ApplyBiddingPriceTierReapplyHttpAdapter } from "./apply-bidding-price-tier-reapply.js";
 import { parsePriceTierBody } from "./bidding-price-tier-http.js";
-import {
-    LookupBiddingJobTargetHttpAdapter,
-} from "./lookup-bidding-job-target.js";
-import {
-    UpdateCollectionBiddingSettingsHttpAdapter,
-} from "./update-collection-bidding-settings.js";
-import {
-    UpsertBatchTokenBiddingJobsHttpAdapter,
-} from "./upsert-batch-token-bidding-jobs.js";
-import {
-    UpsertTraitBiddingJobHttpAdapter,
-} from "./upsert-trait-bidding-job.js";
+import { LookupBiddingJobTargetHttpAdapter } from "./lookup-bidding-job-target.js";
+import { UpdateCollectionBiddingSettingsHttpAdapter } from "./update-collection-bidding-settings.js";
+import { UpsertBatchTokenBiddingJobsHttpAdapter } from "./upsert-batch-token-bidding-jobs.js";
+import { UpsertTraitBiddingJobHttpAdapter } from "./upsert-trait-bidding-job.js";
 
 describe("trading HTTP adapters", () => {
     it("parses price-tier DTOs across supported config kinds", () => {
@@ -113,12 +101,15 @@ describe("trading HTTP adapters", () => {
 
     it("maps batch token job token-id and filter selections", async () => {
         const captured: unknown[] = [];
-        const adapter = new UpsertBatchTokenBiddingJobsHttpAdapter({
-            upsertBatchTokenBiddingJobs: (input) => {
-                captured.push(input);
-                return input as never;
+        const adapter = new UpsertBatchTokenBiddingJobsHttpAdapter(
+            {
+                upsertBatchTokenBiddingJobs: (input) => {
+                    captured.push(input);
+                    return input as never;
+                },
             },
-        });
+            true,
+        );
 
         await adapter.handle(
             request({
@@ -149,7 +140,8 @@ describe("trading HTTP adapters", () => {
                         traitRanges: [
                             { key: "Level", fromValue: "1", toValue: "10" },
                         ],
-                        ownerAddress: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        ownerAddress:
+                            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     },
                 },
             }),
@@ -159,6 +151,7 @@ describe("trading HTTP adapters", () => {
             {
                 chainRef: "ethereum",
                 collectionRef: "terraforms",
+                includeOwnJobContext: true,
                 status: TRADING_JOB_STATUS.Enabled,
                 floorEth: undefined,
                 ceilingEth: undefined,
@@ -172,6 +165,7 @@ describe("trading HTTP adapters", () => {
             {
                 chainRef: "ethereum",
                 collectionRef: "terraforms",
+                includeOwnJobContext: true,
                 status: TRADING_JOB_STATUS.Paused,
                 floorEth: "0.1",
                 ceilingEth: "0.2",
@@ -192,12 +186,15 @@ describe("trading HTTP adapters", () => {
 
     it("maps token-offer batch selections and rejects invalid join modes", async () => {
         let captured: unknown;
-        const adapter = new UpsertBatchTokenBiddingJobsHttpAdapter({
-            upsertBatchTokenBiddingJobs: (input) => {
-                captured = input;
-                return input as never;
+        const adapter = new UpsertBatchTokenBiddingJobsHttpAdapter(
+            {
+                upsertBatchTokenBiddingJobs: (input) => {
+                    captured = input;
+                    return input as never;
+                },
             },
-        });
+            true,
+        );
 
         await adapter.handle(
             request({
@@ -209,8 +206,10 @@ describe("trading HTTP adapters", () => {
                         type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
                         traits: [{ key: "Mode", value: "Terrain" }],
                         traitRanges: [],
-                        traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
-                        makerAddress: "0x1111111111111111111111111111111111111111",
+                        traitJoinMode:
+                            COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+                        makerAddress:
+                            "0x1111111111111111111111111111111111111111",
                     },
                 },
             }),
@@ -268,9 +267,12 @@ describe("trading HTTP adapters", () => {
     });
 
     it("rejects malformed batch token selection filters", async () => {
-        const adapter = new UpsertBatchTokenBiddingJobsHttpAdapter({
-            upsertBatchTokenBiddingJobs: (input) => input as never,
-        });
+        const adapter = new UpsertBatchTokenBiddingJobsHttpAdapter(
+            {
+                upsertBatchTokenBiddingJobs: (input) => input as never,
+            },
+            true,
+        );
 
         await assert.rejects(
             () =>
@@ -549,12 +551,14 @@ describe("trading HTTP adapters", () => {
 
     it("maps archive and settings DTOs without leaking transport fields", async () => {
         let archiveInput: unknown;
-        const archiveAdapter = new ArchiveCollectionBiddingPriceTierHttpAdapter({
-            archiveCollectionBiddingPriceTier: (input) => {
-                archiveInput = input;
-                return input as never;
+        const archiveAdapter = new ArchiveCollectionBiddingPriceTierHttpAdapter(
+            {
+                archiveCollectionBiddingPriceTier: (input) => {
+                    archiveInput = input;
+                    return input as never;
+                },
             },
-        });
+        );
         let settingsInput: unknown;
         const settingsAdapter = new UpdateCollectionBiddingSettingsHttpAdapter({
             updateCollectionBiddingSettings: (input) => {
@@ -576,7 +580,8 @@ describe("trading HTTP adapters", () => {
             request({
                 params: { chain_ref: "ethereum", collection_ref: "terraforms" },
                 body: {
-                    tierSelectionMode: TRADING_BIDDING_TIER_SELECTION_MODE.Dropdown,
+                    tierSelectionMode:
+                        TRADING_BIDDING_TIER_SELECTION_MODE.Dropdown,
                     defaultDeltaEth: "0.002",
                 },
             }),

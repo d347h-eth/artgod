@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { DEFAULT_PAGE_LIMIT } from "@artgod/shared/config/pagination";
+import { isPublicSingleCollectionDeployment } from "@artgod/shared/config/deployment";
 import { OpenSeaContractLookupClient } from "@artgod/shared/network/opensea-contract-lookup";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
 import {
@@ -726,7 +727,7 @@ function maybeCreatePublicBlockspacePort(
     lifecycle: PublicCollectionBlockspaceCache | null;
 } {
     if (
-        config.deployment.mode !== "public_single_collection" ||
+        !isPublicSingleCollectionDeployment(config.deployment.mode) ||
         !config.deployment.publicCollectionScope ||
         config.queryCache.provider === QUERY_CACHE_PROVIDERS.Disabled
     ) {
@@ -762,7 +763,7 @@ function maybeCreateCollectionDetailPort(
     lifecycle: PublicCollectionDetailCache | null;
 } {
     if (
-        config.deployment.mode !== "public_single_collection" ||
+        !isPublicSingleCollectionDeployment(config.deployment.mode) ||
         !config.deployment.publicCollectionScope ||
         config.queryCache.provider === QUERY_CACHE_PROVIDERS.Disabled
     ) {
@@ -803,7 +804,7 @@ function maybeCreateCachedGetTokenPreviewPort(
         config.queryCache.provider,
         config.queryCache.tokenPreview.maxEntries,
     );
-    if (config.deployment.mode !== "public_single_collection" || !cache) {
+    if (!isPublicSingleCollectionDeployment(config.deployment.mode) || !cache) {
         return {
             port,
             warmup: null,

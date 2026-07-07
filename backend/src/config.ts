@@ -18,6 +18,11 @@ import {
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
 import {
+    APP_DEPLOYMENT_MODE,
+    PUBLIC_APP_DEPLOYMENT_ENV_KEY,
+    type AppDeploymentMode,
+} from "@artgod/shared/config/deployment";
+import {
     parseBiddingConfig,
     type BiddingConfig,
 } from "@artgod/shared/config/bidding";
@@ -114,7 +119,7 @@ const DEFAULT_OBSERVABILITY_PYROSCOPE_URL = getSettingDefault(
     "OBSERVABILITY_PYROSCOPE_URL",
 );
 const DEFAULT_PUBLIC_APP_DEPLOYMENT_MODE = getSettingDefault(
-    "PUBLIC_APP_DEPLOYMENT_MODE",
+    PUBLIC_APP_DEPLOYMENT_ENV_KEY.Mode,
 );
 const DEFAULT_COMMON_IPFS_GATEWAY_ORIGIN = getSettingDefault(
     COMMON_MEDIA_ENV_KEY.IpfsGatewayOrigin,
@@ -132,7 +137,7 @@ export type BackendSecurityConfig = {
     csrfCookieSecure: boolean;
 };
 
-export type BackendDeploymentMode = "standard" | "public_single_collection";
+export type BackendDeploymentMode = AppDeploymentMode;
 
 export type BackendPublicCollectionScope = {
     chainRef: string;
@@ -490,29 +495,31 @@ function parseDeploymentConfig(
     env: Record<string, string | undefined>,
 ): BackendDeploymentConfig {
     const rawMode =
-        env.PUBLIC_APP_DEPLOYMENT_MODE?.trim() ||
+        env[PUBLIC_APP_DEPLOYMENT_ENV_KEY.Mode]?.trim() ||
         DEFAULT_PUBLIC_APP_DEPLOYMENT_MODE;
-    if (rawMode === "standard") {
+    if (rawMode === APP_DEPLOYMENT_MODE.Standard) {
         return {
-            mode: "standard",
+            mode: APP_DEPLOYMENT_MODE.Standard,
             publicCollectionScope: null,
         };
     }
-    if (rawMode !== "public_single_collection") {
-        throw new Error(`Invalid PUBLIC_APP_DEPLOYMENT_MODE: ${rawMode}`);
+    if (rawMode !== APP_DEPLOYMENT_MODE.PublicSingleCollection) {
+        throw new Error(
+            `Invalid ${PUBLIC_APP_DEPLOYMENT_ENV_KEY.Mode}: ${rawMode}`,
+        );
     }
 
     const rawChainRef = parseRequiredString(
-        env.PUBLIC_APP_CHAIN_REF,
-        "PUBLIC_APP_CHAIN_REF",
+        env[PUBLIC_APP_DEPLOYMENT_ENV_KEY.ChainRef],
+        PUBLIC_APP_DEPLOYMENT_ENV_KEY.ChainRef,
     );
     const rawCollectionRef = parseRequiredString(
-        env.PUBLIC_APP_COLLECTION_REF,
-        "PUBLIC_APP_COLLECTION_REF",
+        env[PUBLIC_APP_DEPLOYMENT_ENV_KEY.CollectionRef],
+        PUBLIC_APP_DEPLOYMENT_ENV_KEY.CollectionRef,
     );
 
     return {
-        mode: "public_single_collection",
+        mode: APP_DEPLOYMENT_MODE.PublicSingleCollection,
         publicCollectionScope: {
             chainRef: normalizeSlugRef(rawChainRef),
             collectionRef: normalizeSlugRef(rawCollectionRef),

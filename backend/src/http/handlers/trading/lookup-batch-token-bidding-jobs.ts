@@ -24,6 +24,7 @@ export class LookupBatchTokenBiddingJobsHttpAdapter {
                 input: LookupBatchTokenBiddingJobsInput,
             ): MaybePromise<LookupBatchTokenBiddingJobsOutput>;
         },
+        private readonly includeOwnJobContext: boolean,
     ) {}
 
     readonly handle = async (
@@ -41,6 +42,7 @@ export class LookupBatchTokenBiddingJobsHttpAdapter {
         return {
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
+            includeOwnJobContext: this.includeOwnJobContext,
             selection: parseBatchTokenBiddingJobSelection(
                 request.body?.selection,
             ),

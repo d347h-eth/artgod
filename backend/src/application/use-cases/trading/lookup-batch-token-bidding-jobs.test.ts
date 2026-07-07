@@ -64,19 +64,22 @@ describe("LookupBatchTokenBiddingJobsUseCase", () => {
                         ? bidBook([
                               bidBookRow({
                                   orderId: "order-token-1",
-                                  scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                                  scopeKind:
+                                      TRADING_BIDDING_BID_SCOPE_KIND.Token,
                                   tokenId: "1",
                                   wei: "200000000000000000",
                               }),
                               bidBookRow({
                                   orderId: "order-token-2",
-                                  scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                                  scopeKind:
+                                      TRADING_BIDDING_BID_SCOPE_KIND.Token,
                                   tokenId: "unminted-tile-921",
                                   wei: "300000000000000000",
                               }),
                               bidBookRow({
                                   orderId: "order-token-3",
-                                  scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                                  scopeKind:
+                                      TRADING_BIDDING_BID_SCOPE_KIND.Token,
                                   tokenId: "3",
                                   wei: "100000000000000000",
                               }),
@@ -86,7 +89,9 @@ describe("LookupBatchTokenBiddingJobsUseCase", () => {
             {
                 getTokenJob: ({ tokenId }) => {
                     lookedUpTokenIds.push(tokenId);
-                    return tokenId === "1" ? buildPersistedTokenJob(tokenId) : null;
+                    return tokenId === "1"
+                        ? buildPersistedTokenJob(tokenId)
+                        : null;
                 },
             },
         );
@@ -94,6 +99,7 @@ describe("LookupBatchTokenBiddingJobsUseCase", () => {
         const result = useCase.lookupBatchTokenBiddingJobs({
             chainRef: "ethereum",
             collectionRef: "terraforms",
+            includeOwnJobContext: false,
             selection: {
                 type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
                 traits: [],
@@ -111,9 +117,76 @@ describe("LookupBatchTokenBiddingJobsUseCase", () => {
             ["job-1"],
         );
     });
+
+    it("resolves token-offer targets with the same own context as private bid-book views", () => {
+        const bidBookOwnContextFlags: boolean[] = [];
+        const useCase = new LookupBatchTokenBiddingJobsUseCase(
+            1,
+            {
+                resolveChainRef: () => CHAIN,
+            },
+            {
+                resolveCollectionRef: () => COLLECTION,
+                listCollectionTokens: () => tokenPage([], null),
+                listCollectionTokenCardsByIds: ({ tokenIds }) =>
+                    tokenIds.map((tokenId) => tokenCard(tokenId)),
+            },
+            {
+                listCollectionBidBook: ({
+                    scopeFilter,
+                    includeOwnJobContext,
+                }) => {
+                    bidBookOwnContextFlags.push(includeOwnJobContext);
+                    if (
+                        !includeOwnJobContext ||
+                        scopeFilter !==
+                            COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                    ) {
+                        return bidBook([]);
+                    }
+                    return bidBook([
+                        bidBookRow({
+                            orderId: "own-token-7",
+                            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                            tokenId: "7",
+                            wei: "300000000000000000",
+                        }),
+                    ]);
+                },
+            },
+            {
+                getTokenJob: ({ tokenId }) =>
+                    tokenId === "7" ? buildPersistedTokenJob(tokenId) : null,
+            },
+        );
+
+        const result = useCase.lookupBatchTokenBiddingJobs({
+            chainRef: "ethereum",
+            collectionRef: "terraforms",
+            includeOwnJobContext: true,
+            selection: {
+                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
+                traits: [],
+                traitRanges: [],
+                traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+                makerAddress: "0x1111111111111111111111111111111111111111",
+            },
+        });
+
+        assert.deepEqual(bidBookOwnContextFlags, [true, true]);
+        assert.deepEqual(result.tokenIds, ["7"]);
+        assert.equal(result.targetCount, 1);
+        assert.deepEqual(
+            result.jobs.map((job) => job.jobId),
+            ["job-7"],
+        );
+    });
 });
 
-function tokenPage(tokenIds: string[], nextCursor: string | null): TokenCursorPage {
+function tokenPage(
+    tokenIds: string[],
+    nextCursor: string | null,
+): TokenCursorPage {
     return {
         items: tokenIds.map((tokenId) => tokenCard(tokenId)),
         prevCursor: null,
@@ -197,7 +270,9 @@ function bidBookRow(input: {
     };
 }
 
-function buildPersistedTokenJob(tokenId: string): PersistedTokenBiddingJobRecord {
+function buildPersistedTokenJob(
+    tokenId: string,
+): PersistedTokenBiddingJobRecord {
     return {
         jobId: `job-${tokenId}`,
         botKind: TRADING_BOT_KIND.Bidding,

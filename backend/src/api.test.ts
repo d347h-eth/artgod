@@ -15,6 +15,7 @@ import {
     DEFAULT_BIDDING_RUNTIME_HEARTBEAT_INTERVAL_MS,
     DEFAULT_BIDDING_RUNTIME_HEARTBEAT_STALE_MS,
 } from "@artgod/shared/config/bidding";
+import { APP_DEPLOYMENT_MODE } from "@artgod/shared/config/deployment";
 import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc-resilience";
 import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from "@artgod/shared/config/bootstrap";
@@ -1034,7 +1035,7 @@ beforeAll(async () => {
         null,
         API_SECURITY_CONFIG,
         {
-            mode: "standard",
+            mode: APP_DEPLOYMENT_MODE.Standard,
             publicCollectionScope: null,
         },
     );
@@ -1090,7 +1091,7 @@ beforeAll(async () => {
         null,
         API_SECURITY_CONFIG,
         {
-            mode: "public_single_collection",
+            mode: APP_DEPLOYMENT_MODE.PublicSingleCollection,
             publicCollectionScope: {
                 chainRef: "ethereum",
                 collectionRef: "terraforms",
@@ -1120,7 +1121,7 @@ beforeAll(async () => {
         httpFetch: getDefaultHttpFetchResilienceConfig(),
         security: API_SECURITY_CONFIG,
         deployment: {
-            mode: "public_single_collection",
+            mode: APP_DEPLOYMENT_MODE.PublicSingleCollection,
             publicCollectionScope: {
                 chainRef: "ethereum",
                 collectionRef: "terraforms",
