@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { TOKEN_METADATA_ANIMATION_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-animation-source";
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
-import { EVM_PROXY_KIND } from "@artgod/shared/evm/proxy-detection";
+import {
+    EVM_PROXY_CONFIDENCE,
+    EVM_PROXY_KIND,
+    EVM_PROXY_STORAGE_SLOT,
+} from "@artgod/shared/evm/proxy-detection";
 import { BootstrapValidationError } from "../../application/use-cases/bootstrap/types.js";
 import {
+    BEACON_PROXY_IMPLEMENTATION_FUNCTION,
     NON_CONTRACT_ADDRESS_PROBE_ERROR,
     ViemBootstrapContractProbe,
 } from "./viem-bootstrap-contract-probe.js";
@@ -13,6 +18,7 @@ const TEST_CONTRACT_ADDRESS = "0x1111111111111111111111111111111111111111";
 const TEST_PROXY_ADDRESS = "0xc292e3e1160500cb9832b7e40f5585d66c639503";
 const TEST_PROXY_IMPLEMENTATION_ADDRESS =
     "0xa968ab882ad106b14c3d2c60686315a7c4d0d2f4";
+const TEST_BEACON_ADDRESS = "0x2222222222222222222222222222222222222222";
 const TEST_EIP1167_PROXY_BYTECODE =
     "0x363d3d373d3d3d363d73a968ab882ad106b14c3d2c60686315a7c4d0d2f45af43d82803e903d91602b57fd5bf3";
 const TEST_ONE_PIXEL_PNG =
@@ -26,6 +32,10 @@ describe("ViemBootstrapContractProbe", () => {
                 calls.push("getBytecode");
                 expect(address).toBe(TEST_EMPTY_ADDRESS);
                 return "0x";
+            },
+            async getStorageAt() {
+                calls.push("getStorageAt");
+                throw new Error("getStorageAt should not run");
             },
             async readContract() {
                 calls.push("readContract");
@@ -129,7 +139,8 @@ describe("ViemBootstrapContractProbe", () => {
     it("does not fall back when the requested animation source field is invalid", async () => {
         const tokenUri = `data:application/json,${encodeURIComponent(
             JSON.stringify({
-                [TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl]: "not a uri",
+                [TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl]:
+                    "not a uri",
                 [TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl]:
                     "https://generator.example/token/1",
                 [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]: TEST_ONE_PIXEL_PNG,
@@ -152,7 +163,8 @@ describe("ViemBootstrapContractProbe", () => {
         const tokenUri = `data:application/json,${encodeURIComponent(
             JSON.stringify({
                 name: "Onchain 1",
-                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.ImageData]: TEST_ONE_PIXEL_PNG,
+                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.ImageData]:
+                    TEST_ONE_PIXEL_PNG,
             }),
         )}`;
         const probe = makeEnumerableProbe(tokenUri);
@@ -207,6 +219,9 @@ describe("ViemBootstrapContractProbe", () => {
                 expect(address).toBe(TEST_PROXY_ADDRESS);
                 return TEST_EIP1167_PROXY_BYTECODE;
             },
+            async getStorageAt() {
+                throw new Error("getStorageAt should not run");
+            },
             async readContract<T = unknown>(params: {
                 address: string;
                 functionName: string;
@@ -234,7 +249,9 @@ describe("ViemBootstrapContractProbe", () => {
 
         expect(result.proxy).toEqual({
             kind: EVM_PROXY_KIND.Eip1167Minimal,
+            confidence: EVM_PROXY_CONFIDENCE.Deterministic,
             implementationAddress: TEST_PROXY_IMPLEMENTATION_ADDRESS,
+            beaconAddress: null,
         });
         expect(result.contractName).toBe("Sketchbook B");
         expect(result.erc721.supported).toBe(true);
@@ -247,12 +264,154 @@ describe("ViemBootstrapContractProbe", () => {
         );
         expect(new Set(readAddresses)).toEqual(new Set([TEST_PROXY_ADDRESS]));
     });
+
+    it("detects ERC-1967 implementation proxies while probing through the proxy address", async () => {
+        const tokenUri = `data:application/json,${encodeURIComponent(
+            JSON.stringify({
+                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]: TEST_ONE_PIXEL_PNG,
+            }),
+        )}`;
+        const readAddresses: string[] = [];
+        const storageSlots: string[] = [];
+        const probe = new ViemBootstrapContractProbe({
+            async getBytecode(address) {
+                expect(address).toBe(TEST_PROXY_ADDRESS);
+                return "0x6080604052";
+            },
+            async getStorageAt(params) {
+                storageSlots.push(params.slot);
+                expect(params.address).toBe(TEST_PROXY_ADDRESS);
+                if (
+                    params.slot === EVM_PROXY_STORAGE_SLOT.Erc1967Implementation
+                ) {
+                    return storageWord(TEST_PROXY_IMPLEMENTATION_ADDRESS);
+                }
+                throw new Error(`unexpected slot ${params.slot}`);
+            },
+            async readContract<T = unknown>(params: {
+                address: string;
+                functionName: string;
+                args?: readonly unknown[];
+            }): Promise<T> {
+                readAddresses.push(params.address);
+                if (params.functionName === "supportsInterface") {
+                    return (params.args?.[0] === "0x80ac58cd") as T;
+                }
+                if (params.functionName === "name")
+                    return "Proxy Collection" as T;
+                if (params.functionName === "totalSupply") return 10n as T;
+                if (params.functionName === "tokenURI") return tokenUri as T;
+                if (params.functionName === "ownerOf") {
+                    return "0x2222222222222222222222222222222222222222" as T;
+                }
+                throw new Error(`unexpected read ${params.functionName}`);
+            },
+        });
+
+        const result = await probe.probeErc721Contract({
+            address: TEST_PROXY_ADDRESS,
+            imageSourceField: null,
+            animationSourceField: null,
+        });
+
+        expect(result.proxy).toEqual({
+            kind: EVM_PROXY_KIND.Erc1967Implementation,
+            confidence: EVM_PROXY_CONFIDENCE.Deterministic,
+            implementationAddress: TEST_PROXY_IMPLEMENTATION_ADDRESS,
+            beaconAddress: null,
+        });
+        expect(storageSlots).toEqual([
+            EVM_PROXY_STORAGE_SLOT.Erc1967Implementation,
+        ]);
+        expect(new Set(readAddresses)).toEqual(new Set([TEST_PROXY_ADDRESS]));
+    });
+
+    it("detects ERC-1967 beacon proxies through the beacon implementation", async () => {
+        const tokenUri = `data:application/json,${encodeURIComponent(
+            JSON.stringify({
+                [TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image]: TEST_ONE_PIXEL_PNG,
+            }),
+        )}`;
+        const readAddresses: string[] = [];
+        const storageSlots: string[] = [];
+        const probe = new ViemBootstrapContractProbe({
+            async getBytecode(address) {
+                expect(address).toBe(TEST_PROXY_ADDRESS);
+                return "0x6080604052";
+            },
+            async getStorageAt(params) {
+                storageSlots.push(params.slot);
+                expect(params.address).toBe(TEST_PROXY_ADDRESS);
+                if (
+                    params.slot === EVM_PROXY_STORAGE_SLOT.Erc1967Implementation
+                ) {
+                    return storageWord(null);
+                }
+                if (params.slot === EVM_PROXY_STORAGE_SLOT.Erc1967Beacon) {
+                    return storageWord(TEST_BEACON_ADDRESS);
+                }
+                throw new Error(`unexpected slot ${params.slot}`);
+            },
+            async readContract<T = unknown>(params: {
+                address: string;
+                functionName: string;
+                args?: readonly unknown[];
+            }): Promise<T> {
+                readAddresses.push(params.address);
+                if (params.address === TEST_BEACON_ADDRESS) {
+                    if (
+                        params.functionName ===
+                        BEACON_PROXY_IMPLEMENTATION_FUNCTION
+                    ) {
+                        return TEST_PROXY_IMPLEMENTATION_ADDRESS as T;
+                    }
+                    throw new Error(
+                        `unexpected beacon read ${params.functionName}`,
+                    );
+                }
+                if (params.functionName === "supportsInterface") {
+                    return (params.args?.[0] === "0x80ac58cd") as T;
+                }
+                if (params.functionName === "name")
+                    return "Beacon Collection" as T;
+                if (params.functionName === "totalSupply") return 10n as T;
+                if (params.functionName === "tokenURI") return tokenUri as T;
+                if (params.functionName === "ownerOf") {
+                    return "0x2222222222222222222222222222222222222222" as T;
+                }
+                throw new Error(`unexpected read ${params.functionName}`);
+            },
+        });
+
+        const result = await probe.probeErc721Contract({
+            address: TEST_PROXY_ADDRESS,
+            imageSourceField: null,
+            animationSourceField: null,
+        });
+
+        expect(result.proxy).toEqual({
+            kind: EVM_PROXY_KIND.Erc1967Beacon,
+            confidence: EVM_PROXY_CONFIDENCE.Deterministic,
+            implementationAddress: TEST_PROXY_IMPLEMENTATION_ADDRESS,
+            beaconAddress: TEST_BEACON_ADDRESS,
+        });
+        expect(storageSlots).toEqual([
+            EVM_PROXY_STORAGE_SLOT.Erc1967Implementation,
+            EVM_PROXY_STORAGE_SLOT.Erc1967Beacon,
+        ]);
+        expect(new Set(readAddresses)).toEqual(
+            new Set([TEST_PROXY_ADDRESS, TEST_BEACON_ADDRESS]),
+        );
+    });
 });
 
 function makeEnumerableProbe(tokenUri: string): ViemBootstrapContractProbe {
     return new ViemBootstrapContractProbe({
         async getBytecode() {
             return "0x01";
+        },
+        async getStorageAt() {
+            return null;
         },
         async readContract<T = unknown>(params: {
             functionName: string;
@@ -265,4 +424,9 @@ function makeEnumerableProbe(tokenUri: string): ViemBootstrapContractProbe {
             throw new Error(`unexpected read ${params.functionName}`);
         },
     });
+}
+
+function storageWord(address: string | null): `0x${string}` {
+    if (!address) return `0x${"0".repeat(64)}`;
+    return `0x${"0".repeat(24)}${address.slice(2)}`;
 }

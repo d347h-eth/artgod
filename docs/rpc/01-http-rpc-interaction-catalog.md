@@ -121,12 +121,16 @@ domain mapping, and any integration-specific wrappers such as APM spans.
   behind `GET /api/:chain_ref/collections/bootstrap/probe`.
 - Concrete adapter:
   `backend/src/infra/bootstrap/viem-bootstrap-contract-probe.ts`.
-- Concrete RPC adapter method: `ViemBackendRpcClient.readContract`.
-- RPC method path: `getBytecode` preflight, ERC165 `supportsInterface`, ERC721
-  Metadata `name` and `tokenURI`, ERC721 `totalSupply`, ERC721Enumerable
-  `tokenByIndex`, and ERC721 `ownerOf` fallback checks.
-- Proxy handling: recognized EIP-1167 minimal proxy bytecode is reported with
-  its implementation address, while contract reads continue to target the
+- Concrete RPC adapter methods: `ViemBackendRpcClient.readContract`,
+  `getBytecode`, and `getStorageAt`.
+- RPC method path: `getBytecode` preflight, optional ERC-1967 implementation and
+  beacon storage-slot reads, optional beacon `implementation()` read, ERC165
+  `supportsInterface`, ERC721 Metadata `name` and `tokenURI`, ERC721
+  `totalSupply`, ERC721Enumerable `tokenByIndex`, and ERC721 `ownerOf` fallback
+  checks.
+- Proxy handling: recognized EIP-1167 minimal proxy bytecode and ERC-1967
+  implementation/beacon storage slots are reported with deterministic
+  implementation identity, while contract reads continue to target the
   collection/proxy address so proxy storage and immutable clone context are not
   bypassed.
 - Resilience: inherited from `backend-rpc`, including weighted endpoint

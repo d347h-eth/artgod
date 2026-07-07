@@ -13,7 +13,7 @@ import {
 	type TradingBiddingJobPricingSource,
 	type TradingBiddingTierSelectionMode
 } from '@artgod/shared/types';
-import type { EvmProxyKind } from '@artgod/shared/evm/proxy-detection';
+import type { EvmProxyConfidence, EvmProxyKind } from '@artgod/shared/evm/proxy-detection';
 import type { ImageCacheMode } from '@artgod/shared/media/token-image-cache';
 import type {
 	BootstrapFlowStepKey,
@@ -264,7 +264,9 @@ export type BootstrapContractProbeApiResponse = {
 	standard: 'erc721';
 	proxy: {
 		kind: EvmProxyKind;
+		confidence: EvmProxyConfidence;
 		implementationAddress: string;
+		beaconAddress: string | null;
 	} | null;
 	contractName: string | null;
 	erc721: ApiBootstrapProbeInterfaceCheck;

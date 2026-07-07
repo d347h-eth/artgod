@@ -25,13 +25,21 @@ import {
     type HttpFetchResilienceConfig,
 } from "@artgod/shared/network/http-fetch-resilience";
 import {
+    detectErc1967BeaconProxy,
+    detectErc1967ImplementationProxy,
     detectEvmProxy,
+    EVM_PROXY_STORAGE_SLOT,
+    readErc1967BeaconAddress,
     type EvmProxyResolution,
 } from "@artgod/shared/evm/proxy-detection";
 import { loadSharp } from "../media/sharp-loader.js";
 
 type BootstrapProbeRpc = {
     getBytecode(address: `0x${string}`): Promise<`0x${string}` | null>;
+    getStorageAt(params: {
+        address: `0x${string}`;
+        slot: `0x${string}`;
+    }): Promise<`0x${string}` | null>;
     readContract<T = unknown>(params: {
         address: `0x${string}`;
         abi: readonly unknown[];
@@ -125,6 +133,19 @@ const ERC721_SUPPLY_ABI = [
     },
 ] as const;
 
+// Standard beacon proxy read used to resolve the current implementation address.
+export const BEACON_PROXY_IMPLEMENTATION_FUNCTION = "implementation";
+
+const BEACON_PROXY_ABI = [
+    {
+        name: BEACON_PROXY_IMPLEMENTATION_FUNCTION,
+        type: "function",
+        stateMutability: "view",
+        inputs: [],
+        outputs: [{ type: "address" }],
+    },
+] as const;
+
 // ERC165 interface id for ERC721 core.
 const ERC721_INTERFACE_ID = "0x80ac58cd";
 // ERC165 interface id for ERC721Enumerable.
@@ -141,8 +162,7 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
     constructor(
         private readonly rpc: BootstrapProbeRpc,
         private readonly ipfsGatewayOrigin: string = DEFAULT_IPFS_GATEWAY_ORIGIN,
-        private readonly fetchResilience: HttpFetchResilienceConfig =
-            getDefaultHttpFetchResilienceConfig(),
+        private readonly fetchResilience: HttpFetchResilienceConfig = getDefaultHttpFetchResilienceConfig(),
     ) {}
 
     async probeErc721Contract(input: {
@@ -185,12 +205,74 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
     ): Promise<ContractProbeTarget> {
         const bytecode = await this.rpc.getBytecode(address);
         if (!bytecode || bytecode === EMPTY_EVM_BYTECODE) {
-            throw new BootstrapValidationError(NON_CONTRACT_ADDRESS_PROBE_ERROR);
+            throw new BootstrapValidationError(
+                NON_CONTRACT_ADDRESS_PROBE_ERROR,
+            );
         }
+        const bytecodeProxy = detectEvmProxy(bytecode);
+        if (bytecodeProxy) {
+            return {
+                address,
+                proxy: bytecodeProxy,
+            };
+        }
+
         return {
             address,
-            proxy: detectEvmProxy(bytecode),
+            proxy: await this.readErc1967Proxy(address),
         };
+    }
+
+    private async readErc1967Proxy(
+        address: `0x${string}`,
+    ): Promise<EvmProxyResolution | null> {
+        const implementationProxy =
+            await this.readErc1967ImplementationProxy(address);
+        if (implementationProxy) return implementationProxy;
+
+        return await this.readErc1967BeaconProxy(address);
+    }
+
+    private async readErc1967ImplementationProxy(
+        address: `0x${string}`,
+    ): Promise<EvmProxyResolution | null> {
+        try {
+            // Read the deterministic ERC-1967 implementation slot after bytecode detection misses.
+            const slotValue = await this.rpc.getStorageAt({
+                address,
+                slot: EVM_PROXY_STORAGE_SLOT.Erc1967Implementation,
+            });
+            return detectErc1967ImplementationProxy(slotValue);
+        } catch {
+            return null;
+        }
+    }
+
+    private async readErc1967BeaconProxy(
+        address: `0x${string}`,
+    ): Promise<EvmProxyResolution | null> {
+        try {
+            // Read the deterministic ERC-1967 beacon slot before asking the beacon for its implementation.
+            const beaconSlotValue = await this.rpc.getStorageAt({
+                address,
+                slot: EVM_PROXY_STORAGE_SLOT.Erc1967Beacon,
+            });
+            const beaconAddress = readErc1967BeaconAddress(beaconSlotValue);
+            if (!beaconAddress) return null;
+
+            const implementationAddress =
+                await this.rpc.readContract<`0x${string}`>({
+                    address: beaconAddress,
+                    abi: BEACON_PROXY_ABI,
+                    functionName: BEACON_PROXY_IMPLEMENTATION_FUNCTION,
+                });
+            return detectErc1967BeaconProxy({
+                beaconAddress,
+                implementationAddress,
+            });
+        } catch {
+            return null;
+        }
     }
 
     private async readInterfaceSupport(
@@ -216,7 +298,9 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
         }
     }
 
-    private async readContractName(address: `0x${string}`): Promise<string | null> {
+    private async readContractName(
+        address: `0x${string}`,
+    ): Promise<string | null> {
         try {
             const name = await this.rpc.readContract<string>({
                 address,
@@ -377,7 +461,8 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
         requestedImageSourceField: string | null,
         requestedAnimationSourceField: string | null,
     ): Promise<BootstrapProbeFirstToken> {
-        const tokenUri = knownTokenUri ?? (await this.readTokenUri(address, tokenId));
+        const tokenUri =
+            knownTokenUri ?? (await this.readTokenUri(address, tokenId));
         if (typeof tokenUri !== "string" && !tokenUri.ok) {
             return emptyFirstTokenWithError(
                 tokenId,

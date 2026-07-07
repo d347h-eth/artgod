@@ -4476,14 +4476,25 @@ components:
 
         BootstrapProbeContractProxy:
             type: object
-            required: [kind, implementationAddress]
+            required: [kind, confidence, implementationAddress, beaconAddress]
             additionalProperties: false
             properties:
                 kind:
                     type: string
-                    enum: [eip1167_minimal]
+                    enum:
+                        [
+                            eip1167_minimal,
+                            erc1967_implementation,
+                            erc1967_beacon,
+                        ]
+                confidence:
+                    type: string
+                    enum: [deterministic]
                 implementationAddress:
                     type: string
+                beaconAddress:
+                    type: string
+                    nullable: true
 
         BootstrapContractProbeResponse:
             type: object
