@@ -4,6 +4,7 @@ export const BIDDING_SELECTION_ACTION_LABEL = {
 	BidOnToken: 'bid on token',
 	BidOnTraits: 'bid on traits',
 	PlaceCollectionBid: 'place collection bid',
+	ApplyBiddingSpec: 'apply',
 	ActivateSelected: 'activate selected',
 	PauseSelected: 'pause selected',
 	ArchiveSelected: 'archive selected',

@@ -2,7 +2,8 @@ import {
 	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
 	TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
 	TRADING_JOB_STATUS,
-	TRADING_JOB_TARGET_KIND
+	TRADING_JOB_TARGET_KIND,
+	type TraitFilter
 } from '@artgod/shared/types';
 import type {
 	ApiBiddingJob,
@@ -29,6 +30,7 @@ import {
 	buildTokenBiddingJobTargetLookupRequestBody,
 	canSubmitFilteredTokenBatch,
 	type BiddingAutomationDraft,
+	type BiddingAutomationTraitAttribute,
 	type BiddingJobTargetLookupRequestBody
 } from '$lib/bidding-automation';
 import {
@@ -78,6 +80,8 @@ export type LookupBiddingSelectionJobsInput = {
 export type LookupBiddingSelectionJobsResult = {
 	jobs: ApiBiddingJob[];
 	targetCount: number;
+	existingTargetCount: number;
+	missingTargetCount: number;
 };
 
 export type ApplyBiddingSelectionJobActionResult = {
@@ -274,10 +278,7 @@ export async function lookupBiddingSelectionJobs(
 			input.collectionRef,
 			{ selection: batchSelection }
 		);
-		if (response.jobs.length === 0) {
-			throw new Error('no selected bidding jobs found');
-		}
-		return { jobs: response.jobs, targetCount: response.targetCount };
+		return biddingSelectionJobsResult(response.jobs, response.targetCount);
 	}
 
 	const lookupBodies = biddingSelectionJobLookupBodies(input.draft);
@@ -291,11 +292,7 @@ export async function lookupBiddingSelectionJobs(
 		)
 	);
 	const jobs = uniqueBiddingJobs(lookupResponses.flatMap((response) => response.job ?? []));
-	if (jobs.length === 0) {
-		throw new Error('no selected bidding jobs found');
-	}
-
-	return { jobs, targetCount: lookupBodies.length };
+	return biddingSelectionJobsResult(jobs, lookupBodies.length);
 }
 
 // Keeps mass-action visibility and execution on the same declared-job lifecycle rules.
@@ -328,7 +325,7 @@ export function resolveBiddingSelectionJobsLookupKey(input: {
 		return `${input.chain.slug}:${input.collection.slug}:${JSON.stringify(batchSelection)}`;
 	}
 	const lookupBodies = biddingSelectionJobLookupBodies(input.draft);
-	return lookupBodies.length > 0
+	return lookupBodies.length > 1
 		? `${input.chain.slug}:${input.collection.slug}:${JSON.stringify(lookupBodies)}`
 		: '';
 }
@@ -360,7 +357,14 @@ export function hasSubmittableBiddingTarget(input: {
 	return true;
 }
 
-export function resolveBiddingSaveMessage(count: number, wasExistingJob: boolean): string {
+export function resolveBiddingSaveMessage(
+	count: number,
+	wasExistingJob: boolean,
+	appliedBatch = false
+): string {
+	if (appliedBatch) {
+		return count <= 1 ? 'job saved' : `${count} jobs saved`;
+	}
 	if (count <= 1) {
 		return wasExistingJob ? 'modified' : 'created';
 	}
@@ -389,7 +393,7 @@ function batchTokenSelectionRequestFromFilteredDraft(
 	if (draft.source.filter.source === BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers) {
 		return {
 			type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
-			traits: draft.source.filter.selectedTraits,
+			traits: batchTokenSelectionTraits(draft.source.filter.selectedTraits),
 			traitRanges: draft.source.filter.selectedTraitRanges,
 			traitJoinMode: draft.source.filter.traitJoinMode,
 			makerAddress: draft.source.filter.makerAddress
@@ -402,10 +406,17 @@ function batchTokenSelectionRequestFromFilteredDraft(
 	return {
 		type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
 		tokenStatus,
-		traits: draft.source.filter.selectedTraits,
+		traits: batchTokenSelectionTraits(draft.source.filter.selectedTraits),
 		traitRanges: draft.source.filter.selectedTraitRanges,
 		ownerAddress: draft.source.filter.ownerAddress
 	};
+}
+
+function batchTokenSelectionTraits(traits: BiddingAutomationTraitAttribute[]): TraitFilter[] {
+	return traits.map((trait) => ({
+		key: trait.key,
+		value: trait.value
+	}));
 }
 
 function biddingSelectionJobLookupBodies(
@@ -434,6 +445,19 @@ function uniqueBiddingJobs(jobs: ApiBiddingJob[]): ApiBiddingJob[] {
 		unique.push(job);
 	}
 	return unique;
+}
+
+function biddingSelectionJobsResult(
+	jobs: ApiBiddingJob[],
+	targetCount: number
+): LookupBiddingSelectionJobsResult {
+	const existingTargetCount = jobs.length;
+	return {
+		jobs,
+		targetCount,
+		existingTargetCount,
+		missingTargetCount: Math.max(0, targetCount - existingTargetCount)
+	};
 }
 
 async function saveExistingBiddingJobStatus(input: {

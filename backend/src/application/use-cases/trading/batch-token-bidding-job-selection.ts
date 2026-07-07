@@ -53,6 +53,7 @@ export type BatchTokenBiddingJobSelectionBidBookReadPort = Pick<
 export function resolveBatchTokenBiddingJobSelectionTokenIds(params: {
     chainId: number;
     collectionId: number;
+    includeOwnJobContext: boolean;
     selection: BatchTokenBiddingJobSelection;
     collectionReadPort: BatchTokenBiddingJobSelectionTokenReadPort;
     bidBookRepositoryPort: BatchTokenBiddingJobSelectionBidBookReadPort;
@@ -75,6 +76,7 @@ export function resolveBatchTokenBiddingJobSelectionTokenIds(params: {
         return resolveTokenOfferFilterTokenIds({
             chainId: params.chainId,
             collectionId: params.collectionId,
+            includeOwnJobContext: params.includeOwnJobContext,
             selection: params.selection,
             collectionReadPort: params.collectionReadPort,
             bidBookRepositoryPort: params.bidBookRepositoryPort,
@@ -153,6 +155,7 @@ function resolveFilteredTokenIds(params: {
 function resolveTokenOfferFilterTokenIds(params: {
     chainId: number;
     collectionId: number;
+    includeOwnJobContext: boolean;
     selection: Extract<
         BatchTokenBiddingJobSelection,
         {
@@ -166,7 +169,7 @@ function resolveTokenOfferFilterTokenIds(params: {
     const tokenBidBook = params.bidBookRepositoryPort.listCollectionBidBook({
         chainId: params.chainId,
         collectionId: params.collectionId,
-        includeOwnJobContext: false,
+        includeOwnJobContext: params.includeOwnJobContext,
         scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
         traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
         selectedTraits: [],
@@ -174,16 +177,17 @@ function resolveTokenOfferFilterTokenIds(params: {
         makerAddress: params.selection.makerAddress ?? null,
     });
     // Read collection bids so low-signal token offers are filtered exactly like the token-offer cards.
-    const collectionBidBook = params.bidBookRepositoryPort.listCollectionBidBook({
-        chainId: params.chainId,
-        collectionId: params.collectionId,
-        includeOwnJobContext: false,
-        scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
-        traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
-        selectedTraits: [],
-        selectedTraitRanges: [],
-        makerAddress: null,
-    });
+    const collectionBidBook =
+        params.bidBookRepositoryPort.listCollectionBidBook({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            includeOwnJobContext: params.includeOwnJobContext,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+            makerAddress: null,
+        });
     const offersByTokenId = buildTokenOfferGroups({
         tokenBids: tokenBidBook.bids,
         collectionBids: collectionBidBook.bids,

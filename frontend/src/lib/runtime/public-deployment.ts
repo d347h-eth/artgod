@@ -1,18 +1,25 @@
+import {
+	APP_DEPLOYMENT_MODE,
+	PUBLIC_APP_DEPLOYMENT_ENV_KEY,
+	isAppDeploymentMode,
+	isPublicSingleCollectionDeployment,
+	type AppDeploymentMode
+} from '@artgod/shared/config/deployment';
 import { normalizeSlugRef } from '@artgod/shared/utils/ref-resolver';
 
-export type FrontendDeploymentMode = 'standard' | 'public_single_collection';
+export type FrontendDeploymentMode = AppDeploymentMode;
 
 const FRONTEND_DEPLOYMENT_MODE = normalizeDeploymentMode(
-	(import.meta.env.PUBLIC_APP_DEPLOYMENT_MODE as string | undefined)?.trim() || ''
+	readPublicDeploymentEnv(PUBLIC_APP_DEPLOYMENT_ENV_KEY.Mode)
 );
 
-const RAW_PUBLIC_CHAIN_REF =
-	(import.meta.env.PUBLIC_APP_CHAIN_REF as string | undefined)?.trim() || '';
-const RAW_PUBLIC_COLLECTION_REF =
-	(import.meta.env.PUBLIC_APP_COLLECTION_REF as string | undefined)?.trim() || '';
+const RAW_PUBLIC_CHAIN_REF = readPublicDeploymentEnv(PUBLIC_APP_DEPLOYMENT_ENV_KEY.ChainRef);
+const RAW_PUBLIC_COLLECTION_REF = readPublicDeploymentEnv(
+	PUBLIC_APP_DEPLOYMENT_ENV_KEY.CollectionRef
+);
 
 export const IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT =
-	FRONTEND_DEPLOYMENT_MODE === 'public_single_collection';
+	isPublicSingleCollectionDeployment(FRONTEND_DEPLOYMENT_MODE);
 
 export type PublicCollectionScope = {
 	chainRef: string;
@@ -20,9 +27,7 @@ export type PublicCollectionScope = {
 };
 
 export const PUBLIC_COLLECTION_SCOPE: PublicCollectionScope | null =
-	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT &&
-	RAW_PUBLIC_CHAIN_REF &&
-	RAW_PUBLIC_COLLECTION_REF
+	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && RAW_PUBLIC_CHAIN_REF && RAW_PUBLIC_COLLECTION_REF
 		? {
 				chainRef: normalizeSlugRef(RAW_PUBLIC_CHAIN_REF),
 				collectionRef: normalizeSlugRef(RAW_PUBLIC_COLLECTION_REF)
@@ -33,10 +38,7 @@ export function getFrontendDeploymentMode(): FrontendDeploymentMode {
 	return FRONTEND_DEPLOYMENT_MODE;
 }
 
-export function matchesPublicCollectionRoute(
-	chainRef: string,
-	collectionRef: string
-): boolean {
+export function matchesPublicCollectionRoute(chainRef: string, collectionRef: string): boolean {
 	if (!PUBLIC_COLLECTION_SCOPE) return false;
 	return (
 		normalizeSlugRef(chainRef) === PUBLIC_COLLECTION_SCOPE.chainRef &&
@@ -85,8 +87,12 @@ export function collectionBiddingNavigationVisibilityForDeployment(): {
 }
 
 function normalizeDeploymentMode(value: string): FrontendDeploymentMode {
-	if (value === 'public_single_collection') {
-		return 'public_single_collection';
+	if (isAppDeploymentMode(value)) {
+		return value;
 	}
-	return 'standard';
+	return APP_DEPLOYMENT_MODE.Standard;
+}
+
+function readPublicDeploymentEnv(key: string): string {
+	return ((import.meta.env as Record<string, string | undefined>)[key] ?? '').trim();
 }

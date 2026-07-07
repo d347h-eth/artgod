@@ -14,6 +14,7 @@
         "./config/bidding": "./config/bidding.ts",
         "./config/common-media": "./config/common-media.ts",
         "./config/debug-payload-persistence": "./config/debug-payload-persistence.ts",
+        "./config/deployment": "./config/deployment.ts",
         "./config/generated-settings-defaults": "./config/generated-settings-defaults.ts",
         "./config/http-fetch-resilience": "./config/http-fetch-resilience.ts",
         "./config/opensea-http": "./config/opensea-http.ts",

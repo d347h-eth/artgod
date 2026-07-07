@@ -100,7 +100,7 @@ describe('HolderTokensView', () => {
 		expect(body).toContain('>filter<');
 		expect(body).toContain('>reset<');
 		expect(body).toContain('>bid on all tokens<');
-		expect(body).not.toContain('>bid on traits<');
+		expect(body).toContain('>bid on traits<');
 		expect(body).toContain('>Hat=Beanie<');
 		expect(body).toContain('2 held');
 		expect(body).toContain('L7/BForest/Alpha');

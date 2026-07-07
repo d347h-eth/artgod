@@ -19,7 +19,8 @@ import {
 	BIDDING_AUTOMATION_PRICING_MODE,
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
 	BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
-	buildBiddingAutomationDraftFromBid
+	buildBiddingAutomationDraftFromBid,
+	buildBiddingAutomationDraftFromSelection
 } from '$lib/bidding-automation';
 import {
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
@@ -530,6 +531,38 @@ describe('BiddingAutomationPanel', () => {
 		);
 		expect(body).not.toContain('id="bidding-automation-pricing-select"');
 		expect(body).not.toContain(`data-testid="${TEST_IDS.BiddingPanelCreate}"`);
+	});
+
+	it('renders multi-token drafts as batch apply actions', () => {
+		const draft = buildBiddingAutomationDraftFromSelection({
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
+			tokenIds: ['101', '102']
+		});
+
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: testChain(),
+				collection: testCollection(),
+				token: null,
+				job: null,
+				draft,
+				biddingSettings: {
+					tierSelectionMode: TRADING_BIDDING_TIER_SELECTION_MODE.Buttons,
+					defaultDeltaEth: '0.004',
+					updatedAt: null
+				},
+				onClose: () => {}
+			}
+		});
+
+		expect(body).toContain('2 tokens');
+		expect(body).toContain(`data-testid="${TEST_IDS.BiddingPanelCreate}"`);
+		expect(body).toContain('>apply<');
+		expect(body).not.toContain('>create<');
+		expect(body).not.toContain('>pause<');
+		expect(body).not.toContain('>archive<');
+		expect(body).toContain('value="0.004"');
 	});
 
 	it('prefers an existing trait job config over selected-bid draft pricing', () => {

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+	import type { BiddingBidBookLiveRefreshConfig } from '@artgod/shared/config/bidding';
 	import CollectionDetailView from '$lib/components/CollectionDetailView.svelte';
 	import type {
 		ApiChain,
@@ -28,6 +29,7 @@
 		displayMode: 'grid' | 'table';
 		biddingSettings: ApiBiddingCollectionSettings;
 		priceTiers: ApiBiddingPriceTier[];
+		bidBookLiveRefreshConfig?: BiddingBidBookLiveRefreshConfig;
 	};
 
 	let { data }: { data?: PageData } = $props();
@@ -66,4 +68,5 @@
 	displayMode={data?.displayMode ?? 'grid'}
 	biddingSettings={data?.biddingSettings ?? defaultBiddingCollectionSettings()}
 	priceTiers={data?.priceTiers ?? []}
+	bidBookLiveRefreshConfig={data?.bidBookLiveRefreshConfig}
 />

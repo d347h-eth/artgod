@@ -24,6 +24,8 @@ import {
 	lookupBiddingAutomationDraftTargetJob,
 	lookupBiddingSelectionJobs,
 	resolveBiddingAutomationDraftTargetLookupKey,
+	resolveBiddingSelectionJobsLookupKey,
+	resolveBiddingSaveMessage,
 	saveBiddingAutomationDraftJobs
 } from '$lib/bidding-automation-panel-actions';
 
@@ -131,6 +133,67 @@ describe('bidding automation panel actions', () => {
 				}
 			}
 		);
+	});
+
+	it('does not build selection lookup keys for single-target drafts', () => {
+		const singleTokenDraft = buildBiddingAutomationDraftFromSelection({
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
+			tokenIds: ['101']
+		});
+		const traitDraft = buildBiddingAutomationDraftFromBid(testTraitBid('1'));
+
+		expect(
+			resolveBiddingSelectionJobsLookupKey({
+				chain: testChain(),
+				collection: testCollection(),
+				draft: singleTokenDraft
+			})
+		).toBe('');
+		expect(
+			resolveBiddingSelectionJobsLookupKey({
+				chain: testChain(),
+				collection: testCollection(),
+				draft: traitDraft
+			})
+		).toBe('');
+	});
+
+	it('builds selection lookup keys only for mass-action targets', () => {
+		const exactBatchDraft = buildBiddingAutomationDraftFromSelection({
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
+			tokenIds: ['101', '102']
+		});
+		const filteredBatchDraft = buildBiddingAutomationDraftFromSelection({
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
+			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+				selectedTraits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
+				selectedTraitRanges: [],
+				traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+				makerAddress: null,
+				tokenStatus: 'listed'
+			},
+			tokenCount: 2,
+			state: {
+				kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+			}
+		});
+
+		expect(
+			resolveBiddingSelectionJobsLookupKey({
+				chain: testChain(),
+				collection: testCollection(),
+				draft: exactBatchDraft
+			})
+		).toContain('ethereum:terraforms:');
+		expect(
+			resolveBiddingSelectionJobsLookupKey({
+				chain: testChain(),
+				collection: testCollection(),
+				draft: filteredBatchDraft
+			})
+		).toContain('ethereum:terraforms:');
 	});
 
 	it('pauses exact selected token jobs through existing pricing without overwriting tiers', async () => {
@@ -350,7 +413,32 @@ describe('bidding automation panel actions', () => {
 
 		expect(result).toEqual({
 			jobs: [firstJob, secondJob],
-			targetCount: 2
+			targetCount: 2,
+			existingTargetCount: 2,
+			missingTargetCount: 0
+		});
+	});
+
+	it('keeps exact selected targets actionable when none have declared jobs yet', async () => {
+		backendApiMocks.lookupBiddingJobTarget
+			.mockResolvedValueOnce({ job: null })
+			.mockResolvedValueOnce({ job: null });
+
+		const result = await lookupBiddingSelectionJobs({
+			fetchFn: testFetch,
+			chainRef: 'ethereum',
+			collectionRef: 'terraforms',
+			draft: buildBiddingAutomationDraftFromSelection({
+				type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
+				tokenIds: ['101', '102']
+			})
+		});
+
+		expect(result).toEqual({
+			jobs: [],
+			targetCount: 2,
+			existingTargetCount: 0,
+			missingTargetCount: 2
 		});
 	});
 
@@ -400,7 +488,9 @@ describe('bidding automation panel actions', () => {
 
 		expect(result).toEqual({
 			jobs: [firstJob, secondJob],
-			targetCount: 2
+			targetCount: 2,
+			existingTargetCount: 2,
+			missingTargetCount: 0
 		});
 		expect(backendApiMocks.lookupBatchTokenBiddingJobs).toHaveBeenCalledWith(
 			testFetch,
@@ -409,7 +499,7 @@ describe('bidding automation panel actions', () => {
 			{
 				selection: {
 					type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
-					traits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
+					traits: [{ key: 'Mode', value: 'Terrain' }],
 					traitRanges: [],
 					traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
 					makerAddress: '0xcccccccccccccccccccccccccccccccccccccccc'
@@ -417,6 +507,63 @@ describe('bidding automation panel actions', () => {
 			}
 		);
 		expect(backendApiMocks.lookupBiddingJobTarget).not.toHaveBeenCalled();
+	});
+
+	it('keeps filtered token-browser targets actionable when only missing jobs resolve', async () => {
+		backendApiMocks.lookupBatchTokenBiddingJobs.mockResolvedValueOnce({
+			jobs: [],
+			targetCount: 3
+		});
+
+		const result = await lookupBiddingSelectionJobs({
+			fetchFn: testFetch,
+			chainRef: 'ethereum',
+			collectionRef: 'terraforms',
+			draft: buildBiddingAutomationDraftFromSelection({
+				type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+				targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
+				filter: {
+					source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+					selectedTraits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
+					selectedTraitRanges: [],
+					traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+					makerAddress: null,
+					tokenStatus: 'listed'
+				},
+				tokenCount: 3,
+				state: {
+					kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+				}
+			})
+		});
+
+		expect(result).toEqual({
+			jobs: [],
+			targetCount: 3,
+			existingTargetCount: 0,
+			missingTargetCount: 3
+		});
+		expect(backendApiMocks.lookupBatchTokenBiddingJobs).toHaveBeenCalledWith(
+			testFetch,
+			'ethereum',
+			'terraforms',
+			{
+				selection: {
+					type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
+					tokenStatus: 'listed',
+					traits: [{ key: 'Mode', value: 'Terrain' }],
+					traitRanges: [],
+					ownerAddress: undefined
+				}
+			}
+		);
+	});
+
+	it('labels batch saves without guessing create versus modify', () => {
+		expect(resolveBiddingSaveMessage(1, false, true)).toBe('job saved');
+		expect(resolveBiddingSaveMessage(2, false, true)).toBe('2 jobs saved');
+		expect(resolveBiddingSaveMessage(1, false)).toBe('created');
+		expect(resolveBiddingSaveMessage(1, true)).toBe('modified');
 	});
 
 	it('archives resolved selected jobs through the target-agnostic archive route', async () => {

@@ -1,7 +1,4 @@
-import type {
-    ChainRecord,
-    CollectionListItem,
-} from "@artgod/shared/types";
+import type { ChainRecord, CollectionListItem } from "@artgod/shared/types";
 import type { BiddingJobsRepositoryPort } from "./ports.js";
 import { type BiddingBidBookRepositoryPort } from "./bidding-bid-book.js";
 import {
@@ -17,6 +14,7 @@ import {
 export type LookupBatchTokenBiddingJobsInput = {
     chainRef: string;
     collectionRef: string;
+    includeOwnJobContext: boolean;
     selection: BatchTokenBiddingJobSelection;
 };
 
@@ -68,6 +66,7 @@ export class LookupBatchTokenBiddingJobsUseCase {
         const tokenIds = resolveBatchTokenBiddingJobSelectionTokenIds({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
+            includeOwnJobContext: input.includeOwnJobContext,
             selection: input.selection,
             collectionReadPort: this.collectionReadPort,
             bidBookRepositoryPort: this.bidBookRepositoryPort,

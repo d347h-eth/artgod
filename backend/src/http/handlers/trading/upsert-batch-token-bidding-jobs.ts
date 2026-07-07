@@ -45,6 +45,7 @@ export class UpsertBatchTokenBiddingJobsHttpAdapter {
                 input: UpsertBatchTokenBiddingJobsInput,
             ): MaybePromise<UpsertBatchTokenBiddingJobsOutput>;
         },
+        private readonly includeOwnJobContext: boolean,
     ) {}
 
     readonly handle = async (
@@ -62,9 +63,16 @@ export class UpsertBatchTokenBiddingJobsHttpAdapter {
         return {
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
+            includeOwnJobContext: this.includeOwnJobContext,
             status: parseEditableBiddingJobStatus(request.body?.status),
-            floorEth: parseOptionalBodyString(request.body?.floorEth, "floorEth"),
-            ceilingEth: parseOptionalBodyString(request.body?.ceilingEth, "ceilingEth"),
+            floorEth: parseOptionalBodyString(
+                request.body?.floorEth,
+                "floorEth",
+            ),
+            ceilingEth: parseOptionalBodyString(
+                request.body?.ceilingEth,
+                "ceilingEth",
+            ),
             deltaEth: parseRequiredString(request.body?.deltaEth, "deltaEth"),
             priceTierId: parseOptionalBodyString(
                 request.body?.priceTierId,
@@ -84,7 +92,9 @@ export function parseBatchTokenBiddingJobSelection(
         throw new ReadModelBadRequestError("selection is required");
     }
     const record = value as Record<string, unknown>;
-    if (record.type === TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds) {
+    if (
+        record.type === TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds
+    ) {
         return {
             type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds,
             tokenIds: parseStringArray(record.tokenIds, "selection.tokenIds"),
@@ -134,7 +144,9 @@ function parseTokenStatus(value: unknown): TokenBrowserStatus {
     throw new ReadModelBadRequestError("selection.tokenStatus is invalid");
 }
 
-function parseTraitJoinMode(value: unknown): CollectionBiddingTraitFilterJoinMode {
+function parseTraitJoinMode(
+    value: unknown,
+): CollectionBiddingTraitFilterJoinMode {
     if (
         value === COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And ||
         value === COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or
@@ -159,17 +171,27 @@ function parseTraitRanges(value: unknown): TraitRangeFilter[] {
         return [];
     }
     if (!Array.isArray(value)) {
-        throw new ReadModelBadRequestError("selection.traitRanges must be an array");
+        throw new ReadModelBadRequestError(
+            "selection.traitRanges must be an array",
+        );
     }
     return value.map((entry) => {
         if (!entry || typeof entry !== "object") {
-            throw new ReadModelBadRequestError("selection.traitRanges entries must be objects");
+            throw new ReadModelBadRequestError(
+                "selection.traitRanges entries must be objects",
+            );
         }
         const record = entry as Record<string, unknown>;
         return {
             key: parseRequiredString(record.key, "selection.traitRanges.key"),
-            fromValue: parseOptionalString(record.fromValue, "selection.traitRanges.fromValue"),
-            toValue: parseOptionalString(record.toValue, "selection.traitRanges.toValue"),
+            fromValue: parseOptionalString(
+                record.fromValue,
+                "selection.traitRanges.fromValue",
+            ),
+            toValue: parseOptionalString(
+                record.toValue,
+                "selection.traitRanges.toValue",
+            ),
         };
     });
 }

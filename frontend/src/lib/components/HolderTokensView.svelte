@@ -1,9 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
+	import {
+		DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
+		type BiddingBidBookLiveRefreshConfig
+	} from '@artgod/shared/config/bidding';
 	import { TOKEN_BROWSER_STATUS, TRADING_JOB_STATUS } from '@artgod/shared/types';
 	import type {
 		ApiChain,
-		ApiBiddingBidBook,
 		ApiBiddingCollectionSettings,
 		ApiBiddingJob,
 		ApiBiddingPriceTier,
@@ -18,9 +22,11 @@
 	import {
 		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 		buildBiddingAutomationDraftFromSelection,
+		canDraftTraitJobFromFilters,
 		type BiddingAutomationTokenFilterSnapshot
 	} from '$lib/bidding-automation';
 	import {
+		buildFilteredTraitBiddingSelectionInput,
 		buildFilteredTokenBatchBiddingSelectionInput,
 		biddingAutomationSelectionStateKey,
 		biddingAutomationTokenSelectionState,
@@ -29,7 +35,6 @@
 		isCleanFilteredTokenBatchSelection,
 		type ToggleBiddingTokenInput
 	} from '$lib/bidding-automation-controller';
-	import { emptyBiddingBidBook } from '$lib/bidding-empty-state';
 	import { resolveBiddingTokenActionLabel } from '$lib/bidding-selection-actions';
 	import { resolveTokenBrowserBiddingSelectionControlPolicy } from '$lib/bidding-selection-control-policy';
 	import { buildCollectionNavigation } from '$lib/collection-navigation';
@@ -50,6 +55,7 @@
 		tokenBrowserBiddingFilterKey,
 		visibleBiddableTokenIds
 	} from '$lib/token-browser-bidding';
+	import { createTokenBiddingPanelBidBookController } from '$lib/token-bidding-panel-bid-book-controller';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
@@ -69,7 +75,8 @@
 		requestCursor,
 		displayMode,
 		biddingSettings,
-		priceTiers = []
+		priceTiers = [],
+		bidBookLiveRefreshConfig = DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
@@ -86,6 +93,7 @@
 		displayMode: 'grid' | 'table';
 		biddingSettings: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
+		bidBookLiveRefreshConfig?: BiddingBidBookLiveRefreshConfig;
 	} = $props();
 
 	const traitFacetPanel = createTraitFacetPanelController();
@@ -93,6 +101,8 @@
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
 	const biddingAutomation = createBiddingAutomationController();
 	const biddingAutomationState = biddingAutomation.state;
+	const tokenPanelBidBook = createTokenBiddingPanelBidBookController();
+	const tokenPanelBidBookState = tokenPanelBidBook.state;
 
 	let changedBiddingJobs = $state<ApiBiddingJob[]>([]);
 	let activeBiddingSettings = $state<ApiBiddingCollectionSettings>(biddingSettings);
@@ -113,6 +123,9 @@
 		describeBiddingAutomationSelection(currentBiddingSelection)
 	);
 	const biddingFilterKey = $derived(activeBiddingFilterKey());
+	const canBidOnTraits = $derived(
+		canDraftTraitJobFromFilters({ selectedTraits, selectedTraitRanges })
+	);
 	const canRefineTokenSelectionToVisiblePage = $derived(tokens.totalPages > 1);
 	const tokenActionLabel = $derived(
 		resolveBiddingTokenActionLabel({
@@ -123,7 +136,7 @@
 	const biddingSelectionControlPolicy = $derived(
 		resolveTokenBrowserBiddingSelectionControlPolicy({
 			publicSingleCollection: IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
-			canBidOnTraits: false
+			canBidOnTraits
 		})
 	);
 
@@ -137,6 +150,15 @@
 
 	$effect(() => {
 		visibleBiddableBrowserTokenIds = visibleBiddableTokenIds(tokens);
+	});
+
+	onMount(() => {
+		const refresh = tokenPanelBidBook.start(panelBidBookContext, () => bidBookLiveRefreshConfig);
+		return () => refresh.stop();
+	});
+
+	$effect(() => {
+		tokenPanelBidBook.sync(panelBidBookContext());
 	});
 
 	$effect(() => {
@@ -218,6 +240,17 @@
 				noScroll: true
 			}
 		);
+	}
+
+	function bidOnFilteredTraits(): void {
+		if (!canBidOnTraits) return;
+		biddingAutomation.selectFilteredTokens(
+			buildFilteredTraitBiddingSelectionInput({
+				tokenCount: tokens.totalItems,
+				filter: currentBiddingFilterSnapshot()
+			})
+		);
+		expandBiddingAutomationPanel();
 	}
 
 	function bidOnFilteredTokens(nextVisibleTokenIds: string[]): void {
@@ -302,10 +335,17 @@
 
 	function handleBiddingJobsChanged(jobs: ApiBiddingJob[]): void {
 		changedBiddingJobs = jobs.filter((job) => job.status !== TRADING_JOB_STATUS.Archived);
+		void tokenPanelBidBook.refreshNow(panelBidBookContext());
 	}
 
-	function emptyBidBook(): ApiBiddingBidBook {
-		return emptyBiddingBidBook();
+	function panelBidBookContext() {
+		return {
+			fetchFn: fetch,
+			chain,
+			collection,
+			draft: selectedBiddingDraft,
+			open: biddingAutomationPanelOpen
+		};
 	}
 </script>
 
@@ -371,6 +411,7 @@
 					tokenActionLabel={tokenActionLabel}
 					tokenActionDisabled={tokens.marketplaceBiddingSupportedTotalItems === 0}
 					onToggleTiers={togglePriceTierPanel}
+					onBidOnTraits={bidOnFilteredTraits}
 					onBidOnTokens={() => bidOnFilteredTokens(visibleBiddableBrowserTokenIds)}
 					onClear={clearBiddingSelection}
 				/>
@@ -427,7 +468,7 @@
 			token={null}
 			job={changedBiddingJobs.length === 1 ? changedBiddingJobs[0] : null}
 			draft={selectedBiddingDraft}
-			bidBook={emptyBidBook()}
+			bidBook={$tokenPanelBidBookState.bidBook}
 			biddingSettings={activeBiddingSettings}
 			priceTiers={activePriceTiers}
 			expandSignal={biddingPanelExpandSignal}

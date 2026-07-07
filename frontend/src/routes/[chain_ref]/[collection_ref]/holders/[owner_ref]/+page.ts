@@ -6,7 +6,8 @@ import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
 	BackendApiError,
 	getCollectionBiddingPriceTiers,
-	getCollectionDetailWithHeaders
+	getCollectionDetailWithHeaders,
+	getRuntimeConfig
 } from '$lib/backend-api';
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import { forwardQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
@@ -74,9 +75,10 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 	}
 
 	try {
-		const [responseWithHeaders, priceTiersResponse] = await Promise.all([
+		const [responseWithHeaders, priceTiersResponse, runtimeConfigResponse] = await Promise.all([
 			getCollectionDetailWithHeaders(fetch, params.chain_ref, params.collection_ref, query),
-			getCollectionBiddingPriceTiers(fetch, params.chain_ref, params.collection_ref)
+			getCollectionBiddingPriceTiers(fetch, params.chain_ref, params.collection_ref),
+			getRuntimeConfig(fetch)
 		]);
 		forwardQueryCacheResponseHeaders(setHeaders, responseWithHeaders.headers);
 		const response = responseWithHeaders.payload;
@@ -98,7 +100,8 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 			requestCursor: query.get('cursor') ?? null,
 			displayMode,
 			biddingSettings: priceTiersResponse.settings,
-			priceTiers: priceTiersResponse.tiers
+			priceTiers: priceTiersResponse.tiers,
+			bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh
 		};
 	} catch (cause) {
 		toKitError(cause);

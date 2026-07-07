@@ -118,6 +118,7 @@ export type BatchTokenBiddingJobSelection =
 export type UpsertBatchTokenBiddingJobsInput = {
     chainRef: string;
     collectionRef: string;
+    includeOwnJobContext: boolean;
     status: TokenBiddingJobMutationStatus;
     floorEth?: string;
     ceilingEth?: string;
@@ -223,7 +224,9 @@ export function mapPersistedBiddingJobToView(
 ): BiddingJobView {
     const runtime = job.runtime
         ? {
-              currentPriceEth: formatOptionalWeiAsEth(job.runtime.currentPriceWei),
+              currentPriceEth: formatOptionalWeiAsEth(
+                  job.runtime.currentPriceWei,
+              ),
               activeOrderId: job.runtime.activeOrderId,
               activeProtocolAddress: job.runtime.activeProtocolAddress,
               activeOrderPlacedAt: job.runtime.activeOrderPlacedAt,

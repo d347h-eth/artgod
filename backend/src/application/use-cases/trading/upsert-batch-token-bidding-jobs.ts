@@ -25,15 +25,14 @@ import {
     type TokenBiddingJobMutationStatus,
 } from "./types.js";
 import type { TradingJobCommandSignalPort } from "./trading-job-command-signal-port.js";
-import {
-    type BiddingBidBookRepositoryPort,
-} from "./bidding-bid-book.js";
+import { type BiddingBidBookRepositoryPort } from "./bidding-bid-book.js";
 import { resolveBatchTokenBiddingJobSelectionTokenIds } from "./batch-token-bidding-job-selection.js";
 export type { UpsertBatchTokenBiddingJobsOutput } from "./types.js";
 
 export type UpsertBatchTokenBiddingJobsInput = {
     chainRef: string;
     collectionRef: string;
+    includeOwnJobContext: boolean;
     status: TokenBiddingJobMutationStatus;
     floorEth?: string;
     ceilingEth?: string;
@@ -109,6 +108,7 @@ export class UpsertBatchTokenBiddingJobsUseCase {
         const tokenIds = resolveBatchTokenBiddingJobSelectionTokenIds({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
+            includeOwnJobContext: input.includeOwnJobContext,
             selection: input.selection,
             collectionReadPort: this.collectionReadPort,
             bidBookRepositoryPort: this.bidBookRepositoryPort,
@@ -117,8 +117,8 @@ export class UpsertBatchTokenBiddingJobsUseCase {
             throw new TradingValidationError("token selection is empty");
         }
 
-        const persistedInputs: PersistedUpsertTokenBiddingJobInput[] = tokenIds.map(
-            (tokenId) => ({
+        const persistedInputs: PersistedUpsertTokenBiddingJobInput[] =
+            tokenIds.map((tokenId) => ({
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,
                 tokenId,
@@ -128,12 +128,10 @@ export class UpsertBatchTokenBiddingJobsUseCase {
                 deltaWei: pricing.deltaWei,
                 priceTierId: pricing.priceTierId,
                 pricingSource: pricing.pricingSource,
-            }),
-        );
+            }));
         // Persist the batch as one SQLite transaction and enqueue one command per affected job.
-        const result = this.biddingJobsRepositoryPort.upsertTokenJobs(
-            persistedInputs,
-        );
+        const result =
+            this.biddingJobsRepositoryPort.upsertTokenJobs(persistedInputs);
         // Publish a post-commit wake-up so the running bot scans all durable command rows immediately.
         this.tradingJobCommandSignalPort.publishBiddingJobCommandsChanged(
             result.commands,
@@ -143,7 +141,9 @@ export class UpsertBatchTokenBiddingJobsUseCase {
             chain,
             collection,
             tokenIds,
-            jobs: result.jobs.map((job) => mapPersistedTokenBiddingJobToView(job)),
+            jobs: result.jobs.map((job) =>
+                mapPersistedTokenBiddingJobToView(job),
+            ),
         };
     }
 }

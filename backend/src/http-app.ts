@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from "fastify";
+import { isPublicSingleCollectionDeployment } from "@artgod/shared/config/deployment";
 import type { CreateBootstrapRunUseCase } from "./application/use-cases/bootstrap/create-bootstrap-run.js";
 import type { StartPreparedCollectionBootstrapUseCase } from "./application/use-cases/bootstrap/start-prepared-collection-bootstrap.js";
 import type { ApplyBootstrapRunStepActionUseCase } from "./application/use-cases/bootstrap/apply-bootstrap-run-step-action.js";
@@ -196,6 +197,11 @@ export function createApiApp(
     ),
     publicGetSyncBackfillStateUseCase: GetSyncBackfillStatePort | null = null,
 ): FastifyInstance {
+    const isPublicSingleCollection = isPublicSingleCollectionDeployment(
+        deploymentConfig.mode,
+    );
+    const includePrivateBiddingContext = !isPublicSingleCollection;
+
     const app = Fastify({
         logger: false,
     });
@@ -314,7 +320,7 @@ export function createApiApp(
     const listCollectionBiddingBidBookAdapter =
         new ListCollectionBiddingBidBookHttpAdapter(
             listCollectionBiddingBidBookUseCase,
-            deploymentConfig.mode !== "public_single_collection",
+            includePrivateBiddingContext,
         );
     const listCollectionBiddingPriceTiersAdapter =
         new ListCollectionBiddingPriceTiersHttpAdapter(
@@ -325,7 +331,7 @@ export function createApiApp(
     );
     const getTokenBiddingBidBookAdapter = new GetTokenBiddingBidBookHttpAdapter(
         getTokenBiddingBidBookUseCase,
-        deploymentConfig.mode !== "public_single_collection",
+        includePrivateBiddingContext,
     );
     const lookupBiddingJobTargetAdapter = new LookupBiddingJobTargetHttpAdapter(
         biddingJobTargetLookupUseCase,
@@ -339,10 +345,12 @@ export function createApiApp(
     const lookupBatchTokenBiddingJobsAdapter =
         new LookupBatchTokenBiddingJobsHttpAdapter(
             lookupBatchTokenBiddingJobsUseCase,
+            includePrivateBiddingContext,
         );
     const upsertBatchTokenBiddingJobsAdapter =
         new UpsertBatchTokenBiddingJobsHttpAdapter(
             upsertBatchTokenBiddingJobsUseCase,
+            includePrivateBiddingContext,
         );
     const upsertCollectionBiddingJobAdapter =
         new UpsertCollectionBiddingJobHttpAdapter(
@@ -438,10 +446,8 @@ export function createApiApp(
         getRuntimeHealthAdapter,
         {
             publicCollectionScope: deploymentConfig.publicCollectionScope,
-            includeAdminRoutes:
-                deploymentConfig.mode !== "public_single_collection",
-            includeCsrfRoute:
-                deploymentConfig.mode !== "public_single_collection",
+            includeAdminRoutes: !isPublicSingleCollection,
+            includeCsrfRoute: !isPublicSingleCollection,
             observability,
         },
     );
