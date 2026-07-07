@@ -30,6 +30,7 @@ import type {
 	ApiCollectionCustomizationSource,
 	ApiImageCacheMode,
 	OwnerRefResolutionApiResponse,
+	OpenSeaCollectionSyncApiResponse,
 	RuntimeConfigApiResponse,
 	ScheduleBlockspaceBackfillApiResponse,
 	BlockspaceRangeSummaryApiResponse,
@@ -58,6 +59,10 @@ import {
 	buildProbeBootstrapCollectionPath,
 	buildProbeBootstrapOpenSeaSlugPath
 } from '@artgod/shared/http/bootstrap-routes';
+import {
+	buildStartCollectionBootstrapPath,
+	buildStartCollectionOpenSeaSyncPath
+} from '@artgod/shared/http/collection-routes';
 import { buildLookupBatchTokenBiddingJobsPath } from '@artgod/shared/http/trading-routes';
 import {
 	ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME,
@@ -291,6 +296,34 @@ export async function purgeCollection(
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}`,
 		'DELETE',
 		{ confirmation }
+	);
+}
+
+export async function startCollectionBootstrap(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string
+): Promise<BootstrapRunCreateResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<BootstrapRunCreateResponse>(
+		fetchFn,
+		buildStartCollectionBootstrapPath({ chainRef, collectionRef }),
+		'POST',
+		{}
+	);
+}
+
+export async function startCollectionOpenSeaSync(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string
+): Promise<OpenSeaCollectionSyncApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<OpenSeaCollectionSyncApiResponse>(
+		fetchFn,
+		buildStartCollectionOpenSeaSyncPath({ chainRef, collectionRef }),
+		'POST',
+		{}
 	);
 }
 

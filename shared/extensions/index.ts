@@ -48,6 +48,9 @@ export const EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND = {
     ExplicitTokenIds: "explicit_token_ids",
 } as const;
 
+export type EmbeddedCollectionExtensionScopeKind =
+    (typeof EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND)[keyof typeof EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND];
+
 export type EmbeddedCollectionExtensionScope =
     | {
           kind: typeof EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens;

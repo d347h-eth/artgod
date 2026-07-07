@@ -5,10 +5,18 @@ import type {
 import type { ActivityExtensionEventFeed } from "./activity-feed.js";
 import type { TraitFilterDisplayKind } from "./customization.js";
 
-export type CollectionStandard = "erc721" | "erc1155";
+// Names NFT token standards accepted by collection bootstrap and browse flows.
+export const COLLECTION_STANDARD = {
+    Erc721: "erc721",
+    Erc1155: "erc1155",
+} as const;
+
+export type CollectionStandard =
+    (typeof COLLECTION_STANDARD)[keyof typeof COLLECTION_STANDARD];
 
 // Names collection lifecycle states shared by backend, frontend, and workers.
 export const COLLECTION_STATUS = {
+    Prepared: "prepared",
     Bootstrapping: "bootstrapping",
     Live: "live",
     Paused: "paused",
@@ -17,6 +25,15 @@ export const COLLECTION_STATUS = {
 
 export type CollectionStatus =
     (typeof COLLECTION_STATUS)[keyof typeof COLLECTION_STATUS];
+
+// Ordered collection lifecycle states accepted by API filters and UI controls.
+export const COLLECTION_STATUSES = [
+    COLLECTION_STATUS.Prepared,
+    COLLECTION_STATUS.Bootstrapping,
+    COLLECTION_STATUS.Live,
+    COLLECTION_STATUS.Paused,
+    COLLECTION_STATUS.Disabled,
+] as const satisfies readonly CollectionStatus[];
 
 // Names OpenSea collection bootstrap states persisted on collections.
 export const OPENSEA_COLLECTION_STATUS = {
@@ -32,6 +49,25 @@ export const OPENSEA_COLLECTION_STATUS = {
 
 export type OpenSeaCollectionStatus =
     (typeof OPENSEA_COLLECTION_STATUS)[keyof typeof OPENSEA_COLLECTION_STATUS];
+
+// OpenSea statuses that represent an in-flight collection sync.
+export const ACTIVE_OPENSEA_COLLECTION_STATUSES: readonly OpenSeaCollectionStatus[] = [
+    OPENSEA_COLLECTION_STATUS.Pending,
+    OPENSEA_COLLECTION_STATUS.IdentityRunning,
+    OPENSEA_COLLECTION_STATUS.Subscribing,
+    OPENSEA_COLLECTION_STATUS.SnapshotPending,
+    OPENSEA_COLLECTION_STATUS.SnapshotRunning,
+    OPENSEA_COLLECTION_STATUS.Retrying,
+];
+
+// Keeps backend guards and frontend actions aligned for OpenSea sync availability.
+export function isOpenSeaCollectionSyncActive(
+    status: OpenSeaCollectionStatus | null | undefined,
+): boolean {
+    return Boolean(
+        status && ACTIVE_OPENSEA_COLLECTION_STATUSES.includes(status),
+    );
+}
 
 // Public collection extension summaries expose enabled extension identity without install config.
 export type CollectionExtensionSummary = {
@@ -65,6 +101,8 @@ export type CollectionListItem = {
     address: string;
     standard: CollectionStandard;
     status: CollectionStatus;
+    openseaSlug?: string | null;
+    openseaStatus?: OpenSeaCollectionStatus | null;
     deploymentBlock: number | null;
     bootstrapAnchorBlock: number | null;
     createdAt: string;

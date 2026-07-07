@@ -6,6 +6,7 @@ import {
     TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     TOKEN_ATTRIBUTE_SOURCE_KIND,
 } from "../types/token-attributes.js";
+import { TERRAFORMS_MAINNET_PRESET_COLLECTION } from "../extensions/terraforms.js";
 import { resolveProjectPath } from "../utils/paths.js";
 import { db, setDbPath } from "./db.js";
 import { MigrationRunner } from "./migrations.js";
@@ -32,6 +33,22 @@ type TokenAttributeSourceRow = {
 
 type SqliteNameRow = {
     name: string;
+};
+
+type PresetCollectionRow = {
+    collection_id: number;
+    chain_id: number;
+    slug: string;
+    address: string;
+    standard: string;
+    status: string;
+    token_scope_kind: string;
+    scope_start_token_id: string | null;
+    scope_total_supply: number | null;
+    deployment_block: number | null;
+    bootstrap_anchor_block: number | null;
+    opensea_slug: string | null;
+    opensea_status: string | null;
 };
 
 describe("MigrationRunner token attribute source upgrades", () => {
@@ -187,6 +204,56 @@ describe("MigrationRunner metadata refresh follow-up schema", () => {
         expect(selectAppliedMigrationNames()).toEqual([
             METADATA_REFRESH_FOLLOWUPS_MIGRATION,
         ]);
+    });
+});
+
+describe("MigrationRunner preset collections", () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+        tempDir = mkdtempSync(join(tmpdir(), "artgod-preset-migration-"));
+        setDbPath(join(tempDir, "test.sqlite"));
+    });
+
+    afterEach(() => {
+        setDbPath(join(tmpdir(), "artgod-preset-migration-closed.sqlite"));
+        rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it("seeds Terraforms as prepared collection id 1 without bootstrap data", async () => {
+        const migrations = new MigrationRunner(
+            resolveProjectPath("database/migrations"),
+        );
+        await migrations.runMigrations();
+
+        const row = db
+            .prepare<[]>(
+                "SELECT collection_id, chain_id, slug, address, standard, status, " +
+                    "token_scope_kind, scope_start_token_id, scope_total_supply, " +
+                    "deployment_block, bootstrap_anchor_block, opensea_slug, opensea_status " +
+                    "FROM collections WHERE collection_id = 1 LIMIT 1",
+            )
+            .get() as PresetCollectionRow | undefined;
+        expect(row).toEqual({
+            collection_id: TERRAFORMS_MAINNET_PRESET_COLLECTION.collectionId,
+            chain_id: TERRAFORMS_MAINNET_PRESET_COLLECTION.chainId,
+            slug: TERRAFORMS_MAINNET_PRESET_COLLECTION.slug,
+            address: TERRAFORMS_MAINNET_PRESET_COLLECTION.address,
+            standard: TERRAFORMS_MAINNET_PRESET_COLLECTION.standard,
+            status: TERRAFORMS_MAINNET_PRESET_COLLECTION.status,
+            token_scope_kind:
+                TERRAFORMS_MAINNET_PRESET_COLLECTION.tokenScopeKind,
+            scope_start_token_id: null,
+            scope_total_supply: null,
+            deployment_block:
+                TERRAFORMS_MAINNET_PRESET_COLLECTION.deploymentBlock,
+            bootstrap_anchor_block: null,
+            opensea_slug: TERRAFORMS_MAINNET_PRESET_COLLECTION.openseaSlug,
+            opensea_status: null,
+        });
+        expect(countRows("tokens")).toBe(0);
+        expect(countRows("bootstrap_runs")).toBe(0);
+        expect(countRows("collection_extension_installs")).toBe(0);
     });
 });
 
@@ -380,4 +447,11 @@ function selectColumnNames(table: string): string[] {
         .prepare<[]>(`PRAGMA table_info("${table.replaceAll('"', '""')}")`)
         .all() as SqliteNameRow[];
     return rows.map((row) => row.name);
+}
+
+function countRows(table: string): number {
+    const row = db
+        .prepare<[]>(`SELECT COUNT(1) AS count FROM "${table.replaceAll('"', '""')}"`)
+        .get() as { count: number };
+    return row.count;
 }

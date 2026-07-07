@@ -11,6 +11,7 @@ import {
     SqliteCollectionsReadModel,
 } from "@artgod/shared/read-models";
 import { CreateBootstrapRunUseCase } from "./application/use-cases/bootstrap/create-bootstrap-run.js";
+import { StartPreparedCollectionBootstrapUseCase } from "./application/use-cases/bootstrap/start-prepared-collection-bootstrap.js";
 import { ApplyBootstrapRunStepActionUseCase } from "./application/use-cases/bootstrap/apply-bootstrap-run-step-action.js";
 import { GetBootstrapRunDetailUseCase } from "./application/use-cases/bootstrap/get-bootstrap-run-detail.js";
 import { GetBootstrapStatusUseCase } from "./application/use-cases/bootstrap/get-bootstrap-status.js";
@@ -48,6 +49,7 @@ import {
 } from "./application/use-cases/collections/get-token-preview.js";
 import { GetTokenUriUseCase } from "./application/use-cases/collections/get-token-uri.js";
 import { PurgeCollectionUseCase } from "./application/use-cases/collections/purge-collection.js";
+import { StartOpenSeaCollectionSyncUseCase } from "./application/use-cases/collections/start-opensea-collection-sync.js";
 import { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import {
@@ -93,6 +95,7 @@ import { ExtensionAwareCollectionDetailRead } from "./infra/collections/extensio
 import { ExtensionActivityEventPreviewRead } from "./infra/collections/extension-activity-event-preview.js";
 import { ExtensionAwareTokenUriRead } from "./infra/collections/extension-aware-token-uri-read.js";
 import { SqliteCollectionPurgeRepository } from "./infra/collections/sqlite-collection-purge-repository.js";
+import { SqliteOpenSeaCollectionSyncRepository } from "./infra/collections/sqlite-opensea-collection-sync-repository.js";
 import { SqliteCollectionSettingsRepository } from "./infra/collections/sqlite-collection-settings-repository.js";
 import { SqliteCollectionCustomizationRecords } from "./infra/collections/sqlite-collection-customization-records.js";
 import { SqliteCollectionExtensionRecords } from "./infra/collections/sqlite-collection-extension-records.js";
@@ -102,6 +105,7 @@ import { ViemBackendRpcClient } from "./infra/rpc/viem-backend-rpc.js";
 import { NatsTokenImageCacheCommandQueue } from "./infra/media/nats-token-image-cache-command-queue.js";
 import { SqliteTokenImageCacheMaintenance } from "./infra/media/sqlite-token-image-cache-maintenance.js";
 import { NatsSyncBackfillCommandQueue } from "./infra/sync-backfill/nats-sync-backfill-command-queue.js";
+import { NatsOpenSeaCommandQueue } from "./infra/offchain/nats-opensea-command-queue.js";
 import { PublicCollectionBlockspaceCache } from "./infra/sync-backfill/public-collection-blockspace-cache.js";
 import { SqliteSyncBackfillRepository } from "./infra/sync-backfill/sqlite-sync-backfill-repository.js";
 import { NatsTradingJobCommandSignalPublisher } from "./infra/trading/nats-trading-job-command-signals.js";
@@ -236,6 +240,8 @@ export function createBackendApp(
         backendObservability.apm,
     );
     const collectionPurgeRepository = new SqliteCollectionPurgeRepository();
+    const openSeaCollectionSyncRepository =
+        new SqliteOpenSeaCollectionSyncRepository();
     const tradingJobCommandSignalPublisher =
         new NatsTradingJobCommandSignalPublisher(
             config.natsUrl,
@@ -243,6 +249,10 @@ export function createBackendApp(
         );
     const bootstrapRunsRepository = new SqliteBootstrapRunsRepository();
     const bootstrapCommandQueue = new NatsBootstrapCommandQueue(
+        config.natsUrl,
+        config.natsStreamPrefix,
+    );
+    const openSeaCommandQueue = new NatsOpenSeaCommandQueue(
         config.natsUrl,
         config.natsStreamPrefix,
     );
@@ -280,6 +290,16 @@ export function createBackendApp(
         extensionAwareCollectionCustomization,
         bootstrapCommandQueue,
     );
+    const startPreparedCollectionBootstrapUseCase =
+        new StartPreparedCollectionBootstrapUseCase(
+            config.defaultChainId,
+            config.integrations.opensea,
+            chainsReadModel,
+            bootstrapRunsRepository,
+            builtInCollectionExtensionResolver,
+            extensionAwareCollectionCustomization,
+            bootstrapCommandQueue,
+        );
     const probeCollectionContractUseCase = new ProbeCollectionContractUseCase(
         config.defaultChainId,
         chainsReadModel,
@@ -378,6 +398,14 @@ export function createBackendApp(
         collectionPurgeRepository,
         tokenImageCacheMaintenance,
     );
+    const startOpenSeaCollectionSyncUseCase =
+        new StartOpenSeaCollectionSyncUseCase(
+            config.defaultChainId,
+            config.integrations.opensea,
+            chainsReadModel,
+            openSeaCollectionSyncRepository,
+            openSeaCommandQueue,
+        );
     const resolveOwnerRefUseCase = new ResolveOwnerRefUseCase(
         config.defaultChainId,
         chainsReadModel,
@@ -619,6 +647,7 @@ export function createBackendApp(
     );
     const app = createApiApp(
         createBootstrapRunUseCase,
+        startPreparedCollectionBootstrapUseCase,
         probeCollectionContractUseCase,
         estimateBootstrapImageCacheUseCase,
         probeOpenSeaCollectionSlugUseCase,
@@ -633,6 +662,7 @@ export function createBackendApp(
         getSyncBackfillStateUseCase,
         scheduleSyncBackfillUseCase,
         purgeCollectionUseCase,
+        startOpenSeaCollectionSyncUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
         getActivityEventPreviewUseCase,

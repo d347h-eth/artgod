@@ -23,6 +23,12 @@ type CountRow = {
     count: number;
 };
 
+// Collection-scoped tables added after the original purge path need explicit deletes.
+export const COLLECTION_PURGE_LATE_SCHEMA_TABLE = {
+    SyntheticTokenRetirements: "collection_extension_synthetic_token_retirements",
+    BiddingOrderCancellations: "trading_bidding_order_cancellations",
+} as const;
+
 // SqliteCollectionPurgeRepository owns the destructive collection-scoped delete transaction.
 export class SqliteCollectionPurgeRepository {
     private readonly deleteStatements: DeleteStatement[];
@@ -73,11 +79,17 @@ export class SqliteCollectionPurgeRepository {
             this.deleteCollectionRows(
                 "trading_bidding_collection_bid_book_state",
             ),
+            this.deleteCollectionRows(
+                COLLECTION_PURGE_LATE_SCHEMA_TABLE.BiddingOrderCancellations,
+            ),
             this.deleteCollectionRows("trading_bidding_price_tiers"),
             this.deleteCollectionRows("trading_jobs"),
             this.deleteCollectionRows("collection_extension_event_media"),
             this.deleteCollectionRows("collection_extension_events"),
             this.deleteCollectionRows("token_extension_artifacts"),
+            this.deleteCollectionRows(
+                COLLECTION_PURGE_LATE_SCHEMA_TABLE.SyntheticTokenRetirements,
+            ),
             this.deleteCollectionRows("collection_extension_installs"),
             this.deleteCollectionRows("collection_customization_features"),
             this.deleteCollectionRows("collection_settings"),

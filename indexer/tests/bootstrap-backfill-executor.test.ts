@@ -122,7 +122,13 @@ describe("bootstrap backfill executor", () => {
             { chainId: 1, collectionId: 7 },
         ]);
         expect(harness.openSeaSchedules).toEqual([
-            { chainId: 1, runId: 41, collectionId: 7 },
+            {
+                chainId: 1,
+                collectionId: 7,
+                bootstrap: {
+                    runId: 41,
+                },
+            },
         ]);
         expect(harness.backfillRanges).toEqual([
             {

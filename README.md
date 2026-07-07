@@ -12,6 +12,7 @@ Current implementation snapshot:
 - Multi-runtime indexer is active and queue-driven (NATS JetStream + SQLite).
 - Realtime sync, backfill sync, and reorg checks are implemented.
 - Collection bootstrap is implemented (metadata-first, optional local token-image cache, then ownership snapshot + short backfill).
+- Fresh installs seed Terraforms as the first prepared collection row, visible for manual `start bootstrapping` or immediate purge without writing token/bootstrap data.
 - Domain projections for orders, metadata, and activities are implemented.
 - Offchain ingestion includes OpenSea live stream ingestion, bootstrap snapshots, periodic reconciliation, and normalization into canonical order state.
 - Collection extensions are build-bundled and DB-activated; Terraforms is the first embedded extension for metadata-side artifacts, sync enrichment, and backend media overrides.
@@ -376,7 +377,7 @@ Queue contracts (`indexer/src/domain/queues.ts`):
 
 Per-collection bootstrap flow:
 
-1. Register collection (`status = bootstrapping`).
+1. Register collection (`status = bootstrapping`), or start from a prepared row such as the first-launch Terraforms preset.
 2. Pick anchor block (`head - reorgDepth`).
 3. Auto-install any embedded collection extension whose build-bundled match exactly fits the collection contract plus token scope.
 4. Run metadata snapshot first (strict or `best_effort` mode).
@@ -387,7 +388,7 @@ Per-collection bootstrap flow:
 9. Schedule short backfill (`anchor + 1` to head).
 10. Enqueue OpenSea bootstrap once local metadata + ownership are ready, only when OpenSea integration is enabled and the collection has an OpenSea slug.
 11. Mark collection `live` once ownership and short backfill complete.
-12. Let image cache, extension artifacts, and OpenSea converge as non-blocking side lanes; OpenSea `ready` is marked once the first full snapshot succeeds.
+12. Let image cache, extension artifacts, and OpenSea converge as non-blocking side lanes; OpenSea `ready` is marked once the first full snapshot succeeds, or later through the collection-table `start opensea sync` action after OpenSea credentials are configured.
 
 `nft_balances` is canonical ownership state after bootstrap completion.
 Historical backfill for blocks at or before the bootstrap anchor is facts-only: it can enrich transfers/fills/activity history, but it must not mutate current-state tables such as `nft_balances`.
@@ -411,6 +412,7 @@ Historical backfill for blocks at or before the bootstrap anchor is facts-only: 
 - Token image cache files live under `COMMON_MEDIA_CACHE_DIR` when set, otherwise beside the SQLite database under `media-cache/token-images`.
 - Migrations live in `database/migrations/*.sql`.
 - Migrations are applied automatically by runtime startup paths via `shared/database/migrations.ts`.
+- Append-only migrations may seed prepared collection rows; the current fresh-install preset is Terraforms collection ID 1 with no out-of-box token or run data.
 
 ## Observability
 

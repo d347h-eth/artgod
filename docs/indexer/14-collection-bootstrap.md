@@ -18,9 +18,30 @@ Historical backfill before the anchor is still useful, but only as fact import:
 - it can enrich `nft_transfer_events`, `fills`, and downstream historical activity
 - it must not mutate `nft_balances` or other current-state/materialized tables
 
+## Prepared Collection Presets
+
+Fresh installs can include prepared collection rows. A prepared row is visible
+in the chain collections table and can be purged like any other collection, but
+it has no token rows, bootstrap runs, extension install rows, or OpenSea state
+written yet.
+
+Terraforms is currently the only prepared preset. The preset contract lives in
+`shared/extensions/terraforms.ts` as `TERRAFORMS_MAINNET_PRESET_COLLECTION`,
+and migration `051_preset_terraforms_collection.sql` persists it as collection
+ID 1 on Ethereum mainnet. The row stores the Terraforms contract identity,
+token-scope/deployment hints, and OpenSea slug so the first operator action can
+be `start bootstrapping` instead of contract probing plus manual run creation.
+
+Starting a prepared row marks the collection `status = bootstrapping`, creates a
+normal bootstrap run from the persisted row, and enqueues
+`bootstrap.collection.start`. It does not start automatically on first app
+launch.
+
 ## Current Lifecycle
 
-Each collection starts outside the indexed set. When the user adds a collection, the bootstrap worker runs a deterministic pipeline.
+Collections normally start outside the indexed set. When the user adds a new
+collection, or starts bootstrap from a prepared row, the bootstrap worker runs a
+deterministic pipeline.
 
 ### 1. Register collection
 
@@ -163,6 +184,14 @@ When enabled, that OpenSea flow does:
 This OpenSea work runs in parallel with the short onchain backfill.
 
 When OpenSea is disabled (`OPENSEA_INTEGRATION_MODE=disabled` or `auto` with no `OPENSEA_API_KEY`), bootstrap records an `opensea.skipped` run event and does not mark collection OpenSea state pending. When OpenSea is enabled but no slug was configured, bootstrap also records `opensea.skipped` and continues onchain bootstrap without OpenSea work.
+
+If a collection becomes `live` with a persisted OpenSea slug but without
+`opensea_status = ready`, the collections table exposes `start opensea sync`.
+That follow-up action requires OpenSea integration to be enabled at click time,
+marks the collection OpenSea state `pending`, and enqueues an
+`opensea-bootstrap` job without a bootstrap-run context. The OpenSea worker then
+updates only collection-level OpenSea state, so it can repair a skipped or
+failed OpenSea snapshot after the original bootstrap run has already completed.
 
 ### 9. Mark collection `live`
 
