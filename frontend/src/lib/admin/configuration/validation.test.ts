@@ -10,7 +10,8 @@ import {
 	BLOCK_EXPLORER_BLOCK_NUMBER_PLACEHOLDER,
 	BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY,
 	BLOCK_EXPLORER_TX_HASH_PLACEHOLDER,
-	BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY
+	BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY,
+	BLOCK_EXPLORER_VALIDATION_RULES
 } from '@artgod/shared/config/block-explorer';
 
 import {
@@ -64,7 +65,7 @@ const BLOCK_EXPLORER_BASE_FIELD: AdminConfigField = {
 	options: [],
 	help: '',
 	requiredForLaunch: false,
-	validation: 'url',
+	validation: BLOCK_EXPLORER_VALIDATION_RULES.BaseUrl,
 	view: 'basic'
 };
 
@@ -76,7 +77,7 @@ const BLOCK_EXPLORER_TX_PATH_FIELD: AdminConfigField = {
 	options: [],
 	help: '',
 	requiredForLaunch: false,
-	validation: null,
+	validation: BLOCK_EXPLORER_VALIDATION_RULES.TransactionPathTemplate,
 	view: 'basic'
 };
 
@@ -88,7 +89,7 @@ const BLOCK_EXPLORER_ADDRESS_PATH_FIELD: AdminConfigField = {
 	options: [],
 	help: '',
 	requiredForLaunch: false,
-	validation: null,
+	validation: BLOCK_EXPLORER_VALIDATION_RULES.AddressPathTemplate,
 	view: 'basic'
 };
 
@@ -100,7 +101,7 @@ const BLOCK_EXPLORER_BLOCK_PATH_FIELD: AdminConfigField = {
 	options: [],
 	help: '',
 	requiredForLaunch: false,
-	validation: null,
+	validation: BLOCK_EXPLORER_VALIDATION_RULES.BlockPathTemplate,
 	view: 'basic'
 };
 

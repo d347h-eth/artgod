@@ -9,6 +9,10 @@ const SUPPORTED_VALIDATION_RULES: &[&str] = &[
     "positive_integer",
     "rpc_endpoint_list",
     "websocket_endpoint_list",
+    "block_explorer_base_url",
+    "block_explorer_tx_path_template",
+    "block_explorer_address_path_template",
+    "block_explorer_block_path_template",
 ];
 const SUPPORTED_TARGETS: &[&str] = &["local", "deploy", "desktop"];
 
@@ -361,6 +365,37 @@ mod tests {
             setting.validation.as_deref(),
             Some("websocket_endpoint_list")
         );
+    }
+
+    #[test]
+    fn manifest_marks_block_explorer_settings_with_owned_validation_rules() {
+        let model = load_app_config_manifest().expect("load settings manifest");
+        let expected_settings = [
+            ("BLOCK_EXPLORER_BASE_URL", "block_explorer_base_url"),
+            (
+                "BLOCK_EXPLORER_TX_PATH_TEMPLATE",
+                "block_explorer_tx_path_template",
+            ),
+            (
+                "BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE",
+                "block_explorer_address_path_template",
+            ),
+            (
+                "BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE",
+                "block_explorer_block_path_template",
+            ),
+        ];
+
+        for (key, validation) in expected_settings {
+            let setting = model
+                .settings
+                .iter()
+                .find(|setting| setting.key == key)
+                .unwrap_or_else(|| panic!("{key} setting should exist"));
+
+            assert_eq!(setting.validation.as_deref(), Some(validation));
+            assert_eq!(setting.view.as_deref(), Some("basic"));
+        }
     }
 
     #[test]

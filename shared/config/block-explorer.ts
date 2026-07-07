@@ -39,6 +39,17 @@ export const BLOCK_EXPLORER_CONFIG_ENV_KEYS = [
 export type BlockExplorerConfigEnvKey =
     (typeof BLOCK_EXPLORER_CONFIG_ENV_KEYS)[number];
 
+// Manifest validation rule names owned by the block explorer config contract.
+export const BLOCK_EXPLORER_VALIDATION_RULES = {
+    BaseUrl: "block_explorer_base_url",
+    TransactionPathTemplate: "block_explorer_tx_path_template",
+    AddressPathTemplate: "block_explorer_address_path_template",
+    BlockPathTemplate: "block_explorer_block_path_template",
+} as const;
+
+export type BlockExplorerValidationRule =
+    (typeof BLOCK_EXPLORER_VALIDATION_RULES)[keyof typeof BLOCK_EXPLORER_VALIDATION_RULES];
+
 export type BlockExplorerConfig = {
     baseUrl: string;
     transactionPathTemplate: string;
@@ -114,6 +125,44 @@ export function parseBlockExplorerConfigValue(
             return parseBlockExplorerAddressPathTemplate(value, key);
         case BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY:
             return parseBlockExplorerBlockPathTemplate(value, key);
+    }
+}
+
+// Checks whether a manifest validation rule belongs to block explorer config.
+export function isBlockExplorerValidationRule(
+    validation: string | null | undefined,
+): validation is BlockExplorerValidationRule {
+    return Object.values(BLOCK_EXPLORER_VALIDATION_RULES).some(
+        (rule) => rule === validation,
+    );
+}
+
+// Parses one block explorer setting value by its manifest validation rule.
+export function parseBlockExplorerConfigValueByValidationRule(
+    validation: BlockExplorerValidationRule,
+    value: string | undefined,
+): string {
+    switch (validation) {
+        case BLOCK_EXPLORER_VALIDATION_RULES.BaseUrl:
+            return parseBlockExplorerBaseUrl(
+                value,
+                BLOCK_EXPLORER_BASE_URL_ENV_KEY,
+            );
+        case BLOCK_EXPLORER_VALIDATION_RULES.TransactionPathTemplate:
+            return parseBlockExplorerTransactionPathTemplate(
+                value,
+                BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY,
+            );
+        case BLOCK_EXPLORER_VALIDATION_RULES.AddressPathTemplate:
+            return parseBlockExplorerAddressPathTemplate(
+                value,
+                BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY,
+            );
+        case BLOCK_EXPLORER_VALIDATION_RULES.BlockPathTemplate:
+            return parseBlockExplorerBlockPathTemplate(
+                value,
+                BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY,
+            );
     }
 }
 

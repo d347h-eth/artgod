@@ -4,8 +4,8 @@ import {
 	parseRpcWebSocketEndpointConfigList
 } from '@artgod/shared/config/rpc-endpoints';
 import {
-	isBlockExplorerConfigEnvKey,
-	parseBlockExplorerConfigValue
+	isBlockExplorerValidationRule,
+	parseBlockExplorerConfigValueByValidationRule
 } from '@artgod/shared/config/block-explorer';
 
 export const ADMIN_CONFIG_VALIDATION_RULES = {
@@ -83,9 +83,9 @@ export function validateAdminConfigField(
 	value: string
 ): AdminConfigValidationIssue | null {
 	const trimmed = value.trim();
-	if (isBlockExplorerConfigEnvKey(field.key)) {
+	if (isBlockExplorerValidationRule(field.validation)) {
 		try {
-			parseBlockExplorerConfigValue(field.key, value);
+			parseBlockExplorerConfigValueByValidationRule(field.validation, value);
 		} catch (error) {
 			return buildValidationIssue(
 				field,

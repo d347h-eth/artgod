@@ -59,7 +59,7 @@ Optional fields:
 - `view`: `basic` or `advanced`; absent settings default to advanced-only UI.
 - `input`: `text`, `password`, `checkbox`, `textarea`, `select`, or `weighted_endpoint_list`.
 - `options`: allowed values for `select`.
-- `validation`: currently `url`, `positive_integer`, `rpc_endpoint_list`, or `websocket_endpoint_list`.
+- `validation`: currently `url`, `positive_integer`, `rpc_endpoint_list`, `websocket_endpoint_list`, or the block explorer rules (`block_explorer_base_url`, `block_explorer_tx_path_template`, `block_explorer_address_path_template`, `block_explorer_block_path_template`).
 - `required_for_launch`: blocks `start infra` when the effective desktop value is empty or invalid.
 - `desktop_managed`: set `false` for settings that are known to the app but should not be shown or rendered by desktop Admin.
 - `secret`: marks sensitive settings in the Admin schema.

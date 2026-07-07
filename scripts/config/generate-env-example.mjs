@@ -21,6 +21,10 @@ const SUPPORTED_VALIDATION_RULES = [
     "positive_integer",
     "rpc_endpoint_list",
     "websocket_endpoint_list",
+    "block_explorer_base_url",
+    "block_explorer_tx_path_template",
+    "block_explorer_address_path_template",
+    "block_explorer_block_path_template",
 ];
 const SUPPORTED_TARGETS = ["local", "deploy", "desktop"];
 const DEFAULT_TARGETS = SUPPORTED_TARGETS;
