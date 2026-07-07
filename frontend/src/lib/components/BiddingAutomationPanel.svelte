@@ -49,6 +49,7 @@
 		BIDDING_AUTOMATION_PRICING_MODE,
 		BIDDING_AUTOMATION_PRICING_MODE_LABEL,
 		biddingAutomationDraftTokenId,
+		isBiddingAutomationBatchTokenDraft,
 		isBiddingAutomationDraftSubmittable,
 		type BiddingAutomationDraft,
 		type BiddingAutomationPricingMode
@@ -200,9 +201,13 @@
 	);
 	const isEnabledJob = $derived(currentJob?.status === TRADING_JOB_STATUS.Enabled);
 	const isPausedJob = $derived(currentJob?.status === TRADING_JOB_STATUS.Paused);
+	const isBatchTokenDraft = $derived(isBiddingAutomationBatchTokenDraft(draft));
 	const panelMutationBusy = $derived(saving || archiving || selectionJobActionBusy !== null);
 	const canResetDraft = $derived(!panelMutationBusy && hasDraftChanges);
-	const canCreateJob = $derived(!hasExistingJob && !panelMutationBusy && canSubmitDraft);
+	const canApplyBatchJobs = $derived(isBatchTokenDraft && !panelMutationBusy && canSubmitDraft);
+	const canCreateJob = $derived(
+		!hasExistingJob && !isBatchTokenDraft && !panelMutationBusy && canSubmitDraft
+	);
 	const canModifyJob = $derived(hasExistingJob && !panelMutationBusy && hasDraftChanges && canSubmitDraft);
 	const canPauseJob = $derived(isEnabledJob && !panelMutationBusy && canSubmitDraft);
 	const canActivateJob = $derived(isPausedJob && !panelMutationBusy && canSubmitDraft);
@@ -603,7 +608,10 @@
 		if (statusOverride === null && hasExistingJob && !canModifyJob) {
 			return;
 		}
-		if (statusOverride === null && !hasExistingJob && !canCreateJob) {
+		if (statusOverride === null && isBatchTokenDraft && !canApplyBatchJobs) {
+			return;
+		}
+		if (statusOverride === null && !hasExistingJob && !isBatchTokenDraft && !canCreateJob) {
 			return;
 		}
 		if (statusOverride === TRADING_JOB_STATUS.Paused && !canPauseJob) {
@@ -639,7 +647,11 @@
 					? 'paused'
 					: statusOverride === TRADING_JOB_STATUS.Enabled && wasExistingJob
 						? 'activated'
-						: resolveBiddingSaveMessage(changedJobs.length, wasExistingJob);
+						: resolveBiddingSaveMessage(
+								changedJobs.length,
+								wasExistingJob,
+								isBatchTokenDraft
+							);
 		} catch (error) {
 			saveError = error instanceof Error ? error.message : 'failed to save bidding job';
 		} finally {
@@ -745,9 +757,12 @@
 				draft,
 				action
 			});
+			const jobs = mergeSelectionLookupJobs(selectionLookupResult?.jobs ?? [], result.jobs);
 			selectionLookupResult = {
-				jobs: mergeSelectionLookupJobs(selectionLookupResult?.jobs ?? [], result.jobs),
-				targetCount: result.targetCount
+				jobs,
+				targetCount: result.targetCount,
+				existingTargetCount: jobs.length,
+				missingTargetCount: Math.max(0, result.targetCount - jobs.length)
 			};
 			notifyJobsChanged(result.jobs);
 			saveMessage = selectionJobActionResultMessage(action, result.jobs.length);
@@ -977,7 +992,7 @@
 			<div class="panel-footer token-bidding-form-footer">
 				<div class="token-bidding-form-actions-left">
 					<button type="button" onclick={resetDraft} disabled={!canResetDraft}>reset</button>
-					{#if !hasExistingJob || isEnabledJob}
+					{#if !isBatchTokenDraft && (!hasExistingJob || isEnabledJob)}
 						<button
 							type="button"
 							class="token-bidding-action-negative"
@@ -993,17 +1008,19 @@
 							pause
 						</button>
 					{/if}
-					<button
-						type="button"
-						class="token-bidding-action-negative"
-						class:token-bidding-action-armed={armedAction === 'archive'}
-						data-bidding-action="archive"
-						data-testid={TEST_IDS.BiddingPanelArchive}
-						onclick={() => void confirmBiddingAction('archive', handleArchive)}
-						disabled={!canArchiveJob}
-					>
-						{archiving ? 'archiving...' : 'archive'}
-					</button>
+					{#if !isBatchTokenDraft}
+						<button
+							type="button"
+							class="token-bidding-action-negative"
+							class:token-bidding-action-armed={armedAction === 'archive'}
+							data-bidding-action="archive"
+							data-testid={TEST_IDS.BiddingPanelArchive}
+							onclick={() => void confirmBiddingAction('archive', handleArchive)}
+							disabled={!canArchiveJob}
+						>
+							{archiving ? 'archiving...' : 'archive'}
+						</button>
+					{/if}
 				</div>
 				<div class="token-bidding-form-actions-right">
 					{#if hasExistingJob}
@@ -1033,7 +1050,19 @@
 							>
 								activate
 							</button>
-						{/if}
+							{/if}
+					{:else if isBatchTokenDraft}
+						<button
+							type="button"
+							class="token-bidding-action-positive"
+							class:token-bidding-action-armed={armedAction === 'create'}
+							data-bidding-action="create"
+							data-testid={TEST_IDS.BiddingPanelCreate}
+							onclick={() => void confirmBiddingAction('create', () => handleSave())}
+							disabled={!canApplyBatchJobs}
+						>
+							{saving ? 'saving...' : BIDDING_SELECTION_ACTION_LABEL.ApplyBiddingSpec}
+						</button>
 					{:else}
 						<button
 							type="button"

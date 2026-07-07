@@ -22,9 +22,11 @@
 	import {
 		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 		buildBiddingAutomationDraftFromSelection,
+		canDraftTraitJobFromFilters,
 		type BiddingAutomationTokenFilterSnapshot
 	} from '$lib/bidding-automation';
 	import {
+		buildFilteredTraitBiddingSelectionInput,
 		buildFilteredTokenBatchBiddingSelectionInput,
 		biddingAutomationSelectionStateKey,
 		biddingAutomationTokenSelectionState,
@@ -121,6 +123,9 @@
 		describeBiddingAutomationSelection(currentBiddingSelection)
 	);
 	const biddingFilterKey = $derived(activeBiddingFilterKey());
+	const canBidOnTraits = $derived(
+		canDraftTraitJobFromFilters({ selectedTraits, selectedTraitRanges })
+	);
 	const canRefineTokenSelectionToVisiblePage = $derived(tokens.totalPages > 1);
 	const tokenActionLabel = $derived(
 		resolveBiddingTokenActionLabel({
@@ -131,7 +136,7 @@
 	const biddingSelectionControlPolicy = $derived(
 		resolveTokenBrowserBiddingSelectionControlPolicy({
 			publicSingleCollection: IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
-			canBidOnTraits: false
+			canBidOnTraits
 		})
 	);
 
@@ -235,6 +240,17 @@
 				noScroll: true
 			}
 		);
+	}
+
+	function bidOnFilteredTraits(): void {
+		if (!canBidOnTraits) return;
+		biddingAutomation.selectFilteredTokens(
+			buildFilteredTraitBiddingSelectionInput({
+				tokenCount: tokens.totalItems,
+				filter: currentBiddingFilterSnapshot()
+			})
+		);
+		expandBiddingAutomationPanel();
 	}
 
 	function bidOnFilteredTokens(nextVisibleTokenIds: string[]): void {
@@ -395,6 +411,7 @@
 					tokenActionLabel={tokenActionLabel}
 					tokenActionDisabled={tokens.marketplaceBiddingSupportedTotalItems === 0}
 					onToggleTiers={togglePriceTierPanel}
+					onBidOnTraits={bidOnFilteredTraits}
 					onBidOnTokens={() => bidOnFilteredTokens(visibleBiddableBrowserTokenIds)}
 					onClear={clearBiddingSelection}
 				/>

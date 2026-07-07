@@ -78,6 +78,8 @@ export type LookupBiddingSelectionJobsInput = {
 export type LookupBiddingSelectionJobsResult = {
 	jobs: ApiBiddingJob[];
 	targetCount: number;
+	existingTargetCount: number;
+	missingTargetCount: number;
 };
 
 export type ApplyBiddingSelectionJobActionResult = {
@@ -274,10 +276,7 @@ export async function lookupBiddingSelectionJobs(
 			input.collectionRef,
 			{ selection: batchSelection }
 		);
-		if (response.jobs.length === 0) {
-			throw new Error('no selected bidding jobs found');
-		}
-		return { jobs: response.jobs, targetCount: response.targetCount };
+		return biddingSelectionJobsResult(response.jobs, response.targetCount);
 	}
 
 	const lookupBodies = biddingSelectionJobLookupBodies(input.draft);
@@ -291,11 +290,7 @@ export async function lookupBiddingSelectionJobs(
 		)
 	);
 	const jobs = uniqueBiddingJobs(lookupResponses.flatMap((response) => response.job ?? []));
-	if (jobs.length === 0) {
-		throw new Error('no selected bidding jobs found');
-	}
-
-	return { jobs, targetCount: lookupBodies.length };
+	return biddingSelectionJobsResult(jobs, lookupBodies.length);
 }
 
 // Keeps mass-action visibility and execution on the same declared-job lifecycle rules.
@@ -360,7 +355,14 @@ export function hasSubmittableBiddingTarget(input: {
 	return true;
 }
 
-export function resolveBiddingSaveMessage(count: number, wasExistingJob: boolean): string {
+export function resolveBiddingSaveMessage(
+	count: number,
+	wasExistingJob: boolean,
+	appliedBatch = false
+): string {
+	if (appliedBatch) {
+		return count <= 1 ? 'job saved' : `${count} jobs saved`;
+	}
 	if (count <= 1) {
 		return wasExistingJob ? 'modified' : 'created';
 	}
@@ -434,6 +436,19 @@ function uniqueBiddingJobs(jobs: ApiBiddingJob[]): ApiBiddingJob[] {
 		unique.push(job);
 	}
 	return unique;
+}
+
+function biddingSelectionJobsResult(
+	jobs: ApiBiddingJob[],
+	targetCount: number
+): LookupBiddingSelectionJobsResult {
+	const existingTargetCount = jobs.length;
+	return {
+		jobs,
+		targetCount,
+		existingTargetCount,
+		missingTargetCount: Math.max(0, targetCount - existingTargetCount)
+	};
 }
 
 async function saveExistingBiddingJobStatus(input: {

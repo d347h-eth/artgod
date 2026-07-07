@@ -426,6 +426,20 @@ export function biddingAutomationDraftTokenId(draft: BiddingAutomationDraft | nu
 	return draft.target.tokenIds[0] ?? null;
 }
 
+// Identifies token target sets whose save path applies one pricing spec across many token jobs.
+export function isBiddingAutomationBatchTokenDraft(
+	draft: BiddingAutomationDraft | null
+): boolean {
+	if (!draft) {
+		return false;
+	}
+	return (
+		(draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch &&
+			draft.target.tokenIds.length > 1) ||
+		draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch
+	);
+}
+
 // Converts bid-book criteria into the trait-filter shape shared by controls and drafts.
 export function biddingTraitCriteriaToTokenAttributes(
 	traits: ApiTradingTraitCriterion[]
