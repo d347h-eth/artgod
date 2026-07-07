@@ -14,7 +14,7 @@
 		COLLECTION_STATUS,
 		COLLECTION_STATUSES,
 		OPENSEA_COLLECTION_STATUS,
-		type OpenSeaCollectionStatus
+		isOpenSeaCollectionSyncActive
 	} from '@artgod/shared/types';
 
 	let {
@@ -33,14 +33,6 @@
 		StartBootstrap: 'start_bootstrap',
 		StartOpenSeaSync: 'start_opensea_sync'
 	} as const;
-	const ACTIVE_OPENSEA_COLLECTION_STATUSES = new Set<OpenSeaCollectionStatus>([
-		OPENSEA_COLLECTION_STATUS.Pending,
-		OPENSEA_COLLECTION_STATUS.IdentityRunning,
-		OPENSEA_COLLECTION_STATUS.Subscribing,
-		OPENSEA_COLLECTION_STATUS.SnapshotPending,
-		OPENSEA_COLLECTION_STATUS.SnapshotRunning,
-		OPENSEA_COLLECTION_STATUS.Retrying
-	]);
 	const statusOptions = ['', ...COLLECTION_STATUSES];
 	let latestRunHrefByCollection = $state<Record<string, string | null>>({});
 	let collectionActionPending = $state<string | null>(null);
@@ -156,10 +148,7 @@
 			collection.status === COLLECTION_STATUS.Live &&
 			Boolean(collection.openseaSlug) &&
 			collection.openseaStatus !== OPENSEA_COLLECTION_STATUS.Ready &&
-			!(
-				collection.openseaStatus &&
-				ACTIVE_OPENSEA_COLLECTION_STATUSES.has(collection.openseaStatus)
-			)
+			!isOpenSeaCollectionSyncActive(collection.openseaStatus)
 		);
 	}
 

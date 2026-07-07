@@ -134,6 +134,7 @@ const PREPARED_BOOTSTRAP_ADDRESS =
     "0x3333333333333333333333333333333333333333";
 const OPENSEA_SYNC_COLLECTION_SLUG = "opensea-sync-target";
 const OPENSEA_SYNC_ADDRESS = "0x4444444444444444444444444444444444444444";
+const OPENSEA_SYNC_PREVIOUS_ERROR = "previous OpenSea sync failed";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const WETH_ADDRESS = "0xc02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 const API_SECURITY_CONFIG: BackendSecurityConfig = {
@@ -194,6 +195,8 @@ let bootstrapStartInputs: unknown[] = [];
 let bootstrapImageCacheProcessInputs: unknown[] = [];
 let openSeaSlugProbeInputs: unknown[] = [];
 let openSeaBootstrapInputs: unknown[] = [];
+let bootstrapStartFailure: Error | null = null;
+let openSeaBootstrapFailure: Error | null = null;
 
 beforeAll(async () => {
     dbPath = path.join(
@@ -667,6 +670,9 @@ beforeAll(async () => {
     const bootstrapQueueMock = {
         async publishBootstrapStart(input: unknown) {
             bootstrapStartInputs.push(input);
+            if (bootstrapStartFailure) {
+                throw bootstrapStartFailure;
+            }
         },
         async publishBootstrapMetadataProcess() {},
         async publishBootstrapImageCacheProcess(input: unknown) {
@@ -676,6 +682,9 @@ beforeAll(async () => {
     const openSeaQueueMock = {
         async publishOpenSeaBootstrap(input: unknown) {
             openSeaBootstrapInputs.push(input);
+            if (openSeaBootstrapFailure) {
+                throw openSeaBootstrapFailure;
+            }
         },
     };
     const builtInCollectionExtensionResolver =
@@ -5226,6 +5235,80 @@ describe("backend api routes", () => {
         }
     });
 
+    it("restores a prepared collection when bootstrap queue publish fails", async () => {
+        const collectionId = insertPreparedBootstrapCollectionFixture();
+        try {
+            const csrf = await resolve(
+                "GET",
+                "/api/security/csrf",
+                undefined,
+                {
+                    host: "127.0.0.1:42710",
+                    origin: "http://127.0.0.1:42701",
+                },
+            );
+            const token = csrf.payload.token as string;
+            const cookie = csrf.headers["set-cookie"] as string;
+
+            bootstrapStartInputs = [];
+            bootstrapStartFailure = new Error("bootstrap publish failed");
+            const start = await resolve(
+                "POST",
+                buildStartCollectionBootstrapPath({
+                    chainRef: DEFAULT_CHAIN_REF,
+                    collectionRef: PREPARED_BOOTSTRAP_COLLECTION_SLUG,
+                }),
+                {},
+                {
+                    host: "127.0.0.1:42710",
+                    origin: "http://127.0.0.1:42701",
+                    cookie,
+                    "x-artgod-csrf": token,
+                    "content-type": "application/json",
+                },
+            );
+
+            expect(start.statusCode).toBe(500);
+            expect(bootstrapStartInputs).toEqual([
+                expect.objectContaining({
+                    chainId: DEFAULT_CHAIN_ID,
+                    collectionId,
+                }),
+            ]);
+            expect(
+                db
+                    .prepare<
+                        [number]
+                    >("SELECT status, bootstrap_started_at FROM collections WHERE collection_id = ?")
+                    .get(collectionId),
+            ).toEqual({
+                status: COLLECTION_STATUS.Prepared,
+                bootstrap_started_at: null,
+            });
+            const run = db
+                .prepare<
+                    [number]
+                >("SELECT run_id, status FROM bootstrap_runs WHERE collection_id = ? ORDER BY run_id DESC LIMIT 1")
+                .get(collectionId) as
+                | {
+                      run_id: number;
+                      status: string;
+                  }
+                | undefined;
+            expect(run?.status).toBe(BOOTSTRAP_RUN_STATUS.Failed);
+            expect(
+                db
+                    .prepare<
+                        [number, string]
+                    >("SELECT COUNT(1) AS count FROM bootstrap_run_events WHERE run_id = ? AND event_code = ?")
+                    .get(run?.run_id ?? 0, BOOTSTRAP_RUN_EVENT_CODE.RunFailed),
+            ).toEqual({ count: 1 });
+        } finally {
+            bootstrapStartFailure = null;
+            deleteCollectionFixture(collectionId);
+        }
+    });
+
     it("starts OpenSea sync for a live collection with a slug", async () => {
         const collectionId = insertOpenSeaSyncCollectionFixture();
         try {
@@ -5289,6 +5372,62 @@ describe("backend api routes", () => {
                 opensea_last_error: null,
             });
         } finally {
+            deleteCollectionFixture(collectionId);
+        }
+    });
+
+    it("restores OpenSea status when sync queue publish fails", async () => {
+        const collectionId = insertOpenSeaSyncCollectionFixture();
+        try {
+            const csrf = await resolve(
+                "GET",
+                "/api/security/csrf",
+                undefined,
+                {
+                    host: "127.0.0.1:42710",
+                    origin: "http://127.0.0.1:42701",
+                },
+            );
+            const token = csrf.payload.token as string;
+            const cookie = csrf.headers["set-cookie"] as string;
+
+            openSeaBootstrapInputs = [];
+            openSeaBootstrapFailure = new Error("opensea publish failed");
+            const sync = await resolve(
+                "POST",
+                buildStartCollectionOpenSeaSyncPath({
+                    chainRef: DEFAULT_CHAIN_REF,
+                    collectionRef: OPENSEA_SYNC_COLLECTION_SLUG,
+                }),
+                {},
+                {
+                    host: "127.0.0.1:42710",
+                    origin: "http://127.0.0.1:42701",
+                    cookie,
+                    "x-artgod-csrf": token,
+                    "content-type": "application/json",
+                },
+            );
+
+            expect(sync.statusCode).toBe(500);
+            expect(openSeaBootstrapInputs).toEqual([
+                {
+                    chainId: DEFAULT_CHAIN_ID,
+                    collectionId,
+                },
+            ]);
+            expect(
+                db
+                    .prepare<
+                        [number]
+                    >("SELECT opensea_status, opensea_last_error FROM collections WHERE collection_id = ?")
+                    .get(collectionId),
+            ).toEqual({
+                opensea_status: OPENSEA_COLLECTION_STATUS.Failed,
+                opensea_last_error: OPENSEA_SYNC_PREVIOUS_ERROR,
+            });
+        } finally {
+            openSeaBootstrapFailure = null;
             deleteCollectionFixture(collectionId);
         }
     });
@@ -6955,7 +7094,7 @@ function insertOpenSeaSyncCollectionFixture(): number {
             200,
             OPENSEA_SYNC_COLLECTION_SLUG,
             OPENSEA_COLLECTION_STATUS.Failed,
-            "previous OpenSea sync failed",
+            OPENSEA_SYNC_PREVIOUS_ERROR,
         );
     return Number(result.lastInsertRowid);
 }

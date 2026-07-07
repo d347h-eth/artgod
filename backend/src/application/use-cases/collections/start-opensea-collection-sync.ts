@@ -3,6 +3,7 @@ import { ReadModelNotFoundError } from "@artgod/shared/read-models/errors";
 import {
     COLLECTION_STATUS,
     OPENSEA_COLLECTION_STATUS,
+    isOpenSeaCollectionSyncActive,
     type ChainRecord,
     type CollectionStatus,
     type OpenSeaCollectionStatus,
@@ -24,6 +25,7 @@ export type OpenSeaCollectionSyncState = {
     status: CollectionStatus;
     openseaSlug: string | null;
     openseaStatus: OpenSeaCollectionStatus | null;
+    openseaLastError: string | null;
 };
 
 export type StartOpenSeaCollectionSyncOutput = {
@@ -33,15 +35,6 @@ export type StartOpenSeaCollectionSyncOutput = {
 };
 
 type MaybePromise<T> = T | Promise<T>;
-
-const ACTIVE_OPENSEA_COLLECTION_STATUSES = new Set<OpenSeaCollectionStatus>([
-    OPENSEA_COLLECTION_STATUS.Pending,
-    OPENSEA_COLLECTION_STATUS.IdentityRunning,
-    OPENSEA_COLLECTION_STATUS.Subscribing,
-    OPENSEA_COLLECTION_STATUS.SnapshotPending,
-    OPENSEA_COLLECTION_STATUS.SnapshotRunning,
-    OPENSEA_COLLECTION_STATUS.Retrying,
-]);
 
 export class StartOpenSeaCollectionSyncUseCase {
     constructor(
@@ -62,6 +55,12 @@ export class StartOpenSeaCollectionSyncUseCase {
                 chainId: number,
                 collectionId: number,
             ): OpenSeaCollectionSyncState | null;
+            restoreOpenSeaState(input: {
+                chainId: number;
+                collectionId: number;
+                openseaStatus: OpenSeaCollectionStatus | null;
+                openseaLastError: string | null;
+            }): OpenSeaCollectionSyncState | null;
         },
         private readonly openSeaSyncQueuePort: {
             publishOpenSeaBootstrap(input: {
@@ -87,26 +86,39 @@ export class StartOpenSeaCollectionSyncUseCase {
         }
         assertOpenSeaSyncCanStart(collection, this.openseaIntegration);
 
-        // Mark the collection pending before the worker claims the sync job.
-        const pending = this.collectionSyncPort.markOpenSeaPending(
-            collection.chainId,
-            collection.collectionId,
-        );
-        if (!pending) {
-            throw new ReadModelNotFoundError("Unknown collection_ref");
+        let pending: OpenSeaCollectionSyncState | null = null;
+        try {
+            // Mark the collection pending before the worker claims the sync job.
+            pending = this.collectionSyncPort.markOpenSeaPending(
+                collection.chainId,
+                collection.collectionId,
+            );
+            if (!pending) {
+                throw new ReadModelNotFoundError("Unknown collection_ref");
+            }
+
+            // Publish an OpenSea bootstrap job without historical bootstrap-run coupling.
+            await this.openSeaSyncQueuePort.publishOpenSeaBootstrap({
+                chainId: pending.chainId,
+                collectionId: pending.collectionId,
+            });
+            return {
+                chain,
+                collection: pending,
+                openseaStatus:
+                    pending.openseaStatus ?? OPENSEA_COLLECTION_STATUS.Pending,
+            };
+        } catch (cause) {
+            if (pending) {
+                this.collectionSyncPort.restoreOpenSeaState({
+                    chainId: collection.chainId,
+                    collectionId: collection.collectionId,
+                    openseaStatus: collection.openseaStatus,
+                    openseaLastError: collection.openseaLastError,
+                });
+            }
+            throw cause;
         }
-
-        // Publish an OpenSea bootstrap job without historical bootstrap-run coupling.
-        await this.openSeaSyncQueuePort.publishOpenSeaBootstrap({
-            chainId: pending.chainId,
-            collectionId: pending.collectionId,
-        });
-
-        return {
-            chain,
-            collection: pending,
-            openseaStatus: pending.openseaStatus ?? OPENSEA_COLLECTION_STATUS.Pending,
-        };
     }
 }
 
@@ -133,8 +145,7 @@ function assertOpenSeaSyncCanStart(
         throw new BootstrapConflictError("Collection is already OpenSea ready");
     }
     if (
-        collection.openseaStatus &&
-        ACTIVE_OPENSEA_COLLECTION_STATUSES.has(collection.openseaStatus)
+        isOpenSeaCollectionSyncActive(collection.openseaStatus)
     ) {
         throw new BootstrapConflictError(
             "Collection OpenSea sync is already running",

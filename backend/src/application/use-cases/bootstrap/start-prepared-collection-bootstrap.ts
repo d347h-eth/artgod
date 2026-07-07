@@ -50,6 +50,10 @@ import {
 } from "./bootstrap-limits.js";
 import { planBootstrapRunSteps } from "./bootstrap-pipeline-planner.js";
 
+const PREPARED_BOOTSTRAP_FAILURE_CODE = {
+    StartSchedulingFailed: "start_scheduling_failed",
+} as const;
+
 export type StartPreparedCollectionBootstrapInput = {
     chainRef: string;
     collectionRef: string;
@@ -177,23 +181,14 @@ export class StartPreparedCollectionBootstrapUseCase {
             });
         }
 
-        // Move the prepared row into the active bootstrap lifecycle before queueing.
-        const bootstrappingCollection =
-            this.bootstrapRunsPort.markCollectionBootstrapping(
-                chain.publicChainId,
-                collection.collectionId,
-            );
-        if (!bootstrappingCollection) {
-            throw new ReadModelNotFoundError("Unknown collection_ref");
-        }
-
-        const run = this.bootstrapRunsPort.createRun({
+        // Persist the prepared status transition and requested run as one unit.
+        const run = this.bootstrapRunsPort.createPreparedCollectionRun({
             chainId: chain.publicChainId,
-            collectionId: bootstrappingCollection.collectionId,
-            requestSlug: bootstrappingCollection.slug,
-            requestOpenseaSlug: bootstrappingCollection.openseaSlug,
-            requestAddress: bootstrappingCollection.address,
-            requestStandard: bootstrappingCollection.standard,
+            collectionId: collection.collectionId,
+            requestSlug: collection.slug,
+            requestOpenseaSlug: collection.openseaSlug,
+            requestAddress: collection.address,
+            requestStandard: collection.standard,
             imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
             animationSourceField: TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl,
             requestExtensionKey,
@@ -206,37 +201,51 @@ export class StartPreparedCollectionBootstrapUseCase {
             imageCacheMaxDimension: requestImageCache.config.maxDimension,
             deploymentBlock: collection.deploymentBlock,
             steps: plannedSteps,
+            requestedEvent: {
+                eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunRequested,
+                eventLevel: "info",
+                message: "Bootstrap run requested",
+                payloadJson: null,
+            },
         });
 
-        this.bootstrapRunsPort.appendRunEvent({
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunRequested,
-            eventLevel: "info",
-            message: "Bootstrap run requested",
-            payloadJson: null,
-        });
-
-        await this.bootstrapQueuePort.publishBootstrapStart({
-            chainId: run.chainId,
-            runId: run.runId,
-            collectionId: run.collectionId,
-        });
-
-        this.bootstrapRunsPort.updateRunStatus(
-            run.runId,
-            BOOTSTRAP_RUN_STATUS.Queued,
-        );
-        this.bootstrapRunsPort.appendRunEvent({
-            runId: run.runId,
-            chainId: run.chainId,
-            collectionId: run.collectionId,
-            eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunQueued,
-            eventLevel: "info",
-            message: "Bootstrap run queued",
-            payloadJson: null,
-        });
+        try {
+            this.bootstrapRunsPort.updateRunStatus(
+                run.runId,
+                BOOTSTRAP_RUN_STATUS.Queued,
+            );
+            this.bootstrapRunsPort.appendRunEvent({
+                runId: run.runId,
+                chainId: run.chainId,
+                collectionId: run.collectionId,
+                eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunQueued,
+                eventLevel: "info",
+                message: "Bootstrap run queued",
+                payloadJson: null,
+            });
+            await this.bootstrapQueuePort.publishBootstrapStart({
+                chainId: run.chainId,
+                runId: run.runId,
+                collectionId: run.collectionId,
+            });
+        } catch (cause) {
+            this.bootstrapRunsPort.abortPreparedCollectionRun({
+                chainId: run.chainId,
+                collectionId: run.collectionId,
+                runId: run.runId,
+                error: {
+                    code: PREPARED_BOOTSTRAP_FAILURE_CODE.StartSchedulingFailed,
+                    message: String(cause),
+                },
+                event: {
+                    eventCode: BOOTSTRAP_RUN_EVENT_CODE.RunFailed,
+                    eventLevel: "error",
+                    message: "Bootstrap run start scheduling failed",
+                    payloadJson: null,
+                },
+            });
+            throw cause;
+        }
 
         const queued = this.bootstrapRunsPort.getLatestRun(
             run.chainId,

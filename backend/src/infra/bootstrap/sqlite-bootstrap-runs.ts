@@ -31,8 +31,11 @@ import {
     normalizeSlugRef,
 } from "@artgod/shared/utils/ref-resolver";
 import type {
+    BootstrapRunCreateInput,
     BootstrapRunsWritePort,
     CollectionBootstrapState,
+    PreparedCollectionRunAbortInput,
+    PreparedCollectionRunCreateInput,
 } from "../../application/use-cases/bootstrap/ports.js";
 import type {
     BootstrapRunEventRecord,
@@ -193,6 +196,20 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         "UPDATE collections SET " +
             "status = @status, " +
             "bootstrap_started_at = COALESCE(bootstrap_started_at, CURRENT_TIMESTAMP), " +
+            "bootstrap_finished_at = NULL, " +
+            "bootstrap_last_synced_block = NULL, " +
+            "updated_at = CURRENT_TIMESTAMP " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId",
+    );
+
+    private restorePreparedCollectionStmt = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        status: CollectionStatus;
+    }>(
+        "UPDATE collections SET " +
+            "status = @status, " +
+            "bootstrap_started_at = NULL, " +
             "bootstrap_finished_at = NULL, " +
             "bootstrap_last_synced_block = NULL, " +
             "updated_at = CURRENT_TIMESTAMP " +
@@ -614,56 +631,62 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         return (row?.count ?? 0) > 0;
     }
 
-    createRun(input: {
-        chainId: number;
-        collectionId: number;
-        requestSlug: string;
-        requestOpenseaSlug: string | null;
-        requestAddress: string;
-        requestStandard: CollectionStandard;
-        imageSourceField: string;
-        animationSourceField: string | null;
-        requestExtensionKey: CollectionExtensionKey | null;
-        metadataMode: "strict" | "best_effort";
-        enumerationMode: "enumerable" | "manual_token_ids" | "manual_range";
-        manualTokenIdsJson: string | null;
-        manualRangeStartTokenId: string | null;
-        manualRangeTotalSupply: number | null;
-        imageCacheMode: ImageCacheMode;
-        imageCacheMaxDimension: number | null;
-        deploymentBlock: number | null;
-        steps: readonly BootstrapRunStepPlan[];
-    }): BootstrapRunRow {
+    createRun(input: BootstrapRunCreateInput): BootstrapRunRow {
         const run = db.raw.transaction(() => {
-            this.insertRun.run({
-                ...input,
-                requestedStatus: BOOTSTRAP_RUN_STATUS.Requested,
-            });
-            const row = this.selectLatestRun.get({
-                chainId: input.chainId,
-                collectionId: input.collectionId,
-            }) as BootstrapRunDbRow | undefined;
-            if (!row) {
-                throw new Error("Bootstrap run insert failed");
-            }
-            for (const step of input.steps) {
-                this.insertRunStep.run({
-                    runId: row.run_id,
-                    stepKey: step.stepKey,
-                    status: step.status,
-                    blocking: step.blocking ? 1 : 0,
-                    dependsOnJson: serializeBootstrapStepDependencies(
-                        step.dependsOn,
-                    ),
-                    progressTotal: step.progressTotal,
-                    configJson: step.config
-                        ? JSON.stringify(step.config)
-                        : null,
-                });
-            }
-            return mapRun(row);
+            return this.insertBootstrapRun(input);
         });
         return run();
+    }
+
+    createPreparedCollectionRun(
+        input: PreparedCollectionRunCreateInput,
+    ): BootstrapRunRow {
+        const run = db.raw.transaction(() => {
+            this.markCollectionBootstrappingStmt.run({
+                chainId: input.chainId,
+                collectionId: input.collectionId,
+                status: COLLECTION_STATUS.Bootstrapping,
+            });
+            const collection = this.getCollectionById(
+                input.chainId,
+                input.collectionId,
+            );
+            if (!collection) {
+                throw new Error("Prepared collection state update failed");
+            }
+            const bootstrapRun = this.insertBootstrapRun(input);
+            this.insertRunEventStmt.run({
+                runId: bootstrapRun.runId,
+                chainId: bootstrapRun.chainId,
+                collectionId: bootstrapRun.collectionId,
+                ...input.requestedEvent,
+            });
+            return bootstrapRun;
+        });
+        return run();
+    }
+
+    abortPreparedCollectionRun(
+        input: PreparedCollectionRunAbortInput,
+    ): void {
+        db.raw.transaction(() => {
+            this.updateRunStatus(
+                input.runId,
+                BOOTSTRAP_RUN_STATUS.Failed,
+                input.error,
+            );
+            this.insertRunEventStmt.run({
+                runId: input.runId,
+                chainId: input.chainId,
+                collectionId: input.collectionId,
+                ...input.event,
+            });
+            this.restorePreparedCollectionStmt.run({
+                chainId: input.chainId,
+                collectionId: input.collectionId,
+                status: COLLECTION_STATUS.Prepared,
+            });
+        })();
     }
 
     updateRunStatus(
@@ -727,6 +750,50 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
             createdAt: row.created_at,
             payloadJson: row.payload_json,
         }));
+    }
+
+    private insertBootstrapRun(input: BootstrapRunCreateInput): BootstrapRunRow {
+        this.insertRun.run({
+            chainId: input.chainId,
+            collectionId: input.collectionId,
+            requestSlug: input.requestSlug,
+            requestOpenseaSlug: input.requestOpenseaSlug,
+            requestAddress: input.requestAddress,
+            requestStandard: input.requestStandard,
+            imageSourceField: input.imageSourceField,
+            animationSourceField: input.animationSourceField,
+            requestExtensionKey: input.requestExtensionKey,
+            metadataMode: input.metadataMode,
+            enumerationMode: input.enumerationMode,
+            manualTokenIdsJson: input.manualTokenIdsJson,
+            manualRangeStartTokenId: input.manualRangeStartTokenId,
+            manualRangeTotalSupply: input.manualRangeTotalSupply,
+            imageCacheMode: input.imageCacheMode,
+            imageCacheMaxDimension: input.imageCacheMaxDimension,
+            deploymentBlock: input.deploymentBlock,
+            requestedStatus: BOOTSTRAP_RUN_STATUS.Requested,
+        });
+        const row = this.selectLatestRun.get({
+            chainId: input.chainId,
+            collectionId: input.collectionId,
+        }) as BootstrapRunDbRow | undefined;
+        if (!row) {
+            throw new Error("Bootstrap run insert failed");
+        }
+        for (const step of input.steps) {
+            this.insertRunStep.run({
+                runId: row.run_id,
+                stepKey: step.stepKey,
+                status: step.status,
+                blocking: step.blocking ? 1 : 0,
+                dependsOnJson: serializeBootstrapStepDependencies(
+                    step.dependsOn,
+                ),
+                progressTotal: step.progressTotal,
+                configJson: step.config ? JSON.stringify(step.config) : null,
+            });
+        }
+        return mapRun(row);
     }
 
     isLatestRunForCollection(

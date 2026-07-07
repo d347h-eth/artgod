@@ -14,6 +14,7 @@ type OpenSeaCollectionSyncRow = {
     status: string;
     opensea_slug: string | null;
     opensea_status: string | null;
+    opensea_last_error: string | null;
 };
 
 export class SqliteOpenSeaCollectionSyncRepository {
@@ -21,7 +22,8 @@ export class SqliteOpenSeaCollectionSyncRepository {
         chainId: number;
         slug: string;
     }>(
-        "SELECT chain_id, collection_id, slug, status, opensea_slug, opensea_status " +
+        "SELECT chain_id, collection_id, slug, status, opensea_slug, " +
+            "opensea_status, opensea_last_error " +
             "FROM collections " +
             "WHERE chain_id = @chainId AND slug = @slug LIMIT 1",
     );
@@ -30,7 +32,8 @@ export class SqliteOpenSeaCollectionSyncRepository {
         chainId: number;
         collectionId: number;
     }>(
-        "SELECT chain_id, collection_id, slug, status, opensea_slug, opensea_status " +
+        "SELECT chain_id, collection_id, slug, status, opensea_slug, " +
+            "opensea_status, opensea_last_error " +
             "FROM collections " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId LIMIT 1",
     );
@@ -43,6 +46,19 @@ export class SqliteOpenSeaCollectionSyncRepository {
         "UPDATE collections SET " +
             "opensea_status = @status, " +
             "opensea_last_error = NULL, " +
+            "updated_at = CURRENT_TIMESTAMP " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId",
+    );
+
+    private readonly restoreOpenSeaStateStmt = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        status: OpenSeaCollectionStatus | null;
+        lastError: string | null;
+    }>(
+        "UPDATE collections SET " +
+            "opensea_status = @status, " +
+            "opensea_last_error = @lastError, " +
             "updated_at = CURRENT_TIMESTAMP " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId",
     );
@@ -75,6 +91,25 @@ export class SqliteOpenSeaCollectionSyncRepository {
         }) as OpenSeaCollectionSyncRow | undefined;
         return row ? mapCollection(row) : null;
     }
+
+    restoreOpenSeaState(input: {
+        chainId: number;
+        collectionId: number;
+        openseaStatus: OpenSeaCollectionStatus | null;
+        openseaLastError: string | null;
+    }): OpenSeaCollectionSyncState | null {
+        this.restoreOpenSeaStateStmt.run({
+            chainId: input.chainId,
+            collectionId: input.collectionId,
+            status: input.openseaStatus,
+            lastError: input.openseaLastError,
+        });
+        const row = this.selectCollectionById.get({
+            chainId: input.chainId,
+            collectionId: input.collectionId,
+        }) as OpenSeaCollectionSyncRow | undefined;
+        return row ? mapCollection(row) : null;
+    }
 }
 
 function mapCollection(
@@ -87,5 +122,6 @@ function mapCollection(
         status: row.status as CollectionStatus,
         openseaSlug: row.opensea_slug,
         openseaStatus: row.opensea_status as OpenSeaCollectionStatus | null,
+        openseaLastError: row.opensea_last_error,
     };
 }

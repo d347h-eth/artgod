@@ -9,6 +9,7 @@ import type {
     EmbeddedCollectionExtensionScopeKind,
 } from "@artgod/shared/extensions";
 import type { ImageCacheMode } from "@artgod/shared/media/token-image-cache";
+import type { BootstrapRunEventCode } from "@artgod/shared/bootstrap/run-events";
 import type {
     BootstrapEnumerationMode,
     BootstrapMetadataMode,
@@ -51,6 +52,53 @@ export interface ChainRefResolverPort {
     ): ChainRecord;
 }
 
+// BootstrapRunCreateInput is the storage contract for inserting a planned run.
+export type BootstrapRunCreateInput = {
+    chainId: number;
+    collectionId: number;
+    requestSlug: string;
+    requestOpenseaSlug: string | null;
+    requestAddress: string;
+    requestStandard: CollectionStandard;
+    imageSourceField: string;
+    animationSourceField: string | null;
+    requestExtensionKey: CollectionExtensionKey | null;
+    metadataMode: BootstrapMetadataMode;
+    enumerationMode: BootstrapEnumerationMode;
+    manualTokenIdsJson: string | null;
+    manualRangeStartTokenId: string | null;
+    manualRangeTotalSupply: number | null;
+    imageCacheMode: ImageCacheMode;
+    imageCacheMaxDimension: number | null;
+    deploymentBlock: number | null;
+    steps: readonly BootstrapRunStepPlan[];
+};
+
+// BootstrapRunEventCreateInput is an event payload before run identifiers are attached.
+export type BootstrapRunEventCreateInput = {
+    eventCode: BootstrapRunEventCode;
+    eventLevel: "info" | "warn" | "error";
+    message: string;
+    payloadJson: string | null;
+};
+
+// PreparedCollectionRunCreateInput atomically transitions a prepared row into a run.
+export type PreparedCollectionRunCreateInput = BootstrapRunCreateInput & {
+    requestedEvent: BootstrapRunEventCreateInput;
+};
+
+// PreparedCollectionRunAbortInput restores a prepared row after start scheduling fails.
+export type PreparedCollectionRunAbortInput = {
+    chainId: number;
+    collectionId: number;
+    runId: number;
+    error: {
+        code: string;
+        message: string;
+    };
+    event: BootstrapRunEventCreateInput;
+};
+
 export interface BootstrapRunsWritePort {
     findCollectionBySlug(
         chainId: number,
@@ -89,26 +137,11 @@ export interface BootstrapRunsWritePort {
         collectionId: number,
     ): CollectionBootstrapState | null;
     hasActiveRun(chainId: number, collectionId: number): boolean;
-    createRun(input: {
-        chainId: number;
-        collectionId: number;
-        requestSlug: string;
-        requestOpenseaSlug: string | null;
-        requestAddress: string;
-        requestStandard: CollectionStandard;
-        imageSourceField: string;
-        animationSourceField: string | null;
-        requestExtensionKey: CollectionExtensionKey | null;
-        metadataMode: BootstrapMetadataMode;
-        enumerationMode: BootstrapEnumerationMode;
-        manualTokenIdsJson: string | null;
-        manualRangeStartTokenId: string | null;
-        manualRangeTotalSupply: number | null;
-        imageCacheMode: ImageCacheMode;
-        imageCacheMaxDimension: number | null;
-        deploymentBlock: number | null;
-        steps: readonly BootstrapRunStepPlan[];
-    }): BootstrapRunRow;
+    createRun(input: BootstrapRunCreateInput): BootstrapRunRow;
+    createPreparedCollectionRun(
+        input: PreparedCollectionRunCreateInput,
+    ): BootstrapRunRow;
+    abortPreparedCollectionRun(input: PreparedCollectionRunAbortInput): void;
     updateRunStatus(
         runId: number,
         status: string,

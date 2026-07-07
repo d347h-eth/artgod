@@ -50,6 +50,25 @@ export const OPENSEA_COLLECTION_STATUS = {
 export type OpenSeaCollectionStatus =
     (typeof OPENSEA_COLLECTION_STATUS)[keyof typeof OPENSEA_COLLECTION_STATUS];
 
+// OpenSea statuses that represent an in-flight collection sync.
+export const ACTIVE_OPENSEA_COLLECTION_STATUSES: readonly OpenSeaCollectionStatus[] = [
+    OPENSEA_COLLECTION_STATUS.Pending,
+    OPENSEA_COLLECTION_STATUS.IdentityRunning,
+    OPENSEA_COLLECTION_STATUS.Subscribing,
+    OPENSEA_COLLECTION_STATUS.SnapshotPending,
+    OPENSEA_COLLECTION_STATUS.SnapshotRunning,
+    OPENSEA_COLLECTION_STATUS.Retrying,
+];
+
+// Keeps backend guards and frontend actions aligned for OpenSea sync availability.
+export function isOpenSeaCollectionSyncActive(
+    status: OpenSeaCollectionStatus | null | undefined,
+): boolean {
+    return Boolean(
+        status && ACTIVE_OPENSEA_COLLECTION_STATUSES.includes(status),
+    );
+}
+
 // Public collection extension summaries expose enabled extension identity without install config.
 export type CollectionExtensionSummary = {
     key: CollectionExtensionKey;
