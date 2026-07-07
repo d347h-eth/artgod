@@ -276,7 +276,8 @@ Desktop-specific optional overrides:
 
 Userland link settings:
 
-- `TRANSACTION_EXPLORER_URL_TEMPLATE` controls transaction links and must include `{tx_hash}`.
+- `BLOCK_EXPLORER_BASE_URL` controls the explorer origin used by lookup links.
+- `BLOCK_EXPLORER_TX_PATH_TEMPLATE`, `BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE`, and `BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE` control transaction, address, and block lookup paths.
 
 Desktop-specific wallet/bot keys:
 

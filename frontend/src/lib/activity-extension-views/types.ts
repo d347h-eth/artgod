@@ -41,6 +41,7 @@ export type ActivityExtensionFilterPatch = Partial<ActivityExtensionFilterValues
 // Link builders give extension cells generic navigation without importing app route helpers.
 export type ActivityExtensionCellHrefs = {
 	filter: (filters: ActivityExtensionFilterPatch) => string;
+	blockExplorerAddress: (address: string | null) => string | null;
 	holder: (address: string) => string;
 	tokenDetail: (tokenId: string) => string;
 };

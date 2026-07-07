@@ -1,6 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import { getDefaultTransactionExplorerUrlTemplate } from '@artgod/shared/config/transaction-explorer';
+import { getDefaultBlockExplorerConfig } from '@artgod/shared/config/block-explorer';
 import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import { BackendApiError, getCollectionActivities, getRuntimeConfig } from '$lib/backend-api';
 import {
@@ -69,14 +69,16 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			filterKind: 'sales' as const,
 			extensionEvent: null,
 			activityFilters: emptyActivityFilters(),
-			transactionExplorerUrlTemplate: getDefaultTransactionExplorerUrlTemplate()
+			blockExplorer: getDefaultBlockExplorerConfig()
 		};
 	}
 
 	const extensionEvent = parseCollectionActivityExtensionEvent(
 		url.searchParams.get(ACTIVITY_EXTENSION_EVENT_QUERY_PARAM)
 	);
-	const parsedFilterKind = parseCollectionActivityKind(url.searchParams.get(ACTIVITY_KIND_QUERY_PARAM));
+	const parsedFilterKind = parseCollectionActivityKind(
+		url.searchParams.get(ACTIVITY_KIND_QUERY_PARAM)
+	);
 	const filterKind = extensionEvent ? null : parsedFilterKind;
 	const query = normalizeCollectionActivityParams(
 		url.searchParams,
@@ -101,7 +103,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			filterKind,
 			extensionEvent,
 			activityFilters: readActivityFilters(url.searchParams),
-			transactionExplorerUrlTemplate: runtimeConfigResponse.transactionExplorer.urlTemplate
+			blockExplorer: runtimeConfigResponse.blockExplorer
 		};
 	} catch (cause) {
 		toKitError(cause);

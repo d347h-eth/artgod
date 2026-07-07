@@ -45,10 +45,14 @@
 	} from '$lib/components/token-preview-controller';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import {
-		openseaItemHref as buildOpenseaItemHref,
-		transactionExplorerHref as buildTransactionExplorerHref
+		blockExplorerAddressHref as buildBlockExplorerAddressHref,
+		blockExplorerTransactionHref as buildBlockExplorerTransactionHref,
+		openseaItemHref as buildOpenseaItemHref
 	} from '$lib/marketplace-links';
-	import { getDefaultTransactionExplorerUrlTemplate } from '@artgod/shared/config/transaction-explorer';
+	import {
+		getDefaultBlockExplorerConfig,
+		type BlockExplorerConfig
+	} from '@artgod/shared/config/block-explorer';
 	import { joinPath, normalizeBasePath } from '$lib/route-paths';
 	import {
 		collectionBiddingNavigationVisibilityForDeployment,
@@ -74,7 +78,7 @@
 		filterKind,
 		extensionEvent = null,
 		activityFilters = { tokenId: null, maker: null, contentHash: null, eventGroup: null },
-		transactionExplorerUrlTemplate = getDefaultTransactionExplorerUrlTemplate()
+		blockExplorer = getDefaultBlockExplorerConfig()
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
@@ -92,7 +96,7 @@
 		filterKind: ApiActivityFeedFilterKind | null;
 		extensionEvent?: ApiActivityExtensionEventRef | null;
 		activityFilters?: ActivityExtensionFilterValues;
-		transactionExplorerUrlTemplate?: string;
+		blockExplorer?: BlockExplorerConfig;
 	} = $props();
 
 	const tokenPreview = getTokenPreviewController();
@@ -316,6 +320,8 @@
 	function activityCellHrefs() {
 		return {
 			filter: activityFilterHref,
+			blockExplorerAddress: (address: string | null) =>
+				buildBlockExplorerAddressHref(address, blockExplorer),
 			holder: holderHref,
 			tokenDetail: tokenDetailHref
 		};
@@ -361,7 +367,7 @@
 	}
 
 	function transactionHref(activity: ApiActivityFeedItem): string | null {
-		return buildTransactionExplorerHref(activity.txHash, transactionExplorerUrlTemplate);
+		return buildBlockExplorerTransactionHref(activity.txHash, blockExplorer);
 	}
 
 	function activityPriceLabel(activity: ApiActivityFeedItem): string | null {

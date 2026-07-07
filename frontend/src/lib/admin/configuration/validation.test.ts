@@ -4,9 +4,14 @@ import {
 	RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY
 } from '@artgod/shared/config/rpc-endpoints';
 import {
-	TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER,
-	TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY
-} from '@artgod/shared/config/transaction-explorer';
+	BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY,
+	BLOCK_EXPLORER_ADDRESS_PLACEHOLDER,
+	BLOCK_EXPLORER_BASE_URL_ENV_KEY,
+	BLOCK_EXPLORER_BLOCK_NUMBER_PLACEHOLDER,
+	BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY,
+	BLOCK_EXPLORER_TX_HASH_PLACEHOLDER,
+	BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY
+} from '@artgod/shared/config/block-explorer';
 
 import {
 	formatLaunchConfigIssueSummary,
@@ -51,15 +56,51 @@ const DESKTOP_LOG_RETENTION_HOURS_FIELD: AdminConfigField = {
 	view: 'basic'
 };
 
-const TRANSACTION_EXPLORER_FIELD: AdminConfigField = {
-	key: TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY,
-	label: 'preferred transaction explorer',
+const BLOCK_EXPLORER_BASE_FIELD: AdminConfigField = {
+	key: BLOCK_EXPLORER_BASE_URL_ENV_KEY,
+	label: 'block explorer URL base',
 	inputKind: 'text',
 	secret: false,
 	options: [],
 	help: '',
 	requiredForLaunch: false,
 	validation: 'url',
+	view: 'basic'
+};
+
+const BLOCK_EXPLORER_TX_PATH_FIELD: AdminConfigField = {
+	key: BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY,
+	label: 'transaction lookup path',
+	inputKind: 'text',
+	secret: false,
+	options: [],
+	help: '',
+	requiredForLaunch: false,
+	validation: null,
+	view: 'basic'
+};
+
+const BLOCK_EXPLORER_ADDRESS_PATH_FIELD: AdminConfigField = {
+	key: BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY,
+	label: 'address lookup path',
+	inputKind: 'text',
+	secret: false,
+	options: [],
+	help: '',
+	requiredForLaunch: false,
+	validation: null,
+	view: 'basic'
+};
+
+const BLOCK_EXPLORER_BLOCK_PATH_FIELD: AdminConfigField = {
+	key: BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY,
+	label: 'block lookup path',
+	inputKind: 'text',
+	secret: false,
+	options: [],
+	help: '',
+	requiredForLaunch: false,
+	validation: null,
 	view: 'basic'
 };
 
@@ -220,33 +261,76 @@ describe('admin config validation', () => {
 		]);
 	});
 
-	it('requires a transaction hash placeholder in transaction explorer templates', () => {
+	it('requires block explorer lookup templates to include their placeholders', () => {
 		const issues = resolveAdminConfigValidationIssues(
-			config({ [TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY]: 'https://explorer.example/tx/' }, [
-				TRANSACTION_EXPLORER_FIELD
-			]),
+			config(
+				{
+					[BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY]: '/tx/',
+					[BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY]: '/address/',
+					[BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY]: '/block/'
+				},
+				[
+					BLOCK_EXPLORER_TX_PATH_FIELD,
+					BLOCK_EXPLORER_ADDRESS_PATH_FIELD,
+					BLOCK_EXPLORER_BLOCK_PATH_FIELD
+				]
+			),
 			{
-				[TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY]: 'https://explorer.example/tx/'
+				[BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY]: '/tx/',
+				[BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY]: '/address/',
+				[BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY]: '/block/'
+			}
+		);
+
+		expect(issues.map((issue) => issue.kind)).toEqual(['url', 'url', 'url']);
+		expect(issues.map((issue) => issue.message)).toEqual([
+			`${BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY} must include ${BLOCK_EXPLORER_TX_HASH_PLACEHOLDER}.`,
+			`${BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY} must include ${BLOCK_EXPLORER_ADDRESS_PLACEHOLDER}.`,
+			`${BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY} must include ${BLOCK_EXPLORER_BLOCK_NUMBER_PLACEHOLDER}.`
+		]);
+	});
+
+	it('requires block explorer lookup templates to be path/query fragments', () => {
+		const issues = resolveAdminConfigValidationIssues(
+			config(
+				{
+					[BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY]: `https://explorer.example/tx/${BLOCK_EXPLORER_TX_HASH_PLACEHOLDER}`
+				},
+				[BLOCK_EXPLORER_TX_PATH_FIELD]
+			),
+			{
+				[BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY]: `https://explorer.example/tx/${BLOCK_EXPLORER_TX_HASH_PLACEHOLDER}`
 			}
 		);
 
 		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
 		expect(issues.map((issue) => issue.message)).toEqual([
-			`${TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY} must include ${TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER}.`
+			`${BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY} must start with / or ?.`
 		]);
 	});
 
-	it('accepts transaction explorer templates with a transaction hash placeholder', () => {
+	it('accepts block explorer base URLs and lookup templates', () => {
 		expect(
 			resolveAdminConfigValidationIssues(
 				config(
 					{
-						[TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY]: `https://explorer.example/tx/${TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER}`
+						[BLOCK_EXPLORER_BASE_URL_ENV_KEY]: 'https://explorer.example',
+						[BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY]: `/tx/${BLOCK_EXPLORER_TX_HASH_PLACEHOLDER}`,
+						[BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY]: `/address/${BLOCK_EXPLORER_ADDRESS_PLACEHOLDER}`,
+						[BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY]: `/block/${BLOCK_EXPLORER_BLOCK_NUMBER_PLACEHOLDER}`
 					},
-					[TRANSACTION_EXPLORER_FIELD]
+					[
+						BLOCK_EXPLORER_BASE_FIELD,
+						BLOCK_EXPLORER_TX_PATH_FIELD,
+						BLOCK_EXPLORER_ADDRESS_PATH_FIELD,
+						BLOCK_EXPLORER_BLOCK_PATH_FIELD
+					]
 				),
 				{
-					[TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY]: `https://explorer.example/tx/${TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER}`
+					[BLOCK_EXPLORER_BASE_URL_ENV_KEY]: 'https://explorer.example',
+					[BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY]: `/tx/${BLOCK_EXPLORER_TX_HASH_PLACEHOLDER}`,
+					[BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY]: `/address/${BLOCK_EXPLORER_ADDRESS_PLACEHOLDER}`,
+					[BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY]: `/block/${BLOCK_EXPLORER_BLOCK_NUMBER_PLACEHOLDER}`
 				}
 			)
 		).toEqual([]);

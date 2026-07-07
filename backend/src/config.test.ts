@@ -24,10 +24,15 @@ import { COMMON_MEDIA_ENV_KEY } from "@artgod/shared/config/common-media";
 import { OPENSEA_API_KEY_ENV } from "@artgod/shared/config/opensea-integration";
 import { RPC_ENDPOINT_LIST_ENV_KEY } from "@artgod/shared/config/rpc-endpoints";
 import {
-    getDefaultTransactionExplorerUrlTemplate,
-    TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER,
-    TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY,
-} from "@artgod/shared/config/transaction-explorer";
+    BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY,
+    BLOCK_EXPLORER_ADDRESS_PLACEHOLDER,
+    BLOCK_EXPLORER_BASE_URL_ENV_KEY,
+    BLOCK_EXPLORER_BLOCK_NUMBER_PLACEHOLDER,
+    BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY,
+    BLOCK_EXPLORER_TX_HASH_PLACEHOLDER,
+    BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY,
+    getDefaultBlockExplorerConfig,
+} from "@artgod/shared/config/block-explorer";
 import { loadBackendConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
 
@@ -206,34 +211,49 @@ describe("loadBackendConfig", () => {
         });
     });
 
-    it("defaults the transaction explorer template from the settings manifest", () => {
+    it("defaults the block explorer config from the settings manifest", () => {
         const config = loadBackendConfig(createBaseEnv());
 
-        expect(config.transactionExplorer).toEqual({
-            urlTemplate: getDefaultTransactionExplorerUrlTemplate(),
-        });
+        expect(config.blockExplorer).toEqual(getDefaultBlockExplorerConfig());
     });
 
-    it("parses custom transaction explorer URL templates", () => {
+    it("parses custom block explorer URL and lookup path templates", () => {
         const config = loadBackendConfig({
             ...createBaseEnv(),
-            [TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY]: `https://explorer.example/transaction/${TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER}`,
+            [BLOCK_EXPLORER_BASE_URL_ENV_KEY]: "https://explorer.example",
+            [BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY]: `/transaction/${BLOCK_EXPLORER_TX_HASH_PLACEHOLDER}`,
+            [BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY]: `/account/${BLOCK_EXPLORER_ADDRESS_PLACEHOLDER}`,
+            [BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY]: `/height/${BLOCK_EXPLORER_BLOCK_NUMBER_PLACEHOLDER}`,
         });
 
-        expect(config.transactionExplorer).toEqual({
-            urlTemplate: `https://explorer.example/transaction/${TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER}`,
+        expect(config.blockExplorer).toEqual({
+            baseUrl: "https://explorer.example",
+            transactionPathTemplate: `/transaction/${BLOCK_EXPLORER_TX_HASH_PLACEHOLDER}`,
+            addressPathTemplate: `/account/${BLOCK_EXPLORER_ADDRESS_PLACEHOLDER}`,
+            blockPathTemplate: `/height/${BLOCK_EXPLORER_BLOCK_NUMBER_PLACEHOLDER}`,
         });
     });
 
-    it("fails fast when the transaction explorer template is missing the hash placeholder", () => {
+    it("fails fast when the block explorer base URL includes a lookup path", () => {
         expect(() =>
             loadBackendConfig({
                 ...createBaseEnv(),
-                [TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY]:
-                    "https://explorer.example/transaction/",
+                [BLOCK_EXPLORER_BASE_URL_ENV_KEY]:
+                    "https://explorer.example/transaction",
             }),
         ).toThrow(
-            `${TRANSACTION_EXPLORER_URL_TEMPLATE_ENV_KEY} must include ${TRANSACTION_EXPLORER_TX_HASH_PLACEHOLDER}.`,
+            `${BLOCK_EXPLORER_BASE_URL_ENV_KEY} must be an HTTP(S) origin URL.`,
+        );
+    });
+
+    it("fails fast when a block explorer lookup path is missing its placeholder", () => {
+        expect(() =>
+            loadBackendConfig({
+                ...createBaseEnv(),
+                [BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY]: "/transaction/",
+            }),
+        ).toThrow(
+            `${BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY} must include ${BLOCK_EXPLORER_TX_HASH_PLACEHOLDER}.`,
         );
     });
 

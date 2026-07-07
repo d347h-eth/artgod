@@ -26,7 +26,9 @@ export const load: PageLoad = async ({ fetch, url }) => {
 	const extensionEvent = parseCollectionActivityExtensionEvent(
 		url.searchParams.get(ACTIVITY_EXTENSION_EVENT_QUERY_PARAM)
 	);
-	const parsedFilterKind = parseCollectionActivityKind(url.searchParams.get(ACTIVITY_KIND_QUERY_PARAM));
+	const parsedFilterKind = parseCollectionActivityKind(
+		url.searchParams.get(ACTIVITY_KIND_QUERY_PARAM)
+	);
 	const filterKind = extensionEvent ? null : parsedFilterKind;
 	const query = normalizeCollectionActivityParams(
 		url.searchParams,
@@ -56,7 +58,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
 			filterKind,
 			extensionEvent,
 			activityFilters: readActivityFilters(url.searchParams),
-			transactionExplorerUrlTemplate: runtimeConfigResponse.transactionExplorer.urlTemplate
+			blockExplorer: runtimeConfigResponse.blockExplorer
 		};
 	} catch (cause) {
 		toKitError(cause);

@@ -1,7 +1,10 @@
 import {
-	buildTransactionExplorerUrl,
-	getDefaultTransactionExplorerUrlTemplate
-} from '@artgod/shared/config/transaction-explorer';
+	buildBlockExplorerAddressUrl,
+	buildBlockExplorerBlockUrl,
+	buildBlockExplorerTransactionUrl,
+	getDefaultBlockExplorerConfig,
+	type BlockExplorerConfig
+} from '@artgod/shared/config/block-explorer';
 
 export function openseaItemHref(params: {
 	chainSlug: string | null;
@@ -14,20 +17,35 @@ export function openseaItemHref(params: {
 	return `https://opensea.io/item/${params.chainSlug}/${params.collectionAddress}/${encodeURIComponent(params.tokenId)}`;
 }
 
-export function transactionExplorerHref(
+export function blockExplorerTransactionHref(
 	txHash: string | null,
-	urlTemplate = getDefaultTransactionExplorerUrlTemplate()
+	config: BlockExplorerConfig = getDefaultBlockExplorerConfig()
 ): string | null {
 	try {
-		return buildTransactionExplorerUrl({ txHash, urlTemplate });
+		return buildBlockExplorerTransactionUrl({ txHash, config });
 	} catch {
 		return null;
 	}
 }
 
-export function etherscanAddressHref(address: string | null): string | null {
-	if (!address) {
+export function blockExplorerAddressHref(
+	address: string | null,
+	config: BlockExplorerConfig = getDefaultBlockExplorerConfig()
+): string | null {
+	try {
+		return buildBlockExplorerAddressUrl({ address, config });
+	} catch {
 		return null;
 	}
-	return `https://etherscan.io/address/${encodeURIComponent(address)}`;
+}
+
+export function blockExplorerBlockHref(
+	blockNumber: number | string | null,
+	config: BlockExplorerConfig = getDefaultBlockExplorerConfig()
+): string | null {
+	try {
+		return buildBlockExplorerBlockUrl({ blockNumber, config });
+	} catch {
+		return null;
+	}
 }
