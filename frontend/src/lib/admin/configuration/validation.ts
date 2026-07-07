@@ -3,6 +3,10 @@ import {
 	parseRpcEndpointConfigList,
 	parseRpcWebSocketEndpointConfigList
 } from '@artgod/shared/config/rpc-endpoints';
+import {
+	isBlockExplorerValidationRule,
+	parseBlockExplorerConfigValueByValidationRule
+} from '@artgod/shared/config/block-explorer';
 
 export const ADMIN_CONFIG_VALIDATION_RULES = {
 	url: 'url',
@@ -79,6 +83,20 @@ export function validateAdminConfigField(
 	value: string
 ): AdminConfigValidationIssue | null {
 	const trimmed = value.trim();
+	if (isBlockExplorerValidationRule(field.validation)) {
+		try {
+			parseBlockExplorerConfigValueByValidationRule(field.validation, value);
+		} catch (error) {
+			return buildValidationIssue(
+				field,
+				ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.url,
+				error instanceof Error
+					? error.message
+					: `${field.key} must be a valid block explorer config value.`
+			);
+		}
+		return null;
+	}
 	if (field.requiredForLaunch && trimmed.length === 0) {
 		return buildValidationIssue(
 			field,

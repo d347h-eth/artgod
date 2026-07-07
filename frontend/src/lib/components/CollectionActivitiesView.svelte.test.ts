@@ -9,10 +9,24 @@ import {
 	TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS,
 	TERRAFORMS_EXTENSION_KEY
 } from '@artgod/shared/extensions/terraforms';
+import {
+	BLOCK_EXPLORER_ADDRESS_PLACEHOLDER,
+	BLOCK_EXPLORER_TX_HASH_PLACEHOLDER,
+	getDefaultBlockExplorerConfig,
+	type BlockExplorerConfig
+} from '@artgod/shared/config/block-explorer';
 import { installBuiltInCollectionExtensions } from '$lib/collection-extension-built-ins';
 import CollectionActivitiesView from './CollectionActivitiesView.svelte';
 
 installBuiltInCollectionExtensions();
+
+function testBlockExplorerConfig(overrides: Partial<BlockExplorerConfig>): BlockExplorerConfig {
+	return {
+		...getDefaultBlockExplorerConfig(),
+		baseUrl: 'https://explorer.example',
+		...overrides
+	};
+}
 
 describe('CollectionActivitiesView', () => {
 	it('renders collection activity rows with grouped filter navigation', () => {
@@ -138,7 +152,10 @@ describe('CollectionActivitiesView', () => {
 					}
 				},
 				basePath: '/ethereum/milady',
-				filterKind: 'sales'
+				filterKind: 'sales',
+				blockExplorer: testBlockExplorerConfig({
+					transactionPathTemplate: `/transaction/${BLOCK_EXPLORER_TX_HASH_PLACEHOLDER}`
+				})
 			}
 		});
 
@@ -190,7 +207,7 @@ describe('CollectionActivitiesView', () => {
 		);
 		expect(body).toContain('title="2024-09-10 20:33:20 UTC"');
 		expect(body).toContain(
-			'https://etherscan.io/tx/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+			'https://explorer.example/transaction/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 		);
 		expect(body).toContain('older');
 		expect(body).toContain('class="activities-day-break-label">2024-09-09 UTC</span>');
@@ -647,7 +664,10 @@ describe('CollectionActivitiesView', () => {
 					maker: null,
 					contentHash: null,
 					eventGroup: null
-				}
+				},
+				blockExplorer: testBlockExplorerConfig({
+					addressPathTemplate: `/account/${BLOCK_EXPLORER_ADDRESS_PLACEHOLDER}`
+				})
 			}
 		});
 
@@ -660,7 +680,7 @@ describe('CollectionActivitiesView', () => {
 		expect(body).toContain('0x7777...7777</a>');
 		expect(body).toContain('/ duration 3600');
 		expect(body).toContain(
-			'https://etherscan.io/address/0x7777777777777777777777777777777777777777'
+			'https://explorer.example/account/0x7777777777777777777777777777777777777777'
 		);
 		expect(body).not.toContain('enum 1');
 		expect(body).toContain(`maker=${maker}`);

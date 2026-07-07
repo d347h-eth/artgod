@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import { BackendApiError, getCollectionActivities } from '$lib/backend-api';
+import { BackendApiError, getCollectionActivities, getRuntimeConfig } from '$lib/backend-api';
 import {
 	ACTIVITY_EXTENSION_EVENT_QUERY_PARAM,
 	ACTIVITY_CONTENT_HASH_QUERY_PARAM,
@@ -26,7 +26,9 @@ export const load: PageLoad = async ({ fetch, url }) => {
 	const extensionEvent = parseCollectionActivityExtensionEvent(
 		url.searchParams.get(ACTIVITY_EXTENSION_EVENT_QUERY_PARAM)
 	);
-	const parsedFilterKind = parseCollectionActivityKind(url.searchParams.get(ACTIVITY_KIND_QUERY_PARAM));
+	const parsedFilterKind = parseCollectionActivityKind(
+		url.searchParams.get(ACTIVITY_KIND_QUERY_PARAM)
+	);
 	const filterKind = extensionEvent ? null : parsedFilterKind;
 	const query = normalizeCollectionActivityParams(
 		url.searchParams,
@@ -34,12 +36,15 @@ export const load: PageLoad = async ({ fetch, url }) => {
 	);
 
 	try {
-		const response = await getCollectionActivities(
-			fetch,
-			PUBLIC_COLLECTION_SCOPE.chainRef,
-			PUBLIC_COLLECTION_SCOPE.collectionRef,
-			query
-		);
+		const [response, runtimeConfigResponse] = await Promise.all([
+			getCollectionActivities(
+				fetch,
+				PUBLIC_COLLECTION_SCOPE.chainRef,
+				PUBLIC_COLLECTION_SCOPE.collectionRef,
+				query
+			),
+			getRuntimeConfig(fetch)
+		]);
 		return {
 			chain: response.chain,
 			collection: response.collection,
@@ -52,7 +57,8 @@ export const load: PageLoad = async ({ fetch, url }) => {
 			basePath: '/',
 			filterKind,
 			extensionEvent,
-			activityFilters: readActivityFilters(url.searchParams)
+			activityFilters: readActivityFilters(url.searchParams),
+			blockExplorer: runtimeConfigResponse.blockExplorer
 		};
 	} catch (cause) {
 		toKitError(cause);

@@ -38,6 +38,10 @@ import {
 } from "@artgod/shared/config/rpc-resilience";
 import { parseHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import {
+    parseBlockExplorerConfig,
+    type BlockExplorerConfig,
+} from "@artgod/shared/config/block-explorer";
+import {
     parseBoolean,
     parseNumber,
     parsePositiveInteger,
@@ -226,6 +230,7 @@ export type BackendConfig = {
     mediaCache: {
         tokenImagesDir: string;
     };
+    blockExplorer: BlockExplorerConfig;
     httpFetch: HttpFetchResilienceConfig;
     metrics: BackendMetricsConfig;
     apm: BackendApmConfig;
@@ -283,6 +288,7 @@ export function loadBackendConfig(
     };
     const deployment = parseDeploymentConfig(env);
     const queryCache = parseQueryCacheConfig(env);
+    const blockExplorer = parseBlockExplorerConfig(env);
     const sync = parseBackendSyncConfig(env);
     const bootstrap = parseBackendBootstrapConfig(env);
     const ipfsGatewayOrigin = normalizeIpfsGatewayOrigin(
@@ -338,6 +344,7 @@ export function loadBackendConfig(
         mediaCache: {
             tokenImagesDir,
         },
+        blockExplorer,
         httpFetch: parseHttpFetchResilienceConfig(env),
         metrics,
         apm,

@@ -429,6 +429,42 @@ default = "1"
 help = "EVM chain ID used by backend, indexer, and trading runtimes."
 
 [[settings]]
+key = "BLOCK_EXPLORER_BASE_URL"
+group = "chain-rpc"
+label = "block explorer URL base"
+default = "https://etherscan.io"
+help = "Base explorer URL used for lookup links."
+validation = "block_explorer_base_url"
+view = "basic"
+
+[[settings]]
+key = "BLOCK_EXPLORER_TX_PATH_TEMPLATE"
+group = "chain-rpc"
+label = "transaction lookup path"
+default = "/tx/{tx_hash}"
+help = "Transaction lookup path; include {tx_hash}."
+validation = "block_explorer_tx_path_template"
+view = "basic"
+
+[[settings]]
+key = "BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE"
+group = "chain-rpc"
+label = "address lookup path"
+default = "/address/{address}"
+help = "Address lookup path; include {address}."
+validation = "block_explorer_address_path_template"
+view = "basic"
+
+[[settings]]
+key = "BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE"
+group = "chain-rpc"
+label = "block lookup path"
+default = "/block/{block_number}"
+help = "Block lookup path; include {block_number}."
+validation = "block_explorer_block_path_template"
+view = "basic"
+
+[[settings]]
 key = "RPC_URL_LIST"
 group = "chain-rpc"
 label = "rpc endpoints"

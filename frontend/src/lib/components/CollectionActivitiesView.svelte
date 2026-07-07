@@ -45,9 +45,14 @@
 	} from '$lib/components/token-preview-controller';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import {
-		etherscanTransactionHref as buildEtherscanTransactionHref,
+		blockExplorerAddressHref as buildBlockExplorerAddressHref,
+		blockExplorerTransactionHref as buildBlockExplorerTransactionHref,
 		openseaItemHref as buildOpenseaItemHref
 	} from '$lib/marketplace-links';
+	import {
+		getDefaultBlockExplorerConfig,
+		type BlockExplorerConfig
+	} from '@artgod/shared/config/block-explorer';
 	import { joinPath, normalizeBasePath } from '$lib/route-paths';
 	import {
 		collectionBiddingNavigationVisibilityForDeployment,
@@ -72,7 +77,8 @@
 		basePath,
 		filterKind,
 		extensionEvent = null,
-		activityFilters = { tokenId: null, maker: null, contentHash: null, eventGroup: null }
+		activityFilters = { tokenId: null, maker: null, contentHash: null, eventGroup: null },
+		blockExplorer = getDefaultBlockExplorerConfig()
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
@@ -90,6 +96,7 @@
 		filterKind: ApiActivityFeedFilterKind | null;
 		extensionEvent?: ApiActivityExtensionEventRef | null;
 		activityFilters?: ActivityExtensionFilterValues;
+		blockExplorer?: BlockExplorerConfig;
 	} = $props();
 
 	const tokenPreview = getTokenPreviewController();
@@ -313,6 +320,8 @@
 	function activityCellHrefs() {
 		return {
 			filter: activityFilterHref,
+			blockExplorerAddress: (address: string | null) =>
+				buildBlockExplorerAddressHref(address, blockExplorer),
 			holder: holderHref,
 			tokenDetail: tokenDetailHref
 		};
@@ -358,7 +367,7 @@
 	}
 
 	function transactionHref(activity: ApiActivityFeedItem): string | null {
-		return buildEtherscanTransactionHref(activity.txHash);
+		return buildBlockExplorerTransactionHref(activity.txHash, blockExplorer);
 	}
 
 	function activityPriceLabel(activity: ApiActivityFeedItem): string | null {

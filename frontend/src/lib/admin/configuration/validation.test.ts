@@ -3,6 +3,16 @@ import {
 	RPC_ENDPOINT_LIST_ENV_KEY,
 	RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY
 } from '@artgod/shared/config/rpc-endpoints';
+import {
+	BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY,
+	BLOCK_EXPLORER_ADDRESS_PLACEHOLDER,
+	BLOCK_EXPLORER_BASE_URL_ENV_KEY,
+	BLOCK_EXPLORER_BLOCK_NUMBER_PLACEHOLDER,
+	BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY,
+	BLOCK_EXPLORER_TX_HASH_PLACEHOLDER,
+	BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY,
+	BLOCK_EXPLORER_VALIDATION_RULES
+} from '@artgod/shared/config/block-explorer';
 
 import {
 	formatLaunchConfigIssueSummary,
@@ -44,6 +54,54 @@ const DESKTOP_LOG_RETENTION_HOURS_FIELD: AdminConfigField = {
 	help: '',
 	requiredForLaunch: false,
 	validation: 'positive_integer',
+	view: 'basic'
+};
+
+const BLOCK_EXPLORER_BASE_FIELD: AdminConfigField = {
+	key: BLOCK_EXPLORER_BASE_URL_ENV_KEY,
+	label: 'block explorer URL base',
+	inputKind: 'text',
+	secret: false,
+	options: [],
+	help: '',
+	requiredForLaunch: false,
+	validation: BLOCK_EXPLORER_VALIDATION_RULES.BaseUrl,
+	view: 'basic'
+};
+
+const BLOCK_EXPLORER_TX_PATH_FIELD: AdminConfigField = {
+	key: BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY,
+	label: 'transaction lookup path',
+	inputKind: 'text',
+	secret: false,
+	options: [],
+	help: '',
+	requiredForLaunch: false,
+	validation: BLOCK_EXPLORER_VALIDATION_RULES.TransactionPathTemplate,
+	view: 'basic'
+};
+
+const BLOCK_EXPLORER_ADDRESS_PATH_FIELD: AdminConfigField = {
+	key: BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY,
+	label: 'address lookup path',
+	inputKind: 'text',
+	secret: false,
+	options: [],
+	help: '',
+	requiredForLaunch: false,
+	validation: BLOCK_EXPLORER_VALIDATION_RULES.AddressPathTemplate,
+	view: 'basic'
+};
+
+const BLOCK_EXPLORER_BLOCK_PATH_FIELD: AdminConfigField = {
+	key: BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY,
+	label: 'block lookup path',
+	inputKind: 'text',
+	secret: false,
+	options: [],
+	help: '',
+	requiredForLaunch: false,
+	validation: BLOCK_EXPLORER_VALIDATION_RULES.BlockPathTemplate,
 	view: 'basic'
 };
 
@@ -202,5 +260,80 @@ describe('admin config validation', () => {
 		expect(issues.map((issue) => issue.message)).toEqual([
 			'DESKTOP_LOG_RETENTION_HOURS must be a positive whole number.'
 		]);
+	});
+
+	it('requires block explorer lookup templates to include their placeholders', () => {
+		const issues = resolveAdminConfigValidationIssues(
+			config(
+				{
+					[BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY]: '/tx/',
+					[BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY]: '/address/',
+					[BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY]: '/block/'
+				},
+				[
+					BLOCK_EXPLORER_TX_PATH_FIELD,
+					BLOCK_EXPLORER_ADDRESS_PATH_FIELD,
+					BLOCK_EXPLORER_BLOCK_PATH_FIELD
+				]
+			),
+			{
+				[BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY]: '/tx/',
+				[BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY]: '/address/',
+				[BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY]: '/block/'
+			}
+		);
+
+		expect(issues.map((issue) => issue.kind)).toEqual(['url', 'url', 'url']);
+		expect(issues.map((issue) => issue.message)).toEqual([
+			`${BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY} must include ${BLOCK_EXPLORER_TX_HASH_PLACEHOLDER}.`,
+			`${BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY} must include ${BLOCK_EXPLORER_ADDRESS_PLACEHOLDER}.`,
+			`${BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY} must include ${BLOCK_EXPLORER_BLOCK_NUMBER_PLACEHOLDER}.`
+		]);
+	});
+
+	it('requires block explorer lookup templates to be path/query fragments', () => {
+		const issues = resolveAdminConfigValidationIssues(
+			config(
+				{
+					[BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY]: `https://explorer.example/tx/${BLOCK_EXPLORER_TX_HASH_PLACEHOLDER}`
+				},
+				[BLOCK_EXPLORER_TX_PATH_FIELD]
+			),
+			{
+				[BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY]: `https://explorer.example/tx/${BLOCK_EXPLORER_TX_HASH_PLACEHOLDER}`
+			}
+		);
+
+		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
+		expect(issues.map((issue) => issue.message)).toEqual([
+			`${BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY} must start with / or ?.`
+		]);
+	});
+
+	it('accepts block explorer base URLs and lookup templates', () => {
+		expect(
+			resolveAdminConfigValidationIssues(
+				config(
+					{
+						[BLOCK_EXPLORER_BASE_URL_ENV_KEY]: 'https://explorer.example',
+						[BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY]: `/tx/${BLOCK_EXPLORER_TX_HASH_PLACEHOLDER}`,
+						[BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY]: `/address/${BLOCK_EXPLORER_ADDRESS_PLACEHOLDER}`,
+						[BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY]: `/block/${BLOCK_EXPLORER_BLOCK_NUMBER_PLACEHOLDER}`
+					},
+					[
+						BLOCK_EXPLORER_BASE_FIELD,
+						BLOCK_EXPLORER_TX_PATH_FIELD,
+						BLOCK_EXPLORER_ADDRESS_PATH_FIELD,
+						BLOCK_EXPLORER_BLOCK_PATH_FIELD
+					]
+				),
+				{
+					[BLOCK_EXPLORER_BASE_URL_ENV_KEY]: 'https://explorer.example',
+					[BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY]: `/tx/${BLOCK_EXPLORER_TX_HASH_PLACEHOLDER}`,
+					[BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY]: `/address/${BLOCK_EXPLORER_ADDRESS_PLACEHOLDER}`,
+					[BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE_ENV_KEY]: `/block/${BLOCK_EXPLORER_BLOCK_NUMBER_PLACEHOLDER}`
+				}
+			)
+		).toEqual([]);
 	});
 });

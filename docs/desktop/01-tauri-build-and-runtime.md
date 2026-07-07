@@ -274,6 +274,11 @@ Desktop-specific optional overrides:
 - `DESKTOP_NODE_PNP_CJS` (default `.pnp.cjs`, resolved from runtime resources dir)
 - `DESKTOP_NODE_PNP_LOADER` (default `.pnp.loader.mjs`, resolved from runtime resources dir)
 
+Userland link settings:
+
+- `BLOCK_EXPLORER_BASE_URL` controls the explorer origin used by lookup links.
+- `BLOCK_EXPLORER_TX_PATH_TEMPLATE`, `BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE`, and `BLOCK_EXPLORER_BLOCK_PATH_TEMPLATE` control transaction, address, and block lookup paths.
+
 Desktop-specific wallet/bot keys:
 
 - `DESKTOP_WALLET_STORE_DIR` (defaults to `wallets`, resolved relative to app-data dir unless absolute)

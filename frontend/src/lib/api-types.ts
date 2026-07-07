@@ -919,6 +919,12 @@ export type RuntimeConfigApiResponse = {
 	integrations: {
 		opensea: ApiOpenSeaIntegrationStatus;
 	};
+	blockExplorer: {
+		baseUrl: string;
+		transactionPathTemplate: string;
+		addressPathTemplate: string;
+		blockPathTemplate: string;
+	};
 	bidding: {
 		bidBookLiveRefresh: {
 			normalPollMs: number;

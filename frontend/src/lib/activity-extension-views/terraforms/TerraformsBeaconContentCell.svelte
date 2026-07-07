@@ -3,10 +3,9 @@
 		TERRAFORMS_BEACON_EVENT_TYPES,
 		TERRAFORMS_BEACON_EVENT_TYPE_LABELS
 	} from '@artgod/shared/extensions/terraforms';
-	import { etherscanAddressHref } from '$lib/marketplace-links';
 	import type { ActivityExtensionCellProps } from '$lib/activity-extension-views/types';
 
-	let { activity }: ActivityExtensionCellProps = $props();
+	let { activity, hrefs }: ActivityExtensionCellProps = $props();
 
 	function plainDetailsLabel(): string | null {
 		switch (eventType()) {
@@ -74,7 +73,7 @@
 {#if satellite()}
 	<span title={fullTitle()}>
 		satellite
-		<a href={etherscanAddressHref(satellite()) ?? '#'} target="_blank" rel="noreferrer noopener">
+		<a href={hrefs.blockExplorerAddress(satellite()) ?? '#'} target="_blank" rel="noreferrer noopener">
 			{compactAddress(satellite() ?? '')}
 		</a>
 		{#if durationLabel()}

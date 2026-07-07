@@ -1,3 +1,5 @@
+import type { BlockExplorerValidationRule } from '@artgod/shared/config/block-explorer';
+
 export type AdminConfigInputKind =
 	| 'text'
 	| 'password'
@@ -9,7 +11,8 @@ export type AdminConfigValidationRule =
 	| 'url'
 	| 'positive_integer'
 	| 'rpc_endpoint_list'
-	| 'websocket_endpoint_list';
+	| 'websocket_endpoint_list'
+	| BlockExplorerValidationRule;
 
 export type AdminConfigField = {
 	key: string;

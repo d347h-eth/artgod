@@ -1,7 +1,8 @@
 import { error, redirect } from '@sveltejs/kit';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+import { getDefaultBlockExplorerConfig } from '@artgod/shared/config/block-explorer';
 import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
-import { BackendApiError, getCollectionActivities } from '$lib/backend-api';
+import { BackendApiError, getCollectionActivities, getRuntimeConfig } from '$lib/backend-api';
 import {
 	ACTIVITY_CONTENT_HASH_QUERY_PARAM,
 	ACTIVITY_EVENT_GROUP_QUERY_PARAM,
@@ -67,14 +68,17 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			basePath: '/',
 			filterKind: 'sales' as const,
 			extensionEvent: null,
-			activityFilters: emptyActivityFilters()
+			activityFilters: emptyActivityFilters(),
+			blockExplorer: getDefaultBlockExplorerConfig()
 		};
 	}
 
 	const extensionEvent = parseCollectionActivityExtensionEvent(
 		url.searchParams.get(ACTIVITY_EXTENSION_EVENT_QUERY_PARAM)
 	);
-	const parsedFilterKind = parseCollectionActivityKind(url.searchParams.get(ACTIVITY_KIND_QUERY_PARAM));
+	const parsedFilterKind = parseCollectionActivityKind(
+		url.searchParams.get(ACTIVITY_KIND_QUERY_PARAM)
+	);
 	const filterKind = extensionEvent ? null : parsedFilterKind;
 	const query = normalizeCollectionActivityParams(
 		url.searchParams,
@@ -82,12 +86,10 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	);
 
 	try {
-		const response = await getCollectionActivities(
-			fetch,
-			params.chain_ref,
-			params.collection_ref,
-			query
-		);
+		const [response, runtimeConfigResponse] = await Promise.all([
+			getCollectionActivities(fetch, params.chain_ref, params.collection_ref, query),
+			getRuntimeConfig(fetch)
+		]);
 		return {
 			chain: response.chain,
 			collection: response.collection,
@@ -100,7 +102,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			basePath: `/${response.chain.slug}/${response.collection.slug}`,
 			filterKind,
 			extensionEvent,
-			activityFilters: readActivityFilters(url.searchParams)
+			activityFilters: readActivityFilters(url.searchParams),
+			blockExplorer: runtimeConfigResponse.blockExplorer
 		};
 	} catch (cause) {
 		toKitError(cause);
