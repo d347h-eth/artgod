@@ -12,6 +12,9 @@ Local web/indexer development:
 # Install Yarn Berry/PnP dependencies exactly from yarn.lock.
 yarn install --immutable
 
+# Build the local SQLite native binding; install scripts are disabled by default.
+YARN_ENABLE_SCRIPTS=true yarn rebuild better-sqlite3
+
 # Start the local backend, indexer launcher, and frontend dev server.
 yarn dev
 ```
@@ -21,6 +24,9 @@ Desktop dev from a clean checkout:
 ```sh
 # Install Yarn Berry/PnP dependencies and materialize the PnP runtime files.
 yarn install --immutable
+
+# Build the local SQLite native binding; install scripts are disabled by default.
+YARN_ENABLE_SCRIPTS=true yarn rebuild better-sqlite3
 
 # Build userland UI, runtime artifacts, desktop runtime resources, then start Tauri dev.
 yarn dev:composition
@@ -45,6 +51,9 @@ Desktop no-bundle build from a clean checkout:
 ```sh
 # Install Yarn Berry/PnP dependencies exactly from yarn.lock.
 yarn install --immutable
+
+# Build the local SQLite native binding; install scripts are disabled by default.
+YARN_ENABLE_SCRIPTS=true yarn rebuild better-sqlite3
 
 # Run Tauri's beforeBuildCommand, which builds admin UI, userland UI, runtime artifacts, staged runtime resources, and release sidecars before compiling Rust.
 yarn tauri build --debug --no-bundle --ci
