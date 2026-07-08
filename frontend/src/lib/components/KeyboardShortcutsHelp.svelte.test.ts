@@ -39,6 +39,7 @@ describe('KeyboardShortcutsHelp', () => {
 		});
 
 		expect(body).toContain('keyboard shortcuts');
+		expect(body).toContain('>ABOUT<');
 		expect(body.indexOf(APP_VERSION)).toBeLessThan(body.indexOf('Token Browser Preview Navigation'));
 		expect(body).toContain(
 			'ArtGod is free and copyleft open-source software (AGPL-3.0). There is no funding, no sale, no airdrop, no farming, and no token.'

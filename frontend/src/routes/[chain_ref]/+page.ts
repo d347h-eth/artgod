@@ -1,7 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import { BackendApiError, getCollectionsPage } from '$lib/backend-api';
+import { BackendApiError, getCollectionsPage, getRuntimeConfig } from '$lib/backend-api';
 import { withQuery } from '$lib/route-paths';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -36,12 +36,16 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	const query = normalizeCollectionsParams(url.searchParams);
 
 	try {
-		const response = await getCollectionsPage(fetch, params.chain_ref, query);
+		const [response, runtimeConfigResponse] = await Promise.all([
+			getCollectionsPage(fetch, params.chain_ref, query),
+			getRuntimeConfig(fetch)
+		]);
 		return {
 			chain: response.chain,
 			page: response.page,
 			status: response.filters.status ?? '',
-			basePath: `/${response.chain.slug}`
+			basePath: `/${response.chain.slug}`,
+			blockExplorer: runtimeConfigResponse.blockExplorer
 		};
 	} catch (cause) {
 		toKitError(cause);

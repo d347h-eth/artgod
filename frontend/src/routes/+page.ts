@@ -2,12 +2,12 @@ import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import {
-		BackendApiError,
-		getCollectionDetailWithHeaders,
-		getCollectionsPage,
-		getDefaultChain,
-		getRuntimeConfig
-	} from '$lib/backend-api';
+	BackendApiError,
+	getCollectionDetailWithHeaders,
+	getCollectionsPage,
+	getDefaultChain,
+	getRuntimeConfig
+} from '$lib/backend-api';
 import { forwardQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -31,18 +31,18 @@ export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
 		const query = normalizeTokenBrowserParams(url.searchParams, tokenStatus);
 		const displayMode = parseDisplayMode(url.searchParams.get('mode'));
 
-			try {
-				const [responseWithHeaders, runtimeConfigResponse] = await Promise.all([
-					getCollectionDetailWithHeaders(
-						fetch,
-						PUBLIC_COLLECTION_SCOPE.chainRef,
-						PUBLIC_COLLECTION_SCOPE.collectionRef,
-						query
-					),
-					getRuntimeConfig(fetch)
-				]);
-				forwardQueryCacheResponseHeaders(setHeaders, responseWithHeaders.headers);
-				const response = responseWithHeaders.payload;
+		try {
+			const [responseWithHeaders, runtimeConfigResponse] = await Promise.all([
+				getCollectionDetailWithHeaders(
+					fetch,
+					PUBLIC_COLLECTION_SCOPE.chainRef,
+					PUBLIC_COLLECTION_SCOPE.collectionRef,
+					query
+				),
+				getRuntimeConfig(fetch)
+			]);
+			forwardQueryCacheResponseHeaders(setHeaders, responseWithHeaders.headers);
+			const response = responseWithHeaders.payload;
 			return {
 				mode: 'public_collection' as const,
 				chain: response.chain,
@@ -53,11 +53,11 @@ export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
 				selectedTraits: response.traits.selected,
 				selectedTraitRanges: response.traits.selectedRanges,
 				basePath: '/',
-					requestCursor: query.get('cursor') ?? null,
-					tokenStatus,
-					displayMode,
-					blockExplorer: runtimeConfigResponse.blockExplorer
-				};
+				requestCursor: query.get('cursor') ?? null,
+				tokenStatus,
+				displayMode,
+				blockExplorer: runtimeConfigResponse.blockExplorer
+			};
 		} catch (cause) {
 			toKitError(cause);
 		}
@@ -95,14 +95,18 @@ export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
 
 	try {
 		const defaultChain = await getDefaultChain(fetch);
-		const response = await getCollectionsPage(fetch, defaultChain.chain.slug, params);
+		const [response, runtimeConfigResponse] = await Promise.all([
+			getCollectionsPage(fetch, defaultChain.chain.slug, params),
+			getRuntimeConfig(fetch)
+		]);
 		return {
 			mode: 'collections' as const,
 			chain: response.chain,
 			page: response.page,
 			status: response.filters.status ?? '',
 			basePath: '/',
-			deferred: false
+			deferred: false,
+			blockExplorer: runtimeConfigResponse.blockExplorer
 		};
 	} catch (cause) {
 		toKitError(cause);

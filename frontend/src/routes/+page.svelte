@@ -25,6 +25,7 @@
 		status: string;
 		basePath: string;
 		deferred: boolean;
+		blockExplorer?: BlockExplorerConfig;
 	};
 
 	type PublicCollectionPageData = {
@@ -105,5 +106,6 @@
 		page={data?.page ?? fallbackPage}
 		status={data?.status ?? ''}
 		basePath={data?.basePath ?? '/'}
+		blockExplorer={data?.blockExplorer}
 	/>
 {/if}

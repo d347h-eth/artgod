@@ -178,7 +178,7 @@
 			aria-labelledby="shortcuts-help-title"
 		>
 			<header class="shortcuts-help-header">
-				<h2 id="shortcuts-help-title" class="panel-title">ArtGod</h2>
+				<h2 id="shortcuts-help-title" class="panel-title">ABOUT</h2>
 				<button
 					type="button"
 					class="button-link panel-header-help-button"
