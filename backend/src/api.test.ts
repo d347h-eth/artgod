@@ -91,6 +91,7 @@ import {
     TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
     COLLECTION_STATUS,
     OPENSEA_COLLECTION_STATUS,
+    OPENSEA_STREAM_INGESTION_STATUS,
     type CollectionStatus,
     type OpenSeaCollectionStatus,
     TRADING_JOB_COMMAND_KIND,
@@ -105,6 +106,7 @@ import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensi
 import {
     buildStartCollectionBootstrapPath,
     buildStartCollectionOpenSeaSyncPath,
+    buildUpdateCollectionOpenSeaStreamIngestionPath,
 } from "@artgod/shared/http/collection-routes";
 import type { BackendSecurityConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
@@ -664,8 +666,14 @@ beforeAll(async () => {
     const startOpenSeaCollectionSyncUseCaseModule = await import(
         "./application/use-cases/collections/start-opensea-collection-sync.js"
     );
+    const updateOpenSeaStreamIngestionUseCaseModule = await import(
+        "./application/use-cases/collections/update-opensea-stream-ingestion.js"
+    );
     const openSeaCollectionSyncRepositoryModule = await import(
         "./infra/collections/sqlite-opensea-collection-sync-repository.js"
+    );
+    const openSeaStreamIngestionRepositoryModule = await import(
+        "./infra/collections/sqlite-opensea-stream-ingestion-repository.js"
     );
 
     const bootstrapRepository =
@@ -861,6 +869,12 @@ beforeAll(async () => {
             new openSeaCollectionSyncRepositoryModule.SqliteOpenSeaCollectionSyncRepository(),
             openSeaQueueMock,
         );
+    const updateOpenSeaStreamIngestionUseCase =
+        new updateOpenSeaStreamIngestionUseCaseModule.UpdateOpenSeaStreamIngestionUseCase(
+            1,
+            chainsReadModel,
+            new openSeaStreamIngestionRepositoryModule.SqliteOpenSeaStreamIngestionRepository(),
+        );
     syncBackfillStateInputs = [];
     syncBackfillRangeInputs = [];
     const getSyncBackfillStateUseCase = {
@@ -1003,6 +1017,7 @@ beforeAll(async () => {
         scheduleSyncBackfillUseCase,
         purgeCollectionUseCase,
         startOpenSeaCollectionSyncUseCase,
+        updateOpenSeaStreamIngestionUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
         getActivityEventPreviewUseCase,
@@ -1059,6 +1074,7 @@ beforeAll(async () => {
         scheduleSyncBackfillUseCase,
         purgeCollectionUseCase,
         startOpenSeaCollectionSyncUseCase,
+        updateOpenSeaStreamIngestionUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
         getActivityEventPreviewUseCase,
@@ -5377,6 +5393,90 @@ describe("backend api routes", () => {
             ).toEqual({
                 opensea_status: OPENSEA_COLLECTION_STATUS.Pending,
                 opensea_last_error: null,
+            });
+        } finally {
+            deleteCollectionFixture(collectionId);
+        }
+    });
+
+    it("updates OpenSea stream ingestion gate for a collection", async () => {
+        const collectionId = insertOpenSeaSyncCollectionFixture();
+        try {
+            const csrf = await resolve(
+                "GET",
+                "/api/security/csrf",
+                undefined,
+                {
+                    host: "127.0.0.1:42710",
+                    origin: "http://127.0.0.1:42701",
+                },
+            );
+            const token = csrf.payload.token as string;
+            const cookie = csrf.headers["set-cookie"] as string;
+
+            const path = buildUpdateCollectionOpenSeaStreamIngestionPath({
+                chainRef: DEFAULT_CHAIN_REF,
+                collectionRef: OPENSEA_SYNC_COLLECTION_SLUG,
+            });
+            const pause = await resolve(
+                "PUT",
+                path,
+                {
+                    status: OPENSEA_STREAM_INGESTION_STATUS.Paused,
+                },
+                {
+                    host: "127.0.0.1:42710",
+                    origin: "http://127.0.0.1:42701",
+                    cookie,
+                    "x-artgod-csrf": token,
+                    "content-type": "application/json",
+                },
+            );
+
+            expect(pause.statusCode).toBe(200);
+            expect(pause.payload).toEqual(
+                expect.objectContaining({
+                    openseaStreamIngestionStatus:
+                        OPENSEA_STREAM_INGESTION_STATUS.Paused,
+                }),
+            );
+            expect(pause.payload.collection).toEqual(
+                expect.objectContaining({
+                    collectionId,
+                    slug: OPENSEA_SYNC_COLLECTION_SLUG,
+                    openseaStreamIngestionStatus:
+                        OPENSEA_STREAM_INGESTION_STATUS.Paused,
+                }),
+            );
+
+            const resume = await resolve(
+                "PUT",
+                path,
+                {
+                    status: OPENSEA_STREAM_INGESTION_STATUS.Enabled,
+                },
+                {
+                    host: "127.0.0.1:42710",
+                    origin: "http://127.0.0.1:42701",
+                    cookie,
+                    "x-artgod-csrf": token,
+                    "content-type": "application/json",
+                },
+            );
+
+            expect(resume.statusCode).toBe(200);
+            expect(resume.payload.openseaStreamIngestionStatus).toBe(
+                OPENSEA_STREAM_INGESTION_STATUS.Enabled,
+            );
+            expect(
+                db
+                    .prepare<
+                        [number]
+                    >("SELECT opensea_stream_ingestion_status FROM collections WHERE collection_id = ?")
+                    .get(collectionId),
+            ).toEqual({
+                opensea_stream_ingestion_status:
+                    OPENSEA_STREAM_INGESTION_STATUS.Enabled,
             });
         } finally {
             deleteCollectionFixture(collectionId);

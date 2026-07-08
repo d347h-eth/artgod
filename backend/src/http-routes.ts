@@ -112,6 +112,10 @@ import type {
     StartCollectionOpenSeaSyncRoute,
 } from "./http/handlers/collections/start-collection-opensea-sync.js";
 import type {
+    UpdateCollectionOpenSeaStreamIngestionHttpAdapter,
+    UpdateCollectionOpenSeaStreamIngestionRoute,
+} from "./http/handlers/collections/update-collection-opensea-stream-ingestion.js";
+import type {
     UpdateCollectionCustomizationHttpAdapter,
     UpdateCollectionCustomizationRoute,
 } from "./http/handlers/collections/update-collection-customization.js";
@@ -272,6 +276,7 @@ export function registerApiRoutes(
     scheduleBlockspaceBackfillAdapter: ScheduleBlockspaceBackfillHttpAdapter,
     purgeCollectionAdapter: PurgeCollectionHttpAdapter,
     startCollectionOpenSeaSyncAdapter: StartCollectionOpenSeaSyncHttpAdapter,
+    updateCollectionOpenSeaStreamIngestionAdapter: UpdateCollectionOpenSeaStreamIngestionHttpAdapter,
     resolveOwnerRefAdapter: ResolveOwnerRefHttpAdapter,
     getCollectionActivityAdapter: GetCollectionActivityHttpAdapter,
     getActivityEventPreviewAdapter: GetActivityEventPreviewHttpAdapter,
@@ -518,6 +523,12 @@ export function registerApiRoutes(
         options,
         COLLECTION_API_ROUTE_TEMPLATE.StartOpenSeaSync,
         startCollectionOpenSeaSyncAdapter.handle,
+    );
+    registerObservedPut<UpdateCollectionOpenSeaStreamIngestionRoute>(
+        app,
+        options,
+        COLLECTION_API_ROUTE_TEMPLATE.UpdateOpenSeaStreamIngestion,
+        updateCollectionOpenSeaStreamIngestionAdapter.handle,
     );
     registerObservedGet<GetCollectionCustomizationRoute>(
         app,
