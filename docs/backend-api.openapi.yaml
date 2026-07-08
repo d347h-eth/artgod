@@ -1645,7 +1645,7 @@ components:
                 Grouped activity-kind filter.
                 `sales` returns only `sale`.
                 `listings` returns only `listing_created`.
-                On the collection activity endpoint, `listings` is collapsed by `tokenId + maker + currency + UTC day` and surfaces the latest raw listing in each group.
+                On the collection activity endpoint, `listings` is collapsed by `tokenId + maker + currency + UTC day` and surfaces the first raw listing in each group.
                 `transfers` returns only `transfer`.
         ExtensionEventFilter:
             name: extension_event
