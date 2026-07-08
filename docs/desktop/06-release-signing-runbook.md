@@ -82,15 +82,13 @@ The current checked-in Tauri stack is not fully current:
 
 - Rust `tauri`: `2.10.2`
 - Rust `tauri-build`: `2.5.5`
-- JavaScript `@tauri-apps/cli`: locked to `2.6.0`
-- JavaScript `@tauri-apps/api`: locked to `2.9.1`
+- JavaScript `@tauri-apps/cli`: version range `^2.6.0`
 
-As of 2026-06-23, the current Tauri v2 release line is:
+As of 2026-07-08, the current Tauri v2 release line is:
 
-- `tauri`: `2.11.3`
-- `@tauri-apps/api`: `2.11.1`
-- `tauri-cli` / `@tauri-apps/cli`: `2.11.3`
-- `tauri-bundler`: `2.9.3`
+- `tauri`: `2.11.5`
+- `tauri-cli` / `@tauri-apps/cli`: `2.11.4`
+- `tauri-bundler`: `2.9.4`
 
 Upgrade Tauri before a public release candidate, but keep it as a separate
 review chunk from signing setup. The release pipeline should be green on the
@@ -99,7 +97,7 @@ current stack first, then the Tauri upgrade should run through the same matrix.
 Expected upgrade shape:
 
 ```sh
-yarn up @tauri-apps/cli@2.11.3 @tauri-apps/api@2.11.1
+yarn up @tauri-apps/cli@2.11.4
 cargo update --manifest-path src-tauri/Cargo.toml -p tauri -p tauri-build -p tauri-plugin-log -p tauri-plugin-shell
 ```
 

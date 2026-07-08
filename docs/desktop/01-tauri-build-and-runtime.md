@@ -27,7 +27,7 @@ For deferred local runtime identity and browser trust-store work, see:
 
 For release signing procurement and CI secret setup, see:
 
-- `docs/desktop/04-release-signing-runbook.md`
+- `docs/desktop/06-release-signing-runbook.md`
 
 For detailed Linux GPG release-key setup, rotation, and GitHub Actions secret
 handling, see:

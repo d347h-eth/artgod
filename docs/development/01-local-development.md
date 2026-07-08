@@ -117,7 +117,7 @@ Locally built bundles are not equivalent to official release artifacts unless
 you also provide the same signing/notarization setup. Windows source-built
 installers are expected to be unsigned unless the builder provides their own
 code-signing setup. The official release pipeline remains documented in
-`docs/desktop/04-release-signing-runbook.md`.
+`docs/desktop/06-release-signing-runbook.md`.
 
 ## Bidding And Extension UI Tests
 
