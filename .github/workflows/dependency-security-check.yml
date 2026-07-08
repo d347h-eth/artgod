@@ -5,7 +5,11 @@ on:
         paths:
             - ".github/workflows/dependency-security-check.yml"
             - ".yarnrc.yml"
+            - "config/cargo-age-gate.json"
             - "package.json"
+            - "scripts/security/cargo-*.mjs"
+            - "src-tauri/Cargo.lock"
+            - "src-tauri/Cargo.toml"
             - "yarn.lock"
             - "*/package.json"
     push:
@@ -14,7 +18,11 @@ on:
         paths:
             - ".github/workflows/dependency-security-check.yml"
             - ".yarnrc.yml"
+            - "config/cargo-age-gate.json"
             - "package.json"
+            - "scripts/security/cargo-*.mjs"
+            - "src-tauri/Cargo.lock"
+            - "src-tauri/Cargo.toml"
             - "yarn.lock"
             - "*/package.json"
     workflow_dispatch:
@@ -50,3 +58,21 @@ jobs:
 
             - name: Audit Node dependency advisories
               run: yarn security:yarn:audit
+
+    cargo-age-gate:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: package.json
+
+            - name: Enable Corepack
+              run: corepack enable
+
+            - name: Check Cargo dependency age gate
+              run: yarn cargo:age-gate
