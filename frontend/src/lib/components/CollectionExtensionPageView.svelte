@@ -1,5 +1,9 @@
 <script lang="ts">
 	import {
+		getDefaultBlockExplorerConfig,
+		type BlockExplorerConfig
+	} from '@artgod/shared/config/block-explorer';
+	import {
 		COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND,
 		type CollectionExtensionNavigationPageTarget
 	} from '$lib/collection-extension-navigation';
@@ -26,13 +30,15 @@
 		collection,
 		media,
 		basePath,
-		page
+		page,
+		blockExplorer = getDefaultBlockExplorerConfig()
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		media: ApiCollectionMediaState;
 		basePath: string;
 		page: CollectionExtensionPageRef;
+		blockExplorer?: BlockExplorerConfig;
 	} = $props();
 
 	const resolvedPage = $derived(resolveCollectionExtensionPage(page));
@@ -77,7 +83,7 @@
 	{#if collection}
 		<CollectionJumpForm chainRef={chain?.slug ?? ''} {basePath} mediaMode={media.selectedMode} />
 	{/if}
-	<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
+	<KeyboardShortcutsHelp {keyboardShortcutsHelp} {blockExplorer} />
 {/snippet}
 
 {#snippet extensionTopActions()}

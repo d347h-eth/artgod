@@ -664,7 +664,7 @@
 		{#if collection}
 			<CollectionJumpForm chainRef={chain?.slug ?? ''} basePath={basePath} mediaMode={media.selectedMode} />
 		{/if}
-		<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
+		<KeyboardShortcutsHelp {keyboardShortcutsHelp} {blockExplorer} />
 	{/snippet}
 	{#snippet topActions()}
 		<div class="panel-top-actions-row">

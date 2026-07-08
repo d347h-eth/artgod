@@ -1,8 +1,12 @@
 import { error } from '@sveltejs/kit';
 import { normalizeAddressRef } from '@artgod/shared/utils/ref-resolver';
-import type { PageLoad } from './$types';
-import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import { BackendApiError, getCollectionDetailWithHeaders } from '$lib/backend-api';
+	import type { PageLoad } from './$types';
+	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+	import {
+		BackendApiError,
+		getCollectionDetailWithHeaders,
+		getRuntimeConfig
+	} from '$lib/backend-api';
 import { forwardQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -21,12 +25,15 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 	const displayMode = parseDisplayMode(url.searchParams.get('mode'));
 
 	try {
-		const responseWithHeaders = await getCollectionDetailWithHeaders(
-			fetch,
-			PUBLIC_COLLECTION_SCOPE.chainRef,
-			PUBLIC_COLLECTION_SCOPE.collectionRef,
-			query
-		);
+		const [responseWithHeaders, runtimeConfigResponse] = await Promise.all([
+			getCollectionDetailWithHeaders(
+				fetch,
+				PUBLIC_COLLECTION_SCOPE.chainRef,
+				PUBLIC_COLLECTION_SCOPE.collectionRef,
+				query
+			),
+			getRuntimeConfig(fetch)
+		]);
 		forwardQueryCacheResponseHeaders(setHeaders, responseWithHeaders.headers);
 		const response = responseWithHeaders.payload;
 		const collectionBasePath = '/';
@@ -45,7 +52,8 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 			browserBasePath,
 			owner,
 			requestCursor: query.get('cursor') ?? null,
-			displayMode
+			displayMode,
+			blockExplorer: runtimeConfigResponse.blockExplorer
 		};
 	} catch (cause) {
 		toKitError(cause);

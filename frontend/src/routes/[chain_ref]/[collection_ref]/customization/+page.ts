@@ -1,6 +1,6 @@
-import { error } from '@sveltejs/kit';
-import type { PageLoad } from './$types';
-import { BackendApiError, getCollectionCustomization } from '$lib/backend-api';
+	import { error } from '@sveltejs/kit';
+	import type { PageLoad } from './$types';
+	import { BackendApiError, getCollectionCustomization, getRuntimeConfig } from '$lib/backend-api';
 import { normalizeMediaMode } from '$lib/media-mode';
 import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
@@ -24,7 +24,10 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	}
 
 	try {
-		const response = await getCollectionCustomization(fetch, params.chain_ref, params.collection_ref);
+		const [response, runtimeConfigResponse] = await Promise.all([
+			getCollectionCustomization(fetch, params.chain_ref, params.collection_ref),
+			getRuntimeConfig(fetch)
+		]);
 		return {
 			chain: response.chain,
 			collection: response.collection,
@@ -32,7 +35,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			basePath: `/${response.chain.slug}/${response.collection.slug}`,
 			selectedTraits: parseSelectedTraits(url.searchParams),
 			selectedTraitRanges: parseSelectedTraitRanges(url.searchParams),
-			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode'))
+			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode')),
+			blockExplorer: runtimeConfigResponse.blockExplorer
 		};
 	} catch (cause) {
 		toKitError(cause);

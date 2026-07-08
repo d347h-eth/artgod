@@ -1,5 +1,6 @@
-<script lang="ts">
-	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+	<script lang="ts">
+		import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
+		import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 	import HolderTokensView from '$lib/components/HolderTokensView.svelte';
 	import type {
@@ -27,10 +28,11 @@
 		browserBasePath: string;
 		owner: string;
 		requestCursor: string | null;
-		displayMode: 'grid' | 'table';
-		biddingSettings?: ApiBiddingCollectionSettings;
-		priceTiers?: ApiBiddingPriceTier[];
-	};
+			displayMode: 'grid' | 'table';
+			biddingSettings?: ApiBiddingCollectionSettings;
+			priceTiers?: ApiBiddingPriceTier[];
+			blockExplorer?: BlockExplorerConfig;
+		};
 
 	let { data }: { data?: PageData } = $props();
 
@@ -67,7 +69,8 @@
 	browserBasePath={data?.browserBasePath ?? '/'}
 	owner={data?.owner ?? ''}
 	requestCursor={data?.requestCursor ?? null}
-	displayMode={data?.displayMode ?? 'grid'}
-	biddingSettings={data?.biddingSettings ?? defaultBiddingCollectionSettings()}
-	priceTiers={data?.priceTiers ?? []}
-/>
+		displayMode={data?.displayMode ?? 'grid'}
+		biddingSettings={data?.biddingSettings ?? defaultBiddingCollectionSettings()}
+		priceTiers={data?.priceTiers ?? []}
+		blockExplorer={data?.blockExplorer}
+	/>

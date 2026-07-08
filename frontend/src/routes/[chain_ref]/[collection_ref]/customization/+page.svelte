@@ -1,5 +1,6 @@
-<script lang="ts">
-	import CollectionCustomizationView from '$lib/components/CollectionCustomizationView.svelte';
+	<script lang="ts">
+		import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
+		import CollectionCustomizationView from '$lib/components/CollectionCustomizationView.svelte';
 	import type {
 		ApiChain,
 		ApiCollection,
@@ -13,10 +14,11 @@
 		collection: ApiCollection | null;
 		customization: CollectionCustomizationApiResponse['customization'] | null;
 		basePath: string;
-		selectedTraits: ApiTokenAttribute[];
-		selectedTraitRanges: ApiTraitRangeFilter[];
-		mediaMode: string | null;
-	};
+			selectedTraits: ApiTokenAttribute[];
+			selectedTraitRanges: ApiTraitRangeFilter[];
+			mediaMode: string | null;
+			blockExplorer?: BlockExplorerConfig;
+		};
 
 	let { data }: { data?: PageData } = $props();
 </script>
@@ -26,7 +28,8 @@
 	collection={data?.collection ?? null}
 	customization={data?.customization ?? null}
 	basePath={data?.basePath ?? '/'}
-	selectedTraits={data?.selectedTraits ?? []}
-	selectedTraitRanges={data?.selectedTraitRanges ?? []}
-	mediaMode={data?.mediaMode ?? null}
-/>
+		selectedTraits={data?.selectedTraits ?? []}
+		selectedTraitRanges={data?.selectedTraitRanges ?? []}
+		mediaMode={data?.mediaMode ?? null}
+		blockExplorer={data?.blockExplorer}
+	/>

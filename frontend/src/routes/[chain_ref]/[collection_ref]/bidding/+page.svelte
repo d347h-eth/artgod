@@ -1,7 +1,8 @@
-<script lang="ts">
-	import CollectionBiddingView from '$lib/components/CollectionBiddingView.svelte';
-	import type { BiddingBidBookLiveRefreshConfig } from '@artgod/shared/config/bidding';
-	import type {
+	<script lang="ts">
+		import CollectionBiddingView from '$lib/components/CollectionBiddingView.svelte';
+		import type { BiddingBidBookLiveRefreshConfig } from '@artgod/shared/config/bidding';
+		import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
+		import type {
 		ApiBiddingBidBook,
 		ApiBiddingCollectionSettings,
 		ApiBiddingPriceTier,
@@ -25,10 +26,11 @@
 	type PageData = {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
-		biddingSettings: ApiBiddingCollectionSettings;
-		priceTiers: ApiBiddingPriceTier[];
-		bidBookLiveRefreshConfig?: BiddingBidBookLiveRefreshConfig;
-		bidBook: ApiBiddingBidBook;
+			biddingSettings: ApiBiddingCollectionSettings;
+			priceTiers: ApiBiddingPriceTier[];
+			bidBookLiveRefreshConfig?: BiddingBidBookLiveRefreshConfig;
+			blockExplorer?: BlockExplorerConfig;
+			bidBook: ApiBiddingBidBook;
 		tokenOfferCards: ApiBiddingTokenOfferCardsPage;
 		facets: ApiTraitFacet[];
 		media: ApiCollectionMediaState;
@@ -58,9 +60,10 @@
 	chain={data?.chain ?? null}
 	collection={data?.collection ?? null}
 	biddingSettings={data?.biddingSettings ?? defaultBiddingCollectionSettings()}
-	priceTiers={data?.priceTiers ?? []}
-	bidBookLiveRefreshConfig={data?.bidBookLiveRefreshConfig}
-	bidBook={data?.bidBook ?? emptyBiddingBidBook()}
+		priceTiers={data?.priceTiers ?? []}
+		bidBookLiveRefreshConfig={data?.bidBookLiveRefreshConfig}
+		blockExplorer={data?.blockExplorer}
+		bidBook={data?.bidBook ?? emptyBiddingBidBook()}
 	tokenOfferCards={data?.tokenOfferCards ?? emptyBiddingTokenOfferCardsPage()}
 	facets={data?.facets ?? []}
 	media={data?.media ?? defaultMedia()}

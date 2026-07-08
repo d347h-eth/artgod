@@ -1,6 +1,7 @@
-<script lang="ts">
-	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-	import type { BiddingBidBookLiveRefreshConfig } from '@artgod/shared/config/bidding';
+	<script lang="ts">
+		import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+		import type { BiddingBidBookLiveRefreshConfig } from '@artgod/shared/config/bidding';
+		import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
 	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 	import HolderTokensView from '$lib/components/HolderTokensView.svelte';
 	import type {
@@ -29,10 +30,11 @@
 		owner: string;
 		requestCursor: string | null;
 		displayMode: 'grid' | 'table';
-		biddingSettings: ApiBiddingCollectionSettings;
-		priceTiers: ApiBiddingPriceTier[];
-		bidBookLiveRefreshConfig?: BiddingBidBookLiveRefreshConfig;
-	};
+			biddingSettings: ApiBiddingCollectionSettings;
+			priceTiers: ApiBiddingPriceTier[];
+			bidBookLiveRefreshConfig?: BiddingBidBookLiveRefreshConfig;
+			blockExplorer?: BlockExplorerConfig;
+		};
 
 	let { data }: { data?: PageData } = $props();
 
@@ -71,6 +73,7 @@
 	requestCursor={data?.requestCursor ?? null}
 	displayMode={data?.displayMode ?? 'grid'}
 	biddingSettings={data?.biddingSettings ?? defaultBiddingCollectionSettings()}
-	priceTiers={data?.priceTiers ?? []}
-	bidBookLiveRefreshConfig={data?.bidBookLiveRefreshConfig}
-/>
+		priceTiers={data?.priceTiers ?? []}
+		bidBookLiveRefreshConfig={data?.bidBookLiveRefreshConfig}
+		blockExplorer={data?.blockExplorer}
+	/>

@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
+	import {
+		getDefaultBlockExplorerConfig,
+		type BlockExplorerConfig
+	} from '@artgod/shared/config/block-explorer';
 	import type {
 		ApiChain,
 		ApiCollection,
@@ -36,7 +40,8 @@
 		holders,
 		basePath,
 		selectedMediaMode,
-		requestCursor
+		requestCursor,
+		blockExplorer = getDefaultBlockExplorerConfig()
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
@@ -44,6 +49,7 @@
 		basePath: string;
 		selectedMediaMode: string | null;
 		requestCursor: string | null;
+		blockExplorer?: BlockExplorerConfig;
 	} = $props();
 
 	let visibleHolders = $state<ApiCollectionHolder[]>(holders.items);
@@ -234,7 +240,7 @@
 		{#if collection}
 			<CollectionJumpForm chainRef={chain?.slug ?? ''} basePath={basePath} mediaMode={selectedMediaMode} />
 		{/if}
-		<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
+		<KeyboardShortcutsHelp {keyboardShortcutsHelp} {blockExplorer} />
 	{/snippet}
 	{#snippet topActions()}
 		<div class="panel-top-actions-row">

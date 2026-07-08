@@ -1,7 +1,8 @@
-<script lang="ts">
-	import { onMount } from 'svelte';
-	import { invalidateAll } from '$app/navigation';
-	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+	<script lang="ts">
+		import { onMount } from 'svelte';
+		import { invalidateAll } from '$app/navigation';
+		import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
+		import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 	import CollectionDetailView from '$lib/components/CollectionDetailView.svelte';
 	import CollectionsPageView from '$lib/components/CollectionsPageView.svelte';
@@ -36,10 +37,11 @@
 		selectedTraits: ApiTokenAttribute[];
 		selectedTraitRanges: ApiTraitRangeFilter[];
 		basePath: string;
-		requestCursor: string | null;
-		tokenStatus: 'listed' | 'all';
-		displayMode: 'grid' | 'table';
-	};
+			requestCursor: string | null;
+			tokenStatus: 'listed' | 'all';
+			displayMode: 'grid' | 'table';
+			blockExplorer?: BlockExplorerConfig;
+		};
 
 	type PageData = CollectionsPageData | PublicCollectionPageData;
 
@@ -94,8 +96,9 @@
 		requestCursor={data.requestCursor ?? null}
 		tokenStatus={data.tokenStatus ?? 'listed'}
 		displayMode={data.displayMode ?? 'grid'}
-		biddingSettings={defaultBiddingCollectionSettings()}
-	/>
+			biddingSettings={defaultBiddingCollectionSettings()}
+			blockExplorer={data.blockExplorer}
+		/>
 {:else}
 	<CollectionsPageView
 		chain={data?.chain ?? null}

@@ -1,4 +1,8 @@
 <script lang="ts">
+	import {
+		getDefaultBlockExplorerConfig,
+		type BlockExplorerConfig
+	} from '@artgod/shared/config/block-explorer';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 	import {
 		BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
@@ -52,7 +56,8 @@
 		basePath,
 		selectedTraits,
 		selectedTraitRanges,
-		mediaMode
+		mediaMode,
+		blockExplorer = getDefaultBlockExplorerConfig()
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
@@ -61,6 +66,7 @@
 		selectedTraits: ApiTokenAttribute[];
 		selectedTraitRanges: ApiTraitRangeFilter[];
 		mediaMode: string | null;
+		blockExplorer?: BlockExplorerConfig;
 	} = $props();
 
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
@@ -593,7 +599,7 @@
 		{#if collection}
 			<CollectionJumpForm chainRef={chain?.slug ?? ''} basePath={basePath} mediaMode={mediaMode} />
 		{/if}
-		<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
+		<KeyboardShortcutsHelp {keyboardShortcutsHelp} {blockExplorer} />
 	{/snippet}
 
 	<section class="customization-panel">
