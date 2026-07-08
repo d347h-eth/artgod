@@ -22,16 +22,16 @@ Desktop dev from a clean checkout:
 # Install Yarn Berry/PnP dependencies and materialize the PnP runtime files.
 yarn install --immutable
 
-# Build the browser/userland static UI into frontend/dist-userland.
+# Build userland UI, runtime artifacts, desktop runtime resources, then start Tauri dev.
+yarn dev:composition
+```
+
+`yarn dev:composition` is the clean-checkout desktop dev path. It runs:
+
+```sh
 yarn build:userland
-
-# Bundle backend, indexer workers, and trading bot runtimes into */dist-desktop.
 yarn build:runtime
-
-# Stage runtime artifacts, userland UI, DB migrations, Yarn PnP data, bundled Node, and bundled NATS into src-tauri/resources/runtime.
 yarn build:desktop-runtime-resources
-
-# Start the Tauri dev shell; beforeDevCommand builds the debug sidecar first, then starts the admin frontend dev server.
 yarn dev:desktop
 ```
 
@@ -326,8 +326,8 @@ yarn dlx @yarnpkg/sdks vscode
 # Start backend, indexer launcher, and frontend dev server.
 yarn dev
 
-# Start the desktop dev shell after the desktop dev staging sequence in Quick Start.
-cargo tauri dev
+# Build staged desktop resources and start the desktop dev shell.
+yarn dev:composition
 
 # Start only the backend workspace dev server.
 yarn workspace @artgod/backend run dev

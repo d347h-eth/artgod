@@ -59,10 +59,7 @@ Desktop development from a clean checkout:
 
 ```sh
 yarn install --immutable
-yarn build:userland
-yarn build:runtime
-yarn build:desktop-runtime-resources
-yarn dev:desktop
+yarn dev:composition
 ```
 
 Long-form setup, configuration, versioning, test, and command details live in
