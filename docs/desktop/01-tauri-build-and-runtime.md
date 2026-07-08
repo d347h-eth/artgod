@@ -94,6 +94,9 @@ yarn tauri build --no-bundle --ci
 yarn tauri build --debug --no-bundle --ci
 ```
 
+`yarn tauri ...` resolves the project-pinned `@tauri-apps/cli` binary. The
+desktop workflows do not require the separate Cargo `tauri` subcommand.
+
 What each command does:
 
 - `yarn build:sqlite-native`
