@@ -21,7 +21,7 @@ alloy-signer-local = { version = "1.8.3", default-features = false, features = [
 artgod-secret-prompt-protocol = { path = "crates/artgod-secret-prompt-protocol" }
 futures-util = "0.3"
 log = "0.4"
-rand = "0.8"
+rand = "0.8.6"
 reqwest = { version = "0.13.2", default-features = false, features = ["json", "native-tls-no-alpn"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
