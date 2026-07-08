@@ -86,8 +86,8 @@
     },
     "dependencies": {
         "@opentelemetry/api": "1.9.1",
-        "@opentelemetry/exporter-trace-otlp-http": "0.218.0",
-        "@opentelemetry/sdk-node": "0.218.0",
+        "@opentelemetry/exporter-trace-otlp-http": "0.219.0",
+        "@opentelemetry/sdk-node": "0.219.0",
         "@pyroscope/nodejs": "0.4.12",
         "better-sqlite3": "12.10.0",
         "ox": "0.14.30",

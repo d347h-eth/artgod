@@ -53,6 +53,9 @@ jobs:
                   restore-keys: |
                       ${{ runner.os }}-yarn-security-
 
+            - name: Prepare Yarn project state for security aliases
+              run: yarn install --immutable --mode=skip-build
+
             - name: Verify Yarn lockfile metadata
               run: yarn security:yarn:verify-lockfile
 
@@ -73,6 +76,9 @@ jobs:
 
             - name: Enable Corepack
               run: corepack enable
+
+            - name: Prepare Yarn project state for security aliases
+              run: yarn install --immutable --mode=skip-build
 
             - name: Check Cargo dependency age gate
               run: yarn cargo:age-gate

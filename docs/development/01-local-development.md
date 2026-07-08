@@ -214,6 +214,9 @@ yarn security:yarn:verify
 - `.github/workflows/dependency-security-check.yml` runs these checks for
   dependency-touching pull requests and `main` pushes. The release workflow also
   gates tag builds on the same checks.
+- CI runs `yarn install --immutable --mode=skip-build` before these aliases,
+  because GitHub's fresh checkout cannot run package scripts until Yarn has
+  created the project install state.
 
 ## Cargo Dependency Age Gate
 
@@ -235,6 +238,8 @@ yarn cargo:age-gate
   exceptions for urgent security or release-readiness cases.
 - Use `--package <name>` or `--package <name@version>` to scope either command
   to one package while investigating an alert.
+- CI runs `yarn install --immutable --mode=skip-build` before this alias for
+  the same fresh-checkout package-script install-state reason.
 
 ## Local Infrastructure
 
