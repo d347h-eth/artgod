@@ -31,6 +31,7 @@ import type {
 	ApiImageCacheMode,
 	OwnerRefResolutionApiResponse,
 	OpenSeaCollectionSyncApiResponse,
+	OpenSeaStreamIngestionApiResponse,
 	RuntimeConfigApiResponse,
 	ScheduleBlockspaceBackfillApiResponse,
 	BlockspaceRangeSummaryApiResponse,
@@ -48,6 +49,7 @@ import { browser } from '$app/environment';
 import {
 	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
 	type CollectionBiddingTraitFilterJoinMode,
+	type OpenSeaStreamIngestionStatus,
 	type TokenBrowserStatus,
 	type TradingBiddingTierSelectionMode
 } from '@artgod/shared/types';
@@ -61,7 +63,8 @@ import {
 } from '@artgod/shared/http/bootstrap-routes';
 import {
 	buildStartCollectionBootstrapPath,
-	buildStartCollectionOpenSeaSyncPath
+	buildStartCollectionOpenSeaSyncPath,
+	buildUpdateCollectionOpenSeaStreamIngestionPath
 } from '@artgod/shared/http/collection-routes';
 import { buildLookupBatchTokenBiddingJobsPath } from '@artgod/shared/http/trading-routes';
 import {
@@ -324,6 +327,21 @@ export async function startCollectionOpenSeaSync(
 		buildStartCollectionOpenSeaSyncPath({ chainRef, collectionRef }),
 		'POST',
 		{}
+	);
+}
+
+export async function updateCollectionOpenSeaStreamIngestion(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	status: OpenSeaStreamIngestionStatus
+): Promise<OpenSeaStreamIngestionApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<OpenSeaStreamIngestionApiResponse>(
+		fetchFn,
+		buildUpdateCollectionOpenSeaStreamIngestionPath({ chainRef, collectionRef }),
+		'PUT',
+		{ status }
 	);
 }
 

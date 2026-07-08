@@ -8,6 +8,7 @@ import {
 	type CollectionMediaSource,
 	type CollectionStatus,
 	type OpenSeaCollectionStatus,
+	type OpenSeaStreamIngestionStatus,
 	type TradingBiddingBidBookSource,
 	type TradingBiddingBidBookOwnJobPhase,
 	type TradingBiddingJobRuntimeBidPosition,
@@ -49,6 +50,7 @@ export type ApiCollection = {
 	status: CollectionStatus;
 	openseaSlug?: string | null;
 	openseaStatus?: OpenSeaCollectionStatus | null;
+	openseaStreamIngestionStatus?: OpenSeaStreamIngestionStatus | null;
 	deploymentBlock: number | null;
 	bootstrapAnchorBlock: number | null;
 	createdAt: string;
@@ -533,6 +535,19 @@ export type OpenSeaCollectionSyncApiResponse = {
 		openseaStatus: OpenSeaCollectionStatus | null;
 	};
 	openseaStatus: OpenSeaCollectionStatus;
+};
+
+export type OpenSeaStreamIngestionApiResponse = {
+	chain: ApiChain;
+	collection: {
+		chainId: number;
+		collectionId: number;
+		slug: string;
+		status: CollectionStatus;
+		openseaSlug: string | null;
+		openseaStreamIngestionStatus: OpenSeaStreamIngestionStatus;
+	};
+	openseaStreamIngestionStatus: OpenSeaStreamIngestionStatus;
 };
 
 export type CollectionDetailApiResponse = {

@@ -9,7 +9,8 @@
 		getBootstrapStatus,
 		purgeCollection,
 		startCollectionBootstrap,
-		startCollectionOpenSeaSync
+		startCollectionOpenSeaSync,
+		updateCollectionOpenSeaStreamIngestion
 	} from '$lib/backend-api';
 	import type { ApiChain, ApiCollection, ApiCollectionsPage } from '$lib/api-types';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
@@ -20,7 +21,9 @@
 		COLLECTION_STATUS,
 		COLLECTION_STATUSES,
 		OPENSEA_COLLECTION_STATUS,
-		isOpenSeaCollectionSyncActive
+		OPENSEA_STREAM_INGESTION_STATUS,
+		isOpenSeaCollectionSyncActive,
+		type OpenSeaStreamIngestionStatus
 	} from '@artgod/shared/types';
 
 	let {
@@ -39,7 +42,9 @@
 
 	const COLLECTION_TABLE_ACTION = {
 		StartBootstrap: 'start_bootstrap',
-		StartOpenSeaSync: 'start_opensea_sync'
+		StartOpenSeaSync: 'start_opensea_sync',
+		PauseOpenSeaStream: 'pause_opensea_stream',
+		ResumeOpenSeaStream: 'resume_opensea_stream'
 	} as const;
 	const statusOptions = ['', ...COLLECTION_STATUSES];
 	let latestRunHrefByCollection = $state<Record<string, string | null>>({});
@@ -161,6 +166,20 @@
 		);
 	}
 
+	function canPauseOpenSeaStream(collection: ApiCollection): boolean {
+		return (
+			Boolean(collection.openseaSlug) &&
+			collection.openseaStreamIngestionStatus !== OPENSEA_STREAM_INGESTION_STATUS.Paused
+		);
+	}
+
+	function canResumeOpenSeaStream(collection: ApiCollection): boolean {
+		return (
+			Boolean(collection.openseaSlug) &&
+			collection.openseaStreamIngestionStatus === OPENSEA_STREAM_INGESTION_STATUS.Paused
+		);
+	}
+
 	async function startBootstrap(collection: ApiCollection): Promise<void> {
 		if (!chain || collectionActionPending) return;
 		const pendingKey = actionKey(collection, COLLECTION_TABLE_ACTION.StartBootstrap);
@@ -188,6 +207,29 @@
 		} catch (cause) {
 			collectionActionError =
 				cause instanceof BackendApiError ? cause.message : 'OpenSea sync start failed';
+		} finally {
+			collectionActionPending = null;
+		}
+	}
+
+	async function updateOpenSeaStreamIngestion(
+		collection: ApiCollection,
+		status: OpenSeaStreamIngestionStatus
+	): Promise<void> {
+		if (!chain || collectionActionPending) return;
+		const action =
+			status === OPENSEA_STREAM_INGESTION_STATUS.Paused
+				? COLLECTION_TABLE_ACTION.PauseOpenSeaStream
+				: COLLECTION_TABLE_ACTION.ResumeOpenSeaStream;
+		const pendingKey = actionKey(collection, action);
+		collectionActionPending = pendingKey;
+		collectionActionError = null;
+		try {
+			await updateCollectionOpenSeaStreamIngestion(fetch, chain.slug, collectionRef(collection), status);
+			await goto(currentCollectionsHref(), { invalidateAll: true });
+		} catch (cause) {
+			collectionActionError =
+				cause instanceof BackendApiError ? cause.message : 'OpenSea stream update failed';
 		} finally {
 			collectionActionPending = null;
 		}
@@ -327,6 +369,40 @@
 											actionKey(collection, COLLECTION_TABLE_ACTION.StartOpenSeaSync)
 												? 'starting...'
 												: 'start opensea sync'}
+										</button>
+									{/if}
+									{#if canPauseOpenSeaStream(collection)}
+										<button
+											type="button"
+											class="button-link"
+											onclick={() =>
+												void updateOpenSeaStreamIngestion(
+													collection,
+													OPENSEA_STREAM_INGESTION_STATUS.Paused
+												)}
+											disabled={collectionActionPending !== null}
+										>
+											{collectionActionPending ===
+											actionKey(collection, COLLECTION_TABLE_ACTION.PauseOpenSeaStream)
+												? 'pausing...'
+												: 'pause opensea stream'}
+										</button>
+									{/if}
+									{#if canResumeOpenSeaStream(collection)}
+										<button
+											type="button"
+											class="button-link"
+											onclick={() =>
+												void updateOpenSeaStreamIngestion(
+													collection,
+													OPENSEA_STREAM_INGESTION_STATUS.Enabled
+												)}
+											disabled={collectionActionPending !== null}
+										>
+											{collectionActionPending ===
+											actionKey(collection, COLLECTION_TABLE_ACTION.ResumeOpenSeaStream)
+												? 'resuming...'
+												: 'resume opensea stream'}
 										</button>
 									{/if}
 									<button
