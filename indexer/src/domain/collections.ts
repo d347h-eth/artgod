@@ -4,7 +4,9 @@
 import type {
     CollectionStatus,
     OpenSeaCollectionStatus,
+    OpenSeaStreamIngestionStatus,
 } from "@artgod/shared/types";
+import { OPENSEA_STREAM_INGESTION_STATUS } from "@artgod/shared/types";
 
 // Collection standards supported by the on-chain indexer and order domain.
 export const COLLECTION_STANDARD = {
@@ -64,6 +66,7 @@ type SerializedCollectionRecord = {
     bootstrapLastSyncedBlock: number | null;
     openseaSlug: string | null;
     openseaStatus: OpenSeaCollectionStatus | null;
+    openseaStreamIngestionStatus: OpenSeaStreamIngestionStatus;
     openseaReadyAt: string | null;
     openseaSnapshotStartedAt: string | null;
     openseaSnapshotCompletedAt: string | null;
@@ -244,6 +247,7 @@ export class CollectionRecord {
         public readonly bootstrapLastSyncedBlock: number | null,
         public readonly openseaSlug: string | null,
         public readonly openseaStatus: OpenSeaCollectionStatus | null,
+        public readonly openseaStreamIngestionStatus: OpenSeaStreamIngestionStatus,
         public readonly openseaReadyAt: string | null,
         public readonly openseaSnapshotStartedAt: string | null,
         public readonly openseaSnapshotCompletedAt: string | null,
@@ -276,6 +280,7 @@ export class CollectionRecord {
             input.bootstrapLastSyncedBlock,
             input.openseaSlug,
             input.openseaStatus,
+            input.openseaStreamIngestionStatus,
             input.openseaReadyAt,
             input.openseaSnapshotStartedAt,
             input.openseaSnapshotCompletedAt,
@@ -384,6 +389,14 @@ export class CollectionRecord {
         return this.scope.containsToken(tokenId, hasExplicitToken);
     }
 
+    // True when the operator allows OpenSea stream events to enter the local queue.
+    allowsOpenSeaStreamIngestion(): boolean {
+        return (
+            this.openseaStreamIngestionStatus ===
+            OPENSEA_STREAM_INGESTION_STATUS.Enabled
+        );
+    }
+
     // Intersect a decoded range with this collection scope.
     intersectContinuousTokenRange(
         fromTokenId: string,
@@ -421,6 +434,7 @@ export class CollectionRecord {
             bootstrapLastSyncedBlock: this.bootstrapLastSyncedBlock,
             openseaSlug: this.openseaSlug,
             openseaStatus: this.openseaStatus,
+            openseaStreamIngestionStatus: this.openseaStreamIngestionStatus,
             openseaReadyAt: this.openseaReadyAt,
             openseaSnapshotStartedAt: this.openseaSnapshotStartedAt,
             openseaSnapshotCompletedAt: this.openseaSnapshotCompletedAt,

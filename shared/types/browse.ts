@@ -50,6 +50,33 @@ export const OPENSEA_COLLECTION_STATUS = {
 export type OpenSeaCollectionStatus =
     (typeof OPENSEA_COLLECTION_STATUS)[keyof typeof OPENSEA_COLLECTION_STATUS];
 
+// Names the operator-controlled OpenSea stream ingestion gate persisted per collection.
+export const OPENSEA_STREAM_INGESTION_STATUS = {
+    Enabled: "enabled",
+    Paused: "paused",
+} as const;
+
+export type OpenSeaStreamIngestionStatus =
+    (typeof OPENSEA_STREAM_INGESTION_STATUS)[keyof typeof OPENSEA_STREAM_INGESTION_STATUS];
+
+// Ordered OpenSea stream gate states accepted by API writes and UI controls.
+export const OPENSEA_STREAM_INGESTION_STATUSES = [
+    OPENSEA_STREAM_INGESTION_STATUS.Enabled,
+    OPENSEA_STREAM_INGESTION_STATUS.Paused,
+] as const satisfies readonly OpenSeaStreamIngestionStatus[];
+
+// Checks request/API values before narrowing them to supported stream gate states.
+export function isOpenSeaStreamIngestionStatus(
+    status: string | null | undefined,
+): status is OpenSeaStreamIngestionStatus {
+    return Boolean(
+        status &&
+            OPENSEA_STREAM_INGESTION_STATUSES.includes(
+                status as OpenSeaStreamIngestionStatus,
+            ),
+    );
+}
+
 // OpenSea statuses that represent an in-flight collection sync.
 export const ACTIVE_OPENSEA_COLLECTION_STATUSES: readonly OpenSeaCollectionStatus[] = [
     OPENSEA_COLLECTION_STATUS.Pending,
@@ -103,6 +130,7 @@ export type CollectionListItem = {
     status: CollectionStatus;
     openseaSlug?: string | null;
     openseaStatus?: OpenSeaCollectionStatus | null;
+    openseaStreamIngestionStatus?: OpenSeaStreamIngestionStatus | null;
     deploymentBlock: number | null;
     bootstrapAnchorBlock: number | null;
     createdAt: string;

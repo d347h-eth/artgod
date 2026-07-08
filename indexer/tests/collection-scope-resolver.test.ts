@@ -1,7 +1,14 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
-import { COLLECTION_STATUS, type CollectionStatus } from "@artgod/shared/types";
+import {
+    COLLECTION_STATUS,
+    OPENSEA_COLLECTION_STATUS,
+    OPENSEA_STREAM_INGESTION_STATUS,
+    type CollectionStatus,
+    type OpenSeaCollectionStatus,
+    type OpenSeaStreamIngestionStatus,
+} from "@artgod/shared/types";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
@@ -197,6 +204,44 @@ describe("collection scope resolver", () => {
             [live, bootstrapping].sort((a, b) => a - b),
         );
     });
+
+    it("excludes paused collections from OpenSea stream subscriptions", () => {
+        const chainId = 1;
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const enabled = insertCollection({
+            chainId,
+            slug: "stream-enabled",
+            address: contract,
+            tokenScopeKind: "contract_all_tokens",
+            scopeStartTokenId: null,
+            scopeTotalSupply: null,
+            status: COLLECTION_STATUS.Live,
+            openseaSlug: "stream-enabled",
+            openseaStatus: OPENSEA_COLLECTION_STATUS.Ready,
+            openseaStreamIngestionStatus:
+                OPENSEA_STREAM_INGESTION_STATUS.Enabled,
+        });
+        insertCollection({
+            chainId,
+            slug: "stream-paused",
+            address: contract,
+            tokenScopeKind: "contract_all_tokens",
+            scopeStartTokenId: null,
+            scopeTotalSupply: null,
+            status: COLLECTION_STATUS.Live,
+            openseaSlug: "stream-paused",
+            openseaStatus: OPENSEA_COLLECTION_STATUS.Ready,
+            openseaStreamIngestionStatus:
+                OPENSEA_STREAM_INGESTION_STATUS.Paused,
+        });
+
+        const registry = new SqliteCollectionRegistry();
+        const collectionIds = registry
+            .listCollectionsForOpenSeaSubscription(chainId)
+            .map((collection) => collection.id);
+
+        expect(collectionIds).toEqual([enabled]);
+    });
 });
 
 function insertCollection(input: {
@@ -208,6 +253,9 @@ function insertCollection(input: {
     scopeTotalSupply: number | null;
     status?: CollectionStatus;
     bootstrapAnchorBlock?: number | null;
+    openseaSlug?: string | null;
+    openseaStatus?: OpenSeaCollectionStatus | null;
+    openseaStreamIngestionStatus?: OpenSeaStreamIngestionStatus;
 }): number {
     const result = db
         .prepare<{
@@ -219,10 +267,13 @@ function insertCollection(input: {
             scopeStartTokenId: string | null;
             scopeTotalSupply: number | null;
             bootstrapAnchorBlock: number | null;
+            openseaSlug: string | null;
+            openseaStatus: OpenSeaCollectionStatus | null;
+            openseaStreamIngestionStatus: OpenSeaStreamIngestionStatus;
         }>(
             "INSERT INTO collections " +
-                "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply, bootstrap_anchor_block) " +
-                "VALUES (@chainId, @slug, @address, 'erc721', @status, @tokenScopeKind, @scopeStartTokenId, @scopeTotalSupply, @bootstrapAnchorBlock)",
+                "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply, bootstrap_anchor_block, opensea_slug, opensea_status, opensea_stream_ingestion_status) " +
+                "VALUES (@chainId, @slug, @address, 'erc721', @status, @tokenScopeKind, @scopeStartTokenId, @scopeTotalSupply, @bootstrapAnchorBlock, @openseaSlug, @openseaStatus, @openseaStreamIngestionStatus)",
         )
         .run({
             chainId: input.chainId,
@@ -233,6 +284,11 @@ function insertCollection(input: {
             scopeStartTokenId: input.scopeStartTokenId,
             scopeTotalSupply: input.scopeTotalSupply,
             bootstrapAnchorBlock: input.bootstrapAnchorBlock ?? null,
+            openseaSlug: input.openseaSlug ?? null,
+            openseaStatus: input.openseaStatus ?? null,
+            openseaStreamIngestionStatus:
+                input.openseaStreamIngestionStatus ??
+                OPENSEA_STREAM_INGESTION_STATUS.Enabled,
         });
 
     return Number(result.lastInsertRowid);

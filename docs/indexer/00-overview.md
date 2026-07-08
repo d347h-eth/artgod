@@ -53,11 +53,14 @@ OpenSea runtimes are optional in desktop composition. `OPENSEA_INTEGRATION_MODE=
 
 - Offchain ingest runtime (`indexer/src/runtime/offchain-ingest-worker.ts`)
     - Consumes raw offchain order payloads.
-    - Optionally stores raw observations for audit/debug.
-    - Normalizes OpenSea stream and REST records into canonical order jobs.
+    - Skips queued OpenSea stream payloads when the collection stream ingestion
+      gate is paused.
+    - Optionally stores raw observations for accepted payloads.
+    - Normalizes accepted OpenSea stream and REST records into canonical order jobs.
 
 - OpenSea stream runtime (`indexer/src/runtime/opensea-stream-worker.ts`)
-    - Maintains per-collection stream subscriptions using persisted OpenSea slug.
+    - Maintains per-collection stream subscriptions using persisted OpenSea slug
+      and the operator-controlled stream ingestion gate.
     - Publishes raw OpenSea stream events into the offchain queue.
     - Tracks collection-level stream health timestamps.
 
@@ -140,14 +143,18 @@ These assumptions are relied on by the implementation and should be preserved in
 2. Bootstrap schedules short onchain backfill and, when OpenSea is enabled, an OpenSea bootstrap job in parallel.
 3. OpenSea bootstrap worker resolves OpenSea slug, marks offchain snapshot running, and streams the full orderbook through the offchain raw queue.
 4. If OpenSea was skipped during bootstrap, the backend can enqueue the same OpenSea bootstrap job later for a live collection with a persisted slug.
-5. OpenSea stream worker maintains live subscriptions for `live` collections with known OpenSea slug and publishes raw events into the same offchain raw queue.
-6. Offchain ingest worker records raw observations and normalizes:
+5. OpenSea stream worker maintains live subscriptions for collections with known
+   OpenSea slug while their stream ingestion gate is enabled, and publishes raw
+   events into the same offchain raw queue.
+6. Offchain ingest worker skips queued OpenSea stream payloads for collections
+   whose stream ingestion gate has since been paused, records raw observations
+   for accepted payloads, and normalizes:
     - canonical order upserts
     - source-status updates by order id
     - maker revalidation hints
     - metadata refresh hints
 7. Domain worker persists canonical orders, then validates Seaport orders asynchronously from canonical `seaport_data_json`.
-7. OpenSea reconcile worker periodically re-fetches the full orderbook and marks locally active-but-missing orders `source_status = inactive`.
+8. OpenSea reconcile worker periodically re-fetches the full orderbook and marks locally active-but-missing orders `source_status = inactive`.
 
 ### Collection extension flow
 

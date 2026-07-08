@@ -51,6 +51,7 @@ import {
 import { GetTokenUriUseCase } from "./application/use-cases/collections/get-token-uri.js";
 import { PurgeCollectionUseCase } from "./application/use-cases/collections/purge-collection.js";
 import { StartOpenSeaCollectionSyncUseCase } from "./application/use-cases/collections/start-opensea-collection-sync.js";
+import { UpdateOpenSeaStreamIngestionUseCase } from "./application/use-cases/collections/update-opensea-stream-ingestion.js";
 import { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import {
@@ -97,6 +98,7 @@ import { ExtensionActivityEventPreviewRead } from "./infra/collections/extension
 import { ExtensionAwareTokenUriRead } from "./infra/collections/extension-aware-token-uri-read.js";
 import { SqliteCollectionPurgeRepository } from "./infra/collections/sqlite-collection-purge-repository.js";
 import { SqliteOpenSeaCollectionSyncRepository } from "./infra/collections/sqlite-opensea-collection-sync-repository.js";
+import { SqliteOpenSeaStreamIngestionRepository } from "./infra/collections/sqlite-opensea-stream-ingestion-repository.js";
 import { SqliteCollectionSettingsRepository } from "./infra/collections/sqlite-collection-settings-repository.js";
 import { SqliteCollectionCustomizationRecords } from "./infra/collections/sqlite-collection-customization-records.js";
 import { SqliteCollectionExtensionRecords } from "./infra/collections/sqlite-collection-extension-records.js";
@@ -243,6 +245,8 @@ export function createBackendApp(
     const collectionPurgeRepository = new SqliteCollectionPurgeRepository();
     const openSeaCollectionSyncRepository =
         new SqliteOpenSeaCollectionSyncRepository();
+    const openSeaStreamIngestionRepository =
+        new SqliteOpenSeaStreamIngestionRepository();
     const tradingJobCommandSignalPublisher =
         new NatsTradingJobCommandSignalPublisher(
             config.natsUrl,
@@ -407,6 +411,12 @@ export function createBackendApp(
             chainsReadModel,
             openSeaCollectionSyncRepository,
             openSeaCommandQueue,
+        );
+    const updateOpenSeaStreamIngestionUseCase =
+        new UpdateOpenSeaStreamIngestionUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            openSeaStreamIngestionRepository,
         );
     const resolveOwnerRefUseCase = new ResolveOwnerRefUseCase(
         config.defaultChainId,
@@ -665,6 +675,7 @@ export function createBackendApp(
         scheduleSyncBackfillUseCase,
         purgeCollectionUseCase,
         startOpenSeaCollectionSyncUseCase,
+        updateOpenSeaStreamIngestionUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
         getActivityEventPreviewUseCase,

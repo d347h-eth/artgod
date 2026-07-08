@@ -2,8 +2,10 @@ import { db } from "@artgod/shared/database";
 import {
     COLLECTION_STATUS,
     OPENSEA_COLLECTION_STATUS,
+    OPENSEA_STREAM_INGESTION_STATUS,
     type CollectionStatus,
     type OpenSeaCollectionStatus,
+    type OpenSeaStreamIngestionStatus,
 } from "@artgod/shared/types";
 import {
     CollectionRecord,
@@ -33,6 +35,7 @@ type CollectionRow = {
     bootstrap_last_synced_block: number | null;
     opensea_slug: string | null;
     opensea_status: string | null;
+    opensea_stream_ingestion_status: string;
     opensea_ready_at: string | null;
     opensea_snapshot_started_at: string | null;
     opensea_snapshot_completed_at: string | null;
@@ -46,7 +49,7 @@ type CollectionRow = {
 const SELECT_COLLECTIONS_FIELDS =
     "SELECT chain_id, collection_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply, deployment_block, " +
     "bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block, " +
-    "opensea_slug, opensea_status, opensea_ready_at, opensea_snapshot_started_at, " +
+    "opensea_slug, opensea_status, opensea_stream_ingestion_status, opensea_ready_at, opensea_snapshot_started_at, " +
     "opensea_snapshot_completed_at, opensea_reconcile_started_at, opensea_reconcile_completed_at, " +
     "opensea_last_stream_event_at, opensea_last_stream_healthy_at, opensea_last_error " +
     "FROM collections ";
@@ -79,12 +82,14 @@ export class SqliteCollectionRegistry
         chainId: number;
         liveStatus: CollectionStatus;
         bootstrappingStatus: CollectionStatus;
+        streamIngestionStatus: OpenSeaStreamIngestionStatus;
     }>(
         SELECT_COLLECTIONS_FIELDS +
             "WHERE chain_id = @chainId " +
             "AND status IN (@liveStatus, @bootstrappingStatus) " +
             "AND opensea_slug IS NOT NULL " +
-            "AND opensea_status IS NOT NULL",
+            "AND opensea_status IS NOT NULL " +
+            "AND opensea_stream_ingestion_status = @streamIngestionStatus",
     );
     private selectOpenSeaReconcile = db.prepare<{
         chainId: number;
@@ -325,7 +330,7 @@ export class SqliteCollectionRegistry
 
     listCollectionsForOpenSeaSubscription(chainId: number): CollectionRecord[] {
         const rows = this.selectOpenSeaSubscription.all(
-            syncStatusQuery(chainId),
+            openSeaSubscriptionQuery(chainId),
         ) as CollectionRow[];
         return rows.map(mapRow);
     }
@@ -669,6 +674,8 @@ function mapRow(row: CollectionRow): CollectionRecord {
         bootstrapLastSyncedBlock: row.bootstrap_last_synced_block,
         openseaSlug: row.opensea_slug,
         openseaStatus: row.opensea_status as CollectionRecord["openseaStatus"],
+        openseaStreamIngestionStatus:
+            row.opensea_stream_ingestion_status as OpenSeaStreamIngestionStatus,
         openseaReadyAt: row.opensea_ready_at,
         openseaSnapshotStartedAt: row.opensea_snapshot_started_at,
         openseaSnapshotCompletedAt: row.opensea_snapshot_completed_at,
@@ -689,5 +696,17 @@ function syncStatusQuery(chainId: number): {
         chainId,
         liveStatus: COLLECTION_STATUS.Live,
         bootstrappingStatus: COLLECTION_STATUS.Bootstrapping,
+    };
+}
+
+function openSeaSubscriptionQuery(chainId: number): {
+    chainId: number;
+    liveStatus: CollectionStatus;
+    bootstrappingStatus: CollectionStatus;
+    streamIngestionStatus: OpenSeaStreamIngestionStatus;
+} {
+    return {
+        ...syncStatusQuery(chainId),
+        streamIngestionStatus: OPENSEA_STREAM_INGESTION_STATUS.Enabled,
     };
 }

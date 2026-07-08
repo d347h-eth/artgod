@@ -452,6 +452,39 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/opensea/stream-ingestion:
+        put:
+            tags: [Collections]
+            summary: Update collection OpenSea stream ingestion gate
+            operationId: updateCollectionOpenSeaStreamIngestion
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/UpdateOpenSeaStreamIngestionRequest"
+            responses:
+                "200":
+                    description: OpenSea stream ingestion gate updated
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/UpdateOpenSeaStreamIngestionResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/{collection_ref}/traits/catalog:
         get:
             tags: [Collections]
@@ -1783,7 +1816,11 @@ components:
 
         CollectionStatus:
             type: string
-            enum: [bootstrapping, live, paused, disabled]
+            enum: [prepared, bootstrapping, live, paused, disabled]
+
+        OpenSeaStreamIngestionStatus:
+            type: string
+            enum: [enabled, paused]
 
         CollectionTokenScopeSummary:
             type: object
@@ -1834,6 +1871,16 @@ components:
                     $ref: "#/components/schemas/CollectionStandard"
                 status:
                     $ref: "#/components/schemas/CollectionStatus"
+                openseaSlug:
+                    type: string
+                    nullable: true
+                openseaStatus:
+                    type: string
+                    nullable: true
+                openseaStreamIngestionStatus:
+                    allOf:
+                        - $ref: "#/components/schemas/OpenSeaStreamIngestionStatus"
+                    nullable: true
                 deploymentBlock:
                     type: integer
                     nullable: true
@@ -1886,6 +1933,48 @@ components:
                         $ref: "#/components/schemas/CollectionPurgeDeletedRowCount"
                 totalDeletedRows:
                     type: integer
+
+        UpdateOpenSeaStreamIngestionRequest:
+            type: object
+            required: [status]
+            additionalProperties: false
+            properties:
+                status:
+                    $ref: "#/components/schemas/OpenSeaStreamIngestionStatus"
+
+        UpdateOpenSeaStreamIngestionResponse:
+            type: object
+            required: [chain, collection, openseaStreamIngestionStatus]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    type: object
+                    required:
+                        - chainId
+                        - collectionId
+                        - slug
+                        - status
+                        - openseaSlug
+                        - openseaStreamIngestionStatus
+                    additionalProperties: false
+                    properties:
+                        chainId:
+                            type: integer
+                        collectionId:
+                            type: integer
+                        slug:
+                            type: string
+                        status:
+                            $ref: "#/components/schemas/CollectionStatus"
+                        openseaSlug:
+                            type: string
+                            nullable: true
+                        openseaStreamIngestionStatus:
+                            $ref: "#/components/schemas/OpenSeaStreamIngestionStatus"
+                openseaStreamIngestionStatus:
+                    $ref: "#/components/schemas/OpenSeaStreamIngestionStatus"
 
         ActivityExtensionEventFeed:
             type: object

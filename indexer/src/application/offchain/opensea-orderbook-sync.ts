@@ -1,7 +1,9 @@
 import { logger } from "@artgod/shared/utils";
 import type { CollectionRecord } from "../../domain/collections.js";
 import {
+    OFFCHAIN_OBSERVATION_CHANNEL,
     OFFCHAIN_JOB_KIND,
+    OFFCHAIN_ORDER_SOURCE,
     type OffchainOrderRawPayload,
 } from "../../domain/offchain-jobs.js";
 import type { JobEnvelope } from "../../domain/jobs.js";
@@ -87,7 +89,7 @@ export class OpenSeaOrderbookSync {
         const deactivatedOrders = this.sourceState.markMissingOrdersInactive(
             collection.chainId,
             collection.id,
-            "opensea",
+            OFFCHAIN_ORDER_SOURCE.OpenSea,
             activeOrderIds,
         );
 
@@ -111,10 +113,13 @@ export class OpenSeaOrderbookSync {
         runId: number,
         record: OpenSeaRestRecord,
     ): Promise<string | null> {
-        const channel = kind === "snapshot" ? "snapshot" : "reconcile";
+        const channel =
+            kind === OFFCHAIN_OBSERVATION_CHANNEL.Snapshot
+                ? OFFCHAIN_OBSERVATION_CHANNEL.Snapshot
+                : OFFCHAIN_OBSERVATION_CHANNEL.Reconcile;
         const receivedAt = Date.now();
         const payload: OffchainOrderRawPayload = {
-            source: "opensea",
+            source: OFFCHAIN_ORDER_SOURCE.OpenSea,
             chainId: collection.chainId,
             collectionId: collection.id,
             receivedAt,

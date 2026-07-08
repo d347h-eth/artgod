@@ -8,7 +8,10 @@ import {
     ARTGOD_SPAN_NAME,
 } from "../observability/artgod-span-attributes.js";
 import type { ApmPort, SpanAttributes } from "../observability/apm.js";
-import { TOKEN_BROWSER_STATUS } from "../types/browse.js";
+import {
+    OPENSEA_STREAM_INGESTION_STATUS,
+    TOKEN_BROWSER_STATUS,
+} from "../types/browse.js";
 import {
     TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     TOKEN_ATTRIBUTE_SOURCE_KIND,
@@ -975,6 +978,9 @@ function createSchema(): void {
             scope_total_supply INTEGER,
             deployment_block INTEGER,
             bootstrap_anchor_block INTEGER,
+            opensea_slug TEXT,
+            opensea_status TEXT,
+            opensea_stream_ingestion_status TEXT NOT NULL DEFAULT '${OPENSEA_STREAM_INGESTION_STATUS.Enabled}',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             PRIMARY KEY (chain_id, collection_id)

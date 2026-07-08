@@ -2,6 +2,8 @@
 export const COLLECTION_API_ROUTE_TEMPLATE = {
     StartBootstrap: "/api/:chain_ref/:collection_ref/bootstrap/start",
     StartOpenSeaSync: "/api/:chain_ref/:collection_ref/opensea/sync",
+    UpdateOpenSeaStreamIngestion:
+        "/api/:chain_ref/:collection_ref/opensea/stream-ingestion",
 } as const;
 
 const COLLECTION_API_CHAIN_REF_PARAM = ":chain_ref";
@@ -25,6 +27,17 @@ export function buildStartCollectionOpenSeaSyncPath(input: {
 }): string {
     return buildCollectionRoute(
         COLLECTION_API_ROUTE_TEMPLATE.StartOpenSeaSync,
+        input,
+    );
+}
+
+// Builds the backend route used to pause or resume OpenSea stream ingestion for a collection.
+export function buildUpdateCollectionOpenSeaStreamIngestionPath(input: {
+    chainRef: string;
+    collectionRef: string;
+}): string {
+    return buildCollectionRoute(
+        COLLECTION_API_ROUTE_TEMPLATE.UpdateOpenSeaStreamIngestion,
         input,
     );
 }

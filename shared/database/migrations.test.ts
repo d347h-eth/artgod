@@ -6,6 +6,7 @@ import {
     TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
     TOKEN_ATTRIBUTE_SOURCE_KIND,
 } from "../types/token-attributes.js";
+import { OPENSEA_STREAM_INGESTION_STATUS } from "../types/browse.js";
 import { TERRAFORMS_MAINNET_PRESET_COLLECTION } from "../extensions/terraforms.js";
 import { resolveProjectPath } from "../utils/paths.js";
 import { db, setDbPath } from "./db.js";
@@ -49,6 +50,7 @@ type PresetCollectionRow = {
     bootstrap_anchor_block: number | null;
     opensea_slug: string | null;
     opensea_status: string | null;
+    opensea_stream_ingestion_status: string;
 };
 
 describe("MigrationRunner token attribute source upgrades", () => {
@@ -230,7 +232,8 @@ describe("MigrationRunner preset collections", () => {
             .prepare<[]>(
                 "SELECT collection_id, chain_id, slug, address, standard, status, " +
                     "token_scope_kind, scope_start_token_id, scope_total_supply, " +
-                    "deployment_block, bootstrap_anchor_block, opensea_slug, opensea_status " +
+                    "deployment_block, bootstrap_anchor_block, opensea_slug, opensea_status, " +
+                    "opensea_stream_ingestion_status " +
                     "FROM collections WHERE collection_id = 1 LIMIT 1",
             )
             .get() as PresetCollectionRow | undefined;
@@ -250,6 +253,8 @@ describe("MigrationRunner preset collections", () => {
             bootstrap_anchor_block: null,
             opensea_slug: TERRAFORMS_MAINNET_PRESET_COLLECTION.openseaSlug,
             opensea_status: null,
+            opensea_stream_ingestion_status:
+                OPENSEA_STREAM_INGESTION_STATUS.Enabled,
         });
         expect(countRows("tokens")).toBe(0);
         expect(countRows("bootstrap_runs")).toBe(0);

@@ -24,6 +24,7 @@ import type { GetTokenPreviewPort } from "./application/use-cases/collections/ge
 import type { GetTokenUriUseCase } from "./application/use-cases/collections/get-token-uri.js";
 import type { PurgeCollectionUseCase } from "./application/use-cases/collections/purge-collection.js";
 import type { StartOpenSeaCollectionSyncUseCase } from "./application/use-cases/collections/start-opensea-collection-sync.js";
+import type { UpdateOpenSeaStreamIngestionUseCase } from "./application/use-cases/collections/update-opensea-stream-ingestion.js";
 import type { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import type { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import type {
@@ -79,6 +80,7 @@ import { GetTokenUriHttpAdapter } from "./http/handlers/collections/get-token-ur
 import { PurgeCollectionHttpAdapter } from "./http/handlers/collections/purge-collection.js";
 import { StartCollectionBootstrapHttpAdapter } from "./http/handlers/collections/start-collection-bootstrap.js";
 import { StartCollectionOpenSeaSyncHttpAdapter } from "./http/handlers/collections/start-collection-opensea-sync.js";
+import { UpdateCollectionOpenSeaStreamIngestionHttpAdapter } from "./http/handlers/collections/update-collection-opensea-stream-ingestion.js";
 import { UpdateCollectionCustomizationHttpAdapter } from "./http/handlers/collections/update-collection-customization.js";
 import { ListCollectionsHttpAdapter } from "./http/handlers/collections/list-collections.js";
 import { GetBlockspaceRangeSummaryHttpAdapter } from "./http/handlers/blockspace/get-blockspace-range-summary.js";
@@ -158,6 +160,7 @@ export function createApiApp(
     scheduleSyncBackfillUseCase: ScheduleSyncBackfillPort,
     purgeCollectionUseCase: PurgeCollectionUseCase,
     startOpenSeaCollectionSyncUseCase: StartOpenSeaCollectionSyncUseCase,
+    updateOpenSeaStreamIngestionUseCase: UpdateOpenSeaStreamIngestionUseCase,
     resolveOwnerRefUseCase: ResolveOwnerRefUseCase,
     getCollectionActivityUseCase: GetCollectionActivityUseCase,
     getActivityEventPreviewUseCase: GetActivityEventPreviewUseCase,
@@ -253,6 +256,10 @@ export function createApiApp(
     const startCollectionOpenSeaSyncAdapter =
         new StartCollectionOpenSeaSyncHttpAdapter(
             startOpenSeaCollectionSyncUseCase,
+        );
+    const updateCollectionOpenSeaStreamIngestionAdapter =
+        new UpdateCollectionOpenSeaStreamIngestionHttpAdapter(
+            updateOpenSeaStreamIngestionUseCase,
         );
     const getBlockspaceStateAdapter = new GetBlockspaceStateHttpAdapter(
         getSyncBackfillStateUseCase,
@@ -414,6 +421,7 @@ export function createApiApp(
         scheduleBlockspaceBackfillAdapter,
         purgeCollectionAdapter,
         startCollectionOpenSeaSyncAdapter,
+        updateCollectionOpenSeaStreamIngestionAdapter,
         resolveOwnerRefAdapter,
         getCollectionActivityAdapter,
         getActivityEventPreviewAdapter,
