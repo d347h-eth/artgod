@@ -96,12 +96,14 @@ As of 2026-07-08, newer Tauri packages are already published:
 Routine dependency upgrades should keep Yarn's 30-day minimum-age gate enabled.
 This branch intentionally lands on `tauri` / `@tauri-apps/cli` `2.11.3` as a
 public-alpha release exception; keep any later Tauri bump as a separate review
-chunk from signing setup.
+chunk from signing setup. Run `yarn security:yarn:verify` after JavaScript
+dependency updates and before pushing a release tag.
 
 Expected future upgrade shape:
 
 ```sh
 yarn up @tauri-apps/cli@<cli-version> @tauri-apps/api@<api-version> -E
+yarn security:yarn:verify
 cargo update --manifest-path src-tauri/Cargo.toml -p tauri --precise <runtime-version>
 cargo update --manifest-path src-tauri/Cargo.toml -p tauri-build -p tauri-plugin-log -p tauri-plugin-shell
 ```

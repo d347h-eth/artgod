@@ -191,6 +191,30 @@ Notes:
 - Run `yarn sync:version` before building release artifacts or pushing a
   release tag so Tauri, Cargo, workspace manifests, and OpenAPI stay aligned.
 
+## Node Dependency Security Verification
+
+Yarn dependency updates keep install scripts disabled and use the checked-in
+30-day npm age gate. For dependency-update review and release verification, run
+the hardened lockfile metadata check and high-or-critical advisory audit:
+
+```sh
+yarn security:yarn:verify-lockfile
+yarn security:yarn:audit
+yarn security:yarn:verify
+```
+
+- `yarn security:yarn:verify-lockfile` runs `yarn install` with immutable,
+  refresh-lockfile, check-resolutions, and skip-build flags. It keeps the final
+  lockfile fixed while forcing Yarn to validate package metadata and resolution
+  coherence against the registry.
+- `yarn security:yarn:audit` runs the npm advisory audit across all workspaces
+  and transitive dependencies at `high` severity and above.
+- `yarn security:yarn:verify` runs both checks in sequence and is the default
+  local command before committing broad Node/Yarn lockfile updates.
+- `.github/workflows/dependency-security-check.yml` runs these checks for
+  dependency-touching pull requests and `main` pushes. The release workflow also
+  gates tag builds on the same checks.
+
 ## Cargo Dependency Age Gate
 
 Rust dependency updates use a best-effort age gate to mirror Yarn's minimum-age
