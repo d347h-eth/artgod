@@ -2,6 +2,7 @@ import {
 	TERRAFORMS_EXTENSION_KEY,
 	TERRAFORMS_EXTENSION_PAGE_REFS
 } from '@artgod/shared/extensions/terraforms';
+import { getDefaultBlockExplorerConfig } from '@artgod/shared/config/block-explorer';
 import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import type { CollectionExtensionPageLoadResult } from '$lib/collection-extension-pages/page-load';
 
@@ -44,6 +45,7 @@ export function buildTerraformsExtensionPageE2eData(): CollectionExtensionPageLo
 		page: {
 			extensionKey: TERRAFORMS_EXTENSION_KEY,
 			pageRef: TERRAFORMS_EXTENSION_PAGE_REFS.Hypercastle
-		}
+		},
+		blockExplorer: getDefaultBlockExplorerConfig()
 	};
 }

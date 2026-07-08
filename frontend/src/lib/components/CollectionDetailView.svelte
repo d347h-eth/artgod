@@ -6,6 +6,10 @@
 		DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
 		type BiddingBidBookLiveRefreshConfig
 	} from '@artgod/shared/config/bidding';
+	import {
+		getDefaultBlockExplorerConfig,
+		type BlockExplorerConfig
+	} from '@artgod/shared/config/block-explorer';
 	import { TRADING_JOB_STATUS } from '@artgod/shared/types';
 	import type {
 		ApiChain,
@@ -79,7 +83,8 @@
 		displayMode,
 		biddingSettings,
 		priceTiers = [],
-		bidBookLiveRefreshConfig = DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG
+		bidBookLiveRefreshConfig = DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
+		blockExplorer = getDefaultBlockExplorerConfig()
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
@@ -95,6 +100,7 @@
 		biddingSettings: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
 		bidBookLiveRefreshConfig?: BiddingBidBookLiveRefreshConfig;
+		blockExplorer?: BlockExplorerConfig;
 	} = $props();
 
 	const BOOTSTRAP_POLL_INTERVAL_MS = 5_000;
@@ -419,7 +425,7 @@
 		{#if collection}
 			<CollectionJumpForm chainRef={chain?.slug ?? ''} basePath={basePath} mediaMode={media.selectedMode} />
 		{/if}
-		<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
+		<KeyboardShortcutsHelp {keyboardShortcutsHelp} {blockExplorer} />
 	{/snippet}
 	{#snippet topActions()}
 		{#if collection}

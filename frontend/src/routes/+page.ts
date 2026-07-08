@@ -5,7 +5,8 @@ import {
 	BackendApiError,
 	getCollectionDetailWithHeaders,
 	getCollectionsPage,
-	getDefaultChain
+	getDefaultChain,
+	getRuntimeConfig
 } from '$lib/backend-api';
 import { forwardQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import {
@@ -31,12 +32,15 @@ export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
 		const displayMode = parseDisplayMode(url.searchParams.get('mode'));
 
 		try {
-			const responseWithHeaders = await getCollectionDetailWithHeaders(
-				fetch,
-				PUBLIC_COLLECTION_SCOPE.chainRef,
-				PUBLIC_COLLECTION_SCOPE.collectionRef,
-				query
-			);
+			const [responseWithHeaders, runtimeConfigResponse] = await Promise.all([
+				getCollectionDetailWithHeaders(
+					fetch,
+					PUBLIC_COLLECTION_SCOPE.chainRef,
+					PUBLIC_COLLECTION_SCOPE.collectionRef,
+					query
+				),
+				getRuntimeConfig(fetch)
+			]);
 			forwardQueryCacheResponseHeaders(setHeaders, responseWithHeaders.headers);
 			const response = responseWithHeaders.payload;
 			return {
@@ -51,7 +55,8 @@ export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
 				basePath: '/',
 				requestCursor: query.get('cursor') ?? null,
 				tokenStatus,
-				displayMode
+				displayMode,
+				blockExplorer: runtimeConfigResponse.blockExplorer
 			};
 		} catch (cause) {
 			toKitError(cause);
@@ -90,14 +95,18 @@ export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
 
 	try {
 		const defaultChain = await getDefaultChain(fetch);
-		const response = await getCollectionsPage(fetch, defaultChain.chain.slug, params);
+		const [response, runtimeConfigResponse] = await Promise.all([
+			getCollectionsPage(fetch, defaultChain.chain.slug, params),
+			getRuntimeConfig(fetch)
+		]);
 		return {
 			mode: 'collections' as const,
 			chain: response.chain,
 			page: response.page,
 			status: response.filters.status ?? '',
 			basePath: '/',
-			deferred: false
+			deferred: false,
+			blockExplorer: runtimeConfigResponse.blockExplorer
 		};
 	} catch (cause) {
 		toKitError(cause);

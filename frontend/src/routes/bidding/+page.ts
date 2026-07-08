@@ -44,11 +44,12 @@ export const load: PageLoad = async ({ fetch, url }) => {
 		]);
 		return {
 			chain: bidBookResponse.chain,
-			collection: bidBookResponse.collection,
-			biddingSettings: defaultBiddingCollectionSettings(),
-			priceTiers: [],
-			bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh,
-			bidBook: bidBookResponse.bidBook,
+				collection: bidBookResponse.collection,
+				biddingSettings: defaultBiddingCollectionSettings(),
+				priceTiers: [],
+				bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh,
+				blockExplorer: runtimeConfigResponse.blockExplorer,
+				bidBook: bidBookResponse.bidBook,
 			tokenOfferCards: bidBookResponse.tokenOfferCards,
 			facets: bidBookResponse.traits.facets,
 			media: bidBookResponse.media,

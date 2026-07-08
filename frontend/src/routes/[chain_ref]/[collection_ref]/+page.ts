@@ -93,10 +93,11 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 			requestCursor: query.get('cursor') ?? null,
 			tokenStatus,
 			displayMode,
-			biddingSettings: priceTiersResponse.settings,
-			priceTiers: priceTiersResponse.tiers,
-			bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh
-		};
+				biddingSettings: priceTiersResponse.settings,
+				priceTiers: priceTiersResponse.tiers,
+				bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh,
+				blockExplorer: runtimeConfigResponse.blockExplorer
+			};
 	} catch (cause) {
 		toKitError(cause);
 	}

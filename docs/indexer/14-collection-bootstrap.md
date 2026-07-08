@@ -37,6 +37,31 @@ normal bootstrap run from the persisted row, and enqueues
 `bootstrap.collection.start`. It does not start automatically on first app
 launch.
 
+## CLI Triggers
+
+Trigger collection bootstrap with `metadata-mode` defaulting to `best_effort`.
+The trigger calls the backend bootstrap API, probes the contract first, applies
+the same extension/image-cache suggestion the frontend form would submit, then
+creates the durable run through the backend step planner. Run it only while the
+backend is in an admin-capable deployment mode; public single-collection mode
+does not register bootstrap write routes.
+
+```sh
+yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --metadata-mode strict
+yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --metadata-mode best_effort
+yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --slug <slug> --opensea-slug <opensea-slug> --metadata-mode strict
+```
+
+Inside the deploy `backend` container, the trigger defaults to the local backend
+listener at `http://127.0.0.1:<BACKEND_PORT>`. Use `--backend-origin` only when
+calling a different backend origin.
+
+Trigger manual historical backfill from CLI:
+
+```sh
+yarn workspace @artgod/indexer run dev:backfill-trigger --from-block <n> --to-block <n> [--collection-id <id>] [--batch-size <n>]
+```
+
 ## Current Lifecycle
 
 Collections normally start outside the indexed set. When the user adds a new

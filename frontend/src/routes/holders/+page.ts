@@ -1,6 +1,6 @@
-import { error } from '@sveltejs/kit';
-import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import { BackendApiError, getCollectionHolders } from '$lib/backend-api';
+	import { error } from '@sveltejs/kit';
+	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+	import { BackendApiError, getCollectionHolders, getRuntimeConfig } from '$lib/backend-api';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -16,19 +16,23 @@ export const load: PageLoad = async ({ fetch, url }) => {
 	const query = normalizeCollectionHoldersParams(url.searchParams);
 
 	try {
-		const response = await getCollectionHolders(
-			fetch,
-			PUBLIC_COLLECTION_SCOPE.chainRef,
-			PUBLIC_COLLECTION_SCOPE.collectionRef,
-			query
-		);
+		const [response, runtimeConfigResponse] = await Promise.all([
+			getCollectionHolders(
+				fetch,
+				PUBLIC_COLLECTION_SCOPE.chainRef,
+				PUBLIC_COLLECTION_SCOPE.collectionRef,
+				query
+			),
+			getRuntimeConfig(fetch)
+		]);
 		return {
 			chain: response.chain,
 			collection: response.collection,
 			holders: response.holders,
 			basePath: '/',
 			selectedMediaMode: normalizeMediaMode(url.searchParams.get('media_mode')),
-			requestCursor: query.get('cursor') ?? null
+			requestCursor: query.get('cursor') ?? null,
+			blockExplorer: runtimeConfigResponse.blockExplorer
 		};
 	} catch (cause) {
 		toKitError(cause);

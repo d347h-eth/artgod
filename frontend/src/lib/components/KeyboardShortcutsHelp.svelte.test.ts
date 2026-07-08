@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import {
+	BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY,
+	BLOCK_EXPLORER_ADDRESS_PLACEHOLDER,
+	BLOCK_EXPLORER_BASE_URL_ENV_KEY,
+	parseBlockExplorerConfig
+} from '@artgod/shared/config/block-explorer';
 import { APP_VERSION } from '$lib/runtime/app-version';
 import KeyboardShortcutsHelp from './KeyboardShortcutsHelp.svelte';
 import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
@@ -20,20 +26,36 @@ describe('KeyboardShortcutsHelp', () => {
 	it('renders the shortcuts modal content when open', () => {
 		const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
 		keyboardShortcutsHelp.open();
+		const blockExplorer = parseBlockExplorerConfig({
+			[BLOCK_EXPLORER_BASE_URL_ENV_KEY]: 'https://explorer.example',
+			[BLOCK_EXPLORER_ADDRESS_PATH_TEMPLATE_ENV_KEY]: `/account/${BLOCK_EXPLORER_ADDRESS_PLACEHOLDER}`
+		});
 
 		const { body } = render(KeyboardShortcutsHelp, {
 			props: {
-				keyboardShortcutsHelp
+				keyboardShortcutsHelp,
+				blockExplorer
 			}
 		});
 
 		expect(body).toContain('keyboard shortcuts');
+		expect(body).toContain('>ABOUT<');
+		expect(body.indexOf(APP_VERSION)).toBeLessThan(body.indexOf('Token Browser Preview Navigation'));
+		expect(body).toContain(
+			'ArtGod is free and copyleft open-source software (AGPL-3.0). There is no funding, no sale, no airdrop, no farming, and no token.'
+		);
+		expect(body).toContain('Donations welcome:');
+		expect(body).toContain('donations.artgod.eth');
+		expect(body).toContain('https://explorer.example/account/donations.artgod.eth');
+		expect(body).toContain('https://explorer.example/account/artgod.eth');
 		expect(body).toContain('Token Browser Preview Navigation');
 		expect(body).toContain('Collection Navigation');
 		expect(body).toContain('Bidding');
 		expect(body).toContain(APP_VERSION);
 		expect(body).toContain('artgod.network');
 		expect(body).toContain('x.com/artgod_eth');
+		expect(body).toContain('github.com/d347h-eth/artgod');
+		expect(body).toContain('artgod.eth');
 		expect(body).toContain('>F1<');
 		expect(body).toContain('>1<');
 		expect(body).toContain('open asks');

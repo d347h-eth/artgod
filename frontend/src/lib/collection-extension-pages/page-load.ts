@@ -1,7 +1,15 @@
-import { error } from '@sveltejs/kit';
-import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
-import type { ApiChain, ApiCollection, ApiCollectionMediaState } from '$lib/api-types';
-import { BackendApiError, getCollectionDetailWithHeaders } from '$lib/backend-api';
+	import { error } from '@sveltejs/kit';
+	import {
+		getDefaultBlockExplorerConfig,
+		type BlockExplorerConfig
+	} from '@artgod/shared/config/block-explorer';
+	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+	import type { ApiChain, ApiCollection, ApiCollectionMediaState } from '$lib/api-types';
+	import {
+		BackendApiError,
+		getCollectionDetailWithHeaders,
+		getRuntimeConfig
+	} from '$lib/backend-api';
 import type { CollectionExtensionPageRef } from '$lib/collection-extension-pages/types';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
 import {
@@ -12,10 +20,11 @@ import {
 export type CollectionExtensionPageLoadResult = {
 	chain: ApiChain | null;
 	collection: ApiCollection | null;
-	media: ApiCollectionMediaState;
-	basePath: string;
-	page: CollectionExtensionPageRef;
-};
+		media: ApiCollectionMediaState;
+		basePath: string;
+		page: CollectionExtensionPageRef;
+		blockExplorer: BlockExplorerConfig;
+	};
 
 type CollectionExtensionPageLoadInput = {
 	fetch: typeof fetch;
@@ -35,7 +44,10 @@ const COLLECTION_EXTENSION_PAGE_TOKEN_LIMIT = 1;
 export async function loadCollectionExtensionPage(
 	input: CollectionExtensionPageLoadInput
 ): Promise<CollectionExtensionPageLoadResult> {
-	const responseWithHeaders = await requestCollectionDetail(input);
+		const [responseWithHeaders, runtimeConfigResponse] = await Promise.all([
+			requestCollectionDetail(input),
+			getRuntimeConfig(input.fetch)
+		]);
 	forwardQueryCacheResponseHeaders(input.setHeaders, responseWithHeaders.headers);
 	const response = responseWithHeaders.payload;
 	if (!collectionHasExtension(response.collection, input.extensionKey)) {
@@ -45,13 +57,14 @@ export async function loadCollectionExtensionPage(
 	return {
 		chain: response.chain,
 		collection: response.collection,
-		media: response.media,
-		basePath: input.basePath ?? `/${response.chain.slug}/${response.collection.slug}`,
-		page: {
-			extensionKey: input.extensionKey,
-			pageRef: input.pageRef
-		}
-	};
+			media: response.media,
+			basePath: input.basePath ?? `/${response.chain.slug}/${response.collection.slug}`,
+			page: {
+				extensionKey: input.extensionKey,
+				pageRef: input.pageRef
+			},
+			blockExplorer: runtimeConfigResponse.blockExplorer
+		};
 }
 
 // Builds the empty shape used by admin/static shell routes before backend data is available.
@@ -66,11 +79,12 @@ export function emptyCollectionExtensionPageLoadResult(
 			selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
 			defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
 			availableModes: [{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }]
-		},
-		basePath,
-		page
-	};
-}
+			},
+			basePath,
+			page,
+			blockExplorer: getDefaultBlockExplorerConfig()
+		};
+	}
 
 async function requestCollectionDetail(input: CollectionExtensionPageLoadInput) {
 	try {

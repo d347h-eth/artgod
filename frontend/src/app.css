@@ -1281,11 +1281,23 @@ th {
 	gap: 1rem;
 }
 
+.shortcuts-help-about {
+	display: grid;
+	justify-items: start;
+	gap: 0.35rem;
+}
+
+.shortcuts-help-about p {
+	margin: 0;
+}
+
 .shortcuts-help-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
 	gap: 1rem 1.25rem;
 	align-items: start;
+	padding-top: 1rem;
+	border-top: 1px solid var(--c-blue);
 }
 
 .shortcuts-help-section {
@@ -1336,14 +1348,6 @@ th {
 	font-family: inherit;
 	font-size: 0.72rem;
 	text-transform: uppercase;
-}
-
-.shortcuts-help-footer {
-	display: inline-grid;
-	justify-items: start;
-	gap: 0.35rem;
-	padding-top: 0.25rem;
-	border-top: 1px solid var(--c-blue);
 }
 
 .shortcuts-help-links {

@@ -237,7 +237,7 @@ to public single-collection mode before sharing the site publicly.
 
 ## Notes
 
-- Project versioning is documented centrally in `README.md` under `Versioning`.
+- Project versioning is documented in `docs/development/01-local-development.md`.
 - The deploy stack does not take a separate app-version env override; the frontend build reads the root workspace version directly.
 - `PUBLIC_BACKEND_ORIGIN` is the browser-facing backend origin baked into the SSR frontend build. If you change the public domain, rebuild the image.
 - `INTERNAL_BACKEND_ORIGIN` is the runtime-only backend origin used by the SSR frontend server process itself; in the default compose setup it should stay `http://backend:42710`.

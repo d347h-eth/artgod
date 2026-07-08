@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import {
+		getDefaultBlockExplorerConfig,
+		type BlockExplorerConfig
+	} from '@artgod/shared/config/block-explorer';
+	import {
 		BackendApiError,
 		getBootstrapStatus,
 		purgeCollection,
@@ -8,6 +12,8 @@
 		startCollectionOpenSeaSync
 	} from '$lib/backend-api';
 	import type { ApiChain, ApiCollection, ApiCollectionsPage } from '$lib/api-types';
+	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
+	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import {
@@ -21,12 +27,14 @@
 		chain,
 		page,
 		status,
-		basePath
+		basePath,
+		blockExplorer = getDefaultBlockExplorerConfig()
 	}: {
 		chain: ApiChain | null;
 		page: ApiCollectionsPage;
 		status: string;
 		basePath: string;
+		blockExplorer?: BlockExplorerConfig;
 	} = $props();
 
 	const COLLECTION_TABLE_ACTION = {
@@ -42,6 +50,7 @@
 	let purgeError = $state<string | null>(null);
 	let purgeSubmitting = $state(false);
 	let purgedCollectionKeys = $state<Set<string>>(new Set());
+	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
 	let visibleCollections = $derived(
 		page.items.filter((collection) => !purgedCollectionKeys.has(collectionKey(collection)))
 	);
@@ -223,11 +232,18 @@
 			purgeSubmitting = false;
 		}
 	}
+
+	function onWindowKeydown(event: KeyboardEvent): void {
+		keyboardShortcutsHelp.onWindowKeydown(event);
+	}
 </script>
+
+<svelte:window onkeydown={onWindowKeydown} />
 
 <section class="panel">
 	<header class="panel-header">
 		<h1 class="app-title">ArtGod {APP_VERSION}</h1>
+		<KeyboardShortcutsHelp {keyboardShortcutsHelp} {blockExplorer} />
 	</header>
 
 	<ListPagesTabs chainSlug={chain?.slug ?? null} active="collections" />

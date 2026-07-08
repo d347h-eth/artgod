@@ -7,6 +7,10 @@
 		DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
 		type BiddingBidBookLiveRefreshConfig
 	} from '@artgod/shared/config/bidding';
+	import {
+		getDefaultBlockExplorerConfig,
+		type BlockExplorerConfig
+	} from '@artgod/shared/config/block-explorer';
 	import type {
 		ApiBiddingBidBook,
 		ApiBiddingBidBookRow,
@@ -148,7 +152,8 @@
 		showMuted = false,
 		makerFilter = null,
 		mediaMode,
-		requestCursor = null
+		requestCursor = null,
+		blockExplorer = getDefaultBlockExplorerConfig()
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
@@ -168,6 +173,7 @@
 		makerFilter?: string | null;
 		mediaMode: string | null;
 		requestCursor?: string | null;
+		blockExplorer?: BlockExplorerConfig;
 	} = $props();
 
 	const tokenPreview = getTokenPreviewController();
@@ -1033,7 +1039,7 @@
 		{#if collection}
 			<CollectionJumpForm chainRef={chain?.slug ?? ''} basePath={basePath} mediaMode={mediaMode} />
 		{/if}
-		<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
+		<KeyboardShortcutsHelp {keyboardShortcutsHelp} {blockExplorer} />
 	{/snippet}
 	{#snippet topActions()}
 		{#if collection}

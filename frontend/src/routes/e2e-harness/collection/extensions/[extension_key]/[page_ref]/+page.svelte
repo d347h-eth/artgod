@@ -11,4 +11,5 @@
 	media={data.media}
 	basePath={data.basePath}
 	page={data.page}
+	blockExplorer={data.blockExplorer}
 />
