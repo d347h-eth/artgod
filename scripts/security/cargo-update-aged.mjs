@@ -52,8 +52,16 @@ try {
     const unchanged = [];
     const skipped = [];
     const blocked = [];
+    let lockedPackageKeys = new Set(packages.map(packageKey));
 
     for (const packageEntry of packages) {
+        if (!lockedPackageKeys.has(packageKey(packageEntry))) {
+            skipped.push(
+                `${packageKey(packageEntry)}: already changed by an earlier cargo update`,
+            );
+            continue;
+        }
+
         const versions = await getCachedVersions(
             versionCache,
             packageEntry.name,
@@ -118,8 +126,13 @@ try {
             packageEntry,
             targetVersion: targetMetadata.number,
         });
+        lockedPackageKeys = await readLockedPackageKeys(lockfilePath);
         if (status === 0) {
             updated.push(updateLabel);
+        } else if (!lockedPackageKeys.has(packageKey(packageEntry))) {
+            skipped.push(
+                `${packageKey(packageEntry)}: already changed by an earlier cargo update`,
+            );
         } else {
             blocked.push(
                 `${updateLabel}: cargo update exited with status ${status}`,
@@ -148,6 +161,14 @@ async function getCachedVersions(versionCache, crateName) {
         versionCache.set(crateName, versions);
     }
     return versions;
+}
+
+async function readLockedPackageKeys(lockfilePath) {
+    return new Set(
+        collectCratesIoPackages(await readCargoLockPackages(lockfilePath)).map(
+            packageKey,
+        ),
+    );
 }
 
 function printSummary({ updated, unchanged, skipped, blocked }) {
