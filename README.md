@@ -4,9 +4,8 @@ ArtGod is a local-first desktop platform for NFT collection indexing,
 exploration, market data, and bidding workflows.
 
 It is free and copyleft open source (`AGPL-3.0-only`). The system is built to
-give network users more autonomy and agency: backend, workers, queue broker,
-database, wallet custody, and trading runtimes run locally instead of depending
-on centralized ArtGod servers. Public blockchain RPC and marketplace APIs are
+give network users more autonomy and agency: all services run locally instead of depending
+on centralized servers. Blockchain RPC and marketplace APIs are
 external inputs; ArtGod-owned state stays under the operator's control.
 
 ## What It Is
@@ -26,8 +25,8 @@ external inputs; ArtGod-owned state stays under the operator's control.
   collection bootstrap, token browsing, trait facets, activities, holders,
   owner-scoped views, token detail pages, and blockspace coverage exploration.
 - Real-time market data sync and visualization: onchain sync, OpenSea snapshot,
-  stream, and reconcile lanes, canonical order state, bid books, and public
-  read-only collection pages.
+  stream, and reconcile lanes, canonical order state, bid books, and customized
+  content pages.
 - Bidding automation: wallet-bound local bot runtime, DB-backed token, trait,
   and collection bidding jobs, price tiers, live command reconciliation, and
   bid-book feedback.
@@ -36,6 +35,12 @@ external inputs; ArtGod-owned state stays under the operator's control.
   bundled extension.
 - Local operations: native Admin config, runtime control, wallet unlock,
   logs, optional observability stack, and desktop release packaging.
+
+Wallet custody follows the same local-first model: imported EVM private keys are
+stored by the Rust desktop layer as encrypted standard Ethereum keystore files,
+separate from non-secret wallet metadata. Unlocking is per bot start, so the
+decrypted key is handed to the local trading runtime for that launch rather than
+cached as a reusable session.
 
 For the current public-alpha scope and implementation snapshot, see
 `docs/project/01-public-alpha-scope.md`.
@@ -47,13 +52,6 @@ Requirements:
 - Node `24.3.0` and Yarn `4.12.0` from `package.json`
 - Docker for local NATS and optional observability services
 - Rust `1.93.1` from `rust-toolchain.toml` for desktop/Tauri work
-
-Local web/indexer development:
-
-```sh
-yarn install --immutable
-yarn dev
-```
 
 Desktop development from a clean checkout:
 
