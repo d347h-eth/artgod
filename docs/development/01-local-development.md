@@ -191,6 +191,27 @@ Notes:
 - Run `yarn sync:version` before building release artifacts or pushing a
   release tag so Tauri, Cargo, workspace manifests, and OpenAPI stay aligned.
 
+## Cargo Dependency Age Gate
+
+Rust dependency updates use a best-effort age gate to mirror Yarn's minimum-age
+policy without running a custom crates.io mirror.
+
+```sh
+yarn cargo:update-aged --dry-run
+yarn cargo:update-aged
+yarn cargo:age-gate
+```
+
+- `yarn cargo:update-aged` reads `src-tauri/Cargo.lock`, queries crates.io, and
+  steers each locked crates.io package toward the newest non-yanked,
+  Cargo-caret-compatible version that is at least the configured age.
+- `yarn cargo:age-gate` is read-only and fails when the final lockfile contains
+  package versions newer than the configured age without a policy exception.
+- `config/cargo-age-gate.json` owns the minimum age and explicit fresh-version
+  exceptions for urgent security or release-readiness cases.
+- Use `--package <name>` or `--package <name@version>` to scope either command
+  to one package while investigating an alert.
+
 ## Local Infrastructure
 
 Start local infra with NATS and JetStream:

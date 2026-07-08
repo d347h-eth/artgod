@@ -34,6 +34,8 @@
         "build:desktop-sidecars": "node ./scripts/build/prepare-desktop-sidecars.mjs",
         "config:generate": "node ./scripts/config/generate-env-example.mjs",
         "config:check": "node ./scripts/config/generate-env-example.mjs --check",
+        "cargo:update-aged": "node ./scripts/security/cargo-update-aged.mjs",
+        "cargo:age-gate": "node ./scripts/security/cargo-age-gate.mjs",
         "observability:fix-permissions": "node ./scripts/observability/ensure-grafana-provisioning-permissions.mjs",
         "observability:up": "node ./scripts/observability/compose.mjs up",
         "observability:stop": "node ./scripts/observability/compose.mjs stop",

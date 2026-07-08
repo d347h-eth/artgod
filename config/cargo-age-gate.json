@@ -1,0 +1,70 @@
+{
+    "minimumAgeDays": 30,
+    "freshVersionExceptions": [
+        {
+            "name": "dbus",
+            "version": "0.9.12",
+            "reason": "User-approved public-alpha Tauri 2.11.3 upgrade exception."
+        },
+        {
+            "name": "muda",
+            "version": "0.19.3",
+            "reason": "User-approved public-alpha Tauri 2.11.3 upgrade exception."
+        },
+        {
+            "name": "openssl-sys",
+            "version": "0.9.117",
+            "reason": "Critical/high OpenSSL security alert remediation exception."
+        },
+        {
+            "name": "tauri",
+            "version": "2.11.3",
+            "reason": "User-approved public-alpha Tauri 2.11.3 upgrade exception."
+        },
+        {
+            "name": "tauri-build",
+            "version": "2.6.3",
+            "reason": "User-approved public-alpha Tauri 2.11.3 upgrade exception."
+        },
+        {
+            "name": "tauri-codegen",
+            "version": "2.6.3",
+            "reason": "User-approved public-alpha Tauri 2.11.3 upgrade exception."
+        },
+        {
+            "name": "tauri-macros",
+            "version": "2.6.3",
+            "reason": "User-approved public-alpha Tauri 2.11.3 upgrade exception."
+        },
+        {
+            "name": "tauri-runtime",
+            "version": "2.11.3",
+            "reason": "User-approved public-alpha Tauri 2.11.3 upgrade exception."
+        },
+        {
+            "name": "tauri-runtime-wry",
+            "version": "2.11.4",
+            "reason": "User-approved public-alpha Tauri 2.11.3 upgrade exception."
+        },
+        {
+            "name": "tauri-utils",
+            "version": "2.9.3",
+            "reason": "User-approved public-alpha Tauri 2.11.3 upgrade exception."
+        },
+        {
+            "name": "tendril",
+            "version": "0.5.1",
+            "reason": "User-approved public-alpha Tauri 2.11.3 upgrade exception."
+        },
+        {
+            "name": "tray-icon",
+            "version": "0.24.1",
+            "reason": "User-approved public-alpha Tauri 2.11.3 upgrade exception."
+        },
+        {
+            "name": "web_atoms",
+            "version": "0.2.5",
+            "reason": "User-approved public-alpha Tauri 2.11.3 upgrade exception."
+        }
+    ]
+}
