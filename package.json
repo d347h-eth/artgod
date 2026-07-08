@@ -21,8 +21,8 @@
         "dev": "./scripts/dev.sh",
         "dev:indexer": "./scripts/indexer-dev.sh",
         "dev:composition": "yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources && yarn dev:desktop",
-        "dev:desktop": "cargo tauri dev --no-watch",
-        "tauri": "cargo tauri",
+        "dev:desktop": "tauri dev --no-watch",
+        "tauri": "tauri",
         "build": "node ./scripts/build/build-frontend-target.mjs web",
         "build:web": "node ./scripts/build/build-frontend-target.mjs web",
         "build:userland": "node ./scripts/build/build-frontend-target.mjs userland",
@@ -78,7 +78,7 @@
         }
     },
     "devDependencies": {
-        "@tauri-apps/cli": "^2.6.0",
+        "@tauri-apps/cli": "2.11.3",
         "@types/better-sqlite3": "^7.6.12",
         "@types/node": "24.3.3",
         "@vitest/coverage-v8": "4.1.0",

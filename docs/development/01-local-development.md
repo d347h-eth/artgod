@@ -41,7 +41,8 @@ yarn build:desktop-runtime-resources
 yarn dev:desktop
 ```
 
-`cargo tauri dev` does not run `beforeBuildCommand`, so
+`yarn dev:desktop` runs `tauri dev --no-watch`, which does not run
+`beforeBuildCommand`, so
 `frontend/dist-userland` and `src-tauri/resources/runtime` must already exist
 after a clean checkout or `yarn clean:build`. The debug sidecar is built by
 `beforeDevCommand` before the admin frontend dev server starts.
