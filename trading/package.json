@@ -14,11 +14,11 @@
         "better-sqlite3": "^v12.2.0",
         "dotenv": "^16.4.5",
         "nats": "^2.29.1",
-        "viem": "2.41.2"
+        "viem": "2.54.6"
     },
     "devDependencies": {
         "@types/node": "^24.0.0",
         "typescript": "^5.8.3",
-        "vitest": "4.0.13"
+        "vitest": "4.1.0"
     }
 }

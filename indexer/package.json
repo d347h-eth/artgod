@@ -32,13 +32,13 @@
         "dotenv": "^16.4.5",
         "nats": "^2.29.1",
         "sharp": "0.33.5",
-        "viem": "2.41.2"
+        "viem": "2.54.6"
     },
     "devDependencies": {
         "execa": "^9.5.2",
         "testcontainers": "^10.21.0",
         "tsx": "^4.20.3",
         "typescript": "^5.8.3",
-        "vitest": "^2.0.5"
+        "vitest": "^3.2.6"
     }
 }

@@ -64,7 +64,7 @@
     "dependencies": {
         "better-sqlite3": "^v12.2.0",
         "dotenv": "^16.4.5",
-        "viem": "2.41.2"
+        "viem": "2.54.6"
     },
     "dependenciesMeta": {
         "better-sqlite3@12.5.0": {
@@ -81,13 +81,13 @@
         "@tauri-apps/cli": "^2.6.0",
         "@types/better-sqlite3": "^7.6.12",
         "@types/node": "24.3.3",
-        "@vitest/coverage-v8": "4.0.13",
+        "@vitest/coverage-v8": "4.1.0",
         "concurrently": "^9.1.0",
         "esbuild": "0.25.5",
         "prettier": "3.7.4",
         "tsx": "4.20.5",
         "typescript": "5.9.2",
-        "vitest": "4.0.13"
+        "vitest": "4.1.0"
     },
     "prettier": {
         "tabWidth": 4,
