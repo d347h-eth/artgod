@@ -41,7 +41,8 @@ yarn build:desktop-runtime-resources
 yarn dev:desktop
 ```
 
-`cargo tauri dev` does not run `beforeBuildCommand`, so
+`yarn dev:desktop` runs `tauri dev --no-watch`, which does not run
+`beforeBuildCommand`, so
 `frontend/dist-userland` and `src-tauri/resources/runtime` must already exist
 after a clean checkout or `yarn clean:build`. The debug sidecar is built by
 `beforeDevCommand` before the admin frontend dev server starts.
@@ -189,6 +190,51 @@ Notes:
   example root `0.0.1-pre-alpha.3` -> tag `v0.0.1-pre-alpha.3`.
 - Run `yarn sync:version` before building release artifacts or pushing a
   release tag so Tauri, Cargo, workspace manifests, and OpenAPI stay aligned.
+
+## Node Dependency Security Verification
+
+Yarn dependency updates keep install scripts disabled and use the checked-in
+30-day npm age gate. For dependency-update review and release verification, run
+the hardened lockfile metadata check and high-or-critical advisory audit:
+
+```sh
+yarn security:yarn:verify-lockfile
+yarn security:yarn:audit
+yarn security:yarn:verify
+```
+
+- `yarn security:yarn:verify-lockfile` runs `yarn install` with immutable,
+  refresh-lockfile, check-resolutions, and skip-build flags. It keeps the final
+  lockfile fixed while forcing Yarn to validate package metadata and resolution
+  coherence against the registry.
+- `yarn security:yarn:audit` runs the npm advisory audit across all workspaces
+  and transitive dependencies at `high` severity and above.
+- `yarn security:yarn:verify` runs both checks in sequence and is the default
+  local command before committing broad Node/Yarn lockfile updates.
+- `.github/workflows/dependency-security-check.yml` runs these checks for
+  dependency-touching pull requests and `main` pushes. The release workflow also
+  gates tag builds on the same checks.
+
+## Cargo Dependency Age Gate
+
+Rust dependency updates use a best-effort age gate to mirror Yarn's minimum-age
+policy without running a custom crates.io mirror.
+
+```sh
+yarn cargo:update-aged --dry-run
+yarn cargo:update-aged
+yarn cargo:age-gate
+```
+
+- `yarn cargo:update-aged` reads `src-tauri/Cargo.lock`, queries crates.io, and
+  steers each locked crates.io package toward the newest non-yanked,
+  Cargo-caret-compatible version that is at least the configured age.
+- `yarn cargo:age-gate` is read-only and fails when the final lockfile contains
+  package versions newer than the configured age without a policy exception.
+- `config/cargo-age-gate.json` owns the minimum age and explicit fresh-version
+  exceptions for urgent security or release-readiness cases.
+- Use `--package <name>` or `--package <name@version>` to scope either command
+  to one package while investigating an alert.
 
 ## Local Infrastructure
 

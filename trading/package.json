@@ -8,17 +8,17 @@
     },
     "dependencies": {
         "@artgod/shared": "workspace:*",
-        "@opensea/sdk": "10.5.0",
-        "@opensea/stream-js": "0.3.1",
+        "@opensea/sdk": "11.1.1",
+        "@opensea/stream-js": "0.4.0",
         "async-mutex": "0.5.0",
-        "better-sqlite3": "^v12.2.0",
-        "dotenv": "^16.4.5",
-        "nats": "^2.29.1",
-        "viem": "2.41.2"
+        "better-sqlite3": "12.10.0",
+        "dotenv": "17.4.2",
+        "nats": "2.29.3",
+        "viem": "2.54.6"
     },
     "devDependencies": {
-        "@types/node": "^24.0.0",
-        "typescript": "^5.8.3",
-        "vitest": "4.0.13"
+        "@types/node": "25.9.2",
+        "typescript": "6.0.3",
+        "vitest": "4.1.8"
     }
 }

@@ -124,7 +124,7 @@ describe('CollectionBiddingView', () => {
 		});
 
 		expect(body).toContain(
-			'<button type="button" class="secondary-tab-active" disabled>collection</button>'
+			'<button type="button" class="secondary-tab-active" disabled="">collection</button>'
 		);
 		expect(body).toContain('refresh pace');
 		expect(body).not.toContain('facet-panel-controls-row');
@@ -313,7 +313,9 @@ describe('CollectionBiddingView', () => {
 			}
 		});
 
-		expect(body).toContain('<button type="button" class="secondary-tab-active" disabled>token</button>');
+		expect(body).toContain(
+			'<button type="button" class="secondary-tab-active" disabled="">token</button>'
+		);
 		expect(body).toContain('https://example.com/milady-1.png');
 		expect(body).toContain('Hat=Beanie');
 		expect(body).toContain('ask-price');
@@ -392,12 +394,12 @@ describe('CollectionBiddingView', () => {
 		});
 
 		expect(body).toContain(
-			'<button type="button" class="secondary-tab-active" disabled>traits</button>'
+			'<button type="button" class="secondary-tab-active" disabled="">traits</button>'
 		);
 		expect(body).toContain('/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection');
 		expect(body).toContain('value="0x9999999999999999999999999999999999999999"');
 		expect(body).toContain(
-			'<button type="button" class="secondary-tab-active" disabled>my bids</button>'
+			'<button type="button" class="secondary-tab-active" disabled="">my bids</button>'
 		);
 		expect(body).toContain(
 			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0x9999999999999999999999999999999999999999'

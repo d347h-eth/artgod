@@ -78,27 +78,34 @@ Workflow policy:
 
 ## Current Tauri State
 
-The current checked-in Tauri stack is not fully current:
+The checked-in Tauri stack is pinned for public-alpha release validation:
 
-- Rust `tauri`: `2.10.2`
-- Rust `tauri-build`: `2.5.5`
-- JavaScript `@tauri-apps/cli`: version range `^2.6.0`
+- Rust `tauri`: `2.11.3`
+- Rust `tauri-build`: `2.6.3`
+- Rust `tauri-plugin-log`: `2.8.0`
+- Rust `tauri-plugin-shell`: `2.3.5`
+- JavaScript `@tauri-apps/cli`: `2.11.3`
+- JavaScript `@tauri-apps/api`: `2.11.1`
 
-As of 2026-07-08, the current Tauri v2 release line is:
+As of 2026-07-08, newer Tauri packages are already published:
 
 - `tauri`: `2.11.5`
-- `tauri-cli` / `@tauri-apps/cli`: `2.11.4`
-- `tauri-bundler`: `2.9.4`
+- `@tauri-apps/cli`: `2.11.4`
+- `@tauri-apps/api`: `2.11.1`
 
-Upgrade Tauri before a public release candidate, but keep it as a separate
-review chunk from signing setup. The release pipeline should be green on the
-current stack first, then the Tauri upgrade should run through the same matrix.
+Routine dependency upgrades should keep Yarn's 30-day minimum-age gate enabled.
+This branch intentionally lands on `tauri` / `@tauri-apps/cli` `2.11.3` as a
+public-alpha release exception; keep any later Tauri bump as a separate review
+chunk from signing setup. Run `yarn security:yarn:verify` after JavaScript
+dependency updates and before pushing a release tag.
 
-Expected upgrade shape:
+Expected future upgrade shape:
 
 ```sh
-yarn up @tauri-apps/cli@2.11.4
-cargo update --manifest-path src-tauri/Cargo.toml -p tauri -p tauri-build -p tauri-plugin-log -p tauri-plugin-shell
+yarn up @tauri-apps/cli@<cli-version> @tauri-apps/api@<api-version> -E
+yarn security:yarn:verify
+cargo update --manifest-path src-tauri/Cargo.toml -p tauri --precise <runtime-version>
+cargo update --manifest-path src-tauri/Cargo.toml -p tauri-build -p tauri-plugin-log -p tauri-plugin-shell
 ```
 
 If Cargo does not select the intended versions, update `src-tauri/Cargo.toml`

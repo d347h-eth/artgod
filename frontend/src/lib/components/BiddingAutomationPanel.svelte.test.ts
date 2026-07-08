@@ -443,8 +443,8 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).toContain('value="0.301"');
 		expect(body).toContain('value="0.001"');
 		expect(body).toContain('>create<');
-		expect(body).toContain('disabled>pause<');
-		expect(body).toContain('disabled>archive<');
+		expect(body).toContain('disabled="">pause<');
+		expect(body).toContain('disabled="">archive<');
 	});
 
 	it('renders unsupported trait drafts without form controls or actions', () => {
@@ -635,7 +635,7 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).toContain('value="0.4"');
 		expect(body).toContain('value="0.01"');
 		expect(body).not.toContain('value="0.301"');
-		expect(body).toContain('disabled>modify<');
+		expect(body).toContain('disabled="">modify<');
 	});
 
 	it('does not apply the page token job to a selected trait bid draft', () => {
@@ -709,9 +709,9 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).toContain('>activate<');
 		expect(body).toContain('>archive<');
 		expect(body).not.toContain('>pause<');
-		expect(body).toContain('disabled>modify<');
-		expect(body).not.toContain('disabled>activate<');
-		expect(body).not.toContain('disabled>archive<');
+		expect(body).toContain('disabled="">modify<');
+		expect(body).not.toContain('disabled="">activate<');
+		expect(body).not.toContain('disabled="">archive<');
 	});
 
 	it('renders selected collection bid drafts as explicit collection jobs', () => {

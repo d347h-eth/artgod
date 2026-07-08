@@ -11,7 +11,43 @@ permissions:
     attestations: write
 
 jobs:
+    dependency-security:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: package.json
+
+            - name: Enable Corepack
+              run: corepack enable
+
+            - name: Cache Yarn local artifacts
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      .yarn/cache
+                      .yarn/unplugged
+                  key: ${{ runner.os }}-yarn-security-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
+                  restore-keys: |
+                      ${{ runner.os }}-yarn-security-
+
+            - name: Verify Yarn lockfile metadata
+              run: yarn security:yarn:verify-lockfile
+
+            - name: Audit Node dependency advisories
+              run: yarn security:yarn:audit
+
+            - name: Check Cargo dependency age gate
+              run: yarn cargo:age-gate
+
     build:
+        needs: dependency-security
+
         strategy:
             fail-fast: false
             matrix:
