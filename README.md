@@ -8,6 +8,9 @@ give network users more autonomy and agency: all services run locally instead of
 on centralized servers. Blockchain RPC and marketplace APIs are
 external inputs; ArtGod-owned state stays under the operator's control.
 
+There is no funding, no sale, no airdrop, no farming, and no token.
+Donations welcome: donations.artgod.eth
+
 ## What It Is
 
 - Cross-platform desktop app built with Tauri, SvelteKit, TypeScript, Rust,
@@ -49,9 +52,8 @@ For the current public-alpha scope and implementation snapshot, see
 
 Requirements:
 
-- Node `24.3.0` and Yarn `4.12.0` from `package.json`
-- Docker for local NATS and optional observability services
-- Rust `1.93.1` from `rust-toolchain.toml` for desktop/Tauri work
+- Node and Yarn from `package.json`
+- Rust from `rust-toolchain.toml` for desktop/Tauri work
 
 Desktop development from a clean checkout:
 
