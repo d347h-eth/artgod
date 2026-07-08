@@ -22,12 +22,6 @@ jobs:
                       node_dist_target: linux-x64
                       bundles: appimage,deb
                       artifact_name: artgod-linux-x64
-                    - os: windows-latest
-                      target: x86_64-pc-windows-msvc
-                      rust_targets: x86_64-pc-windows-msvc
-                      node_dist_target: win-x64
-                      bundles: nsis
-                      artifact_name: artgod-windows-x64
                     - os: macos-latest
                       target: universal-apple-darwin
                       rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
@@ -36,6 +30,7 @@ jobs:
                       artifact_name: artgod-macos-universal
 
         runs-on: ${{ matrix.os }}
+        environment: desktop-release-signing
 
         steps:
             - name: Checkout
@@ -76,12 +71,16 @@ jobs:
                       libgtk-3-dev \
                       libayatana-appindicator3-dev \
                       librsvg2-dev \
-                      patchelf
+                      patchelf \
+                      python3 \
+                      make \
+                      g++
 
             - name: Install workspace dependencies
-              env:
-                  YARN_ENABLE_SCRIPTS: true
               run: yarn install --immutable
+
+            - name: Build trusted native SQLite dependency
+              run: yarn build:sqlite-native
 
             - name: Check desktop runtime registry consistency
               run: yarn check:runtime-registry
@@ -92,7 +91,7 @@ jobs:
               run: |
                   set -euo pipefail
                   missing=0
-                  for key in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER; do
+                  for key in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_KEY_P8_B64 APPLE_API_KEY_ID APPLE_API_ISSUER; do
                     if [ -z "${!key:-}" ]; then
                       echo "Missing required secret: $key"
                       missing=1
@@ -105,7 +104,7 @@ jobs:
                   APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
                   APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
                   APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-                  APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+                  APPLE_API_KEY_P8_B64: ${{ secrets.APPLE_API_KEY_P8_B64 }}
                   APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
                   APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
@@ -120,7 +119,7 @@ jobs:
                   KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
 
                   echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
-                  echo "$APPLE_API_KEY" | base64 --decode > "$KEY_PATH"
+                  echo "$APPLE_API_KEY_P8_B64" | base64 --decode > "$KEY_PATH"
 
                   security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
                   security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
@@ -136,7 +135,7 @@ jobs:
               env:
                   APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
                   APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-                  APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+                  APPLE_API_KEY_P8_B64: ${{ secrets.APPLE_API_KEY_P8_B64 }}
                   APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
 
             - name: Build Tauri bundle
@@ -155,13 +154,8 @@ jobs:
                   test -f src-tauri/resources/runtime/.yarn/install-state.gz
                   test -f src-tauri/resources/runtime/.pnp.cjs
                   test -f src-tauri/resources/runtime/.pnp.loader.mjs
-                  if [ "${{ runner.os }}" = "Windows" ]; then
-                    test -f src-tauri/resources/runtime/node/node.exe
-                    test -f src-tauri/resources/runtime/nats/nats-server.exe
-                  else
-                    test -f src-tauri/resources/runtime/node/node
-                    test -f src-tauri/resources/runtime/nats/nats-server
-                  fi
+                  test -f src-tauri/resources/runtime/node/node
+                  test -f src-tauri/resources/runtime/nats/nats-server
 
             - name: Verify macOS code signing
               if: runner.os == 'macOS'
@@ -174,7 +168,6 @@ jobs:
                     exit 1
                   fi
                   codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-                  spctl --assess --type execute --verbose=4 "$APP_PATH"
 
             - name: Collect release artifacts
               shell: bash
@@ -182,7 +175,7 @@ jobs:
                   set -euo pipefail
                   mkdir -p release-assets
                   find "src-tauri/target/${{ matrix.target }}/release/bundle" -type f \
-                    \( -name "*.AppImage" -o -name "*.deb" -o -name "*.dmg" -o -name "*.msi" -o -name "*.exe" -o -name "*.app.tar.gz" \) \
+                    \( -name "*.AppImage" -o -name "*.deb" -o -name "*.dmg" -o -name "*.app.tar.gz" \) \
                     -exec cp {} release-assets/ \;
                   if [ -z "$(ls -A release-assets)" ]; then
                     echo "No bundle artifacts found"
@@ -208,6 +201,7 @@ jobs:
 
                   xcrun stapler staple "$DMG_PATH"
                   xcrun stapler validate "$DMG_PATH"
+                  spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG_PATH"
               env:
                   APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
                   APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
@@ -266,74 +260,6 @@ jobs:
                   LINUX_GPG_KEY_ID: ${{ secrets.LINUX_GPG_KEY_ID }}
                   LINUX_GPG_OWNERTRUST: ${{ secrets.LINUX_GPG_OWNERTRUST }}
 
-            - name: Validate Windows signing secrets
-              if: runner.os == 'Windows'
-              shell: pwsh
-              run: |
-                  $required = @("WINDOWS_CERT_PFX_B64", "WINDOWS_CERT_PASSWORD")
-                  $missing = @()
-                  foreach ($key in $required) {
-                    if ([string]::IsNullOrWhiteSpace((Get-Item -Path "Env:$key" -ErrorAction SilentlyContinue).Value)) {
-                      $missing += $key
-                    }
-                  }
-                  if ($missing.Count -gt 0) {
-                    throw "Missing required secrets: $($missing -join ', ')"
-                  }
-              env:
-                  WINDOWS_CERT_PFX_B64: ${{ secrets.WINDOWS_CERT_PFX_B64 }}
-                  WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
-
-            - name: Sign Windows artifacts (Authenticode)
-              if: runner.os == 'Windows'
-              shell: pwsh
-              run: |
-                  $pfxPath = Join-Path $env:RUNNER_TEMP "artgod-signing-cert.pfx"
-                  [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_B64))
-
-                  $securePassword = ConvertTo-SecureString -String $env:WINDOWS_CERT_PASSWORD -AsPlainText -Force
-                  $importedCert = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword -Exportable
-
-                  $thumbprint = $env:WINDOWS_CERT_SHA1
-                  if ([string]::IsNullOrWhiteSpace($thumbprint)) {
-                    if (-not $importedCert) {
-                      throw "Could not determine certificate thumbprint"
-                    }
-                    $thumbprint = $importedCert.Thumbprint
-                  }
-
-                  $signtool = (Get-Command signtool.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)
-                  if (-not $signtool) {
-                    $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
-                      Sort-Object FullName -Descending |
-                      Select-Object -First 1 -ExpandProperty FullName)
-                  }
-                  if (-not $signtool) {
-                    throw "signtool.exe was not found on runner"
-                  }
-
-                  $timestampUrl = if ([string]::IsNullOrWhiteSpace($env:WINDOWS_TIMESTAMP_URL)) { "http://timestamp.digicert.com" } else { $env:WINDOWS_TIMESTAMP_URL }
-                  $artifacts = Get-ChildItem release-assets -File | Where-Object { $_.Extension -in @('.exe', '.msi') }
-                  if (-not $artifacts) {
-                    throw "No Windows artifacts found to sign"
-                  }
-
-                  foreach ($artifact in $artifacts) {
-                    & $signtool sign /fd SHA256 /td SHA256 /tr $timestampUrl /sha1 $thumbprint $artifact.FullName
-                    if ($LASTEXITCODE -ne 0) {
-                      throw "Signing failed for $($artifact.FullName)"
-                    }
-                    & $signtool verify /pa /v $artifact.FullName
-                    if ($LASTEXITCODE -ne 0) {
-                      throw "Signature verification failed for $($artifact.FullName)"
-                    }
-                  }
-              env:
-                  WINDOWS_CERT_PFX_B64: ${{ secrets.WINDOWS_CERT_PFX_B64 }}
-                  WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
-                  WINDOWS_CERT_SHA1: ${{ secrets.WINDOWS_CERT_SHA1 }}
-                  WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
-
             - name: Upload build artifacts
               uses: actions/upload-artifact@v4
               with:
@@ -343,6 +269,7 @@ jobs:
     release:
         needs: build
         runs-on: ubuntu-latest
+        environment: desktop-release-signing
 
         steps:
             - name: Download all artifacts
@@ -402,6 +329,8 @@ jobs:
             - name: Publish GitHub release
               uses: softprops/action-gh-release@v2
               with:
+                  prerelease: ${{ contains(github.ref_name, '-') }}
+                  make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
                   files: |
                       release-assets/**
                       SHA256SUMS.txt
@@ -414,6 +343,4 @@ jobs:
                       release-assets/**/*.AppImage
                       release-assets/**/*.deb
                       release-assets/**/*.dmg
-                      release-assets/**/*.msi
-                      release-assets/**/*.exe
                       release-assets/**/*.app.tar.gz

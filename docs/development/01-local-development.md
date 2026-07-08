@@ -12,8 +12,8 @@ Local web/indexer development:
 # Install Yarn Berry/PnP dependencies exactly from yarn.lock.
 yarn install --immutable
 
-# Build the local SQLite native binding; install scripts are disabled by default.
-YARN_ENABLE_SCRIPTS=true yarn rebuild better-sqlite3
+# Build the trusted native SQLite dependency; package scripts stay disabled globally.
+yarn build:sqlite-native
 
 # Start the local backend, indexer launcher, and frontend dev server.
 yarn dev
@@ -25,8 +25,8 @@ Desktop dev from a clean checkout:
 # Install Yarn Berry/PnP dependencies and materialize the PnP runtime files.
 yarn install --immutable
 
-# Build the local SQLite native binding; install scripts are disabled by default.
-YARN_ENABLE_SCRIPTS=true yarn rebuild better-sqlite3
+# Build the trusted native SQLite dependency; package scripts stay disabled globally.
+yarn build:sqlite-native
 
 # Build userland UI, runtime artifacts, desktop runtime resources, then start Tauri dev.
 yarn dev:composition
@@ -52,12 +52,72 @@ Desktop no-bundle build from a clean checkout:
 # Install Yarn Berry/PnP dependencies exactly from yarn.lock.
 yarn install --immutable
 
-# Build the local SQLite native binding; install scripts are disabled by default.
-YARN_ENABLE_SCRIPTS=true yarn rebuild better-sqlite3
+# Build the trusted native SQLite dependency; package scripts stay disabled globally.
+yarn build:sqlite-native
 
 # Run Tauri's beforeBuildCommand, which builds admin UI, userland UI, runtime artifacts, staged runtime resources, and release sidecars before compiling Rust.
 yarn tauri build --debug --no-bundle --ci
 ```
+
+## Build From Source
+
+Use this path when you want a real desktop bundle built on your own machine
+instead of downloading GitHub Release artifacts.
+
+Prerequisites:
+
+- Node `24.3.0` with Corepack enabled.
+- Yarn `4.12.0` from the checked-in `packageManager` field.
+- Rust toolchain matching `rust-toolchain.toml`.
+- Linux: Tauri WebKit/GTK dependencies plus `patchelf`, `python3`, `make`, and
+  `g++`.
+- macOS: Xcode Command Line Tools.
+- Windows: Microsoft C++ Build Tools / Visual Studio Build Tools with the MSVC
+  toolchain and Windows SDK.
+
+Build on the target operating system. Official CI release packaging currently
+targets Linux and macOS only, but source builds are supported for Linux, macOS,
+and Windows.
+
+Fresh checkout build sequence:
+
+```sh
+corepack enable
+yarn install --immutable
+yarn build:sqlite-native
+```
+
+Linux x64 bundle:
+
+```sh
+sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf python3 make g++
+yarn tauri build --ci --target x86_64-unknown-linux-gnu --bundles appimage,deb
+```
+
+macOS universal DMG:
+
+```sh
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+yarn tauri build --ci --target universal-apple-darwin --bundles dmg
+```
+
+Windows x64 NSIS installer:
+
+```powershell
+rustup target add x86_64-pc-windows-msvc
+yarn tauri build --ci --target x86_64-pc-windows-msvc --bundles nsis
+```
+
+`yarn build:sqlite-native` is required after a fresh install because
+`.yarnrc.yml` keeps `enableScripts: false`. The command runs only the trusted
+`better-sqlite3` package-local install step from `.yarn/unplugged` and fails if
+the native SQLite binding is missing.
+
+Locally built bundles are not equivalent to official release artifacts unless
+you also provide the same signing/notarization setup. Windows source-built
+installers are expected to be unsigned unless the builder provides their own
+code-signing setup. The official release pipeline remains documented in
+`docs/desktop/06-release-signing-runbook.md`.
 
 ## Bidding And Extension UI Tests
 

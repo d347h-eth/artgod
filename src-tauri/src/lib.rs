@@ -24,7 +24,7 @@ use runtime::{
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, State, include_image};
+use tauri::{AppHandle, Manager, State};
 use wallet::tauri::{
     BotCommandState, WalletCommandState, bot_assign_wallet, bot_list, bot_start, bot_stop,
     wallet_export, wallet_get_status, wallet_import, wallet_list, wallet_remove,
@@ -40,7 +40,6 @@ const TRAY_OPEN_ADMIN_ID: &str = "tray.open_admin";
 const TRAY_SHUTDOWN_ID: &str = "tray.shutdown";
 const ADMIN_SHUTDOWN_REQUEST_REASON: &str = "admin shutdown requested";
 const TRAY_SHUTDOWN_REQUEST_REASON: &str = "tray shutdown requested";
-const TRAY_ICON: tauri::image::Image<'_> = include_image!("./icons/tray_icon.png");
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -400,9 +399,13 @@ pub fn run() {
             )?;
             let tray_menu =
                 Menu::with_items(app.handle(), &[&open_userland, &open_admin, &shutdown])?;
+            let tray_icon = app
+                .default_window_icon()
+                .ok_or_else(|| std::io::Error::other("Default window icon is unavailable"))?
+                .clone();
 
             TrayIconBuilder::new()
-                .icon(TRAY_ICON)
+                .icon(tray_icon)
                 .tooltip("ArtGod")
                 .menu(&tray_menu)
                 .on_menu_event(|app_handle: &AppHandle, event| {

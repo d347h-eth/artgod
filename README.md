@@ -59,12 +59,12 @@ Desktop development from a clean checkout:
 
 ```sh
 yarn install --immutable
-YARN_ENABLE_SCRIPTS=true yarn rebuild better-sqlite3
+yarn build:sqlite-native
 yarn dev:composition
 ```
 
-The rebuild step compiles the local SQLite native binding while keeping install
-scripts disabled for the rest of the dependency install.
+The SQLite build step compiles the trusted local native binding while keeping
+install scripts disabled for the rest of the dependency install.
 
 Long-form setup, configuration, versioning, test, and command details live in
 `docs/development/01-local-development.md`.
@@ -117,6 +117,10 @@ Desktop, deploy, and operations:
   custody, native secret prompt, and bot secret handoff.
 - `docs/desktop/04-settings-manifest-process.md`: manifest-first settings
   workflow and generated env artifacts.
+- `docs/desktop/05-linux-gpg-release-signing.md`: dedicated Linux release GPG
+  key setup and CI signing flow.
+- `docs/desktop/06-release-signing-runbook.md`: desktop signing, notarization,
+  release secrets, and verification runbook.
 - `docs/deploy/01-web-hosted-read-only.md`: public read-only hosted deployment
   shape.
 - `docs/indexer/10-observability-and-metrics.md`: logs, metrics, traces,

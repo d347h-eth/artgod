@@ -25,6 +25,15 @@ For deferred local runtime identity and browser trust-store work, see:
 
 - `docs/progress/desktop/02-local-runtime-identity-and-browser-trust.md`
 
+For release signing procurement and CI secret setup, see:
+
+- `docs/desktop/06-release-signing-runbook.md`
+
+For detailed Linux GPG release-key setup, rotation, and GitHub Actions secret
+handling, see:
+
+- `docs/desktop/05-linux-gpg-release-signing.md`
+
 ## Scope and Goals
 
 The desktop build/runtime pipeline is designed to:
@@ -71,6 +80,7 @@ Root build/helper commands:
 
 ```sh
 yarn install --immutable
+yarn build:sqlite-native
 yarn build:web
 yarn build:userland
 yarn build:admin
@@ -85,6 +95,10 @@ yarn tauri build --debug --no-bundle --ci
 ```
 
 What each command does:
+
+- `yarn build:sqlite-native`
+  : Runs `scripts/build/build-sqlite-native-binding.mjs`.
+  : Invokes only the trusted `better-sqlite3` package-local install step from `.yarn/unplugged` and fails if `build/Release/better_sqlite3.node` is missing.
 
 - `yarn build:web`
   : Runs `scripts/build/build-frontend-target.mjs web`.
@@ -184,6 +198,8 @@ Current build strategy details:
 Native package note:
 
 - `better-sqlite3` and `sharp` stay as runtime PnP imports because their package-local loaders need access to native files under `.yarn/unplugged`.
+- `.yarnrc.yml` keeps `enableScripts: false`; CI must not override it with `YARN_ENABLE_SCRIPTS=true`.
+- `better-sqlite3` is built through the explicit trusted step `yarn build:sqlite-native`, which runs only its package-local install script from the unplugged package directory and fails if `build/Release/better_sqlite3.node` is missing.
 - `sharp` uses its optional `@img/*` prebuilt packages; it is not enabled through a broad post-install script policy.
 - `scripts/build/check-native-runtime-dependencies.mjs` can be run after `yarn build:runtime` to verify native runtime packages load from the same package boundaries used by bundled artifacts.
 
@@ -219,6 +235,7 @@ Responsibilities:
 
 - builds the native secret-prompt sidecar crate for the active target triple
 - stages the built binary into `src-tauri/binaries/artgod-secret-prompt-<target-triple>(.exe)`
+- stages a fat `artgod-secret-prompt-universal-apple-darwin` sidecar when Tauri builds the macOS universal target
 - keeps sidecar build output separate from the main `src-tauri/target` tree by using `src-tauri/target/sidecars`
 
 ### `scripts/build/clean-build-artifacts.mjs`
@@ -267,6 +284,7 @@ During Tauri build these artifacts are copied to `src-tauri/resources/runtime/..
 Produced sidecar artifacts:
 
 - `src-tauri/binaries/artgod-secret-prompt-<target-triple>(.exe)`
+- `src-tauri/binaries/artgod-secret-prompt-universal-apple-darwin` for macOS universal release builds
 
 During Tauri build the sidecar is bundled through `bundle.externalBin` and invoked through Tauri's sidecar mechanism.
 
@@ -542,17 +560,34 @@ Tauri commands used by desktop frontend runtime UI/state:
 
 Public release workflow:
 
+- `.github/workflows/tauri-build-check.yml` (no-bundle Linux check)
 - `.github/workflows/tauri-release.yml`
 - `.github/workflows/tauri-repro-check.yml` (unsigned Linux reproducibility parity check)
 
 Trigger:
 
-- push tag `v*`
+- build check: pull request, push to `main`, or manual dispatch
+- release: push tag `v*`
+- reproducibility check: push tag `v*` or manual dispatch
+
+Release metadata:
+
+- Tags with a SemVer pre-release suffix, such as `v0.1.0-alpha.1`,
+  `v0.1.0-pre-alpha.1`, or `v0.1.0-test.1`, publish as GitHub pre-releases and
+  are not marked Latest.
+- Plain stable tags such as `v1.0.0` publish as normal Latest releases.
+
+Build-check trigger policy:
+
+- Do not add `paths-ignore` for version-sync files; they are build-critical
+  inputs for Tauri, Cargo, and workspace packaging.
+- For a version-only `yarn sync:version` commit after a green merge commit on
+  `main`, use GitHub's `skip-checks: true` commit trailer only when no other
+  files changed.
 
 Build matrix:
 
 - Linux x64 (`x86_64-unknown-linux-gnu`)
-- Windows x64 (`x86_64-pc-windows-msvc`)
 - macOS universal (`universal-apple-darwin`)
 
 Outputs:
@@ -565,29 +600,41 @@ Outputs:
 
 Current state:
 
+- Yarn package lifecycle scripts stay disabled in CI. Workflows run
+  `yarn install --immutable`, then `yarn build:sqlite-native` for the
+  allowlisted `better-sqlite3` native binding.
 - Linux artifacts are GPG-signed (detached armor signatures).
 - macOS DMG is code-signed, notarized, and stapled in CI.
-- Windows NSIS/installer artifacts are Authenticode-signed in CI.
+- Windows release builds are deferred for the first public alpha. When Windows
+  releases are enabled later, signing should use SSL.com eSigner CKA with
+  `signtool.exe` on the Windows runner.
 
 Release secrets expected by CI:
+
+Store release signing and notarization secrets as GitHub Environment secrets in
+`desktop-release-signing`, not as repository-wide secrets. The release workflow
+declares that environment on the jobs that need secrets. The build-check and
+reproducibility workflows do not use signing secrets.
 
 - Linux GPG:
     - `LINUX_GPG_PRIVATE_KEY_ASC`
     - `LINUX_GPG_PASSPHRASE`
     - `LINUX_GPG_KEY_ID`
     - optional: `LINUX_GPG_OWNERTRUST`
+  Detailed key-generation, subkey, rotation, and compromise-response guidance
+  is in `docs/desktop/05-linux-gpg-release-signing.md`.
 - macOS:
     - `APPLE_CERTIFICATE` (base64 `.p12`)
     - `APPLE_CERTIFICATE_PASSWORD`
     - `APPLE_SIGNING_IDENTITY`
-    - `APPLE_API_KEY` (base64 `.p8`)
+    - `APPLE_API_KEY_P8_B64` (base64 `.p8`)
     - `APPLE_API_KEY_ID`
     - `APPLE_API_ISSUER`
-- Windows:
-    - `WINDOWS_CERT_PFX_B64`
-    - `WINDOWS_CERT_PASSWORD`
-    - optional: `WINDOWS_CERT_SHA1`
-    - optional: `WINDOWS_TIMESTAMP_URL`
+Windows maintainer-profile note:
+
+- The release-signing runbook treats SSL.com Personal Identity Code Signing
+  with eSigner for Code as the future Windows path.
+- The alpha release workflow does not build Windows artifacts.
 
 Consumer-side verification examples:
 
@@ -603,7 +650,7 @@ Consumer-side verification examples:
 Common issues and checks:
 
 - Runtime artifacts missing
-  : Run `yarn install --immutable && yarn build:runtime && yarn build:desktop-runtime-resources`.
+  : Run `yarn install --immutable && yarn build:sqlite-native && yarn build:runtime && yarn build:desktop-runtime-resources`.
 
 - Stale dist/cache state
   : Run `yarn clean:build`.
