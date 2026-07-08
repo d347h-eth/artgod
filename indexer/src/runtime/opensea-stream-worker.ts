@@ -4,7 +4,9 @@ import { logger } from "@artgod/shared/utils";
 import { loadOpenSeaConfig } from "../config/opensea.js";
 import type { CollectionRecord } from "../domain/collections.js";
 import {
+    OFFCHAIN_OBSERVATION_CHANNEL,
     OFFCHAIN_JOB_KIND,
+    OFFCHAIN_ORDER_SOURCE,
     type OffchainOrderRawPayload,
 } from "../domain/offchain-jobs.js";
 import type { JobEnvelope } from "../domain/jobs.js";
@@ -189,12 +191,12 @@ async function handleOpenSeaEvent(
         const receivedAt = Date.now();
         const orderId = getOpenSeaOrderId(rawEvent);
         const rawPayload: OffchainOrderRawPayload = {
-            source: "opensea",
+            source: OFFCHAIN_ORDER_SOURCE.OpenSea,
             chainId: collection.chainId,
             collectionId: collection.id,
             receivedAt,
-            channel: "stream",
-            dedupeKey: `stream:${eventType}:${orderId ?? "na"}:${getOpenSeaSourceEventAt(rawEvent) ?? receivedAt}`,
+            channel: OFFCHAIN_OBSERVATION_CHANNEL.Stream,
+            dedupeKey: `${OFFCHAIN_OBSERVATION_CHANNEL.Stream}:${eventType}:${orderId ?? "na"}:${getOpenSeaSourceEventAt(rawEvent) ?? receivedAt}`,
             eventType,
             orderId,
             runId: null,
