@@ -1,6 +1,6 @@
 {
     "name": "@artgod/backend",
-    "version": "0.0.1-pre-alpha.56",
+    "version": "0.0.1-pre-alpha.57",
     "private": true,
     "type": "module",
     "scripts": {
