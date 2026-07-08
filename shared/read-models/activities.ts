@@ -522,7 +522,7 @@ function buildCollapsedCollectionListingsSource(
             "COUNT(*) OVER (PARTITION BY token_id, COALESCE(maker, ''), COALESCE(currency, ''), collapsed_day_bucket) AS collapsed_event_count, " +
             "(collapsed_day_bucket * 86400) AS collapsed_window_start_utc, " +
             "(((collapsed_day_bucket + 1) * 86400) - 1) AS collapsed_window_end_utc, " +
-            "ROW_NUMBER() OVER (PARTITION BY token_id, COALESCE(maker, ''), COALESCE(currency, ''), collapsed_day_bucket ORDER BY occurred_at DESC, id DESC) AS collapse_rank " +
+            "ROW_NUMBER() OVER (PARTITION BY token_id, COALESCE(maker, ''), COALESCE(currency, ''), collapsed_day_bucket ORDER BY occurred_at ASC, id ASC) AS collapse_rank " +
             "FROM filtered_listing_activities" +
             "), collapsed_listing_activities AS (" +
             "SELECT id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +

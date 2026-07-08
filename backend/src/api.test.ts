@@ -3195,6 +3195,8 @@ describe("backend api routes", () => {
     it("collapses collection listings by token, maker, currency, and UTC day while leaving token listings raw", async () => {
         const makerA = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         const makerB = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        const nativeCurrency = ZERO_ADDRESS.toLowerCase();
+        const wethCurrency = WETH_ADDRESS.toLowerCase();
 
         insertActivityFixture({
             collectionAddress: MILADY_ADDRESS,
@@ -3305,6 +3307,45 @@ describe("backend api routes", () => {
             ACTIVITY_KIND.ListingCreated,
             ACTIVITY_KIND.ListingCreated,
         ]);
+        expect(
+            collectionListings.payload.activities.items
+                .filter(
+                    (activity: { tokenId: string | null }) =>
+                        activity.tokenId === "2",
+                )
+                .map(
+                    (activity: {
+                        maker: string | null;
+                        currency: string | null;
+                        occurredAt: number;
+                    }) => ({
+                        maker: activity.maker,
+                        currency: activity.currency,
+                        occurredAt: activity.occurredAt,
+                    }),
+                ),
+        ).toEqual([
+            {
+                maker: makerA,
+                currency: nativeCurrency,
+                occurredAt: 1_726_088_000,
+            },
+            {
+                maker: makerB,
+                currency: nativeCurrency,
+                occurredAt: 1_726_001_100,
+            },
+            {
+                maker: makerA,
+                currency: wethCurrency,
+                occurredAt: 1_726_001_000,
+            },
+            {
+                maker: makerA,
+                currency: nativeCurrency,
+                occurredAt: 1_726_000_900,
+            },
+        ]);
 
         const collapsedSameDay =
             collectionListings.payload.activities.items.find(
@@ -3316,14 +3357,14 @@ describe("backend api routes", () => {
                 }) =>
                     activity.tokenId === "2" &&
                     activity.maker === makerA &&
-                    activity.currency === ZERO_ADDRESS.toLowerCase() &&
-                    activity.occurredAt === 1_726_001_200,
+                    activity.currency === nativeCurrency &&
+                    activity.occurredAt === 1_726_000_900,
             );
         expect(collapsedSameDay).toMatchObject({
             tokenId: "2",
             maker: makerA,
-            currency: ZERO_ADDRESS.toLowerCase(),
-            price: "420000000000000000",
+            currency: nativeCurrency,
+            price: "400000000000000000",
             isCollapsed: true,
             collapsedEventCount: 2,
         });

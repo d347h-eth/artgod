@@ -150,4 +150,7 @@ It is not a second user-facing source model.
 
 Backend/feed read models may apply additional presentation-layer grouping such as
 collapsed collection listings. That collapsing happens after projection and does
-not change the truthful activity rows stored in `activities`.
+not change the truthful activity rows stored in `activities`. Collection listing
+collapse rows are anchored to the first raw listing within each token, maker,
+currency, and UTC-day group so later same-day relists do not keep moving the
+group to the top of the feed.

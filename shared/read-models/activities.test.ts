@@ -124,7 +124,7 @@ describe("SqliteActivitiesReadModel observability", () => {
             limit: 250,
         });
 
-        expect(page.items.map((activity) => activity.id)).toEqual([3]);
+        expect(page.items.map((activity) => activity.id)).toEqual([1]);
         expect(page.totalItems).toBe(1);
         expect(apm.spans).toEqual(
             expect.arrayContaining([
@@ -142,6 +142,45 @@ describe("SqliteActivitiesReadModel observability", () => {
                 }),
             ]),
         );
+    });
+
+    it("anchors collapsed listing rows to the first UTC-day appearance", () => {
+        const makerA = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const makerB = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        insertActivity(1, "1", 100, ACTIVITY_KIND.ListingCreated, {
+            maker: makerA,
+            orderId: "first-maker-a-listing",
+            price: "100",
+        });
+        insertActivity(2, "1", 300, ACTIVITY_KIND.ListingCreated, {
+            maker: makerA,
+            orderId: "latest-maker-a-listing",
+            price: "300",
+        });
+        insertActivity(3, "1", 200, ACTIVITY_KIND.ListingCreated, {
+            maker: makerB,
+            orderId: "maker-b-listing",
+            price: "200",
+        });
+        const readModel = new SqliteActivitiesReadModel();
+
+        const page = readModel.listCollectionActivities({
+            chainId: 1,
+            collectionId: 1,
+            kind: ACTIVITY_FEED_FILTER_KIND.Listings,
+            limit: 250,
+        });
+
+        expect(page.items.map((activity) => activity.id)).toEqual([3, 1]);
+        expect(page.totalItems).toBe(2);
+        expect(page.items[1]).toMatchObject({
+            id: 1,
+            occurredAt: 100,
+            orderId: "first-maker-a-listing",
+            price: "100",
+            isCollapsed: true,
+            collapsedEventCount: 2,
+        });
     });
 
     it("uses range trait candidates for activity filters", () => {
@@ -263,10 +302,16 @@ function insertActivity(
     tokenId: string,
     occurredAt: number,
     kind: ActivityKind = ACTIVITY_KIND.Transfer,
+    options: {
+        orderId?: string;
+        maker?: string;
+        price?: string;
+        currency?: string;
+    } = {},
 ): void {
     db.prepare(
-        "INSERT INTO activities (id, chain_id, collection_id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, dedupe_key) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO activities (id, chain_id, collection_id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, maker, price, currency, dedupe_key) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(
         id,
         1,
@@ -278,6 +323,10 @@ function insertActivity(
         occurredAt,
         ACTIVITY_SOURCE_KIND.Onchain,
         "test",
+        options.orderId ?? null,
+        options.maker?.toLowerCase() ?? null,
+        options.price ?? null,
+        options.currency?.toLowerCase() ?? null,
         `activity-${id}`,
     );
 }
