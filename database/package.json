@@ -1,6 +1,6 @@
 {
     "name": "@artgod/database",
-    "version": "0.0.1-pre-alpha.59",
+    "version": "0.0.1-pre-alpha.60",
     "private": true,
     "type": "module",
     "devDependencies": {
