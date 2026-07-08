@@ -17,6 +17,12 @@
         "shared",
         "trading"
     ],
+    "resolutions": {
+        "undici@npm:^6.25.0": "npm:6.27.0",
+        "undici@npm:^7.25.0": "npm:7.28.0",
+        "ws@npm:8.17.1": "npm:8.21.0",
+        "ws@npm:8.20.1": "npm:8.21.0"
+    },
     "scripts": {
         "dev": "./scripts/dev.sh",
         "dev:indexer": "./scripts/indexer-dev.sh",
@@ -67,12 +73,12 @@
         "test:terraforms:hypercastle": "yarn workspace @artgod/frontend test:terraforms:hypercastle"
     },
     "dependencies": {
-        "better-sqlite3": "^v12.2.0",
-        "dotenv": "^16.4.5",
+        "better-sqlite3": "12.10.0",
+        "dotenv": "17.4.2",
         "viem": "2.54.6"
     },
     "dependenciesMeta": {
-        "better-sqlite3@12.5.0": {
+        "better-sqlite3@12.10.0": {
             "unplugged": true
         },
         "better-sqlite3": {
@@ -84,15 +90,15 @@
     },
     "devDependencies": {
         "@tauri-apps/cli": "2.11.3",
-        "@types/better-sqlite3": "^7.6.12",
-        "@types/node": "24.3.3",
-        "@vitest/coverage-v8": "4.1.0",
-        "concurrently": "^9.1.0",
-        "esbuild": "0.25.5",
-        "prettier": "3.7.4",
-        "tsx": "4.20.5",
-        "typescript": "5.9.2",
-        "vitest": "4.1.0"
+        "@types/better-sqlite3": "7.6.13",
+        "@types/node": "25.9.2",
+        "@vitest/coverage-v8": "4.1.8",
+        "concurrently": "10.0.3",
+        "esbuild": "0.28.0",
+        "prettier": "3.8.3",
+        "tsx": "4.22.4",
+        "typescript": "6.0.3",
+        "vitest": "4.1.8"
     },
     "prettier": {
         "tabWidth": 4,

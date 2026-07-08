@@ -481,8 +481,8 @@ describe('CollectionActivitiesView', () => {
 		expect(body).toContain('asset events');
 		expect(body).toContain('Hypercastle events');
 		expect(body).not.toContain('extension events');
-		expect(body).toContain('<th class="activities-media-col"><!--[!-->media');
-		expect(body).toContain('<th class="activities-content-col"><!--[!-->heightmap');
+		expect(body).toContain('<th class="activities-media-col"><!--[-1-->media');
+		expect(body).toContain('<th class="activities-content-col"><!--[-1-->heightmap');
 		expect(body).toContain('/ethereum/terraforms/7710?media_mode=artifact');
 		expect(body).toContain('filter token 7710');
 		expect(body).toContain('token_id=7710');
@@ -672,10 +672,10 @@ describe('CollectionActivitiesView', () => {
 		});
 
 		expect(body).toContain('<span class="runtime-tab-active">beacon</span>');
-		expect(body).toContain('<th class="activities-terraforms-beacon-action-col"><!--[!-->action');
+		expect(body).toContain('<th class="activities-terraforms-beacon-action-col"><!--[-1-->action');
 		expect(body).toContain('antenna on');
 		expect(body).toContain('Broadcast Added');
-		expect(body).toContain('<th class="activities-content-col"><!--[!-->details');
+		expect(body).toContain('<th class="activities-content-col"><!--[-1-->details');
 		expect(body).toContain('satellite <a href=');
 		expect(body).toContain('0x7777...7777</a>');
 		expect(body).toContain('/ duration 3600');

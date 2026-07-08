@@ -9,17 +9,17 @@
     },
     "dependencies": {
         "@artgod/shared": "workspace:*",
-        "better-sqlite3": "^v12.2.0",
-        "dotenv": "^16.4.5",
-        "fastify": "^5.8.5",
-        "nats": "^2.29.1",
-        "sharp": "0.33.5",
+        "better-sqlite3": "12.10.0",
+        "dotenv": "17.4.2",
+        "fastify": "5.8.5",
+        "nats": "2.29.3",
+        "sharp": "0.34.5",
         "viem": "2.54.6"
     },
     "devDependencies": {
-        "@types/node": "^24.0.0",
-        "tsx": "^4.19.2",
-        "typescript": "^5.8.3",
-        "vitest": "4.1.0"
+        "@types/node": "25.9.2",
+        "tsx": "4.22.4",
+        "typescript": "6.0.3",
+        "vitest": "4.1.8"
     }
 }

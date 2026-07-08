@@ -1,4 +1,5 @@
-import { encodeAbiParameters, encodePacked, keccak256 } from "viem";
+import * as AbiParameters from "ox/AbiParameters";
+import * as Hash from "ox/Hash";
 import {
     EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND,
     type EmbeddedCollectionExtensionMatch,
@@ -488,8 +489,8 @@ export function calculateTerraformsRendererSeed(
 ): bigint {
     return (
         BigInt(
-            keccak256(
-                encodePacked(
+            Hash.keccak256(
+                AbiParameters.encodePacked(
                     ["uint256", "uint256"],
                     [BigInt(level), BigInt(tile)],
                 ),
@@ -595,8 +596,8 @@ export function normalizeTerraformsCanvasRows(
 // Computes the canonical Terraforms canvas content hash used by extension event feeds.
 export function hashTerraformsCanvasRows(rows: readonly bigint[]): string {
     const canvas = normalizeTerraformsCanvasRows(rows);
-    return keccak256(
-        encodeAbiParameters(
+    return Hash.keccak256(
+        AbiParameters.encode(
             [{ type: "uint256[16]", name: "canvas" }],
             [canvas as unknown as TerraformsCanvasTuple],
         ),
