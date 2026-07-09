@@ -48,9 +48,14 @@ const yarnInstallStateFileName = "install-state.gz";
 const yarnCacheArchiveExtension = ".zip";
 const pnpRuntimeHookFileName = ".pnp.cjs";
 const pnpRuntimeLoaderFileName = ".pnp.loader.mjs";
-// Package locations in .pnp.cjs are the authority for unplugged runtime packages.
-const pnpUnpluggedPackageLocationPattern =
-    /"packageLocation": "\.\/\.yarn\/unplugged\/([^/]+)\/node_modules\//g;
+const pnpUnpluggedPackageLocationPrefix = `./${yarnRuntimeDirName}/${yarnUnpluggedDirName}/`;
+// The generated PnP runtime state is the authority for unplugged package archive identity.
+const pnpRuntimeStateAssignmentPattern =
+    /const RAW_RUNTIME_STATE =\n([\s\S]*?);\n/;
+const pnpLineContinuationPattern = /\\\r?\n/g;
+const npmPackageReferencePattern = /(?:^|#)npm:([^#]+)/;
+const packageReferenceVersionPattern = /version=([^&]+)/;
+const yarnNpmCacheArchiveProtocolName = "npm";
 // Official Linux Node distributions used by this script are glibc builds.
 const linuxNodeDistTargetPrefix = "linux-";
 // Some native packages colocate musl and glibc binaries under one Linux prebuild dir.
@@ -284,14 +289,102 @@ async function pruneUnpluggedPackageCacheArchives(targetRootDir) {
 }
 
 async function collectUnpluggedPackageArchivePrefixes(pnpHookPath) {
-    const pnpHook = await readFile(pnpHookPath, "utf8");
+    const pnpRuntimeState = await readPnpRuntimeState(pnpHookPath);
     const prefixes = new Set();
 
-    for (const match of pnpHook.matchAll(pnpUnpluggedPackageLocationPattern)) {
-        prefixes.add(match[1]);
+    for (const [
+        packageName,
+        packageReferences,
+    ] of pnpRuntimeState.packageRegistryData) {
+        if (typeof packageName !== "string") continue;
+        if (!Array.isArray(packageReferences)) continue;
+
+        for (const [packageReference, packageData] of packageReferences) {
+            const packageLocation = packageData?.packageLocation;
+            if (!isUnpluggedPackageLocation(packageLocation)) continue;
+
+            prefixes.add(extractUnpluggedPackageDirectoryName(packageLocation));
+
+            const packageVersion = resolveNpmPackageVersion(packageReference);
+            if (packageVersion) {
+                prefixes.add(
+                    formatYarnNpmCacheArchivePrefix(
+                        packageName,
+                        packageVersion,
+                    ),
+                );
+            }
+        }
     }
 
     return prefixes;
+}
+
+async function readPnpRuntimeState(pnpHookPath) {
+    const pnpHook = await readFile(pnpHookPath, "utf8");
+    const rawRuntimeStateMatch = pnpHook.match(
+        pnpRuntimeStateAssignmentPattern,
+    );
+    if (!rawRuntimeStateMatch) {
+        throw new Error(
+            `Unable to find RAW_RUNTIME_STATE in ${pnpRuntimeHookFileName}.`,
+        );
+    }
+
+    const rawRuntimeStateLiteral = rawRuntimeStateMatch[1].trim();
+    if (
+        !rawRuntimeStateLiteral.startsWith("'") ||
+        !rawRuntimeStateLiteral.endsWith("'")
+    ) {
+        throw new Error(
+            `Unsupported RAW_RUNTIME_STATE literal format in ${pnpRuntimeHookFileName}.`,
+        );
+    }
+
+    const runtimeStateJson = rawRuntimeStateLiteral
+        .slice(1, -1)
+        .replace(pnpLineContinuationPattern, "");
+    const runtimeState = JSON.parse(runtimeStateJson);
+    if (!Array.isArray(runtimeState.packageRegistryData)) {
+        throw new Error(
+            `Missing packageRegistryData in ${pnpRuntimeHookFileName}.`,
+        );
+    }
+    return runtimeState;
+}
+
+function isUnpluggedPackageLocation(packageLocation) {
+    return (
+        typeof packageLocation === "string" &&
+        packageLocation.startsWith(pnpUnpluggedPackageLocationPrefix)
+    );
+}
+
+function extractUnpluggedPackageDirectoryName(packageLocation) {
+    const relativeLocation = packageLocation.slice(
+        pnpUnpluggedPackageLocationPrefix.length,
+    );
+    return relativeLocation.split("/")[0];
+}
+
+function resolveNpmPackageVersion(packageReference) {
+    if (typeof packageReference !== "string") return null;
+
+    const npmReferenceMatch = packageReference.match(
+        npmPackageReferencePattern,
+    );
+    if (npmReferenceMatch) return npmReferenceMatch[1];
+
+    const versionMatch = packageReference.match(packageReferenceVersionPattern);
+    return versionMatch?.[1] ?? null;
+}
+
+function formatYarnNpmCacheArchivePrefix(packageName, packageVersion) {
+    return `${formatYarnCachePackageName(packageName)}-${yarnNpmCacheArchiveProtocolName}-${packageVersion}`;
+}
+
+function formatYarnCachePackageName(packageName) {
+    return packageName.replace("/", "-");
 }
 
 function isUnpluggedPackageCacheArchive(fileName, archivePrefixes) {
