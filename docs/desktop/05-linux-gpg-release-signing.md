@@ -324,7 +324,7 @@ Rotation steps for the recommended setup:
 4. Export updated CI signing subkeys:
    `gpg --armor --export-secret-subkeys "$PRIMARY_FPR" > artgod-ci-linux-signing-subkeys.asc`.
 5. Update `LINUX_GPG_PRIVATE_KEY_ASC` in GitHub.
-6. Dry-run the release workflow on a pre-release tag.
+6. Dry-run the release workflow on a `-test.` tag.
 7. Publish the updated public key and fingerprint notes.
 
 If you want CI to carry only one active signing subkey, revoke or expire the old
