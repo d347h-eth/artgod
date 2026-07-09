@@ -241,15 +241,35 @@ jobs:
                     exit 1
                   fi
 
-                  NOTARY_RESULT_PATH="$RUNNER_TEMP/notary-submit.json"
+                  NOTARY_OUTPUT_PATH="$RUNNER_TEMP/notary-submit.txt"
+                  NOTARY_RESULT_PATH="$RUNNER_TEMP/notary-info.json"
+                  set +e
                   xcrun notarytool submit "$DMG_PATH" \
                     --key "$APPLE_API_KEY_PATH" \
                     --key-id "$APPLE_API_KEY_ID" \
                     --issuer "$APPLE_API_ISSUER" \
-                    --wait \
-                    --output-format json | tee "$NOTARY_RESULT_PATH"
+                    --wait 2>&1 | tee "$NOTARY_OUTPUT_PATH"
+                  NOTARY_SUBMIT_STATUS="${PIPESTATUS[0]}"
+                  set -e
 
-                  SUBMISSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$NOTARY_RESULT_PATH")"
+                  SUBMISSION_ID="$(awk '/Submission ID received/{found=1; next} found && /^[[:space:]]*id: /{print $2; exit}' "$NOTARY_OUTPUT_PATH")"
+                  if [ -z "$SUBMISSION_ID" ]; then
+                    SUBMISSION_ID="$(awk '/^[[:space:]]*id: /{print $2; exit}' "$NOTARY_OUTPUT_PATH")"
+                  fi
+                  if [ -z "$SUBMISSION_ID" ]; then
+                    echo "Unable to extract Apple notarization submission ID from notarytool output."
+                    exit "$NOTARY_SUBMIT_STATUS"
+                  fi
+
+                  if [ "$NOTARY_SUBMIT_STATUS" -ne 0 ]; then
+                    echo "notarytool submit exited with status $NOTARY_SUBMIT_STATUS after submission $SUBMISSION_ID; fetching final status."
+                  fi
+
+                  xcrun notarytool info "$SUBMISSION_ID" \
+                    --key "$APPLE_API_KEY_PATH" \
+                    --key-id "$APPLE_API_KEY_ID" \
+                    --issuer "$APPLE_API_ISSUER" \
+                    --output-format json | tee "$NOTARY_RESULT_PATH"
                   NOTARY_STATUS="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"])' "$NOTARY_RESULT_PATH")"
                   if [ "$NOTARY_STATUS" != "Accepted" ]; then
                     echo "Notarization failed with status: $NOTARY_STATUS"
