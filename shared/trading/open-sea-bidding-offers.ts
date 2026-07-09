@@ -82,7 +82,9 @@ export function parseOpenSeaBiddingOffer(
     const maker =
         stringOrUndefined(asRecord(record.maker).address) ??
         stringOrUndefined(record.maker) ??
-        stringOrUndefined(getOpenSeaProtocolEnvelope(rawOffer)?.parameters?.offerer);
+        stringOrUndefined(
+            getOpenSeaProtocolEnvelope(rawOffer)?.parameters?.offerer,
+        );
     if (!maker) {
         return null;
     }
@@ -145,7 +147,10 @@ export function parseOpenSeaBiddingOffer(
         createdAt,
         validFrom,
         expirationTime,
-        criteriaRoot: getOpenSeaCriteriaRoot(rawOffer, options.collectionAddress),
+        criteriaRoot: getOpenSeaCriteriaRoot(
+            rawOffer,
+            options.collectionAddress,
+        ),
         rawOrder: rawOffer,
         offerScope: inferOpenSeaOfferScope(rawOffer),
         discoverySource: options.discoverySource ?? "collectionOffers",
@@ -188,7 +193,8 @@ export function extractOpenSeaWethUnitPrice(
             nftUnitsFromConsideration > 0n
                 ? nftUnitsFromConsideration
                 : nftUnitsFromOffer;
-        const orderType = proto.parameters.orderType ?? proto.parameters.order_type;
+        const orderType =
+            proto.parameters.orderType ?? proto.parameters.order_type;
         const remainingQuantityRaw =
             asRecord(rawOrder).remainingQuantity ??
             asRecord(rawOrder).remaining_quantity;
@@ -201,7 +207,10 @@ export function extractOpenSeaWethUnitPrice(
             const total =
                 offerSum >= considerationSum
                     ? { value: offerSum, source: "protocol.offer" }
-                    : { value: considerationSum, source: "protocol.consideration" };
+                    : {
+                          value: considerationSum,
+                          source: "protocol.consideration",
+                      };
 
             const quantity = nftUnits > 0n ? nftUnits : 1n;
             if (isPartial && quantity > 1n) {
@@ -342,7 +351,9 @@ export function getOpenSeaOfferCriteria(
 }
 
 // Infers the bidder's coarse offer scope from raw criteria and NFT item shape.
-export function inferOpenSeaOfferScope(rawOrder: unknown): OpenSeaBiddingOfferScope {
+export function inferOpenSeaOfferScope(
+    rawOrder: unknown,
+): OpenSeaBiddingOfferScope {
     const criteria = getOpenSeaOfferCriteria(rawOrder);
     if (criteria) {
         const criteriaTraits = normalizeOpenSeaOfferTraitCriteria(criteria);
@@ -387,7 +398,11 @@ export function normalizeOpenSeaOfferTraitCriteria(
     if (traitCriteria !== undefined && traitCriteria !== null) {
         normalized.push(...normalizeOpenSeaOfferTraitCriteria(traitCriteria));
     }
-    normalized.push(...normalizeOpenSeaNumericTraitCriteria(candidate.numeric_traits));
+    normalized.push(
+        ...normalizeOpenSeaNumericTraitCriteria(
+            candidate.numericTraits ?? candidate.numeric_traits,
+        ),
+    );
     if (normalized.length > 0) {
         return dedupeTraitCriteria(normalized);
     }
@@ -398,8 +413,10 @@ export function normalizeOpenSeaOfferTraitCriteria(
 
     const type =
         stringOrUndefined(candidate.type) ??
-        stringOrUndefined(candidate.trait_type);
-    const value = candidate.value ?? candidate.trait_value;
+        stringOrUndefined(candidate.trait_type) ??
+        stringOrUndefined(candidate.traitType);
+    const value =
+        candidate.value ?? candidate.trait_value ?? candidate.traitValue;
     if (typeof type === "string" && value !== undefined && value !== null) {
         return dedupeTraitCriteria([
             {
@@ -486,14 +503,16 @@ export function inferOpenSeaNftSelectionKind(
     return "unknown";
 }
 
-export function getOpenSeaProtocolEnvelope(rawOrder: unknown): {
-    parameters?: Record<string, unknown>;
-} | undefined {
+export function getOpenSeaProtocolEnvelope(rawOrder: unknown):
+    | {
+          parameters?: Record<string, unknown>;
+      }
+    | undefined {
     const record = asRecord(rawOrder);
-    return (
-        recordOrUndefined(record.protocolData) ??
-        recordOrUndefined(record.protocol_data)
-    ) as { parameters?: Record<string, unknown> } | undefined;
+    return (recordOrUndefined(record.protocolData) ??
+        recordOrUndefined(record.protocol_data)) as
+        | { parameters?: Record<string, unknown> }
+        | undefined;
 }
 
 export function getOpenSeaOrderHash(rawOffer: unknown): string | null {
@@ -524,9 +543,12 @@ export function getOpenSeaCollectionAddress(
     }
 
     const assetContractCriteria = recordOrUndefined(
-        asRecord(rawOffer).asset_contract_criteria,
+        asRecord(rawOffer).assetContractCriteria ??
+            asRecord(rawOffer).asset_contract_criteria,
     );
-    const assetCriteriaAddress = stringOrUndefined(assetContractCriteria?.address);
+    const assetCriteriaAddress = stringOrUndefined(
+        assetContractCriteria?.address,
+    );
     if (assetCriteriaAddress) {
         return assetCriteriaAddress.toLowerCase();
     }
@@ -555,10 +577,12 @@ function normalizeOpenSeaNumericTraitCriteria(
         const record = asRecord(entry);
         const type =
             stringOrUndefined(record.type) ??
-            stringOrUndefined(record.trait_type);
+            stringOrUndefined(record.trait_type) ??
+            stringOrUndefined(record.traitType);
         const exactValue =
             record.value ??
             record.trait_value ??
+            record.traitValue ??
             (record.min !== undefined &&
             record.min !== null &&
             record.max !== undefined &&
@@ -590,9 +614,13 @@ function getOpenSeaStreamTraitCriteria(
     const traits: TradingTraitCriterion[] = [];
     const single = asRecord(offer.trait_criteria ?? offer.traitCriteria);
     const singleType =
-        stringOrUndefined(single.trait_type) ?? stringOrUndefined(single.type);
+        stringOrUndefined(single.trait_type) ??
+        stringOrUndefined(single.traitType) ??
+        stringOrUndefined(single.type);
     const singleValue =
-        stringOrUndefined(single.trait_name) ?? stringOrUndefined(single.value);
+        stringOrUndefined(single.trait_name) ??
+        stringOrUndefined(single.traitName) ??
+        stringOrUndefined(single.value);
     if (singleType && singleValue) {
         traits.push({
             type: normalizeTradingTraitText(singleType),
@@ -606,9 +634,11 @@ function getOpenSeaStreamTraitCriteria(
         const record = asRecord(entry);
         const type =
             stringOrUndefined(record.trait_type) ??
+            stringOrUndefined(record.traitType) ??
             stringOrUndefined(record.type);
         const value =
             stringOrUndefined(record.trait_name) ??
+            stringOrUndefined(record.traitName) ??
             stringOrUndefined(record.value);
         if (type && value) {
             traits.push({
@@ -709,7 +739,8 @@ function isOpenSeaWethOrder(rawOrder: unknown, wethAddress: string): boolean {
     const considerationItems = asArray(proto?.parameters?.consideration);
     return considerationItems.some(
         (item) =>
-            stringOrUndefined(asRecord(item).token)?.toLowerCase() === wethAddress,
+            stringOrUndefined(asRecord(item).token)?.toLowerCase() ===
+            wethAddress,
     );
 }
 
@@ -798,6 +829,7 @@ function isOpenSeaCriteriaEnvelope(record: Record<string, unknown>): boolean {
         "trait" in record ||
         "traits" in record ||
         "numeric_traits" in record ||
+        "numericTraits" in record ||
         "encoded_token_ids" in record ||
         "encodedTokenIds" in record ||
         "collection" in record ||
@@ -882,7 +914,9 @@ function asRecord(value: unknown): Record<string, unknown> {
         : {};
 }
 
-function recordOrUndefined(value: unknown): Record<string, unknown> | undefined {
+function recordOrUndefined(
+    value: unknown,
+): Record<string, unknown> | undefined {
     return value && typeof value === "object"
         ? (value as Record<string, unknown>)
         : undefined;

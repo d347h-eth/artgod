@@ -73,14 +73,15 @@ export interface CollectionOfferBootstrapProgress {
 }
 
 export interface CollectionOfferBootstrapOptions {
-    onCollectionStarted?: (
-        progress: CollectionOfferBootstrapProgress,
-    ) => void;
+    onCollectionStarted?: (progress: CollectionOfferBootstrapProgress) => void;
     onProgress?: (progress: CollectionOfferBootstrapProgress) => void;
 }
 
 export interface CollectionOfferSnapshotObserver {
-    onSnapshotRefreshed(snapshot: CollectionOfferSnapshot, reason: string): void;
+    onSnapshotRefreshed(
+        snapshot: CollectionOfferSnapshot,
+        reason: string,
+    ): void;
 }
 
 export interface CollectionOfferSnapshotFreshnessOptions {
@@ -190,14 +191,16 @@ export class CollectionOfferSnapshotService
                     completed,
                     total,
                 });
-                return this.refreshAndWait(collectionSlug, "bootstrap").then(() => {
-                    completed += 1;
-                    options.onProgress?.({
-                        collectionSlug,
-                        completed,
-                        total,
-                    });
-                });
+                return this.refreshAndWait(collectionSlug, "bootstrap").then(
+                    () => {
+                        completed += 1;
+                        options.onProgress?.({
+                            collectionSlug,
+                            completed,
+                            total,
+                        });
+                    },
+                );
             }),
         );
     }
@@ -251,7 +254,10 @@ export class CollectionOfferSnapshotService
         let removed = 0;
 
         for (const collectionSlug of Array.from(this.watchedCollectionSlugs)) {
-            if (!next.has(collectionSlug) && this.unwatchCollection(collectionSlug)) {
+            if (
+                !next.has(collectionSlug) &&
+                this.unwatchCollection(collectionSlug)
+            ) {
                 removed += 1;
             }
         }
@@ -356,7 +362,10 @@ export class CollectionOfferSnapshotService
         );
     }
 
-    private logRefreshBackoffSkip(collectionSlug: string, reason: string): void {
+    private logRefreshBackoffSkip(
+        collectionSlug: string,
+        reason: string,
+    ): void {
         const state = this.refreshStates.get(collectionSlug);
         log.debug(
             COLLECTION_OFFER_SNAPSHOT_LOG_ACTION.RefreshBackoffSkipped,
@@ -434,7 +443,10 @@ export class CollectionOfferSnapshotService
                     const snapshot = this.snapshots.get(collectionSlug);
                     if (snapshot) {
                         // Notify read-model observers after the authoritative snapshot has been replaced.
-                        this.observer?.onSnapshotRefreshed(snapshot, nextReason);
+                        this.observer?.onSnapshotRefreshed(
+                            snapshot,
+                            nextReason,
+                        );
                     }
 
                     const pendingRequest = state.pendingRequest;
@@ -623,8 +635,26 @@ export class CollectionOfferSnapshotService
         reason: string,
     ): void {
         type SnapshotCriteria = {
-            traits?: Array<{ type?: string; trait_type?: string }>;
-            trait?: { type?: string; trait_type?: string };
+            traits?: Array<{
+                type?: string;
+                trait_type?: string;
+                traitType?: string;
+            }> | null;
+            numeric_traits?: Array<{
+                type?: string;
+                trait_type?: string;
+                traitType?: string;
+            }> | null;
+            numericTraits?: Array<{
+                type?: string;
+                trait_type?: string;
+                traitType?: string;
+            }> | null;
+            trait?: {
+                type?: string;
+                trait_type?: string;
+                traitType?: string;
+            } | null;
             encoded_token_ids?: string;
             encodedTokenIds?: string;
         };
@@ -659,15 +689,25 @@ export class CollectionOfferSnapshotService
                 parsedOffer.criteria ??
                 parsedOffer.protocolData?.criteria ??
                 parsedOffer.protocol_data?.criteria;
-            const traitCriteria = criteria?.traits ?? (criteria?.trait ? [criteria.trait] : []);
+            const traitCriteria = [
+                ...(Array.isArray(criteria?.traits) ? criteria.traits : []),
+                ...(Array.isArray(criteria?.numericTraits)
+                    ? criteria.numericTraits
+                    : []),
+                ...(Array.isArray(criteria?.numeric_traits)
+                    ? criteria.numeric_traits
+                    : []),
+                ...(criteria?.trait ? [criteria.trait] : []),
+            ];
 
-            if (Array.isArray(traitCriteria) && traitCriteria.length > 0) {
+            if (traitCriteria.length > 0) {
                 criteriaOffers++;
                 if (traitCriteria.length > 1) {
                     multiTraitOffers++;
                 }
                 traitCriteria.forEach((entry) => {
-                    const type = entry.type ?? entry.trait_type;
+                    const type =
+                        entry.type ?? entry.trait_type ?? entry.traitType;
                     if (typeof type === "string") {
                         seenTraitTypes.add(type);
                     }
@@ -683,13 +723,17 @@ export class CollectionOfferSnapshotService
             }
 
             const nftItems = [
-                ...(Array.isArray(parsedOffer.protocolData?.parameters?.consideration)
+                ...(Array.isArray(
+                    parsedOffer.protocolData?.parameters?.consideration,
+                )
                     ? parsedOffer.protocolData.parameters.consideration
                     : []),
                 ...(Array.isArray(parsedOffer.protocolData?.parameters?.offer)
                     ? parsedOffer.protocolData.parameters.offer
                     : []),
-                ...(Array.isArray(parsedOffer.protocol_data?.parameters?.consideration)
+                ...(Array.isArray(
+                    parsedOffer.protocol_data?.parameters?.consideration,
+                )
                     ? parsedOffer.protocol_data.parameters.consideration
                     : []),
                 ...(Array.isArray(parsedOffer.protocol_data?.parameters?.offer)
