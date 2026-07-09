@@ -20,6 +20,17 @@ export const OFFCHAIN_OBSERVATION_CHANNEL = {
 export type OffchainObservationChannel =
     (typeof OFFCHAIN_OBSERVATION_CHANNEL)[keyof typeof OFFCHAIN_OBSERVATION_CHANNEL];
 
+// Event types emitted by OpenSea REST snapshot/reconcile adapters.
+export const OPENSEA_REST_EVENT_TYPE = {
+    Listing: "rest.listing",
+    ItemOffer: "rest.offer.item",
+    CollectionOffer: "rest.offer.collection",
+    TraitOffer: "rest.offer.trait",
+} as const;
+
+export type OpenSeaRestEventType =
+    (typeof OPENSEA_REST_EVENT_TYPE)[keyof typeof OPENSEA_REST_EVENT_TYPE];
+
 export type OffchainOrderRawPayload = {
     source: string;
     chainId: number;
