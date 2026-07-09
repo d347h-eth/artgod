@@ -4,18 +4,23 @@ import { join } from "node:path";
 import { strict as assert } from "node:assert";
 import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import { createMigrationRunner } from "@artgod/shared/migrations";
-import type {
-    ApmPort,
-    SpanAttributes,
-} from "@artgod/shared/observability/apm";
-import { COLLECTION_STATUS, type CollectionStatus } from "@artgod/shared/types";
+import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
+import {
+    COLLECTION_STANDARD,
+    COLLECTION_STATUS,
+    type CollectionStatus,
+} from "@artgod/shared/types";
 import { SYNC_BACKFILL_SPAN_ATTRIBUTE } from "../../application/use-cases/sync-backfill/sync-backfill-observability.js";
 import { SqliteSyncBackfillRepository } from "./sqlite-sync-backfill-repository.js";
 
 type QueryPlanRow = {
     detail: string;
 };
+
+// Sync-backfill tests seed their own live collection beside first-launch presets.
+const SYNC_BACKFILL_FIXTURE_SLUG = "sync-backfill-fixture";
 
 async function createTempDbPath(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "artgod-sync-backfill-"));
@@ -79,7 +84,7 @@ describe("SqliteSyncBackfillRepository", () => {
             {
                 kind: "collection",
                 collectionId,
-                slug: "terraforms",
+                slug: SYNC_BACKFILL_FIXTURE_SLUG,
                 deploymentBlock: null,
             },
             [
@@ -147,7 +152,10 @@ describe("SqliteSyncBackfillRepository", () => {
                     slug: "active-bootstrap",
                     status: COLLECTION_STATUS.Bootstrapping,
                 },
-                { slug: "terraforms", status: COLLECTION_STATUS.Live },
+                {
+                    slug: SYNC_BACKFILL_FIXTURE_SLUG,
+                    status: COLLECTION_STATUS.Live,
+                },
             ],
         );
     });
@@ -166,8 +174,7 @@ describe("SqliteSyncBackfillRepository", () => {
             "backend.sync_backfill.sqlite.count_by_range",
         ]);
         assert.deepEqual(
-            apm.span("backend.sync_backfill.sqlite.count_by_range")
-                ?.attributes,
+            apm.span("backend.sync_backfill.sqlite.count_by_range")?.attributes,
             {
                 [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: 1,
                 [SYNC_BACKFILL_SPAN_ATTRIBUTE.ContextKind]: "any",
@@ -193,11 +200,7 @@ class CapturingApm implements ApmPort {
         return run();
     }
 
-    withSyncSpan<T>(
-        name: string,
-        attributes: SpanAttributes,
-        run: () => T,
-    ): T {
+    withSyncSpan<T>(name: string, attributes: SpanAttributes, run: () => T): T {
         this.spans.push({ name, attributes });
         return run();
     }
@@ -235,13 +238,14 @@ function seedCollection(
         )
         .run({
             chainId: 1,
-            slug: overrides.slug ?? "terraforms",
+            slug: overrides.slug ?? SYNC_BACKFILL_FIXTURE_SLUG,
             address:
                 overrides.address ??
                 "0x1111111111111111111111111111111111111111",
-            standard: "erc721",
+            standard: COLLECTION_STANDARD.Erc721,
             status: overrides.status ?? COLLECTION_STATUS.Live,
-            tokenScopeKind: "contract_all_tokens",
+            tokenScopeKind:
+                EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
             bootstrapAnchorBlock:
                 overrides.bootstrapAnchorBlock === undefined
                     ? 1

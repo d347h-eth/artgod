@@ -97,7 +97,10 @@ describe("OpenSea bidding offer parser", () => {
         assert.equal(parsed.discoverySource, "stateRecovery");
         assert.equal(parsed.priceSource, "protocol.offer");
         assert.equal(parsed.quantity, 1n);
-        assert.equal(parsed.bidScope.kind, TRADING_BIDDING_BID_SCOPE_KIND.Token);
+        assert.equal(
+            parsed.bidScope.kind,
+            TRADING_BIDDING_BID_SCOPE_KIND.Token,
+        );
         assert.equal(parsed.bidScope.label, "#123");
         assert.equal(parsed.bidScope.tokenId, "123");
     });
@@ -171,7 +174,10 @@ describe("OpenSea bidding offer parser", () => {
         assert.equal(parsed.price, 1200000000000000000n);
         assert.equal(parsed.priceSource, "price.value");
         assert.equal(parsed.expirationTime, 1780000000);
-        assert.equal(parsed.bidScope.kind, TRADING_BIDDING_BID_SCOPE_KIND.Token);
+        assert.equal(
+            parsed.bidScope.kind,
+            TRADING_BIDDING_BID_SCOPE_KIND.Token,
+        );
         assert.equal(parsed.bidScope.tokenId, "123");
     });
 
@@ -221,7 +227,10 @@ describe("OpenSea bidding offer parser", () => {
         assert.equal(parsed.id, "0xcollectionwide");
         assert.equal(parsed.price, 100000000000000000n);
         assert.equal(parsed.offerScope, "collection");
-        assert.equal(parsed.bidScope.kind, TRADING_BIDDING_BID_SCOPE_KIND.Collection);
+        assert.equal(
+            parsed.bidScope.kind,
+            TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+        );
         assert.equal(parsed.bidScope.label, "collection");
         assert.equal(parsed.bidScope.encodedTokenIds, "*");
         assert.equal(isOpenSeaCollectionWideOffer(rawOffer), true);
@@ -252,9 +261,14 @@ describe("OpenSea bidding offer parser", () => {
         assert.equal(parsed.id, "0xsingle-trait");
         assert.equal(parsed.offerScope, "trait");
         assert.equal(parsed.discoverySource, "traitOffers");
-        assert.equal(parsed.bidScope.kind, TRADING_BIDDING_BID_SCOPE_KIND.Trait);
+        assert.equal(
+            parsed.bidScope.kind,
+            TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+        );
         assert.equal(parsed.bidScope.label, "Zone=8");
-        assert.deepEqual(parsed.bidScope.traits, [{ type: "Zone", value: "8" }]);
+        assert.deepEqual(parsed.bidScope.traits, [
+            { type: "Zone", value: "8" },
+        ]);
         assert.equal(parsed.bidScope.encodedTokenIds, "100,123,456");
         assert.equal(isOpenSeaCollectionWideOffer(rawOffer), false);
     });
@@ -280,7 +294,10 @@ describe("OpenSea bidding offer parser", () => {
         );
 
         assert.ok(parsed);
-        assert.equal(parsed.bidScope.kind, TRADING_BIDDING_BID_SCOPE_KIND.Trait);
+        assert.equal(
+            parsed.bidScope.kind,
+            TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+        );
         assert.equal(parsed.bidScope.label, "Zone=8 + Biome=53");
         assert.deepEqual(normalizeOpenSeaOfferTraitCriteria(rawCriteria), [
             { type: "Zone", value: "8" },
@@ -310,7 +327,10 @@ describe("OpenSea bidding offer parser", () => {
 
         assert.ok(parsed);
         assert.equal(parsed.offerScope, "trait");
-        assert.equal(parsed.bidScope.kind, TRADING_BIDDING_BID_SCOPE_KIND.Trait);
+        assert.equal(
+            parsed.bidScope.kind,
+            TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+        );
         assert.equal(parsed.bidScope.label, "Biome=81 + Mode=Terrain");
         assert.deepEqual(parsed.bidScope.traits, [
             { type: "Biome", value: "81" },
@@ -334,7 +354,10 @@ describe("OpenSea bidding offer parser", () => {
 
         assert.ok(parsed);
         assert.equal(parsed.offerScope, "item");
-        assert.equal(parsed.bidScope.kind, TRADING_BIDDING_BID_SCOPE_KIND.Unknown);
+        assert.equal(
+            parsed.bidScope.kind,
+            TRADING_BIDDING_BID_SCOPE_KIND.Unknown,
+        );
         assert.equal(
             inferOpenSeaNftSelectionKind(rawOffer, COLLECTION_ADDRESS),
             "item",
@@ -346,8 +369,7 @@ describe("OpenSea bidding offer parser", () => {
         const parsed = parseOpenSeaBiddingOffer(
             {
                 order_hash: "0xnumeric-trait-partial",
-                protocol_address:
-                    "0x0000000000000068f116a894984e2db1123eb395",
+                protocol_address: "0x0000000000000068f116a894984e2db1123eb395",
                 remaining_quantity: 2,
                 protocol_data: {
                     parameters: {
@@ -407,8 +429,74 @@ describe("OpenSea bidding offer parser", () => {
         assert.equal(parsed.priceSource, "protocol.offer/unit");
         assert.equal(parsed.quantity, 2n);
         assert.equal(parsed.expirationTime, 1789097938);
-        assert.equal(parsed.bidScope.kind, TRADING_BIDDING_BID_SCOPE_KIND.Trait);
+        assert.equal(
+            parsed.bidScope.kind,
+            TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+        );
         assert.equal(parsed.bidScope.label, "Biome=42");
+        assert.deepEqual(parsed.bidScope.traits, [
+            { type: "Biome", value: "42" },
+        ]);
+        assert.equal(parsed.bidScope.encodedTokenIds, "30,314,5108:5109");
+    });
+
+    it("parses SDK v11 camelized numeric criteria offers", () => {
+        const parsed = parseOpenSeaBiddingOffer(
+            {
+                orderHash: "0xcamel-numeric-trait",
+                protocolAddress: "0x0000000000000068f116a894984e2db1123eb395",
+                remainingQuantity: 2,
+                protocolData: {
+                    parameters: {
+                        offerer: "0xd1acbe05a739c855f2c54f42f0f1e3df662da56d",
+                        offer: [
+                            {
+                                itemType: 1,
+                                token: WETH_ADDRESS,
+                                identifierOrCriteria: "0",
+                                startAmount: "620000000000000000",
+                                endAmount: "620000000000000000",
+                            },
+                        ],
+                        consideration: [
+                            {
+                                itemType: 4,
+                                token: COLLECTION_ADDRESS,
+                                identifierOrCriteria:
+                                    "113703377976973476812273708665395356499261988770439230068849221413098206214838",
+                                startAmount: "2",
+                                endAmount: "2",
+                                recipient:
+                                    "0xd1acbe05a739c855f2c54f42f0f1e3df662da56d",
+                            },
+                        ],
+                        orderType: 3,
+                        endTime: "1789097938",
+                    },
+                },
+                criteria: {
+                    collection: { slug: "terraforms" },
+                    contract: { address: COLLECTION_ADDRESS },
+                    trait: null,
+                    traits: null,
+                    numericTraits: [{ traitType: "Biome", min: 42, max: 42 }],
+                    encodedTokenIds: "30,314,5108:5109",
+                },
+            },
+            {
+                collectionAddress: COLLECTION_ADDRESS,
+                wethAddress: WETH_ADDRESS,
+            },
+        );
+
+        assert.ok(parsed);
+        assert.equal(parsed.id, "0xcamel-numeric-trait");
+        assert.equal(parsed.offerScope, "trait");
+        assert.equal(parsed.price, 310000000000000000n);
+        assert.equal(
+            parsed.bidScope.kind,
+            TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+        );
         assert.deepEqual(parsed.bidScope.traits, [
             { type: "Biome", value: "42" },
         ]);

@@ -42,6 +42,16 @@ Implementation decisions:
 - keep snapshot, bidding, and stream key lanes separate
 - pin `@opensea/stream-js` to `0.3.1` in the trading workspace
 
+## SDK v11 Response Casing Follow-up
+
+`@opensea/sdk` v11 camelizes API and SDK response keys. Trading code that consumes OpenSea API/SDK responses must normalize both response shapes at adapter/parser boundaries:
+
+- placed-order identity accepts `orderHash` and `order_hash`, plus `protocolAddress` and `protocol_address`
+- snapshot and recovery parsing accepts `protocolData` and `protocol_data`
+- criteria parsing accepts raw snake_case criteria and SDK-v11 camelCase criteria such as `numericTraits`, `traitType`, `traitValue`, and `encodedTokenIds`
+
+The shared OpenSea bidding-offer parser owns those response-shape rules so bidder recovery, snapshot reconciliation, and bid-book ingestion do not maintain separate criteria parsers.
+
 ## Remaining Risk
 
 Live API and stream verification is still required with real OpenSea credentials before merge because the local tests cover adapter shape and parser compatibility, not production rate limits, stream delivery, or endpoint ordering guarantees.

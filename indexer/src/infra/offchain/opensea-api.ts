@@ -10,6 +10,10 @@ import {
     type OpenSeaContractLookupPort,
     type OpenSeaResolvedContractCollection,
 } from "@artgod/shared/network/opensea-contract-lookup";
+import {
+    OPENSEA_REST_EVENT_TYPE,
+    type OpenSeaRestEventType,
+} from "../../domain/offchain-jobs.js";
 
 export type OpenSeaApiConfig = {
     apiKey: string;
@@ -19,7 +23,7 @@ export type OpenSeaApiConfig = {
 export type OpenSeaResolvedCollection = OpenSeaResolvedContractCollection;
 
 export type OpenSeaRestRecord = {
-    eventType: string;
+    eventType: OpenSeaRestEventType;
     orderId: string;
     sourceEventAt: number | null;
     payload: Record<string, unknown>;
@@ -31,7 +35,6 @@ type OfferRecord = Record<string, unknown>;
 // Logger component label emitted by the indexer OpenSea REST adapter.
 const OPENSEA_API_ADAPTER_LOG_COMPONENT = "OpenSeaApiAdapter";
 const NFT_ITEM_TYPES = new Set([2, 3, 4, 5]);
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export class OpenSeaApiAdapter {
     private readonly api: OpenSeaAPI;
@@ -138,7 +141,7 @@ function toRestListingRecord(
     listing: ListingRecord,
     contractAddress: string,
 ): OpenSeaRestRecord | null {
-    const parameters = getProtocolParameters(listing.protocol_data);
+    const parameters = getProtocolParameters(getProtocolData(listing));
     const nftItem = findNftItem(asArray(parameters.offer));
     if (!nftItem) return null;
 
@@ -148,14 +151,13 @@ function toRestListingRecord(
     const tokenId = identifierToString(nftItem.identifierOrCriteria);
     if (!tokenId) return null;
 
-    const paymentItem = findPaymentItem(asArray(parameters.consideration));
-    const orderHash = stringOrNull(listing.order_hash);
+    const orderHash = getOrderHash(listing);
     if (!orderHash) return null;
 
     const eventTimestamp = unixToIso(parameters.startTime);
 
     return {
-        eventType: "rest.listing",
+        eventType: OPENSEA_REST_EVENT_TYPE.Listing,
         orderId: orderHash.toLowerCase(),
         sourceEventAt: isoToUnix(eventTimestamp),
         payload: listing,
@@ -166,8 +168,8 @@ function toRestOfferRecord(
     offer: OfferRecord,
     contractAddress: string,
 ): OpenSeaRestRecord | null {
-    const parameters = getProtocolParameters(offer.protocol_data);
-    const orderHash = stringOrNull(offer.order_hash);
+    const parameters = getProtocolParameters(getProtocolData(offer));
+    const orderHash = getOrderHash(offer);
     if (!orderHash) return null;
     const eventTimestamp = unixToIso(parameters.startTime);
 
@@ -184,7 +186,7 @@ function toRestOfferRecord(
         const traits = normalizeCriteriaTraits(criteria);
         if (traits.length === 0) {
             return {
-                eventType: "rest.offer.collection",
+                eventType: OPENSEA_REST_EVENT_TYPE.CollectionOffer,
                 orderId: orderHash.toLowerCase(),
                 sourceEventAt: isoToUnix(eventTimestamp),
                 payload: offer,
@@ -192,7 +194,7 @@ function toRestOfferRecord(
         }
 
         return {
-            eventType: "rest.offer.trait",
+            eventType: OPENSEA_REST_EVENT_TYPE.TraitOffer,
             orderId: orderHash.toLowerCase(),
             sourceEventAt: isoToUnix(eventTimestamp),
             payload: offer,
@@ -208,7 +210,7 @@ function toRestOfferRecord(
     if (!tokenId) return null;
 
     return {
-        eventType: "rest.offer.item",
+        eventType: OPENSEA_REST_EVENT_TYPE.ItemOffer,
         orderId: orderHash.toLowerCase(),
         sourceEventAt: isoToUnix(eventTimestamp),
         payload: offer,
@@ -218,6 +220,14 @@ function toRestOfferRecord(
 function getProtocolParameters(value: unknown): Record<string, unknown> {
     const protocol = asRecord(value);
     return asRecord(protocol.parameters);
+}
+
+function getProtocolData(record: Record<string, unknown>): unknown {
+    return record.protocolData ?? record.protocol_data;
+}
+
+function getOrderHash(record: Record<string, unknown>): string | null {
+    return stringOrNull(record.orderHash) ?? stringOrNull(record.order_hash);
 }
 
 function normalizeCriteriaTraits(
@@ -237,17 +247,6 @@ function findNftItem(
         if (!Number.isFinite(itemType) || !NFT_ITEM_TYPES.has(itemType)) {
             continue;
         }
-        return item;
-    }
-    return null;
-}
-
-function findPaymentItem(
-    items: Array<Record<string, unknown>>,
-): Record<string, unknown> | null {
-    for (const item of items) {
-        const itemType = Number(item.itemType);
-        if (!Number.isFinite(itemType) || itemType > 1) continue;
         return item;
     }
     return null;

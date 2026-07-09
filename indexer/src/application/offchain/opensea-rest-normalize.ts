@@ -7,6 +7,7 @@ import {
     toBigInt,
 } from "./normalizer-utils.js";
 import { ORDER_SOURCE_SCOPE_KIND } from "../../domain/orders.js";
+import { OPENSEA_REST_EVENT_TYPE } from "../../domain/offchain-jobs.js";
 import {
     extractSeaportSellTerms,
     normalizeSeaportOrderData,
@@ -24,13 +25,13 @@ export function normalizeOpenSeaRestOrder(
     const payload = asObject(raw, "payload");
 
     switch (recordType) {
-        case "rest.listing":
+        case OPENSEA_REST_EVENT_TYPE.Listing:
             return normalizeRestListing(payload);
-        case "rest.offer.item":
+        case OPENSEA_REST_EVENT_TYPE.ItemOffer:
             return normalizeRestItemOffer(payload);
-        case "rest.offer.collection":
+        case OPENSEA_REST_EVENT_TYPE.CollectionOffer:
             return normalizeRestCollectionOffer(payload);
-        case "rest.offer.trait":
+        case OPENSEA_REST_EVENT_TYPE.TraitOffer:
             return normalizeRestTraitOffer(payload);
         default:
             return null;
@@ -42,7 +43,7 @@ function normalizeRestListing(
 ): RawOrderPayload {
     const seaportData = normalizeSeaportOrderData(payload);
     const protocolTerms = extractSeaportSellTerms(seaportData);
-    const parameters = parseProtocolParameters(payload.protocol_data);
+    const parameters = parseProtocolParameters(getProtocolData(payload));
     const nftItem = requireNftItem(parameters.offer, "offer");
     const paymentItem = findPaymentItem(parameters.consideration);
 
@@ -99,8 +100,8 @@ function normalizeRestItemOffer(
     // Parse buy-offer order terms through the shared bidder-owned OpenSea parser.
     const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
         context: {
-            recordType: "rest.offer.item",
-            orderHash: payload.order_hash,
+            recordType: OPENSEA_REST_EVENT_TYPE.ItemOffer,
+            orderHash: getOrderHash(payload),
         },
     });
 
@@ -133,8 +134,8 @@ function normalizeRestCollectionOffer(
     // Parse collection/criteria offer terms through the shared bidder-owned OpenSea parser.
     const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
         context: {
-            recordType: "rest.offer.collection",
-            orderHash: payload.order_hash,
+            recordType: OPENSEA_REST_EVENT_TYPE.CollectionOffer,
+            orderHash: getOrderHash(payload),
         },
     });
 
@@ -167,8 +168,8 @@ function normalizeRestTraitOffer(
     // Parse trait offer order terms through the shared bidder-owned OpenSea parser.
     const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
         context: {
-            recordType: "rest.offer.trait",
-            orderHash: payload.order_hash,
+            recordType: OPENSEA_REST_EVENT_TYPE.TraitOffer,
+            orderHash: getOrderHash(payload),
         },
     });
 
@@ -215,7 +216,15 @@ function parseProtocolParameters(value: unknown): Record<string, unknown> & {
 }
 
 function parseOrderHash(payload: Record<string, unknown>): string {
-    return assertString(payload.order_hash, "order_hash").toLowerCase();
+    return assertString(getOrderHash(payload), "order_hash").toLowerCase();
+}
+
+function getProtocolData(payload: Record<string, unknown>): unknown {
+    return payload.protocol_data ?? payload.protocolData;
+}
+
+function getOrderHash(payload: Record<string, unknown>): unknown {
+    return payload.order_hash ?? payload.orderHash;
 }
 
 function requireNftItem(items: unknown, name: string): Record<string, unknown> {

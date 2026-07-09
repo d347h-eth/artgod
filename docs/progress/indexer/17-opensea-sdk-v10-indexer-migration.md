@@ -24,6 +24,16 @@ The removed v10 endpoints are not part of the indexer reconciliation/bootstrap a
 
 The migration therefore remains a dependency/import update, while preserving the existing snapshot/reconcile behavior and payload normalization.
 
+## SDK v11 Response Casing Follow-up
+
+`@opensea/sdk` v11 camelizes REST response keys at the SDK boundary. The indexer REST adapter and normalizer must accept both SDK-v11 camelCase fields and raw/OpenSea-stream snake_case fields for order identity and Seaport payloads:
+
+- `orderHash` and `order_hash`
+- `protocolData` and `protocol_data`
+- camelized criteria payloads such as `numericTraits`, `traitType`, and `encodedTokenIds`
+
+The canonical persisted offchain event types remain the `rest.*` snapshot/reconcile event types owned by the indexer offchain domain contract.
+
 The stream worker uses `@opensea/stream-js` only through `OpenSeaStreamAdapter`.
 `@opensea/stream-js@0.3.1` keeps `OpenSeaStreamClient`, `Network.MAINNET`, `LogLevel.ERROR`, `EventType`, `onEvents(...)`, and `disconnect()`.
 The package now defaults to `wss://stream-api.opensea.io/socket` and stream messages include a `version` field, but the indexer still persists raw events and normalizes from existing payload fields.

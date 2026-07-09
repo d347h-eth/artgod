@@ -4,11 +4,14 @@ import { join } from "node:path";
 import { strict as assert } from "node:assert";
 import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS } from "@artgod/shared/trading/runtime-state";
 import { TOKEN_SET_SCHEMA_KIND } from "@artgod/shared/types/token-sets";
 import {
+    COLLECTION_STANDARD,
+    COLLECTION_STATUS,
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRADING_BIDDING_BID_BOOK_SOURCE,
@@ -32,6 +35,9 @@ import { BIDDING_SPAN_ATTRIBUTE } from "../../application/use-cases/trading/bidd
 import { SqliteBiddingBidBookRepository } from "./sqlite-bidding-bid-book-repository.js";
 import { SqliteBiddingJobsRepository } from "./sqlite-bidding-jobs-repository.js";
 
+// Bid-book repository tests use fixture market identity, not the preset collection.
+const BID_BOOK_FIXTURE_SLUG = "bid-book-fixture";
+const BID_BOOK_FIXTURE_OPENSEA_SLUG = "bid-book-fixture-opensea";
 const COLLECTION_ADDRESS = "0x1111111111111111111111111111111111111111";
 const WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
 const BIDDING_MAKER_ADDRESS = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -78,12 +84,13 @@ function seedCollection(): number {
         )
         .run({
             chainId: 1,
-            slug: "terraforms",
+            slug: BID_BOOK_FIXTURE_SLUG,
             address: COLLECTION_ADDRESS,
-            standard: "erc721",
-            status: "live",
-            tokenScopeKind: "contract_all_tokens",
-            openseaSlug: "terraforms",
+            standard: COLLECTION_STANDARD.Erc721,
+            status: COLLECTION_STATUS.Live,
+            tokenScopeKind:
+                EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
+            openseaSlug: BID_BOOK_FIXTURE_OPENSEA_SLUG,
         });
 
     return Number(result.lastInsertRowid);
@@ -2212,7 +2219,7 @@ function makeOpenSeaBuyOrderPayload(input: {
             },
         },
         criteria: {
-            collection: { slug: "terraforms" },
+            collection: { slug: BID_BOOK_FIXTURE_OPENSEA_SLUG },
             contract: { address: COLLECTION_ADDRESS },
             trait: null,
             traits: null,

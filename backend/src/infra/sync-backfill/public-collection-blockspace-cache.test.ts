@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { strict as assert } from "node:assert";
 import { afterEach, beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import { createMigrationRunner } from "@artgod/shared/migrations";
-import { COLLECTION_STATUS } from "@artgod/shared/types";
+import { COLLECTION_STANDARD, COLLECTION_STATUS } from "@artgod/shared/types";
 import {
     getCurrentQueryCacheDebugInfo,
     QUERY_CACHE_DEBUG_STATUSES,
@@ -13,6 +14,9 @@ import {
 } from "../../utils/query-cache-debug.js";
 import { PublicCollectionBlockspaceCache } from "./public-collection-blockspace-cache.js";
 import { SqliteSyncBackfillRepository } from "./sqlite-sync-backfill-repository.js";
+
+// Public blockspace cache tests use a local collection, not the preset row.
+const PUBLIC_BLOCKSPACE_FIXTURE_SLUG = "public-blockspace-fixture";
 
 async function createTempDbPath(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "artgod-public-blockspace-"));
@@ -34,7 +38,7 @@ describe("PublicCollectionBlockspaceCache", () => {
             new SqliteSyncBackfillRepository(),
             {
                 chainId: 1,
-                collectionRef: "terraforms",
+                collectionRef: PUBLIC_BLOCKSPACE_FIXTURE_SLUG,
                 refreshMs: 5_000,
             },
         );
@@ -129,11 +133,12 @@ function seedCollection(): number {
         )
         .run({
             chainId: 1,
-            slug: "terraforms",
+            slug: PUBLIC_BLOCKSPACE_FIXTURE_SLUG,
             address: "0x1111111111111111111111111111111111111111",
-            standard: "erc721",
+            standard: COLLECTION_STANDARD.Erc721,
             status: COLLECTION_STATUS.Live,
-            tokenScopeKind: "contract_all_tokens",
+            tokenScopeKind:
+                EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
             deploymentBlock: 10,
             bootstrapAnchorBlock: 10,
         });
@@ -187,7 +192,7 @@ function collectionContext(collectionId: number) {
     return {
         kind: "collection" as const,
         collectionId,
-        slug: "terraforms",
+        slug: PUBLIC_BLOCKSPACE_FIXTURE_SLUG,
         deploymentBlock: 10,
     };
 }

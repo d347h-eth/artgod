@@ -7,6 +7,10 @@ import {
     type TradingBiddingJobRuntimeConstraint,
 } from "@artgod/shared/types";
 import {
+    getOpenSeaOfferCriteria,
+    normalizeOpenSeaOfferTraitCriteria,
+} from "@artgod/shared/trading/open-sea-bidding-offers";
+import {
     MarketEvent,
     Scope,
     TraitCriterion,
@@ -1845,84 +1849,9 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     }
 
     private normalizeOrderTraitTargets(order: Order): TraitCriterion[] {
-        const rawCriteria =
-            (
-                order.rawOrder as
-                    | {
-                          criteria?: unknown;
-                          protocolData?: { criteria?: unknown };
-                          protocol_data?: { criteria?: unknown };
-                      }
-                    | undefined
-            )?.criteria ??
-            (
-                order.rawOrder as
-                    | {
-                          protocolData?: { criteria?: unknown };
-                      }
-                    | undefined
-            )?.protocolData?.criteria ??
-            (
-                order.rawOrder as
-                    | {
-                          protocol_data?: { criteria?: unknown };
-                      }
-                    | undefined
-            )?.protocol_data?.criteria;
-
-        return this.normalizeTraitTargets(rawCriteria);
-    }
-
-    private normalizeTraitTargets(criteria: unknown): TraitCriterion[] {
-        if (!criteria) {
-            return [];
-        }
-
-        if (Array.isArray(criteria)) {
-            return criteria.flatMap((entry) =>
-                this.normalizeTraitTargets(entry),
-            );
-        }
-
-        const candidate = criteria as {
-            trait?: unknown;
-            traits?: unknown;
-            type?: string;
-            trait_type?: string;
-            value?: unknown;
-            trait_value?: unknown;
-        };
-        const trait = candidate.trait;
-        const traits = candidate.traits;
-        if (trait || traits) {
-            return this.normalizeTraitTargets(trait || traits);
-        }
-
-        const type = candidate.type ?? candidate.trait_type;
-        const value = candidate.value ?? candidate.trait_value;
-        if (typeof type === "string" && value !== undefined && value !== null) {
-            return [{ type, value: String(value) }];
-        }
-
-        if (typeof criteria === "object") {
-            const normalized: TraitCriterion[] = [];
-            for (const [key, rawValue] of Object.entries(
-                criteria as Record<string, unknown>,
-            )) {
-                if (
-                    rawValue === undefined ||
-                    rawValue === null ||
-                    typeof rawValue === "object"
-                ) {
-                    continue;
-                }
-
-                normalized.push({ type: key, value: String(rawValue) });
-            }
-            return normalized;
-        }
-
-        return [];
+        return normalizeOpenSeaOfferTraitCriteria(
+            getOpenSeaOfferCriteria(order.rawOrder),
+        );
     }
 
     private dedupeTraitTargets(targets: TraitCriterion[]): TraitCriterion[] {

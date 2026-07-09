@@ -4,6 +4,8 @@ import {
     OpenSeaApiAdapter,
     type OpenSeaRestRecord,
 } from "../src/infra/offchain/opensea-api.js";
+import { normalizeOpenSeaRestOrder } from "../src/application/offchain/opensea-rest-normalize.js";
+import { OPENSEA_REST_EVENT_TYPE } from "../src/domain/offchain-jobs.js";
 
 const CONTRACT = "0x5af0d9827e0c53e4799bb226655a1de152a425a5";
 const SEAPORT = "0x0000000000000068f116a894984e2db1123eb395";
@@ -34,7 +36,7 @@ describe("OpenSeaApiAdapter", () => {
         expect(requests).toEqual([CONTRACT]);
     });
 
-    it("emits raw listing records with rest.listing type", async () => {
+    it("emits raw listing records with the REST listing type", async () => {
         const listing = buildListingRecord();
         const adapter = createAdapter();
         adapter.api = {
@@ -54,7 +56,7 @@ describe("OpenSeaApiAdapter", () => {
         );
 
         expect(events).toHaveLength(1);
-        expect(events[0]?.eventType).toBe("rest.listing");
+        expect(events[0]?.eventType).toBe(OPENSEA_REST_EVENT_TYPE.Listing);
         expect(events[0]?.payload).toEqual(listing);
     });
 
@@ -80,9 +82,11 @@ describe("OpenSeaApiAdapter", () => {
         );
 
         expect(events).toHaveLength(3);
-        expect(events[0]?.eventType).toBe("rest.offer.item");
-        expect(events[1]?.eventType).toBe("rest.offer.collection");
-        expect(events[2]?.eventType).toBe("rest.offer.trait");
+        expect(events[0]?.eventType).toBe(OPENSEA_REST_EVENT_TYPE.ItemOffer);
+        expect(events[1]?.eventType).toBe(
+            OPENSEA_REST_EVENT_TYPE.CollectionOffer,
+        );
+        expect(events[2]?.eventType).toBe(OPENSEA_REST_EVENT_TYPE.TraitOffer);
         for (const [index, source] of [
             itemOffer,
             collectionOffer,
@@ -90,6 +94,59 @@ describe("OpenSeaApiAdapter", () => {
         ].entries()) {
             expect(events[index]?.payload).toEqual(source);
         }
+    });
+
+    it("accepts SDK v11 camelized listing and offer envelopes", async () => {
+        const listing = buildSdkV11ListingRecord();
+        const traitOffer = buildSdkV11NumericTraitOfferRecord();
+        const adapter = createAdapter();
+        adapter.api = {
+            getAllListings: async () => ({
+                listings: [listing],
+                next: undefined,
+            }),
+            getAllOffers: async () => ({
+                offers: [traitOffer],
+                next: undefined,
+            }),
+        };
+
+        const listings: OpenSeaRestRecord[] = [];
+        await adapter.instance.forEachListing(
+            "test-collection",
+            CONTRACT,
+            async (event) => {
+                listings.push(event);
+            },
+        );
+
+        const offers: OpenSeaRestRecord[] = [];
+        await adapter.instance.forEachOffer(
+            "test-collection",
+            CONTRACT,
+            async (event) => {
+                offers.push(event);
+            },
+        );
+
+        expect(listings).toHaveLength(1);
+        expect(listings[0]?.eventType).toBe(OPENSEA_REST_EVENT_TYPE.Listing);
+        expect(listings[0]?.payload).toEqual(listing);
+        expect(
+            normalizeOpenSeaRestOrder(
+                OPENSEA_REST_EVENT_TYPE.Listing,
+                listings[0]?.payload,
+            )?.orderId,
+        ).toBe(listing.orderHash);
+        expect(offers).toHaveLength(1);
+        expect(offers[0]?.eventType).toBe(OPENSEA_REST_EVENT_TYPE.TraitOffer);
+        expect(offers[0]?.payload).toEqual(traitOffer);
+        expect(
+            normalizeOpenSeaRestOrder(
+                OPENSEA_REST_EVENT_TYPE.TraitOffer,
+                offers[0]?.payload,
+            )?.orderId,
+        ).toBe(traitOffer.orderHash);
     });
 });
 
@@ -192,6 +249,43 @@ function buildNumericTraitOfferRecord(): Record<string, unknown> {
             },
             numeric_traits: [{ type: "Biome", min: 42, max: 42 }],
             encoded_token_ids: "1,2,3",
+        },
+    };
+}
+
+function buildSdkV11ListingRecord(): Record<string, unknown> {
+    return {
+        status: "ACTIVE",
+        orderHash:
+            "0x9c7ee14dacd851335f25c9f18d14faeb0ece0b20d79710cc847eec28b3dc1e8d",
+        protocolAddress: SEAPORT,
+        protocolData: buildListingProtocolData(),
+        price: {
+            current: {
+                value: "989199990000000000",
+            },
+        },
+        remainingQuantity: 1,
+        type: "basic",
+    };
+}
+
+function buildSdkV11NumericTraitOfferRecord(): Record<string, unknown> {
+    return {
+        status: "ACTIVE",
+        orderHash:
+            "0x5c745eab5ab8c5635071c70bdfaa81157ea0e8311aa4f2177b374b63a3f3bb63",
+        protocolAddress: SEAPORT,
+        protocolData: buildCollectionOfferProtocolData(),
+        price: {
+            value: "1200000000000000000",
+        },
+        criteria: {
+            contract: {
+                address: CONTRACT,
+            },
+            numericTraits: [{ traitType: "Biome", min: 42, max: 42 }],
+            encodedTokenIds: "1,2,3",
         },
     };
 }

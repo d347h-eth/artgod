@@ -4,8 +4,11 @@ import { join } from "node:path";
 import { strict as assert } from "node:assert";
 import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
+    COLLECTION_STANDARD,
+    COLLECTION_STATUS,
     TRADING_BOT_KIND,
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_COMMAND_STATUS,
@@ -13,6 +16,9 @@ import {
     TRADING_JOB_TARGET_KIND,
 } from "@artgod/shared/types";
 import { SqliteBiddingJobCommandRepository } from "./sqlite-bidding-job-command-repository.js";
+
+// Command repository tests seed an isolated collection fixture.
+const JOB_COMMAND_FIXTURE_SLUG = "job-command-fixture";
 
 async function createTempDbPath(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "artgod-command-repo-"));
@@ -33,11 +39,12 @@ function seedCollection(): number {
             "VALUES (@chainId, @slug, @address, @standard, @status, @tokenScopeKind)",
     ).run({
         chainId: 1,
-        slug: "terraforms",
+        slug: JOB_COMMAND_FIXTURE_SLUG,
         address: "0x1111111111111111111111111111111111111111",
-        standard: "erc721",
-        status: "live",
-        tokenScopeKind: "contract_all_tokens",
+        standard: COLLECTION_STANDARD.Erc721,
+        status: COLLECTION_STATUS.Live,
+        tokenScopeKind:
+            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
     });
 
     return Number(result.lastInsertRowid);

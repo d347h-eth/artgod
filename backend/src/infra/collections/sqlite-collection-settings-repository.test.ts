@@ -4,8 +4,15 @@ import { join } from "node:path";
 import { strict as assert } from "node:assert";
 import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import { COLLECTION_STANDARD, COLLECTION_STATUS } from "@artgod/shared/types";
 import { SqliteCollectionSettingsRepository } from "./sqlite-collection-settings-repository.js";
+
+// Generic fixture collection identity kept distinct from first-launch presets.
+const COLLECTION_SETTINGS_FIXTURE_SLUG = "collection-settings-fixture";
+const COLLECTION_SETTINGS_FIXTURE_OPENSEA_SLUG =
+    "collection-settings-fixture-opensea";
 
 async function createTempDbPath(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "artgod-collection-settings-"));
@@ -29,12 +36,13 @@ function seedCollection(): number {
         )
         .run({
             chainId: 1,
-            slug: "artgod-slug",
+            slug: COLLECTION_SETTINGS_FIXTURE_SLUG,
             address: "0x1111111111111111111111111111111111111111",
-            standard: "erc721",
-            status: "live",
-            tokenScopeKind: "contract_all_tokens",
-            openseaSlug: "terraforms",
+            standard: COLLECTION_STANDARD.Erc721,
+            status: COLLECTION_STATUS.Live,
+            tokenScopeKind:
+                EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
+            openseaSlug: COLLECTION_SETTINGS_FIXTURE_OPENSEA_SLUG,
         });
 
     return Number(result.lastInsertRowid);
