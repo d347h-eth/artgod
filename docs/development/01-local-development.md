@@ -70,8 +70,8 @@ Prerequisites:
 - Node `24.3.0` with Corepack enabled.
 - Yarn `4.12.0` from the checked-in `packageManager` field.
 - Rust toolchain matching `rust-toolchain.toml`.
-- Linux: Tauri WebKit/GTK dependencies plus `patchelf`, `python3`, `make`, and
-  `g++`.
+- Linux: Tauri WebKit/GTK dependencies plus `libfuse2`, `libssl-dev`,
+  `libxdo-dev`, `patchelf`, `file`, `xdg-utils`, `python3`, `make`, and `g++`.
 - macOS: Xcode Command Line Tools.
 - Windows: Microsoft C++ Build Tools / Visual Studio Build Tools with the MSVC
   toolchain and Windows SDK.
@@ -91,9 +91,21 @@ yarn build:sqlite-native
 Linux x64 bundle:
 
 ```sh
-sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf python3 make g++
+sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libfuse2 libssl-dev libxdo-dev patchelf file xdg-utils python3 make g++
 yarn tauri build --ci --target x86_64-unknown-linux-gnu --bundles appimage,deb
 ```
+
+Ubuntu 22 release-lane reproduction in Docker:
+
+```sh
+scripts/build/reproduce-linux-release-docker.sh
+```
+
+The helper mirrors the GitHub Linux release lane: Ubuntu `22.04`, Node from
+`package.json`, Rust from `rust-toolchain.toml`, the Linux packaging
+dependencies from `.github/workflows/tauri-release.yml`, and the same Tauri
+AppImage/`.deb` build command. It restores ownership of generated build
+artifacts after the container exits.
 
 macOS universal DMG:
 

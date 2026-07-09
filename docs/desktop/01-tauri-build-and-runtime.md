@@ -233,6 +233,10 @@ Responsibilities:
     - `.yarn/install-state.gz`
     - `.pnp.cjs`
     - `.pnp.loader.mjs`
+- prunes native prebuild directories that do not match the bundled Node target
+- prunes musl `.node` files from Linux glibc runtime targets because
+  linuxdeploy scans all ELF files staged into the AppImage tree, including
+  unused native prebuilds under `.yarn/unplugged`
 
 ### `scripts/build/prepare-desktop-sidecars.mjs`
 

@@ -40,6 +40,10 @@ const resourcesRootDir = path.join(
     "resources",
     "runtime",
 );
+// Official Linux Node distributions used by this script are glibc builds.
+const linuxNodeDistTargetPrefix = "linux-";
+// Some native packages colocate musl and glibc binaries under one Linux prebuild dir.
+const linuxMuslNativePrebuildFileMarker = ".musl.";
 
 const copySpecs = [
     {
@@ -171,20 +175,53 @@ async function pruneNativePrebuilds(targetRootDir, target) {
 
     for (const prebuildDir of prebuildDirs) {
         const entries = await readdir(prebuildDir, { withFileTypes: true });
-        await Promise.all(
-            entries
-                .filter(
-                    (entry) =>
-                        entry.isDirectory() && !allowedTargets.has(entry.name),
-                )
-                .map((entry) =>
-                    rm(path.join(prebuildDir, entry.name), {
+        const pruneTasks = [];
+
+        for (const entry of entries) {
+            if (!entry.isDirectory()) continue;
+
+            const prebuildTargetDir = path.join(prebuildDir, entry.name);
+            if (!allowedTargets.has(entry.name)) {
+                pruneTasks.push(
+                    rm(prebuildTargetDir, {
                         recursive: true,
                         force: true,
                     }),
-                ),
-        );
+                );
+                continue;
+            }
+
+            pruneTasks.push(pruneNativePrebuildFiles(prebuildTargetDir, target));
+        }
+
+        await Promise.all(pruneTasks);
     }
+}
+
+async function pruneNativePrebuildFiles(prebuildTargetDir, target) {
+    if (!isLinuxGlibcNodeTarget(target)) return;
+
+    const entries = await readdir(prebuildTargetDir, { withFileTypes: true });
+    await Promise.all(
+        entries
+            .filter(
+                (entry) =>
+                    entry.isFile() && isLinuxMuslNativePrebuild(entry.name),
+            )
+            .map((entry) =>
+                rm(path.join(prebuildTargetDir, entry.name), {
+                    force: true,
+                }),
+            ),
+    );
+}
+
+function isLinuxGlibcNodeTarget(target) {
+    return target.startsWith(linuxNodeDistTargetPrefix);
+}
+
+function isLinuxMuslNativePrebuild(fileName) {
+    return fileName.includes(linuxMuslNativePrebuildFileMarker);
 }
 
 function getNativePrebuildTargets(target) {
