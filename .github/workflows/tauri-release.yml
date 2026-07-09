@@ -201,12 +201,7 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  APP_PATH="$(find "src-tauri/target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -type d -name "*.app" | head -n 1)"
-                  if [ -z "$APP_PATH" ]; then
-                    echo "No .app bundle found for code-sign verification"
-                    exit 1
-                  fi
-                  codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+                  node ./scripts/build/macos-code-signing.mjs verify-app "src-tauri/target/${{ matrix.target }}/release/bundle/macos"
 
             - name: Collect release artifacts
               shell: bash

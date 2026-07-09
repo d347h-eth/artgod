@@ -171,6 +171,14 @@ The workflow imports the `.p12` into a temporary keychain, signs the `.app`,
 notarizes the DMG with `xcrun notarytool`, staples the DMG, validates the
 stapled ticket, and then runs Gatekeeper assessment on the DMG.
 
+Before DMG assembly, `beforeBundleCommand` runs
+`scripts/build/macos-code-signing.mjs sign-staged` on the macOS runner. This
+signs staged executable/loadable Mach-O files copied as runtime resources or
+sidecars, including the bundled Node runtime, bundled NATS runtime, native
+`.node` add-ons, and the secret-prompt sidecar. The release workflow then runs
+`scripts/build/macos-code-signing.mjs verify-app` against the produced `.app`
+before notarizing the DMG.
+
 Official references:
 
 - Apple Developer Program: https://developer.apple.com/programs/

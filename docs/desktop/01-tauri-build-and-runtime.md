@@ -152,6 +152,7 @@ What each command does:
 
 - `beforeDevCommand = "yarn build:desktop-sidecars --profile debug && node ./scripts/build/dev-frontend-target.mjs admin"`
 - `beforeBuildCommand = "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release"`
+- `beforeBundleCommand = "node ./scripts/build/macos-code-signing.mjs sign-staged"`
 - `frontendDist = "../frontend/dist"`
 
 This ensures `yarn tauri build ...` always has:
@@ -161,8 +162,9 @@ This ensures `yarn tauri build ...` always has:
 3. backend/indexer runtime `.mjs` artifacts
 4. staged runtime resources under `src-tauri/resources/runtime`
 5. staged native sidecar binaries under `src-tauri/binaries`
+6. macOS signatures on staged Mach-O runtime resources and sidecars before DMG assembly
 
-before Rust bundling starts.
+before final Tauri bundle generation starts.
 
 ## Build Helper Scripts
 
@@ -240,6 +242,15 @@ Responsibilities:
 - stages the built binary into `src-tauri/binaries/artgod-secret-prompt-<target-triple>(.exe)`
 - stages a fat `artgod-secret-prompt-universal-apple-darwin` sidecar when Tauri builds the macOS universal target
 - keeps sidecar build output separate from the main `src-tauri/target` tree by using `src-tauri/target/sidecars`
+
+### `scripts/build/macos-code-signing.mjs`
+
+Responsibilities:
+
+- signs staged macOS executable/loadable Mach-O files under `src-tauri/resources/runtime` and `src-tauri/binaries` before Tauri generates the final bundle artifacts
+- covers the bundled Node runtime, bundled NATS runtime, native `.node` add-ons from `.yarn/unplugged`, and the native secret-prompt sidecar
+- skips non-macOS targets and local macOS builds without `APPLE_SIGNING_IDENTITY`
+- verifies that the final `.app` contains signed Node, NATS, and secret-prompt executables before notarization
 
 ### `scripts/build/clean-build-artifacts.mjs`
 
