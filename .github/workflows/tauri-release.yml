@@ -241,11 +241,24 @@ jobs:
                     exit 1
                   fi
 
+                  NOTARY_RESULT_PATH="$RUNNER_TEMP/notary-submit.json"
                   xcrun notarytool submit "$DMG_PATH" \
                     --key "$APPLE_API_KEY_PATH" \
                     --key-id "$APPLE_API_KEY_ID" \
                     --issuer "$APPLE_API_ISSUER" \
-                    --wait
+                    --wait \
+                    --output-format json | tee "$NOTARY_RESULT_PATH"
+
+                  SUBMISSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$NOTARY_RESULT_PATH")"
+                  NOTARY_STATUS="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"])' "$NOTARY_RESULT_PATH")"
+                  if [ "$NOTARY_STATUS" != "Accepted" ]; then
+                    echo "Notarization failed with status: $NOTARY_STATUS"
+                    xcrun notarytool log "$SUBMISSION_ID" \
+                      --key "$APPLE_API_KEY_PATH" \
+                      --key-id "$APPLE_API_KEY_ID" \
+                      --issuer "$APPLE_API_ISSUER"
+                    exit 1
+                  fi
 
                   xcrun stapler staple "$DMG_PATH"
                   xcrun stapler validate "$DMG_PATH"
