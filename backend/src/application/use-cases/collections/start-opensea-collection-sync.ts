@@ -16,12 +16,14 @@ import {
 export type StartOpenSeaCollectionSyncInput = {
     chainRef: string;
     collectionRef: string;
+    openseaSlug: string;
 };
 
 export type OpenSeaCollectionSyncState = {
     chainId: number;
     collectionId: number;
     slug: string;
+    address: string;
     status: CollectionStatus;
     openseaSlug: string | null;
     openseaStatus: OpenSeaCollectionStatus | null;
@@ -35,6 +37,13 @@ export type StartOpenSeaCollectionSyncOutput = {
 };
 
 type MaybePromise<T> = T | Promise<T>;
+
+// Outbound lookup boundary for verifying OpenSea collection identity before sync.
+export interface OpenSeaCollectionSyncSlugProbePort {
+    resolveCollectionSlugByContract(input: {
+        address: string;
+    }): Promise<string | null>;
+}
 
 export class StartOpenSeaCollectionSyncUseCase {
     constructor(
@@ -51,13 +60,19 @@ export class StartOpenSeaCollectionSyncUseCase {
                 chainId: number,
                 collectionRef: string,
             ): OpenSeaCollectionSyncState | null;
-            markOpenSeaPending(
+            resolveOpenSeaSlugOwner(
                 chainId: number,
-                collectionId: number,
-            ): OpenSeaCollectionSyncState | null;
+                openseaSlug: string,
+            ): { collectionId: number } | null;
+            markOpenSeaPending(input: {
+                chainId: number;
+                collectionId: number;
+                openseaSlug: string;
+            }): OpenSeaCollectionSyncState | null;
             restoreOpenSeaState(input: {
                 chainId: number;
                 collectionId: number;
+                openseaSlug: string | null;
                 openseaStatus: OpenSeaCollectionStatus | null;
                 openseaLastError: string | null;
             }): OpenSeaCollectionSyncState | null;
@@ -68,6 +83,7 @@ export class StartOpenSeaCollectionSyncUseCase {
                 collectionId: number;
             }): MaybePromise<void>;
         },
+        private readonly openSeaCollectionSyncSlugProbePort: OpenSeaCollectionSyncSlugProbePort | null,
     ) {}
 
     async startSync(
@@ -84,15 +100,17 @@ export class StartOpenSeaCollectionSyncUseCase {
         if (!collection) {
             throw new ReadModelNotFoundError("Unknown collection_ref");
         }
-        assertOpenSeaSyncCanStart(collection, this.openseaIntegration);
+        assertOpenSeaSyncBaseCanStart(collection, this.openseaIntegration);
+        const openseaSlug = await this.resolveSyncOpenSeaSlug(collection, input.openseaSlug);
 
         let pending: OpenSeaCollectionSyncState | null = null;
         try {
-            // Mark the collection pending before the worker claims the sync job.
-            pending = this.collectionSyncPort.markOpenSeaPending(
-                collection.chainId,
-                collection.collectionId,
-            );
+            // Store the verified slug and mark the collection pending before the worker claims the job.
+            pending = this.collectionSyncPort.markOpenSeaPending({
+                chainId: collection.chainId,
+                collectionId: collection.collectionId,
+                openseaSlug,
+            });
             if (!pending) {
                 throw new ReadModelNotFoundError("Unknown collection_ref");
             }
@@ -113,6 +131,7 @@ export class StartOpenSeaCollectionSyncUseCase {
                 this.collectionSyncPort.restoreOpenSeaState({
                     chainId: collection.chainId,
                     collectionId: collection.collectionId,
+                    openseaSlug: collection.openseaSlug,
                     openseaStatus: collection.openseaStatus,
                     openseaLastError: collection.openseaLastError,
                 });
@@ -120,20 +139,48 @@ export class StartOpenSeaCollectionSyncUseCase {
             throw cause;
         }
     }
+
+    private async resolveSyncOpenSeaSlug(
+        collection: OpenSeaCollectionSyncState,
+        inputSlug: string,
+    ): Promise<string> {
+        const requestedSlug = normalizeOpenSeaSlug(inputSlug);
+        const owner = this.collectionSyncPort.resolveOpenSeaSlugOwner(
+            collection.chainId,
+            requestedSlug,
+        );
+        if (owner && owner.collectionId !== collection.collectionId) {
+            throw new BootstrapConflictError(
+                "OpenSea slug is already assigned to another collection",
+            );
+        }
+        if (!this.openSeaCollectionSyncSlugProbePort) {
+            throw new Error("OpenSea slug probe client is not configured");
+        }
+
+        // Confirm the submitted slug is the OpenSea slug for this collection contract.
+        const resolvedSlug =
+            await this.openSeaCollectionSyncSlugProbePort.resolveCollectionSlugByContract(
+                {
+                    address: collection.address,
+                },
+            );
+        if (resolvedSlug !== requestedSlug) {
+            throw new BootstrapValidationError(
+                "OpenSea did not confirm this collection slug for this contract",
+            );
+        }
+        return requestedSlug;
+    }
 }
 
-function assertOpenSeaSyncCanStart(
+function assertOpenSeaSyncBaseCanStart(
     collection: OpenSeaCollectionSyncState,
     openseaIntegration: OpenSeaIntegrationStatus,
 ): void {
     if (collection.status !== COLLECTION_STATUS.Live) {
         throw new BootstrapConflictError(
             "Collection must be live before OpenSea sync can start",
-        );
-    }
-    if (!collection.openseaSlug) {
-        throw new BootstrapValidationError(
-            "Collection has no OpenSea slug configured",
         );
     }
     if (!openseaIntegration.enabled) {
@@ -151,4 +198,12 @@ function assertOpenSeaSyncCanStart(
             "Collection OpenSea sync is already running",
         );
     }
+}
+
+function normalizeOpenSeaSlug(value: string): string {
+    const slug = value.trim().toLowerCase();
+    if (!slug) {
+        throw new BootstrapValidationError("Invalid OpenSea slug");
+    }
+    return slug;
 }

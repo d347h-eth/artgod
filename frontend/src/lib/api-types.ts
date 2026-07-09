@@ -530,9 +530,11 @@ export type OpenSeaCollectionSyncApiResponse = {
 		chainId: number;
 		collectionId: number;
 		slug: string;
+		address: string;
 		status: CollectionStatus;
 		openseaSlug: string | null;
 		openseaStatus: OpenSeaCollectionStatus | null;
+		openseaLastError: string | null;
 	};
 	openseaStatus: OpenSeaCollectionStatus;
 };

@@ -868,6 +868,16 @@ beforeAll(async () => {
             chainsReadModel,
             new openSeaCollectionSyncRepositoryModule.SqliteOpenSeaCollectionSyncRepository(),
             openSeaQueueMock,
+            {
+                async resolveCollectionSlugByContract(input: {
+                    address: string;
+                }) {
+                    openSeaSlugProbeInputs.push(input);
+                    return input.address === OPENSEA_SYNC_ADDRESS
+                        ? OPENSEA_SYNC_COLLECTION_SLUG
+                        : null;
+                },
+            },
         );
     const updateOpenSeaStreamIngestionUseCase =
         new updateOpenSeaStreamIngestionUseCaseModule.UpdateOpenSeaStreamIngestionUseCase(
@@ -5373,8 +5383,207 @@ describe("backend api routes", () => {
         }
     });
 
-    it("starts OpenSea sync for a live collection with a slug", async () => {
+    it("rejects OpenSea sync start without a submitted slug", async () => {
         const collectionId = insertOpenSeaSyncCollectionFixture();
+        try {
+            const csrf = await resolve(
+                "GET",
+                "/api/security/csrf",
+                undefined,
+                {
+                    host: "127.0.0.1:42710",
+                    origin: "http://127.0.0.1:42701",
+                },
+            );
+            const token = csrf.payload.token as string;
+            const cookie = csrf.headers["set-cookie"] as string;
+
+            openSeaSlugProbeInputs = [];
+            openSeaBootstrapInputs = [];
+            const sync = await resolve(
+                "POST",
+                buildStartCollectionOpenSeaSyncPath({
+                    chainRef: DEFAULT_CHAIN_REF,
+                    collectionRef: OPENSEA_SYNC_COLLECTION_SLUG,
+                }),
+                {},
+                {
+                    host: "127.0.0.1:42710",
+                    origin: "http://127.0.0.1:42701",
+                    cookie,
+                    "x-artgod-csrf": token,
+                    "content-type": "application/json",
+                },
+            );
+
+            expect(sync.statusCode).toBe(400);
+            expect(sync.payload.message).toContain("openseaSlug is required");
+            expect(openSeaSlugProbeInputs).toEqual([]);
+            expect(openSeaBootstrapInputs).toEqual([]);
+            expect(
+                db
+                    .prepare<
+                        [number]
+                    >("SELECT opensea_slug, opensea_status, opensea_last_error FROM collections WHERE collection_id = ?")
+                    .get(collectionId),
+            ).toEqual({
+                opensea_slug: OPENSEA_SYNC_COLLECTION_SLUG,
+                opensea_status: OPENSEA_COLLECTION_STATUS.Failed,
+                opensea_last_error: OPENSEA_SYNC_PREVIOUS_ERROR,
+            });
+        } finally {
+            deleteCollectionFixture(collectionId);
+        }
+    });
+
+    it("verifies and stores a submitted OpenSea slug before starting sync", async () => {
+        const collectionId = insertOpenSeaSyncCollectionFixture({
+            openseaSlug: null,
+        });
+        try {
+            const csrf = await resolve(
+                "GET",
+                "/api/security/csrf",
+                undefined,
+                {
+                    host: "127.0.0.1:42710",
+                    origin: "http://127.0.0.1:42701",
+                },
+            );
+            const token = csrf.payload.token as string;
+            const cookie = csrf.headers["set-cookie"] as string;
+
+            openSeaSlugProbeInputs = [];
+            openSeaBootstrapInputs = [];
+            const sync = await resolve(
+                "POST",
+                buildStartCollectionOpenSeaSyncPath({
+                    chainRef: DEFAULT_CHAIN_REF,
+                    collectionRef: OPENSEA_SYNC_COLLECTION_SLUG,
+                }),
+                {
+                    openseaSlug: OPENSEA_SYNC_COLLECTION_SLUG,
+                },
+                {
+                    host: "127.0.0.1:42710",
+                    origin: "http://127.0.0.1:42701",
+                    cookie,
+                    "x-artgod-csrf": token,
+                    "content-type": "application/json",
+                },
+            );
+
+            expect(sync.statusCode).toBe(200);
+            expect(sync.payload.collection).toEqual(
+                expect.objectContaining({
+                    collectionId,
+                    slug: OPENSEA_SYNC_COLLECTION_SLUG,
+                    openseaSlug: OPENSEA_SYNC_COLLECTION_SLUG,
+                    openseaStatus: OPENSEA_COLLECTION_STATUS.Pending,
+                }),
+            );
+            expect(openSeaSlugProbeInputs).toEqual([
+                {
+                    address: OPENSEA_SYNC_ADDRESS,
+                },
+            ]);
+            expect(openSeaBootstrapInputs).toEqual([
+                {
+                    chainId: DEFAULT_CHAIN_ID,
+                    collectionId,
+                },
+            ]);
+            expect(
+                db
+                    .prepare<
+                        [number]
+                    >("SELECT opensea_slug, opensea_status, opensea_last_error FROM collections WHERE collection_id = ?")
+                    .get(collectionId),
+            ).toEqual({
+                opensea_slug: OPENSEA_SYNC_COLLECTION_SLUG,
+                opensea_status: OPENSEA_COLLECTION_STATUS.Pending,
+                opensea_last_error: null,
+            });
+        } finally {
+            deleteCollectionFixture(collectionId);
+        }
+    });
+
+    it("verifies a submitted existing OpenSea slug before starting sync", async () => {
+        const collectionId = insertOpenSeaSyncCollectionFixture();
+        try {
+            const csrf = await resolve(
+                "GET",
+                "/api/security/csrf",
+                undefined,
+                {
+                    host: "127.0.0.1:42710",
+                    origin: "http://127.0.0.1:42701",
+                },
+            );
+            const token = csrf.payload.token as string;
+            const cookie = csrf.headers["set-cookie"] as string;
+
+            openSeaSlugProbeInputs = [];
+            openSeaBootstrapInputs = [];
+            const sync = await resolve(
+                "POST",
+                buildStartCollectionOpenSeaSyncPath({
+                    chainRef: DEFAULT_CHAIN_REF,
+                    collectionRef: OPENSEA_SYNC_COLLECTION_SLUG,
+                }),
+                {
+                    openseaSlug: OPENSEA_SYNC_COLLECTION_SLUG,
+                },
+                {
+                    host: "127.0.0.1:42710",
+                    origin: "http://127.0.0.1:42701",
+                    cookie,
+                    "x-artgod-csrf": token,
+                    "content-type": "application/json",
+                },
+            );
+
+            expect(sync.statusCode).toBe(200);
+            expect(sync.payload.collection).toEqual(
+                expect.objectContaining({
+                    collectionId,
+                    slug: OPENSEA_SYNC_COLLECTION_SLUG,
+                    openseaSlug: OPENSEA_SYNC_COLLECTION_SLUG,
+                    openseaStatus: OPENSEA_COLLECTION_STATUS.Pending,
+                }),
+            );
+            expect(openSeaSlugProbeInputs).toEqual([
+                {
+                    address: OPENSEA_SYNC_ADDRESS,
+                },
+            ]);
+            expect(openSeaBootstrapInputs).toEqual([
+                {
+                    chainId: DEFAULT_CHAIN_ID,
+                    collectionId,
+                },
+            ]);
+            expect(
+                db
+                    .prepare<
+                        [number]
+                    >("SELECT opensea_slug, opensea_status, opensea_last_error FROM collections WHERE collection_id = ?")
+                    .get(collectionId),
+            ).toEqual({
+                opensea_slug: OPENSEA_SYNC_COLLECTION_SLUG,
+                opensea_status: OPENSEA_COLLECTION_STATUS.Pending,
+                opensea_last_error: null,
+            });
+        } finally {
+            deleteCollectionFixture(collectionId);
+        }
+    });
+
+    it("rejects a submitted OpenSea slug that does not match the collection contract", async () => {
+        const collectionId = insertOpenSeaSyncCollectionFixture({
+            openseaSlug: null,
+        });
         try {
             const csrf = await resolve(
                 "GET",
@@ -5395,7 +5604,9 @@ describe("backend api routes", () => {
                     chainRef: DEFAULT_CHAIN_REF,
                     collectionRef: OPENSEA_SYNC_COLLECTION_SLUG,
                 }),
-                {},
+                {
+                    openseaSlug: "wrong-opensea-slug",
+                },
                 {
                     host: "127.0.0.1:42710",
                     origin: "http://127.0.0.1:42701",
@@ -5405,35 +5616,21 @@ describe("backend api routes", () => {
                 },
             );
 
-            expect(sync.statusCode).toBe(200);
-            expect(sync.payload).toEqual(
-                expect.objectContaining({
-                    openseaStatus: OPENSEA_COLLECTION_STATUS.Pending,
-                }),
+            expect(sync.statusCode).toBe(422);
+            expect(sync.payload.message).toContain(
+                "OpenSea did not confirm this collection slug",
             );
-            expect(sync.payload.collection).toEqual(
-                expect.objectContaining({
-                    collectionId,
-                    slug: OPENSEA_SYNC_COLLECTION_SLUG,
-                    openseaSlug: OPENSEA_SYNC_COLLECTION_SLUG,
-                    openseaStatus: OPENSEA_COLLECTION_STATUS.Pending,
-                }),
-            );
-            expect(openSeaBootstrapInputs).toEqual([
-                {
-                    chainId: DEFAULT_CHAIN_ID,
-                    collectionId,
-                },
-            ]);
+            expect(openSeaBootstrapInputs).toEqual([]);
             expect(
                 db
                     .prepare<
                         [number]
-                    >("SELECT opensea_status, opensea_last_error FROM collections WHERE collection_id = ?")
+                    >("SELECT opensea_slug, opensea_status, opensea_last_error FROM collections WHERE collection_id = ?")
                     .get(collectionId),
             ).toEqual({
-                opensea_status: OPENSEA_COLLECTION_STATUS.Pending,
-                opensea_last_error: null,
+                opensea_slug: null,
+                opensea_status: OPENSEA_COLLECTION_STATUS.Failed,
+                opensea_last_error: OPENSEA_SYNC_PREVIOUS_ERROR,
             });
         } finally {
             deleteCollectionFixture(collectionId);
@@ -5539,6 +5736,7 @@ describe("backend api routes", () => {
             const token = csrf.payload.token as string;
             const cookie = csrf.headers["set-cookie"] as string;
 
+            openSeaSlugProbeInputs = [];
             openSeaBootstrapInputs = [];
             openSeaBootstrapFailure = new Error("opensea publish failed");
             const sync = await resolve(
@@ -5547,7 +5745,9 @@ describe("backend api routes", () => {
                     chainRef: DEFAULT_CHAIN_REF,
                     collectionRef: OPENSEA_SYNC_COLLECTION_SLUG,
                 }),
-                {},
+                {
+                    openseaSlug: OPENSEA_SYNC_COLLECTION_SLUG,
+                },
                 {
                     host: "127.0.0.1:42710",
                     origin: "http://127.0.0.1:42701",
@@ -5558,6 +5758,11 @@ describe("backend api routes", () => {
             );
 
             expect(sync.statusCode).toBe(500);
+            expect(openSeaSlugProbeInputs).toEqual([
+                {
+                    address: OPENSEA_SYNC_ADDRESS,
+                },
+            ]);
             expect(openSeaBootstrapInputs).toEqual([
                 {
                     chainId: DEFAULT_CHAIN_ID,
@@ -5568,9 +5773,10 @@ describe("backend api routes", () => {
                 db
                     .prepare<
                         [number]
-                    >("SELECT opensea_status, opensea_last_error FROM collections WHERE collection_id = ?")
+                    >("SELECT opensea_slug, opensea_status, opensea_last_error FROM collections WHERE collection_id = ?")
                     .get(collectionId),
             ).toEqual({
+                opensea_slug: OPENSEA_SYNC_COLLECTION_SLUG,
                 opensea_status: OPENSEA_COLLECTION_STATUS.Failed,
                 opensea_last_error: OPENSEA_SYNC_PREVIOUS_ERROR,
             });
@@ -7224,7 +7430,11 @@ function insertPreparedBootstrapCollectionFixture(): number {
     return Number(result.lastInsertRowid);
 }
 
-function insertOpenSeaSyncCollectionFixture(): number {
+function insertOpenSeaSyncCollectionFixture(
+    input: {
+        openseaSlug?: string | null;
+    } = {},
+): number {
     const result = db
         .prepare(
             "INSERT INTO collections " +
@@ -7240,7 +7450,9 @@ function insertOpenSeaSyncCollectionFixture(): number {
             EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
             100,
             200,
-            OPENSEA_SYNC_COLLECTION_SLUG,
+            input.openseaSlug === undefined
+                ? OPENSEA_SYNC_COLLECTION_SLUG
+                : input.openseaSlug,
             OPENSEA_COLLECTION_STATUS.Failed,
             OPENSEA_SYNC_PREVIOUS_ERROR,
         );

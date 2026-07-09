@@ -141,6 +141,10 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 			const slug = normalizeSlug(url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.Slug) ?? '');
 			if (slug) {
 				openSeaSlugVerificationRequests.push(slug);
+				if (address) {
+					await fulfillJson(route, openSeaSlugProbeResponseForAddressAndSlug(address, slug));
+					return;
+				}
 				await fulfillJson(route, openSeaSlugProbeResponseForSlug(slug));
 				return;
 			}
@@ -349,6 +353,31 @@ function openSeaSlugProbeResponseForAddress(address: string): BootstrapOpenSeaSl
 		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
 		slug: null,
 		reason: 'OpenSea did not return a collection slug for this contract'
+	};
+}
+
+function openSeaSlugProbeResponseForAddressAndSlug(
+	address: string,
+	slug: string
+): BootstrapOpenSeaSlugProbeApiResponse {
+	const addressResult = openSeaSlugProbeResponseForAddress(address);
+	if (
+		addressResult.status === BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found &&
+		addressResult.slug === slug
+	) {
+		return buildOpenSeaSlugProbeResponse({
+			address,
+			requestedSlug: slug,
+			slug
+		});
+	}
+	return {
+		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
+		address,
+		requestedSlug: slug,
+		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
+		slug: null,
+		reason: 'OpenSea did not confirm this collection slug'
 	};
 }
 

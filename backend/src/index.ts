@@ -411,6 +411,7 @@ export function createBackendApp(
             chainsReadModel,
             openSeaCollectionSyncRepository,
             openSeaCommandQueue,
+            openSeaCollectionSlugProbe,
         );
     const updateOpenSeaStreamIngestionUseCase =
         new UpdateOpenSeaStreamIngestionUseCase(

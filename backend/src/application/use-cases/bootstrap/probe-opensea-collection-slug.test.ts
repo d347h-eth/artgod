@@ -118,6 +118,61 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
         });
     });
 
+    it("verifies the entered slug against the contract mapping when both are provided", async () => {
+        const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
+            async resolveCollectionSlugByContract(input) {
+                expect(input).toEqual({
+                    address: CONTRACT_ADDRESS,
+                });
+                return "milady-maker";
+            },
+            async resolveCollectionSlugBySlug() {
+                throw new Error("slug lookup should not run");
+            },
+        });
+
+        const result = await useCase.probe({
+            chainRef: "ethereum",
+            address: CONTRACT_ADDRESS,
+            slug: "milady-maker",
+        });
+
+        expect(result).toEqual({
+            chain: CHAIN,
+            address: CONTRACT_ADDRESS,
+            requestedSlug: "milady-maker",
+            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
+            slug: "milady-maker",
+            reason: null,
+        });
+    });
+
+    it("returns missing when the entered slug does not match the contract mapping", async () => {
+        const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
+            async resolveCollectionSlugByContract() {
+                return "different-collection";
+            },
+            async resolveCollectionSlugBySlug() {
+                throw new Error("slug lookup should not run");
+            },
+        });
+
+        const result = await useCase.probe({
+            chainRef: "ethereum",
+            address: CONTRACT_ADDRESS,
+            slug: "milady-maker",
+        });
+
+        expect(result).toEqual({
+            chain: CHAIN,
+            address: CONTRACT_ADDRESS,
+            requestedSlug: "milady-maker",
+            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
+            slug: null,
+            reason: "OpenSea did not confirm this collection slug",
+        });
+    });
+
     it("returns missing when the entered slug does not resolve exactly", async () => {
         const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
             async resolveCollectionSlugByContract() {

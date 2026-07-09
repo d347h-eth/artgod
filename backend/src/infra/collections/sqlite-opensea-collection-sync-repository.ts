@@ -11,6 +11,7 @@ type OpenSeaCollectionSyncRow = {
     chain_id: number;
     collection_id: number;
     slug: string;
+    address: string;
     status: string;
     opensea_slug: string | null;
     opensea_status: string | null;
@@ -22,7 +23,7 @@ export class SqliteOpenSeaCollectionSyncRepository {
         chainId: number;
         slug: string;
     }>(
-        "SELECT chain_id, collection_id, slug, status, opensea_slug, " +
+        "SELECT chain_id, collection_id, slug, address, status, opensea_slug, " +
             "opensea_status, opensea_last_error " +
             "FROM collections " +
             "WHERE chain_id = @chainId AND slug = @slug LIMIT 1",
@@ -32,18 +33,29 @@ export class SqliteOpenSeaCollectionSyncRepository {
         chainId: number;
         collectionId: number;
     }>(
-        "SELECT chain_id, collection_id, slug, status, opensea_slug, " +
+        "SELECT chain_id, collection_id, slug, address, status, opensea_slug, " +
             "opensea_status, opensea_last_error " +
             "FROM collections " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId LIMIT 1",
     );
 
+    private readonly selectOpenSeaSlugOwner = db.prepare<{
+        chainId: number;
+        openseaSlug: string;
+    }>(
+        "SELECT collection_id " +
+            "FROM collections " +
+            "WHERE chain_id = @chainId AND opensea_slug = @openseaSlug LIMIT 1",
+    );
+
     private readonly markOpenSeaPendingStmt = db.prepare<{
         chainId: number;
         collectionId: number;
+        openseaSlug: string;
         status: OpenSeaCollectionStatus;
     }>(
         "UPDATE collections SET " +
+            "opensea_slug = @openseaSlug, " +
             "opensea_status = @status, " +
             "opensea_last_error = NULL, " +
             "updated_at = CURRENT_TIMESTAMP " +
@@ -53,10 +65,12 @@ export class SqliteOpenSeaCollectionSyncRepository {
     private readonly restoreOpenSeaStateStmt = db.prepare<{
         chainId: number;
         collectionId: number;
+        openseaSlug: string | null;
         status: OpenSeaCollectionStatus | null;
         lastError: string | null;
     }>(
         "UPDATE collections SET " +
+            "opensea_slug = @openseaSlug, " +
             "opensea_status = @status, " +
             "opensea_last_error = @lastError, " +
             "updated_at = CURRENT_TIMESTAMP " +
@@ -76,18 +90,31 @@ export class SqliteOpenSeaCollectionSyncRepository {
         return row ? mapCollection(row) : null;
     }
 
-    markOpenSeaPending(
+    resolveOpenSeaSlugOwner(
         chainId: number,
-        collectionId: number,
-    ): OpenSeaCollectionSyncState | null {
-        this.markOpenSeaPendingStmt.run({
+        openseaSlug: string,
+    ): { collectionId: number } | null {
+        const row = this.selectOpenSeaSlugOwner.get({
             chainId,
-            collectionId,
+            openseaSlug,
+        }) as { collection_id: number } | undefined;
+        return row ? { collectionId: row.collection_id } : null;
+    }
+
+    markOpenSeaPending(input: {
+        chainId: number;
+        collectionId: number;
+        openseaSlug: string;
+    }): OpenSeaCollectionSyncState | null {
+        this.markOpenSeaPendingStmt.run({
+            chainId: input.chainId,
+            collectionId: input.collectionId,
+            openseaSlug: input.openseaSlug,
             status: OPENSEA_COLLECTION_STATUS.Pending,
         });
         const row = this.selectCollectionById.get({
-            chainId,
-            collectionId,
+            chainId: input.chainId,
+            collectionId: input.collectionId,
         }) as OpenSeaCollectionSyncRow | undefined;
         return row ? mapCollection(row) : null;
     }
@@ -95,12 +122,14 @@ export class SqliteOpenSeaCollectionSyncRepository {
     restoreOpenSeaState(input: {
         chainId: number;
         collectionId: number;
+        openseaSlug: string | null;
         openseaStatus: OpenSeaCollectionStatus | null;
         openseaLastError: string | null;
     }): OpenSeaCollectionSyncState | null {
         this.restoreOpenSeaStateStmt.run({
             chainId: input.chainId,
             collectionId: input.collectionId,
+            openseaSlug: input.openseaSlug,
             status: input.openseaStatus,
             lastError: input.openseaLastError,
         });
@@ -119,6 +148,7 @@ function mapCollection(
         chainId: row.chain_id,
         collectionId: row.collection_id,
         slug: row.slug,
+        address: row.address,
         status: row.status as CollectionStatus,
         openseaSlug: row.opensea_slug,
         openseaStatus: row.opensea_status as OpenSeaCollectionStatus | null,

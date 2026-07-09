@@ -452,6 +452,46 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/opensea/sync:
+        post:
+            tags: [Collections]
+            summary: Start collection OpenSea sync
+            description: |
+                Starts or retries the initial OpenSea orderbook sync for a live collection.
+                Pass a slug that has been resolved through the OpenSea slug probe.
+            operationId: startCollectionOpenSeaSync
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/StartOpenSeaSyncRequest"
+            responses:
+                "200":
+                    description: OpenSea sync queued
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/StartOpenSeaSyncResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/{collection_ref}/opensea/stream-ingestion:
         put:
             tags: [Collections]
@@ -1418,9 +1458,9 @@ paths:
             tags: [Bootstrap]
             summary: Probe or verify OpenSea collection slug
             description: |
-                Resolves the OpenSea collection slug for a standalone contract, or verifies an entered
-                OpenSea collection slug, when OpenSea integration is enabled.
-                Provide exactly one of `address` or `slug`.
+                Resolves the OpenSea collection slug for a standalone contract, verifies an entered
+                OpenSea collection slug, or verifies that a contract maps to an entered slug when
+                both `address` and `slug` are provided. OpenSea integration must be enabled.
                 Returns `disabled` when the backend was started without an active OpenSea API key.
             operationId: probeBootstrapOpenSeaSlug
             parameters:
@@ -1933,6 +1973,56 @@ components:
                         $ref: "#/components/schemas/CollectionPurgeDeletedRowCount"
                 totalDeletedRows:
                     type: integer
+
+        StartOpenSeaSyncRequest:
+            type: object
+            required: [openseaSlug]
+            additionalProperties: false
+            properties:
+                openseaSlug:
+                    type: string
+
+        StartOpenSeaSyncResponse:
+            type: object
+            required: [chain, collection, openseaStatus]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    type: object
+                    required:
+                        - chainId
+                        - collectionId
+                        - slug
+                        - address
+                        - status
+                        - openseaSlug
+                        - openseaStatus
+                        - openseaLastError
+                    additionalProperties: false
+                    properties:
+                        chainId:
+                            type: integer
+                        collectionId:
+                            type: integer
+                        slug:
+                            type: string
+                        address:
+                            type: string
+                        status:
+                            $ref: "#/components/schemas/CollectionStatus"
+                        openseaSlug:
+                            type: string
+                            nullable: true
+                        openseaStatus:
+                            type: string
+                            nullable: true
+                        openseaLastError:
+                            type: string
+                            nullable: true
+                openseaStatus:
+                    type: string
 
         UpdateOpenSeaStreamIngestionRequest:
             type: object
