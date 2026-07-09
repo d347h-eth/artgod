@@ -2,7 +2,7 @@
 	import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 	import CollectionsPageView from '$lib/components/CollectionsPageView.svelte';
-	import type { ApiChain, ApiCollectionsPage } from '$lib/api-types';
+	import type { ApiChain, ApiCollectionsPage, ApiOpenSeaIntegrationStatus } from '$lib/api-types';
 
 	type PageData = {
 		chain: ApiChain;
@@ -10,6 +10,7 @@
 		status: string;
 		basePath: string;
 		blockExplorer?: BlockExplorerConfig;
+		openseaIntegration?: ApiOpenSeaIntegrationStatus | null;
 	};
 
 	let { data }: { data?: PageData } = $props();
@@ -27,4 +28,5 @@
 	status={data?.status ?? ''}
 	basePath={data?.basePath ?? '/'}
 	blockExplorer={data?.blockExplorer}
+	openseaIntegration={data?.openseaIntegration ?? null}
 />

@@ -12,7 +12,12 @@
 		startCollectionOpenSeaSync,
 		updateCollectionOpenSeaStreamIngestion
 	} from '$lib/backend-api';
-	import type { ApiChain, ApiCollection, ApiCollectionsPage } from '$lib/api-types';
+	import type {
+		ApiChain,
+		ApiCollection,
+		ApiCollectionsPage,
+		ApiOpenSeaIntegrationStatus
+	} from '$lib/api-types';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
@@ -31,13 +36,15 @@
 		page,
 		status,
 		basePath,
-		blockExplorer = getDefaultBlockExplorerConfig()
+		blockExplorer = getDefaultBlockExplorerConfig(),
+		openseaIntegration = null
 	}: {
 		chain: ApiChain | null;
 		page: ApiCollectionsPage;
 		status: string;
 		basePath: string;
 		blockExplorer?: BlockExplorerConfig;
+		openseaIntegration?: ApiOpenSeaIntegrationStatus | null;
 	} = $props();
 
 	const COLLECTION_TABLE_ACTION = {
@@ -59,6 +66,7 @@
 	let visibleCollections = $derived(
 		page.items.filter((collection) => !purgedCollectionKeys.has(collectionKey(collection)))
 	);
+	let openSeaIntegrationEnabled = $derived(openseaIntegration?.enabled === true);
 
 	$effect(() => {
 		if (!chain) {
@@ -168,6 +176,7 @@
 
 	function canPauseOpenSeaStream(collection: ApiCollection): boolean {
 		return (
+			openSeaIntegrationEnabled &&
 			Boolean(collection.openseaSlug) &&
 			collection.openseaStreamIngestionStatus !== OPENSEA_STREAM_INGESTION_STATUS.Paused
 		);
@@ -175,6 +184,7 @@
 
 	function canResumeOpenSeaStream(collection: ApiCollection): boolean {
 		return (
+			openSeaIntegrationEnabled &&
 			Boolean(collection.openseaSlug) &&
 			collection.openseaStreamIngestionStatus === OPENSEA_STREAM_INGESTION_STATUS.Paused
 		);

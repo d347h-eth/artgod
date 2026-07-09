@@ -30,7 +30,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				limit: DEFAULT_PAGE_LIMIT
 			},
 			status: '',
-			basePath: '/'
+			basePath: '/',
+			openseaIntegration: null
 		};
 	}
 	const query = normalizeCollectionsParams(url.searchParams);
@@ -45,7 +46,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			page: response.page,
 			status: response.filters.status ?? '',
 			basePath: `/${response.chain.slug}`,
-			blockExplorer: runtimeConfigResponse.blockExplorer
+			blockExplorer: runtimeConfigResponse.blockExplorer,
+			openseaIntegration: runtimeConfigResponse.integrations.opensea
 		};
 	} catch (cause) {
 		toKitError(cause);
