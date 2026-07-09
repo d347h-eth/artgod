@@ -234,6 +234,10 @@ Responsibilities:
     - `.pnp.cjs`
     - `.pnp.loader.mjs`
 - prunes native prebuild directories that do not match the bundled Node target
+- prunes Yarn cache archives for packages that PnP resolves from
+  `.yarn/unplugged`, because those archives are duplicate runtime inputs and
+  can contain unsigned native binaries that platform bundle tooling scans inside
+  Linux AppImage or macOS DMG artifacts
 - prunes musl `.node` files from Linux glibc runtime targets because
   linuxdeploy scans all ELF files staged into the AppImage tree, including
   unused native prebuilds under `.yarn/unplugged`
@@ -640,8 +644,8 @@ reproducibility workflows do not use signing secrets.
     - `LINUX_GPG_PASSPHRASE`
     - `LINUX_GPG_KEY_ID`
     - optional: `LINUX_GPG_OWNERTRUST`
-  Detailed key-generation, subkey, rotation, and compromise-response guidance
-  is in `docs/desktop/05-linux-gpg-release-signing.md`.
+      Detailed key-generation, subkey, rotation, and compromise-response guidance
+      is in `docs/desktop/05-linux-gpg-release-signing.md`.
 - macOS:
     - `APPLE_CERTIFICATE` (base64 `.p12`)
     - `APPLE_CERTIFICATE_PASSWORD`
@@ -649,6 +653,7 @@ reproducibility workflows do not use signing secrets.
     - `APPLE_API_KEY_P8_B64` (base64 `.p8`)
     - `APPLE_API_KEY_ID`
     - `APPLE_API_ISSUER`
+
 Windows maintainer-profile note:
 
 - The release-signing runbook treats SSL.com Personal Identity Code Signing

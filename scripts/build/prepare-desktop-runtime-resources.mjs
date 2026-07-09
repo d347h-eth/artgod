@@ -40,6 +40,17 @@ const resourcesRootDir = path.join(
     "resources",
     "runtime",
 );
+// Yarn PnP runtime resources copied into the Tauri bundle.
+const yarnRuntimeDirName = ".yarn";
+const yarnCacheDirName = "cache";
+const yarnUnpluggedDirName = "unplugged";
+const yarnInstallStateFileName = "install-state.gz";
+const yarnCacheArchiveExtension = ".zip";
+const pnpRuntimeHookFileName = ".pnp.cjs";
+const pnpRuntimeLoaderFileName = ".pnp.loader.mjs";
+// Package locations in .pnp.cjs are the authority for unplugged runtime packages.
+const pnpUnpluggedPackageLocationPattern =
+    /"packageLocation": "\.\/\.yarn\/unplugged\/([^/]+)\/node_modules\//g;
 // Official Linux Node distributions used by this script are glibc builds.
 const linuxNodeDistTargetPrefix = "linux-";
 // Some native packages colocate musl and glibc binaries under one Linux prebuild dir.
@@ -72,28 +83,44 @@ const copySpecs = [
         description: "database migrations",
     },
     {
-        source: path.join(rootDir, ".pnp.cjs"),
-        target: path.join(resourcesRootDir, ".pnp.cjs"),
+        source: path.join(rootDir, pnpRuntimeHookFileName),
+        target: path.join(resourcesRootDir, pnpRuntimeHookFileName),
         description: "Yarn PnP runtime hook (.pnp.cjs)",
     },
     {
-        source: path.join(rootDir, ".pnp.loader.mjs"),
-        target: path.join(resourcesRootDir, ".pnp.loader.mjs"),
+        source: path.join(rootDir, pnpRuntimeLoaderFileName),
+        target: path.join(resourcesRootDir, pnpRuntimeLoaderFileName),
         description: "Yarn PnP runtime hook (.pnp.loader.mjs)",
     },
     {
-        source: path.join(rootDir, ".yarn", "cache"),
-        target: path.join(resourcesRootDir, ".yarn", "cache"),
+        source: path.join(rootDir, yarnRuntimeDirName, yarnCacheDirName),
+        target: path.join(
+            resourcesRootDir,
+            yarnRuntimeDirName,
+            yarnCacheDirName,
+        ),
         description: "Yarn local package cache",
     },
     {
-        source: path.join(rootDir, ".yarn", "unplugged"),
-        target: path.join(resourcesRootDir, ".yarn", "unplugged"),
+        source: path.join(rootDir, yarnRuntimeDirName, yarnUnpluggedDirName),
+        target: path.join(
+            resourcesRootDir,
+            yarnRuntimeDirName,
+            yarnUnpluggedDirName,
+        ),
         description: "Yarn unplugged native/runtime packages",
     },
     {
-        source: path.join(rootDir, ".yarn", "install-state.gz"),
-        target: path.join(resourcesRootDir, ".yarn", "install-state.gz"),
+        source: path.join(
+            rootDir,
+            yarnRuntimeDirName,
+            yarnInstallStateFileName,
+        ),
+        target: path.join(
+            resourcesRootDir,
+            yarnRuntimeDirName,
+            yarnInstallStateFileName,
+        ),
         description: "Yarn install state",
     },
 ];
@@ -109,6 +136,8 @@ for (const spec of copySpecs) {
 
 // Keep only native prebuilds that match the bundled desktop runtime target.
 await pruneNativePrebuilds(resourcesRootDir, nodeDistTarget);
+// Remove duplicate package archives for dependencies already resolved from .yarn/unplugged.
+await pruneUnpluggedPackageCacheArchives(resourcesRootDir);
 
 await bundleNodeRuntime({
     cacheRootDir: nodeCacheRoot,
@@ -170,7 +199,11 @@ function inferNodeDistTarget(platform, arch) {
 
 async function pruneNativePrebuilds(targetRootDir, target) {
     const allowedTargets = getNativePrebuildTargets(target);
-    const unpluggedDir = path.join(targetRootDir, ".yarn", "unplugged");
+    const unpluggedDir = path.join(
+        targetRootDir,
+        yarnRuntimeDirName,
+        yarnUnpluggedDirName,
+    );
     const prebuildDirs = await findDirectoriesNamed(unpluggedDir, "prebuilds");
 
     for (const prebuildDir of prebuildDirs) {
@@ -191,11 +224,82 @@ async function pruneNativePrebuilds(targetRootDir, target) {
                 continue;
             }
 
-            pruneTasks.push(pruneNativePrebuildFiles(prebuildTargetDir, target));
+            pruneTasks.push(
+                pruneNativePrebuildFiles(prebuildTargetDir, target),
+            );
         }
 
         await Promise.all(pruneTasks);
     }
+}
+
+async function pruneUnpluggedPackageCacheArchives(targetRootDir) {
+    const cacheDir = path.join(
+        targetRootDir,
+        yarnRuntimeDirName,
+        yarnCacheDirName,
+    );
+    const unpluggedDir = path.join(
+        targetRootDir,
+        yarnRuntimeDirName,
+        yarnUnpluggedDirName,
+    );
+    const pnpHookPath = path.join(targetRootDir, pnpRuntimeHookFileName);
+    const unpluggedArchivePrefixes =
+        await collectUnpluggedPackageArchivePrefixes(pnpHookPath);
+
+    if (unpluggedArchivePrefixes.size === 0) {
+        const unpluggedEntries = await readdir(unpluggedDir, {
+            withFileTypes: true,
+        });
+        if (unpluggedEntries.some((entry) => entry.isDirectory())) {
+            throw new Error(
+                `Unable to find Yarn unplugged package locations in ${pnpRuntimeHookFileName}; refusing to leave duplicate package archives unpruned.`,
+            );
+        }
+        return;
+    }
+
+    const cacheEntries = await readdir(cacheDir, { withFileTypes: true });
+    const archivePrefixes = [...unpluggedArchivePrefixes].sort((a, b) =>
+        a.localeCompare(b),
+    );
+    const archivesToPrune = cacheEntries
+        .filter(
+            (entry) =>
+                entry.isFile() &&
+                isUnpluggedPackageCacheArchive(entry.name, archivePrefixes),
+        )
+        .map((entry) => path.join(cacheDir, entry.name));
+
+    await Promise.all(
+        archivesToPrune.map((archivePath) => rm(archivePath, { force: true })),
+    );
+
+    if (archivesToPrune.length > 0) {
+        console.log(
+            `Pruned ${archivesToPrune.length} Yarn cache archive(s) already resolved from ${yarnRuntimeDirName}/${yarnUnpluggedDirName}.`,
+        );
+    }
+}
+
+async function collectUnpluggedPackageArchivePrefixes(pnpHookPath) {
+    const pnpHook = await readFile(pnpHookPath, "utf8");
+    const prefixes = new Set();
+
+    for (const match of pnpHook.matchAll(pnpUnpluggedPackageLocationPattern)) {
+        prefixes.add(match[1]);
+    }
+
+    return prefixes;
+}
+
+function isUnpluggedPackageCacheArchive(fileName, archivePrefixes) {
+    if (!fileName.endsWith(yarnCacheArchiveExtension)) return false;
+
+    return archivePrefixes.some((archivePrefix) =>
+        fileName.startsWith(`${archivePrefix}-`),
+    );
 }
 
 async function pruneNativePrebuildFiles(prebuildTargetDir, target) {

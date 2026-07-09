@@ -31,14 +31,14 @@ Use these links for account setup and purchases. Re-check the vendor pages
 before paying because certificate and managed-signing availability changes.
 
 - macOS:
-  - Apple Developer Program enrollment: https://developer.apple.com/programs/enroll/
-  - Apple Developer account: https://developer.apple.com/account/
-  - Certificates, Identifiers & Profiles: https://developer.apple.com/account/resources/certificates/list
-  - App Store Connect API keys: https://appstoreconnect.apple.com/access/integrations/api
+    - Apple Developer Program enrollment: https://developer.apple.com/programs/enroll/
+    - Apple Developer account: https://developer.apple.com/account/
+    - Certificates, Identifiers & Profiles: https://developer.apple.com/account/resources/certificates/list
+    - App Store Connect API keys: https://appstoreconnect.apple.com/access/integrations/api
 - Windows:
-  - SSL.com Personal Identity Code Signing: https://www.ssl.com/certificates/iv-code-signing/
-  - SSL.com eSigner for Code: https://www.ssl.com/esigner/
-  - SSL.com GitHub Actions integration: https://www.ssl.com/how-to/cloud-code-signing-integration-with-github-actions/
+    - SSL.com Personal Identity Code Signing: https://www.ssl.com/certificates/iv-code-signing/
+    - SSL.com eSigner for Code: https://www.ssl.com/esigner/
+    - SSL.com GitHub Actions integration: https://www.ssl.com/how-to/cloud-code-signing-integration-with-github-actions/
 
 Recommended first purchase path:
 
@@ -150,16 +150,16 @@ Procedure:
 7. Generate a team API key with Developer access from Users and Access /
    Integrations.
 8. Download the `.p8` private key once and record:
-   - issuer ID
-   - key ID
-   - team ID if needed later
+    - issuer ID
+    - key ID
+    - team ID if needed later
 9. Set GitHub Actions Environment secrets in `desktop-release-signing`:
-   - `APPLE_CERTIFICATE`: base64 content of the exported `.p12`
-   - `APPLE_CERTIFICATE_PASSWORD`: `.p12` export password
-   - `APPLE_SIGNING_IDENTITY`: `Developer ID Application: <legal name> (<team id>)`
-   - `APPLE_API_KEY_P8_B64`: base64 content of the App Store Connect `.p8`
-   - `APPLE_API_KEY_ID`: App Store Connect key ID
-   - `APPLE_API_ISSUER`: App Store Connect issuer ID
+    - `APPLE_CERTIFICATE`: base64 content of the exported `.p12`
+    - `APPLE_CERTIFICATE_PASSWORD`: `.p12` export password
+    - `APPLE_SIGNING_IDENTITY`: `Developer ID Application: <legal name> (<team id>)`
+    - `APPLE_API_KEY_P8_B64`: base64 content of the App Store Connect `.p8`
+    - `APPLE_API_KEY_ID`: App Store Connect key ID
+    - `APPLE_API_ISSUER`: App Store Connect issuer ID
 
 Important naming rule:
 
@@ -178,6 +178,10 @@ sidecars, including the bundled Node runtime, bundled NATS runtime, native
 `.node` add-ons, and the secret-prompt sidecar. The release workflow then runs
 `scripts/build/macos-code-signing.mjs verify-dmg` against the produced DMG,
 mounts it, and verifies the contained `.app` before notarization.
+Runtime resource staging also removes copied Yarn cache archives for packages
+that PnP resolves from `.yarn/unplugged`. Those archives duplicate the unpacked
+runtime packages and can contain unsigned native Mach-O binaries that Apple
+notarization scans inside the DMG but `codesign` cannot sign in place.
 
 Official references:
 
@@ -266,10 +270,10 @@ Recommended procedure:
 3. Publish the public key and full fingerprint on the project README, GitHub
    profile, and any stable personal/project site.
 4. Store GitHub Actions Environment secrets in `desktop-release-signing`:
-   - `LINUX_GPG_PRIVATE_KEY_ASC`
-   - `LINUX_GPG_PASSPHRASE`
-   - `LINUX_GPG_KEY_ID`
-   - optional `LINUX_GPG_OWNERTRUST`
+    - `LINUX_GPG_PRIVATE_KEY_ASC`
+    - `LINUX_GPG_PASSPHRASE`
+    - `LINUX_GPG_KEY_ID`
+    - optional `LINUX_GPG_OWNERTRUST`
 5. Test verification from a clean machine before the first public tag.
 
 Consumer verification:
