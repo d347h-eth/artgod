@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { lstat, readdir } from "node:fs/promises";
+import { lstat, mkdtemp, readdir, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,11 +11,13 @@ const rootDir = path.resolve(__dirname, "../..");
 
 const MODE_SIGN_STAGED = "sign-staged";
 const MODE_VERIFY_APP = "verify-app";
+const MODE_VERIFY_DMG = "verify-dmg";
 const appleSigningIdentityEnvKey = "APPLE_SIGNING_IDENTITY";
 const bundledNodeRelativeSuffix = "/runtime/node/node";
 const bundledNatsRelativeSuffix = "/runtime/nats/nats-server";
 const secretPromptBinaryNamePrefix = "artgod-secret-prompt";
 const appBundleExtension = ".app";
+const dmgBundleExtension = ".dmg";
 const stagedMacOSBinaryRoots = [
     path.join(rootDir, "src-tauri", "resources", "runtime"),
     path.join(rootDir, "src-tauri", "binaries"),
@@ -27,6 +30,15 @@ const defaultMacOSBundleRoot = path.join(
     "release",
     "bundle",
     "macos",
+);
+const defaultMacOSDmgBundleRoot = path.join(
+    rootDir,
+    "src-tauri",
+    "target",
+    "universal-apple-darwin",
+    "release",
+    "bundle",
+    "dmg",
 );
 const requiredBundleExecutables = [
     {
@@ -54,9 +66,11 @@ if (mode === MODE_SIGN_STAGED) {
     await signStagedMacOSBinaries();
 } else if (mode === MODE_VERIFY_APP) {
     await verifyMacOSAppBundle();
+} else if (mode === MODE_VERIFY_DMG) {
+    await verifyMacOSDmgBundle();
 } else {
     throw new Error(
-        `Usage: node scripts/build/macos-code-signing.mjs ${MODE_SIGN_STAGED}|${MODE_VERIFY_APP} [app-or-bundle-root]`,
+        `Usage: node scripts/build/macos-code-signing.mjs ${MODE_SIGN_STAGED}|${MODE_VERIFY_APP}|${MODE_VERIFY_DMG} [app-or-bundle-root|dmg-or-bundle-root]`,
     );
 }
 
@@ -103,11 +117,48 @@ async function signStagedMacOSBinaries() {
 async function verifyMacOSAppBundle() {
     assertMacOSHost("Verifying macOS app signatures");
 
-    const appPath = await resolveAppBundlePath(
+    await verifyMacOSAppBundleAtPath(
         process.argv[3]
             ? path.resolve(process.argv[3])
             : defaultMacOSBundleRoot,
     );
+}
+
+async function verifyMacOSDmgBundle() {
+    assertMacOSHost("Verifying macOS DMG app signatures");
+
+    const dmgPath = await resolveDmgBundlePath(
+        process.argv[3]
+            ? path.resolve(process.argv[3])
+            : defaultMacOSDmgBundleRoot,
+    );
+    const mountRoot = await mkdtemp(
+        path.join(resolveTemporaryDirectory(), "artgod-dmg-"),
+    );
+
+    let attached = false;
+    try {
+        await runCommand("hdiutil", [
+            "attach",
+            dmgPath,
+            "-readonly",
+            "-nobrowse",
+            "-mountpoint",
+            mountRoot,
+        ]);
+        attached = true;
+
+        await verifyMacOSAppBundleAtPath(mountRoot);
+    } finally {
+        if (attached) {
+            await runCommand("hdiutil", ["detach", mountRoot]);
+        }
+        await rm(mountRoot, { force: true, recursive: true });
+    }
+}
+
+async function verifyMacOSAppBundleAtPath(inputPath) {
+    const appPath = await resolveAppBundlePath(inputPath);
     const machOFiles = await collectSignableMachOFiles([appPath]);
     if (machOFiles.length === 0) {
         throw new Error(`No signable Mach-O binaries found inside ${appPath}`);
@@ -130,6 +181,10 @@ async function verifyMacOSAppBundle() {
     console.log(
         `Verified ${machOFiles.length} signed Mach-O file(s) inside ${path.relative(rootDir, appPath)}.`,
     );
+}
+
+function resolveTemporaryDirectory() {
+    return process.env.RUNNER_TEMP?.trim() || os.tmpdir();
 }
 
 function isMacOSBuildTarget() {
@@ -222,22 +277,42 @@ async function resolveAppBundlePath(inputPath) {
         return inputPath;
     }
 
+    return await resolveSingleBundlePath(
+        inputPath,
+        appBundleExtension,
+        (entry) => entry.isDirectory(),
+    );
+}
+
+async function resolveDmgBundlePath(inputPath) {
+    if (inputPath.endsWith(dmgBundleExtension)) {
+        return inputPath;
+    }
+
+    return await resolveSingleBundlePath(
+        inputPath,
+        dmgBundleExtension,
+        (entry) => entry.isFile(),
+    );
+}
+
+async function resolveSingleBundlePath(inputPath, extension, matchesEntry) {
     const entries = await readdir(inputPath, { withFileTypes: true });
-    const appBundles = entries
+    const bundles = entries
         .filter(
             (entry) =>
-                entry.isDirectory() && entry.name.endsWith(appBundleExtension),
+                matchesEntry(entry) && entry.name.endsWith(extension),
         )
         .map((entry) => path.join(inputPath, entry.name))
         .sort((a, b) => a.localeCompare(b));
 
-    if (appBundles.length !== 1) {
+    if (bundles.length !== 1) {
         throw new Error(
-            `Expected exactly one .app bundle under ${inputPath}, found ${appBundles.length}.`,
+            `Expected exactly one ${extension} bundle under ${inputPath}, found ${bundles.length}.`,
         );
     }
 
-    return appBundles[0];
+    return bundles[0];
 }
 
 function assertRequiredBundleExecutables(appPath, machOFiles) {

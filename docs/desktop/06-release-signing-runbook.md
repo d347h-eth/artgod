@@ -176,8 +176,8 @@ Before DMG assembly, `beforeBundleCommand` runs
 signs staged executable/loadable Mach-O files copied as runtime resources or
 sidecars, including the bundled Node runtime, bundled NATS runtime, native
 `.node` add-ons, and the secret-prompt sidecar. The release workflow then runs
-`scripts/build/macos-code-signing.mjs verify-app` against the produced `.app`
-before notarizing the DMG.
+`scripts/build/macos-code-signing.mjs verify-dmg` against the produced DMG,
+mounts it, and verifies the contained `.app` before notarization.
 
 Official references:
 

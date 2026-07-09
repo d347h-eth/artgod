@@ -250,7 +250,7 @@ Responsibilities:
 - signs staged macOS executable/loadable Mach-O files under `src-tauri/resources/runtime` and `src-tauri/binaries` before Tauri generates the final bundle artifacts
 - covers the bundled Node runtime, bundled NATS runtime, native `.node` add-ons from `.yarn/unplugged`, and the native secret-prompt sidecar
 - skips non-macOS targets and local macOS builds without `APPLE_SIGNING_IDENTITY`
-- verifies that the final `.app` contains signed Node, NATS, and secret-prompt executables before notarization
+- mounts the produced DMG and verifies that the contained `.app` has signed Node, NATS, and secret-prompt executables before notarization
 
 ### `scripts/build/clean-build-artifacts.mjs`
 
