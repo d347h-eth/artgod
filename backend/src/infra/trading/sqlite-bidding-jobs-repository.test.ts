@@ -4,8 +4,11 @@ import { join } from "node:path";
 import { strict as assert } from "node:assert";
 import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
+    COLLECTION_STANDARD,
+    COLLECTION_STATUS,
     TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
     TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
     TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
@@ -23,6 +26,10 @@ const ACTIVE_ORDER_ID = "0xactive-order";
 const ACTIVE_PROTOCOL_ADDRESS = "0x00000000006c3852cbef3e08e8df289169ede581";
 const ACTIVE_ORDER_PLACED_AT = "2026-05-17T00:00:00Z";
 const ACTIVE_ORDER_VERIFIED_AT = "2026-05-17T00:00:02Z";
+
+// Bidding job persistence tests use a generic collection with a market slug.
+const BIDDING_JOBS_FIXTURE_SLUG = "bidding-jobs-fixture";
+const BIDDING_JOBS_FIXTURE_OPENSEA_SLUG = "bidding-jobs-fixture-opensea";
 
 async function createTempDbPath(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "artgod-bidding-jobs-"));
@@ -44,12 +51,13 @@ function seedCollection(): number {
             "VALUES (@chainId, @slug, @address, @standard, @status, @tokenScopeKind, @openseaSlug)",
     ).run({
         chainId: 1,
-        slug: "artgod-slug",
+        slug: BIDDING_JOBS_FIXTURE_SLUG,
         address: "0x1111111111111111111111111111111111111111",
-        standard: "erc721",
-        status: "live",
-        tokenScopeKind: "contract_all_tokens",
-        openseaSlug: "terraforms",
+        standard: COLLECTION_STANDARD.Erc721,
+        status: COLLECTION_STATUS.Live,
+        tokenScopeKind:
+            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
+        openseaSlug: BIDDING_JOBS_FIXTURE_OPENSEA_SLUG,
     });
 
     return Number(result.lastInsertRowid);
@@ -79,9 +87,15 @@ describe("SqliteBiddingJobsRepository", () => {
         });
 
         assert.equal(result.job.targetKind, TRADING_JOB_TARGET_KIND.Token);
-        assert.equal(result.job.collectionSlug, "artgod-slug");
-        assert.equal(result.job.collectionOpenseaSlug, "terraforms");
-        assert.equal(result.job.collectionAddress, "0x1111111111111111111111111111111111111111");
+        assert.equal(result.job.collectionSlug, BIDDING_JOBS_FIXTURE_SLUG);
+        assert.equal(
+            result.job.collectionOpenseaSlug,
+            BIDDING_JOBS_FIXTURE_OPENSEA_SLUG,
+        );
+        assert.equal(
+            result.job.collectionAddress,
+            "0x1111111111111111111111111111111111111111",
+        );
         assert.equal(result.job.tokenId, "123");
         assert.equal(result.job.priceTierId, null);
         assert.deepEqual(result.job.pricingSource, {

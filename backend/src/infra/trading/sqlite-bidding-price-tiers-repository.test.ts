@@ -4,14 +4,21 @@ import { join } from "node:path";
 import { strict as assert } from "node:assert";
 import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
+    COLLECTION_STANDARD,
+    COLLECTION_STATUS,
     TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND,
     TRADING_BIDDING_PRICE_TIER_DELTA_KIND,
     TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND,
     TRADING_JOB_STATUS,
 } from "@artgod/shared/types";
 import { SqliteBiddingPriceTiersRepository } from "./sqlite-bidding-price-tiers-repository.js";
+
+// Price tier tests use a private collection identity to avoid preset collisions.
+const PRICE_TIERS_FIXTURE_SLUG = "price-tiers-fixture";
+const PRICE_TIERS_FIXTURE_OPENSEA_SLUG = "price-tiers-fixture-opensea";
 
 async function createTempDbPath(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "artgod-bidding-price-tiers-"));
@@ -33,12 +40,13 @@ function seedCollection(): number {
             "VALUES (@chainId, @slug, @address, @standard, @status, @tokenScopeKind, @openseaSlug)",
     ).run({
         chainId: 1,
-        slug: "artgod-slug",
+        slug: PRICE_TIERS_FIXTURE_SLUG,
         address: "0x1111111111111111111111111111111111111111",
-        standard: "erc721",
-        status: "live",
-        tokenScopeKind: "contract_all_tokens",
-        openseaSlug: "terraforms",
+        standard: COLLECTION_STANDARD.Erc721,
+        status: COLLECTION_STATUS.Live,
+        tokenScopeKind:
+            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
+        openseaSlug: PRICE_TIERS_FIXTURE_OPENSEA_SLUG,
     });
 
     return Number(result.lastInsertRowid);

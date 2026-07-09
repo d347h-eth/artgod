@@ -4,8 +4,11 @@ import { join } from "node:path";
 import { strict as assert } from "node:assert";
 import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
+    COLLECTION_STANDARD,
+    COLLECTION_STATUS,
     TRADING_BOT_KIND,
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_COMMAND_STATUS,
@@ -16,6 +19,9 @@ import { SqliteBiddingJobRuntimeState } from "./sqlite-bidding-job-runtime-state
 
 const RECOVERABLE_RETRY_CUTOFF = "9999-01-01T00:00:00.000Z";
 const BEFORE_RECORDED_RETRY_CUTOFF = "1970-01-01T00:00:00.000Z";
+
+// Runtime-state tests use a local collection and assert its real generated id.
+const JOB_RUNTIME_FIXTURE_SLUG = "job-runtime-fixture";
 
 async function createTempDbPath(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "artgod-runtime-state-"));
@@ -38,11 +44,12 @@ function seedCollection(): number {
         )
         .run({
             chainId: 1,
-            slug: "terraforms",
+            slug: JOB_RUNTIME_FIXTURE_SLUG,
             address: "0x1111111111111111111111111111111111111111",
-            standard: "erc721",
-            status: "live",
-            tokenScopeKind: "contract_all_tokens",
+            standard: COLLECTION_STANDARD.Erc721,
+            status: COLLECTION_STATUS.Live,
+            tokenScopeKind:
+                EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
         });
     return Number(result.lastInsertRowid);
 }
@@ -72,10 +79,13 @@ function seedBiddingJob(collectionId: number): void {
 }
 
 describe("SqliteBiddingJobRuntimeState", () => {
+    let collectionId = 0;
+
     beforeEach(async () => {
         setDbPath(await createTempDbPath());
         await createMigrationRunner().runMigrations();
-        seedBiddingJob(seedCollection());
+        collectionId = seedCollection();
+        seedBiddingJob(collectionId);
     });
 
     it("records placed order timing with runtime state", () => {
@@ -223,7 +233,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
             job_id: "job-token",
             job_revision: 1,
             chain_id: 1,
-            collection_id: 1,
+            collection_id: collectionId,
             maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             price_wei: "150000000000000000",
             protocol_address: "0x0000000000000068f116a894984e2db1123eb395",
@@ -324,7 +334,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
                     expirationTimeMs: 1_900_000_000_000,
                     collectionAddress:
                         "0x1111111111111111111111111111111111111111",
-                    collectionSlug: "terraforms",
+                    collectionSlug: JOB_RUNTIME_FIXTURE_SLUG,
                     tokenId: "123",
                     cancellationError: "OpenSea unavailable",
                     terminalCommandError: null,
@@ -446,7 +456,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
                     expirationTimeMs: 1_900_000_000_000,
                     collectionAddress:
                         "0x1111111111111111111111111111111111111111",
-                    collectionSlug: "terraforms",
+                    collectionSlug: JOB_RUNTIME_FIXTURE_SLUG,
                     tokenId: "123",
                     cancellationError: null,
                     terminalCommandError:
@@ -476,7 +486,7 @@ describe("SqliteBiddingJobRuntimeState", () => {
                     expirationTimeMs: 1_900_000_000_000,
                     collectionAddress:
                         "0x1111111111111111111111111111111111111111",
-                    collectionSlug: "terraforms",
+                    collectionSlug: JOB_RUNTIME_FIXTURE_SLUG,
                     tokenId: "123",
                     cancellationError: null,
                     terminalCommandError: null,

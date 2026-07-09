@@ -97,8 +97,7 @@ describe("activity domain", () => {
                 value: "example",
                 extensionKey: "example-extension",
             }),
-            dedupe_key:
-                "extension:example-extension:custom-event:1:0xtx-extension:9:1",
+            dedupe_key: `extension:example-extension:custom-event:${collectionId}:0xtx-extension:9:1`,
         });
     });
 

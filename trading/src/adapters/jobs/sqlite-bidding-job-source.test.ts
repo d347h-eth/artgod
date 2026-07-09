@@ -4,13 +4,20 @@ import { join } from "node:path";
 import { strict as assert } from "node:assert";
 import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
+    COLLECTION_STANDARD,
+    COLLECTION_STATUS,
     TRADING_BOT_KIND,
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
 } from "@artgod/shared/types";
 import { SqliteBiddingJobSource } from "./sqlite-bidding-job-source.js";
+
+// Job source tests verify market-slug mapping with a private fixture collection.
+const JOB_SOURCE_COLLECTION_SLUG = "job-source-fixture";
+const JOB_SOURCE_MARKET_SLUG = "job-source-fixture-opensea";
 
 async function createTempDbPath(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "artgod-trading-job-source-"));
@@ -38,9 +45,10 @@ function seedCollection(params: {
         chainId: 1,
         slug: params.slug,
         address: params.address,
-        standard: "erc721",
-        status: "live",
-        tokenScopeKind: "contract_all_tokens",
+        standard: COLLECTION_STANDARD.Erc721,
+        status: COLLECTION_STATUS.Live,
+        tokenScopeKind:
+            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
         openseaSlug: params.openseaSlug,
     });
 
@@ -105,7 +113,7 @@ function seedJob(params: {
 }
 
 describe("SqliteBiddingJobSource", () => {
-    let terraformsCollectionId = 0;
+    let marketCollectionId = 0;
     let grailsCollectionId = 0;
 
     beforeEach(async () => {
@@ -113,10 +121,10 @@ describe("SqliteBiddingJobSource", () => {
         const migrationRunner = createMigrationRunner();
         await migrationRunner.runMigrations();
 
-        terraformsCollectionId = seedCollection({
-            slug: "artgod-slug",
+        marketCollectionId = seedCollection({
+            slug: JOB_SOURCE_COLLECTION_SLUG,
             address: "0x1111111111111111111111111111111111111111",
-            openseaSlug: "terraforms",
+            openseaSlug: JOB_SOURCE_MARKET_SLUG,
         });
         grailsCollectionId = seedCollection({
             slug: "grails",
@@ -128,7 +136,7 @@ describe("SqliteBiddingJobSource", () => {
     it("loads enabled bidding jobs from SQLite and maps each target kind into BidderJob", async () => {
         seedJob({
             jobId: "job-token",
-            collectionId: terraformsCollectionId,
+            collectionId: marketCollectionId,
             status: TRADING_JOB_STATUS.Enabled,
             targetKind: TRADING_JOB_TARGET_KIND.Token,
             tokenId: "123",
@@ -146,7 +154,7 @@ describe("SqliteBiddingJobSource", () => {
         });
         seedJob({
             jobId: "job-competitive",
-            collectionId: terraformsCollectionId,
+            collectionId: marketCollectionId,
             status: TRADING_JOB_STATUS.Enabled,
             targetKind: TRADING_JOB_TARGET_KIND.CompetitiveTrait,
             tokenId: null,
@@ -168,7 +176,7 @@ describe("SqliteBiddingJobSource", () => {
             revision: 1,
             network: "eth",
             collectionAddress: "0x1111111111111111111111111111111111111111",
-            collectionSlug: "terraforms",
+            collectionSlug: JOB_SOURCE_MARKET_SLUG,
             target: {
                 type: "token",
                 tokenId: "123",
@@ -205,7 +213,7 @@ describe("SqliteBiddingJobSource", () => {
             revision: 1,
             network: "eth",
             collectionAddress: "0x1111111111111111111111111111111111111111",
-            collectionSlug: "terraforms",
+            collectionSlug: JOB_SOURCE_MARKET_SLUG,
             target: {
                 type: "competitiveTrait",
                 quantity: 1,
@@ -224,21 +232,21 @@ describe("SqliteBiddingJobSource", () => {
     it("filters out paused and archived jobs and hydrates runtime state", async () => {
         seedJob({
             jobId: "job-enabled",
-            collectionId: terraformsCollectionId,
+            collectionId: marketCollectionId,
             status: TRADING_JOB_STATUS.Enabled,
             targetKind: TRADING_JOB_TARGET_KIND.Token,
             tokenId: "1",
         });
         seedJob({
             jobId: "job-paused",
-            collectionId: terraformsCollectionId,
+            collectionId: marketCollectionId,
             status: TRADING_JOB_STATUS.Paused,
             targetKind: TRADING_JOB_TARGET_KIND.Token,
             tokenId: "2",
         });
         seedJob({
             jobId: "job-archived",
-            collectionId: terraformsCollectionId,
+            collectionId: marketCollectionId,
             status: TRADING_JOB_STATUS.Archived,
             targetKind: TRADING_JOB_TARGET_KIND.Token,
             tokenId: "3",
@@ -283,7 +291,7 @@ describe("SqliteBiddingJobSource", () => {
     it("does not hydrate runtime state written for an older job revision", async () => {
         seedJob({
             jobId: "job-enabled",
-            collectionId: terraformsCollectionId,
+            collectionId: marketCollectionId,
             status: TRADING_JOB_STATUS.Enabled,
             targetKind: TRADING_JOB_TARGET_KIND.Token,
             tokenId: "1",

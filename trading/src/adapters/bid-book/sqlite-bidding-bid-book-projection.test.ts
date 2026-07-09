@@ -4,10 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import { COLLECTION_STANDARD, COLLECTION_STATUS } from "@artgod/shared/types";
 import { createCollectionOfferSnapshotMetrics } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
 import { SqliteBiddingBidBookProjection } from "./sqlite-bidding-bid-book-projection.js";
 
+// Projection tests target a fixture OpenSea slug instead of the preset market slug.
+const BID_BOOK_PROJECTION_COLLECTION_SLUG = "bid-book-projection-fixture";
+const BID_BOOK_PROJECTION_OPENSEA_SLUG = "bid-book-projection-fixture-opensea";
 const COLLECTION_ADDRESS = "0x4e1f41613c9084fdb9e34e11fae9412427480e56";
 const WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
 const OWNER_ADDRESS = "0x1111111111111111111111111111111111111111";
@@ -57,12 +62,13 @@ function seedCollection(): number {
         )
         .run({
             chainId: 1,
-            slug: "terraforms-local",
+            slug: BID_BOOK_PROJECTION_COLLECTION_SLUG,
             address: COLLECTION_ADDRESS,
-            standard: "erc721",
-            status: "live",
-            tokenScopeKind: "contract_all_tokens",
-            openseaSlug: "terraforms",
+            standard: COLLECTION_STANDARD.Erc721,
+            status: COLLECTION_STATUS.Live,
+            tokenScopeKind:
+                EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
+            openseaSlug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
         });
 
     return Number(result.lastInsertRowid);
@@ -146,7 +152,7 @@ describe("SqliteBiddingBidBookProjection", () => {
         // Project the authoritative OpenSea snapshot rows into the UI bid-book table.
         await projection.replaceCollectionBidBook(
             {
-                collectionSlug: "terraforms",
+                collectionSlug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
                 refreshedAt: 1234,
                 offers: [
                     makeOpenSeaOffer({
@@ -156,7 +162,9 @@ describe("SqliteBiddingBidBookProjection", () => {
                         nftItemType: 4,
                         identifierOrCriteria: "0",
                         criteria: {
-                            collection: { slug: "terraforms" },
+                            collection: {
+                                slug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
+                            },
                             contract: { address: COLLECTION_ADDRESS },
                             trait: null,
                             traits: null,
@@ -173,7 +181,9 @@ describe("SqliteBiddingBidBookProjection", () => {
                         identifierOrCriteria:
                             "90330390867309493013447701595835904434736540584155823248877877385678522520479",
                         criteria: {
-                            collection: { slug: "terraforms" },
+                            collection: {
+                                slug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
+                            },
                             contract: { address: COLLECTION_ADDRESS },
                             trait: { type: "Chroma", value: "Plague" },
                             traits: [{ type: "Chroma", value: "Plague" }],
@@ -197,7 +207,9 @@ describe("SqliteBiddingBidBookProjection", () => {
                         identifierOrCriteria:
                             "113703377976973476812273708665395356499261988770439230068849221413098206214838",
                         criteria: {
-                            collection: { slug: "terraforms" },
+                            collection: {
+                                slug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
+                            },
                             contract: { address: COLLECTION_ADDRESS },
                             trait: null,
                             traits: null,
@@ -221,12 +233,9 @@ describe("SqliteBiddingBidBookProjection", () => {
         );
 
         const rows = db
-            .prepare<[number]>(
-                "SELECT order_id, scope_kind, scope_label, token_id, scope_traits_json, encoded_token_ids, maker, is_own, price_wei, quantity, valid_until, placed_at " +
-                    "FROM trading_bidding_bid_book_rows " +
-                    "WHERE collection_id = ? " +
-                    "ORDER BY order_id ASC",
-            )
+            .prepare<
+                [number]
+            >("SELECT order_id, scope_kind, scope_label, token_id, scope_traits_json, encoded_token_ids, maker, is_own, price_wei, quantity, valid_until, placed_at " + "FROM trading_bidding_bid_book_rows " + "WHERE collection_id = ? " + "ORDER BY order_id ASC")
             .all(collectionId) as ProjectedRow[];
         const rowsById = new Map(rows.map((row) => [row.order_id, row]));
 
@@ -300,7 +309,7 @@ describe("SqliteBiddingBidBookProjection", () => {
 
         await projection.replaceCollectionBidBook(
             {
-                collectionSlug: "terraforms",
+                collectionSlug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
                 refreshedAt: 1234,
                 offers: [
                     makeOpenSeaOffer({
@@ -310,7 +319,9 @@ describe("SqliteBiddingBidBookProjection", () => {
                         nftItemType: 4,
                         identifierOrCriteria: "0",
                         criteria: {
-                            collection: { slug: "terraforms" },
+                            collection: {
+                                slug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
+                            },
                             contract: { address: COLLECTION_ADDRESS },
                             trait: null,
                             traits: null,
@@ -328,7 +339,7 @@ describe("SqliteBiddingBidBookProjection", () => {
 
         await projection.recordCollectionBidBookError({
             snapshot: {
-                collectionSlug: "terraforms",
+                collectionSlug: BID_BOOK_PROJECTION_OPENSEA_SLUG,
                 refreshedAt: 5678,
                 offers: [],
                 metrics: createCollectionOfferSnapshotMetrics(),
@@ -339,11 +350,9 @@ describe("SqliteBiddingBidBookProjection", () => {
         });
 
         const state = db
-            .prepare<[number]>(
-                "SELECT snapshot_refreshed_at_ms, row_count, duration_ms, last_error " +
-                    "FROM trading_bidding_collection_bid_book_state " +
-                    "WHERE collection_id = ?",
-            )
+            .prepare<
+                [number]
+            >("SELECT snapshot_refreshed_at_ms, row_count, duration_ms, last_error " + "FROM trading_bidding_collection_bid_book_state " + "WHERE collection_id = ?")
             .get(collectionId) as ProjectionStateRow | undefined;
 
         assert.deepEqual(state, {
