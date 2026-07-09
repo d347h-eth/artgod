@@ -253,14 +253,14 @@ test.describe('bootstrap contract probe UI', () => {
 		expect(api.openSeaSlugVerificationRequests).toEqual([]);
 		await openSeaSlugInput.press('Enter');
 		await expect(formRow(page, 'OpenSea slug')).toContainText('incorrect');
-		await openSeaSlugInput.fill(BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableOnchainSvg);
+		await openSeaSlugInput.fill(BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable);
 		await expect(openSeaSlugSubmit).toBeEnabled();
 		await expect(formRow(page, 'OpenSea slug')).not.toContainText('incorrect');
 		await openSeaSlugSubmit.click();
 		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
 		expect(api.openSeaSlugVerificationRequests).toEqual([
 			'missing-opensea-slug',
-			BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableOnchainSvg
+			BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
 		]);
 	});
 

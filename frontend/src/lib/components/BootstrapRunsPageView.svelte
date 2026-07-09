@@ -20,14 +20,12 @@
 		ApiTokenCard,
 		BootstrapContractProbeApiResponse,
 		BootstrapImageCacheEstimateApiResponse,
-		BootstrapOpenSeaSlugProbeApiResponse,
 		BootstrapRunsApiResponse
 	} from '$lib/api-types';
 	import {
 		createBootstrapRun,
 		estimateBootstrapImageCache,
-		probeBootstrapCollectionContract,
-		probeBootstrapOpenSeaSlug
+		probeBootstrapCollectionContract
 	} from '$lib/backend-api';
 	import {
 		bootstrapProbeNeedsManualScope,
@@ -43,8 +41,10 @@
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import InfoTooltip from '$lib/components/InfoTooltip.svelte';
 	import LoadingBladeBar from '$lib/components/LoadingBladeBar.svelte';
+	import OpenSeaSlugResolverControl from '$lib/components/OpenSeaSlugResolverControl.svelte';
 	import TokenCardTile from '$lib/components/TokenCardTile.svelte';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
+	import type { OpenSeaSlugResolverState } from '$lib/components/open-sea-slug-resolver-state';
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import {
 		resolveTokenMediaIframeSource,
@@ -54,7 +54,6 @@
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import { TEST_IDS } from '$lib/test-ids';
 	import { BOOTSTRAP_ENUMERATION_MODE } from '@artgod/shared/bootstrap/pipeline';
-	import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from '@artgod/shared/bootstrap/opensea-slug-probe';
 
 	type BootstrapManualEnumerationMode =
 		| typeof BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
@@ -93,17 +92,6 @@
 	const contractProbeDelayMs = 150;
 	// Debounce delay before image-cache plan calculations use a numeric draft.
 	const imageCacheDimensionCommitDelayMs = 450;
-	// UI-local lifecycle states for the asynchronous OpenSea slug probe.
-	const openSeaSlugProbeUiStatus = {
-		Idle: 'idle',
-		Waiting: 'waiting',
-		Loading: 'loading',
-		Ready: 'ready',
-		Error: 'error'
-	} as const;
-	type OpenSeaSlugProbeUiStatus =
-		(typeof openSeaSlugProbeUiStatus)[keyof typeof openSeaSlugProbeUiStatus];
-	type OpenSeaSlugProbeRequest = Parameters<typeof probeBootstrapOpenSeaSlug>[2];
 	const imageCacheEstimateUiStatus = {
 		Idle: 'idle',
 		Loading: 'loading',
@@ -126,7 +114,6 @@
 	} as const;
 	type BootstrapPreviewSource =
 		(typeof BOOTSTRAP_PREVIEW_SOURCE)[keyof typeof BOOTSTRAP_PREVIEW_SOURCE];
-	const openSeaSlugProbeFormId = 'bootstrap-opensea-slug-probe-form';
 	const imageSourceProbeFormId = 'bootstrap-image-source-probe-form';
 	const animationSourceProbeFormId = 'bootstrap-animation-source-probe-form';
 	const sampleTokenProbeFormId = 'bootstrap-sample-token-probe-form';
@@ -200,8 +187,9 @@
 		BOOTSTRAP_PREVIEW_SOURCE.Image
 	);
 	let bootstrapOpenSeaSlug = $state('');
-	let openSeaSlugInputElement = $state<HTMLInputElement | null>(null);
 	let openSeaSlugInputHasValue = $state(false);
+	let openSeaSlugResolved = $state(false);
+	let openSeaSlugProbePending = $state(false);
 	let metadataMode = $state(DEFAULT_BOOTSTRAP_METADATA_MODE);
 	let supportsEnumerable = $state(false);
 	let manualMode = $state<BootstrapManualEnumerationMode>(
@@ -224,13 +212,6 @@
 	let probeResult = $state<BootstrapContractProbeApiResponse | null>(null);
 	let probeError = $state<string | null>(null);
 	let probeAddress = $state<string | null>(null);
-	let openSeaSlugProbeStatus = $state<OpenSeaSlugProbeUiStatus>(
-		openSeaSlugProbeUiStatus.Idle
-	);
-	let openSeaSlugProbeResult = $state<BootstrapOpenSeaSlugProbeApiResponse | null>(null);
-	let openSeaSlugProbeError = $state<string | null>(null);
-	let openSeaSlugProbeAddress = $state<string | null>(null);
-	let openSeaSlugProbeRequestedSlug = $state<string | null>(null);
 	let animationSourceProbeStatus = $state<AnimationSourceProbeUiStatus>(
 		animationSourceProbeUiStatus.Idle
 	);
@@ -240,12 +221,10 @@
 	);
 	let imageCacheEstimateResult = $state<BootstrapImageCacheEstimateApiResponse | null>(null);
 	let imageCacheEstimateError = $state<string | null>(null);
-	let lastAutoFilledOpenSeaSlug: string | null = null;
-	let openSeaSlugWasAutoFilled = false;
+	let openSeaSlugResolverResetKey = $state(0);
 	let contractProbeTimer: number | null = null;
 	let imageCacheDimensionTimer: number | null = null;
 	let contractProbeRequestId = 0;
-	let openSeaSlugProbeRequestId = 0;
 	let animationSourceProbeRequestId = 0;
 	let imageCacheEstimateRequestId = 0;
 	let openSeaEnabled = $derived(openseaIntegration?.enabled === true);
@@ -288,10 +267,6 @@
 	);
 	let formDetailsReady = $derived(sourceFieldsReady && sampleTokenIdResolved);
 	let probeStatusSectionVisible = $derived(resolveProbeStatusSectionVisible());
-	let openSeaSlugProbePending = $derived(
-		openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Waiting ||
-			openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Loading
-	);
 	let imageCacheEstimatePending = $derived(
 		imageCacheEstimateStatus === imageCacheEstimateUiStatus.Loading
 	);
@@ -303,8 +278,6 @@
 		imageCacheEstimateStatus === imageCacheEstimateUiStatus.Error
 	);
 	let imageCacheEstimateCanRun = $derived(canRunImageCacheEstimate());
-	let openSeaSlugResolved = $derived(isOpenSeaSlugResolved());
-	let openSeaSlugIncorrect = $derived(isOpenSeaSlugIncorrect());
 	let openSeaBiddingUnavailableMessage = $derived(resolveOpenSeaBiddingUnavailableMessage());
 	let queueBootstrapBlockers = $derived(resolveQueueBootstrapBlockers());
 	let submitDisabled = $derived(submitting || queueBootstrapBlockers.length > 0);
@@ -325,7 +298,6 @@
 		cancelContractProbeTimer();
 		cancelImageCacheDimensionTimer();
 		contractProbeRequestId += 1;
-		openSeaSlugProbeRequestId += 1;
 		animationSourceProbeRequestId += 1;
 		imageCacheEstimateRequestId += 1;
 	});
@@ -367,7 +339,7 @@
 			sampleTokenId.trim().length > 0 ||
 			sampleTokenIdDirty ||
 			animationSourceProbeStatus !== animationSourceProbeUiStatus.Idle ||
-			openSeaSlugProbeStatus !== openSeaSlugProbeUiStatus.Idle ||
+			openSeaSlugProbePending ||
 			bootstrapSlug.trim().length > 0 ||
 			bootstrapOpenSeaSlug.trim().length > 0 ||
 			manualEditingAllowed
@@ -378,7 +350,6 @@
 		cancelContractProbeTimer();
 		cancelImageCacheDimensionTimer();
 		contractProbeRequestId += 1;
-		openSeaSlugProbeRequestId += 1;
 		animationSourceProbeRequestId += 1;
 		bootstrapAddress = nextAddress;
 		setImageSourceFieldValue('');
@@ -387,10 +358,7 @@
 		clearSampleTokenFieldState();
 		setCollectionSlugInputValue('');
 		lastAutoFilledSlug = null;
-		setOpenSeaSlugInputValue('');
-		openSeaSlugInputHasValue = false;
-		lastAutoFilledOpenSeaSlug = null;
-		openSeaSlugWasAutoFilled = false;
+		resetOpenSeaSlugResolverState();
 		metadataMode = DEFAULT_BOOTSTRAP_METADATA_MODE;
 		supportsEnumerable = false;
 		manualMode = BOOTSTRAP_ENUMERATION_MODE.ManualRange;
@@ -406,22 +374,17 @@
 		probeResult = null;
 		probeError = null;
 		probeAddress = null;
-		resetOpenSeaSlugProbeState();
 		resetImageCacheEstimateState();
 	}
 
 	function resetFormBelowImageSourceField(): void {
-		openSeaSlugProbeRequestId += 1;
 		imageCacheEstimateRequestId += 1;
 		animationSourceProbeRequestId += 1;
 		clearAnimationSourceFieldState();
 		clearSampleTokenFieldState();
 		setCollectionSlugInputValue('');
 		lastAutoFilledSlug = null;
-		setOpenSeaSlugInputValue('');
-		openSeaSlugInputHasValue = false;
-		lastAutoFilledOpenSeaSlug = null;
-		openSeaSlugWasAutoFilled = false;
+		resetOpenSeaSlugResolverState();
 		metadataMode = DEFAULT_BOOTSTRAP_METADATA_MODE;
 		supportsEnumerable = false;
 		manualMode = BOOTSTRAP_ENUMERATION_MODE.ManualRange;
@@ -433,19 +396,14 @@
 		resetImageCachePolicySource();
 		manualEditingAllowed = false;
 		submitError = null;
-		resetOpenSeaSlugProbeState();
 		resetImageCacheEstimateState();
 	}
 
 	function resetFormBelowSampleTokenField(): void {
-		openSeaSlugProbeRequestId += 1;
 		imageCacheEstimateRequestId += 1;
 		setCollectionSlugInputValue('');
 		lastAutoFilledSlug = null;
-		setOpenSeaSlugInputValue('');
-		openSeaSlugInputHasValue = false;
-		lastAutoFilledOpenSeaSlug = null;
-		openSeaSlugWasAutoFilled = false;
+		resetOpenSeaSlugResolverState();
 		metadataMode = DEFAULT_BOOTSTRAP_METADATA_MODE;
 		supportsEnumerable = false;
 		manualMode = BOOTSTRAP_ENUMERATION_MODE.ManualRange;
@@ -457,16 +415,15 @@
 		resetImageCachePolicySource();
 		manualEditingAllowed = false;
 		submitError = null;
-		resetOpenSeaSlugProbeState();
 		resetImageCacheEstimateState();
 	}
 
-	function resetOpenSeaSlugProbeState(): void {
-		openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Idle;
-		openSeaSlugProbeResult = null;
-		openSeaSlugProbeError = null;
-		openSeaSlugProbeAddress = null;
-		openSeaSlugProbeRequestedSlug = null;
+	function resetOpenSeaSlugResolverState(): void {
+		bootstrapOpenSeaSlug = '';
+		openSeaSlugInputHasValue = false;
+		openSeaSlugResolved = false;
+		openSeaSlugProbePending = false;
+		openSeaSlugResolverResetKey += 1;
 	}
 
 	function resetAnimationSourceProbeState(): void {
@@ -543,16 +500,6 @@
 		const target = event.currentTarget;
 		if (!(target instanceof HTMLInputElement)) return;
 		collectionSlugInputHasValue = normalizeFieldValue(target.value).length > 0;
-	}
-
-	function setOpenSeaSlugInputValue(value: string): void {
-		bootstrapOpenSeaSlug = value;
-		if (openSeaSlugInputElement) openSeaSlugInputElement.value = value;
-		openSeaSlugInputHasValue = normalizeOpenSeaSlugInput(value).length > 0;
-	}
-
-	function readOpenSeaSlugInputValue(): string {
-		return normalizeOpenSeaSlugInput(openSeaSlugInputElement?.value ?? bootstrapOpenSeaSlug);
 	}
 
 	function onBootstrapAddressInput(event: Event): void {
@@ -760,11 +707,6 @@
 				animationSourceFieldOverride,
 				sampleTokenIdOverride
 			);
-			if (isImageSourceFieldResolved() && openSeaEnabled) {
-				scheduleOpenSeaAddressProbe(chainSlug, result.address);
-			} else {
-				resetOpenSeaSlugProbeState();
-			}
 		} catch (error) {
 			if (requestId !== contractProbeRequestId) return;
 			probeStatus = 'error';
@@ -804,87 +746,6 @@
 			animationSourceProbeError =
 				error instanceof Error ? error.message : 'animation source probe failed';
 			selectedBootstrapPreviewSource = BOOTSTRAP_PREVIEW_SOURCE.Image;
-		}
-	}
-
-	function scheduleOpenSeaAddressProbe(chainSlug: string, address: string): void {
-		openSeaSlugProbeRequestId += 1;
-		const requestId = openSeaSlugProbeRequestId;
-		openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Waiting;
-		openSeaSlugProbeResult = null;
-		openSeaSlugProbeError = null;
-		openSeaSlugProbeAddress = address;
-		openSeaSlugProbeRequestedSlug = null;
-		if (openSeaSlugWasAutoFilled) {
-			setOpenSeaSlugInputValue('');
-			lastAutoFilledOpenSeaSlug = null;
-			openSeaSlugWasAutoFilled = false;
-		}
-		void runOpenSeaSlugProbe(chainSlug, { address }, requestId);
-	}
-
-	function onOpenSeaSlugInput(event: Event): void {
-		const target = event.currentTarget;
-		if (!(target instanceof HTMLInputElement)) return;
-		lastAutoFilledOpenSeaSlug = null;
-		openSeaSlugWasAutoFilled = false;
-		const slug = normalizeOpenSeaSlugInput(target.value);
-		const hasValue = slug.length > 0;
-		if (
-			openSeaSlugProbeStatus !== openSeaSlugProbeUiStatus.Idle ||
-			openSeaSlugInputHasValue !== hasValue
-		) {
-			openSeaSlugProbeRequestId += 1;
-			resetOpenSeaSlugProbeState();
-		}
-		openSeaSlugInputHasValue = hasValue;
-	}
-
-	function onSubmitOpenSeaSlugProbe(event: SubmitEvent): void {
-		event.preventDefault();
-		if (!openSeaEnabled) return;
-		const slug = readOpenSeaSlugInputValue();
-		if (!slug) {
-			openSeaSlugInputHasValue = false;
-			return;
-		}
-		scheduleOpenSeaSlugVerification(slug);
-	}
-
-	function scheduleOpenSeaSlugVerification(slug: string): void {
-		const chainSlug = chain?.slug ?? null;
-		if (!chainSlug) return;
-		openSeaSlugProbeRequestId += 1;
-		const requestId = openSeaSlugProbeRequestId;
-		openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Waiting;
-		openSeaSlugProbeResult = null;
-		openSeaSlugProbeError = null;
-		openSeaSlugProbeAddress = null;
-		openSeaSlugProbeRequestedSlug = slug;
-		void runOpenSeaSlugProbe(chainSlug, { slug }, requestId);
-	}
-
-	async function runOpenSeaSlugProbe(
-		chainSlug: string,
-		input: OpenSeaSlugProbeRequest,
-		requestId: number
-	): Promise<void> {
-		openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Loading;
-		try {
-			const result = await probeBootstrapOpenSeaSlug(fetch, chainSlug, input);
-			if (requestId !== openSeaSlugProbeRequestId) return;
-			openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Ready;
-			openSeaSlugProbeResult = result;
-			openSeaSlugProbeAddress = result.address;
-			openSeaSlugProbeRequestedSlug = result.requestedSlug;
-			applyOpenSeaSlugProbeResult(result);
-		} catch (error) {
-			if (requestId !== openSeaSlugProbeRequestId) return;
-			openSeaSlugProbeStatus = openSeaSlugProbeUiStatus.Error;
-			openSeaSlugProbeResult = null;
-			openSeaSlugProbeAddress = input.address ?? null;
-			openSeaSlugProbeRequestedSlug = input.slug ?? null;
-			openSeaSlugProbeError = error instanceof Error ? error.message : 'OpenSea slug probe failed';
 		}
 	}
 
@@ -960,28 +821,11 @@
 		}
 	}
 
-	function applyOpenSeaSlugProbeResult(result: BootstrapOpenSeaSlugProbeApiResponse): void {
-		if (result.status !== BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found || !result.slug) return;
-		const resolvedSlug = normalizeOpenSeaSlugInput(result.slug);
-		if (!resolvedSlug) return;
-		if (result.address && result.address !== normalizedBootstrapAddress) return;
-		if (result.requestedSlug && result.requestedSlug !== resolvedSlug) return;
-		if (
-			result.address &&
-			(!bootstrapOpenSeaSlug.trim() || bootstrapOpenSeaSlug === lastAutoFilledOpenSeaSlug)
-		) {
-			setOpenSeaSlugInputValue(result.slug);
-			lastAutoFilledOpenSeaSlug = result.slug;
-			openSeaSlugWasAutoFilled = true;
-			return;
-		}
-		if (result.requestedSlug && readOpenSeaSlugInputValue() === resolvedSlug) {
-			setOpenSeaSlugInputValue(resolvedSlug);
-		}
-	}
-
-	function normalizeOpenSeaSlugInput(value: string): string {
-		return value.trim().toLowerCase();
+	function onOpenSeaSlugStateChange(state: OpenSeaSlugResolverState): void {
+		bootstrapOpenSeaSlug = state.slug;
+		openSeaSlugInputHasValue = state.hasValue;
+		openSeaSlugResolved = state.resolved;
+		openSeaSlugProbePending = state.pending;
 	}
 
 	function isImageSourceFieldResolved(): boolean {
@@ -1023,26 +867,6 @@
 		return !isSampleTokenIdResolved();
 	}
 
-	function isOpenSeaSlugResolved(): boolean {
-		if (!openSeaEnabled || openSeaSlugProbeStatus !== openSeaSlugProbeUiStatus.Ready) return false;
-		if (!openSeaSlugProbeResult) return false;
-		if (openSeaSlugProbeResult.status !== BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found) return false;
-		const resolvedSlug = normalizeOpenSeaSlugInput(openSeaSlugProbeResult.slug ?? '');
-		if (!resolvedSlug || readOpenSeaSlugInputValue() !== resolvedSlug) return false;
-		if (openSeaSlugProbeResult.address) {
-			return openSeaSlugProbeResult.address === normalizedBootstrapAddress;
-		}
-		return openSeaSlugProbeResult.requestedSlug === resolvedSlug;
-	}
-
-	function isOpenSeaSlugIncorrect(): boolean {
-		if (!openSeaEnabled || openSeaSlugProbeStatus !== openSeaSlugProbeUiStatus.Ready) return false;
-		return (
-			openSeaSlugProbeResult?.status === BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing &&
-			openSeaSlugProbeResult.requestedSlug !== null
-		);
-	}
-
 	function resolveOpenSeaBiddingUnavailableMessage(): string | null {
 		if (openSeaSlugResolved) return null;
 		const baseMessage =
@@ -1075,25 +899,6 @@
 		return probeNeedsManualScope()
 			? 'bootstrap-probe-status mono bootstrap-probe-status-action-required'
 			: 'bootstrap-probe-status mono';
-	}
-
-	function openSeaSlugProbeMessage(): string | null {
-		if (openSeaDisabledReason) {
-			return `${openSeaDisabledReason}. ${openSeaSetupMessage}`;
-		}
-		if (!openSeaEnabled) {
-			return openSeaSetupMessage;
-		}
-		if (
-			openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Waiting ||
-			openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Loading
-		) {
-			return null;
-		}
-		if (openSeaSlugProbeStatus === openSeaSlugProbeUiStatus.Error) {
-			return openSeaSlugProbeError;
-		}
-		return null;
 	}
 
 	function interfaceLabel(value: boolean | null): string {
@@ -1563,7 +1368,7 @@
 
 		const slug = readCollectionSlugInputValue();
 		const address = normalizeFieldValue(bootstrapAddress).toLowerCase();
-		const openseaSlug = openSeaEnabled ? readOpenSeaSlugInputValue() : '';
+		const openseaSlug = openSeaEnabled ? bootstrapOpenSeaSlug : '';
 		if (!slug || !address) {
 			submitError = 'slug and address are required';
 			return;
@@ -1714,11 +1519,6 @@
 		</div>
 	</header>
 
-	<form
-		id={openSeaSlugProbeFormId}
-		class="bootstrap-hidden-form"
-		onsubmit={onSubmitOpenSeaSlugProbe}
-	></form>
 	<form
 		id={imageSourceProbeFormId}
 		class="bootstrap-hidden-form"
@@ -2039,44 +1839,18 @@
 						</label>
 						<label class="bootstrap-form-row">
 							{@render fieldLabel('OpenSea slug', bootstrapFieldHelp.openseaSlug)}
-							<div class="bootstrap-input-with-note">
-								<div class="bootstrap-input-status-row">
-									<input
-										bind:this={openSeaSlugInputElement}
-										value={bootstrapOpenSeaSlug}
-										class={`${bootstrapInputClass} bootstrap-input-slug`}
-										type="text"
-										name="openseaSlug"
-										form={openSeaSlugProbeFormId}
-										disabled={!openSeaEnabled}
-										oninput={onOpenSeaSlugInput}
-									/>
-									{#if openSeaSlugResolved}
-										<span class="bid-book-own-status bid-book-own-status-draw bootstrap-resolution-badge">
-											resolved
-										</span>
-									{:else if openSeaSlugIncorrect}
-										<span class="bid-book-own-status bid-book-own-status-cancelled bootstrap-resolution-badge">
-											incorrect
-										</span>
-									{:else if openSeaSlugProbePending}
-										<span class="muted">
-											{@render inProgressStatus('resolving', 'resolving OpenSea slug')}
-										</span>
-									{:else}
-										<button
-											type="submit"
-											form={openSeaSlugProbeFormId}
-											disabled={!openSeaEnabled || !openSeaSlugInputHasValue}
-										>
-											resolve
-										</button>
-									{/if}
-								</div>
-								{#if openSeaSlugProbeMessage()}
-									<span class="muted bootstrap-opensea-slug-note">{openSeaSlugProbeMessage()}</span>
-								{/if}
-							</div>
+							<OpenSeaSlugResolverControl
+								chainSlug={chain?.slug ?? null}
+								contractAddress={normalizedBootstrapAddress}
+								initialSlug=""
+								inputClass={`${bootstrapInputClass} bootstrap-input-slug`}
+								{openSeaEnabled}
+								disabledReason={openSeaDisabledReason
+									? `${openSeaDisabledReason}. ${openSeaSetupMessage}`
+									: openSeaSetupMessage}
+								resetKey={openSeaSlugResolverResetKey}
+								onStateChange={onOpenSeaSlugStateChange}
+							/>
 						</label>
 					</div>
 

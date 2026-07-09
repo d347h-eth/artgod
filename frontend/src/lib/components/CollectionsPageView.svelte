@@ -12,9 +12,16 @@
 		startCollectionOpenSeaSync,
 		updateCollectionOpenSeaStreamIngestion
 	} from '$lib/backend-api';
-	import type { ApiChain, ApiCollection, ApiCollectionsPage } from '$lib/api-types';
+	import type {
+		ApiChain,
+		ApiCollection,
+		ApiCollectionsPage,
+		ApiOpenSeaIntegrationStatus
+	} from '$lib/api-types';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
+	import OpenSeaSlugResolverControl from '$lib/components/OpenSeaSlugResolverControl.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
+	import type { OpenSeaSlugResolverState } from '$lib/components/open-sea-slug-resolver-state';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import {
@@ -31,13 +38,15 @@
 		page,
 		status,
 		basePath,
-		blockExplorer = getDefaultBlockExplorerConfig()
+		blockExplorer = getDefaultBlockExplorerConfig(),
+		openseaIntegration = null
 	}: {
 		chain: ApiChain | null;
 		page: ApiCollectionsPage;
 		status: string;
 		basePath: string;
 		blockExplorer?: BlockExplorerConfig;
+		openseaIntegration?: ApiOpenSeaIntegrationStatus | null;
 	} = $props();
 
 	const COLLECTION_TABLE_ACTION = {
@@ -54,10 +63,23 @@
 	let purgeConfirmation = $state('');
 	let purgeError = $state<string | null>(null);
 	let purgeSubmitting = $state(false);
+	let openSeaSyncTarget = $state<ApiCollection | null>(null);
+	let openSeaSyncSlug = $state('');
+	let openSeaSyncSlugResolved = $state(false);
+	let openSeaSyncSlugPending = $state(false);
+	let openSeaSyncSubmitting = $state(false);
+	let openSeaSyncError = $state<string | null>(null);
+	let openSeaSyncResolverResetKey = $state(0);
 	let purgedCollectionKeys = $state<Set<string>>(new Set());
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
 	let visibleCollections = $derived(
 		page.items.filter((collection) => !purgedCollectionKeys.has(collectionKey(collection)))
+	);
+	let openSeaIntegrationEnabled = $derived(openseaIntegration?.enabled === true);
+	let openSeaIntegrationDisabledReason = $derived(
+		openseaIntegration && !openseaIntegration.enabled
+			? (openseaIntegration.reason ?? 'OpenSea integration disabled')
+			: null
 	);
 
 	$effect(() => {
@@ -160,7 +182,6 @@
 	function canStartOpenSeaSync(collection: ApiCollection): boolean {
 		return (
 			collection.status === COLLECTION_STATUS.Live &&
-			Boolean(collection.openseaSlug) &&
 			collection.openseaStatus !== OPENSEA_COLLECTION_STATUS.Ready &&
 			!isOpenSeaCollectionSyncActive(collection.openseaStatus)
 		);
@@ -168,6 +189,7 @@
 
 	function canPauseOpenSeaStream(collection: ApiCollection): boolean {
 		return (
+			openSeaIntegrationEnabled &&
 			Boolean(collection.openseaSlug) &&
 			collection.openseaStreamIngestionStatus !== OPENSEA_STREAM_INGESTION_STATUS.Paused
 		);
@@ -175,6 +197,7 @@
 
 	function canResumeOpenSeaStream(collection: ApiCollection): boolean {
 		return (
+			openSeaIntegrationEnabled &&
 			Boolean(collection.openseaSlug) &&
 			collection.openseaStreamIngestionStatus === OPENSEA_STREAM_INGESTION_STATUS.Paused
 		);
@@ -196,18 +219,65 @@
 		}
 	}
 
-	async function startOpenSeaSync(collection: ApiCollection): Promise<void> {
-		if (!chain || collectionActionPending) return;
-		const pendingKey = actionKey(collection, COLLECTION_TABLE_ACTION.StartOpenSeaSync);
+	function openOpenSeaSyncModal(collection: ApiCollection): void {
+		if (collectionActionPending) return;
+		openSeaSyncTarget = collection;
+		openSeaSyncSlug = collection.openseaSlug ?? '';
+		openSeaSyncSlugResolved = false;
+		openSeaSyncSlugPending = false;
+		openSeaSyncError = null;
+		openSeaSyncResolverResetKey += 1;
+	}
+
+	function closeOpenSeaSyncModal(): void {
+		if (openSeaSyncSubmitting) return;
+		resetOpenSeaSyncModalState();
+	}
+
+	function resetOpenSeaSyncModalState(): void {
+		openSeaSyncTarget = null;
+		openSeaSyncSlug = '';
+		openSeaSyncSlugResolved = false;
+		openSeaSyncSlugPending = false;
+		openSeaSyncError = null;
+	}
+
+	function onOpenSeaSyncSlugStateChange(state: OpenSeaSlugResolverState): void {
+		openSeaSyncSlug = state.slug;
+		openSeaSyncSlugResolved = state.resolved;
+		openSeaSyncSlugPending = state.pending;
+	}
+
+	function canSubmitOpenSeaSync(): boolean {
+		return (
+			openSeaIntegrationEnabled &&
+			openSeaSyncSlugResolved &&
+			!openSeaSyncSlugPending &&
+			!openSeaSyncSubmitting &&
+			collectionActionPending === null
+		);
+	}
+
+	async function submitOpenSeaSync(event: SubmitEvent): Promise<void> {
+		event.preventDefault();
+		if (!chain || !openSeaSyncTarget || !canSubmitOpenSeaSync()) return;
+		const target = openSeaSyncTarget;
+		const pendingKey = actionKey(target, COLLECTION_TABLE_ACTION.StartOpenSeaSync);
 		collectionActionPending = pendingKey;
 		collectionActionError = null;
+		openSeaSyncSubmitting = true;
+		openSeaSyncError = null;
 		try {
-			await startCollectionOpenSeaSync(fetch, chain.slug, collectionRef(collection));
+			await startCollectionOpenSeaSync(fetch, chain.slug, collectionRef(target), {
+				openseaSlug: openSeaSyncSlug
+			});
+			resetOpenSeaSyncModalState();
 			await goto(currentCollectionsHref(), { invalidateAll: true });
 		} catch (cause) {
-			collectionActionError =
+			openSeaSyncError =
 				cause instanceof BackendApiError ? cause.message : 'OpenSea sync start failed';
 		} finally {
+			openSeaSyncSubmitting = false;
 			collectionActionPending = null;
 		}
 	}
@@ -254,6 +324,16 @@
 	function onPurgeBackdropKeydown(event: KeyboardEvent): void {
 		if (event.key !== 'Escape') return;
 		closePurgeModal();
+	}
+
+	function onOpenSeaSyncBackdropClick(event: MouseEvent): void {
+		if (event.target !== event.currentTarget) return;
+		closeOpenSeaSyncModal();
+	}
+
+	function onOpenSeaSyncBackdropKeydown(event: KeyboardEvent): void {
+		if (event.key !== 'Escape') return;
+		closeOpenSeaSyncModal();
 	}
 
 	async function submitPurge(event: Event): Promise<void> {
@@ -362,7 +442,7 @@
 										<button
 											type="button"
 											class="button-link"
-											onclick={() => void startOpenSeaSync(collection)}
+											onclick={() => openOpenSeaSyncModal(collection)}
 											disabled={collectionActionPending !== null}
 										>
 											{collectionActionPending ===
@@ -434,21 +514,90 @@
 	</footer>
 </section>
 
+{#if openSeaSyncTarget}
+	<div
+		class="collection-modal-backdrop"
+		role="presentation"
+		tabindex="-1"
+		onclick={onOpenSeaSyncBackdropClick}
+		onkeydown={onOpenSeaSyncBackdropKeydown}
+	>
+		<div
+			class="collection-modal"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="collection-opensea-sync-title"
+		>
+			<header class="collection-modal-header">
+				<h2 id="collection-opensea-sync-title" class="panel-title">start opensea sync</h2>
+				<button
+					type="button"
+					class="button-link panel-header-help-button"
+					aria-label="close opensea sync"
+					onclick={closeOpenSeaSyncModal}
+				>
+					x
+				</button>
+			</header>
+
+			<dl class="collection-modal-context">
+				<div>
+					<dt>collection</dt>
+					<dd>{openSeaSyncTarget.slug}</dd>
+				</div>
+				<div>
+					<dt>address</dt>
+					<dd class="mono">{openSeaSyncTarget.address}</dd>
+				</div>
+				{#each openSeaSyncTarget.tokenScope?.items ?? [{ label: 'scope', value: 'unavailable' }] as item}
+					<div>
+						<dt>{item.label}</dt>
+						<dd>{item.value}</dd>
+					</div>
+				{/each}
+			</dl>
+
+			<form class="collection-modal-form" onsubmit={submitOpenSeaSync}>
+				<label class="collection-modal-form-row">
+					<span>OpenSea slug</span>
+					<OpenSeaSlugResolverControl
+						chainSlug={chain?.slug ?? null}
+						contractAddress={openSeaSyncTarget.address}
+						initialSlug={openSeaSyncTarget.openseaSlug ?? ''}
+						openSeaEnabled={openSeaIntegrationEnabled}
+						disabledReason={openSeaIntegrationDisabledReason}
+						resetKey={openSeaSyncResolverResetKey}
+						onStateChange={onOpenSeaSyncSlugStateChange}
+					/>
+				</label>
+				<div class="collection-modal-actions">
+					<button type="submit" class="button-link" disabled={!canSubmitOpenSeaSync()}>
+						{openSeaSyncSubmitting ? 'starting...' : 'start sync'}
+					</button>
+				</div>
+				{#if openSeaSyncError}
+					<p class="collection-modal-error">{openSeaSyncError}</p>
+				{/if}
+			</form>
+		</div>
+	</div>
+{/if}
+
 {#if purgeTarget}
 	<div
-		class="collection-purge-backdrop"
+		class="collection-modal-backdrop"
 		role="presentation"
 		tabindex="-1"
 		onclick={onPurgeBackdropClick}
 		onkeydown={onPurgeBackdropKeydown}
 	>
 		<div
-			class="collection-purge-modal"
+			class="collection-modal"
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="collection-purge-title"
 		>
-			<header class="collection-purge-header">
+			<header class="collection-modal-header">
 				<h2 id="collection-purge-title" class="panel-title">purge collection</h2>
 				<button
 					type="button"
@@ -460,7 +609,7 @@
 				</button>
 			</header>
 
-			<dl class="collection-purge-context">
+			<dl class="collection-modal-context">
 				<div>
 					<dt>collection</dt>
 					<dd>{purgeTarget.slug}</dd>
@@ -521,7 +670,7 @@
 		color: var(--c-pink);
 	}
 
-	.collection-purge-backdrop {
+	.collection-modal-backdrop {
 		position: fixed;
 		inset: 0;
 		z-index: 140;
@@ -532,7 +681,7 @@
 		padding: 1.5rem;
 	}
 
-	.collection-purge-modal {
+	.collection-modal {
 		width: min(35rem, 92vw);
 		max-height: 90vh;
 		overflow: auto;
@@ -543,14 +692,14 @@
 		gap: 1rem;
 	}
 
-	.collection-purge-header {
+	.collection-modal-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 1rem;
 	}
 
-	.collection-purge-context {
+	.collection-modal-context {
 		display: grid;
 		grid-template-columns: minmax(6.5rem, max-content) minmax(0, 1fr);
 		gap: 0.45rem 0.9rem;
@@ -560,18 +709,18 @@
 		border-bottom: 1px solid var(--c-blue);
 	}
 
-	.collection-purge-context div {
+	.collection-modal-context div {
 		display: contents;
 	}
 
-	.collection-purge-context dt {
+	.collection-modal-context dt {
 		color: var(--c-sand);
 		text-transform: uppercase;
 		font-size: 0.72rem;
 		letter-spacing: 0.05em;
 	}
 
-	.collection-purge-context dd {
+	.collection-modal-context dd {
 		margin: 0;
 		min-width: 0;
 		overflow-wrap: anywhere;
@@ -579,12 +728,14 @@
 	}
 
 	.collection-purge-warning,
-	.collection-purge-error {
+	.collection-purge-error,
+	.collection-modal-error {
 		margin: 0;
 	}
 
 	.collection-purge-warning,
-	.collection-purge-error {
+	.collection-purge-error,
+	.collection-modal-error {
 		color: var(--c-pink);
 	}
 
@@ -594,7 +745,8 @@
 		line-height: 1.35;
 	}
 
-	.collection-purge-form {
+	.collection-purge-form,
+	.collection-modal-form {
 		display: grid;
 		grid-template-columns: max-content max-content;
 		gap: 0.65rem 0.8rem;
@@ -604,7 +756,21 @@
 		max-width: 100%;
 	}
 
+	.collection-modal-form {
+		grid-template-columns: max-content minmax(0, 1fr);
+	}
+
 	.collection-purge-form label {
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		color: var(--c-sand);
+	}
+
+	.collection-modal-form-row {
+		display: contents;
+	}
+
+	.collection-modal-form-row > span {
 		font-size: 0.75rem;
 		text-transform: uppercase;
 		color: var(--c-sand);
@@ -627,22 +793,26 @@
 		border-color: var(--c-cyan);
 	}
 
-	.collection-purge-actions {
+	.collection-purge-actions,
+	.collection-modal-actions {
 		display: flex;
 		gap: 0.5rem;
 		grid-column: 2;
 	}
 
-	.collection-purge-error {
+	.collection-purge-error,
+	.collection-modal-error {
 		grid-column: 1 / -1;
 	}
 
 	@media (max-width: 420px) {
-		.collection-purge-form {
+		.collection-purge-form,
+		.collection-modal-form {
 			grid-template-columns: minmax(0, 1fr);
 		}
 
-		.collection-purge-actions {
+		.collection-purge-actions,
+		.collection-modal-actions {
 			grid-column: 1;
 		}
 	}

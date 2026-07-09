@@ -76,7 +76,7 @@ type ProbeBootstrapOpenSeaSlugPathInput =
     | {
           chainRef: string;
           address: string;
-          slug?: never;
+          slug?: string;
       }
     | {
           chainRef: string;
@@ -91,7 +91,8 @@ export function buildProbeBootstrapOpenSeaSlugPath(
     const query = new URLSearchParams();
     if (input.address !== undefined) {
         query.set(BOOTSTRAP_API_QUERY_PARAM.Address, input.address);
-    } else {
+    }
+    if (input.slug !== undefined) {
         query.set(BOOTSTRAP_API_QUERY_PARAM.Slug, input.slug);
     }
     return `${buildBootstrapChainRoute(

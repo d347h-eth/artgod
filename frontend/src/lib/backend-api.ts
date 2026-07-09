@@ -319,14 +319,17 @@ export async function startCollectionBootstrap(
 export async function startCollectionOpenSeaSync(
 	fetchFn: typeof fetch,
 	chainRef: string,
-	collectionRef: string
+	collectionRef: string,
+	body: {
+		openseaSlug: string;
+	}
 ): Promise<OpenSeaCollectionSyncApiResponse> {
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<OpenSeaCollectionSyncApiResponse>(
 		fetchFn,
 		buildStartCollectionOpenSeaSyncPath({ chainRef, collectionRef }),
 		'POST',
-		{}
+		body
 	);
 }
 
@@ -857,7 +860,7 @@ export async function probeBootstrapOpenSeaSlug(
 	input:
 		| {
 				address: string;
-				slug?: never;
+				slug?: string;
 		  }
 		| {
 				address?: never;

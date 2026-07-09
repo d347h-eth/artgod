@@ -49,12 +49,9 @@ export class ProbeOpenSeaCollectionSlugUseCase {
         );
         const address = input.address ? normalizeAddress(input.address) : null;
         const requestedSlug = input.slug ? normalizeSlug(input.slug) : null;
-        if (
-            (address === null && requestedSlug === null) ||
-            (address && requestedSlug)
-        ) {
+        if (address === null && requestedSlug === null) {
             throw new BootstrapValidationError(
-                "Provide exactly one OpenSea slug probe target",
+                "Provide at least one OpenSea slug probe target",
             );
         }
 
@@ -92,7 +89,7 @@ export class ProbeOpenSeaCollectionSlugUseCase {
                 );
         } else {
             throw new BootstrapValidationError(
-                "Provide exactly one OpenSea slug probe target",
+                "Provide at least one OpenSea slug probe target",
             );
         }
         if (requestedSlug && slug !== requestedSlug) {
