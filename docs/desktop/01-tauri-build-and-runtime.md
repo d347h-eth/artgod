@@ -267,6 +267,7 @@ Responsibilities:
 - verifies and hashes the signed DMG before submission
 - submits once without coupling upload to Apple's processing wait
 - persists the submission ID and retries transient status-query failures
+- redacts credentials from live child-process output, errors, and saved diagnostics before emission
 - verifies Apple's accepted log against the preserved DMG SHA-256
 - staples immediately or resumes the same submission and DMG from a later
   manual workflow run

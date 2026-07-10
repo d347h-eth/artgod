@@ -36,10 +36,27 @@ const ENV_GITHUB_RUN_ID = "GITHUB_RUN_ID";
 const ENV_GITHUB_RUN_ATTEMPT = "GITHUB_RUN_ATTEMPT";
 const ENV_NOTARIZATION_SOURCE_RUN_ID = "MACOS_NOTARIZATION_SOURCE_RUN_ID";
 
-const NOTARY_OPTION_KEY = "--key";
-const NOTARY_OPTION_KEY_ID = "--key-id";
-const NOTARY_OPTION_ISSUER = "--issuer";
+// Apple notarytool authentication flags guarded by the output-redaction boundary.
+export const NOTARY_OPTION_KEY = "--key";
+export const NOTARY_OPTION_KEY_ID = "--key-id";
+export const NOTARY_OPTION_ISSUER = "--issuer";
 const REDACTED_VALUE = "[REDACTED]";
+const MINIMUM_REDACTION_VALUE_LENGTH = 4;
+const PRIVATE_KEY_REDACTION_WINDOW_LENGTH = 12;
+const DERIVED_CREDENTIAL_REDACTIONS = [
+    {
+        pattern: /(authorization[\t ]*:[\t ]*)[^\r\n]+/gi,
+        replacement: `$1${REDACTED_VALUE}`,
+    },
+    {
+        pattern: /\bbearer[\t ]+[a-z0-9._~+/=-]+/gi,
+        replacement: `Bearer ${REDACTED_VALUE}`,
+    },
+    {
+        pattern: /\beyJ[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\b/gi,
+        replacement: REDACTED_VALUE,
+    },
+];
 
 const STATE_SCHEMA_VERSION = 1;
 const STATE_FILE_NAME = "notarization-state.json";
@@ -68,10 +85,114 @@ const COMMAND_TERMINATION_GRACE_MS = 5 * 1000;
 class PendingNotarizationError extends Error {}
 
 class CommandExecutionError extends Error {
+    #result;
+
     constructor(message, result) {
         super(message);
-        this.result = result;
+        this.#result = result;
     }
+
+    readRawResult() {
+        return this.#result;
+    }
+}
+
+// Redacts complete secret values and their common serialized forms.
+export function createSecretRedactor(secretValues) {
+    const redactionValues = collectRedactionValues(secretValues);
+    const redactDerivedCredentials = (value) => {
+        let redacted = String(value);
+        for (const { pattern, replacement } of DERIVED_CREDENTIAL_REDACTIONS) {
+            redacted = redacted.replace(pattern, replacement);
+        }
+        return redacted;
+    };
+
+    return Object.freeze({
+        redact(value) {
+            let redacted = redactDerivedCredentials(value);
+            for (const secretValue of redactionValues) {
+                redacted = redacted.split(secretValue).join(REDACTED_VALUE);
+            }
+            return redacted;
+        },
+        redactDerivedCredentials,
+        hasSecretValues() {
+            return redactionValues.length > 0;
+        },
+        findCompletePrefix(value) {
+            return redactionValues.find((secretValue) =>
+                value.startsWith(secretValue),
+            );
+        },
+        isPossiblePrefix(value) {
+            return redactionValues.some((secretValue) =>
+                secretValue.startsWith(value),
+            );
+        },
+    });
+}
+
+const EMPTY_SECRET_REDACTOR = createSecretRedactor([]);
+
+// Streams text only after enough input exists to rule out a split secret.
+export function createRedactedOutputWriter(target, redactor) {
+    let linePending = "";
+    let exactPending = "";
+
+    const drainExactValues = (final) => {
+        let publicOutput = "";
+        while (exactPending) {
+            const completeMatch = redactor.findCompletePrefix(exactPending);
+            const possibleMatch = redactor.isPossiblePrefix(exactPending);
+
+            if (!final && possibleMatch) {
+                break;
+            }
+            if (completeMatch) {
+                publicOutput += REDACTED_VALUE;
+                exactPending = exactPending.slice(completeMatch.length);
+                continue;
+            }
+            if (final && redactor.isPossiblePrefix(exactPending)) {
+                publicOutput += REDACTED_VALUE;
+                exactPending = "";
+                break;
+            }
+
+            publicOutput += exactPending[0];
+            exactPending = exactPending.slice(1);
+        }
+        if (publicOutput) {
+            target.write(publicOutput);
+        }
+    };
+    const flushCompleteLines = () => {
+        const completeLineEnd = Math.max(
+            linePending.lastIndexOf("\n"),
+            linePending.lastIndexOf("\r"),
+        );
+        if (completeLineEnd < 0) {
+            return;
+        }
+        exactPending += redactor.redactDerivedCredentials(
+            linePending.slice(0, completeLineEnd + 1),
+        );
+        linePending = linePending.slice(completeLineEnd + 1);
+        drainExactValues(false);
+    };
+
+    return {
+        write(chunk) {
+            linePending += chunk.toString();
+            flushCompleteLines();
+        },
+        end() {
+            exactPending += redactor.redactDerivedCredentials(linePending);
+            linePending = "";
+            drainExactValues(true);
+        },
+    };
 }
 
 async function main() {
@@ -112,12 +233,16 @@ async function main() {
             `Usage: node scripts/build/macos-notarization.mjs <${COMMAND_PREPARE}|${COMMAND_SUBMIT}|${COMMAND_POLL}|${COMMAND_VALIDATE_REF}|${COMMAND_FINALIZE}> [artifact-directory] [state-directory]`,
         );
     } catch (error) {
-        if (error instanceof PendingNotarizationError) {
-            console.error(error.message);
-            process.exitCode = PENDING_EXIT_CODE;
-            return;
-        }
-        throw error;
+        const redactor = await createFailureRedactor(process.env);
+        console.error(
+            redactor.redact(
+                error instanceof Error ? error.stack : String(error),
+            ),
+        );
+        process.exitCode =
+            error instanceof PendingNotarizationError
+                ? PENDING_EXIT_CODE
+                : process.exitCode || 1;
     }
 }
 
@@ -176,6 +301,7 @@ async function submitNotarization(artifactDirectory, stateDirectory) {
         );
     }
 
+    const redactor = await createNotarySecretRedactor(process.env, true);
     const authArgs = readNotaryAuthentication(process.env);
     let submitResult;
     try {
@@ -183,21 +309,22 @@ async function submitNotarization(artifactDirectory, stateDirectory) {
         submitResult = await runCommand(
             "xcrun",
             ["notarytool", "submit", dmgPath, ...authArgs, "--verbose"],
-            { stream: true, timeoutMs: NOTARY_SUBMIT_TIMEOUT_MS },
+            {
+                stream: true,
+                timeoutMs: NOTARY_SUBMIT_TIMEOUT_MS,
+                redactor,
+            },
         );
     } catch (error) {
         if (error instanceof CommandExecutionError) {
-            const redactedOutput = redactNotarySecrets(
-                error.result.combinedOutput,
-                process.env,
-            );
-            await writeFile(
+            const commandResult = error.readRawResult();
+            await writeRedactedTextFile(
                 path.join(stateDirectory, SUBMIT_LOG_FILE_NAME),
-                redactedOutput,
-                "utf8",
+                commandResult.combinedOutput,
+                redactor,
             );
             const recoveredSubmissionId = tryParseSubmissionId(
-                error.result.combinedOutput,
+                commandResult.combinedOutput,
             );
             if (recoveredSubmissionId) {
                 state.submission = createSubmissionState(recoveredSubmissionId);
@@ -209,10 +336,10 @@ async function submitNotarization(artifactDirectory, stateDirectory) {
         }
         throw error;
     }
-    await writeFile(
+    await writeRedactedTextFile(
         path.join(stateDirectory, SUBMIT_LOG_FILE_NAME),
-        redactNotarySecrets(submitResult.combinedOutput, process.env),
-        "utf8",
+        submitResult.combinedOutput,
+        redactor,
     );
 
     const submissionId = parseSubmissionId(submitResult.combinedOutput);
@@ -242,11 +369,13 @@ async function pollSubmittedNotarization(artifactDirectory, stateDirectory) {
         );
     }
 
+    const redactor = await createNotarySecretRedactor(process.env, true);
     await pollAndFinalize({
         dmgPath,
         state,
         stateDirectory,
         authArgs: readNotaryAuthentication(process.env),
+        redactor,
         timeoutMs: INITIAL_POLL_TIMEOUT_MS,
     });
 }
@@ -274,11 +403,13 @@ async function finalizeExistingNotarization(artifactDirectory, stateDirectory) {
         );
     }
 
+    const redactor = await createNotarySecretRedactor(process.env, true);
     await pollAndFinalize({
         dmgPath,
         state,
         stateDirectory,
         authArgs: readNotaryAuthentication(process.env),
+        redactor,
         timeoutMs: RESUME_POLL_TIMEOUT_MS,
     });
 }
@@ -288,6 +419,7 @@ async function pollAndFinalize({
     state,
     stateDirectory,
     authArgs,
+    redactor,
     timeoutMs,
 }) {
     const submissionId = state.submission.id;
@@ -309,16 +441,26 @@ async function pollAndFinalize({
                     "--output-format",
                     "json",
                 ],
-                { stream: true, timeoutMs: NOTARY_API_COMMAND_TIMEOUT_MS },
+                {
+                    stream: true,
+                    timeoutMs: NOTARY_API_COMMAND_TIMEOUT_MS,
+                    redactor,
+                },
             );
             info = JSON.parse(infoResult.stdout);
         } catch (error) {
-            await appendPollRecord(pollLogPath, {
-                checkedAt,
-                error: formatError(error, process.env),
-            });
+            await appendPollRecord(
+                pollLogPath,
+                {
+                    checkedAt,
+                    error: formatError(error, redactor),
+                },
+                redactor,
+            );
             console.error(
-                `Unable to query notarization ${submissionId}; polling will retry. ${formatError(error, process.env)}`,
+                redactor.redact(
+                    `Unable to query notarization ${submissionId}; polling will retry. ${formatError(error, redactor)}`,
+                ),
             );
         }
 
@@ -327,11 +469,15 @@ async function pollAndFinalize({
             state.submission.status = status;
             state.submission.lastCheckedAt = checkedAt;
             await writeState(stateDirectory, state);
-            await appendPollRecord(pollLogPath, {
-                checkedAt,
-                status,
-                info,
-            });
+            await appendPollRecord(
+                pollLogPath,
+                {
+                    checkedAt,
+                    status,
+                    info,
+                },
+                redactor,
+            );
 
             if (status === NOTARY_STATUS_ACCEPTED) {
                 await verifyAcceptedSubmissionAndStaple({
@@ -339,6 +485,7 @@ async function pollAndFinalize({
                     state,
                     stateDirectory,
                     authArgs,
+                    redactor,
                 });
                 return;
             }
@@ -346,7 +493,12 @@ async function pollAndFinalize({
                 status === NOTARY_STATUS_INVALID ||
                 status === NOTARY_STATUS_REJECTED
             ) {
-                await fetchNotaryLog(submissionId, authArgs, stateDirectory);
+                await fetchNotaryLog(
+                    submissionId,
+                    authArgs,
+                    stateDirectory,
+                    redactor,
+                );
                 throw new Error(
                     `Apple notarization ${submissionId} completed with status ${status}.`,
                 );
@@ -372,12 +524,14 @@ async function verifyAcceptedSubmissionAndStaple({
     state,
     stateDirectory,
     authArgs,
+    redactor,
 }) {
     // Compare Apple's terminal log with the preserved pre-staple DMG.
     const notaryLog = await fetchNotaryLog(
         state.submission.id,
         authArgs,
         stateDirectory,
+        redactor,
     );
     assertAcceptedNotaryLog(notaryLog, {
         submissionId: state.submission.id,
@@ -388,9 +542,11 @@ async function verifyAcceptedSubmissionAndStaple({
     // Attach and validate Apple's ticket on the same DMG that was submitted.
     await runCommand("xcrun", ["stapler", "staple", "-v", dmgPath], {
         stream: true,
+        redactor,
     });
     await runCommand("xcrun", ["stapler", "validate", "-v", dmgPath], {
         stream: true,
+        redactor,
     });
     await runCommand(
         "spctl",
@@ -403,7 +559,7 @@ async function verifyAcceptedSubmissionAndStaple({
             "--verbose=4",
             dmgPath,
         ],
-        { stream: true },
+        { stream: true, redactor },
     );
 
     state.stapledArtifact = await readArtifactMetadata(dmgPath);
@@ -414,17 +570,26 @@ async function verifyAcceptedSubmissionAndStaple({
     );
 }
 
-async function fetchNotaryLog(submissionId, authArgs, stateDirectory) {
+async function fetchNotaryLog(
+    submissionId,
+    authArgs,
+    stateDirectory,
+    redactor,
+) {
     const result = await runCommand(
         "xcrun",
         ["notarytool", "log", submissionId, ...authArgs],
-        { stream: true, timeoutMs: NOTARY_API_COMMAND_TIMEOUT_MS },
+        {
+            stream: true,
+            timeoutMs: NOTARY_API_COMMAND_TIMEOUT_MS,
+            redactor,
+        },
     );
     const notaryLog = JSON.parse(result.stdout);
-    await writeFile(
+    await writeRedactedTextFile(
         path.join(stateDirectory, NOTARY_LOG_FILE_NAME),
         `${JSON.stringify(notaryLog, null, 4)}\n`,
-        "utf8",
+        redactor,
     );
     return notaryLog;
 }
@@ -635,8 +800,17 @@ async function writeState(stateDirectory, state) {
     );
 }
 
-async function appendPollRecord(filePath, record) {
-    await appendFile(filePath, `${JSON.stringify(record)}\n`, "utf8");
+async function appendPollRecord(filePath, record, redactor) {
+    await appendFile(
+        filePath,
+        redactor.redact(`${JSON.stringify(record)}\n`),
+        "utf8",
+    );
+}
+
+// Persists diagnostics only after removing every known credential form.
+export async function writeRedactedTextFile(filePath, value, redactor) {
+    await writeFile(filePath, redactor.redact(value), "utf8");
 }
 
 function assertMacOSHost() {
@@ -651,26 +825,113 @@ function formatCommandTranscript(command, args, result) {
     );
 }
 
-function formatError(error, environment) {
-    return redactNotarySecrets(
+function formatError(error, redactor) {
+    return redactor.redact(
         error instanceof Error ? error.message : String(error),
-        environment,
     );
 }
 
-function redactNotarySecrets(value, environment) {
-    let redacted = value;
-    for (const key of [
+function collectRedactionValues(secretValues) {
+    const redactionValues = new Set();
+    const addValue = (value) => {
+        if (
+            typeof value !== "string" ||
+            value.length < MINIMUM_REDACTION_VALUE_LENGTH
+        ) {
+            return;
+        }
+        redactionValues.add(value);
+    };
+
+    for (const sourceValue of secretValues) {
+        if (typeof sourceValue !== "string") {
+            continue;
+        }
+        for (const value of new Set([sourceValue, sourceValue.trim()])) {
+            if (value.length < MINIMUM_REDACTION_VALUE_LENGTH) {
+                continue;
+            }
+            addValue(value);
+            addValue(encodeURIComponent(value));
+            addValue(JSON.stringify(value).slice(1, -1));
+            addValue(Buffer.from(value, "utf8").toString("base64"));
+            if (/^[a-z0-9-]+$/i.test(value)) {
+                addValue(value.toLowerCase());
+                addValue(value.toUpperCase());
+            }
+        }
+    }
+
+    return [...redactionValues].sort(
+        (left, right) => right.length - left.length,
+    );
+}
+
+// Builds the notarization redactor from API identifiers and private-key material.
+export async function createNotarySecretRedactor(
+    environment,
+    requirePrivateKey,
+) {
+    const secretValues = [
         ENV_APPLE_API_KEY_PATH,
         ENV_APPLE_API_KEY_ID,
         ENV_APPLE_API_ISSUER,
-    ]) {
-        const secretValue = environment[key]?.trim();
-        if (secretValue) {
-            redacted = redacted.split(secretValue).join(REDACTED_VALUE);
+    ].map((key) => environment[key]?.trim());
+    const privateKeyPath = environment[ENV_APPLE_API_KEY_PATH]?.trim();
+
+    if (privateKeyPath) {
+        try {
+            const privateKey = await readFile(privateKeyPath, "utf8");
+            const privateKeyTokens = privateKey
+                .split(/\s+/)
+                .filter(
+                    (value) =>
+                        value.length >= PRIVATE_KEY_REDACTION_WINDOW_LENGTH &&
+                        /^[a-z0-9+/=]+$/i.test(value),
+                );
+            const privateKeyPayload = privateKeyTokens.join("");
+            const privateKeyWindows = [];
+            for (
+                let index = 0;
+                index <=
+                privateKeyPayload.length - PRIVATE_KEY_REDACTION_WINDOW_LENGTH;
+                index += 1
+            ) {
+                privateKeyWindows.push(
+                    privateKeyPayload.slice(
+                        index,
+                        index + PRIVATE_KEY_REDACTION_WINDOW_LENGTH,
+                    ),
+                );
+            }
+            secretValues.push(
+                ...privateKeyTokens,
+                ...privateKeyWindows,
+                Buffer.from(privateKey, "utf8").toString("base64"),
+                Buffer.from(privateKey.trim(), "utf8").toString("base64"),
+            );
+        } catch (error) {
+            if (requirePrivateKey) {
+                throw new Error(
+                    `Unable to load the notarization private key for output redaction: ${error instanceof Error ? error.message : String(error)}`,
+                );
+            }
         }
     }
-    return redacted;
+
+    return createSecretRedactor(secretValues);
+}
+
+async function createFailureRedactor(environment) {
+    try {
+        return await createNotarySecretRedactor(environment, false);
+    } catch {
+        return createSecretRedactor([
+            environment[ENV_APPLE_API_KEY_PATH],
+            environment[ENV_APPLE_API_KEY_ID],
+            environment[ENV_APPLE_API_ISSUER],
+        ]);
+    }
 }
 
 function formatCommand(command, args) {
@@ -688,9 +949,34 @@ function formatCommand(command, args) {
     return `${command} ${displayArgs.join(" ")}`;
 }
 
-async function runCommand(command, args, options = {}) {
+// Executes a child process while keeping raw output internal and public output redacted.
+export async function runCommand(command, args, options = {}) {
     const stream = options.stream === true;
     const timeoutMs = options.timeoutMs;
+    const redactor = options.redactor ?? EMPTY_SECRET_REDACTOR;
+    const carriesNotaryAuthentication = args.some(
+        (argument) =>
+            argument === NOTARY_OPTION_KEY ||
+            argument === NOTARY_OPTION_KEY_ID ||
+            argument === NOTARY_OPTION_ISSUER,
+    );
+    if (carriesNotaryAuthentication && !redactor.hasSecretValues()) {
+        throw new Error(
+            "Refusing to run an authenticated notarytool command without a populated output redactor.",
+        );
+    }
+    const stdoutWriter = stream
+        ? createRedactedOutputWriter(
+              options.stdoutTarget ?? process.stdout,
+              redactor,
+          )
+        : null;
+    const stderrWriter = stream
+        ? createRedactedOutputWriter(
+              options.stderrTarget ?? process.stderr,
+              redactor,
+          )
+        : null;
     return await new Promise((resolve, reject) => {
         const child = spawn(command, args, {
             cwd: rootDir,
@@ -703,6 +989,7 @@ async function runCommand(command, args, options = {}) {
         let combinedOutput = "";
         let timedOut = false;
         let forceKillTimer;
+        let outputWritersEnded = false;
         const commandTimeoutTimer = timeoutMs
             ? setTimeout(() => {
                   timedOut = true;
@@ -720,29 +1007,41 @@ async function runCommand(command, args, options = {}) {
                 clearTimeout(forceKillTimer);
             }
         };
+        const endOutputWriters = () => {
+            if (outputWritersEnded) {
+                return;
+            }
+            outputWritersEnded = true;
+            stdoutWriter?.end();
+            stderrWriter?.end();
+        };
         child.stdout.on("data", (chunk) => {
             const value = chunk.toString();
             stdout += value;
             combinedOutput += value;
-            if (stream) {
-                process.stdout.write(value);
-            }
+            stdoutWriter?.write(value);
         });
         child.stderr.on("data", (chunk) => {
             const value = chunk.toString();
             stderr += value;
             combinedOutput += value;
-            if (stream) {
-                process.stderr.write(value);
-            }
+            stderrWriter?.write(value);
         });
 
         child.on("error", (error) => {
             clearCommandTimers();
-            reject(error);
+            endOutputWriters();
+            reject(
+                new CommandExecutionError(redactor.redact(error.message), {
+                    stdout,
+                    stderr,
+                    combinedOutput,
+                }),
+            );
         });
         child.on("close", (code) => {
             clearCommandTimers();
+            endOutputWriters();
             const result = { stdout, stderr, combinedOutput };
             if (code === 0) {
                 resolve(result);
@@ -750,9 +1049,11 @@ async function runCommand(command, args, options = {}) {
             }
             reject(
                 new CommandExecutionError(
-                    timedOut
-                        ? `${formatCommand(command, args)} timed out after ${timeoutMs}ms`
-                        : `${formatCommand(command, args)} failed with exit code ${code}${stderr ? `\n${stderr}` : ""}`,
+                    redactor.redact(
+                        timedOut
+                            ? `${formatCommand(command, args)} timed out after ${timeoutMs}ms`
+                            : `${formatCommand(command, args)} failed with exit code ${code}${stderr ? `\n${stderr}` : ""}`,
+                    ),
                     result,
                 ),
             );

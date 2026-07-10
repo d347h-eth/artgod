@@ -173,6 +173,28 @@ The workflow imports the `.p12` into a temporary keychain, signs the `.app`,
 notarizes the DMG with `xcrun notarytool`, staples the DMG, validates the
 stapled ticket, and then runs Gatekeeper assessment on the DMG.
 
+### Secret handling
+
+- Signing and notarization credentials remain GitHub Environment secrets, so
+  GitHub's runner masking protects their exact configured values.
+- The generated keychain password is registered with `add-mask` before its
+  first use, remains local to the keychain setup step, and is never exported
+  through `GITHUB_ENV`.
+- Temporary `.p12` and `.p8` files use mode `0600`. The `.p8` is decoded only
+  immediately before notarization, and both files and the temporary keychain
+  are removed by unconditional cleanup steps.
+- `scripts/build/macos-notarization.mjs` redacts exact credentials, common
+  serialized forms, private-key payload fragments, authorization headers, and
+  JWT-shaped derived credentials before writing child output to the runner's
+  stdout/stderr. The same redactor covers thrown command errors and every
+  persisted notarization diagnostic.
+- Redaction tests inject sentinel credentials into split stdout chunks, stderr,
+  failed command arguments, exception inspection, and diagnostic files. Run
+  them with `yarn test:desktop:notarization`.
+
+GitHub masking remains defense in depth for the custom notarization commands;
+raw `notarytool` output is not written to the public runner log first.
+
 The notarization submission does not use `notarytool submit --wait`. The tag
 run instead:
 
@@ -202,8 +224,9 @@ To finish a delayed submission:
 
 The resume path never submits another DMG. If Apple still reports processing,
 the resume run exits without publishing; repeat it later using the same
-original tag and source run ID. Raw verbose diagnostics and the pre-staple DMG
-are internal workflow artifacts, not GitHub Release assets.
+original tag and source run ID. Verbose diagnostics and the pre-staple DMG
+are internal workflow artifacts, not GitHub Release assets. Diagnostic text is
+credential-redacted before upload.
 
 Before DMG assembly, `beforeBundleCommand` runs
 `scripts/build/macos-code-signing.mjs sign-staged` on the macOS runner. This
@@ -227,6 +250,8 @@ Official references:
 - Custom notarization workflow: https://developer.apple.com/documentation/security/customizing-the-notarization-workflow
 - App Store Connect API keys: https://developer.apple.com/help/app-store-connect/get-started/app-store-connect-api
 - GitHub Actions artifacts: https://docs.github.com/en/actions/using-workflows/storing-workflow-data-as-artifacts
+- GitHub Actions secure use: https://docs.github.com/en/actions/reference/security/secure-use
+- GitHub Actions log masking: https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands#masking-a-value-in-a-log
 - Tauri macOS signing: https://v2.tauri.app/distribute/sign/macos/
 
 ## Windows Signing
