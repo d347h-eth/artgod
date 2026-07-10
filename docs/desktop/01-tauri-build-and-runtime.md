@@ -676,6 +676,13 @@ Current state:
   preserves the exact submitted DMG and Apple submission state before bounded
   polling, so delayed submissions can be resumed from the original release tag
   without rebuilding or resubmitting.
+- Every external Action is pinned to a full commit SHA, checkout credentials are
+  not persisted, and write/OIDC permissions exist only in the publication job.
+- Release assembly holds the Linux signing secret but has read-only repository
+  permissions. A separate secret-free job attests the finished bundles before
+  publishing the GitHub Release.
+- macOS `.p12`, keychain, and `.p8` material are removed before any later
+  artifact Action can observe the corresponding runner filesystem state.
 - Windows release builds are deferred for the first public alpha. When Windows
   releases are enabled later, signing should use SSL.com eSigner CKA with
   `signtool.exe` on the Windows runner.
@@ -684,8 +691,9 @@ Release secrets expected by CI:
 
 Store release signing and notarization secrets as GitHub Environment secrets in
 `desktop-release-signing`, not as repository-wide secrets. The release workflow
-declares that environment on the jobs that need secrets. The build-check and
-reproducibility workflows do not use signing secrets.
+declares that environment on protected release jobs, but secrets are passed only
+to the exact steps that consume them. The build-check and reproducibility
+workflows do not use signing secrets.
 
 - Linux GPG:
     - `LINUX_GPG_PRIVATE_KEY_ASC`

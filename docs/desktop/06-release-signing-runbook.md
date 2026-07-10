@@ -77,10 +77,17 @@ Workflow policy:
 - Test tags containing `-test.`, such as `v0.0.1-test.1`, publish as GitHub
   pre-releases and are not marked Latest.
 - Plain stable tags such as `v1.0.0` also publish as normal Latest releases.
-- The release workflow build, delayed-notarization resume, and release jobs use
-  the `desktop-release-signing` environment.
+- The release workflow build, delayed-notarization resume, release assembly, and
+  publication jobs use the `desktop-release-signing` environment.
 - Environment secrets are still referenced through the GitHub Actions
   `secrets.NAME` context.
+- All external Actions are pinned to full commit SHAs, every checkout disables
+  credential persistence, and the workflow defaults `GITHUB_TOKEN` to
+  read-only repository access.
+- Release assembly has read-only repository permissions while it uses the Linux
+  signing secret. The separate publication job has no signing secrets and owns
+  the narrow write/OIDC permissions needed for attestation and GitHub Release
+  publication.
 
 ## Current Tauri State
 
@@ -180,17 +187,25 @@ stapled ticket, and then runs Gatekeeper assessment on the DMG.
 - The generated keychain password is registered with `add-mask` before its
   first use, remains local to the keychain setup step, and is never exported
   through `GITHUB_ENV`.
-- Temporary `.p12` and `.p8` files use mode `0600`. The `.p8` is decoded only
-  immediately before notarization, and both files and the temporary keychain
-  are removed by unconditional cleanup steps.
+- The temporary `.p12` uses mode `0600` and is deleted immediately after import.
+  The temporary keychain is deleted and explicitly unlinked as soon as the
+  signed Tauri build returns, before artifact upload Actions run.
+- Each submit, poll, or resume command independently decodes the `.p8` into a
+  mode-`0600` file under a unique mode-`0700` directory. The helper removes that
+  directory before returning, so artifact Actions never run while the API key
+  exists on disk.
+- Apple API credentials are removed from every `notarytool`, `stapler`, and
+  `spctl` child-process environment; authenticated values reach `notarytool`
+  only through its required arguments.
 - `scripts/build/macos-notarization.mjs` redacts exact credentials, common
   serialized forms, private-key payload fragments, authorization headers, and
   JWT-shaped derived credentials before writing child output to the runner's
   stdout/stderr. The same redactor covers thrown command errors and every
   persisted notarization diagnostic.
 - Redaction tests inject sentinel credentials into split stdout chunks, stderr,
-  failed command arguments, exception inspection, and diagnostic files. Run
-  them with `yarn test:desktop:signing`.
+  failed command arguments, exception inspection, diagnostic files, and the
+  command-scoped API-key lifecycle. Run the complete release security suite
+  with `yarn test:desktop:release`.
 
 GitHub masking remains defense in depth for the custom notarization commands;
 raw `notarytool` output is not written to the public runner log first.

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import {
     assertAcceptedNotaryLog,
     assertResumeContext,
     createNotarySecretRedactor,
+    createNotarySession,
     parseSubmissionId,
     readNotaryStatus,
     runCommand as runNotaryCommand,
@@ -188,6 +189,74 @@ test("redacts private-key payload fragments from notarization output", async () 
     }
 });
 
+test("keeps a base64 API key command-scoped and strips child environments", async () => {
+    const temporaryDirectory = await mkdtemp(
+        path.join(os.tmpdir(), "artgod-notary-session-test-"),
+    );
+    const privateKeyPayload = "AbCDef0123456789+/".repeat(8);
+    const privateKey = [
+        "-----BEGIN PRIVATE KEY-----",
+        privateKeyPayload,
+        "-----END PRIVATE KEY-----",
+        "",
+    ].join("\n");
+    const encodedPrivateKey = Buffer.from(privateKey, "utf8").toString(
+        "base64",
+    );
+    const environment = {
+        APPLE_API_KEY_P8_B64: encodedPrivateKey,
+        APPLE_API_KEY_ID: "APIKEY1234",
+        APPLE_API_ISSUER: "11111111-2222-4333-8444-555555555555",
+    };
+    let session;
+
+    try {
+        session = await createNotarySession(environment, {
+            temporaryRoot: temporaryDirectory,
+        });
+        assert.equal(session.managedKey, true);
+        assert.equal((await stat(session.keyPath)).mode & 0o777, 0o600);
+        assert.equal(await readFile(session.keyPath, "utf8"), privateKey);
+        assert.equal(
+            session.redactor.redact(
+                `${encodedPrivateKey}:${privateKeyPayload.slice(7, 19)}:${session.keyPath}`,
+            ),
+            "[REDACTED]:[REDACTED]:[REDACTED]",
+        );
+
+        const childScript = [
+            'const fs = require("node:fs")',
+            'const names = ["APPLE_API_KEY_PATH", "APPLE_API_KEY_P8_B64", "APPLE_API_KEY_ID", "APPLE_API_ISSUER"]',
+            "fs.writeSync(1, JSON.stringify(Object.fromEntries(names.map((name) => [name, process.env[name] ?? null]))))",
+        ].join(";");
+        const childResult = await runNotaryCommand(
+            process.execPath,
+            ["-e", childScript],
+            {
+                environment: {
+                    ...environment,
+                    APPLE_API_KEY_PATH: session.keyPath,
+                },
+                redactor: session.redactor,
+            },
+        );
+        assert.deepEqual(JSON.parse(childResult.stdout), {
+            APPLE_API_KEY_PATH: null,
+            APPLE_API_KEY_P8_B64: null,
+            APPLE_API_KEY_ID: null,
+            APPLE_API_ISSUER: null,
+        });
+
+        const keyPath = session.keyPath;
+        await session.close();
+        await assert.rejects(stat(keyPath), { code: "ENOENT" });
+        session = null;
+    } finally {
+        await session?.close();
+        await rm(temporaryDirectory, { recursive: true, force: true });
+    }
+});
+
 test("keeps temporary signing credentials masked and job-local", async () => {
     const releaseWorkflow = await readFile(
         new URL("../../.github/workflows/tauri-release.yml", import.meta.url),
@@ -198,8 +267,9 @@ test("keeps temporary signing credentials masked and job-local", async () => {
     assert.doesNotMatch(releaseWorkflow, /APPLE_KEYCHAIN_PASSWORD=/);
     assert.match(releaseWorkflow, /umask 077/);
     assert.match(releaseWorkflow, /chmod 600 "\$CERT_PATH"/);
-    assert.match(releaseWorkflow, /chmod 600 "\$KEY_PATH"/);
     assert.match(releaseWorkflow, /chmod 600 "\$KEYCHAIN_PATH"/);
-    assert.match(releaseWorkflow, /Remove temporary macOS credentials/);
-    assert.match(releaseWorkflow, /Remove temporary macOS notarization key/);
+    assert.match(releaseWorkflow, /rm -f "\$CERT_PATH"/);
+    assert.match(releaseWorkflow, /Remove temporary macOS signing credentials/);
+    assert.doesNotMatch(releaseWorkflow, /APPLE_API_KEY_PATH=/);
+    assert.doesNotMatch(releaseWorkflow, /Prepare macOS notarization API key/);
 });

@@ -2,12 +2,16 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import {
     appendFile,
+    chmod,
     mkdir,
+    mkdtemp,
     readFile,
     readdir,
+    rm,
     stat,
     writeFile,
 } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -32,8 +36,10 @@ const COMMAND_VALIDATE_REF = "validate-ref";
 const COMMAND_FINALIZE = "finalize";
 
 const ENV_APPLE_API_KEY_PATH = "APPLE_API_KEY_PATH";
+const ENV_APPLE_API_KEY_P8_B64 = "APPLE_API_KEY_P8_B64";
 const ENV_APPLE_API_KEY_ID = "APPLE_API_KEY_ID";
 const ENV_APPLE_API_ISSUER = "APPLE_API_ISSUER";
+const ENV_RUNNER_TEMP = "RUNNER_TEMP";
 const ENV_GITHUB_REPOSITORY = "GITHUB_REPOSITORY";
 const ENV_GITHUB_REF = "GITHUB_REF";
 const ENV_GITHUB_REF_NAME = "GITHUB_REF_NAME";
@@ -72,6 +78,19 @@ const POLL_INTERVAL_MS = 30 * 1000;
 const NOTARY_SUBMIT_TIMEOUT_MS = 30 * 60 * 1000;
 const NOTARY_API_COMMAND_TIMEOUT_MS = 60 * 1000;
 const COMMAND_TERMINATION_GRACE_MS = 5 * 1000;
+const NOTARY_KEY_DIRECTORY_MODE = 0o700;
+const NOTARY_KEY_FILE_MODE = 0o600;
+const NOTARY_KEY_FILE_NAME = "apple-notarization-api-key.p8";
+const PKCS8_PRIVATE_KEY_BEGIN = "-----BEGIN PRIVATE KEY-----";
+const PKCS8_PRIVATE_KEY_END = "-----END PRIVATE KEY-----";
+const BASE64_VALUE_PATTERN = /^[a-z0-9+/]+={0,2}$/i;
+
+const NOTARY_SECRET_ENVIRONMENT_KEYS = Object.freeze([
+    ENV_APPLE_API_KEY_PATH,
+    ENV_APPLE_API_KEY_P8_B64,
+    ENV_APPLE_API_KEY_ID,
+    ENV_APPLE_API_ISSUER,
+]);
 
 class PendingNotarizationError extends Error {}
 
@@ -181,52 +200,54 @@ async function submitNotarization(artifactDirectory, stateDirectory) {
         );
     }
 
-    const redactor = await createNotarySecretRedactor(process.env, true);
-    const authArgs = readNotaryAuthentication(process.env);
-    let submitResult;
-    try {
-        // Submit once and persist the returned ID before any status polling.
-        submitResult = await runCommand(
-            "xcrun",
-            ["notarytool", "submit", dmgPath, ...authArgs, "--verbose"],
-            {
-                stream: true,
-                timeoutMs: NOTARY_SUBMIT_TIMEOUT_MS,
-                redactor,
-            },
-        );
-    } catch (error) {
-        if (error instanceof RedactedCommandError) {
-            const commandResult = error.readRawResult();
-            await writeRedactedTextFile(
-                path.join(stateDirectory, SUBMIT_LOG_FILE_NAME),
-                commandResult.combinedOutput,
-                redactor,
+    await withNotarySession(process.env, async ({ authArgs, redactor }) => {
+        let submitResult;
+        try {
+            // Submit once and persist the returned ID before any status polling.
+            submitResult = await runCommand(
+                "xcrun",
+                ["notarytool", "submit", dmgPath, ...authArgs, "--verbose"],
+                {
+                    stream: true,
+                    timeoutMs: NOTARY_SUBMIT_TIMEOUT_MS,
+                    redactor,
+                },
             );
-            const recoveredSubmissionId = tryParseSubmissionId(
-                commandResult.combinedOutput,
-            );
-            if (recoveredSubmissionId) {
-                state.submission = createSubmissionState(recoveredSubmissionId);
-                await writeState(stateDirectory, state);
-                console.error(
-                    `Recovered Apple submission ${recoveredSubmissionId} from failed notarytool output; do not resubmit this DMG.`,
+        } catch (error) {
+            if (error instanceof RedactedCommandError) {
+                const commandResult = error.readRawResult();
+                await writeRedactedTextFile(
+                    path.join(stateDirectory, SUBMIT_LOG_FILE_NAME),
+                    commandResult.combinedOutput,
+                    redactor,
                 );
+                const recoveredSubmissionId = tryParseSubmissionId(
+                    commandResult.combinedOutput,
+                );
+                if (recoveredSubmissionId) {
+                    state.submission = createSubmissionState(
+                        recoveredSubmissionId,
+                    );
+                    await writeState(stateDirectory, state);
+                    console.error(
+                        `Recovered Apple submission ${recoveredSubmissionId} from failed notarytool output; do not resubmit this DMG.`,
+                    );
+                }
             }
+            throw error;
         }
-        throw error;
-    }
-    await writeRedactedTextFile(
-        path.join(stateDirectory, SUBMIT_LOG_FILE_NAME),
-        submitResult.combinedOutput,
-        redactor,
-    );
+        await writeRedactedTextFile(
+            path.join(stateDirectory, SUBMIT_LOG_FILE_NAME),
+            submitResult.combinedOutput,
+            redactor,
+        );
 
-    const submissionId = parseSubmissionId(submitResult.combinedOutput);
-    state.submission = createSubmissionState(submissionId);
-    await writeState(stateDirectory, state);
+        const submissionId = parseSubmissionId(submitResult.combinedOutput);
+        state.submission = createSubmissionState(submissionId);
+        await writeState(stateDirectory, state);
 
-    console.log(`Created Apple notarization submission ${submissionId}.`);
+        console.log(`Created Apple notarization submission ${submissionId}.`);
+    });
 }
 
 async function pollSubmittedNotarization(artifactDirectory, stateDirectory) {
@@ -249,15 +270,16 @@ async function pollSubmittedNotarization(artifactDirectory, stateDirectory) {
         );
     }
 
-    const redactor = await createNotarySecretRedactor(process.env, true);
-    await pollAndFinalize({
-        dmgPath,
-        state,
-        stateDirectory,
-        authArgs: readNotaryAuthentication(process.env),
-        redactor,
-        timeoutMs: INITIAL_POLL_TIMEOUT_MS,
-    });
+    await withNotarySession(process.env, ({ authArgs, redactor }) =>
+        pollAndFinalize({
+            dmgPath,
+            state,
+            stateDirectory,
+            authArgs,
+            redactor,
+            timeoutMs: INITIAL_POLL_TIMEOUT_MS,
+        }),
+    );
 }
 
 async function finalizeExistingNotarization(artifactDirectory, stateDirectory) {
@@ -283,15 +305,16 @@ async function finalizeExistingNotarization(artifactDirectory, stateDirectory) {
         );
     }
 
-    const redactor = await createNotarySecretRedactor(process.env, true);
-    await pollAndFinalize({
-        dmgPath,
-        state,
-        stateDirectory,
-        authArgs: readNotaryAuthentication(process.env),
-        redactor,
-        timeoutMs: RESUME_POLL_TIMEOUT_MS,
-    });
+    await withNotarySession(process.env, ({ authArgs, redactor }) =>
+        pollAndFinalize({
+            dmgPath,
+            state,
+            stateDirectory,
+            authArgs,
+            redactor,
+            timeoutMs: RESUME_POLL_TIMEOUT_MS,
+        }),
+    );
 }
 
 async function pollAndFinalize({
@@ -585,6 +608,111 @@ function readReleaseSource(environment) {
     };
 }
 
+// Creates one command-scoped API key file and removes it before returning.
+export async function createNotarySession(environment, options = {}) {
+    requireEnvironmentValue(environment, ENV_APPLE_API_KEY_ID);
+    requireEnvironmentValue(environment, ENV_APPLE_API_ISSUER);
+    const configuredKeyPath = environment[ENV_APPLE_API_KEY_PATH]?.trim();
+    const encodedPrivateKey = environment[ENV_APPLE_API_KEY_P8_B64]?.trim();
+    if (configuredKeyPath && encodedPrivateKey) {
+        throw new Error(
+            `${ENV_APPLE_API_KEY_PATH} and ${ENV_APPLE_API_KEY_P8_B64} are mutually exclusive.`,
+        );
+    }
+
+    let temporaryDirectory;
+    let keyPath = configuredKeyPath;
+    let authArgs;
+    let redactor;
+    try {
+        if (!keyPath) {
+            const privateKey = decodeNotaryPrivateKey(
+                requireEnvironmentValue(environment, ENV_APPLE_API_KEY_P8_B64),
+            );
+            const temporaryRoot = path.resolve(
+                options.temporaryRoot ??
+                    environment[ENV_RUNNER_TEMP]?.trim() ??
+                    os.tmpdir(),
+            );
+            temporaryDirectory = await mkdtemp(
+                path.join(temporaryRoot, "artgod-notary-key-"),
+            );
+            await chmod(temporaryDirectory, NOTARY_KEY_DIRECTORY_MODE);
+            keyPath = path.join(temporaryDirectory, NOTARY_KEY_FILE_NAME);
+            await writeFile(keyPath, privateKey, {
+                mode: NOTARY_KEY_FILE_MODE,
+            });
+            await chmod(keyPath, NOTARY_KEY_FILE_MODE);
+        }
+
+        const sessionEnvironment = {
+            ...environment,
+            [ENV_APPLE_API_KEY_PATH]: keyPath,
+        };
+        redactor = await createNotarySecretRedactor(sessionEnvironment, true, [
+            encodedPrivateKey,
+        ]);
+        authArgs = readNotaryAuthentication(sessionEnvironment);
+    } catch (error) {
+        if (temporaryDirectory) {
+            await rm(temporaryDirectory, { recursive: true, force: true });
+        }
+        throw error;
+    }
+    let closed = false;
+
+    return Object.freeze({
+        authArgs,
+        redactor,
+        keyPath,
+        managedKey: Boolean(temporaryDirectory),
+        async close() {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            if (temporaryDirectory) {
+                await rm(temporaryDirectory, {
+                    recursive: true,
+                    force: true,
+                });
+            }
+        },
+    });
+}
+
+async function withNotarySession(environment, operation) {
+    const session = await createNotarySession(environment);
+    let operationResult;
+    let operationError;
+    let cleanupError;
+
+    try {
+        operationResult = await operation(session);
+    } catch (error) {
+        operationError = error;
+    }
+    try {
+        await session.close();
+    } catch (error) {
+        cleanupError = error;
+    }
+
+    if (operationError && cleanupError) {
+        throw new AggregateError(
+            [operationError, cleanupError],
+            "macOS notarization and temporary API-key cleanup both failed.",
+        );
+    }
+    if (operationError) {
+        throw operationError;
+    }
+    if (cleanupError) {
+        throw cleanupError;
+    }
+    return operationResult;
+}
+
 function readNotaryAuthentication(environment) {
     return [
         NOTARY_OPTION_KEY,
@@ -594,6 +722,36 @@ function readNotaryAuthentication(environment) {
         NOTARY_OPTION_ISSUER,
         requireEnvironmentValue(environment, ENV_APPLE_API_ISSUER),
     ];
+}
+
+function decodeNotaryPrivateKey(encodedPrivateKey) {
+    const normalizedBase64 = encodedPrivateKey.replace(/\s+/g, "");
+    if (
+        normalizedBase64.length === 0 ||
+        normalizedBase64.length % 4 !== 0 ||
+        !BASE64_VALUE_PATTERN.test(normalizedBase64)
+    ) {
+        throw new Error(
+            `${ENV_APPLE_API_KEY_P8_B64} must contain canonical base64.`,
+        );
+    }
+
+    const privateKey = Buffer.from(normalizedBase64, "base64");
+    if (privateKey.toString("base64") !== normalizedBase64) {
+        throw new Error(
+            `${ENV_APPLE_API_KEY_P8_B64} failed canonical base64 validation.`,
+        );
+    }
+    const privateKeyText = privateKey.toString("utf8").trim();
+    if (
+        !privateKeyText.startsWith(PKCS8_PRIVATE_KEY_BEGIN) ||
+        !privateKeyText.endsWith(PKCS8_PRIVATE_KEY_END)
+    ) {
+        throw new Error(
+            `${ENV_APPLE_API_KEY_P8_B64} does not contain a PKCS#8 private key.`,
+        );
+    }
+    return `${privateKeyText}\n`;
 }
 
 function requireEnvironmentValue(environment, key) {
@@ -710,12 +868,16 @@ function formatError(error, redactor) {
 export async function createNotarySecretRedactor(
     environment,
     requirePrivateKey,
+    additionalSecretValues = [],
 ) {
     const secretValues = [
         ENV_APPLE_API_KEY_PATH,
+        ENV_APPLE_API_KEY_P8_B64,
         ENV_APPLE_API_KEY_ID,
         ENV_APPLE_API_ISSUER,
-    ].map((key) => environment[key]?.trim());
+    ]
+        .map((key) => environment[key]?.trim())
+        .concat(additionalSecretValues);
     const privateKeyPath = environment[ENV_APPLE_API_KEY_PATH]?.trim();
 
     if (privateKeyPath) {
@@ -743,10 +905,13 @@ export async function createNotarySecretRedactor(
 
 async function createFailureRedactor(environment) {
     try {
-        return await createNotarySecretRedactor(environment, false);
+        return await createNotarySecretRedactor(environment, false, [
+            environment[ENV_APPLE_API_KEY_P8_B64],
+        ]);
     } catch {
         return createSecretRedactor([
             environment[ENV_APPLE_API_KEY_PATH],
+            environment[ENV_APPLE_API_KEY_P8_B64],
             environment[ENV_APPLE_API_KEY_ID],
             environment[ENV_APPLE_API_ISSUER],
         ]);
@@ -770,10 +935,18 @@ export async function runCommand(command, args, options = {}) {
     return await runRedactedCommand(command, args, {
         ...options,
         cwd: rootDir,
-        env: process.env,
+        env: createNotaryCommandEnvironment(options.environment ?? process.env),
         redactor,
         terminationGraceMs: COMMAND_TERMINATION_GRACE_MS,
     });
+}
+
+function createNotaryCommandEnvironment(environment) {
+    const commandEnvironment = { ...environment };
+    for (const key of NOTARY_SECRET_ENVIRONMENT_KEYS) {
+        delete commandEnvironment[key];
+    }
+    return commandEnvironment;
 }
 
 const isMainModule =
