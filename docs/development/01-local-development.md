@@ -427,7 +427,8 @@ Desktop release artifacts are built publicly in GitHub Actions.
 - Reproducibility workflow: `.github/workflows/tauri-repro-check.yml`, unsigned
   Linux parity.
 - Trigger: push tag `v*`, for example `v0.1.0`.
-- Targets: Linux x64, Windows x64, macOS universal.
+- Targets: Linux x64 and macOS universal. Windows release packaging remains
+  deferred for the public alpha; Windows source builds are still supported.
 - Outputs: signed release bundles, `SHA256SUMS.txt`, `SHA256SUMS.txt.asc`,
   Linux detached signatures, and GitHub build provenance attestation.
 

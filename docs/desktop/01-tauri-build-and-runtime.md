@@ -260,6 +260,17 @@ Responsibilities:
 - skips non-macOS targets and local macOS builds without `APPLE_SIGNING_IDENTITY`
 - mounts the produced DMG and verifies that the contained `.app` has signed Node, NATS, and secret-prompt executables before notarization
 
+### `scripts/build/macos-notarization.mjs`
+
+Responsibilities:
+
+- verifies and hashes the signed DMG before submission
+- submits once without coupling upload to Apple's processing wait
+- persists the submission ID and retries transient status-query failures
+- verifies Apple's accepted log against the preserved DMG SHA-256
+- staples immediately or resumes the same submission and DMG from a later
+  manual workflow run
+
 ### `scripts/build/clean-build-artifacts.mjs`
 
 Responsibilities:
@@ -627,7 +638,10 @@ Current state:
   `yarn install --immutable`, then `yarn build:sqlite-native` for the
   allowlisted `better-sqlite3` native binding.
 - Linux artifacts are GPG-signed (detached armor signatures).
-- macOS DMG is code-signed, notarized, and stapled in CI.
+- macOS DMG is code-signed, notarized, and stapled in CI. The release workflow
+  preserves the exact submitted DMG and Apple submission state before bounded
+  polling, so delayed submissions can be resumed from the original release tag
+  without rebuilding or resubmitting.
 - Windows release builds are deferred for the first public alpha. When Windows
   releases are enabled later, signing should use SSL.com eSigner CKA with
   `signtool.exe` on the Windows runner.

@@ -4,14 +4,34 @@ on:
     push:
         tags:
             - "v*"
+    workflow_dispatch:
+        inputs:
+            source_run_id:
+                description: "Failed tag workflow run containing the preserved macOS notarization artifacts"
+                required: true
+                type: string
 
 permissions:
+    actions: read
     contents: write
     id-token: write
     attestations: write
 
+env:
+    DESKTOP_LINUX_ARTIFACT_NAME: artgod-linux-x64
+    DESKTOP_MACOS_ARTIFACT_NAME: artgod-macos-universal
+    MACOS_NOTARIZATION_INPUT_ARTIFACT_NAME: artgod-macos-notarization-input
+    MACOS_NOTARIZATION_STATE_ARTIFACT_NAME: artgod-macos-notarization-state
+    MACOS_NOTARIZATION_DIAGNOSTICS_ARTIFACT_NAME: artgod-macos-notarization-diagnostics
+    MACOS_NOTARIZATION_ARTIFACT_RETENTION_DAYS: 30
+    MACOS_ARTIFACT_COMPRESSION_LEVEL: 0
+    ARTIFACT_MISSING_FILE_BEHAVIOR: error
+    MACOS_RELEASE_ASSET_DIR: release-assets
+    MACOS_NOTARIZATION_STATE_DIR: release-state/macos
+
 jobs:
     dependency-security:
+        if: github.event_name == 'push'
         runs-on: ubuntu-latest
 
         steps:
@@ -48,7 +68,11 @@ jobs:
             - name: Check Cargo dependency age gate
               run: yarn cargo:age-gate
 
+            - name: Test macOS notarization helper
+              run: yarn test:desktop:notarization
+
     build:
+        if: github.event_name == 'push'
         needs: dependency-security
 
         strategy:
@@ -60,13 +84,11 @@ jobs:
                       rust_targets: x86_64-unknown-linux-gnu
                       node_dist_target: linux-x64
                       bundles: appimage,deb
-                      artifact_name: artgod-linux-x64
                     - os: macos-latest
                       target: universal-apple-darwin
                       rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
                       node_dist_target: darwin-universal
                       bundles: dmg
-                      artifact_name: artgod-macos-universal
 
         runs-on: ${{ matrix.os }}
         environment: desktop-release-signing
@@ -230,62 +252,54 @@ jobs:
                     exit 1
                   fi
 
-            - name: Notarize and staple macOS DMG
+            - name: Prepare macOS notarization input
               if: runner.os == 'macOS'
               shell: bash
-              run: |
-                  set -euo pipefail
-                  DMG_PATH="$(find release-assets -maxdepth 1 -type f -name "*.dmg" | head -n 1)"
-                  if [ -z "$DMG_PATH" ]; then
-                    echo "No DMG artifact found for notarization"
-                    exit 1
-                  fi
+              run: node ./scripts/build/macos-notarization.mjs prepare "$MACOS_RELEASE_ASSET_DIR" "$MACOS_NOTARIZATION_STATE_DIR"
 
-                  NOTARY_OUTPUT_PATH="$RUNNER_TEMP/notary-submit.txt"
-                  NOTARY_RESULT_PATH="$RUNNER_TEMP/notary-info.json"
-                  set +e
-                  xcrun notarytool submit "$DMG_PATH" \
-                    --key "$APPLE_API_KEY_PATH" \
-                    --key-id "$APPLE_API_KEY_ID" \
-                    --issuer "$APPLE_API_ISSUER" \
-                    --wait 2>&1 | tee "$NOTARY_OUTPUT_PATH"
-                  NOTARY_SUBMIT_STATUS="${PIPESTATUS[0]}"
-                  set -e
+            - name: Preserve macOS notarization input
+              if: runner.os == 'macOS'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ${{ env.MACOS_NOTARIZATION_INPUT_ARTIFACT_NAME }}
+                  path: ${{ env.MACOS_RELEASE_ASSET_DIR }}/*.dmg
+                  retention-days: ${{ env.MACOS_NOTARIZATION_ARTIFACT_RETENTION_DAYS }}
+                  compression-level: ${{ env.MACOS_ARTIFACT_COMPRESSION_LEVEL }}
+                  if-no-files-found: ${{ env.ARTIFACT_MISSING_FILE_BEHAVIOR }}
 
-                  SUBMISSION_ID="$(awk '/Submission ID received/{found=1; next} found && /^[[:space:]]*id: /{print $2; exit}' "$NOTARY_OUTPUT_PATH")"
-                  if [ -z "$SUBMISSION_ID" ]; then
-                    SUBMISSION_ID="$(awk '/^[[:space:]]*id: /{print $2; exit}' "$NOTARY_OUTPUT_PATH")"
-                  fi
-                  if [ -z "$SUBMISSION_ID" ]; then
-                    echo "Unable to extract Apple notarization submission ID from notarytool output."
-                    exit "$NOTARY_SUBMIT_STATUS"
-                  fi
-
-                  if [ "$NOTARY_SUBMIT_STATUS" -ne 0 ]; then
-                    echo "notarytool submit exited with status $NOTARY_SUBMIT_STATUS after submission $SUBMISSION_ID; fetching final status."
-                  fi
-
-                  xcrun notarytool info "$SUBMISSION_ID" \
-                    --key "$APPLE_API_KEY_PATH" \
-                    --key-id "$APPLE_API_KEY_ID" \
-                    --issuer "$APPLE_API_ISSUER" \
-                    --output-format json | tee "$NOTARY_RESULT_PATH"
-                  NOTARY_STATUS="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"])' "$NOTARY_RESULT_PATH")"
-                  if [ "$NOTARY_STATUS" != "Accepted" ]; then
-                    echo "Notarization failed with status: $NOTARY_STATUS"
-                    xcrun notarytool log "$SUBMISSION_ID" \
-                      --key "$APPLE_API_KEY_PATH" \
-                      --key-id "$APPLE_API_KEY_ID" \
-                      --issuer "$APPLE_API_ISSUER"
-                    exit 1
-                  fi
-
-                  xcrun stapler staple "$DMG_PATH"
-                  xcrun stapler validate "$DMG_PATH"
-                  spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG_PATH"
+            - name: Submit macOS DMG for notarization
+              if: runner.os == 'macOS'
+              shell: bash
+              run: node ./scripts/build/macos-notarization.mjs submit "$MACOS_RELEASE_ASSET_DIR" "$MACOS_NOTARIZATION_STATE_DIR"
               env:
                   APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
                   APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+            - name: Preserve macOS notarization submission state
+              if: ${{ runner.os == 'macOS' && always() }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ${{ env.MACOS_NOTARIZATION_STATE_ARTIFACT_NAME }}
+                  path: ${{ env.MACOS_NOTARIZATION_STATE_DIR }}
+                  retention-days: ${{ env.MACOS_NOTARIZATION_ARTIFACT_RETENTION_DAYS }}
+                  if-no-files-found: ${{ env.ARTIFACT_MISSING_FILE_BEHAVIOR }}
+
+            - name: Poll, verify, and staple macOS DMG
+              if: runner.os == 'macOS'
+              shell: bash
+              run: node ./scripts/build/macos-notarization.mjs poll "$MACOS_RELEASE_ASSET_DIR" "$MACOS_NOTARIZATION_STATE_DIR"
+              env:
+                  APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+                  APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+            - name: Preserve macOS notarization diagnostics
+              if: ${{ runner.os == 'macOS' && always() }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ${{ env.MACOS_NOTARIZATION_DIAGNOSTICS_ARTIFACT_NAME }}
+                  path: ${{ env.MACOS_NOTARIZATION_STATE_DIR }}
+                  retention-days: ${{ env.MACOS_NOTARIZATION_ARTIFACT_RETENTION_DAYS }}
+                  if-no-files-found: ${{ env.ARTIFACT_MISSING_FILE_BEHAVIOR }}
 
             - name: Validate Linux signing secrets
               if: runner.os == 'Linux'
@@ -341,28 +355,160 @@ jobs:
                   LINUX_GPG_KEY_ID: ${{ secrets.LINUX_GPG_KEY_ID }}
                   LINUX_GPG_OWNERTRUST: ${{ secrets.LINUX_GPG_OWNERTRUST }}
 
-            - name: Upload build artifacts
+            - name: Upload Linux build artifacts
+              if: runner.os == 'Linux'
               uses: actions/upload-artifact@v4
               with:
-                  name: ${{ matrix.artifact_name }}
+                  name: ${{ env.DESKTOP_LINUX_ARTIFACT_NAME }}
                   path: release-assets/*
+                  if-no-files-found: ${{ env.ARTIFACT_MISSING_FILE_BEHAVIOR }}
+
+            - name: Upload macOS build artifacts
+              if: runner.os == 'macOS'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ${{ env.DESKTOP_MACOS_ARTIFACT_NAME }}
+                  path: release-assets/*
+                  compression-level: ${{ env.MACOS_ARTIFACT_COMPRESSION_LEVEL }}
+                  if-no-files-found: ${{ env.ARTIFACT_MISSING_FILE_BEHAVIOR }}
+
+    resume-macos-notarization:
+        if: github.event_name == 'workflow_dispatch'
+        runs-on: macos-latest
+        environment: desktop-release-signing
+
+        steps:
+            - name: Checkout release tag
+              uses: actions/checkout@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: package.json
+
+            - name: Validate original release tag selection
+              run: node ./scripts/build/macos-notarization.mjs validate-ref
+
+            - name: Validate macOS notarization secrets
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  missing=0
+                  for key in APPLE_API_KEY_P8_B64 APPLE_API_KEY_ID APPLE_API_ISSUER; do
+                    if [ -z "${!key:-}" ]; then
+                      echo "Missing required secret: $key"
+                      missing=1
+                    fi
+                  done
+                  if [ "$missing" -ne 0 ]; then
+                    exit 1
+                  fi
+              env:
+                  APPLE_API_KEY_P8_B64: ${{ secrets.APPLE_API_KEY_P8_B64 }}
+                  APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+                  APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+            - name: Prepare macOS notarization API key
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+                  echo "$APPLE_API_KEY_P8_B64" | base64 --decode > "$KEY_PATH"
+                  chmod 600 "$KEY_PATH"
+                  echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+              env:
+                  APPLE_API_KEY_P8_B64: ${{ secrets.APPLE_API_KEY_P8_B64 }}
+                  APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+
+            - name: Download preserved macOS notarization input
+              uses: actions/download-artifact@v4
+              with:
+                  name: ${{ env.MACOS_NOTARIZATION_INPUT_ARTIFACT_NAME }}
+                  path: ${{ env.MACOS_RELEASE_ASSET_DIR }}
+                  github-token: ${{ github.token }}
+                  run-id: ${{ inputs.source_run_id }}
+
+            - name: Download preserved macOS notarization state
+              uses: actions/download-artifact@v4
+              with:
+                  name: ${{ env.MACOS_NOTARIZATION_STATE_ARTIFACT_NAME }}
+                  path: ${{ env.MACOS_NOTARIZATION_STATE_DIR }}
+                  github-token: ${{ github.token }}
+                  run-id: ${{ inputs.source_run_id }}
+
+            - name: Finalize accepted macOS notarization
+              shell: bash
+              run: node ./scripts/build/macos-notarization.mjs finalize "$MACOS_RELEASE_ASSET_DIR" "$MACOS_NOTARIZATION_STATE_DIR"
+              env:
+                  APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+                  APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+                  MACOS_NOTARIZATION_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+
+            - name: Preserve resumed macOS notarization state
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ${{ env.MACOS_NOTARIZATION_DIAGNOSTICS_ARTIFACT_NAME }}
+                  path: ${{ env.MACOS_NOTARIZATION_STATE_DIR }}
+                  retention-days: ${{ env.MACOS_NOTARIZATION_ARTIFACT_RETENTION_DAYS }}
+                  if-no-files-found: ${{ env.ARTIFACT_MISSING_FILE_BEHAVIOR }}
+
+            - name: Upload finalized macOS build artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ${{ env.DESKTOP_MACOS_ARTIFACT_NAME }}
+                  path: ${{ env.MACOS_RELEASE_ASSET_DIR }}/*
+                  compression-level: ${{ env.MACOS_ARTIFACT_COMPRESSION_LEVEL }}
+                  if-no-files-found: ${{ env.ARTIFACT_MISSING_FILE_BEHAVIOR }}
 
     release:
-        needs: build
+        needs:
+            - build
+            - resume-macos-notarization
+        if: >-
+            always() &&
+            ((github.event_name == 'push' && needs.build.result == 'success') ||
+            (github.event_name == 'workflow_dispatch' && needs['resume-macos-notarization'].result == 'success'))
         runs-on: ubuntu-latest
         environment: desktop-release-signing
 
         steps:
-            - name: Download all artifacts
+            - name: Download Linux artifacts from tag run
+              if: github.event_name == 'push'
               uses: actions/download-artifact@v4
               with:
+                  name: ${{ env.DESKTOP_LINUX_ARTIFACT_NAME }}
+                  path: release-assets
+
+            - name: Download macOS artifacts from tag run
+              if: github.event_name == 'push'
+              uses: actions/download-artifact@v4
+              with:
+                  name: ${{ env.DESKTOP_MACOS_ARTIFACT_NAME }}
+                  path: release-assets
+
+            - name: Download Linux artifacts from source tag run
+              if: github.event_name == 'workflow_dispatch'
+              uses: actions/download-artifact@v4
+              with:
+                  name: ${{ env.DESKTOP_LINUX_ARTIFACT_NAME }}
+                  path: release-assets
+                  github-token: ${{ github.token }}
+                  run-id: ${{ inputs.source_run_id }}
+
+            - name: Download finalized macOS artifacts
+              if: github.event_name == 'workflow_dispatch'
+              uses: actions/download-artifact@v4
+              with:
+                  name: ${{ env.DESKTOP_MACOS_ARTIFACT_NAME }}
                   path: release-assets
 
             - name: Generate checksums
               shell: bash
               run: |
                   set -euo pipefail
-                  find release-assets -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+                  cd release-assets
+                  find . -maxdepth 1 -type f -print0 | sort -z | xargs -0 sha256sum > ../SHA256SUMS.txt
 
             - name: Validate checksum signing secrets
               shell: bash
@@ -410,6 +556,7 @@ jobs:
             - name: Publish GitHub release
               uses: softprops/action-gh-release@v2
               with:
+                  tag_name: ${{ github.ref_name }}
                   prerelease: ${{ contains(github.ref_name, '-test.') }}
                   make_latest: ${{ contains(github.ref_name, '-test.') && 'false' || 'true' }}
                   files: |

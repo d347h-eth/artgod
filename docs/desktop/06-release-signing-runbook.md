@@ -67,7 +67,9 @@ Workflow policy:
 
 - `.github/workflows/tauri-build-check.yml` uses no secrets and runs on pull
   requests, pushes to `main`, and manual dispatch.
-- `.github/workflows/tauri-release.yml` runs on pushed `v*` tags.
+- `.github/workflows/tauri-release.yml` builds on pushed `v*` tags. Its manual
+  dispatch path only resumes delayed macOS notarization from an existing tag
+  run; it does not rebuild or create another Apple submission.
 - Shipped alpha/beta/rc tags, such as `v0.0.1-alpha.1`, publish as normal
   GitHub releases and are marked Latest. GitHub releases flagged as
   pre-releases cannot be marked Latest, so the workflow reserves the GitHub
@@ -75,8 +77,8 @@ Workflow policy:
 - Test tags containing `-test.`, such as `v0.0.1-test.1`, publish as GitHub
   pre-releases and are not marked Latest.
 - Plain stable tags such as `v1.0.0` also publish as normal Latest releases.
-- The release workflow `build` and `release` jobs declare
-  `environment: desktop-release-signing`.
+- The release workflow build, delayed-notarization resume, and release jobs use
+  the `desktop-release-signing` environment.
 - Environment secrets are still referenced through the GitHub Actions
   `secrets.NAME` context.
 
@@ -171,6 +173,38 @@ The workflow imports the `.p12` into a temporary keychain, signs the `.app`,
 notarizes the DMG with `xcrun notarytool`, staples the DMG, validates the
 stapled ticket, and then runs Gatekeeper assessment on the DMG.
 
+The notarization submission does not use `notarytool submit --wait`. The tag
+run instead:
+
+1. verifies and hashes the signed DMG
+2. preserves that exact pre-staple DMG as an internal workflow artifact
+3. submits it once with verbose upload diagnostics
+4. persists the Apple submission ID before polling
+5. polls with bounded retries for transient App Store Connect failures
+6. verifies the accepted Apple log contains the same DMG SHA-256
+7. staples, validates, and Gatekeeper-assesses the preserved DMG
+
+If Apple is still processing when the initial poll window closes, the macOS
+build job fails intentionally and the GitHub Release is not published. The
+signed DMG and notarization state remain attached to that Actions run for the
+configured retention period.
+
+To finish a delayed submission:
+
+1. Wait until `xcrun notarytool info <submission-id> ...` reports `Accepted`.
+2. Open the `Tauri Release` workflow and choose `Run workflow`.
+3. Select the original release tag in the workflow ref selector, not `main`.
+4. Enter the numeric run ID from the original failed tag run. It is the number
+   after `/actions/runs/` in that run's URL.
+5. Start the workflow. It downloads the original DMG and submission state,
+   verifies the repository, tag, commit, source run, size, and SHA-256, then
+   queries the existing Apple submission and staples that DMG.
+
+The resume path never submits another DMG. If Apple still reports processing,
+the resume run exits without publishing; repeat it later using the same
+original tag and source run ID. Raw verbose diagnostics and the pre-staple DMG
+are internal workflow artifacts, not GitHub Release assets.
+
 Before DMG assembly, `beforeBundleCommand` runs
 `scripts/build/macos-code-signing.mjs sign-staged` on the macOS runner. This
 signs staged executable/loadable Mach-O files copied as runtime resources or
@@ -190,7 +224,9 @@ Official references:
 - Apple enrollment requirements: https://developer.apple.com/programs/enroll/
 - Developer ID certificates: https://developer.apple.com/help/account/certificates/create-developer-id-certificates
 - Developer ID / notarization overview: https://developer.apple.com/developer-id/
+- Custom notarization workflow: https://developer.apple.com/documentation/security/customizing-the-notarization-workflow
 - App Store Connect API keys: https://developer.apple.com/help/app-store-connect/get-started/app-store-connect-api
+- GitHub Actions artifacts: https://docs.github.com/en/actions/using-workflows/storing-workflow-data-as-artifacts
 - Tauri macOS signing: https://v2.tauri.app/distribute/sign/macos/
 
 ## Windows Signing
@@ -295,6 +331,8 @@ Before pushing a `v*` tag:
    and Cargo package version match.
 3. Confirm the build check workflow passed after merge to `main`.
 4. Run the release workflow once on a `-test.` dry-run tag.
-5. Install each produced artifact on a clean Linux and macOS machine.
-6. Verify macOS Gatekeeper opens the DMG without bypass actions.
-7. Verify Linux GPG signatures and checksum manifest from a clean keyring.
+5. If macOS notarization is delayed, resume it from the original test tag and
+   failed run rather than rerunning the build.
+6. Install each produced artifact on a clean Linux and macOS machine.
+7. Verify macOS Gatekeeper opens the DMG without bypass actions.
+8. Verify Linux GPG signatures and checksum manifest from a clean keyring.
