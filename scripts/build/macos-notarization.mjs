@@ -9,9 +9,16 @@ import {
     writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import {
+    RedactedCommandError,
+    collectSensitivePayloadFragments,
+    createSecretRedactor,
+    runRedactedCommand,
+    writeRedactedTextFile,
+} from "./secret-output-redaction.mjs";
 
 const rootDir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -40,23 +47,7 @@ const ENV_NOTARIZATION_SOURCE_RUN_ID = "MACOS_NOTARIZATION_SOURCE_RUN_ID";
 export const NOTARY_OPTION_KEY = "--key";
 export const NOTARY_OPTION_KEY_ID = "--key-id";
 export const NOTARY_OPTION_ISSUER = "--issuer";
-const REDACTED_VALUE = "[REDACTED]";
-const MINIMUM_REDACTION_VALUE_LENGTH = 4;
 const PRIVATE_KEY_REDACTION_WINDOW_LENGTH = 12;
-const DERIVED_CREDENTIAL_REDACTIONS = [
-    {
-        pattern: /(authorization[\t ]*:[\t ]*)[^\r\n]+/gi,
-        replacement: `$1${REDACTED_VALUE}`,
-    },
-    {
-        pattern: /\bbearer[\t ]+[a-z0-9._~+/=-]+/gi,
-        replacement: `Bearer ${REDACTED_VALUE}`,
-    },
-    {
-        pattern: /\beyJ[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\b/gi,
-        replacement: REDACTED_VALUE,
-    },
-];
 
 const STATE_SCHEMA_VERSION = 1;
 const STATE_FILE_NAME = "notarization-state.json";
@@ -83,117 +74,6 @@ const NOTARY_API_COMMAND_TIMEOUT_MS = 60 * 1000;
 const COMMAND_TERMINATION_GRACE_MS = 5 * 1000;
 
 class PendingNotarizationError extends Error {}
-
-class CommandExecutionError extends Error {
-    #result;
-
-    constructor(message, result) {
-        super(message);
-        this.#result = result;
-    }
-
-    readRawResult() {
-        return this.#result;
-    }
-}
-
-// Redacts complete secret values and their common serialized forms.
-export function createSecretRedactor(secretValues) {
-    const redactionValues = collectRedactionValues(secretValues);
-    const redactDerivedCredentials = (value) => {
-        let redacted = String(value);
-        for (const { pattern, replacement } of DERIVED_CREDENTIAL_REDACTIONS) {
-            redacted = redacted.replace(pattern, replacement);
-        }
-        return redacted;
-    };
-
-    return Object.freeze({
-        redact(value) {
-            let redacted = redactDerivedCredentials(value);
-            for (const secretValue of redactionValues) {
-                redacted = redacted.split(secretValue).join(REDACTED_VALUE);
-            }
-            return redacted;
-        },
-        redactDerivedCredentials,
-        hasSecretValues() {
-            return redactionValues.length > 0;
-        },
-        findCompletePrefix(value) {
-            return redactionValues.find((secretValue) =>
-                value.startsWith(secretValue),
-            );
-        },
-        isPossiblePrefix(value) {
-            return redactionValues.some((secretValue) =>
-                secretValue.startsWith(value),
-            );
-        },
-    });
-}
-
-const EMPTY_SECRET_REDACTOR = createSecretRedactor([]);
-
-// Streams text only after enough input exists to rule out a split secret.
-export function createRedactedOutputWriter(target, redactor) {
-    let linePending = "";
-    let exactPending = "";
-
-    const drainExactValues = (final) => {
-        let publicOutput = "";
-        while (exactPending) {
-            const completeMatch = redactor.findCompletePrefix(exactPending);
-            const possibleMatch = redactor.isPossiblePrefix(exactPending);
-
-            if (!final && possibleMatch) {
-                break;
-            }
-            if (completeMatch) {
-                publicOutput += REDACTED_VALUE;
-                exactPending = exactPending.slice(completeMatch.length);
-                continue;
-            }
-            if (final && redactor.isPossiblePrefix(exactPending)) {
-                publicOutput += REDACTED_VALUE;
-                exactPending = "";
-                break;
-            }
-
-            publicOutput += exactPending[0];
-            exactPending = exactPending.slice(1);
-        }
-        if (publicOutput) {
-            target.write(publicOutput);
-        }
-    };
-    const flushCompleteLines = () => {
-        const completeLineEnd = Math.max(
-            linePending.lastIndexOf("\n"),
-            linePending.lastIndexOf("\r"),
-        );
-        if (completeLineEnd < 0) {
-            return;
-        }
-        exactPending += redactor.redactDerivedCredentials(
-            linePending.slice(0, completeLineEnd + 1),
-        );
-        linePending = linePending.slice(completeLineEnd + 1);
-        drainExactValues(false);
-    };
-
-    return {
-        write(chunk) {
-            linePending += chunk.toString();
-            flushCompleteLines();
-        },
-        end() {
-            exactPending += redactor.redactDerivedCredentials(linePending);
-            linePending = "";
-            drainExactValues(true);
-        },
-    };
-}
 
 async function main() {
     const command = process.argv[2];
@@ -316,7 +196,7 @@ async function submitNotarization(artifactDirectory, stateDirectory) {
             },
         );
     } catch (error) {
-        if (error instanceof CommandExecutionError) {
+        if (error instanceof RedactedCommandError) {
             const commandResult = error.readRawResult();
             await writeRedactedTextFile(
                 path.join(stateDirectory, SUBMIT_LOG_FILE_NAME),
@@ -808,11 +688,6 @@ async function appendPollRecord(filePath, record, redactor) {
     );
 }
 
-// Persists diagnostics only after removing every known credential form.
-export async function writeRedactedTextFile(filePath, value, redactor) {
-    await writeFile(filePath, redactor.redact(value), "utf8");
-}
-
 function assertMacOSHost() {
     if (process.platform !== "darwin") {
         throw new Error("macOS notarization commands require a macOS host.");
@@ -831,42 +706,6 @@ function formatError(error, redactor) {
     );
 }
 
-function collectRedactionValues(secretValues) {
-    const redactionValues = new Set();
-    const addValue = (value) => {
-        if (
-            typeof value !== "string" ||
-            value.length < MINIMUM_REDACTION_VALUE_LENGTH
-        ) {
-            return;
-        }
-        redactionValues.add(value);
-    };
-
-    for (const sourceValue of secretValues) {
-        if (typeof sourceValue !== "string") {
-            continue;
-        }
-        for (const value of new Set([sourceValue, sourceValue.trim()])) {
-            if (value.length < MINIMUM_REDACTION_VALUE_LENGTH) {
-                continue;
-            }
-            addValue(value);
-            addValue(encodeURIComponent(value));
-            addValue(JSON.stringify(value).slice(1, -1));
-            addValue(Buffer.from(value, "utf8").toString("base64"));
-            if (/^[a-z0-9-]+$/i.test(value)) {
-                addValue(value.toLowerCase());
-                addValue(value.toUpperCase());
-            }
-        }
-    }
-
-    return [...redactionValues].sort(
-        (left, right) => right.length - left.length,
-    );
-}
-
 // Builds the notarization redactor from API identifiers and private-key material.
 export async function createNotarySecretRedactor(
     environment,
@@ -882,31 +721,11 @@ export async function createNotarySecretRedactor(
     if (privateKeyPath) {
         try {
             const privateKey = await readFile(privateKeyPath, "utf8");
-            const privateKeyTokens = privateKey
-                .split(/\s+/)
-                .filter(
-                    (value) =>
-                        value.length >= PRIVATE_KEY_REDACTION_WINDOW_LENGTH &&
-                        /^[a-z0-9+/=]+$/i.test(value),
-                );
-            const privateKeyPayload = privateKeyTokens.join("");
-            const privateKeyWindows = [];
-            for (
-                let index = 0;
-                index <=
-                privateKeyPayload.length - PRIVATE_KEY_REDACTION_WINDOW_LENGTH;
-                index += 1
-            ) {
-                privateKeyWindows.push(
-                    privateKeyPayload.slice(
-                        index,
-                        index + PRIVATE_KEY_REDACTION_WINDOW_LENGTH,
-                    ),
-                );
-            }
             secretValues.push(
-                ...privateKeyTokens,
-                ...privateKeyWindows,
+                ...collectSensitivePayloadFragments(
+                    privateKey,
+                    PRIVATE_KEY_REDACTION_WINDOW_LENGTH,
+                ),
                 Buffer.from(privateKey, "utf8").toString("base64"),
                 Buffer.from(privateKey.trim(), "utf8").toString("base64"),
             );
@@ -934,26 +753,9 @@ async function createFailureRedactor(environment) {
     }
 }
 
-function formatCommand(command, args) {
-    const displayArgs = [...args];
-    for (let index = 0; index < displayArgs.length - 1; index += 1) {
-        if (
-            displayArgs[index] === NOTARY_OPTION_KEY ||
-            displayArgs[index] === NOTARY_OPTION_KEY_ID ||
-            displayArgs[index] === NOTARY_OPTION_ISSUER
-        ) {
-            displayArgs[index + 1] = REDACTED_VALUE;
-            index += 1;
-        }
-    }
-    return `${command} ${displayArgs.join(" ")}`;
-}
-
 // Executes a child process while keeping raw output internal and public output redacted.
 export async function runCommand(command, args, options = {}) {
-    const stream = options.stream === true;
-    const timeoutMs = options.timeoutMs;
-    const redactor = options.redactor ?? EMPTY_SECRET_REDACTOR;
+    const redactor = options.redactor ?? createSecretRedactor([]);
     const carriesNotaryAuthentication = args.some(
         (argument) =>
             argument === NOTARY_OPTION_KEY ||
@@ -965,99 +767,12 @@ export async function runCommand(command, args, options = {}) {
             "Refusing to run an authenticated notarytool command without a populated output redactor.",
         );
     }
-    const stdoutWriter = stream
-        ? createRedactedOutputWriter(
-              options.stdoutTarget ?? process.stdout,
-              redactor,
-          )
-        : null;
-    const stderrWriter = stream
-        ? createRedactedOutputWriter(
-              options.stderrTarget ?? process.stderr,
-              redactor,
-          )
-        : null;
-    return await new Promise((resolve, reject) => {
-        const child = spawn(command, args, {
-            cwd: rootDir,
-            env: process.env,
-            stdio: ["ignore", "pipe", "pipe"],
-        });
-
-        let stdout = "";
-        let stderr = "";
-        let combinedOutput = "";
-        let timedOut = false;
-        let forceKillTimer;
-        let outputWritersEnded = false;
-        const commandTimeoutTimer = timeoutMs
-            ? setTimeout(() => {
-                  timedOut = true;
-                  child.kill("SIGTERM");
-                  forceKillTimer = setTimeout(() => {
-                      child.kill("SIGKILL");
-                  }, COMMAND_TERMINATION_GRACE_MS);
-              }, timeoutMs)
-            : null;
-        const clearCommandTimers = () => {
-            if (commandTimeoutTimer) {
-                clearTimeout(commandTimeoutTimer);
-            }
-            if (forceKillTimer) {
-                clearTimeout(forceKillTimer);
-            }
-        };
-        const endOutputWriters = () => {
-            if (outputWritersEnded) {
-                return;
-            }
-            outputWritersEnded = true;
-            stdoutWriter?.end();
-            stderrWriter?.end();
-        };
-        child.stdout.on("data", (chunk) => {
-            const value = chunk.toString();
-            stdout += value;
-            combinedOutput += value;
-            stdoutWriter?.write(value);
-        });
-        child.stderr.on("data", (chunk) => {
-            const value = chunk.toString();
-            stderr += value;
-            combinedOutput += value;
-            stderrWriter?.write(value);
-        });
-
-        child.on("error", (error) => {
-            clearCommandTimers();
-            endOutputWriters();
-            reject(
-                new CommandExecutionError(redactor.redact(error.message), {
-                    stdout,
-                    stderr,
-                    combinedOutput,
-                }),
-            );
-        });
-        child.on("close", (code) => {
-            clearCommandTimers();
-            endOutputWriters();
-            const result = { stdout, stderr, combinedOutput };
-            if (code === 0) {
-                resolve(result);
-                return;
-            }
-            reject(
-                new CommandExecutionError(
-                    redactor.redact(
-                        timedOut
-                            ? `${formatCommand(command, args)} timed out after ${timeoutMs}ms`
-                            : `${formatCommand(command, args)} failed with exit code ${code}${stderr ? `\n${stderr}` : ""}`,
-                    ),
-                    result,
-                ),
-            );
-        });
+    return await runRedactedCommand(command, args, {
+        ...options,
+        cwd: rootDir,
+        env: process.env,
+        redactor,
+        terminationGraceMs: COMMAND_TERMINATION_GRACE_MS,
     });
 }
 
