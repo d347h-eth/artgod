@@ -39,11 +39,17 @@ jobs:
               uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
               with:
                   persist-credentials: false
+                  fetch-depth: 0
 
             - name: Setup Node
               uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
               with:
                   node-version-file: package.json
+
+            - name: Validate signed release tag admission
+              run: node ./scripts/build/desktop-release-admission.mjs validate
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
 
             - name: Enable Corepack
               run: corepack enable
@@ -361,14 +367,17 @@ jobs:
               uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
               with:
                   persist-credentials: false
+                  fetch-depth: 0
 
             - name: Setup Node
               uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
               with:
                   node-version-file: package.json
 
-            - name: Validate original release tag selection
-              run: node ./scripts/build/macos-notarization.mjs validate-ref
+            - name: Validate signed release tag admission
+              run: node ./scripts/build/desktop-release-admission.mjs validate
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
 
             - name: Validate macOS notarization secrets
               shell: bash
@@ -444,6 +453,9 @@ jobs:
         permissions:
             actions: read
             contents: read
+        outputs:
+            make_latest: ${{ steps.release-metadata.outputs.make_latest }}
+            prerelease: ${{ steps.release-metadata.outputs.prerelease }}
 
         steps:
             - name: Checkout release tag
@@ -455,6 +467,10 @@ jobs:
               uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
               with:
                   node-version-file: package.json
+
+            - name: Prepare release metadata
+              id: release-metadata
+              run: node ./scripts/build/desktop-release-admission.mjs metadata
 
             - name: Download Linux artifacts from tag run
               if: github.event_name == 'push'
@@ -493,8 +509,8 @@ jobs:
                   cd release-assets
                   find . -maxdepth 1 -type f -print0 | sort -z | xargs -0 sha256sum > ../SHA256SUMS.txt
 
-            - name: Sign and verify release checksum manifest
-              run: node ./scripts/build/linux-gpg-signing.mjs sign-checksums SHA256SUMS.txt
+            - name: Re-verify Linux bundles and sign release checksum manifest
+              run: node ./scripts/build/linux-gpg-signing.mjs finalize-release release-assets SHA256SUMS.txt
               env:
                   LINUX_GPG_PRIVATE_KEY_ASC: ${{ secrets.LINUX_GPG_PRIVATE_KEY_ASC }}
                   LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
@@ -542,8 +558,8 @@ jobs:
               uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
               with:
                   tag_name: ${{ github.ref_name }}
-                  prerelease: ${{ contains(github.ref_name, '-test.') }}
-                  make_latest: ${{ contains(github.ref_name, '-test.') && 'false' || 'true' }}
+                  prerelease: ${{ needs.assemble-release.outputs.prerelease }}
+                  make_latest: ${{ needs.assemble-release.outputs.make_latest }}
                   files: |
                       release-assets/**
                       SHA256SUMS.txt

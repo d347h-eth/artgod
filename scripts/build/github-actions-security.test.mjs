@@ -81,6 +81,41 @@ test("separates signing, attestation, and publication trust boundaries", async (
     assert.doesNotMatch(releaseWorkflow, /MACOS_NOTARIZATION_KEY_FILE_NAME/);
 });
 
+test("admits signed mainline tags before initial or resumed release work", async () => {
+    const releaseWorkflow = await readFile(
+        path.join(workflowsDirectory, "tauri-release.yml"),
+        "utf8",
+    );
+    const admissionCommand =
+        "node ./scripts/build/desktop-release-admission.mjs validate";
+
+    for (const jobName of [
+        "dependency-security",
+        "resume-macos-notarization",
+    ]) {
+        const job = extractWorkflowJob(releaseWorkflow, jobName);
+        assert.match(job, /fetch-depth:\s*0/);
+        assert.match(job, new RegExp(admissionCommand.replaceAll(".", "\\.")));
+        assert.match(job, /GITHUB_TOKEN:\s*\$\{\{ github\.token \}\}/);
+    }
+
+    const assembleJob = extractWorkflowJob(releaseWorkflow, "assemble-release");
+    assert.match(assembleJob, /desktop-release-admission\.mjs metadata/);
+    assert.doesNotMatch(releaseWorkflow, /contains\(github\.ref_name/);
+    assert.doesNotMatch(
+        releaseWorkflow,
+        /macos-notarization\.mjs validate-ref/,
+    );
+});
+
+test("checks synchronized project versions on ordinary desktop builds", async () => {
+    const buildCheckWorkflow = await readFile(
+        path.join(workflowsDirectory, "tauri-build-check.yml"),
+        "utf8",
+    );
+    assert.match(buildCheckWorkflow, /run:\s*yarn check:version/);
+});
+
 async function readWorkflows() {
     const workflowNames = (await readdir(workflowsDirectory))
         .filter((name) => name.endsWith(".yml") || name.endsWith(".yaml"))
@@ -90,5 +125,17 @@ async function readWorkflows() {
             name,
             source: await readFile(path.join(workflowsDirectory, name), "utf8"),
         })),
+    );
+}
+
+function extractWorkflowJob(source, jobName) {
+    const marker = `    ${jobName}:\n`;
+    const start = source.indexOf(marker);
+    assert.notEqual(start, -1, `Workflow job ${jobName} was not found.`);
+    const remaining = source.slice(start + marker.length);
+    const nextJob = remaining.match(/^    [a-z0-9_-]+:\n/m);
+    return source.slice(
+        start,
+        nextJob ? start + marker.length + nextJob.index : source.length,
     );
 }

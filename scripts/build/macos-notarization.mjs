@@ -23,6 +23,7 @@ import {
     runRedactedCommand,
     writeRedactedTextFile,
 } from "./secret-output-redaction.mjs";
+import { RELEASE_TAG_REF_TYPE } from "./desktop-release-contract.mjs";
 
 const rootDir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -32,7 +33,6 @@ const rootDir = path.resolve(
 const COMMAND_PREPARE = "prepare";
 const COMMAND_SUBMIT = "submit";
 const COMMAND_POLL = "poll";
-const COMMAND_VALIDATE_REF = "validate-ref";
 const COMMAND_FINALIZE = "finalize";
 
 const ENV_APPLE_API_KEY_PATH = "APPLE_API_KEY_PATH";
@@ -67,9 +67,6 @@ export const NOTARY_STATUS_ACCEPTED = "Accepted";
 export const NOTARY_STATUS_IN_PROGRESS = "In Progress";
 export const NOTARY_STATUS_INVALID = "Invalid";
 export const NOTARY_STATUS_REJECTED = "Rejected";
-
-// GitHub's ref-type value for a release tag workflow.
-export const GITHUB_REF_TYPE_TAG = "tag";
 
 const PENDING_EXIT_CODE = 75;
 const INITIAL_POLL_TIMEOUT_MS = 20 * 60 * 1000;
@@ -116,10 +113,6 @@ async function main() {
             await pollSubmittedNotarization(artifactDirectory, stateDirectory);
             return;
         }
-        if (command === COMMAND_VALIDATE_REF) {
-            assertReleaseTagRef(process.env);
-            return;
-        }
         if (command === COMMAND_FINALIZE) {
             await finalizeExistingNotarization(
                 artifactDirectory,
@@ -129,15 +122,21 @@ async function main() {
         }
 
         throw new Error(
-            `Usage: node scripts/build/macos-notarization.mjs <${COMMAND_PREPARE}|${COMMAND_SUBMIT}|${COMMAND_POLL}|${COMMAND_VALIDATE_REF}|${COMMAND_FINALIZE}> [artifact-directory] [state-directory]`,
+            `Usage: node scripts/build/macos-notarization.mjs <${COMMAND_PREPARE}|${COMMAND_SUBMIT}|${COMMAND_POLL}|${COMMAND_FINALIZE}> [artifact-directory] [state-directory]`,
         );
     } catch (error) {
-        const redactor = await createFailureRedactor(process.env);
-        console.error(
-            redactor.redact(
-                error instanceof Error ? error.stack : String(error),
-            ),
-        );
+        try {
+            const redactor = await createFailureRedactor(process.env);
+            console.error(
+                redactor.redact(
+                    error instanceof Error ? error.stack : String(error),
+                ),
+            );
+        } catch {
+            console.error(
+                "macOS notarization failed before a safe output redactor could be created.",
+            );
+        }
         process.exitCode =
             error instanceof PendingNotarizationError
                 ? PENDING_EXIT_CODE
@@ -568,8 +567,8 @@ export function assertAcceptedNotaryLog(notaryLog, expected) {
 // Prevents a delayed submission from being finalized under another release.
 export function assertResumeContext(state, context) {
     if (
-        state.source.refType !== GITHUB_REF_TYPE_TAG ||
-        context.refType !== GITHUB_REF_TYPE_TAG
+        state.source.refType !== RELEASE_TAG_REF_TYPE ||
+        context.refType !== RELEASE_TAG_REF_TYPE
     ) {
         throw new Error(
             "Delayed macOS notarization must be resumed from the original release tag.",
@@ -760,18 +759,6 @@ function requireEnvironmentValue(environment, key) {
         throw new Error(`Missing required environment variable ${key}.`);
     }
     return value;
-}
-
-function assertReleaseTagRef(environment) {
-    const refType = requireEnvironmentValue(environment, ENV_GITHUB_REF_TYPE);
-    if (refType !== GITHUB_REF_TYPE_TAG) {
-        throw new Error(
-            "Select the original release tag, not a branch, when resuming macOS notarization.",
-        );
-    }
-    console.log(
-        `Validated delayed notarization release tag ${requireEnvironmentValue(environment, ENV_GITHUB_REF_NAME)}.`,
-    );
 }
 
 async function resolveSingleDmg(directory) {

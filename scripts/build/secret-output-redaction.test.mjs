@@ -91,6 +91,14 @@ test("redacts serialized secret variants", () => {
     );
 });
 
+test("rejects non-empty secrets that cannot be redacted safely", () => {
+    assert.throws(
+        () => createSecretRedactor(["abc"]),
+        /non-empty secret shorter than 4 characters/,
+    );
+    assert.doesNotThrow(() => createSecretRedactor([undefined, ""]));
+});
+
 test("redacts child stdout, stderr, and failed-command errors before emission", async () => {
     const redactor = createSecretRedactor([secretSentinel]);
     const stdout = createMemoryOutput();

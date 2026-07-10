@@ -11,6 +11,7 @@ import {
     createLinuxGpgSecretRedactor,
     parseSecretKeyListing,
     signLinuxFiles,
+    verifyLinuxBundleSignaturesAndSignChecksum,
 } from "./linux-gpg-signing.mjs";
 
 const primaryFingerprint = "A".repeat(40);
@@ -83,6 +84,7 @@ function createFakeGpgRunner({ failSigning = false } = {}) {
         cleanupCalls: 0,
         signArguments: null,
         signInput: null,
+        verifyArguments: [],
     };
 
     return {
@@ -129,6 +131,7 @@ function createFakeGpgRunner({ failSigning = false } = {}) {
                 return createCommandResult("[GNUPG:] SIG_CREATED D 22 8 00\n");
             }
             if (args.includes("--verify")) {
+                observations.verifyArguments.push([...args]);
                 return createCommandResult(createValidSignatureStatus());
             }
 
@@ -307,6 +310,50 @@ test("removes the temporary GPG home after signing failure", async () => {
     }
 });
 
+test("re-verifies transferred bundles before signing the checksum manifest", async () => {
+    const temporaryRoot = await mkdtemp(
+        path.join(os.tmpdir(), "artgod-gpg-finalization-test-"),
+    );
+    const appImagePath = path.join(temporaryRoot, "ArtGod_test.AppImage");
+    const debPath = path.join(temporaryRoot, "ArtGod_test.deb");
+    const checksumPath = path.join(temporaryRoot, "SHA256SUMS.txt");
+    const logs = [];
+    const fake = createFakeGpgRunner();
+
+    try {
+        for (const filePath of [appImagePath, debPath]) {
+            await writeFile(filePath, "synthetic-artifact");
+            await writeFile(`${filePath}.asc`, "transferred-signature");
+        }
+        await writeFile(checksumPath, "synthetic-checksums");
+
+        await verifyLinuxBundleSignaturesAndSignChecksum(
+            [appImagePath, debPath],
+            checksumPath,
+            {
+                environment: createSigningEnvironment(),
+                temporaryRoot,
+                commandRunner: fake.commandRunner,
+                logger: (message) => logs.push(message),
+            },
+        );
+
+        assert.equal(
+            await readFile(`${checksumPath}.asc`, "utf8"),
+            "synthetic-signature",
+        );
+        assert.equal(fake.observations.cleanupCalls, 1);
+        assert.equal(fake.observations.verifyArguments.length, 3);
+        assert.deepEqual(logs, [
+            'Verified transferred detached signature for "ArtGod_test.AppImage".',
+            'Verified transferred detached signature for "ArtGod_test.deb".',
+            'Created and verified detached signature for "SHA256SUMS.txt".',
+        ]);
+    } finally {
+        await rm(temporaryRoot, { recursive: true, force: true });
+    }
+});
+
 test("routes both release signing stages through the hardened helper", async () => {
     const releaseWorkflow = await readFile(
         new URL("../../.github/workflows/tauri-release.yml", import.meta.url),
@@ -319,8 +366,9 @@ test("routes both release signing stages through the hardened helper", async () 
     );
     assert.match(
         releaseWorkflow,
-        /linux-gpg-signing\.mjs sign-checksums SHA256SUMS\.txt/,
+        /linux-gpg-signing\.mjs finalize-release release-assets SHA256SUMS\.txt/,
     );
+    assert.doesNotMatch(releaseWorkflow, /sign-checksums/);
     assert.doesNotMatch(releaseWorkflow, /--passphrase "\$LINUX_GPG/);
     assert.doesNotMatch(releaseWorkflow, /export GNUPGHOME=/);
     assert.doesNotMatch(releaseWorkflow, /echo "\$LINUX_GPG_PRIVATE_KEY_ASC"/);

@@ -15,7 +15,7 @@ const rootDir = path.resolve(
 );
 
 const COMMAND_SIGN_BUNDLES = "sign-bundles";
-const COMMAND_SIGN_CHECKSUMS = "sign-checksums";
+const COMMAND_FINALIZE_RELEASE = "finalize-release";
 
 const ENV_GPG_PRIVATE_KEY = "LINUX_GPG_PRIVATE_KEY_ASC";
 const ENV_GPG_PASSPHRASE = "LINUX_GPG_PASSPHRASE";
@@ -70,30 +70,63 @@ async function main() {
             );
             return;
         }
-        if (command === COMMAND_SIGN_CHECKSUMS) {
-            const checksumPath = path.resolve(
-                process.argv[3] ?? path.join(rootDir, "SHA256SUMS.txt"),
+        if (command === COMMAND_FINALIZE_RELEASE) {
+            const artifactDirectory = path.resolve(
+                process.argv[3] ?? path.join(rootDir, "release-assets"),
             );
-            await signLinuxFiles([checksumPath]);
+            const checksumPath = path.resolve(
+                process.argv[4] ?? path.join(rootDir, "SHA256SUMS.txt"),
+            );
+            await verifyLinuxBundleSignaturesAndSignChecksum(
+                await resolveLinuxBundleFiles(artifactDirectory),
+                checksumPath,
+            );
             return;
         }
 
         throw new Error(
-            `Usage: node scripts/build/linux-gpg-signing.mjs <${COMMAND_SIGN_BUNDLES}|${COMMAND_SIGN_CHECKSUMS}> [path]`,
+            `Usage: node scripts/build/linux-gpg-signing.mjs <${COMMAND_SIGN_BUNDLES} [artifact-directory]|${COMMAND_FINALIZE_RELEASE} [artifact-directory] [checksum-path]>`,
         );
     } catch (error) {
-        const redactor = createLinuxGpgSecretRedactor(process.env);
-        console.error(
-            redactor.redact(
-                error instanceof Error ? error.stack : String(error),
-            ),
-        );
+        try {
+            const redactor = createLinuxGpgSecretRedactor(process.env);
+            console.error(
+                redactor.redact(
+                    error instanceof Error ? error.stack : String(error),
+                ),
+            );
+        } catch {
+            console.error(
+                "Linux GPG signing failed before a safe output redactor could be created.",
+            );
+        }
         process.exitCode = 1;
     }
 }
 
 // Signs and verifies files inside a temporary, always-removed GPG home.
 export async function signLinuxFiles(filePaths, options = {}) {
+    await runLinuxGpgSession({ filePathsToSign: filePaths, options });
+}
+
+// Re-verifies transferred bundles before signing the release checksum manifest.
+export async function verifyLinuxBundleSignaturesAndSignChecksum(
+    bundlePaths,
+    checksumPath,
+    options = {},
+) {
+    await runLinuxGpgSession({
+        filePathsToVerify: bundlePaths,
+        filePathsToSign: [checksumPath],
+        options,
+    });
+}
+
+async function runLinuxGpgSession({
+    filePathsToVerify = [],
+    filePathsToSign = [],
+    options,
+}) {
     const environment = options.environment ?? process.env;
     const config = readSigningConfig(environment);
     const redactor = createLinuxGpgSecretRedactor(environment);
@@ -139,7 +172,16 @@ export async function signLinuxFiles(filePaths, options = {}) {
             config.primaryFingerprint,
         );
 
-        for (const filePath of filePaths) {
+        for (const filePath of filePathsToVerify) {
+            await verifyExistingSignature({
+                filePath: path.resolve(filePath),
+                config,
+                signingKeyFingerprints,
+                runGpg,
+                logger: (message) => logger(redactor.redact(message)),
+            });
+        }
+        for (const filePath of filePathsToSign) {
             await signAndVerifyFile({
                 filePath: path.resolve(filePath),
                 config,
@@ -190,6 +232,44 @@ export async function signLinuxFiles(filePaths, options = {}) {
     if (cleanupError) {
         throw cleanupError;
     }
+}
+
+async function verifyExistingSignature({
+    filePath,
+    config,
+    signingKeyFingerprints,
+    runGpg,
+    logger,
+}) {
+    const fileStat = await stat(filePath);
+    if (!fileStat.isFile()) {
+        throw new Error(`Signature input is not a regular file: ${filePath}`);
+    }
+    const signaturePath = `${filePath}${SIGNATURE_SUFFIX}`;
+    const signatureStat = await stat(signaturePath);
+    if (!signatureStat.isFile() || signatureStat.size === 0) {
+        throw new Error(
+            `Missing non-empty detached signature for ${filePath}.`,
+        );
+    }
+
+    const verification = await runGpg([
+        "--status-fd",
+        "1",
+        "--logger-fd",
+        "2",
+        "--verify",
+        signaturePath,
+        filePath,
+    ]);
+    assertValidSignatureStatus(
+        verification.stdout,
+        config.primaryFingerprint,
+        signingKeyFingerprints,
+    );
+    logger(
+        `Verified transferred detached signature for ${JSON.stringify(path.basename(filePath))}.`,
+    );
 }
 
 // Builds the Linux signer redactor without exposing its source credentials.

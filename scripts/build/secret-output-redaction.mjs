@@ -281,10 +281,7 @@ export async function runRedactedCommand(command, args, options = {}) {
 function collectRedactionValues(secretValues) {
     const redactionValues = new Set();
     const addValue = (value) => {
-        if (
-            typeof value !== "string" ||
-            value.length < MINIMUM_REDACTION_VALUE_LENGTH
-        ) {
+        if (typeof value !== "string" || value.length === 0) {
             return;
         }
         redactionValues.add(value);
@@ -295,8 +292,13 @@ function collectRedactionValues(secretValues) {
             continue;
         }
         for (const value of new Set([sourceValue, sourceValue.trim()])) {
-            if (value.length < MINIMUM_REDACTION_VALUE_LENGTH) {
+            if (value.length === 0) {
                 continue;
+            }
+            if (value.length < MINIMUM_REDACTION_VALUE_LENGTH) {
+                throw new Error(
+                    `Refusing to redact a non-empty secret shorter than ${MINIMUM_REDACTION_VALUE_LENGTH} characters.`,
+                );
             }
             addValue(value);
             addValue(encodeURIComponent(value));

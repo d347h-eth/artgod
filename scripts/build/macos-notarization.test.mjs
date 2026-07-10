@@ -6,7 +6,6 @@ import test from "node:test";
 import { inspect } from "node:util";
 
 import {
-    GITHUB_REF_TYPE_TAG,
     NOTARY_STATUS_ACCEPTED,
     NOTARY_OPTION_ISSUER,
     NOTARY_OPTION_KEY,
@@ -19,6 +18,7 @@ import {
     readNotaryStatus,
     runCommand as runNotaryCommand,
 } from "./macos-notarization.mjs";
+import { RELEASE_TAG_REF_TYPE } from "./desktop-release-contract.mjs";
 
 const submissionId = "11111111-2222-4333-8444-555555555555";
 const artifactName = "ArtGod_test_universal.dmg";
@@ -86,7 +86,7 @@ test("requires resume runs to use the original tag, commit, and run", () => {
     const source = {
         repository: "owner/artgod",
         refName: "v0.0.1-pre-alpha.63",
-        refType: GITHUB_REF_TYPE_TAG,
+        refType: RELEASE_TAG_REF_TYPE,
         sha: "abc123",
         runId: "123456",
     };
@@ -94,7 +94,7 @@ test("requires resume runs to use the original tag, commit, and run", () => {
     const matchingContext = {
         repository: source.repository,
         refName: source.refName,
-        refType: GITHUB_REF_TYPE_TAG,
+        refType: RELEASE_TAG_REF_TYPE,
         sha: source.sha,
         sourceRunId: source.runId,
     };
