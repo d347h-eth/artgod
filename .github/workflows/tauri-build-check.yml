@@ -61,8 +61,8 @@ jobs:
             - name: Check desktop runtime registry consistency
               run: yarn check:runtime-registry
 
-            - name: Test macOS notarization helper
-              run: yarn test:desktop:notarization
+            - name: Test desktop signing helpers
+              run: yarn test:desktop:signing
 
             - name: Tauri no-bundle build check
               env:

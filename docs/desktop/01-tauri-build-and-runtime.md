@@ -272,6 +272,24 @@ Responsibilities:
 - staples immediately or resumes the same submission and DMG from a later
   manual workflow run
 
+### `scripts/build/secret-output-redaction.mjs`
+
+Responsibilities:
+
+- keeps raw signing-tool output internal while streaming only credential-redacted text
+- redacts exact, serialized, multiline payload, authorization-header, and JWT-shaped credential forms
+- sanitizes child-process failures and diagnostic files through the same boundary
+
+### `scripts/build/linux-gpg-signing.mjs`
+
+Responsibilities:
+
+- signs and verifies Linux bundles and the release checksum manifest through one implementation
+- imports only the configured release key into an isolated temporary GPG home
+- validates the exact primary fingerprint and available signing key/subkey before signing
+- supplies the passphrase over a file descriptor rather than process arguments
+- verifies GPG's `VALIDSIG` signer provenance and always removes the temporary keyring
+
 ### `scripts/build/clean-build-artifacts.mjs`
 
 Responsibilities:

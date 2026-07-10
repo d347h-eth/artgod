@@ -71,8 +71,8 @@ jobs:
             - name: Check Cargo dependency age gate
               run: yarn cargo:age-gate
 
-            - name: Test macOS notarization helper
-              run: yarn test:desktop:notarization
+            - name: Test desktop signing helpers
+              run: yarn test:desktop:signing
 
     build:
         if: github.event_name == 'push'
@@ -315,54 +315,9 @@ jobs:
                   retention-days: ${{ env.MACOS_NOTARIZATION_ARTIFACT_RETENTION_DAYS }}
                   if-no-files-found: ${{ env.ARTIFACT_MISSING_FILE_BEHAVIOR }}
 
-            - name: Validate Linux signing secrets
+            - name: Sign and verify Linux release artifacts
               if: runner.os == 'Linux'
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  missing=0
-                  for key in LINUX_GPG_PRIVATE_KEY_ASC LINUX_GPG_PASSPHRASE LINUX_GPG_KEY_ID; do
-                    if [ -z "${!key:-}" ]; then
-                      echo "Missing required secret: $key"
-                      missing=1
-                    fi
-                  done
-                  if [ "$missing" -ne 0 ]; then
-                    exit 1
-                  fi
-              env:
-                  LINUX_GPG_PRIVATE_KEY_ASC: ${{ secrets.LINUX_GPG_PRIVATE_KEY_ASC }}
-                  LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
-                  LINUX_GPG_KEY_ID: ${{ secrets.LINUX_GPG_KEY_ID }}
-
-            - name: Sign Linux artifacts with GPG
-              if: runner.os == 'Linux'
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  export GNUPGHOME="$RUNNER_TEMP/gnupg"
-                  mkdir -p "$GNUPGHOME"
-                  chmod 700 "$GNUPGHOME"
-
-                  echo "$LINUX_GPG_PRIVATE_KEY_ASC" | gpg --batch --import
-                  if [ -n "${LINUX_GPG_OWNERTRUST:-}" ]; then
-                    echo "$LINUX_GPG_OWNERTRUST" | gpg --batch --import-ownertrust
-                  fi
-
-                  shopt -s nullglob
-                  files=(release-assets/*.AppImage release-assets/*.deb)
-                  if [ "${#files[@]}" -eq 0 ]; then
-                    echo "No Linux artifacts found to sign"
-                    exit 1
-                  fi
-
-                  for file in "${files[@]}"; do
-                    gpg --batch --yes --pinentry-mode loopback \
-                      --passphrase "$LINUX_GPG_PASSPHRASE" \
-                      --local-user "$LINUX_GPG_KEY_ID" \
-                      --armor --detach-sign "$file"
-                    gpg --batch --verify "${file}.asc" "$file"
-                  done
+              run: node ./scripts/build/linux-gpg-signing.mjs sign-bundles release-assets
               env:
                   LINUX_GPG_PRIVATE_KEY_ASC: ${{ secrets.LINUX_GPG_PRIVATE_KEY_ASC }}
                   LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
@@ -502,6 +457,14 @@ jobs:
         environment: desktop-release-signing
 
         steps:
+            - name: Checkout release tag
+              uses: actions/checkout@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: package.json
+
             - name: Download Linux artifacts from tag run
               if: github.event_name == 'push'
               uses: actions/download-artifact@v4
@@ -539,43 +502,8 @@ jobs:
                   cd release-assets
                   find . -maxdepth 1 -type f -print0 | sort -z | xargs -0 sha256sum > ../SHA256SUMS.txt
 
-            - name: Validate checksum signing secrets
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  missing=0
-                  for key in LINUX_GPG_PRIVATE_KEY_ASC LINUX_GPG_PASSPHRASE LINUX_GPG_KEY_ID; do
-                    if [ -z "${!key:-}" ]; then
-                      echo "Missing required secret: $key"
-                      missing=1
-                    fi
-                  done
-                  if [ "$missing" -ne 0 ]; then
-                    exit 1
-                  fi
-              env:
-                  LINUX_GPG_PRIVATE_KEY_ASC: ${{ secrets.LINUX_GPG_PRIVATE_KEY_ASC }}
-                  LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
-                  LINUX_GPG_KEY_ID: ${{ secrets.LINUX_GPG_KEY_ID }}
-
-            - name: Sign checksums with GPG
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  export GNUPGHOME="$RUNNER_TEMP/gnupg"
-                  mkdir -p "$GNUPGHOME"
-                  chmod 700 "$GNUPGHOME"
-
-                  echo "$LINUX_GPG_PRIVATE_KEY_ASC" | gpg --batch --import
-                  if [ -n "${LINUX_GPG_OWNERTRUST:-}" ]; then
-                    echo "$LINUX_GPG_OWNERTRUST" | gpg --batch --import-ownertrust
-                  fi
-
-                  gpg --batch --yes --pinentry-mode loopback \
-                    --passphrase "$LINUX_GPG_PASSPHRASE" \
-                    --local-user "$LINUX_GPG_KEY_ID" \
-                    --armor --detach-sign SHA256SUMS.txt
-                  gpg --batch --verify SHA256SUMS.txt.asc SHA256SUMS.txt
+            - name: Sign and verify release checksum manifest
+              run: node ./scripts/build/linux-gpg-signing.mjs sign-checksums SHA256SUMS.txt
               env:
                   LINUX_GPG_PRIVATE_KEY_ASC: ${{ secrets.LINUX_GPG_PRIVATE_KEY_ASC }}
                   LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}

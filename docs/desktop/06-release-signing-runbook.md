@@ -190,7 +190,7 @@ stapled ticket, and then runs Gatekeeper assessment on the DMG.
   persisted notarization diagnostic.
 - Redaction tests inject sentinel credentials into split stdout chunks, stderr,
   failed command arguments, exception inspection, and diagnostic files. Run
-  them with `yarn test:desktop:notarization`.
+  them with `yarn test:desktop:signing`.
 
 GitHub masking remains defense in depth for the custom notarization commands;
 raw `notarytool` output is not written to the public runner log first.
@@ -336,6 +336,14 @@ Recommended procedure:
     - `LINUX_GPG_KEY_ID`
     - optional `LINUX_GPG_OWNERTRUST`
 5. Test verification from a clean machine before the first public tag.
+
+CI uses `scripts/build/linux-gpg-signing.mjs` for both Linux bundle signatures
+and `SHA256SUMS.txt.asc`. It validates the exact imported primary fingerprint,
+selects only usable on-disk signing material, sends the passphrase over a file
+descriptor, verifies the resulting `VALIDSIG` primary/signing fingerprints,
+redacts all GPG output before emission, and removes the temporary keyring before
+later Actions steps. Run its security coverage with
+`yarn test:desktop:signing`.
 
 Consumer verification:
 

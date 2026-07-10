@@ -58,7 +58,7 @@
         "format": "prettier . --write",
         "format:check": "prettier . --check",
         "test": "yarn workspace @artgod/backend test && yarn workspace @artgod/frontend test && yarn workspace @artgod/indexer test && yarn workspace @artgod/trading test",
-        "test:desktop:notarization": "node ./scripts/build/macos-notarization.test.mjs",
+        "test:desktop:signing": "node ./scripts/build/secret-output-redaction.test.mjs && node ./scripts/build/macos-notarization.test.mjs && node ./scripts/build/linux-gpg-signing.test.mjs",
         "test:preview:attached": "yarn workspace @artgod/frontend test:preview:attached",
         "test:preview:attached:headed": "yarn workspace @artgod/frontend test:preview:attached:headed",
         "test:preview:attached:artifacts": "yarn workspace @artgod/frontend test:preview:attached:artifacts",
