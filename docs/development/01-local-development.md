@@ -188,6 +188,7 @@ When you bump the version, update it there first, then run:
 
 ```sh
 yarn sync:version
+yarn check:version
 ```
 
 That propagates the root version into the places that require materialized
@@ -204,9 +205,13 @@ Notes:
 - The frontend build reads the app version directly from the root workspace
   version. There is no separate app-version deploy env override.
 - Desktop release tags should match the root version with a leading `v`, for
-  example root `0.0.1-pre-alpha.3` -> tag `v0.0.1-pre-alpha.3`.
+  example root `0.0.1-pre-alpha.3` -> shipped tag
+  `v0.0.1-pre-alpha.3`. Dry-run tags append `-test.N`, where `N` is a positive
+  integer, to that exact tag.
 - Run `yarn sync:version` before building release artifacts or pushing a
   release tag so Tauri, Cargo, workspace manifests, and OpenAPI stay aligned.
+- `yarn check:version` performs the same contract check without modifying any
+  file. The release workflow runs this through its signed-tag admission gate.
 
 ## Node Dependency Security Verification
 
@@ -431,7 +436,9 @@ Desktop release artifacts are built publicly in GitHub Actions.
 - Main release workflow: `.github/workflows/tauri-release.yml`
 - Reproducibility workflow: `.github/workflows/tauri-repro-check.yml`, unsigned
   Linux parity.
-- Trigger: push tag `v*`, for example `v0.1.0`.
+- Trigger: push a GitHub-verified OpenPGP annotated tag that exactly matches
+  `v<root-package-version>` or appends the dry-run suffix `-test.N`, where `N`
+  is a positive integer.
 - Targets: Linux x64 and macOS universal. Windows release packaging remains
   deferred for the public alpha; Windows source builds are still supported.
 - Outputs: signed release bundles, `SHA256SUMS.txt`, `SHA256SUMS.txt.asc`,

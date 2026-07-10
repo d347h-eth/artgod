@@ -274,10 +274,14 @@ The release job:
 
 1. Downloads all build artifacts.
 2. Generates `SHA256SUMS.txt`.
-3. Runs the same helper with `sign-checksums` in a fresh temporary GPG session.
-4. Creates and provenance-verifies `SHA256SUMS.txt.asc`.
-5. Removes the temporary keyring before any publishing action runs.
-6. Publishes artifacts, signatures, checksums, and GitHub provenance
+3. Runs the same helper with `finalize-release` in a fresh temporary GPG
+   session.
+4. Re-verifies every transferred AppImage and `.deb` signature against the
+   expected primary and signing-subkey fingerprints.
+5. Creates and provenance-verifies `SHA256SUMS.txt.asc` only after those
+   transferred signatures pass.
+6. Removes the temporary keyring before any publishing action runs.
+7. Publishes artifacts, signatures, checksums, and GitHub provenance
    attestations.
 
 All GPG stdout, stderr, failures, and key payload fragments pass through the
@@ -348,7 +352,8 @@ Rotation steps for the recommended setup:
 4. Export updated CI signing subkeys:
    `gpg --armor --export-secret-subkeys "$PRIMARY_FPR" > artgod-ci-linux-signing-subkeys.asc`.
 5. Update `LINUX_GPG_PRIVATE_KEY_ASC` in GitHub.
-6. Dry-run the release workflow on a `-test.` tag.
+6. Dry-run the release workflow on the exact
+   `v<root-package-version>-test.<positive-integer>` tag form.
 7. Publish the updated public key and fingerprint notes.
 
 If you want CI to carry only one active signing subkey, revoke or expire the old

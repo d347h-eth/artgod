@@ -11,7 +11,10 @@ This document describes the current desktop pipeline end-to-end:
 It is the canonical technical reference for desktop composition in this repository.
 
 Project versioning is documented in `docs/development/01-local-development.md`.
-For desktop releases, keep the release tag aligned with the root `package.json` version (`v<root-version>`) and run `yarn sync:version` before building or publishing release artifacts.
+For desktop releases, keep the shipped tag aligned with the root `package.json`
+version (`v<root-version>`) and run `yarn sync:version` plus
+`yarn check:version` before publishing release artifacts. Dry-run tags append
+`-test.N`, where `N` is a positive integer, to the exact shipped tag.
 
 For add/remove runtime registry maintenance, see:
 
@@ -639,14 +642,20 @@ Trigger:
 
 Release metadata:
 
-- Shipped alpha/beta/rc tags, such as `v0.0.1-alpha.1`, publish as normal
-  GitHub releases and are marked Latest.
-- Test tags containing `-test.`, such as `v0.0.1-test.1`, publish as GitHub
-  pre-releases and are not marked Latest.
-- Plain stable tags such as `v1.0.0` also publish as normal Latest releases.
+- A shipped tag must exactly equal `v<root-package-version>`, such as
+  `v0.0.1-pre-alpha.63` or `v1.0.0`. It publishes as a normal GitHub release
+  and is marked Latest.
+- A dry-run tag appends `-test.N` to the exact shipped tag, where `N` is a
+  positive integer, such as `v0.0.1-pre-alpha.63-test.1`. It publishes as a
+  GitHub pre-release and is not marked Latest.
+- Release admission rejects version drift, lightweight or non-OpenPGP tags,
+  signatures GitHub does not verify, tag/event/checkout commit mismatches, and
+  commits outside `origin/main`.
 
 Build-check trigger policy:
 
+- The build check runs the no-write project version contract before package
+  installation, so version drift fails on pull requests and `main`.
 - Do not add `paths-ignore` for version-sync files; they are build-critical
   inputs for Tauri, Cargo, and workspace packaging.
 - For a version-only `yarn sync:version` commit after a green merge commit on
@@ -672,6 +681,8 @@ Current state:
   `yarn install --immutable`, then `yarn build:sqlite-native` for the
   allowlisted `better-sqlite3` native binding.
 - Linux artifacts are GPG-signed (detached armor signatures).
+- Final release assembly re-verifies downloaded AppImage and `.deb` signatures
+  before signing the checksum manifest.
 - macOS DMG is code-signed, notarized, and stapled in CI. The release workflow
   preserves the exact submitted DMG and Apple submission state before bounded
   polling, so delayed submissions can be resumed from the original release tag
