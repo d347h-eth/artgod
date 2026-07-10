@@ -92,8 +92,13 @@ Linux x64 bundle:
 
 ```sh
 sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libfuse2 libssl-dev libxdo-dev patchelf file xdg-utils python3 make g++
+yarn prepare:tauri-linux-tools
 yarn tauri build --ci --target x86_64-unknown-linux-gnu --bundles appimage,deb
 ```
+
+The preparation step materializes the exact AppImage packaging tools pinned in
+`config/tauri-linux-bundler-tools.json`. It verifies their sizes and SHA-256
+values before Tauri can execute them; a moved upstream asset fails the build.
 
 Ubuntu 22 release-lane reproduction in Docker:
 

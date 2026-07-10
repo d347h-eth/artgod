@@ -88,6 +88,7 @@ yarn build:desktop
 yarn build:runtime
 yarn build:desktop-runtime-resources
 yarn build:desktop-sidecars --profile release
+yarn prepare:tauri-linux-tools
 yarn check:runtime-registry
 yarn clean:build
 yarn tauri build --no-bundle --ci
@@ -137,6 +138,10 @@ What each command does:
 - `yarn build:desktop-sidecars --profile release`
   : Runs `scripts/build/prepare-desktop-sidecars.mjs`.
   : Builds the native secret-prompt sidecar and stages the target-specific binary under `src-tauri/binaries`.
+
+- `yarn prepare:tauri-linux-tools`
+  : Runs `scripts/build/prepare-tauri-linux-bundler-tools.mjs`.
+  : Materializes the exact AppImage packaging executables declared by `config/tauri-linux-bundler-tools.json` only after size and SHA-256 verification.
 
 - `yarn check:runtime-registry`
   : Runs `scripts/build/check-runtime-registry.mjs`.
@@ -259,6 +264,16 @@ Responsibilities:
 - covers the bundled Node runtime, bundled NATS runtime, native `.node` add-ons from `.yarn/unplugged`, and the native secret-prompt sidecar
 - skips non-macOS targets and local macOS builds without `APPLE_SIGNING_IDENTITY`
 - mounts the produced DMG and verifies that the contained `.app` has signed Node, NATS, and secret-prompt executables before notarization
+
+### `scripts/build/prepare-tauri-linux-bundler-tools.mjs`
+
+Responsibilities:
+
+- owns the complete Tauri Linux x64 AppImage tool cache contract
+- requires the manifest CLI version to match the project-pinned Tauri CLI
+- verifies every downloaded tool's exact size and repository-owned SHA-256 before making it executable
+- atomically replaces stale or Tauri-mutated cache entries before each release bundle
+- prevents missing manifest entries from falling through to Tauri's moving upstream downloads
 
 ### `scripts/build/macos-notarization.mjs`
 

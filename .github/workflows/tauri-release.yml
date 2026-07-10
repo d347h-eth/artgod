@@ -211,7 +211,9 @@ jobs:
                   DESKTOP_NODE_DIST_TARGET: ${{ matrix.node_dist_target }}
                   DESKTOP_NATS_DIST_TARGET: ${{ matrix.node_dist_target }}
                   APPIMAGE_EXTRACT_AND_RUN: "1"
-              run: yarn tauri build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+              run: |
+                  yarn prepare:tauri-linux-tools
+                  yarn tauri build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
             - name: Build macOS Tauri bundle
               if: runner.os == 'macOS'
