@@ -11,7 +11,10 @@ This document describes the current desktop pipeline end-to-end:
 It is the canonical technical reference for desktop composition in this repository.
 
 Project versioning is documented in `docs/development/01-local-development.md`.
-For desktop releases, keep the release tag aligned with the root `package.json` version (`v<root-version>`) and run `yarn sync:version` before building or publishing release artifacts.
+For desktop releases, keep the shipped tag aligned with the root `package.json`
+version (`v<root-version>`) and run `yarn sync:version` plus
+`yarn check:version` before publishing release artifacts. Dry-run tags append
+`-test.N`, where `N` is a positive integer, to the exact shipped tag.
 
 For add/remove runtime registry maintenance, see:
 
@@ -88,6 +91,7 @@ yarn build:desktop
 yarn build:runtime
 yarn build:desktop-runtime-resources
 yarn build:desktop-sidecars --profile release
+yarn prepare:tauri-linux-tools
 yarn check:runtime-registry
 yarn clean:build
 yarn tauri build --no-bundle --ci
@@ -137,6 +141,10 @@ What each command does:
 - `yarn build:desktop-sidecars --profile release`
   : Runs `scripts/build/prepare-desktop-sidecars.mjs`.
   : Builds the native secret-prompt sidecar and stages the target-specific binary under `src-tauri/binaries`.
+
+- `yarn prepare:tauri-linux-tools`
+  : Runs `scripts/build/prepare-tauri-linux-bundler-tools.mjs`.
+  : Materializes the exact AppImage packaging executables declared by `config/tauri-linux-bundler-tools.json` only after size and SHA-256 verification.
 
 - `yarn check:runtime-registry`
   : Runs `scripts/build/check-runtime-registry.mjs`.
@@ -260,6 +268,16 @@ Responsibilities:
 - skips non-macOS targets and local macOS builds without `APPLE_SIGNING_IDENTITY`
 - mounts the produced DMG and verifies that the contained `.app` has signed Node, NATS, and secret-prompt executables before notarization
 
+### `scripts/build/prepare-tauri-linux-bundler-tools.mjs`
+
+Responsibilities:
+
+- owns the complete Tauri Linux x64 AppImage tool cache contract
+- requires the manifest CLI version to match the project-pinned Tauri CLI
+- verifies every downloaded tool's exact size and repository-owned SHA-256 before making it executable
+- atomically replaces stale or Tauri-mutated cache entries before each release bundle
+- prevents missing manifest entries from falling through to Tauri's moving upstream downloads
+
 ### `scripts/build/macos-notarization.mjs`
 
 Responsibilities:
@@ -267,9 +285,28 @@ Responsibilities:
 - verifies and hashes the signed DMG before submission
 - submits once without coupling upload to Apple's processing wait
 - persists the submission ID and retries transient status-query failures
+- redacts credentials from live child-process output, errors, and saved diagnostics before emission
 - verifies Apple's accepted log against the preserved DMG SHA-256
 - staples immediately or resumes the same submission and DMG from a later
   manual workflow run
+
+### `scripts/build/secret-output-redaction.mjs`
+
+Responsibilities:
+
+- keeps raw signing-tool output internal while streaming only credential-redacted text
+- redacts exact, serialized, multiline payload, authorization-header, and JWT-shaped credential forms
+- sanitizes child-process failures and diagnostic files through the same boundary
+
+### `scripts/build/linux-gpg-signing.mjs`
+
+Responsibilities:
+
+- signs and verifies Linux bundles and the release checksum manifest through one implementation
+- imports only the configured release key into an isolated temporary GPG home
+- validates the exact primary fingerprint and available signing key/subkey before signing
+- supplies the passphrase over a file descriptor rather than process arguments
+- verifies GPG's `VALIDSIG` signer provenance and always removes the temporary keyring
 
 ### `scripts/build/clean-build-artifacts.mjs`
 
@@ -605,14 +642,20 @@ Trigger:
 
 Release metadata:
 
-- Shipped alpha/beta/rc tags, such as `v0.0.1-alpha.1`, publish as normal
-  GitHub releases and are marked Latest.
-- Test tags containing `-test.`, such as `v0.0.1-test.1`, publish as GitHub
-  pre-releases and are not marked Latest.
-- Plain stable tags such as `v1.0.0` also publish as normal Latest releases.
+- A shipped tag must exactly equal `v<root-package-version>`, such as
+  `v0.0.1-pre-alpha.63` or `v1.0.0`. It publishes as a normal GitHub release
+  and is marked Latest.
+- A dry-run tag appends `-test.N` to the exact shipped tag, where `N` is a
+  positive integer, such as `v0.0.1-pre-alpha.63-test.1`. It publishes as a
+  GitHub pre-release and is not marked Latest.
+- Release admission rejects version drift, lightweight or non-OpenPGP tags,
+  signatures GitHub does not verify, tag/event/checkout commit mismatches, and
+  commits outside `origin/main`.
 
 Build-check trigger policy:
 
+- The build check runs the no-write project version contract before package
+  installation, so version drift fails on pull requests and `main`.
 - Do not add `paths-ignore` for version-sync files; they are build-critical
   inputs for Tauri, Cargo, and workspace packaging.
 - For a version-only `yarn sync:version` commit after a green merge commit on
@@ -638,10 +681,19 @@ Current state:
   `yarn install --immutable`, then `yarn build:sqlite-native` for the
   allowlisted `better-sqlite3` native binding.
 - Linux artifacts are GPG-signed (detached armor signatures).
+- Final release assembly re-verifies downloaded AppImage and `.deb` signatures
+  before signing the checksum manifest.
 - macOS DMG is code-signed, notarized, and stapled in CI. The release workflow
   preserves the exact submitted DMG and Apple submission state before bounded
   polling, so delayed submissions can be resumed from the original release tag
   without rebuilding or resubmitting.
+- Every external Action is pinned to a full commit SHA, checkout credentials are
+  not persisted, and write/OIDC permissions exist only in the publication job.
+- Release assembly holds the Linux signing secret but has read-only repository
+  permissions. A separate secret-free job attests the finished bundles before
+  publishing the GitHub Release.
+- macOS `.p12`, keychain, and `.p8` material are removed before any later
+  artifact Action can observe the corresponding runner filesystem state.
 - Windows release builds are deferred for the first public alpha. When Windows
   releases are enabled later, signing should use SSL.com eSigner CKA with
   `signtool.exe` on the Windows runner.
@@ -650,8 +702,9 @@ Release secrets expected by CI:
 
 Store release signing and notarization secrets as GitHub Environment secrets in
 `desktop-release-signing`, not as repository-wide secrets. The release workflow
-declares that environment on the jobs that need secrets. The build-check and
-reproducibility workflows do not use signing secrets.
+declares that environment on protected release jobs, but secrets are passed only
+to the exact steps that consume them. The build-check and reproducibility
+workflows do not use signing secrets.
 
 - Linux GPG:
     - `LINUX_GPG_PRIVATE_KEY_ASC`

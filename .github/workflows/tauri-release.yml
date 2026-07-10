@@ -12,14 +12,12 @@ on:
                 type: string
 
 permissions:
-    actions: read
-    contents: write
-    id-token: write
-    attestations: write
+    contents: read
 
 env:
     DESKTOP_LINUX_ARTIFACT_NAME: artgod-linux-x64
     DESKTOP_MACOS_ARTIFACT_NAME: artgod-macos-universal
+    DESKTOP_RELEASE_READY_ARTIFACT_NAME: artgod-desktop-release-ready
     MACOS_NOTARIZATION_INPUT_ARTIFACT_NAME: artgod-macos-notarization-input
     MACOS_NOTARIZATION_STATE_ARTIFACT_NAME: artgod-macos-notarization-state
     MACOS_NOTARIZATION_DIAGNOSTICS_ARTIFACT_NAME: artgod-macos-notarization-diagnostics
@@ -28,6 +26,8 @@ env:
     ARTIFACT_MISSING_FILE_BEHAVIOR: error
     MACOS_RELEASE_ASSET_DIR: release-assets
     MACOS_NOTARIZATION_STATE_DIR: release-state/macos
+    MACOS_SIGNING_CERTIFICATE_FILE_NAME: apple-signing-certificate.p12
+    MACOS_SIGNING_KEYCHAIN_FILE_NAME: artgod-build.keychain-db
 
 jobs:
     dependency-security:
@@ -36,18 +36,26 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+              with:
+                  persist-credentials: false
+                  fetch-depth: 0
 
             - name: Setup Node
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
               with:
                   node-version-file: package.json
+
+            - name: Validate signed release tag admission
+              run: node ./scripts/build/desktop-release-admission.mjs validate
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
 
             - name: Enable Corepack
               run: corepack enable
 
             - name: Cache Yarn local artifacts
-              uses: actions/cache@v4
+              uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
               with:
                   path: |
                       .yarn/cache
@@ -68,8 +76,8 @@ jobs:
             - name: Check Cargo dependency age gate
               run: yarn cargo:age-gate
 
-            - name: Test macOS notarization helper
-              run: yarn test:desktop:notarization
+            - name: Test desktop release security
+              run: yarn test:desktop:release
 
     build:
         if: github.event_name == 'push'
@@ -95,10 +103,12 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+              with:
+                  persist-credentials: false
 
             - name: Setup Node
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
               with:
                   node-version: 24.3.0
 
@@ -106,7 +116,7 @@ jobs:
               run: corepack enable
 
             - name: Cache Yarn local artifacts
-              uses: actions/cache@v4
+              uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
               with:
                   path: |
                       .yarn/cache
@@ -118,7 +128,7 @@ jobs:
                       ${{ runner.os }}-yarn-local-
 
             - name: Setup Rust
-              uses: dtolnay/rust-toolchain@stable
+              uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-07-10
               with:
                   toolchain: 1.93.1
                   targets: ${{ matrix.rust_targets }}
@@ -179,30 +189,29 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  CERT_PATH="$RUNNER_TEMP/apple-signing-cert.p12"
-                  KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
-                  KEYCHAIN_PATH="$RUNNER_TEMP/artgod-build.keychain-db"
+                  umask 077
+                  CERT_PATH="$RUNNER_TEMP/$MACOS_SIGNING_CERTIFICATE_FILE_NAME"
+                  KEYCHAIN_PATH="$RUNNER_TEMP/$MACOS_SIGNING_KEYCHAIN_FILE_NAME"
                   KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+                  echo "::add-mask::$KEYCHAIN_PASSWORD"
 
-                  echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
-                  echo "$APPLE_API_KEY_P8_B64" | base64 --decode > "$KEY_PATH"
+                  printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+                  chmod 600 "$CERT_PATH"
 
                   security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+                  chmod 600 "$KEYCHAIN_PATH"
                   security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
                   security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
                   security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security -A
+                  rm -f "$CERT_PATH"
                   security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
                   security list-keychains -d user -s "$KEYCHAIN_PATH"
                   security default-keychain -d user -s "$KEYCHAIN_PATH"
 
-                  echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
                   echo "APPLE_KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
-                  echo "APPLE_KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
               env:
                   APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
                   APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-                  APPLE_API_KEY_P8_B64: ${{ secrets.APPLE_API_KEY_P8_B64 }}
-                  APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
 
             - name: Build Linux Tauri bundle
               if: runner.os == 'Linux'
@@ -210,7 +219,9 @@ jobs:
                   DESKTOP_NODE_DIST_TARGET: ${{ matrix.node_dist_target }}
                   DESKTOP_NATS_DIST_TARGET: ${{ matrix.node_dist_target }}
                   APPIMAGE_EXTRACT_AND_RUN: "1"
-              run: yarn tauri build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+              run: |
+                  yarn prepare:tauri-linux-tools
+                  yarn tauri build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
             - name: Build macOS Tauri bundle
               if: runner.os == 'macOS'
@@ -219,6 +230,20 @@ jobs:
                   DESKTOP_NATS_DIST_TARGET: ${{ matrix.node_dist_target }}
                   APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
               run: yarn tauri build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+            - name: Remove temporary macOS signing credentials
+              if: ${{ runner.os == 'macOS' && always() }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  CERT_PATH="$RUNNER_TEMP/$MACOS_SIGNING_CERTIFICATE_FILE_NAME"
+                  KEYCHAIN_PATH="${APPLE_KEYCHAIN_PATH:-$RUNNER_TEMP/$MACOS_SIGNING_KEYCHAIN_FILE_NAME}"
+                  if [ -e "$KEYCHAIN_PATH" ]; then
+                    security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+                  fi
+                  rm -f "$CERT_PATH" "$KEYCHAIN_PATH"
+                  test ! -e "$CERT_PATH"
+                  test ! -e "$KEYCHAIN_PATH"
 
             - name: Verify bundled Yarn runtime dependencies
               shell: bash
@@ -259,7 +284,7 @@ jobs:
 
             - name: Preserve macOS notarization input
               if: runner.os == 'macOS'
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
               with:
                   name: ${{ env.MACOS_NOTARIZATION_INPUT_ARTIFACT_NAME }}
                   path: ${{ env.MACOS_RELEASE_ASSET_DIR }}/*.dmg
@@ -272,12 +297,13 @@ jobs:
               shell: bash
               run: node ./scripts/build/macos-notarization.mjs submit "$MACOS_RELEASE_ASSET_DIR" "$MACOS_NOTARIZATION_STATE_DIR"
               env:
+                  APPLE_API_KEY_P8_B64: ${{ secrets.APPLE_API_KEY_P8_B64 }}
                   APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
                   APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
             - name: Preserve macOS notarization submission state
               if: ${{ runner.os == 'macOS' && always() }}
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
               with:
                   name: ${{ env.MACOS_NOTARIZATION_STATE_ARTIFACT_NAME }}
                   path: ${{ env.MACOS_NOTARIZATION_STATE_DIR }}
@@ -289,66 +315,22 @@ jobs:
               shell: bash
               run: node ./scripts/build/macos-notarization.mjs poll "$MACOS_RELEASE_ASSET_DIR" "$MACOS_NOTARIZATION_STATE_DIR"
               env:
+                  APPLE_API_KEY_P8_B64: ${{ secrets.APPLE_API_KEY_P8_B64 }}
                   APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
                   APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
             - name: Preserve macOS notarization diagnostics
               if: ${{ runner.os == 'macOS' && always() }}
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
               with:
                   name: ${{ env.MACOS_NOTARIZATION_DIAGNOSTICS_ARTIFACT_NAME }}
                   path: ${{ env.MACOS_NOTARIZATION_STATE_DIR }}
                   retention-days: ${{ env.MACOS_NOTARIZATION_ARTIFACT_RETENTION_DAYS }}
                   if-no-files-found: ${{ env.ARTIFACT_MISSING_FILE_BEHAVIOR }}
 
-            - name: Validate Linux signing secrets
+            - name: Sign and verify Linux release artifacts
               if: runner.os == 'Linux'
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  missing=0
-                  for key in LINUX_GPG_PRIVATE_KEY_ASC LINUX_GPG_PASSPHRASE LINUX_GPG_KEY_ID; do
-                    if [ -z "${!key:-}" ]; then
-                      echo "Missing required secret: $key"
-                      missing=1
-                    fi
-                  done
-                  if [ "$missing" -ne 0 ]; then
-                    exit 1
-                  fi
-              env:
-                  LINUX_GPG_PRIVATE_KEY_ASC: ${{ secrets.LINUX_GPG_PRIVATE_KEY_ASC }}
-                  LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
-                  LINUX_GPG_KEY_ID: ${{ secrets.LINUX_GPG_KEY_ID }}
-
-            - name: Sign Linux artifacts with GPG
-              if: runner.os == 'Linux'
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  export GNUPGHOME="$RUNNER_TEMP/gnupg"
-                  mkdir -p "$GNUPGHOME"
-                  chmod 700 "$GNUPGHOME"
-
-                  echo "$LINUX_GPG_PRIVATE_KEY_ASC" | gpg --batch --import
-                  if [ -n "${LINUX_GPG_OWNERTRUST:-}" ]; then
-                    echo "$LINUX_GPG_OWNERTRUST" | gpg --batch --import-ownertrust
-                  fi
-
-                  shopt -s nullglob
-                  files=(release-assets/*.AppImage release-assets/*.deb)
-                  if [ "${#files[@]}" -eq 0 ]; then
-                    echo "No Linux artifacts found to sign"
-                    exit 1
-                  fi
-
-                  for file in "${files[@]}"; do
-                    gpg --batch --yes --pinentry-mode loopback \
-                      --passphrase "$LINUX_GPG_PASSPHRASE" \
-                      --local-user "$LINUX_GPG_KEY_ID" \
-                      --armor --detach-sign "$file"
-                    gpg --batch --verify "${file}.asc" "$file"
-                  done
+              run: node ./scripts/build/linux-gpg-signing.mjs sign-bundles release-assets
               env:
                   LINUX_GPG_PRIVATE_KEY_ASC: ${{ secrets.LINUX_GPG_PRIVATE_KEY_ASC }}
                   LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
@@ -357,7 +339,7 @@ jobs:
 
             - name: Upload Linux build artifacts
               if: runner.os == 'Linux'
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
               with:
                   name: ${{ env.DESKTOP_LINUX_ARTIFACT_NAME }}
                   path: release-assets/*
@@ -365,7 +347,7 @@ jobs:
 
             - name: Upload macOS build artifacts
               if: runner.os == 'macOS'
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
               with:
                   name: ${{ env.DESKTOP_MACOS_ARTIFACT_NAME }}
                   path: release-assets/*
@@ -376,18 +358,26 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         runs-on: macos-latest
         environment: desktop-release-signing
+        permissions:
+            actions: read
+            contents: read
 
         steps:
             - name: Checkout release tag
-              uses: actions/checkout@v4
+              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+              with:
+                  persist-credentials: false
+                  fetch-depth: 0
 
             - name: Setup Node
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
               with:
                   node-version-file: package.json
 
-            - name: Validate original release tag selection
-              run: node ./scripts/build/macos-notarization.mjs validate-ref
+            - name: Validate signed release tag admission
+              run: node ./scripts/build/desktop-release-admission.mjs validate
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
 
             - name: Validate macOS notarization secrets
               shell: bash
@@ -408,20 +398,8 @@ jobs:
                   APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
                   APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
-            - name: Prepare macOS notarization API key
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
-                  echo "$APPLE_API_KEY_P8_B64" | base64 --decode > "$KEY_PATH"
-                  chmod 600 "$KEY_PATH"
-                  echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
-              env:
-                  APPLE_API_KEY_P8_B64: ${{ secrets.APPLE_API_KEY_P8_B64 }}
-                  APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-
             - name: Download preserved macOS notarization input
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
               with:
                   name: ${{ env.MACOS_NOTARIZATION_INPUT_ARTIFACT_NAME }}
                   path: ${{ env.MACOS_RELEASE_ASSET_DIR }}
@@ -429,7 +407,7 @@ jobs:
                   run-id: ${{ inputs.source_run_id }}
 
             - name: Download preserved macOS notarization state
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
               with:
                   name: ${{ env.MACOS_NOTARIZATION_STATE_ARTIFACT_NAME }}
                   path: ${{ env.MACOS_NOTARIZATION_STATE_DIR }}
@@ -440,13 +418,14 @@ jobs:
               shell: bash
               run: node ./scripts/build/macos-notarization.mjs finalize "$MACOS_RELEASE_ASSET_DIR" "$MACOS_NOTARIZATION_STATE_DIR"
               env:
+                  APPLE_API_KEY_P8_B64: ${{ secrets.APPLE_API_KEY_P8_B64 }}
                   APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
                   APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
                   MACOS_NOTARIZATION_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
 
             - name: Preserve resumed macOS notarization state
               if: always()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
               with:
                   name: ${{ env.MACOS_NOTARIZATION_DIAGNOSTICS_ARTIFACT_NAME }}
                   path: ${{ env.MACOS_NOTARIZATION_STATE_DIR }}
@@ -454,14 +433,14 @@ jobs:
                   if-no-files-found: ${{ env.ARTIFACT_MISSING_FILE_BEHAVIOR }}
 
             - name: Upload finalized macOS build artifacts
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
               with:
                   name: ${{ env.DESKTOP_MACOS_ARTIFACT_NAME }}
                   path: ${{ env.MACOS_RELEASE_ASSET_DIR }}/*
                   compression-level: ${{ env.MACOS_ARTIFACT_COMPRESSION_LEVEL }}
                   if-no-files-found: ${{ env.ARTIFACT_MISSING_FILE_BEHAVIOR }}
 
-    release:
+    assemble-release:
         needs:
             - build
             - resume-macos-notarization
@@ -471,25 +450,45 @@ jobs:
             (github.event_name == 'workflow_dispatch' && needs['resume-macos-notarization'].result == 'success'))
         runs-on: ubuntu-latest
         environment: desktop-release-signing
+        permissions:
+            actions: read
+            contents: read
+        outputs:
+            make_latest: ${{ steps.release-metadata.outputs.make_latest }}
+            prerelease: ${{ steps.release-metadata.outputs.prerelease }}
 
         steps:
+            - name: Checkout release tag
+              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+              with:
+                  persist-credentials: false
+
+            - name: Setup Node
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+              with:
+                  node-version-file: package.json
+
+            - name: Prepare release metadata
+              id: release-metadata
+              run: node ./scripts/build/desktop-release-admission.mjs metadata
+
             - name: Download Linux artifacts from tag run
               if: github.event_name == 'push'
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
               with:
                   name: ${{ env.DESKTOP_LINUX_ARTIFACT_NAME }}
                   path: release-assets
 
             - name: Download macOS artifacts from tag run
               if: github.event_name == 'push'
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
               with:
                   name: ${{ env.DESKTOP_MACOS_ARTIFACT_NAME }}
                   path: release-assets
 
             - name: Download Linux artifacts from source tag run
               if: github.event_name == 'workflow_dispatch'
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
               with:
                   name: ${{ env.DESKTOP_LINUX_ARTIFACT_NAME }}
                   path: release-assets
@@ -498,7 +497,7 @@ jobs:
 
             - name: Download finalized macOS artifacts
               if: github.event_name == 'workflow_dispatch'
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
               with:
                   name: ${{ env.DESKTOP_MACOS_ARTIFACT_NAME }}
                   path: release-assets
@@ -510,65 +509,58 @@ jobs:
                   cd release-assets
                   find . -maxdepth 1 -type f -print0 | sort -z | xargs -0 sha256sum > ../SHA256SUMS.txt
 
-            - name: Validate checksum signing secrets
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  missing=0
-                  for key in LINUX_GPG_PRIVATE_KEY_ASC LINUX_GPG_PASSPHRASE LINUX_GPG_KEY_ID; do
-                    if [ -z "${!key:-}" ]; then
-                      echo "Missing required secret: $key"
-                      missing=1
-                    fi
-                  done
-                  if [ "$missing" -ne 0 ]; then
-                    exit 1
-                  fi
-              env:
-                  LINUX_GPG_PRIVATE_KEY_ASC: ${{ secrets.LINUX_GPG_PRIVATE_KEY_ASC }}
-                  LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
-                  LINUX_GPG_KEY_ID: ${{ secrets.LINUX_GPG_KEY_ID }}
-
-            - name: Sign checksums with GPG
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  export GNUPGHOME="$RUNNER_TEMP/gnupg"
-                  mkdir -p "$GNUPGHOME"
-                  chmod 700 "$GNUPGHOME"
-
-                  echo "$LINUX_GPG_PRIVATE_KEY_ASC" | gpg --batch --import
-                  if [ -n "${LINUX_GPG_OWNERTRUST:-}" ]; then
-                    echo "$LINUX_GPG_OWNERTRUST" | gpg --batch --import-ownertrust
-                  fi
-
-                  gpg --batch --yes --pinentry-mode loopback \
-                    --passphrase "$LINUX_GPG_PASSPHRASE" \
-                    --local-user "$LINUX_GPG_KEY_ID" \
-                    --armor --detach-sign SHA256SUMS.txt
-                  gpg --batch --verify SHA256SUMS.txt.asc SHA256SUMS.txt
+            - name: Re-verify Linux bundles and sign release checksum manifest
+              run: node ./scripts/build/linux-gpg-signing.mjs finalize-release release-assets SHA256SUMS.txt
               env:
                   LINUX_GPG_PRIVATE_KEY_ASC: ${{ secrets.LINUX_GPG_PRIVATE_KEY_ASC }}
                   LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
                   LINUX_GPG_KEY_ID: ${{ secrets.LINUX_GPG_KEY_ID }}
                   LINUX_GPG_OWNERTRUST: ${{ secrets.LINUX_GPG_OWNERTRUST }}
 
-            - name: Publish GitHub release
-              uses: softprops/action-gh-release@v2
+            - name: Preserve release-ready artifacts
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
               with:
-                  tag_name: ${{ github.ref_name }}
-                  prerelease: ${{ contains(github.ref_name, '-test.') }}
-                  make_latest: ${{ contains(github.ref_name, '-test.') && 'false' || 'true' }}
-                  files: |
+                  name: ${{ env.DESKTOP_RELEASE_READY_ARTIFACT_NAME }}
+                  path: |
                       release-assets/**
                       SHA256SUMS.txt
                       SHA256SUMS.txt.asc
+                  retention-days: ${{ env.MACOS_NOTARIZATION_ARTIFACT_RETENTION_DAYS }}
+                  if-no-files-found: ${{ env.ARTIFACT_MISSING_FILE_BEHAVIOR }}
+
+    publish-release:
+        needs: assemble-release
+        runs-on: ubuntu-latest
+        environment: desktop-release-signing
+        permissions:
+            actions: read
+            attestations: write
+            contents: write
+            id-token: write
+
+        steps:
+            - name: Download release-ready artifacts
+              uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+              with:
+                  name: ${{ env.DESKTOP_RELEASE_READY_ARTIFACT_NAME }}
+                  path: .
 
             - name: Attest release artifacts
-              uses: actions/attest-build-provenance@v2
+              uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
               with:
                   subject-path: |
                       release-assets/**/*.AppImage
                       release-assets/**/*.deb
                       release-assets/**/*.dmg
                       release-assets/**/*.app.tar.gz
+
+            - name: Publish GitHub release
+              uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+              with:
+                  tag_name: ${{ github.ref_name }}
+                  prerelease: ${{ needs.assemble-release.outputs.prerelease }}
+                  make_latest: ${{ needs.assemble-release.outputs.make_latest }}
+                  files: |
+                      release-assets/**
+                      SHA256SUMS.txt
+                      SHA256SUMS.txt.asc

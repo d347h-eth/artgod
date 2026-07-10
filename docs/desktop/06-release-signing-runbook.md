@@ -62,6 +62,11 @@ Environment protection:
   support tag restrictions.
 - Optionally require the maintainer as reviewer before release jobs can access
   signing material.
+- Under repository Settings / Rules / Rulesets, create an active tag ruleset for
+  `v*` that restricts updates and deletions. Restrict creation only if the
+  maintainer account has explicit bypass permission to create new release tags.
+- Under repository Settings / Actions / General, enable the policy requiring
+  Actions to be pinned to full commit SHAs when that setting is available.
 
 Workflow policy:
 
@@ -70,17 +75,34 @@ Workflow policy:
 - `.github/workflows/tauri-release.yml` builds on pushed `v*` tags. Its manual
   dispatch path only resumes delayed macOS notarization from an existing tag
   run; it does not rebuild or create another Apple submission.
-- Shipped alpha/beta/rc tags, such as `v0.0.1-alpha.1`, publish as normal
-  GitHub releases and are marked Latest. GitHub releases flagged as
-  pre-releases cannot be marked Latest, so the workflow reserves the GitHub
-  pre-release flag for test tags only.
-- Test tags containing `-test.`, such as `v0.0.1-test.1`, publish as GitHub
-  pre-releases and are not marked Latest.
-- Plain stable tags such as `v1.0.0` also publish as normal Latest releases.
-- The release workflow build, delayed-notarization resume, and release jobs use
-  the `desktop-release-signing` environment.
+- A shipped tag must exactly equal `v<root-package-version>`, such as
+  `v0.0.1-pre-alpha.63` or `v1.0.0`. It publishes as a normal GitHub release
+  and is marked Latest.
+- A dry-run tag appends `-test.N` to the exact shipped tag, where `N` is a
+  positive integer, such as `v0.0.1-pre-alpha.63-test.1`. It publishes as a
+  GitHub pre-release and is not marked Latest. Test tags and their assets are
+  public, not private staging releases.
+- Initial and resumed runs require a GitHub-verified OpenPGP annotated tag whose
+  target commit matches the event and checkout, is reachable from `origin/main`,
+  and has synchronized project versions. Lightweight, mismatched, unsigned, or
+  non-OpenPGP tags are rejected before release work.
+- Tag admission gives its job-scoped `GITHUB_TOKEN` only to the validation step,
+  strips it from Git child-process environments, follows no API redirects, uses
+  bounded API calls, and never emits API response bodies on failure.
+- The release workflow build, delayed-notarization resume, release assembly, and
+  publication jobs use the `desktop-release-signing` environment.
 - Environment secrets are still referenced through the GitHub Actions
   `secrets.NAME` context.
+- All external Actions are pinned to full commit SHAs, every checkout disables
+  credential persistence, and the workflow defaults `GITHUB_TOKEN` to
+  read-only repository access.
+- Release assembly has read-only repository permissions while it uses the Linux
+  signing secret. The separate publication job has no signing secrets and owns
+  the narrow write/OIDC permissions needed for attestation and GitHub Release
+  publication.
+- Release assembly re-verifies every transferred Linux bundle signature before
+  it signs the checksum manifest. Publication occurs only after GitHub provenance
+  attestation succeeds.
 
 ## Current Tauri State
 
@@ -173,6 +195,38 @@ The workflow imports the `.p12` into a temporary keychain, signs the `.app`,
 notarizes the DMG with `xcrun notarytool`, staples the DMG, validates the
 stapled ticket, and then runs Gatekeeper assessment on the DMG.
 
+### Secret handling
+
+- Signing and notarization credentials remain GitHub Environment secrets, so
+  GitHub's runner masking protects their exact configured values.
+- The generated keychain password is registered with `add-mask` before its
+  first use, remains local to the keychain setup step, and is never exported
+  through `GITHUB_ENV`.
+- The temporary `.p12` uses mode `0600` and is deleted immediately after import.
+  The temporary keychain is deleted and explicitly unlinked as soon as the
+  signed Tauri build returns, before artifact upload Actions run.
+- Each submit, poll, or resume command independently decodes the `.p8` into a
+  mode-`0600` file under a unique mode-`0700` directory. The helper removes that
+  directory before returning, so artifact Actions never run while the API key
+  exists on disk.
+- Apple API credentials are removed from every `notarytool`, `stapler`, and
+  `spctl` child-process environment; authenticated values reach `notarytool`
+  only through its required arguments.
+- `scripts/build/macos-notarization.mjs` redacts exact credentials, common
+  serialized forms, private-key payload fragments, authorization headers, and
+  JWT-shaped derived credentials before writing child output to the runner's
+  stdout/stderr. The same redactor covers thrown command errors and every
+  persisted notarization diagnostic.
+- Redaction tests inject sentinel credentials into split stdout chunks, stderr,
+  failed command arguments, exception inspection, diagnostic files, and the
+  command-scoped API-key lifecycle. Run the complete release security suite
+  with `yarn test:desktop:release`.
+- The shared output redactor rejects non-empty secrets shorter than four
+  characters instead of silently allowing values it cannot safely stream.
+
+GitHub masking remains defense in depth for the custom notarization commands;
+raw `notarytool` output is not written to the public runner log first.
+
 The notarization submission does not use `notarytool submit --wait`. The tag
 run instead:
 
@@ -202,8 +256,9 @@ To finish a delayed submission:
 
 The resume path never submits another DMG. If Apple still reports processing,
 the resume run exits without publishing; repeat it later using the same
-original tag and source run ID. Raw verbose diagnostics and the pre-staple DMG
-are internal workflow artifacts, not GitHub Release assets.
+original tag and source run ID. Verbose diagnostics and the pre-staple DMG
+are internal workflow artifacts, not GitHub Release assets. Diagnostic text is
+credential-redacted before upload.
 
 Before DMG assembly, `beforeBundleCommand` runs
 `scripts/build/macos-code-signing.mjs sign-staged` on the macOS runner. This
@@ -227,6 +282,8 @@ Official references:
 - Custom notarization workflow: https://developer.apple.com/documentation/security/customizing-the-notarization-workflow
 - App Store Connect API keys: https://developer.apple.com/help/app-store-connect/get-started/app-store-connect-api
 - GitHub Actions artifacts: https://docs.github.com/en/actions/using-workflows/storing-workflow-data-as-artifacts
+- GitHub Actions secure use: https://docs.github.com/en/actions/reference/security/secure-use
+- GitHub Actions log masking: https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands#masking-a-value-in-a-log
 - Tauri macOS signing: https://v2.tauri.app/distribute/sign/macos/
 
 ## Windows Signing
@@ -254,8 +311,9 @@ Procedure:
 5. Re-enable Windows in `.github/workflows/tauri-release.yml` with a job that installs
    eSigner CKA, signs the Windows installer with `signtool.exe`, timestamps the
    signature, and verifies the result with `signtool verify`.
-6. Dry-run on a `-test.` tag and verify the final installer shows the
-   maintainer's personal name as Publisher.
+6. Dry-run on the exact
+   `v<root-package-version>-test.<positive-integer>` tag form and verify the
+   final installer shows the maintainer's personal name as Publisher.
 
 Expected workflow direction:
 
@@ -312,6 +370,15 @@ Recommended procedure:
     - optional `LINUX_GPG_OWNERTRUST`
 5. Test verification from a clean machine before the first public tag.
 
+CI uses `scripts/build/linux-gpg-signing.mjs` for both Linux bundle signatures
+and `SHA256SUMS.txt.asc`. It validates the exact imported primary fingerprint,
+selects only usable on-disk signing material, sends the passphrase over a file
+descriptor, verifies the resulting `VALIDSIG` primary/signing fingerprints,
+re-verifies every downloaded bundle signature after cross-job artifact transfer,
+redacts all GPG output before emission, and removes the temporary keyring before
+later Actions steps. Run its security coverage with
+`yarn test:desktop:signing`.
+
 Consumer verification:
 
 ```sh
@@ -322,17 +389,66 @@ gpg --verify ArtGod-x.y.z.AppImage.asc ArtGod-x.y.z.AppImage
 gpg --verify ArtGod-x.y.z.deb.asc ArtGod-x.y.z.deb
 ```
 
-## Release Tag Checklist
+## Release Tag Procedure
 
-Before pushing a `v*` tag:
+The tag-signing key is the maintainer's normal personal Git signing key. It is
+separate from the dedicated Linux artifact release key stored in the protected
+GitHub Environment. Before the first run:
 
-1. Run `yarn sync:version`.
-2. Confirm root `package.json`, workspace manifests, `src-tauri/tauri.conf.json`,
-   and Cargo package version match.
-3. Confirm the build check workflow passed after merge to `main`.
-4. Run the release workflow once on a `-test.` dry-run tag.
-5. If macOS notarization is delayed, resume it from the original test tag and
-   failed run rather than rerunning the build.
-6. Install each produced artifact on a clean Linux and macOS machine.
-7. Verify macOS Gatekeeper opens the DMG without bypass actions.
-8. Verify Linux GPG signatures and checksum manifest from a clean keyring.
+1. Add the public part of the personal tag-signing GPG key to the maintainer's
+   GitHub account under Settings / SSH and GPG keys.
+2. Ensure the signing UID email is a verified email on that GitHub account.
+3. Configure Git to use that key for signing and confirm `git tag -s` can access
+   its private key locally.
+4. Publish the Linux artifact-signing public key and fingerprint as described in
+   `docs/desktop/05-linux-gpg-release-signing.md`.
+
+After the version commit is merged to `main`, prepare a dry run from that exact
+commit:
+
+```sh
+git switch main
+git pull --ff-only origin main
+git fetch origin --tags
+yarn sync:version
+yarn check:version
+git diff --exit-code
+
+VERSION="$(node --input-type=commonjs -p 'require("./package.json").version')"
+TEST_TAG="v${VERSION}-test.1"
+git tag -s "$TEST_TAG" -m "ArtGod ${TEST_TAG}"
+git verify-tag "$TEST_TAG"
+git push origin "$TEST_TAG"
+```
+
+Use `git tag -s -u <personal-signing-key-fingerprint> ...` when Git has more
+than one candidate signing key. The workflow independently asks GitHub to
+verify the OpenPGP signature; a locally valid tag still fails admission if the
+public key or signing identity is not configured correctly on GitHub.
+
+If macOS notarization is delayed, manually resume the workflow using the same
+test tag and original run ID. A successful resume publishes the finalized DMG
+with the Linux assets under that same test-tag GitHub Release.
+
+After installing and verifying the dry-run artifacts on clean Linux and macOS
+machines, push the public tag on the same commit. This is a new build and
+release, not a promotion of the test-tag artifacts:
+
+```sh
+RELEASE_TAG="v${VERSION}"
+test "$(git rev-parse HEAD)" = "$(git rev-parse "${TEST_TAG}^{commit}")"
+git tag -s "$RELEASE_TAG" -m "ArtGod ${RELEASE_TAG}"
+git verify-tag "$RELEASE_TAG"
+git push origin "$RELEASE_TAG"
+```
+
+For both runs, verify Gatekeeper opens the DMG without bypass actions, verify
+the Linux signatures and checksum manifest from a clean keyring, and confirm
+the GitHub Release contains only the expected signed/stapled artifacts.
+
+Official GitHub references:
+
+- Git tag API and signature verification: https://docs.github.com/en/rest/git/tags
+- Add a GPG key to a GitHub account: https://docs.github.com/en/authentication/managing-commit-signature-verification/adding-a-gpg-key-to-your-github-account
+- Create a repository tag ruleset: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository
+- Ruleset update/delete restrictions: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets

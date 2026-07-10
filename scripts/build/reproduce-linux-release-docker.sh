@@ -94,5 +94,6 @@ yarn check:runtime-registry
 target_triple="x86_64-unknown-linux-gnu"
 # Clear stale AppDir contents from previous failed local repro runs.
 rm -rf "src-tauri/target/${target_triple}/release/bundle"
+yarn prepare:tauri-linux-tools
 yarn tauri build --ci --target "$target_triple" --bundles appimage,deb
 '

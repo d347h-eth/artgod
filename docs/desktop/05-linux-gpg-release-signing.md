@@ -221,9 +221,13 @@ Environment secret values:
   for the recommended setup, or `artgod-linux-release-private.asc` for the
   simple setup
 - `LINUX_GPG_PASSPHRASE`: passphrase for the exported signing key material
-- `LINUX_GPG_KEY_ID`: primary fingerprint for the recommended setup, or release
-  key fingerprint for the simple setup
+- `LINUX_GPG_KEY_ID`: exact 40-character primary fingerprint for the
+  recommended setup, or release key fingerprint for the simple setup
 - `LINUX_GPG_OWNERTRUST`: optional contents of the ownertrust export
+
+`LINUX_GPG_PASSPHRASE` must be one line because CI supplies it through GPG's
+passphrase file descriptor. Ownertrust affects local trust presentation; it is
+not required for cryptographic signature validity.
 
 Browser path:
 
@@ -250,25 +254,49 @@ simple key export and `RELEASE_FPR`.
 
 The Linux build job:
 
-1. Validates `LINUX_GPG_PRIVATE_KEY_ASC`, `LINUX_GPG_PASSPHRASE`, and
-   `LINUX_GPG_KEY_ID`.
-2. Creates a temporary `GNUPGHOME` under the runner temp directory.
-3. Imports `LINUX_GPG_PRIVATE_KEY_ASC`.
-4. Imports `LINUX_GPG_OWNERTRUST` when present.
-5. Signs each Linux AppImage and `.deb` artifact with:
-   `gpg --armor --detach-sign`.
-6. Immediately verifies each detached signature.
-7. Uploads the artifacts and `*.asc` signatures to the release job.
+1. Runs `scripts/build/linux-gpg-signing.mjs sign-bundles`.
+2. Creates a unique temporary `GNUPGHOME` with process umask `077` and mode
+   `0700`.
+3. Removes every Linux signing secret from the environment inherited by GPG.
+4. Imports `LINUX_GPG_PRIVATE_KEY_ASC` through stdin and imports ownertrust when
+   present.
+5. Requires exactly one imported primary key matching `LINUX_GPG_KEY_ID` and a
+   usable on-disk signing key or subkey.
+6. Signs each AppImage and `.deb` with an armored detached signature while
+   supplying the passphrase through file descriptor 0, never a process
+   argument.
+7. Verifies each signature through GPG's machine-readable `VALIDSIG` status and
+   requires the expected primary and imported signing-key fingerprints.
+8. Kills the temporary GPG agent and removes `GNUPGHOME` before the artifact
+   upload action runs.
 
 The release job:
 
 1. Downloads all build artifacts.
 2. Generates `SHA256SUMS.txt`.
-3. Imports the same Linux GPG secret material into a temporary `GNUPGHOME`.
-4. Creates `SHA256SUMS.txt.asc`.
-5. Verifies the checksum signature.
-6. Publishes artifacts, signatures, checksums, and GitHub provenance
+3. Runs the same helper with `finalize-release` in a fresh temporary GPG
+   session.
+4. Re-verifies every transferred AppImage and `.deb` signature against the
+   expected primary and signing-subkey fingerprints.
+5. Creates and provenance-verifies `SHA256SUMS.txt.asc` only after those
+   transferred signatures pass.
+6. Removes the temporary keyring before any publishing action runs.
+7. Publishes artifacts, signatures, checksums, and GitHub provenance
    attestations.
+
+All GPG stdout, stderr, failures, and key payload fragments pass through the
+shared secret-output redactor before reaching the public runner log. The helper
+refuses unsafe `--passphrase` arguments and refuses to run signing commands
+without a populated redactor. Run the macOS and Linux signing security suite
+with:
+
+```sh
+yarn test:desktop:signing
+```
+
+GPG may still print the release UID, primary fingerprint, signing-subkey
+fingerprint, and signature status. Those values are intentionally public and
+must match the public key information consumers use for verification.
 
 This means the `desktop-release-signing` environment must be attached to both
 the Linux matrix build job and the final release job.
@@ -324,7 +352,8 @@ Rotation steps for the recommended setup:
 4. Export updated CI signing subkeys:
    `gpg --armor --export-secret-subkeys "$PRIMARY_FPR" > artgod-ci-linux-signing-subkeys.asc`.
 5. Update `LINUX_GPG_PRIVATE_KEY_ASC` in GitHub.
-6. Dry-run the release workflow on a `-test.` tag.
+6. Dry-run the release workflow on the exact
+   `v<root-package-version>-test.<positive-integer>` tag form.
 7. Publish the updated public key and fingerprint notes.
 
 If you want CI to carry only one active signing subkey, revoke or expire the old
@@ -353,5 +382,7 @@ release key and publishing a new public key identity.
 - GnuPG manual: https://www.gnupg.org/documentation/manuals/gnupg/
 - GnuPG key management: https://www.gnupg.org/documentation/manuals/gnupg/OpenPGP-Key-Management.html
 - GnuPG operational commands: https://www.gnupg.org/documentation/manuals/gnupg/Operational-GPG-Commands.html
+- GnuPG unattended usage: https://www.gnupg.org/documentation/manuals/gnupg-devel/Unattended-Usage-of-GPG.html
+- GnuPG passphrase options: https://gnupg.org/documentation/manuals/gnupg26/gpg.1.html
 - GitHub Actions secrets: https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets
 - GitHub Actions environments: https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments
