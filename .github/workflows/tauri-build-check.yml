@@ -61,6 +61,9 @@ jobs:
             - name: Check desktop runtime registry consistency
               run: yarn check:runtime-registry
 
+            - name: Test macOS notarization helper
+              run: yarn test:desktop:notarization
+
             - name: Tauri no-bundle build check
               env:
                   DESKTOP_NODE_DIST_TARGET: linux-x64
