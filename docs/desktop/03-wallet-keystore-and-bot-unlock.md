@@ -16,7 +16,8 @@ The design follows Foundry-like operational semantics:
 The storage and crypto path should align with Foundry/Paradigm wherever practical:
 
 - standard Ethereum keystore JSON files at rest
-- `alloy-signer-local` keystore support for encrypt/decrypt operations
+- `alloy-signer-local` keystore support for decrypt operations
+- a source-pinned `eth-keystore` writer with explicit ArtGod-owned scrypt work parameters
 - the same bounded unlock behavior at the desktop core-process boundary
 
 ArtGod still keeps its own wallet metadata index for UI and bot assignment state.
@@ -51,11 +52,12 @@ ArtGod should not invent a custom wallet cryptography format unless there is a c
 Current design decision:
 
 - use standard Ethereum keystore JSON for secret storage
-- use `alloy-signer-local` keystore support as the primary Rust integration
-- rely on the same underlying `eth-keystore` behavior used by Foundry rather than reimplementing wallet encryption ourselves
+- use `alloy-signer-local` keystore support for validation and decrypt operations
+- use the same underlying `eth-keystore` construction through a narrow, source-pinned explicit-parameter writer
+- own the production scrypt work policy in the source-pinned writer rather than in Admin or environment configuration
 - keep an ArtGod-owned metadata index for label, assignment, and status
 
-This keeps ArtGod aligned with a real production Rust wallet path that is already used by Paradigm tooling.
+This keeps ArtGod aligned with the standard Ethereum V3 format and Foundry-compatible decrypt path without inheriting the upstream writer's weak default work factor.
 
 ## Scope
 
@@ -215,7 +217,7 @@ Responsibilities:
 - export wallets
 - remove wallets
 - unlock a wallet for bot startup
-- call Alloy keystore encrypt/decrypt functions
+- call the source-pinned writer for encryption and Alloy for decryption
 - own all plaintext key handling inside the main app process
 
 This is the core business service for wallet custody inside the desktop app.
@@ -350,13 +352,14 @@ ArtGod should store private keys using the standard Ethereum keystore JSON forma
 Reason:
 
 - this aligns directly with Foundry/Paradigm wallet handling
-- this lets ArtGod reuse Alloy's existing keystore encrypt/decrypt path
+- this lets ArtGod reuse the Ethereum V3 construction used by Alloy and Foundry
 - this avoids custom cryptography design and maintenance work
 - this keeps the on-disk format recognizable and auditable
 
 Implementation rule:
 
-- use `alloy-signer-local` keystore support for encrypt/decrypt operations
+- use `alloy-signer-local` for decrypt operations and the source-pinned `eth-keystore` writer for encryption
+- pass the compile-time ArtGod scrypt policy explicitly on every write
 - do not reimplement keystore cryptography unless there is a compelling reviewed reason
 - keep the Ethereum keystore file and ArtGod metadata file separate
 
@@ -375,17 +378,68 @@ The keystore service must:
 - validate private keys in Rust
 - derive the wallet address in Rust
 - use Alloy/`eth-keystore` keystore encryption and decryption primitives
+- emit the exact ArtGod-owned scrypt work policy on every new import
 - zeroize passphrase and plaintext key buffers after use
+- zeroize derived KDF key buffers after encryption and decryption
 
 Recommended baseline:
 
 - standard Ethereum keystore JSON
-- the same keystore path used by Foundry through Alloy
+- the Foundry-compatible Ethereum V3 format and shared Alloy/`eth-keystore` primitives
 - passphrase confirmation on import
 - strict tamper detection on decrypt
 
-The implementation should treat Alloy keystore handling as the source of truth for the file crypto path.
-ArtGod should own wallet orchestration, metadata, and runtime boundaries, not a custom encryption scheme.
+The implementation should treat the Ethereum V3 format and the pinned Alloy/`eth-keystore` primitives as the source of truth for the file crypto path.
+ArtGod owns wallet orchestration, metadata, runtime boundaries, and the work-factor policy, not a custom encryption scheme.
+
+### Scrypt Work Policy
+
+The source-pinned writer owns one compile-time production policy through `ARTGOD_SCRYPT_KDF_PARAMS`.
+The hardening changes both the parameter values and the production write path:
+
+| Concern                    | Before hardening                                                               | After hardening                                                        |
+| -------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| `N`                        | `2^13` (`8,192`)                                                               | `2^18` (`262,144`)                                                     |
+| `r`                        | `8`                                                                            | `8`                                                                    |
+| `p`                        | `1`                                                                            | `1`                                                                    |
+| `dklen`                    | `32`                                                                           | `32`                                                                   |
+| Approximate scrypt memory  | 8 MiB                                                                          | 256 MiB                                                                |
+| Parameter ownership        | Private upstream default inside `eth-keystore`                                 | Exported ArtGod policy in the source-pinned writer                     |
+| Import encryption call     | Alloy convenience writer with no parameter input                               | Explicit in-memory writer receiving the ArtGod policy                  |
+| Alloy convenience fallback | Weak upstream default                                                          | The same ArtGod policy, preventing an accidental bypass                |
+| Production persistence     | Dependency wrote the destination file before ArtGod restricted its permissions | ArtGod serializes in memory and performs an atomic owner-private write |
+| Unlock/export behavior     | Decrypt only                                                                   | Decrypt only; no migration or rewrite path exists                      |
+
+Before hardening, the production call path was:
+
+```text
+AlloyKeystore::write_keystore
+  -> PrivateKeySigner::encrypt_keystore
+  -> eth_keystore::encrypt_key
+  -> DEFAULT_KDF_PARAMS_LOG_N / DEFAULT_KDF_PARAMS_R / DEFAULT_KDF_PARAMS_P
+     (N=2^13, r=8, p=1; dklen=DEFAULT_KDF_PARAMS_DKLEN=32)
+  -> direct destination-file write
+```
+
+After hardening, the production call path is:
+
+```text
+AlloyKeystore::write_keystore
+  -> eth_keystore::encrypt_key_to_keystore(..., ARTGOD_SCRYPT_KDF_PARAMS)
+  -> serde_json::to_vec
+  -> write_private_file_atomic
+```
+
+The after profile is the [Geth-standard](https://geth.ethereum.org/docs/developers/dapp-developer/native-accounts), roughly 256 MiB profile already represented by the Foundry-compatible repository fixture.
+It exceeds the current [OWASP minimum](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html) of `N=2^17`, `r=8`, `p=1`.
+The values must not be exposed through Admin config or environment variables.
+
+There are no persisted desktop ArtGod keystores that require preservation, so the implementation deliberately contains no legacy migration or compatibility path.
+Unlock and export remain read-only keystore operations.
+
+Development and test profiles optimize only the `scrypt` dependency so production-strength parameters remain practical in local checks.
+The release profile has no special override and uses the same ArtGod KDF policy through normally optimized dependencies.
+The Ethereum V3 cryptographic construction remains unchanged.
 
 ## Passphrase Policy
 
@@ -1024,7 +1078,9 @@ Rules:
 
 - private-key validation
 - address derivation
-- keystore roundtrip through Alloy keystore APIs
+- exact scrypt parameters on every newly written keystore
+- Alloy's compatibility writer uses the same strong policy
+- Foundry-compatible keystore decrypt without file mutation
 - tamper detection
 - wrong-passphrase rejection
 - duplicate wallet detection
