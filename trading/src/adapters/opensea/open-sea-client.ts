@@ -1,3 +1,5 @@
+import type { OpenSeaOfferSigningAuthorization } from "./open-sea-policy-wallet.js";
+
 export interface OpenSeaOffersPage {
     offers?: unknown[];
     next?: string;
@@ -20,7 +22,10 @@ export interface OpenSeaApiClient {
         limit?: number,
         next?: string,
     ): Promise<OpenSeaOffersPage>;
-    getOrderByHash(orderHash: string, protocolAddress: string): Promise<unknown>;
+    getOrderByHash(
+        orderHash: string,
+        protocolAddress: string,
+    ): Promise<unknown>;
     getCollectionOffers(
         collectionSlug: string,
         limit?: number,
@@ -46,8 +51,7 @@ export interface OpenSeaCreateOfferResponse {
     expiration_time?: number | string;
 }
 
-export interface OpenSeaCreateCollectionOfferResponse
-    extends OpenSeaCreateOfferResponse {}
+export interface OpenSeaCreateCollectionOfferResponse extends OpenSeaCreateOfferResponse {}
 
 export interface OpenSeaCreateOfferInput {
     asset: {
@@ -75,9 +79,11 @@ export interface OpenSeaBiddingSdkClient {
     api: OpenSeaApiClient;
     createOffer(
         input: OpenSeaCreateOfferInput,
+        authorization: OpenSeaOfferSigningAuthorization,
     ): Promise<OpenSeaCreateOfferResponse>;
     createCollectionOffer(
         input: OpenSeaCreateCollectionOfferInput,
+        authorization: OpenSeaOfferSigningAuthorization,
     ): Promise<OpenSeaCreateCollectionOfferResponse | null>;
     offchainCancelOrder(
         protocolAddress: string,

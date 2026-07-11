@@ -6,6 +6,7 @@ import {
     normalizeOpenSeaOfferTraitCriteria,
     parseOpenSeaBiddingOffer,
 } from "@artgod/shared/trading/open-sea-bidding-offers";
+import { OPENSEA_MAINNET_SECURITY_POLICY } from "@artgod/shared/trading/open-sea-mainnet-security-policy";
 import {
     BIDDING_ORDER_RECOVERY_REASON,
     BIDDING_ORDER_RECOVERY_STATUS,
@@ -23,6 +24,7 @@ import {
 import { TokenMetadataRepository } from "../../domain/market/token-metadata-repository.js";
 import {
     BidderJob,
+    bidderTargetRequiresOpenSeaSignedZoneTrust,
     formatBidderJobReference,
     TraitSelector,
     TraitTarget,
@@ -33,6 +35,7 @@ import {
     BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE,
     BIDDING_DEFAULT_ORDER_LOOKUP_MAX_PAGES,
     BIDDING_DEFAULT_TOKEN_CRITERIA_TRAITS_BY_COLLECTION,
+    BIDDING_DEFAULT_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
 } from "../../config/bidding-defaults.js";
 import {
     BIDDING_LOG_COMPONENT,
@@ -75,9 +78,13 @@ export interface OpenSeaBiddingServiceOptions {
     offersPageSize?: number;
     tokenCriteriaTraitsByCollection?: Record<string, string[]>;
     competitiveTraitMaxLookupSelectors?: number;
+    trustOpenSeaSignedZoneTraitOffers?: boolean;
 }
 
-const OPENSEA_WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
+// Stable error text for jobs blocked until the operator explicitly accepts OpenSea SignedZone trait enforcement.
+export const OPENSEA_SIGNED_ZONE_TRAIT_TRUST_REQUIRED_ERROR =
+    "Trait and multi-trait offer placement requires explicit OpenSea SignedZone trust in Admin Config";
+
 const OPENSEA_MAINNET_CHAIN = "ethereum";
 const log = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.OpenSeaBiddingService,
@@ -113,6 +120,7 @@ export class OpenSeaBiddingService implements BiddingService {
     private readonly offersPageSize: number;
     private readonly tokenCriteriaTraitsByCollection: Record<string, string[]>;
     private readonly competitiveTraitMaxLookupSelectors: number;
+    private readonly trustOpenSeaSignedZoneTraitOffers: boolean;
 
     constructor(
         private readonly sdk: OpenSeaBiddingSdkClient,
@@ -151,6 +159,9 @@ export class OpenSeaBiddingService implements BiddingService {
             options.competitiveTraitMaxLookupSelectors ??
                 BIDDING_DEFAULT_COMPETITIVE_TRAIT_MAX_LOOKUP_SELECTORS,
         );
+        this.trustOpenSeaSignedZoneTraitOffers =
+            options.trustOpenSeaSignedZoneTraitOffers ??
+            BIDDING_DEFAULT_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS;
     }
 
     public async getActiveOffers(
@@ -602,6 +613,12 @@ export class OpenSeaBiddingService implements BiddingService {
         placedAt: string;
         expirationTime?: number;
     }> {
+        if (
+            bidderTargetRequiresOpenSeaSignedZoneTrust(job.target) &&
+            !this.trustOpenSeaSignedZoneTraitOffers
+        ) {
+            throw new Error(OPENSEA_SIGNED_ZONE_TRAIT_TRUST_REQUIRED_ERROR);
+        }
         const expirationTime =
             Math.floor(Date.now() / 1000) + this.offerExpirationSeconds;
 
@@ -611,10 +628,8 @@ export class OpenSeaBiddingService implements BiddingService {
                 job.target.type === "competitiveTrait"
             ) {
                 const quantity = Math.max(1, Math.floor(job.target.quantity));
-                const totalAmountDecimal = formatUnits(
-                    amount * BigInt(quantity),
-                    18,
-                );
+                const totalAmountWei = amount * BigInt(quantity);
+                const totalAmountDecimal = formatUnits(totalAmountWei, 18);
                 const placementTraits = this.getPlacementTraits(job);
                 const singlePlacementTrait =
                     placementTraits.length === 1
@@ -637,16 +652,23 @@ export class OpenSeaBiddingService implements BiddingService {
                 const order = await this.trackSdkCall(
                     "createCollectionOffer",
                     () =>
-                        this.sdk.createCollectionOffer({
-                            collectionSlug: job.collectionSlug,
-                            accountAddress: this.makerAddress,
-                            amount: totalAmountDecimal,
-                            quantity,
-                            traitType,
-                            traitValue,
-                            traits,
-                            expirationTime,
-                        }),
+                        this.sdk.createCollectionOffer(
+                            {
+                                collectionSlug: job.collectionSlug,
+                                accountAddress: this.makerAddress,
+                                amount: totalAmountDecimal,
+                                quantity,
+                                traitType,
+                                traitValue,
+                                traits,
+                                expirationTime,
+                            },
+                            {
+                                job,
+                                totalAmountWei,
+                                expirationTime,
+                            },
+                        ),
                     context,
                 );
                 const placedAt = new Date().toISOString();
@@ -677,15 +699,22 @@ export class OpenSeaBiddingService implements BiddingService {
             const order = await this.trackSdkCall(
                 "createOffer",
                 () =>
-                    this.sdk.createOffer({
-                        asset: {
-                            tokenAddress: job.collectionAddress,
-                            tokenId: tokenTarget.tokenId,
+                    this.sdk.createOffer(
+                        {
+                            asset: {
+                                tokenAddress: job.collectionAddress,
+                                tokenId: tokenTarget.tokenId,
+                            },
+                            accountAddress: this.makerAddress,
+                            amount: formatUnits(amount, 18),
+                            expirationTime,
                         },
-                        accountAddress: this.makerAddress,
-                        amount: formatUnits(amount, 18),
-                        expirationTime,
-                    }),
+                        {
+                            job,
+                            totalAmountWei: amount,
+                            expirationTime,
+                        },
+                    ),
                 context,
             );
             const placedAt = new Date().toISOString();
@@ -1628,7 +1657,7 @@ export class OpenSeaBiddingService implements BiddingService {
         // Keep bidder runtime offer parsing centralized for snapshot projection and backend fallback reuse.
         const parsed = parseOpenSeaBiddingOffer(rawOffer, {
             collectionAddress,
-            wethAddress: OPENSEA_WETH_ADDRESS,
+            wethAddress: OPENSEA_MAINNET_SECURITY_POLICY.wethAddress,
             discoverySource,
         });
         return parsed

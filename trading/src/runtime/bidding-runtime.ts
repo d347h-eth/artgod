@@ -1,4 +1,5 @@
 import { setDbPath } from "@artgod/shared/database";
+import { OPENSEA_MAINNET_SECURITY_POLICY } from "@artgod/shared/trading/open-sea-mainnet-security-policy";
 import {
     createResilientWeightedRpcTransport,
     createWeightedRpcTransport,
@@ -18,7 +19,7 @@ import {
     Network,
     OpenSeaStreamClient as OpenSeaSdkStreamClient,
 } from "@opensea/stream-js";
-import { Chain, getDefaultConduit, OpenSeaAPI } from "@opensea/sdk";
+import { Chain, OpenSeaAPI } from "@opensea/sdk";
 import { OpenSeaSDK } from "@opensea/sdk/viem";
 import {
     createPublicClient,
@@ -26,7 +27,6 @@ import {
     formatEther,
     type Hex,
     type PublicClient,
-    type WalletClient,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
@@ -40,6 +40,7 @@ import { OpenSeaBiddingService } from "../adapters/opensea/open-sea-bidding-serv
 import { OpenSeaCollectionOfferSource } from "../adapters/opensea/open-sea-collection-offer-source.js";
 import { OpenSeaEventStream } from "../adapters/opensea/open-sea-event-stream.js";
 import { OpenSeaMarketEventFactory } from "../adapters/opensea/open-sea-market-event-factory.js";
+import { OpenSeaPolicyWallet } from "../adapters/opensea/open-sea-policy-wallet.js";
 import { TokenBucketRateLimiter } from "../adapters/support/token-bucket-rate-limiter.js";
 import { SqliteTradingBotRuntimeState } from "../adapters/runtime/sqlite-trading-bot-runtime-state.js";
 import { ViemWethAllowanceApprovalService } from "../adapters/wallet/viem-weth-allowance-approval-service.js";
@@ -222,6 +223,22 @@ export async function startBiddingRuntime(
         readOnlyPublicClient,
         params.config.tokens.wethAddress,
     );
+    const signingAccount = privateKeyToAccount(params.privateKeyHex);
+    // Validate all ArtGod-owned OpenSea pins before constructing any transaction-capable client.
+    const openSeaPolicyWallet = new OpenSeaPolicyWallet(
+        {
+            address: signingAccount.address,
+            signTypedData: async (input) =>
+                await signingAccount.signTypedData(input as never),
+        },
+        {
+            makerAddress: params.makerAddress,
+            wethAddress: params.config.tokens.wethAddress,
+            allowanceCapWei: params.biddingConfig.wethAllowanceCapWei,
+            trustOpenSeaSignedZoneTraitOffers:
+                params.biddingConfig.trustOpenSeaSignedZoneTraitOffers,
+        },
+    );
     const writeCapableRpcTransport = createWeightedRpcTransport(
         params.config.rpc.endpoints,
         {
@@ -235,21 +252,20 @@ export async function startBiddingRuntime(
         },
     );
     const writeCapableWalletClient = createWalletClient({
-        account: privateKeyToAccount(params.privateKeyHex),
+        account: signingAccount,
         chain: mainnet,
         transport: writeCapableRpcTransport,
     });
-    const openSeaConduit = getDefaultConduit(Chain.Mainnet);
     const wethAllowanceApprovalService = new ViemWethAllowanceApprovalService(
         readOnlyPublicClient,
         writeCapableWalletClient,
         params.config.tokens.wethAddress,
-        openSeaConduit.address,
+        OPENSEA_MAINNET_SECURITY_POLICY.conduitAddress,
         params.biddingConfig.transactionPolicy,
+        params.biddingConfig.wethAllowanceTransactionMaxTotalFeeWei,
     );
 
-    const allowanceApprovalTotal =
-        params.biddingConfig.wethAllowanceWei > 0n ? 1 : 0;
+    const allowanceApprovalTotal = 1;
     const reportAllowanceProgress = (detail: string): void => {
         params.lifecycle.progress({
             phase: "allowance_approval",
@@ -263,12 +279,12 @@ export async function startBiddingRuntime(
         phase: "allowance_approval",
         completed: 0,
         total: allowanceApprovalTotal,
-        detail: `desired=${formatWeth(params.biddingConfig.wethAllowanceWei)}, conduit=${openSeaConduit.address}`,
+        detail: `cap=${formatWeth(params.biddingConfig.wethAllowanceCapWei)}, conduit=${OPENSEA_MAINNET_SECURITY_POLICY.conduitAddress}`,
     });
-    // Ensure the maker grants the static WETH allowance configured for OpenSea bidding.
+    // Reconcile the conduit allowance to the exact operator-configured WETH cap before any signing is possible.
     const allowanceResult = await wethAllowanceApprovalService.ensureAllowance({
         ownerAddress: params.makerAddress,
-        desiredAllowanceWei: params.biddingConfig.wethAllowanceWei,
+        desiredAllowanceWei: params.biddingConfig.wethAllowanceCapWei,
         dryRun: params.biddingConfig.dryRun,
         onProgress: reportAllowanceProgress,
     });
@@ -276,7 +292,7 @@ export async function startBiddingRuntime(
         phase: "allowance_approval",
         completed: allowanceApprovalTotal,
         total: allowanceApprovalTotal,
-        detail: `status=${allowanceResult.status}, desired=${formatWeth(allowanceResult.desiredAllowanceWei)}, current=${formatOptionalWeth(allowanceResult.currentAllowanceWei)}`,
+        detail: `status=${allowanceResult.status}, cap=${formatWeth(allowanceResult.desiredAllowanceWei)}, previous=${formatWeth(allowanceResult.previousAllowanceWei)}, current=${formatWeth(allowanceResult.currentAllowanceWei)}`,
     });
     log.info(
         "allowanceBootstrapComplete",
@@ -287,15 +303,19 @@ export async function startBiddingRuntime(
             desiredAllowanceWeth: formatWeth(
                 allowanceResult.desiredAllowanceWei,
             ),
-            currentAllowanceWei:
-                allowanceResult.currentAllowanceWei?.toString() ?? null,
-            currentAllowanceWeth: formatOptionalWeth(
+            previousAllowanceWei:
+                allowanceResult.previousAllowanceWei.toString(),
+            previousAllowanceWeth: formatWeth(
+                allowanceResult.previousAllowanceWei,
+            ),
+            currentAllowanceWei: allowanceResult.currentAllowanceWei.toString(),
+            currentAllowanceWeth: formatWeth(
                 allowanceResult.currentAllowanceWei,
             ),
         },
     );
 
-    // Create the write-capable OpenSea SDK lane for live offer discovery, placement, and cancellation.
+    // Give OpenSea only the policy wallet; the SDK receives no transaction-capable wallet authority.
     const sdkRpcConnection = createOpenSeaSdkRpcConnection(
         params.config.rpc.endpoints,
         {
@@ -309,7 +329,7 @@ export async function startBiddingRuntime(
     );
     const biddingSdk = createBiddingSdkClient(
         readOnlyPublicClient as unknown as PublicClient,
-        writeCapableWalletClient as WalletClient,
+        openSeaPolicyWallet,
         sdkRpcConnection,
         params.biddingConfig.openSea.biddingSecretKey,
     );
@@ -365,6 +385,8 @@ export async function startBiddingRuntime(
                 params.biddingConfig.tokenCriteriaTraitsByCollection,
             competitiveTraitMaxLookupSelectors:
                 params.biddingConfig.competitiveTraitMaxLookupSelectors,
+            trustOpenSeaSignedZoneTraitOffers:
+                params.biddingConfig.trustOpenSeaSignedZoneTraitOffers,
         },
     );
     const bidder = new Bidder(
@@ -1016,14 +1038,14 @@ async function startBiddingJobCommandSignalListener(
 
 function createBiddingSdkClient(
     publicClient: PublicClient,
-    walletClient: WalletClient,
+    policyWallet: OpenSeaPolicyWallet,
     rpcUrl: unknown,
     apiKey: string,
 ): OpenSeaBiddingSdkClient {
     const sdk = new OpenSeaSDK(
         {
             publicClient,
-            walletClient,
+            walletClient: policyWallet.walletClient,
             // OpenSea types this as a string, but passes the runtime value into its provider bridge unchanged.
             rpcUrl: rpcUrl as string,
         },
@@ -1036,15 +1058,25 @@ function createBiddingSdkClient(
 
     return {
         api: createApiClientAdapter(sdk.api),
-        createOffer: async (input): Promise<OpenSeaCreateOfferResponse> => {
-            const order = await sdk.createOffer(input);
-            return normalizeOfferResponse(order);
-        },
+        createOffer: async (
+            input,
+            authorization,
+        ): Promise<OpenSeaCreateOfferResponse> =>
+            await policyWallet.authorizeOffer(authorization, async () => {
+                const order = await sdk.createOffer(input);
+                return normalizeOfferResponse(order);
+            }),
         createCollectionOffer: async (
             input,
+            authorization,
         ): Promise<OpenSeaCreateCollectionOfferResponse | null> => {
-            const order = await sdk.createCollectionOffer(input);
-            return order ? normalizeOfferResponse(order) : null;
+            return await policyWallet.authorizeOffer(
+                authorization,
+                async () => {
+                    const order = await sdk.createCollectionOffer(input);
+                    return order ? normalizeOfferResponse(order) : null;
+                },
+            );
         },
         offchainCancelOrder: (
             protocolAddress,
@@ -1052,14 +1084,23 @@ function createBiddingSdkClient(
             chain,
             offererSignature,
             useSignerToDeriveOffererSignature,
-        ) =>
-            sdk.offchainCancelOrder(
-                protocolAddress,
-                orderHash,
-                chain as Chain,
-                offererSignature,
-                useSignerToDeriveOffererSignature,
-            ),
+        ) => {
+            const cancel = () =>
+                sdk.offchainCancelOrder(
+                    protocolAddress,
+                    orderHash,
+                    chain as Chain,
+                    offererSignature,
+                    useSignerToDeriveOffererSignature,
+                );
+            return useSignerToDeriveOffererSignature
+                ? policyWallet.authorizeOffchainCancellation(
+                      protocolAddress,
+                      orderHash,
+                      cancel,
+                  )
+                : cancel();
+        },
     };
 }
 
@@ -1183,10 +1224,6 @@ function assertSupportedBiddingChain(chainId: number): void {
 
 function formatWeth(amountWei: bigint): string {
     return `${formatEther(amountWei)} WETH`;
-}
-
-function formatOptionalWeth(amountWei: bigint | null): string {
-    return amountWei === null ? "n/a" : formatWeth(amountWei);
 }
 
 // formatOpenSeaStreamSocketError keeps Phoenix/WebSocket ErrorEvent logs compact and JSON-safe.

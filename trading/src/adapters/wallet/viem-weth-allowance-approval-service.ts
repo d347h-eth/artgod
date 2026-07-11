@@ -17,6 +17,15 @@ import {
 } from "../../utils/bidding-log.js";
 
 const APPROVAL_RECEIPT_WAIT_LOG_INTERVAL_MS = 15_000;
+// WETH approval gas receives modest deterministic headroom above the node estimate.
+const APPROVAL_GAS_LIMIT_HEADROOM_BPS = 12_000n;
+const BASIS_POINTS_DENOMINATOR = 10_000n;
+const WETH_APPROVAL_LOG_FIELD = {
+    GasEstimateWei: "gasEstimateWei",
+    GasLimit: "gasLimit",
+    WorstCaseTotalFeeWei: "worstCaseTotalFeeWei",
+    ConfiguredMaxTotalFeeWei: "configuredMaxTotalFeeWei",
+} as const;
 const log = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.WethAllowanceApprovalService,
 );
@@ -55,7 +64,7 @@ type WethAllowanceReadClient = EvmTransactionPolicyReader & {
         hash: Hash;
         onReplaced?: (replacement: unknown) => void;
     }): Promise<unknown>;
-    estimateContractGas?(args: {
+    estimateContractGas(args: {
         account: Address;
         address: Address;
         abi: typeof erc20AllowanceApprovalAbi;
@@ -80,6 +89,7 @@ type WethAllowanceWriteClient = {
         abi: typeof erc20AllowanceApprovalAbi;
         functionName: "approve";
         args: [Address, bigint];
+        gas: bigint;
         maxFeePerGas: bigint;
         maxPriorityFeePerGas: bigint;
     }): Promise<Hash>;
@@ -92,13 +102,36 @@ export type EnsureWethAllowanceInput = {
     onProgress?: (detail: string) => void;
 };
 
+// Result states for exact startup reconciliation of the OpenSea conduit allowance cap.
+export const WETH_ALLOWANCE_RECONCILIATION_STATUS = {
+    Exact: "exact",
+    DryRun: "dry_run",
+    Updated: "updated",
+} as const;
+
+// Stable error prefix emitted when explicit approval gas cannot fit the operator's total fee cap.
+export const WETH_APPROVAL_TOTAL_FEE_CAP_ERROR =
+    "WETH approval worst-case total fee exceeds configured cap";
+
+// Stable error prefix emitted when the confirmed approval did not establish the exact configured cap.
+export const WETH_ALLOWANCE_POST_CONFIRMATION_ERROR =
+    "Confirmed WETH approval did not establish the configured allowance cap";
+
 export type EnsureWethAllowanceResult = {
-    status: "disabled" | "sufficient" | "dry_run" | "approved";
+    status: (typeof WETH_ALLOWANCE_RECONCILIATION_STATUS)[keyof typeof WETH_ALLOWANCE_RECONCILIATION_STATUS];
     ownerAddress: Address;
     spenderAddress: Address;
     desiredAllowanceWei: bigint;
-    currentAllowanceWei: bigint | null;
+    previousAllowanceWei: bigint;
+    currentAllowanceWei: bigint;
     transactionHash?: Hash;
+};
+
+type PreparedWethApprovalTransaction = {
+    transactionPolicy: EvmPreparedTransactionPolicy;
+    gasEstimate: bigint;
+    gasLimit: bigint;
+    worstCaseTotalFeeWei: bigint;
 };
 
 // ViemWethAllowanceApprovalService owns the startup WETH approval transaction for OpenSea bidding.
@@ -113,6 +146,7 @@ export class ViemWethAllowanceApprovalService {
         wethAddress: string,
         spenderAddress: string,
         transactionPolicyConfig: EvmTransactionPolicyConfig,
+        private readonly maxTotalFeeWei: bigint,
     ) {
         this.wethAddress = getAddress(wethAddress);
         this.spenderAddress = getAddress(spenderAddress);
@@ -123,6 +157,9 @@ export class ViemWethAllowanceApprovalService {
                 onEvent: logTransactionPolicyEvent,
             },
         );
+        if (maxTotalFeeWei <= 0n) {
+            throw new Error("WETH approval maximum total fee must be positive");
+        }
     }
 
     public async ensureAllowance(
@@ -135,42 +172,32 @@ export class ViemWethAllowanceApprovalService {
                 `WETH allowance must be non-negative. received=${desiredAllowanceWei}`,
             );
         }
-        if (desiredAllowanceWei === 0n) {
-            log.info(
-                "startupApprovalDisabled",
-                "Startup WETH approval disabled",
-                {
-                    desiredAllowanceWei: desiredAllowanceWei.toString(),
-                    desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
-                },
-            );
-            return {
-                status: "disabled",
+        log.info(
+            "ensureAllowanceStarted",
+            "Reconciling startup WETH allowance cap",
+            {
                 ownerAddress,
                 spenderAddress: this.spenderAddress,
-                desiredAllowanceWei,
-                currentAllowanceWei: null,
-            };
-        }
-
-        log.info("ensureAllowanceStarted", "Ensuring startup WETH allowance", {
-            ownerAddress,
-            spenderAddress: this.spenderAddress,
-            wethAddress: this.wethAddress,
-            desiredAllowanceWei: desiredAllowanceWei.toString(),
-            desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
-            dryRun: input.dryRun === true,
-        });
+                wethAddress: this.wethAddress,
+                desiredAllowanceWei: desiredAllowanceWei.toString(),
+                desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
+                dryRun: input.dryRun === true,
+            },
+        );
 
         // Read the current WETH allowance before deciding whether an approval transaction is needed.
         input.onProgress?.(
             `status=reading_current_allowance, desired=${formatWeth(desiredAllowanceWei)}`,
         );
-        log.info("currentAllowanceReadStarted", "Reading current WETH allowance from chain", {
-            ownerAddress,
-            spenderAddress: this.spenderAddress,
-            wethAddress: this.wethAddress,
-        });
+        log.info(
+            "currentAllowanceReadStarted",
+            "Reading current WETH allowance from chain",
+            {
+                ownerAddress,
+                spenderAddress: this.spenderAddress,
+                wethAddress: this.wethAddress,
+            },
+        );
         let currentAllowanceWei: bigint;
         try {
             currentAllowanceWei = await this.readClient.readContract({
@@ -180,12 +207,16 @@ export class ViemWethAllowanceApprovalService {
                 args: [ownerAddress, this.spenderAddress],
             });
         } catch (error) {
-            log.error("currentAllowanceReadFailed", "Failed to read current WETH allowance", {
-                ownerAddress,
-                spenderAddress: this.spenderAddress,
-                wethAddress: this.wethAddress,
-                ...toErrorLogFields(error),
-            });
+            log.error(
+                "currentAllowanceReadFailed",
+                "Failed to read current WETH allowance",
+                {
+                    ownerAddress,
+                    spenderAddress: this.spenderAddress,
+                    wethAddress: this.wethAddress,
+                    ...toErrorLogFields(error),
+                },
+            );
             throw error;
         }
 
@@ -199,28 +230,37 @@ export class ViemWethAllowanceApprovalService {
             `status=current_allowance_read, desired=${formatWeth(desiredAllowanceWei)}, current=${formatWeth(currentAllowanceWei)}`,
         );
 
-        if (currentAllowanceWei >= desiredAllowanceWei) {
-            log.info("allowanceSufficient", "Existing WETH allowance is sufficient", {
-                desiredAllowanceWei: desiredAllowanceWei.toString(),
-                desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
-                currentAllowanceWei: currentAllowanceWei.toString(),
-                currentAllowanceWeth: formatWeth(currentAllowanceWei),
-            });
+        if (currentAllowanceWei === desiredAllowanceWei) {
+            log.info(
+                "allowanceSufficient",
+                "Existing WETH allowance matches the configured cap",
+                {
+                    desiredAllowanceWei: desiredAllowanceWei.toString(),
+                    desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
+                    currentAllowanceWei: currentAllowanceWei.toString(),
+                    currentAllowanceWeth: formatWeth(currentAllowanceWei),
+                },
+            );
             return {
-                status: "sufficient",
+                status: WETH_ALLOWANCE_RECONCILIATION_STATUS.Exact,
                 ownerAddress,
                 spenderAddress: this.spenderAddress,
                 desiredAllowanceWei,
+                previousAllowanceWei: currentAllowanceWei,
                 currentAllowanceWei,
             };
         }
 
-        log.info("approvalRequired", "Existing WETH allowance is below desired allowance", {
-            desiredAllowanceWei: desiredAllowanceWei.toString(),
-            desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
-            currentAllowanceWei: currentAllowanceWei.toString(),
-            currentAllowanceWeth: formatWeth(currentAllowanceWei),
-        });
+        log.info(
+            "approvalRequired",
+            "Existing WETH allowance does not match the configured cap",
+            {
+                desiredAllowanceWei: desiredAllowanceWei.toString(),
+                desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
+                currentAllowanceWei: currentAllowanceWei.toString(),
+                currentAllowanceWeth: formatWeth(currentAllowanceWei),
+            },
+        );
         input.onProgress?.(
             `status=approval_required, desired=${formatWeth(desiredAllowanceWei)}, current=${formatWeth(currentAllowanceWei)}`,
         );
@@ -233,57 +273,75 @@ export class ViemWethAllowanceApprovalService {
                 currentAllowanceWeth: formatWeth(currentAllowanceWei),
             });
             return {
-                status: "dry_run",
+                status: WETH_ALLOWANCE_RECONCILIATION_STATUS.DryRun,
                 ownerAddress,
                 spenderAddress: this.spenderAddress,
                 desiredAllowanceWei,
+                previousAllowanceWei: currentAllowanceWei,
                 currentAllowanceWei,
             };
         }
 
         // Resolve reusable fee and nonce policy immediately before the state-changing approval call.
-        const approvalTransactionPolicy =
-            await this.prepareApprovalTransactionPolicy({
-                ownerAddress,
-                desiredAllowanceWei,
-            });
+        const preparedApproval = await this.prepareApprovalTransactionPolicy({
+            ownerAddress,
+            desiredAllowanceWei,
+        });
         input.onProgress?.(
             `status=submitting_approval, desired=${formatWeth(desiredAllowanceWei)}, current=${formatWeth(currentAllowanceWei)}`,
         );
-        log.info("approvalSubmitStarted", "Submitting WETH approval transaction", {
-            spenderAddress: this.spenderAddress,
-            desiredAllowanceWei: desiredAllowanceWei.toString(),
-            desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
-            maxFeePerGasWei:
-                approvalTransactionPolicy.maxFeePerGasWei.toString(),
-            maxFeePerGasGwei: formatWeiAsGwei(
-                approvalTransactionPolicy.maxFeePerGasWei,
-            ),
-            maxPriorityFeePerGasWei:
-                approvalTransactionPolicy.maxPriorityFeePerGasWei.toString(),
-            maxPriorityFeePerGasGwei: formatWeiAsGwei(
-                approvalTransactionPolicy.maxPriorityFeePerGasWei,
-            ),
-        });
+        log.info(
+            "approvalSubmitStarted",
+            "Submitting WETH approval transaction",
+            {
+                spenderAddress: this.spenderAddress,
+                desiredAllowanceWei: desiredAllowanceWei.toString(),
+                desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
+                maxFeePerGasWei:
+                    preparedApproval.transactionPolicy.maxFeePerGasWei.toString(),
+                maxFeePerGasGwei: formatWeiAsGwei(
+                    preparedApproval.transactionPolicy.maxFeePerGasWei,
+                ),
+                maxPriorityFeePerGasWei:
+                    preparedApproval.transactionPolicy.maxPriorityFeePerGasWei.toString(),
+                maxPriorityFeePerGasGwei: formatWeiAsGwei(
+                    preparedApproval.transactionPolicy.maxPriorityFeePerGasWei,
+                ),
+                [WETH_APPROVAL_LOG_FIELD.GasEstimateWei]:
+                    preparedApproval.gasEstimate.toString(),
+                [WETH_APPROVAL_LOG_FIELD.GasLimit]:
+                    preparedApproval.gasLimit.toString(),
+                [WETH_APPROVAL_LOG_FIELD.WorstCaseTotalFeeWei]:
+                    preparedApproval.worstCaseTotalFeeWei.toString(),
+                [WETH_APPROVAL_LOG_FIELD.ConfiguredMaxTotalFeeWei]:
+                    this.maxTotalFeeWei.toString(),
+            },
+        );
         let transactionHash: Hash;
         try {
-            // Submit an exact WETH approval to the OpenSea conduit selected by the SDK for this chain.
+            // Submit an exact WETH approval to ArtGod's pinned OpenSea conduit with an explicit bounded gas limit.
             transactionHash = await this.writeClient.writeContract({
                 address: this.wethAddress,
                 abi: erc20AllowanceApprovalAbi,
                 functionName: "approve",
                 args: [this.spenderAddress, desiredAllowanceWei],
-                maxFeePerGas: approvalTransactionPolicy.maxFeePerGasWei,
+                gas: preparedApproval.gasLimit,
+                maxFeePerGas:
+                    preparedApproval.transactionPolicy.maxFeePerGasWei,
                 maxPriorityFeePerGas:
-                    approvalTransactionPolicy.maxPriorityFeePerGasWei,
+                    preparedApproval.transactionPolicy.maxPriorityFeePerGasWei,
             });
         } catch (error) {
-            log.error("approvalSubmitFailed", "Failed to submit WETH approval transaction", {
-                spenderAddress: this.spenderAddress,
-                desiredAllowanceWei: desiredAllowanceWei.toString(),
-                desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
-                ...toErrorLogFields(error),
-            });
+            log.error(
+                "approvalSubmitFailed",
+                "Failed to submit WETH approval transaction",
+                {
+                    spenderAddress: this.spenderAddress,
+                    desiredAllowanceWei: desiredAllowanceWei.toString(),
+                    desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
+                    ...toErrorLogFields(error),
+                },
+            );
             throw error;
         }
 
@@ -304,16 +362,27 @@ export class ViemWethAllowanceApprovalService {
                 onProgress: input.onProgress,
             });
         } catch (error) {
-            log.error("approvalReceiptWaitFailed", "Failed while waiting for WETH approval receipt", {
-                transactionHash,
-                desiredAllowanceWei: desiredAllowanceWei.toString(),
-                desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
-                previousAllowanceWei: currentAllowanceWei.toString(),
-                previousAllowanceWeth: formatWeth(currentAllowanceWei),
-                ...toErrorLogFields(error),
-            });
+            log.error(
+                "approvalReceiptWaitFailed",
+                "Failed while waiting for WETH approval receipt",
+                {
+                    transactionHash,
+                    desiredAllowanceWei: desiredAllowanceWei.toString(),
+                    desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
+                    previousAllowanceWei: currentAllowanceWei.toString(),
+                    previousAllowanceWeth: formatWeth(currentAllowanceWei),
+                    ...toErrorLogFields(error),
+                },
+            );
             throw error;
         }
+
+        // Re-read after confirmation so replacement, revert, or stale-provider outcomes fail closed.
+        const confirmedAllowanceWei = await this.readConfirmedAllowance({
+            ownerAddress,
+            desiredAllowanceWei,
+            transactionHash,
+        });
 
         log.info("approvalConfirmed", "WETH approval transaction confirmed", {
             transactionHash,
@@ -321,29 +390,72 @@ export class ViemWethAllowanceApprovalService {
             desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
             previousAllowanceWei: currentAllowanceWei.toString(),
             previousAllowanceWeth: formatWeth(currentAllowanceWei),
+            currentAllowanceWei: confirmedAllowanceWei.toString(),
+            currentAllowanceWeth: formatWeth(confirmedAllowanceWei),
         });
         return {
-            status: "approved",
+            status: WETH_ALLOWANCE_RECONCILIATION_STATUS.Updated,
             ownerAddress,
             spenderAddress: this.spenderAddress,
             desiredAllowanceWei,
-            currentAllowanceWei,
+            previousAllowanceWei: currentAllowanceWei,
+            currentAllowanceWei: confirmedAllowanceWei,
             transactionHash,
         };
+    }
+
+    private async readConfirmedAllowance(params: {
+        ownerAddress: Address;
+        desiredAllowanceWei: bigint;
+        transactionHash: Hash;
+    }): Promise<bigint> {
+        let confirmedAllowanceWei: bigint;
+        try {
+            // Read the exact owner/conduit allowance after receipt confirmation.
+            confirmedAllowanceWei = await this.readClient.readContract({
+                address: this.wethAddress,
+                abi: erc20AllowanceApprovalAbi,
+                functionName: "allowance",
+                args: [params.ownerAddress, this.spenderAddress],
+            });
+        } catch (error) {
+            log.error(
+                "confirmedAllowanceReadFailed",
+                "Failed to verify confirmed WETH allowance",
+                {
+                    transactionHash: params.transactionHash,
+                    ownerAddress: params.ownerAddress,
+                    spenderAddress: this.spenderAddress,
+                    ...toErrorLogFields(error),
+                },
+            );
+            throw error;
+        }
+
+        if (confirmedAllowanceWei !== params.desiredAllowanceWei) {
+            throw new Error(
+                `${WETH_ALLOWANCE_POST_CONFIRMATION_ERROR}: expected=${params.desiredAllowanceWei} wei, received=${confirmedAllowanceWei} wei, tx=${params.transactionHash}`,
+            );
+        }
+        return confirmedAllowanceWei;
     }
 
     private async prepareApprovalTransactionPolicy(params: {
         ownerAddress: Address;
         desiredAllowanceWei: bigint;
-    }): Promise<EvmPreparedTransactionPolicy> {
-        log.info("approvalPolicyPrepareStarted", "Preparing approval transaction policy", {
-            ownerAddress: params.ownerAddress,
-            spenderAddress: this.spenderAddress,
-            desiredAllowanceWei: params.desiredAllowanceWei.toString(),
-            desiredAllowanceWeth: formatWeth(params.desiredAllowanceWei),
-        });
+    }): Promise<PreparedWethApprovalTransaction> {
+        log.info(
+            "approvalPolicyPrepareStarted",
+            "Preparing approval transaction policy",
+            {
+                ownerAddress: params.ownerAddress,
+                spenderAddress: this.spenderAddress,
+                desiredAllowanceWei: params.desiredAllowanceWei.toString(),
+                desiredAllowanceWeth: formatWeth(params.desiredAllowanceWei),
+            },
+        );
 
-        const gasEstimate = await this.readOptionalGasEstimate(params);
+        const gasEstimate = await this.readRequiredGasEstimate(params);
         let transactionPolicy: EvmPreparedTransactionPolicy;
         try {
             transactionPolicy = await this.transactionPolicyService.prepare({
@@ -351,21 +463,43 @@ export class ViemWethAllowanceApprovalService {
                 fromAddress: params.ownerAddress,
             });
         } catch (error) {
-            log.error("approvalPolicyPrepareFailed", "Failed to prepare approval transaction policy", {
-                ownerAddress: params.ownerAddress,
-                spenderAddress: this.spenderAddress,
-                ...toErrorLogFields(error),
-            });
+            log.error(
+                "approvalPolicyPrepareFailed",
+                "Failed to prepare approval transaction policy",
+                {
+                    ownerAddress: params.ownerAddress,
+                    spenderAddress: this.spenderAddress,
+                    ...toErrorLogFields(error),
+                },
+            );
             throw error;
         }
 
+        const gasLimit = multiplyByBpsCeil(
+            gasEstimate,
+            APPROVAL_GAS_LIMIT_HEADROOM_BPS,
+        );
+        const worstCaseTotalFeeWei =
+            gasLimit * transactionPolicy.maxFeePerGasWei;
+        if (worstCaseTotalFeeWei > this.maxTotalFeeWei) {
+            throw new Error(
+                `${WETH_APPROVAL_TOTAL_FEE_CAP_ERROR}: worstCase=${worstCaseTotalFeeWei} wei, cap=${this.maxTotalFeeWei} wei`,
+            );
+        }
+
         log.info("approvalPolicyReady", "Approval transaction policy ready", {
-            gasEstimateWei: gasEstimate?.toString() ?? null,
+            [WETH_APPROVAL_LOG_FIELD.GasEstimateWei]: gasEstimate.toString(),
+            [WETH_APPROVAL_LOG_FIELD.GasLimit]: gasLimit.toString(),
+            [WETH_APPROVAL_LOG_FIELD.WorstCaseTotalFeeWei]:
+                worstCaseTotalFeeWei.toString(),
+            [WETH_APPROVAL_LOG_FIELD.ConfiguredMaxTotalFeeWei]:
+                this.maxTotalFeeWei.toString(),
             baseFeePerGasWei: transactionPolicy.baseFeePerGasWei.toString(),
             baseFeePerGasGwei: formatWeiAsGwei(
                 transactionPolicy.baseFeePerGasWei,
             ),
-            latestBlockNumber: transactionPolicy.blockNumber?.toString() ?? null,
+            latestBlockNumber:
+                transactionPolicy.blockNumber?.toString() ?? null,
             nodeGasPriceGwei: formatOptionalGwei(
                 transactionPolicy.nodeGasPriceWei,
             ),
@@ -404,33 +538,48 @@ export class ViemWethAllowanceApprovalService {
             latestNonce: transactionPolicy.latestNonce,
             pendingNonce: transactionPolicy.pendingNonce,
         });
-        return transactionPolicy;
+        return {
+            transactionPolicy,
+            gasEstimate,
+            gasLimit,
+            worstCaseTotalFeeWei,
+        };
     }
 
-    private async readOptionalGasEstimate(params: {
+    private async readRequiredGasEstimate(params: {
         ownerAddress: Address;
         desiredAllowanceWei: bigint;
-    }): Promise<bigint | null> {
-        if (!this.readClient.estimateContractGas) {
-            return null;
-        }
+    }): Promise<bigint> {
         try {
             // Estimate the exact approval call that will be submitted if allowance is still low.
-            return await this.readClient.estimateContractGas({
+            const gasEstimate = await this.readClient.estimateContractGas({
                 account: params.ownerAddress,
                 address: this.wethAddress,
                 abi: erc20AllowanceApprovalAbi,
                 functionName: "approve",
                 args: [this.spenderAddress, params.desiredAllowanceWei],
             });
+            if (gasEstimate <= 0n) {
+                throw new Error("RPC returned a non-positive gas estimate");
+            }
+            return gasEstimate;
         } catch (error) {
-            log.warn("approvalGasEstimateFailed", "Failed to estimate approval gas", {
-                ownerAddress: params.ownerAddress,
-                spenderAddress: this.spenderAddress,
-                desiredAllowanceWei: params.desiredAllowanceWei.toString(),
-                ...toErrorLogFields(error),
-            });
-            return null;
+            log.error(
+                "approvalGasEstimateFailed",
+                "Failed to estimate approval gas",
+                {
+                    ownerAddress: params.ownerAddress,
+                    spenderAddress: this.spenderAddress,
+                    desiredAllowanceWei: params.desiredAllowanceWei.toString(),
+                    ...toErrorLogFields(error),
+                },
+            );
+            throw new Error(
+                "Cannot enforce WETH approval total fee cap without a gas estimate",
+                {
+                    cause: error,
+                },
+            );
         }
     }
 
@@ -447,9 +596,13 @@ export class ViemWethAllowanceApprovalService {
                 baseFeePerGas: block.baseFeePerGas ?? null,
             };
         } catch (error) {
-            log.warn("latestBlockReadFailed", "Failed to read latest block fee data", {
-                ...toErrorLogFields(error),
-            });
+            log.warn(
+                "latestBlockReadFailed",
+                "Failed to read latest block fee data",
+                {
+                    ...toErrorLogFields(error),
+                },
+            );
             return {
                 number: null,
                 baseFeePerGas: null,
@@ -462,10 +615,14 @@ export class ViemWethAllowanceApprovalService {
     ): Promise<void> {
         const transactionFields =
             await this.readBroadcastTransactionFields(transactionHash);
-        log.info("broadcastTransactionRead", "Broadcast transaction state from node", {
-            transactionHash,
-            ...transactionFields,
-        });
+        log.info(
+            "broadcastTransactionRead",
+            "Broadcast transaction state from node",
+            {
+                transactionHash,
+                ...transactionFields,
+            },
+        );
     }
 
     private async readBroadcastTransactionFields(
@@ -511,13 +668,17 @@ export class ViemWethAllowanceApprovalService {
         params.onProgress?.(
             `status=waiting_for_receipt, tx=${params.transactionHash}, desired=${formatWeth(params.desiredAllowanceWei)}, previous=${formatWeth(params.currentAllowanceWei)}`,
         );
-        log.info("approvalReceiptWaitStarted", "Waiting for WETH approval receipt", {
-            transactionHash: params.transactionHash,
-            desiredAllowanceWei: params.desiredAllowanceWei.toString(),
-            desiredAllowanceWeth: formatWeth(params.desiredAllowanceWei),
-            previousAllowanceWei: params.currentAllowanceWei.toString(),
-            previousAllowanceWeth: formatWeth(params.currentAllowanceWei),
-        });
+        log.info(
+            "approvalReceiptWaitStarted",
+            "Waiting for WETH approval receipt",
+            {
+                transactionHash: params.transactionHash,
+                desiredAllowanceWei: params.desiredAllowanceWei.toString(),
+                desiredAllowanceWeth: formatWeth(params.desiredAllowanceWei),
+                previousAllowanceWei: params.currentAllowanceWei.toString(),
+                previousAllowanceWeth: formatWeth(params.currentAllowanceWei),
+            },
+        );
         let heartbeatInFlight = false;
         const waitLogInterval = setInterval(() => {
             if (heartbeatInFlight) {
@@ -569,23 +730,36 @@ export class ViemWethAllowanceApprovalService {
             this.readBroadcastTransactionFields(params.transactionHash),
             this.readOptionalLatestBlock(),
         ]);
-        log.info("approvalReceiptWaitHeartbeat", "Still waiting for WETH approval receipt", {
-            transactionHash: params.transactionHash,
-            elapsed,
-            elapsedMs,
-            desiredAllowanceWei: params.desiredAllowanceWei.toString(),
-            desiredAllowanceWeth: formatWeth(params.desiredAllowanceWei),
-            previousAllowanceWei: params.currentAllowanceWei.toString(),
-            previousAllowanceWeth: formatWeth(params.currentAllowanceWei),
-            latestBlockNumber: latestBlock.number?.toString() ?? null,
-            baseFeePerGasGwei: formatOptionalGwei(latestBlock.baseFeePerGas),
-            ...transactionFields,
-        });
+        log.info(
+            "approvalReceiptWaitHeartbeat",
+            "Still waiting for WETH approval receipt",
+            {
+                transactionHash: params.transactionHash,
+                elapsed,
+                elapsedMs,
+                desiredAllowanceWei: params.desiredAllowanceWei.toString(),
+                desiredAllowanceWeth: formatWeth(params.desiredAllowanceWei),
+                previousAllowanceWei: params.currentAllowanceWei.toString(),
+                previousAllowanceWeth: formatWeth(params.currentAllowanceWei),
+                latestBlockNumber: latestBlock.number?.toString() ?? null,
+                baseFeePerGasGwei: formatOptionalGwei(
+                    latestBlock.baseFeePerGas,
+                ),
+                ...transactionFields,
+            },
+        );
     }
 }
 
 function formatWeth(amountWei: bigint): string {
     return `${formatEther(amountWei)} WETH`;
+}
+
+function multiplyByBpsCeil(value: bigint, basisPoints: bigint): bigint {
+    return (
+        (value * basisPoints + BASIS_POINTS_DENOMINATOR - 1n) /
+        BASIS_POINTS_DENOMINATOR
+    );
 }
 
 function formatElapsed(elapsedMs: number): string {
@@ -656,9 +830,7 @@ function transactionPolicyEventFields(
                 ...base,
                 blockNumber: event.blockNumber?.toString() ?? null,
                 baseFeePerGasWei: event.baseFeePerGasWei?.toString() ?? null,
-                baseFeePerGasGwei: formatOptionalGwei(
-                    event.baseFeePerGasWei,
-                ),
+                baseFeePerGasGwei: formatOptionalGwei(event.baseFeePerGasWei),
             };
         case "fee_estimate_read":
             return {

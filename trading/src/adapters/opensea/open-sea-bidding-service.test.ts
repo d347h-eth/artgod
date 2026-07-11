@@ -17,6 +17,7 @@ import {
 import { TOKEN_BUCKET_RATE_LIMIT_PRIORITY } from "../support/token-bucket-rate-limiter.js";
 import {
     isRetryableOpenSeaBiddingError,
+    OPENSEA_SIGNED_ZONE_TRAIT_TRUST_REQUIRED_ERROR,
     OpenSeaBiddingService,
 } from "./open-sea-bidding-service.js";
 import {
@@ -296,9 +297,42 @@ describe("OpenSeaBiddingService", () => {
         ]);
     });
 
-    it("places competitive-trait and multi-trait collection offers without drifting trait payloads", async () => {
+    it("blocks trait placement before the SDK unless SignedZone trust is explicitly enabled", async () => {
         const sdk = new MockOpenSeaSdk();
-        const service = new OpenSeaBiddingService(sdk as any, makerAddress);
+        let sdkCalls = 0;
+        sdk.createCollectionOffer = async () => {
+            sdkCalls += 1;
+            return null;
+        };
+        const service = new OpenSeaBiddingService(sdk, makerAddress);
+        const traitJob = {
+            id: "job-trait-disabled",
+            revision: 1,
+            network: "eth" as const,
+            collectionSlug,
+            collectionAddress,
+            target: {
+                type: "competitiveTrait" as const,
+                quantity: 1,
+                targetTrait: { type: "Outfit", value: "Kimono" },
+                competitorTraits: [],
+            },
+            config: { floor: 1n, ceiling: 2n, delta: 1n },
+            state: {},
+        };
+
+        await assert.rejects(
+            () => service.placeOffer(traitJob, 1_000000000000000000n),
+            new RegExp(OPENSEA_SIGNED_ZONE_TRAIT_TRUST_REQUIRED_ERROR),
+        );
+        assert.equal(sdkCalls, 0);
+    });
+
+    it("places competitive-trait and multi-trait collection offers after explicit SignedZone trust", async () => {
+        const sdk = new MockOpenSeaSdk();
+        const service = new OpenSeaBiddingService(sdk as any, makerAddress, {
+            trustOpenSeaSignedZoneTraitOffers: true,
+        });
 
         const competitiveTraitJob = {
             id: "job-ct",

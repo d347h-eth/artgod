@@ -1,12 +1,18 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import type { Hash } from "viem";
-import { ViemWethAllowanceApprovalService } from "./viem-weth-allowance-approval-service.js";
+import {
+    ViemWethAllowanceApprovalService,
+    WETH_ALLOWANCE_POST_CONFIRMATION_ERROR,
+    WETH_ALLOWANCE_RECONCILIATION_STATUS,
+    WETH_APPROVAL_TOTAL_FEE_CAP_ERROR,
+} from "./viem-weth-allowance-approval-service.js";
 
 const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 const OWNER = "0x00000000000000000000000000000000000000aA";
 const CONDUIT = "0x1E0049783F008A0085193E00003D00CD54003c71";
 const CONDUIT_CHECKSUM = "0x1E0049783F008A0085193E00003D00cd54003c71";
+const MAX_TOTAL_FEE_WEI = 1_000_000_000_000_000_000n;
 const TRANSACTION_POLICY = {
     fees: {
         minPriorityFeePerGasWei: 1_000_000_000n,
@@ -21,7 +27,7 @@ const TRANSACTION_POLICY = {
 };
 
 describe("ViemWethAllowanceApprovalService", () => {
-    it("skips all chain calls when configured allowance is zero", async () => {
+    it("keeps a zero allowance when it already matches the configured cap", async () => {
         let readCalls = 0;
         let writeCalls = 0;
         const service = new ViemWethAllowanceApprovalService(
@@ -44,6 +50,7 @@ describe("ViemWethAllowanceApprovalService", () => {
             WETH,
             CONDUIT,
             TRANSACTION_POLICY,
+            MAX_TOTAL_FEE_WEI,
         );
 
         const result = await service.ensureAllowance({
@@ -51,13 +58,13 @@ describe("ViemWethAllowanceApprovalService", () => {
             desiredAllowanceWei: 0n,
         });
 
-        assert.equal(result.status, "disabled");
-        assert.equal(result.currentAllowanceWei, null);
-        assert.equal(readCalls, 0);
+        assert.equal(result.status, WETH_ALLOWANCE_RECONCILIATION_STATUS.Exact);
+        assert.equal(result.currentAllowanceWei, 0n);
+        assert.equal(readCalls, 1);
         assert.equal(writeCalls, 0);
     });
 
-    it("does not approve when the current allowance already covers the configured allowance", async () => {
+    it("does not transact when the current allowance exactly matches the configured cap", async () => {
         const calls: Array<{
             functionName: string;
             args: readonly string[];
@@ -70,7 +77,7 @@ describe("ViemWethAllowanceApprovalService", () => {
                         functionName: args.functionName,
                         args: args.args,
                     });
-                    return 100n;
+                    return 50n;
                 },
                 async waitForTransactionReceipt() {
                     throw new Error("unexpected wait");
@@ -84,6 +91,7 @@ describe("ViemWethAllowanceApprovalService", () => {
             WETH,
             CONDUIT,
             TRANSACTION_POLICY,
+            MAX_TOTAL_FEE_WEI,
         );
 
         const result = await service.ensureAllowance({
@@ -91,8 +99,8 @@ describe("ViemWethAllowanceApprovalService", () => {
             desiredAllowanceWei: 50n,
         });
 
-        assert.equal(result.status, "sufficient");
-        assert.equal(result.currentAllowanceWei, 100n);
+        assert.equal(result.status, WETH_ALLOWANCE_RECONCILIATION_STATUS.Exact);
+        assert.equal(result.currentAllowanceWei, 50n);
         assert.deepEqual(calls, [
             {
                 functionName: "allowance",
@@ -104,10 +112,52 @@ describe("ViemWethAllowanceApprovalService", () => {
         ]);
     });
 
+    it("revokes an existing allowance when the configured cap is zero", async () => {
+        const writes: Array<{ amount: bigint; gas: bigint }> = [];
+        let allowanceReadCalls = 0;
+        const service = new ViemWethAllowanceApprovalService(
+            {
+                ...createTransactionPolicyReadDefaults(),
+                async readContract() {
+                    allowanceReadCalls += 1;
+                    return allowanceReadCalls === 1 ? 2n ** 256n - 1n : 0n;
+                },
+                async waitForTransactionReceipt() {
+                    return {};
+                },
+            },
+            {
+                async writeContract(args) {
+                    writes.push({ amount: args.args[1], gas: args.gas });
+                    return "0x01" as Hash;
+                },
+            },
+            WETH,
+            CONDUIT,
+            TRANSACTION_POLICY,
+            MAX_TOTAL_FEE_WEI,
+        );
+
+        const result = await service.ensureAllowance({
+            ownerAddress: OWNER,
+            desiredAllowanceWei: 0n,
+        });
+
+        assert.equal(
+            result.status,
+            WETH_ALLOWANCE_RECONCILIATION_STATUS.Updated,
+        );
+        assert.deepEqual(writes, [{ amount: 0n, gas: 60_000n }]);
+        assert.equal(result.previousAllowanceWei, 2n ** 256n - 1n);
+        assert.equal(result.currentAllowanceWei, 0n);
+        assert.equal(allowanceReadCalls, 2);
+    });
+
     it("approves the exact configured allowance and waits for confirmation when allowance is low", async () => {
         const writes: Array<{
             functionName: string;
             args: readonly [string, bigint];
+            gas: bigint;
             maxFeePerGas: bigint;
             maxPriorityFeePerGas: bigint;
         }> = [];
@@ -126,10 +176,12 @@ describe("ViemWethAllowanceApprovalService", () => {
             blockTag: string;
         }> = [];
         const transactionLookups: Hash[] = [];
+        let allowanceReadCalls = 0;
         const service = new ViemWethAllowanceApprovalService(
             {
                 async readContract() {
-                    return 10n;
+                    allowanceReadCalls += 1;
+                    return allowanceReadCalls === 1 ? 10n : 75n;
                 },
                 async waitForTransactionReceipt(args) {
                     waits.push(args.hash);
@@ -183,6 +235,7 @@ describe("ViemWethAllowanceApprovalService", () => {
                     writes.push({
                         functionName: args.functionName,
                         args: args.args,
+                        gas: args.gas,
                         maxFeePerGas: args.maxFeePerGas,
                         maxPriorityFeePerGas: args.maxPriorityFeePerGas,
                     });
@@ -192,6 +245,7 @@ describe("ViemWethAllowanceApprovalService", () => {
             WETH,
             CONDUIT,
             TRANSACTION_POLICY,
+            MAX_TOTAL_FEE_WEI,
         );
 
         const result = await service.ensureAllowance({
@@ -202,13 +256,19 @@ describe("ViemWethAllowanceApprovalService", () => {
             },
         });
 
-        assert.equal(result.status, "approved");
-        assert.equal(result.currentAllowanceWei, 10n);
+        assert.equal(
+            result.status,
+            WETH_ALLOWANCE_RECONCILIATION_STATUS.Updated,
+        );
+        assert.equal(result.previousAllowanceWei, 10n);
+        assert.equal(result.currentAllowanceWei, 75n);
         assert.equal(result.transactionHash, "0x1234");
+        assert.equal(allowanceReadCalls, 2);
         assert.deepEqual(writes, [
             {
                 functionName: "approve",
                 args: [CONDUIT_CHECKSUM, 75n],
+                gas: 60_000n,
                 maxFeePerGas: 51_000_000_000n,
                 maxPriorityFeePerGas: 1_000_000_000n,
             },
@@ -264,6 +324,7 @@ describe("ViemWethAllowanceApprovalService", () => {
             WETH,
             CONDUIT,
             TRANSACTION_POLICY,
+            MAX_TOTAL_FEE_WEI,
         );
 
         const result = await service.ensureAllowance({
@@ -272,8 +333,82 @@ describe("ViemWethAllowanceApprovalService", () => {
             dryRun: true,
         });
 
-        assert.equal(result.status, "dry_run");
+        assert.equal(
+            result.status,
+            WETH_ALLOWANCE_RECONCILIATION_STATUS.DryRun,
+        );
+        assert.equal(result.previousAllowanceWei, 10n);
         assert.equal(result.currentAllowanceWei, 10n);
+    });
+
+    it("fails closed when receipt confirmation does not establish the exact cap", async () => {
+        let writeCalls = 0;
+        const service = new ViemWethAllowanceApprovalService(
+            {
+                ...createTransactionPolicyReadDefaults(),
+                async readContract() {
+                    return 10n;
+                },
+                async waitForTransactionReceipt() {
+                    return {};
+                },
+            },
+            {
+                async writeContract() {
+                    writeCalls += 1;
+                    return "0x1234" as Hash;
+                },
+            },
+            WETH,
+            CONDUIT,
+            TRANSACTION_POLICY,
+            MAX_TOTAL_FEE_WEI,
+        );
+
+        await assert.rejects(
+            () =>
+                service.ensureAllowance({
+                    ownerAddress: OWNER,
+                    desiredAllowanceWei: 75n,
+                }),
+            new RegExp(WETH_ALLOWANCE_POST_CONFIRMATION_ERROR),
+        );
+        assert.equal(writeCalls, 1);
+    });
+
+    it("rejects approval when its explicit gas limit exceeds the total fee cap", async () => {
+        let writeCalls = 0;
+        const service = new ViemWethAllowanceApprovalService(
+            {
+                ...createTransactionPolicyReadDefaults(),
+                async readContract() {
+                    return 10n;
+                },
+                async waitForTransactionReceipt() {
+                    throw new Error("unexpected wait");
+                },
+            },
+            {
+                async writeContract() {
+                    writeCalls += 1;
+                    return "0x01" as Hash;
+                },
+            },
+            WETH,
+            CONDUIT,
+            TRANSACTION_POLICY,
+            1n,
+        );
+
+        await assert.rejects(
+            () =>
+                service.ensureAllowance({
+                    ownerAddress: OWNER,
+                    desiredAllowanceWei: 75n,
+                }),
+            new RegExp(WETH_APPROVAL_TOTAL_FEE_CAP_ERROR),
+        );
+        assert.equal(writeCalls, 0);
     });
 
     it("uses fee-history priority fee when the node tip estimate is zero and history is above the floor", async () => {
@@ -281,11 +416,13 @@ describe("ViemWethAllowanceApprovalService", () => {
             maxFeePerGas: bigint;
             maxPriorityFeePerGas: bigint;
         }> = [];
+        let allowanceReadCalls = 0;
         const service = new ViemWethAllowanceApprovalService(
             {
                 ...createTransactionPolicyReadDefaults(),
                 async readContract() {
-                    return 10n;
+                    allowanceReadCalls += 1;
+                    return allowanceReadCalls === 1 ? 10n : 75n;
                 },
                 async waitForTransactionReceipt() {
                     return {};
@@ -327,6 +464,7 @@ describe("ViemWethAllowanceApprovalService", () => {
                     pendingNoncePolicy: "fail",
                 },
             },
+            MAX_TOTAL_FEE_WEI,
         );
 
         await service.ensureAllowance({
@@ -366,6 +504,7 @@ describe("ViemWethAllowanceApprovalService", () => {
             WETH,
             CONDUIT,
             TRANSACTION_POLICY,
+            MAX_TOTAL_FEE_WEI,
         );
 
         await assert.rejects(
@@ -381,6 +520,7 @@ describe("ViemWethAllowanceApprovalService", () => {
 });
 
 function createTransactionPolicyReadDefaults(): {
+    estimateContractGas(): Promise<bigint>;
     getBlock(args: { blockTag: "latest" }): Promise<{
         number: bigint;
         baseFeePerGas: bigint;
@@ -395,6 +535,9 @@ function createTransactionPolicyReadDefaults(): {
     }): Promise<number>;
 } {
     return {
+        async estimateContractGas() {
+            return 50_000n;
+        },
         async getBlock() {
             return {
                 number: 123n,
