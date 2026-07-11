@@ -47,6 +47,12 @@ Trait targets:
 - Trait criteria are canonicalized before persistence so the same key/value set resolves to the same declared job regardless of UI order.
 - OR-mode filter exploration remains a display/search aid; a drafted trait job stores the selected traits as a concrete AND target.
 
+Trait job declaration and bid-book discovery remain available by default, but
+live trait and multi-trait placement is blocked unless the operator explicitly
+enables `BIDDING_TRUST_OPENSEA_SIGNED_ZONE_FOR_TRAIT_OFFERS` in Admin Config.
+That opt-in accepts OpenSea SignedZone as the service-enforced target boundary;
+the trait criteria are not represented as a cryptographic claim by ArtGod.
+
 Collection targets:
 
 - `place collection bid` creates or updates the collection-wide job.

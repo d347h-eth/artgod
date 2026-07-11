@@ -44,6 +44,34 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 The bidding runtime uses `@opensea/sdk` through the SDK's viem entrypoint.
 SDK concrete types remain isolated in runtime composition and the OpenSea adapters; the bidding core consumes local ports.
 
+For public-alpha compatibility, OpenSea still owns its existing offer build and
+post flow. It does not receive ArtGod's transaction-capable wallet client. The
+SDK receives a restricted wallet facade that rejects transaction, contract
+write, message-signing, and transaction-signing requests. Each placement or
+offchain cancellation authorizes exactly one typed-data signature, and ArtGod
+validates that payload before forwarding it to the in-memory signer. The SDK's
+ethers RPC bridge is independently read-only and rejects transaction-submission
+and wallet-signing JSON-RPC methods before an endpoint is selected.
+
+Offer signature policy pins mainnet Seaport 1.6, the OpenSea conduit key, and
+OpenSea SignedZone. It also validates the maker, canonical WETH token, exact
+operator-requested spend, configured allowance cap, target collection/token and
+quantity, expiration, and consideration item shape. Marketplace fee allocations
+must remain WETH consideration within the exact offer spend, so they cannot
+increase wallet spend beyond the requested bid amount.
+SDK or API drift in the pinned contracts, domain, schema, or payload shape fails
+the placement before signing and requires an explicit ArtGod review.
+The strict alpha policy also fails closed for collection-specific custom zones
+and OpenSea Shared Storefront/lazy-mint target remapping until ArtGod models and
+pins those target rules explicitly.
+
+OpenSea trait and multi-trait offers are the explicit trust exception. Their
+exact trait criteria can be enforced by OpenSea SignedZone rather than committed
+in the maker's EIP-712 order. Live placement is therefore disabled by default
+for those targets. `BIDDING_TRUST_OPENSEA_SIGNED_ZONE_FOR_TRAIT_OFFERS=true`
+consciously accepts that pinned OpenSea service boundary; discovery, bid-book
+display, and declared trait jobs remain available while placement is disabled.
+
 Current REST/SDK calls:
 
 - exact-token offer discovery: `api.getOffersByNFT(collectionSlug, tokenId, limit, next)`
@@ -86,7 +114,8 @@ Startup order:
 4. load enabled bidding jobs from SQLite
 5. wire OpenSea lanes, metadata lookup, WETH balance/allowance, transaction policy, and logging adapters
 6. emit `bot_bootstrapping` before long allowance/snapshot/price bootstrap work
-7. approve configured WETH allowance when `BIDDING_WETH_ALLOWANCE_ETH > 0`
+7. reconcile the pinned OpenSea conduit WETH allowance up or down to the exact
+   `BIDDING_WETH_ALLOWANCE_ETH` cap, including revocation when the cap is `0`
 8. bootstrap authoritative collection-offer snapshots and current prices
 9. replay already-committed job commands while stream listeners and snapshot polling are still inactive
 10. start OpenSea stream listeners and steady-state snapshot polling from the post-command enabled-job set
@@ -390,7 +419,19 @@ Trading-specific rules:
 - lifecycle events and runtime-state DB rows contain only non-secret metadata
 - every bot restart requires a fresh unlock
 - WETH allowance amount is configured in Ether units through `BIDDING_WETH_ALLOWANCE_ETH`
+- startup treats that amount as an exact cap: higher and unlimited existing
+  approvals are reduced, and `0` revokes instead of skipping the chain read
+- after a submitted approval confirms, startup re-reads the onchain allowance
+  and fails closed unless it equals the configured cap
+- OpenSea cannot create approval transactions; only ArtGod's allowance adapter
+  receives the transaction-capable wallet client
+- `BIDDING_TX_MAX_FEE_GWEI` caps the approval transaction fee per gas unit
+- `BIDDING_TX_MAX_TOTAL_FEE_ETH` separately caps its worst-case total fee as
+  explicit gas limit times selected max fee per gas; the explicit limit is the
+  node estimate plus 20% headroom, and gas estimation fails closed
 - onchain transactions use the shared EVM transaction policy from `@artgod/shared/evm/transactions`
+- Admin `Bots` shows the effective live/dry-run mode, allowance cap, both fee
+  caps, pending-nonce policy, and trait SignedZone trust beside the start action
 
 ## Config Surface
 
@@ -410,8 +451,10 @@ Bidding runtime groups:
 - bot runtime liveness: `BIDDING_RUNTIME_HEARTBEAT_*`
 - command reconciliation: `BIDDING_COMMAND_*`
 - failed cancellation recovery: `BIDDING_FAILED_CANCELLATION_RECONCILE_MS`
-- WETH allowance: `BIDDING_WETH_ALLOWANCE_ETH`
-- EIP-1559 fee/nonce policy: `BIDDING_TX_*`
+- WETH allowance cap: `BIDDING_WETH_ALLOWANCE_ETH`
+- OpenSea SignedZone trait-placement trust:
+  `BIDDING_TRUST_OPENSEA_SIGNED_ZONE_FOR_TRAIT_OFFERS`
+- EIP-1559 fee/nonce policy and total approval fee cap: `BIDDING_TX_*`
 
 The indexer `OPENSEA_API_KEY` remains dedicated to indexer/offchain ingestion and should not be merged with bot keys by convenience.
 
