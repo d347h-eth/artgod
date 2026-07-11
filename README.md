@@ -74,6 +74,7 @@ Long-form setup, configuration, versioning, test, and command details live in
 Official desktop builds are published under
 [GitHub Releases](https://github.com/d347h-eth/artgod/releases). The public
 alpha ships Linux x64 AppImage and `.deb` bundles plus a universal macOS DMG.
+macOS 13.5+ is required for the macOS bundle.
 Windows can be built from source, but signed Windows release artifacts remain
 deferred.
 

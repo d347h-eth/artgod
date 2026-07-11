@@ -2,6 +2,16 @@ interface Env {
     ASSETS: Fetcher;
 }
 
+const RELEASE_PRIMARY_KEY_FINGERPRINT =
+    "2528300C396AFEDF062619626E5E8A9BC0ECD353";
+const RELEASE_SIGNING_SUBKEY_FINGERPRINT =
+    "6ED7A34814FFF8BBAB94784AA4EE961CBD9F14AD";
+const ARTGOD_GITHUB_URL = "https://github.com/d347h-eth/artgod";
+const ARTGOD_X_URL = "https://x.com/artgod_eth";
+const ARTGOD_ENS_ETHERSCAN_URL = "https://etherscan.io/address/artgod.eth";
+const ARTGOD_DONATIONS_ETHERSCAN_URL =
+    "https://etherscan.io/address/donations.artgod.eth";
+
 const LANDING_PAGE_HTML = `<!doctype html>
 <html lang="en">
 <head>
@@ -97,16 +107,53 @@ const LANDING_PAGE_HTML = `<!doctype html>
             color: var(--cta-text);
         }
 
-        .cta a {
+        .cta a,
+        .donations a {
             color: var(--cta-link);
             text-decoration: none;
             border-bottom: 1px solid var(--cta-link);
         }
 
-        .cta a:hover {
+        .cta a:hover,
+        .donations a:hover {
             color: var(--cta-link);
             border-bottom-color: var(--cta-link);
             opacity: 0.85;
+        }
+
+        .release-key {
+            margin-top: 2.1rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--sky-dark);
+        }
+
+        .release-key h2 {
+            margin: 0 0 0.8rem;
+            color: var(--sky);
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .release-key dl,
+        .release-key dd {
+            margin: 0;
+        }
+
+        .release-key dt {
+            margin-top: 0.7rem;
+        }
+
+        .release-key code {
+            color: var(--text);
+            font-size: 0.82em;
+            overflow-wrap: anywhere;
+            word-break: break-all;
+        }
+
+        .donations {
+            margin-top: 2.1rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--sky-dark);
         }
 
         @media (max-width: 720px) {
@@ -166,10 +213,24 @@ const LANDING_PAGE_HTML = `<!doctype html>
                 <li>by collectors, for collectors</li>
                 <li>by cypherpunks, for cypherpunks</li>
             </ul>
-            <section class="cta" aria-label="Call to action">
-                Follow
-                <a href="https://x.com/artgod_eth" target="_blank" rel="noreferrer noopener">ArtGod on X</a>
-                to catch the first public release announcement in the coming weeks.
+            <section class="cta" aria-label="Official ArtGod resources">
+                Official ArtGod resources:
+                <a href="${ARTGOD_GITHUB_URL}" target="_blank" rel="noreferrer noopener">GitHub repository</a>,
+                <a href="${ARTGOD_X_URL}" target="_blank" rel="noreferrer noopener">X account</a>, and
+                <a href="${ARTGOD_ENS_ETHERSCAN_URL}" target="_blank" rel="noreferrer noopener">artgod.eth</a>.
+            </section>
+            <section class="release-key" aria-labelledby="release-key-heading">
+                <h2 id="release-key-heading">Release signing key fingerprints</h2>
+                <dl>
+                    <dt>Primary certification key</dt>
+                    <dd><code>${RELEASE_PRIMARY_KEY_FINGERPRINT}</code></dd>
+                    <dt>Current release signing subkey</dt>
+                    <dd><code>${RELEASE_SIGNING_SUBKEY_FINGERPRINT}</code></dd>
+                </dl>
+            </section>
+            <section class="donations" aria-label="Donations">
+                Donations welcome:
+                <a href="${ARTGOD_DONATIONS_ETHERSCAN_URL}" target="_blank" rel="noreferrer noopener">donations.artgod.eth</a>
             </section>
         </article>
     </main>

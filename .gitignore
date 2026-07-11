@@ -32,7 +32,7 @@ frontend/playwright-report/
 **/coverage/
 
 # Cloudflare worker mgmt cache
-**/.wrangler/cache
+**/.wrangler
 
 # Database files (keep migrations and scripts, ignore database data)
 database/sqlite/
