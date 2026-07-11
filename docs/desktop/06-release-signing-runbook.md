@@ -67,9 +67,10 @@ Environment protection:
   `v*` that restricts updates and deletions. Restrict creation only if the
   maintainer account has explicit bypass permission to create new release tags.
 - Under repository Settings / General / Releases, enable release immutability.
-  It applies only to future releases. The workflow stages assets on a draft and
-  publishes only after every upload succeeds, which is the required safe shape
-  for immutable releases and prereleases.
+  It applies only to future releases. The workflow stages assets on a draft,
+  captures that draft's numeric release ID, and publishes the same ID only
+  after every upload succeeds. This is the required safe shape for immutable
+  releases and prereleases.
 - Under repository Settings / Actions / General, enable the policy requiring
   Actions to be pinned to full commit SHAs when that setting is available.
 
@@ -108,10 +109,13 @@ Workflow policy:
 - Release assembly re-verifies every transferred Linux bundle signature before
   it signs the checksum manifest. Publication occurs only after GitHub provenance
   attestation succeeds.
-- Publication copies the checked-in public key into the release assets before
-  checksumming, stages every final asset on a draft GitHub Release, and then
-  publishes that draft. A failed upload therefore leaves no partially published
-  immutable release.
+- Release assembly copies the checked-in public key into the release assets
+  before checksumming. Publication stages every final asset on a draft GitHub
+  Release and captures the staging Action's numeric release ID. A tested
+  repository helper validates that exact draft's tag, channel, and uploaded
+  assets before publishing it through GitHub's update-release API. Publication
+  never searches by tag or creates a second release. A failed upload therefore
+  leaves no partially published immutable release.
 
 ## Current Tauri State
 
@@ -481,6 +485,23 @@ tag is the release trigger; the workflow creates the release only after both
 platform builds, signing, notarization, release assembly, and provenance
 attestation succeed.
 
+When `publish-release` requests approval for the protected environment, approve
+that job only after the upstream jobs are green. The job then performs the
+complete publication transaction: it attests the bundles, creates and fills a
+draft, validates the draft by its numeric release ID, and publishes that same
+draft. A draft may be visible briefly while the job is running. Do not publish
+or edit a workflow-owned draft in the GitHub UI, and do not create another
+release for the tag.
+
+If `publish-release` fails, inspect the release page before retrying:
+
+- If no public release exists and the workflow left a draft, delete only that
+  draft before rerunning the failed job. The rerun will stage a fresh draft.
+- If an immutable public release exists, do not rerun or delete it. Publication
+  reached GitHub; investigate the failed post-publication assertion before any
+  further action.
+- If neither exists, rerun the failed job normally.
+
 Use `git tag -s -u <personal-signing-key-fingerprint> ...` when Git has more
 than one candidate signing key. The workflow independently asks GitHub to
 verify the OpenPGP signature; a locally valid tag still fails admission if the
@@ -536,6 +557,7 @@ Official GitHub references:
 - Create a repository tag ruleset: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository
 - Ruleset update/delete restrictions: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets
 - Immutable releases: https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases
+- Update a release by numeric ID: https://docs.github.com/en/rest/releases/releases#update-a-release
 - Prevent release changes: https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/establish-provenance-and-integrity/preventing-changes-to-your-releases
 - Verify release integrity: https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/verify-release-integrity
 - Verify build provenance: https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations
