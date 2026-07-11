@@ -1,5 +1,7 @@
 mod app_config;
 mod app_config_manifest;
+mod backend_collection_catalog;
+mod bidding_mandate;
 mod bot_runtime;
 mod config;
 mod env_keys;
@@ -14,6 +16,11 @@ mod supervisor;
 pub use app_config::{
     AppConfigState, SaveAppConfigInput, ensure_desktop_config_paths, load_app_config_state,
     load_effective_app_config_values, save_app_config, use_default_app_config,
+};
+pub use backend_collection_catalog::{BackendCollectionCatalog, BiddingCollectionCandidate};
+pub use bidding_mandate::{
+    BiddingCollectionMandate, BiddingCollectionMandateDraft, BiddingCollectionTokenScopeSummary,
+    BiddingMandate, BiddingMandateDraft, BiddingStartPolicySnapshot, format_wei_as_eth,
 };
 pub use bot_runtime::{
     BotCriticalDependencyStatus, BotRuntimeSnapshot, BotRuntimeState, bot_runtime_spec,
