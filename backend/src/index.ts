@@ -362,6 +362,7 @@ export function createBackendApp(
         config.integrations.opensea,
         config.blockExplorer,
         config.bidding.bidBookLiveRefresh,
+        config.bidding.trustOpenSeaSignedZoneTraitOffers,
     );
     const listCollectionsUseCase = new ListCollectionsUseCase(
         config.defaultChainId,

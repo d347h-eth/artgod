@@ -1,8 +1,9 @@
 import {
+    getSettingDefaultBoolean,
     getSettingDefaultNumber,
     type SettingsDefaultKey,
 } from "./generated-settings-defaults.js";
-import { parsePositiveInteger } from "../utils/env.js";
+import { parseBoolean, parsePositiveInteger } from "../utils/env.js";
 
 // Manifest-backed env keys shared across bidding runtime and UI policy surfaces.
 export const BIDDING_CONFIG_ENV_KEY = {
@@ -30,6 +31,7 @@ export type BiddingBidBookLiveRefreshConfig = {
 };
 
 export type BiddingConfig = {
+    trustOpenSeaSignedZoneTraitOffers: boolean;
     bidBookLiveRefresh: BiddingBidBookLiveRefreshConfig;
     bidBookSnapshotStaleMs: number;
     runtimeHeartbeat: {
@@ -37,6 +39,12 @@ export type BiddingConfig = {
         staleMs: number;
     };
 };
+
+// Default SignedZone trust decision for trait-scoped OpenSea offers.
+export const DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS =
+    getSettingDefaultBoolean(
+        BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers,
+    );
 
 // Default UI bid-book live-refresh cadence from the settings manifest.
 export const DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG: BiddingBidBookLiveRefreshConfig =
@@ -66,6 +74,11 @@ export function parseBiddingConfig(
     env: Record<string, string | undefined>,
 ): BiddingConfig {
     return {
+        trustOpenSeaSignedZoneTraitOffers: parseBoolean(
+            env[BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers],
+            BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers,
+            DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
+        ),
         bidBookLiveRefresh: {
             normalPollMs: parsePositiveInteger(
                 env[BIDDING_CONFIG_ENV_KEY.BidBookNormalLivePollMs],

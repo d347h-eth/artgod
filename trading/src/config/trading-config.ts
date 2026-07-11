@@ -60,7 +60,6 @@ import {
     BIDDING_DEFAULT_ORDER_LOOKUP_MAX_PAGES,
     BIDDING_DEFAULT_SCAN_SLEEP_MS,
     BIDDING_DEFAULT_TOKEN_CRITERIA_TRAITS_BY_COLLECTION,
-    BIDDING_DEFAULT_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
     BIDDING_DEFAULT_TX_BASE_FEE_MULTIPLIER,
     BIDDING_DEFAULT_TX_FEE_HISTORY_BLOCKS,
     BIDDING_DEFAULT_TX_FEE_HISTORY_REWARD_PERCENTILE,
@@ -217,11 +216,8 @@ export function loadTradingConfig(
             BIDDING_RUNTIME_ENV_KEY.DryRun,
             BIDDING_DEFAULT_DRY_RUN,
         ),
-        trustOpenSeaSignedZoneTraitOffers: parseBoolean(
-            env[BIDDING_RUNTIME_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers],
-            BIDDING_RUNTIME_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers,
-            BIDDING_DEFAULT_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
-        ),
+        trustOpenSeaSignedZoneTraitOffers:
+            sharedBiddingConfig.trustOpenSeaSignedZoneTraitOffers,
         scanSleepMs: parsePositiveInteger(
             env[BIDDING_RUNTIME_ENV_KEY.ScanSleepMs],
             BIDDING_RUNTIME_ENV_KEY.ScanSleepMs,

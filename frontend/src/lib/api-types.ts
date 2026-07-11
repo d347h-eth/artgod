@@ -943,6 +943,7 @@ export type RuntimeConfigApiResponse = {
 		blockPathTemplate: string;
 	};
 	bidding: {
+		trustOpenSeaSignedZoneTraitOffers: boolean;
 		bidBookLiveRefresh: {
 			normalPollMs: number;
 			competitivePollMs: number;
