@@ -3,6 +3,9 @@
 Scope: fullscreen token-media preview overlays in the userland UI.
 
 This document defines the preview modal from first principles and should be treated as the canonical design reference for future implementation or rework.
+Apply `docs/ui/00-user-perspective-and-language.md` to the complete open,
+loading, navigation, error, and close journey, and use
+`docs/ui/01-interaction-guidelines.md` for shared controls and page chrome.
 
 ## Goal
 

@@ -17,6 +17,35 @@ Agent is not allowed to work on 'main' or 'dev' branch. Agent is not allowed to 
   interpretation that would degrade code clarity, architecture, or maintainable
   design.
 
+## Non-Negotiable User-Perspective UI/UX Rule
+
+- Before changing any user-visible surface, read
+  `docs/ui/00-user-perspective-and-language.md` and
+  `docs/ui/01-interaction-guidelines.md` completely.
+- Define and then verify the exact user journey from entry state through action,
+  result, and recovery. Review the whole rendered surface in reading order, not
+  only the component or control being changed.
+- Use product and task language the user can understand without knowing ArtGod's
+  implementation. Do not expose unexplained internal terms such as adapters,
+  DTOs, rows, projections, payloads, or native mandates.
+- Show human-recognizable names before explicitly qualified technical IDs. Do
+  not render bare numbers or ambiguous `#N` labels when the canonical name and
+  ID type are available.
+- Every numeric control or value must state its unit, denominator, and scope,
+  including whether a cap is per NFT, per offer, per transaction, or cumulative.
+- Expected errors must be brief and actionable. Point to the exact recovery
+  action, keep raw transport/internal detail in logs, and do not mislabel an
+  unknown failure as a known cause.
+- Keep setup, native prompt, active state, validation, and error wording
+  consistent across Admin and Userland. Security-sensitive review UI must show
+  the same canonical identity and limits that enforcement receives.
+- UI work requires rendered inspection of all materially different states at a
+  representative viewport. Automated checks alone are insufficient. When
+  reproducing a screenshot, read its actual image dimensions instead of
+  inferring or rounding them.
+- Do not render placeholder or nonexistent capabilities merely because an
+  internal enum, process record, or future plan exists.
+
 ## Non-Negotiable Literal Ownership Rule
 
 - Before any edit, scan the planned change for new hard-coded semantic value
@@ -115,7 +144,9 @@ For implementation details, use:
   Keep controls in compact left-aligned groups unless the user explicitly asks for right-edge placement.
 - For frontend controls, reuse existing visual/control families when the interaction already exists elsewhere in the app.
   Do not introduce near-duplicate button/tab styles or alternate active-state behavior without explicit user approval.
-- For frontend styling and interaction behavior, follow `docs/ui/01-interaction-guidelines.md` before adding feature-local CSS.
+- For frontend product language, styling, and interaction behavior, follow
+  `docs/ui/00-user-perspective-and-language.md` and
+  `docs/ui/01-interaction-guidelines.md` before adding or changing UI.
   Treat `frontend/src/app.css` as the UI color source of truth: `--c-bg`, `--c-cyan`, `--c-blue`, `--c-pink`, `--c-sand`, `--c-ice`, `--c-yellow`, and `--c-orange` are the only UI chrome colors.
   Do not add raw hex/rgb/hsl/named color literals, one-off color variables, or feature-local palettes for UI chrome. Normal links are cyan, hover/focus is yellow, and selected/active states are orange.
 - Do not add redundant UI explanatory text, helper copy, or placeholder descriptions unless the user explicitly asks for it.

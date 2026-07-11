@@ -23,6 +23,8 @@ ArtGod still keeps its own wallet metadata index for UI and bot assignment state
 
 Related docs:
 
+- `docs/ui/00-user-perspective-and-language.md`
+- `docs/ui/01-interaction-guidelines.md`
 - `docs/desktop/01-tauri-build-and-runtime.md`
 - `docs/desktop/02-runtime-registry-maintenance.md`
 - `docs/diagrams/00-desktop-components.md`
@@ -682,6 +684,25 @@ Unlock rules:
 - the secret channel is one-shot and immediately closed after write
 - if bot startup fails, the decrypted key is discarded and the bot remains locked
 
+User-facing authorization review:
+
+- Admin calls the proposed state `bidding authorization request`, not a native
+  mandate
+- the trusted prompt calls the reviewed state `Bidding authorization`
+- the running summary calls granted authority `active bidding authorization`
+- the canonical human-readable network name appears before `chain ID #N`
+- collection identity explicitly distinguishes the ArtGod collection ID,
+  OpenSea slug, contract address, and token scope
+- caps state both unit and denominator: `max WETH per NFT` and
+  `max NFTs per offer`
+- Admin, prompt, and active summary must show the same Rust-resolved identity and
+  limits in the same terms
+
+The word `native` remains appropriate when explaining the trusted prompt boundary
+to developers. It is not a substitute for explaining the user's bidding task in
+the UI. Follow `docs/ui/00-user-perspective-and-language.md` for the complete
+cross-surface review method.
+
 Critical dependency rule:
 
 - each bot kind declares the runtime processes that are critical to it
@@ -920,6 +941,7 @@ Suggested responsibilities:
 - address display
 - bot assignment
 - bot start/stop controls
+- proposed and active bidding authorization display
 - locked/running/error state display
 
 Current frontend organization:
@@ -1017,6 +1039,10 @@ The manual matrix should explicitly verify:
 - `plugin:shell|spawn` and `plugin:shell|stdin_write` are denied from the main WebView
 - restart=prompt behavior
 - bot crash -> locked state
+- Admin request, trusted prompt, and active authorization use the same named
+  chain, qualified IDs, collection identity, units, and limits
+- loading, disabled, infrastructure-offline, validation, and active states are
+  read end to end from the operator's perspective
 
 ## Implementation Phases
 

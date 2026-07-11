@@ -1,8 +1,31 @@
 # UI Interaction Guidelines
 
-Scope: `frontend/src/app.css` and userland Svelte UI components under `frontend/src/lib/components`.
+Scope: `frontend/src/app.css`, Userland Svelte UI, and Admin Svelte UI under
+`frontend/src/lib`.
 
-For first-principles preview overlay behavior, see `docs/ui/02-preview-modal-system.md`.
+Read `docs/ui/00-user-perspective-and-language.md` first. It owns the required
+user-eye workflow review, product language, identity, unit, error, and rendered
+verification rules. This document owns established interaction and visual
+patterns. For first-principles preview overlay behavior, see
+`docs/ui/02-preview-modal-system.md`.
+
+## Required UI Review Order
+
+For every user-visible change:
+
+1. walk the complete user journey using
+   `docs/ui/00-user-perspective-and-language.md`
+2. inspect the nearest equivalent Userland or Admin surface
+3. identify the existing component and `frontend/src/app.css` class family
+4. implement without introducing a parallel visual or interaction pattern
+5. inspect loading, empty, disabled, editable, selected, error, in-progress, and
+   active states that apply
+6. reread the complete rendered surface in visual order
+
+Native prompt language must follow the same user-perspective rules even though
+its custom renderer does not share WebView CSS. Security and process-boundary
+details for that surface live in
+`docs/desktop/03-wallet-keystore-and-bot-unlock.md`.
 
 ## Collection Page Shell
 
@@ -93,6 +116,18 @@ Default expectation:
 - active/selected items stay non-clickable when that is already the established pattern
 
 If a new control pattern is genuinely needed, get explicit approval first instead of silently introducing a near-duplicate style or behavior.
+
+For compact forms and operator controls, inspect all of these before adding
+feature-local markup or CSS:
+
+- bootstrap creation forms
+- the shared bidding automation panel
+- Admin configuration controls
+- Admin wallet controls
+- existing runtime status and action rows
+
+Do not fall back to raw browser-default inputs, fieldsets, checkboxes, or number
+spinners when an established ArtGod control family already exists.
 
 ## Page Composition Rules
 

@@ -2,6 +2,9 @@
 
 This document is the current-state feature reference for bidding automation UI/UX and its backend API surface.
 The implementation plan and historical slice notes remain in `docs/progress/trading/04-bidding-automation-ux-plan.md`.
+All bidding surfaces follow the user-perspective and product-language contract in
+`docs/ui/00-user-perspective-and-language.md` and the shared control/layout
+contract in `docs/ui/01-interaction-guidelines.md`.
 
 ## Core Invariants
 
@@ -25,9 +28,37 @@ The implementation plan and historical slice notes remain in `docs/progress/trad
 | `offers` with `bid_scope=collection` | Collection-wide bids and collection-level bid drafting. |
 | Token detail | Inline shared bidding panel for the exact token plus the token's applicable bid book. |
 | `bidding` jobs page | Read-only declared-job/runtime overview; mutation flows stay in shared bidding surfaces. |
+| Admin `Bots` | Bidding authorization setup, canonical collection limits, wallet assignment, and bot lifecycle controls. |
 
 The `offers` page is the primary bidding operations surface.
 It combines the bid book, maker filter, bid-scope controls, trait filters where relevant, bidding target controls, tier management, and the floating automation panel.
+
+### Admin Bidding Authorization
+
+The Admin setup surface, native wallet prompt, and active bot summary are one
+user-visible authorization lifecycle:
+
+1. `bidding authorization request` shows the canonical named chain, qualified
+   chain ID, eligible collections, and proposed limits
+2. the native prompt reviews the same canonical identity and limits before
+   accepting the wallet passphrase
+3. `active bidding authorization` shows the authority held by the running bot
+
+Identity and limits must remain explicit across all three states:
+
+- human-readable chain name before `chain ID #N`
+- ArtGod collection slug before qualified ArtGod collection ID
+- `OpenSea slug` and `contract address`, not ambiguous shortened labels
+- `max WETH per NFT` and `max NFTs per offer`
+
+The NFT count is a per-offer cap, not cumulative exposure across jobs or open
+orders. A token-specific offer always has quantity one. The native review must
+show the exact Rust-resolved values supplied to signer enforcement.
+
+Admin does not render controls for staged or nonexistent bot kinds. If the local
+collection catalog cannot be reached because infrastructure is stopped, the
+Bots surface directs the operator to start infra instead of exposing the raw
+loopback request error.
 
 ## Targeting Capabilities
 

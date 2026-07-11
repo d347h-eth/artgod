@@ -139,8 +139,8 @@ Start here when navigating the repo:
   alpha snapshot, project structure, and release boundaries.
 - `docs/development/01-local-development.md`: local setup, desktop dev,
   config, versioning, release build pointers, and common commands.
-- `AGENTS.md`: agent-specific rules, architecture constraints, and repo
-  contribution standards.
+- `AGENTS.md`: agent-specific rules, architecture constraints, repo
+  contribution standards, and mandatory user-perspective UI review routing.
 
 Core architecture and runtime:
 
@@ -165,8 +165,11 @@ Product domains:
   capabilities and backend API coverage.
 - `docs/extensions/01-collection-extensions.md`: extension registry, indexer
   hooks, backend presentation overrides, and Terraforms extension behavior.
-- `docs/ui/01-interaction-guidelines.md`: UI interaction, layout, controls,
-  navigation, media-mode, and pagination guidelines.
+- `docs/ui/00-user-perspective-and-language.md`: required user-eye workflow
+  review, product language, identity, units, errors, cross-surface consistency,
+  and rendered verification.
+- `docs/ui/01-interaction-guidelines.md`: established UI interaction, layout,
+  control, style-reuse, navigation, media-mode, and pagination contracts.
 - `docs/ui/02-preview-modal-system.md`: preview modal security and sizing model.
 
 Desktop, deploy, and operations:
