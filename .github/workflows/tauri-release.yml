@@ -259,7 +259,7 @@ jobs:
                   test -f src-tauri/resources/runtime/node/node
                   test -f src-tauri/resources/runtime/nats/nats-server
 
-            - name: Verify macOS code signing
+            - name: Verify macOS signing and bundled Node startup
               if: runner.os == 'macOS'
               shell: bash
               run: |

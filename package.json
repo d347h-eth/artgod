@@ -60,7 +60,7 @@
         "format": "prettier . --write",
         "format:check": "prettier . --check",
         "test": "yarn workspace @artgod/backend test && yarn workspace @artgod/frontend test && yarn workspace @artgod/indexer test && yarn workspace @artgod/trading test",
-        "test:desktop:signing": "node ./scripts/build/secret-output-redaction.test.mjs && node ./scripts/build/macos-notarization.test.mjs && node ./scripts/build/linux-gpg-signing.test.mjs",
+        "test:desktop:signing": "node ./scripts/build/secret-output-redaction.test.mjs && node ./scripts/build/macos-code-signing.test.mjs && node ./scripts/build/macos-notarization.test.mjs && node ./scripts/build/linux-gpg-signing.test.mjs",
         "test:desktop:release-inputs": "node ./scripts/build/prepare-tauri-linux-bundler-tools.test.mjs && node ./scripts/build/sync-version.test.mjs && node ./scripts/build/desktop-release-admission.test.mjs && node ./scripts/build/github-release-publication.test.mjs",
         "test:desktop:release": "yarn test:desktop:release-inputs && yarn test:desktop:signing && node ./scripts/build/github-actions-security.test.mjs",
         "test:preview:attached": "yarn workspace @artgod/frontend test:preview:attached",
