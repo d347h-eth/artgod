@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { lstat, mkdtemp, readdir, rm } from "node:fs/promises";
+import { lstat, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +19,14 @@ const bundledNatsRelativeSuffix = "/runtime/nats/nats-server";
 const secretPromptBinaryNamePrefix = "artgod-secret-prompt";
 const appBundleExtension = ".app";
 const dmgBundleExtension = ".dmg";
+const nodeRuntimeEntitlementsPath = path.join(
+    rootDir,
+    "src-tauri",
+    "entitlements",
+    "node-runtime.plist",
+);
+const nodeRuntimeSmokeScript =
+    "process.stdout.write(`${process.arch} ${process.version}\\n`)";
 const stagedMacOSBinaryRoots = [
     path.join(rootDir, "src-tauri", "resources", "runtime"),
     path.join(rootDir, "src-tauri", "binaries"),
@@ -60,20 +69,6 @@ const requiredBundleExecutables = [
     },
 ];
 
-const mode = process.argv[2];
-
-if (mode === MODE_SIGN_STAGED) {
-    await signStagedMacOSBinaries();
-} else if (mode === MODE_VERIFY_APP) {
-    await verifyMacOSAppBundle();
-} else if (mode === MODE_VERIFY_DMG) {
-    await verifyMacOSDmgBundle();
-} else {
-    throw new Error(
-        `Usage: node scripts/build/macos-code-signing.mjs ${MODE_SIGN_STAGED}|${MODE_VERIFY_APP}|${MODE_VERIFY_DMG} [app-or-bundle-root|dmg-or-bundle-root]`,
-    );
-}
-
 async function signStagedMacOSBinaries() {
     if (!isMacOSBuildTarget()) {
         console.log(
@@ -97,20 +92,19 @@ async function signStagedMacOSBinaries() {
             "No signable Mach-O binaries found in staged macOS runtime resources or sidecars.",
         );
     }
+    const nodeRuntimePath = resolveBundledNodeRuntime(machOFiles);
 
     for (const filePath of sortNestedFirst(machOFiles)) {
         const relativePath = path.relative(rootDir, filePath);
         console.log(`Signing macOS binary: ${relativePath}`);
-        await runCommand("codesign", [
-            "--force",
-            "--options",
-            "runtime",
-            "--timestamp",
-            "--sign",
-            signingIdentity,
-            filePath,
-        ]);
+        await runCommand(
+            "codesign",
+            createMacOSCodeSignArguments(signingIdentity, filePath),
+        );
         await verifyCodeSignature(filePath);
+        if (filePath === nodeRuntimePath) {
+            await verifyNodeRuntimeEntitlements(filePath);
+        }
     }
 }
 
@@ -165,9 +159,13 @@ async function verifyMacOSAppBundleAtPath(inputPath) {
     }
 
     assertRequiredBundleExecutables(appPath, machOFiles);
+    const nodeRuntimePath = resolveBundledNodeRuntime(machOFiles);
 
     for (const filePath of sortNestedFirst(machOFiles)) {
         await verifyCodeSignature(filePath);
+        if (filePath === nodeRuntimePath) {
+            await verifyNodeRuntimeEntitlements(filePath);
+        }
     }
 
     await runCommand("codesign", [
@@ -177,6 +175,8 @@ async function verifyMacOSAppBundleAtPath(inputPath) {
         "--verbose=2",
         appPath,
     ]);
+
+    await verifyNodeRuntimeStartup(nodeRuntimePath);
 
     console.log(
         `Verified ${machOFiles.length} signed Mach-O file(s) inside ${path.relative(rootDir, appPath)}.`,
@@ -300,8 +300,7 @@ async function resolveSingleBundlePath(inputPath, extension, matchesEntry) {
     const entries = await readdir(inputPath, { withFileTypes: true });
     const bundles = entries
         .filter(
-            (entry) =>
-                matchesEntry(entry) && entry.name.endsWith(extension),
+            (entry) => matchesEntry(entry) && entry.name.endsWith(extension),
         )
         .map((entry) => path.join(inputPath, entry.name))
         .sort((a, b) => a.localeCompare(b));
@@ -328,6 +327,110 @@ function assertRequiredBundleExecutables(appPath, machOFiles) {
             );
         }
     }
+}
+
+// Builds the hardened-runtime signature arguments for one staged Mach-O file.
+export function createMacOSCodeSignArguments(signingIdentity, filePath) {
+    const args = ["--force", "--options", "runtime", "--timestamp"];
+    const entitlementsPath = resolveMacOSCodeSigningEntitlements(filePath);
+    if (entitlementsPath) {
+        args.push("--entitlements", entitlementsPath);
+    }
+    args.push("--sign", signingIdentity, filePath);
+    return args;
+}
+
+// Grants V8's JIT capability only to the bundled Node process.
+export function resolveMacOSCodeSigningEntitlements(filePath) {
+    return isBundledNodeRuntime(filePath)
+        ? nodeRuntimeEntitlementsPath
+        : undefined;
+}
+
+// Verifies that signed Node claims exactly the dedicated JIT entitlement file.
+export async function verifyNodeRuntimeEntitlements(filePath, options = {}) {
+    const commandRunner = options.commandRunner ?? runCommand;
+    const temporaryDirectory =
+        options.temporaryDirectory ?? resolveTemporaryDirectory();
+    const { stdout: embeddedEntitlements } = await commandRunner(
+        "codesign",
+        ["--display", "--entitlements", ":-", filePath],
+        { capture: true },
+    );
+    if (!embeddedEntitlements.trim()) {
+        throw new Error(
+            `Bundled Node runtime has no entitlements: ${filePath}`,
+        );
+    }
+
+    const entitlementsDirectory = await mkdtemp(
+        path.join(temporaryDirectory, "artgod-node-entitlements-"),
+    );
+    const embeddedEntitlementsPath = path.join(
+        entitlementsDirectory,
+        "embedded.plist",
+    );
+    try {
+        await writeFile(embeddedEntitlementsPath, embeddedEntitlements, "utf8");
+        const expected = await readPropertyList(
+            nodeRuntimeEntitlementsPath,
+            commandRunner,
+        );
+        const actual = await readPropertyList(
+            embeddedEntitlementsPath,
+            commandRunner,
+        );
+        if (!isDeepStrictEqual(actual, expected)) {
+            throw new Error(
+                `Bundled Node runtime entitlements do not match ${path.relative(rootDir, nodeRuntimeEntitlementsPath)}.`,
+            );
+        }
+    } finally {
+        await rm(entitlementsDirectory, { force: true, recursive: true });
+    }
+}
+
+async function readPropertyList(filePath, commandRunner) {
+    const { stdout } = await commandRunner(
+        "plutil",
+        ["-convert", "json", "-o", "-", filePath],
+        { capture: true },
+    );
+    try {
+        return JSON.parse(stdout);
+    } catch {
+        throw new Error(`Unable to parse property list: ${filePath}`);
+    }
+}
+
+// Starts the final bundled Node executable far enough to initialize V8.
+export async function verifyNodeRuntimeStartup(filePath, options = {}) {
+    const commandRunner = options.commandRunner ?? runCommand;
+    const logger = options.logger ?? console.log;
+    const { stdout } = await commandRunner(
+        filePath,
+        ["--eval", nodeRuntimeSmokeScript],
+        { capture: true },
+    );
+    const runtimeIdentity = stdout.trim();
+    if (!runtimeIdentity) {
+        throw new Error("Bundled Node runtime reported no runtime identity.");
+    }
+    logger(`Started bundled Node runtime: ${runtimeIdentity}`);
+}
+
+function isBundledNodeRuntime(filePath) {
+    return normalizePath(filePath).endsWith(bundledNodeRelativeSuffix);
+}
+
+function resolveBundledNodeRuntime(machOFiles) {
+    const candidates = machOFiles.filter(isBundledNodeRuntime);
+    if (candidates.length !== 1) {
+        throw new Error(
+            `Expected exactly one bundled Node runtime, found ${candidates.length}.`,
+        );
+    }
+    return candidates[0];
 }
 
 async function verifyCodeSignature(filePath) {
@@ -389,4 +492,30 @@ async function runCommand(command, args, options = {}) {
             );
         });
     });
+}
+
+async function main() {
+    const mode = process.argv[2];
+    if (mode === MODE_SIGN_STAGED) {
+        await signStagedMacOSBinaries();
+        return;
+    }
+    if (mode === MODE_VERIFY_APP) {
+        await verifyMacOSAppBundle();
+        return;
+    }
+    if (mode === MODE_VERIFY_DMG) {
+        await verifyMacOSDmgBundle();
+        return;
+    }
+    throw new Error(
+        `Usage: node scripts/build/macos-code-signing.mjs ${MODE_SIGN_STAGED}|${MODE_VERIFY_APP}|${MODE_VERIFY_DMG} [app-or-bundle-root|dmg-or-bundle-root]`,
+    );
+}
+
+const isMainModule =
+    process.argv[1] &&
+    import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+if (isMainModule) {
+    await main();
 }

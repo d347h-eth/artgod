@@ -265,8 +265,9 @@ Responsibilities:
 
 - signs staged macOS executable/loadable Mach-O files under `src-tauri/resources/runtime` and `src-tauri/binaries` before Tauri generates the final bundle artifacts
 - covers the bundled Node runtime, bundled NATS runtime, native `.node` add-ons from `.yarn/unplugged`, and the native secret-prompt sidecar
+- grants only the bundled Node executable the dedicated `com.apple.security.cs.allow-jit` entitlement required by V8 under hardened runtime; NATS, native libraries, the Tauri executable, and the secret-prompt sidecar do not receive that exception
 - skips non-macOS targets and local macOS builds without `APPLE_SIGNING_IDENTITY`
-- mounts the produced DMG and verifies that the contained `.app` has signed Node, NATS, and secret-prompt executables before notarization
+- mounts the produced DMG, verifies that Node's embedded entitlements exactly match `src-tauri/entitlements/node-runtime.plist`, verifies the contained `.app` signatures, and starts Node far enough to initialize V8 before notarization
 
 ### `scripts/build/prepare-tauri-linux-bundler-tools.mjs`
 
@@ -685,9 +686,10 @@ Current state:
 - Final release assembly re-verifies downloaded AppImage and `.deb` signatures
   before signing the checksum manifest.
 - macOS DMG is code-signed, notarized, and stapled in CI. The release workflow
-  preserves the exact submitted DMG and Apple submission state before bounded
-  polling, so delayed submissions can be resumed from the original release tag
-  without rebuilding or resubmitting.
+  verifies the final bundled Node JIT entitlement and starts Node from the
+  mounted DMG before submission. It preserves the exact submitted DMG and Apple
+  submission state before bounded polling, so delayed submissions can be
+  resumed from the original release tag without rebuilding or resubmitting.
 - Every external Action is pinned to a full commit SHA, checkout credentials are
   not persisted, and write/OIDC permissions exist only in the publication job.
 - Release assembly holds the Linux signing secret but has read-only repository

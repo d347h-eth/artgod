@@ -158,6 +158,27 @@ test("publishes only after successful release assembly", async () => {
     assert.match(publishJob, /needs\.assemble-release\.result == 'success'/);
 });
 
+test("starts the final bundled Node runtime before macOS notarization", async () => {
+    const releaseWorkflow = await readFile(
+        path.join(workflowsDirectory, "tauri-release.yml"),
+        "utf8",
+    );
+    const buildJob = extractWorkflowJob(releaseWorkflow, "build");
+    const nodeVerificationIndex = buildJob.indexOf(
+        "Verify macOS signing and bundled Node startup",
+    );
+    const notarizationInputIndex = buildJob.indexOf(
+        "Prepare macOS notarization input",
+    );
+
+    assert.ok(nodeVerificationIndex >= 0);
+    assert.ok(nodeVerificationIndex < notarizationInputIndex);
+    assert.match(
+        buildJob,
+        /macos-code-signing\.mjs verify-dmg "src-tauri\/target\/\$\{\{ matrix\.target \}\}\/release\/bundle\/dmg"/,
+    );
+});
+
 test("checks synchronized project versions on ordinary desktop builds", async () => {
     const buildCheckWorkflow = await readFile(
         path.join(workflowsDirectory, "tauri-build-check.yml"),
