@@ -6,6 +6,7 @@ use rand::thread_rng;
 use thiserror::Error;
 use zeroize::Zeroizing;
 
+use crate::private_file::apply_private_file_permissions;
 use crate::wallet::application::use_cases::{
     ExportWalletError, ExportWalletKeystorePort, ImportWalletError, ImportWalletKeystorePort,
     RemoveWalletError, RemoveWalletKeystorePort, UnlockWalletForBotStartError,
@@ -172,19 +173,6 @@ pub enum AlloyKeystoreError {
     IoFailure { message: String },
     #[error("Wallet keystore operation failed: {0}")]
     KeystoreFailure(#[from] LocalSignerError),
-}
-
-#[cfg(unix)]
-fn apply_private_file_permissions(path: &Path) -> std::io::Result<()> {
-    use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-}
-
-#[cfg(not(unix))]
-fn apply_private_file_permissions(_path: &Path) -> std::io::Result<()> {
-    Ok(())
 }
 
 #[cfg(test)]

@@ -1,16 +1,14 @@
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 #[cfg(test)]
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
-use uuid::Uuid;
-
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, Ordering};
+use thiserror::Error;
 
+use crate::private_file::{apply_private_file_permissions, write_private_file_atomic};
 use crate::wallet::application::use_cases::{
     AssignWalletToBotError, AssignWalletToBotStorePort, ExportWalletError, ExportWalletStorePort,
     ImportWalletError, ImportWalletStorePort, ListWalletsError, ListWalletsStorePort,
@@ -212,7 +210,8 @@ impl FsWalletStore {
 
     fn ensure_index_file(&self) -> Result<(), FsWalletStoreError> {
         if self.index_path.exists() {
-            apply_private_file_permissions(&self.index_path)?;
+            apply_private_file_permissions(&self.index_path)
+                .map_err(|message| FsWalletStoreError::IoFailure { message })?;
             return Ok(());
         }
         self.write_index_atomic(&WalletIndexDocument::default())
@@ -297,17 +296,12 @@ impl FsWalletStore {
     fn write_index_atomic(&self, index: &WalletIndexDocument) -> Result<(), FsWalletStoreError> {
         self.maybe_fail_next_atomic_write()?;
 
-        let temp_path = self
-            .wallet_dir
-            .join(format!(".index.json.tmp-{}", Uuid::new_v4()));
         let payload =
             serde_json::to_vec_pretty(index).map_err(|error| FsWalletStoreError::SerdeFailure {
                 message: format!("Failed to serialize wallet index: {error}"),
             })?;
-        write_private_file(&temp_path, &payload)?;
-        replace_file(&temp_path, &self.index_path)?;
-        apply_private_file_permissions(&self.index_path)?;
-        Ok(())
+        write_private_file_atomic(&self.index_path, &payload)
+            .map_err(|message| FsWalletStoreError::IoFailure { message })
     }
 
     #[cfg(test)]
@@ -531,95 +525,6 @@ fn ensure_private_dir(path: &Path) -> Result<(), FsWalletStoreError> {
                 "Failed to create wallet directory {}: {error}",
                 path.display()
             ),
-        })?;
-    }
-    Ok(())
-}
-
-fn write_private_file(path: &Path, bytes: &[u8]) -> Result<(), FsWalletStoreError> {
-    #[cfg(unix)]
-    use std::os::unix::fs::OpenOptionsExt;
-
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    options.mode(0o600);
-    let mut file = options
-        .open(path)
-        .map_err(|error| FsWalletStoreError::IoFailure {
-            message: format!("Failed to create wallet file {}: {error}", path.display()),
-        })?;
-    file.write_all(bytes)
-        .map_err(|error| FsWalletStoreError::IoFailure {
-            message: format!("Failed to write wallet file {}: {error}", path.display()),
-        })?;
-    file.sync_all()
-        .map_err(|error| FsWalletStoreError::IoFailure {
-            message: format!("Failed to sync wallet file {}: {error}", path.display()),
-        })?;
-    Ok(())
-}
-
-fn replace_file(temp_path: &Path, target_path: &Path) -> Result<(), FsWalletStoreError> {
-    #[cfg(windows)]
-    {
-        if target_path.exists() {
-            let backup_path = temp_path.with_extension("bak");
-            fs::rename(target_path, &backup_path).map_err(|error| {
-                FsWalletStoreError::IoFailure {
-                    message: format!(
-                        "Failed to prepare wallet file replacement {}: {error}",
-                        target_path.display()
-                    ),
-                }
-            })?;
-            match fs::rename(temp_path, target_path) {
-                Ok(()) => {
-                    let _ = fs::remove_file(&backup_path);
-                    Ok(())
-                }
-                Err(error) => {
-                    let _ = fs::rename(&backup_path, target_path);
-                    Err(FsWalletStoreError::IoFailure {
-                        message: format!(
-                            "Failed to replace wallet file {}: {error}",
-                            target_path.display()
-                        ),
-                    })
-                }
-            }
-        } else {
-            fs::rename(temp_path, target_path).map_err(|error| FsWalletStoreError::IoFailure {
-                message: format!(
-                    "Failed to move wallet file into place {}: {error}",
-                    target_path.display()
-                ),
-            })
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        fs::rename(temp_path, target_path).map_err(|error| FsWalletStoreError::IoFailure {
-            message: format!(
-                "Failed to move wallet file into place {}: {error}",
-                target_path.display()
-            ),
-        })
-    }
-}
-
-fn apply_private_file_permissions(path: &Path) -> Result<(), FsWalletStoreError> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|error| {
-            FsWalletStoreError::IoFailure {
-                message: format!(
-                    "Failed to restrict wallet file permissions {}: {error}",
-                    path.display()
-                ),
-            }
         })?;
     }
     Ok(())

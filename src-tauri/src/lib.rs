@@ -1,4 +1,5 @@
 mod desktop_log;
+mod private_file;
 mod runtime;
 mod wallet;
 
