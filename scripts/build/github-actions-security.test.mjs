@@ -108,12 +108,30 @@ test("admits signed mainline tags before initial or resumed release work", async
     );
 });
 
+test("publishes only after successful release assembly", async () => {
+    const releaseWorkflow = await readFile(
+        path.join(workflowsDirectory, "tauri-release.yml"),
+        "utf8",
+    );
+    const assembleJob = extractWorkflowJob(releaseWorkflow, "assemble-release");
+    const publishJob = extractWorkflowJob(releaseWorkflow, "publish-release");
+
+    assert.match(assembleJob, /!cancelled\(\)/);
+    assert.doesNotMatch(assembleJob, /always\(\)/);
+    assert.match(publishJob, /!cancelled\(\)/);
+    assert.match(publishJob, /needs\.assemble-release\.result == 'success'/);
+});
+
 test("checks synchronized project versions on ordinary desktop builds", async () => {
     const buildCheckWorkflow = await readFile(
         path.join(workflowsDirectory, "tauri-build-check.yml"),
         "utf8",
     );
-    assert.match(buildCheckWorkflow, /run:\s*yarn check:version/);
+    assert.match(
+        buildCheckWorkflow,
+        /run:\s*node \.\/scripts\/build\/sync-version\.mjs --check/,
+    );
+    assert.doesNotMatch(buildCheckWorkflow, /run:\s*yarn check:version/);
 });
 
 async function readWorkflows() {

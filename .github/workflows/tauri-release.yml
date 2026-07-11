@@ -445,7 +445,7 @@ jobs:
             - build
             - resume-macos-notarization
         if: >-
-            always() &&
+            !cancelled() &&
             ((github.event_name == 'push' && needs.build.result == 'success') ||
             (github.event_name == 'workflow_dispatch' && needs['resume-macos-notarization'].result == 'success'))
         runs-on: ubuntu-latest
@@ -530,6 +530,9 @@ jobs:
 
     publish-release:
         needs: assemble-release
+        if: >-
+            !cancelled() &&
+            needs.assemble-release.result == 'success'
         runs-on: ubuntu-latest
         environment: desktop-release-signing
         permissions:
