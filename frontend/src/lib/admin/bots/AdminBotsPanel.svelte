@@ -250,40 +250,47 @@
 				<div class="admin-bots-list" aria-label="Configured bot runtimes">
 					{#each bots as bot (bot.botKind)}
 						{@const botActive = isAdminBotActive(bot.state)}
-						<article class="runtime-section">
-							<div class="runtime-kv-grid">
-								<div>
-									<span class="runtime-k">bot</span>
-									<span class="runtime-v">bidding bot</span>
+						<article class="admin-bot-runtime">
+							<section class="runtime-section" aria-label="Bot state">
+								<h3>bot state</h3>
+								<div class="runtime-kv-grid">
+									<div>
+										<span class="runtime-k">bot</span>
+										<span class="runtime-v">bidding bot</span>
+									</div>
+									<div>
+										<span class="runtime-k">state</span>
+										<span class="runtime-v">{bot.state}</span>
+									</div>
+									<div>
+										<span class="runtime-k">wallet</span>
+										<span class="runtime-v admin-bot-wallet">{describeAssignedWallet(bot)}</span>
+									</div>
+									<div>
+										<span class="runtime-k">process</span>
+										<span class="runtime-v mono">{bot.processName}</span>
+									</div>
+									<div>
+										<span class="runtime-k">critical deps</span>
+										<span class="runtime-v">{describeDependencies(bot)}</span>
+									</div>
 								</div>
-								<div>
-									<span class="runtime-k">state</span>
-									<span class="runtime-v">{bot.state}</span>
-								</div>
-								<div>
-									<span class="runtime-k">wallet</span>
-									<span class="runtime-v admin-bot-wallet">{describeAssignedWallet(bot)}</span>
-								</div>
-								<div>
-									<span class="runtime-k">process</span>
-									<span class="runtime-v mono">{bot.processName}</span>
-								</div>
-								<div>
-									<span class="runtime-k">critical deps</span>
-									<span class="runtime-v">{describeDependencies(bot)}</span>
-								</div>
-							</div>
 
-							{#if bot.lastError && bot.lastError !== bot.disabledReason}
-								<p class="runtime-error" role="alert">{bot.lastError}</p>
-							{/if}
-							{#if bot.disabledReason}
-								<p class="runtime-error" role="alert">{bot.disabledReason}</p>
-							{/if}
+								{#if bot.lastError && bot.lastError !== bot.disabledReason}
+									<p class="runtime-error" role="alert">{bot.lastError}</p>
+								{/if}
+								{#if bot.disabledReason}
+									<p class="runtime-error" role="alert">{bot.disabledReason}</p>
+								{/if}
+							</section>
+
 							{#if bot.botKind === TRADING_BOT_KIND.Bidding}
 								{@const mandateEditingDisabled = busyAction !== null || botActive}
-								<div class="bidding-start-policy" aria-label="Effective bidding bot start policy">
-									<span class="runtime-k">start policy</span>
+								<section
+									class="runtime-section bidding-start-policy"
+									aria-label="Bidding settings"
+								>
+									<h3>bidding settings</h3>
 									<dl>
 										{#each biddingStartPolicy as entry (entry.label)}
 											<div>
@@ -292,9 +299,12 @@
 											</div>
 										{/each}
 									</dl>
-								</div>
+								</section>
 
-								<section class="bidding-mandate-editor" aria-label="Bidding authorization request">
+								<section
+									class="runtime-section bidding-mandate-editor"
+									aria-label="Bidding authorization request"
+								>
 									<h3>
 										bidding authorization request
 										{#if biddingCollectionCatalog}
@@ -377,7 +387,10 @@
 								</section>
 
 								{#if bot.biddingMandate}
-									<section class="active-bidding-mandate" aria-label="Active bidding authorization">
+									<section
+										class="runtime-section active-bidding-mandate"
+										aria-label="Active bidding authorization"
+									>
 										<h3>
 											active bidding authorization
 											{#if biddingCollectionCatalog}
@@ -498,6 +511,12 @@
 	.admin-bots-list {
 		display: grid;
 		gap: 0.85rem;
+	}
+
+	.admin-bot-runtime {
+		display: grid;
+		gap: 1.35rem;
+		min-width: 0;
 	}
 
 	.admin-bot-controls {
