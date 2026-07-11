@@ -10,6 +10,19 @@ import {
     classifyReleaseTag,
     RELEASE_TAG_REF_TYPE,
 } from "./desktop-release-contract.mjs";
+import {
+    assertGitHubJsonRecord,
+    createGitHubApiUrl,
+    ENV_GITHUB_API_URL,
+    ENV_GITHUB_REF_NAME,
+    ENV_GITHUB_REPOSITORY,
+    ENV_GITHUB_TOKEN,
+    ENV_GH_TOKEN,
+    parseGitHubRepository,
+    requestGitHubJson,
+    requireEnvironmentValue,
+    resolveGitHubApiBaseUrl,
+} from "./github-api.mjs";
 import { assertProjectVersionsSynchronized } from "./sync-version.mjs";
 
 const rootDir = path.resolve(
@@ -25,20 +38,12 @@ const REMOTE_MAIN_REF = "refs/remotes/origin/main";
 const GIT_OBJECT_TYPE_COMMIT = "commit";
 const GITHUB_VERIFICATION_REASON_VALID = "valid";
 const PGP_SIGNATURE_BEGIN = "-----BEGIN PGP SIGNATURE-----";
-const GITHUB_API_VERSION = "2026-03-10";
-const DEFAULT_GITHUB_API_URL = "https://api.github.com";
 const GIT_OBJECT_SHA_PATTERN = /^[a-f0-9]{40}$/i;
-const GITHUB_API_TIMEOUT_MS = 30 * 1000;
 
-const ENV_GITHUB_API_URL = "GITHUB_API_URL";
 const ENV_GITHUB_OUTPUT = "GITHUB_OUTPUT";
 const ENV_GITHUB_REF = "GITHUB_REF";
-const ENV_GITHUB_REF_NAME = "GITHUB_REF_NAME";
 const ENV_GITHUB_REF_TYPE = "GITHUB_REF_TYPE";
-const ENV_GITHUB_REPOSITORY = "GITHUB_REPOSITORY";
 const ENV_GITHUB_SHA = "GITHUB_SHA";
-const ENV_GITHUB_TOKEN = "GITHUB_TOKEN";
-const ENV_GH_TOKEN = "GH_TOKEN";
 const OUTPUT_PRERELEASE = "prerelease";
 const OUTPUT_MAKE_LATEST = "make_latest";
 
@@ -53,12 +58,11 @@ export async function validateReleaseAdmission(options = {}) {
     const classification = classifyReleaseTag(tagName, projectVersion);
 
     assertReleaseTagContext(environment, tagName);
-    const repository = parseRepository(
+    const repository = parseGitHubRepository(
         requireEnvironmentValue(environment, ENV_GITHUB_REPOSITORY),
     );
     const githubToken = requireEnvironmentValue(environment, ENV_GITHUB_TOKEN);
-    const apiBaseUrl =
-        environment[ENV_GITHUB_API_URL]?.trim() || DEFAULT_GITHUB_API_URL;
+    const apiBaseUrl = resolveGitHubApiBaseUrl(environment);
 
     // Resolve the ref first so lightweight tags cannot enter release jobs.
     const reference = await requestGitHubJson(
@@ -160,11 +164,11 @@ function assertReleaseTagContext(environment, tagName) {
 }
 
 function assertAnnotatedTagReference(reference, tagName) {
-    assertRecord(reference, "GitHub tag reference");
+    assertGitHubJsonRecord(reference, "GitHub tag reference");
     if (reference.ref !== `${RELEASE_TAG_REF_PREFIX}${tagName}`) {
         throw new Error("GitHub returned a different release tag reference.");
     }
-    assertRecord(reference.object, "GitHub tag reference object");
+    assertGitHubJsonRecord(reference.object, "GitHub tag reference object");
     if (reference.object.type !== RELEASE_TAG_REF_TYPE) {
         throw new Error(
             "Release tag must be an annotated tag, not a lightweight tag.",
@@ -174,7 +178,7 @@ function assertAnnotatedTagReference(reference, tagName) {
 }
 
 function assertVerifiedTagObject(tagObject, tagName, expectedTagObjectSha) {
-    assertRecord(tagObject, "GitHub annotated tag object");
+    assertGitHubJsonRecord(tagObject, "GitHub annotated tag object");
     if (
         normalizeGitObjectSha(tagObject.sha, "annotated tag object") !==
         expectedTagObjectSha
@@ -188,7 +192,7 @@ function assertVerifiedTagObject(tagObject, tagName, expectedTagObjectSha) {
             "GitHub annotated tag name does not match the release ref.",
         );
     }
-    assertRecord(tagObject.object, "GitHub annotated tag target");
+    assertGitHubJsonRecord(tagObject.object, "GitHub annotated tag target");
     if (tagObject.object.type !== GIT_OBJECT_TYPE_COMMIT) {
         throw new Error("Release tag must target a commit.");
     }
@@ -197,7 +201,7 @@ function assertVerifiedTagObject(tagObject, tagName, expectedTagObjectSha) {
         "signed tag target commit",
     );
 
-    assertRecord(tagObject.verification, "GitHub tag verification");
+    assertGitHubJsonRecord(tagObject.verification, "GitHub tag verification");
     const verification = tagObject.verification;
     if (
         verification.verified !== true ||
@@ -237,48 +241,6 @@ function assertSignedTagPayload(payload, tagName, targetCommit) {
     }
 }
 
-async function requestGitHubJson(
-    fetchImplementation,
-    url,
-    githubToken,
-    description,
-) {
-    const response = await fetchImplementation(url, {
-        method: "GET",
-        redirect: "error",
-        signal: AbortSignal.timeout(GITHUB_API_TIMEOUT_MS),
-        headers: {
-            Accept: "application/vnd.github+json",
-            Authorization: `Bearer ${githubToken}`,
-            "X-GitHub-Api-Version": GITHUB_API_VERSION,
-        },
-    });
-    if (!response?.ok) {
-        throw new Error(
-            `GitHub ${description} request failed with status ${response?.status ?? "unknown"}.`,
-        );
-    }
-    try {
-        return await response.json();
-    } catch {
-        throw new Error(`GitHub ${description} response was not valid JSON.`);
-    }
-}
-
-function createGitHubApiUrl(apiBaseUrl, repository, relativePath) {
-    return `${apiBaseUrl.replace(/\/+$/, "")}/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/${relativePath}`;
-}
-
-function parseRepository(value) {
-    const [owner, name, ...extraParts] = value.split("/");
-    if (!owner || !name || extraParts.length > 0) {
-        throw new Error(
-            `${ENV_GITHUB_REPOSITORY} must use owner/repository form.`,
-        );
-    }
-    return { owner, name };
-}
-
 function createGitEnvironment(environment) {
     const gitEnvironment = { ...environment };
     delete gitEnvironment[ENV_GITHUB_TOKEN];
@@ -302,27 +264,6 @@ function normalizeGitObjectSha(value, description) {
         throw new Error(`${description} is not a full Git object SHA.`);
     }
     return sha;
-}
-
-function assertRecord(value, description) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-        throw new Error(`${description} is missing or malformed.`);
-    }
-}
-
-function requireEnvironmentValue(environment, key) {
-    return requireNonEmptyValue(
-        environment[key],
-        `environment variable ${key}`,
-    );
-}
-
-function requireNonEmptyValue(value, description) {
-    const normalized = typeof value === "string" ? value.trim() : "";
-    if (!normalized) {
-        throw new Error(`Missing ${description}.`);
-    }
-    return normalized;
 }
 
 async function main() {

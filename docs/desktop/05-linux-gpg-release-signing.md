@@ -312,8 +312,8 @@ The release assembly and publication jobs:
 6. Creates and provenance-verifies `SHA256SUMS.txt.asc` only after those
    transferred signatures pass.
 7. Removes the temporary keyring before any publishing action runs.
-8. Attests the bundles, stages all assets on a draft GitHub Release, and only
-   then publishes the release.
+8. Attests the bundles, stages all assets on a draft GitHub Release, captures
+   its numeric release ID, and publishes that exact draft by ID.
 
 All GPG stdout, stderr, failures, and key payload fragments pass through the
 shared secret-output redactor before reaching the public runner log. The helper

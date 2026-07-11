@@ -693,9 +693,10 @@ Current state:
 - Release assembly holds the Linux signing secret but has read-only repository
   permissions. A separate secret-free job attests the finished bundles before
   publishing the GitHub Release.
-- The publication job stages every asset on a draft release before publishing,
-  so repository release immutability cannot lock a partially uploaded stable or
-  test release.
+- The publication job stages every asset on a draft release, captures the
+  draft's numeric GitHub release ID, validates that exact draft, and publishes
+  it by ID. It never rediscovers the release by tag, so release immutability
+  cannot lock a duplicate or partially uploaded stable or test release.
 - macOS `.p12`, keychain, and `.p8` material are removed before any later
   artifact Action can observe the corresponding runner filesystem state.
 - Windows release builds are deferred for the first public alpha. When Windows

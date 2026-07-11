@@ -552,6 +552,16 @@ jobs:
             id-token: write
 
         steps:
+            - name: Checkout release tag
+              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+              with:
+                  persist-credentials: false
+
+            - name: Setup Node
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+              with:
+                  node-version-file: package.json
+
             - name: Download release-ready artifacts
               uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
               with:
@@ -568,6 +578,7 @@ jobs:
                       release-assets/**/*.app.tar.gz
 
             - name: Stage GitHub release assets
+              id: staged-release
               uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
               with:
                   tag_name: ${{ github.ref_name }}
@@ -579,9 +590,10 @@ jobs:
                       SHA256SUMS.txt
                       SHA256SUMS.txt.asc
 
-            - name: Publish GitHub release
-              uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
-              with:
-                  tag_name: ${{ github.ref_name }}
-                  prerelease: ${{ needs.assemble-release.outputs.prerelease }}
-                  make_latest: ${{ needs.assemble-release.outputs.make_latest }}
+            - name: Publish staged GitHub release
+              run: node ./scripts/build/github-release-publication.mjs publish
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  STAGED_GITHUB_RELEASE_ID: ${{ steps.staged-release.outputs.id }}
+                  RELEASE_PRERELEASE: ${{ needs.assemble-release.outputs.prerelease }}
+                  RELEASE_MAKE_LATEST: ${{ needs.assemble-release.outputs.make_latest }}
