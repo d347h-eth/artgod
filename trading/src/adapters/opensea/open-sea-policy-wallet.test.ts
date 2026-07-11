@@ -65,6 +65,47 @@ describe("OpenSeaPolicyWallet", () => {
         );
     });
 
+    it("accepts Seaport's padded hexadecimal uint salt", async () => {
+        const signedInputs: unknown[] = [];
+        const policyWallet = createPolicyWallet({
+            signedInputs,
+            allowanceCapWei: 100n,
+        });
+        const authorization = tokenAuthorization(100n);
+        const typedData = tokenOfferTypedData(authorization);
+        // Match the final salt representation produced by the pinned Seaport SDK.
+        typedData.message.salt = OPENSEA_MAINNET_SECURITY_POLICY.zeroBytes32;
+
+        await policyWallet.authorizeOffer(
+            authorization,
+            async () => await requestSignature(policyWallet, typedData),
+        );
+
+        assert.equal(signedInputs.length, 1);
+    });
+
+    it("rejects malformed and out-of-range hexadecimal uint salts", async () => {
+        const invalidSalts = ["0x", "0xnot-a-uint", `0x1${"00".repeat(32)}`];
+
+        for (const salt of invalidSalts) {
+            const policyWallet = createPolicyWallet({ allowanceCapWei: 100n });
+            const authorization = tokenAuthorization(100n);
+            const typedData = tokenOfferTypedData(authorization);
+            typedData.message.salt = salt;
+
+            await assert.rejects(
+                () =>
+                    policyWallet.authorizeOffer(
+                        authorization,
+                        async () =>
+                            await requestSignature(policyWallet, typedData),
+                    ),
+                /order salt must be an unsigned integer/,
+                salt,
+            );
+        }
+    });
+
     it("rejects an offer amount above the configured allowance cap before SDK work starts", async () => {
         let workCalls = 0;
         const policyWallet = createPolicyWallet({ allowanceCapWei: 99n });

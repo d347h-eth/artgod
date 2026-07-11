@@ -1,5 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { getAddress, type Address, type Hex, type WalletClient } from "viem";
+import {
+    getAddress,
+    maxUint256,
+    type Address,
+    type Hex,
+    type WalletClient,
+} from "viem";
 import { mainnet } from "viem/chains";
 import { OPENSEA_MAINNET_SECURITY_POLICY } from "@artgod/shared/trading/open-sea-mainnet-security-policy";
 import {
@@ -789,18 +795,29 @@ function assertUintEquals(
 }
 
 function requireUint(value: unknown, label: string): bigint {
-    if (typeof value === "bigint" && value >= 0n) {
-        return value;
+    let parsedValue: bigint | undefined;
+    if (typeof value === "bigint") {
+        parsedValue = value;
     }
     if (
         typeof value === "number" &&
         Number.isSafeInteger(value) &&
         value >= 0
     ) {
-        return BigInt(value);
+        parsedValue = BigInt(value);
     }
-    if (typeof value === "string" && /^(0|[1-9]\d*)$/.test(value)) {
-        return BigInt(value);
+    if (
+        typeof value === "string" &&
+        (/^(0|[1-9]\d*)$/.test(value) || /^0x[0-9a-fA-F]+$/.test(value))
+    ) {
+        parsedValue = BigInt(value);
+    }
+    if (
+        parsedValue !== undefined &&
+        parsedValue >= 0n &&
+        parsedValue <= maxUint256
+    ) {
+        return parsedValue;
     }
     throw new OpenSeaPolicyViolationError(
         `${label} must be an unsigned integer`,
