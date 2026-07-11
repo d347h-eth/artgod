@@ -553,6 +553,11 @@ snapshot before the native unlock prompt opens. Saving Admin configuration
 while the prompt is open cannot redirect the process that receives the
 decrypted-key envelope.
 
+The wallet-bound Node command clears the parent process environment before it
+applies that frozen, Rust-resolved ArtGod map. Ambient launcher values such as
+Node startup options or dynamic-loader controls therefore cannot execute code
+in the key-bearing process before the stdin envelope is consumed.
+
 The supervisor prepares parent-death containment before spawn and attaches any
 post-spawn platform resource before it writes wallet material. Linux installs
 `PR_SET_PDEATHSIG(SIGKILL)` and rechecks the expected parent PID; Windows uses a

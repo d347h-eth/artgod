@@ -1576,6 +1576,16 @@ fn build_trading_bot_process_args(config: &BotRuntimeLaunchConfig) -> Vec<String
     )
 }
 
+/// Replaces ambient parent variables with the frozen ArtGod bot environment.
+fn configure_key_bearing_node_environment(
+    command: &mut Command,
+    process_env: &HashMap<String, String>,
+) {
+    // Prevent launcher-controlled Node and dynamic-loader settings from running before key intake.
+    command.env_clear();
+    command.envs(process_env);
+}
+
 fn spawn_contained_trading_bot_child(
     config: &BotRuntimeLaunchConfig,
     args: &[String],
@@ -1588,10 +1598,7 @@ fn spawn_contained_trading_bot_child(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-
-    for (key, value) in &config.process_env {
-        command.env(key, value);
-    }
+    configure_key_bearing_node_environment(&mut command, &config.process_env);
 
     let prepared_containment = prepare_process_containment(&mut command).map_err(|error| {
         format!(
@@ -2920,6 +2927,9 @@ mod tests {
     #[cfg(unix)]
     const BLOCKED_SECRET_HANDOFF_TEST_BYTES: usize = 2 * 1024 * 1024;
 
+    // Node startup option used to model an ambient pre-entrypoint injection attempt.
+    const NODE_OPTIONS_ENV_KEY: &str = "NODE_OPTIONS";
+
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct TradingSecretEnvelopeFixture {
@@ -3515,5 +3525,30 @@ mod tests {
             .stderr(Stdio::null())
             .status()
             .is_ok_and(|status| status.success())
+    }
+
+    #[test]
+    fn key_bearing_bot_environment_is_rebuilt_from_frozen_config() {
+        let config = build_test_runtime_config();
+        let mut command = Command::new(&config.node_bin);
+        command.env(NODE_OPTIONS_ENV_KEY, "--require=artgod-env-injection.cjs");
+
+        configure_key_bearing_node_environment(&mut command, &config.process_env);
+
+        let explicit_env = command
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().into_owned(),
+                    value
+                        .expect("configured bot env values must be present")
+                        .to_string_lossy()
+                        .into_owned(),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
+        assert_eq!(explicit_env, config.process_env);
+        assert!(!explicit_env.contains_key(NODE_OPTIONS_ENV_KEY));
     }
 }
