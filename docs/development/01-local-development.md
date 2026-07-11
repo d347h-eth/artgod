@@ -441,8 +441,9 @@ Desktop release artifacts are built publicly in GitHub Actions.
   is a positive integer.
 - Targets: Linux x64 and macOS universal. Windows release packaging remains
   deferred for the public alpha; Windows source builds are still supported.
-- Outputs: signed release bundles, `SHA256SUMS.txt`, `SHA256SUMS.txt.asc`,
-  Linux detached signatures, and GitHub build provenance attestation.
+- Outputs: signed release bundles, `SHA256SUMS.txt`, `SHA256SUMS.txt.asc`, the
+  public release key, Linux detached signatures, and GitHub build provenance
+  attestation.
 
 Keep the release tag aligned with the root `package.json` version as described
 in `Versioning` above.
@@ -451,6 +452,8 @@ For all desktop release details, signing/notarization setup, required secrets,
 verification commands, and CI flow, see:
 
 - `docs/desktop/01-tauri-build-and-runtime.md`
+- `docs/desktop/05-linux-gpg-release-signing.md`
+- `docs/desktop/06-release-signing-runbook.md`
 
 For the current hosted Docker deployment shape, public reads, local-only writes,
 external shared proxy, and optional bundled Caddy, see:

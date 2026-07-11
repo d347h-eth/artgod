@@ -16,6 +16,30 @@ The current workflow expects these GitHub Actions secrets:
 - `LINUX_GPG_KEY_ID`
 - optional `LINUX_GPG_OWNERTRUST`
 
+## Current Project Key
+
+ArtGod uses the recommended offline-primary-key setup described below. The
+canonical public key is checked in at
+`docs/desktop/keys/artgod-release-public.asc` and is attached to every GitHub
+Release as `artgod-release-public.asc`.
+
+Current key material:
+
+- primary certification fingerprint:
+  `2528300C396AFEDF062619626E5E8A9BC0ECD353`
+- active release signing-subkey fingerprint:
+  `6ED7A34814FFF8BBAB94784AA4EE961CBD9F14AD`
+- primary expiry: `2028-07-07`
+- active signing-subkey expiry: `2027-07-09`
+
+The root `README.md` is the canonical public fingerprint statement. Confirm
+the checked-in key independently with:
+
+```sh
+gpg --show-keys --with-fingerprint --with-subkey-fingerprint \
+  docs/desktop/keys/artgod-release-public.asc
+```
+
 ## Recommended Decision
 
 Use the offline-primary-key setup if you are comfortable with the extra steps.
@@ -201,7 +225,7 @@ RELEASE_FPR="<release-key-fingerprint-without-spaces>"
 Export public and secret material:
 
 ```sh
-gpg --armor --export "$RELEASE_FPR" > artgod-linux-release-public.asc
+gpg --armor --export "$RELEASE_FPR" > artgod-release-public.asc
 gpg --armor --export-secret-keys "$RELEASE_FPR" > artgod-linux-release-private.asc
 gpg --export-ownertrust > artgod-linux-release-ownertrust.txt
 ```
@@ -228,6 +252,11 @@ Environment secret values:
 `LINUX_GPG_PASSPHRASE` must be one line because CI supplies it through GPG's
 passphrase file descriptor. Ownertrust affects local trust presentation; it is
 not required for cryptographic signature validity.
+
+`gpg --export-secret-subkeys` does not create a second passphrase. With the
+recommended commands above, `LINUX_GPG_PASSPHRASE` is the same passphrase that
+protects the locally generated key unless the signing subkey's protection was
+explicitly changed later.
 
 Browser path:
 
@@ -270,19 +299,21 @@ The Linux build job:
 8. Kills the temporary GPG agent and removes `GNUPGHOME` before the artifact
    upload action runs.
 
-The release job:
+The release assembly and publication jobs:
 
 1. Downloads all build artifacts.
-2. Generates `SHA256SUMS.txt`.
-3. Runs the same helper with `finalize-release` in a fresh temporary GPG
+2. Copies the checked-in public key into the release assets.
+3. Generates `SHA256SUMS.txt` over every release asset, including the public
+   key, macOS DMG, Linux bundles, and Linux detached signatures.
+4. Runs the same helper with `finalize-release` in a fresh temporary GPG
    session.
-4. Re-verifies every transferred AppImage and `.deb` signature against the
+5. Re-verifies every transferred AppImage and `.deb` signature against the
    expected primary and signing-subkey fingerprints.
-5. Creates and provenance-verifies `SHA256SUMS.txt.asc` only after those
+6. Creates and provenance-verifies `SHA256SUMS.txt.asc` only after those
    transferred signatures pass.
-6. Removes the temporary keyring before any publishing action runs.
-7. Publishes artifacts, signatures, checksums, and GitHub provenance
-   attestations.
+7. Removes the temporary keyring before any publishing action runs.
+8. Attests the bundles, stages all assets on a draft GitHub Release, and only
+   then publishes the release.
 
 All GPG stdout, stderr, failures, and key payload fragments pass through the
 shared secret-output redactor before reaching the public runner log. The helper
@@ -316,22 +347,26 @@ Good locations:
 - GitHub release notes
 - maintainer GitHub profile
 - maintainer-controlled website or DNS-backed page
-- a checked-in public key file such as `docs/desktop/keys/artgod-release-public.asc`
+- the checked-in `docs/desktop/keys/artgod-release-public.asc`
+- the `artgod-release-public.asc` asset attached to each GitHub Release
 
-Consumers should verify both the checksum manifest signature and the individual
-artifact signature:
+The signed checksum manifest authenticates every platform bundle. Linux users
+should additionally verify the selected bundle's direct detached signature:
 
 ```sh
 gpg --import artgod-release-public.asc
-gpg --fingerprint "<release-key-or-primary-fingerprint>"
+gpg --fingerprint --with-subkey-fingerprint 2528300C396AFEDF062619626E5E8A9BC0ECD353
 gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt
-sha256sum -c SHA256SUMS.txt
-gpg --verify ArtGod-x.y.z.AppImage.asc ArtGod-x.y.z.AppImage
-gpg --verify ArtGod-x.y.z.deb.asc ArtGod-x.y.z.deb
+sha256sum --ignore-missing --check SHA256SUMS.txt
+gpg --verify "<linux-bundle>.asc" "<linux-bundle>"
+gh attestation verify "<bundle>" -R d347h-eth/artgod
 ```
 
 The fingerprint must be checked against a maintainer-controlled source. A valid
-signature only proves control of the imported key.
+signature only proves control of the imported key. GitHub provenance is an
+independent online statement that the bundle came from this repository's
+release workflow; it does not replace the project-controlled OpenPGP trust
+anchor.
 
 ## Rotation
 
@@ -342,6 +377,10 @@ Recommended schedule:
 - primary key expiry: 2 years, extended from the offline primary key before it
   expires
 
+For the current key, begin signing-subkey rotation between `2027-05-10` and
+`2027-06-09`. Rotate earlier if availability, policy, or suspected exposure
+requires it.
+
 Rotation steps for the recommended setup:
 
 1. Restore or open the offline primary `GNUPGHOME`.
@@ -349,16 +388,20 @@ Rotation steps for the recommended setup:
    `gpg --quick-add-key "$PRIMARY_FPR" ed25519 sign 1y`.
 3. Export the updated public key:
    `gpg --armor --export "$PRIMARY_FPR" > artgod-release-public.asc`.
-4. Export updated CI signing subkeys:
+4. Replace `docs/desktop/keys/artgod-release-public.asc` with that export,
+   update the active signing-subkey fingerprint in the root README, and update
+   the primary fingerprint there only if the primary identity changed.
+5. Export updated CI signing subkeys:
    `gpg --armor --export-secret-subkeys "$PRIMARY_FPR" > artgod-ci-linux-signing-subkeys.asc`.
-5. Update `LINUX_GPG_PRIVATE_KEY_ASC` in GitHub.
-6. Dry-run the release workflow on the exact
+6. Update `LINUX_GPG_PRIVATE_KEY_ASC` in GitHub.
+7. Dry-run the release workflow on the exact
    `v<root-package-version>-test.<positive-integer>` tag form.
-7. Publish the updated public key and fingerprint notes.
+8. Publish the updated public key and both current fingerprints on every
+   maintainer-controlled profile named in the public-key publication policy.
 
 If you want CI to carry only one active signing subkey, revoke or expire the old
-subkey and then export again. Keep enough overlap for users to verify older
-release signatures against the historical public key.
+subkey and then export again. Keep the public-key snapshot attached to each
+historical release/tag so users can continue verifying old signatures.
 
 ## Compromise Response
 
@@ -386,3 +429,4 @@ release key and publishing a new public key identity.
 - GnuPG passphrase options: https://gnupg.org/documentation/manuals/gnupg26/gpg.1.html
 - GitHub Actions secrets: https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets
 - GitHub Actions environments: https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments
+- GitHub artifact attestation verification: https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations

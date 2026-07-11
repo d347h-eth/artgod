@@ -11,6 +11,7 @@ The target release artifacts are:
 - macOS: universal DMG
 - release manifest: `SHA256SUMS.txt`
 - release signatures: Linux detached signatures and `SHA256SUMS.txt.asc`
+- release trust anchor: `artgod-release-public.asc`
 - GitHub provenance attestation
 
 ## Maintainer Profile
@@ -65,6 +66,10 @@ Environment protection:
 - Under repository Settings / Rules / Rulesets, create an active tag ruleset for
   `v*` that restricts updates and deletions. Restrict creation only if the
   maintainer account has explicit bypass permission to create new release tags.
+- Under repository Settings / General / Releases, enable release immutability.
+  It applies only to future releases. The workflow stages assets on a draft and
+  publishes only after every upload succeeds, which is the required safe shape
+  for immutable releases and prereleases.
 - Under repository Settings / Actions / General, enable the policy requiring
   Actions to be pinned to full commit SHAs when that setting is available.
 
@@ -103,10 +108,14 @@ Workflow policy:
 - Release assembly re-verifies every transferred Linux bundle signature before
   it signs the checksum manifest. Publication occurs only after GitHub provenance
   attestation succeeds.
+- Publication copies the checked-in public key into the release assets before
+  checksumming, stages every final asset on a draft GitHub Release, and then
+  publishes that draft. A failed upload therefore leaves no partially published
+  immutable release.
 
 ## Current Tauri State
 
-The checked-in Tauri stack is pinned for public-alpha release validation:
+The checked-in Tauri stack tested for public-alpha release validation is:
 
 - Rust `tauri`: `2.11.3`
 - Rust `tauri-build`: `2.6.3`
@@ -115,17 +124,10 @@ The checked-in Tauri stack is pinned for public-alpha release validation:
 - JavaScript `@tauri-apps/cli`: `2.11.3`
 - JavaScript `@tauri-apps/api`: `2.11.1`
 
-As of 2026-07-08, newer Tauri packages are already published:
-
-- `tauri`: `2.11.5`
-- `@tauri-apps/cli`: `2.11.4`
-- `@tauri-apps/api`: `2.11.1`
-
-Routine dependency upgrades should keep Yarn's 30-day minimum-age gate enabled.
-This branch intentionally lands on `tauri` / `@tauri-apps/cli` `2.11.3` as a
-public-alpha release exception; keep any later Tauri bump as a separate review
-chunk from signing setup. Run `yarn security:yarn:verify` after JavaScript
-dependency updates and before pushing a release tag.
+Do not combine a Tauri upgrade with a release-signing or release-publication
+change. Routine dependency upgrades must keep Yarn's 30-day minimum-age gate
+enabled and pass the Cargo age gate. Run `yarn security:yarn:verify` after
+JavaScript dependency updates and before pushing a release tag.
 
 Expected future upgrade shape:
 
@@ -159,25 +161,36 @@ What to buy:
 What to create:
 
 - `Developer ID Application` certificate.
-- App Store Connect team API key for notarization.
+- App Store Connect team API key used only to authenticate notarization. No Mac
+  App Store listing or App Store submission is involved.
 
 Procedure:
 
 1. Enroll in the Apple Developer Program as an individual.
 2. Enable two-factor authentication on the Apple Account.
 3. In Certificates, Identifiers & Profiles, create a `Developer ID Application`
-   certificate. This requires the Account Holder role.
-4. Install the downloaded `.cer` in Keychain Access on a Mac.
-5. Export the certificate and private key from Keychain Access as a passworded
+   certificate. This requires the Account Holder role. Select the current
+   Developer ID G2 intermediate; the previous intermediate exists only for
+   legacy Xcode 11.4 or earlier.
+4. Generate a Certificate Signing Request in Keychain Access on a Mac and upload
+   it when Apple asks for the CSR. This is required even though CI builds do not
+   use Xcode: the CSR creates the private key that must accompany the issued
+   certificate.
+5. Install the downloaded `.cer` in the same Mac keychain that contains the CSR
+   private key.
+6. Export the certificate and private key from Keychain Access as a passworded
    `.p12`.
-6. In App Store Connect, request API access if it is not enabled yet.
-7. Generate a team API key with Developer access from Users and Access /
-   Integrations.
-8. Download the `.p8` private key once and record:
+7. In App Store Connect, open Users and Access / Integrations. If team API keys
+   are unavailable, the Account Holder must request or enable API access there.
+   This enables API credentials; it does not enroll the app in the Mac App
+   Store.
+8. Generate a team API key with Developer access.
+9. Download the `.p8` private key once and record:
     - issuer ID
     - key ID
-    - team ID if needed later
-9. Set GitHub Actions Environment secrets in `desktop-release-signing`:
+10. Record the separate 10-character Team ID from the Apple Developer account's
+    membership details.
+11. Set GitHub Actions Environment secrets in `desktop-release-signing`:
     - `APPLE_CERTIFICATE`: base64 content of the exported `.p12`
     - `APPLE_CERTIFICATE_PASSWORD`: `.p12` export password
     - `APPLE_SIGNING_IDENTITY`: `Developer ID Application: <legal name> (<team id>)`
@@ -190,10 +203,21 @@ Important naming rule:
 - `APPLE_API_KEY_P8_B64` is intentionally not named `APPLE_API_KEY`.
 - Tauri uses `APPLE_API_KEY` to mean the App Store Connect key ID, while this
   workflow manually decodes the `.p8` file for `notarytool`.
+- The Team ID inside `APPLE_SIGNING_IDENTITY` is not the App Store Connect
+  Issuer ID. The signing identity must exactly match the Developer ID
+  certificate imported from the `.p12`.
 
 The workflow imports the `.p12` into a temporary keychain, signs the `.app`,
 notarizes the DMG with `xcrun notarytool`, staples the DMG, validates the
 stapled ticket, and then runs Gatekeeper assessment on the DMG.
+
+### Public identity exposure
+
+An individual Developer ID certificate exposes the enrolled developer's legal
+name and Team ID to anyone who inspects the app or DMG signature. Apple does not
+offer a privacy proxy analogous to domain-registration privacy while retaining
+normal Developer ID and Gatekeeper trust. The project name and OpenPGP release
+UID do not hide the Apple certificate subject.
 
 ### Secret handling
 
@@ -272,12 +296,29 @@ that PnP resolves from `.yarn/unplugged`. Those archives duplicate the unpacked
 runtime packages and can contain unsigned native Mach-O binaries that Apple
 notarization scans inside the DMG but `codesign` cannot sign in place.
 
+Operator verification on the final downloaded GitHub Release asset:
+
+```sh
+xcrun stapler validate "<ArtGod.dmg>"
+spctl --assess --type open --context context:primary-signature --verbose=4 "<ArtGod.dmg>"
+
+# After mounting the DMG, point this at the contained app.
+codesign --verify --deep --strict --verbose=2 "<mounted-ArtGod.app>"
+spctl --assess --type execute --verbose=4 "<mounted-ArtGod.app>"
+codesign --display --verbose=4 "<mounted-ArtGod.app>"
+```
+
+The displayed authority must be the expected `Developer ID Application`
+identity and Team ID. Run the normal Finder launch as well; terminal checks do
+not replace a clean-machine Gatekeeper launch test.
+
 Official references:
 
 - Apple Developer Program: https://developer.apple.com/programs/
 - Apple Developer Program enrollment: https://developer.apple.com/programs/enroll/
 - Apple enrollment requirements: https://developer.apple.com/programs/enroll/
 - Developer ID certificates: https://developer.apple.com/help/account/certificates/create-developer-id-certificates
+- Developer ID G2 intermediate: https://developer.apple.com/support/developer-id-intermediate-certificate/
 - Developer ID / notarization overview: https://developer.apple.com/developer-id/
 - Custom notarization workflow: https://developer.apple.com/documentation/security/customizing-the-notarization-workflow
 - App Store Connect API keys: https://developer.apple.com/help/app-store-connect/get-started/app-store-connect-api
@@ -352,10 +393,12 @@ and compromise response are documented in:
 
 Recommended key model:
 
-- Preferred: offline project primary key plus one CI-exported Linux release
-  signing subkey.
+- Current: offline project primary key plus one CI-exported Linux release
+  signing subkey. The public key is
+  `docs/desktop/keys/artgod-release-public.asc`; the root README publishes the
+  current primary and signing-subkey fingerprints.
 - Simpler fallback: one dedicated Linux release key exported into GitHub
-  Actions secrets.
+  Actions secrets. ArtGod does not use this fallback.
 
 Recommended procedure:
 
@@ -382,12 +425,17 @@ later Actions steps. Run its security coverage with
 Consumer verification:
 
 ```sh
-gpg --import artgod-release-signing-public.asc
+gpg --show-keys --with-fingerprint --with-subkey-fingerprint artgod-release-public.asc
+gpg --import artgod-release-public.asc
 gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt
-sha256sum -c SHA256SUMS.txt
-gpg --verify ArtGod-x.y.z.AppImage.asc ArtGod-x.y.z.AppImage
-gpg --verify ArtGod-x.y.z.deb.asc ArtGod-x.y.z.deb
+sha256sum --ignore-missing --check SHA256SUMS.txt
+gpg --verify "<linux-bundle>.asc" "<linux-bundle>"
+gh attestation verify "<bundle>" -R d347h-eth/artgod
 ```
+
+The signed checksum manifest covers the macOS DMG as well as the Linux bundles.
+The direct per-bundle OpenPGP signatures are intentionally Linux-specific;
+macOS additionally has Developer ID, Apple notarization, and Gatekeeper trust.
 
 ## Release Tag Procedure
 
@@ -402,6 +450,13 @@ GitHub Environment. Before the first run:
    its private key locally.
 4. Publish the Linux artifact-signing public key and fingerprint as described in
    `docs/desktop/05-linux-gpg-release-signing.md`.
+5. Confirm the `v*` tag ruleset restricts tag updates and deletions and that the
+   maintainer can create a new protected tag.
+6. Enable repository release immutability and confirm the protected
+   `desktop-release-signing` environment contains every required secret.
+7. Confirm both release-key fingerprints in the root README are also published
+   on the selected maintainer-controlled profiles.
+8. Confirm the build check for the exact `main` commit is green.
 
 After the version commit is merged to `main`, prepare a dry run from that exact
 commit:
@@ -421,6 +476,11 @@ git verify-tag "$TEST_TAG"
 git push origin "$TEST_TAG"
 ```
 
+Do not create the GitHub Release manually at `/releases/new`. Pushing the signed
+tag is the release trigger; the workflow creates the release only after both
+platform builds, signing, notarization, release assembly, and provenance
+attestation succeed.
+
 Use `git tag -s -u <personal-signing-key-fingerprint> ...` when Git has more
 than one candidate signing key. The workflow independently asks GitHub to
 verify the OpenPGP signature; a locally valid tag still fails admission if the
@@ -430,9 +490,22 @@ If macOS notarization is delayed, manually resume the workflow using the same
 test tag and original run ID. A successful resume publishes the finalized DMG
 with the Linux assets under that same test-tag GitHub Release.
 
-After installing and verifying the dry-run artifacts on clean Linux and macOS
-machines, push the public tag on the same commit. This is a new build and
-release, not a promotion of the test-tag artifacts:
+For the dry run, confirm:
+
+- `publish-release` ran instead of being skipped
+- the GitHub Release is a public pre-release and is not marked Latest
+- the release page displays `Immutable`
+- the AppImage, `.deb`, DMG, public key, Linux detached signatures,
+  `SHA256SUMS.txt`, and `SHA256SUMS.txt.asc` are present
+- OpenPGP verification succeeds from a clean keyring using fingerprints checked
+  outside the release itself
+- `gh attestation verify "<bundle>" -R d347h-eth/artgod` succeeds for each
+  platform bundle
+- the Linux bundles run on a clean supported Linux machine
+- macOS opens the DMG and app normally under Gatekeeper without a bypass
+
+After those checks pass, push the public tag on the same commit. This is a new
+build and release, not a promotion of the test-tag artifacts:
 
 ```sh
 RELEASE_TAG="v${VERSION}"
@@ -445,6 +518,16 @@ git push origin "$RELEASE_TAG"
 For both runs, verify Gatekeeper opens the DMG without bypass actions, verify
 the Linux signatures and checksum manifest from a clean keyring, and confirm
 the GitHub Release contains only the expected signed/stapled artifacts.
+Release immutability still allows title and release-note edits, but the tag and
+assets cannot be replaced after publication.
+
+Consumers with a current GitHub CLI can additionally verify the immutable
+release record and exact local asset:
+
+```sh
+gh release verify "$RELEASE_TAG" --repo d347h-eth/artgod
+gh release verify-asset "$RELEASE_TAG" "<bundle>" --repo d347h-eth/artgod
+```
 
 Official GitHub references:
 
@@ -452,3 +535,7 @@ Official GitHub references:
 - Add a GPG key to a GitHub account: https://docs.github.com/en/authentication/managing-commit-signature-verification/adding-a-gpg-key-to-your-github-account
 - Create a repository tag ruleset: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository
 - Ruleset update/delete restrictions: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets
+- Immutable releases: https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases
+- Prevent release changes: https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/establish-provenance-and-integrity/preventing-changes-to-your-releases
+- Verify release integrity: https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/verify-release-integrity
+- Verify build provenance: https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations

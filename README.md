@@ -69,6 +69,67 @@ install scripts disabled for the rest of the dependency install.
 Long-form setup, configuration, versioning, test, and command details live in
 `docs/development/01-local-development.md`.
 
+## Desktop Releases
+
+Official desktop builds are published under
+[GitHub Releases](https://github.com/d347h-eth/artgod/releases). The public
+alpha ships Linux x64 AppImage and `.deb` bundles plus a universal macOS DMG.
+Windows can be built from source, but signed Windows release artifacts remain
+deferred.
+
+Each release includes `SHA256SUMS.txt`, its detached OpenPGP signature,
+detached signatures for the Linux bundles, the public release key, and GitHub
+build-provenance attestations. The signed checksum manifest covers every
+published bundle, including the macOS DMG. The macOS app is additionally signed
+with Apple Developer ID, notarized by Apple, and distributed with a stapled
+notarization ticket.
+
+### Release Key
+
+The checked-in and release-attached public key is
+[the ArtGod release public key](docs/desktop/keys/artgod-release-public.asc).
+Verify both full fingerprints against this README and another
+maintainer-controlled profile before trusting the imported key:
+
+- Primary certification key: `2528300C396AFEDF062619626E5E8A9BC0ECD353`
+- Current release signing subkey: `6ED7A34814FFF8BBAB94784AA4EE961CBD9F14AD`
+
+Inspect the downloaded key before importing it:
+
+```sh
+gpg --show-keys --with-fingerprint --with-subkey-fingerprint artgod-release-public.asc
+```
+
+### Verify A Download
+
+Download the selected bundle, `artgod-release-public.asc`,
+`SHA256SUMS.txt`, and `SHA256SUMS.txt.asc` into one directory. Linux users
+should also download the bundle's matching `.asc` file.
+
+```sh
+gpg --import artgod-release-public.asc
+gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt
+sha256sum --ignore-missing --check SHA256SUMS.txt
+
+# Linux: verify the selected bundle's direct detached signature too.
+gpg --verify "<linux-bundle>.asc" "<linux-bundle>"
+
+# Optional online verification of the GitHub Actions build provenance.
+gh attestation verify "<bundle>" -R d347h-eth/artgod
+```
+
+On macOS, open the DMG and app normally so Gatekeeper evaluates the Developer
+ID signature and notarization ticket; do not use a Gatekeeper bypass for an
+official release. macOS users can compare `shasum -a 256 "<bundle>"` with the
+matching entry in the verified checksum manifest.
+
+Release signing subkeys rotate before expiry while the offline primary key
+anchors the project identity. Rotation updates the checked-in/release-attached
+public key and the fingerprints published on maintainer-controlled profiles.
+Revocation, rotation, and compromise-response details are in
+`docs/desktop/05-linux-gpg-release-signing.md`; the complete maintainer release
+procedure is in `docs/desktop/06-release-signing-runbook.md`.
+
 ## Documentation Map
 
 Start here when navigating the repo:

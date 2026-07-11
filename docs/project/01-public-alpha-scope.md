@@ -51,6 +51,9 @@ Core release characteristics:
   profiles.
 - Tauri desktop runtime supervisor composes local NATS, backend, and indexer
   workers from production runtime artifacts.
+- Public release CI produces GPG-signed Linux x64 bundles and a universal
+  Developer ID-signed, notarized, and stapled macOS DMG with signed checksums
+  and GitHub build provenance. Windows release packaging remains deferred.
 - Desktop Admin UI includes header launch, logs, stop, and shutdown actions plus
   system, wallets, and bots surfaces behind the native Tauri shell.
 - Desktop wallet custody is implemented with Rust-owned Ethereum keystore
