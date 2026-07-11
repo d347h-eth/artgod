@@ -388,7 +388,8 @@ Implementation shape:
 
 - bundle a tiny helper binary with the desktop app
 - register it as a Tauri sidecar
-- launch it only for secret-entry or secret-reveal flows
+- launch it only from Rust through `ShellExt` for secret-entry or secret-reveal flows
+- keep every `shell:*` permission out of every WebView capability
 - pass only non-secret context in command arguments
 - exchange structured request/response payloads over stdin/stdout pipes
 
@@ -475,6 +476,8 @@ It must not:
 - render raw private keys
 - collect private keys in HTML forms
 - collect passphrases in HTML forms
+- spawn the secret-prompt helper or write to its stdin through the shell plugin
+- receive the helper child handle, stdout, or stderr through Tauri IPC
 - persist any secret in frontend state stores
 - receive raw secret payloads from Tauri commands
 
@@ -939,6 +942,8 @@ Rules:
 - command -> use-case wiring
 - prompt cancellation handling
 - helper stdio protocol handling
+- WebView capability policy rejects every `shell:*` permission
+- main WebView raw shell spawn and stdin-write calls are denied by the resolved ACL
 - bot start requiring fresh unlock after restart
 
 ### Node Bot Tests
@@ -959,6 +964,7 @@ The manual matrix should explicitly verify:
 - no secrets in logs
 - no secrets in env
 - no secrets in process list
+- `plugin:shell|spawn` and `plugin:shell|stdin_write` are denied from the main WebView
 - restart=prompt behavior
 - bot crash -> locked state
 
