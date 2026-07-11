@@ -61,6 +61,16 @@ export interface BidderJob {
     state: BidderState;
 }
 
+// Identifies targets whose exact trait criteria are enforced by OpenSea SignedZone rather than the maker signature.
+export function bidderTargetRequiresOpenSeaSignedZoneTrust(
+    target: BidderTarget,
+): boolean {
+    return (
+        target.type === "competitiveTrait" ||
+        (target.type === "collection" && (target.traits?.length ?? 0) > 0)
+    );
+}
+
 const MAX_LOG_TRAITS = 6;
 const MAX_LOG_VALUE_LENGTH = 96;
 
