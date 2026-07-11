@@ -6,6 +6,7 @@ mod env_keys;
 mod log_files;
 mod private_file;
 mod process_registry;
+mod resource_contract;
 mod rpc_auto_sourcing;
 mod supervisor;
 

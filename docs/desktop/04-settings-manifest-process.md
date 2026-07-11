@@ -34,6 +34,11 @@ desktop configuration actions rather than child-process runtime behavior.
 Chainlist endpoint sourcing action, defaults to no-tracking endpoints, and is
 targeted only at `desktop`.
 
+Bundled executable-resource locations are not settings. Node, NATS, Yarn PnP
+hooks, and runtime artifact paths are owned by the desktop build/runtime
+contract and must not be exposed through this manifest or persisted Admin
+overrides.
+
 Public web deployment still manages public-hosting-only values directly through deployment env files. Those settings remain in the manifest for `.env.example` and generated defaults, but should be marked `desktop_managed = false` when they do not belong in the desktop Admin UI or desktop-rendered `.env`.
 
 The root manifest `default` is the local developer `.env.example` baseline.

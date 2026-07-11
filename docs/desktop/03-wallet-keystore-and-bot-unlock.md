@@ -232,6 +232,7 @@ For export, the bounded operation is:
 
 For bot startup, the bounded operation is:
 
+- resolve and freeze the trusted bundled bot recipient before prompting
 - collect passphrase
 - decrypt key
 - spawn bot
@@ -922,6 +923,9 @@ Rules:
 
 - no passphrases in config
 - no private keys in config
+- no executable, loader, or trading-artifact path overrides in Admin config
+- freeze one validated bundled-runtime launch snapshot before prompting and use
+  that same snapshot through child spawn
 - fail fast on missing required wallet runtime config
 
 ## Test Strategy

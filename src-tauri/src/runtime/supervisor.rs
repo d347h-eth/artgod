@@ -17,7 +17,7 @@ use crate::runtime::bot_runtime::{
     BOT_RUNTIME_SPECS, BotCriticalDependencyStatus, BotRuntimeSnapshot, BotRuntimeState,
     bot_runtime_spec,
 };
-use crate::runtime::config::DesktopRuntimeConfig;
+use crate::runtime::config::{BotRuntimeLaunchConfig, DesktopRuntimeConfig};
 use crate::runtime::process_registry::{
     BACKEND_ARTIFACT, BACKEND_PROCESS_NAME, INDEXER_WORKERS, NATS_PROCESS_NAME,
     SUPERVISOR_PROCESS_NAME,
@@ -409,12 +409,13 @@ impl RuntimeManager {
         }
     }
 
-    pub fn start_bot_runtime(
+    pub(crate) fn start_bot_runtime(
         &self,
         app: AppHandle,
-        bot_kind: BotKind,
+        launch_config: BotRuntimeLaunchConfig,
         secret_envelope: Vec<u8>,
     ) -> Result<(), String> {
+        let bot_kind = launch_config.spec.bot_kind;
         {
             let controllers = self
                 .bot_controllers
@@ -425,8 +426,7 @@ impl RuntimeManager {
             }
         }
 
-        let config = DesktopRuntimeConfig::load_or_create(&app)?;
-        let spec = *bot_runtime_spec(bot_kind);
+        let spec = launch_config.spec;
         let app_handle = app.clone();
         let status_ref = Arc::clone(&self.status);
         let bot_statuses_ref = Arc::clone(&self.bot_statuses);
@@ -435,8 +435,7 @@ impl RuntimeManager {
         let join_handle = thread::spawn(move || {
             run_bot_runtime_loop(
                 app_handle,
-                config,
-                spec,
+                launch_config,
                 status_ref,
                 bot_statuses_ref,
                 stop_rx,
@@ -784,16 +783,16 @@ fn build_bot_runtime_snapshot_from_spec(
 
 fn run_bot_runtime_loop(
     app: AppHandle,
-    config: DesktopRuntimeConfig,
-    spec: crate::runtime::bot_runtime::BotRuntimeSpec,
+    config: BotRuntimeLaunchConfig,
     status_ref: Arc<Mutex<RuntimeStatus>>,
     bot_statuses_ref: Arc<Mutex<HashMap<BotKind, ManagedBotRuntimeStatus>>>,
     stop_rx: Receiver<()>,
     secret_envelope: Vec<u8>,
 ) {
     let stop_signal = AtomicBool::new(false);
+    let spec = config.spec;
 
-    let mut process = match spawn_trading_bot_process(&app, &config, spec) {
+    let mut process = match spawn_trading_bot_process(&app, &config) {
         Ok(process) => process,
         Err(error) => {
             update_bot_runtime_state(
@@ -1217,19 +1216,15 @@ impl BotLifecyclePayload {
 
 fn spawn_trading_bot_process(
     app: &AppHandle,
-    config: &DesktopRuntimeConfig,
-    spec: crate::runtime::bot_runtime::BotRuntimeSpec,
+    config: &BotRuntimeLaunchConfig,
 ) -> Result<SpawnedBotProcess, String> {
-    let artifact_path = config.runtime_dir.join(spec.artifact_relative_path);
-    if !artifact_path.exists() {
-        return Err(format!(
-            "Runtime artifact missing for {}: {}. Build runtime resources with `yarn build:runtime && yarn build:desktop-runtime-resources`.",
-            spec.process_name,
-            artifact_path.display()
-        ));
-    }
+    let spec = config.spec;
 
-    let args = build_node_process_args(config, &artifact_path);
+    let args = build_node_process_args(
+        &config.pnp_cjs_path,
+        &config.pnp_loader_path,
+        &config.artifact_path,
+    );
     let command_line = render_command_line(config.node_bin.to_string_lossy().as_ref(), &args);
     emit_supervisor_log(
         app,
@@ -1796,7 +1791,11 @@ fn spawn_node_process(
         ));
     }
 
-    let args = build_node_process_args(config, &artifact_path);
+    let args = build_node_process_args(
+        &config.pnp_cjs_path,
+        &config.pnp_loader_path,
+        &artifact_path,
+    );
     spawn_process(
         app,
         config,
@@ -1901,14 +1900,15 @@ fn spawn_process(
 }
 
 fn build_node_process_args(
-    config: &DesktopRuntimeConfig,
+    pnp_cjs_path: &std::path::Path,
+    pnp_loader_path: &std::path::Path,
     artifact_path: &std::path::Path,
 ) -> Vec<String> {
     vec![
         "--require".to_owned(),
-        config.pnp_cjs_path.to_string_lossy().into_owned(),
+        pnp_cjs_path.to_string_lossy().into_owned(),
         "--experimental-loader".to_owned(),
-        config.pnp_loader_path.to_string_lossy().into_owned(),
+        pnp_loader_path.to_string_lossy().into_owned(),
         artifact_path.to_string_lossy().into_owned(),
     ]
 }
@@ -2451,7 +2451,11 @@ mod tests {
         let config = build_test_runtime_config();
         let spec = crate::runtime::bot_runtime::BIDDING_BOT_SPEC;
         let artifact_path = config.runtime_dir.join(spec.artifact_relative_path);
-        let args = build_node_process_args(&config, &artifact_path);
+        let args = build_node_process_args(
+            &config.pnp_cjs_path,
+            &config.pnp_loader_path,
+            &artifact_path,
+        );
         let command_line = render_command_line(config.node_bin.to_string_lossy().as_ref(), &args);
 
         assert!(command_line.contains(spec.artifact_relative_path));

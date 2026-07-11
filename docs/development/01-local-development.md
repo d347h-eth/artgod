@@ -400,6 +400,10 @@ JSON file, and renders the runtime `.env` from effective manifest defaults plus
 overrides only after the operator chooses defaults, saves configuration, or
 launches from saved configuration.
 
+Executable resources are not configurable through Admin. Desktop Node, NATS,
+Yarn PnP hooks, and runtime artifacts always come from the staged Tauri
+`runtime` resources built by `yarn build:desktop-runtime-resources`.
+
 A stale `.env` without `settings.json` is treated as an inactive legacy file:
 Admin can show that it exists, but the supervisor will not boot from it.
 
