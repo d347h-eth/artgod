@@ -37,6 +37,7 @@ ArtGod will use a hybrid desktop model:
 - those secret-entry flows are owned by Rust via a dedicated native secret-prompt helper sidecar
 - encrypted wallet storage is owned by Rust and kept in desktop app-data as standard Ethereum keystore JSON files, outside backend/indexer SQLite
 - trading bot runtimes receive decrypted key material only once at startup over a one-shot pipe/stdin channel
+- bidding starts also receive one immutable native-reviewed collection mandate over that same one-shot channel
 - any bot restart requires a fresh passphrase prompt
 
 This design explicitly rejects all session unlock caching.
@@ -97,6 +98,8 @@ These are hard rules, not suggestions.
 12. Release builds verify the exact key-bearing runtime code and dependency
     file set against hashes embedded in the Rust desktop executable before
     prompting.
+13. Userland bidding mutations are proposals, not wallet authority. Every bidding start requires a native-reviewed mandate resolved by Rust from canonical live collection records.
+14. The bidding signer must reject offers outside the mandate without relying on HTTP middleware or a prior SQLite approval flag.
 
 ## Threat Model
 
@@ -108,6 +111,7 @@ This design is intended to reduce exposure to:
 - local filesystem disclosure of app data at rest
 - accidental secret leakage through environment variables or command-line arguments
 - accidental persistence of secrets in backend tables or caches
+- unwanted bidding jobs submitted through unauthenticated loopback mutation routes by compromised browser content, extensions, or raw local clients
 
 This design does not claim to protect against:
 
@@ -117,8 +121,17 @@ This design does not claim to protect against:
 - hardware keyloggers
 - memory scraping by a privileged attacker
 - OS screenshots or screen recording outside app control
+- arbitrary writes to ArtGod app-data or SQLite; that capability is treated as host compromise for the current local-only threat model
 
 The objective is to make the wallet boundary materially narrower and more auditable, not to solve full host compromise.
+
+The current bounded residual risk is explicit: compromised Userland code or a
+raw loopback client may cause the bot to act on created or revised jobs for a
+collection already granted in the current native mandate, but only within that
+collection's identity, maximum unit bid, and maximum per-offer quantity. This
+avoids per-job native approvals while preventing silent expansion to another
+ArtGod token scope, contract, or OpenSea orderbook slug. No browser-readable
+bearer/session credential is introduced over loopback HTTP.
 
 ## Why Hybrid Instead of WebView-Only
 
@@ -648,12 +661,13 @@ sequenceDiagram
     participant N as Node Bot
 
     U->>W: Start bidding/sniping bot
-    W->>T: start bot(botKind)
-    T->>P: launch passphrase prompt
+    W->>T: start bot(botKind, collection ids + caps)
+    T->>T: re-resolve canonical collection identities
+    T->>P: review frozen policy and enter passphrase
     P-->>T: passphrase
     T->>K: decrypt wallet
     K-->>B: plaintext key bytes
-    B->>N: spawn bot and write one-shot secret envelope to stdin
+    B->>N: spawn bot and write key + mandate envelope to stdin
     B->>N: close stdin
     N-->>B: startup success/failure
 ```
@@ -661,6 +675,8 @@ sequenceDiagram
 Unlock rules:
 
 - passphrase prompt is always native
+- bidding policy review is always native and precedes passphrase submission
+- Admin supplies only proposed collection ids and caps; Rust supplies the displayed and injected ArtGod id, contract, token scope, and OpenSea slug
 - decrypt happens in Rust only
 - decrypted key lifetime in Rust must be as short as practical
 - the secret channel is one-shot and immediately closed after write
@@ -692,14 +708,31 @@ Suggested format:
 4. metadata JSON
 5. 32 raw private-key bytes
 
-Suggested metadata:
+Current bidding metadata shape:
 
 ```json
 {
     "walletId": "uuid",
     "address": "0x...",
     "botKind": "bidding",
-    "chainId": 1
+    "chainId": 1,
+    "biddingMandate": {
+        "chainId": 1,
+        "collections": [
+            {
+                "collectionId": 7,
+                "artgodSlug": "example",
+                "contractAddress": "0x...",
+                "openseaSlug": "example-opensea",
+                "tokenScope": {
+                    "label": "token range",
+                    "items": []
+                },
+                "maxUnitBidWei": "1250000000000000000",
+                "maxQuantity": 2
+            }
+        ]
+    }
 }
 ```
 
@@ -708,6 +741,7 @@ Protocol requirements:
 - metadata is non-secret
 - raw key bytes are binary, not hex text
 - child process must reject malformed or partial payloads
+- bidding child process must reject a missing, duplicate, malformed, or wrong-chain mandate; sniping envelopes must not carry one
 - parent closes the pipe immediately after the payload is written
 - child must not persist the payload anywhere
 
@@ -718,6 +752,7 @@ The bot entrypoint must:
 - block normal startup until the secret payload is read
 - read the one-shot payload into a `Buffer`
 - construct the in-memory signer as early as possible
+- parse the immutable bidding mandate before runtime composition
 - overwrite the original `Buffer` after signer construction
 - refuse to start if stdin is empty, malformed, or truncated
 - emit `bot_bootstrapping` after config, jobs, wallet, and adapter setup succeeds but before configured WETH allowance approval or long snapshot/current-price warmup can block startup
@@ -726,6 +761,9 @@ The bot entrypoint must:
 - keep lifecycle event payloads limited to non-secret runtime metadata
 - write only non-secret heartbeat/state rows to `trading_bot_runtime_state`
 - load bidding jobs from SQLite after secret handoff; the DB contains declared job config, not wallet material
+- carry `collectionId` on every runtime job and require an OpenSea slug for every enabled placement job
+- enforce the mandate again at the final restricted OpenSea signing boundary for every offer revision
+- keep offchain cancellation outside the placement mandate so existing orders can always be explicitly cancelled
 - never log the payload or derived private-key hex
 
 Important limitation:
