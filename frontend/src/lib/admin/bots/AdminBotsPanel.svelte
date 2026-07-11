@@ -275,21 +275,25 @@
 									{busyAction === `assign:${bot.botKind}` ? 'applying…' : 'apply wallet'}
 								</button>
 
-								<button
-									type="button"
-									onclick={() => void handleStart(bot.botKind)}
-									disabled={busyAction !== null || !canStart(bot)}
-								>
-									{busyAction === `start:${bot.botKind}` ? 'starting…' : 'start'}
-								</button>
+								{#if bot.botKind === TRADING_BOT_KIND.Bidding}
+									<button
+										type="button"
+										onclick={() => void handleStart(bot.botKind)}
+										disabled={busyAction !== null || !canStart(bot)}
+									>
+										{busyAction === `start:${bot.botKind}` ? 'starting…' : 'start'}
+									</button>
 
-								<button
-									type="button"
-									onclick={() => void handleStop(bot.botKind)}
-									disabled={busyAction !== null || (bot.state !== 'running' && bot.state !== 'bootstrapping')}
-								>
-									{busyAction === `stop:${bot.botKind}` ? 'stopping…' : 'stop'}
-								</button>
+									<button
+										type="button"
+										onclick={() => void handleStop(bot.botKind)}
+										disabled={busyAction !== null || (bot.state !== 'running' && bot.state !== 'bootstrapping')}
+									>
+										{busyAction === `stop:${bot.botKind}` ? 'stopping…' : 'stop'}
+									</button>
+								{:else}
+									<span class="muted">unavailable</span>
+								{/if}
 							</div>
 						</article>
 					{/each}
