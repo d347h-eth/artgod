@@ -1,12 +1,15 @@
 use std::path::Path;
 
 use alloy_primitives::hex;
-use alloy_signer_local::{LocalSignerError, PrivateKeySigner};
+use alloy_signer_local::PrivateKeySigner;
+use eth_keystore::{ARTGOD_SCRYPT_KDF_PARAMS, encrypt_key_to_keystore};
+#[cfg(test)]
+use eth_keystore::{EthKeystore, KdfType, KdfparamsType};
 use rand::thread_rng;
 use thiserror::Error;
 use zeroize::Zeroizing;
 
-use crate::private_file::apply_private_file_permissions;
+use crate::private_file::write_private_file_atomic;
 use crate::wallet::application::use_cases::{
     ExportWalletError, ExportWalletKeystorePort, ImportWalletError, ImportWalletKeystorePort,
     RemoveWalletError, RemoveWalletKeystorePort, UnlockWalletForBotStartError,
@@ -48,41 +51,16 @@ impl AlloyKeystore {
                 path: keystore_path.display().to_string(),
             });
         }
-        let parent_dir = keystore_path
-            .parent()
-            .ok_or_else(|| AlloyKeystoreError::InvalidPath {
+        if keystore_path.parent().is_none() {
+            return Err(AlloyKeystoreError::InvalidPath {
                 path: keystore_path.display().to_string(),
-            })?;
-        std::fs::create_dir_all(parent_dir).map_err(|error| AlloyKeystoreError::IoFailure {
-            message: format!(
-                "Failed to create wallet directory {}: {error}",
-                parent_dir.display()
-            ),
-        })?;
-        let file_name = keystore_path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .ok_or_else(|| AlloyKeystoreError::InvalidPath {
-                path: keystore_path.display().to_string(),
-            })?;
-        let mut rng = thread_rng();
-        PrivateKeySigner::encrypt_keystore(
-            parent_dir,
-            &mut rng,
-            private_key.as_bytes(),
-            passphrase.as_bytes(),
-            Some(file_name),
-        )
-        .map_err(AlloyKeystoreError::from)?;
-        apply_private_file_permissions(keystore_path).map_err(|error| {
-            AlloyKeystoreError::IoFailure {
-                message: format!(
-                    "Failed to restrict wallet keystore permissions {}: {error}",
-                    keystore_path.display()
-                ),
-            }
-        })?;
-        Ok(())
+            });
+        }
+        let payload = encrypt_keystore_payload(private_key, passphrase)?;
+
+        // Persist the encrypted document atomically with owner-only permissions.
+        write_private_file_atomic(keystore_path, &payload)
+            .map_err(|message| AlloyKeystoreError::IoFailure { message })
     }
 
     /// Decrypts a keystore file into one-shot private key material.
@@ -91,11 +69,43 @@ impl AlloyKeystore {
         wallet: &WalletRecord,
         passphrase: &Zeroizing<String>,
     ) -> Result<WalletPrivateKey, AlloyKeystoreError> {
-        let signer =
-            PrivateKeySigner::decrypt_keystore(&wallet.keystore_path, passphrase.as_bytes())
-                .map_err(|_| AlloyKeystoreError::UnlockRejected)?;
-        Ok(WalletPrivateKey::new(signer.to_bytes().0))
+        decrypt_wallet_key(wallet, passphrase)
     }
+}
+
+fn encrypt_keystore_payload(
+    private_key: &WalletPrivateKey,
+    passphrase: &Zeroizing<String>,
+) -> Result<Vec<u8>, AlloyKeystoreError> {
+    let mut rng = thread_rng();
+    let keystore = encrypt_key_to_keystore(
+        &mut rng,
+        private_key.as_bytes(),
+        passphrase.as_bytes(),
+        ARTGOD_SCRYPT_KDF_PARAMS,
+    )?;
+    serde_json::to_vec(&keystore).map_err(|error| AlloyKeystoreError::InvalidDocument {
+        message: error.to_string(),
+    })
+}
+
+#[cfg(test)]
+fn read_keystore_document(path: &Path) -> Result<EthKeystore, AlloyKeystoreError> {
+    let payload = std::fs::read(path).map_err(|error| AlloyKeystoreError::IoFailure {
+        message: format!("Failed to read wallet keystore {}: {error}", path.display()),
+    })?;
+    serde_json::from_slice(&payload).map_err(|error| AlloyKeystoreError::InvalidDocument {
+        message: error.to_string(),
+    })
+}
+
+fn decrypt_wallet_key(
+    wallet: &WalletRecord,
+    passphrase: &Zeroizing<String>,
+) -> Result<WalletPrivateKey, AlloyKeystoreError> {
+    let signer = PrivateKeySigner::decrypt_keystore(&wallet.keystore_path, passphrase.as_bytes())
+        .map_err(|_| AlloyKeystoreError::UnlockRejected)?;
+    Ok(WalletPrivateKey::new(signer.to_bytes().0))
 }
 
 impl ImportWalletKeystorePort for AlloyKeystore {
@@ -131,7 +141,7 @@ impl RemoveWalletKeystorePort for AlloyKeystore {
         wallet: &WalletRecord,
         passphrase: &Zeroizing<String>,
     ) -> Result<(), RemoveWalletError> {
-        AlloyKeystore::decrypt_wallet(self, wallet, passphrase)
+        decrypt_wallet_key(wallet, passphrase)
             .map(|_| ())
             .map_err(|_| RemoveWalletError::UnlockRejected)
     }
@@ -171,8 +181,10 @@ pub enum AlloyKeystoreError {
     UnlockRejected,
     #[error("Wallet keystore operation failed: {message}")]
     IoFailure { message: String },
+    #[error("Wallet keystore document is invalid: {message}")]
+    InvalidDocument { message: String },
     #[error("Wallet keystore operation failed: {0}")]
-    KeystoreFailure(#[from] LocalSignerError),
+    EthereumKeystoreFailure(#[from] eth_keystore::KeystoreError),
 }
 
 #[cfg(test)]
@@ -181,21 +193,57 @@ mod tests {
 
     const FOUNDRY_FIXTURE_PASSWORD: &str = "keystorepassword";
     const FOUNDRY_FIXTURE_ADDRESS: &str = "0xec554aeafe75601aaab43bd4621a22284db566c2";
+    const TEST_PASSWORD: &str = "correct horse battery staple";
+    const TEST_PRIVATE_KEY: [u8; 32] = [0x11; 32];
 
     #[test]
-    fn decrypts_foundry_compatible_fixture() {
+    fn new_keystore_uses_geth_standard_scrypt_policy() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let path = temp_dir.path().join("wallet.json");
         let adapter = AlloyKeystore;
-        let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+
+        adapter
+            .write_keystore(
+                &path,
+                &WalletPrivateKey::new(TEST_PRIVATE_KEY),
+                &Zeroizing::new(TEST_PASSWORD.to_owned()),
+            )
+            .expect("keystore should be written");
+
+        let keystore = read_keystore_document(&path).expect("keystore should parse");
+        assert_scrypt_wire_params(&keystore, 32, 262_144, 8, 1);
+    }
+
+    #[test]
+    fn alloy_compatibility_writer_cannot_bypass_scrypt_policy() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let path = temp_dir.path().join("wallet.json");
+
+        PrivateKeySigner::encrypt_keystore(
+            temp_dir.path(),
+            &mut thread_rng(),
+            TEST_PRIVATE_KEY,
+            TEST_PASSWORD.as_bytes(),
+            path.file_name().and_then(|value| value.to_str()),
+        )
+        .expect("Alloy compatibility writer should encrypt");
+
+        let keystore = read_keystore_document(&path).expect("keystore should parse");
+        assert_scrypt_wire_params(&keystore, 32, 262_144, 8, 1);
+    }
+
+    #[test]
+    fn decrypts_foundry_compatible_fixture_without_rewriting_it() {
+        let adapter = AlloyKeystore;
+        let source_path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src/wallet/infra/keystore/fixtures/foundry-keystore-v3.json");
-        let record = WalletRecord::new(
-            crate::wallet::domain::WalletMetadata::new(
-                crate::wallet::domain::WalletId::new_random(),
-                crate::wallet::domain::WalletLabel::parse("Fixture").unwrap(),
-                crate::wallet::domain::WalletAddress::parse(FOUNDRY_FIXTURE_ADDRESS).unwrap(),
-                crate::wallet::domain::now_rfc3339(),
-            ),
-            fixture_path,
-        );
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let fixture_path = temp_dir.path().join("foundry-keystore-v3.json");
+
+        // Copy the fixture so a write regression cannot modify tracked test data.
+        std::fs::copy(&source_path, &fixture_path).expect("fixture should copy");
+        let original_payload = std::fs::read(&fixture_path).expect("fixture should read");
+        let record = test_wallet_record(fixture_path.clone());
 
         let private_key = adapter
             .decrypt_wallet(
@@ -209,5 +257,38 @@ mod tests {
             FOUNDRY_FIXTURE_ADDRESS.to_lowercase()
         );
         assert_eq!(private_key.as_bytes().len(), 32);
+
+        // Prove unlock remains a byte-for-byte read-only operation.
+        let decrypted_payload = std::fs::read(fixture_path).expect("fixture should still read");
+        assert_eq!(decrypted_payload, original_payload);
+    }
+
+    fn test_wallet_record(path: std::path::PathBuf) -> WalletRecord {
+        WalletRecord::new(
+            crate::wallet::domain::WalletMetadata::new(
+                crate::wallet::domain::WalletId::new_random(),
+                crate::wallet::domain::WalletLabel::parse("Fixture").unwrap(),
+                crate::wallet::domain::WalletAddress::parse(FOUNDRY_FIXTURE_ADDRESS).unwrap(),
+                crate::wallet::domain::now_rfc3339(),
+            ),
+            path,
+        )
+    }
+
+    fn assert_scrypt_wire_params(
+        keystore: &EthKeystore,
+        expected_dklen: u8,
+        expected_n: u32,
+        expected_r: u32,
+        expected_p: u32,
+    ) {
+        assert_eq!(keystore.crypto.kdf, KdfType::Scrypt);
+        let KdfparamsType::Scrypt { dklen, n, p, r, .. } = &keystore.crypto.kdfparams else {
+            panic!("keystore should use scrypt parameters");
+        };
+        assert_eq!(
+            (*dklen, *n, *r, *p),
+            (expected_dklen, expected_n, expected_r, expected_p)
+        );
     }
 }

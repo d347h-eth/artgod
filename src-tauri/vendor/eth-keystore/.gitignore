@@ -1,0 +1,3 @@
+# Modified by ArtGod to keep the vendored library free of local build state.
+/target
+/Cargo.lock
