@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AdminBiddingCollectionCandidate } from './ports';
 import {
 	buildBiddingMandateDraft,
+	formatBiddingChainIdentity,
 	formatBiddingMandateTokenScope,
 	formatBiddingMandateWeiAsEth,
 	syncBiddingMandateSelections,
@@ -18,6 +19,13 @@ const CANDIDATE: AdminBiddingCollectionCandidate = {
 };
 
 describe('bidding mandate draft', () => {
+	it('formats the named chain before its qualified external id', () => {
+		expect(formatBiddingChainIdentity({ chainId: 1, name: 'Ethereum' })).toBe(
+			'Ethereum · chain ID #1'
+		);
+		expect(formatBiddingChainIdentity({ chainId: 1, name: 'Ethereum' }, 10)).toBe('chain ID #10');
+	});
+
 	it('sends only collection ids and operator caps to Rust', () => {
 		const selections: BiddingMandateSelections = {
 			[CANDIDATE.collectionId]: {

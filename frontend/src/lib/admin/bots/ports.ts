@@ -41,6 +41,11 @@ export type AdminBiddingTokenScopeSummary = {
 	items: Array<{ label: string; value: string }>;
 };
 
+export type AdminBiddingChainIdentity = {
+	chainId: number;
+	name: string;
+};
+
 export type AdminBiddingCollectionCandidate = {
 	chainId: number;
 	collectionId: number;
@@ -48,6 +53,11 @@ export type AdminBiddingCollectionCandidate = {
 	contractAddress: string;
 	openseaSlug: string;
 	tokenScope: AdminBiddingTokenScopeSummary;
+};
+
+export type AdminBiddingCollectionCatalog = {
+	chain: AdminBiddingChainIdentity;
+	collections: AdminBiddingCollectionCandidate[];
 };
 
 export type AdminBiddingCollectionMandateDraft = {
@@ -85,7 +95,7 @@ export type AdminBotStateListener = () => void;
 
 export interface AdminBotPort {
 	listBots(): Promise<AdminBotRecord[]>;
-	listBiddingCollections(): Promise<AdminBiddingCollectionCandidate[]>;
+	loadBiddingCollectionCatalog(): Promise<AdminBiddingCollectionCatalog>;
 	assignWallet(botKind: AdminBotKind, walletId: string | null): Promise<AdminBotRecord>;
 	startBot(
 		botKind: AdminBotKind,

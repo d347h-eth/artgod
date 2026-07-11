@@ -1,4 +1,5 @@
 import type {
+	AdminBiddingChainIdentity,
 	AdminBiddingCollectionCandidate,
 	AdminBiddingMandateDraft,
 	AdminBiddingTokenScopeSummary
@@ -14,6 +15,17 @@ export type BiddingCollectionMandateSelection = {
 };
 
 export type BiddingMandateSelections = Record<string, BiddingCollectionMandateSelection>;
+
+// Formats a named chain first while keeping its external numeric identity explicit.
+export function formatBiddingChainIdentity(
+	chain: AdminBiddingChainIdentity,
+	activeChainId = chain.chainId
+): string {
+	if (chain.chainId !== activeChainId) {
+		return `chain ID #${activeChainId}`;
+	}
+	return `${chain.name} · chain ID #${activeChainId}`;
+}
 
 // Keeps operator-entered caps while refreshing canonical collection identity from Rust.
 export function syncBiddingMandateSelections(
@@ -56,7 +68,7 @@ export function buildBiddingMandateDraft(
 		return [{ collectionId: candidate.collectionId, maxUnitBidEth, maxQuantity }];
 	});
 	if (collections.length === 0) {
-		throw new Error('Select at least one collection for the native bidding mandate.');
+		throw new Error('Select at least one collection to authorize bidding.');
 	}
 	return { collections };
 }

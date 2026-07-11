@@ -4,6 +4,7 @@
 	import AdminSectionFrame from '$lib/admin/components/AdminSectionFrame.svelte';
 	import { createTauriAdminBotPort } from '$lib/admin/bots/adapters/tauri-admin-bot-port';
 	import type {
+		AdminBiddingCollectionCatalog,
 		AdminBiddingCollectionCandidate,
 		AdminBotKind,
 		AdminBotRecord
@@ -11,6 +12,7 @@
 	import { ADMIN_BOT_STATE, isAdminBotActive } from '$lib/admin/bots/ports';
 	import {
 		buildBiddingMandateDraft,
+		formatBiddingChainIdentity,
 		formatBiddingMandateTokenScope,
 		formatBiddingMandateWeiAsEth,
 		isBiddingMandateDraftReady,
@@ -35,7 +37,10 @@
 
 	let bots = $state<AdminBotRecord[]>([]);
 	let wallets = $state<AdminWalletRecord[]>([]);
-	let biddingCollections = $state<AdminBiddingCollectionCandidate[]>([]);
+	let biddingCollectionCatalog = $state<AdminBiddingCollectionCatalog | null>(null);
+	let biddingCollections: AdminBiddingCollectionCandidate[] = $derived(
+		biddingCollectionCatalog?.collections ?? []
+	);
 	let biddingMandateSelections = $state<BiddingMandateSelections>({});
 	let biddingMandateReady = $derived(
 		isBiddingMandateDraftReady(biddingCollections, biddingMandateSelections)
@@ -152,16 +157,16 @@
 		}
 
 		try {
-			const [nextBots, nextWallets, nextBiddingCollections] = await Promise.all([
+			const [nextBots, nextWallets, nextBiddingCollectionCatalog] = await Promise.all([
 				botPort.listBots(),
 				walletPort.listWallets(),
-				botPort.listBiddingCollections()
+				botPort.loadBiddingCollectionCatalog()
 			]);
 			bots = visibleBots(nextBots);
 			wallets = nextWallets;
-			biddingCollections = nextBiddingCollections;
+			biddingCollectionCatalog = nextBiddingCollectionCatalog;
 			biddingMandateSelections = syncBiddingMandateSelections(
-				nextBiddingCollections,
+				nextBiddingCollectionCatalog.collections,
 				biddingMandateSelections
 			);
 			syncSelections(bots);
@@ -289,8 +294,13 @@
 									</dl>
 								</div>
 
-								<section class="bidding-mandate-editor" aria-label="Native collection mandate">
-									<h3>native collection mandate</h3>
+								<section class="bidding-mandate-editor" aria-label="Bidding authorization request">
+									<h3>
+										bidding authorization request
+										{#if biddingCollectionCatalog}
+											· {formatBiddingChainIdentity(biddingCollectionCatalog.chain)}
+										{/if}
+									</h3>
 									{#if biddingCollections.length === 0}
 										<span class="muted">no live OpenSea-ready collections</span>
 									{:else}
@@ -312,16 +322,16 @@
 															/>
 															<span class="runtime-v">
 																<strong>{collection.artgodSlug}</strong>
-																<span class="mono">#{collection.collectionId}</span>
+																<span class="mono">· ArtGod collection ID #{collection.collectionId}</span>
 															</span>
 														</label>
 														<div class="runtime-kv-grid bidding-mandate-identity">
 															<div>
-																<span class="runtime-k">OpenSea</span>
+																<span class="runtime-k">OpenSea slug</span>
 																<span class="runtime-v mono">{collection.openseaSlug}</span>
 															</div>
 															<div>
-																<span class="runtime-k">contract</span>
+																<span class="runtime-k">contract address</span>
 																<span class="runtime-v mono">{collection.contractAddress}</span>
 															</div>
 															<div>
@@ -367,21 +377,31 @@
 								</section>
 
 								{#if bot.biddingMandate}
-									<section class="active-bidding-mandate" aria-label="Active native bidding mandate">
-										<h3>active native mandate · chain {bot.biddingMandate.chainId}</h3>
+									<section class="active-bidding-mandate" aria-label="Active bidding authorization">
+										<h3>
+											active bidding authorization
+											{#if biddingCollectionCatalog}
+												· {formatBiddingChainIdentity(
+													biddingCollectionCatalog.chain,
+													bot.biddingMandate.chainId
+												)}
+											{:else}
+												· chain ID #{bot.biddingMandate.chainId}
+											{/if}
+										</h3>
 										{#each bot.biddingMandate.collections as collection (collection.collectionId)}
 											<div class="bootstrap-form-section">
 												<span class="runtime-v">
 													<strong>{collection.artgodSlug}</strong>
-													<span class="mono">#{collection.collectionId}</span>
+													<span class="mono">· ArtGod collection ID #{collection.collectionId}</span>
 												</span>
 												<div class="runtime-kv-grid bidding-mandate-identity">
 													<div>
-														<span class="runtime-k">OpenSea</span>
+														<span class="runtime-k">OpenSea slug</span>
 														<span class="runtime-v mono">{collection.openseaSlug}</span>
 													</div>
 													<div>
-														<span class="runtime-k">contract</span>
+														<span class="runtime-k">contract address</span>
 														<span class="runtime-v mono">{collection.contractAddress}</span>
 													</div>
 													<div>

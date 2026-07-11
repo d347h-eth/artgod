@@ -79,11 +79,11 @@ impl BiddingMandate {
         candidates: Vec<BiddingCollectionCandidate>,
     ) -> Result<Self, String> {
         if draft.collections.is_empty() {
-            return Err("Select at least one collection for the bidding mandate.".to_owned());
+            return Err("Select at least one collection to authorize bidding.".to_owned());
         }
         if draft.collections.len() > MAX_BIDDING_MANDATE_COLLECTIONS {
             return Err(format!(
-                "A bidding mandate may include at most {MAX_BIDDING_MANDATE_COLLECTIONS} collections."
+                "Bidding authorization may include at most {MAX_BIDDING_MANDATE_COLLECTIONS} collections."
             ));
         }
 
@@ -97,7 +97,7 @@ impl BiddingMandate {
         for proposed in draft.collections {
             if !seen_collection_ids.insert(proposed.collection_id) {
                 return Err(format!(
-                    "Collection {} appears more than once in the bidding mandate.",
+                    "Collection {} appears more than once in the bidding authorization.",
                     proposed.collection_id
                 ));
             }
@@ -175,7 +175,7 @@ impl BiddingStartPolicySnapshot {
 pub fn format_wei_as_eth(wei: &str) -> Result<String, String> {
     let parsed = wei
         .parse::<U256>()
-        .map_err(|_| "Bidding mandate contains invalid wei.".to_owned())?;
+        .map_err(|_| "Bidding authorization contains an invalid WETH amount.".to_owned())?;
     let padded = format!("{parsed:019}");
     let split_at = padded.len() - 18;
     let whole = padded[..split_at].trim_start_matches('0');

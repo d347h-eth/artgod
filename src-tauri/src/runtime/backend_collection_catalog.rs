@@ -9,6 +9,21 @@ const COLLECTION_STATUS_QUERY_PARAM: &str = "status";
 const COLLECTION_CURSOR_QUERY_PARAM: &str = "cursor";
 const COLLECTION_STATUS_LIVE: &str = "live";
 
+/// Canonical display identity for the chain that owns the bidding catalog.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiddingChainIdentity {
+    pub chain_id: u64,
+    pub name: String,
+}
+
+/// Canonical chain context and collections eligible for bidding authorization.
+#[derive(Clone, Debug)]
+pub struct BiddingCollectionCatalog {
+    pub chain: BiddingChainIdentity,
+    pub collections: Vec<BiddingCollectionCandidate>,
+}
+
 /// Canonical collection identity eligible for native bidding authorization.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,17 +51,18 @@ impl BackendCollectionCatalog {
         }
     }
 
-    /// Streams every live page and returns collections whose OpenSea identity is ready.
-    pub async fn list_bidding_candidates(
+    /// Streams every live page with its chain context and OpenSea-ready collections.
+    pub async fn load_bidding_catalog(
         &self,
         chain_id: u64,
-    ) -> Result<Vec<BiddingCollectionCandidate>, String> {
+    ) -> Result<BiddingCollectionCatalog, String> {
         let endpoint = format!(
             "{}/api/{chain_id}/collections",
             self.backend_http_base_url.trim_end_matches('/')
         );
         let mut cursor: Option<String> = None;
         let mut seen_cursors = HashSet::new();
+        let mut chain = None;
         let mut candidates = Vec::new();
 
         loop {
@@ -69,6 +85,15 @@ impl BackendCollectionCatalog {
                 .await
                 .map_err(|error| format!("Collection catalog response was invalid: {error}"))?;
 
+            let response_chain = map_chain_identity(response.chain, chain_id)?;
+            if chain
+                .as_ref()
+                .is_some_and(|expected| expected != &response_chain)
+            {
+                return Err("Collection catalog changed chain identity between pages.".to_owned());
+            }
+            chain.get_or_insert(response_chain);
+
             for item in response.page.items {
                 if let Some(candidate) = map_bidding_candidate(item, chain_id)? {
                     candidates.push(candidate);
@@ -89,8 +114,31 @@ impl BackendCollectionCatalog {
                 .cmp(&right.artgod_slug)
                 .then(left.collection_id.cmp(&right.collection_id))
         });
-        Ok(candidates)
+        Ok(BiddingCollectionCatalog {
+            chain: chain.ok_or_else(|| "Collection catalog omitted chain identity.".to_owned())?,
+            collections: candidates,
+        })
     }
+}
+
+fn map_chain_identity(
+    chain: CollectionChain,
+    expected_chain_id: u64,
+) -> Result<BiddingChainIdentity, String> {
+    if chain.public_chain_id != expected_chain_id {
+        return Err(format!(
+            "Collection catalog returned chain ID {}, expected {expected_chain_id}.",
+            chain.public_chain_id
+        ));
+    }
+    let name = chain.name.trim().to_owned();
+    if name.is_empty() {
+        return Err("Collection catalog returned an empty chain name.".to_owned());
+    }
+    Ok(BiddingChainIdentity {
+        chain_id: chain.public_chain_id,
+        name,
+    })
 }
 
 fn map_bidding_candidate(
@@ -135,7 +183,15 @@ fn map_bidding_candidate(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ListCollectionsResponse {
+    chain: CollectionChain,
     page: ListCollectionsPage,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CollectionChain {
+    public_chain_id: u64,
+    name: String,
 }
 
 #[derive(Deserialize)]
@@ -210,6 +266,21 @@ mod tests {
         item.opensea_status = Some(OpenSeaCollectionStatus::Pending);
 
         assert!(map_bidding_candidate(item, 1).unwrap().is_none());
+    }
+
+    #[test]
+    fn maps_named_chain_identity_for_operator_display() {
+        let chain = map_chain_identity(
+            CollectionChain {
+                public_chain_id: 1,
+                name: " Ethereum ".to_owned(),
+            },
+            1,
+        )
+        .expect("chain identity should map");
+
+        assert_eq!(chain.chain_id, 1);
+        assert_eq!(chain.name, "Ethereum");
     }
 
     fn collection_item() -> CollectionItem {

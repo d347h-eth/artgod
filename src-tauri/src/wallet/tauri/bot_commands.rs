@@ -8,11 +8,12 @@ use tauri::{AppHandle, State};
 
 use crate::desktop_log::append_desktop_log;
 use crate::runtime::{
-    BackendCollectionCatalog, BiddingCollectionCandidate, BiddingCollectionMandate,
-    BiddingCollectionMandateDraft, BiddingCollectionTokenScopeSummary, BiddingMandate,
-    BiddingMandateDraft, BiddingStartPolicySnapshot, BotCriticalDependencyStatus,
-    BotRuntimeSnapshot, BotRuntimeState, DesktopRuntimeConfig, DesktopWalletConfig, RuntimeManager,
-    bot_runtime_spec, build_trading_secret_envelope, format_wei_as_eth,
+    BackendCollectionCatalog, BiddingChainIdentity, BiddingCollectionCandidate,
+    BiddingCollectionCatalog, BiddingCollectionMandate, BiddingCollectionMandateDraft,
+    BiddingCollectionTokenScopeSummary, BiddingMandate, BiddingMandateDraft,
+    BiddingStartPolicySnapshot, BotCriticalDependencyStatus, BotRuntimeSnapshot, BotRuntimeState,
+    DesktopRuntimeConfig, DesktopWalletConfig, RuntimeManager, bot_runtime_spec,
+    build_trading_secret_envelope, format_wei_as_eth,
 };
 use crate::wallet::application::use_cases::{
     AssignWalletToBot, AssignWalletToBotError, AssignWalletToBotInput, UnlockWalletForBotStart,
@@ -86,18 +87,15 @@ impl BotCommandState {
         Ok(bot_dtos)
     }
 
-    async fn list_bidding_collections(
+    async fn load_bidding_collection_catalog(
         &self,
         app: &AppHandle,
-    ) -> Result<Vec<BiddingCollectionCandidateDto>, String> {
+    ) -> Result<BiddingCollectionCatalogDto, String> {
         let runtime_config = DesktopRuntimeConfig::load_or_create(app)?;
-        let candidates = BackendCollectionCatalog::new(runtime_config.backend_http_base_url())
-            .list_bidding_candidates(runtime_config.chain_id)
+        let catalog = BackendCollectionCatalog::new(runtime_config.backend_http_base_url())
+            .load_bidding_catalog(runtime_config.chain_id)
             .await?;
-        Ok(candidates
-            .iter()
-            .map(BiddingCollectionCandidateDto::from_domain)
-            .collect())
+        Ok(BiddingCollectionCatalogDto::from_domain(&catalog))
     }
 
     fn assign_wallet(
@@ -375,16 +373,19 @@ async fn resolve_bidding_start_mandate(
 ) -> Result<(Option<BiddingMandate>, Option<UnlockBiddingMandateSummary>), String> {
     match bot_kind {
         BotKind::Bidding => {
-            let draft = draft.ok_or_else(|| {
-                "Select a native collection mandate before starting bidding.".to_owned()
-            })?;
-            let candidates = BackendCollectionCatalog::new(runtime_config.backend_http_base_url())
-                .list_bidding_candidates(runtime_config.chain_id)
+            let draft = draft
+                .ok_or_else(|| "Select at least one collection to authorize bidding.".to_owned())?;
+            let catalog = BackendCollectionCatalog::new(runtime_config.backend_http_base_url())
+                .load_bidding_catalog(runtime_config.chain_id)
                 .await?;
-            let mandate =
-                BiddingMandate::resolve(runtime_config.chain_id, draft.into_domain(), candidates)?;
+            let mandate = BiddingMandate::resolve(
+                runtime_config.chain_id,
+                draft.into_domain(),
+                catalog.collections,
+            )?;
             let policy = BiddingStartPolicySnapshot::from_process_env(frozen_process_env)?;
-            let prompt_summary = build_prompt_mandate_summary(&mandate, &policy)?;
+            let prompt_summary =
+                build_prompt_mandate_summary(&mandate, &policy, catalog.chain.name.as_str())?;
             Ok((Some(mandate), Some(prompt_summary)))
         }
         BotKind::Sniping => {
@@ -399,6 +400,7 @@ async fn resolve_bidding_start_mandate(
 fn build_prompt_mandate_summary(
     mandate: &BiddingMandate,
     policy: &BiddingStartPolicySnapshot,
+    chain_name: &str,
 ) -> Result<UnlockBiddingMandateSummary, String> {
     let collections = mandate
         .collections
@@ -427,6 +429,7 @@ fn build_prompt_mandate_summary(
 
     Ok(UnlockBiddingMandateSummary {
         chain_id: mandate.chain_id,
+        chain_name: chain_name.to_owned(),
         dry_run: policy.dry_run,
         weth_allowance_cap_eth: policy.weth_allowance_cap_eth.clone(),
         trait_offers_enabled: policy.trait_offers_enabled,
@@ -499,6 +502,21 @@ pub struct BiddingCollectionCandidateDto {
     contract_address: String,
     opensea_slug: String,
     token_scope: BiddingTokenScopeSummaryDto,
+}
+
+/// Admin transport shape for canonical bidding chain context and collections.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiddingCollectionCatalogDto {
+    chain: BiddingChainIdentityDto,
+    collections: Vec<BiddingCollectionCandidateDto>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BiddingChainIdentityDto {
+    chain_id: u64,
+    name: String,
 }
 
 /// Admin transport shape for a proposed native bidding mandate.
@@ -576,6 +594,28 @@ impl BiddingCollectionCandidateDto {
             contract_address: candidate.contract_address.clone(),
             opensea_slug: candidate.opensea_slug.clone(),
             token_scope: BiddingTokenScopeSummaryDto::from_domain(&candidate.token_scope),
+        }
+    }
+}
+
+impl BiddingCollectionCatalogDto {
+    fn from_domain(catalog: &BiddingCollectionCatalog) -> Self {
+        Self {
+            chain: BiddingChainIdentityDto::from_domain(&catalog.chain),
+            collections: catalog
+                .collections
+                .iter()
+                .map(BiddingCollectionCandidateDto::from_domain)
+                .collect(),
+        }
+    }
+}
+
+impl BiddingChainIdentityDto {
+    fn from_domain(chain: &BiddingChainIdentity) -> Self {
+        Self {
+            chain_id: chain.chain_id,
+            name: chain.name.clone(),
         }
     }
 }
@@ -856,9 +896,9 @@ pub fn bot_list(
 pub async fn bot_list_bidding_collections(
     app: AppHandle,
     state: State<'_, BotCommandState>,
-) -> Result<Vec<BiddingCollectionCandidateDto>, String> {
+) -> Result<BiddingCollectionCatalogDto, String> {
     let command_state = state.inner().clone();
-    command_state.list_bidding_collections(&app).await
+    command_state.load_bidding_collection_catalog(&app).await
 }
 
 #[tauri::command]

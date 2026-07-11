@@ -216,7 +216,8 @@ fn handle_unlock_request(
 fn build_bidding_mandate_review_pages(summary: &UnlockBiddingMandateSummary) -> Vec<String> {
     let mut pages = Vec::with_capacity(summary.collections.len() + 1);
     pages.push(format!(
-        "Bidding mandate\nChain: {}\nMode: {}\nWETH allowance cap: {} WETH\nTrait offers: {}\nCollections: {}",
+        "Bidding authorization\nNetwork: {}\nChain ID: #{}\nMode: {}\nWETH allowance cap: {} WETH\nTrait offers: {}\nCollections: {}",
+        compact_prompt_value(summary.chain_name.as_str()),
         summary.chain_id,
         if summary.dry_run { "dry run" } else { "live orders" },
         compact_prompt_value(summary.weth_allowance_cap_eth.as_str()),
@@ -231,13 +232,13 @@ fn build_bidding_mandate_review_pages(summary: &UnlockBiddingMandateSummary) -> 
                 summary.collections.len(),
                 compact_prompt_value(collection.artgod_slug.as_str())
             ),
-            format!("ArtGod id: {}", collection.collection_id),
+            format!("ArtGod collection ID: #{}", collection.collection_id),
             format!(
-                "OpenSea: {}",
+                "OpenSea slug: {}",
                 compact_prompt_value(collection.opensea_slug.as_str())
             ),
             format!(
-                "Contract: {}",
+                "Contract address: {}",
                 compact_prompt_value(collection.contract_address.as_str())
             ),
             format!(
@@ -449,7 +450,8 @@ impl SecretPromptHelperError {
 mod tests {
     use super::*;
     use artgod_secret_prompt_protocol::{
-        SecretPromptResponse, UnlockSecretPromptRequest, UnlockSecretPromptResponse,
+        SecretPromptResponse, UnlockBiddingCollectionSummary, UnlockSecretPromptRequest,
+        UnlockSecretPromptResponse,
     };
 
     #[test]
@@ -476,6 +478,32 @@ mod tests {
                 bidding_mandate: None,
             })
         );
+    }
+
+    #[test]
+    fn bidding_review_names_the_network_before_its_qualified_chain_id() {
+        let pages = build_bidding_mandate_review_pages(&UnlockBiddingMandateSummary {
+            chain_id: 1,
+            chain_name: "Ethereum".to_owned(),
+            dry_run: false,
+            weth_allowance_cap_eth: "0.5".to_owned(),
+            trait_offers_enabled: true,
+            collections: vec![UnlockBiddingCollectionSummary {
+                collection_id: 7,
+                artgod_slug: "example".to_owned(),
+                contract_address: "0x1111111111111111111111111111111111111111".to_owned(),
+                opensea_slug: "example-opensea".to_owned(),
+                token_scope_label: "all contract tokens".to_owned(),
+                token_scope_items: Vec::new(),
+                max_unit_bid_eth: "1.25".to_owned(),
+                max_quantity: 2,
+            }],
+        });
+
+        assert!(pages[0].starts_with("Bidding authorization\nNetwork: Ethereum\nChain ID: #1"));
+        assert!(pages[1].contains("ArtGod collection ID: #7"));
+        assert!(pages[1].contains("Maximum WETH per NFT: 1.25"));
+        assert!(pages[1].contains("Maximum NFTs per offer: 2"));
     }
 
     #[test]

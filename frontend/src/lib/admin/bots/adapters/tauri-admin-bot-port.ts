@@ -1,6 +1,6 @@
 import { browser } from '$app/environment';
 import type {
-	AdminBiddingCollectionCandidate,
+	AdminBiddingCollectionCatalog,
 	AdminBiddingMandateDraft,
 	AdminBotKind,
 	AdminBotPort,
@@ -33,9 +33,9 @@ export function createTauriAdminBotPort(): AdminBotPort {
 			return invoke<AdminBotRecord[]>(ADMIN_BOT_TAURI_COMMAND.List);
 		},
 
-		async listBiddingCollections(): Promise<AdminBiddingCollectionCandidate[]> {
+		async loadBiddingCollectionCatalog(): Promise<AdminBiddingCollectionCatalog> {
 			const invoke = await requireInvoke();
-			return invoke<AdminBiddingCollectionCandidate[]>(
+			return invoke<AdminBiddingCollectionCatalog>(
 				ADMIN_BOT_TAURI_COMMAND.ListBiddingCollections
 			);
 		},
