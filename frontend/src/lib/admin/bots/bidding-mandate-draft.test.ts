@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AdminBiddingCollectionCandidate } from './ports';
 import {
 	buildBiddingMandateDraft,
+	formatBiddingMandateTokenScope,
 	formatBiddingMandateWeiAsEth,
 	syncBiddingMandateSelections,
 	type BiddingMandateSelections
@@ -53,5 +54,17 @@ describe('bidding mandate draft', () => {
 
 	it('formats active native wei caps without floating point conversion', () => {
 		expect(formatBiddingMandateWeiAsEth('1250000000000000000')).toBe('1.25 WETH');
+	});
+
+	it('formats token scope without repeating its canonical summary', () => {
+		expect(
+			formatBiddingMandateTokenScope({
+				label: 'all contract tokens',
+				items: [{ label: 'scope', value: 'all contract tokens' }]
+			})
+		).toBe('all contract tokens');
+		expect(formatBiddingMandateTokenScope(CANDIDATE.tokenScope)).toBe(
+			'range · tokens: 100-199'
+		);
 	});
 });

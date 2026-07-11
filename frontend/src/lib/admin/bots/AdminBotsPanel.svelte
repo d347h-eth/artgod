@@ -11,6 +11,7 @@
 	import { ADMIN_BOT_STATE, isAdminBotActive } from '$lib/admin/bots/ports';
 	import {
 		buildBiddingMandateDraft,
+		formatBiddingMandateTokenScope,
 		formatBiddingMandateWeiAsEth,
 		isBiddingMandateDraftReady,
 		syncBiddingMandateSelections,
@@ -27,7 +28,6 @@
 
 	const botPort = createTauriAdminBotPort();
 	const walletPort = createTauriAdminWalletPort();
-	const BOT_ORDER: AdminBotKind[] = [TRADING_BOT_KIND.Bidding, TRADING_BOT_KIND.Sniping];
 	let {
 		config,
 		configLoading = false
@@ -75,10 +75,8 @@
 		};
 	});
 
-	function orderedBots(records: AdminBotRecord[]): AdminBotRecord[] {
-		return [...records].sort(
-			(left, right) => BOT_ORDER.indexOf(left.botKind) - BOT_ORDER.indexOf(right.botKind)
-		);
+	function visibleBots(records: AdminBotRecord[]): AdminBotRecord[] {
+		return records.filter((bot) => bot.botKind === TRADING_BOT_KIND.Bidding);
 	}
 
 	function syncSelections(nextBots: AdminBotRecord[]): void {
@@ -102,10 +100,6 @@
 		return fallback;
 	}
 
-	function formatBotLabel(botKind: AdminBotKind): string {
-		return botKind === TRADING_BOT_KIND.Bidding ? 'bidding bot' : 'sniping bot';
-	}
-
 	function describeAssignedWallet(bot: AdminBotRecord): string {
 		if (!bot.assignedWallet) {
 			return 'unassigned';
@@ -126,13 +120,8 @@
 			bot.disabledReason === null &&
 			bot.assignedWallet !== null &&
 			!isAdminBotActive(bot.state) &&
-			(bot.botKind !== TRADING_BOT_KIND.Bidding || biddingMandateReady)
+			biddingMandateReady
 		);
-	}
-
-	function describeTokenScope(candidate: AdminBiddingCollectionCandidate): string {
-		const details = candidate.tokenScope.items.map((item) => `${item.label}: ${item.value}`);
-		return [candidate.tokenScope.label, ...details].join(' · ');
 	}
 
 	function updateSelectedWallet(botKind: AdminBotKind, value: string): void {
@@ -168,7 +157,7 @@
 				walletPort.listWallets(),
 				botPort.listBiddingCollections()
 			]);
-			bots = orderedBots(nextBots);
+			bots = visibleBots(nextBots);
 			wallets = nextWallets;
 			biddingCollections = nextBiddingCollections;
 			biddingMandateSelections = syncBiddingMandateSelections(
@@ -255,11 +244,12 @@
 			{#if !loading && !configLoading && config !== null}
 				<div class="admin-bots-list" aria-label="Configured bot runtimes">
 					{#each bots as bot (bot.botKind)}
+						{@const botActive = isAdminBotActive(bot.state)}
 						<article class="runtime-section">
 							<div class="runtime-kv-grid">
 								<div>
 									<span class="runtime-k">bot</span>
-									<span class="runtime-v">{formatBotLabel(bot.botKind)}</span>
+									<span class="runtime-v">bidding bot</span>
 								</div>
 								<div>
 									<span class="runtime-k">state</span>
@@ -286,6 +276,7 @@
 								<p class="runtime-error" role="alert">{bot.disabledReason}</p>
 							{/if}
 							{#if bot.botKind === TRADING_BOT_KIND.Bidding}
+								{@const mandateEditingDisabled = busyAction !== null || botActive}
 								<div class="bidding-start-policy" aria-label="Effective bidding bot start policy">
 									<span class="runtime-k">start policy</span>
 									<dl>
@@ -298,8 +289,8 @@
 									</dl>
 								</div>
 
-								<fieldset class="bidding-mandate-editor" disabled={busyAction !== null || isAdminBotActive(bot.state)}>
-									<legend>native collection mandate</legend>
+								<section class="bidding-mandate-editor" aria-label="Native collection mandate">
+									<h3>native collection mandate</h3>
 									{#if biddingCollections.length === 0}
 										<span class="muted">no live OpenSea-ready collections</span>
 									{:else}
@@ -307,46 +298,60 @@
 											{#each biddingCollections as collection (collection.collectionId)}
 												{@const selection = biddingMandateSelections[String(collection.collectionId)]}
 												{#if selection}
-													<div class="bidding-mandate-row">
+													<div class="bootstrap-form-section bidding-mandate-row">
 														<label class="bidding-mandate-choice">
 															<input
 																type="checkbox"
+																class="bootstrap-checkbox"
 																checked={selection.selected}
+																disabled={mandateEditingDisabled}
 																onchange={(event) =>
 																	updateBiddingMandateSelection(collection.collectionId, {
 																		selected: event.currentTarget.checked
 																	})}
 															/>
-															<strong>{collection.artgodSlug}</strong>
-															<span class="mono">#{collection.collectionId}</span>
+															<span class="runtime-v">
+																<strong>{collection.artgodSlug}</strong>
+																<span class="mono">#{collection.collectionId}</span>
+															</span>
 														</label>
-														<div class="bidding-mandate-identity mono">
-															<span>OpenSea: {collection.openseaSlug}</span>
-															<span>{collection.contractAddress}</span>
-															<span>{describeTokenScope(collection)}</span>
+														<div class="runtime-kv-grid bidding-mandate-identity">
+															<div>
+																<span class="runtime-k">OpenSea</span>
+																<span class="runtime-v mono">{collection.openseaSlug}</span>
+															</div>
+															<div>
+																<span class="runtime-k">contract</span>
+																<span class="runtime-v mono">{collection.contractAddress}</span>
+															</div>
+															<div>
+																<span class="runtime-k">token scope</span>
+																<span class="runtime-v">{formatBiddingMandateTokenScope(collection.tokenScope)}</span>
+															</div>
 														</div>
-														<div class="bidding-mandate-caps">
-															<label>
-																max WETH / NFT
+														<div class="bootstrap-form bidding-mandate-caps">
+															<label class="bootstrap-form-row">
+																<span>max WETH / NFT</span>
 																<input
 																	type="text"
+																	class="bootstrap-control"
 																	inputmode="decimal"
 																	value={selection.maxUnitBidEth}
-																	disabled={!selection.selected}
+																	disabled={mandateEditingDisabled || !selection.selected}
 																	oninput={(event) =>
 																		updateBiddingMandateSelection(collection.collectionId, {
 																			maxUnitBidEth: event.currentTarget.value
 																		})}
 																/>
 															</label>
-															<label>
-																max quantity
+															<label class="bootstrap-form-row">
+																<span>max quantity</span>
 																<input
-																	type="number"
-																	min="1"
-																	step="1"
+																	type="text"
+																	class="bootstrap-control"
+																	inputmode="numeric"
 																	value={selection.maxQuantity}
-																	disabled={!selection.selected}
+																	disabled={mandateEditingDisabled || !selection.selected}
 																	oninput={(event) =>
 																		updateBiddingMandateSelection(collection.collectionId, {
 																			maxQuantity: event.currentTarget.value
@@ -359,68 +364,95 @@
 											{/each}
 										</div>
 									{/if}
-								</fieldset>
+								</section>
 
 								{#if bot.biddingMandate}
-									<div class="active-bidding-mandate" aria-label="Active native bidding mandate">
-										<span class="runtime-k">active mandate · chain {bot.biddingMandate.chainId}</span>
+									<section class="active-bidding-mandate" aria-label="Active native bidding mandate">
+										<h3>active native mandate · chain {bot.biddingMandate.chainId}</h3>
 										{#each bot.biddingMandate.collections as collection (collection.collectionId)}
-											<div>
-												<strong>{collection.artgodSlug}</strong>
-												<span class="mono">#{collection.collectionId} · {collection.openseaSlug}</span>
-												<span>{formatBiddingMandateWeiAsEth(collection.maxUnitBidWei)} / NFT · qty ≤ {collection.maxQuantity}</span>
+											<div class="bootstrap-form-section">
+												<span class="runtime-v">
+													<strong>{collection.artgodSlug}</strong>
+													<span class="mono">#{collection.collectionId}</span>
+												</span>
+												<div class="runtime-kv-grid bidding-mandate-identity">
+													<div>
+														<span class="runtime-k">OpenSea</span>
+														<span class="runtime-v mono">{collection.openseaSlug}</span>
+													</div>
+													<div>
+														<span class="runtime-k">contract</span>
+														<span class="runtime-v mono">{collection.contractAddress}</span>
+													</div>
+													<div>
+														<span class="runtime-k">token scope</span>
+														<span class="runtime-v">{formatBiddingMandateTokenScope(collection.tokenScope)}</span>
+													</div>
+													<div>
+														<span class="runtime-k">max WETH / NFT</span>
+														<span class="runtime-v">{formatBiddingMandateWeiAsEth(collection.maxUnitBidWei)}</span>
+													</div>
+													<div>
+														<span class="runtime-k">max quantity</span>
+														<span class="runtime-v">{collection.maxQuantity}</span>
+													</div>
+												</div>
 											</div>
 										{/each}
-									</div>
+									</section>
 								{/if}
 							{/if}
 
-							<div class="runtime-controls admin-bot-controls">
-								<select
-									value={selectedWalletIds[bot.botKind]}
-									onchange={(event) => {
-										updateSelectedWallet(
-											bot.botKind,
-											(event.currentTarget as HTMLSelectElement).value
-										);
-									}}
-									disabled={busyAction !== null || isAdminBotActive(bot.state)}
-								>
-									<option value="">unassigned</option>
-									{#each wallets as wallet (wallet.walletId)}
-										<option value={wallet.walletId}>
-											{wallet.label} · {wallet.address}
-										</option>
-									{/each}
-								</select>
-
-								<button
-									type="button"
-									onclick={() => void handleAssignWallet(bot.botKind)}
-									disabled={busyAction !== null || isAdminBotActive(bot.state)}
-								>
-									{busyAction === `assign:${bot.botKind}` ? 'applying…' : 'apply wallet'}
-								</button>
-
-								{#if bot.botKind === TRADING_BOT_KIND.Bidding}
-									<button
-										type="button"
-										onclick={() => void handleStart(bot.botKind)}
-										disabled={busyAction !== null || !canStart(bot)}
+							<div class="admin-bot-controls">
+								<div class="runtime-controls">
+									<select
+										class="bootstrap-control-select"
+										value={selectedWalletIds[bot.botKind]}
+										onchange={(event) => {
+											updateSelectedWallet(
+												bot.botKind,
+												(event.currentTarget as HTMLSelectElement).value
+											);
+										}}
+										disabled={busyAction !== null || botActive}
 									>
-										{busyAction === `start:${bot.botKind}` ? 'starting…' : 'start'}
-									</button>
+										<option value="">unassigned</option>
+										{#each wallets as wallet (wallet.walletId)}
+											<option value={wallet.walletId}>
+												{wallet.label} · {wallet.address}
+											</option>
+										{/each}
+									</select>
 
 									<button
 										type="button"
+										class="action-button-positive"
+										onclick={() => void handleAssignWallet(bot.botKind)}
+										disabled={busyAction !== null || botActive}
+									>
+										{busyAction === `assign:${bot.botKind}` ? 'applying…' : 'apply wallet'}
+									</button>
+								</div>
+
+								<div class="runtime-controls">
+									<button
+										type="button"
+										class="action-button-negative"
 										onclick={() => void handleStop(bot.botKind)}
 										disabled={busyAction !== null || (bot.state !== ADMIN_BOT_STATE.Running && bot.state !== ADMIN_BOT_STATE.Bootstrapping)}
 									>
 										{busyAction === `stop:${bot.botKind}` ? 'stopping…' : 'stop'}
 									</button>
-								{:else}
-									<span class="muted">unavailable</span>
-								{/if}
+
+									<button
+										type="button"
+										class="action-button-positive"
+										onclick={() => void handleStart(bot.botKind)}
+										disabled={busyAction !== null || !canStart(bot)}
+									>
+										{busyAction === `start:${bot.botKind}` ? 'starting…' : 'start'}
+									</button>
+								</div>
 							</div>
 						</article>
 					{/each}
@@ -449,12 +481,20 @@
 	}
 
 	.admin-bot-controls {
-		flex-wrap: wrap;
+		display: grid;
+		gap: 0.45rem;
+		width: min(40.15rem, 100%);
+		max-width: 100%;
 	}
 
 	.admin-bot-controls select {
-		min-width: min(24rem, 100%);
+		width: min(24rem, 100%);
+		min-width: 0;
 		max-width: 100%;
+	}
+
+	.admin-bot-controls button {
+		min-width: 7.25rem;
 	}
 
 	.admin-bot-wallet {
@@ -470,8 +510,9 @@
 
 	.bidding-start-policy dl {
 		display: grid;
-		grid-template-columns: repeat(2, minmax(0, max-content));
+		grid-template-columns: minmax(9.5rem, 17rem) minmax(0, 1fr);
 		gap: 0.3rem 1.25rem;
+		width: min(40.15rem, 100%);
 		margin: 0;
 	}
 
@@ -482,6 +523,7 @@
 	.bidding-start-policy dt,
 	.bidding-start-policy dd {
 		margin: 0;
+		font-size: 0.75rem;
 	}
 
 	.bidding-start-policy dt {
@@ -494,62 +536,92 @@
 
 	.bidding-mandate-editor {
 		display: grid;
-		gap: 0.5rem;
-		width: fit-content;
+		gap: 0.55rem;
+		width: min(40.15rem, 100%);
 		max-width: 100%;
 		margin: 0;
-		border: 1px solid var(--c-sand);
 	}
 
 	.bidding-mandate-collections,
 	.active-bidding-mandate {
 		display: grid;
-		gap: 0.65rem;
+		gap: 0.55rem;
 	}
 
 	.bidding-mandate-row {
-		display: grid;
-		gap: 0.35rem;
-		padding-bottom: 0.65rem;
-		border-bottom: 1px solid var(--c-sand);
+		gap: 0.65rem;
 	}
 
-	.bidding-mandate-row:last-child {
-		padding-bottom: 0;
-		border-bottom: 0;
-	}
-
-	.bidding-mandate-choice,
-	.bidding-mandate-caps,
-	.bidding-mandate-caps label {
-		display: flex;
+	.bidding-mandate-choice {
+		display: inline-flex;
 		align-items: center;
 		gap: 0.45rem;
-	}
-
-	.bidding-mandate-identity {
-		display: grid;
-		gap: 0.15rem;
-		max-width: 42rem;
-		overflow-wrap: anywhere;
-	}
-
-	.bidding-mandate-caps {
-		flex-wrap: wrap;
-	}
-
-	.bidding-mandate-caps input {
-		width: 8rem;
-	}
-
-	.active-bidding-mandate {
 		width: fit-content;
 		max-width: 100%;
 	}
 
-	.active-bidding-mandate > div {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.45rem;
+	.bidding-mandate-choice .runtime-v {
+		display: inline-flex;
+		align-items: baseline;
+		gap: 0.35rem;
+		min-width: 0;
+	}
+
+	.bidding-mandate-choice .bootstrap-checkbox:disabled {
+		cursor: not-allowed;
+		opacity: 0.55;
+	}
+
+	.bidding-mandate-identity {
+		display: grid;
+		gap: 0.25rem;
+		width: 100%;
+		max-width: 100%;
+		overflow-wrap: anywhere;
+	}
+
+	.bidding-mandate-identity > div {
+		display: grid;
+		grid-template-columns: 8.75rem minmax(0, 1fr);
+		align-items: baseline;
+		gap: 0.7rem;
+	}
+
+	.bidding-mandate-identity .runtime-v {
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+
+	.bidding-mandate-caps {
+		display: grid;
+		gap: 0.35rem;
+		width: fit-content;
+		max-width: 100%;
+		padding: 0;
+	}
+
+	.bidding-mandate-caps .bootstrap-form-row {
+		grid-template-columns: 8.75rem 11ch;
+		gap: 0.7rem;
+		width: fit-content;
+	}
+
+	.bidding-mandate-caps .bootstrap-form-row > span {
+		justify-self: end;
+		text-align: right;
+	}
+
+	.bidding-mandate-caps input {
+		width: 100%;
+		justify-self: stretch;
+	}
+
+	.active-bidding-mandate {
+		width: min(40.15rem, 100%);
+		max-width: 100%;
+	}
+
+	.active-bidding-mandate > .bootstrap-form-section {
+		gap: 0.65rem;
 	}
 </style>

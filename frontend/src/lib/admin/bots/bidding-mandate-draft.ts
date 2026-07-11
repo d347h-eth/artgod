@@ -1,6 +1,7 @@
 import type {
 	AdminBiddingCollectionCandidate,
-	AdminBiddingMandateDraft
+	AdminBiddingMandateDraft,
+	AdminBiddingTokenScopeSummary
 } from '$lib/admin/bots/ports';
 
 const POSITIVE_ETH_PATTERN = /^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,18})?$/;
@@ -70,6 +71,15 @@ export function isBiddingMandateDraftReady(
 	} catch {
 		return false;
 	}
+}
+
+// Formats canonical token-scope identity without repeating equivalent summary fields.
+export function formatBiddingMandateTokenScope(scope: AdminBiddingTokenScopeSummary): string {
+	const normalizedLabel = scope.label.trim().toLowerCase();
+	const details = scope.items
+		.filter((item) => item.value.trim().toLowerCase() !== normalizedLabel)
+		.map((item) => `${item.label}: ${item.value}`);
+	return [scope.label, ...details].join(' · ');
 }
 
 // Formats native-returned wei caps for the compact active-mandate read model.
