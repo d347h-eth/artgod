@@ -67,20 +67,36 @@ const JSON_CONTENT_TYPE = "application/json";
 const RPC_HTTP_STATUS_ERROR_PREFIX = "RPC endpoint returned HTTP";
 const JSON_RPC_ERROR_PREFIX = "JSON-RPC error";
 
-// Error prefix used when a retrying transport rejects a transaction-submitting method.
-export const RPC_STATE_CHANGING_METHOD_REJECTED_ERROR =
-    "Resilient RPC transport rejected state-changing method";
+// Error prefix used whenever a read-only RPC boundary rejects wallet or submission authority.
+export const READ_ONLY_RPC_METHOD_REJECTED_ERROR =
+    "Read-only RPC boundary rejected forbidden method";
 
 // JSON-RPC methods that can submit or request a transaction write.
 export const EVM_STATE_CHANGING_RPC_METHOD = {
     SendRawTransaction: "eth_sendRawTransaction",
     SendTransaction: "eth_sendTransaction",
+    SendUserOperation: "eth_sendUserOperation",
+    SendPrivateTransaction: "eth_sendPrivateTransaction",
+    PersonalSendTransaction: "personal_sendTransaction",
     WalletSendTransaction: "wallet_sendTransaction",
+    WalletSendCalls: "wallet_sendCalls",
 } as const;
 
-const EVM_STATE_CHANGING_RPC_METHODS = new Set<string>(
-    Object.values(EVM_STATE_CHANGING_RPC_METHOD),
-);
+// JSON-RPC methods that ask a connected wallet or node to produce a signature.
+export const EVM_SIGNING_RPC_METHOD = {
+    EthSign: "eth_sign",
+    EthSignTransaction: "eth_signTransaction",
+    EthSignTypedData: "eth_signTypedData",
+    EthSignTypedDataV3: "eth_signTypedData_v3",
+    EthSignTypedDataV4: "eth_signTypedData_v4",
+    PersonalSign: "personal_sign",
+    WalletSignTransaction: "wallet_signTransaction",
+} as const;
+
+const EVM_READ_ONLY_FORBIDDEN_RPC_METHODS = new Set<string>([
+    ...Object.values(EVM_STATE_CHANGING_RPC_METHOD),
+    ...Object.values(EVM_SIGNING_RPC_METHOD),
+]);
 
 // Builds a viem transport that chooses a weighted endpoint for each JSON-RPC request.
 export function createWeightedRpcTransport(
@@ -155,7 +171,7 @@ export function createResilientWeightedRpcTransport(
     return custom(
         {
             request: async ({ method, params }) => {
-                assertRetryableRpcMethod(method);
+                assertReadOnlyEvmRpcMethod(method);
 
                 return executeObservedRpcEndpointCall({
                     selector,
@@ -184,11 +200,10 @@ export function createResilientWeightedRpcTransport(
     );
 }
 
-function assertRetryableRpcMethod(method: string): void {
-    if (EVM_STATE_CHANGING_RPC_METHODS.has(method)) {
-        throw new Error(
-            `${RPC_STATE_CHANGING_METHOD_REJECTED_ERROR}: ${method}`,
-        );
+// Rejects transaction submission and signing before a read-only endpoint is selected.
+export function assertReadOnlyEvmRpcMethod(method: string): void {
+    if (EVM_READ_ONLY_FORBIDDEN_RPC_METHODS.has(method)) {
+        throw new Error(`${READ_ONLY_RPC_METHOD_REJECTED_ERROR}: ${method}`);
     }
 }
 

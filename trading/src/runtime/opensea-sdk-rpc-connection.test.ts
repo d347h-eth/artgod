@@ -12,6 +12,11 @@ import {
     RPC_PROTOCOL,
     RpcObservability,
 } from "@artgod/shared/observability/rpc";
+import {
+    EVM_SIGNING_RPC_METHOD,
+    EVM_STATE_CHANGING_RPC_METHOD,
+    READ_ONLY_RPC_METHOD_REJECTED_ERROR,
+} from "@artgod/shared/evm/weighted-rpc-transport";
 import { createOpenSeaSdkRpcConnection } from "./opensea-sdk-rpc-connection.js";
 
 const TEST_ENDPOINT_ID_PREFIX = "opensea-sdk-rpc";
@@ -186,6 +191,61 @@ describe("createOpenSeaSdkRpcConnection", () => {
             result: RPC_OBSERVABILITY_RESULT.Failure,
             error_class: "OpenSeaSdkJsonRpcError",
         });
+    });
+
+    it("rejects SDK transaction and signing methods before any RPC endpoint call", async () => {
+        const metrics = new CapturingMetrics();
+        let fetchCalls = 0;
+        const connection = createOpenSeaSdkRpcConnection(
+            [{ url: TEST_RPC_ENDPOINT_A, weight: 1 }],
+            {
+                endpointIdPrefix: TEST_ENDPOINT_ID_PREFIX,
+                fetchFn: async () => {
+                    fetchCalls += 1;
+                    return new Response("{}");
+                },
+                rpcObservability: createObserver(metrics),
+            },
+        );
+        const requestBodies = [
+            {
+                id: 1,
+                method: EVM_STATE_CHANGING_RPC_METHOD.SendRawTransaction,
+                params: ["0x"],
+                jsonrpc: "2.0",
+            },
+            [
+                {
+                    id: 2,
+                    method: TEST_RPC_METHOD,
+                    params: [],
+                    jsonrpc: "2.0",
+                },
+                {
+                    id: 3,
+                    method: EVM_SIGNING_RPC_METHOD.EthSignTypedDataV4,
+                    params: [],
+                    jsonrpc: "2.0",
+                },
+            ],
+        ];
+
+        for (const body of requestBodies) {
+            const request = connection.clone();
+            request.body = JSON.stringify(body);
+            await assert.rejects(
+                () => request.send(),
+                new RegExp(READ_ONLY_RPC_METHOD_REJECTED_ERROR),
+            );
+        }
+
+        assert.equal(fetchCalls, 0);
+        assert.equal(
+            metrics.increments.some(
+                (metric) => metric.name === RPC_OBSERVABILITY_METRIC.Call,
+            ),
+            false,
+        );
     });
 });
 

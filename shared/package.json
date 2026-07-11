@@ -82,6 +82,7 @@
         "./read-models/chains": "./read-models/chains.ts",
         "./read-models/collections": "./read-models/collections.ts",
         "./trading/open-sea-bidding-offers": "./trading/open-sea-bidding-offers.ts",
+        "./trading/open-sea-mainnet-security-policy": "./trading/open-sea-mainnet-security-policy.ts",
         "./trading/runtime-state": "./trading/runtime-state.ts"
     },
     "dependencies": {
