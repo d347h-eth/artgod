@@ -73,7 +73,10 @@ import {
     TradingConfig,
 } from "../config/trading-config.js";
 import { MarketEvent, Type } from "../domain/market/event.js";
-import { BidderJob } from "../domain/market/strategy/job.js";
+import {
+    BIDDER_TARGET_TYPE,
+    BidderJob,
+} from "../domain/market/strategy/job.js";
 import {
     BIDDING_LOG_COMPONENT,
     createBiddingComponentLogger,
@@ -587,8 +590,8 @@ export async function startBiddingRuntime(
                 );
                 ensureBidStream(job.collectionSlug);
                 if (
-                    job.target.type === "token" ||
-                    job.target.type === "collection"
+                    job.target.type === BIDDER_TARGET_TYPE.Token ||
+                    job.target.type === BIDDER_TARGET_TYPE.Collection
                 ) {
                     collectionOfferSnapshotService.watchCollection(
                         job.collectionSlug,
@@ -784,8 +787,8 @@ export function collectSnapshotBackedCollectionSlugs(
             jobs
                 .filter(
                     (job) =>
-                        job.target.type === "token" ||
-                        job.target.type === "collection",
+                        job.target.type === BIDDER_TARGET_TYPE.Token ||
+                        job.target.type === BIDDER_TARGET_TYPE.Collection,
                 )
                 .map((job) => job.collectionSlug),
         ),
@@ -794,7 +797,7 @@ export function collectSnapshotBackedCollectionSlugs(
 
 // collectTokenWarmCandidateCount approximates the size of the current-price bootstrap pass before runtime state exists.
 export function collectTokenWarmCandidateCount(jobs: BidderJob[]): number {
-    return jobs.filter((job) => job.target.type === "token").length;
+    return jobs.filter((job) => job.target.type === BIDDER_TARGET_TYPE.Token).length;
 }
 
 type BootstrapProgressPulseReporter = {

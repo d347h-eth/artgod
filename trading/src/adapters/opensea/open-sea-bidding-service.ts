@@ -23,6 +23,7 @@ import {
 } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
 import { TokenMetadataRepository } from "../../domain/market/token-metadata-repository.js";
 import {
+    BIDDER_TARGET_TYPE,
     BidderJob,
     bidderTargetRequiresOpenSeaSignedZoneTrust,
     formatBidderJobReference,
@@ -170,7 +171,7 @@ export class OpenSeaBiddingService implements BiddingService {
     ): Promise<Order[]> {
         const offers: Order[] = [];
         const lookupTraitSelectors = this.getLookupTraitSelectors(job);
-        const isCompetitiveTraitJob = job.target.type === "competitiveTrait";
+        const isCompetitiveTraitJob = job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait;
         const competitiveBucketCounts = {
             collectionWide: new Set<string>(),
             targetTrait: new Set<string>(),
@@ -178,7 +179,7 @@ export class OpenSeaBiddingService implements BiddingService {
         };
         let expandedTraitSelectorCount = 0;
 
-        if (job.target.type === "token") {
+        if (job.target.type === BIDDER_TARGET_TYPE.Token) {
             const tokenTarget = job.target;
             try {
                 // 1. Fetch live item-specific offers for the exact token because this path must stay latency-sensitive.
@@ -214,7 +215,7 @@ export class OpenSeaBiddingService implements BiddingService {
             }
         }
 
-        if (job.target.type === "token") {
+        if (job.target.type === BIDDER_TARGET_TYPE.Token) {
             try {
                 // 2. Fetch broader collection-wide and criteria offers from the shared snapshot for token jobs.
                 const cachedSnapshotOffers =
@@ -235,7 +236,7 @@ export class OpenSeaBiddingService implements BiddingService {
             }
         } else {
             try {
-                if (job.target.type === "collection") {
+                if (job.target.type === BIDDER_TARGET_TYPE.Collection) {
                     // 2a. Reuse the cached snapshot first for collection jobs so broad offer discovery stays authoritative but cheap.
                     const cachedSnapshotOffers =
                         this.getCachedCollectionSnapshotOffers(job);
@@ -259,7 +260,7 @@ export class OpenSeaBiddingService implements BiddingService {
                     }
                 }
 
-                if (job.target.type === "competitiveTrait") {
+                if (job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait) {
                     const competitiveTarget = job.target;
                     // Expand type-only selectors into explicit trait targets before fetching each competing trait bucket.
                     const expandedTraitTargets =
@@ -363,7 +364,7 @@ export class OpenSeaBiddingService implements BiddingService {
             }
         }
 
-        if (job.target.type === "token") {
+        if (job.target.type === BIDDER_TARGET_TYPE.Token) {
             const tokenTarget = job.target;
             try {
                 // 3. Fetch best-offer as a catch-all fallback because OpenSea visibility is not perfectly uniform across endpoints.
@@ -434,7 +435,7 @@ export class OpenSeaBiddingService implements BiddingService {
         makerAddress: string,
         context: BiddingServiceRequestContext = {},
     ): Promise<Order | null> {
-        if (job.target.type !== "token") {
+        if (job.target.type !== BIDDER_TARGET_TYPE.Token) {
             return null;
         }
         const tokenTarget = job.target;
@@ -624,8 +625,8 @@ export class OpenSeaBiddingService implements BiddingService {
 
         try {
             if (
-                job.target.type === "collection" ||
-                job.target.type === "competitiveTrait"
+                job.target.type === BIDDER_TARGET_TYPE.Collection ||
+                job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait
             ) {
                 const quantity = Math.max(1, Math.floor(job.target.quantity));
                 const totalAmountWei = amount * BigInt(quantity);
@@ -636,15 +637,15 @@ export class OpenSeaBiddingService implements BiddingService {
                         ? placementTraits[0]
                         : undefined;
                 const traitType =
-                    job.target.type === "competitiveTrait"
+                    job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait
                         ? singlePlacementTrait?.type
                         : undefined;
                 const traitValue =
-                    job.target.type === "competitiveTrait"
+                    job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait
                         ? singlePlacementTrait?.value
                         : undefined;
                 const traits =
-                    job.target.type === "collection" &&
+                    job.target.type === BIDDER_TARGET_TYPE.Collection &&
                     placementTraits.length > 0
                         ? placementTraits
                         : undefined;
@@ -689,7 +690,7 @@ export class OpenSeaBiddingService implements BiddingService {
                 };
             }
 
-            if (job.target.type !== "token") {
+            if (job.target.type !== BIDDER_TARGET_TYPE.Token) {
                 throw new Error(
                     "Invalid target type for placeOffer (expected token)",
                 );
@@ -946,10 +947,10 @@ export class OpenSeaBiddingService implements BiddingService {
     }
 
     private getPlacementTraits(job: BidderJob): TraitTarget[] {
-        if (job.target.type === "collection") {
+        if (job.target.type === BIDDER_TARGET_TYPE.Collection) {
             return this.dedupeTraitTargets(job.target.traits ?? []);
         }
-        if (job.target.type === "competitiveTrait") {
+        if (job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait) {
             return [job.target.targetTrait];
         }
 
@@ -961,7 +962,7 @@ export class OpenSeaBiddingService implements BiddingService {
         const placementTraits = this.getPlacementTraits(job);
 
         selectors.push(...placementTraits);
-        if (job.target.type === "competitiveTrait") {
+        if (job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait) {
             selectors.push(...job.target.competitorTraits);
         }
 
@@ -1076,7 +1077,7 @@ export class OpenSeaBiddingService implements BiddingService {
     private async getCachedTokenSnapshotOffers(
         job: BidderJob,
     ): Promise<Order[]> {
-        if (job.target.type !== "token") {
+        if (job.target.type !== BIDDER_TARGET_TYPE.Token) {
             return [];
         }
         const tokenTarget = job.target;
@@ -1267,7 +1268,7 @@ export class OpenSeaBiddingService implements BiddingService {
     }
 
     private getCachedCollectionSnapshotOffers(job: BidderJob): Order[] | null {
-        if (job.target.type !== "collection") {
+        if (job.target.type !== BIDDER_TARGET_TYPE.Collection) {
             return null;
         }
 
@@ -1301,7 +1302,7 @@ export class OpenSeaBiddingService implements BiddingService {
     ): Order[] {
         const cachedOffers: Order[] = [];
         const targetTraits =
-            job.target.type === "collection"
+            job.target.type === BIDDER_TARGET_TYPE.Collection
                 ? this.dedupeTraitTargets(job.target.traits ?? [])
                 : [];
         const summary: SnapshotScanSummary = {
@@ -1534,7 +1535,7 @@ export class OpenSeaBiddingService implements BiddingService {
         job: BidderJob,
         rawOffers: unknown[],
     ): Order[] {
-        if (job.target.type !== "collection") {
+        if (job.target.type !== BIDDER_TARGET_TYPE.Collection) {
             return [];
         }
 
@@ -1680,7 +1681,7 @@ function jobLogFields(job: BidderJob): Record<string, unknown> {
         collectionSlug: job.collectionSlug,
         collectionAddress: job.collectionAddress,
         targetType: job.target.type,
-        tokenId: job.target.type === "token" ? job.target.tokenId : null,
+        tokenId: job.target.type === BIDDER_TARGET_TYPE.Token ? job.target.tokenId : null,
     };
 }
 

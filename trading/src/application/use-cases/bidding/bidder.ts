@@ -17,6 +17,7 @@ import {
 } from "../../../domain/market/event.js";
 import { TokenMetadataRepository } from "../../../domain/market/token-metadata-repository.js";
 import {
+    BIDDER_TARGET_TYPE,
     BidderJob,
     formatBidderJobReference,
 } from "../../../domain/market/strategy/job.js";
@@ -438,7 +439,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             .filter(
                 (job): job is BidderJob =>
                     !!job &&
-                    job.target.type === "token" &&
+                    job.target.type === BIDDER_TARGET_TYPE.Token &&
                     job.state.currentPrice === undefined,
             );
         let warmedCount = 0;
@@ -526,7 +527,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         const tokenTargetIds = new Set<string>();
 
         for (const job of this.jobs.values()) {
-            if (job.target.type !== "token") {
+            if (job.target.type !== BIDDER_TARGET_TYPE.Token) {
                 continue;
             }
             tokenTargetIds.add(job.target.tokenId);
@@ -1281,12 +1282,12 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             eventUnitPrice: marketEvent.getUnitPrice(),
             jobTargetType: job.target.type,
             jobCollectionSlug: job.collectionSlug,
-            jobTokenId: job.target.type === "token" ? job.target.tokenId : "",
+            jobTokenId: job.target.type === BIDDER_TARGET_TYPE.Token ? job.target.tokenId : "",
             currentPrice: job.state.currentPrice,
             traitCriteria: marketEvent.getTraitCriteria(),
         };
 
-        if (job.target.type !== "token") {
+        if (job.target.type !== BIDDER_TARGET_TYPE.Token) {
             evaluation.reason = "job target is not token";
             return evaluation;
         }
@@ -1403,7 +1404,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         job: BidderJob,
         context?: ProgressContext,
     ): Promise<boolean> {
-        if (job.target.type !== "token") {
+        if (job.target.type !== BIDDER_TARGET_TYPE.Token) {
             return false;
         }
 
@@ -1762,7 +1763,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     }
 
     private addJobToIndexes(job: BidderJob): void {
-        if (job.target.type !== "token") {
+        if (job.target.type !== BIDDER_TARGET_TYPE.Token) {
             return;
         }
 
@@ -1787,7 +1788,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     }
 
     private removeJobFromIndexes(job: BidderJob): void {
-        if (job.target.type !== "token") {
+        if (job.target.type !== BIDDER_TARGET_TYPE.Token) {
             return;
         }
 
@@ -1886,11 +1887,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     }
 
     private isOfferManagedByJob(job: BidderJob, order: Order): boolean {
-        if (job.target.type === "token") {
+        if (job.target.type === BIDDER_TARGET_TYPE.Token) {
             return order.offerScope === "item";
         }
 
-        if (job.target.type === "collection") {
+        if (job.target.type === BIDDER_TARGET_TYPE.Collection) {
             const targetTraits = job.target.traits ?? [];
             if (targetTraits.length === 0) {
                 return order.offerScope === "collection";
@@ -1906,7 +1907,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             );
         }
 
-        if (job.target.type === "competitiveTrait") {
+        if (job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait) {
             if (order.offerScope !== "trait") {
                 return false;
             }
@@ -1931,8 +1932,8 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
         if (this.isDryRun()) {
             if (
-                job.target.type === "collection" ||
-                job.target.type === "competitiveTrait"
+                job.target.type === BIDDER_TARGET_TYPE.Collection ||
+                job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait
             ) {
                 const qty = Math.max(1, Math.floor(job.target.quantity));
                 const totalWei = amount * BigInt(qty);
@@ -1980,8 +1981,8 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         }
         this.persistJobRuntimeState(job, null, { required: true });
         if (
-            job.target.type === "collection" ||
-            job.target.type === "competitiveTrait"
+            job.target.type === BIDDER_TARGET_TYPE.Collection ||
+            job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait
         ) {
             const qty = Math.max(1, Math.floor(job.target.quantity));
             const totalWei = amount * BigInt(qty);
@@ -2133,7 +2134,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             },
         );
         const tokenId =
-            job.target.type === "token" ? job.target.tokenId : undefined;
+            job.target.type === BIDDER_TARGET_TYPE.Token ? job.target.tokenId : undefined;
         const recovered = await this.biddingService.getOrder(
             activeId,
             job.state.activeProtocolAddress,
@@ -2412,15 +2413,15 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         }
 
         if (
-            existingJob.target.type === "token" &&
-            nextJob.target.type === "token"
+            existingJob.target.type === BIDDER_TARGET_TYPE.Token &&
+            nextJob.target.type === BIDDER_TARGET_TYPE.Token
         ) {
             return existingJob.target.tokenId === nextJob.target.tokenId;
         }
 
         if (
-            existingJob.target.type === "collection" &&
-            nextJob.target.type === "collection"
+            existingJob.target.type === BIDDER_TARGET_TYPE.Collection &&
+            nextJob.target.type === BIDDER_TARGET_TYPE.Collection
         ) {
             return this.matchesExactTraitTargets(
                 existingJob.target.traits ?? [],
@@ -2429,8 +2430,8 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         }
 
         if (
-            existingJob.target.type === "competitiveTrait" &&
-            nextJob.target.type === "competitiveTrait"
+            existingJob.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait &&
+            nextJob.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait
         ) {
             return this.matchesExactTraitTargets(
                 [existingJob.target.targetTrait],

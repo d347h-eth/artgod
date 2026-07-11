@@ -4,6 +4,7 @@ import {
     TokenMetadataRepository,
     type TokenMetadataTrait,
 } from "../../domain/market/token-metadata-repository.js";
+import { BIDDER_TARGET_TYPE } from "../../domain/market/strategy/job.js";
 import {
     createCollectionOfferSnapshotMetrics,
     type CollectionOfferSnapshot,
@@ -209,7 +210,7 @@ describe("OpenSeaBiddingService", () => {
             collectionSlug,
             collectionAddress,
             target: {
-                type: "collection" as const,
+                type: BIDDER_TARGET_TYPE.Collection,
                 quantity: 2,
             },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
@@ -275,7 +276,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
-            target: { type: "token" as const, tokenId: "123" },
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };
@@ -312,7 +313,7 @@ describe("OpenSeaBiddingService", () => {
             collectionSlug,
             collectionAddress,
             target: {
-                type: "competitiveTrait" as const,
+                type: BIDDER_TARGET_TYPE.CompetitiveTrait,
                 quantity: 1,
                 targetTrait: { type: "Outfit", value: "Kimono" },
                 competitorTraits: [],
@@ -341,7 +342,7 @@ describe("OpenSeaBiddingService", () => {
             collectionSlug,
             collectionAddress,
             target: {
-                type: "competitiveTrait" as const,
+                type: BIDDER_TARGET_TYPE.CompetitiveTrait,
                 quantity: 1,
                 targetTrait: { type: "Outfit", value: "Kimono" },
                 competitorTraits: [{ type: "Background" }],
@@ -356,7 +357,7 @@ describe("OpenSeaBiddingService", () => {
             collectionSlug,
             collectionAddress,
             target: {
-                type: "collection" as const,
+                type: BIDDER_TARGET_TYPE.Collection,
                 quantity: 1,
                 traits: [
                     { type: "Biome", value: "81" },
@@ -400,7 +401,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
-            target: { type: "token" as const, tokenId: "123" },
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };
@@ -436,7 +437,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
-            target: { type: "token" as const, tokenId: "123" },
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };
@@ -446,7 +447,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
-            target: { type: "collection" as const, quantity: 1 },
+            target: { type: BIDDER_TARGET_TYPE.Collection, quantity: 1 },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };
@@ -619,7 +620,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
-            target: { type: "token" as const, tokenId: "123" },
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };
@@ -671,7 +672,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
-            target: { type: "token" as const, tokenId: "unminted-tile-5785" },
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "unminted-tile-5785" },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };
@@ -699,7 +700,7 @@ describe("OpenSeaBiddingService", () => {
             collectionSlug,
             collectionAddress,
             target: {
-                type: "competitiveTrait" as const,
+                type: BIDDER_TARGET_TYPE.CompetitiveTrait,
                 quantity: 1,
                 targetTrait: { type: "Outfit", value: "Kimono" },
                 competitorTraits: [{ type: "Background" }],
@@ -802,7 +803,7 @@ describe("OpenSeaBiddingService", () => {
             collectionSlug,
             collectionAddress,
             target: {
-                type: "competitiveTrait" as const,
+                type: BIDDER_TARGET_TYPE.CompetitiveTrait,
                 quantity: 1,
                 targetTrait: { type: "Outfit", value: "Kimono" },
                 competitorTraits: [{ type: "Background" }],
@@ -918,7 +919,7 @@ describe("OpenSeaBiddingService", () => {
             collectionSlug,
             collectionAddress,
             target: {
-                type: "collection" as const,
+                type: BIDDER_TARGET_TYPE.Collection,
                 quantity: 1,
                 traits: [
                     { type: "Biome", value: "81" },
@@ -1043,7 +1044,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug: "terraforms",
             collectionAddress,
-            target: { type: "token" as const, tokenId: "123" },
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };
@@ -1119,7 +1120,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug: "terraforms",
             collectionAddress,
-            target: { type: "token" as const, tokenId: "123" },
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };
@@ -1183,7 +1184,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug: "terraforms",
             collectionAddress,
-            target: { type: "token" as const, tokenId: "123" },
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };

@@ -14,6 +14,7 @@ import {
     TRADING_JOB_TARGET_KIND,
 } from "@artgod/shared/types";
 import { SqliteBiddingJobSource } from "./sqlite-bidding-job-source.js";
+import { BIDDER_TARGET_TYPE } from "../../domain/market/strategy/job.js";
 
 // Job source tests verify market-slug mapping with a private fixture collection.
 const JOB_SOURCE_COLLECTION_SLUG = "job-source-fixture";
@@ -178,7 +179,7 @@ describe("SqliteBiddingJobSource", () => {
             collectionAddress: "0x1111111111111111111111111111111111111111",
             collectionSlug: JOB_SOURCE_MARKET_SLUG,
             target: {
-                type: "token",
+                type: BIDDER_TARGET_TYPE.Token,
                 tokenId: "123",
             },
             config: {
@@ -196,7 +197,7 @@ describe("SqliteBiddingJobSource", () => {
             collectionAddress: "0x2222222222222222222222222222222222222222",
             collectionSlug: "grails",
             target: {
-                type: "collection",
+                type: BIDDER_TARGET_TYPE.Collection,
                 quantity: 2,
                 traits: [{ type: "Background", value: "Gold" }],
             },
@@ -215,7 +216,7 @@ describe("SqliteBiddingJobSource", () => {
             collectionAddress: "0x1111111111111111111111111111111111111111",
             collectionSlug: JOB_SOURCE_MARKET_SLUG,
             target: {
-                type: "competitiveTrait",
+                type: BIDDER_TARGET_TYPE.CompetitiveTrait,
                 quantity: 1,
                 targetTrait: { type: "Biome", value: "Flow" },
                 competitorTraits: [{ type: "Biome", value: "Flow" }],

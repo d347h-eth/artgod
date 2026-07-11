@@ -2,7 +2,10 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import type { Hex } from "viem";
 import { OPENSEA_MAINNET_SECURITY_POLICY } from "@artgod/shared/trading/open-sea-mainnet-security-policy";
-import type { BidderJob } from "../../domain/market/strategy/job.js";
+import {
+    BIDDER_TARGET_TYPE,
+    type BidderJob,
+} from "../../domain/market/strategy/job.js";
 import {
     OpenSeaPolicyViolationError,
     OpenSeaPolicyWallet,
@@ -271,7 +274,7 @@ describe("OpenSeaPolicyWallet", () => {
         await assert.rejects(
             () =>
                 policyWallet.authorizeOffer(authorization, async () => {
-                    if (authorization.job.target.type !== "token") {
+                    if (authorization.job.target.type !== BIDDER_TARGET_TYPE.Token) {
                         throw new Error("expected token target");
                     }
                     authorization.job.target.tokenId = "999";
@@ -374,7 +377,7 @@ function tokenAuthorization(
     tokenId = "42",
 ): OpenSeaOfferSigningAuthorization {
     return {
-        job: makeJob({ type: "token", tokenId }),
+        job: makeJob({ type: BIDDER_TARGET_TYPE.Token, tokenId }),
         totalAmountWei,
         expirationTime: EXPIRATION_TIME,
     };
@@ -385,7 +388,7 @@ function traitAuthorization(
 ): OpenSeaOfferSigningAuthorization {
     return {
         job: makeJob({
-            type: "collection",
+            type: BIDDER_TARGET_TYPE.Collection,
             quantity: 1,
             traits: [{ type: "Background", value: "Gold" }],
         }),
@@ -408,7 +411,7 @@ function makeJob(target: BidderJob["target"]): BidderJob {
 }
 
 function tokenOfferTypedData(authorization: OpenSeaOfferSigningAuthorization) {
-    if (authorization.job.target.type !== "token") {
+    if (authorization.job.target.type !== BIDDER_TARGET_TYPE.Token) {
         throw new Error("Expected token authorization");
     }
     return offerTypedData(authorization, {

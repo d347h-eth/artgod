@@ -16,7 +16,10 @@ import {
     TokenMetadataRepository,
     type TokenMetadataTrait,
 } from "../../../domain/market/token-metadata-repository.js";
-import { BidderJob } from "../../../domain/market/strategy/job.js";
+import {
+    BIDDER_TARGET_TYPE,
+    BidderJob,
+} from "../../../domain/market/strategy/job.js";
 import { Bidder } from "./bidder.js";
 import {
     BIDDING_ORDER_RECOVERY_REASON,
@@ -189,14 +192,14 @@ describe("Bidder stream refresh", () => {
         );
 
         bidder.addJob(
-            makeJob("token-a", "terraforms", { type: "token", tokenId: "123" }),
+            makeJob("token-a", "terraforms", { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" }),
         );
         bidder.addJob(
-            makeJob("token-b", "terraforms", { type: "token", tokenId: "456" }),
+            makeJob("token-b", "terraforms", { type: BIDDER_TARGET_TYPE.Token, tokenId: "456" }),
         );
         bidder.addJob(
             makeJob("collection-job", "terraforms", {
-                type: "collection",
+                type: BIDDER_TARGET_TYPE.Collection,
                 quantity: 1,
             }),
         );
@@ -215,13 +218,13 @@ describe("Bidder stream refresh", () => {
 
         bidder.addJob(
             makeJob("collection-job", "terraforms", {
-                type: "collection",
+                type: BIDDER_TARGET_TYPE.Collection,
                 quantity: 1,
             }),
         );
         bidder.addJob(
             makeJob("trait-job", "terraforms", {
-                type: "competitiveTrait",
+                type: BIDDER_TARGET_TYPE.CompetitiveTrait,
                 quantity: 1,
                 targetTrait: { type: "Biome", value: "Desert" },
                 competitorTraits: [{ type: "Artifact" }],
@@ -229,7 +232,7 @@ describe("Bidder stream refresh", () => {
         );
         bidder.addJob(
             makeJob("other-collection-job", "digidaigaku", {
-                type: "collection",
+                type: BIDDER_TARGET_TYPE.Collection,
                 quantity: 1,
             }),
         );
@@ -260,7 +263,7 @@ describe("Bidder stream refresh", () => {
 
         bidder.addJob(
             makeJob("token-hit", "terraforms", {
-                type: "token",
+                type: BIDDER_TARGET_TYPE.Token,
                 tokenId: "123",
             }),
         );
@@ -296,7 +299,7 @@ describe("Bidder stream refresh", () => {
                 "token-low-ceiling",
                 "terraforms",
                 {
-                    type: "token",
+                    type: BIDDER_TARGET_TYPE.Token,
                     tokenId: "123",
                 },
                 5n,
@@ -335,7 +338,7 @@ describe("Bidder stream refresh", () => {
         });
         const refreshedJobIds: string[] = [];
         const job = makeJob("token-hit", "terraforms", {
-            type: "token",
+            type: BIDDER_TARGET_TYPE.Token,
             tokenId: "123",
         });
 
@@ -374,7 +377,7 @@ describe("Bidder stream refresh", () => {
             dryRun: true,
         });
         const job = makeJob("token-hit", "terraforms", {
-            type: "token",
+            type: BIDDER_TARGET_TYPE.Token,
             tokenId: "123",
         });
 
@@ -408,7 +411,7 @@ describe("Bidder stream refresh", () => {
         for (let index = 0; index < 8; index++) {
             bidder.addJob(
                 makeJob(`token-${index}`, "terraforms", {
-                    type: "token",
+                    type: BIDDER_TARGET_TYPE.Token,
                     tokenId: `${index}`,
                 }),
             );
@@ -446,13 +449,13 @@ describe("Bidder stream refresh", () => {
         });
 
         bidder.addJob(
-            makeJob("token-1", "terraforms", { type: "token", tokenId: "1" }),
+            makeJob("token-1", "terraforms", { type: BIDDER_TARGET_TYPE.Token, tokenId: "1" }),
         );
         bidder.addJob(
-            makeJob("token-2", "terraforms", { type: "token", tokenId: "2" }),
+            makeJob("token-2", "terraforms", { type: BIDDER_TARGET_TYPE.Token, tokenId: "2" }),
         );
         bidder.addJob(
-            makeJob("token-3", "terraforms", { type: "token", tokenId: "3" }),
+            makeJob("token-3", "terraforms", { type: BIDDER_TARGET_TYPE.Token, tokenId: "3" }),
         );
 
         await bidder.scanOnce();
@@ -484,7 +487,7 @@ describe("Bidder stream refresh", () => {
 
         bidder.addJob(
             makeJob("token-hit", "terraforms", {
-                type: "token",
+                type: BIDDER_TARGET_TYPE.Token,
                 tokenId: "123",
             }),
         );
@@ -518,7 +521,7 @@ describe("Bidder stream refresh", () => {
 
         bidder.addJob(
             makeJob("token-hit", "terraforms", {
-                type: "token",
+                type: BIDDER_TARGET_TYPE.Token,
                 tokenId: "123",
             }),
         );
@@ -540,13 +543,13 @@ describe("Bidder stream refresh", () => {
 
         bidder.addJob(
             makeJob("token-hit", "terraforms", {
-                type: "token",
+                type: BIDDER_TARGET_TYPE.Token,
                 tokenId: "123",
             }),
         );
         bidder.addJob(
             makeJob("token-other", "terraforms", {
-                type: "token",
+                type: BIDDER_TARGET_TYPE.Token,
                 tokenId: "999",
             }),
         );
@@ -577,7 +580,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-hit",
                 "terraforms",
-                { type: "token", tokenId: "123" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
                 5n,
             ),
         );
@@ -585,7 +588,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-miss",
                 "terraforms",
-                { type: "token", tokenId: "999" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "999" },
                 5n,
             ),
         );
@@ -620,7 +623,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-hit",
                 "terraforms",
-                { type: "token", tokenId: "123" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
                 5n,
             ),
         );
@@ -628,7 +631,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-price-skip",
                 "terraforms",
-                { type: "token", tokenId: "456" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "456" },
                 7n,
             ),
         );
@@ -636,7 +639,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-other-collection",
                 "digidaigaku",
-                { type: "token", tokenId: "123" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
                 1n,
             ),
         );
@@ -675,7 +678,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-one",
                 "terraforms",
-                { type: "token", tokenId: "123" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
                 5n,
             ),
         );
@@ -683,7 +686,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-two",
                 "terraforms",
-                { type: "token", tokenId: "456" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "456" },
                 5n,
             ),
         );
@@ -731,7 +734,7 @@ describe("Bidder stream refresh", () => {
 
         bidder.addJob(
             makeJob("token-hit", "terraforms", {
-                type: "token",
+                type: BIDDER_TARGET_TYPE.Token,
                 tokenId: "123",
             }),
         );
@@ -754,7 +757,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-hit",
                 "terraforms",
-                { type: "token", tokenId: "123" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
                 undefined,
                 { floor: 1n, ceiling: 2n, delta: 1n },
             ),
@@ -781,7 +784,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-hit",
                 "terraforms",
-                { type: "token", tokenId: "123" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
                 undefined,
                 { floor: 1n, ceiling: 2n, delta: 1n },
             ),
@@ -825,7 +828,7 @@ describe("Bidder stream refresh", () => {
         );
         bidder.addJob(
             makeJob("token-hit", "terraforms", {
-                type: "token",
+                type: BIDDER_TARGET_TYPE.Token,
                 tokenId: "123",
             }),
         );
@@ -849,7 +852,7 @@ describe("Bidder stream refresh", () => {
         );
         bidder.addJob(
             makeJob("token-hit", "terraforms", {
-                type: "token",
+                type: BIDDER_TARGET_TYPE.Token,
                 tokenId: "123",
             }),
         );
@@ -875,7 +878,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-hit",
                 "terraforms",
-                { type: "token", tokenId: "123" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
                 undefined,
                 { floor: 1n, ceiling: 2n, delta: 1n },
             ),
@@ -918,7 +921,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-hit",
                 "terraforms",
-                { type: "token", tokenId: "123" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
                 undefined,
                 { floor: 1n, ceiling: 2n, delta: 1n },
             ),
@@ -973,13 +976,13 @@ describe("Bidder stream refresh", () => {
         });
 
         bidder.addJob(
-            makeJob("blocker", "terraforms", { type: "token", tokenId: "1" }),
+            makeJob("blocker", "terraforms", { type: BIDDER_TARGET_TYPE.Token, tokenId: "1" }),
         );
         bidder.addJob(
             makeJob(
                 "target",
                 "terraforms",
-                { type: "token", tokenId: "2" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "2" },
                 undefined,
                 { floor: 1n, ceiling: 2n, delta: 1n },
             ),
@@ -1057,13 +1060,13 @@ describe("Bidder stream refresh", () => {
         );
 
         bidder.addJob(
-            makeJob("blocker", "terraforms", { type: "token", tokenId: "1" }),
+            makeJob("blocker", "terraforms", { type: BIDDER_TARGET_TYPE.Token, tokenId: "1" }),
         );
         bidder.addJob(
             makeJob(
                 "target",
                 "terraforms",
-                { type: "token", tokenId: "2" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "2" },
                 undefined,
                 { floor: 7n, ceiling: 10n, delta: 1n },
             ),
@@ -1122,7 +1125,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "target",
                 "terraforms",
-                { type: "token", tokenId: "2" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "2" },
                 undefined,
                 { floor: 1n, ceiling: 2n, delta: 1n },
             ),
@@ -1163,7 +1166,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-hit",
                 "terraforms",
-                { type: "token", tokenId: "123" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
                 undefined,
                 { floor: 10n, ceiling: 20n, delta: 1n },
             ),
@@ -1221,7 +1224,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-hit",
                 "terraforms",
-                { type: "token", tokenId: "123" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
                 undefined,
                 { floor: 1n, ceiling: 20n, delta: 1n },
             ),
@@ -1272,7 +1275,7 @@ describe("Bidder stream refresh", () => {
         const job = makeJob(
             "token-hit",
             "terraforms",
-            { type: "token", tokenId: "123" },
+            { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             undefined,
             { floor: 1n, ceiling: 20n, delta: 1n },
         );
@@ -1305,7 +1308,7 @@ describe("Bidder stream refresh", () => {
         const job = makeJob(
             "token-hit",
             "terraforms",
-            { type: "token", tokenId: "123" },
+            { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             undefined,
             { floor: 1n, ceiling: 20n, delta: 1n },
         );
@@ -1343,7 +1346,7 @@ describe("Bidder stream refresh", () => {
         const job = makeJob(
             "token-hit",
             "terraforms",
-            { type: "token", tokenId: "123" },
+            { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             undefined,
             { floor: 1n, ceiling: 20n, delta: 1n },
         );
@@ -1370,7 +1373,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-hit",
                 "terraforms",
-                { type: "token", tokenId: "123" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
                 undefined,
                 { floor: 1n, ceiling: 20n, delta: 1n },
             ),
@@ -1425,7 +1428,7 @@ describe("Bidder stream refresh", () => {
         const job = makeJob(
             "token-hit",
             "terraforms",
-            { type: "token", tokenId: "123" },
+            { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             undefined,
             { floor: 1n, ceiling: 20n, delta: 1n },
         );
@@ -1465,7 +1468,7 @@ describe("Bidder stream refresh", () => {
         const job = makeJob(
             "token-hit",
             "terraforms",
-            { type: "token", tokenId: "123" },
+            { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             6n,
         );
         const knownExpirationTimeMs = Date.now() + 60000;
@@ -1495,7 +1498,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-hit",
                 "terraforms",
-                { type: "token", tokenId: "123" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
                 undefined,
                 { floor: 1n, ceiling: 7n, delta: 1n },
             ),
@@ -1527,7 +1530,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-hit",
                 "terraforms",
-                { type: "token", tokenId: "123" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
                 undefined,
                 { floor: 1n, ceiling: 20n, delta: 1n },
             ),
@@ -1568,7 +1571,7 @@ describe("Bidder stream refresh", () => {
         const job = makeJob(
             "token-hit",
             "terraforms",
-            { type: "token", tokenId: "123" },
+            { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             4n,
         );
         job.state.activeOrderId = "0xmine-low";
@@ -1630,7 +1633,7 @@ describe("Bidder stream refresh", () => {
         const job = makeJob(
             "token-hit",
             "terraforms",
-            { type: "token", tokenId: "6236" },
+            { type: BIDDER_TARGET_TYPE.Token, tokenId: "6236" },
             undefined,
             { floor: 15n, ceiling: 15n, delta: 1n },
         );
@@ -1674,7 +1677,7 @@ describe("Bidder stream refresh", () => {
         const job = makeJob(
             "token-hit",
             "terraforms",
-            { type: "token", tokenId: "123" },
+            { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             6n,
         );
         job.state.activeOrderId = "0xmine-high";
@@ -1726,7 +1729,7 @@ describe("Bidder stream refresh", () => {
         const job = makeJob(
             "token-hit",
             "terraforms",
-            { type: "token", tokenId: "123" },
+            { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             undefined,
             { floor: 1n, ceiling: 5n, delta: 1n },
         );
@@ -1768,7 +1771,7 @@ describe("Bidder stream refresh", () => {
         const job = makeJob(
             "token-hit",
             "terraforms",
-            { type: "token", tokenId: "123" },
+            { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             5n,
         );
         job.state.activeOrderId = "0xmine";
@@ -1847,7 +1850,7 @@ describe("Bidder stream refresh", () => {
         const job = makeJob(
             "token-hit",
             "terraforms",
-            { type: "token", tokenId: "123" },
+            { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             5n,
         );
         job.state.activeOrderId = "0xmine";
@@ -1907,7 +1910,7 @@ describe("Bidder stream refresh", () => {
         const job = makeJob(
             "token-hit",
             "terraforms",
-            { type: "token", tokenId: "123" },
+            { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             5n,
         );
         job.state.activeOrderId = "0xmine";
@@ -1971,7 +1974,7 @@ describe("Bidder stream refresh", () => {
         const job = makeJob(
             "token-cancel-fails",
             "terraforms",
-            { type: "token", tokenId: "123" },
+            { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             5n,
         );
         job.state.activeOrderId = "0xmine";
@@ -2038,7 +2041,7 @@ describe("Bidder stream refresh", () => {
         const job = makeJob(
             "token-missing",
             "terraforms",
-            { type: "token", tokenId: "123" },
+            { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             5n,
         );
         job.state.activeOrderId = "0xmine";
@@ -2077,7 +2080,7 @@ describe("Bidder stream refresh", () => {
         const job = makeJob(
             "token-inconclusive",
             "terraforms",
-            { type: "token", tokenId: "123" },
+            { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             5n,
         );
         job.state.activeOrderId = "0xmine";
@@ -2119,7 +2122,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-hit",
                 "terraforms",
-                { type: "token", tokenId: "123" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
                 5n,
             ),
         );
@@ -2127,7 +2130,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-metadata-miss",
                 "terraforms",
-                { type: "token", tokenId: "456" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "456" },
                 5n,
             ),
         );
@@ -2135,7 +2138,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-no-metadata",
                 "terraforms",
-                { type: "token", tokenId: "789" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "789" },
                 5n,
             ),
         );
@@ -2143,7 +2146,7 @@ describe("Bidder stream refresh", () => {
             makeJob(
                 "token-price-skip",
                 "terraforms",
-                { type: "token", tokenId: "999" },
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "999" },
                 7n,
             ),
         );

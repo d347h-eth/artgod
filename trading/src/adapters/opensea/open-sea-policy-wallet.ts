@@ -3,6 +3,7 @@ import { getAddress, type Address, type Hex, type WalletClient } from "viem";
 import { mainnet } from "viem/chains";
 import { OPENSEA_MAINNET_SECURITY_POLICY } from "@artgod/shared/trading/open-sea-mainnet-security-policy";
 import {
+    BIDDER_TARGET_TYPE,
     bidderTargetRequiresOpenSeaSignedZoneTrust,
     type BidderJob,
 } from "../../domain/market/strategy/job.js";
@@ -318,11 +319,11 @@ export class OpenSeaPolicyWallet {
         return {
             collectionAddress,
             tokenId:
-                target.type === "token"
+                target.type === BIDDER_TARGET_TYPE.Token
                     ? requireUint(target.tokenId, "authorized token id")
                     : null,
             quantity:
-                target.type === "token"
+                target.type === BIDDER_TARGET_TYPE.Token
                     ? 1n
                     : normalizeTargetQuantity(target.quantity),
             requiresSignedZoneTrust,

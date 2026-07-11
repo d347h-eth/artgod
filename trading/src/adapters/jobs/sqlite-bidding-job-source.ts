@@ -10,10 +10,11 @@ import type {
     BiddingJobSource,
     BiddingJobSourceRecord,
 } from "../../application/use-cases/bidding/bidding-job-source.js";
-import type {
-    BidderJob,
-    TraitSelector,
-    TraitTarget,
+import {
+    BIDDER_TARGET_TYPE,
+    type BidderJob,
+    type TraitSelector,
+    type TraitTarget,
 } from "../../domain/market/strategy/job.js";
 
 type BiddingJobRow = {
@@ -213,7 +214,7 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
     private mapTarget(row: BiddingJobRow): BidderJob["target"] {
         if (row.target_kind === TRADING_JOB_TARGET_KIND.Token) {
             return {
-                type: "token",
+                type: BIDDER_TARGET_TYPE.Token,
                 tokenId: this.parseNonEmptyString(
                     row.token_id,
                     `token_id for jobId=${row.job_id}`,
@@ -227,7 +228,7 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
                 `target_traits_json for jobId=${row.job_id}`,
             );
             return {
-                type: "collection",
+                type: BIDDER_TARGET_TYPE.Collection,
                 quantity: this.parseQuantity(row.quantity, row.job_id),
                 ...(traits.length > 0 ? { traits } : {}),
             };
@@ -245,7 +246,7 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
             }
 
             return {
-                type: "competitiveTrait",
+                type: BIDDER_TARGET_TYPE.CompetitiveTrait,
                 quantity: this.parseQuantity(row.quantity, row.job_id),
                 targetTrait: targetTraits[0],
                 competitorTraits: this.parseTraitSelectors(
