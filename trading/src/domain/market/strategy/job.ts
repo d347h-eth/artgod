@@ -61,6 +61,7 @@ export interface BidderJob {
     id: string;
     revision: number;
     network: "eth";
+    collectionId: number;
     collectionAddress: string;
     collectionSlug: string;
     target: BidderTarget;

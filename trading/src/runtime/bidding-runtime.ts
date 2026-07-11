@@ -73,6 +73,7 @@ import {
     TradingConfig,
 } from "../config/trading-config.js";
 import { MarketEvent, Type } from "../domain/market/event.js";
+import type { BiddingMandate } from "../domain/bidding-mandate.js";
 import {
     BIDDER_TARGET_TYPE,
     BidderJob,
@@ -114,6 +115,7 @@ type StartBiddingRuntimeParams = {
     walletId: string;
     lifecycle: BiddingRuntimeLifecyclePort;
     metrics: Metrics;
+    biddingMandate: BiddingMandate;
 };
 
 type RegisteredBidStream = {
@@ -240,6 +242,7 @@ export async function startBiddingRuntime(
             allowanceCapWei: params.biddingConfig.wethAllowanceCapWei,
             trustOpenSeaSignedZoneTraitOffers:
                 params.biddingConfig.trustOpenSeaSignedZoneTraitOffers,
+            biddingMandate: params.biddingMandate,
         },
     );
     const writeCapableRpcTransport = createWeightedRpcTransport(
@@ -797,7 +800,8 @@ export function collectSnapshotBackedCollectionSlugs(
 
 // collectTokenWarmCandidateCount approximates the size of the current-price bootstrap pass before runtime state exists.
 export function collectTokenWarmCandidateCount(jobs: BidderJob[]): number {
-    return jobs.filter((job) => job.target.type === BIDDER_TARGET_TYPE.Token).length;
+    return jobs.filter((job) => job.target.type === BIDDER_TARGET_TYPE.Token)
+        .length;
 }
 
 type BootstrapProgressPulseReporter = {
@@ -1073,6 +1077,11 @@ function createBiddingSdkClient(
             input,
             authorization,
         ): Promise<OpenSeaCreateCollectionOfferResponse | null> => {
+            if (input.collectionSlug !== authorization.job.collectionSlug) {
+                throw new Error(
+                    "OpenSea collection-offer slug does not match the authorized bidding job",
+                );
+            }
             return await policyWallet.authorizeOffer(
                 authorization,
                 async () => {

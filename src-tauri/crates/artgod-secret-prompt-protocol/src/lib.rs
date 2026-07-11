@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-/// Maximum serialized request size allowed over the secret-prompt stdio protocol.
-pub const SECRET_PROMPT_MAX_REQUEST_BYTES: usize = 4 * 1024;
+/// Maximum serialized request size allowed for bounded multi-collection policy review.
+pub const SECRET_PROMPT_MAX_REQUEST_BYTES: usize = 64 * 1024;
 
 /// Maximum serialized response size allowed over the secret-prompt stdio protocol.
 pub const SECRET_PROMPT_MAX_RESPONSE_BYTES: usize = 4 * 1024;
@@ -105,6 +105,40 @@ pub struct UnlockSecretPromptRequest {
     pub wallet_label: String,
     pub wallet_address: String,
     pub reason: String,
+    pub bidding_mandate: Option<UnlockBiddingMandateSummary>,
+}
+
+/// Non-secret bidding authority rendered by the native unlock helper.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnlockBiddingMandateSummary {
+    pub chain_id: u64,
+    pub dry_run: bool,
+    pub weth_allowance_cap_eth: String,
+    pub trait_offers_enabled: bool,
+    pub collections: Vec<UnlockBiddingCollectionSummary>,
+}
+
+/// One collection and its caps in the native bidding mandate review.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnlockBiddingCollectionSummary {
+    pub collection_id: u64,
+    pub artgod_slug: String,
+    pub contract_address: String,
+    pub opensea_slug: String,
+    pub token_scope_label: String,
+    pub token_scope_items: Vec<UnlockBiddingTokenScopeItem>,
+    pub max_unit_bid_eth: String,
+    pub max_quantity: u32,
+}
+
+/// One token-scope detail rendered for native collection review.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnlockBiddingTokenScopeItem {
+    pub label: String,
+    pub value: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -213,6 +247,7 @@ mod tests {
             wallet_label: "Primary".to_owned(),
             wallet_address: "0x123".to_owned(),
             reason: "start bidding bot".to_owned(),
+            bidding_mandate: None,
         });
         let request_json = serde_json::to_string(&request).unwrap();
         assert_eq!(

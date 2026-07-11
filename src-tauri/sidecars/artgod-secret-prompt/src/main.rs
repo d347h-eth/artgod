@@ -8,14 +8,14 @@ use artgod_secret_prompt_protocol::{
     CancelledSecretPromptResponse, ErrorSecretPromptResponse, ExportConfirmSecretPromptRequest,
     ExportConfirmSecretPromptResponse, ExportRevealAcknowledgedResponse,
     ExportRevealSecretPromptRequest, ImportSecretPromptRequest, ImportSecretPromptResponse,
-    RemoveConfirmSecretPromptRequest, RemoveConfirmSecretPromptResponse, SecretPromptAction,
-    SecretPromptErrorCode, SecretPromptRequest, SecretPromptResponse,
-    SECRET_PROMPT_MAX_REQUEST_BYTES, SECRET_PROMPT_MAX_RESPONSE_BYTES,
+    RemoveConfirmSecretPromptRequest, RemoveConfirmSecretPromptResponse,
+    SECRET_PROMPT_MAX_REQUEST_BYTES, SECRET_PROMPT_MAX_RESPONSE_BYTES, SecretPromptAction,
+    SecretPromptErrorCode, SecretPromptRequest, SecretPromptResponse, UnlockBiddingMandateSummary,
     UnlockSecretPromptRequest, UnlockSecretPromptResponse,
 };
 use prompt_ui::{
     ExportConfirmPromptSpec, ImportPromptSpec, RemoveConfirmPromptSpec, RevealPromptSpec,
-    TextInputKind, TextPromptMode, TextPromptSpec, TextValidationSpec,
+    UnlockPromptSpec,
 };
 use thiserror::Error;
 use zeroize::Zeroizing;
@@ -185,20 +185,21 @@ fn handle_import_request(
 fn handle_unlock_request(
     payload: UnlockSecretPromptRequest,
 ) -> Result<SecretPromptResponse, SecretPromptHelperError> {
-    let message = format!(
+    let passphrase_message = format!(
         "Unlock wallet \"{}\" ({}) to {}",
         payload.wallet_label, payload.wallet_address, payload.reason
     );
-    let Some(passphrase) = prompt_ui::prompt_text(TextPromptSpec {
+    let review_pages = payload
+        .bidding_mandate
+        .as_ref()
+        .map(build_bidding_mandate_review_pages)
+        .unwrap_or_default();
+    let Some(passphrase) = prompt_ui::prompt_unlock(UnlockPromptSpec {
         title: "Unlock Wallet",
-        message: &message,
-        initial_value: "",
-        mode: TextPromptMode::Secret,
-        ok_label: "Unlock",
+        passphrase_message: &passphrase_message,
+        review_pages,
+        unlock_label: "Unlock",
         cancel_label: "Cancel",
-        input_kind: TextInputKind::Passphrase,
-        max_len: 256,
-        validation: TextValidationSpec::None,
     })
     .map_err(|error| SecretPromptHelperError::UiFailure {
         action: SecretPromptAction::Unlock,
@@ -210,6 +211,68 @@ fn handle_unlock_request(
     Ok(SecretPromptResponse::UnlockSubmitted(
         UnlockSecretPromptResponse { passphrase },
     ))
+}
+
+fn build_bidding_mandate_review_pages(summary: &UnlockBiddingMandateSummary) -> Vec<String> {
+    let mut pages = Vec::with_capacity(summary.collections.len() + 1);
+    pages.push(format!(
+        "Bidding mandate\nChain: {}\nMode: {}\nWETH allowance cap: {} WETH\nTrait offers: {}\nCollections: {}",
+        summary.chain_id,
+        if summary.dry_run { "dry run" } else { "live orders" },
+        compact_prompt_value(summary.weth_allowance_cap_eth.as_str()),
+        if summary.trait_offers_enabled { "enabled" } else { "disabled" },
+        summary.collections.len(),
+    ));
+    for (index, collection) in summary.collections.iter().enumerate() {
+        let mut lines = vec![
+            format!(
+                "Collection {}/{}: {}",
+                index + 1,
+                summary.collections.len(),
+                compact_prompt_value(collection.artgod_slug.as_str())
+            ),
+            format!("ArtGod id: {}", collection.collection_id),
+            format!(
+                "OpenSea: {}",
+                compact_prompt_value(collection.opensea_slug.as_str())
+            ),
+            format!(
+                "Contract: {}",
+                compact_prompt_value(collection.contract_address.as_str())
+            ),
+            format!(
+                "Token scope: {}",
+                compact_prompt_value(collection.token_scope_label.as_str())
+            ),
+        ];
+        lines.extend(collection.token_scope_items.iter().map(|item| {
+            format!(
+                "  {}: {}",
+                compact_prompt_value(item.label.as_str()),
+                compact_prompt_value(item.value.as_str())
+            )
+        }));
+        lines.push(format!(
+            "Maximum unit bid: {} WETH",
+            compact_prompt_value(collection.max_unit_bid_eth.as_str())
+        ));
+        lines.push(format!("Maximum quantity: {}", collection.max_quantity));
+        pages.push(lines.join("\n"));
+    }
+    pages
+}
+
+fn compact_prompt_value(value: &str) -> String {
+    const MAX_PROMPT_VALUE_CHARS: usize = 120;
+    value
+        .chars()
+        .filter_map(|character| match character {
+            ' '..='~' => Some(character),
+            _ if character.is_whitespace() => Some(' '),
+            _ => None,
+        })
+        .take(MAX_PROMPT_VALUE_CHARS)
+        .collect()
 }
 
 fn handle_remove_confirm_request(
@@ -389,8 +452,8 @@ mod tests {
     #[test]
     fn parse_request_payload_rejects_oversized_input() {
         let oversized = "x".repeat(SECRET_PROMPT_MAX_REQUEST_BYTES + 1);
-        let error = parse_request_payload(SecretPromptAction::Unlock, oversized.as_str())
-            .unwrap_err();
+        let error =
+            parse_request_payload(SecretPromptAction::Unlock, oversized.as_str()).unwrap_err();
         assert!(matches!(error, SecretPromptHelperError::InvalidRequest(_)));
     }
 
@@ -407,6 +470,7 @@ mod tests {
                 wallet_label: "Primary".to_owned(),
                 wallet_address: "0x123".to_owned(),
                 reason: "test".to_owned(),
+                bidding_mandate: None,
             })
         );
     }

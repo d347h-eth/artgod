@@ -2,7 +2,8 @@ use artgod_secret_prompt_protocol::{
     ExportConfirmSecretPromptRequest, ExportRevealAcknowledgedResponse,
     ExportRevealSecretPromptRequest, ImportSecretPromptRequest, RemoveConfirmSecretPromptRequest,
     SECRET_PROMPT_MAX_REQUEST_BYTES, SECRET_PROMPT_MAX_RESPONSE_BYTES, SecretPromptAction,
-    SecretPromptErrorCode, SecretPromptRequest, SecretPromptResponse, UnlockSecretPromptRequest,
+    SecretPromptErrorCode, SecretPromptRequest, SecretPromptResponse, UnlockBiddingMandateSummary,
+    UnlockSecretPromptRequest,
 };
 use tauri::AppHandle;
 use tauri_plugin_shell::ShellExt;
@@ -70,6 +71,7 @@ impl SecretPromptSidecar {
         wallet_label: String,
         wallet_address: String,
         reason: String,
+        bidding_mandate: Option<UnlockBiddingMandateSummary>,
     ) -> Result<UnlockPromptOutput, SecretPromptError> {
         let response = self
             .run_prompt(
@@ -78,6 +80,7 @@ impl SecretPromptSidecar {
                     wallet_label,
                     wallet_address,
                     reason,
+                    bidding_mandate,
                 }),
             )
             .await?;

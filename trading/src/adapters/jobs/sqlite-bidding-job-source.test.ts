@@ -19,6 +19,7 @@ import { BIDDER_TARGET_TYPE } from "../../domain/market/strategy/job.js";
 // Job source tests verify market-slug mapping with a private fixture collection.
 const JOB_SOURCE_COLLECTION_SLUG = "job-source-fixture";
 const JOB_SOURCE_MARKET_SLUG = "job-source-fixture-opensea";
+const GRAILS_MARKET_SLUG = "grails-opensea";
 
 async function createTempDbPath(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "artgod-trading-job-source-"));
@@ -30,28 +31,30 @@ function seedCollection(params: {
     address: string;
     openseaSlug: string | null;
 }): number {
-    const result = db.prepare<{
-        chainId: number;
-        slug: string;
-        address: string;
-        standard: string;
-        status: string;
-        tokenScopeKind: string;
-        openseaSlug: string | null;
-    }>(
-        "INSERT INTO collections " +
-            "(chain_id, slug, address, standard, status, token_scope_kind, opensea_slug) " +
-            "VALUES (@chainId, @slug, @address, @standard, @status, @tokenScopeKind, @openseaSlug)",
-    ).run({
-        chainId: 1,
-        slug: params.slug,
-        address: params.address,
-        standard: COLLECTION_STANDARD.Erc721,
-        status: COLLECTION_STATUS.Live,
-        tokenScopeKind:
-            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
-        openseaSlug: params.openseaSlug,
-    });
+    const result = db
+        .prepare<{
+            chainId: number;
+            slug: string;
+            address: string;
+            standard: string;
+            status: string;
+            tokenScopeKind: string;
+            openseaSlug: string | null;
+        }>(
+            "INSERT INTO collections " +
+                "(chain_id, slug, address, standard, status, token_scope_kind, opensea_slug) " +
+                "VALUES (@chainId, @slug, @address, @standard, @status, @tokenScopeKind, @openseaSlug)",
+        )
+        .run({
+            chainId: 1,
+            slug: params.slug,
+            address: params.address,
+            standard: COLLECTION_STANDARD.Erc721,
+            status: COLLECTION_STATUS.Live,
+            tokenScopeKind:
+                EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
+            openseaSlug: params.openseaSlug,
+        });
 
     return Number(result.lastInsertRowid);
 }
@@ -130,7 +133,7 @@ describe("SqliteBiddingJobSource", () => {
         grailsCollectionId = seedCollection({
             slug: "grails",
             address: "0x2222222222222222222222222222222222222222",
-            openseaSlug: null,
+            openseaSlug: GRAILS_MARKET_SLUG,
         });
     });
 
@@ -160,7 +163,9 @@ describe("SqliteBiddingJobSource", () => {
             targetKind: TRADING_JOB_TARGET_KIND.CompetitiveTrait,
             tokenId: null,
             quantity: 1,
-            targetTraitsJson: JSON.stringify([{ type: "Biome", value: "Flow" }]),
+            targetTraitsJson: JSON.stringify([
+                { type: "Biome", value: "Flow" },
+            ]),
             competitorTraitsJson: JSON.stringify([
                 { type: "Biome", value: "Flow" },
             ]),
@@ -176,6 +181,7 @@ describe("SqliteBiddingJobSource", () => {
             id: "job-token",
             revision: 1,
             network: "eth",
+            collectionId: marketCollectionId,
             collectionAddress: "0x1111111111111111111111111111111111111111",
             collectionSlug: JOB_SOURCE_MARKET_SLUG,
             target: {
@@ -194,8 +200,9 @@ describe("SqliteBiddingJobSource", () => {
             id: "job-collection",
             revision: 1,
             network: "eth",
+            collectionId: grailsCollectionId,
             collectionAddress: "0x2222222222222222222222222222222222222222",
-            collectionSlug: "grails",
+            collectionSlug: GRAILS_MARKET_SLUG,
             target: {
                 type: BIDDER_TARGET_TYPE.Collection,
                 quantity: 2,
@@ -213,6 +220,7 @@ describe("SqliteBiddingJobSource", () => {
             id: "job-competitive",
             revision: 1,
             network: "eth",
+            collectionId: marketCollectionId,
             collectionAddress: "0x1111111111111111111111111111111111111111",
             collectionSlug: JOB_SOURCE_MARKET_SLUG,
             target: {
@@ -228,6 +236,27 @@ describe("SqliteBiddingJobSource", () => {
             },
             state: {},
         });
+    });
+
+    it("rejects an enabled job whose collection lacks an OpenSea slug", async () => {
+        const collectionId = seedCollection({
+            slug: "missing-opensea-identity",
+            address: "0x3333333333333333333333333333333333333333",
+            openseaSlug: null,
+        });
+        seedJob({
+            jobId: "job-without-opensea-slug",
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            targetKind: TRADING_JOB_TARGET_KIND.Token,
+            tokenId: "1",
+        });
+
+        const source = new SqliteBiddingJobSource(1);
+        await assert.rejects(
+            source.loadEnabledJobs(),
+            /collection_opensea_slug/,
+        );
     });
 
     it("filters out paused and archived jobs and hydrates runtime state", async () => {

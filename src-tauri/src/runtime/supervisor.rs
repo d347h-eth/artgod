@@ -13,6 +13,7 @@ use tauri::{AppHandle, Emitter};
 
 use super::app_config::load_app_config_state;
 use crate::desktop_log::{append_child_process_log_line, append_desktop_supervisor_log};
+use crate::runtime::bidding_mandate::BiddingMandate;
 use crate::runtime::bot_runtime::{
     BOT_RUNTIME_SPECS, BotCriticalDependencyStatus, BotRuntimeSnapshot, BotRuntimeState,
     bot_runtime_spec,
@@ -82,6 +83,7 @@ struct BotRuntimeController {
 struct ManagedBotRuntimeStatus {
     state: BotRuntimeState,
     last_error: Option<String>,
+    bidding_mandate: Option<BiddingMandate>,
 }
 
 #[derive(Clone)]
@@ -348,7 +350,57 @@ impl RuntimeManager {
                 .bot_statuses
                 .lock()
                 .map_err(|_| "Failed to lock bot runtime status".to_owned())?;
-            statuses.insert(bot_kind, ManagedBotRuntimeStatus { state, last_error });
+            let status = statuses
+                .entry(bot_kind)
+                .or_insert_with(default_managed_bot_runtime_status);
+            status.state = state;
+            status.last_error = last_error;
+            if !bot_runtime_state_is_active(state) {
+                status.bidding_mandate = None;
+            }
+        }
+        self.emit_bot_runtime_state_changed(app, bot_kind)
+    }
+
+    /// Atomically reserves one bot start before asynchronous native authorization work begins.
+    pub fn begin_bot_unlock(&self, app: &AppHandle, bot_kind: BotKind) -> Result<(), String> {
+        {
+            let mut statuses = self
+                .bot_statuses
+                .lock()
+                .map_err(|_| "Failed to lock bot runtime status".to_owned())?;
+            let status = statuses
+                .entry(bot_kind)
+                .or_insert_with(default_managed_bot_runtime_status);
+            if bot_runtime_state_is_active(status.state) {
+                return Err("Bot is already active.".to_owned());
+            }
+            status.state = BotRuntimeState::AwaitingUnlock;
+            status.last_error = None;
+            status.bidding_mandate = None;
+        }
+        self.emit_bot_runtime_state_changed(app, bot_kind)
+    }
+
+    /// Records the native authority that will be handed to one bidding process.
+    pub fn set_bot_bidding_mandate(
+        &self,
+        app: &AppHandle,
+        bot_kind: BotKind,
+        bidding_mandate: Option<BiddingMandate>,
+    ) -> Result<(), String> {
+        if bot_kind != BotKind::Bidding && bidding_mandate.is_some() {
+            return Err("Only the bidding bot may hold a bidding mandate.".to_owned());
+        }
+        {
+            let mut statuses = self
+                .bot_statuses
+                .lock()
+                .map_err(|_| "Failed to lock bot runtime status".to_owned())?;
+            let status = statuses
+                .entry(bot_kind)
+                .or_insert_with(default_managed_bot_runtime_status);
+            status.bidding_mandate = bidding_mandate;
         }
         self.emit_bot_runtime_state_changed(app, bot_kind)
     }
@@ -756,16 +808,14 @@ fn build_bot_runtime_snapshot_from_spec(
     let status = bot_statuses
         .get(&spec.bot_kind)
         .cloned()
-        .unwrap_or(ManagedBotRuntimeStatus {
-            state: BotRuntimeState::Disabled,
-            last_error: None,
-        });
+        .unwrap_or_else(default_managed_bot_runtime_status);
 
     BotRuntimeSnapshot {
         bot_kind: spec.bot_kind,
         process_name: spec.process_name.to_owned(),
         state: status.state,
         last_error: status.last_error,
+        bidding_mandate: status.bidding_mandate,
         critical_dependencies: spec
             .critical_processes
             .iter()
@@ -1145,7 +1195,14 @@ fn update_bot_runtime_state(
     last_error: Option<String>,
 ) {
     if let Ok(mut bot_statuses) = bot_statuses_ref.lock() {
-        bot_statuses.insert(bot_kind, ManagedBotRuntimeStatus { state, last_error });
+        let status = bot_statuses
+            .entry(bot_kind)
+            .or_insert_with(default_managed_bot_runtime_status);
+        status.state = state;
+        status.last_error = last_error;
+        if !bot_runtime_state_is_active(state) {
+            status.bidding_mandate = None;
+        }
         if let Ok(core_status) = status_ref.lock()
             && let Some(snapshot) =
                 build_bot_runtime_snapshot(&core_status, &bot_statuses, bot_kind)
@@ -1153,6 +1210,24 @@ fn update_bot_runtime_state(
             let _ = app.emit("bot-runtime-state-changed", &snapshot);
         }
     }
+}
+
+fn default_managed_bot_runtime_status() -> ManagedBotRuntimeStatus {
+    ManagedBotRuntimeStatus {
+        state: BotRuntimeState::Disabled,
+        last_error: None,
+        bidding_mandate: None,
+    }
+}
+
+fn bot_runtime_state_is_active(state: BotRuntimeState) -> bool {
+    matches!(
+        state,
+        BotRuntimeState::AwaitingUnlock
+            | BotRuntimeState::Starting
+            | BotRuntimeState::Bootstrapping
+            | BotRuntimeState::Running
+    )
 }
 
 struct SpawnedBotProcess {
@@ -2377,7 +2452,7 @@ mod tests {
 
     fn load_fixture() -> TradingSecretEnvelopeFixture {
         let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../trading/src/runtime/fixtures/secret-envelope-v1.json");
+            .join("../trading/src/runtime/fixtures/secret-envelope-v2.json");
         let raw = fs::read_to_string(&fixture_path).expect("fixture file should load");
         serde_json::from_str(&raw).expect("fixture json should parse")
     }

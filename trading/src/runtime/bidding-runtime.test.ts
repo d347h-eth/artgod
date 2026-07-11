@@ -22,6 +22,7 @@ function makeJob(
         id,
         revision: 1,
         network: "eth",
+        collectionId: 1,
         collectionAddress: "0x0000000000000000000000000000000000000001",
         collectionSlug,
         target,

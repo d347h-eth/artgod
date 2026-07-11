@@ -46,8 +46,10 @@ const FIELD_INNER_PADDING_Y: i32 = 10;
 const CARET_TEXT_GAP_PX: i32 = 4;
 const FIELD_HEIGHT: i32 = CELL_HEIGHT as i32 + (FIELD_INNER_PADDING_Y * 2);
 const TEXT_WINDOW_SIZE: (u32, u32) = (820, 360);
+const UNLOCK_WINDOW_SIZE: (u32, u32) = (920, 460);
 const REVEAL_WINDOW_SIZE: (u32, u32) = (920, 420);
 const STARTUP_SUBMIT_GUARD: Duration = Duration::from_millis(250);
+const REVIEW_NEXT_LABEL: &str = "Next";
 
 pub struct TextPromptSpec<'a> {
     pub title: &'a str,
@@ -59,6 +61,14 @@ pub struct TextPromptSpec<'a> {
     pub input_kind: TextInputKind,
     pub max_len: usize,
     pub validation: TextValidationSpec<'a>,
+}
+
+pub struct UnlockPromptSpec<'a> {
+    pub title: &'a str,
+    pub passphrase_message: &'a str,
+    pub review_pages: Vec<String>,
+    pub unlock_label: &'a str,
+    pub cancel_label: &'a str,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -160,18 +170,41 @@ pub enum PromptUiError {
     Render(String),
 }
 
-pub fn prompt_text(spec: TextPromptSpec<'_>) -> Result<Option<String>, PromptUiError> {
+pub fn prompt_unlock(spec: UnlockPromptSpec<'_>) -> Result<Option<String>, PromptUiError> {
     let title = spec.title.to_owned();
-    match run_flow(
-        title,
-        PromptFlow::SingleText,
-        build_text_screen(spec),
-        TEXT_WINDOW_SIZE,
-    )? {
-        FlowResult::TextSubmitted(value) => Ok(Some(value)),
+    let initial_screen = if let Some(page) = spec.review_pages.first() {
+        build_confirm_screen(ConfirmPromptSpec {
+            title: spec.title,
+            message: page,
+            confirm_label: REVIEW_NEXT_LABEL,
+            cancel_label: spec.cancel_label,
+        })
+    } else {
+        build_text_screen(TextPromptSpec {
+            title: spec.title,
+            message: spec.passphrase_message,
+            initial_value: "",
+            mode: TextPromptMode::Secret,
+            ok_label: spec.unlock_label,
+            cancel_label: spec.cancel_label,
+            input_kind: TextInputKind::Passphrase,
+            max_len: 256,
+            validation: TextValidationSpec::None,
+        })
+    };
+    let flow = PromptFlow::Unlock(UnlockFlowState {
+        title: spec.title.to_owned(),
+        passphrase_message: spec.passphrase_message.to_owned(),
+        review_pages: spec.review_pages,
+        page_index: 0,
+        unlock_label: spec.unlock_label.to_owned(),
+        cancel_label: spec.cancel_label.to_owned(),
+    });
+    match run_flow(title, flow, initial_screen, UNLOCK_WINDOW_SIZE)? {
+        FlowResult::UnlockSubmitted(passphrase) => Ok(Some(passphrase)),
         FlowResult::Cancelled => Ok(None),
         other => Err(PromptUiError::Render(format!(
-            "Prompt returned unexpected text result: {other:?}"
+            "Prompt returned unexpected unlock result: {other:?}"
         ))),
     }
 }
@@ -343,7 +376,7 @@ fn build_reveal_screen(spec: RevealPromptSpec<'_>) -> ScreenState {
 
 #[derive(Debug)]
 enum FlowResult {
-    TextSubmitted(String),
+    UnlockSubmitted(String),
     RevealAcknowledged,
     ImportSubmitted(ImportPromptOutput),
     RemoveConfirmSubmitted(RemoveConfirmPromptOutput),
@@ -357,11 +390,20 @@ enum FlowTransition {
 }
 
 enum PromptFlow {
-    SingleText,
+    Unlock(UnlockFlowState),
     SingleReveal,
     Import(ImportFlowState),
     Remove(RemoveFlowState),
     ExportConfirm(ExportConfirmFlowState),
+}
+
+struct UnlockFlowState {
+    title: String,
+    passphrase_message: String,
+    review_pages: Vec<String>,
+    page_index: usize,
+    unlock_label: String,
+    cancel_label: String,
 }
 
 struct ImportFlowState {
@@ -400,17 +442,7 @@ struct ExportConfirmFlowState {
 impl PromptFlow {
     fn on_result(&mut self, result: ScreenResult) -> Result<FlowTransition, PromptUiError> {
         match self {
-            Self::SingleText => Ok(match result {
-                ScreenResult::Submitted(value) => {
-                    FlowTransition::Finish(FlowResult::TextSubmitted(value))
-                }
-                ScreenResult::Cancelled => FlowTransition::Finish(FlowResult::Cancelled),
-                other => {
-                    return Err(PromptUiError::Render(format!(
-                        "Unexpected single text screen result: {other:?}"
-                    )));
-                }
-            }),
+            Self::Unlock(state) => state.on_result(result),
             Self::SingleReveal => Ok(match result {
                 ScreenResult::Acknowledged => {
                     FlowTransition::Finish(FlowResult::RevealAcknowledged)
@@ -425,6 +457,46 @@ impl PromptFlow {
             Self::Import(flow) => flow.on_result(result),
             Self::Remove(flow) => flow.on_result(result),
             Self::ExportConfirm(flow) => flow.on_result(result),
+        }
+    }
+}
+
+impl UnlockFlowState {
+    fn on_result(&mut self, result: ScreenResult) -> Result<FlowTransition, PromptUiError> {
+        match result {
+            ScreenResult::Cancelled => Ok(FlowTransition::Finish(FlowResult::Cancelled)),
+            ScreenResult::Confirmed if !self.review_pages.is_empty() => {
+                self.page_index += 1;
+                if let Some(page) = self.review_pages.get(self.page_index) {
+                    return Ok(FlowTransition::Continue(build_confirm_screen(
+                        ConfirmPromptSpec {
+                            title: &self.title,
+                            message: page,
+                            confirm_label: REVIEW_NEXT_LABEL,
+                            cancel_label: &self.cancel_label,
+                        },
+                    )));
+                }
+                Ok(FlowTransition::Continue(build_text_screen(
+                    TextPromptSpec {
+                        title: &self.title,
+                        message: &self.passphrase_message,
+                        initial_value: "",
+                        mode: TextPromptMode::Secret,
+                        ok_label: &self.unlock_label,
+                        cancel_label: &self.cancel_label,
+                        input_kind: TextInputKind::Passphrase,
+                        max_len: 256,
+                        validation: TextValidationSpec::None,
+                    },
+                )))
+            }
+            ScreenResult::Submitted(passphrase) => Ok(FlowTransition::Finish(
+                FlowResult::UnlockSubmitted(passphrase),
+            )),
+            other => Err(PromptUiError::Render(format!(
+                "Unexpected unlock screen result: {other:?}"
+            ))),
         }
     }
 }

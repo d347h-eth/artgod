@@ -26,8 +26,9 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, State};
 use wallet::tauri::{
-    BotCommandState, WalletCommandState, bot_assign_wallet, bot_list, bot_start, bot_stop,
-    wallet_export, wallet_get_status, wallet_import, wallet_list, wallet_remove,
+    BotCommandState, WalletCommandState, bot_assign_wallet, bot_list, bot_list_bidding_collections,
+    bot_start, bot_stop, wallet_export, wallet_get_status, wallet_import, wallet_list,
+    wallet_remove,
 };
 
 pub(crate) struct DesktopState {
@@ -476,6 +477,7 @@ pub fn run() {
             wallet_export,
             wallet_remove,
             bot_list,
+            bot_list_bidding_collections,
             bot_assign_wallet,
             bot_start,
             bot_stop
