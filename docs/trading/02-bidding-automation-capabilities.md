@@ -49,11 +49,13 @@ Identity and limits must remain explicit across all three states:
 - human-readable chain name before `chain ID #N`
 - ArtGod collection slug before qualified ArtGod collection ID
 - `OpenSea slug` and `contract address`, not ambiguous shortened labels
-- `max WETH per NFT` and `max NFTs per offer`
+- `max WETH per NFT`
+- `max NFTs per offer`, shown as a read-only input with value `1` in Admin
 
 The NFT count is a per-offer cap, not cumulative exposure across jobs or open
-orders. A token-specific offer always has quantity one. The native review must
-show the exact Rust-resolved values supplied to signer enforcement.
+orders. Userland currently creates only one-NFT offers, so Admin does not send
+this quantity: Rust fixes it at one before the native review and signer
+enforcement. The native prompt and active summary show the same value.
 
 Admin does not render controls for staged or nonexistent bot kinds. If the local
 collection catalog cannot be reached because infrastructure is stopped, the

@@ -22,8 +22,9 @@ pub use backend_collection_catalog::{
     BiddingCollectionCatalog,
 };
 pub use bidding_mandate::{
-    BiddingCollectionMandate, BiddingCollectionMandateDraft, BiddingCollectionTokenScopeSummary,
-    BiddingMandate, BiddingMandateDraft, BiddingStartPolicySnapshot, format_wei_as_eth,
+    BIDDING_MANDATE_MAX_OFFER_QUANTITY, BiddingCollectionMandate, BiddingCollectionMandateDraft,
+    BiddingCollectionTokenScopeSummary, BiddingMandate, BiddingMandateDraft,
+    BiddingStartPolicySnapshot, format_wei_as_eth,
 };
 pub use bot_runtime::{
     BotCriticalDependencyStatus, BotRuntimeSnapshot, BotRuntimeState, bot_runtime_spec,

@@ -11,7 +11,6 @@ const ZERO_ETH_PATTERN = /^0(?:\.0{1,18})?$/;
 export type BiddingCollectionMandateSelection = {
 	selected: boolean;
 	maxUnitBidEth: string;
-	maxQuantity: string;
 };
 
 export type BiddingMandateSelections = Record<string, BiddingCollectionMandateSelection>;
@@ -39,8 +38,7 @@ export function syncBiddingMandateSelections(
 				key,
 				current[key] ?? {
 					selected: false,
-					maxUnitBidEth: '',
-					maxQuantity: '1'
+					maxUnitBidEth: ''
 				}
 			];
 		})
@@ -61,11 +59,7 @@ export function buildBiddingMandateDraft(
 				`${candidate.artgodSlug}: max WETH per NFT must be positive with at most 18 decimals.`
 			);
 		}
-		const maxQuantity = Number(selection.maxQuantity);
-		if (!Number.isSafeInteger(maxQuantity) || maxQuantity <= 0) {
-			throw new Error(`${candidate.artgodSlug}: max NFTs per offer must be a positive integer.`);
-		}
-		return [{ collectionId: candidate.collectionId, maxUnitBidEth, maxQuantity }];
+		return [{ collectionId: candidate.collectionId, maxUnitBidEth }];
 	});
 	if (collections.length === 0) {
 		throw new Error('Select at least one collection to authorize bidding.');

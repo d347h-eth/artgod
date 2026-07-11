@@ -496,14 +496,14 @@ mod tests {
                 token_scope_label: "all contract tokens".to_owned(),
                 token_scope_items: Vec::new(),
                 max_unit_bid_eth: "1.25".to_owned(),
-                max_quantity: 2,
+                max_quantity: 1,
             }],
         });
 
         assert!(pages[0].starts_with("Bidding authorization\nNetwork: Ethereum\nChain ID: #1"));
         assert!(pages[1].contains("ArtGod collection ID: #7"));
         assert!(pages[1].contains("Maximum WETH per NFT: 1.25"));
-        assert!(pages[1].contains("Maximum NFTs per offer: 2"));
+        assert!(pages[1].contains("Maximum NFTs per offer: 1"));
     }
 
     #[test]

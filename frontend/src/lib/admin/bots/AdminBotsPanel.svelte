@@ -370,12 +370,9 @@
 																	type="text"
 																	class="bootstrap-control"
 																	inputmode="numeric"
-																	value={selection.maxQuantity}
-																	disabled={mandateEditingDisabled || !selection.selected}
-																	oninput={(event) =>
-																		updateBiddingMandateSelection(collection.collectionId, {
-																			maxQuantity: event.currentTarget.value
-																		})}
+																	value={biddingCollectionCatalog?.maxOfferQuantity ?? ''}
+																	readonly
+																	aria-readonly="true"
 																/>
 															</label>
 														</div>

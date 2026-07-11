@@ -110,7 +110,7 @@ look like current authority.
 
 ## Units, Scope, and Denominators
 
-Every configurable number must state:
+Every user-facing amount or limit must state:
 
 - unit
 - denominator or scope

@@ -12,18 +12,20 @@ use super::env_keys::{
 /// Maximum collections that one native bidding unlock may authorize.
 const MAX_BIDDING_MANDATE_COLLECTIONS: usize = 64;
 
+/// Fixed per-offer quantity while Userland supports only one-NFT offers.
+pub const BIDDING_MANDATE_MAX_OFFER_QUANTITY: u32 = 1;
+
 /// Untrusted Admin input proposed for one bidding bot start.
 #[derive(Clone, Debug)]
 pub struct BiddingMandateDraft {
     pub collections: Vec<BiddingCollectionMandateDraft>,
 }
 
-/// Per-collection limits proposed by the Admin WebView.
+/// Per-collection price limit proposed by the Admin WebView.
 #[derive(Clone, Debug)]
 pub struct BiddingCollectionMandateDraft {
     pub collection_id: u64,
     pub max_unit_bid_eth: String,
-    pub max_quantity: u32,
 }
 
 /// Immutable authority granted to one running bidding process.
@@ -115,13 +117,6 @@ impl BiddingMandate {
                     candidate.collection_id, candidate.chain_id
                 ));
             }
-            if proposed.max_quantity == 0 {
-                return Err(format!(
-                    "Collection {} maximum NFTs per offer must be greater than zero.",
-                    candidate.collection_id
-                ));
-            }
-
             collections.push(BiddingCollectionMandate {
                 collection_id: candidate.collection_id,
                 artgod_slug: candidate.artgod_slug.clone(),
@@ -132,7 +127,7 @@ impl BiddingMandate {
                     proposed.max_unit_bid_eth.as_str(),
                     candidate.collection_id,
                 )?,
-                max_quantity: proposed.max_quantity,
+                max_quantity: BIDDING_MANDATE_MAX_OFFER_QUANTITY,
             });
         }
 
@@ -266,14 +261,13 @@ mod tests {
     }
 
     #[test]
-    fn resolves_canonical_identity_and_exact_wei_limits() {
+    fn resolves_canonical_identity_price_limit_and_fixed_offer_quantity() {
         let mandate = BiddingMandate::resolve(
             1,
             BiddingMandateDraft {
                 collections: vec![BiddingCollectionMandateDraft {
                     collection_id: 7,
                     max_unit_bid_eth: "1.25".to_owned(),
-                    max_quantity: 3,
                 }],
             },
             vec![candidate(7)],
@@ -289,6 +283,10 @@ mod tests {
             format_wei_as_eth(&mandate.collections[0].max_unit_bid_wei).unwrap(),
             "1.25"
         );
+        assert_eq!(
+            mandate.collections[0].max_quantity,
+            BIDDING_MANDATE_MAX_OFFER_QUANTITY
+        );
     }
 
     #[test]
@@ -299,7 +297,6 @@ mod tests {
                 collections: vec![BiddingCollectionMandateDraft {
                     collection_id: 8,
                     max_unit_bid_eth: "1".to_owned(),
-                    max_quantity: 1,
                 }],
             },
             vec![candidate(7)],
@@ -314,12 +311,10 @@ mod tests {
                     BiddingCollectionMandateDraft {
                         collection_id: 7,
                         max_unit_bid_eth: "1".to_owned(),
-                        max_quantity: 1,
                     },
                     BiddingCollectionMandateDraft {
                         collection_id: 7,
                         max_unit_bid_eth: "2".to_owned(),
-                        max_quantity: 2,
                     },
                 ],
             },

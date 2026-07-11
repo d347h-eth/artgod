@@ -8,12 +8,12 @@ use tauri::{AppHandle, State};
 
 use crate::desktop_log::append_desktop_log;
 use crate::runtime::{
-    BackendCollectionCatalog, BiddingChainIdentity, BiddingCollectionCandidate,
-    BiddingCollectionCatalog, BiddingCollectionMandate, BiddingCollectionMandateDraft,
-    BiddingCollectionTokenScopeSummary, BiddingMandate, BiddingMandateDraft,
-    BiddingStartPolicySnapshot, BotCriticalDependencyStatus, BotRuntimeSnapshot, BotRuntimeState,
-    DesktopRuntimeConfig, DesktopWalletConfig, RuntimeManager, bot_runtime_spec,
-    build_trading_secret_envelope, format_wei_as_eth,
+    BIDDING_MANDATE_MAX_OFFER_QUANTITY, BackendCollectionCatalog, BiddingChainIdentity,
+    BiddingCollectionCandidate, BiddingCollectionCatalog, BiddingCollectionMandate,
+    BiddingCollectionMandateDraft, BiddingCollectionTokenScopeSummary, BiddingMandate,
+    BiddingMandateDraft, BiddingStartPolicySnapshot, BotCriticalDependencyStatus,
+    BotRuntimeSnapshot, BotRuntimeState, DesktopRuntimeConfig, DesktopWalletConfig, RuntimeManager,
+    bot_runtime_spec, build_trading_secret_envelope, format_wei_as_eth,
 };
 use crate::wallet::application::use_cases::{
     AssignWalletToBot, AssignWalletToBotError, AssignWalletToBotInput, UnlockWalletForBotStart,
@@ -509,6 +509,7 @@ pub struct BiddingCollectionCandidateDto {
 #[serde(rename_all = "camelCase")]
 pub struct BiddingCollectionCatalogDto {
     chain: BiddingChainIdentityDto,
+    max_offer_quantity: u32,
     collections: Vec<BiddingCollectionCandidateDto>,
 }
 
@@ -521,18 +522,17 @@ struct BiddingChainIdentityDto {
 
 /// Admin transport shape for a proposed native bidding mandate.
 #[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BiddingMandateDraftDto {
     collections: Vec<BiddingCollectionMandateDraftDto>,
 }
 
-/// Admin transport shape for one proposed collection cap.
+/// Admin transport shape for one proposed collection price cap.
 #[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BiddingCollectionMandateDraftDto {
     collection_id: u64,
     max_unit_bid_eth: String,
-    max_quantity: u32,
 }
 
 /// Admin transport shape for the authority held by the active process.
@@ -578,7 +578,6 @@ impl BiddingMandateDraftDto {
                 .map(|collection| BiddingCollectionMandateDraft {
                     collection_id: collection.collection_id,
                     max_unit_bid_eth: collection.max_unit_bid_eth,
-                    max_quantity: collection.max_quantity,
                 })
                 .collect(),
         }
@@ -602,6 +601,7 @@ impl BiddingCollectionCatalogDto {
     fn from_domain(catalog: &BiddingCollectionCatalog) -> Self {
         Self {
             chain: BiddingChainIdentityDto::from_domain(&catalog.chain),
+            max_offer_quantity: BIDDING_MANDATE_MAX_OFFER_QUANTITY,
             collections: catalog
                 .collections
                 .iter()
@@ -939,4 +939,24 @@ pub fn bot_stop(
     bot_kind: BotKindDto,
 ) -> Result<BotRuntimeDto, String> {
     state.stop_bot(&app, &desktop.runtime, bot_kind.into_domain())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::BiddingMandateDraftDto;
+
+    #[test]
+    fn bidding_draft_rejects_browser_offer_quantity_override() {
+        let draft = json!({
+            "collections": [{
+                "collectionId": 7,
+                "maxUnitBidEth": "1",
+                "maxQuantity": 99
+            }]
+        });
+
+        assert!(serde_json::from_value::<BiddingMandateDraftDto>(draft).is_err());
+    }
 }

@@ -678,7 +678,7 @@ Unlock rules:
 
 - passphrase prompt is always native
 - bidding policy review is always native and precedes passphrase submission
-- Admin supplies only proposed collection ids and caps; Rust supplies the displayed and injected ArtGod id, contract, token scope, and OpenSea slug
+- Admin supplies only proposed collection ids and WETH price caps; Rust supplies the displayed and injected ArtGod id, contract, token scope, OpenSea slug, and fixed one-NFT offer quantity
 - decrypt happens in Rust only
 - decrypted key lifetime in Rust must be as short as practical
 - the secret channel is one-shot and immediately closed after write
@@ -695,6 +695,10 @@ User-facing authorization review:
   OpenSea slug, contract address, and token scope
 - caps state both unit and denominator: `max WETH per NFT` and
   `max NFTs per offer`
+- Admin shows the fixed offer quantity as a read-only input with value `1`; the
+  native prompt and active summary show that same value
+- the WebView does not submit an offer quantity; Rust fixes it at one before
+  native review and signer enforcement
 - Admin, prompt, and active summary must show the same Rust-resolved identity and
   limits in the same terms
 
@@ -750,7 +754,7 @@ Current bidding metadata shape:
                     "items": []
                 },
                 "maxUnitBidWei": "1250000000000000000",
-                "maxQuantity": 2
+                "maxQuantity": 1
             }
         ]
     }

@@ -26,28 +26,27 @@ describe('bidding mandate draft', () => {
 		expect(formatBiddingChainIdentity({ chainId: 1, name: 'Ethereum' }, 10)).toBe('chain ID #10');
 	});
 
-	it('sends only collection ids and operator caps to Rust', () => {
+	it('sends only collection ids and operator price caps to Rust', () => {
 		const selections: BiddingMandateSelections = {
 			[CANDIDATE.collectionId]: {
 				selected: true,
-				maxUnitBidEth: '1.25',
-				maxQuantity: '2'
+				maxUnitBidEth: '1.25'
 			}
 		};
 
 		expect(buildBiddingMandateDraft([CANDIDATE], selections)).toEqual({
-			collections: [{ collectionId: 7, maxUnitBidEth: '1.25', maxQuantity: 2 }]
+			collections: [{ collectionId: 7, maxUnitBidEth: '1.25' }]
 		});
 	});
 
-	it('preserves caps only for candidates still returned by Rust', () => {
+	it('preserves price caps only for candidates still returned by Rust', () => {
 		const stale = {
-			'7': { selected: true, maxUnitBidEth: '0.5', maxQuantity: '3' },
-			'9': { selected: true, maxUnitBidEth: '4', maxQuantity: '1' }
+			'7': { selected: true, maxUnitBidEth: '0.5' },
+			'9': { selected: true, maxUnitBidEth: '4' }
 		};
 
 		expect(syncBiddingMandateSelections([CANDIDATE], stale)).toEqual({
-			'7': { selected: true, maxUnitBidEth: '0.5', maxQuantity: '3' }
+			'7': { selected: true, maxUnitBidEth: '0.5' }
 		});
 	});
 
@@ -55,7 +54,7 @@ describe('bidding mandate draft', () => {
 		expect(() => buildBiddingMandateDraft([CANDIDATE], {})).toThrow('Select at least one');
 		expect(() =>
 			buildBiddingMandateDraft([CANDIDATE], {
-				'7': { selected: true, maxUnitBidEth: '0.0', maxQuantity: '1' }
+				'7': { selected: true, maxUnitBidEth: '0.0' }
 			})
 		).toThrow('max WETH per NFT');
 	});

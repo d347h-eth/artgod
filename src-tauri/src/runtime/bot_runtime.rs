@@ -201,7 +201,8 @@ mod tests {
 
     fn test_bidding_mandate() -> BiddingMandate {
         use super::super::bidding_mandate::{
-            BiddingCollectionMandate, BiddingCollectionTokenScopeSummary,
+            BIDDING_MANDATE_MAX_OFFER_QUANTITY, BiddingCollectionMandate,
+            BiddingCollectionTokenScopeSummary,
         };
 
         BiddingMandate {
@@ -216,7 +217,7 @@ mod tests {
                     items: Vec::new(),
                 },
                 max_unit_bid_wei: "1250000000000000000".to_owned(),
-                max_quantity: 2,
+                max_quantity: BIDDING_MANDATE_MAX_OFFER_QUANTITY,
             }],
         }
     }

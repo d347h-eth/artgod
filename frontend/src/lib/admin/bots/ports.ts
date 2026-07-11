@@ -57,13 +57,13 @@ export type AdminBiddingCollectionCandidate = {
 
 export type AdminBiddingCollectionCatalog = {
 	chain: AdminBiddingChainIdentity;
+	maxOfferQuantity: number;
 	collections: AdminBiddingCollectionCandidate[];
 };
 
 export type AdminBiddingCollectionMandateDraft = {
 	collectionId: number;
 	maxUnitBidEth: string;
-	maxQuantity: number;
 };
 
 export type AdminBiddingMandateDraft = {
