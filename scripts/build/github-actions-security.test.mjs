@@ -81,7 +81,9 @@ test("separates signing, attestation, and publication trust boundaries", async (
     const releaseStagingIndex = releaseWorkflow.indexOf(
         "Stage GitHub release assets",
     );
-    const publicationIndex = releaseWorkflow.indexOf("Publish GitHub release");
+    const publicationIndex = releaseWorkflow.indexOf(
+        "Publish staged GitHub release",
+    );
     assert.ok(cleanupIndex >= 0 && cleanupIndex < firstArtifactActionIndex);
     assert.ok(releaseKeyIndex >= 0 && releaseKeyIndex < checksumIndex);
     assert.ok(
@@ -90,7 +92,23 @@ test("separates signing, attestation, and publication trust boundaries", async (
             releaseStagingIndex < publicationIndex,
     );
     const publishJob = extractWorkflowJob(releaseWorkflow, "publish-release");
-    assert.match(publishJob, /Stage GitHub release assets[\s\S]*draft:\s*true/);
+    const releaseActionReferences = publishJob.match(
+        /uses: softprops\/action-gh-release@/g,
+    );
+    assert.equal(releaseActionReferences?.length, 1);
+    assert.match(
+        publishJob,
+        /Stage GitHub release assets\n\s+id: staged-release[\s\S]*draft:\s*true/,
+    );
+    assert.match(
+        publishJob,
+        /Publish staged GitHub release\n\s+run: node \.\/scripts\/build\/github-release-publication\.mjs publish/,
+    );
+    assert.match(
+        publishJob,
+        /STAGED_GITHUB_RELEASE_ID:\s*\$\{\{ steps\.staged-release\.outputs\.id \}\}/,
+    );
+    assert.match(publishJob, /GITHUB_TOKEN:\s*\$\{\{ github\.token \}\}/);
     assert.match(
         releaseWorkflow,
         /DESKTOP_RELEASE_PUBLIC_KEY_FILE_NAME:\s*artgod-release-public\.asc/,
