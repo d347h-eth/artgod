@@ -288,11 +288,12 @@ original tag and source run ID. Verbose diagnostics and the pre-staple DMG
 are internal workflow artifacts, not GitHub Release assets. Diagnostic text is
 credential-redacted before upload.
 
-Before DMG assembly, `beforeBundleCommand` runs
-`scripts/build/macos-code-signing.mjs sign-staged` on the macOS runner. This
-signs staged executable/loadable Mach-O files copied as runtime resources or
-sidecars, including the bundled Node runtime, bundled NATS runtime, native
-`.node` add-ons, and the secret-prompt sidecar. The release workflow then runs
+During `beforeBuildCommand`, after runtime resources and sidecars are staged,
+`scripts/build/macos-code-signing.mjs sign-staged` runs on the macOS runner.
+This signs executable/loadable Mach-O files before Rust embeds the release
+wallet-recipient hashes, including the bundled Node runtime, bundled NATS
+runtime, native `.node` add-ons, and the secret-prompt sidecar. The release
+workflow then runs
 `scripts/build/macos-code-signing.mjs verify-dmg` against the produced DMG,
 mounts it, and verifies the contained `.app` before notarization. The bundled
 Node executable alone is signed with

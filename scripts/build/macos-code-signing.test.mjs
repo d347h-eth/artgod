@@ -19,6 +19,28 @@ const expectedEntitlements = {
     "com.apple.security.cs.allow-jit": true,
 };
 
+test("signs staged runtimes before Rust embeds their integrity hashes", async () => {
+    const tauriConfig = JSON.parse(
+        await readFile(
+            new URL("../../src-tauri/tauri.conf.json", import.meta.url),
+            "utf8",
+        ),
+    );
+    const buildCommand = tauriConfig.build.beforeBuildCommand;
+    const runtimeResourcesIndex = buildCommand.indexOf(
+        "build:desktop-runtime-resources",
+    );
+    const sidecarsIndex = buildCommand.indexOf("build:desktop-sidecars");
+    const signingIndex = buildCommand.indexOf(
+        "macos-code-signing.mjs sign-staged",
+    );
+
+    assert.ok(runtimeResourcesIndex >= 0);
+    assert.ok(sidecarsIndex > runtimeResourcesIndex);
+    assert.ok(signingIndex > sidecarsIndex);
+    assert.equal(tauriConfig.build.beforeBundleCommand, undefined);
+});
+
 test("applies the dedicated JIT entitlement only to bundled Node", async () => {
     const entitlementsPath =
         resolveMacOSCodeSigningEntitlements(stagedNodePath);

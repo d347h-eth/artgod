@@ -349,46 +349,6 @@ targets = ["local", "desktop"]
 help = "Directory containing the built userland UI served by the backend."
 
 [[settings]]
-key = "DESKTOP_RUNTIME_RESOURCES_DIR"
-group = "desktop-runtime"
-label = "desktop runtime resources dir"
-default = "runtime"
-targets = ["local", "desktop"]
-help = "Desktop resource directory containing bundled runtime artifacts."
-
-[[settings]]
-key = "DESKTOP_NODE_BIN"
-group = "desktop-runtime"
-label = "desktop node bin"
-default = ""
-targets = ["local", "desktop"]
-help = "Optional Node executable path; blank uses the Node bundled with desktop resources."
-
-[[settings]]
-key = "DESKTOP_NATS_BINARY_PATH"
-group = "desktop-runtime"
-label = "desktop nats binary path"
-default = ""
-targets = ["local", "desktop"]
-help = "Optional NATS server executable path; blank uses the NATS binary bundled with desktop resources."
-
-[[settings]]
-key = "DESKTOP_NODE_PNP_CJS"
-group = "desktop-runtime"
-label = "desktop node pnp cjs"
-default = ""
-targets = ["local", "desktop"]
-help = "Optional Yarn PnP CommonJS hook path for bundled Node runtimes."
-
-[[settings]]
-key = "DESKTOP_NODE_PNP_LOADER"
-group = "desktop-runtime"
-label = "desktop node pnp loader"
-default = ""
-targets = ["local", "desktop"]
-help = "Optional Yarn PnP ESM loader path for bundled Node runtimes."
-
-[[settings]]
 key = "DESKTOP_RESTART_BACKOFF_MS"
 group = "desktop-runtime"
 label = "desktop restart backoff ms"

@@ -159,8 +159,7 @@ What each command does:
 `src-tauri/tauri.conf.json` contains:
 
 - `beforeDevCommand = "yarn build:desktop-sidecars --profile debug && node ./scripts/build/dev-frontend-target.mjs admin"`
-- `beforeBuildCommand = "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release"`
-- `beforeBundleCommand = "node ./scripts/build/macos-code-signing.mjs sign-staged"`
+- `beforeBuildCommand = "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release && node ./scripts/build/macos-code-signing.mjs sign-staged"`
 - `frontendDist = "../frontend/dist"`
 
 This ensures `yarn tauri build ...` always has:
@@ -170,7 +169,8 @@ This ensures `yarn tauri build ...` always has:
 3. backend/indexer runtime `.mjs` artifacts
 4. staged runtime resources under `src-tauri/resources/runtime`
 5. staged native sidecar binaries under `src-tauri/binaries`
-6. macOS signatures on staged Mach-O runtime resources and sidecars before DMG assembly
+6. macOS signatures on staged Mach-O runtime resources and sidecars before
+   Rust embeds the wallet-recipient integrity manifest
 
 before final Tauri bundle generation starts.
 
@@ -263,7 +263,7 @@ Responsibilities:
 
 Responsibilities:
 
-- signs staged macOS executable/loadable Mach-O files under `src-tauri/resources/runtime` and `src-tauri/binaries` before Tauri generates the final bundle artifacts
+- signs staged macOS executable/loadable Mach-O files under `src-tauri/resources/runtime` and `src-tauri/binaries` before Rust embeds release integrity hashes and Tauri generates the final bundle artifacts
 - covers the bundled Node runtime, bundled NATS runtime, native `.node` add-ons from `.yarn/unplugged`, and the native secret-prompt sidecar
 - grants only the bundled Node executable the dedicated `com.apple.security.cs.allow-jit` entitlement required by V8 under hardened runtime; NATS, native libraries, the Tauri executable, and the secret-prompt sidecar do not receive that exception
 - skips non-macOS targets and local macOS builds without `APPLE_SIGNING_IDENTITY`
@@ -359,6 +359,28 @@ Produced sidecar artifacts:
 
 During Tauri build the sidecar is bundled through `bundle.externalBin` and invoked only from Rust through Tauri's `ShellExt` sidecar mechanism. The shell plugin remains initialized for that native adapter, while WebView capabilities grant no `shell:*` process permission.
 
+### Wallet Recipient Integrity
+
+Release builds embed SHA-256 hashes for the exact code and dependency file set
+that can execute inside a key-bearing bot process:
+
+- bundled Node under `runtime/node`
+- `.pnp.cjs` and `.pnp.loader.mjs`
+- the complete bundled `.yarn` dependency tree
+- wallet-bound artifacts and chunks under `runtime/trading`
+
+`src-tauri/build/runtime_integrity.rs` generates the Rust manifest after the
+resources are staged and, on macOS, after nested Mach-O signing. The manifest
+is compiled into the desktop executable rather than trusted from a mutable
+sidecar file.
+
+Before an unlock prompt opens, release runtime validation rejects missing,
+modified, added, unpinned, or symbolic-link entries anywhere in that protected
+closure. The exact Node executable, both loaders, and selected bot artifact
+must also appear in the embedded manifest. Debug builds keep the same fixed
+bundled paths but skip release hashing so staged resources can be rebuilt during
+development.
+
 ## Desktop Runtime Config Store
 
 Desktop configuration is Admin-managed in app-data. The Rust app creates config/log directories during setup, but it does not create a runnable `.env` or start the supervisor until the operator chooses a launch path in Admin UI.
@@ -383,14 +405,16 @@ Desktop-specific required keys:
 - `DESKTOP_RESTART_BACKOFF_MS`
 - `USERLAND_UI_DIST_DIR`
 
-Desktop-specific optional overrides:
+Desktop executable resources are not operator configuration:
 
-- `DESKTOP_NODE_BIN` (defaults to bundled `runtime/node/node(.exe)`)
-- `DESKTOP_NATS_BINARY_PATH` (defaults to bundled `runtime/nats/nats-server(.exe)`)
-  : JetStream storage is not left to the NATS default temp path. The desktop supervisor always starts bundled NATS with its store root at `<app-data>/nats`; JetStream files live under the NATS-created `jetstream` child.
-- `DESKTOP_RUNTIME_RESOURCES_DIR` (default `runtime`, resolved from app resource dir)
-- `DESKTOP_NODE_PNP_CJS` (default `.pnp.cjs`, resolved from runtime resources dir)
-- `DESKTOP_NODE_PNP_LOADER` (default `.pnp.loader.mjs`, resolved from runtime resources dir)
+- Node, NATS, Yarn PnP hooks, and runtime artifacts resolve only from the
+  canonical `runtime` directory bundled by Tauri.
+- Admin settings and the rendered `.env` cannot override executable, loader,
+  or runtime-resource paths.
+- JetStream storage is not left to the NATS default temp path. The desktop
+  supervisor always starts bundled NATS with its store root at
+  `<app-data>/nats`; JetStream files live under the NATS-created `jetstream`
+  child.
 
 Userland link settings:
 
@@ -502,6 +526,12 @@ Node artifacts are launched with Yarn PnP hooks:
 - `--experimental-loader <.pnp.loader.mjs>`
 
 This is required for correct module resolution in packaged desktop mode.
+
+Wallet-bound bot starts resolve the Node executable, both PnP hooks, the exact
+trading artifact, and configured child-process values into one immutable launch
+snapshot before the native unlock prompt opens. Saving Admin configuration
+while the prompt is open cannot redirect the process that receives the
+decrypted-key envelope.
 
 ## Shutdown and Restart Semantics
 

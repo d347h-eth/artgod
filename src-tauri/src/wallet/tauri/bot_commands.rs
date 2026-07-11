@@ -124,7 +124,9 @@ impl BotCommandState {
         runtime: &RuntimeManager,
         bot_kind: BotKind,
     ) -> Result<BotRuntimeDto, String> {
-        if let Some(reason) = resolve_bot_disabled_reason(app, bot_kind)? {
+        // Freeze all bot process inputs before showing the native unlock prompt.
+        let runtime_config = DesktopRuntimeConfig::load_or_create(app)?;
+        if let Some(reason) = resolve_bot_disabled_reason_from_config(&runtime_config, bot_kind)? {
             runtime.set_bot_runtime_state(
                 app,
                 bot_kind,
@@ -133,6 +135,16 @@ impl BotCommandState {
             )?;
             return Err(reason);
         }
+        let launch_config = runtime_config
+            .bot_runtime_launch_config(*bot_runtime_spec(bot_kind))
+            .map_err(|error| {
+                append_desktop_log(
+                    app,
+                    "error",
+                    &format!("Trading bot recipient validation failed: {error}"),
+                );
+                "Trading bot runtime failed security validation. See desktop-app logs.".to_owned()
+            })?;
 
         let wallets = self
             .store
@@ -210,7 +222,7 @@ impl BotCommandState {
             &unlocked_wallet.metadata.wallet_id,
             unlocked_wallet.metadata.address.as_str(),
             bot_kind,
-            DesktopRuntimeConfig::load_or_create(app)?.chain_id,
+            launch_config.chain_id,
             &unlocked_wallet.private_key,
         )
         .map_err(|error| {
@@ -230,7 +242,7 @@ impl BotCommandState {
 
         runtime.set_bot_runtime_state(app, bot_kind, BotRuntimeState::Starting, None)?;
         runtime
-            .start_bot_runtime(app.clone(), bot_kind, secret_envelope)
+            .start_bot_runtime(app.clone(), launch_config, secret_envelope)
             .map_err(|error| {
                 append_desktop_log(app, "error", &format!("Trading bot start failed: {error}"));
                 let _ = runtime.set_bot_runtime_state(
@@ -443,21 +455,46 @@ fn resolve_bot_disabled_reason(
     bot_kind: BotKind,
 ) -> Result<Option<String>, String> {
     let capabilities = DesktopRuntimeConfig::load_capabilities(app)?;
-    if !capabilities.opensea.enabled {
+    let process_env = DesktopRuntimeConfig::load_process_env(app)?;
+    resolve_bot_disabled_reason_from_parts(
+        capabilities.opensea.enabled,
+        capabilities.opensea.reason.as_deref(),
+        &process_env,
+        bot_kind,
+    )
+}
+
+fn resolve_bot_disabled_reason_from_config(
+    config: &DesktopRuntimeConfig,
+    bot_kind: BotKind,
+) -> Result<Option<String>, String> {
+    resolve_bot_disabled_reason_from_parts(
+        config.capabilities.opensea.enabled,
+        config.capabilities.opensea.reason.as_deref(),
+        &config.process_env,
+        bot_kind,
+    )
+}
+
+fn resolve_bot_disabled_reason_from_parts(
+    opensea_enabled: bool,
+    opensea_reason: Option<&str>,
+    process_env: &std::collections::HashMap<String, String>,
+    bot_kind: BotKind,
+) -> Result<Option<String>, String> {
+    if !opensea_enabled {
         return Ok(Some(
-            capabilities
-                .opensea
-                .reason
-                .unwrap_or_else(|| "OpenSea integration is disabled".to_owned()),
+            opensea_reason
+                .unwrap_or("OpenSea integration is disabled")
+                .to_owned(),
         ));
     }
 
-    let process_env = DesktopRuntimeConfig::load_process_env(app)?;
     if bot_kind == BotKind::Bidding {
-        if !parse_optional_bool(&process_env, "BIDDING_ENABLED", true)? {
+        if !parse_optional_bool(process_env, "BIDDING_ENABLED", true)? {
             return Ok(Some("BIDDING_ENABLED=false".to_owned()));
         }
-        let missing = missing_env_keys(&process_env, BIDDING_OPEN_SEA_SECRET_KEYS);
+        let missing = missing_env_keys(process_env, BIDDING_OPEN_SEA_SECRET_KEYS);
         if !missing.is_empty() {
             return Ok(Some(format!(
                 "Bidding bot disabled because {} {} not configured",

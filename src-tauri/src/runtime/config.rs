@@ -1,11 +1,18 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
 
 use super::app_config::{ensure_desktop_config_paths, load_or_materialize_process_env};
+use super::bot_runtime::BotRuntimeSpec;
 use super::env_keys::{COMMON_MEDIA_CACHE_DIR_ENV_KEY, RPC_ENDPOINT_LIST_ENV_KEY};
+use super::resource_contract::{
+    BUNDLED_RUNTIME_DIR_NAME, MACOS_BUNDLE_RESOURCES_DIR_NAME, NATS_BINARY_RELATIVE_PATH,
+    NODE_BINARY_RELATIVE_PATH, PNP_CJS_RELATIVE_PATH, PNP_LOADER_RELATIVE_PATH,
+    TAURI_BUNDLED_RESOURCES_DIR_NAME,
+};
+use super::runtime_integrity::verify_wallet_recipient_runtime;
 
 pub struct DesktopRuntimeConfig {
     pub env_file_path: PathBuf,
@@ -29,14 +36,21 @@ pub struct DesktopRuntimeConfig {
     pub wallet: DesktopWalletConfig,
 }
 
+/// Immutable executable/config snapshot used from native unlock through bot spawn.
+pub(crate) struct BotRuntimeLaunchConfig {
+    pub(crate) spec: BotRuntimeSpec,
+    pub(crate) artifact_path: PathBuf,
+    pub(crate) node_bin: PathBuf,
+    pub(crate) runtime_dir: PathBuf,
+    pub(crate) pnp_cjs_path: PathBuf,
+    pub(crate) pnp_loader_path: PathBuf,
+    pub(crate) chain_id: u64,
+    pub(crate) process_env: HashMap<String, String>,
+    pub(crate) logs_dir: PathBuf,
+}
+
 /// App-data child directory passed as the embedded NATS store root.
 pub(crate) const NATS_STORAGE_DIR_NAME: &str = "nats";
-
-/// Directory name Tauri preserves when bundling `src-tauri/resources`.
-const TAURI_BUNDLED_RESOURCES_DIR_NAME: &str = "resources";
-
-/// macOS bundle resources directory relative to the executable directory.
-const MACOS_BUNDLE_RESOURCES_DIR_NAME: &str = "Resources";
 
 #[derive(Clone, Debug)]
 pub struct DesktopRuntimeCapabilities {
@@ -86,68 +100,28 @@ impl DesktopRuntimeConfig {
             return Err("Desktop configuration has not been saved yet.".to_owned());
         };
 
-        let runtime_dir = resolve_runtime_resources_dir(
-            app,
-            process_env
-                .get("DESKTOP_RUNTIME_RESOURCES_DIR")
-                .map(String::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .unwrap_or("runtime"),
+        let runtime_dir = resolve_runtime_resources_dir(app)?;
+        let node_bin = resolve_bundled_runtime_file(
+            &runtime_dir,
+            NODE_BINARY_RELATIVE_PATH,
+            "Desktop Node binary",
         )?;
-        let node_bin = resolve_node_binary_path(
+        let nats_bin = resolve_bundled_runtime_file(
             &runtime_dir,
-            process_env.get("DESKTOP_NODE_BIN").map(String::as_str),
-        );
-        if !node_bin.exists() {
-            return Err(format!(
-                "Desktop Node binary not found: {} (set DESKTOP_NODE_BIN to override)",
-                node_bin.display()
-            ));
-        }
-        let nats_bin = resolve_nats_binary_path(
-            &runtime_dir,
-            process_env
-                .get("DESKTOP_NATS_BINARY_PATH")
-                .map(String::as_str),
-        );
-        if !nats_bin.exists() {
-            return Err(format!(
-                "Desktop NATS binary not found: {} (set DESKTOP_NATS_BINARY_PATH to override)",
-                nats_bin.display()
-            ));
-        }
+            NATS_BINARY_RELATIVE_PATH,
+            "Desktop NATS binary",
+        )?;
         let nats_store_dir = build_nats_store_dir(&app_data_dir)?;
-        let pnp_cjs_path = resolve_from_base_dir(
+        let pnp_cjs_path = resolve_bundled_runtime_file(
             &runtime_dir,
-            process_env
-                .get("DESKTOP_NODE_PNP_CJS")
-                .map(String::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .unwrap_or(".pnp.cjs"),
-        );
-        if !pnp_cjs_path.exists() {
-            return Err(format!(
-                "DESKTOP_NODE_PNP_CJS does not exist: {}",
-                pnp_cjs_path.display()
-            ));
-        }
-        let pnp_loader_path = resolve_from_base_dir(
+            PNP_CJS_RELATIVE_PATH,
+            "Yarn PnP CommonJS hook",
+        )?;
+        let pnp_loader_path = resolve_bundled_runtime_file(
             &runtime_dir,
-            process_env
-                .get("DESKTOP_NODE_PNP_LOADER")
-                .map(String::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .unwrap_or(".pnp.loader.mjs"),
-        );
-        if !pnp_loader_path.exists() {
-            return Err(format!(
-                "DESKTOP_NODE_PNP_LOADER does not exist: {}",
-                pnp_loader_path.display()
-            ));
-        }
+            PNP_LOADER_RELATIVE_PATH,
+            "Yarn PnP ESM loader",
+        )?;
         let backend_port = parse_port(get_required(&process_env, "BACKEND_PORT")?)?;
         let chain_id = parse_u64(get_required(&process_env, "CHAIN_ID")?)?;
         let auto_start = parse_bool(get_required(&process_env, "DESKTOP_AUTO_START")?)?;
@@ -253,6 +227,39 @@ impl DesktopRuntimeConfig {
 
     pub fn nats_url(&self) -> String {
         self.nats_url.clone()
+    }
+
+    /// Freezes the exact trusted recipient and process environment before an unlock prompt.
+    pub(crate) fn bot_runtime_launch_config(
+        &self,
+        spec: BotRuntimeSpec,
+    ) -> Result<BotRuntimeLaunchConfig, String> {
+        let artifact_path = resolve_bundled_runtime_file(
+            &self.runtime_dir,
+            spec.artifact_relative_path,
+            "Trading bot runtime artifact",
+        )?;
+        verify_wallet_recipient_runtime(
+            &self.runtime_dir,
+            &[
+                &self.node_bin,
+                &self.pnp_cjs_path,
+                &self.pnp_loader_path,
+                &artifact_path,
+            ],
+        )?;
+
+        Ok(BotRuntimeLaunchConfig {
+            spec,
+            artifact_path,
+            node_bin: self.node_bin.clone(),
+            runtime_dir: self.runtime_dir.clone(),
+            pnp_cjs_path: self.pnp_cjs_path.clone(),
+            pnp_loader_path: self.pnp_loader_path.clone(),
+            chain_id: self.chain_id,
+            process_env: self.process_env.clone(),
+            logs_dir: self.logs_dir.clone(),
+        })
     }
 }
 
@@ -476,23 +483,40 @@ fn resolve_from_base_dir(base_dir: &Path, raw_path: &str) -> PathBuf {
     base_dir.join(raw)
 }
 
-fn resolve_runtime_resources_dir(
-    app: &AppHandle,
-    raw_runtime_subdir: &str,
-) -> Result<PathBuf, String> {
+fn resolve_runtime_resources_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let resource_dir = app.path().resource_dir().ok();
     let current_exe = std::env::current_exe().ok();
     let exe_dir = current_exe.as_deref().and_then(Path::parent);
-    let candidates = build_runtime_resources_dir_candidates(
-        resource_dir.as_deref(),
-        exe_dir,
-        raw_runtime_subdir,
-    );
+    let candidates = build_runtime_resources_dir_candidates(resource_dir.as_deref(), exe_dir);
 
     for candidate in &candidates {
-        if candidate.exists() {
-            return Ok(candidate.to_path_buf());
+        if !candidate.exists() {
+            continue;
         }
+        let metadata = fs::symlink_metadata(candidate).map_err(|error| {
+            format!(
+                "Failed to inspect bundled runtime resources {}: {error}",
+                candidate.display()
+            )
+        })?;
+        if metadata.file_type().is_symlink() {
+            return Err(format!(
+                "Bundled runtime resources directory must not be a symbolic link: {}",
+                candidate.display()
+            ));
+        }
+        if !metadata.is_dir() {
+            return Err(format!(
+                "Bundled runtime resources path is not a directory: {}",
+                candidate.display()
+            ));
+        }
+        return fs::canonicalize(candidate).map_err(|error| {
+            format!(
+                "Failed to canonicalize bundled runtime resources {}: {error}",
+                candidate.display()
+            )
+        });
     }
 
     let checked = if candidates.is_empty() {
@@ -513,27 +537,26 @@ fn resolve_runtime_resources_dir(
 fn build_runtime_resources_dir_candidates(
     resource_dir: Option<&Path>,
     exe_dir: Option<&Path>,
-    raw_runtime_subdir: &str,
 ) -> Vec<PathBuf> {
     let mut candidates = Vec::<PathBuf>::new();
 
     if let Some(resource_dir) = resource_dir {
-        candidates.push(resolve_from_base_dir(resource_dir, raw_runtime_subdir));
+        candidates.push(resource_dir.join(BUNDLED_RUNTIME_DIR_NAME));
         candidates.push(resolve_from_base_dir(
             resource_dir,
-            &format!("{TAURI_BUNDLED_RESOURCES_DIR_NAME}/{raw_runtime_subdir}"),
+            &format!("{TAURI_BUNDLED_RESOURCES_DIR_NAME}/{BUNDLED_RUNTIME_DIR_NAME}"),
         ));
     }
 
     if let Some(exe_dir) = exe_dir {
-        candidates.push(resolve_from_base_dir(exe_dir, raw_runtime_subdir));
+        candidates.push(exe_dir.join(BUNDLED_RUNTIME_DIR_NAME));
         candidates.push(resolve_from_base_dir(
             exe_dir,
-            &format!("{TAURI_BUNDLED_RESOURCES_DIR_NAME}/{raw_runtime_subdir}"),
+            &format!("{TAURI_BUNDLED_RESOURCES_DIR_NAME}/{BUNDLED_RUNTIME_DIR_NAME}"),
         ));
         candidates.push(resolve_from_base_dir(
             exe_dir,
-            &format!("../{MACOS_BUNDLE_RESOURCES_DIR_NAME}/{raw_runtime_subdir}"),
+            &format!("../{MACOS_BUNDLE_RESOURCES_DIR_NAME}/{BUNDLED_RUNTIME_DIR_NAME}"),
         ));
     }
 
@@ -542,35 +565,99 @@ fn build_runtime_resources_dir_candidates(
     candidates
 }
 
-fn resolve_node_binary_path(runtime_dir: &Path, raw_override: Option<&str>) -> PathBuf {
-    let default_relative = if cfg!(windows) {
-        "node/node.exe"
-    } else {
-        "node/node"
-    };
-    let raw = raw_override
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(default_relative);
-    resolve_from_base_dir(runtime_dir, raw)
-}
-
-fn resolve_nats_binary_path(runtime_dir: &Path, raw_override: Option<&str>) -> PathBuf {
-    let default_relative = if cfg!(windows) {
-        "nats/nats-server.exe"
-    } else {
-        "nats/nats-server"
-    };
-    let raw = raw_override
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(default_relative);
-    resolve_from_base_dir(runtime_dir, raw)
+fn resolve_bundled_runtime_file(
+    runtime_dir: &Path,
+    relative_path: &str,
+    label: &str,
+) -> Result<PathBuf, String> {
+    let relative_path = Path::new(relative_path);
+    if relative_path.is_absolute()
+        || relative_path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err(format!(
+            "{label} path must be a normalized bundled-resource path: {}",
+            relative_path.display()
+        ));
+    }
+    let candidate = runtime_dir.join(relative_path);
+    let metadata = fs::symlink_metadata(&candidate)
+        .map_err(|error| format!("{label} is unavailable at {}: {error}", candidate.display()))?;
+    if metadata.file_type().is_symlink() {
+        return Err(format!(
+            "{label} must not be a symbolic link: {}",
+            candidate.display()
+        ));
+    }
+    if !metadata.is_file() {
+        return Err(format!("{label} is not a file: {}", candidate.display()));
+    }
+    let canonical = fs::canonicalize(&candidate).map_err(|error| {
+        format!(
+            "Failed to canonicalize {label} {}: {error}",
+            candidate.display()
+        )
+    })?;
+    if !canonical.starts_with(runtime_dir) {
+        return Err(format!(
+            "{label} escapes bundled runtime resources: {}",
+            canonical.display()
+        ));
+    }
+    Ok(canonical)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::bot_runtime::BIDDING_BOT_SPEC;
+
+    fn write_runtime_file(runtime_dir: &Path, relative_path: &str) -> PathBuf {
+        let path = runtime_dir.join(relative_path);
+        fs::create_dir_all(path.parent().expect("runtime file parent")).expect("create parent");
+        fs::write(&path, relative_path.as_bytes()).expect("write runtime file");
+        fs::canonicalize(path).expect("canonical runtime file")
+    }
+
+    fn build_snapshot_test_config(runtime_dir: &Path) -> DesktopRuntimeConfig {
+        let runtime_dir = fs::canonicalize(runtime_dir).expect("canonical runtime dir");
+        let node_bin = write_runtime_file(&runtime_dir, NODE_BINARY_RELATIVE_PATH);
+        let nats_bin = write_runtime_file(&runtime_dir, NATS_BINARY_RELATIVE_PATH);
+        let pnp_cjs_path = write_runtime_file(&runtime_dir, PNP_CJS_RELATIVE_PATH);
+        let pnp_loader_path = write_runtime_file(&runtime_dir, PNP_LOADER_RELATIVE_PATH);
+        write_runtime_file(&runtime_dir, BIDDING_BOT_SPEC.artifact_relative_path);
+        let app_data_dir = runtime_dir.join("app-data");
+
+        DesktopRuntimeConfig {
+            env_file_path: app_data_dir.join("config/.env"),
+            node_bin,
+            nats_bin,
+            nats_store_dir: app_data_dir.join(NATS_STORAGE_DIR_NAME),
+            runtime_dir: runtime_dir.clone(),
+            pnp_cjs_path,
+            pnp_loader_path,
+            nats_host: "127.0.0.1".to_owned(),
+            nats_port: 42720,
+            nats_url: "nats://127.0.0.1:42720".to_owned(),
+            backend_port: 42710,
+            chain_id: 1,
+            auto_start: true,
+            restart_backoff_ms: 1_500,
+            process_env: HashMap::from([(
+                COMMON_MEDIA_CACHE_DIR_ENV_KEY.to_owned(),
+                app_data_dir.join("media").to_string_lossy().into_owned(),
+            )]),
+            logs_dir: app_data_dir.join("logs"),
+            capabilities: build_runtime_capabilities(&HashMap::new())
+                .expect("test capabilities should resolve"),
+            wallet: DesktopWalletConfig {
+                store_dir: app_data_dir.join("wallets"),
+                index_path: app_data_dir.join("wallets/index.json"),
+                bot_unlock_stabilization_delay_ms: 5_000,
+            },
+        }
+    }
 
     #[test]
     fn opensea_auto_without_api_key_is_disabled() {
@@ -630,11 +717,53 @@ mod tests {
         let resource_dir = Path::new("/tmp/.mount_ArtGod/usr/lib/ArtGod");
         let exe_dir = Path::new("/tmp/.mount_ArtGod/usr/bin");
 
-        let candidates =
-            build_runtime_resources_dir_candidates(Some(resource_dir), Some(exe_dir), "runtime");
+        let candidates = build_runtime_resources_dir_candidates(Some(resource_dir), Some(exe_dir));
 
         assert!(candidates.contains(&resource_dir.join("resources/runtime")));
         assert!(candidates.contains(&resource_dir.join("runtime")));
         assert!(candidates.contains(&exe_dir.join("runtime")));
+    }
+
+    #[test]
+    fn bot_launch_snapshot_ignores_config_mutation_while_prompt_is_open() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut config = build_snapshot_test_config(temp.path());
+        let launch = config
+            .bot_runtime_launch_config(BIDDING_BOT_SPEC)
+            .expect("launch config should freeze");
+        let original_node = launch.node_bin.clone();
+        let original_runtime_dir = launch.runtime_dir.clone();
+        let original_pnp_cjs = launch.pnp_cjs_path.clone();
+        let original_pnp_loader = launch.pnp_loader_path.clone();
+        let original_artifact = launch.artifact_path.clone();
+        let original_media_dir = launch
+            .process_env
+            .get(COMMON_MEDIA_CACHE_DIR_ENV_KEY)
+            .cloned();
+
+        // This represents Admin settings changing after the native prompt opens.
+        config.node_bin = temp.path().join("attacker-node");
+        config.runtime_dir = temp.path().join("attacker-runtime");
+        config.pnp_cjs_path = temp.path().join("attacker-pnp-cjs");
+        config.pnp_loader_path = temp.path().join("attacker-pnp-loader");
+        config.chain_id = 31337;
+        config.process_env.insert(
+            COMMON_MEDIA_CACHE_DIR_ENV_KEY.to_owned(),
+            temp.path()
+                .join("attacker-media")
+                .to_string_lossy()
+                .into_owned(),
+        );
+
+        assert_eq!(launch.node_bin, original_node);
+        assert_eq!(launch.runtime_dir, original_runtime_dir);
+        assert_eq!(launch.pnp_cjs_path, original_pnp_cjs);
+        assert_eq!(launch.pnp_loader_path, original_pnp_loader);
+        assert_eq!(launch.artifact_path, original_artifact);
+        assert_eq!(launch.chain_id, 1);
+        assert_eq!(
+            launch.process_env.get(COMMON_MEDIA_CACHE_DIR_ENV_KEY),
+            original_media_dir.as_ref()
+        );
     }
 }
