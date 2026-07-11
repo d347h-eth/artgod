@@ -13,6 +13,9 @@ import {
 import { BIDDING_CONFIG_ENV_KEY } from "@artgod/shared/config/bidding";
 import { RPC_ENDPOINT_LIST_ENV_KEY } from "@artgod/shared/config/rpc-endpoints";
 import {
+    BIDDING_DEFAULT_WETH_APPROVAL_MAX_GAS_FEE_ETH,
+} from "./bidding-defaults.js";
+import {
     loadTradingConfig,
     TRADING_METRICS_ENV_KEY,
 } from "./trading-config.js";
@@ -93,7 +96,7 @@ describe("loadTradingConfig", () => {
         assert.equal(config.bidding.wethAllowanceCapWei, 0n);
         assert.equal(
             config.bidding.wethApprovalMaxGasFeeWei,
-            parseEther("0.005"),
+            parseEther(BIDDING_DEFAULT_WETH_APPROVAL_MAX_GAS_FEE_ETH),
         );
         assert.deepEqual(config.bidding.transactionPolicy, {
             fees: {
