@@ -253,10 +253,13 @@ fn build_bidding_mandate_review_pages(summary: &UnlockBiddingMandateSummary) -> 
             )
         }));
         lines.push(format!(
-            "Maximum unit bid: {} WETH",
+            "Maximum WETH per NFT: {}",
             compact_prompt_value(collection.max_unit_bid_eth.as_str())
         ));
-        lines.push(format!("Maximum quantity: {}", collection.max_quantity));
+        lines.push(format!(
+            "Maximum NFTs per offer: {}",
+            collection.max_quantity
+        ));
         pages.push(lines.join("\n"));
     }
     pages

@@ -331,7 +331,7 @@
 														</div>
 														<div class="bootstrap-form bidding-mandate-caps">
 															<label class="bootstrap-form-row">
-																<span>max WETH / NFT</span>
+																<span>max WETH per NFT</span>
 																<input
 																	type="text"
 																	class="bootstrap-control"
@@ -345,7 +345,7 @@
 																/>
 															</label>
 															<label class="bootstrap-form-row">
-																<span>max quantity</span>
+																<span>max NFTs per offer</span>
 																<input
 																	type="text"
 																	class="bootstrap-control"
@@ -389,11 +389,11 @@
 														<span class="runtime-v">{formatBiddingMandateTokenScope(collection.tokenScope)}</span>
 													</div>
 													<div>
-														<span class="runtime-k">max WETH / NFT</span>
+														<span class="runtime-k">max WETH per NFT</span>
 														<span class="runtime-v">{formatBiddingMandateWeiAsEth(collection.maxUnitBidWei)}</span>
 													</div>
 													<div>
-														<span class="runtime-k">max quantity</span>
+														<span class="runtime-k">max NFTs per offer</span>
 														<span class="runtime-v">{collection.maxQuantity}</span>
 													</div>
 												</div>

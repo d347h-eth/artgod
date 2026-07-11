@@ -49,7 +49,7 @@ describe('bidding mandate draft', () => {
 			buildBiddingMandateDraft([CANDIDATE], {
 				'7': { selected: true, maxUnitBidEth: '0.0', maxQuantity: '1' }
 			})
-		).toThrow('max unit bid');
+		).toThrow('max WETH per NFT');
 	});
 
 	it('formats active native wei caps without floating point conversion', () => {

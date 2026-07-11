@@ -62,7 +62,7 @@ impl BackendCollectionCatalog {
             let response = request
                 .send()
                 .await
-                .map_err(|error| format!("Collection catalog request failed: {error}"))?
+                .map_err(|_| "Start infra to use Bots.".to_owned())?
                 .error_for_status()
                 .map_err(|error| format!("Collection catalog request was rejected: {error}"))?
                 .json::<ListCollectionsResponse>()

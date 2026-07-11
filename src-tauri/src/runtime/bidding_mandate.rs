@@ -117,7 +117,7 @@ impl BiddingMandate {
             }
             if proposed.max_quantity == 0 {
                 return Err(format!(
-                    "Collection {} maximum quantity must be greater than zero.",
+                    "Collection {} maximum NFTs per offer must be greater than zero.",
                     candidate.collection_id
                 ));
             }

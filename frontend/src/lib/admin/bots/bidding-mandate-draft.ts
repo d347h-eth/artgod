@@ -46,12 +46,12 @@ export function buildBiddingMandateDraft(
 		const maxUnitBidEth = selection.maxUnitBidEth.trim();
 		if (!POSITIVE_ETH_PATTERN.test(maxUnitBidEth) || ZERO_ETH_PATTERN.test(maxUnitBidEth)) {
 			throw new Error(
-				`${candidate.artgodSlug}: max unit bid must be positive with at most 18 decimals.`
+				`${candidate.artgodSlug}: max WETH per NFT must be positive with at most 18 decimals.`
 			);
 		}
 		const maxQuantity = Number(selection.maxQuantity);
 		if (!Number.isSafeInteger(maxQuantity) || maxQuantity <= 0) {
-			throw new Error(`${candidate.artgodSlug}: max quantity must be a positive integer.`);
+			throw new Error(`${candidate.artgodSlug}: max NFTs per offer must be a positive integer.`);
 		}
 		return [{ collectionId: candidate.collectionId, maxUnitBidEth, maxQuantity }];
 	});
