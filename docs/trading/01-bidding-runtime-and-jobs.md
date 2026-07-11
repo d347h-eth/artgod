@@ -430,9 +430,10 @@ Trading-specific rules:
 - OpenSea cannot create approval transactions; only ArtGod's allowance adapter
   receives the transaction-capable wallet client
 - `BIDDING_TX_MAX_FEE_GWEI` caps the approval transaction fee per gas unit
-- `BIDDING_TX_MAX_TOTAL_FEE_ETH` separately caps its worst-case total fee as
-  explicit gas limit times selected max fee per gas; the explicit limit is the
-  node estimate plus 20% headroom, and gas estimation fails closed
+- `BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ETH` separately caps its worst-case network
+  gas fee as explicit gas limit times selected max fee per gas; it does not cap
+  OpenSea or order fees. The explicit limit is the node estimate plus 20%
+  headroom, and gas estimation fails closed
 - onchain transactions use the shared EVM transaction policy from `@artgod/shared/evm/transactions`
 - Admin `Bots` shows the effective live/dry-run mode, allowance cap, both fee
   caps, pending-nonce policy, and trait SignedZone trust beside the start action
@@ -458,7 +459,8 @@ Bidding runtime groups:
 - WETH allowance cap: `BIDDING_WETH_ALLOWANCE_ETH`
 - OpenSea SignedZone trait-placement trust:
   `BIDDING_TRUST_OPENSEA_SIGNED_ZONE_FOR_TRAIT_OFFERS`
-- EIP-1559 fee/nonce policy and total approval fee cap: `BIDDING_TX_*`
+- EIP-1559 fee/nonce policy: `BIDDING_TX_*`
+- WETH approval gas-fee cap: `BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ETH`
 
 The indexer `OPENSEA_API_KEY` remains dedicated to indexer/offchain ingestion and should not be merged with bot keys by convenience.
 

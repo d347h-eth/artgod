@@ -21,10 +21,10 @@ const APPROVAL_RECEIPT_WAIT_LOG_INTERVAL_MS = 15_000;
 const APPROVAL_GAS_LIMIT_HEADROOM_BPS = 12_000n;
 const BASIS_POINTS_DENOMINATOR = 10_000n;
 const WETH_APPROVAL_LOG_FIELD = {
-    GasEstimateWei: "gasEstimateWei",
+    GasEstimate: "gasEstimate",
     GasLimit: "gasLimit",
-    WorstCaseTotalFeeWei: "worstCaseTotalFeeWei",
-    ConfiguredMaxTotalFeeWei: "configuredMaxTotalFeeWei",
+    WorstCaseGasFeeWei: "worstCaseGasFeeWei",
+    ConfiguredMaxGasFeeWei: "configuredMaxGasFeeWei",
 } as const;
 const log = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.WethAllowanceApprovalService,
@@ -109,9 +109,9 @@ export const WETH_ALLOWANCE_RECONCILIATION_STATUS = {
     Updated: "updated",
 } as const;
 
-// Stable error prefix emitted when explicit approval gas cannot fit the operator's total fee cap.
-export const WETH_APPROVAL_TOTAL_FEE_CAP_ERROR =
-    "WETH approval worst-case total fee exceeds configured cap";
+// Stable error prefix emitted when explicit approval gas cannot fit the operator's gas fee cap.
+export const WETH_APPROVAL_GAS_FEE_CAP_ERROR =
+    "WETH approval worst-case gas fee exceeds configured cap";
 
 // Stable error prefix emitted when the confirmed approval did not establish the exact configured cap.
 export const WETH_ALLOWANCE_POST_CONFIRMATION_ERROR =
@@ -131,7 +131,7 @@ type PreparedWethApprovalTransaction = {
     transactionPolicy: EvmPreparedTransactionPolicy;
     gasEstimate: bigint;
     gasLimit: bigint;
-    worstCaseTotalFeeWei: bigint;
+    worstCaseGasFeeWei: bigint;
 };
 
 // ViemWethAllowanceApprovalService owns the startup WETH approval transaction for OpenSea bidding.
@@ -146,7 +146,7 @@ export class ViemWethAllowanceApprovalService {
         wethAddress: string,
         spenderAddress: string,
         transactionPolicyConfig: EvmTransactionPolicyConfig,
-        private readonly maxTotalFeeWei: bigint,
+        private readonly maxGasFeeWei: bigint,
     ) {
         this.wethAddress = getAddress(wethAddress);
         this.spenderAddress = getAddress(spenderAddress);
@@ -157,8 +157,8 @@ export class ViemWethAllowanceApprovalService {
                 onEvent: logTransactionPolicyEvent,
             },
         );
-        if (maxTotalFeeWei <= 0n) {
-            throw new Error("WETH approval maximum total fee must be positive");
+        if (maxGasFeeWei <= 0n) {
+            throw new Error("WETH approval maximum gas fee must be positive");
         }
     }
 
@@ -307,14 +307,14 @@ export class ViemWethAllowanceApprovalService {
                 maxPriorityFeePerGasGwei: formatWeiAsGwei(
                     preparedApproval.transactionPolicy.maxPriorityFeePerGasWei,
                 ),
-                [WETH_APPROVAL_LOG_FIELD.GasEstimateWei]:
+                [WETH_APPROVAL_LOG_FIELD.GasEstimate]:
                     preparedApproval.gasEstimate.toString(),
                 [WETH_APPROVAL_LOG_FIELD.GasLimit]:
                     preparedApproval.gasLimit.toString(),
-                [WETH_APPROVAL_LOG_FIELD.WorstCaseTotalFeeWei]:
-                    preparedApproval.worstCaseTotalFeeWei.toString(),
-                [WETH_APPROVAL_LOG_FIELD.ConfiguredMaxTotalFeeWei]:
-                    this.maxTotalFeeWei.toString(),
+                [WETH_APPROVAL_LOG_FIELD.WorstCaseGasFeeWei]:
+                    preparedApproval.worstCaseGasFeeWei.toString(),
+                [WETH_APPROVAL_LOG_FIELD.ConfiguredMaxGasFeeWei]:
+                    this.maxGasFeeWei.toString(),
             },
         );
         let transactionHash: Hash;
@@ -479,21 +479,21 @@ export class ViemWethAllowanceApprovalService {
             gasEstimate,
             APPROVAL_GAS_LIMIT_HEADROOM_BPS,
         );
-        const worstCaseTotalFeeWei =
+        const worstCaseGasFeeWei =
             gasLimit * transactionPolicy.maxFeePerGasWei;
-        if (worstCaseTotalFeeWei > this.maxTotalFeeWei) {
+        if (worstCaseGasFeeWei > this.maxGasFeeWei) {
             throw new Error(
-                `${WETH_APPROVAL_TOTAL_FEE_CAP_ERROR}: worstCase=${worstCaseTotalFeeWei} wei, cap=${this.maxTotalFeeWei} wei`,
+                `${WETH_APPROVAL_GAS_FEE_CAP_ERROR}: worstCase=${worstCaseGasFeeWei} wei, cap=${this.maxGasFeeWei} wei`,
             );
         }
 
         log.info("approvalPolicyReady", "Approval transaction policy ready", {
-            [WETH_APPROVAL_LOG_FIELD.GasEstimateWei]: gasEstimate.toString(),
+            [WETH_APPROVAL_LOG_FIELD.GasEstimate]: gasEstimate.toString(),
             [WETH_APPROVAL_LOG_FIELD.GasLimit]: gasLimit.toString(),
-            [WETH_APPROVAL_LOG_FIELD.WorstCaseTotalFeeWei]:
-                worstCaseTotalFeeWei.toString(),
-            [WETH_APPROVAL_LOG_FIELD.ConfiguredMaxTotalFeeWei]:
-                this.maxTotalFeeWei.toString(),
+            [WETH_APPROVAL_LOG_FIELD.WorstCaseGasFeeWei]:
+                worstCaseGasFeeWei.toString(),
+            [WETH_APPROVAL_LOG_FIELD.ConfiguredMaxGasFeeWei]:
+                this.maxGasFeeWei.toString(),
             baseFeePerGasWei: transactionPolicy.baseFeePerGasWei.toString(),
             baseFeePerGasGwei: formatWeiAsGwei(
                 transactionPolicy.baseFeePerGasWei,
@@ -542,7 +542,7 @@ export class ViemWethAllowanceApprovalService {
             transactionPolicy,
             gasEstimate,
             gasLimit,
-            worstCaseTotalFeeWei,
+            worstCaseGasFeeWei,
         };
     }
 
@@ -575,7 +575,7 @@ export class ViemWethAllowanceApprovalService {
                 },
             );
             throw new Error(
-                "Cannot enforce WETH approval total fee cap without a gas estimate",
+                "Cannot enforce WETH approval gas fee cap without a gas estimate",
                 {
                     cause: error,
                 },

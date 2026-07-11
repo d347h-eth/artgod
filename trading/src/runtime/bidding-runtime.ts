@@ -265,7 +265,7 @@ export async function startBiddingRuntime(
         params.config.tokens.wethAddress,
         OPENSEA_MAINNET_SECURITY_POLICY.conduitAddress,
         params.biddingConfig.transactionPolicy,
-        params.biddingConfig.wethAllowanceTransactionMaxTotalFeeWei,
+        params.biddingConfig.wethApprovalMaxGasFeeWei,
     );
 
     const allowanceApprovalTotal = 1;

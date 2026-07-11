@@ -15,7 +15,7 @@ export const BIDDING_CONFIG_ENV_KEY = {
     TxMinPriorityFeeGwei: "BIDDING_TX_MIN_PRIORITY_FEE_GWEI",
     TxBaseFeeMultiplier: "BIDDING_TX_BASE_FEE_MULTIPLIER",
     TxMaxFeeGwei: "BIDDING_TX_MAX_FEE_GWEI",
-    TxMaxTotalFeeEth: "BIDDING_TX_MAX_TOTAL_FEE_ETH",
+    WethApprovalMaxGasFeeEth: "BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ETH",
     TxPendingNoncePolicy: "BIDDING_TX_PENDING_NONCE_POLICY",
     BidBookSnapshotStaleMs: "BIDDING_BID_BOOK_SNAPSHOT_STALE_MS",
     BidBookNormalLivePollMs: "BIDDING_BID_BOOK_NORMAL_LIVE_POLL_MS",

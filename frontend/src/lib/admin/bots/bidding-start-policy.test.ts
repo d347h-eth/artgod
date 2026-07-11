@@ -15,7 +15,7 @@ describe('buildBiddingStartPolicySummary', () => {
 			{ label: 'mode', value: 'live orders' },
 			{ label: 'WETH allowance cap', value: '1.5 WETH' },
 			{ label: 'approval max fee / gas', value: '10 gwei' },
-			{ label: 'approval total fee cap', value: '0.001 ETH' },
+			{ label: 'approval max gas fee', value: '0.005 ETH' },
 			{ label: 'pending nonce policy', value: 'fail' },
 			{ label: 'trait and multi-trait offers', value: 'disabled' }
 		]);
@@ -38,10 +38,10 @@ describe('buildBiddingStartPolicySummary', () => {
 
 	it('fails closed when a required effective setting is missing', () => {
 		const values = makeValues();
-		delete values[BIDDING_CONFIG_ENV_KEY.TxMaxTotalFeeEth];
+		delete values[BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth];
 
 		expect(() => buildBiddingStartPolicySummary(values)).toThrow(
-			BIDDING_CONFIG_ENV_KEY.TxMaxTotalFeeEth
+			BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth
 		);
 	});
 });
@@ -52,7 +52,7 @@ function makeValues(overrides: Record<string, string> = {}): Record<string, stri
 		[BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers]: 'false',
 		[BIDDING_CONFIG_ENV_KEY.WethAllowanceCapEth]: '1.5',
 		[BIDDING_CONFIG_ENV_KEY.TxMaxFeeGwei]: '10',
-		[BIDDING_CONFIG_ENV_KEY.TxMaxTotalFeeEth]: '0.001',
+		[BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth]: '0.005',
 		[BIDDING_CONFIG_ENV_KEY.TxPendingNoncePolicy]: 'fail',
 		...overrides
 	};

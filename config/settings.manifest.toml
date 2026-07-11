@@ -1158,7 +1158,7 @@ group = "bidding"
 label = "bidding WETH allowance cap ETH"
 default = "0"
 view = "basic"
-help = "Exact OpenSea conduit WETH allowance cap, in Ether units; startup raises, lowers, or revokes the onchain allowance to match this value."
+help = "Exact OpenSea conduit WETH allowance cap, in Ether units; setting 0 forces no allowance and revokes any existing approval."
 
 [[settings]]
 key = "BIDDING_TX_MIN_PRIORITY_FEE_GWEI"
@@ -1194,15 +1194,15 @@ key = "BIDDING_TX_MAX_FEE_GWEI"
 group = "bidding"
 label = "bidding tx max fee gwei"
 default = "10"
-help = "Upper bound per gas unit for the WETH allowance transaction, in gwei."
+help = "Upper bound per gas unit for ArtGod-owned bidding transactions, in gwei; currently applies to WETH allowance reconciliation."
 view = "basic"
 
 [[settings]]
-key = "BIDDING_TX_MAX_TOTAL_FEE_ETH"
+key = "BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ETH"
 group = "bidding"
-label = "bidding tx max total fee ETH"
-default = "0.001"
-help = "Worst-case total fee cap for the WETH allowance transaction, calculated from its explicit gas limit and max fee per gas, in ETH."
+label = "WETH approval max gas fee ETH"
+default = "0.01"
+help = "Maximum worst-case network gas fee for one WETH approval transaction (explicit gas limit times max fee per gas), in ETH; unrelated to OpenSea or order fees."
 view = "basic"
 
 [[settings]]

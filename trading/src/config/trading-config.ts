@@ -64,7 +64,7 @@ import {
     BIDDING_DEFAULT_TX_FEE_HISTORY_BLOCKS,
     BIDDING_DEFAULT_TX_FEE_HISTORY_REWARD_PERCENTILE,
     BIDDING_DEFAULT_TX_MAX_FEE_GWEI,
-    BIDDING_DEFAULT_TX_MAX_TOTAL_FEE_ETH,
+    BIDDING_DEFAULT_WETH_APPROVAL_MAX_GAS_FEE_ETH,
     BIDDING_DEFAULT_TX_MIN_PRIORITY_FEE_GWEI,
     BIDDING_DEFAULT_TX_PENDING_NONCE_POLICY,
     BIDDING_DEFAULT_WETH_ALLOWANCE_CAP_ETH,
@@ -115,7 +115,7 @@ export type EnabledBiddingConfig = {
     criteriaRefreshTraitsByCollection: Record<string, string[]>;
     tokenCriteriaTraitsByCollection: Record<string, string[]>;
     wethAllowanceCapWei: bigint;
-    wethAllowanceTransactionMaxTotalFeeWei: bigint;
+    wethApprovalMaxGasFeeWei: bigint;
     transactionPolicy: EvmTransactionPolicyConfig;
     openSea: {
         streamSecretKey: string;
@@ -154,7 +154,7 @@ export type DisabledBiddingConfig = {
     criteriaRefreshTraitsByCollection: Record<string, string[]>;
     tokenCriteriaTraitsByCollection: Record<string, string[]>;
     wethAllowanceCapWei: bigint;
-    wethAllowanceTransactionMaxTotalFeeWei: bigint;
+    wethApprovalMaxGasFeeWei: bigint;
     transactionPolicy: EvmTransactionPolicyConfig;
 };
 
@@ -339,10 +339,10 @@ export function loadTradingConfig(
             BIDDING_RUNTIME_ENV_KEY.WethAllowanceCapEth,
             BIDDING_DEFAULT_WETH_ALLOWANCE_CAP_ETH,
         ),
-        wethAllowanceTransactionMaxTotalFeeWei: parsePositiveEtherToWei(
-            env[BIDDING_RUNTIME_ENV_KEY.TxMaxTotalFeeEth],
-            BIDDING_RUNTIME_ENV_KEY.TxMaxTotalFeeEth,
-            BIDDING_DEFAULT_TX_MAX_TOTAL_FEE_ETH,
+        wethApprovalMaxGasFeeWei: parsePositiveEtherToWei(
+            env[BIDDING_RUNTIME_ENV_KEY.WethApprovalMaxGasFeeEth],
+            BIDDING_RUNTIME_ENV_KEY.WethApprovalMaxGasFeeEth,
+            BIDDING_DEFAULT_WETH_APPROVAL_MAX_GAS_FEE_ETH,
         ),
         transactionPolicy: parseBiddingTransactionPolicy(env),
     };

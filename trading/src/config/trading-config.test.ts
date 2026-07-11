@@ -92,8 +92,8 @@ describe("loadTradingConfig", () => {
         assert.equal(config.bidding.trustOpenSeaSignedZoneTraitOffers, false);
         assert.equal(config.bidding.wethAllowanceCapWei, 0n);
         assert.equal(
-            config.bidding.wethAllowanceTransactionMaxTotalFeeWei,
-            parseEther("0.001"),
+            config.bidding.wethApprovalMaxGasFeeWei,
+            parseEther("0.005"),
         );
         assert.deepEqual(config.bidding.transactionPolicy, {
             fees: {
@@ -258,7 +258,7 @@ describe("loadTradingConfig", () => {
                 BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE: "80",
                 BIDDING_TX_BASE_FEE_MULTIPLIER: "1.5",
                 [BIDDING_CONFIG_ENV_KEY.TxMaxFeeGwei]: "120",
-                [BIDDING_CONFIG_ENV_KEY.TxMaxTotalFeeEth]: "0.02",
+                [BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth]: "0.02",
                 BIDDING_HOT_REFRESH_BROAD_COOLDOWN_MS: "25000",
                 BIDDING_HOT_REFRESH_ITEM_COOLDOWN_MS: "3000",
                 BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS: "30000",
@@ -290,7 +290,7 @@ describe("loadTradingConfig", () => {
         assert.equal(config.bidding.trustOpenSeaSignedZoneTraitOffers, true);
         assert.equal(config.bidding.wethAllowanceCapWei, parseEther("2.5"));
         assert.equal(
-            config.bidding.wethAllowanceTransactionMaxTotalFeeWei,
+            config.bidding.wethApprovalMaxGasFeeWei,
             parseEther("0.02"),
         );
         assert.equal(config.bidding.hotRefreshBroadCooldownMs, 25_000);
@@ -346,7 +346,7 @@ describe("loadTradingConfig", () => {
         );
     });
 
-    it("rejects a zero maximum total approval fee", () => {
+    it("rejects a zero maximum approval gas fee", () => {
         assert.throws(
             () =>
                 loadTradingConfig(
@@ -356,13 +356,13 @@ describe("loadTradingConfig", () => {
                         OPENSEA_STREAM_SECRET_KEY: "stream-key",
                         OPENSEA_BIDDING_SECRET_KEY: "bidding-key",
                         OPENSEA_SNAPSHOT_SECRET_KEY: "snapshot-key",
-                        [BIDDING_CONFIG_ENV_KEY.TxMaxTotalFeeEth]: "0",
+                        [BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth]: "0",
                     },
                     {
                         envFilePath: "/tmp/artgod/runtime.env",
                     },
                 ),
-            new RegExp(`Invalid ${BIDDING_CONFIG_ENV_KEY.TxMaxTotalFeeEth}`),
+            new RegExp(`Invalid ${BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth}`),
         );
     });
 

@@ -28,8 +28,8 @@ export function buildBiddingStartPolicySummary(
 			value: `${requireSetting(values, BIDDING_CONFIG_ENV_KEY.TxMaxFeeGwei)} gwei`
 		},
 		{
-			label: 'approval total fee cap',
-			value: `${requireSetting(values, BIDDING_CONFIG_ENV_KEY.TxMaxTotalFeeEth)} ETH`
+			label: 'approval max gas fee',
+			value: `${requireSetting(values, BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth)} ETH`
 		},
 		{
 			label: 'pending nonce policy',

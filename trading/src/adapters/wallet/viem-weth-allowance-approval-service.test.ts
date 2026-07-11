@@ -5,14 +5,14 @@ import {
     ViemWethAllowanceApprovalService,
     WETH_ALLOWANCE_POST_CONFIRMATION_ERROR,
     WETH_ALLOWANCE_RECONCILIATION_STATUS,
-    WETH_APPROVAL_TOTAL_FEE_CAP_ERROR,
+    WETH_APPROVAL_GAS_FEE_CAP_ERROR,
 } from "./viem-weth-allowance-approval-service.js";
 
 const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 const OWNER = "0x00000000000000000000000000000000000000aA";
 const CONDUIT = "0x1E0049783F008A0085193E00003D00CD54003c71";
 const CONDUIT_CHECKSUM = "0x1E0049783F008A0085193E00003D00cd54003c71";
-const MAX_TOTAL_FEE_WEI = 1_000_000_000_000_000_000n;
+const MAX_APPROVAL_GAS_FEE_WEI = 1_000_000_000_000_000_000n;
 const TRANSACTION_POLICY = {
     fees: {
         minPriorityFeePerGasWei: 1_000_000_000n,
@@ -50,7 +50,7 @@ describe("ViemWethAllowanceApprovalService", () => {
             WETH,
             CONDUIT,
             TRANSACTION_POLICY,
-            MAX_TOTAL_FEE_WEI,
+            MAX_APPROVAL_GAS_FEE_WEI,
         );
 
         const result = await service.ensureAllowance({
@@ -91,7 +91,7 @@ describe("ViemWethAllowanceApprovalService", () => {
             WETH,
             CONDUIT,
             TRANSACTION_POLICY,
-            MAX_TOTAL_FEE_WEI,
+            MAX_APPROVAL_GAS_FEE_WEI,
         );
 
         const result = await service.ensureAllowance({
@@ -135,7 +135,7 @@ describe("ViemWethAllowanceApprovalService", () => {
             WETH,
             CONDUIT,
             TRANSACTION_POLICY,
-            MAX_TOTAL_FEE_WEI,
+            MAX_APPROVAL_GAS_FEE_WEI,
         );
 
         const result = await service.ensureAllowance({
@@ -245,7 +245,7 @@ describe("ViemWethAllowanceApprovalService", () => {
             WETH,
             CONDUIT,
             TRANSACTION_POLICY,
-            MAX_TOTAL_FEE_WEI,
+            MAX_APPROVAL_GAS_FEE_WEI,
         );
 
         const result = await service.ensureAllowance({
@@ -324,7 +324,7 @@ describe("ViemWethAllowanceApprovalService", () => {
             WETH,
             CONDUIT,
             TRANSACTION_POLICY,
-            MAX_TOTAL_FEE_WEI,
+            MAX_APPROVAL_GAS_FEE_WEI,
         );
 
         const result = await service.ensureAllowance({
@@ -362,7 +362,7 @@ describe("ViemWethAllowanceApprovalService", () => {
             WETH,
             CONDUIT,
             TRANSACTION_POLICY,
-            MAX_TOTAL_FEE_WEI,
+            MAX_APPROVAL_GAS_FEE_WEI,
         );
 
         await assert.rejects(
@@ -376,7 +376,7 @@ describe("ViemWethAllowanceApprovalService", () => {
         assert.equal(writeCalls, 1);
     });
 
-    it("rejects approval when its explicit gas limit exceeds the total fee cap", async () => {
+    it("rejects approval when its worst-case gas fee exceeds the configured cap", async () => {
         let writeCalls = 0;
         const service = new ViemWethAllowanceApprovalService(
             {
@@ -406,7 +406,7 @@ describe("ViemWethAllowanceApprovalService", () => {
                     ownerAddress: OWNER,
                     desiredAllowanceWei: 75n,
                 }),
-            new RegExp(WETH_APPROVAL_TOTAL_FEE_CAP_ERROR),
+            new RegExp(WETH_APPROVAL_GAS_FEE_CAP_ERROR),
         );
         assert.equal(writeCalls, 0);
     });
@@ -464,7 +464,7 @@ describe("ViemWethAllowanceApprovalService", () => {
                     pendingNoncePolicy: "fail",
                 },
             },
-            MAX_TOTAL_FEE_WEI,
+            MAX_APPROVAL_GAS_FEE_WEI,
         );
 
         await service.ensureAllowance({
@@ -504,7 +504,7 @@ describe("ViemWethAllowanceApprovalService", () => {
             WETH,
             CONDUIT,
             TRANSACTION_POLICY,
-            MAX_TOTAL_FEE_WEI,
+            MAX_APPROVAL_GAS_FEE_WEI,
         );
 
         await assert.rejects(

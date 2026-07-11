@@ -44,7 +44,7 @@ export const BIDDING_RUNTIME_ENV_KEY = {
     TxFeeHistoryRewardPercentile: "BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE",
     TxBaseFeeMultiplier: BIDDING_CONFIG_ENV_KEY.TxBaseFeeMultiplier,
     TxMaxFeeGwei: BIDDING_CONFIG_ENV_KEY.TxMaxFeeGwei,
-    TxMaxTotalFeeEth: BIDDING_CONFIG_ENV_KEY.TxMaxTotalFeeEth,
+    WethApprovalMaxGasFeeEth: BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth,
     TxPendingNoncePolicy: BIDDING_CONFIG_ENV_KEY.TxPendingNoncePolicy,
     CriteriaRefreshTraitsByCollection:
         "BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION",
@@ -153,8 +153,8 @@ export const BIDDING_DEFAULT_TX_BASE_FEE_MULTIPLIER = getSettingDefault(
 export const BIDDING_DEFAULT_TX_MAX_FEE_GWEI = getSettingDefault(
     BIDDING_RUNTIME_ENV_KEY.TxMaxFeeGwei,
 );
-export const BIDDING_DEFAULT_TX_MAX_TOTAL_FEE_ETH = getSettingDefault(
-    BIDDING_RUNTIME_ENV_KEY.TxMaxTotalFeeEth,
+export const BIDDING_DEFAULT_WETH_APPROVAL_MAX_GAS_FEE_ETH = getSettingDefault(
+    BIDDING_RUNTIME_ENV_KEY.WethApprovalMaxGasFeeEth,
 );
 export const BIDDING_DEFAULT_TX_PENDING_NONCE_POLICY = getSettingDefault(
     BIDDING_RUNTIME_ENV_KEY.TxPendingNoncePolicy,
