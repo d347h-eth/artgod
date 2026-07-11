@@ -8,6 +8,7 @@ mod private_file;
 mod process_registry;
 mod resource_contract;
 mod rpc_auto_sourcing;
+mod runtime_integrity;
 mod supervisor;
 
 pub use app_config::{

@@ -12,6 +12,7 @@ use super::resource_contract::{
     NODE_BINARY_RELATIVE_PATH, PNP_CJS_RELATIVE_PATH, PNP_LOADER_RELATIVE_PATH,
     TAURI_BUNDLED_RESOURCES_DIR_NAME,
 };
+use super::runtime_integrity::verify_wallet_recipient_runtime;
 
 pub struct DesktopRuntimeConfig {
     pub env_file_path: PathBuf,
@@ -237,6 +238,15 @@ impl DesktopRuntimeConfig {
             &self.runtime_dir,
             spec.artifact_relative_path,
             "Trading bot runtime artifact",
+        )?;
+        verify_wallet_recipient_runtime(
+            &self.runtime_dir,
+            &[
+                &self.node_bin,
+                &self.pnp_cjs_path,
+                &self.pnp_loader_path,
+                &artifact_path,
+            ],
         )?;
 
         Ok(BotRuntimeLaunchConfig {

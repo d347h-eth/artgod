@@ -92,6 +92,11 @@ These are hard rules, not suggestions.
 8. Every bot start and every bot restart is a fresh unlock event.
 9. There is no session unlock cache, no unlock TTL, and no silent reuse after restart.
 10. If decryption or prompt flow fails, the bot remains stopped and locked.
+11. The bot recipient is a fixed bundled Node/loader/artifact launch snapshot
+    resolved before the prompt; Admin configuration cannot redirect it.
+12. Release builds verify the exact key-bearing runtime code and dependency
+    file set against hashes embedded in the Rust desktop executable before
+    prompting.
 
 ## Threat Model
 
@@ -948,6 +953,9 @@ Rules:
 - helper stdio protocol handling
 - WebView capability policy rejects every `shell:*` permission
 - main WebView raw shell spawn and stdin-write calls are denied by the resolved ACL
+- Admin configuration mutation during an open prompt cannot change the frozen recipient
+- modified, added, unpinned, and symbolic-link runtime files fail integrity validation
+- the staged release recipient matches the hashes embedded by the release build
 - bot start requiring fresh unlock after restart
 
 ### Node Bot Tests

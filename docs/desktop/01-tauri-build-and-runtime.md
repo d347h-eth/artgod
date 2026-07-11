@@ -159,8 +159,7 @@ What each command does:
 `src-tauri/tauri.conf.json` contains:
 
 - `beforeDevCommand = "yarn build:desktop-sidecars --profile debug && node ./scripts/build/dev-frontend-target.mjs admin"`
-- `beforeBuildCommand = "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release"`
-- `beforeBundleCommand = "node ./scripts/build/macos-code-signing.mjs sign-staged"`
+- `beforeBuildCommand = "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release && node ./scripts/build/macos-code-signing.mjs sign-staged"`
 - `frontendDist = "../frontend/dist"`
 
 This ensures `yarn tauri build ...` always has:
@@ -170,7 +169,8 @@ This ensures `yarn tauri build ...` always has:
 3. backend/indexer runtime `.mjs` artifacts
 4. staged runtime resources under `src-tauri/resources/runtime`
 5. staged native sidecar binaries under `src-tauri/binaries`
-6. macOS signatures on staged Mach-O runtime resources and sidecars before DMG assembly
+6. macOS signatures on staged Mach-O runtime resources and sidecars before
+   Rust embeds the wallet-recipient integrity manifest
 
 before final Tauri bundle generation starts.
 
@@ -263,7 +263,7 @@ Responsibilities:
 
 Responsibilities:
 
-- signs staged macOS executable/loadable Mach-O files under `src-tauri/resources/runtime` and `src-tauri/binaries` before Tauri generates the final bundle artifacts
+- signs staged macOS executable/loadable Mach-O files under `src-tauri/resources/runtime` and `src-tauri/binaries` before Rust embeds release integrity hashes and Tauri generates the final bundle artifacts
 - covers the bundled Node runtime, bundled NATS runtime, native `.node` add-ons from `.yarn/unplugged`, and the native secret-prompt sidecar
 - grants only the bundled Node executable the dedicated `com.apple.security.cs.allow-jit` entitlement required by V8 under hardened runtime; NATS, native libraries, the Tauri executable, and the secret-prompt sidecar do not receive that exception
 - skips non-macOS targets and local macOS builds without `APPLE_SIGNING_IDENTITY`
@@ -358,6 +358,28 @@ Produced sidecar artifacts:
 - `src-tauri/binaries/artgod-secret-prompt-universal-apple-darwin` for macOS universal release builds
 
 During Tauri build the sidecar is bundled through `bundle.externalBin` and invoked only from Rust through Tauri's `ShellExt` sidecar mechanism. The shell plugin remains initialized for that native adapter, while WebView capabilities grant no `shell:*` process permission.
+
+### Wallet Recipient Integrity
+
+Release builds embed SHA-256 hashes for the exact code and dependency file set
+that can execute inside a key-bearing bot process:
+
+- bundled Node under `runtime/node`
+- `.pnp.cjs` and `.pnp.loader.mjs`
+- the complete bundled `.yarn` dependency tree
+- wallet-bound artifacts and chunks under `runtime/trading`
+
+`src-tauri/build/runtime_integrity.rs` generates the Rust manifest after the
+resources are staged and, on macOS, after nested Mach-O signing. The manifest
+is compiled into the desktop executable rather than trusted from a mutable
+sidecar file.
+
+Before an unlock prompt opens, release runtime validation rejects missing,
+modified, added, unpinned, or symbolic-link entries anywhere in that protected
+closure. The exact Node executable, both loaders, and selected bot artifact
+must also appear in the embedded manifest. Debug builds keep the same fixed
+bundled paths but skip release hashing so staged resources can be rebuilt during
+development.
 
 ## Desktop Runtime Config Store
 

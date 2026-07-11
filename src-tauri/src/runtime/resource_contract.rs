@@ -1,4 +1,12 @@
 //! Fixed layout for executable resources bundled with the desktop application.
+#![allow(dead_code)]
+
+/// Source path staged into Tauri's bundled runtime resource directory.
+pub(crate) const BUNDLED_RUNTIME_SOURCE_RELATIVE_PATH: &str = "resources/runtime";
+
+/// Generated Rust source that embeds release runtime file hashes.
+pub(crate) const GENERATED_WALLET_RECIPIENT_INTEGRITY_FILE_NAME: &str =
+    "wallet_recipient_integrity.rs";
 
 /// Resource subdirectory bundled by Tauri for local runtime artifacts.
 pub(crate) const BUNDLED_RUNTIME_DIR_NAME: &str = "runtime";
@@ -30,3 +38,21 @@ pub(crate) const PNP_CJS_RELATIVE_PATH: &str = ".pnp.cjs";
 
 /// Bundled Yarn PnP ESM loader used by desktop Node runtimes.
 pub(crate) const PNP_LOADER_RELATIVE_PATH: &str = ".pnp.loader.mjs";
+
+/// Bundled Yarn dependency directory used by the PnP hooks.
+pub(crate) const YARN_RUNTIME_RELATIVE_PATH: &str = ".yarn";
+
+/// Bundled Node distribution directory.
+pub(crate) const NODE_RUNTIME_RELATIVE_PATH: &str = "node";
+
+/// Bundled wallet-bound trading runtime directory.
+pub(crate) const TRADING_RUNTIME_RELATIVE_PATH: &str = "trading";
+
+/// Complete code/dependency roots that can execute inside a key-bearing bot process.
+pub(crate) const WALLET_RECIPIENT_PROTECTED_ROOTS: &[&str] = &[
+    PNP_CJS_RELATIVE_PATH,
+    PNP_LOADER_RELATIVE_PATH,
+    YARN_RUNTIME_RELATIVE_PATH,
+    NODE_RUNTIME_RELATIVE_PATH,
+    TRADING_RUNTIME_RELATIVE_PATH,
+];
