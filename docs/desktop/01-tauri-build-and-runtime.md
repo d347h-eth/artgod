@@ -357,7 +357,7 @@ Produced sidecar artifacts:
 - `src-tauri/binaries/artgod-secret-prompt-<target-triple>(.exe)`
 - `src-tauri/binaries/artgod-secret-prompt-universal-apple-darwin` for macOS universal release builds
 
-During Tauri build the sidecar is bundled through `bundle.externalBin` and invoked through Tauri's sidecar mechanism.
+During Tauri build the sidecar is bundled through `bundle.externalBin` and invoked only from Rust through Tauri's `ShellExt` sidecar mechanism. The shell plugin remains initialized for that native adapter, while WebView capabilities grant no `shell:*` process permission.
 
 ## Desktop Runtime Config Store
 

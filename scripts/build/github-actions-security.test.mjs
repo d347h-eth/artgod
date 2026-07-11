@@ -10,6 +10,8 @@ const rootDir = path.resolve(
 );
 const workflowsDirectory = path.join(rootDir, ".github", "workflows");
 const fullCommitActionReferencePattern = /^[^\s@]+@[a-f0-9]{40}$/;
+const webviewShellAclTestCommand =
+    "cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security";
 
 test("pins every external GitHub Action to a full commit SHA", async () => {
     for (const workflow of await readWorkflows()) {
@@ -189,6 +191,19 @@ test("checks synchronized project versions on ordinary desktop builds", async ()
         /run:\s*node \.\/scripts\/build\/sync-version\.mjs --check/,
     );
     assert.doesNotMatch(buildCheckWorkflow, /run:\s*yarn check:version/);
+});
+
+test("runs the resolved WebView shell ACL test in build and release lanes", async () => {
+    for (const workflowName of ["tauri-build-check.yml", "tauri-release.yml"]) {
+        const workflow = await readFile(
+            path.join(workflowsDirectory, workflowName),
+            "utf8",
+        );
+        assert.ok(
+            workflow.includes(webviewShellAclTestCommand),
+            `${workflowName} does not run the resolved WebView shell ACL test.`,
+        );
+    }
 });
 
 async function readWorkflows() {

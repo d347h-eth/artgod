@@ -247,6 +247,10 @@ jobs:
                   test ! -e "$CERT_PATH"
                   test ! -e "$KEYCHAIN_PATH"
 
+            - name: Test release Admin WebView shell ACL
+              if: runner.os == 'Linux'
+              run: cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security
+
             - name: Verify bundled Yarn runtime dependencies
               shell: bash
               run: |

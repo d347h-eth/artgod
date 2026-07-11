@@ -78,6 +78,9 @@ jobs:
                   DESKTOP_NATS_DIST_TARGET: linux-x64
               run: yarn tauri build --debug --no-bundle --ci
 
+            - name: Test Admin WebView shell ACL
+              run: cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security
+
             - name: Verify bundled Yarn runtime dependencies
               shell: bash
               run: |

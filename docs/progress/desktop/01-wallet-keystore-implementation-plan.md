@@ -325,7 +325,7 @@ Tasks:
     - dev runs
     - bundled desktop runs
 - use Tauri's Rust sidecar API instead of plain `std::process::Command`
-- add any required shell plugin wiring and capability permissions for the sidecar
+- initialize the shell plugin for Rust `ShellExt` without granting any `shell:*` permission to a WebView capability
 - sanitize helper errors before they bubble upward
 
 Acceptance:
@@ -581,6 +581,7 @@ Every slice touching secrets must be verified against these leak paths:
 - process command line
 - app-data plaintext files
 - browser storage
+- WebView shell-plugin capabilities and raw plugin IPC calls
 
 Manual desktop verification should cover:
 

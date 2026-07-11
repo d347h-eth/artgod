@@ -35,4 +35,5 @@ uuid = { version = "1.18.1", features = ["serde", "v4"] }
 zeroize = { version = "1.8", features = ["alloc"] }
 
 [dev-dependencies]
+tauri = { version = "2.11.3", features = ["test"] }
 tempfile = "3.20"
