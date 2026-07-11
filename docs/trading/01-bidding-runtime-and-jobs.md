@@ -70,7 +70,11 @@ exact trait criteria can be enforced by OpenSea SignedZone rather than committed
 in the maker's EIP-712 order. Live placement is therefore disabled by default
 for those targets. `BIDDING_TRUST_OPENSEA_SIGNED_ZONE_FOR_TRAIT_OFFERS=true`
 consciously accepts that pinned OpenSea service boundary; discovery, bid-book
-display, and declared trait jobs remain available while placement is disabled.
+display, and negative management of existing trait jobs remain available while
+placement is disabled. The bidding panel does not expose a creation form for a
+new trait target in that state. Existing trait jobs show their saved inputs as
+read-only and expose only pause/archive until the setting is enabled and infra
+is restarted.
 
 Current REST/SDK calls:
 

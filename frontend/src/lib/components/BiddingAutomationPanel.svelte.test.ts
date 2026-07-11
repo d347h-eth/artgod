@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import {
+	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	TRADING_BIDDING_BID_BOOK_SOURCE,
@@ -20,8 +21,10 @@ import {
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
 	BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 	buildBiddingAutomationDraftFromBid,
-	buildBiddingAutomationDraftFromSelection
+	buildBiddingAutomationDraftFromSelection,
+	type BiddingAutomationDraft
 } from '$lib/bidding-automation';
+import { BIDDING_TRAIT_OFFER_TRUST_REQUIRED_MESSAGE } from '$lib/bidding-trait-offer-policy';
 import {
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES
@@ -434,6 +437,7 @@ describe('BiddingAutomationPanel', () => {
 				token: null,
 				job: null,
 				draft,
+				trustOpenSeaSignedZoneTraitOffers: true,
 				onClose: () => {}
 			}
 		});
@@ -445,6 +449,80 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).toContain('>create<');
 		expect(body).toContain('disabled="">pause<');
 		expect(body).toContain('disabled="">archive<');
+	});
+
+	it('replaces a new trait job form with the SignedZone acknowledgement requirement', () => {
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: testChain(),
+				collection: testCollection(),
+				token: null,
+				job: null,
+				draft: testTraitDraft(),
+				onClose: () => {}
+			}
+		});
+
+		expect(body).toContain(BIDDING_TRAIT_OFFER_TRUST_REQUIRED_MESSAGE);
+		expect(body).toContain('Biome=42');
+		expect(body).not.toContain('id="bidding-automation-pricing-select"');
+		expect(body).not.toContain(`data-testid="${TEST_IDS.BiddingPanelCreate}"`);
+		expect(body).not.toContain(`data-testid="${TEST_IDS.BiddingPanelPause}"`);
+		expect(body).not.toContain(`data-testid="${TEST_IDS.BiddingPanelArchive}"`);
+	});
+
+	it('keeps an enabled trait job readable with only pause and archive actions', () => {
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: testChain(),
+				collection: testCollection(),
+				token: null,
+				job: null,
+				draft: testTraitDraft(testTraitJob(TRADING_JOB_STATUS.Enabled)),
+				onClose: () => {}
+			}
+		});
+
+		expect(body).toContain(BIDDING_TRAIT_OFFER_TRUST_REQUIRED_MESSAGE);
+		expect(body).toMatch(/id="bidding-automation-floor"[^>]*value="0\.2"[^>]*disabled=""/);
+		expect(body).toMatch(/id="bidding-automation-ceiling"[^>]*value="0\.4"[^>]*disabled=""/);
+		expect(body).toMatch(/id="bidding-automation-delta"[^>]*value="0\.01"[^>]*disabled=""/);
+		expect(body).toMatch(new RegExp(`data-testid="${TEST_IDS.BiddingPanelPause}"[^>]*>\\s*pause`));
+		expect(body).not.toMatch(
+			new RegExp(`data-testid="${TEST_IDS.BiddingPanelPause}"[^>]*disabled`)
+		);
+		expect(body).toMatch(
+			new RegExp(`data-testid="${TEST_IDS.BiddingPanelArchive}"[^>]*>\\s*archive`)
+		);
+		expect(body).not.toMatch(
+			new RegExp(`data-testid="${TEST_IDS.BiddingPanelArchive}"[^>]*disabled`)
+		);
+		expect(body).not.toContain(`data-testid="${TEST_IDS.BiddingPanelModify}"`);
+		expect(body).not.toContain(`data-testid="${TEST_IDS.BiddingPanelActivate}"`);
+		expect(body).not.toContain(`data-testid="${TEST_IDS.BiddingPanelCreate}"`);
+		expect(body).not.toContain('>reset<');
+	});
+
+	it('does not expose activate for a paused trait job while trust is disabled', () => {
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: testChain(),
+				collection: testCollection(),
+				token: null,
+				job: null,
+				draft: testTraitDraft(testTraitJob(TRADING_JOB_STATUS.Paused)),
+				onClose: () => {}
+			}
+		});
+
+		expect(body).toContain(BIDDING_TRAIT_OFFER_TRUST_REQUIRED_MESSAGE);
+		expect(body).toContain(`data-testid="${TEST_IDS.BiddingPanelArchive}"`);
+		expect(body).not.toContain(`data-testid="${TEST_IDS.BiddingPanelPause}"`);
+		expect(body).not.toContain(`data-testid="${TEST_IDS.BiddingPanelActivate}"`);
+		expect(body).not.toContain(`data-testid="${TEST_IDS.BiddingPanelModify}"`);
 	});
 
 	it('renders unsupported trait drafts without form controls or actions', () => {
@@ -498,6 +576,7 @@ describe('BiddingAutomationPanel', () => {
 				token: null,
 				job: null,
 				draft,
+				trustOpenSeaSignedZoneTraitOffers: true,
 				onClose: () => {}
 			}
 		});
@@ -627,6 +706,7 @@ describe('BiddingAutomationPanel', () => {
 				token: null,
 				job: null,
 				draft,
+				trustOpenSeaSignedZoneTraitOffers: true,
 				onClose: () => {}
 			}
 		});
@@ -680,6 +760,7 @@ describe('BiddingAutomationPanel', () => {
 				token: testToken(),
 				job: testTokenJob(TRADING_JOB_STATUS.Enabled),
 				draft,
+				trustOpenSeaSignedZoneTraitOffers: true,
 				onClose: () => {}
 			}
 		});
@@ -925,6 +1006,64 @@ function testToken() {
 		attributes: [],
 		hasMetadata: true,
 		metadataUpdatedAt: '2026-01-01T00:00:00Z'
+	};
+}
+
+function testTraitDraft(existingJob: ApiBiddingJob | null = null): BiddingAutomationDraft {
+	return {
+		source: {
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob,
+			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+				selectedTraits: [{ key: 'Biome', value: '42', marketplaceBiddingSupported: true }],
+				selectedTraitRanges: [],
+				traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+				tokenStatus: null,
+				makerAddress: null
+			},
+			tokenCount: 1,
+			state: {
+				kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+			}
+		},
+		target: {
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
+			traits: [{ key: 'Biome', value: '42' }],
+			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
+		},
+		pricing: {
+			mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
+			floorEth: '',
+			ceilingEth: '',
+			deltaEth: ''
+		},
+		existingJob
+	};
+}
+
+function testTraitJob(
+	status: typeof TRADING_JOB_STATUS.Enabled | typeof TRADING_JOB_STATUS.Paused
+): ApiBiddingJob {
+	return {
+		jobId: 'job-trait-1',
+		status,
+		revision: 2,
+		createdAt: '2026-01-01T00:00:00Z',
+		updatedAt: '2026-01-01T12:00:00Z',
+		archivedAt: null,
+		target: {
+			type: TRADING_JOB_TARGET_KIND.Collection,
+			quantity: 1,
+			targetTraits: [{ type: 'Biome', value: '42' }]
+		},
+		config: {
+			floorEth: '0.2',
+			ceilingEth: '0.4',
+			deltaEth: '0.01',
+			pricingSource: null
+		},
+		runtime: null
 	};
 }
 

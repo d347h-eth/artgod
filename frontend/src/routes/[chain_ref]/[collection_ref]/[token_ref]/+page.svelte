@@ -93,6 +93,7 @@
 		token: ApiTokenDetail | null;
 		biddingSettings?: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
+		trustOpenSeaSignedZoneTraitOffers?: boolean;
 		traitFilterPresentation?: ApiTraitFilterPresentationFeatureState;
 		tokenBiddingJob?: ApiBiddingJob | null;
 		tokenBiddingBidBook?: ApiBiddingBidBook;
@@ -775,6 +776,7 @@
 				bidBook={tokenBiddingBidBook}
 				biddingSettings={data?.biddingSettings ?? defaultBiddingCollectionSettings()}
 				priceTiers={data?.priceTiers ?? []}
+				trustOpenSeaSignedZoneTraitOffers={data?.trustOpenSeaSignedZoneTraitOffers}
 				expandSignal={tokenBiddingPanelExpandSignal}
 				showCollapsedLauncher={false}
 				onClose={closeTokenBiddingPanel}

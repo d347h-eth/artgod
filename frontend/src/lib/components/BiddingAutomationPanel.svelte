@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS } from '@artgod/shared/config/bidding';
 	import {
 		TRADING_BIDDING_TIER_SELECTION_MODE,
 		TRADING_JOB_STATUS,
@@ -55,6 +56,10 @@
 		type BiddingAutomationPricingMode
 	} from '$lib/bidding-automation';
 	import {
+		BIDDING_TRAIT_OFFER_TRUST_REQUIRED_MESSAGE,
+		isBiddingAutomationTraitTarget
+	} from '$lib/bidding-trait-offer-policy';
+	import {
 		BIDDING_SELECTION_ACTION_LABEL,
 		BIDDING_SELECTION_JOB_ACTION,
 		type BiddingSelectionJobAction
@@ -85,6 +90,8 @@
 		bidBook = null,
 		biddingSettings = defaultBiddingCollectionSettings(),
 		priceTiers = [],
+		trustOpenSeaSignedZoneTraitOffers =
+			DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
 		expandSignal = 0,
 		showCollapsedLauncher = true,
 		onClose = null,
@@ -100,6 +107,7 @@
 		bidBook?: ApiBiddingBidBook | null;
 		biddingSettings?: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
+		trustOpenSeaSignedZoneTraitOffers?: boolean;
 		expandSignal?: number;
 		showCollapsedLauncher?: boolean;
 		onClose?: (() => void) | null;
@@ -151,6 +159,10 @@
 		selectedTokenUnsupported || !isBiddingAutomationDraftSubmittable(draft)
 	);
 	const selectedDraftUnsupportedMessage = $derived(resolveSelectedDraftUnsupportedMessage());
+	const traitOfferTrustRequired = $derived(
+		!trustOpenSeaSignedZoneTraitOffers &&
+			isBiddingAutomationTraitTarget({ draft, job: currentJob })
+	);
 	const bidStateBadges = $derived(ownBiddingJobStateBadges(currentJob, bidBook));
 	const selectedPriceTier = $derived(resolveSelectedPriceTier());
 	const displayedFloorEth = $derived(
@@ -195,6 +207,7 @@
 		!!chain &&
 			!!collection &&
 			!selectedDraftUnsupported &&
+			!traitOfferTrustRequired &&
 			hasSubmittableBiddingTarget({ draft, targetTokenId }) &&
 			pricingAvailable &&
 			priceInputsComplete
@@ -203,13 +216,24 @@
 	const isPausedJob = $derived(currentJob?.status === TRADING_JOB_STATUS.Paused);
 	const isBatchTokenDraft = $derived(isBiddingAutomationBatchTokenDraft(draft));
 	const panelMutationBusy = $derived(saving || archiving || selectionJobActionBusy !== null);
-	const canResetDraft = $derived(!panelMutationBusy && hasDraftChanges);
+	const pricingInputsDisabled = $derived(
+		panelMutationBusy || selectedDraftUnsupported || traitOfferTrustRequired
+	);
+	const canResetDraft = $derived(
+		!traitOfferTrustRequired && !panelMutationBusy && hasDraftChanges
+	);
 	const canApplyBatchJobs = $derived(isBatchTokenDraft && !panelMutationBusy && canSubmitDraft);
 	const canCreateJob = $derived(
 		!hasExistingJob && !isBatchTokenDraft && !panelMutationBusy && canSubmitDraft
 	);
 	const canModifyJob = $derived(hasExistingJob && !panelMutationBusy && hasDraftChanges && canSubmitDraft);
-	const canPauseJob = $derived(isEnabledJob && !panelMutationBusy && canSubmitDraft);
+	const canPauseJob = $derived(
+		isEnabledJob &&
+			!panelMutationBusy &&
+			(traitOfferTrustRequired
+				? !!chain && !!collection && !!currentJob
+				: canSubmitDraft)
+	);
 	const canActivateJob = $derived(isPausedJob && !panelMutationBusy && canSubmitDraft);
 	const canArchiveJob = $derived(
 		!!currentJob &&
@@ -602,7 +626,17 @@
 	}
 
 	async function handleSave(statusOverride: EditableBiddingJobStatus | null = null): Promise<void> {
-		if (!chain || !collection || selectedDraftUnsupported || panelMutationBusy || !canSubmitDraft) {
+		const allowedReadOnlyPause =
+			traitOfferTrustRequired &&
+			statusOverride === TRADING_JOB_STATUS.Paused &&
+			canPauseJob;
+		if (
+			!chain ||
+			!collection ||
+			selectedDraftUnsupported ||
+			panelMutationBusy ||
+			(!canSubmitDraft && !allowedReadOnlyPause)
+		) {
 			return;
 		}
 		if (statusOverride === null && hasExistingJob && !canModifyJob) {
@@ -861,12 +895,17 @@
 		{#if currentJob?.runtime?.lastError}
 			<p class="runtime-error token-bidding-feedback" role="alert">{currentJob.runtime.lastError}</p>
 		{/if}
+		{#if traitOfferTrustRequired}
+			<p class="runtime-warn token-bidding-feedback" role="alert">
+				{BIDDING_TRAIT_OFFER_TRUST_REQUIRED_MESSAGE}
+			</p>
+		{/if}
 
 		{#if selectedDraftUnsupported}
 			<p class="runtime-error token-bidding-feedback" role="alert">
 				{selectedDraftUnsupportedMessage}
 			</p>
-		{:else}
+		{:else if !traitOfferTrustRequired || hasExistingJob}
 			<form
 				class="bootstrap-form token-bidding-form"
 				onsubmit={(event) => {
@@ -881,7 +920,7 @@
 						class="bootstrap-control bootstrap-input-select-medium"
 						value={pricingSelectionValue()}
 						onchange={onPricingSelectionChange}
-						disabled={panelMutationBusy || selectedDraftUnsupported}
+						disabled={pricingInputsDisabled}
 					>
 						<option value={BIDDING_AUTOMATION_PRICING_MODE.Manual}>
 							{BIDDING_AUTOMATION_PRICING_MODE_LABEL[BIDDING_AUTOMATION_PRICING_MODE.Manual]}
@@ -900,7 +939,7 @@
 							type="button"
 							class:secondary-tab-active={pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Manual}
 							aria-pressed={pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Manual}
-							disabled={panelMutationBusy || selectedDraftUnsupported}
+							disabled={pricingInputsDisabled}
 							onclick={selectManualPricing}
 							title={BIDDING_AUTOMATION_PRICING_MODE_LABEL[BIDDING_AUTOMATION_PRICING_MODE.Manual]}
 						>
@@ -913,7 +952,7 @@
 									selectedPriceTierId === tier.tierId}
 								aria-pressed={pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier &&
 									selectedPriceTierId === tier.tierId}
-								disabled={panelMutationBusy || selectedDraftUnsupported}
+								disabled={pricingInputsDisabled}
 								onclick={() => selectTierPricing(tier.tierId)}
 								title={tierButtonTitle(tier)}
 							>
@@ -941,7 +980,7 @@
 						inputmode="decimal"
 						bind:value={floorEth}
 						oninput={markDraftInputTouched}
-						disabled={panelMutationBusy || selectedDraftUnsupported}
+						disabled={pricingInputsDisabled}
 					/>
 				{/if}
 			</div>
@@ -963,7 +1002,7 @@
 						inputmode="decimal"
 						bind:value={ceilingEth}
 						oninput={markDraftInputTouched}
-						disabled={panelMutationBusy || selectedDraftUnsupported}
+						disabled={pricingInputsDisabled}
 					/>
 				{/if}
 			</div>
@@ -985,13 +1024,14 @@
 						}
 					}}
 					disabled={pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier ||
-						panelMutationBusy ||
-						selectedDraftUnsupported}
+						pricingInputsDisabled}
 				/>
 			</div>
 			<div class="panel-footer token-bidding-form-footer">
 				<div class="token-bidding-form-actions-left">
-					<button type="button" onclick={resetDraft} disabled={!canResetDraft}>reset</button>
+					{#if !traitOfferTrustRequired}
+						<button type="button" onclick={resetDraft} disabled={!canResetDraft}>reset</button>
+					{/if}
 					{#if !isBatchTokenDraft && (!hasExistingJob || isEnabledJob)}
 						<button
 							type="button"
@@ -1023,7 +1063,7 @@
 					{/if}
 				</div>
 				<div class="token-bidding-form-actions-right">
-					{#if hasExistingJob}
+					{#if hasExistingJob && !traitOfferTrustRequired}
 						<button
 							type="button"
 							class="token-bidding-action-positive"
@@ -1051,7 +1091,7 @@
 								activate
 							</button>
 							{/if}
-					{:else if isBatchTokenDraft}
+					{:else if isBatchTokenDraft && !traitOfferTrustRequired}
 						<button
 							type="button"
 							class="token-bidding-action-positive"
@@ -1063,7 +1103,7 @@
 						>
 							{saving ? 'saving...' : BIDDING_SELECTION_ACTION_LABEL.ApplyBiddingSpec}
 						</button>
-					{:else}
+					{:else if !traitOfferTrustRequired}
 						<button
 							type="button"
 							class="token-bidding-action-positive"
@@ -1077,7 +1117,7 @@
 						</button>
 					{/if}
 				</div>
-				{#if showSelectionJobActions}
+				{#if showSelectionJobActions && !traitOfferTrustRequired}
 					<div class="token-bidding-selection-actions" aria-label="selected bidding target actions">
 						{#if showActivateSelectionJobs}
 							<button

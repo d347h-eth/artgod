@@ -95,6 +95,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			collection: bidBookResponse.collection,
 				biddingSettings: priceTiersResponse.settings,
 				priceTiers: priceTiersResponse.tiers,
+				trustOpenSeaSignedZoneTraitOffers:
+					runtimeConfigResponse.bidding.trustOpenSeaSignedZoneTraitOffers,
 				bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh,
 				blockExplorer: runtimeConfigResponse.blockExplorer,
 				bidBook: bidBookResponse.bidBook,

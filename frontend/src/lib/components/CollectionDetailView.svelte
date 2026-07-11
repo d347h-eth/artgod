@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import {
 		DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
+		DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
 		type BiddingBidBookLiveRefreshConfig
 	} from '@artgod/shared/config/bidding';
 	import {
@@ -83,6 +84,8 @@
 		displayMode,
 		biddingSettings,
 		priceTiers = [],
+		trustOpenSeaSignedZoneTraitOffers =
+			DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
 		bidBookLiveRefreshConfig = DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
 		blockExplorer = getDefaultBlockExplorerConfig()
 	}: {
@@ -99,6 +102,7 @@
 		displayMode: 'grid' | 'table';
 		biddingSettings: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
+		trustOpenSeaSignedZoneTraitOffers?: boolean;
 		bidBookLiveRefreshConfig?: BiddingBidBookLiveRefreshConfig;
 		blockExplorer?: BlockExplorerConfig;
 	} = $props();
@@ -524,6 +528,7 @@
 			bidBook={$tokenPanelBidBookState.bidBook}
 			biddingSettings={activeBiddingSettings}
 			priceTiers={activePriceTiers}
+			{trustOpenSeaSignedZoneTraitOffers}
 			expandSignal={biddingPanelExpandSignal}
 			onClose={closeBiddingAutomationPanel}
 			onJobsChange={handleBiddingJobsChanged}

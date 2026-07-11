@@ -5,6 +5,7 @@
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 	import {
 		DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
+		DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
 		type BiddingBidBookLiveRefreshConfig
 	} from '@artgod/shared/config/bidding';
 	import {
@@ -139,6 +140,8 @@
 		collection,
 		biddingSettings,
 		priceTiers = [],
+		trustOpenSeaSignedZoneTraitOffers =
+			DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
 		bidBookLiveRefreshConfig = DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
 		bidBook,
 		tokenOfferCards = emptyBiddingTokenOfferCardsPage(),
@@ -159,6 +162,7 @@
 		collection: ApiCollection | null;
 		biddingSettings: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
+		trustOpenSeaSignedZoneTraitOffers?: boolean;
 		bidBookLiveRefreshConfig?: BiddingBidBookLiveRefreshConfig;
 		bidBook: ApiBiddingBidBook;
 		tokenOfferCards?: ApiBiddingTokenOfferCardsPage;
@@ -1267,6 +1271,7 @@
 			bidBook={activeBidBook}
 			biddingSettings={activeBiddingSettings}
 			priceTiers={activePriceTiers}
+			{trustOpenSeaSignedZoneTraitOffers}
 			expandSignal={biddingPanelExpandSignal}
 			onClose={closeBiddingAutomationPanel}
 			onJobsChange={handleBiddingJobsChanged}
