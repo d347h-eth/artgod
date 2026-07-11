@@ -74,9 +74,27 @@ test("separates signing, attestation, and publication trust boundaries", async (
     const attestationIndex = releaseWorkflow.indexOf(
         "Attest release artifacts",
     );
+    const releaseKeyIndex = releaseWorkflow.indexOf(
+        "Include release verification key",
+    );
+    const checksumIndex = releaseWorkflow.indexOf("Generate checksums");
+    const releaseStagingIndex = releaseWorkflow.indexOf(
+        "Stage GitHub release assets",
+    );
     const publicationIndex = releaseWorkflow.indexOf("Publish GitHub release");
     assert.ok(cleanupIndex >= 0 && cleanupIndex < firstArtifactActionIndex);
-    assert.ok(attestationIndex >= 0 && attestationIndex < publicationIndex);
+    assert.ok(releaseKeyIndex >= 0 && releaseKeyIndex < checksumIndex);
+    assert.ok(
+        attestationIndex >= 0 &&
+            attestationIndex < releaseStagingIndex &&
+            releaseStagingIndex < publicationIndex,
+    );
+    const publishJob = extractWorkflowJob(releaseWorkflow, "publish-release");
+    assert.match(publishJob, /Stage GitHub release assets[\s\S]*draft:\s*true/);
+    assert.match(
+        releaseWorkflow,
+        /DESKTOP_RELEASE_PUBLIC_KEY_FILE_NAME:\s*artgod-release-public\.asc/,
+    );
     assert.doesNotMatch(releaseWorkflow, /APPLE_API_KEY_PATH=/);
     assert.doesNotMatch(releaseWorkflow, /MACOS_NOTARIZATION_KEY_FILE_NAME/);
 });

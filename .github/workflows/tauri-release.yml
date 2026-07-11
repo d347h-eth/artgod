@@ -18,6 +18,8 @@ env:
     DESKTOP_LINUX_ARTIFACT_NAME: artgod-linux-x64
     DESKTOP_MACOS_ARTIFACT_NAME: artgod-macos-universal
     DESKTOP_RELEASE_READY_ARTIFACT_NAME: artgod-desktop-release-ready
+    DESKTOP_RELEASE_PUBLIC_KEY_PATH: docs/desktop/keys/artgod-release-public.asc
+    DESKTOP_RELEASE_PUBLIC_KEY_FILE_NAME: artgod-release-public.asc
     MACOS_NOTARIZATION_INPUT_ARTIFACT_NAME: artgod-macos-notarization-input
     MACOS_NOTARIZATION_STATE_ARTIFACT_NAME: artgod-macos-notarization-state
     MACOS_NOTARIZATION_DIAGNOSTICS_ARTIFACT_NAME: artgod-macos-notarization-diagnostics
@@ -502,6 +504,14 @@ jobs:
                   name: ${{ env.DESKTOP_MACOS_ARTIFACT_NAME }}
                   path: release-assets
 
+            - name: Include release verification key
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  test -s "$DESKTOP_RELEASE_PUBLIC_KEY_PATH"
+                  cp "$DESKTOP_RELEASE_PUBLIC_KEY_PATH" "release-assets/$DESKTOP_RELEASE_PUBLIC_KEY_FILE_NAME"
+                  test -s "release-assets/$DESKTOP_RELEASE_PUBLIC_KEY_FILE_NAME"
+
             - name: Generate checksums
               shell: bash
               run: |
@@ -557,13 +567,21 @@ jobs:
                       release-assets/**/*.dmg
                       release-assets/**/*.app.tar.gz
 
+            - name: Stage GitHub release assets
+              uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+              with:
+                  tag_name: ${{ github.ref_name }}
+                  draft: true
+                  prerelease: ${{ needs.assemble-release.outputs.prerelease }}
+                  fail_on_unmatched_files: true
+                  files: |
+                      release-assets/**
+                      SHA256SUMS.txt
+                      SHA256SUMS.txt.asc
+
             - name: Publish GitHub release
               uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
               with:
                   tag_name: ${{ github.ref_name }}
                   prerelease: ${{ needs.assemble-release.outputs.prerelease }}
                   make_latest: ${{ needs.assemble-release.outputs.make_latest }}
-                  files: |
-                      release-assets/**
-                      SHA256SUMS.txt
-                      SHA256SUMS.txt.asc
