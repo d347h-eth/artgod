@@ -294,7 +294,15 @@ signs staged executable/loadable Mach-O files copied as runtime resources or
 sidecars, including the bundled Node runtime, bundled NATS runtime, native
 `.node` add-ons, and the secret-prompt sidecar. The release workflow then runs
 `scripts/build/macos-code-signing.mjs verify-dmg` against the produced DMG,
-mounts it, and verifies the contained `.app` before notarization.
+mounts it, and verifies the contained `.app` before notarization. The bundled
+Node executable alone is signed with
+`src-tauri/entitlements/node-runtime.plist`, which grants
+`com.apple.security.cs.allow-jit` so V8 can use `MAP_JIT` under Apple's hardened
+runtime. The verification command requires Node's embedded entitlements to
+match that dedicated file exactly and starts Node from the mounted DMG far
+enough to initialize V8. Broader exceptions such as
+`com.apple.security.cs.allow-unsigned-executable-memory` are intentionally not
+granted.
 Runtime resource staging also removes copied Yarn cache archives for packages
 that PnP resolves from `.yarn/unplugged`. Those archives duplicate the unpacked
 runtime packages and can contain unsigned native Mach-O binaries that Apple
@@ -310,6 +318,11 @@ spctl --assess --type open --context context:primary-signature --verbose=4 "<Art
 codesign --verify --deep --strict --verbose=2 "<mounted-ArtGod.app>"
 spctl --assess --type execute --verbose=4 "<mounted-ArtGod.app>"
 codesign --display --verbose=4 "<mounted-ArtGod.app>"
+
+# Confirm the hardened bundled Node has only its required JIT entitlement and starts.
+NODE="<mounted-ArtGod.app>/Contents/Resources/resources/runtime/node/node"
+codesign --display --entitlements :- "$NODE"
+"$NODE" --eval 'process.stdout.write(`${process.arch} ${process.version}\n`)'
 ```
 
 The displayed authority must be the expected `Developer ID Application`
@@ -325,6 +338,8 @@ Official references:
 - Developer ID G2 intermediate: https://developer.apple.com/support/developer-id-intermediate-certificate/
 - Developer ID / notarization overview: https://developer.apple.com/developer-id/
 - Custom notarization workflow: https://developer.apple.com/documentation/security/customizing-the-notarization-workflow
+- Apple silicon JIT under hardened runtime: https://developer.apple.com/documentation/apple-silicon/porting-just-in-time-compilers-to-apple-silicon
+- Allow execution of JIT-compiled code entitlement: https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.cs.allow-jit
 - App Store Connect API keys: https://developer.apple.com/help/app-store-connect/get-started/app-store-connect-api
 - GitHub Actions artifacts: https://docs.github.com/en/actions/using-workflows/storing-workflow-data-as-artifacts
 - GitHub Actions secure use: https://docs.github.com/en/actions/reference/security/secure-use
