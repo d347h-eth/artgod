@@ -672,6 +672,7 @@ Outputs:
 - bundle artifacts uploaded to GitHub Release
 - `SHA256SUMS.txt`
 - `SHA256SUMS.txt.asc`
+- `artgod-release-public.asc`
 - Linux detached signatures (`*.AppImage.asc`, `*.deb.asc`)
 - build provenance attestation
 
@@ -692,6 +693,9 @@ Current state:
 - Release assembly holds the Linux signing secret but has read-only repository
   permissions. A separate secret-free job attests the finished bundles before
   publishing the GitHub Release.
+- The publication job stages every asset on a draft release before publishing,
+  so repository release immutability cannot lock a partially uploaded stable or
+  test release.
 - macOS `.p12`, keychain, and `.p8` material are removed before any later
   artifact Action can observe the corresponding runner filesystem state.
 - Windows release builds are deferred for the first public alpha. When Windows
@@ -727,14 +731,21 @@ Windows maintainer-profile note:
   with eSigner for Code as the future Windows path.
 - The alpha release workflow does not build Windows artifacts.
 
-Consumer-side verification examples:
+Consumer-side verification:
 
-- Linux checksum + checksums signature:
-    - `gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt`
-    - `sha256sum -c SHA256SUMS.txt`
-- Linux detached artifact signature:
-    - `gpg --verify ArtGod-x.y.z.AppImage.asc ArtGod-x.y.z.AppImage`
-    - `gpg --verify ArtGod-x.y.z.deb.asc ArtGod-x.y.z.deb`
+```sh
+gpg --show-keys --with-fingerprint --with-subkey-fingerprint artgod-release-public.asc
+gpg --import artgod-release-public.asc
+gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt
+sha256sum --ignore-missing --check SHA256SUMS.txt
+gpg --verify "<linux-bundle>.asc" "<linux-bundle>"
+gh attestation verify "<bundle>" -R d347h-eth/artgod
+```
+
+The root README publishes the expected primary and signing-subkey fingerprints
+and owns the concise consumer flow. The signed checksum manifest covers the
+macOS DMG; Gatekeeper separately evaluates its Developer ID signature and
+stapled Apple notarization ticket.
 
 ## Troubleshooting
 
