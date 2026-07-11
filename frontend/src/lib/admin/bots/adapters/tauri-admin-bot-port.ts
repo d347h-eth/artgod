@@ -1,5 +1,12 @@
 import { browser } from '$app/environment';
-import type { AdminBotKind, AdminBotPort, AdminBotRecord, AdminBotStateListener } from '../ports';
+import type {
+	AdminBiddingCollectionCandidate,
+	AdminBiddingMandateDraft,
+	AdminBotKind,
+	AdminBotPort,
+	AdminBotRecord,
+	AdminBotStateListener
+} from '../ports';
 
 type TauriInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 type TauriListen = <T>(
@@ -10,29 +17,48 @@ type TauriListen = <T>(
 let invokeFn: TauriInvoke | null = null;
 let listenFn: TauriListen | null = null;
 
+// Owns the Tauri command vocabulary for the Admin bot adapter.
+const ADMIN_BOT_TAURI_COMMAND = {
+	List: 'bot_list',
+	ListBiddingCollections: 'bot_list_bidding_collections',
+	AssignWallet: 'bot_assign_wallet',
+	Start: 'bot_start',
+	Stop: 'bot_stop'
+} as const;
+
 export function createTauriAdminBotPort(): AdminBotPort {
 	return {
 		async listBots(): Promise<AdminBotRecord[]> {
 			const invoke = await requireInvoke();
-			return invoke<AdminBotRecord[]>('bot_list');
+			return invoke<AdminBotRecord[]>(ADMIN_BOT_TAURI_COMMAND.List);
+		},
+
+		async listBiddingCollections(): Promise<AdminBiddingCollectionCandidate[]> {
+			const invoke = await requireInvoke();
+			return invoke<AdminBiddingCollectionCandidate[]>(
+				ADMIN_BOT_TAURI_COMMAND.ListBiddingCollections
+			);
 		},
 
 		async assignWallet(botKind: AdminBotKind, walletId: string | null): Promise<AdminBotRecord> {
 			const invoke = await requireInvoke();
-			return invoke<AdminBotRecord>('bot_assign_wallet', {
+			return invoke<AdminBotRecord>(ADMIN_BOT_TAURI_COMMAND.AssignWallet, {
 				botKind,
 				walletId
 			});
 		},
 
-		async startBot(botKind: AdminBotKind): Promise<AdminBotRecord> {
+		async startBot(
+			botKind: AdminBotKind,
+			biddingMandate: AdminBiddingMandateDraft | null
+		): Promise<AdminBotRecord> {
 			const invoke = await requireInvoke();
-			return invoke<AdminBotRecord>('bot_start', { botKind });
+			return invoke<AdminBotRecord>(ADMIN_BOT_TAURI_COMMAND.Start, { botKind, biddingMandate });
 		},
 
 		async stopBot(botKind: AdminBotKind): Promise<AdminBotRecord> {
 			const invoke = await requireInvoke();
-			return invoke<AdminBotRecord>('bot_stop', { botKind });
+			return invoke<AdminBotRecord>(ADMIN_BOT_TAURI_COMMAND.Stop, { botKind });
 		},
 
 		async onStateChanged(listener: AdminBotStateListener): Promise<() => void> {
