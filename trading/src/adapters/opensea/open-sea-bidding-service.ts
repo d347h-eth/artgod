@@ -6,6 +6,7 @@ import {
     normalizeOpenSeaOfferTraitCriteria,
     parseOpenSeaBiddingOffer,
 } from "@artgod/shared/trading/open-sea-bidding-offers";
+import { OPENSEA_MAINNET_SECURITY_POLICY } from "@artgod/shared/trading/open-sea-mainnet-security-policy";
 import {
     BIDDING_ORDER_RECOVERY_REASON,
     BIDDING_ORDER_RECOVERY_STATUS,
@@ -22,7 +23,9 @@ import {
 } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
 import { TokenMetadataRepository } from "../../domain/market/token-metadata-repository.js";
 import {
+    BIDDER_TARGET_TYPE,
     BidderJob,
+    bidderTargetRequiresOpenSeaSignedZoneTrust,
     formatBidderJobReference,
     TraitSelector,
     TraitTarget,
@@ -33,6 +36,7 @@ import {
     BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE,
     BIDDING_DEFAULT_ORDER_LOOKUP_MAX_PAGES,
     BIDDING_DEFAULT_TOKEN_CRITERIA_TRAITS_BY_COLLECTION,
+    BIDDING_DEFAULT_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
 } from "../../config/bidding-defaults.js";
 import {
     BIDDING_LOG_COMPONENT,
@@ -75,9 +79,13 @@ export interface OpenSeaBiddingServiceOptions {
     offersPageSize?: number;
     tokenCriteriaTraitsByCollection?: Record<string, string[]>;
     competitiveTraitMaxLookupSelectors?: number;
+    trustOpenSeaSignedZoneTraitOffers?: boolean;
 }
 
-const OPENSEA_WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
+// Stable error text for jobs blocked until the operator explicitly accepts OpenSea SignedZone trait enforcement.
+export const OPENSEA_SIGNED_ZONE_TRAIT_TRUST_REQUIRED_ERROR =
+    "Trait and multi-trait offer placement requires explicit OpenSea SignedZone trust in Admin Config";
+
 const OPENSEA_MAINNET_CHAIN = "ethereum";
 const log = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.OpenSeaBiddingService,
@@ -113,6 +121,7 @@ export class OpenSeaBiddingService implements BiddingService {
     private readonly offersPageSize: number;
     private readonly tokenCriteriaTraitsByCollection: Record<string, string[]>;
     private readonly competitiveTraitMaxLookupSelectors: number;
+    private readonly trustOpenSeaSignedZoneTraitOffers: boolean;
 
     constructor(
         private readonly sdk: OpenSeaBiddingSdkClient,
@@ -151,6 +160,9 @@ export class OpenSeaBiddingService implements BiddingService {
             options.competitiveTraitMaxLookupSelectors ??
                 BIDDING_DEFAULT_COMPETITIVE_TRAIT_MAX_LOOKUP_SELECTORS,
         );
+        this.trustOpenSeaSignedZoneTraitOffers =
+            options.trustOpenSeaSignedZoneTraitOffers ??
+            BIDDING_DEFAULT_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS;
     }
 
     public async getActiveOffers(
@@ -159,7 +171,7 @@ export class OpenSeaBiddingService implements BiddingService {
     ): Promise<Order[]> {
         const offers: Order[] = [];
         const lookupTraitSelectors = this.getLookupTraitSelectors(job);
-        const isCompetitiveTraitJob = job.target.type === "competitiveTrait";
+        const isCompetitiveTraitJob = job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait;
         const competitiveBucketCounts = {
             collectionWide: new Set<string>(),
             targetTrait: new Set<string>(),
@@ -167,7 +179,7 @@ export class OpenSeaBiddingService implements BiddingService {
         };
         let expandedTraitSelectorCount = 0;
 
-        if (job.target.type === "token") {
+        if (job.target.type === BIDDER_TARGET_TYPE.Token) {
             const tokenTarget = job.target;
             try {
                 // 1. Fetch live item-specific offers for the exact token because this path must stay latency-sensitive.
@@ -203,7 +215,7 @@ export class OpenSeaBiddingService implements BiddingService {
             }
         }
 
-        if (job.target.type === "token") {
+        if (job.target.type === BIDDER_TARGET_TYPE.Token) {
             try {
                 // 2. Fetch broader collection-wide and criteria offers from the shared snapshot for token jobs.
                 const cachedSnapshotOffers =
@@ -224,7 +236,7 @@ export class OpenSeaBiddingService implements BiddingService {
             }
         } else {
             try {
-                if (job.target.type === "collection") {
+                if (job.target.type === BIDDER_TARGET_TYPE.Collection) {
                     // 2a. Reuse the cached snapshot first for collection jobs so broad offer discovery stays authoritative but cheap.
                     const cachedSnapshotOffers =
                         this.getCachedCollectionSnapshotOffers(job);
@@ -248,7 +260,7 @@ export class OpenSeaBiddingService implements BiddingService {
                     }
                 }
 
-                if (job.target.type === "competitiveTrait") {
+                if (job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait) {
                     const competitiveTarget = job.target;
                     // Expand type-only selectors into explicit trait targets before fetching each competing trait bucket.
                     const expandedTraitTargets =
@@ -352,7 +364,7 @@ export class OpenSeaBiddingService implements BiddingService {
             }
         }
 
-        if (job.target.type === "token") {
+        if (job.target.type === BIDDER_TARGET_TYPE.Token) {
             const tokenTarget = job.target;
             try {
                 // 3. Fetch best-offer as a catch-all fallback because OpenSea visibility is not perfectly uniform across endpoints.
@@ -423,7 +435,7 @@ export class OpenSeaBiddingService implements BiddingService {
         makerAddress: string,
         context: BiddingServiceRequestContext = {},
     ): Promise<Order | null> {
-        if (job.target.type !== "token") {
+        if (job.target.type !== BIDDER_TARGET_TYPE.Token) {
             return null;
         }
         const tokenTarget = job.target;
@@ -602,34 +614,38 @@ export class OpenSeaBiddingService implements BiddingService {
         placedAt: string;
         expirationTime?: number;
     }> {
+        if (
+            bidderTargetRequiresOpenSeaSignedZoneTrust(job.target) &&
+            !this.trustOpenSeaSignedZoneTraitOffers
+        ) {
+            throw new Error(OPENSEA_SIGNED_ZONE_TRAIT_TRUST_REQUIRED_ERROR);
+        }
         const expirationTime =
             Math.floor(Date.now() / 1000) + this.offerExpirationSeconds;
 
         try {
             if (
-                job.target.type === "collection" ||
-                job.target.type === "competitiveTrait"
+                job.target.type === BIDDER_TARGET_TYPE.Collection ||
+                job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait
             ) {
                 const quantity = Math.max(1, Math.floor(job.target.quantity));
-                const totalAmountDecimal = formatUnits(
-                    amount * BigInt(quantity),
-                    18,
-                );
+                const totalAmountWei = amount * BigInt(quantity);
+                const totalAmountDecimal = formatUnits(totalAmountWei, 18);
                 const placementTraits = this.getPlacementTraits(job);
                 const singlePlacementTrait =
                     placementTraits.length === 1
                         ? placementTraits[0]
                         : undefined;
                 const traitType =
-                    job.target.type === "competitiveTrait"
+                    job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait
                         ? singlePlacementTrait?.type
                         : undefined;
                 const traitValue =
-                    job.target.type === "competitiveTrait"
+                    job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait
                         ? singlePlacementTrait?.value
                         : undefined;
                 const traits =
-                    job.target.type === "collection" &&
+                    job.target.type === BIDDER_TARGET_TYPE.Collection &&
                     placementTraits.length > 0
                         ? placementTraits
                         : undefined;
@@ -637,16 +653,23 @@ export class OpenSeaBiddingService implements BiddingService {
                 const order = await this.trackSdkCall(
                     "createCollectionOffer",
                     () =>
-                        this.sdk.createCollectionOffer({
-                            collectionSlug: job.collectionSlug,
-                            accountAddress: this.makerAddress,
-                            amount: totalAmountDecimal,
-                            quantity,
-                            traitType,
-                            traitValue,
-                            traits,
-                            expirationTime,
-                        }),
+                        this.sdk.createCollectionOffer(
+                            {
+                                collectionSlug: job.collectionSlug,
+                                accountAddress: this.makerAddress,
+                                amount: totalAmountDecimal,
+                                quantity,
+                                traitType,
+                                traitValue,
+                                traits,
+                                expirationTime,
+                            },
+                            {
+                                job,
+                                totalAmountWei,
+                                expirationTime,
+                            },
+                        ),
                     context,
                 );
                 const placedAt = new Date().toISOString();
@@ -667,7 +690,7 @@ export class OpenSeaBiddingService implements BiddingService {
                 };
             }
 
-            if (job.target.type !== "token") {
+            if (job.target.type !== BIDDER_TARGET_TYPE.Token) {
                 throw new Error(
                     "Invalid target type for placeOffer (expected token)",
                 );
@@ -677,15 +700,22 @@ export class OpenSeaBiddingService implements BiddingService {
             const order = await this.trackSdkCall(
                 "createOffer",
                 () =>
-                    this.sdk.createOffer({
-                        asset: {
-                            tokenAddress: job.collectionAddress,
-                            tokenId: tokenTarget.tokenId,
+                    this.sdk.createOffer(
+                        {
+                            asset: {
+                                tokenAddress: job.collectionAddress,
+                                tokenId: tokenTarget.tokenId,
+                            },
+                            accountAddress: this.makerAddress,
+                            amount: formatUnits(amount, 18),
+                            expirationTime,
                         },
-                        accountAddress: this.makerAddress,
-                        amount: formatUnits(amount, 18),
-                        expirationTime,
-                    }),
+                        {
+                            job,
+                            totalAmountWei: amount,
+                            expirationTime,
+                        },
+                    ),
                 context,
             );
             const placedAt = new Date().toISOString();
@@ -917,10 +947,10 @@ export class OpenSeaBiddingService implements BiddingService {
     }
 
     private getPlacementTraits(job: BidderJob): TraitTarget[] {
-        if (job.target.type === "collection") {
+        if (job.target.type === BIDDER_TARGET_TYPE.Collection) {
             return this.dedupeTraitTargets(job.target.traits ?? []);
         }
-        if (job.target.type === "competitiveTrait") {
+        if (job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait) {
             return [job.target.targetTrait];
         }
 
@@ -932,7 +962,7 @@ export class OpenSeaBiddingService implements BiddingService {
         const placementTraits = this.getPlacementTraits(job);
 
         selectors.push(...placementTraits);
-        if (job.target.type === "competitiveTrait") {
+        if (job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait) {
             selectors.push(...job.target.competitorTraits);
         }
 
@@ -1047,7 +1077,7 @@ export class OpenSeaBiddingService implements BiddingService {
     private async getCachedTokenSnapshotOffers(
         job: BidderJob,
     ): Promise<Order[]> {
-        if (job.target.type !== "token") {
+        if (job.target.type !== BIDDER_TARGET_TYPE.Token) {
             return [];
         }
         const tokenTarget = job.target;
@@ -1238,7 +1268,7 @@ export class OpenSeaBiddingService implements BiddingService {
     }
 
     private getCachedCollectionSnapshotOffers(job: BidderJob): Order[] | null {
-        if (job.target.type !== "collection") {
+        if (job.target.type !== BIDDER_TARGET_TYPE.Collection) {
             return null;
         }
 
@@ -1272,7 +1302,7 @@ export class OpenSeaBiddingService implements BiddingService {
     ): Order[] {
         const cachedOffers: Order[] = [];
         const targetTraits =
-            job.target.type === "collection"
+            job.target.type === BIDDER_TARGET_TYPE.Collection
                 ? this.dedupeTraitTargets(job.target.traits ?? [])
                 : [];
         const summary: SnapshotScanSummary = {
@@ -1505,7 +1535,7 @@ export class OpenSeaBiddingService implements BiddingService {
         job: BidderJob,
         rawOffers: unknown[],
     ): Order[] {
-        if (job.target.type !== "collection") {
+        if (job.target.type !== BIDDER_TARGET_TYPE.Collection) {
             return [];
         }
 
@@ -1628,7 +1658,7 @@ export class OpenSeaBiddingService implements BiddingService {
         // Keep bidder runtime offer parsing centralized for snapshot projection and backend fallback reuse.
         const parsed = parseOpenSeaBiddingOffer(rawOffer, {
             collectionAddress,
-            wethAddress: OPENSEA_WETH_ADDRESS,
+            wethAddress: OPENSEA_MAINNET_SECURITY_POLICY.wethAddress,
             discoverySource,
         });
         return parsed
@@ -1651,7 +1681,7 @@ function jobLogFields(job: BidderJob): Record<string, unknown> {
         collectionSlug: job.collectionSlug,
         collectionAddress: job.collectionAddress,
         targetType: job.target.type,
-        tokenId: job.target.type === "token" ? job.target.tokenId : null,
+        tokenId: job.target.type === BIDDER_TARGET_TYPE.Token ? job.target.tokenId : null,
     };
 }
 

@@ -32,18 +32,25 @@ export interface TraitTarget {
     value: string;
 }
 
+// Owns the bidder-domain target discriminants used by runtime jobs and adapters.
+export const BIDDER_TARGET_TYPE = {
+    Token: "token",
+    Collection: "collection",
+    CompetitiveTrait: "competitiveTrait",
+} as const;
+
 export type BidderTarget =
     | {
-          type: "token";
+          type: typeof BIDDER_TARGET_TYPE.Token;
           tokenId: string;
       }
     | {
-          type: "collection";
+          type: typeof BIDDER_TARGET_TYPE.Collection;
           quantity: number;
           traits?: TraitTarget[];
       }
     | {
-          type: "competitiveTrait";
+          type: typeof BIDDER_TARGET_TYPE.CompetitiveTrait;
           quantity: number;
           targetTrait: TraitTarget;
           competitorTraits: TraitSelector[];
@@ -61,6 +68,17 @@ export interface BidderJob {
     state: BidderState;
 }
 
+// Identifies targets whose exact trait criteria are enforced by OpenSea SignedZone rather than the maker signature.
+export function bidderTargetRequiresOpenSeaSignedZoneTrust(
+    target: BidderTarget,
+): boolean {
+    return (
+        target.type === BIDDER_TARGET_TYPE.CompetitiveTrait ||
+        (target.type === BIDDER_TARGET_TYPE.Collection &&
+            (target.traits?.length ?? 0) > 0)
+    );
+}
+
 const MAX_LOG_TRAITS = 6;
 const MAX_LOG_VALUE_LENGTH = 96;
 
@@ -70,11 +88,11 @@ export function formatBidderJobReference(job: BidderJob): string {
 }
 
 function formatBidderTargetReference(target: BidderTarget): string {
-    if (target.type === "token") {
+    if (target.type === BIDDER_TARGET_TYPE.Token) {
         return `token#${target.tokenId}`;
     }
 
-    if (target.type === "collection") {
+    if (target.type === BIDDER_TARGET_TYPE.Collection) {
         const traits = target.traits ?? [];
         const scope =
             traits.length > 0

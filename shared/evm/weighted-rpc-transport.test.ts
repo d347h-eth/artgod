@@ -13,7 +13,7 @@ import {
     createResilientWeightedRpcTransport,
     createWeightedRpcTransport,
     EVM_STATE_CHANGING_RPC_METHOD,
-    RPC_STATE_CHANGING_METHOD_REJECTED_ERROR,
+    READ_ONLY_RPC_METHOD_REJECTED_ERROR,
 } from "./weighted-rpc-transport.js";
 
 const TEST_ENDPOINT_ID_PREFIX = "test-rpc";
@@ -335,7 +335,7 @@ describe("createResilientWeightedRpcTransport", () => {
                 method: EVM_STATE_CHANGING_RPC_METHOD.SendRawTransaction,
                 params: ["0x"],
             }),
-        ).rejects.toThrow(RPC_STATE_CHANGING_METHOD_REJECTED_ERROR);
+        ).rejects.toThrow(READ_ONLY_RPC_METHOD_REJECTED_ERROR);
 
         expect(calls).toEqual([]);
     });

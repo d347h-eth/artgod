@@ -30,6 +30,7 @@
 		displayMode: 'grid' | 'table';
 			biddingSettings: ApiBiddingCollectionSettings;
 			priceTiers: ApiBiddingPriceTier[];
+			trustOpenSeaSignedZoneTraitOffers?: boolean;
 			bidBookLiveRefreshConfig?: BiddingBidBookLiveRefreshConfig;
 			blockExplorer?: BlockExplorerConfig;
 		};
@@ -70,6 +71,7 @@
 	displayMode={data?.displayMode ?? 'grid'}
 	biddingSettings={data?.biddingSettings ?? defaultBiddingCollectionSettings()}
 		priceTiers={data?.priceTiers ?? []}
+		trustOpenSeaSignedZoneTraitOffers={data?.trustOpenSeaSignedZoneTraitOffers}
 		bidBookLiveRefreshConfig={data?.bidBookLiveRefreshConfig}
 		blockExplorer={data?.blockExplorer}
 	/>

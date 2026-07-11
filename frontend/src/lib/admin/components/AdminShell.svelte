@@ -434,7 +434,7 @@
 				{:else if activeTab === 'wallets'}
 					<AdminWalletsPanel />
 				{:else}
-					<AdminBotsPanel />
+					<AdminBotsPanel {config} {configLoading} />
 				{/if}
 			</section>
 		{/if}

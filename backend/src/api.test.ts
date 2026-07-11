@@ -14,6 +14,7 @@ import {
     DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
     DEFAULT_BIDDING_RUNTIME_HEARTBEAT_INTERVAL_MS,
     DEFAULT_BIDDING_RUNTIME_HEARTBEAT_STALE_MS,
+    DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
 } from "@artgod/shared/config/bidding";
 import { APP_DEPLOYMENT_MODE } from "@artgod/shared/config/deployment";
 import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc-resilience";
@@ -316,6 +317,7 @@ beforeAll(async () => {
             ENABLED_OPENSEA_INTEGRATION,
             getDefaultBlockExplorerConfig(),
             DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
+            DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
         );
     const listCollectionsUseCase =
         new listCollectionsUseCaseModule.ListCollectionsUseCase(
@@ -1209,6 +1211,8 @@ beforeAll(async () => {
         },
         openseaApi: API_TEST_OPENSEA_API_CONFIG,
         bidding: {
+            trustOpenSeaSignedZoneTraitOffers:
+                DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
             bidBookLiveRefresh: DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
             bidBookSnapshotStaleMs: DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
             runtimeHeartbeat: {
@@ -1256,6 +1260,9 @@ describe("backend api routes", () => {
         expect(result.payload.bidding.bidBookLiveRefresh).toEqual(
             DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
         );
+        expect(
+            result.payload.bidding.trustOpenSeaSignedZoneTraitOffers,
+        ).toBe(DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS);
     });
 
     it("returns chain blockspace state on the local API", async () => {

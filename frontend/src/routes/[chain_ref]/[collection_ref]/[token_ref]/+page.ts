@@ -98,6 +98,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			token: response.token,
 			biddingSettings: priceTiersResponse.settings,
 			priceTiers: priceTiersResponse.tiers,
+			trustOpenSeaSignedZoneTraitOffers:
+				runtimeConfigResponse.bidding.trustOpenSeaSignedZoneTraitOffers,
 			traitFilterPresentation: response.traitFilterPresentation,
 			tokenBiddingJob: biddingJobResponse.job,
 			tokenBiddingBidBook: biddingBidBookResponse.bidBook,

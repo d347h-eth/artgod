@@ -1,11 +1,22 @@
 import {
+    getSettingDefaultBoolean,
     getSettingDefaultNumber,
     type SettingsDefaultKey,
 } from "./generated-settings-defaults.js";
-import { parsePositiveInteger } from "../utils/env.js";
+import { parseBoolean, parsePositiveInteger } from "../utils/env.js";
 
-// Env keys that tune bid-book freshness and live-refresh behavior.
+// Manifest-backed env keys shared across bidding runtime and UI policy surfaces.
 export const BIDDING_CONFIG_ENV_KEY = {
+    Enabled: "BIDDING_ENABLED",
+    DryRun: "BIDDING_DRY_RUN",
+    TrustOpenSeaSignedZoneTraitOffers:
+        "BIDDING_TRUST_OPENSEA_SIGNED_ZONE_FOR_TRAIT_OFFERS",
+    WethAllowanceCapEth: "BIDDING_WETH_ALLOWANCE_ETH",
+    TxMinPriorityFeeGwei: "BIDDING_TX_MIN_PRIORITY_FEE_GWEI",
+    TxBaseFeeMultiplier: "BIDDING_TX_BASE_FEE_MULTIPLIER",
+    TxMaxFeeGwei: "BIDDING_TX_MAX_FEE_GWEI",
+    WethApprovalMaxGasFeeEth: "BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ETH",
+    TxPendingNoncePolicy: "BIDDING_TX_PENDING_NONCE_POLICY",
     BidBookSnapshotStaleMs: "BIDDING_BID_BOOK_SNAPSHOT_STALE_MS",
     BidBookNormalLivePollMs: "BIDDING_BID_BOOK_NORMAL_LIVE_POLL_MS",
     BidBookCompetitiveLivePollMs:
@@ -20,6 +31,7 @@ export type BiddingBidBookLiveRefreshConfig = {
 };
 
 export type BiddingConfig = {
+    trustOpenSeaSignedZoneTraitOffers: boolean;
     bidBookLiveRefresh: BiddingBidBookLiveRefreshConfig;
     bidBookSnapshotStaleMs: number;
     runtimeHeartbeat: {
@@ -27,6 +39,12 @@ export type BiddingConfig = {
         staleMs: number;
     };
 };
+
+// Default SignedZone trust decision for trait-scoped OpenSea offers.
+export const DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS =
+    getSettingDefaultBoolean(
+        BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers,
+    );
 
 // Default UI bid-book live-refresh cadence from the settings manifest.
 export const DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG: BiddingBidBookLiveRefreshConfig =
@@ -56,6 +74,11 @@ export function parseBiddingConfig(
     env: Record<string, string | undefined>,
 ): BiddingConfig {
     return {
+        trustOpenSeaSignedZoneTraitOffers: parseBoolean(
+            env[BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers],
+            BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers,
+            DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
+        ),
         bidBookLiveRefresh: {
             normalPollMs: parsePositiveInteger(
                 env[BIDDING_CONFIG_ENV_KEY.BidBookNormalLivePollMs],

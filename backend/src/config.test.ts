@@ -19,6 +19,7 @@ import {
     DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
     DEFAULT_BIDDING_RUNTIME_HEARTBEAT_INTERVAL_MS,
     DEFAULT_BIDDING_RUNTIME_HEARTBEAT_STALE_MS,
+    DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
 } from "@artgod/shared/config/bidding";
 import { COMMON_MEDIA_ENV_KEY } from "@artgod/shared/config/common-media";
 import { OPENSEA_API_KEY_ENV } from "@artgod/shared/config/opensea-integration";
@@ -183,9 +184,11 @@ describe("loadBackendConfig", () => {
             [BIDDING_CONFIG_ENV_KEY.BidBookCompetitiveLivePollMs]: "4000",
             [BIDDING_CONFIG_ENV_KEY.RuntimeHeartbeatIntervalMs]: "8000",
             [BIDDING_CONFIG_ENV_KEY.RuntimeHeartbeatStaleMs]: "24000",
+            [BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers]: "true",
         });
 
         expect(config.bidding).toEqual({
+            trustOpenSeaSignedZoneTraitOffers: true,
             bidBookLiveRefresh: {
                 normalPollMs: 12000,
                 competitivePollMs: 4000,
@@ -202,6 +205,8 @@ describe("loadBackendConfig", () => {
         const config = loadBackendConfig(createBaseEnv());
 
         expect(config.bidding).toEqual({
+            trustOpenSeaSignedZoneTraitOffers:
+                DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
             bidBookLiveRefresh: DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
             bidBookSnapshotStaleMs: DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
             runtimeHeartbeat: {

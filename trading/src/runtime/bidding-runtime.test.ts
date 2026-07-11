@@ -1,7 +1,10 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import { Scope, Type, MarketEvent } from "../domain/market/event.js";
-import type { BidderJob } from "../domain/market/strategy/job.js";
+import {
+    BIDDER_TARGET_TYPE,
+    type BidderJob,
+} from "../domain/market/strategy/job.js";
 import {
     collectSnapshotBackedCollectionSlugs,
     collectTokenWarmCandidateCount,
@@ -56,15 +59,15 @@ describe("bidding runtime helpers", () => {
     it("collects watched collections from all job targets without duplicates", () => {
         const jobs = [
             makeJob("token-a", "terraforms", {
-                type: "token",
+                type: BIDDER_TARGET_TYPE.Token,
                 tokenId: "1",
             }),
             makeJob("collection-a", "terraforms", {
-                type: "collection",
+                type: BIDDER_TARGET_TYPE.Collection,
                 quantity: 1,
             }),
             makeJob("trait-a", "otherdeed", {
-                type: "competitiveTrait",
+                type: BIDDER_TARGET_TYPE.CompetitiveTrait,
                 quantity: 1,
                 targetTrait: {
                     type: "Environment",
@@ -83,15 +86,15 @@ describe("bidding runtime helpers", () => {
     it("collects snapshot-backed collections only for token and collection jobs", () => {
         const jobs = [
             makeJob("token-a", "terraforms", {
-                type: "token",
+                type: BIDDER_TARGET_TYPE.Token,
                 tokenId: "1",
             }),
             makeJob("collection-a", "otherdeed", {
-                type: "collection",
+                type: BIDDER_TARGET_TYPE.Collection,
                 quantity: 1,
             }),
             makeJob("trait-a", "grails", {
-                type: "competitiveTrait",
+                type: BIDDER_TARGET_TYPE.CompetitiveTrait,
                 quantity: 1,
                 targetTrait: {
                     type: "Background",
@@ -110,15 +113,15 @@ describe("bidding runtime helpers", () => {
     it("counts token warm candidates from token jobs only", () => {
         const jobs = [
             makeJob("token-a", "terraforms", {
-                type: "token",
+                type: BIDDER_TARGET_TYPE.Token,
                 tokenId: "1",
             }),
             makeJob("token-b", "terraforms", {
-                type: "token",
+                type: BIDDER_TARGET_TYPE.Token,
                 tokenId: "2",
             }),
             makeJob("collection-a", "otherdeed", {
-                type: "collection",
+                type: BIDDER_TARGET_TYPE.Collection,
                 quantity: 1,
             }),
         ];

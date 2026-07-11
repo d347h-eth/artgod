@@ -101,6 +101,8 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 				displayMode,
 				biddingSettings: priceTiersResponse.settings,
 				priceTiers: priceTiersResponse.tiers,
+				trustOpenSeaSignedZoneTraitOffers:
+					runtimeConfigResponse.bidding.trustOpenSeaSignedZoneTraitOffers,
 				bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh,
 				blockExplorer: runtimeConfigResponse.blockExplorer
 			};

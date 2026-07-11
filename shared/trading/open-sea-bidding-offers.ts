@@ -5,6 +5,7 @@ import {
     type TradingBiddingBidScopeKind,
     type TradingTraitCriterion,
 } from "../types/trading.js";
+import { OPENSEA_MAINNET_SECURITY_POLICY } from "./open-sea-mainnet-security-policy.js";
 
 export type OpenSeaBiddingOfferScope =
     | "item"
@@ -60,9 +61,6 @@ export type ParseOpenSeaBiddingOfferOptions = {
     wethAddress?: string;
     discoverySource?: OpenSeaBiddingOfferDiscoverySource;
 };
-
-const DEFAULT_OPENSEA_WETH_ADDRESS =
-    "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
 
 // Parses an OpenSea offer with the same price and scope semantics used by the bidder runtime.
 export function parseOpenSeaBiddingOffer(
@@ -173,7 +171,8 @@ export function extractOpenSeaWethUnitPrice(
     } = {},
 ): OpenSeaBiddingPriceExtraction | null {
     const wethAddress =
-        options.wethAddress?.toLowerCase() ?? DEFAULT_OPENSEA_WETH_ADDRESS;
+        options.wethAddress?.toLowerCase() ??
+        OPENSEA_MAINNET_SECURITY_POLICY.wethAddress.toLowerCase();
     const proto = getOpenSeaProtocolEnvelope(rawOrder);
     if (proto?.parameters) {
         const offerSum = sumTokenItems(proto.parameters.offer, wethAddress);

@@ -6,7 +6,10 @@ import {
     TRADING_JOB_STATUS,
     type TradingJobStatus,
 } from "@artgod/shared/types";
-import type { BidderJob } from "../../../domain/market/strategy/job.js";
+import {
+    BIDDER_TARGET_TYPE,
+    type BidderJob,
+} from "../../../domain/market/strategy/job.js";
 import { Bidder } from "./bidder.js";
 import {
     BIDDING_ORDER_RECOVERY_REASON,
@@ -38,7 +41,7 @@ function makeJob(jobId: string): BidderJob {
         collectionAddress: "0x1111111111111111111111111111111111111111",
         collectionSlug: "terraforms",
         target: {
-            type: "token",
+            type: BIDDER_TARGET_TYPE.Token,
             tokenId: "1",
         },
         config: {

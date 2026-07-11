@@ -7,6 +7,7 @@ import {
     type ObservedRpcEndpointAttempt,
 } from "@artgod/shared/evm/rpc-execution";
 import { fetchWithRpcRequestTimeout } from "@artgod/shared/evm/rpc-resilience";
+import { assertReadOnlyEvmRpcMethod } from "@artgod/shared/evm/weighted-rpc-transport";
 import {
     RPC_OBSERVABILITY_SENTINEL,
     type RpcObservability,
@@ -106,7 +107,11 @@ class ObservedOpenSeaSdkRpcConnection implements OpenSeaSdkRpcConnection {
     }
 
     async send(): Promise<OpenSeaSdkRpcResponse> {
-        const method = parseJsonRpcMethodLabel(this.requestBody);
+        const methods = parseJsonRpcMethods(this.requestBody);
+        for (const method of methods) {
+            assertReadOnlyEvmRpcMethod(method);
+        }
+        const method = formatJsonRpcMethodLabel(methods);
         const attempt = startObservedRpcEndpointAttempt({
             selector: this.selector,
             method,
@@ -245,22 +250,26 @@ function recordRpcFailure(
     observation.attempt.recordFailure(error);
 }
 
-function parseJsonRpcMethodLabel(body: string | Uint8Array | null): string {
+function parseJsonRpcMethods(body: string | Uint8Array | null): string[] {
     if (body === null) {
-        return RPC_OBSERVABILITY_SENTINEL.NoMethod;
+        return [];
     }
     try {
         const parsed = JSON.parse(bodyToString(body));
         if (Array.isArray(parsed)) {
-            if (parsed.length === 1) {
-                return parseSingleJsonRpcMethod(parsed[0]);
-            }
-            return BATCH_RPC_METHOD_LABEL;
+            return parsed.map(parseSingleJsonRpcMethod);
         }
-        return parseSingleJsonRpcMethod(parsed);
+        return [parseSingleJsonRpcMethod(parsed)];
     } catch {
+        return [];
+    }
+}
+
+function formatJsonRpcMethodLabel(methods: readonly string[]): string {
+    if (methods.length === 0) {
         return RPC_OBSERVABILITY_SENTINEL.NoMethod;
     }
+    return methods.length === 1 ? methods[0] : BATCH_RPC_METHOD_LABEL;
 }
 
 function parseSingleJsonRpcMethod(payload: unknown): string {

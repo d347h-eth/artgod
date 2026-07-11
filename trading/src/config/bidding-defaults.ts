@@ -4,11 +4,14 @@ import {
     getSettingDefaultNumber,
     type SettingsDefaultKey,
 } from "@artgod/shared/config/generated-settings-defaults";
+import { BIDDING_CONFIG_ENV_KEY } from "@artgod/shared/config/bidding";
 
 // Env keys owned by the trading bidding runtime config parser.
 export const BIDDING_RUNTIME_ENV_KEY = {
-    Enabled: "BIDDING_ENABLED",
-    DryRun: "BIDDING_DRY_RUN",
+    Enabled: BIDDING_CONFIG_ENV_KEY.Enabled,
+    DryRun: BIDDING_CONFIG_ENV_KEY.DryRun,
+    TrustOpenSeaSignedZoneTraitOffers:
+        BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers,
     ScanSleepMs: "BIDDING_SCAN_SLEEP_MS",
     MaxConcurrentJobs: "BIDDING_MAX_CONCURRENT_JOBS",
     BootstrapConcurrency: "BIDDING_BOOTSTRAP_CONCURRENCY",
@@ -35,13 +38,14 @@ export const BIDDING_RUNTIME_ENV_KEY = {
     CommandClaimTimeoutMs: "BIDDING_COMMAND_CLAIM_TIMEOUT_MS",
     FailedCancellationReconcileMs: "BIDDING_FAILED_CANCELLATION_RECONCILE_MS",
     CancellationRemediationRetryMs: "BIDDING_CANCELLATION_REMEDIATION_RETRY_MS",
-    WethAllowanceEth: "BIDDING_WETH_ALLOWANCE_ETH",
-    TxMinPriorityFeeGwei: "BIDDING_TX_MIN_PRIORITY_FEE_GWEI",
+    WethAllowanceCapEth: BIDDING_CONFIG_ENV_KEY.WethAllowanceCapEth,
+    TxMinPriorityFeeGwei: BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei,
     TxFeeHistoryBlocks: "BIDDING_TX_FEE_HISTORY_BLOCKS",
     TxFeeHistoryRewardPercentile: "BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE",
-    TxBaseFeeMultiplier: "BIDDING_TX_BASE_FEE_MULTIPLIER",
-    TxMaxFeeGwei: "BIDDING_TX_MAX_FEE_GWEI",
-    TxPendingNoncePolicy: "BIDDING_TX_PENDING_NONCE_POLICY",
+    TxBaseFeeMultiplier: BIDDING_CONFIG_ENV_KEY.TxBaseFeeMultiplier,
+    TxMaxFeeGwei: BIDDING_CONFIG_ENV_KEY.TxMaxFeeGwei,
+    WethApprovalMaxGasFeeEth: BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth,
+    TxPendingNoncePolicy: BIDDING_CONFIG_ENV_KEY.TxPendingNoncePolicy,
     CriteriaRefreshTraitsByCollection:
         "BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION",
     TokenCriteriaTraitsByCollection:
@@ -58,6 +62,10 @@ export const BIDDING_DEFAULT_ENABLED = getSettingDefaultBoolean(
 export const BIDDING_DEFAULT_DRY_RUN = getSettingDefaultBoolean(
     BIDDING_RUNTIME_ENV_KEY.DryRun,
 );
+export const BIDDING_DEFAULT_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS =
+    getSettingDefaultBoolean(
+        BIDDING_RUNTIME_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers,
+    );
 export const BIDDING_DEFAULT_SCAN_SLEEP_MS = getSettingDefaultNumber(
     BIDDING_RUNTIME_ENV_KEY.ScanSleepMs,
 );
@@ -126,8 +134,8 @@ export const BIDDING_DEFAULT_CANCELLATION_REMEDIATION_RETRY_MS =
     getSettingDefaultNumber(
         BIDDING_RUNTIME_ENV_KEY.CancellationRemediationRetryMs,
     );
-export const BIDDING_DEFAULT_WETH_ALLOWANCE_ETH = getSettingDefault(
-    BIDDING_RUNTIME_ENV_KEY.WethAllowanceEth,
+export const BIDDING_DEFAULT_WETH_ALLOWANCE_CAP_ETH = getSettingDefault(
+    BIDDING_RUNTIME_ENV_KEY.WethAllowanceCapEth,
 );
 export const BIDDING_DEFAULT_TX_MIN_PRIORITY_FEE_GWEI = getSettingDefault(
     BIDDING_RUNTIME_ENV_KEY.TxMinPriorityFeeGwei,
@@ -144,6 +152,9 @@ export const BIDDING_DEFAULT_TX_BASE_FEE_MULTIPLIER = getSettingDefault(
 );
 export const BIDDING_DEFAULT_TX_MAX_FEE_GWEI = getSettingDefault(
     BIDDING_RUNTIME_ENV_KEY.TxMaxFeeGwei,
+);
+export const BIDDING_DEFAULT_WETH_APPROVAL_MAX_GAS_FEE_ETH = getSettingDefault(
+    BIDDING_RUNTIME_ENV_KEY.WethApprovalMaxGasFeeEth,
 );
 export const BIDDING_DEFAULT_TX_PENDING_NONCE_POLICY = getSettingDefault(
     BIDDING_RUNTIME_ENV_KEY.TxPendingNoncePolicy,

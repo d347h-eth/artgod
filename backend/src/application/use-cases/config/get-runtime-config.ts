@@ -8,6 +8,7 @@ export type GetRuntimeConfigOutput = {
     };
     blockExplorer: BlockExplorerConfig;
     bidding: {
+        trustOpenSeaSignedZoneTraitOffers: boolean;
         bidBookLiveRefresh: BiddingBidBookLiveRefreshConfig;
     };
 };
@@ -17,6 +18,7 @@ export class GetRuntimeConfigUseCase {
         private readonly openseaIntegration: OpenSeaIntegrationStatus,
         private readonly blockExplorer: BlockExplorerConfig,
         private readonly biddingBidBookLiveRefresh: BiddingBidBookLiveRefreshConfig,
+        private readonly trustOpenSeaSignedZoneTraitOffers: boolean,
     ) {}
 
     getConfig(): GetRuntimeConfigOutput {
@@ -26,6 +28,8 @@ export class GetRuntimeConfigUseCase {
             },
             blockExplorer: this.blockExplorer,
             bidding: {
+                trustOpenSeaSignedZoneTraitOffers:
+                    this.trustOpenSeaSignedZoneTraitOffers,
                 bidBookLiveRefresh: this.biddingBidBookLiveRefresh,
             },
         };

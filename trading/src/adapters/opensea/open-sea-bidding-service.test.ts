@@ -4,6 +4,7 @@ import {
     TokenMetadataRepository,
     type TokenMetadataTrait,
 } from "../../domain/market/token-metadata-repository.js";
+import { BIDDER_TARGET_TYPE } from "../../domain/market/strategy/job.js";
 import {
     createCollectionOfferSnapshotMetrics,
     type CollectionOfferSnapshot,
@@ -17,6 +18,7 @@ import {
 import { TOKEN_BUCKET_RATE_LIMIT_PRIORITY } from "../support/token-bucket-rate-limiter.js";
 import {
     isRetryableOpenSeaBiddingError,
+    OPENSEA_SIGNED_ZONE_TRAIT_TRUST_REQUIRED_ERROR,
     OpenSeaBiddingService,
 } from "./open-sea-bidding-service.js";
 import {
@@ -208,7 +210,7 @@ describe("OpenSeaBiddingService", () => {
             collectionSlug,
             collectionAddress,
             target: {
-                type: "collection" as const,
+                type: BIDDER_TARGET_TYPE.Collection,
                 quantity: 2,
             },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
@@ -274,7 +276,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
-            target: { type: "token" as const, tokenId: "123" },
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };
@@ -296,9 +298,42 @@ describe("OpenSeaBiddingService", () => {
         ]);
     });
 
-    it("places competitive-trait and multi-trait collection offers without drifting trait payloads", async () => {
+    it("blocks trait placement before the SDK unless SignedZone trust is explicitly enabled", async () => {
         const sdk = new MockOpenSeaSdk();
-        const service = new OpenSeaBiddingService(sdk as any, makerAddress);
+        let sdkCalls = 0;
+        sdk.createCollectionOffer = async () => {
+            sdkCalls += 1;
+            return null;
+        };
+        const service = new OpenSeaBiddingService(sdk, makerAddress);
+        const traitJob = {
+            id: "job-trait-disabled",
+            revision: 1,
+            network: "eth" as const,
+            collectionSlug,
+            collectionAddress,
+            target: {
+                type: BIDDER_TARGET_TYPE.CompetitiveTrait,
+                quantity: 1,
+                targetTrait: { type: "Outfit", value: "Kimono" },
+                competitorTraits: [],
+            },
+            config: { floor: 1n, ceiling: 2n, delta: 1n },
+            state: {},
+        };
+
+        await assert.rejects(
+            () => service.placeOffer(traitJob, 1_000000000000000000n),
+            new RegExp(OPENSEA_SIGNED_ZONE_TRAIT_TRUST_REQUIRED_ERROR),
+        );
+        assert.equal(sdkCalls, 0);
+    });
+
+    it("places competitive-trait and multi-trait collection offers after explicit SignedZone trust", async () => {
+        const sdk = new MockOpenSeaSdk();
+        const service = new OpenSeaBiddingService(sdk as any, makerAddress, {
+            trustOpenSeaSignedZoneTraitOffers: true,
+        });
 
         const competitiveTraitJob = {
             id: "job-ct",
@@ -307,7 +342,7 @@ describe("OpenSeaBiddingService", () => {
             collectionSlug,
             collectionAddress,
             target: {
-                type: "competitiveTrait" as const,
+                type: BIDDER_TARGET_TYPE.CompetitiveTrait,
                 quantity: 1,
                 targetTrait: { type: "Outfit", value: "Kimono" },
                 competitorTraits: [{ type: "Background" }],
@@ -322,7 +357,7 @@ describe("OpenSeaBiddingService", () => {
             collectionSlug,
             collectionAddress,
             target: {
-                type: "collection" as const,
+                type: BIDDER_TARGET_TYPE.Collection,
                 quantity: 1,
                 traits: [
                     { type: "Biome", value: "81" },
@@ -366,7 +401,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
-            target: { type: "token" as const, tokenId: "123" },
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };
@@ -402,7 +437,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
-            target: { type: "token" as const, tokenId: "123" },
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };
@@ -412,7 +447,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
-            target: { type: "collection" as const, quantity: 1 },
+            target: { type: BIDDER_TARGET_TYPE.Collection, quantity: 1 },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };
@@ -585,7 +620,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
-            target: { type: "token" as const, tokenId: "123" },
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };
@@ -637,7 +672,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug,
             collectionAddress,
-            target: { type: "token" as const, tokenId: "unminted-tile-5785" },
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "unminted-tile-5785" },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };
@@ -665,7 +700,7 @@ describe("OpenSeaBiddingService", () => {
             collectionSlug,
             collectionAddress,
             target: {
-                type: "competitiveTrait" as const,
+                type: BIDDER_TARGET_TYPE.CompetitiveTrait,
                 quantity: 1,
                 targetTrait: { type: "Outfit", value: "Kimono" },
                 competitorTraits: [{ type: "Background" }],
@@ -768,7 +803,7 @@ describe("OpenSeaBiddingService", () => {
             collectionSlug,
             collectionAddress,
             target: {
-                type: "competitiveTrait" as const,
+                type: BIDDER_TARGET_TYPE.CompetitiveTrait,
                 quantity: 1,
                 targetTrait: { type: "Outfit", value: "Kimono" },
                 competitorTraits: [{ type: "Background" }],
@@ -884,7 +919,7 @@ describe("OpenSeaBiddingService", () => {
             collectionSlug,
             collectionAddress,
             target: {
-                type: "collection" as const,
+                type: BIDDER_TARGET_TYPE.Collection,
                 quantity: 1,
                 traits: [
                     { type: "Biome", value: "81" },
@@ -1009,7 +1044,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug: "terraforms",
             collectionAddress,
-            target: { type: "token" as const, tokenId: "123" },
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };
@@ -1085,7 +1120,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug: "terraforms",
             collectionAddress,
-            target: { type: "token" as const, tokenId: "123" },
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };
@@ -1149,7 +1184,7 @@ describe("OpenSeaBiddingService", () => {
             network: "eth" as const,
             collectionSlug: "terraforms",
             collectionAddress,
-            target: { type: "token" as const, tokenId: "123" },
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };

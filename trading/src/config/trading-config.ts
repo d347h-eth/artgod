@@ -64,9 +64,10 @@ import {
     BIDDING_DEFAULT_TX_FEE_HISTORY_BLOCKS,
     BIDDING_DEFAULT_TX_FEE_HISTORY_REWARD_PERCENTILE,
     BIDDING_DEFAULT_TX_MAX_FEE_GWEI,
+    BIDDING_DEFAULT_WETH_APPROVAL_MAX_GAS_FEE_ETH,
     BIDDING_DEFAULT_TX_MIN_PRIORITY_FEE_GWEI,
     BIDDING_DEFAULT_TX_PENDING_NONCE_POLICY,
-    BIDDING_DEFAULT_WETH_ALLOWANCE_ETH,
+    BIDDING_DEFAULT_WETH_ALLOWANCE_CAP_ETH,
     BIDDING_RUNTIME_ENV_KEY,
 } from "./bidding-defaults.js";
 
@@ -88,6 +89,7 @@ export type TradingMetricsConfig = {
 export type EnabledBiddingConfig = {
     enabled: true;
     dryRun: boolean;
+    trustOpenSeaSignedZoneTraitOffers: boolean;
     scanSleepMs: number;
     maxConcurrentJobs: number;
     bootstrapConcurrency: number;
@@ -112,7 +114,8 @@ export type EnabledBiddingConfig = {
     runtimeHeartbeat: BiddingConfig["runtimeHeartbeat"];
     criteriaRefreshTraitsByCollection: Record<string, string[]>;
     tokenCriteriaTraitsByCollection: Record<string, string[]>;
-    wethAllowanceWei: bigint;
+    wethAllowanceCapWei: bigint;
+    wethApprovalMaxGasFeeWei: bigint;
     transactionPolicy: EvmTransactionPolicyConfig;
     openSea: {
         streamSecretKey: string;
@@ -125,6 +128,7 @@ export type EnabledBiddingConfig = {
 export type DisabledBiddingConfig = {
     enabled: false;
     dryRun: boolean;
+    trustOpenSeaSignedZoneTraitOffers: boolean;
     scanSleepMs: number;
     maxConcurrentJobs: number;
     bootstrapConcurrency: number;
@@ -149,7 +153,8 @@ export type DisabledBiddingConfig = {
     runtimeHeartbeat: BiddingConfig["runtimeHeartbeat"];
     criteriaRefreshTraitsByCollection: Record<string, string[]>;
     tokenCriteriaTraitsByCollection: Record<string, string[]>;
-    wethAllowanceWei: bigint;
+    wethAllowanceCapWei: bigint;
+    wethApprovalMaxGasFeeWei: bigint;
     transactionPolicy: EvmTransactionPolicyConfig;
 };
 
@@ -211,6 +216,8 @@ export function loadTradingConfig(
             BIDDING_RUNTIME_ENV_KEY.DryRun,
             BIDDING_DEFAULT_DRY_RUN,
         ),
+        trustOpenSeaSignedZoneTraitOffers:
+            sharedBiddingConfig.trustOpenSeaSignedZoneTraitOffers,
         scanSleepMs: parsePositiveInteger(
             env[BIDDING_RUNTIME_ENV_KEY.ScanSleepMs],
             BIDDING_RUNTIME_ENV_KEY.ScanSleepMs,
@@ -327,10 +334,15 @@ export function loadTradingConfig(
             BIDDING_DEFAULT_TOKEN_CRITERIA_TRAITS_BY_COLLECTION,
             BIDDING_RUNTIME_ENV_KEY.TokenCriteriaTraitsByCollection,
         ),
-        wethAllowanceWei: parseNonNegativeEtherToWei(
-            env[BIDDING_RUNTIME_ENV_KEY.WethAllowanceEth],
-            BIDDING_RUNTIME_ENV_KEY.WethAllowanceEth,
-            BIDDING_DEFAULT_WETH_ALLOWANCE_ETH,
+        wethAllowanceCapWei: parseNonNegativeEtherToWei(
+            env[BIDDING_RUNTIME_ENV_KEY.WethAllowanceCapEth],
+            BIDDING_RUNTIME_ENV_KEY.WethAllowanceCapEth,
+            BIDDING_DEFAULT_WETH_ALLOWANCE_CAP_ETH,
+        ),
+        wethApprovalMaxGasFeeWei: parsePositiveEtherToWei(
+            env[BIDDING_RUNTIME_ENV_KEY.WethApprovalMaxGasFeeEth],
+            BIDDING_RUNTIME_ENV_KEY.WethApprovalMaxGasFeeEth,
+            BIDDING_DEFAULT_WETH_APPROVAL_MAX_GAS_FEE_ETH,
         ),
         transactionPolicy: parseBiddingTransactionPolicy(env),
     };
@@ -482,6 +494,18 @@ function parseNonNegativeEtherToWei(
     } catch {
         throw new Error(`Invalid ${name}: ${value}`);
     }
+}
+
+function parsePositiveEtherToWei(
+    value: string | undefined,
+    name: string,
+    defaultValue: string,
+): bigint {
+    const parsed = parseNonNegativeEtherToWei(value, name, defaultValue);
+    if (parsed <= 0n) {
+        throw new Error(`Invalid ${name}: ${value}`);
+    }
+    return parsed;
 }
 
 function parsePositiveGweiToWei(
