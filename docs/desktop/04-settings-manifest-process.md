@@ -28,6 +28,14 @@ The rendered desktop `.env` remains the child-process startup contract for backe
 settings.manifest.toml defaults + settings.json overrides
 ```
 
+For bidding starts, Rust freezes that rendered process config before prompting
+and derives the immutable native `startPolicy` from the same snapshot. Node
+requires the typed security-relevant settings to agree exactly with the
+received mandate before runtime composition, then enforces the mandate as the
+authority. Editing Admin settings while a generation is active affects only a
+later start. Fee-history block count, reward percentile, and base-fee multiplier
+remain runtime estimator tuning; offer expiration remains Config-only.
+
 Admin-only desktop settings may still live in the manifest when they control
 desktop configuration actions rather than child-process runtime behavior.
 `RPC_AUTO_SOURCING_TRACKING_POLICY` is one such setting: it controls the Admin

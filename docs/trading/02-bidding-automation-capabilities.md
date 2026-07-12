@@ -60,7 +60,7 @@ The Admin setup surface, native wallet prompt, and active bot summary are one
 user-visible authorization lifecycle:
 
 1. `bidding authorization request` shows the canonical named chain, qualified
-   chain ID, eligible collections, and proposed limits
+   chain ID, global approval policy, eligible collections, and proposed limits
 2. the native prompt reviews the same canonical identity and limits before
    accepting the wallet passphrase
 3. `active bidding authorization` shows the authority held by the running bot
@@ -84,6 +84,11 @@ Identity and limits must remain explicit across all three states:
 - `OpenSea slug` and `contract address`, not ambiguous shortened labels
 - `max WETH for any one NFT`
 - `max NFTs per offer`, shown as a read-only input with value `1` in Admin
+
+The global policy states the exact WETH allowance for the OpenSea conduit,
+minimum priority fee and maximum fee in Gwei per gas, maximum network fee in ETH
+per one WETH approval transaction, fail-only pending-transaction behavior, and
+whether the pinned OpenSea SignedZone is trusted for trait offers.
 
 The NFT count is a per-offer cap, not cumulative exposure across jobs or open
 orders. Userland currently creates only one-NFT offers, so Admin does not send
@@ -119,6 +124,11 @@ hours, and minutes, omitting day or hour chunks below those thresholds. This
 display does not change already signed offers or imply a separate product hard
 maximum. It remains an operational Config setting rather than part of the native
 bidding authorization review. The summary does not display the dry-run setting.
+When the bot is bootstrapping or active, `active bidding authorization` renders
+the frozen global policy and collection limits held by that exact generation.
+Newly edited Config is shown separately and compactly as `next-start bidding
+settings`; it never replaces the active policy. Offer expiration appears only
+in that Config summary, not in the active or native authorization.
 
 Admin does not render controls for staged or nonexistent bot kinds. The local
 collection catalog uses the shared `COMMON_HTTP_FETCH_*` timeout and bounded

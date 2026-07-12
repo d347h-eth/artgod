@@ -440,9 +440,9 @@ Trading bot runtime keys:
 - `OPENSEA_STREAM_SECRET_KEY` (bot stream lane; separate from indexer `OPENSEA_API_KEY`)
 - `OPENSEA_BIDDING_SECRET_KEY` (bot order placement/cancellation lane)
 - `OPENSEA_SNAPSHOT_SECRET_KEY` (bot collection-offer snapshot polling lane)
-- `BIDDING_WETH_ALLOWANCE_ETH` (exact startup WETH approval target for the OpenSea conduit, in Ether units; `0` forces no allowance and revokes any existing approval)
-- `BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ETH` (worst-case network gas-fee cap for one WETH approval transaction; unrelated to OpenSea or order fees)
-- `BIDDING_TX_MIN_PRIORITY_FEE_GWEI`, `BIDDING_TX_FEE_HISTORY_BLOCKS`, `BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE`, `BIDDING_TX_BASE_FEE_MULTIPLIER`, `BIDDING_TX_MAX_FEE_GWEI`, and `BIDDING_TX_PENDING_NONCE_POLICY` (bot-owned EIP-1559 fee and nonce guard policy for onchain transactions)
+- `BIDDING_WETH_ALLOWANCE_ETH` (exact startup WETH approval target for the OpenSea conduit, in Ether units; `0` forces no allowance and revokes any existing approval). Rust freezes it into the native-reviewed start mandate.
+- `BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ETH`, `BIDDING_TX_MIN_PRIORITY_FEE_GWEI`, `BIDDING_TX_MAX_FEE_GWEI`, and `BIDDING_TX_PENDING_NONCE_POLICY` are likewise frozen into the mandate as the WETH-approval fee and nonce authority.
+- `BIDDING_TX_FEE_HISTORY_BLOCKS`, `BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE`, and `BIDDING_TX_BASE_FEE_MULTIPLIER` remain estimator tuning; they cannot exceed the mandate's per-gas and total-fee caps.
 - `BIDDING_COMMAND_POLL_MS`, `BIDDING_COMMAND_BATCH_SIZE`, `BIDDING_COMMAND_MAX_ATTEMPTS`, and `BIDDING_COMMAND_CLAIM_TIMEOUT_MS` (DB Outbox recovery scan and retry policy for live job reconciliation)
 - `BIDDING_BID_BOOK_*` and `BIDDING_RUNTIME_HEARTBEAT_*` (bot snapshot projection, backend source freshness, UI bid-book live-refresh cadence, and bot heartbeat liveness)
 - `BIDDING_*` tuning keys for dry-run mode, poll intervals, bootstrap concurrency, offer expiration, snapshot cadence, and trait-refresh maps

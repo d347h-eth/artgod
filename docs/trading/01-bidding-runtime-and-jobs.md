@@ -40,7 +40,13 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 - Wallet secrets never enter env, CLI args, SQLite, frontend state, or logs.
 - Loopback bidding mutations are untrusted job proposals. A live bidding process may place offers only inside the native collection identity and caps granted for that process start.
 - Mandate collection identity is the exact ArtGod `collectionId` plus its canonical contract address and OpenSea slug. Contract address alone is insufficient for shared-contract collections.
-- Offer placement enforces mandate identity, per-offer quantity, and per-NFT price at the restricted wallet boundary. Exact-token membership in the displayed ArtGod token scope remains a canonical backend mutation invariant; independent signer enforcement is deferred. Offchain cancellation remains available independently of the placement mandate, including when an unauthenticated loopback client submits pause/archive mutations.
+- Offer placement enforces mandate identity, per-offer quantity, per-NFT price,
+  WETH allowance, WETH-approval fee caps, pending-nonce behavior, and trait-offer
+  trust at the restricted wallet boundary. Exact-token membership in the
+  displayed ArtGod token scope remains a canonical backend mutation invariant;
+  independent signer enforcement is deferred. Offchain cancellation remains
+  available independently of the placement mandate, including when an
+  unauthenticated loopback client submits pause/archive mutations.
 - Placement caps apply to each offer. The public alpha does not enforce an aggregate job, open-order, or spend budget within an authorized collection.
 - Operator-selected RPC endpoints are assumed to report chain state truthfully; ArtGod does not independently verify them.
 
@@ -60,7 +66,7 @@ and wallet-signing JSON-RPC methods before an endpoint is selected.
 
 Offer signature policy pins mainnet Seaport 1.6, the OpenSea conduit key, and
 OpenSea SignedZone. It also validates the maker, canonical WETH token, exact
-operator-requested spend, configured allowance cap, target collection/token and
+operator-requested spend, mandate-authorized allowance cap, target collection/token and
 quantity, expiration, and consideration item shape. Marketplace fee allocations
 must remain WETH consideration within the exact offer spend, so they cannot
 increase wallet spend beyond the requested bid amount.
@@ -124,17 +130,20 @@ only as the desktop parent's liveness lease.
 
 Startup order:
 
-1. derive the secret-envelope v2 frame length from its bounded header, read that
+1. derive the secret-envelope v3 frame length from its bounded header, read that
    exact mutable frame without waiting for EOF, validate its metadata and native
-   bidding mandate, construct exactly one viem account, verify its address, and
-   erase the full frame before any later bootstrap work
-2. load typed trading config and require its chain to match the envelope and mandate
+   bidding mandate including the required start policy, construct exactly one
+   viem account, verify its address, and erase the full frame before any later
+   bootstrap work
+2. load typed trading config and require its chain and every security-relevant
+   bidding setting to agree exactly with the mandate before runtime composition;
+   the mandate remains the authority after that drift check
 3. mark previously tracked active offers as unverified for enabled bidding jobs
 4. load enabled bidding jobs from SQLite with canonical collection ids and required OpenSea slugs
 5. wire OpenSea lanes, metadata lookup, WETH balance/allowance, native mandate policy, transaction policy, and logging adapters
 6. emit `bot_bootstrapping` before long allowance/snapshot/price bootstrap work
 7. reconcile the pinned OpenSea conduit WETH allowance up or down to the exact
-   `BIDDING_WETH_ALLOWANCE_ETH` cap, including revocation when the cap is `0`
+   mandate cap, including revocation when the cap is `0`
 8. bootstrap authoritative collection-offer snapshots and current prices
 9. replay already-committed job commands while stream listeners and snapshot polling are still inactive
 10. start OpenSea stream listeners and steady-state snapshot polling from the post-command enabled-job set
@@ -486,11 +495,13 @@ Trading-specific rules:
   and critical dependencies are revalidated after the prompt and after decrypt
 - Stop remains available throughout authorization review and startup, cancels
   the pending generation, and prevents stale worker publication or cleanup
-- WETH allowance amount is configured in Ether units through `BIDDING_WETH_ALLOWANCE_ETH`
-- startup treats that amount as an exact cap: higher and unlimited existing
+- WETH allowance amount is configured in Ether units through
+  `BIDDING_WETH_ALLOWANCE_ETH`, converted by Rust to a canonical wei string,
+  and frozen into the native-reviewed start policy
+- startup treats the mandate amount as an exact cap: higher and unlimited existing
   approvals are reduced, and `0` revokes instead of skipping the chain read
 - after a submitted approval confirms, startup re-reads the onchain allowance
-  and fails closed unless it equals the configured cap
+  and fails closed unless it equals the mandate cap
 - OpenSea cannot create approval transactions; only ArtGod's allowance adapter
   receives the transaction-capable wallet client
 - OpenSea receives only the account address and a typed-data signing closure
@@ -526,7 +537,8 @@ Trading-specific rules:
 - Existing signed OpenSea orders and the onchain conduit allowance survive bot
   stop, process death, and mandate-generation end. ArtGod does not promise
   automatic cancellation or allowance revocation. A later explicit start
-  reconciles the allowance to the then-configured exact cap before signing.
+  reviews a new policy and reconciles the allowance to that generation's exact
+  mandate cap before signing.
 - Public-alpha operation assumes a dedicated bidding wallet funded only with
   the WETH and ETH the operator is prepared to expose to alpha automation risk.
 - Operator-selected RPC endpoints are trusted chain-state inputs. Selecting
@@ -539,13 +551,23 @@ Trading-specific rules:
   account closure for the process lifetime. JavaScript cannot reliably erase
   that closure; this boundary removes avoidable frame, string, and account
   copies but does not claim complete Node heap zeroization.
-- `BIDDING_TX_MAX_FEE_GWEI` caps the approval transaction fee per gas unit
+- `BIDDING_TX_MIN_PRIORITY_FEE_GWEI`, `BIDDING_TX_MAX_FEE_GWEI`,
+  `BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ETH`, and
+  `BIDDING_TX_PENDING_NONCE_POLICY` are converted by Rust to canonical base-unit
+  policy values and frozen into the mandate
 - `BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ETH` separately caps its worst-case network
   gas fee as explicit gas limit times selected max fee per gas; it does not cap
   OpenSea or order fees. The explicit limit is the node estimate plus 20%
   headroom, and gas estimation fails closed
 - onchain transactions use the shared EVM transaction policy from `@artgod/shared/evm/transactions`
-- Admin `Bots` repeats the exact Config order, labels, help, and effective values
+- fee-history block count, reward percentile, and base-fee multiplier remain
+  runtime estimator tuning because the selected approval must still satisfy the
+  mandate's per-gas and total network-fee caps
+- immediately before `writeContract`, the allowance adapter reasserts the
+  pinned WETH and OpenSea conduit, exact allowance calldata, maximum fee per
+  gas, priority-fee relationship, and worst-case total network fee
+- while stopped or awaiting unlock, Admin `Bots` repeats the exact Config order,
+  labels, help, and effective values
   for trait SignedZone trust, the WETH allowance cap, minimum priority fee,
   maximum fee per gas, maximum total WETH-approval network fee, pending-nonce
   policy, and offer expiration beside the start action. Offer expiration is the
@@ -553,7 +575,11 @@ Trading-specific rules:
   followed by the equivalent days, hours, and minutes, omitting day or hour
   chunks below those thresholds. This display does not change already signed
   offers or imply a separate product hard maximum. Values are read-only text;
-  the dry-run setting is not displayed.
+  the dry-run setting is not displayed. While bootstrapping or active, the
+  `active bidding authorization` policy comes only from that generation's
+  supervisor mandate DTO; current Config is separately labelled as next-start
+  settings. Offer expiration stays Config-only and is never part of the native
+  authorization.
 
 ## Config Surface
 

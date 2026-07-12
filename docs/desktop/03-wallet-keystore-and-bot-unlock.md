@@ -47,8 +47,9 @@ ArtGod will use a hybrid desktop model:
 - trading bot runtimes receive decrypted key material only once at startup in one
   framed stdin write; Rust retains the pipe afterward only as a parent-liveness
   lease
-- bidding starts also receive one immutable native-reviewed collection mandate
-  in that same frame
+- bidding starts also receive one immutable native-reviewed mandate in that same
+  frame. Its required start policy owns the WETH allowance, approval fee and
+  nonce limits, trait-offer trust, and collection placement limits.
 - one composition-owned coordinator permits only one native wallet prompt across
   import, export, remove, and bot unlock flows at a time
 - any bot restart requires a fresh passphrase prompt
@@ -139,8 +140,15 @@ These are hard rules, not suggestions.
     prompting.
 13. Key-bearing Node processes clear the parent environment and receive only
     the frozen, Rust-resolved ArtGod child-process map.
-14. Userland bidding mutations are proposals, not wallet authority. Every bidding start requires a native-reviewed mandate resolved by Rust from canonical live collection records with enabled or paused bidding jobs.
-15. Without relying on HTTP middleware or a prior SQLite approval flag, the bidding signer must reject offers outside the approved chain, ArtGod collection ID, contract address, OpenSea slug, maximum WETH for any one NFT, and fixed per-offer quantity.
+14. Userland bidding mutations are proposals, not wallet authority. Every
+    bidding start requires a native-reviewed mandate resolved by Rust from the
+    frozen process config and canonical live collection records with enabled or
+    paused bidding jobs.
+15. Without relying on HTTP middleware or a prior SQLite approval flag, the
+    bidding runtime must reject WETH approval or offer activity outside the
+    approved chain, allowance, approval fee and nonce policy, trait-offer trust,
+    ArtGod collection ID, contract address, OpenSea slug, maximum WETH for any
+    one NFT, and fixed per-offer quantity.
 16. Native wallet prompts are serialized by one composition-owned coordinator;
     overlapping requests fail closed instead of opening independently. Every
     helper is contained before request bytes, retains stdin as the portable
@@ -365,6 +373,10 @@ For bot startup, the bounded operation is:
 - send one exact frame over stdin/pipe and retain the now-idle writer as the
   parent-liveness lease
 - drop plaintext buffers in the main Rust process
+
+The handoff uses secret-envelope version 3. Bidding metadata must contain the
+complete `startPolicy`; version 2 and missing-policy frames are rejected without
+a compatibility path. Sniping metadata still rejects bidding-only fields.
 
 Important:
 
@@ -882,6 +894,9 @@ Unlock rules:
   and unlock prompts; an overlapping request fails closed
 - bidding policy review is always native and precedes passphrase submission
 - Admin supplies only proposed collection ids and WETH price caps; Rust supplies the displayed and injected ArtGod id, contract, token-scope summary, OpenSea slug, and fixed one-NFT offer quantity
+- Rust parses the global bidding policy from the same frozen config used for the
+  child process, validates its exact base-unit values, and builds the native
+  display from the immutable mandate itself
 - Admin batch-loads the maximum enabled-or-paused job ceiling per collection.
   That current-job set defines checklist membership and supplies the editable
   price prefill; archived-only collections and collections without jobs are
@@ -899,8 +914,9 @@ Unlock rules:
   pending generation, terminates an active prompt, and waits for decrypt or
   spawn work already in progress to unwind safely
 - after prompt completion and again after decrypt, Rust rechecks the exact
-  runtime config and recipient, wallet assignment, canonical authorization,
-  lifecycle generation, core generation, and critical dependencies
+  runtime config and recipient, wallet assignment, every global and collection
+  authorization field, lifecycle generation, core generation, and critical
+  dependencies
 - decrypt happens in Rust only
 - decrypted key lifetime in Rust must be as short as practical
 - controller publication and generation ownership are committed before the
@@ -923,6 +939,9 @@ User-facing authorization review:
   runtime dry-run setting
 - enabled trait offers explicitly state that the pinned OpenSea SignedZone is
   trusted
+- the global review states the WETH allowance cap, minimum priority fee and
+  maximum fee in Gwei per gas, maximum network fee in ETH per one approval
+  transaction, pending-transaction behavior, and trait-offer trust
 - the canonical human-readable network name appears before `chain ID #N`
 - collection identity explicitly distinguishes the ArtGod collection ID,
   OpenSea slug, contract address, and token scope
@@ -934,6 +953,11 @@ User-facing authorization review:
   native review and signer enforcement
 - Admin, prompt, and active summary must show the same Rust-resolved identity and
   limits in the same terms
+- bootstrapping and active Admin state reads its policy from the frozen
+  supervisor mandate for that generation, never newly edited Config; current
+  Config is shown separately as next-start settings
+- offer expiration remains an Admin-only operational setting and is not part of
+  native authorization
 - bidding policy and collection review pages use the Admin launch-sized prompt
   window; the helper fails closed instead of drawing a page over its action controls
 
@@ -979,6 +1003,16 @@ Current bidding metadata shape:
     "chainId": 1,
     "biddingMandate": {
         "chainId": 1,
+        "startPolicy": {
+            "wethAllowanceCapWei": "500000000000000000",
+            "trustOpenSeaSignedZoneTraitOffers": true,
+            "wethApproval": {
+                "minPriorityFeePerGasWei": "100000000",
+                "maxFeePerGasWei": "10000000000",
+                "maxTotalGasFeeWei": "10000000000000000",
+                "pendingNoncePolicy": "fail"
+            }
+        },
         "collections": [
             {
                 "collectionId": 7,
@@ -999,12 +1033,17 @@ Current bidding metadata shape:
 
 Protocol requirements:
 
+- protocol version 3 requires the complete `startPolicy`; version 2 and a
+  missing policy are rejected without fallback
+- Rust and TypeScript validate the same committed version-3 golden frame
 - metadata is non-secret
 - raw key bytes are binary, not hex text
 - child process derives the exact frame length from the bounded header and does
   not wait for EOF before parsing it
 - child process must reject malformed, partial, or overlong payloads
-- bidding child process must reject a missing, duplicate, malformed, or wrong-chain mandate; sniping envelopes must not carry one
+- bidding child process must reject a missing, duplicate, malformed, or
+  wrong-chain mandate or start policy; sniping envelopes must not carry bidding
+  metadata
 - parent writes and flushes exactly one frame, then keeps its stdin writer open
   without sending any additional data
 - after accepting the frame, the child exits if stdin closes, errors, or
@@ -1018,6 +1057,9 @@ The bot entrypoint must:
 - block normal startup until the secret payload is read
 - read the exact framed payload into a `Buffer` before stdin reaches EOF
 - parse and validate the metadata and immutable bidding mandate before runtime composition
+- load typed Config and reject any disagreement in allowance, trait trust,
+  approval per-gas or total-fee caps, or pending-nonce policy; after that check,
+  the mandate remains the authority
 - construct exactly one viem private-key account at the Node entry boundary
 - verify the account address against the envelope metadata
 - overwrite the aliased key bytes and every byte of the original mutable frame
@@ -1030,7 +1072,12 @@ The bot entrypoint must:
   beyond the declared frame
 - retain stdin liveness listeners for the full bot lifetime and exit immediately
   if the parent channel closes, errors, or receives later data
-- emit `bot_bootstrapping` after config, jobs, wallet, and adapter setup succeeds but before configured WETH allowance approval or long snapshot/current-price warmup can block startup
+- compose allowance, approval transaction, policy-wallet, trait-trust,
+  lifecycle, and logging adapters from mandate values
+- immediately before an approval `writeContract`, reassert the maximum fee,
+  priority relationship, worst-case total fee, pinned WETH and conduit, and
+  exact allowance calldata
+- emit `bot_bootstrapping` after config, jobs, wallet, and adapter setup succeeds but before mandate-authorized WETH allowance approval or long snapshot/current-price warmup can block startup
 - emit `bot_bootstrap_progress` while long warmup and startup command-replay phases are advancing
 - emit `bot_ready` only after authoritative snapshot bootstrap, current-price bootstrap, and startup command replay complete
 - keep lifecycle event payloads limited to non-secret runtime metadata
@@ -1298,6 +1345,9 @@ Supervisor behavior:
   worker start barrier
 - worker status updates and cleanup are generation-fenced so an older exit
   cannot erase a newer controller or state
+- supervisor status publishes and clears the generation-frozen bidding policy
+  only for its owning generation; Admin never substitutes newly edited Config
+  for active authority
 
 This means wallet-bound bots should not simply be appended to the current `INDEXER_WORKERS` list with identical restart semantics.
 
@@ -1319,6 +1369,12 @@ Rules:
 - no executable, loader, or trading-artifact path overrides in Admin config
 - freeze one validated bundled-runtime launch snapshot before prompting and use
   that same snapshot through child spawn
+- parse security-relevant bidding policy from that frozen snapshot; Rust prompt
+  display, the version-3 envelope, Node policy, and active supervisor DTO all use
+  the same immutable values
+- keep fee-history block count, reward percentile, and base-fee multiplier as
+  estimator tuning bounded by the reviewed approval caps; keep offer expiration
+  outside native authorization
 - fail fast on missing required wallet runtime config
 
 ## Test Strategy
@@ -1337,6 +1393,9 @@ Rules:
 - remove flow behavior
 - same-bot start exclusion, cross-bot independence, stop cancellation, core
   generation invalidation, and stale-controller fencing
+- complete start-policy validation, post-prompt/decrypt equality, and stale
+  generation policy publication/clearing
+- complete native prompt protocol policy serialization
 - key-bearing bot command environment replacement
 - exact key-bearing Node arguments and disabled signal-started inspection
 - isolated current-process core-limit and Linux nondumpability controls
@@ -1369,6 +1428,8 @@ Rules:
 ### Node Bot Tests
 
 - stdin secret envelope parsing
+- shared Rust/TypeScript version-3 golden frame and fail-closed version-2 or
+  missing-policy rejection
 - malformed envelope rejection
 - startup failure on missing secret
 - complete mutable-frame and aliased-key-buffer erasure before long-running
@@ -1377,6 +1438,10 @@ Rules:
 - signer operation after source-buffer erasure
 - one account construction with no returned or downstream raw-key fields
 - restricted OpenSea signing capability and allowance-only transaction client
+- exact typed-Config agreement followed by mandate-owned allowance, approval,
+  nonce, trait-trust, lifecycle, and logging behavior
+- final pre-write target, calldata, per-gas, priority, and total-fee assertions
+- tracked cancellation without matching placement authority
 - exact frame parsing before EOF
 - rejection of bytes after the frame and exit on parent-channel close/error
 - bounded Stop while a recipient leaves the secret pipe unread
@@ -1399,6 +1464,9 @@ The manual matrix should explicitly verify:
 - hard-killing the desktop process cannot leave the bot PID or heartbeat active
 - Admin request, trusted prompt, and active authorization use the same named
   chain, qualified IDs, collection identity, units, and limits
+- stopped, draft, native review, awaiting unlock, bootstrapping, active,
+  config-changed-while-active, and validation-error states at representative and
+  narrow Admin widths; inspect the native client at its actual 768x1024 pixels
 - global policy, all-contract, token-range, and explicit-token-ID review pages
   show every value with the native prompt action controls still visible
 - loading, disabled, infrastructure-offline, validation, and active states are
