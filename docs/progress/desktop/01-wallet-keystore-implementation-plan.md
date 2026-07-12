@@ -13,6 +13,7 @@ The goal is to implement the wallet subsystem without weakening the custody mode
 - restart = prompt
 - decrypted key material reaches Node only once at bot startup over stdin/pipe
 - wallet storage uses the Foundry/Alloy standard Ethereum keystore path, not a custom crypto format
+- every new keystore write uses the explicit ArtGod-owned production scrypt policy
 
 This plan is intentionally implementation-ready.
 
@@ -153,7 +154,7 @@ The slices are intentionally ordered so early slices produce a usable wallet sub
 
 ## Current Status
 
-As of 2026-04-18:
+As of 2026-07-12:
 
 - Slice 0 is complete.
 - Slice 1 is complete.
@@ -162,6 +163,7 @@ As of 2026-04-18:
 - Slice 4 is complete.
 - Slice 5 is complete.
 - Slice 6 is complete, including the shared golden-fixture protocol tests and secret-leak guards around bot startup.
+- Post-implementation wallet hardening now pins the `eth-keystore` source and makes both explicit and Alloy-compatibility writes emit the Geth-standard scrypt profile.
 
 ## Slice 0: Admin Shell and Desktop Hardening Baseline
 
@@ -228,7 +230,7 @@ Primary files:
 Recommended Rust dependencies:
 
 - `alloy-signer-local` with keystore support
-- `eth-keystore` only if direct compatibility or fixtures require it
+- the source-pinned `eth-keystore` fork for the narrow explicit-parameter writer
 - `zeroize`
 - `uuid`
 - `rand` or `getrandom`
@@ -266,9 +268,11 @@ Tasks:
 - implement keystore adapter:
     - validate private key
     - derive EVM address
-    - encrypt using Alloy keystore support
-    - decrypt using Alloy keystore support
-    - zeroize plaintext buffers
+    - encrypt through the explicit-parameter `eth-keystore` writer
+    - decrypt through the source-pinned `eth-keystore` implementation
+    - take immediate `Zeroizing` ownership of returned plaintext before Alloy validation and address derivation
+    - consume the source-pinned writer's single compile-time production scrypt policy
+    - zeroize plaintext and derived KDF key buffers
 - avoid custom cryptography implementation in this slice
 - define bounded unlock behavior explicitly in the service layer:
     - decrypt for one operation
@@ -278,7 +282,7 @@ Tasks:
 
 Acceptance:
 
-- Rust tests cover standard keystore roundtrip, wrong-passphrase rejection, duplicate address detection, duplicate label detection, and atomic remove behavior
+- Rust tests cover the exact emitted scrypt parameters, the Alloy compatibility fallback, decrypt-only file preservation, wrong-passphrase rejection, duplicate address detection, duplicate label detection, and atomic remove behavior
 - at least one fixture-level test proves compatibility with the Foundry/Alloy keystore path
 - wallet files are stored under app-data, not SQLite
 - no Tauri command or frontend code is required to validate the core wallet module

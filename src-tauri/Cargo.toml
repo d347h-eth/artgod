@@ -20,6 +20,7 @@ tauri-build = { version = "2.6.3", features = [] }
 alloy-primitives = "1.4.1"
 alloy-signer-local = { version = "1.8.3", default-features = false, features = ["keystore", "zeroize"] }
 artgod-secret-prompt-protocol = { path = "crates/artgod-secret-prompt-protocol" }
+eth-keystore = { version = "0.5.0", default-features = false }
 futures-util = "0.3"
 log = "0.4"
 rand = "0.8.6"
@@ -39,3 +40,15 @@ zeroize = { version = "1.8", features = ["alloc"] }
 [dev-dependencies]
 tauri = { version = "2.11.3", features = ["test"] }
 tempfile = "3.20"
+
+[patch.crates-io]
+# Use the source-pinned parameterized writer until upstream exposes KDF work settings.
+eth-keystore = { path = "vendor/eth-keystore" }
+
+[profile.dev.package.scrypt]
+# Keep production-strength wallet unlock practical in unoptimized desktop builds.
+opt-level = 3
+
+[profile.test.package.scrypt]
+# Exercise production KDF parameters in tests without debug-mode scrypt latency.
+opt-level = 3

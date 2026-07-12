@@ -694,6 +694,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-signer-local",
  "artgod-secret-prompt-protocol",
+ "eth-keystore",
  "futures-util",
  "log",
  "rand 0.8.6",
@@ -1832,8 +1833,6 @@ dependencies = [
 [[package]]
 name = "eth-keystore"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fda3bf123be441da5260717e0661c25a2fd9cb2b2c1d20bf2e05580047158ab"
 dependencies = [
  "aes",
  "ctr",
@@ -1849,6 +1848,7 @@ dependencies = [
  "sha3 0.10.9",
  "thiserror 1.0.69",
  "uuid 0.8.2",
+ "zeroize",
 ]
 
 [[package]]

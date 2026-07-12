@@ -10,7 +10,7 @@ use super::app_config_manifest::{
     AppConfigManifestModel, AppConfigManifestSetting, load_app_config_manifest,
 };
 use super::log_files::ensure_runtime_log_files;
-use super::private_file::write_private_file_atomic;
+use crate::private_file::write_private_file_atomic;
 
 const SETTINGS_VERSION: u8 = 1;
 

@@ -86,7 +86,8 @@ fn replace_file(temp_path: &Path, target_path: &Path) -> Result<(), String> {
     }
 }
 
-fn apply_private_file_permissions(path: &Path) -> Result<(), String> {
+/// Restricts an existing private app-data file to the current OS user where supported.
+pub(crate) fn apply_private_file_permissions(path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

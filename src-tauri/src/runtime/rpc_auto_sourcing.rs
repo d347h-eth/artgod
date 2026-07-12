@@ -11,7 +11,7 @@ use tauri::AppHandle;
 
 use super::app_config::ensure_desktop_config_paths;
 use super::env_keys::{RPC_AUTO_SOURCING_TRACKING_POLICY_ENV_KEY, RPC_ENDPOINT_LIST_ENV_KEY};
-use super::private_file::write_private_file_atomic;
+use crate::private_file::write_private_file_atomic;
 
 const EMBEDDED_ETHEREUM_CHAINLIST_RPCS: &str = include_str!("chainlist/ethereum-rpcs.json");
 const CHAINLIST_RPCS_SOURCE_URL: &str = "https://chainlist.org/rpcs.json";
