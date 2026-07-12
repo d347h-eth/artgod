@@ -23,6 +23,8 @@ ArtGod still keeps its own wallet metadata index for UI and bot assignment state
 
 Related docs:
 
+- `docs/ui/00-user-perspective-and-language.md`
+- `docs/ui/01-interaction-guidelines.md`
 - `docs/desktop/01-tauri-build-and-runtime.md`
 - `docs/desktop/02-runtime-registry-maintenance.md`
 - `docs/diagrams/00-desktop-components.md`
@@ -37,6 +39,7 @@ ArtGod will use a hybrid desktop model:
 - those secret-entry flows are owned by Rust via a dedicated native secret-prompt helper sidecar
 - encrypted wallet storage is owned by Rust and kept in desktop app-data as standard Ethereum keystore JSON files, outside backend/indexer SQLite
 - trading bot runtimes receive decrypted key material only once at startup over a one-shot pipe/stdin channel
+- bidding starts also receive one immutable native-reviewed collection mandate over that same one-shot channel
 - any bot restart requires a fresh passphrase prompt
 
 This design explicitly rejects all session unlock caching.
@@ -97,6 +100,8 @@ These are hard rules, not suggestions.
 12. Release builds verify the exact key-bearing runtime code and dependency
     file set against hashes embedded in the Rust desktop executable before
     prompting.
+13. Userland bidding mutations are proposals, not wallet authority. Every bidding start requires a native-reviewed mandate resolved by Rust from canonical live collection records.
+14. Without relying on HTTP middleware or a prior SQLite approval flag, the bidding signer must reject offers outside the approved chain, ArtGod collection ID, contract address, OpenSea slug, per-NFT WETH cap, and fixed per-offer quantity.
 
 ## Threat Model
 
@@ -108,6 +113,7 @@ This design is intended to reduce exposure to:
 - local filesystem disclosure of app data at rest
 - accidental secret leakage through environment variables or command-line arguments
 - accidental persistence of secrets in backend tables or caches
+- unwanted bidding jobs submitted through unauthenticated loopback mutation routes by compromised browser content, extensions, or raw local clients
 
 This design does not claim to protect against:
 
@@ -117,8 +123,21 @@ This design does not claim to protect against:
 - hardware keyloggers
 - memory scraping by a privileged attacker
 - OS screenshots or screen recording outside app control
+- arbitrary writes to ArtGod app-data or SQLite; that capability is treated as host compromise for the current local-only threat model
 
 The objective is to make the wallet boundary materially narrower and more auditable, not to solve full host compromise.
+
+The current bounded residual risk is explicit: compromised Userland code or a
+raw loopback client may cause the bot to act on created, revised, paused, or
+archived jobs for a collection already granted in the current native mandate.
+Placement remains bounded by the approved chain, ArtGod collection ID, contract
+address, OpenSea slug, maximum unit bid, and fixed per-offer quantity. Exact-token
+membership in the displayed ArtGod token scope is currently enforced by the
+canonical backend mutation paths, not independently by the signer; independent
+signer enforcement is deferred. Pause/archive mutations may also cause offchain
+cancellation of tracked offers. That availability and strategy risk is accepted
+for the current local alpha. No browser-readable bearer/session credential is
+introduced over loopback HTTP.
 
 ## Why Hybrid Instead of WebView-Only
 
@@ -648,12 +667,13 @@ sequenceDiagram
     participant N as Node Bot
 
     U->>W: Start bidding/sniping bot
-    W->>T: start bot(botKind)
-    T->>P: launch passphrase prompt
+    W->>T: start bot(botKind, collection ids + caps)
+    T->>T: re-resolve canonical collection identities
+    T->>P: review frozen policy and enter passphrase
     P-->>T: passphrase
     T->>K: decrypt wallet
     K-->>B: plaintext key bytes
-    B->>N: spawn bot and write one-shot secret envelope to stdin
+    B->>N: spawn bot and write key + mandate envelope to stdin
     B->>N: close stdin
     N-->>B: startup success/failure
 ```
@@ -661,10 +681,38 @@ sequenceDiagram
 Unlock rules:
 
 - passphrase prompt is always native
+- bidding policy review is always native and precedes passphrase submission
+- Admin supplies only proposed collection ids and WETH price caps; Rust supplies the displayed and injected ArtGod id, contract, token-scope summary, OpenSea slug, and fixed one-NFT offer quantity
+- Rust reads the canonical collection catalog through the shared `COMMON_HTTP_FETCH_*` per-attempt timeout and bounded retry policy
 - decrypt happens in Rust only
 - decrypted key lifetime in Rust must be as short as practical
 - the secret channel is one-shot and immediately closed after write
 - if bot startup fails, the decrypted key is discarded and the bot remains locked
+
+User-facing authorization review:
+
+- Admin calls the proposed state `bidding authorization request`, not a native
+  mandate
+- the trusted prompt calls the reviewed state `Bidding authorization`
+- the running summary calls granted authority `active bidding authorization`
+- the canonical human-readable network name appears before `chain ID #N`
+- collection identity explicitly distinguishes the ArtGod collection ID,
+  OpenSea slug, contract address, and token scope
+- caps state both unit and denominator: `max WETH per NFT` and
+  `max NFTs per offer`
+- Admin shows the fixed offer quantity as a read-only input with value `1`; the
+  native prompt and active summary show that same value
+- the WebView does not submit an offer quantity; Rust fixes it at one before
+  native review and signer enforcement
+- Admin, prompt, and active summary must show the same Rust-resolved identity and
+  limits in the same terms
+- bidding policy and collection review pages use the Admin launch-sized prompt
+  window; the helper fails closed instead of drawing a page over its action controls
+
+The word `native` remains appropriate when explaining the trusted prompt boundary
+to developers. It is not a substitute for explaining the user's bidding task in
+the UI. Follow `docs/ui/00-user-perspective-and-language.md` for the complete
+cross-surface review method.
 
 Critical dependency rule:
 
@@ -692,14 +740,31 @@ Suggested format:
 4. metadata JSON
 5. 32 raw private-key bytes
 
-Suggested metadata:
+Current bidding metadata shape:
 
 ```json
 {
     "walletId": "uuid",
     "address": "0x...",
     "botKind": "bidding",
-    "chainId": 1
+    "chainId": 1,
+    "biddingMandate": {
+        "chainId": 1,
+        "collections": [
+            {
+                "collectionId": 7,
+                "artgodSlug": "example",
+                "contractAddress": "0x...",
+                "openseaSlug": "example-opensea",
+                "tokenScope": {
+                    "label": "token range",
+                    "items": []
+                },
+                "maxUnitBidWei": "1250000000000000000",
+                "maxQuantity": 1
+            }
+        ]
+    }
 }
 ```
 
@@ -708,6 +773,7 @@ Protocol requirements:
 - metadata is non-secret
 - raw key bytes are binary, not hex text
 - child process must reject malformed or partial payloads
+- bidding child process must reject a missing, duplicate, malformed, or wrong-chain mandate; sniping envelopes must not carry one
 - parent closes the pipe immediately after the payload is written
 - child must not persist the payload anywhere
 
@@ -718,6 +784,7 @@ The bot entrypoint must:
 - block normal startup until the secret payload is read
 - read the one-shot payload into a `Buffer`
 - construct the in-memory signer as early as possible
+- parse the immutable bidding mandate before runtime composition
 - overwrite the original `Buffer` after signer construction
 - refuse to start if stdin is empty, malformed, or truncated
 - emit `bot_bootstrapping` after config, jobs, wallet, and adapter setup succeeds but before configured WETH allowance approval or long snapshot/current-price warmup can block startup
@@ -726,6 +793,9 @@ The bot entrypoint must:
 - keep lifecycle event payloads limited to non-secret runtime metadata
 - write only non-secret heartbeat/state rows to `trading_bot_runtime_state`
 - load bidding jobs from SQLite after secret handoff; the DB contains declared job config, not wallet material
+- carry `collectionId` on every runtime job and require an OpenSea slug for every enabled placement job
+- enforce the mandate's chain, collection ID, contract, OpenSea slug, WETH cap, and fixed quantity again at the final restricted OpenSea signing boundary for every offer revision
+- keep offchain cancellation outside the placement mandate; unauthenticated loopback pause/archive mutations can therefore cancel tracked offers as an accepted local-alpha availability risk
 - never log the payload or derived private-key hex
 
 Important limitation:
@@ -882,6 +952,7 @@ Suggested responsibilities:
 - address display
 - bot assignment
 - bot start/stop controls
+- proposed and active bidding authorization display
 - locked/running/error state display
 
 Current frontend organization:
@@ -979,6 +1050,12 @@ The manual matrix should explicitly verify:
 - `plugin:shell|spawn` and `plugin:shell|stdin_write` are denied from the main WebView
 - restart=prompt behavior
 - bot crash -> locked state
+- Admin request, trusted prompt, and active authorization use the same named
+  chain, qualified IDs, collection identity, units, and limits
+- global policy, all-contract, token-range, and explicit-token-ID review pages
+  show every value with the native prompt action controls still visible
+- loading, disabled, infrastructure-offline, validation, and active states are
+  read end to end from the operator's perspective
 
 ## Implementation Phases
 

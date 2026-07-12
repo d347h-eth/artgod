@@ -1,12 +1,19 @@
 use std::sync::Arc;
 
+use artgod_secret_prompt_protocol::{
+    UnlockBiddingCollectionSummary, UnlockBiddingMandateSummary, UnlockBiddingTokenScopeItem,
+};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
 use crate::desktop_log::append_desktop_log;
 use crate::runtime::{
-    BotCriticalDependencyStatus, BotRuntimeSnapshot, BotRuntimeState, DesktopRuntimeConfig,
-    DesktopWalletConfig, RuntimeManager, bot_runtime_spec, build_trading_secret_envelope,
+    BIDDING_MANDATE_MAX_OFFER_QUANTITY, BackendCollectionCatalog, BackendCollectionCatalogError,
+    BiddingChainIdentity, BiddingCollectionCandidate, BiddingCollectionCatalog,
+    BiddingCollectionMandate, BiddingCollectionMandateDraft, BiddingCollectionTokenScopeSummary,
+    BiddingMandate, BiddingMandateDraft, BiddingStartPolicySnapshot, BotCriticalDependencyStatus,
+    BotRuntimeSnapshot, BotRuntimeState, DesktopRuntimeConfig, DesktopWalletConfig, RuntimeManager,
+    bot_runtime_spec, build_trading_secret_envelope, format_wei_as_eth,
 };
 use crate::wallet::application::use_cases::{
     AssignWalletToBot, AssignWalletToBotError, AssignWalletToBotInput, UnlockWalletForBotStart,
@@ -25,6 +32,8 @@ const BIDDING_OPEN_SEA_SECRET_KEYS: &[&str] = &[
     "OPENSEA_BIDDING_SECRET_KEY",
     "OPENSEA_SNAPSHOT_SECRET_KEY",
 ];
+const BOT_LOG_LEVEL_INFO: &str = "info";
+const BOT_LOG_LEVEL_ERROR: &str = "error";
 
 /// Tauri-managed bot command state for wallet-bound runtime control.
 #[derive(Clone)]
@@ -80,6 +89,15 @@ impl BotCommandState {
         Ok(bot_dtos)
     }
 
+    async fn load_bidding_collection_catalog(
+        &self,
+        app: &AppHandle,
+    ) -> Result<BiddingCollectionCatalogDto, String> {
+        let runtime_config = DesktopRuntimeConfig::load_or_create(app)?;
+        let catalog = load_canonical_bidding_catalog(app, &runtime_config).await?;
+        Ok(BiddingCollectionCatalogDto::from_domain(&catalog))
+    }
+
     fn assign_wallet(
         &self,
         app: &AppHandle,
@@ -100,7 +118,7 @@ impl BotCommandState {
             .map_err(|error| {
                 append_desktop_log(
                     app,
-                    "error",
+                    BOT_LOG_LEVEL_ERROR,
                     &format!("Bot wallet assignment failed: {error}"),
                 );
                 sanitize_assign_wallet_error(error)
@@ -123,6 +141,7 @@ impl BotCommandState {
         app: &AppHandle,
         runtime: &RuntimeManager,
         bot_kind: BotKind,
+        bidding_mandate_draft: Option<BiddingMandateDraftDto>,
     ) -> Result<BotRuntimeDto, String> {
         // Freeze all bot process inputs before showing the native unlock prompt.
         let runtime_config = DesktopRuntimeConfig::load_or_create(app)?;
@@ -140,7 +159,7 @@ impl BotCommandState {
             .map_err(|error| {
                 append_desktop_log(
                     app,
-                    "error",
+                    BOT_LOG_LEVEL_ERROR,
                     &format!("Trading bot recipient validation failed: {error}"),
                 );
                 "Trading bot runtime failed security validation. See desktop-app logs.".to_owned()
@@ -156,16 +175,41 @@ impl BotCommandState {
             .cloned()
             .ok_or_else(|| "Assign a wallet to this bot before starting it.".to_owned())?;
 
-        let current_snapshot = runtime
-            .bot_runtime_state(bot_kind)?
-            .ok_or_else(|| "Bot runtime snapshot is unavailable.".to_owned())?;
-        if is_bot_runtime_busy(&current_snapshot) {
-            return Err("Bot is already active.".to_owned());
+        // Reserve this start before the canonical collection read yields to another command.
+        runtime.begin_bot_unlock(app, bot_kind)?;
+        if let Err(error) = runtime
+            .wait_until_bot_dependencies_stable(bot_kind, self.bot_unlock_stabilization_delay_ms)
+        {
+            let _ = runtime.set_bot_runtime_state(
+                app,
+                bot_kind,
+                BotRuntimeState::Error,
+                Some(error.clone()),
+            );
+            return Err(error);
         }
 
-        runtime
-            .wait_until_bot_dependencies_stable(bot_kind, self.bot_unlock_stabilization_delay_ms)?;
-        runtime.set_bot_runtime_state(app, bot_kind, BotRuntimeState::AwaitingUnlock, None)?;
+        // Re-resolve browser-proposed ids immediately before native authorization.
+        let (bidding_mandate, prompt_mandate) = match resolve_bidding_start_mandate(
+            app,
+            &runtime_config,
+            &launch_config.process_env,
+            bot_kind,
+            bidding_mandate_draft,
+        )
+        .await
+        {
+            Ok(authority) => authority,
+            Err(error) => {
+                let _ = runtime.set_bot_runtime_state(
+                    app,
+                    bot_kind,
+                    BotRuntimeState::Error,
+                    Some(error.clone()),
+                );
+                return Err(error);
+            }
+        };
 
         let prompt_output = match self
             .prompt
@@ -174,6 +218,7 @@ impl BotCommandState {
                 assigned_wallet.label.as_str().to_owned(),
                 assigned_wallet.address.as_str().to_owned(),
                 bot_runtime_spec(bot_kind).startup_reason.to_owned(),
+                prompt_mandate,
             )
             .await
         {
@@ -181,14 +226,18 @@ impl BotCommandState {
             Err(SecretPromptError::Cancelled { .. }) => {
                 append_desktop_log(
                     app,
-                    "info",
+                    BOT_LOG_LEVEL_INFO,
                     &format!("{bot_kind:?} bot unlock prompt cancelled"),
                 );
                 runtime.set_bot_runtime_state(app, bot_kind, BotRuntimeState::Locked, None)?;
                 return self.get_bot_runtime_dto(app, runtime, bot_kind);
             }
             Err(error) => {
-                append_desktop_log(app, "error", &format!("Bot unlock prompt failed: {error}"));
+                append_desktop_log(
+                    app,
+                    BOT_LOG_LEVEL_ERROR,
+                    &format!("Bot unlock prompt failed: {error}"),
+                );
                 runtime.set_bot_runtime_state(
                     app,
                     bot_kind,
@@ -207,7 +256,11 @@ impl BotCommandState {
                 passphrase: prompt_output.passphrase,
             })
             .map_err(|error| {
-                append_desktop_log(app, "error", &format!("Bot wallet unlock failed: {error}"));
+                append_desktop_log(
+                    app,
+                    BOT_LOG_LEVEL_ERROR,
+                    &format!("Bot wallet unlock failed: {error}"),
+                );
                 let message = sanitize_unlock_wallet_error(error);
                 let _ = runtime.set_bot_runtime_state(
                     app,
@@ -223,12 +276,13 @@ impl BotCommandState {
             unlocked_wallet.metadata.address.as_str(),
             bot_kind,
             launch_config.chain_id,
+            bidding_mandate.as_ref(),
             &unlocked_wallet.private_key,
         )
         .map_err(|error| {
             append_desktop_log(
                 app,
-                "error",
+                BOT_LOG_LEVEL_ERROR,
                 &format!("Trading secret envelope build failed: {error}"),
             );
             let _ = runtime.set_bot_runtime_state(
@@ -240,11 +294,16 @@ impl BotCommandState {
             "Trading bot secret handoff failed.".to_owned()
         })?;
 
+        runtime.set_bot_bidding_mandate(app, bot_kind, bidding_mandate)?;
         runtime.set_bot_runtime_state(app, bot_kind, BotRuntimeState::Starting, None)?;
         runtime
             .start_bot_runtime(app.clone(), launch_config, secret_envelope)
             .map_err(|error| {
-                append_desktop_log(app, "error", &format!("Trading bot start failed: {error}"));
+                append_desktop_log(
+                    app,
+                    BOT_LOG_LEVEL_ERROR,
+                    &format!("Trading bot start failed: {error}"),
+                );
                 let _ = runtime.set_bot_runtime_state(
                     app,
                     bot_kind,
@@ -311,8 +370,108 @@ impl BotCommandState {
                 .map(BotCriticalDependencyStatusDto::from_runtime)
                 .collect(),
             assigned_wallet,
+            bidding_mandate: snapshot
+                .bidding_mandate
+                .as_ref()
+                .map(BiddingMandateDto::from_domain),
         }
     }
+}
+
+async fn resolve_bidding_start_mandate(
+    app: &AppHandle,
+    runtime_config: &DesktopRuntimeConfig,
+    frozen_process_env: &std::collections::HashMap<String, String>,
+    bot_kind: BotKind,
+    draft: Option<BiddingMandateDraftDto>,
+) -> Result<(Option<BiddingMandate>, Option<UnlockBiddingMandateSummary>), String> {
+    match bot_kind {
+        BotKind::Bidding => {
+            let draft = draft
+                .ok_or_else(|| "Select at least one collection to authorize bidding.".to_owned())?;
+            let catalog = load_canonical_bidding_catalog(app, runtime_config).await?;
+            let mandate = BiddingMandate::resolve(
+                runtime_config.chain_id,
+                draft.into_domain(),
+                catalog.collections,
+            )?;
+            let policy = BiddingStartPolicySnapshot::from_process_env(frozen_process_env)?;
+            let prompt_summary =
+                build_prompt_mandate_summary(&mandate, &policy, catalog.chain.name.as_str())?;
+            Ok((Some(mandate), Some(prompt_summary)))
+        }
+        BotKind::Sniping => {
+            if draft.is_some() {
+                return Err("Sniping bot start cannot include a bidding mandate.".to_owned());
+            }
+            Ok((None, None))
+        }
+    }
+}
+
+async fn load_canonical_bidding_catalog(
+    app: &AppHandle,
+    runtime_config: &DesktopRuntimeConfig,
+) -> Result<BiddingCollectionCatalog, String> {
+    // Read canonical identities through the shared desktop HTTP policy.
+    let catalog = BackendCollectionCatalog::new(
+        runtime_config.backend_http_base_url(),
+        &runtime_config.http_fetch_resilience,
+    )
+    .map_err(|error| report_bidding_catalog_error(app, error))?;
+    catalog
+        .load_bidding_catalog(runtime_config.chain_id)
+        .await
+        .map_err(|error| report_bidding_catalog_error(app, error))
+}
+
+fn report_bidding_catalog_error(app: &AppHandle, error: BackendCollectionCatalogError) -> String {
+    append_desktop_log(
+        app,
+        BOT_LOG_LEVEL_ERROR,
+        &format!("Bidding collection catalog failed: {}", error.detail()),
+    );
+    error.user_message().to_owned()
+}
+
+fn build_prompt_mandate_summary(
+    mandate: &BiddingMandate,
+    policy: &BiddingStartPolicySnapshot,
+    chain_name: &str,
+) -> Result<UnlockBiddingMandateSummary, String> {
+    let collections = mandate
+        .collections
+        .iter()
+        .map(|collection| {
+            Ok(UnlockBiddingCollectionSummary {
+                collection_id: collection.collection_id,
+                artgod_slug: collection.artgod_slug.clone(),
+                contract_address: collection.contract_address.clone(),
+                opensea_slug: collection.opensea_slug.clone(),
+                token_scope_label: collection.token_scope.label.clone(),
+                token_scope_items: collection
+                    .token_scope
+                    .items
+                    .iter()
+                    .map(|item| UnlockBiddingTokenScopeItem {
+                        label: item.label.clone(),
+                        value: item.value.clone(),
+                    })
+                    .collect(),
+                max_unit_bid_eth: format_wei_as_eth(collection.max_unit_bid_wei.as_str())?,
+                max_quantity: collection.max_quantity,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    Ok(UnlockBiddingMandateSummary {
+        chain_id: mandate.chain_id,
+        chain_name: chain_name.to_owned(),
+        dry_run: policy.dry_run,
+        weth_allowance_cap_eth: policy.weth_allowance_cap_eth.clone(),
+        trait_offers_enabled: policy.trait_offers_enabled,
+        collections,
+    })
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -367,6 +526,178 @@ pub struct BotRuntimeDto {
     disabled_reason: Option<String>,
     critical_dependencies: Vec<BotCriticalDependencyStatusDto>,
     assigned_wallet: Option<BotAssignedWalletDto>,
+    bidding_mandate: Option<BiddingMandateDto>,
+}
+
+/// Admin transport shape for one canonical bidding collection candidate.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiddingCollectionCandidateDto {
+    chain_id: u64,
+    collection_id: u64,
+    artgod_slug: String,
+    contract_address: String,
+    opensea_slug: String,
+    token_scope: BiddingTokenScopeSummaryDto,
+}
+
+/// Admin transport shape for canonical bidding chain context and collections.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiddingCollectionCatalogDto {
+    chain: BiddingChainIdentityDto,
+    max_offer_quantity: u32,
+    collections: Vec<BiddingCollectionCandidateDto>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BiddingChainIdentityDto {
+    chain_id: u64,
+    name: String,
+}
+
+/// Admin transport shape for a proposed native bidding mandate.
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BiddingMandateDraftDto {
+    collections: Vec<BiddingCollectionMandateDraftDto>,
+}
+
+/// Admin transport shape for one proposed collection price cap.
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BiddingCollectionMandateDraftDto {
+    collection_id: u64,
+    max_unit_bid_eth: String,
+}
+
+/// Admin transport shape for the authority held by the active process.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiddingMandateDto {
+    chain_id: u64,
+    collections: Vec<BiddingCollectionMandateDto>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BiddingCollectionMandateDto {
+    collection_id: u64,
+    artgod_slug: String,
+    contract_address: String,
+    opensea_slug: String,
+    token_scope: BiddingTokenScopeSummaryDto,
+    max_unit_bid_wei: String,
+    max_quantity: u32,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BiddingTokenScopeSummaryDto {
+    label: String,
+    items: Vec<BiddingTokenScopeItemDto>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BiddingTokenScopeItemDto {
+    label: String,
+    value: String,
+}
+
+impl BiddingMandateDraftDto {
+    fn into_domain(self) -> BiddingMandateDraft {
+        BiddingMandateDraft {
+            collections: self
+                .collections
+                .into_iter()
+                .map(|collection| BiddingCollectionMandateDraft {
+                    collection_id: collection.collection_id,
+                    max_unit_bid_eth: collection.max_unit_bid_eth,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl BiddingCollectionCandidateDto {
+    fn from_domain(candidate: &BiddingCollectionCandidate) -> Self {
+        Self {
+            chain_id: candidate.chain_id,
+            collection_id: candidate.collection_id,
+            artgod_slug: candidate.artgod_slug.clone(),
+            contract_address: candidate.contract_address.clone(),
+            opensea_slug: candidate.opensea_slug.clone(),
+            token_scope: BiddingTokenScopeSummaryDto::from_domain(&candidate.token_scope),
+        }
+    }
+}
+
+impl BiddingCollectionCatalogDto {
+    fn from_domain(catalog: &BiddingCollectionCatalog) -> Self {
+        Self {
+            chain: BiddingChainIdentityDto::from_domain(&catalog.chain),
+            max_offer_quantity: BIDDING_MANDATE_MAX_OFFER_QUANTITY,
+            collections: catalog
+                .collections
+                .iter()
+                .map(BiddingCollectionCandidateDto::from_domain)
+                .collect(),
+        }
+    }
+}
+
+impl BiddingChainIdentityDto {
+    fn from_domain(chain: &BiddingChainIdentity) -> Self {
+        Self {
+            chain_id: chain.chain_id,
+            name: chain.name.clone(),
+        }
+    }
+}
+
+impl BiddingMandateDto {
+    fn from_domain(mandate: &BiddingMandate) -> Self {
+        Self {
+            chain_id: mandate.chain_id,
+            collections: mandate
+                .collections
+                .iter()
+                .map(BiddingCollectionMandateDto::from_domain)
+                .collect(),
+        }
+    }
+}
+
+impl BiddingCollectionMandateDto {
+    fn from_domain(collection: &BiddingCollectionMandate) -> Self {
+        Self {
+            collection_id: collection.collection_id,
+            artgod_slug: collection.artgod_slug.clone(),
+            contract_address: collection.contract_address.clone(),
+            opensea_slug: collection.opensea_slug.clone(),
+            token_scope: BiddingTokenScopeSummaryDto::from_domain(&collection.token_scope),
+            max_unit_bid_wei: collection.max_unit_bid_wei.clone(),
+            max_quantity: collection.max_quantity,
+        }
+    }
+}
+
+impl BiddingTokenScopeSummaryDto {
+    fn from_domain(scope: &BiddingCollectionTokenScopeSummary) -> Self {
+        Self {
+            label: scope.label.clone(),
+            items: scope
+                .items
+                .iter()
+                .map(|item| BiddingTokenScopeItemDto {
+                    label: item.label.clone(),
+                    value: item.value.clone(),
+                })
+                .collect(),
+        }
+    }
 }
 
 impl BotKindDto {
@@ -599,6 +930,15 @@ pub fn bot_list(
 }
 
 #[tauri::command]
+pub async fn bot_list_bidding_collections(
+    app: AppHandle,
+    state: State<'_, BotCommandState>,
+) -> Result<BiddingCollectionCatalogDto, String> {
+    let command_state = state.inner().clone();
+    command_state.load_bidding_collection_catalog(&app).await
+}
+
+#[tauri::command]
 pub fn bot_assign_wallet(
     app: AppHandle,
     desktop: State<'_, DesktopState>,
@@ -615,10 +955,16 @@ pub async fn bot_start(
     desktop: State<'_, DesktopState>,
     state: State<'_, BotCommandState>,
     bot_kind: BotKindDto,
+    bidding_mandate: Option<BiddingMandateDraftDto>,
 ) -> Result<BotRuntimeDto, String> {
     let command_state = state.inner().clone();
     command_state
-        .start_bot(&app, &desktop.runtime, bot_kind.into_domain())
+        .start_bot(
+            &app,
+            &desktop.runtime,
+            bot_kind.into_domain(),
+            bidding_mandate,
+        )
         .await
 }
 
@@ -630,4 +976,24 @@ pub fn bot_stop(
     bot_kind: BotKindDto,
 ) -> Result<BotRuntimeDto, String> {
     state.stop_bot(&app, &desktop.runtime, bot_kind.into_domain())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::BiddingMandateDraftDto;
+
+    #[test]
+    fn bidding_draft_rejects_browser_offer_quantity_override() {
+        let draft = json!({
+            "collections": [{
+                "collectionId": 7,
+                "maxUnitBidEth": "1",
+                "maxQuantity": 99
+            }]
+        });
+
+        assert!(serde_json::from_value::<BiddingMandateDraftDto>(draft).is_err());
+    }
 }

@@ -83,6 +83,14 @@ export async function bootstrapTradingBot(
                     "BIDDING_ENABLED is false; bidding runtime is disabled",
                 );
             }
+            if (config.chainId !== envelope.metadata.chainId) {
+                throw new Error(
+                    `Secret envelope chain mismatch: expected ${config.chainId}, received ${envelope.metadata.chainId}`,
+                );
+            }
+            if (!envelope.metadata.biddingMandate) {
+                throw new Error("Bidding secret envelope mandate is missing");
+            }
 
             const lifecycle = createBiddingLifecyclePort(
                 envelope.metadata,
@@ -107,6 +115,7 @@ export async function bootstrapTradingBot(
                     walletId: envelope.metadata.walletId,
                     lifecycle,
                     metrics: runtimeMetrics.metrics,
+                    biddingMandate: envelope.metadata.biddingMandate,
                 });
 
                 try {

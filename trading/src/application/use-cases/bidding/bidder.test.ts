@@ -144,6 +144,7 @@ const makeJob = (
     id,
     revision: 1,
     network: "eth",
+    collectionId: 1,
     collectionAddress: "0xcollection",
     collectionSlug: slug,
     target,

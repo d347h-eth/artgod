@@ -2,6 +2,9 @@
 
 This document is the current-state feature reference for bidding automation UI/UX and its backend API surface.
 The implementation plan and historical slice notes remain in `docs/progress/trading/04-bidding-automation-ux-plan.md`.
+All bidding surfaces follow the user-perspective and product-language contract in
+`docs/ui/00-user-perspective-and-language.md` and the shared control/layout
+contract in `docs/ui/01-interaction-guidelines.md`.
 
 ## Core Invariants
 
@@ -25,9 +28,40 @@ The implementation plan and historical slice notes remain in `docs/progress/trad
 | `offers` with `bid_scope=collection` | Collection-wide bids and collection-level bid drafting. |
 | Token detail | Inline shared bidding panel for the exact token plus the token's applicable bid book. |
 | `bidding` jobs page | Read-only declared-job/runtime overview; mutation flows stay in shared bidding surfaces. |
+| Admin `Bots` | Bidding authorization setup, canonical collection limits, wallet assignment, and bot lifecycle controls. |
 
 The `offers` page is the primary bidding operations surface.
 It combines the bid book, maker filter, bid-scope controls, trait filters where relevant, bidding target controls, tier management, and the floating automation panel.
+
+### Admin Bidding Authorization
+
+The Admin setup surface, native wallet prompt, and active bot summary are one
+user-visible authorization lifecycle:
+
+1. `bidding authorization request` shows the canonical named chain, qualified
+   chain ID, eligible collections, and proposed limits
+2. the native prompt reviews the same canonical identity and limits before
+   accepting the wallet passphrase
+3. `active bidding authorization` shows the authority held by the running bot
+
+Identity and limits must remain explicit across all three states:
+
+- human-readable chain name before `chain ID #N`
+- ArtGod collection slug before qualified ArtGod collection ID
+- `OpenSea slug` and `contract address`, not ambiguous shortened labels
+- `max WETH per NFT`
+- `max NFTs per offer`, shown as a read-only input with value `1` in Admin
+
+The NFT count is a per-offer cap, not cumulative exposure across jobs or open
+orders. Userland currently creates only one-NFT offers, so Admin does not send
+this quantity: Rust fixes it at one before the native review and signer
+enforcement. The native prompt and active summary show the same value.
+
+Admin does not render controls for staged or nonexistent bot kinds. The local
+collection catalog uses the shared `COMMON_HTTP_FETCH_*` timeout and bounded
+retry policy. If infrastructure is stopped, the Bots surface directs the
+operator to start infra; other exhausted failures provide the relevant restart,
+refresh, or desktop-log recovery without exposing raw loopback request details.
 
 ## Targeting Capabilities
 

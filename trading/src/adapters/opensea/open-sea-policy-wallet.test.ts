@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import type { Hex } from "viem";
 import { OPENSEA_MAINNET_SECURITY_POLICY } from "@artgod/shared/trading/open-sea-mainnet-security-policy";
+import { BiddingMandate } from "../../domain/bidding-mandate.js";
 import {
     BIDDER_TARGET_TYPE,
     type BidderJob,
@@ -20,6 +21,8 @@ const FEE_RECIPIENT = "0x00000000000000000000000000000000000000dD";
 const SIGNATURE = `0x${"11".repeat(65)}` as Hex;
 const ORDER_HASH = `0x${"22".repeat(32)}` as Hex;
 const EXPIRATION_TIME = 2_000_000_000;
+const COLLECTION_ID = 1;
+const COLLECTION_SLUG = "policy-test-collection";
 
 describe("OpenSeaPolicyWallet", () => {
     it("signs one fully validated token offer without exposing transaction authority", async () => {
@@ -120,6 +123,26 @@ describe("OpenSeaPolicyWallet", () => {
                     },
                 ),
             /exceeds configured WETH allowance cap/,
+        );
+        assert.equal(workCalls, 0);
+    });
+
+    it("rejects an unmandated collection before OpenSea work starts", async () => {
+        let workCalls = 0;
+        const policyWallet = createPolicyWallet({ allowanceCapWei: 100n });
+        const authorization = tokenAuthorization(100n);
+        authorization.job = {
+            ...authorization.job,
+            collectionId: COLLECTION_ID + 1,
+        };
+
+        await assert.rejects(
+            () =>
+                policyWallet.authorizeOffer(authorization, async () => {
+                    workCalls += 1;
+                    return null;
+                }),
+            /native bidding mandate rejected offer: collection 2 is not authorized/,
         );
         assert.equal(workCalls, 0);
     });
@@ -315,7 +338,10 @@ describe("OpenSeaPolicyWallet", () => {
         await assert.rejects(
             () =>
                 policyWallet.authorizeOffer(authorization, async () => {
-                    if (authorization.job.target.type !== BIDDER_TARGET_TYPE.Token) {
+                    if (
+                        authorization.job.target.type !==
+                        BIDDER_TARGET_TYPE.Token
+                    ) {
                         throw new Error("expected token target");
                     }
                     authorization.job.target.tokenId = "999";
@@ -390,6 +416,7 @@ function createPolicyWallet(options: {
     signError?: Error;
     signGate?: Promise<void>;
     trustOpenSeaSignedZoneTraitOffers?: boolean;
+    biddingMandate?: BiddingMandate;
 }): OpenSeaPolicyWallet {
     const signer: OpenSeaPolicyTypedDataSigner = {
         address: MAKER,
@@ -410,7 +437,27 @@ function createPolicyWallet(options: {
         allowanceCapWei: options.allowanceCapWei,
         trustOpenSeaSignedZoneTraitOffers:
             options.trustOpenSeaSignedZoneTraitOffers ?? false,
+        biddingMandate: options.biddingMandate ?? createBiddingMandate(),
     });
+}
+
+function createBiddingMandate(): BiddingMandate {
+    return BiddingMandate.parse(
+        {
+            chainId: 1,
+            collections: [
+                {
+                    collectionId: COLLECTION_ID,
+                    artgodSlug: "policy-test",
+                    contractAddress: COLLECTION,
+                    openseaSlug: COLLECTION_SLUG,
+                    maxUnitBidWei: "100",
+                    maxQuantity: 1,
+                },
+            ],
+        },
+        1,
+    );
 }
 
 function tokenAuthorization(
@@ -443,8 +490,9 @@ function makeJob(target: BidderJob["target"]): BidderJob {
         id: "policy-test-job",
         revision: 1,
         network: "eth",
+        collectionId: COLLECTION_ID,
         collectionAddress: COLLECTION,
-        collectionSlug: "policy-test-collection",
+        collectionSlug: COLLECTION_SLUG,
         target,
         config: { floor: 1n, ceiling: 100n, delta: 1n },
         state: {},

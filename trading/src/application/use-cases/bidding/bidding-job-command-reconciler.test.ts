@@ -38,6 +38,7 @@ function makeJob(jobId: string): BidderJob {
         id: jobId,
         revision: 1,
         network: "eth",
+        collectionId: 1,
         collectionAddress: "0x1111111111111111111111111111111111111111",
         collectionSlug: "terraforms",
         target: {

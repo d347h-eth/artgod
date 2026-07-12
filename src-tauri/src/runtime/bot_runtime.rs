@@ -1,9 +1,10 @@
 use serde::Serialize;
 
+use super::bidding_mandate::BiddingMandate;
 use crate::wallet::domain::{BotKind, WalletId, WalletPrivateKey};
 
 const SECRET_ENVELOPE_MAGIC: &[u8; 8] = b"AGBOTKEY";
-const SECRET_ENVELOPE_VERSION: u8 = 1;
+const SECRET_ENVELOPE_VERSION: u8 = 2;
 const SECRET_KEY_LENGTH_BYTES: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -34,6 +35,7 @@ pub struct BotRuntimeSnapshot {
     pub state: BotRuntimeState,
     pub last_error: Option<String>,
     pub critical_dependencies: Vec<BotCriticalDependencyStatus>,
+    pub bidding_mandate: Option<BiddingMandate>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -65,11 +67,12 @@ pub const BOT_RUNTIME_SPECS: &[BotRuntimeSpec] = &[BIDDING_BOT_SPEC, SNIPING_BOT
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct TradingSecretEnvelopeMetadata {
+struct TradingSecretEnvelopeMetadata<'a> {
     wallet_id: String,
     address: String,
     bot_kind: BotKind,
     chain_id: u64,
+    bidding_mandate: Option<&'a BiddingMandate>,
 }
 
 pub fn bot_runtime_spec(bot_kind: BotKind) -> &'static BotRuntimeSpec {
@@ -84,13 +87,24 @@ pub fn build_trading_secret_envelope(
     address: &str,
     bot_kind: BotKind,
     chain_id: u64,
+    bidding_mandate: Option<&BiddingMandate>,
     private_key: &WalletPrivateKey,
 ) -> Result<Vec<u8>, String> {
+    match (bot_kind, bidding_mandate) {
+        (BotKind::Bidding, None) => {
+            return Err("Bidding bot secret envelope requires a native mandate.".to_owned());
+        }
+        (BotKind::Sniping, Some(_)) => {
+            return Err("Sniping bot secret envelope cannot carry a bidding mandate.".to_owned());
+        }
+        _ => {}
+    }
     let metadata = TradingSecretEnvelopeMetadata {
         wallet_id: wallet_id.to_string(),
         address: address.to_owned(),
         bot_kind,
         chain_id,
+        bidding_mandate,
     };
     let metadata_json = serde_json::to_vec(&metadata)
         .map_err(|error| format!("metadata serialize failed: {error}"))?;
@@ -123,13 +137,14 @@ mod tests {
         address: String,
         bot_kind: String,
         chain_id: u64,
+        bidding_mandate: BiddingMandate,
         private_key_hex: String,
         payload_hex: String,
     }
 
     fn load_fixture() -> TradingSecretEnvelopeFixture {
         let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../trading/src/runtime/fixtures/secret-envelope-v1.json");
+            .join("../trading/src/runtime/fixtures/secret-envelope-v2.json");
         let raw = fs::read_to_string(&fixture_path).expect("fixture file should load");
         serde_json::from_str(&raw).expect("fixture json should parse")
     }
@@ -143,6 +158,7 @@ mod tests {
             "0x1111111111111111111111111111111111111111",
             BotKind::Bidding,
             1,
+            Some(&test_bidding_mandate()),
             &private_key,
         )
         .unwrap();
@@ -175,10 +191,34 @@ mod tests {
             fixture.address.as_str(),
             bot_kind,
             fixture.chain_id,
+            Some(&fixture.bidding_mandate),
             &private_key,
         )
         .unwrap();
 
         assert_eq!(hex::encode(payload), fixture.payload_hex);
+    }
+
+    fn test_bidding_mandate() -> BiddingMandate {
+        use super::super::bidding_mandate::{
+            BIDDING_MANDATE_MAX_OFFER_QUANTITY, BiddingCollectionMandate,
+            BiddingCollectionTokenScopeSummary,
+        };
+
+        BiddingMandate {
+            chain_id: 1,
+            collections: vec![BiddingCollectionMandate {
+                collection_id: 7,
+                artgod_slug: "example".to_owned(),
+                contract_address: "0x1111111111111111111111111111111111111111".to_owned(),
+                opensea_slug: "example-opensea".to_owned(),
+                token_scope: BiddingCollectionTokenScopeSummary {
+                    label: "all contract tokens".to_owned(),
+                    items: Vec::new(),
+                },
+                max_unit_bid_wei: "1250000000000000000".to_owned(),
+                max_quantity: BIDDING_MANDATE_MAX_OFFER_QUANTITY,
+            }],
+        }
     }
 }

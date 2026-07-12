@@ -1,8 +1,11 @@
 mod app_config;
 mod app_config_manifest;
+mod backend_collection_catalog;
+mod bidding_mandate;
 mod bot_runtime;
 mod config;
 mod env_keys;
+mod http_fetch_resilience;
 mod log_files;
 mod private_file;
 mod process_registry;
@@ -14,6 +17,16 @@ mod supervisor;
 pub use app_config::{
     AppConfigState, SaveAppConfigInput, ensure_desktop_config_paths, load_app_config_state,
     load_effective_app_config_values, save_app_config, use_default_app_config,
+};
+pub(crate) use backend_collection_catalog::BackendCollectionCatalogError;
+pub use backend_collection_catalog::{
+    BackendCollectionCatalog, BiddingChainIdentity, BiddingCollectionCandidate,
+    BiddingCollectionCatalog,
+};
+pub use bidding_mandate::{
+    BIDDING_MANDATE_MAX_OFFER_QUANTITY, BiddingCollectionMandate, BiddingCollectionMandateDraft,
+    BiddingCollectionTokenScopeSummary, BiddingMandate, BiddingMandateDraft,
+    BiddingStartPolicySnapshot, format_wei_as_eth,
 };
 pub use bot_runtime::{
     BotCriticalDependencyStatus, BotRuntimeSnapshot, BotRuntimeState, bot_runtime_spec,

@@ -585,7 +585,7 @@ key = "COMMON_HTTP_FETCH_TIMEOUT_MS"
 group = "indexer"
 label = "common http fetch timeout ms"
 default = "10000"
-help = "Per-attempt timeout for ordinary metadata and media HTTP fetches."
+help = "Per-attempt timeout for retry-safe ordinary HTTP fetches."
 validation = "positive_integer"
 
 [[settings]]
@@ -593,7 +593,7 @@ key = "COMMON_HTTP_FETCH_RETRY_MAX_ATTEMPTS"
 group = "indexer"
 label = "common http fetch retry max attempts"
 default = "3"
-help = "Maximum attempts for ordinary metadata and media HTTP fetches."
+help = "Maximum attempts for retry-safe ordinary HTTP fetches."
 validation = "positive_integer"
 
 [[settings]]
@@ -601,7 +601,7 @@ key = "COMMON_HTTP_FETCH_RETRY_BASE_DELAY_MS"
 group = "indexer"
 label = "common http fetch retry base delay ms"
 default = "250"
-help = "Initial exponential-backoff delay for ordinary metadata and media HTTP fetch retries."
+help = "Initial exponential-backoff delay for retry-safe ordinary HTTP fetches."
 validation = "positive_integer"
 
 [[settings]]
@@ -609,7 +609,7 @@ key = "COMMON_HTTP_FETCH_RETRY_MAX_DELAY_MS"
 group = "indexer"
 label = "common http fetch retry max delay ms"
 default = "2000"
-help = "Maximum exponential-backoff delay for ordinary metadata and media HTTP fetch retries."
+help = "Maximum exponential-backoff delay for retry-safe ordinary HTTP fetches."
 validation = "positive_integer"
 
 [[settings]]

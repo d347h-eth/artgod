@@ -7,6 +7,7 @@ use tauri::{AppHandle, Manager};
 use super::app_config::{ensure_desktop_config_paths, load_or_materialize_process_env};
 use super::bot_runtime::BotRuntimeSpec;
 use super::env_keys::{COMMON_MEDIA_CACHE_DIR_ENV_KEY, RPC_ENDPOINT_LIST_ENV_KEY};
+use super::http_fetch_resilience::HttpFetchResilienceConfig;
 use super::resource_contract::{
     BUNDLED_RUNTIME_DIR_NAME, MACOS_BUNDLE_RESOURCES_DIR_NAME, NATS_BINARY_RELATIVE_PATH,
     NODE_BINARY_RELATIVE_PATH, PNP_CJS_RELATIVE_PATH, PNP_LOADER_RELATIVE_PATH,
@@ -30,6 +31,7 @@ pub struct DesktopRuntimeConfig {
     pub auto_start: bool,
     pub restart_backoff_ms: u64,
     pub process_env: HashMap<String, String>,
+    pub(crate) http_fetch_resilience: HttpFetchResilienceConfig,
     pub logs_dir: PathBuf,
     pub capabilities: DesktopRuntimeCapabilities,
     #[allow(dead_code)]
@@ -99,6 +101,7 @@ impl DesktopRuntimeConfig {
         let Some(process_env) = load_or_materialize_process_env(app)? else {
             return Err("Desktop configuration has not been saved yet.".to_owned());
         };
+        let http_fetch_resilience = HttpFetchResilienceConfig::from_process_env(&process_env)?;
 
         let runtime_dir = resolve_runtime_resources_dir(app)?;
         let node_bin = resolve_bundled_runtime_file(
@@ -215,6 +218,7 @@ impl DesktopRuntimeConfig {
             auto_start,
             restart_backoff_ms,
             process_env: merged_env,
+            http_fetch_resilience,
             logs_dir: local_paths.logs_dir,
             capabilities,
             wallet,
@@ -648,6 +652,7 @@ mod tests {
                 COMMON_MEDIA_CACHE_DIR_ENV_KEY.to_owned(),
                 app_data_dir.join("media").to_string_lossy().into_owned(),
             )]),
+            http_fetch_resilience: HttpFetchResilienceConfig::test_fixture(),
             logs_dir: app_data_dir.join("logs"),
             capabilities: build_runtime_capabilities(&HashMap::new())
                 .expect("test capabilities should resolve"),

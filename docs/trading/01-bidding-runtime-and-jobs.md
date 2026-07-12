@@ -38,6 +38,9 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 - Marketplace token bidding targets must be canonical `tokens` rows. Extension-synthetic tokens can be shown in browsing surfaces, but frontend bidding selection and backend job mutation exclude them before bot commands exist.
 - Human-readable config, API, UI, and logs use Ether units; low-level EVM calls and persisted amount columns may use wei strings.
 - Wallet secrets never enter env, CLI args, SQLite, frontend state, or logs.
+- Loopback bidding mutations are untrusted job proposals. A live bidding process may place offers only inside the native collection identity and caps granted for that process start.
+- Mandate collection identity is the exact ArtGod `collectionId` plus its canonical contract address and OpenSea slug. Contract address alone is insufficient for shared-contract collections.
+- Offer placement enforces mandate identity, per-offer quantity, and per-NFT price at the restricted wallet boundary. Exact-token membership in the displayed ArtGod token scope remains a canonical backend mutation invariant; independent signer enforcement is deferred. Offchain cancellation remains available independently of the placement mandate, including when an unauthenticated loopback client submits pause/archive mutations.
 
 ## OpenSea SDK / API Surface
 
@@ -59,6 +62,11 @@ operator-requested spend, configured allowance cap, target collection/token and
 quantity, expiration, and consideration item shape. Marketplace fee allocations
 must remain WETH consideration within the exact offer spend, so they cannot
 increase wallet spend beyond the requested bid amount.
+Before those EIP-712 checks, the restricted wallet independently matches the
+job's ArtGod collection id, contract, and OpenSea slug against the immutable
+native mandate. It rejects a quantity above the collection cap or a final total
+whose per-NFT amount exceeds the collection unit cap. Collection-offer SDK calls
+also require the OpenSea slug passed to the SDK to equal the authorized job slug.
 SDK or API drift in the pinned contracts, domain, schema, or payload shape fails
 the placement before signing and requires an explicit ArtGod review.
 The strict alpha policy also fails closed for collection-specific custom zones
@@ -112,11 +120,11 @@ The Rust process owns keystore decryption and sends the unlocked key to the Node
 
 Startup order:
 
-1. read the one-shot secret payload and construct the in-memory signer
-2. load typed trading config
+1. read secret-envelope v2, require its native bidding mandate, and construct the in-memory signer
+2. load typed trading config and require its chain to match the envelope and mandate
 3. mark previously tracked active offers as unverified for enabled bidding jobs
-4. load enabled bidding jobs from SQLite
-5. wire OpenSea lanes, metadata lookup, WETH balance/allowance, transaction policy, and logging adapters
+4. load enabled bidding jobs from SQLite with canonical collection ids and required OpenSea slugs
+5. wire OpenSea lanes, metadata lookup, WETH balance/allowance, native mandate policy, transaction policy, and logging adapters
 6. emit `bot_bootstrapping` before long allowance/snapshot/price bootstrap work
 7. reconcile the pinned OpenSea conduit WETH allowance up or down to the exact
    `BIDDING_WETH_ALLOWANCE_ETH` cap, including revocation when the cap is `0`
@@ -418,7 +426,7 @@ Desktop wallet custody is documented in `docs/desktop/03-wallet-keystore-and-bot
 Trading-specific rules:
 
 - private keys are Rust-owned until the exact bot startup moment
-- key material is passed to Node through the one-shot stdin secret envelope only
+- key material and the immutable native mandate are passed to Node through the one-shot stdin secret envelope only
 - bot process args and env contain no private keys
 - lifecycle events and runtime-state DB rows contain only non-secret metadata
 - every bot restart requires a fresh unlock
@@ -429,6 +437,10 @@ Trading-specific rules:
   and fails closed unless it equals the configured cap
 - OpenSea cannot create approval transactions; only ArtGod's allowance adapter
   receives the transaction-capable wallet client
+- Admin `Bots` selects live/OpenSea-ready collections and a maximum WETH amount per NFT; the per-offer quantity is fixed at one. Immediately before the native prompt, Rust re-reads those collection ids from the canonical backend read model through the shared `COMMON_HTTP_FETCH_*` resilience policy.
+- The Admin launch-sized native prompt shows the frozen global bidding policy and one complete review page per collection: ArtGod id, contract, token-scope summary, OpenSea slug, per-NFT WETH cap, and the fixed one-NFT offer quantity. Oversized pages fail closed instead of clipping into the action controls.
+- Loopback HTTP has no bearer session to leak. Created, revised, paused, or archived jobs within an approved collection remain possible if Userland is compromised; placement caps and the resulting cancellation/strategy risk are intentional for the current automation model.
+- Existing OpenSea orders survive bot shutdown and are not automatically coupled to mandate expiry. Cancellation occurs only through job cancellation paths, but unauthenticated loopback mutation is accepted as capable of invoking those paths.
 - `BIDDING_TX_MAX_FEE_GWEI` caps the approval transaction fee per gas unit
 - `BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ETH` separately caps its worst-case network
   gas fee as explicit gas limit times selected max fee per gas; it does not cap

@@ -500,7 +500,8 @@ Supervisor startup order:
 7. only after semantic readiness succeeds, supervisor sets runtime status to `running`
 
 Wallet-bound bot runtimes are not part of the startup order above.
-They stay independently managed and start only after explicit admin action, dependency stabilization, native unlock, and one-shot stdin secret handoff.
+They stay independently managed and start only after explicit admin action, dependency stabilization, native policy review/unlock, and one-shot stdin secret handoff.
+For bidding, Admin proposes collection ids and caps, Rust re-resolves each id through the canonical backend collection read model, and the native prompt reviews the exact identity and caps that enter the bot's immutable mandate.
 During long bidder warmup, bots move from `starting` to `bootstrapping`; the supervisor treats that as a live runtime phase and expects periodic bootstrap progress before final `running`.
 
 If any step fails:
@@ -654,6 +655,7 @@ Tauri commands used by desktop frontend runtime UI/state:
 - `wallet_export`
 - `wallet_remove`
 - `bot_list`
+- `bot_list_bidding_collections`
 - `bot_assign_wallet`
 - `bot_start`
 - `bot_stop`

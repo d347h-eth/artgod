@@ -9,6 +9,10 @@ import {
 import { mainnet } from "viem/chains";
 import { OPENSEA_MAINNET_SECURITY_POLICY } from "@artgod/shared/trading/open-sea-mainnet-security-policy";
 import {
+    BiddingMandate,
+    BiddingMandateViolationError,
+} from "../../domain/bidding-mandate.js";
+import {
     BIDDER_TARGET_TYPE,
     bidderTargetRequiresOpenSeaSignedZoneTrust,
     type BidderJob,
@@ -115,6 +119,7 @@ export type OpenSeaPolicyWalletOptions = {
     wethAddress: string;
     allowanceCapWei: bigint;
     trustOpenSeaSignedZoneTraitOffers: boolean;
+    biddingMandate: BiddingMandate;
 };
 
 type OfferSigningSession = {
@@ -269,8 +274,7 @@ export class OpenSeaPolicyWallet {
             try {
                 const result = await work();
                 if (
-                    session.signatureState !==
-                    OPEN_SEA_SIGNATURE_STATE.Complete
+                    session.signatureState !== OPEN_SEA_SIGNATURE_STATE.Complete
                 ) {
                     throw new OpenSeaPolicyViolationError(
                         `authorized ${session.intent} completed with 0 signatures`,
@@ -286,6 +290,20 @@ export class OpenSeaPolicyWallet {
     private createOfferSigningExpectation(
         authorization: OpenSeaOfferSigningAuthorization,
     ): OfferSigningExpectation {
+        try {
+            // Enforce native collection identity and caps at the final signing boundary.
+            this.options.biddingMandate.assertOfferAuthorized(
+                authorization.job,
+                authorization.totalAmountWei,
+            );
+        } catch (error) {
+            if (error instanceof BiddingMandateViolationError) {
+                throw new OpenSeaPolicyViolationError(
+                    `native bidding mandate rejected offer: ${error.message}`,
+                );
+            }
+            throw error;
+        }
         if (authorization.totalAmountWei <= 0n) {
             throw new OpenSeaPolicyViolationError(
                 "offer amount must be positive",
@@ -350,9 +368,7 @@ export class OpenSeaPolicyWallet {
                 `authorized ${session.intent} is no longer active`,
             );
         }
-        if (
-            session.signatureState !== OPEN_SEA_SIGNATURE_STATE.Available
-        ) {
+        if (session.signatureState !== OPEN_SEA_SIGNATURE_STATE.Available) {
             throw new OpenSeaPolicyViolationError(
                 `authorized ${session.intent} requested more than one signature`,
             );

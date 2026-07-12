@@ -19,6 +19,7 @@ import {
 
 type BiddingJobRow = {
     job_id: string;
+    collection_id: number;
     collection_slug: string;
     collection_opensea_slug: string | null;
     collection_address: string;
@@ -58,7 +59,7 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
 
     constructor(private readonly chainId: number) {
         const selectFields =
-            "SELECT j.job_id, j.status, j.revision, c.slug AS collection_slug, c.opensea_slug AS collection_opensea_slug, c.address AS collection_address, " +
+            "SELECT j.job_id, j.status, j.revision, c.collection_id, c.slug AS collection_slug, c.opensea_slug AS collection_opensea_slug, c.address AS collection_address, " +
             "j.target_kind, j.token_id, s.floor_wei, s.ceiling_wei, s.delta_wei, s.quantity, s.target_traits_json, s.competitor_traits_json, " +
             "r.current_price_wei, r.job_revision AS runtime_job_revision, r.active_order_id, r.active_protocol_address, r.active_order_placed_at, r.active_order_verified_at, r.active_expiration_time_ms, r.updated_at AS runtime_updated_at " +
             "FROM trading_jobs j " +
@@ -104,7 +105,7 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
         }) as BiddingJobRow[];
 
         // Map persisted job declarations into the stable bidder domain shape without hydrating runtime state yet.
-        return rows.map((row) => this.mapJobRow(row));
+        return rows.map((row) => this.mapJobRow(row, true));
     }
 
     async loadJobById(jobId: string): Promise<BiddingJobSourceRecord | null> {
@@ -119,20 +120,29 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
 
     async loadEnabledJobById(jobId: string): Promise<BidderJob | null> {
         const record = await this.loadJobById(jobId);
-        return record?.status === TRADING_JOB_STATUS.Enabled ? record.job : null;
+        return record?.status === TRADING_JOB_STATUS.Enabled
+            ? record.job
+            : null;
     }
 
     private mapJobRecord(row: BiddingJobRow): BiddingJobSourceRecord {
         return {
-            job: this.mapJobRow(row),
+            job: this.mapJobRow(row, row.status === TRADING_JOB_STATUS.Enabled),
             status: row.status,
             revision: row.revision,
         };
     }
 
-    private mapJobRow(row: BiddingJobRow): BidderJob {
+    private mapJobRow(
+        row: BiddingJobRow,
+        requireOpenSeaIdentity: boolean,
+    ): BidderJob {
         const floor = this.parseWei(row.floor_wei, "floor_wei", row.job_id);
-        const ceiling = this.parseWei(row.ceiling_wei, "ceiling_wei", row.job_id);
+        const ceiling = this.parseWei(
+            row.ceiling_wei,
+            "ceiling_wei",
+            row.job_id,
+        );
         const delta = this.parseWei(row.delta_wei, "delta_wei", row.job_id);
         if (floor < 0n || ceiling < 0n) {
             throw new Error(
@@ -154,16 +164,23 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
             id: this.parseNonEmptyString(row.job_id, "job_id"),
             revision: row.revision,
             network: "eth",
+            collectionId: this.parseCollectionId(row.collection_id, row.job_id),
             collectionAddress: this.parseAddress(
                 row.collection_address,
                 `collection_address for jobId=${row.job_id}`,
             ),
-            collectionSlug:
-                this.parseCollectionSlug(row.collection_opensea_slug) ??
-                this.parseNonEmptyString(
-                    row.collection_slug,
-                    `collection_slug for jobId=${row.job_id}`,
-                ),
+            collectionSlug: requireOpenSeaIdentity
+                ? this.parseNonEmptyString(
+                      row.collection_opensea_slug,
+                      `collection_opensea_slug for jobId=${row.job_id}`,
+                  )
+                : (this.parseOptionalCollectionSlug(
+                      row.collection_opensea_slug,
+                  ) ??
+                  this.parseNonEmptyString(
+                      row.collection_slug,
+                      `collection_slug for jobId=${row.job_id}`,
+                  )),
             target: this.mapTarget(row),
             config: {
                 floor,
@@ -174,8 +191,25 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
         };
     }
 
+    private parseCollectionId(value: number, jobId: string): number {
+        if (!Number.isSafeInteger(value) || value <= 0) {
+            throw new Error(
+                `Invalid collection_id for jobId=${jobId}: ${value}`,
+            );
+        }
+        return value;
+    }
+
+    private parseOptionalCollectionSlug(value: string | null): string | null {
+        const normalized = value?.trim();
+        return normalized ? normalized : null;
+    }
+
     private mapRuntimeState(row: BiddingJobRow): BidderJob["state"] {
-        if (!row.runtime_updated_at || row.runtime_job_revision !== row.revision) {
+        if (
+            !row.runtime_updated_at ||
+            row.runtime_job_revision !== row.revision
+        ) {
             return {};
         }
 
@@ -261,15 +295,6 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
         );
     }
 
-    private parseCollectionSlug(value: string | null): string | null {
-        if (value === null) {
-            return null;
-        }
-
-        const normalized = value.trim();
-        return normalized === "" ? null : normalized;
-    }
-
     private parseAddress(value: string | null, name: string): string {
         const normalized = this.parseNonEmptyString(value, name).toLowerCase();
         if (!/^0x[a-f0-9]{40}$/.test(normalized)) {
@@ -315,7 +340,10 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
         return value;
     }
 
-    private parseTraitTargets(value: string | null, name: string): TraitTarget[] {
+    private parseTraitTargets(
+        value: string | null,
+        name: string,
+    ): TraitTarget[] {
         return this.parseTraitRecords(value, name).map((trait) => ({
             type: trait.type,
             value: trait.value,
@@ -344,7 +372,8 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
         try {
             parsed = JSON.parse(value);
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message =
+                error instanceof Error ? error.message : String(error);
             throw new Error(`Invalid ${name}: ${message}`);
         }
 
@@ -354,7 +383,9 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
 
         return parsed.map((entry, index) => {
             if (!entry || typeof entry !== "object") {
-                throw new Error(`Invalid ${name}[${index}]: expected an object`);
+                throw new Error(
+                    `Invalid ${name}[${index}]: expected an object`,
+                );
             }
 
             const record = entry as { type?: unknown; value?: unknown };

@@ -428,6 +428,11 @@ a:hover {
 	opacity: 0.75;
 }
 
+.bootstrap-control:read-only:not(:disabled) {
+	color: var(--c-sand);
+	cursor: default;
+}
+
 .bootstrap-input-with-note {
 	display: grid;
 	gap: 0.25rem;

@@ -8,14 +8,14 @@ use artgod_secret_prompt_protocol::{
     CancelledSecretPromptResponse, ErrorSecretPromptResponse, ExportConfirmSecretPromptRequest,
     ExportConfirmSecretPromptResponse, ExportRevealAcknowledgedResponse,
     ExportRevealSecretPromptRequest, ImportSecretPromptRequest, ImportSecretPromptResponse,
-    RemoveConfirmSecretPromptRequest, RemoveConfirmSecretPromptResponse, SecretPromptAction,
-    SecretPromptErrorCode, SecretPromptRequest, SecretPromptResponse,
-    SECRET_PROMPT_MAX_REQUEST_BYTES, SECRET_PROMPT_MAX_RESPONSE_BYTES,
+    RemoveConfirmSecretPromptRequest, RemoveConfirmSecretPromptResponse,
+    SECRET_PROMPT_MAX_REQUEST_BYTES, SECRET_PROMPT_MAX_RESPONSE_BYTES, SecretPromptAction,
+    SecretPromptErrorCode, SecretPromptRequest, SecretPromptResponse, UnlockBiddingMandateSummary,
     UnlockSecretPromptRequest, UnlockSecretPromptResponse,
 };
 use prompt_ui::{
     ExportConfirmPromptSpec, ImportPromptSpec, RemoveConfirmPromptSpec, RevealPromptSpec,
-    TextInputKind, TextPromptMode, TextPromptSpec, TextValidationSpec,
+    UnlockPromptSpec,
 };
 use thiserror::Error;
 use zeroize::Zeroizing;
@@ -185,20 +185,21 @@ fn handle_import_request(
 fn handle_unlock_request(
     payload: UnlockSecretPromptRequest,
 ) -> Result<SecretPromptResponse, SecretPromptHelperError> {
-    let message = format!(
+    let passphrase_message = format!(
         "Unlock wallet \"{}\" ({}) to {}",
         payload.wallet_label, payload.wallet_address, payload.reason
     );
-    let Some(passphrase) = prompt_ui::prompt_text(TextPromptSpec {
+    let review_pages = payload
+        .bidding_mandate
+        .as_ref()
+        .map(build_bidding_mandate_review_pages)
+        .unwrap_or_default();
+    let Some(passphrase) = prompt_ui::prompt_unlock(UnlockPromptSpec {
         title: "Unlock Wallet",
-        message: &message,
-        initial_value: "",
-        mode: TextPromptMode::Secret,
-        ok_label: "Unlock",
+        passphrase_message: &passphrase_message,
+        review_pages,
+        unlock_label: "Unlock",
         cancel_label: "Cancel",
-        input_kind: TextInputKind::Passphrase,
-        max_len: 256,
-        validation: TextValidationSpec::None,
     })
     .map_err(|error| SecretPromptHelperError::UiFailure {
         action: SecretPromptAction::Unlock,
@@ -210,6 +211,71 @@ fn handle_unlock_request(
     Ok(SecretPromptResponse::UnlockSubmitted(
         UnlockSecretPromptResponse { passphrase },
     ))
+}
+
+fn build_bidding_mandate_review_pages(summary: &UnlockBiddingMandateSummary) -> Vec<String> {
+    let mut pages = Vec::with_capacity(summary.collections.len() + 1);
+    pages.push(format!(
+        "Bidding authorization\nNetwork: {}\nChain ID: #{}\nMode: {}\nWETH allowance cap: {} WETH\nTrait offers: {}\nCollections: {}",
+        render_prompt_value(summary.chain_name.as_str()),
+        summary.chain_id,
+        if summary.dry_run { "dry run" } else { "live orders" },
+        render_prompt_value(summary.weth_allowance_cap_eth.as_str()),
+        if summary.trait_offers_enabled { "enabled" } else { "disabled" },
+        summary.collections.len(),
+    ));
+    for (index, collection) in summary.collections.iter().enumerate() {
+        let mut lines = vec![
+            format!(
+                "Collection {}/{}: {}",
+                index + 1,
+                summary.collections.len(),
+                render_prompt_value(collection.artgod_slug.as_str())
+            ),
+            format!("ArtGod collection ID: #{}", collection.collection_id),
+            format!(
+                "OpenSea slug: {}",
+                render_prompt_value(collection.opensea_slug.as_str())
+            ),
+            format!(
+                "Contract address: {}",
+                render_prompt_value(collection.contract_address.as_str())
+            ),
+            format!(
+                "Token scope: {}",
+                render_prompt_value(collection.token_scope_label.as_str())
+            ),
+        ];
+        lines.extend(collection.token_scope_items.iter().map(|item| {
+            format!(
+                "  {}: {}",
+                render_prompt_value(item.label.as_str()),
+                render_prompt_value(item.value.as_str())
+            )
+        }));
+        lines.push(format!(
+            "Maximum WETH per NFT: {}",
+            render_prompt_value(collection.max_unit_bid_eth.as_str())
+        ));
+        lines.push(format!(
+            "Maximum NFTs per offer: {}",
+            collection.max_quantity
+        ));
+        pages.push(lines.join("\n"));
+    }
+    pages
+}
+
+fn render_prompt_value(value: &str) -> String {
+    let mut rendered = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '\\' => rendered.push_str(r"\\"),
+            ' '..='~' => rendered.push(character),
+            _ => rendered.extend(character.escape_unicode()),
+        }
+    }
+    rendered
 }
 
 fn handle_remove_confirm_request(
@@ -383,14 +449,15 @@ impl SecretPromptHelperError {
 mod tests {
     use super::*;
     use artgod_secret_prompt_protocol::{
-        SecretPromptResponse, UnlockSecretPromptRequest, UnlockSecretPromptResponse,
+        SecretPromptResponse, UnlockBiddingCollectionSummary, UnlockBiddingTokenScopeItem,
+        UnlockSecretPromptRequest, UnlockSecretPromptResponse,
     };
 
     #[test]
     fn parse_request_payload_rejects_oversized_input() {
         let oversized = "x".repeat(SECRET_PROMPT_MAX_REQUEST_BYTES + 1);
-        let error = parse_request_payload(SecretPromptAction::Unlock, oversized.as_str())
-            .unwrap_err();
+        let error =
+            parse_request_payload(SecretPromptAction::Unlock, oversized.as_str()).unwrap_err();
         assert!(matches!(error, SecretPromptHelperError::InvalidRequest(_)));
     }
 
@@ -407,8 +474,83 @@ mod tests {
                 wallet_label: "Primary".to_owned(),
                 wallet_address: "0x123".to_owned(),
                 reason: "test".to_owned(),
+                bidding_mandate: None,
             })
         );
+    }
+
+    #[test]
+    fn bidding_review_names_the_network_before_its_qualified_chain_id() {
+        let pages = build_bidding_mandate_review_pages(&UnlockBiddingMandateSummary {
+            chain_id: 1,
+            chain_name: "Ethereum".to_owned(),
+            dry_run: false,
+            weth_allowance_cap_eth: "0.5".to_owned(),
+            trait_offers_enabled: true,
+            collections: vec![UnlockBiddingCollectionSummary {
+                collection_id: 7,
+                artgod_slug: "example".to_owned(),
+                contract_address: "0x1111111111111111111111111111111111111111".to_owned(),
+                opensea_slug: "example-opensea".to_owned(),
+                token_scope_label: "all contract tokens".to_owned(),
+                token_scope_items: Vec::new(),
+                max_unit_bid_eth: "1.25".to_owned(),
+                max_quantity: 1,
+            }],
+        });
+
+        assert!(pages[0].starts_with("Bidding authorization\nNetwork: Ethereum\nChain ID: #1"));
+        assert!(pages[1].contains("ArtGod collection ID: #7"));
+        assert!(pages[1].contains("Maximum WETH per NFT: 1.25"));
+        assert!(pages[1].contains("Maximum NFTs per offer: 1"));
+    }
+
+    #[test]
+    fn token_range_review_with_complete_values_fits_the_admin_sized_prompt() {
+        let pages = build_bidding_mandate_review_pages(&UnlockBiddingMandateSummary {
+            chain_id: u64::MAX,
+            chain_name: "Ethereum".to_owned(),
+            dry_run: false,
+            weth_allowance_cap_eth: "0.5".to_owned(),
+            trait_offers_enabled: true,
+            collections: vec![UnlockBiddingCollectionSummary {
+                collection_id: u64::MAX,
+                artgod_slug: "terraforms".to_owned(),
+                contract_address: "0xffffffffffffffffffffffffffffffffffffffff".to_owned(),
+                opensea_slug: "terraforms".to_owned(),
+                token_scope_label: "token range".to_owned(),
+                token_scope_items: vec![
+                    UnlockBiddingTokenScopeItem {
+                        label: "scope".to_owned(),
+                        value: "token range".to_owned(),
+                    },
+                    UnlockBiddingTokenScopeItem {
+                        label: "start token".to_owned(),
+                        value: "0".to_owned(),
+                    },
+                    UnlockBiddingTokenScopeItem {
+                        label: "total supply".to_owned(),
+                        value: "9911".to_owned(),
+                    },
+                ],
+                max_unit_bid_eth: "1.25".to_owned(),
+                max_quantity: 1,
+            }],
+        });
+
+        prompt_ui::validate_bidding_review_pages(&pages)
+            .expect("canonical token-range bidding review should fit");
+    }
+
+    #[test]
+    fn bidding_review_values_are_never_silently_truncated_or_dropped() {
+        // This boundary fixture crosses the former truncation length deliberately.
+        let full_ascii_value = "x".repeat(121);
+
+        assert_eq!(render_prompt_value(&full_ascii_value), full_ascii_value);
+        assert_eq!(render_prompt_value("café\n"), r"caf\u{e9}\u{a}");
+        assert_eq!(render_prompt_value(r"\u{e9}"), r"\\u{e9}");
+        assert_ne!(render_prompt_value("é"), render_prompt_value(r"\u{e9}"));
     }
 
     #[test]
