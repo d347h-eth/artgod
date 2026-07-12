@@ -47,9 +47,9 @@ user-visible authorization lifecycle:
 A collection is eligible for the request when it is live, has a persisted
 OpenSea slug, and has previously completed its initial OpenSea snapshot, recorded
 by non-null `opensea_ready_at`. Current reconciliation may temporarily report
-`retrying` without removing that durable readiness. Job status does not control
-checklist membership; enabled and paused jobs only supply editable price
-prefills.
+`retrying` without removing that durable readiness. It must also have at least
+one enabled or paused bidding job. Archived-only collections and collections
+without jobs are omitted from the checklist.
 
 Identity and limits must remain explicit across all three states:
 
@@ -73,13 +73,15 @@ changes, not as cumulative spend protection.
 
 For each eligible collection, Admin prefills `max WETH for any one NFT` with the
 highest ceiling among that collection's enabled or paused token, trait, and
-collection jobs. A collection with no enabled or paused jobs stays blank, and no
-collection is selected automatically. Admin lists priced collections from
-highest to lowest, leaves blank collections last, and highlights each prefilled
-value consistently with other bid prices. The value remains editable. Refresh
-updates untouched, unchecked prefills from current jobs without overwriting a
-checked or operator-edited authorization draft. Archived jobs are excluded. The
-native review independently orders the final edited caps from highest to lowest.
+collection jobs. The same enabled-or-paused set defines checklist membership, so
+every displayed collection has a prefill and no collection is selected
+automatically. Admin lists collections from highest to lowest and highlights
+each prefilled value consistently with other bid prices. The value remains
+editable. Refresh updates untouched, unchecked prefills from current jobs
+without overwriting a checked or operator-edited authorization draft while that
+collection remains eligible. Archiving its final current job removes the
+collection and its draft from the refreshed request. The native review
+independently orders the final edited caps from highest to lowest.
 
 The read-only `BIDDING SETTINGS` summary uses the same field order, labels, help
 popups, and effective values as Config. It shows the allowance cap, transaction
@@ -235,7 +237,7 @@ Admin read endpoints:
 | `POST` | `/api/:chain_ref/:collection_ref/bidding/jobs/target-lookup` | Resolve a token, trait, or collection draft target into an existing declared job. |
 | `GET` | `/api/:chain_ref/:collection_ref/bidding/price-tiers` | List tiers plus collection bidding settings. |
 | `GET` | `/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply-preview` | Preview changed tier-backed jobs before applying a tier update. |
-| `GET` | `/api/:chain_ref/bidding/jobs/ceiling-prefills` | Batch maximum enabled-or-paused job ceiling per collection for Admin authorization prefills. |
+| `GET` | `/api/:chain_ref/bidding/jobs/ceiling-prefills` | Batch current-job authorization membership and maximum ceiling per collection. |
 
 Admin mutation endpoints:
 

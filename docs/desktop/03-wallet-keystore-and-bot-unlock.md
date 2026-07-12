@@ -100,7 +100,7 @@ These are hard rules, not suggestions.
 12. Release builds verify the exact key-bearing runtime code and dependency
     file set against hashes embedded in the Rust desktop executable before
     prompting.
-13. Userland bidding mutations are proposals, not wallet authority. Every bidding start requires a native-reviewed mandate resolved by Rust from canonical live collection records.
+13. Userland bidding mutations are proposals, not wallet authority. Every bidding start requires a native-reviewed mandate resolved by Rust from canonical live collection records with enabled or paused bidding jobs.
 14. Without relying on HTTP middleware or a prior SQLite approval flag, the bidding signer must reject offers outside the approved chain, ArtGod collection ID, contract address, OpenSea slug, maximum WETH for any one NFT, and fixed per-offer quantity.
 
 ## Threat Model
@@ -683,15 +683,16 @@ Unlock rules:
 - passphrase prompt is always native
 - bidding policy review is always native and precedes passphrase submission
 - Admin supplies only proposed collection ids and WETH price caps; Rust supplies the displayed and injected ArtGod id, contract, token-scope summary, OpenSea slug, and fixed one-NFT offer quantity
-- Admin separately batch-loads the maximum enabled-or-paused job ceiling per
-  collection as an editable price prefill. Collections without an enabled or
-  paused job produce a blank field, and the convenience read never selects or
-  authorizes a collection.
+- Admin batch-loads the maximum enabled-or-paused job ceiling per collection.
+  That current-job set defines checklist membership and supplies the editable
+  price prefill; archived-only collections and collections without jobs are
+  omitted.
 - Admin orders prefills from highest to lowest without moving rows during edits;
   the native review orders the final canonical caps from highest to lowest.
 - The catalog admits only live collections with a persisted OpenSea slug and
-  non-null `opensea_ready_at`. A transient reconciliation state does not revoke
-  readiness established by the successful initial snapshot.
+  non-null `opensea_ready_at` that also have an enabled or paused bidding job. A
+  transient reconciliation state does not revoke readiness established by the
+  successful initial snapshot.
 - Rust reads the canonical collection catalog through the shared `COMMON_HTTP_FETCH_*` per-attempt timeout and bounded retry policy
 - decrypt happens in Rust only
 - decrypted key lifetime in Rust must be as short as practical

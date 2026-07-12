@@ -447,13 +447,14 @@ Trading-specific rules:
   `max WETH for any one NFT` safety limit; the per-offer quantity is fixed at
   one. OpenSea-ready means the collection has a persisted slug and non-null
   `opensea_ready_at`; transient reconciliation status does not remove a
-  previously ready collection. Immediately before the native prompt, Rust
-  re-reads those collection ids from the canonical backend read model through
-  the shared `COMMON_HTTP_FETCH_*` resilience policy.
-- Before selection, Admin prefills `max WETH for any one NFT` from the
-  collection's highest enabled or paused job ceiling when one exists. This
-  separate convenience read never selects a collection and is not part of
-  start-time canonical identity resolution or signer enforcement.
+  previously ready collection. Each candidate must also have an enabled or
+  paused bidding job. Immediately before the native prompt, Rust re-reads both
+  canonical identity and current-job eligibility through the shared
+  `COMMON_HTTP_FETCH_*` resilience policy.
+- The same batched current-job read defines checklist membership and prefills
+  `max WETH for any one NFT` from each collection's highest enabled or paused
+  job ceiling. The prefill remains editable and does not replace the cap the
+  user reviews or the signer enforces. Archived-only collections are excluded.
 - The Admin launch-sized native prompt shows the frozen global bidding policy
   and one complete review page per collection: ArtGod id, contract, token-scope
   summary, OpenSea slug, `maximum WETH for any one NFT`, and the fixed one-NFT
