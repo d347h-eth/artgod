@@ -116,6 +116,10 @@ pub struct UnlockBiddingMandateSummary {
     pub chain_id: u64,
     pub chain_name: String,
     pub weth_allowance_cap_eth: String,
+    pub min_priority_fee_per_gas_gwei: String,
+    pub max_fee_per_gas_gwei: String,
+    pub max_total_gas_fee_eth: String,
+    pub pending_nonce_policy: String,
     pub trait_offers_enabled: bool,
     pub collections: Vec<UnlockBiddingCollectionSummary>,
 }
@@ -248,7 +252,27 @@ mod tests {
             wallet_label: "Primary".to_owned(),
             wallet_address: "0x123".to_owned(),
             reason: "start bidding bot".to_owned(),
-            bidding_mandate: None,
+            bidding_mandate: Some(UnlockBiddingMandateSummary {
+                chain_id: 1,
+                chain_name: "Ethereum".to_owned(),
+                weth_allowance_cap_eth: "0.5".to_owned(),
+                min_priority_fee_per_gas_gwei: "0.1".to_owned(),
+                max_fee_per_gas_gwei: "10".to_owned(),
+                max_total_gas_fee_eth: "0.01".to_owned(),
+                pending_nonce_policy: "fail if the wallet already has pending transactions"
+                    .to_owned(),
+                trait_offers_enabled: true,
+                collections: vec![UnlockBiddingCollectionSummary {
+                    collection_id: 7,
+                    artgod_slug: "example".to_owned(),
+                    contract_address: "0x1111111111111111111111111111111111111111".to_owned(),
+                    opensea_slug: "example-opensea".to_owned(),
+                    token_scope_label: "all contract tokens".to_owned(),
+                    token_scope_items: Vec::new(),
+                    max_unit_bid_eth: "1.25".to_owned(),
+                    max_quantity: 1,
+                }],
+            }),
         });
         let request_json = serde_json::to_string(&request).unwrap();
         assert_eq!(

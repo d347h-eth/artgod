@@ -30,6 +30,19 @@ pub(crate) const BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY: &str = "BIDDING_WETH_ALLOWA
 pub(crate) const BIDDING_TRAIT_OFFERS_ENABLED_ENV_KEY: &str =
     "BIDDING_TRUST_OPENSEA_SIGNED_ZONE_FOR_TRAIT_OFFERS";
 
+/// Env key for the minimum EIP-1559 priority fee selected for WETH approval.
+pub(crate) const BIDDING_TX_MIN_PRIORITY_FEE_ENV_KEY: &str = "BIDDING_TX_MIN_PRIORITY_FEE_GWEI";
+
+/// Env key for the maximum fee per gas selected for WETH approval.
+pub(crate) const BIDDING_TX_MAX_FEE_ENV_KEY: &str = "BIDDING_TX_MAX_FEE_GWEI";
+
+/// Env key for the maximum total network fee of one WETH approval transaction.
+pub(crate) const BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ENV_KEY: &str =
+    "BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ETH";
+
+/// Env key for the fail-only pending transaction policy.
+pub(crate) const BIDDING_TX_PENDING_NONCE_POLICY_ENV_KEY: &str = "BIDDING_TX_PENDING_NONCE_POLICY";
+
 // Env key for the optional weighted WebSocket JSON-RPC endpoint list.
 #[cfg(test)]
 pub(crate) const RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY: &str = "RPC_WS_URL_LIST";

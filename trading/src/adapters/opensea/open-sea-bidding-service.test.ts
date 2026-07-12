@@ -5,6 +5,7 @@ import {
     type TokenMetadataTrait,
 } from "../../domain/market/token-metadata-repository.js";
 import { BIDDER_TARGET_TYPE } from "../../domain/market/strategy/job.js";
+import { BIDDING_DEFAULT_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS } from "../../config/bidding-defaults.js";
 import {
     createCollectionOfferSnapshotMetrics,
     type CollectionOfferSnapshot,
@@ -19,7 +20,8 @@ import { TOKEN_BUCKET_RATE_LIMIT_PRIORITY } from "../support/token-bucket-rate-l
 import {
     isRetryableOpenSeaBiddingError,
     OPENSEA_SIGNED_ZONE_TRAIT_TRUST_REQUIRED_ERROR,
-    OpenSeaBiddingService,
+    OpenSeaBiddingService as RuntimeOpenSeaBiddingService,
+    type OpenSeaBiddingServiceOptions,
 } from "./open-sea-bidding-service.js";
 import {
     OpenSeaApiClient,
@@ -46,6 +48,32 @@ const TEST_MULTI_ATTEMPT_RETRY_POLICY = {
 };
 const TEST_OPENSEA_NFT_NOT_FOUND_ERROR =
     "Server Error: NFT with identifier unminted-tile-5785 not found in collection terraforms";
+
+type TestOpenSeaBiddingServiceOptions = Omit<
+    OpenSeaBiddingServiceOptions,
+    "trustOpenSeaSignedZoneTraitOffers"
+> &
+    Partial<
+        Pick<
+            OpenSeaBiddingServiceOptions,
+            "trustOpenSeaSignedZoneTraitOffers"
+        >
+    >;
+
+// Keeps unrelated adapter tests explicit about the production-required trust input.
+class OpenSeaBiddingService extends RuntimeOpenSeaBiddingService {
+    constructor(
+        sdk: OpenSeaBiddingSdkClient,
+        makerAddress: string,
+        options: TestOpenSeaBiddingServiceOptions = {},
+    ) {
+        super(sdk, makerAddress, {
+            trustOpenSeaSignedZoneTraitOffers:
+                BIDDING_DEFAULT_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
+            ...options,
+        });
+    }
+}
 
 class MockOpenSeaSdk implements OpenSeaBiddingSdkClient {
     public api: OpenSeaApiClient = {

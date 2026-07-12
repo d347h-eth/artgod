@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import type { Hex } from "viem";
 import { OPENSEA_MAINNET_SECURITY_POLICY } from "@artgod/shared/trading/open-sea-mainnet-security-policy";
+import { BIDDING_DEFAULT_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS } from "../../config/bidding-defaults.js";
 import { BiddingMandate } from "../../domain/bidding-mandate.js";
 import {
     BIDDER_TARGET_TYPE,
@@ -13,6 +14,8 @@ import {
     type OpenSeaOfferSigningAuthorization,
     type OpenSeaPolicyTypedDataSigner,
 } from "./open-sea-policy-wallet.js";
+import { OpenSeaBiddingService } from "./open-sea-bidding-service.js";
+import type { OpenSeaBiddingSdkClient } from "./open-sea-client.js";
 
 const MAKER = "0x00000000000000000000000000000000000000aA";
 const COLLECTION = "0x00000000000000000000000000000000000000bB";
@@ -130,7 +133,7 @@ describe("OpenSeaPolicyWallet", () => {
         }
     });
 
-    it("rejects an offer amount above the configured allowance cap before SDK work starts", async () => {
+    it("rejects an offer amount above the authorized allowance cap before SDK work starts", async () => {
         let workCalls = 0;
         const policyWallet = createPolicyWallet({ allowanceCapWei: 99n });
 
@@ -143,7 +146,7 @@ describe("OpenSeaPolicyWallet", () => {
                         return null;
                     },
                 ),
-            /exceeds configured WETH allowance cap/,
+            /exceeds authorized WETH allowance cap/,
         );
         assert.equal(workCalls, 0);
     });
@@ -429,6 +432,47 @@ describe("OpenSeaPolicyWallet", () => {
             /cancellation order hash must be/,
         );
     });
+
+    it("keeps tracked cancellation available without a matching placement mandate", async () => {
+        const policyWallet = createPolicyWallet({
+            allowanceCapWei: 100n,
+            biddingMandate: createBiddingMandate({
+                collectionId: COLLECTION_ID + 1,
+                collectionAddress: OTHER_COLLECTION,
+                collectionSlug: "unrelated-placement-authority",
+            }),
+        });
+        let signature: Hex | null = null;
+        const sdk = {
+            offchainCancelOrder: async (
+                protocolAddress: string,
+                orderHash: string,
+            ) => {
+                signature = await policyWallet.authorizeOffchainCancellation(
+                    protocolAddress,
+                    orderHash,
+                    async () =>
+                        await requestSignature(
+                            policyWallet,
+                            cancellationTypedData(),
+                        ),
+                );
+            },
+        } as unknown as OpenSeaBiddingSdkClient;
+        const service = new OpenSeaBiddingService(sdk, MAKER, {
+            trustOpenSeaSignedZoneTraitOffers:
+                BIDDING_DEFAULT_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
+        });
+
+        await service.cancelRecoveredOrder({
+            id: ORDER_HASH,
+            maker: MAKER,
+            price: 1n,
+            protocolAddress: OPENSEA_MAINNET_SECURITY_POLICY.seaportAddress,
+        });
+
+        assert.equal(signature, SIGNATURE);
+    });
 });
 
 function createPolicyWallet(options: {
@@ -454,23 +498,48 @@ function createPolicyWallet(options: {
     };
     return new OpenSeaPolicyWallet(signer, {
         wethAddress: OPENSEA_MAINNET_SECURITY_POLICY.wethAddress,
-        allowanceCapWei: options.allowanceCapWei,
-        trustOpenSeaSignedZoneTraitOffers:
-            options.trustOpenSeaSignedZoneTraitOffers ?? false,
-        biddingMandate: options.biddingMandate ?? createBiddingMandate(),
+        biddingMandate:
+            options.biddingMandate ??
+            createBiddingMandate({
+                allowanceCapWei: options.allowanceCapWei,
+                trustOpenSeaSignedZoneTraitOffers:
+                    options.trustOpenSeaSignedZoneTraitOffers,
+            }),
     });
 }
 
-function createBiddingMandate(): BiddingMandate {
+function createBiddingMandate(
+    options: {
+        allowanceCapWei?: bigint;
+        trustOpenSeaSignedZoneTraitOffers?: boolean;
+        collectionId?: number;
+        collectionAddress?: string;
+        collectionSlug?: string;
+    } = {},
+): BiddingMandate {
     return BiddingMandate.parse(
         {
             chainId: 1,
+            startPolicy: {
+                wethAllowanceCapWei: (
+                    options.allowanceCapWei ?? 100n
+                ).toString(),
+                trustOpenSeaSignedZoneTraitOffers:
+                    options.trustOpenSeaSignedZoneTraitOffers ?? false,
+                wethApproval: {
+                    minPriorityFeePerGasWei: "1",
+                    maxFeePerGasWei: "10",
+                    maxTotalGasFeeWei: "1000",
+                    pendingNoncePolicy: "fail",
+                },
+            },
             collections: [
                 {
-                    collectionId: COLLECTION_ID,
+                    collectionId: options.collectionId ?? COLLECTION_ID,
                     artgodSlug: "policy-test",
-                    contractAddress: COLLECTION,
-                    openseaSlug: COLLECTION_SLUG,
+                    contractAddress:
+                        options.collectionAddress ?? COLLECTION,
+                    openseaSlug: options.collectionSlug ?? COLLECTION_SLUG,
                     maxUnitBidWei: "100",
                     maxQuantity: 1,
                 },

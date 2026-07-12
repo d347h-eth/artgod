@@ -36,7 +36,6 @@ import {
     BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE,
     BIDDING_DEFAULT_ORDER_LOOKUP_MAX_PAGES,
     BIDDING_DEFAULT_TOKEN_CRITERIA_TRAITS_BY_COLLECTION,
-    BIDDING_DEFAULT_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
 } from "../../config/bidding-defaults.js";
 import {
     BIDDING_LOG_COMPONENT,
@@ -79,7 +78,8 @@ export interface OpenSeaBiddingServiceOptions {
     offersPageSize?: number;
     tokenCriteriaTraitsByCollection?: Record<string, string[]>;
     competitiveTraitMaxLookupSelectors?: number;
-    trustOpenSeaSignedZoneTraitOffers?: boolean;
+    // Requires the caller to supply the generation-authorized trait trust decision.
+    trustOpenSeaSignedZoneTraitOffers: boolean;
 }
 
 // Stable error text for jobs blocked until the operator explicitly accepts OpenSea SignedZone trait enforcement.
@@ -126,7 +126,7 @@ export class OpenSeaBiddingService implements BiddingService {
     constructor(
         private readonly sdk: OpenSeaBiddingSdkClient,
         private readonly makerAddress: string,
-        options: OpenSeaBiddingServiceOptions = {},
+        options: OpenSeaBiddingServiceOptions,
     ) {
         this.collectionOfferSnapshotProvider =
             options.collectionOfferSnapshotProvider;
@@ -161,8 +161,7 @@ export class OpenSeaBiddingService implements BiddingService {
                 BIDDING_DEFAULT_COMPETITIVE_TRAIT_MAX_LOOKUP_SELECTORS,
         );
         this.trustOpenSeaSignedZoneTraitOffers =
-            options.trustOpenSeaSignedZoneTraitOffers ??
-            BIDDING_DEFAULT_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS;
+            options.trustOpenSeaSignedZoneTraitOffers;
     }
 
     public async getActiveOffers(

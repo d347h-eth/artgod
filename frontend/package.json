@@ -6,6 +6,7 @@
     "scripts": {
         "dev": "vite dev --host 127.0.0.1 --port 42701 --strictPort",
         "dev:e2e:bidding": "vite dev --host 127.0.0.1 --port 42702 --strictPort",
+        "dev:e2e:bidding-authorization": "vite dev --host 127.0.0.1 --port 42706 --strictPort",
         "dev:e2e:bidding:public": "PUBLIC_APP_DEPLOYMENT_MODE=public_single_collection PUBLIC_APP_CHAIN_REF=ethereum PUBLIC_APP_COLLECTION_REF=e2e-bidding vite dev --host 127.0.0.1 --port 42703 --strictPort",
         "dev:e2e:terraforms-hypercastle": "vite dev --host 127.0.0.1 --port 42704 --strictPort",
         "dev:e2e:bootstrap": "vite dev --host 127.0.0.1 --port 42705 --strictPort",
@@ -29,6 +30,7 @@
         "test:bidding:automation": "playwright test -c playwright.bidding-automation.config.ts e2e/bidding-automation.spec.ts",
         "test:bidding:automation:headed": "playwright test -c playwright.bidding-automation.config.ts e2e/bidding-automation.spec.ts --headed",
         "test:bidding:automation:public": "playwright test -c playwright.bidding-automation-public.config.ts e2e/bidding-automation-public.spec.ts",
+        "test:bidding:authorization": "playwright test -c playwright.bidding-authorization.config.ts e2e/bidding-authorization.spec.ts",
         "test:bootstrap:probe": "playwright test -c playwright.bootstrap-probe.config.ts e2e/bootstrap-probe.spec.ts",
         "test:terraforms:hypercastle": "playwright test -c playwright.terraforms-hypercastle.config.ts e2e/terraforms-hypercastle.spec.ts"
     },

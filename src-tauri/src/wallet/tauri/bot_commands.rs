@@ -16,10 +16,10 @@ use crate::runtime::{
     BIDDING_MANDATE_MAX_OFFER_QUANTITY, BackendCollectionCatalog, BackendCollectionCatalogError,
     BiddingChainIdentity, BiddingCollectionCandidate, BiddingCollectionCatalog,
     BiddingCollectionMandate, BiddingCollectionMandateDraft, BiddingCollectionTokenScopeSummary,
-    BiddingMandate, BiddingMandateDraft, BiddingStartPolicySnapshot, BotCriticalDependencyStatus,
+    BiddingMandate, BiddingMandateDraft, BiddingStartPolicy, BotCriticalDependencyStatus,
     BotRuntimeLaunchConfig, BotRuntimeSnapshot, BotRuntimeState, BotStartReservation,
     DesktopRuntimeConfig, DesktopWalletConfig, RuntimeManager, bot_runtime_spec,
-    build_trading_secret_envelope, format_wei_as_eth,
+    build_trading_secret_envelope, format_wei_as_eth, format_wei_as_gwei,
 };
 use crate::wallet::application::use_cases::{
     AssignWalletToBot, AssignWalletToBotError, AssignWalletToBotInput, UnlockWalletForBotStart,
@@ -508,12 +508,10 @@ impl BotCommandState {
         );
         let (current_bidding_mandate, _) =
             await_bot_start_operation(reservation, resolve_bidding_mandate).await?;
-        if current_bidding_mandate != frozen.bidding_mandate {
-            return Err(
-                "Bidding authorization details changed. Review them, then start the bot again."
-                    .to_owned(),
-            );
-        }
+        ensure_bidding_authorization_unchanged(
+            current_bidding_mandate.as_ref(),
+            frozen.bidding_mandate.as_ref(),
+        )?;
 
         // Re-read native inputs after the asynchronous catalog lookup closes its race window.
         let latest_runtime_config = DesktopRuntimeConfig::load_or_create(app)?;
@@ -641,6 +639,20 @@ impl BotCommandState {
     }
 }
 
+// Rejects any drift in the complete policy and collection authority reviewed natively.
+fn ensure_bidding_authorization_unchanged(
+    current: Option<&BiddingMandate>,
+    reviewed: Option<&BiddingMandate>,
+) -> Result<(), String> {
+    if current != reviewed {
+        return Err(
+            "Bidding authorization details changed. Review them, then start the bot again."
+                .to_owned(),
+        );
+    }
+    Ok(())
+}
+
 async fn await_bot_start_operation<T>(
     reservation: &BotStartReservation,
     operation: impl Future<Output = Result<T, String>>,
@@ -665,15 +677,16 @@ async fn resolve_bidding_start_mandate(
         BotKind::Bidding => {
             let draft = draft
                 .ok_or_else(|| "Select at least one collection to authorize bidding.".to_owned())?;
+            let start_policy = BiddingStartPolicy::from_process_env(frozen_process_env)?;
             let catalog = load_canonical_bidding_catalog(app, runtime_config).await?;
             let mandate = BiddingMandate::resolve(
                 runtime_config.chain_id,
+                start_policy,
                 draft.into_domain(),
                 catalog.collections,
             )?;
-            let policy = BiddingStartPolicySnapshot::from_process_env(frozen_process_env)?;
             let prompt_summary =
-                build_prompt_mandate_summary(&mandate, &policy, catalog.chain.name.as_str())?;
+                build_prompt_mandate_summary(&mandate, catalog.chain.name.as_str())?;
             Ok((Some(mandate), Some(prompt_summary)))
         }
         BotKind::Sniping => {
@@ -712,7 +725,6 @@ fn report_bidding_catalog_error(app: &AppHandle, error: BackendCollectionCatalog
 
 fn build_prompt_mandate_summary(
     mandate: &BiddingMandate,
-    policy: &BiddingStartPolicySnapshot,
     chain_name: &str,
 ) -> Result<UnlockBiddingMandateSummary, String> {
     let collections = mandate
@@ -743,8 +755,37 @@ fn build_prompt_mandate_summary(
     Ok(UnlockBiddingMandateSummary {
         chain_id: mandate.chain_id,
         chain_name: chain_name.to_owned(),
-        weth_allowance_cap_eth: policy.weth_allowance_cap_eth.clone(),
-        trait_offers_enabled: policy.trait_offers_enabled,
+        weth_allowance_cap_eth: format_wei_as_eth(
+            mandate.start_policy.weth_allowance_cap_wei.as_str(),
+        )?,
+        min_priority_fee_per_gas_gwei: format_wei_as_gwei(
+            mandate
+                .start_policy
+                .weth_approval
+                .min_priority_fee_per_gas_wei
+                .as_str(),
+        )?,
+        max_fee_per_gas_gwei: format_wei_as_gwei(
+            mandate
+                .start_policy
+                .weth_approval
+                .max_fee_per_gas_wei
+                .as_str(),
+        )?,
+        max_total_gas_fee_eth: format_wei_as_eth(
+            mandate
+                .start_policy
+                .weth_approval
+                .max_total_gas_fee_wei
+                .as_str(),
+        )?,
+        pending_nonce_policy: mandate
+            .start_policy
+            .weth_approval
+            .pending_nonce_policy
+            .review_text()
+            .to_owned(),
+        trait_offers_enabled: mandate.start_policy.trust_open_sea_signed_zone_trait_offers,
         collections,
     })
 }
@@ -853,6 +894,7 @@ pub struct BiddingCollectionMandateDraftDto {
 #[serde(rename_all = "camelCase")]
 pub struct BiddingMandateDto {
     chain_id: u64,
+    start_policy: BiddingStartPolicy,
     collections: Vec<BiddingCollectionMandateDto>,
 }
 
@@ -943,6 +985,7 @@ impl BiddingMandateDto {
     fn from_domain(mandate: &BiddingMandate) -> Self {
         Self {
             chain_id: mandate.chain_id,
+            start_policy: mandate.start_policy.clone(),
             collections: mandate
                 .collections
                 .iter()
@@ -1291,11 +1334,43 @@ mod tests {
 
     use serde_json::json;
 
-    use super::{BiddingCollectionCatalogDto, BiddingMandateDraftDto};
+    use super::{
+        BiddingCollectionCatalogDto, BiddingMandateDraftDto, BiddingMandateDto,
+        ensure_bidding_authorization_unchanged,
+    };
     use crate::runtime::{
         BiddingChainIdentity, BiddingCollectionCandidate, BiddingCollectionCatalog,
-        BiddingCollectionTokenScopeSummary,
+        BiddingCollectionMandate, BiddingCollectionTokenScopeSummary, BiddingMandate,
+        BiddingPendingNoncePolicy, BiddingStartPolicy, BiddingWethApprovalPolicy,
     };
+
+    fn bidding_mandate() -> BiddingMandate {
+        BiddingMandate {
+            chain_id: 1,
+            start_policy: BiddingStartPolicy {
+                weth_allowance_cap_wei: "500000000000000000".to_owned(),
+                trust_open_sea_signed_zone_trait_offers: true,
+                weth_approval: BiddingWethApprovalPolicy {
+                    min_priority_fee_per_gas_wei: "100000000".to_owned(),
+                    max_fee_per_gas_wei: "10000000000".to_owned(),
+                    max_total_gas_fee_wei: "10000000000000000".to_owned(),
+                    pending_nonce_policy: BiddingPendingNoncePolicy::Fail,
+                },
+            },
+            collections: vec![BiddingCollectionMandate {
+                collection_id: 7,
+                artgod_slug: "example".to_owned(),
+                contract_address: "0x1111111111111111111111111111111111111111".to_owned(),
+                opensea_slug: "example-opensea".to_owned(),
+                token_scope: BiddingCollectionTokenScopeSummary {
+                    label: "all contract tokens".to_owned(),
+                    items: Vec::new(),
+                },
+                max_unit_bid_wei: "1250000000000000000".to_owned(),
+                max_quantity: 1,
+            }],
+        }
+    }
 
     #[test]
     fn bidding_draft_rejects_browser_offer_quantity_override() {
@@ -1339,5 +1414,57 @@ mod tests {
             value["collections"][0]["contractAddress"],
             "0x1111111111111111111111111111111111111111"
         );
+    }
+
+    #[test]
+    fn active_mandate_dto_carries_the_generation_frozen_start_policy() {
+        let mandate = bidding_mandate();
+
+        let value = serde_json::to_value(BiddingMandateDto::from_domain(&mandate)).unwrap();
+        assert_eq!(
+            value["startPolicy"]["wethAllowanceCapWei"],
+            "500000000000000000"
+        );
+        assert_eq!(
+            value["startPolicy"]["wethApproval"]["pendingNoncePolicy"],
+            "fail"
+        );
+    }
+
+    #[test]
+    fn start_revalidation_rejects_every_mutable_start_policy_field() {
+        let reviewed = bidding_mandate();
+        let mut mutations = Vec::new();
+
+        let mut allowance = reviewed.clone();
+        allowance.start_policy.weth_allowance_cap_wei = "1".to_owned();
+        mutations.push(allowance);
+
+        let mut trait_trust = reviewed.clone();
+        trait_trust
+            .start_policy
+            .trust_open_sea_signed_zone_trait_offers = false;
+        mutations.push(trait_trust);
+
+        let mut minimum_priority_fee = reviewed.clone();
+        minimum_priority_fee
+            .start_policy
+            .weth_approval
+            .min_priority_fee_per_gas_wei = "1".to_owned();
+        mutations.push(minimum_priority_fee);
+
+        let mut maximum_fee = reviewed.clone();
+        maximum_fee.start_policy.weth_approval.max_fee_per_gas_wei = "2".to_owned();
+        mutations.push(maximum_fee);
+
+        let mut total_fee = reviewed.clone();
+        total_fee.start_policy.weth_approval.max_total_gas_fee_wei = "3".to_owned();
+        mutations.push(total_fee);
+
+        for current in mutations {
+            assert!(
+                ensure_bidding_authorization_unchanged(Some(&current), Some(&reviewed)).is_err()
+            );
+        }
     }
 }

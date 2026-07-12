@@ -105,6 +105,16 @@ function mandate(
 ): BiddingMandateSnapshot {
     return {
         chainId: 1,
+        startPolicy: {
+            wethAllowanceCapWei: "0",
+            trustOpenSeaSignedZoneTraitOffers: false,
+            wethApproval: {
+                minPriorityFeePerGasWei: "1",
+                maxFeePerGasWei: "2",
+                maxTotalGasFeeWei: "3",
+                pendingNoncePolicy: "fail",
+            },
+        },
         collections: [
             {
                 collectionId: COLLECTION_ID,

@@ -461,6 +461,16 @@ impl RuntimeManager {
         reservation: &BotStartReservation,
         bidding_mandate: Option<BiddingMandate>,
     ) -> Result<(), String> {
+        self.set_reserved_bot_bidding_mandate_state(reservation, bidding_mandate)?;
+        self.emit_bot_runtime_state_changed(app, reservation.bot_kind())
+    }
+
+    // Publishes authority only while the reservation still owns the pending generation.
+    fn set_reserved_bot_bidding_mandate_state(
+        &self,
+        reservation: &BotStartReservation,
+        bidding_mandate: Option<BiddingMandate>,
+    ) -> Result<(), String> {
         let bot_kind = reservation.bot_kind();
         if bot_kind != BotKind::Bidding && bidding_mandate.is_some() {
             return Err("Only the bidding bot may hold a bidding mandate.".to_owned());
@@ -475,8 +485,7 @@ impl RuntimeManager {
                 .or_insert_with(default_managed_bot_runtime_status);
             status.bidding_mandate = bidding_mandate;
             Ok(())
-        })?;
-        self.emit_bot_runtime_state_changed(app, bot_kind)
+        })
     }
 
     pub fn clear_bot_runtime_state(
@@ -1393,16 +1402,13 @@ fn update_bot_runtime_state(
         let status = bot_statuses
             .entry(bot_kind)
             .or_insert_with(default_managed_bot_runtime_status);
-        if status.lifecycle_generation != Some(bot_statuses_ref.generation) {
+        if !apply_generation_bot_runtime_state(
+            status,
+            bot_statuses_ref.generation,
+            state,
+            last_error,
+        ) {
             return;
-        }
-        status.state = state;
-        status.last_error = last_error;
-        if bot_runtime_state_is_active(state) {
-            status.lifecycle_generation = Some(bot_statuses_ref.generation);
-        } else {
-            status.bidding_mandate = None;
-            status.lifecycle_generation = None;
         }
         if let Ok(core_status) = status_ref.lock()
             && let Some(snapshot) =
@@ -1411,6 +1417,27 @@ fn update_bot_runtime_state(
             let _ = app.emit("bot-runtime-state-changed", &snapshot);
         }
     }
+}
+
+// Applies worker state without allowing a stale generation to clear current authority.
+fn apply_generation_bot_runtime_state(
+    status: &mut ManagedBotRuntimeStatus,
+    generation: u64,
+    state: BotRuntimeState,
+    last_error: Option<String>,
+) -> bool {
+    if status.lifecycle_generation != Some(generation) {
+        return false;
+    }
+    status.state = state;
+    status.last_error = last_error;
+    if bot_runtime_state_is_active(state) {
+        status.lifecycle_generation = Some(generation);
+    } else {
+        status.bidding_mandate = None;
+        status.lifecycle_generation = None;
+    }
+    true
 }
 
 struct GenerationBotStatuses {
@@ -2946,12 +2973,13 @@ mod tests {
     struct TradingSecretEnvelopeFixture {
         wallet_id: String,
         address: String,
+        bidding_mandate: BiddingMandate,
         private_key_hex: String,
     }
 
     fn load_fixture() -> TradingSecretEnvelopeFixture {
         let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../trading/src/runtime/fixtures/secret-envelope-v2.json");
+            .join("../trading/src/runtime/fixtures/secret-envelope-v3.json");
         let raw = fs::read_to_string(&fixture_path).expect("fixture file should load");
         serde_json::from_str(&raw).expect("fixture json should parse")
     }
@@ -3014,6 +3042,53 @@ mod tests {
             process_env: config.process_env,
             logs_dir: config.logs_dir,
         }
+    }
+
+    #[test]
+    fn stale_generation_cannot_publish_or_clear_another_generations_bidding_policy() {
+        let runtime = RuntimeManager::new();
+        let reservation = runtime
+            .bot_lifecycle
+            .reserve_start(BotKind::Bidding)
+            .expect("first bidding start should reserve");
+        let stale_generation = reservation.generation();
+        let mut current_mandate = load_fixture().bidding_mandate;
+        current_mandate.start_policy.weth_allowance_cap_wei = "600000000000000000".to_owned();
+        let current_generation = stale_generation + 1;
+
+        {
+            let mut statuses = runtime.bot_statuses.lock().expect("bot statuses");
+            statuses.insert(
+                BotKind::Bidding,
+                ManagedBotRuntimeStatus {
+                    state: BotRuntimeState::Running,
+                    last_error: None,
+                    bidding_mandate: Some(current_mandate.clone()),
+                    lifecycle_generation: Some(current_generation),
+                },
+            );
+        }
+
+        runtime.bot_lifecycle.invalidate_core();
+        let mut stale_mandate = current_mandate.clone();
+        stale_mandate.start_policy.weth_allowance_cap_wei = "700000000000000000".to_owned();
+        assert!(
+            runtime
+                .set_reserved_bot_bidding_mandate_state(&reservation, Some(stale_mandate))
+                .is_err()
+        );
+
+        let mut statuses = runtime.bot_statuses.lock().expect("bot statuses");
+        let status = statuses.get_mut(&BotKind::Bidding).expect("bidding status");
+        assert!(!apply_generation_bot_runtime_state(
+            status,
+            stale_generation,
+            BotRuntimeState::Stopped,
+            None,
+        ));
+        assert_eq!(status.state, BotRuntimeState::Running);
+        assert_eq!(status.lifecycle_generation, Some(current_generation));
+        assert_eq!(status.bidding_mandate.as_ref(), Some(&current_mandate));
     }
 
     #[test]

@@ -1,3 +1,5 @@
+import type { EvmPendingNoncePolicy } from '@artgod/shared/evm/transactions';
+
 export type AdminBotKind = 'bidding' | 'sniping';
 
 // Owns the desktop supervisor states exposed to the Admin bot controller.
@@ -97,8 +99,22 @@ export type AdminBiddingCollectionMandate = AdminBiddingCollectionIdentity & {
 	maxQuantity: number;
 };
 
+export type AdminBiddingWethApprovalPolicy = {
+	minPriorityFeePerGasWei: string;
+	maxFeePerGasWei: string;
+	maxTotalGasFeeWei: string;
+	pendingNoncePolicy: EvmPendingNoncePolicy;
+};
+
+export type AdminBiddingStartPolicy = {
+	wethAllowanceCapWei: string;
+	trustOpenSeaSignedZoneTraitOffers: boolean;
+	wethApproval: AdminBiddingWethApprovalPolicy;
+};
+
 export type AdminBiddingMandate = {
 	chainId: number;
+	startPolicy: AdminBiddingStartPolicy;
 	collections: AdminBiddingCollectionMandate[];
 };
 

@@ -9,6 +9,7 @@ import {
     type EvmTransactionPolicyEvent,
     type EvmTransactionPolicyReader,
 } from "@artgod/shared/evm/transactions";
+import { OPENSEA_MAINNET_SECURITY_POLICY } from "@artgod/shared/trading/open-sea-mainnet-security-policy";
 import { formatEther, getAddress, type Address, type Hash } from "viem";
 import {
     BIDDING_LOG_COMPONENT,
@@ -24,7 +25,7 @@ const WETH_APPROVAL_LOG_FIELD = {
     GasEstimate: "gasEstimate",
     GasLimit: "gasLimit",
     WorstCaseGasFeeWei: "worstCaseGasFeeWei",
-    ConfiguredMaxGasFeeWei: "configuredMaxGasFeeWei",
+    AuthorizedMaxGasFeeWei: "authorizedMaxGasFeeWei",
 } as const;
 const log = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.WethAllowanceApprovalService,
@@ -97,9 +98,15 @@ type WethAllowanceWriteClient = {
 
 export type EnsureWethAllowanceInput = {
     ownerAddress: string;
-    desiredAllowanceWei: bigint;
     dryRun?: boolean;
     onProgress?: (detail: string) => void;
+};
+
+// Carries the exact mandate-owned authority for one WETH approval lane.
+export type WethApprovalAuthorization = {
+    allowanceWei: bigint;
+    transactionPolicy: EvmTransactionPolicyConfig;
+    maxTotalGasFeeWei: bigint;
 };
 
 // Result states for exact startup reconciliation of the OpenSea conduit allowance cap.
@@ -111,11 +118,11 @@ export const WETH_ALLOWANCE_RECONCILIATION_STATUS = {
 
 // Stable error prefix emitted when explicit approval gas cannot fit the operator's gas fee cap.
 export const WETH_APPROVAL_GAS_FEE_CAP_ERROR =
-    "WETH approval worst-case gas fee exceeds configured cap";
+    "WETH approval worst-case gas fee exceeds authorized cap";
 
-// Stable error prefix emitted when the confirmed approval did not establish the exact configured cap.
+// Stable error prefix emitted when the confirmed approval did not establish the exact authorized cap.
 export const WETH_ALLOWANCE_POST_CONFIRMATION_ERROR =
-    "Confirmed WETH approval did not establish the configured allowance cap";
+    "Confirmed WETH approval did not establish the authorized allowance cap";
 
 export type EnsureWethAllowanceResult = {
     status: (typeof WETH_ALLOWANCE_RECONCILIATION_STATUS)[keyof typeof WETH_ALLOWANCE_RECONCILIATION_STATUS];
@@ -134,30 +141,46 @@ type PreparedWethApprovalTransaction = {
     worstCaseGasFeeWei: bigint;
 };
 
+type WethApprovalSubmission = Parameters<
+    WethAllowanceWriteClient["writeContract"]
+>[0];
+
 // ViemWethAllowanceApprovalService owns the startup WETH approval transaction for OpenSea bidding.
 export class ViemWethAllowanceApprovalService {
     private readonly wethAddress: Address;
     private readonly spenderAddress: Address;
     private readonly transactionPolicyService: EvmTransactionPolicyService;
+    private readonly authorization: Readonly<WethApprovalAuthorization>;
 
     constructor(
         private readonly readClient: WethAllowanceReadClient,
         private readonly writeClient: WethAllowanceWriteClient,
         wethAddress: string,
         spenderAddress: string,
-        transactionPolicyConfig: EvmTransactionPolicyConfig,
-        private readonly maxGasFeeWei: bigint,
+        authorization: WethApprovalAuthorization,
     ) {
         this.wethAddress = getAddress(wethAddress);
         this.spenderAddress = getAddress(spenderAddress);
+        this.assertPinnedApprovalTarget();
+        this.authorization = Object.freeze({
+            allowanceWei: authorization.allowanceWei,
+            maxTotalGasFeeWei: authorization.maxTotalGasFeeWei,
+            transactionPolicy: Object.freeze({
+                fees: Object.freeze({ ...authorization.transactionPolicy.fees }),
+                nonce: Object.freeze({ ...authorization.transactionPolicy.nonce }),
+            }),
+        });
         this.transactionPolicyService = new EvmTransactionPolicyService(
             readClient,
-            transactionPolicyConfig,
+            this.authorization.transactionPolicy,
             {
                 onEvent: logTransactionPolicyEvent,
             },
         );
-        if (maxGasFeeWei <= 0n) {
+        if (authorization.allowanceWei < 0n) {
+            throw new Error("Authorized WETH allowance must be non-negative");
+        }
+        if (authorization.maxTotalGasFeeWei <= 0n) {
             throw new Error("WETH approval maximum gas fee must be positive");
         }
     }
@@ -166,12 +189,7 @@ export class ViemWethAllowanceApprovalService {
         input: EnsureWethAllowanceInput,
     ): Promise<EnsureWethAllowanceResult> {
         const ownerAddress = getAddress(input.ownerAddress);
-        const desiredAllowanceWei = input.desiredAllowanceWei;
-        if (desiredAllowanceWei < 0n) {
-            throw new Error(
-                `WETH allowance must be non-negative. received=${desiredAllowanceWei}`,
-            );
-        }
+        const desiredAllowanceWei = this.authorization.allowanceWei;
         log.info(
             "ensureAllowanceStarted",
             "Reconciling startup WETH allowance cap",
@@ -233,7 +251,7 @@ export class ViemWethAllowanceApprovalService {
         if (currentAllowanceWei === desiredAllowanceWei) {
             log.info(
                 "allowanceSufficient",
-                "Existing WETH allowance matches the configured cap",
+                "Existing WETH allowance matches the authorized cap",
                 {
                     desiredAllowanceWei: desiredAllowanceWei.toString(),
                     desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
@@ -253,7 +271,7 @@ export class ViemWethAllowanceApprovalService {
 
         log.info(
             "approvalRequired",
-            "Existing WETH allowance does not match the configured cap",
+            "Existing WETH allowance does not match the authorized cap",
             {
                 desiredAllowanceWei: desiredAllowanceWei.toString(),
                 desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
@@ -313,14 +331,13 @@ export class ViemWethAllowanceApprovalService {
                     preparedApproval.gasLimit.toString(),
                 [WETH_APPROVAL_LOG_FIELD.WorstCaseGasFeeWei]:
                     preparedApproval.worstCaseGasFeeWei.toString(),
-                [WETH_APPROVAL_LOG_FIELD.ConfiguredMaxGasFeeWei]:
-                    this.maxGasFeeWei.toString(),
+                [WETH_APPROVAL_LOG_FIELD.AuthorizedMaxGasFeeWei]:
+                    this.authorization.maxTotalGasFeeWei.toString(),
             },
         );
         let transactionHash: Hash;
         try {
-            // Submit an exact WETH approval to ArtGod's pinned OpenSea conduit with an explicit bounded gas limit.
-            transactionHash = await this.writeClient.writeContract({
+            const submission: WethApprovalSubmission = {
                 address: this.wethAddress,
                 abi: erc20AllowanceApprovalAbi,
                 functionName: "approve",
@@ -330,7 +347,13 @@ export class ViemWethAllowanceApprovalService {
                     preparedApproval.transactionPolicy.maxFeePerGasWei,
                 maxPriorityFeePerGas:
                     preparedApproval.transactionPolicy.maxPriorityFeePerGasWei,
-            });
+            };
+            // Reassert the complete mandate authority immediately before the state-changing call.
+            this.assertAuthorizedApprovalSubmission(
+                submission,
+                preparedApproval,
+            );
+            transactionHash = await this.writeClient.writeContract(submission);
         } catch (error) {
             log.error(
                 "approvalSubmitFailed",
@@ -481,9 +504,12 @@ export class ViemWethAllowanceApprovalService {
         );
         const worstCaseGasFeeWei =
             gasLimit * transactionPolicy.maxFeePerGasWei;
-        if (worstCaseGasFeeWei > this.maxGasFeeWei) {
+        if (
+            worstCaseGasFeeWei >
+            this.authorization.maxTotalGasFeeWei
+        ) {
             throw new Error(
-                `${WETH_APPROVAL_GAS_FEE_CAP_ERROR}: worstCase=${worstCaseGasFeeWei} wei, cap=${this.maxGasFeeWei} wei`,
+                `${WETH_APPROVAL_GAS_FEE_CAP_ERROR}: worstCase=${worstCaseGasFeeWei} wei, cap=${this.authorization.maxTotalGasFeeWei} wei`,
             );
         }
 
@@ -492,8 +518,8 @@ export class ViemWethAllowanceApprovalService {
             [WETH_APPROVAL_LOG_FIELD.GasLimit]: gasLimit.toString(),
             [WETH_APPROVAL_LOG_FIELD.WorstCaseGasFeeWei]:
                 worstCaseGasFeeWei.toString(),
-            [WETH_APPROVAL_LOG_FIELD.ConfiguredMaxGasFeeWei]:
-                this.maxGasFeeWei.toString(),
+            [WETH_APPROVAL_LOG_FIELD.AuthorizedMaxGasFeeWei]:
+                this.authorization.maxTotalGasFeeWei.toString(),
             baseFeePerGasWei: transactionPolicy.baseFeePerGasWei.toString(),
             baseFeePerGasGwei: formatWeiAsGwei(
                 transactionPolicy.baseFeePerGasWei,
@@ -544,6 +570,64 @@ export class ViemWethAllowanceApprovalService {
             gasLimit,
             worstCaseGasFeeWei,
         };
+    }
+
+    private assertPinnedApprovalTarget(): void {
+        if (
+            this.wethAddress !==
+            getAddress(OPENSEA_MAINNET_SECURITY_POLICY.wethAddress)
+        ) {
+            throw new Error("WETH approval token does not match the pinned policy");
+        }
+        if (
+            this.spenderAddress !==
+            getAddress(OPENSEA_MAINNET_SECURITY_POLICY.conduitAddress)
+        ) {
+            throw new Error(
+                "WETH approval spender does not match the pinned OpenSea conduit",
+            );
+        }
+    }
+
+    private assertAuthorizedApprovalSubmission(
+        submission: WethApprovalSubmission,
+        prepared: PreparedWethApprovalTransaction,
+    ): void {
+        this.assertPinnedApprovalTarget();
+        const authorizedFees = this.authorization.transactionPolicy.fees;
+        if (submission.maxFeePerGas > authorizedFees.maxFeePerGasWei) {
+            throw new Error(
+                "WETH approval maximum fee per gas exceeds the authorized cap",
+            );
+        }
+        if (
+            submission.maxPriorityFeePerGas <
+                authorizedFees.minPriorityFeePerGasWei ||
+            submission.maxPriorityFeePerGas > submission.maxFeePerGas
+        ) {
+            throw new Error(
+                "WETH approval priority fee is outside the authorized relationship",
+            );
+        }
+        const worstCaseGasFeeWei = submission.gas * submission.maxFeePerGas;
+        if (
+            worstCaseGasFeeWei !== prepared.worstCaseGasFeeWei ||
+            worstCaseGasFeeWei > this.authorization.maxTotalGasFeeWei
+        ) {
+            throw new Error(
+                "WETH approval worst-case gas fee is outside the authorized cap",
+            );
+        }
+        if (
+            submission.address !== this.wethAddress ||
+            submission.functionName !== "approve" ||
+            submission.args[0] !== this.spenderAddress ||
+            submission.args[1] !== this.authorization.allowanceWei
+        ) {
+            throw new Error(
+                "WETH approval calldata does not match the authorized token, conduit, and allowance",
+            );
+        }
     }
 
     private async readRequiredGasEstimate(params: {

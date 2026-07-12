@@ -13,7 +13,7 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const fixturePath = path.join(__dirname, "fixtures", "secret-envelope-v2.json");
+const fixturePath = path.join(__dirname, "fixtures", "secret-envelope-v3.json");
 
 type SecretEnvelopeFixture = {
     payloadHex: string;

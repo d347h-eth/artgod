@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { BIDDING_CONFIG_ENV_KEY } from '@artgod/shared/config/bidding';
 import type { AdminConfigField, AdminConfigState } from '$lib/admin/configuration/ports';
-import { buildBiddingStartPolicySummary } from './bidding-start-policy';
+import {
+	buildActiveBiddingPolicySummary,
+	buildBiddingSettingsSummary
+} from './bidding-start-policy';
 
-describe('buildBiddingStartPolicySummary', () => {
+describe('buildBiddingSettingsSummary', () => {
 	it('uses config-owned field order, labels, help, and effective values', () => {
-		const summary = buildBiddingStartPolicySummary(
+		const summary = buildBiddingSettingsSummary(
 			makeConfig({
 				[BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers]: 'false'
 			})
@@ -13,11 +16,17 @@ describe('buildBiddingStartPolicySummary', () => {
 
 		expect(summary).toEqual([
 			entry(BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers, 'disabled'),
-			entry(BIDDING_CONFIG_ENV_KEY.WethAllowanceCapEth, '1.5'),
-			entry(BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei, '0.25'),
-			entry(BIDDING_CONFIG_ENV_KEY.TxMaxFeeGwei, '10'),
-			entry(BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth, '0.005'),
-			entry(BIDDING_CONFIG_ENV_KEY.TxPendingNoncePolicy, 'fail'),
+			entry(BIDDING_CONFIG_ENV_KEY.WethAllowanceCapEth, '1.5 WETH for the OpenSea conduit'),
+			entry(BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei, '0.25 Gwei per gas'),
+			entry(BIDDING_CONFIG_ENV_KEY.TxMaxFeeGwei, '10 Gwei per gas'),
+			entry(
+				BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth,
+				'0.005 ETH per approval transaction'
+			),
+			entry(
+				BIDDING_CONFIG_ENV_KEY.TxPendingNoncePolicy,
+				'fail if the wallet already has pending transactions'
+			),
 			entry(
 				BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds,
 				'13920 seconds (3 hours, 52 minutes)'
@@ -30,14 +39,14 @@ describe('buildBiddingStartPolicySummary', () => {
 	});
 
 	it('uses the canonical Config label and help for offer lifetime and priority fee', () => {
-		const summary = buildBiddingStartPolicySummary(makeConfig());
+		const summary = buildBiddingSettingsSummary(makeConfig());
 
 		expect(
 			summary.find((entry) => entry.key === BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei)
 		).toEqual({
 			key: BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei,
 			...CANONICAL_CONFIG_COPY[BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei],
-			value: '0.25'
+			value: '0.25 Gwei per gas'
 		});
 		expect(
 			summary.find((entry) => entry.key === BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds)
@@ -57,7 +66,7 @@ describe('buildBiddingStartPolicySummary', () => {
 		['90060', '90060 seconds (1 day, 1 hour, 1 minute)'],
 		['176520', '176520 seconds (2 days, 1 hour, 2 minutes)']
 	])('shows exact offer seconds with the readable duration for %s', (value, expected) => {
-		const summary = buildBiddingStartPolicySummary(
+		const summary = buildBiddingSettingsSummary(
 			makeConfig({ [BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds]: value })
 		);
 
@@ -69,13 +78,13 @@ describe('buildBiddingStartPolicySummary', () => {
 	it.each(['0', '1.5', 'invalid'])('fails closed for invalid offer lifetime %s', (value) => {
 		const config = makeConfig({ [BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds]: value });
 
-		expect(() => buildBiddingStartPolicySummary(config)).toThrow(
+		expect(() => buildBiddingSettingsSummary(config)).toThrow(
 			BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds
 		);
 	});
 
 	it('makes explicit when live trait placement trusts OpenSea SignedZone', () => {
-		const summary = buildBiddingStartPolicySummary(
+		const summary = buildBiddingSettingsSummary(
 			makeConfig({
 				[BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers]: 'true'
 			})
@@ -84,23 +93,23 @@ describe('buildBiddingStartPolicySummary', () => {
 		expect(summary[0]).toEqual(
 			entry(
 				BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers,
-				'enabled · pinned OpenSea SignedZone trusted'
+				"enabled · OpenSea's pinned SignedZone is trusted"
 			)
 		);
 	});
 
 	it.each(['1', 'yes', 'on'])('uses the shared true spelling %s', (value) => {
-		const summary = buildBiddingStartPolicySummary(
+		const summary = buildBiddingSettingsSummary(
 			makeConfig({
 				[BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers]: value
 			})
 		);
 
-		expect(summary[0]?.value).toBe('enabled · pinned OpenSea SignedZone trusted');
+		expect(summary[0]?.value).toBe("enabled · OpenSea's pinned SignedZone is trusted");
 	});
 
 	it.each(['0', 'no', 'off'])('uses the shared false spelling %s', (value) => {
-		const summary = buildBiddingStartPolicySummary(
+		const summary = buildBiddingSettingsSummary(
 			makeConfig({
 				[BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers]: value
 			})
@@ -113,7 +122,7 @@ describe('buildBiddingStartPolicySummary', () => {
 		const missingValue = makeConfig();
 		delete missingValue.values[key];
 
-		expect(() => buildBiddingStartPolicySummary(missingValue)).toThrow(key);
+		expect(() => buildBiddingSettingsSummary(missingValue)).toThrow(key);
 	});
 
 	it.each(EXPECTED_SUMMARY_KEYS)('fails closed when required schema field %s is missing', (key) => {
@@ -121,7 +130,32 @@ describe('buildBiddingStartPolicySummary', () => {
 		missingField.groups[0].fields = missingField.groups[0].fields.filter(
 			(field) => field.key !== key
 		);
-		expect(() => buildBiddingStartPolicySummary(missingField)).toThrow(key);
+		expect(() => buildBiddingSettingsSummary(missingField)).toThrow(key);
+	});
+
+	it('formats the generation-frozen active policy with exact units and scope', () => {
+		const summary = buildActiveBiddingPolicySummary(makeConfig(), {
+			wethAllowanceCapWei: '1500000000000000000',
+			trustOpenSeaSignedZoneTraitOffers: true,
+			wethApproval: {
+				minPriorityFeePerGasWei: '250000000',
+				maxFeePerGasWei: '10000000000',
+				maxTotalGasFeeWei: '5000000000000000',
+				pendingNoncePolicy: 'fail'
+			}
+		});
+
+		expect(summary.map((entry) => entry.value)).toEqual([
+			"enabled · OpenSea's pinned SignedZone is trusted",
+			'1.5 WETH for the OpenSea conduit',
+			'0.25 Gwei per gas',
+			'10 Gwei per gas',
+			'0.005 ETH per approval transaction',
+			'fail if the wallet already has pending transactions'
+		]);
+		expect(summary.some((entry) => entry.key === BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds)).toBe(
+			false
+		);
 	});
 });
 
@@ -150,8 +184,8 @@ const EXPECTED_SUMMARY_KEYS = [
 
 const CANONICAL_CONFIG_COPY: Partial<Record<string, { label: string; help: string }>> = {
 	[BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei]: {
-		label: 'bidding tx min priority fee gwei',
-		help: 'Minimum EIP-1559 priority fee for bidding transactions, in gwei.'
+		label: 'minimum priority fee per gas',
+		help: 'Minimum EIP-1559 priority fee in Gwei per gas for the WETH approval transaction.'
 	},
 	[BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds]: {
 		label: 'bidding offer expiration seconds',

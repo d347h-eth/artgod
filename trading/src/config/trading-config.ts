@@ -14,7 +14,10 @@ import {
     parsePositiveInteger,
     parseRequiredString,
 } from "@artgod/shared/utils/env";
-import type { EvmTransactionPolicyConfig } from "@artgod/shared/evm/transactions";
+import {
+    EVM_PENDING_NONCE_POLICY,
+    type EvmTransactionPolicyConfig,
+} from "@artgod/shared/evm/transactions";
 import type {
     RpcEndpointResilienceConfig,
     RpcRetryPolicy,
@@ -590,12 +593,12 @@ function parsePendingNoncePolicy(
     value: string | undefined,
     name: string,
     defaultValue: string,
-): "fail" {
+): typeof EVM_PENDING_NONCE_POLICY.Fail {
     const normalized = (value?.trim() || defaultValue).toLowerCase();
-    if (normalized !== "fail") {
+    if (normalized !== EVM_PENDING_NONCE_POLICY.Fail) {
         throw new Error(`Invalid ${name}: ${value}`);
     }
-    return "fail";
+    return EVM_PENDING_NONCE_POLICY.Fail;
 }
 
 function parseStringArrayMap(

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BIDDER_TARGET_TYPE, type BidderJob } from "./market/strategy/job.js";
 import { BiddingMandate } from "./bidding-mandate.js";
+import { maxUint256 } from "viem";
 
 const COLLECTION_ID = 7;
 const COLLECTION_ADDRESS = "0x1111111111111111111111111111111111111111";
@@ -56,6 +57,16 @@ describe("BiddingMandate", () => {
     it("exposes a non-secret copy of the exact enforced collection authority", () => {
         expect(createMandate().snapshot()).toEqual({
             chainId: 1,
+            startPolicy: {
+                wethAllowanceCapWei: "100",
+                trustOpenSeaSignedZoneTraitOffers: true,
+                wethApproval: {
+                    minPriorityFeePerGasWei: "1",
+                    maxFeePerGasWei: "10",
+                    maxTotalGasFeeWei: "1000",
+                    pendingNoncePolicy: "fail",
+                },
+            },
             collections: [
                 {
                     collectionId: COLLECTION_ID,
@@ -67,6 +78,88 @@ describe("BiddingMandate", () => {
             ],
         });
     });
+
+    it("accepts zero allowance and exposes typed policy authority", () => {
+        const raw = serializedMandate();
+        raw.startPolicy.wethAllowanceCapWei = "0";
+        const mandate = BiddingMandate.parse(raw, 1);
+
+        expect(mandate.startPolicy.wethAllowanceCapWei).toBe(0n);
+        expect(mandate.startPolicy.wethApproval.maxFeePerGasWei).toBe(10n);
+        expect(mandate.startPolicy.trustOpenSeaSignedZoneTraitOffers).toBe(
+            true,
+        );
+    });
+
+    it("freezes the parsed generation authority at runtime", () => {
+        const mandate = createMandate();
+
+        expect(Object.isFrozen(mandate)).toBe(true);
+        expect(Object.isFrozen(mandate.startPolicy)).toBe(true);
+        expect(Object.isFrozen(mandate.startPolicy.wethApproval)).toBe(true);
+
+        const snapshot = mandate.snapshot();
+        snapshot.startPolicy.wethAllowanceCapWei = "999";
+        snapshot.collections[0]!.maxUnitBidWei = "999";
+
+        expect(mandate.startPolicy.wethAllowanceCapWei).toBe(100n);
+        expect(mandate.snapshot().collections[0]!.maxUnitBidWei).toBe("10");
+    });
+
+    it.each([
+        ["missing policy", undefined],
+        [
+            "non-canonical allowance",
+            {
+                ...serializedStartPolicy(),
+                wethAllowanceCapWei: "01",
+            },
+        ],
+        [
+            "overflow allowance",
+            {
+                ...serializedStartPolicy(),
+                wethAllowanceCapWei: (maxUint256 + 1n).toString(),
+            },
+        ],
+        [
+            "zero priority fee",
+            {
+                ...serializedStartPolicy(),
+                wethApproval: {
+                    ...serializedStartPolicy().wethApproval,
+                    minPriorityFeePerGasWei: "0",
+                },
+            },
+        ],
+        [
+            "priority above max fee",
+            {
+                ...serializedStartPolicy(),
+                wethApproval: {
+                    ...serializedStartPolicy().wethApproval,
+                    minPriorityFeePerGasWei: "11",
+                },
+            },
+        ],
+        [
+            "unsupported pending nonce policy",
+            {
+                ...serializedStartPolicy(),
+                wethApproval: {
+                    ...serializedStartPolicy().wethApproval,
+                    pendingNoncePolicy: "replace",
+                },
+            },
+        ],
+    ])("rejects %s", (_label, startPolicy) => {
+        expect(() =>
+            BiddingMandate.parse(
+                { ...serializedMandate(), startPolicy },
+                1,
+            ),
+        ).toThrow();
+    });
 });
 
 function createMandate(): BiddingMandate {
@@ -76,6 +169,7 @@ function createMandate(): BiddingMandate {
 function serializedMandate() {
     return {
         chainId: 1,
+        startPolicy: serializedStartPolicy(),
         collections: [
             {
                 collectionId: COLLECTION_ID,
@@ -86,6 +180,19 @@ function serializedMandate() {
                 maxQuantity: 2,
             },
         ],
+    };
+}
+
+function serializedStartPolicy() {
+    return {
+        wethAllowanceCapWei: "100",
+        trustOpenSeaSignedZoneTraitOffers: true,
+        wethApproval: {
+            minPriorityFeePerGasWei: "1",
+            maxFeePerGasWei: "10",
+            maxTotalGasFeeWei: "1000",
+            pendingNoncePolicy: "fail",
+        },
     };
 }
 

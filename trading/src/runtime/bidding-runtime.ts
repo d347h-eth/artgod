@@ -91,6 +91,7 @@ import {
 import { startBiddingCommandReconciliationLoop } from "./bidding-command-reconciliation-loop.js";
 import { startBiddingFailedCancellationReconciliationLoop } from "./bidding-failed-cancellation-reconciliation-loop.js";
 import { createOpenSeaSdkRpcConnection } from "./opensea-sdk-rpc-connection.js";
+import { buildMandateApprovalTransactionPolicy } from "./bidding-policy-agreement.js";
 import {
     TRADING_RPC_ENDPOINT_ID_PREFIX,
     TRADING_RPC_LOG_COMPONENT,
@@ -258,9 +259,6 @@ export async function startBiddingRuntime(
         openSeaSigningCapability,
         {
             wethAddress: params.config.tokens.wethAddress,
-            allowanceCapWei: params.biddingConfig.wethAllowanceCapWei,
-            trustOpenSeaSignedZoneTraitOffers:
-                params.biddingConfig.trustOpenSeaSignedZoneTraitOffers,
             biddingMandate: params.biddingMandate,
         },
     );
@@ -281,13 +279,23 @@ export async function startBiddingRuntime(
         chain: mainnet,
         transport: writeCapableRpcTransport,
     });
+    const approvalTransactionPolicy = buildMandateApprovalTransactionPolicy(
+        params.biddingConfig,
+        params.biddingMandate,
+    );
     const wethAllowanceApprovalService = new ViemWethAllowanceApprovalService(
         readOnlyPublicClient,
         allowanceWalletClient,
         params.config.tokens.wethAddress,
         OPENSEA_MAINNET_SECURITY_POLICY.conduitAddress,
-        params.biddingConfig.transactionPolicy,
-        params.biddingConfig.wethApprovalMaxGasFeeWei,
+        {
+            allowanceWei:
+                params.biddingMandate.startPolicy.wethAllowanceCapWei,
+            transactionPolicy: approvalTransactionPolicy,
+            maxTotalGasFeeWei:
+                params.biddingMandate.startPolicy.wethApproval
+                    .maxTotalGasFeeWei,
+        },
     );
 
     const allowanceApprovalTotal = 1;
@@ -304,12 +312,11 @@ export async function startBiddingRuntime(
         phase: "allowance_approval",
         completed: 0,
         total: allowanceApprovalTotal,
-        detail: `cap=${formatWeth(params.biddingConfig.wethAllowanceCapWei)}, conduit=${OPENSEA_MAINNET_SECURITY_POLICY.conduitAddress}`,
+        detail: `cap=${formatWeth(params.biddingMandate.startPolicy.wethAllowanceCapWei)}, conduit=${OPENSEA_MAINNET_SECURITY_POLICY.conduitAddress}`,
     });
     // Reconcile the conduit allowance to the exact operator-configured WETH cap before any signing is possible.
     const allowanceResult = await wethAllowanceApprovalService.ensureAllowance({
         ownerAddress: makerAddress,
-        desiredAllowanceWei: params.biddingConfig.wethAllowanceCapWei,
         dryRun: params.biddingConfig.dryRun,
         onProgress: reportAllowanceProgress,
     });
@@ -408,7 +415,8 @@ export async function startBiddingRuntime(
         competitiveTraitMaxLookupSelectors:
             params.biddingConfig.competitiveTraitMaxLookupSelectors,
         trustOpenSeaSignedZoneTraitOffers:
-            params.biddingConfig.trustOpenSeaSignedZoneTraitOffers,
+            params.biddingMandate.startPolicy
+                .trustOpenSeaSignedZoneTraitOffers,
     });
     const bidder = new Bidder(
         biddingService,
