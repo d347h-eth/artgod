@@ -998,9 +998,15 @@ The bot entrypoint must:
 
 - block normal startup until the secret payload is read
 - read the exact framed payload into a `Buffer` before stdin reaches EOF
-- construct the in-memory signer as early as possible
-- parse the immutable bidding mandate before runtime composition
-- overwrite the original `Buffer` after signer construction
+- parse and validate the metadata and immutable bidding mandate before runtime composition
+- construct exactly one viem private-key account at the Node entry boundary
+- verify the account address against the envelope metadata
+- overwrite the aliased key bytes and every byte of the original mutable frame
+  in `finally`, on success and every failure, before config or long-running
+  runtime bootstrap begins
+- return only validated non-secret metadata and the account capability from the
+  entry boundary; raw private-key bytes and hex never pass into runtime
+  composition
 - refuse to start if stdin is empty, malformed, truncated, or contains bytes
   beyond the declared frame
 - retain stdin liveness listeners for the full bot lifetime and exit immediately
@@ -1018,10 +1024,15 @@ The bot entrypoint must:
 
 Important limitation:
 
-- once the key is loaded into a JS signer object, complete memory zeroization is best-effort only
+- viem necessarily retains one immutable private-key representation inside the
+  account closure for the bot process lifetime
+- JavaScript cannot reliably erase that closure or prove complete Node heap
+  zeroization
 
-That limitation is acceptable because Node runtime memory use is the actual business requirement.
-The important boundary is that the key does not enter Node until the exact startup moment.
+The implemented guarantee is narrower: ArtGod erases the mutable frame and
+aliased key bytes immediately, retains no outer raw-key variable, constructs no
+second account, and passes capabilities rather than key material downstream.
+The key still does not enter Node until the exact startup moment.
 
 Bootstrap lifecycle:
 
@@ -1330,7 +1341,12 @@ Rules:
 - stdin secret envelope parsing
 - malformed envelope rejection
 - startup failure on missing secret
-- best-effort buffer zeroization after signer construction
+- complete mutable-frame and aliased-key-buffer erasure before long-running
+  bootstrap work, on success and every parse, kind, address, key, mandate, or
+  later bootstrap failure
+- signer operation after source-buffer erasure
+- one account construction with no returned or downstream raw-key fields
+- restricted OpenSea signing capability and allowance-only transaction client
 - exact frame parsing before EOF
 - rejection of bytes after the frame and exit on parent-channel close/error
 - bounded Stop while a recipient leaves the secret pipe unread
