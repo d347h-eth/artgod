@@ -4,6 +4,7 @@ import type {
 	AdminBiddingMandateDraft,
 	AdminBiddingTokenScopeSummary
 } from '$lib/admin/bots/ports';
+import { BIDDING_AUTHORIZATION_CAP_COPY } from '$lib/admin/bots/bidding-authorization-copy';
 
 const POSITIVE_ETH_PATTERN = /^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,18})?$/;
 const ZERO_ETH_PATTERN = /^0(?:\.0{1,18})?$/;
@@ -80,7 +81,7 @@ export function buildBiddingMandateDraft(
 		const maxUnitBidEth = selection.maxUnitBidEth.trim();
 		if (!POSITIVE_ETH_PATTERN.test(maxUnitBidEth) || ZERO_ETH_PATTERN.test(maxUnitBidEth)) {
 			throw new Error(
-				`${candidate.artgodSlug}: max WETH per NFT must be positive with at most 18 decimals.`
+				`${candidate.artgodSlug}: ${BIDDING_AUTHORIZATION_CAP_COPY.maxUnitBid.label} must be positive with at most 18 decimals.`
 			);
 		}
 		return [{ collectionId: candidate.collectionId, maxUnitBidEth }];

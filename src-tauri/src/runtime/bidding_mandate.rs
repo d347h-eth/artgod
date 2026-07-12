@@ -196,12 +196,12 @@ pub(crate) fn normalize_positive_eth(raw: &str) -> Result<String, String> {
 fn parse_positive_eth_to_wei(raw: &str, collection_id: u64) -> Result<String, String> {
     let normalized_wei = parse_eth_to_wei(raw).map_err(|_| {
         format!(
-            "Collection {collection_id} maximum unit bid must be a positive decimal with at most 18 fractional digits."
+            "Collection {collection_id} maximum WETH for any one NFT must be a positive decimal with at most 18 fractional digits."
         )
     })?;
     if normalized_wei == "0" {
         return Err(format!(
-            "Collection {collection_id} maximum unit bid must be greater than zero."
+            "Collection {collection_id} maximum WETH for any one NFT must be greater than zero."
         ));
     }
     Ok(normalized_wei)
@@ -421,7 +421,7 @@ mod tests {
     fn rejects_zero_or_overprecision_bid_limits() {
         for value in ["0", "0.0000000000000000001", "1e2", "-1"] {
             let error = parse_positive_eth_to_wei(value, 7).unwrap_err();
-            assert!(error.contains("maximum unit bid"));
+            assert!(error.contains("maximum WETH for any one NFT"));
         }
     }
 

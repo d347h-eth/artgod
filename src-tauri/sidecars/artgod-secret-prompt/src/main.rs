@@ -258,7 +258,7 @@ fn build_bidding_mandate_review_pages(summary: &UnlockBiddingMandateSummary) -> 
             )
         }));
         lines.push(format!(
-            "Maximum WETH per NFT: {}",
+            "Maximum WETH for any one NFT: {}",
             render_prompt_value(collection.max_unit_bid_eth.as_str())
         ));
         lines.push(format!(
@@ -507,7 +507,7 @@ mod tests {
         assert!(!pages[0].contains("dry run"));
         assert!(pages[0].contains("Trait offers: enabled; pinned OpenSea SignedZone trusted"));
         assert!(pages[1].contains("ArtGod collection ID: #7"));
-        assert!(pages[1].contains("Maximum WETH per NFT: 1.25"));
+        assert!(pages[1].contains("Maximum WETH for any one NFT: 1.25"));
         assert!(pages[1].contains("Maximum NFTs per offer: 1"));
     }
 

@@ -9,6 +9,7 @@ import {
 	syncBiddingMandateSelections,
 	type BiddingMandateSelections
 } from './bidding-mandate-draft';
+import { BIDDING_AUTHORIZATION_CAP_COPY } from './bidding-authorization-copy';
 
 const CANDIDATE: AdminBiddingCollectionCandidate = {
 	chainId: 1,
@@ -135,7 +136,7 @@ describe('bidding mandate draft', () => {
 			buildBiddingMandateDraft([CANDIDATE], {
 				'7': { selected: true, maxUnitBidEth: '0.0', maxUnitBidEthEdited: true }
 			})
-		).toThrow('max WETH per NFT');
+		).toThrow(BIDDING_AUTHORIZATION_CAP_COPY.maxUnitBid.label);
 	});
 
 	it('formats active native wei caps without floating point conversion', () => {

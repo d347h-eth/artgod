@@ -49,7 +49,7 @@ Identity and limits must remain explicit across all three states:
 - human-readable chain name before `chain ID #N`
 - ArtGod collection slug before qualified ArtGod collection ID
 - `OpenSea slug` and `contract address`, not ambiguous shortened labels
-- `max WETH per NFT`
+- `max WETH for any one NFT`
 - `max NFTs per offer`, shown as a read-only input with value `1` in Admin
 
 The NFT count is a per-offer cap, not cumulative exposure across jobs or open
@@ -57,15 +57,22 @@ orders. Userland currently creates only one-NFT offers, so Admin does not send
 this quantity: Rust fixes it at one before the native review and signer
 enforcement. The native prompt and active summary show the same value.
 
-For each eligible collection, Admin prefills `max WETH per NFT` with the highest
-ceiling among that collection's enabled or paused token, trait, and collection
-jobs. A collection with no enabled or paused jobs stays blank, and no collection
-is selected automatically. Admin lists priced collections from highest to
-lowest, leaves blank collections last, and highlights each prefilled value
-consistently with other bid prices. The value remains editable. Refresh updates
-untouched, unchecked prefills from current jobs without overwriting a checked or
-operator-edited authorization draft. Archived jobs are excluded. The native
-review independently orders the final edited caps from highest to lowest.
+Each Admin collection section places the shared help icon beside both limits.
+The price help explains that signed offers are rejected above the per-NFT limit
+multiplied by quantity. The quantity help explains that Rust currently fixes the
+limit to one NFT, making the reviewed per-NFT limit the total limit for every
+offer today. Both describe these as safety bounds against unexpected bidding
+changes, not as cumulative spend protection.
+
+For each eligible collection, Admin prefills `max WETH for any one NFT` with the
+highest ceiling among that collection's enabled or paused token, trait, and
+collection jobs. A collection with no enabled or paused jobs stays blank, and no
+collection is selected automatically. Admin lists priced collections from
+highest to lowest, leaves blank collections last, and highlights each prefilled
+value consistently with other bid prices. The value remains editable. Refresh
+updates untouched, unchecked prefills from current jobs without overwriting a
+checked or operator-edited authorization draft. Archived jobs are excluded. The
+native review independently orders the final edited caps from highest to lowest.
 
 The read-only `BIDDING SETTINGS` summary uses the same field order, labels, help
 popups, and effective values as Config. It shows the allowance cap, transaction

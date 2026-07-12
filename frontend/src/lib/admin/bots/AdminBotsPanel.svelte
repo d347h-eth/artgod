@@ -3,6 +3,7 @@
 	import { TRADING_BOT_KIND } from '@artgod/shared/types';
 	import AdminSectionFrame from '$lib/admin/components/AdminSectionFrame.svelte';
 	import { createTauriAdminBotPort } from '$lib/admin/bots/adapters/tauri-admin-bot-port';
+	import { BIDDING_AUTHORIZATION_CAP_COPY } from '$lib/admin/bots/bidding-authorization-copy';
 	import InfoTooltip from '$lib/components/InfoTooltip.svelte';
 	import type {
 		AdminBiddingCollectionCatalog,
@@ -359,7 +360,13 @@
 														</div>
 														<div class="bootstrap-form bidding-mandate-caps">
 															<label class="bootstrap-form-row">
-																<span>max WETH per NFT</span>
+																<span class="bootstrap-form-label-cell">
+																	<span>{BIDDING_AUTHORIZATION_CAP_COPY.maxUnitBid.label}</span>
+																	<InfoTooltip
+																		text={BIDDING_AUTHORIZATION_CAP_COPY.maxUnitBid.help}
+																		className="bootstrap-form-label-tooltip"
+																	/>
+																</span>
 																<input
 																	type="text"
 																	class="bootstrap-control mono bid-book-price"
@@ -374,7 +381,13 @@
 																/>
 															</label>
 															<label class="bootstrap-form-row">
-																<span>max NFTs per offer</span>
+																<span class="bootstrap-form-label-cell">
+																	<span>{BIDDING_AUTHORIZATION_CAP_COPY.maxQuantity.label}</span>
+																	<InfoTooltip
+																		text={BIDDING_AUTHORIZATION_CAP_COPY.maxQuantity.help}
+																		className="bootstrap-form-label-tooltip"
+																	/>
+																</span>
 																<input
 																	type="text"
 																	class="bootstrap-control"
@@ -428,13 +441,19 @@
 														<span class="runtime-v">{formatBiddingMandateTokenScope(collection.tokenScope)}</span>
 													</div>
 													<div>
-														<span class="runtime-k">max WETH per NFT</span>
+														<span class="runtime-k bidding-mandate-cap-summary-label">
+															<span>{BIDDING_AUTHORIZATION_CAP_COPY.maxUnitBid.label}</span>
+															<InfoTooltip text={BIDDING_AUTHORIZATION_CAP_COPY.maxUnitBid.help} />
+														</span>
 														<span class="runtime-v mono bid-book-price"
 															>{formatBiddingMandateWeiAsEth(collection.maxUnitBidWei)}</span
 														>
 													</div>
 													<div>
-														<span class="runtime-k">max NFTs per offer</span>
+														<span class="runtime-k bidding-mandate-cap-summary-label">
+															<span>{BIDDING_AUTHORIZATION_CAP_COPY.maxQuantity.label}</span>
+															<InfoTooltip text={BIDDING_AUTHORIZATION_CAP_COPY.maxQuantity.help} />
+														</span>
 														<span class="runtime-v">{collection.maxQuantity}</span>
 													</div>
 												</div>
@@ -634,7 +653,7 @@
 	}
 
 	.bidding-mandate-caps .bootstrap-form-row {
-		grid-template-columns: 8.75rem 11ch;
+		grid-template-columns: 13.75rem 11ch;
 		gap: 0.7rem;
 		width: fit-content;
 	}
@@ -642,6 +661,13 @@
 	.bidding-mandate-caps .bootstrap-form-row > span {
 		justify-self: end;
 		text-align: right;
+	}
+
+	.bidding-mandate-cap-summary-label {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		min-width: 0;
 	}
 
 	.bidding-mandate-caps input {
@@ -660,5 +686,9 @@
 
 	.active-bidding-mandate > .bootstrap-form-section {
 		gap: 0.65rem;
+	}
+
+	.active-bidding-mandate .bidding-mandate-identity > div {
+		grid-template-columns: 13.75rem minmax(0, 1fr);
 	}
 </style>

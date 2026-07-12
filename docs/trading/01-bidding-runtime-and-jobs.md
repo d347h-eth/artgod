@@ -443,13 +443,20 @@ Trading-specific rules:
   and fails closed unless it equals the configured cap
 - OpenSea cannot create approval transactions; only ArtGod's allowance adapter
   receives the transaction-capable wallet client
-- Admin `Bots` selects live/OpenSea-ready collections and a maximum WETH amount per NFT; the per-offer quantity is fixed at one. Immediately before the native prompt, Rust re-reads those collection ids from the canonical backend read model through the shared `COMMON_HTTP_FETCH_*` resilience policy.
-- Before selection, Admin prefills `max WETH per NFT` from the collection's
-  highest enabled or paused job ceiling when one exists. This separate
-  convenience read never selects a collection and is not part of start-time
-  canonical identity
-  resolution or signer enforcement.
-- The Admin launch-sized native prompt shows the frozen global bidding policy and one complete review page per collection: ArtGod id, contract, token-scope summary, OpenSea slug, per-NFT WETH cap, and the fixed one-NFT offer quantity. Oversized pages fail closed instead of clipping into the action controls.
+- Admin `Bots` selects live/OpenSea-ready collections and a
+  `max WETH for any one NFT` safety limit; the per-offer quantity is fixed at
+  one. Immediately before the native prompt, Rust re-reads those collection ids
+  from the canonical backend read model through the shared
+  `COMMON_HTTP_FETCH_*` resilience policy.
+- Before selection, Admin prefills `max WETH for any one NFT` from the
+  collection's highest enabled or paused job ceiling when one exists. This
+  separate convenience read never selects a collection and is not part of
+  start-time canonical identity resolution or signer enforcement.
+- The Admin launch-sized native prompt shows the frozen global bidding policy
+  and one complete review page per collection: ArtGod id, contract, token-scope
+  summary, OpenSea slug, `maximum WETH for any one NFT`, and the fixed one-NFT
+  offer quantity. Oversized pages fail closed instead of clipping into the
+  action controls.
 - Loopback HTTP has no bearer session to leak. Created, revised, paused, or archived jobs within an approved collection remain possible if Userland is compromised; placement caps and the resulting cancellation/strategy risk are intentional for the current automation model.
 - Existing OpenSea orders survive bot shutdown and are not automatically coupled to mandate expiry. Cancellation occurs only through job cancellation paths, but unauthenticated loopback mutation is accepted as capable of invoking those paths.
 - `BIDDING_TX_MAX_FEE_GWEI` caps the approval transaction fee per gas unit

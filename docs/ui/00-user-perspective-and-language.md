@@ -118,7 +118,7 @@ Every user-facing amount or limit must state:
 
 Good:
 
-- `max WETH per NFT`
+- `max WETH for any one NFT`
 - `max NFTs per offer`
 - `approval max gas fee`
 - `offer expiration seconds`
