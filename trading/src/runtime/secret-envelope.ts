@@ -1,5 +1,8 @@
 import { Buffer } from "node:buffer";
+import { TRADING_BOT_KIND, type TradingBotKind } from "@artgod/shared/types";
 import { BiddingMandate } from "../domain/bidding-mandate.js";
+
+export type { TradingBotKind } from "@artgod/shared/types";
 
 export const SECRET_ENVELOPE_MAGIC = Buffer.from("AGBOTKEY", "ascii");
 export const SECRET_ENVELOPE_VERSION = 2;
@@ -19,8 +22,6 @@ const SECRET_ENVELOPE_MAX_FRAME_LENGTH =
     SECRET_ENVELOPE_HEADER_LENGTH +
     SECRET_ENVELOPE_MAX_METADATA_LENGTH_BYTES +
     SECRET_KEY_LENGTH_BYTES;
-
-export type TradingBotKind = "bidding" | "sniping";
 
 export type TradingSecretEnvelopeMetadata = {
     walletId: string;
@@ -91,7 +92,8 @@ export function parseSecretEnvelope(buffer: Buffer): TradingSecretEnvelope {
         !isRecord(metadata) ||
         typeof metadata.walletId !== "string" ||
         typeof metadata.address !== "string" ||
-        (metadata.botKind !== "bidding" && metadata.botKind !== "sniping") ||
+        (metadata.botKind !== TRADING_BOT_KIND.Bidding &&
+            metadata.botKind !== TRADING_BOT_KIND.Sniping) ||
         !Number.isSafeInteger(metadata.chainId) ||
         (metadata.chainId as number) <= 0
     ) {
@@ -128,7 +130,7 @@ function parseEnvelopeBiddingMandate(
     raw: unknown,
     chainId: number,
 ): BiddingMandate | null {
-    if (botKind === "bidding") {
+    if (botKind === TRADING_BOT_KIND.Bidding) {
         if (raw === null || raw === undefined) {
             throw new Error("Bidding secret envelope mandate is missing");
         }
