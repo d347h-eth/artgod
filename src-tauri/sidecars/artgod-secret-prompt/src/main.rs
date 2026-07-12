@@ -20,9 +20,6 @@ use prompt_ui::{
 use thiserror::Error;
 use zeroize::Zeroizing;
 
-// Bounds each untrusted display field before the manual prompt lays it out.
-const MAX_PROMPT_VALUE_CHARS: usize = 120;
-
 fn main() {
     let exit_code = match run() {
         Ok(()) => 0,
@@ -220,10 +217,10 @@ fn build_bidding_mandate_review_pages(summary: &UnlockBiddingMandateSummary) -> 
     let mut pages = Vec::with_capacity(summary.collections.len() + 1);
     pages.push(format!(
         "Bidding authorization\nNetwork: {}\nChain ID: #{}\nMode: {}\nWETH allowance cap: {} WETH\nTrait offers: {}\nCollections: {}",
-        compact_prompt_value(summary.chain_name.as_str()),
+        render_prompt_value(summary.chain_name.as_str()),
         summary.chain_id,
         if summary.dry_run { "dry run" } else { "live orders" },
-        compact_prompt_value(summary.weth_allowance_cap_eth.as_str()),
+        render_prompt_value(summary.weth_allowance_cap_eth.as_str()),
         if summary.trait_offers_enabled { "enabled" } else { "disabled" },
         summary.collections.len(),
     ));
@@ -233,32 +230,32 @@ fn build_bidding_mandate_review_pages(summary: &UnlockBiddingMandateSummary) -> 
                 "Collection {}/{}: {}",
                 index + 1,
                 summary.collections.len(),
-                compact_prompt_value(collection.artgod_slug.as_str())
+                render_prompt_value(collection.artgod_slug.as_str())
             ),
             format!("ArtGod collection ID: #{}", collection.collection_id),
             format!(
                 "OpenSea slug: {}",
-                compact_prompt_value(collection.opensea_slug.as_str())
+                render_prompt_value(collection.opensea_slug.as_str())
             ),
             format!(
                 "Contract address: {}",
-                compact_prompt_value(collection.contract_address.as_str())
+                render_prompt_value(collection.contract_address.as_str())
             ),
             format!(
                 "Token scope: {}",
-                compact_prompt_value(collection.token_scope_label.as_str())
+                render_prompt_value(collection.token_scope_label.as_str())
             ),
         ];
         lines.extend(collection.token_scope_items.iter().map(|item| {
             format!(
                 "  {}: {}",
-                compact_prompt_value(item.label.as_str()),
-                compact_prompt_value(item.value.as_str())
+                render_prompt_value(item.label.as_str()),
+                render_prompt_value(item.value.as_str())
             )
         }));
         lines.push(format!(
             "Maximum WETH per NFT: {}",
-            compact_prompt_value(collection.max_unit_bid_eth.as_str())
+            render_prompt_value(collection.max_unit_bid_eth.as_str())
         ));
         lines.push(format!(
             "Maximum NFTs per offer: {}",
@@ -269,16 +266,15 @@ fn build_bidding_mandate_review_pages(summary: &UnlockBiddingMandateSummary) -> 
     pages
 }
 
-fn compact_prompt_value(value: &str) -> String {
-    value
-        .chars()
-        .filter_map(|character| match character {
-            ' '..='~' => Some(character),
-            _ if character.is_whitespace() => Some(' '),
-            _ => None,
-        })
-        .take(MAX_PROMPT_VALUE_CHARS)
-        .collect()
+fn render_prompt_value(value: &str) -> String {
+    let mut rendered = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            ' '..='~' => rendered.push(character),
+            _ => rendered.extend(character.escape_unicode()),
+        }
+    }
+    rendered
 }
 
 fn handle_remove_confirm_request(
@@ -509,20 +505,18 @@ mod tests {
     }
 
     #[test]
-    fn maximum_compacted_values_with_canonical_labels_fit_the_admin_sized_prompt() {
-        let max_slug = "x".repeat(MAX_PROMPT_VALUE_CHARS);
-        let max_numeric_value = "9".repeat(MAX_PROMPT_VALUE_CHARS);
+    fn token_range_review_with_complete_values_fits_the_admin_sized_prompt() {
         let pages = build_bidding_mandate_review_pages(&UnlockBiddingMandateSummary {
             chain_id: u64::MAX,
-            chain_name: max_slug.clone(),
+            chain_name: "Ethereum".to_owned(),
             dry_run: false,
-            weth_allowance_cap_eth: max_numeric_value.clone(),
+            weth_allowance_cap_eth: "0.5".to_owned(),
             trait_offers_enabled: true,
             collections: vec![UnlockBiddingCollectionSummary {
                 collection_id: u64::MAX,
-                artgod_slug: max_slug.clone(),
+                artgod_slug: "terraforms".to_owned(),
                 contract_address: "0xffffffffffffffffffffffffffffffffffffffff".to_owned(),
-                opensea_slug: max_slug,
+                opensea_slug: "terraforms".to_owned(),
                 token_scope_label: "token range".to_owned(),
                 token_scope_items: vec![
                     UnlockBiddingTokenScopeItem {
@@ -531,20 +525,29 @@ mod tests {
                     },
                     UnlockBiddingTokenScopeItem {
                         label: "start token".to_owned(),
-                        value: max_numeric_value.clone(),
+                        value: "0".to_owned(),
                     },
                     UnlockBiddingTokenScopeItem {
                         label: "total supply".to_owned(),
-                        value: max_numeric_value.clone(),
+                        value: "9911".to_owned(),
                     },
                 ],
-                max_unit_bid_eth: max_numeric_value,
-                max_quantity: u32::MAX,
+                max_unit_bid_eth: "1.25".to_owned(),
+                max_quantity: 1,
             }],
         });
 
         prompt_ui::validate_bidding_review_pages(&pages)
-            .expect("maximum compacted bidding review should fit");
+            .expect("canonical token-range bidding review should fit");
+    }
+
+    #[test]
+    fn bidding_review_values_are_never_silently_truncated_or_dropped() {
+        // This boundary fixture crosses the former truncation length deliberately.
+        let full_ascii_value = "x".repeat(121);
+
+        assert_eq!(render_prompt_value(&full_ascii_value), full_ascii_value);
+        assert_eq!(render_prompt_value("café\n"), r"caf\u{e9}\u{a}");
     }
 
     #[test]
