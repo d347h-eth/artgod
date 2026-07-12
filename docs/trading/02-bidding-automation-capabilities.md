@@ -188,10 +188,14 @@ Backend source selection:
 - standard/admin bid-book reads include own declared-job overlays when the bot has not yet produced or reobserved the matching market bid
 - public single-collection mode keeps bid-book reads market-only and never exposes local own-job context
 
-Frontend refresh labels:
+Frontend feed and lifecycle labels:
 
-- `bot_snapshot` displays as `competitive`
-- `orders` displays as `normal`
+- `bot_snapshot` displays as `bid-book feed: bidding bot`
+- `orders` displays as `bid-book feed: indexed orders`
+- a fresh bootstrapping heartbeat displays as `bidding bot: starting`
+- a fresh running heartbeat displays as `bidding bot: active`
+- a stopped, missing, or stale heartbeat displays as `bidding bot: inactive`
+- feed source and bot lifecycle remain independent
 
 Bid-book filters:
 

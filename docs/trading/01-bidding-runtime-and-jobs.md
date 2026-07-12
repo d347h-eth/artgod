@@ -309,13 +309,15 @@ Backend source selection:
 - completed own cancellations suppress stale indexed own order rows, with a short `cancelled` confirmation row before disappearance
 - the backend must not infer own bid position from bid-book rows or exact-scope price comparisons
 
-Frontend labels:
+Frontend feed and lifecycle labels:
 
-- `bot_snapshot` is displayed as `competitive`
-- `orders` is displayed as `normal`
+- `bid-book feed: bidding bot` means the visible rows come from the bot's current market snapshot projection
+- `bid-book feed: indexed orders` means the visible rows come from canonical OpenSea orders populated by polling, reconciliation, and stream updates
+- `bidding bot: starting` means the latest bidding bot runtime row has a fresh bootstrapping heartbeat
+- `bidding bot: active` means the latest bidding bot runtime row has a fresh running heartbeat
+- `bidding bot: inactive` means the latest bidding bot runtime row is stopped, missing, or stale
 
-`competitive` means the bid book is refreshed at the bot's competitive snapshot cadence.
-`normal` means the bid book is refreshed through normal OpenSea order polling plus inbound stream updates.
+The feed and lifecycle are independent. An active bot can still accompany the indexed-orders feed when the bot projection is unavailable or stale.
 
 Bid-book row materialization:
 
