@@ -41,6 +41,8 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 - Loopback bidding mutations are untrusted job proposals. A live bidding process may place offers only inside the native collection identity and caps granted for that process start.
 - Mandate collection identity is the exact ArtGod `collectionId` plus its canonical contract address and OpenSea slug. Contract address alone is insufficient for shared-contract collections.
 - Offer placement enforces mandate identity, per-offer quantity, and per-NFT price at the restricted wallet boundary. Exact-token membership in the displayed ArtGod token scope remains a canonical backend mutation invariant; independent signer enforcement is deferred. Offchain cancellation remains available independently of the placement mandate, including when an unauthenticated loopback client submits pause/archive mutations.
+- Placement caps apply to each offer. The public alpha does not enforce an aggregate job, open-order, or spend budget within an authorized collection.
+- Operator-selected RPC endpoints are assumed to report chain state truthfully; ArtGod does not independently verify them.
 
 ## OpenSea SDK / API Surface
 
@@ -496,8 +498,24 @@ Trading-specific rules:
   summary, OpenSea slug, `maximum WETH for any one NFT`, and the fixed one-NFT
   offer quantity. Oversized pages fail closed instead of clipping into the
   action controls.
-- Loopback HTTP has no bearer session to leak. Created, revised, paused, or archived jobs within an approved collection remain possible if Userland is compromised; placement caps and the resulting cancellation/strategy risk are intentional for the current automation model.
-- Existing OpenSea orders survive bot shutdown and are not automatically coupled to mandate expiry. Cancellation occurs only through job cancellation paths, but unauthenticated loopback mutation is accepted as capable of invoking those paths.
+- Loopback HTTP has no bearer session to leak. Created, revised, paused, or
+  archived jobs within an authorized collection remain possible if Userland or a
+  raw loopback client is compromised. The signer enforces the reviewed price
+  and quantity caps on each offer, but aggregate strategy abuse within those
+  caps is an accepted public-alpha risk.
+- Offchain cancellation intentionally remains outside the placement mandate so
+  tracked orders can still be handled after their collection is absent from the
+  current mandate or the prior mandate generation has ended. Pinned OpenSea
+  protocol and order-hash validation still applies.
+- Existing signed OpenSea orders and the onchain conduit allowance survive bot
+  stop, process death, and mandate-generation end. ArtGod does not promise
+  automatic cancellation or allowance revocation. A later explicit start
+  reconciles the allowance to the then-configured exact cap before signing.
+- Public-alpha operation assumes a dedicated bidding wallet funded only with
+  the WETH and ETH the operator is prepared to expose to alpha automation risk.
+- Operator-selected RPC endpoints are trusted chain-state inputs. Selecting
+  truthful endpoints is an operator responsibility; a malicious or dishonest
+  selected RPC is outside the public-alpha threat model.
 - `BIDDING_TX_MAX_FEE_GWEI` caps the approval transaction fee per gas unit
 - `BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ETH` separately caps its worst-case network
   gas fee as explicit gas limit times selected max fee per gas; it does not cap

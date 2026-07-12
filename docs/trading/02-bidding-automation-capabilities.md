@@ -16,6 +16,27 @@ contract in `docs/ui/01-interaction-guidelines.md`.
 - Public single-collection mode may expose read-only offers and token bid books, but it must not expose bidding jobs, price tiers, or write controls.
 - Amounts shown in UI/API fields use Ether units; persisted EVM-facing amount columns use wei strings.
 
+## Public-Alpha Control Boundary
+
+Userland browser sessions, extensions, and raw loopback clients remain
+untrusted job-proposal sources, including on admin mutation paths protected by
+the normal host, origin, and CSRF checks. Those checks block normal cross-site
+requests; they do not authenticate which local process owns a trusted origin or
+confer wallet authority. Within a collection included in the active bidding
+authorization, such a client may create, revise, pause, or archive any number
+of jobs. The restricted signer enforces the reviewed per-offer price and
+quantity caps, but there is no aggregate strategy budget or balance reservation
+across jobs and open orders. Aggregate strategy abuse within those per-offer
+limits is an accepted public-alpha risk.
+
+Pause and archive actions may request offchain cancellation for tracked orders.
+Cancellation intentionally remains available outside the placement mandate so
+previously tracked orders can still be handled. The canonical custody and
+threat-model boundary is in
+`docs/desktop/03-wallet-keystore-and-bot-unlock.md`; deferred local-origin
+identity work is in
+`docs/progress/desktop/02-local-runtime-identity-and-browser-trust.md`.
+
 ## User-Facing Surfaces
 
 | Surface | Capability |

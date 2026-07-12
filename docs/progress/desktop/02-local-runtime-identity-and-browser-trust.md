@@ -18,6 +18,23 @@ Current CSRF protection is still useful, but it has a narrow purpose:
 The backend allowlist model means ArtGod trusts whatever serves an allowed origin.
 That is acceptable only if the desktop supervisor can reliably know that the expected ArtGod child processes own those origins.
 
+## Relationship to the Wallet and Bidding Threat Model
+
+This backlog does not describe a security guarantee implemented by the current
+public alpha. Userland browser sessions, extensions, and raw loopback clients
+remain untrusted bidding-job proposal sources. Within a collection already
+included in the active bidding authorization, they may mutate any number of
+jobs; the restricted signer enforces the reviewed price and quantity limits on
+each offer, but not an aggregate strategy budget.
+
+Arbitrary code execution in the privileged Admin WebView or Tauri core, direct
+writes to SQLite, app-data, keystore, or runtime files, and same-user
+process-memory access remain host-compromise capabilities outside the
+public-alpha threat model. The current boundary does not add a bearer session
+or claim authenticated local runtime identity. See
+`docs/desktop/03-wallet-keystore-and-bot-unlock.md` for the canonical wallet and
+bidding threat model.
+
 ## Problem Statement
 
 The desktop supervisor can currently validate process health by checking ports and HTTP responses.

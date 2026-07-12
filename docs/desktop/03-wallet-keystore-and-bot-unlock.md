@@ -32,6 +32,8 @@ Related docs:
 - `docs/desktop/01-tauri-build-and-runtime.md`
 - `docs/desktop/02-runtime-registry-maintenance.md`
 - `docs/diagrams/00-desktop-components.md`
+- `docs/trading/01-bidding-runtime-and-jobs.md`
+- `docs/progress/desktop/02-local-runtime-identity-and-browser-trust.md`
 - `docs/progress/desktop/01-wallet-keystore-implementation-plan.md`
 
 ## Decision Summary
@@ -153,37 +155,70 @@ These are hard rules, not suggestions.
 
 This design is intended to reduce exposure to:
 
-- frontend/npm supply-chain compromise inside the admin UI bundle
-- WebView XSS or accidental secret leakage through DOM state
-- accidental logging of secrets in Rust, Node, or frontend code
-- local filesystem disclosure of app data at rest
-- accidental secret leakage through environment variables or command-line arguments
-- accidental persistence of secrets in backend tables or caches
-- unwanted bidding jobs submitted through unauthenticated loopback mutation routes by compromised browser content, extensions, or raw local clients
+- accidental secret exposure through the Admin DOM, frontend state, logs,
+  environment variables, command-line arguments, SQLite, or ordinary crash
+  files
+- read-only local filesystem disclosure of encrypted keystore material at rest
+- untrusted Userland browser sessions, extensions, or raw loopback clients that
+  invoke bidding-job mutation routes
+- malformed, stale, duplicated, wrong-chain, or out-of-policy placement jobs
+- policy or config drift between native review, decryption, secret handoff,
+  Node startup, and active runtime state
+- OpenSea SDK behavior that requests signing authority outside the restricted
+  offer and offchain-cancellation surface
+- parent shutdown, process death, task cancellation, or failed secret handoff
+  leaving a key-bearing child process alive
+- a dry-run path accidentally reaching a live signing operation
+- inherited Node environment variables reopening code injection or inspector
+  startup
+
+Raw secret entry and reveal remain outside the WebView, and Tauri command
+results never carry raw secrets. That is an exposure-reduction design fact, not
+a claim that this boundary defeats arbitrary code execution in the privileged
+Admin WebView or Tauri core.
 
 This design does not claim to protect against:
 
+- arbitrary code execution in the privileged Admin WebView or Tauri core
+- a malicious or dishonest operator-selected RPC; public-alpha operation
+  assumes the operator selects truthful endpoints
+- direct writes to ArtGod SQLite, app-data, keystore files, or runtime files;
+  those are host-compromise capabilities in this local-only model
+- same-user debugger, `ptrace`, or process-memory access
+- aggregate strategy abuse within an authorized collection while each offer
+  remains inside the reviewed per-NFT price and quantity caps
+- continued exposure from existing orders or allowance after a bot stops, a
+  process dies, or a mandate generation ends; ArtGod does not automatically
+  cancel those orders or revoke that allowance
+- protection of more WETH or ETH than the operator intentionally funds into
+  the dedicated bidding wallet
 - a fully compromised machine
 - root/admin-level local malware
 - kernel compromise
 - hardware keyloggers
-- memory scraping by a privileged attacker
 - OS screenshots or screen recording outside app control
-- arbitrary writes to ArtGod app-data or SQLite; that capability is treated as host compromise for the current local-only threat model
 
 The objective is to make the wallet boundary materially narrower and more auditable, not to solve full host compromise.
 
 The current bounded residual risk is explicit: compromised Userland code or a
-raw loopback client may cause the bot to act on created, revised, paused, or
-archived jobs for a collection already granted in the current native mandate.
-Placement remains bounded by the approved chain, ArtGod collection ID, contract
-address, OpenSea slug, maximum WETH for any one NFT, and fixed per-offer
-quantity. Exact-token membership in the displayed ArtGod token scope is
-currently enforced by the canonical backend mutation paths, not independently
-by the signer; independent signer enforcement is deferred. Pause/archive
-mutations may also cause offchain cancellation of tracked offers. That
-availability and strategy risk is accepted for the current local alpha. No
-browser-readable bearer/session credential is introduced over loopback HTTP.
+raw loopback client may create, revise, pause, or archive any number of jobs for
+a collection already granted in the current native mandate. Placement remains
+bounded per offer by the approved chain, ArtGod collection ID, contract address,
+OpenSea slug, maximum WETH for any one NFT, and fixed per-offer quantity; there
+is no aggregate strategy budget or reservation boundary. Exact-token membership
+in the displayed ArtGod token scope is currently enforced by the canonical
+backend mutation paths, not independently by the signer; independent signer
+enforcement is deferred. Pause/archive mutations may also cause offchain
+cancellation of tracked offers because cancellation intentionally remains
+available outside the placement mandate. That availability and aggregate
+strategy risk is accepted for the current local alpha. No browser-readable
+bearer/session credential is introduced over loopback HTTP.
+
+Existing signed OpenSea orders and the onchain conduit allowance survive bot
+stop, process death, and mandate-generation end. ArtGod does not promise
+automatic order cancellation or allowance revocation. The operational
+assumption is a dedicated bidding wallet funded only with the WETH and ETH the
+operator is prepared to expose to alpha automation risk.
 
 ## Why Hybrid Instead of WebView-Only
 
