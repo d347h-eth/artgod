@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
 
 /// Maximum serialized request size allowed for bounded multi-collection policy review.
 pub const SECRET_PROMPT_MAX_REQUEST_BYTES: usize = 64 * 1024;
@@ -162,35 +163,35 @@ pub struct ExportConfirmSecretPromptRequest {
 pub struct ExportRevealSecretPromptRequest {
     pub wallet_label: String,
     pub wallet_address: String,
-    pub private_key: String,
+    pub private_key: Zeroizing<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportSecretPromptResponse {
     pub label: String,
-    pub private_key: String,
-    pub passphrase: String,
-    pub passphrase_confirmation: String,
+    pub private_key: Zeroizing<String>,
+    pub passphrase: Zeroizing<String>,
+    pub passphrase_confirmation: Zeroizing<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UnlockSecretPromptResponse {
-    pub passphrase: String,
+    pub passphrase: Zeroizing<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoveConfirmSecretPromptResponse {
-    pub passphrase: String,
+    pub passphrase: Zeroizing<String>,
     pub typed_confirmation: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportConfirmSecretPromptResponse {
-    pub passphrase: String,
+    pub passphrase: Zeroizing<String>,
     pub typed_confirmation: String,
 }
 
@@ -256,7 +257,7 @@ mod tests {
         );
 
         let response = SecretPromptResponse::UnlockSubmitted(UnlockSecretPromptResponse {
-            passphrase: "secret passphrase".to_owned(),
+            passphrase: Zeroizing::new("secret passphrase".to_owned()),
         });
         let response_json = serde_json::to_string(&response).unwrap();
         assert_eq!(

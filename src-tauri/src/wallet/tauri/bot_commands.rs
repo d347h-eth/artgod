@@ -1190,12 +1190,16 @@ fn sanitize_unlock_wallet_error(error: UnlockWalletForBotStartError) -> String {
 
 fn sanitize_prompt_error(error: &SecretPromptError) -> String {
     match error {
-        SecretPromptError::SpawnFailure { .. } | SecretPromptError::StdinFailure { .. } => {
+        SecretPromptError::SpawnFailure { .. }
+        | SecretPromptError::ContainmentFailure { .. }
+        | SecretPromptError::StdinFailure { .. } => {
             "Native wallet prompt is unavailable. See desktop-app logs.".to_owned()
         }
         SecretPromptError::HelperFailure { .. }
         | SecretPromptError::UnexpectedResponse { .. }
-        | SecretPromptError::ProtocolFailure { .. } => {
+        | SecretPromptError::ProtocolFailure { .. }
+        | SecretPromptError::Timeout { .. }
+        | SecretPromptError::CoordinatorFailure => {
             "Native wallet prompt failed. See desktop-app logs.".to_owned()
         }
         SecretPromptError::Busy { .. } => {
