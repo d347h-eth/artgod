@@ -270,6 +270,7 @@ fn render_prompt_value(value: &str) -> String {
     let mut rendered = String::with_capacity(value.len());
     for character in value.chars() {
         match character {
+            '\\' => rendered.push_str(r"\\"),
             ' '..='~' => rendered.push(character),
             _ => rendered.extend(character.escape_unicode()),
         }
@@ -548,6 +549,8 @@ mod tests {
 
         assert_eq!(render_prompt_value(&full_ascii_value), full_ascii_value);
         assert_eq!(render_prompt_value("café\n"), r"caf\u{e9}\u{a}");
+        assert_eq!(render_prompt_value(r"\u{e9}"), r"\\u{e9}");
+        assert_ne!(render_prompt_value("é"), render_prompt_value(r"\u{e9}"));
     }
 
     #[test]
