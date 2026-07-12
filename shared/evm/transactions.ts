@@ -41,7 +41,13 @@ export type EvmTransactionFeePolicyConfig = {
     maxFeePerGasWei: bigint;
 };
 
-export type EvmPendingNoncePolicy = "fail";
+// Pending nonce behavior supported by ArtGod-owned transaction policy.
+export const EVM_PENDING_NONCE_POLICY = {
+    Fail: "fail",
+} as const;
+
+export type EvmPendingNoncePolicy =
+    (typeof EVM_PENDING_NONCE_POLICY)[keyof typeof EVM_PENDING_NONCE_POLICY];
 
 export type EvmTransactionNoncePolicyConfig = {
     pendingNoncePolicy: EvmPendingNoncePolicy;
@@ -575,7 +581,9 @@ function validateTransactionPolicyConfig(
             "maxFeePerGasWei must be greater than or equal to minPriorityFeePerGasWei",
         );
     }
-    if (config.nonce.pendingNoncePolicy !== "fail") {
+    if (
+        config.nonce.pendingNoncePolicy !== EVM_PENDING_NONCE_POLICY.Fail
+    ) {
         throw new Error(
             `Unsupported pending nonce policy: ${config.nonce.pendingNoncePolicy}`,
         );

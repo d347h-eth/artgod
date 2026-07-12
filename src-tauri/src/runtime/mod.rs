@@ -25,9 +25,11 @@ pub use backend_collection_catalog::{
 };
 pub use bidding_mandate::{
     BIDDING_MANDATE_MAX_OFFER_QUANTITY, BiddingCollectionMandate, BiddingCollectionMandateDraft,
-    BiddingCollectionTokenScopeSummary, BiddingMandate, BiddingMandateDraft,
-    BiddingStartPolicySnapshot, format_wei_as_eth,
+    BiddingCollectionTokenScopeSummary, BiddingMandate, BiddingMandateDraft, BiddingStartPolicy,
+    format_wei_as_eth, format_wei_as_gwei,
 };
+#[cfg(test)]
+pub(crate) use bidding_mandate::{BiddingPendingNoncePolicy, BiddingWethApprovalPolicy};
 pub(crate) use bot_lifecycle::BotStartReservation;
 pub use bot_runtime::{
     BotCriticalDependencyStatus, BotRuntimeSnapshot, BotRuntimeState, bot_runtime_spec,

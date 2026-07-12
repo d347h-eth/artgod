@@ -4,10 +4,16 @@ use alloy_primitives::U256;
 use serde::{Deserialize, Serialize};
 
 use super::backend_collection_catalog::BiddingCollectionCandidate;
-use super::env_keys::{BIDDING_TRAIT_OFFERS_ENABLED_ENV_KEY, BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY};
+use super::env_keys::{
+    BIDDING_TRAIT_OFFERS_ENABLED_ENV_KEY, BIDDING_TX_MAX_FEE_ENV_KEY,
+    BIDDING_TX_MIN_PRIORITY_FEE_ENV_KEY, BIDDING_TX_PENDING_NONCE_POLICY_ENV_KEY,
+    BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY, BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ENV_KEY,
+};
 
 /// Maximum collections that one native bidding unlock may authorize.
 const MAX_BIDDING_MANDATE_COLLECTIONS: usize = 64;
+/// Serialized fail-only pending nonce policy owned by the bidding mandate.
+const BIDDING_PENDING_NONCE_POLICY_FAIL_VALUE: &str = "fail";
 
 /// Fixed per-offer quantity while Userland supports only one-NFT offers.
 pub const BIDDING_MANDATE_MAX_OFFER_QUANTITY: u32 = 1;
@@ -30,7 +36,34 @@ pub struct BiddingCollectionMandateDraft {
 #[serde(rename_all = "camelCase")]
 pub struct BiddingMandate {
     pub chain_id: u64,
+    pub start_policy: BiddingStartPolicy,
     pub collections: Vec<BiddingCollectionMandate>,
+}
+
+/// Immutable global bidding authority reviewed for one process generation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiddingStartPolicy {
+    pub weth_allowance_cap_wei: String,
+    pub trust_open_sea_signed_zone_trait_offers: bool,
+    pub weth_approval: BiddingWethApprovalPolicy,
+}
+
+/// Immutable WETH approval transaction limits reviewed for one process generation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiddingWethApprovalPolicy {
+    pub min_priority_fee_per_gas_wei: String,
+    pub max_fee_per_gas_wei: String,
+    pub max_total_gas_fee_wei: String,
+    pub pending_nonce_policy: BiddingPendingNoncePolicy,
+}
+
+/// Pending transaction behavior supported by the bidding approval boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BiddingPendingNoncePolicy {
+    Fail,
 }
 
 /// Canonical ArtGod and OpenSea identity plus limits for one collection.
@@ -62,17 +95,11 @@ pub struct BiddingCollectionTokenScopeItem {
     pub value: String,
 }
 
-/// Frozen global bidding settings displayed by the native unlock prompt.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BiddingStartPolicySnapshot {
-    pub weth_allowance_cap_eth: String,
-    pub trait_offers_enabled: bool,
-}
-
 impl BiddingMandate {
     /// Resolves untrusted collection ids against canonical collections with current bidding intent.
     pub fn resolve(
         chain_id: u64,
+        start_policy: BiddingStartPolicy,
         draft: BiddingMandateDraft,
         candidates: Vec<BiddingCollectionCandidate>,
     ) -> Result<Self, String> {
@@ -141,38 +168,110 @@ impl BiddingMandate {
 
         Ok(Self {
             chain_id,
+            start_policy,
             collections,
         })
     }
 }
 
-impl BiddingStartPolicySnapshot {
-    /// Parses prompt-visible policy from the same frozen env passed to the bot process.
+impl BiddingStartPolicy {
+    /// Parses immutable authority from the same frozen env passed to the bot process.
     pub fn from_process_env(env: &HashMap<String, String>) -> Result<Self, String> {
-        let trait_offers_enabled = parse_required_bool(env, BIDDING_TRAIT_OFFERS_ENABLED_ENV_KEY)?;
-        let allowance = env
-            .get(BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY)
-            .ok_or_else(|| {
-                format!("Missing bidding policy setting {BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY}.")
-            })?
-            .trim();
-        let allowance_wei = parse_eth_to_wei(allowance).map_err(|_| {
-            format!("Invalid bidding policy setting {BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY}.")
-        })?;
+        let weth_allowance_cap_wei = parse_required_base_unit_setting(
+            env,
+            BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY,
+            18,
+            ZeroPolicy::Allowed,
+        )?;
+        let min_priority_fee_per_gas_wei = parse_required_base_unit_setting(
+            env,
+            BIDDING_TX_MIN_PRIORITY_FEE_ENV_KEY,
+            9,
+            ZeroPolicy::Rejected,
+        )?;
+        let max_fee_per_gas_wei = parse_required_base_unit_setting(
+            env,
+            BIDDING_TX_MAX_FEE_ENV_KEY,
+            9,
+            ZeroPolicy::Rejected,
+        )?;
+        let max_total_gas_fee_wei = parse_required_base_unit_setting(
+            env,
+            BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ENV_KEY,
+            18,
+            ZeroPolicy::Rejected,
+        )?;
+        if canonical_uint_greater_than(
+            min_priority_fee_per_gas_wei.as_str(),
+            max_fee_per_gas_wei.as_str(),
+        ) {
+            return Err(format!(
+                "Bidding policy setting {BIDDING_TX_MIN_PRIORITY_FEE_ENV_KEY} must not exceed {BIDDING_TX_MAX_FEE_ENV_KEY}."
+            ));
+        }
+
         Ok(Self {
-            weth_allowance_cap_eth: format_wei_as_eth(allowance_wei.as_str())?,
-            trait_offers_enabled,
+            weth_allowance_cap_wei,
+            trust_open_sea_signed_zone_trait_offers: parse_required_bool(
+                env,
+                BIDDING_TRAIT_OFFERS_ENABLED_ENV_KEY,
+            )?,
+            weth_approval: BiddingWethApprovalPolicy {
+                min_priority_fee_per_gas_wei,
+                max_fee_per_gas_wei,
+                max_total_gas_fee_wei,
+                pending_nonce_policy: BiddingPendingNoncePolicy::parse_process_env(env)?,
+            },
         })
+    }
+}
+
+impl BiddingPendingNoncePolicy {
+    fn parse_process_env(env: &HashMap<String, String>) -> Result<Self, String> {
+        match env
+            .get(BIDDING_TX_PENDING_NONCE_POLICY_ENV_KEY)
+            .map(|value| value.trim().to_ascii_lowercase())
+        {
+            Some(value) if value == BIDDING_PENDING_NONCE_POLICY_FAIL_VALUE => Ok(Self::Fail),
+            Some(value) => Err(format!(
+                "Unsupported bidding policy setting {BIDDING_TX_PENDING_NONCE_POLICY_ENV_KEY}: {value}."
+            )),
+            None => Err(format!(
+                "Missing bidding policy setting {BIDDING_TX_PENDING_NONCE_POLICY_ENV_KEY}."
+            )),
+        }
+    }
+
+    /// Explains the fail-only nonce behavior in the native review.
+    pub fn review_text(self) -> &'static str {
+        match self {
+            Self::Fail => "fail if the wallet already has pending transactions",
+        }
     }
 }
 
 /// Formats canonical wei for native policy review without floating-point conversion.
 pub fn format_wei_as_eth(wei: &str) -> Result<String, String> {
-    let parsed = wei
-        .parse::<U256>()
-        .map_err(|_| "Bidding authorization contains an invalid WETH amount.".to_owned())?;
-    let padded = format!("{parsed:019}");
-    let split_at = padded.len() - 18;
+    format_base_units(
+        wei,
+        18,
+        "Bidding authorization contains an invalid ETH amount.",
+    )
+}
+
+/// Formats canonical wei as Gwei for native policy review without floating point.
+pub fn format_wei_as_gwei(wei: &str) -> Result<String, String> {
+    format_base_units(
+        wei,
+        9,
+        "Bidding authorization contains an invalid gas price.",
+    )
+}
+
+fn format_base_units(wei: &str, decimals: usize, error: &str) -> Result<String, String> {
+    let parsed = wei.parse::<U256>().map_err(|_| error.to_owned())?;
+    let padded = format!("{parsed:0width$}", width = decimals + 1);
+    let split_at = padded.len() - decimals;
     let whole = padded[..split_at].trim_start_matches('0');
     let whole = if whole.is_empty() { "0" } else { whole };
     let fraction = padded[split_at..].trim_end_matches('0');
@@ -208,6 +307,10 @@ fn parse_positive_eth_to_wei(raw: &str, collection_id: u64) -> Result<String, St
 }
 
 fn parse_eth_to_wei(raw: &str) -> Result<String, ()> {
+    parse_decimal_to_base_units(raw, 18)
+}
+
+fn parse_decimal_to_base_units(raw: &str, decimals: usize) -> Result<String, ()> {
     let value = raw.trim();
     let mut parts = value.split('.');
     let whole = parts.next().unwrap_or_default();
@@ -217,7 +320,7 @@ fn parse_eth_to_wei(raw: &str) -> Result<String, ()> {
         || !whole.bytes().all(|byte| byte.is_ascii_digit())
         || fraction.is_some_and(|digits| {
             digits.is_empty()
-                || digits.len() > 18
+                || digits.len() > decimals
                 || !digits.bytes().all(|byte| byte.is_ascii_digit())
         })
     {
@@ -231,7 +334,7 @@ fn parse_eth_to_wei(raw: &str) -> Result<String, ()> {
         normalized_whole
     };
     let mut fractional_wei = fraction.unwrap_or_default().to_owned();
-    fractional_wei.extend(std::iter::repeat_n('0', 18 - fractional_wei.len()));
+    fractional_wei.extend(std::iter::repeat_n('0', decimals - fractional_wei.len()));
     let combined = format!("{normalized_whole}{fractional_wei}");
     let normalized_wei = combined.trim_start_matches('0');
     let normalized_wei = if normalized_wei.is_empty() {
@@ -241,6 +344,35 @@ fn parse_eth_to_wei(raw: &str) -> Result<String, ()> {
     };
     normalized_wei.parse::<U256>().map_err(|_| ())?;
     Ok(normalized_wei.to_owned())
+}
+
+#[derive(Clone, Copy)]
+enum ZeroPolicy {
+    Allowed,
+    Rejected,
+}
+
+fn parse_required_base_unit_setting(
+    env: &HashMap<String, String>,
+    key: &str,
+    decimals: usize,
+    zero_policy: ZeroPolicy,
+) -> Result<String, String> {
+    let value = env
+        .get(key)
+        .ok_or_else(|| format!("Missing bidding policy setting {key}."))?;
+    let parsed = parse_decimal_to_base_units(value, decimals)
+        .map_err(|_| format!("Invalid bidding policy setting {key}."))?;
+    if matches!(zero_policy, ZeroPolicy::Rejected) && parsed == "0" {
+        return Err(format!(
+            "Bidding policy setting {key} must be greater than zero."
+        ));
+    }
+    Ok(parsed)
+}
+
+fn canonical_uint_greater_than(left: &str, right: &str) -> bool {
+    left.len() > right.len() || (left.len() == right.len() && left > right)
 }
 
 // Orders validated canonical unsigned integers numerically without lossy conversion.
@@ -261,6 +393,45 @@ fn parse_required_bool(env: &HashMap<String, String>, key: &str) -> Result<bool,
 mod tests {
     use super::*;
 
+    fn start_policy() -> BiddingStartPolicy {
+        BiddingStartPolicy {
+            weth_allowance_cap_wei: "500000000000000000".to_owned(),
+            trust_open_sea_signed_zone_trait_offers: true,
+            weth_approval: BiddingWethApprovalPolicy {
+                min_priority_fee_per_gas_wei: "100000000".to_owned(),
+                max_fee_per_gas_wei: "10000000000".to_owned(),
+                max_total_gas_fee_wei: "10000000000000000".to_owned(),
+                pending_nonce_policy: BiddingPendingNoncePolicy::Fail,
+            },
+        }
+    }
+
+    fn policy_env() -> HashMap<String, String> {
+        HashMap::from([
+            (
+                BIDDING_TRAIT_OFFERS_ENABLED_ENV_KEY.to_owned(),
+                "true".to_owned(),
+            ),
+            (
+                BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY.to_owned(),
+                "1.2500".to_owned(),
+            ),
+            (
+                BIDDING_TX_MIN_PRIORITY_FEE_ENV_KEY.to_owned(),
+                "0.1".to_owned(),
+            ),
+            (BIDDING_TX_MAX_FEE_ENV_KEY.to_owned(), "10".to_owned()),
+            (
+                BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ENV_KEY.to_owned(),
+                "0.01".to_owned(),
+            ),
+            (
+                BIDDING_TX_PENDING_NONCE_POLICY_ENV_KEY.to_owned(),
+                "fail".to_owned(),
+            ),
+        ])
+    }
+
     fn candidate(collection_id: u64) -> BiddingCollectionCandidate {
         BiddingCollectionCandidate {
             chain_id: 1,
@@ -279,6 +450,7 @@ mod tests {
     fn resolves_canonical_identity_price_limit_and_fixed_offer_quantity() {
         let mandate = BiddingMandate::resolve(
             1,
+            start_policy(),
             BiddingMandateDraft {
                 collections: vec![BiddingCollectionMandateDraft {
                     collection_id: 7,
@@ -308,6 +480,7 @@ mod tests {
     fn orders_authorized_collections_by_exact_unit_bid_cap_descending() {
         let mandate = BiddingMandate::resolve(
             1,
+            start_policy(),
             BiddingMandateDraft {
                 collections: vec![
                     BiddingCollectionMandateDraft {
@@ -352,6 +525,7 @@ mod tests {
         zeta.artgod_slug = "zeta".to_owned();
         let mandate = BiddingMandate::resolve(
             1,
+            start_policy(),
             BiddingMandateDraft {
                 collections: vec![
                     BiddingCollectionMandateDraft {
@@ -386,6 +560,7 @@ mod tests {
     fn rejects_unknown_and_duplicate_collection_ids() {
         let unknown = BiddingMandate::resolve(
             1,
+            start_policy(),
             BiddingMandateDraft {
                 collections: vec![BiddingCollectionMandateDraft {
                     collection_id: 8,
@@ -399,6 +574,7 @@ mod tests {
 
         let duplicate = BiddingMandate::resolve(
             1,
+            start_policy(),
             BiddingMandateDraft {
                 collections: vec![
                     BiddingCollectionMandateDraft {
@@ -426,21 +602,151 @@ mod tests {
     }
 
     #[test]
-    fn parses_frozen_start_policy_without_floating_point() {
-        let policy = BiddingStartPolicySnapshot::from_process_env(&HashMap::from([
-            (
-                BIDDING_TRAIT_OFFERS_ENABLED_ENV_KEY.to_owned(),
-                "true".to_owned(),
-            ),
-            (
-                BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY.to_owned(),
-                "1.2500".to_owned(),
-            ),
-        ]))
-        .unwrap();
+    fn parses_canonical_frozen_start_policy_without_floating_point() {
+        let policy = BiddingStartPolicy::from_process_env(&policy_env()).unwrap();
 
-        assert!(policy.trait_offers_enabled);
-        assert_eq!(policy.weth_allowance_cap_eth, "1.25");
+        assert!(policy.trust_open_sea_signed_zone_trait_offers);
+        assert_eq!(policy.weth_allowance_cap_wei, "1250000000000000000");
+        assert_eq!(
+            policy.weth_approval.min_priority_fee_per_gas_wei,
+            "100000000"
+        );
+        assert_eq!(policy.weth_approval.max_fee_per_gas_wei, "10000000000");
+        assert_eq!(
+            policy.weth_approval.max_total_gas_fee_wei,
+            "10000000000000000"
+        );
+        assert_eq!(
+            policy.weth_approval.pending_nonce_policy,
+            BiddingPendingNoncePolicy::Fail
+        );
+        assert_eq!(format_wei_as_gwei("100000000").unwrap(), "0.1");
+        assert_eq!(
+            format_wei_as_eth(&policy.weth_approval.max_total_gas_fee_wei).unwrap(),
+            "0.01"
+        );
+    }
+
+    #[test]
+    fn permits_zero_allowance_but_rejects_zero_positive_policy_fields() {
+        let mut env = policy_env();
+        env.insert(
+            BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY.to_owned(),
+            "0".to_owned(),
+        );
+        assert_eq!(
+            BiddingStartPolicy::from_process_env(&env)
+                .unwrap()
+                .weth_allowance_cap_wei,
+            "0"
+        );
+
+        for key in [
+            BIDDING_TX_MIN_PRIORITY_FEE_ENV_KEY,
+            BIDDING_TX_MAX_FEE_ENV_KEY,
+            BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ENV_KEY,
+        ] {
+            let mut env = policy_env();
+            env.insert(key.to_owned(), "0".to_owned());
+            assert!(
+                BiddingStartPolicy::from_process_env(&env)
+                    .unwrap_err()
+                    .contains(key)
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_missing_precision_overflow_relationship_and_nonce_policy() {
+        for (key, invalid) in [
+            (BIDDING_TX_MIN_PRIORITY_FEE_ENV_KEY, "0.0000000001"),
+            (BIDDING_TX_MAX_FEE_ENV_KEY, "0.0000000001"),
+            (
+                BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ENV_KEY,
+                "0.0000000000000000001",
+            ),
+            (
+                BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY,
+                "115792089237316195423570985008687907853269984665640564039458",
+            ),
+        ] {
+            let mut env = policy_env();
+            env.insert(key.to_owned(), invalid.to_owned());
+            assert!(
+                BiddingStartPolicy::from_process_env(&env)
+                    .unwrap_err()
+                    .contains(key)
+            );
+        }
+
+        let mut missing = policy_env();
+        missing.remove(BIDDING_TX_MAX_FEE_ENV_KEY);
+        assert!(
+            BiddingStartPolicy::from_process_env(&missing)
+                .unwrap_err()
+                .contains(BIDDING_TX_MAX_FEE_ENV_KEY)
+        );
+
+        let mut relationship = policy_env();
+        relationship.insert(
+            BIDDING_TX_MIN_PRIORITY_FEE_ENV_KEY.to_owned(),
+            "10.1".to_owned(),
+        );
+        assert!(
+            BiddingStartPolicy::from_process_env(&relationship)
+                .unwrap_err()
+                .contains("must not exceed")
+        );
+
+        let mut nonce = policy_env();
+        nonce.insert(
+            BIDDING_TX_PENDING_NONCE_POLICY_ENV_KEY.to_owned(),
+            "replace".to_owned(),
+        );
+        assert!(
+            BiddingStartPolicy::from_process_env(&nonce)
+                .unwrap_err()
+                .contains("Unsupported")
+        );
+    }
+
+    #[test]
+    fn mandate_equality_covers_every_start_policy_field() {
+        let baseline = start_policy();
+        let mutations = [
+            BiddingStartPolicy {
+                weth_allowance_cap_wei: "1".to_owned(),
+                ..baseline.clone()
+            },
+            BiddingStartPolicy {
+                trust_open_sea_signed_zone_trait_offers: false,
+                ..baseline.clone()
+            },
+            BiddingStartPolicy {
+                weth_approval: BiddingWethApprovalPolicy {
+                    min_priority_fee_per_gas_wei: "1".to_owned(),
+                    ..baseline.weth_approval.clone()
+                },
+                ..baseline.clone()
+            },
+            BiddingStartPolicy {
+                weth_approval: BiddingWethApprovalPolicy {
+                    max_fee_per_gas_wei: "2".to_owned(),
+                    ..baseline.weth_approval.clone()
+                },
+                ..baseline.clone()
+            },
+            BiddingStartPolicy {
+                weth_approval: BiddingWethApprovalPolicy {
+                    max_total_gas_fee_wei: "3".to_owned(),
+                    ..baseline.weth_approval.clone()
+                },
+                ..baseline.clone()
+            },
+        ];
+        for mutation in mutations {
+            assert_ne!(baseline, mutation);
+        }
     }
 
     #[test]

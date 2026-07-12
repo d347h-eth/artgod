@@ -5,7 +5,7 @@ import { BiddingMandate } from "../domain/bidding-mandate.js";
 export type { TradingBotKind } from "@artgod/shared/types";
 
 export const SECRET_ENVELOPE_MAGIC = Buffer.from("AGBOTKEY", "ascii");
-export const SECRET_ENVELOPE_VERSION = 2;
+export const SECRET_ENVELOPE_VERSION = 3;
 export const SECRET_KEY_LENGTH_BYTES = 32;
 const VERSION_FIELD_LENGTH_BYTES = 1;
 const METADATA_LENGTH_FIELD_LENGTH_BYTES = 4;
@@ -36,7 +36,7 @@ export type TradingSecretEnvelope = {
     privateKeyBytes: Buffer;
 };
 
-/** Resolves the exact v2 frame length once the complete header is available. */
+/** Resolves the exact v3 frame length once the complete header is available. */
 export function resolveSecretEnvelopeFrameLength(
     buffer: Buffer,
 ): number | null {

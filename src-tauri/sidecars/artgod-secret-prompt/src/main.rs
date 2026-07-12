@@ -230,15 +230,19 @@ fn handle_unlock_request(
 fn build_bidding_mandate_review_pages(summary: &UnlockBiddingMandateSummary) -> Vec<String> {
     let mut pages = Vec::with_capacity(summary.collections.len() + 1);
     let trait_offer_policy = if summary.trait_offers_enabled {
-        "enabled; pinned OpenSea SignedZone trusted"
+        "enabled; OpenSea's pinned SignedZone is trusted"
     } else {
         "disabled"
     };
     pages.push(format!(
-        "Bidding authorization\nNetwork: {}\nChain ID: #{}\nWETH allowance cap: {} WETH\nTrait offers: {}\nCollections: {}",
+        "Bidding authorization\nNetwork: {}\nChain ID: #{}\nWETH allowance cap: {} WETH for the OpenSea conduit\nMinimum priority fee per gas: {} Gwei per gas\nMaximum fee per gas: {} Gwei per gas\nMaximum network fee for one WETH approval transaction: {} ETH per approval transaction\nPending transaction policy: {}\nTrait offers: {}\nCollections: {}",
         render_prompt_value(summary.chain_name.as_str()),
         summary.chain_id,
         render_prompt_value(summary.weth_allowance_cap_eth.as_str()),
+        render_prompt_value(summary.min_priority_fee_per_gas_gwei.as_str()),
+        render_prompt_value(summary.max_fee_per_gas_gwei.as_str()),
+        render_prompt_value(summary.max_total_gas_fee_eth.as_str()),
+        render_prompt_value(summary.pending_nonce_policy.as_str()),
         trait_offer_policy,
         summary.collections.len(),
     ));
@@ -594,6 +598,10 @@ mod tests {
             chain_id: 1,
             chain_name: "Ethereum".to_owned(),
             weth_allowance_cap_eth: "0.5".to_owned(),
+            min_priority_fee_per_gas_gwei: "0.1".to_owned(),
+            max_fee_per_gas_gwei: "10".to_owned(),
+            max_total_gas_fee_eth: "0.01".to_owned(),
+            pending_nonce_policy: "fail if the wallet already has pending transactions".to_owned(),
             trait_offers_enabled: true,
             collections: vec![UnlockBiddingCollectionSummary {
                 collection_id: 7,
@@ -610,7 +618,17 @@ mod tests {
         assert!(pages[0].starts_with("Bidding authorization\nNetwork: Ethereum\nChain ID: #1"));
         assert!(!pages[0].contains("Mode:"));
         assert!(!pages[0].contains("dry run"));
-        assert!(pages[0].contains("Trait offers: enabled; pinned OpenSea SignedZone trusted"));
+        assert!(pages[0].contains("WETH allowance cap: 0.5 WETH for the OpenSea conduit"));
+        assert!(pages[0].contains("Minimum priority fee per gas: 0.1 Gwei per gas"));
+        assert!(pages[0].contains("Maximum fee per gas: 10 Gwei per gas"));
+        assert!(pages[0].contains(
+            "Maximum network fee for one WETH approval transaction: 0.01 ETH per approval transaction"
+        ));
+        assert!(pages[0].contains(
+            "Pending transaction policy: fail if the wallet already has pending transactions"
+        ));
+        assert!(pages[0]
+            .contains("Trait offers: enabled; OpenSea's pinned SignedZone is trusted"));
         assert!(pages[1].contains("ArtGod collection ID: #7"));
         assert!(pages[1].contains("Maximum WETH for any one NFT: 1.25"));
         assert!(pages[1].contains("Maximum NFTs per offer: 1"));
@@ -622,6 +640,10 @@ mod tests {
             chain_id: u64::MAX,
             chain_name: "Ethereum".to_owned(),
             weth_allowance_cap_eth: "0.5".to_owned(),
+            min_priority_fee_per_gas_gwei: "0.1".to_owned(),
+            max_fee_per_gas_gwei: "10".to_owned(),
+            max_total_gas_fee_eth: "0.01".to_owned(),
+            pending_nonce_policy: "fail if the wallet already has pending transactions".to_owned(),
             trait_offers_enabled: true,
             collections: vec![UnlockBiddingCollectionSummary {
                 collection_id: u64::MAX,

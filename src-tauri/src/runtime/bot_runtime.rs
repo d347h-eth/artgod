@@ -4,7 +4,7 @@ use super::bidding_mandate::BiddingMandate;
 use crate::wallet::domain::{BotKind, WalletId, WalletPrivateKey};
 
 const SECRET_ENVELOPE_MAGIC: &[u8; 8] = b"AGBOTKEY";
-const SECRET_ENVELOPE_VERSION: u8 = 2;
+const SECRET_ENVELOPE_VERSION: u8 = 3;
 const SECRET_KEY_LENGTH_BYTES: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -144,7 +144,7 @@ mod tests {
 
     fn load_fixture() -> TradingSecretEnvelopeFixture {
         let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../trading/src/runtime/fixtures/secret-envelope-v2.json");
+            .join("../trading/src/runtime/fixtures/secret-envelope-v3.json");
         let raw = fs::read_to_string(&fixture_path).expect("fixture file should load");
         serde_json::from_str(&raw).expect("fixture json should parse")
     }
@@ -202,11 +202,22 @@ mod tests {
     fn test_bidding_mandate() -> BiddingMandate {
         use super::super::bidding_mandate::{
             BIDDING_MANDATE_MAX_OFFER_QUANTITY, BiddingCollectionMandate,
-            BiddingCollectionTokenScopeSummary,
+            BiddingCollectionTokenScopeSummary, BiddingPendingNoncePolicy, BiddingStartPolicy,
+            BiddingWethApprovalPolicy,
         };
 
         BiddingMandate {
             chain_id: 1,
+            start_policy: BiddingStartPolicy {
+                weth_allowance_cap_wei: "500000000000000000".to_owned(),
+                trust_open_sea_signed_zone_trait_offers: true,
+                weth_approval: BiddingWethApprovalPolicy {
+                    min_priority_fee_per_gas_wei: "100000000".to_owned(),
+                    max_fee_per_gas_wei: "10000000000".to_owned(),
+                    max_total_gas_fee_wei: "10000000000000000".to_owned(),
+                    pending_nonce_policy: BiddingPendingNoncePolicy::Fail,
+                },
+            },
             collections: vec![BiddingCollectionMandate {
                 collection_id: 7,
                 artgod_slug: "example".to_owned(),

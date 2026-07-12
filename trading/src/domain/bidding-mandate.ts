@@ -1,7 +1,13 @@
 import { BIDDER_TARGET_TYPE, type BidderJob } from "./market/strategy/job.js";
+import {
+    EVM_PENDING_NONCE_POLICY,
+    type EvmPendingNoncePolicy,
+} from "@artgod/shared/evm/transactions";
+import { maxUint256 } from "viem";
 
 const EVM_ADDRESS_PATTERN = /^0x[a-f0-9]{40}$/;
 const POSITIVE_INTEGER_PATTERN = /^[1-9][0-9]*$/;
+const NON_NEGATIVE_INTEGER_PATTERN = /^(0|[1-9][0-9]*)$/;
 
 type BiddingCollectionAuthority = {
     collectionId: number;
@@ -11,9 +17,23 @@ type BiddingCollectionAuthority = {
     maxQuantity: bigint;
 };
 
+export type BiddingWethApprovalPolicySnapshot = {
+    minPriorityFeePerGasWei: string;
+    maxFeePerGasWei: string;
+    maxTotalGasFeeWei: string;
+    pendingNoncePolicy: EvmPendingNoncePolicy;
+};
+
+export type BiddingStartPolicySnapshot = {
+    wethAllowanceCapWei: string;
+    trustOpenSeaSignedZoneTraitOffers: boolean;
+    wethApproval: BiddingWethApprovalPolicySnapshot;
+};
+
 // Carries the non-secret authority accepted by one bidding process into local runtime projections.
 export type BiddingMandateSnapshot = {
     chainId: number;
+    startPolicy: BiddingStartPolicySnapshot;
     collections: Array<{
         collectionId: number;
         contractAddress: string;
@@ -22,6 +42,117 @@ export type BiddingMandateSnapshot = {
         maxQuantity: number;
     }>;
 };
+
+// Owns the canonical allowance, trait-trust, and approval transaction authority for one process.
+export class BiddingStartPolicy {
+    public readonly wethAllowanceCapWei: bigint;
+    public readonly trustOpenSeaSignedZoneTraitOffers: boolean;
+    public readonly wethApproval: Readonly<{
+        minPriorityFeePerGasWei: bigint;
+        maxFeePerGasWei: bigint;
+        maxTotalGasFeeWei: bigint;
+        pendingNoncePolicy: EvmPendingNoncePolicy;
+    }>;
+
+    private constructor(
+        wethAllowanceCapWei: bigint,
+        trustOpenSeaSignedZoneTraitOffers: boolean,
+        wethApproval: {
+            minPriorityFeePerGasWei: bigint;
+            maxFeePerGasWei: bigint;
+            maxTotalGasFeeWei: bigint;
+            pendingNoncePolicy: EvmPendingNoncePolicy;
+        },
+    ) {
+        this.wethAllowanceCapWei = wethAllowanceCapWei;
+        this.trustOpenSeaSignedZoneTraitOffers =
+            trustOpenSeaSignedZoneTraitOffers;
+        this.wethApproval = Object.freeze(wethApproval);
+        Object.freeze(this);
+    }
+
+    // Parses the complete global authority before any runtime adapter is composed.
+    public static parse(raw: unknown): BiddingStartPolicy {
+        if (!isRecord(raw)) {
+            throw new BiddingMandateViolationError(
+                "start policy must be an object",
+            );
+        }
+        if (typeof raw.trustOpenSeaSignedZoneTraitOffers !== "boolean") {
+            throw new BiddingMandateViolationError(
+                "start policy trait trust must be a boolean",
+            );
+        }
+        if (!isRecord(raw.wethApproval)) {
+            throw new BiddingMandateViolationError(
+                "WETH approval policy must be an object",
+            );
+        }
+
+        const wethAllowanceCapWei = requireCanonicalUint(
+            raw.wethAllowanceCapWei,
+            "WETH allowance cap",
+            true,
+        );
+        const minPriorityFeePerGasWei = requireCanonicalUint(
+            raw.wethApproval.minPriorityFeePerGasWei,
+            "WETH approval minimum priority fee per gas",
+            false,
+        );
+        const maxFeePerGasWei = requireCanonicalUint(
+            raw.wethApproval.maxFeePerGasWei,
+            "WETH approval maximum fee per gas",
+            false,
+        );
+        const maxTotalGasFeeWei = requireCanonicalUint(
+            raw.wethApproval.maxTotalGasFeeWei,
+            "WETH approval maximum total gas fee",
+            false,
+        );
+        if (minPriorityFeePerGasWei > maxFeePerGasWei) {
+            throw new BiddingMandateViolationError(
+                "WETH approval minimum priority fee per gas exceeds maximum fee per gas",
+            );
+        }
+        if (
+            raw.wethApproval.pendingNoncePolicy !==
+            EVM_PENDING_NONCE_POLICY.Fail
+        ) {
+            throw new BiddingMandateViolationError(
+                "WETH approval pending nonce policy is unsupported",
+            );
+        }
+
+        return new BiddingStartPolicy(
+            wethAllowanceCapWei,
+            raw.trustOpenSeaSignedZoneTraitOffers,
+            {
+                minPriorityFeePerGasWei,
+                maxFeePerGasWei,
+                maxTotalGasFeeWei,
+                pendingNoncePolicy: EVM_PENDING_NONCE_POLICY.Fail,
+            },
+        );
+    }
+
+    // Returns the exact canonical base-unit authority for projections and logs.
+    public snapshot(): BiddingStartPolicySnapshot {
+        return {
+            wethAllowanceCapWei: this.wethAllowanceCapWei.toString(),
+            trustOpenSeaSignedZoneTraitOffers:
+                this.trustOpenSeaSignedZoneTraitOffers,
+            wethApproval: {
+                minPriorityFeePerGasWei:
+                    this.wethApproval.minPriorityFeePerGasWei.toString(),
+                maxFeePerGasWei:
+                    this.wethApproval.maxFeePerGasWei.toString(),
+                maxTotalGasFeeWei:
+                    this.wethApproval.maxTotalGasFeeWei.toString(),
+                pendingNoncePolicy: this.wethApproval.pendingNoncePolicy,
+            },
+        };
+    }
+}
 
 // Signals that an offer falls outside the authority granted by the native prompt.
 export class BiddingMandateViolationError extends Error {
@@ -34,6 +165,7 @@ export class BiddingMandateViolationError extends Error {
 // Enforces the immutable native mandate independently of loopback HTTP and persisted job state.
 export class BiddingMandate {
     public readonly chainId: number;
+    public readonly startPolicy: BiddingStartPolicy;
     private readonly collectionsById: ReadonlyMap<
         number,
         BiddingCollectionAuthority
@@ -41,15 +173,18 @@ export class BiddingMandate {
 
     private constructor(
         chainId: number,
+        startPolicy: BiddingStartPolicy,
         collections: BiddingCollectionAuthority[],
     ) {
         this.chainId = chainId;
+        this.startPolicy = startPolicy;
         this.collectionsById = new Map(
             collections.map((collection) => [
                 collection.collectionId,
-                collection,
+                Object.freeze(collection),
             ]),
         );
+        Object.freeze(this);
     }
 
     // Parses and normalizes the complete native authority before runtime composition begins.
@@ -63,6 +198,7 @@ export class BiddingMandate {
                 `chain id ${chainId} does not match envelope chain ${expectedChainId}`,
             );
         }
+        const startPolicy = BiddingStartPolicy.parse(raw.startPolicy);
         if (!Array.isArray(raw.collections) || raw.collections.length === 0) {
             throw new BiddingMandateViolationError(
                 "mandate must authorize at least one collection",
@@ -80,7 +216,7 @@ export class BiddingMandate {
             seenCollectionIds.add(collection.collectionId);
             return collection;
         });
-        return new BiddingMandate(chainId, collections);
+        return new BiddingMandate(chainId, startPolicy, collections);
     }
 
     // Rejects a proposed final offer when its identity, quantity, or unit price exceeds the mandate.
@@ -128,6 +264,7 @@ export class BiddingMandate {
     public snapshot(): BiddingMandateSnapshot {
         return {
             chainId: this.chainId,
+            startPolicy: this.startPolicy.snapshot(),
             collections: Array.from(
                 this.collectionsById.values(),
                 (collection) => ({
@@ -139,6 +276,11 @@ export class BiddingMandate {
                 }),
             ),
         };
+    }
+
+    // Keeps diagnostics serializable without exposing mutable BigInt-backed internals.
+    public toJSON(): BiddingMandateSnapshot {
+        return this.snapshot();
     }
 }
 
@@ -215,12 +357,29 @@ function requirePositiveSafeInteger(value: unknown, label: string): number {
 }
 
 function requirePositiveBigInt(value: unknown, label: string): bigint {
-    if (typeof value !== "string" || !POSITIVE_INTEGER_PATTERN.test(value)) {
+    return requireCanonicalUint(value, label, false);
+}
+
+function requireCanonicalUint(
+    value: unknown,
+    label: string,
+    allowZero: boolean,
+): bigint {
+    const pattern = allowZero
+        ? NON_NEGATIVE_INTEGER_PATTERN
+        : POSITIVE_INTEGER_PATTERN;
+    if (typeof value !== "string" || !pattern.test(value)) {
         throw new BiddingMandateViolationError(
-            `${label} must be canonical positive wei`,
+            `${label} must be canonical ${allowZero ? "non-negative" : "positive"} wei`,
         );
     }
-    return BigInt(value);
+    const parsed = BigInt(value);
+    if (parsed > maxUint256) {
+        throw new BiddingMandateViolationError(
+            `${label} exceeds uint256`,
+        );
+    }
+    return parsed;
 }
 
 function requireNonEmptyString(value: unknown, label: string): string {
