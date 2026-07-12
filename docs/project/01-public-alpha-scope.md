@@ -38,9 +38,13 @@ Core release characteristics:
 - Collection extensions are build-bundled and DB-activated; Terraforms is the
   first embedded extension for metadata-side artifacts, sync enrichment, and
   backend media overrides.
-    - Terraforms collection browsing exposes `artifact`, `snapshot`, and
-      extension-provided `live`; token detail and preview can also expose a
-      token-local `lost` mode when the extra V2 lost-terrain artifact exists.
+    - Terraforms collection browsing separates the `snapshot` / `live` source
+      from token-local renderer choices. Snapshot can expose canonical media,
+      the cached V2 artifact, and the token's V2 lost-terrain artifact; live
+      preview can render V2, V1, or V0 directly from one pinned chain state.
+    - `always prefer V2` is enabled by default and remains explicit URL state
+      when a user disables it. Request-time live media bypasses preview caches
+      and adjacent-token prefetch.
 - Userland collection browsing includes shared collection-page chrome, tokens,
   activities, holders, reusable trait facets, collection activity feeds, and
   owner-scoped token browsing.

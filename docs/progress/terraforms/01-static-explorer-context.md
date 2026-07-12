@@ -106,7 +106,13 @@ Current artifact refs:
 - `terraforms-v2-media`
 - `terraforms-v2-lost-terrain` for non-Terrain tokens only
 
-The backend exposes `artifact`, `snapshot`, and extension-provided `live` for collection browsing. `live` keeps token cards on the canonical metadata image, while fullscreen preview and token detail resolve HTML animation from the Terraforms main contract `tokenHTML(tokenId)` in the backend request. `lost-terrain` is token-local and appears only where that token has the extra artifact.
+The backend exposes `snapshot` and extension-provided `live` as collection media
+sources. Terraforms separately exposes token-local media variants. Snapshot
+variants come from the two artifact refs plus canonical metadata; live preview
+and token detail offer explicit V2, V1, and V0 rendering from one pinned chain
+state. Live token cards keep the canonical metadata image and do not trigger
+per-card RPC reads. Request-time live previews bypass caches and adjacent-token
+prefetch.
 
 ## Existing Terraforms Trait Presentation
 
@@ -178,14 +184,17 @@ The contract should stay build-bundled like the current extension system. Remote
 Current shared extension exports:
 
 - `shared/extensions/index.ts`
-    - core media modes: `snapshot`, `artifact`
-    - media query param: `media_mode`
+    - core media source: `snapshot`
+    - media query params: `media_mode`, `media_preference`, and `media_variant`
+    - generic media preference values: `enabled` and `disabled`
     - embedded extension matching by chain, contract address, and token scope
     - install payload shape for DB activation
 - `shared/extensions/terraforms.ts`
     - `TERRAFORMS_EXTENSION_KEY = "terraforms"`
     - artifact refs for v2 media and lost terrain
-    - Terraforms-owned collection media modes, including `live`
+    - Terraforms-owned `live` source and token-local V2 artifact, V2 lost
+      terrain, V2, V1, and V0 variants
+    - `always prefer V2` label and renderer-selection contracts
     - Terraforms beacon/dream activity event keys
     - Terraforms mode, canvas, renderer, and config helpers
     - embedded mainnet contract match and renderer contract addresses
@@ -196,8 +205,9 @@ Current backend extension contract:
 - token-card trait summary template config
 - activity-row trait summary template config
 - activity event feed descriptors
-- collection/token media mode resolution
-- artifact ref resolution
+- collection source and preference resolution
+- token-local media variant resolution
+- effective token artifact ref resolution
 - token card/preview/detail media override mapping
 - request-time RPC context for extension-resolved token media
 - extension activity-event preview rendering
@@ -473,7 +483,9 @@ Expected work:
 - resolve page availability from the collection's installed/enabled extension descriptors
 - keep core route load generic and delegate only after the extension page is resolved
 - allow extension pages to declare their collection-tab placement relative to generic asset feeds and extension event feeds
-- preserve collection navigation state such as `media_mode` and trait filters only when the target page declares that it understands them
+- preserve collection `media_mode` and `media_preference` across every extension
+  page; carry trait filters only when the target declares that it understands
+  them, and never carry token-local `media_variant`
 
 Likely route shape:
 
@@ -488,7 +500,11 @@ Current implementation notes:
 - `frontend/src/lib/collection-extension-pages/` owns the frontend page registry, page outlet, and generic page load helper.
 - `frontend/src/lib/collection-extension-navigation.ts` supports activity-event targets and collection-extension page targets.
 - Page tabs resolve only when the collection's enabled extension descriptors include the target extension and a frontend page registration exists.
-- `frontend/src/lib/collection-navigation.ts` exposes `hrefs.extensionPage()`. It preserves `media_mode` only when the page target opts in; trait filters are not carried into static extension pages by default.
+- `frontend/src/lib/collection-navigation.ts` exposes `hrefs.extensionPage()`.
+  Collection extension pages always carry `media_mode` and `media_preference`
+  so visiting a non-media page cannot reset collection media intent;
+  token-local `media_variant` and trait filters are not carried into static
+  extension pages.
 - Generic routes exist for standard collection pages and public single-collection deployments:
     - `/:chain_ref/:collection_ref/extensions/:extension_key/:page_ref`
     - `/extensions/:extension_key/:page_ref`

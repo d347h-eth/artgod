@@ -506,7 +506,8 @@ Current implementation notes:
 - Add selected-card visual feedback and an inline unselect shortcut.
 - Keep `Ctrl` + left click and middle-click as token-card toggle gestures.
 - Unify `bid on all tokens`, `X selected`, and `clear` controls between asks, tokens, and offers.
-- Keep only media-mode controls on the far right of token-browser toolbars; bidding selection controls stay left-aligned.
+- Keep only media-selection controls on the far right of token-browser toolbars;
+  bidding selection controls stay left-aligned.
 
 Artifacts:
 
@@ -549,7 +550,9 @@ Current baseline after these slices:
 - `F` toggles trait filters and keeps checkbox/radio focus compatible with page shortcuts.
 - Clicked buttons, checkboxes, and radio controls release pointer focus through the shared frontend focus-release helper instead of one-off `blur()` calls.
 - Active stateful toggles such as `filter`, `tiers`, and `traits` keep the shared hover/focus behavior; inert selected navigation tabs remain non-clickable.
-- Top-action rows own filter, scope, and bidding target controls; result toolbars remain limited to result chrome such as counts, pagination, display mode, and media mode.
+- Top-action rows own filter, scope, and bidding target controls; result toolbars
+  remain limited to result chrome such as counts, pagination, display mode, and
+  media selection.
 - Token detail pre-fills from the highest applicable bid plus the same minimum-winning-delta calculation used by collection and trait actions.
 - Minimum winning delta is based on the bid price order of magnitude, not one percent of the bid: examples are `20 -> 0.1`, `4 -> 0.01`, `0.23 -> 0.001`, `0.05 -> 0.0001`.
 - Human-facing prices and logs stay in Ether units; wei remains an internal/runtime boundary detail.

@@ -101,8 +101,9 @@ Backend resolves effective token presentation through an extension-aware read la
 
 Today that includes:
 
-- collection media mode resolution, including extension-provided modes exposed through the normal `media_mode` URL contract
-- token-local media mode enrichment when an extension can expose extra token-specific artifacts
+- collection media-source resolution, including extension-provided sources exposed through the normal `media_mode` URL contract
+- extension-owned collection media preferences exposed through `media_preference`
+- token-local media-variant resolution through `media_variant`
 - token card image override
 - token detail image / animation override
 - activity token include media override
@@ -113,7 +114,7 @@ Relevant backend pieces:
 - `backend/src/application/collection-extensions/index.ts`
 - `backend/src/infra/collections/extension-aware-collection-detail-read.ts`
 
-The backend still returns one effective media set per token response. Extensions do not cause parallel media payloads to be emitted.
+The backend still returns one effective media set per token response. A token response can describe the available source and variant choices, but extensions do not cause every media payload to be emitted in parallel.
 
 ### 5. Collection-scoped customization overrides
 
@@ -142,8 +143,8 @@ This makes collection customization an extension-system feature, not a Terraform
 
 - known extension keys
 - embedded install matching rules
-- stable artifact refs
-- shared media mode keys
+- the generic snapshot media source
+- shared media query keys and preference values
 - extension-owned config parsing helpers
 
 This file is the stable cross-runtime registry.
@@ -162,9 +163,11 @@ They do **not** currently own backend presentation logic directly.
 
 Backend extensions currently own:
 
-- media modes exposed for a collection
-- default media mode
-- artifact ref resolution for a requested mode
+- media sources exposed for a collection
+- default media source
+- optional media-preference state
+- token-local media variants and their default-selection rules
+- artifact ref resolution for an effective token variant
 - effective token card/detail projection
 - extension-defined trait filter presentation config
 - extension-defined token-card trait summary template
@@ -202,19 +205,58 @@ Terraforms caches version-2 media artifacts using:
   extension-owned normalized trait when the Beacon contract reports a first
   antenna-on mutation before the fixed Season 0 cutoff
 
-The backend can then resolve:
+The backend separates collection media source from token-local media variant:
 
-- `artifact` mode -> extension-backed effective media when artifact exists
-- `lost-terrain` mode -> token-local bonus mode when `terraforms-v2-lost-terrain` exists for that token
-- `snapshot` mode -> canonical media from base token metadata
-- `live` mode -> canonical image from base token metadata plus request-time HTML animation from the Terraforms main contract `tokenHTML(tokenId)` response
+- collection sources are `snapshot` and extension-provided `live`
+- `media_mode` owns the selected source
+- `media_preference=enabled|disabled` owns the extension preference; Terraforms
+  labels it `always prefer V2`, enables it by default, and omits the default
+  value from generated URLs
+- `media_variant` identifies one token-local choice and is not a collection-wide
+  rendering mode
 
-Important scope rule:
+Snapshot variant availability comes from persisted state:
 
-- collection browser surfaces expose `artifact`, `snapshot`, and extension-provided `live`
-- token cards in `live` still use the canonical metadata image and do not perform per-card live contract reads
-- fullscreen preview and token detail in `live` resolve animation HTML by same-request backend RPC; failures use normal request error behavior
-- `lost-terrain` is token-local and appears only on token detail / preview for eligible non-Terrain tokens
+- `V2 artifact` exists when `terraforms-v2-media` exists
+- `V2 lost terrain` exists for canonical tokens when
+  `terraforms-v2-lost-terrain` exists
+- canonical `V2` exists only when canonical metadata has both an animation and
+  normalized `Version = 2.0`
+- canonical `V0` is the temporary label for canonical animation without that V2
+  trait; normalized metadata cannot currently distinguish V0 from V1
+- the V2 artifact and canonical V2 choices may coexist because they represent
+  different persisted media
+- extension-owned synthetic tokens have no canonical metadata and expose only
+  their V2 artifact
+
+Default snapshot selection applies the preference without hiding explicit
+choices:
+
+- canonical preference enabled: `V2 artifact` -> canonical `V2` -> canonical
+  `V0`
+- canonical preference disabled: canonical `V2` -> canonical `V0`; an artifact
+  remains explicitly selectable but is not selected automatically
+- synthetic tokens keep their sole `V2 artifact` selected regardless of the
+  preference because they have no canonical media
+- `V2 lost terrain` is never selected automatically; it requires explicit user
+  intent
+
+Live media is available only to canonical numeric token ids. It exposes explicit
+`V2`, `V1`, and `V0` choices, reconstructs current token state from one pinned
+block, and invokes the selected Terraforms renderer. It does not use the artifact
+lane's Daydream canvas override. With the preference enabled, live opens on V2;
+with it disabled, live opens on the token's owner-selected renderer.
+
+Important read-path rules:
+
+- token cards in `live` still use the canonical metadata image and do not
+  perform per-card live contract reads
+- fullscreen preview and token detail resolve live animation HTML through the
+  same backend request; failures use normal request error behavior
+- live preview requests bypass backend/frontend preview caches and adjacent-token
+  prefetch
+- activity-event preview render modes remain their separate extension-event
+  contract and are not Terraforms token media variants
 
 ### Current Terraforms customization override
 
@@ -352,7 +394,11 @@ Current frontend pieces:
 - `frontend/src/lib/collection-extension-pages/` owns the page registry, generic page outlet, action scope, and page load helper.
 - `frontend/src/lib/collection-extension-navigation.ts` supports activity-event targets and collection-extension page targets.
 - Page tabs resolve only when the collection's enabled extension descriptors include the target extension and a frontend page registration exists.
-- `frontend/src/lib/collection-navigation.ts` exposes `hrefs.extensionPage()`. It preserves `media_mode` only when the page target opts in; trait filters are not carried into static extension pages by default.
+- `frontend/src/lib/collection-navigation.ts` exposes `hrefs.extensionPage()`.
+  Collection extension pages always carry `media_mode` and `media_preference`
+  so visiting a non-media page cannot reset collection media intent;
+  token-local `media_variant` and trait filters are not carried into static
+  extension pages.
 - Generic routes exist for standard collection pages and public single-collection deployments:
     - `/:chain_ref/:collection_ref/extensions/:extension_key/:page_ref`
     - `/extensions/:extension_key/:page_ref`
