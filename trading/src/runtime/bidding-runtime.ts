@@ -25,10 +25,9 @@ import {
     createPublicClient,
     createWalletClient,
     formatEther,
-    type Hex,
     type PublicClient,
 } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import type { PrivateKeyAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
 import { NatsBiddingJobCommandSignalListener } from "../adapters/jobs/nats-bidding-job-command-signal-listener.js";
 import { SqliteBiddingBidBookProjection } from "../adapters/bid-book/sqlite-bidding-bid-book-projection.js";
@@ -40,7 +39,10 @@ import { OpenSeaBiddingService } from "../adapters/opensea/open-sea-bidding-serv
 import { OpenSeaCollectionOfferSource } from "../adapters/opensea/open-sea-collection-offer-source.js";
 import { OpenSeaEventStream } from "../adapters/opensea/open-sea-event-stream.js";
 import { OpenSeaMarketEventFactory } from "../adapters/opensea/open-sea-market-event-factory.js";
-import { OpenSeaPolicyWallet } from "../adapters/opensea/open-sea-policy-wallet.js";
+import {
+    OpenSeaPolicyWallet,
+    type OpenSeaPolicyTypedDataSigner,
+} from "../adapters/opensea/open-sea-policy-wallet.js";
 import { TokenBucketRateLimiter } from "../adapters/support/token-bucket-rate-limiter.js";
 import { SqliteBiddingBotRuntimeState } from "../adapters/runtime/sqlite-bidding-bot-runtime-state.js";
 import { ViemWethAllowanceApprovalService } from "../adapters/wallet/viem-weth-allowance-approval-service.js";
@@ -113,8 +115,7 @@ type BidPipelineHandle = {
 type StartBiddingRuntimeParams = {
     config: TradingConfig;
     biddingConfig: EnabledBiddingConfig;
-    privateKeyHex: Hex;
-    makerAddress: string;
+    signingAccount: PrivateKeyAccount;
     walletId: string;
     lifecycle: BiddingRuntimeLifecyclePort;
     metrics: Metrics;
@@ -179,6 +180,7 @@ export async function startBiddingRuntime(
     params: StartBiddingRuntimeParams,
 ): Promise<BiddingRuntimeHandle> {
     assertSupportedBiddingChain(params.config.chainId);
+    const makerAddress = params.signingAccount.address;
 
     // Point the shared SQLite helpers at the runtime-selected ArtGod database before metadata adapters start reading.
     setDbPath(params.config.dbPath);
@@ -187,7 +189,7 @@ export async function startBiddingRuntime(
         botKind: TRADING_BOT_KIND.Bidding,
         chainId: params.config.chainId,
         walletId: params.walletId,
-        address: params.makerAddress,
+        address: makerAddress,
     };
     const runtimeState = new SqliteBiddingBotRuntimeState(
         params.biddingMandate.snapshot(),
@@ -246,16 +248,15 @@ export async function startBiddingRuntime(
         readOnlyPublicClient,
         params.config.tokens.wethAddress,
     );
-    const signingAccount = privateKeyToAccount(params.privateKeyHex);
     // Validate all ArtGod-owned OpenSea pins before constructing any transaction-capable client.
+    const openSeaSigningCapability: OpenSeaPolicyTypedDataSigner = {
+        address: makerAddress,
+        signTypedData: async (input) =>
+            await params.signingAccount.signTypedData(input as never),
+    };
     const openSeaPolicyWallet = new OpenSeaPolicyWallet(
+        openSeaSigningCapability,
         {
-            address: signingAccount.address,
-            signTypedData: async (input) =>
-                await signingAccount.signTypedData(input as never),
-        },
-        {
-            makerAddress: params.makerAddress,
             wethAddress: params.config.tokens.wethAddress,
             allowanceCapWei: params.biddingConfig.wethAllowanceCapWei,
             trustOpenSeaSignedZoneTraitOffers:
@@ -275,14 +276,14 @@ export async function startBiddingRuntime(
             requestTimeoutMs: params.config.rpc.resilience.requestTimeoutMs,
         },
     );
-    const writeCapableWalletClient = createWalletClient({
-        account: signingAccount,
+    const allowanceWalletClient = createWalletClient({
+        account: params.signingAccount,
         chain: mainnet,
         transport: writeCapableRpcTransport,
     });
     const wethAllowanceApprovalService = new ViemWethAllowanceApprovalService(
         readOnlyPublicClient,
-        writeCapableWalletClient,
+        allowanceWalletClient,
         params.config.tokens.wethAddress,
         OPENSEA_MAINNET_SECURITY_POLICY.conduitAddress,
         params.biddingConfig.transactionPolicy,
@@ -307,7 +308,7 @@ export async function startBiddingRuntime(
     });
     // Reconcile the conduit allowance to the exact operator-configured WETH cap before any signing is possible.
     const allowanceResult = await wethAllowanceApprovalService.ensureAllowance({
-        ownerAddress: params.makerAddress,
+        ownerAddress: makerAddress,
         desiredAllowanceWei: params.biddingConfig.wethAllowanceCapWei,
         dryRun: params.biddingConfig.dryRun,
         onProgress: reportAllowanceProgress,
@@ -360,7 +361,7 @@ export async function startBiddingRuntime(
     const bidBookProjection = new BiddingBidBookProjectionScheduler(
         new SqliteBiddingBidBookProjection(
             params.config.chainId,
-            params.makerAddress,
+            makerAddress,
             params.config.tokens.wethAddress,
         ),
         params.biddingConfig.bidBookProjectionThrottleMs,
@@ -393,29 +394,25 @@ export async function startBiddingRuntime(
         },
     );
 
-    const biddingService = new OpenSeaBiddingService(
-        biddingSdk,
-        params.makerAddress,
-        {
-            collectionOfferSnapshotProvider: collectionOfferSnapshotService,
-            tokenMetadataRepository,
-            offerExpirationSeconds: params.biddingConfig.offerExpirationSeconds,
-            orderLookupMaxPages: params.biddingConfig.orderLookupMaxPages,
-            retryPolicy: params.biddingConfig.openSea.http.retryPolicy,
-            rateLimiter: new TokenBucketRateLimiter(
-                params.biddingConfig.openSea.http.rateLimiter,
-            ),
-            tokenCriteriaTraitsByCollection:
-                params.biddingConfig.tokenCriteriaTraitsByCollection,
-            competitiveTraitMaxLookupSelectors:
-                params.biddingConfig.competitiveTraitMaxLookupSelectors,
-            trustOpenSeaSignedZoneTraitOffers:
-                params.biddingConfig.trustOpenSeaSignedZoneTraitOffers,
-        },
-    );
+    const biddingService = new OpenSeaBiddingService(biddingSdk, makerAddress, {
+        collectionOfferSnapshotProvider: collectionOfferSnapshotService,
+        tokenMetadataRepository,
+        offerExpirationSeconds: params.biddingConfig.offerExpirationSeconds,
+        orderLookupMaxPages: params.biddingConfig.orderLookupMaxPages,
+        retryPolicy: params.biddingConfig.openSea.http.retryPolicy,
+        rateLimiter: new TokenBucketRateLimiter(
+            params.biddingConfig.openSea.http.rateLimiter,
+        ),
+        tokenCriteriaTraitsByCollection:
+            params.biddingConfig.tokenCriteriaTraitsByCollection,
+        competitiveTraitMaxLookupSelectors:
+            params.biddingConfig.competitiveTraitMaxLookupSelectors,
+        trustOpenSeaSignedZoneTraitOffers:
+            params.biddingConfig.trustOpenSeaSignedZoneTraitOffers,
+    });
     const bidder = new Bidder(
         biddingService,
-        params.makerAddress,
+        makerAddress,
         params.biddingConfig.scanSleepMs,
         {
             dryRun: params.biddingConfig.dryRun,
@@ -491,7 +488,7 @@ export async function startBiddingRuntime(
         params.biddingConfig.openSea.streamSecretKey,
     );
     const bidPipeline = buildBidPipeline(
-        params.makerAddress,
+        makerAddress,
         bidder,
         collectionOfferSnapshotService,
         params.biddingConfig.criteriaRefreshTraitsByCollection,

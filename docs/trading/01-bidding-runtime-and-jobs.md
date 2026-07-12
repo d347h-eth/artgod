@@ -125,8 +125,9 @@ only as the desktop parent's liveness lease.
 Startup order:
 
 1. derive the secret-envelope v2 frame length from its bounded header, read that
-   exact frame without waiting for EOF, require its native bidding mandate, and
-   construct the in-memory signer
+   exact mutable frame without waiting for EOF, validate its metadata and native
+   bidding mandate, construct exactly one viem account, verify its address, and
+   erase the full frame before any later bootstrap work
 2. load typed trading config and require its chain to match the envelope and mandate
 3. mark previously tracked active offers as unverified for enabled bidding jobs
 4. load enabled bidding jobs from SQLite with canonical collection ids and required OpenSea slugs
@@ -459,6 +460,12 @@ Trading-specific rules:
 - private keys are Rust-owned until the exact bot startup moment
 - key material and the immutable native mandate are passed to Node in one exact
   stdin secret-envelope frame only; additional parent writes are forbidden
+- the Node entry boundary creates one viem private-key account, verifies its
+  address, and erases the aliased key bytes plus every byte of the mutable frame
+  in `finally` before config, allowance, snapshot, price, or command bootstrap
+- runtime composition receives only validated non-secret metadata and that one
+  account capability; it receives no private-key bytes or hex and constructs no
+  second account
 - the Node process keeps monitoring stdin after it parses the frame and exits if
   the desktop parent closes the channel, the stream errors, or any extra data
   arrives
@@ -486,6 +493,10 @@ Trading-specific rules:
   and fails closed unless it equals the configured cap
 - OpenSea cannot create approval transactions; only ArtGod's allowance adapter
   receives the transaction-capable wallet client
+- OpenSea receives only the account address and a typed-data signing closure
+  behind the policy wallet. It receives no transaction sending, contract
+  writing, arbitrary message signing, transaction signing, or unrestricted
+  typed-data authority.
 - Admin `Bots` selects live/OpenSea-ready collections and a
   `max WETH for any one NFT` safety limit; the per-offer quantity is fixed at
   one. OpenSea-ready means the collection has a persisted slug and non-null
@@ -524,6 +535,10 @@ Trading-specific rules:
 - Linux `exec` resets dumpability, so Rust child preparation does not claim
   post-exec Node nondumpability. A pinned native bootstrap remains deferred
   under the same-user process-memory and full-host exclusions.
+- viem necessarily retains one immutable private-key representation inside the
+  account closure for the process lifetime. JavaScript cannot reliably erase
+  that closure; this boundary removes avoidable frame, string, and account
+  copies but does not claim complete Node heap zeroization.
 - `BIDDING_TX_MAX_FEE_GWEI` caps the approval transaction fee per gas unit
 - `BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ETH` separately caps its worst-case network
   gas fee as explicit gas limit times selected max fee per gas; it does not cap

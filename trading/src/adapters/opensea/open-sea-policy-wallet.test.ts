@@ -51,7 +51,10 @@ describe("OpenSeaPolicyWallet", () => {
         const sdkAccount = policyWallet.walletClient
             .account as unknown as Record<string, unknown>;
         assert.equal(sdkAccount.signTypedData, undefined);
+        assert.equal(sdkAccount.signMessage, undefined);
         assert.equal(sdkAccount.signTransaction, undefined);
+        assert.equal(sdkAccount.sendTransaction, undefined);
+        assert.equal(sdkAccount.writeContract, undefined);
         await assert.rejects(
             async () =>
                 await requestWalletAction(
@@ -65,6 +68,24 @@ describe("OpenSeaPolicyWallet", () => {
                     policyWallet.walletClient.writeContract,
                 ),
             /writeContract is not permitted/,
+        );
+        await assert.rejects(
+            async () =>
+                await requestWalletAction(
+                    policyWallet.walletClient.signMessage,
+                ),
+            /signMessage is not permitted/,
+        );
+        await assert.rejects(
+            async () =>
+                await requestWalletAction(
+                    policyWallet.walletClient.signTransaction,
+                ),
+            /signTransaction is not permitted/,
+        );
+        await assert.rejects(
+            async () => await requestSignature(policyWallet, typedData),
+            /typed-data signature was requested without authorization/,
         );
     });
 
@@ -432,7 +453,6 @@ function createPolicyWallet(options: {
         },
     };
     return new OpenSeaPolicyWallet(signer, {
-        makerAddress: MAKER,
         wethAddress: OPENSEA_MAINNET_SECURITY_POLICY.wethAddress,
         allowanceCapWei: options.allowanceCapWei,
         trustOpenSeaSignedZoneTraitOffers:

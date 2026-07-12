@@ -1,7 +1,6 @@
 import process from "node:process";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
-import { privateKeyToAccount } from "viem/accounts";
-import type { Hex } from "viem";
+import { TRADING_BOT_KIND } from "@artgod/shared/types";
 import { loadTradingConfig } from "../config/trading-config.js";
 import {
     startBiddingRuntime,
@@ -9,10 +8,10 @@ import {
 } from "./bidding-runtime.js";
 import { readSecretEnvelopeFromParent } from "./parent-secret-channel.js";
 import {
-    parseSecretEnvelope,
     type TradingBotKind,
     type TradingSecretEnvelopeMetadata,
 } from "./secret-envelope.js";
+import { consumeTradingSigningAuthority } from "./trading-signing-authority.js";
 import {
     TRADING_METRICS_LOG_COMPONENT,
     TRADING_METRICS_PREFIX,
@@ -60,47 +59,33 @@ export async function bootstrapTradingBot(
         process.stdin,
         exitAfterParentChannelFailure,
     );
-    const envelopeBuffer = parentSecretChannel.envelope;
-    let privateKeyHex = "";
 
     try {
-        const envelope = parseSecretEnvelope(envelopeBuffer);
-        if (envelope.metadata.botKind !== botKind) {
-            throw new Error(
-                `Secret envelope bot kind mismatch: expected ${botKind}, received ${envelope.metadata.botKind}`,
-            );
-        }
+        // Consume and erase the exact frame before config or long-running runtime bootstrap begins.
+        const { metadata, signingAccount } = consumeTradingSigningAuthority(
+            parentSecretChannel.envelope,
+            botKind,
+        );
 
-        privateKeyHex = `0x${envelope.privateKeyBytes.toString("hex")}`;
-        const account = privateKeyToAccount(privateKeyHex as Hex);
-        if (
-            account.address.toLowerCase() !==
-            envelope.metadata.address.toLowerCase()
-        ) {
-            throw new Error(
-                `Derived address mismatch: expected ${envelope.metadata.address}, received ${account.address}`,
-            );
-        }
-
-        if (botKind === "bidding") {
+        if (botKind === TRADING_BOT_KIND.Bidding) {
             const config = loadTradingConfig();
             if (!config.bidding.enabled) {
                 throw new Error(
                     "BIDDING_ENABLED is false; bidding runtime is disabled",
                 );
             }
-            if (config.chainId !== envelope.metadata.chainId) {
+            if (config.chainId !== metadata.chainId) {
                 throw new Error(
-                    `Secret envelope chain mismatch: expected ${config.chainId}, received ${envelope.metadata.chainId}`,
+                    `Secret envelope chain mismatch: expected ${config.chainId}, received ${metadata.chainId}`,
                 );
             }
-            if (!envelope.metadata.biddingMandate) {
+            if (!metadata.biddingMandate) {
                 throw new Error("Bidding secret envelope mandate is missing");
             }
 
             const lifecycle = createBiddingLifecyclePort(
-                envelope.metadata,
-                account.address,
+                metadata,
+                signingAccount.address,
             );
             const runtimeMetrics = await initRuntimeMetrics({
                 enabled: config.metrics.enabled,
@@ -116,17 +101,16 @@ export async function bootstrapTradingBot(
                 const runtime = await startBiddingRuntime({
                     config,
                     biddingConfig: config.bidding,
-                    privateKeyHex: privateKeyHex as Hex,
-                    makerAddress: account.address,
-                    walletId: envelope.metadata.walletId,
+                    signingAccount,
+                    walletId: metadata.walletId,
                     lifecycle,
                     metrics: runtimeMetrics.metrics,
-                    biddingMandate: envelope.metadata.biddingMandate,
+                    biddingMandate: metadata.biddingMandate,
                 });
 
                 try {
                     writeLifecyclePayload(
-                        createReadyPayload(envelope.metadata, account.address),
+                        createReadyPayload(metadata, signingAccount.address),
                     );
 
                     await waitForShutdownSignal();
@@ -140,14 +124,10 @@ export async function bootstrapTradingBot(
         }
 
         writeLifecyclePayload(
-            createReadyPayload(envelope.metadata, account.address),
+            createReadyPayload(metadata, signingAccount.address),
         );
         await waitForShutdownSignal();
     } finally {
-        envelopeBuffer.fill(0);
-        if (privateKeyHex.length > 0) {
-            privateKeyHex = "0x";
-        }
         // Release stdin only after runtime and metrics cleanup so graceful SIGTERM can exit.
         parentSecretChannel.releaseAfterCleanup();
     }
