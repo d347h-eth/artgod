@@ -1576,6 +1576,16 @@ fn build_trading_bot_process_args(config: &BotRuntimeLaunchConfig) -> Vec<String
     )
 }
 
+/// Replaces ambient parent variables with the frozen ArtGod bot environment.
+fn configure_key_bearing_node_environment(
+    command: &mut Command,
+    process_env: &HashMap<String, String>,
+) {
+    // Prevent launcher-controlled Node and dynamic-loader settings from running before key intake.
+    command.env_clear();
+    command.envs(process_env);
+}
+
 fn spawn_contained_trading_bot_child(
     config: &BotRuntimeLaunchConfig,
     args: &[String],
@@ -1588,10 +1598,7 @@ fn spawn_contained_trading_bot_child(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-
-    for (key, value) in &config.process_env {
-        command.env(key, value);
-    }
+    configure_key_bearing_node_environment(&mut command, &config.process_env);
 
     let prepared_containment = prepare_process_containment(&mut command).map_err(|error| {
         format!(
@@ -2860,6 +2867,8 @@ where
 mod tests {
     use std::collections::HashMap;
     use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
 
     #[cfg(unix)]
@@ -2905,6 +2914,11 @@ mod tests {
     #[cfg(unix)]
     const PRODUCTION_CONTAINMENT_TEST_NODE_COMMAND: &str = "node";
     #[cfg(unix)]
+    const PRODUCTION_CONTAINMENT_TEST_EXECUTABLE_PATH_ENV: &str = "PATH";
+    // Unix permission bits used to match executable lookup for the test Node command.
+    #[cfg(unix)]
+    const UNIX_EXECUTABLE_PERMISSION_MASK: u32 = 0o111;
+    #[cfg(unix)]
     const UNIX_KILL_COMMAND: &str = "kill";
     #[cfg(unix)]
     const UNIX_SIGTERM_ARG: &str = "-TERM";
@@ -2919,6 +2933,9 @@ mod tests {
     // Exceeds normal pipe capacity so the fixture cannot finish before Stop arrives.
     #[cfg(unix)]
     const BLOCKED_SECRET_HANDOFF_TEST_BYTES: usize = 2 * 1024 * 1024;
+
+    // Node startup option used to model an ambient pre-entrypoint injection attempt.
+    const NODE_OPTIONS_ENV_KEY: &str = "NODE_OPTIONS";
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -3276,6 +3293,7 @@ mod tests {
         let artifact_path = workspace_root.join(SNIPING_BOT_SPEC.artifact_relative_path);
         let pnp_cjs_path = workspace_root.join(PNP_CJS_RELATIVE_PATH);
         let pnp_loader_path = workspace_root.join(PNP_LOADER_RELATIVE_PATH);
+        let node_bin = resolve_production_containment_test_node();
         for required_path in [&artifact_path, &pnp_cjs_path, &pnp_loader_path] {
             assert!(
                 required_path.is_file(),
@@ -3286,7 +3304,7 @@ mod tests {
         BotRuntimeLaunchConfig {
             spec: SNIPING_BOT_SPEC,
             artifact_path,
-            node_bin: PathBuf::from(PRODUCTION_CONTAINMENT_TEST_NODE_COMMAND),
+            node_bin,
             runtime_dir: workspace_root.to_path_buf(),
             pnp_cjs_path,
             pnp_loader_path,
@@ -3294,6 +3312,34 @@ mod tests {
             process_env: HashMap::new(),
             logs_dir: workspace_root.join("tmp"),
         }
+    }
+
+    #[cfg(unix)]
+    fn resolve_production_containment_test_node() -> PathBuf {
+        let search_path = std::env::var_os(PRODUCTION_CONTAINMENT_TEST_EXECUTABLE_PATH_ENV)
+            .expect("production containment test requires PATH to locate Node");
+        let candidate = std::env::split_paths(&search_path)
+            .map(|directory| directory.join(PRODUCTION_CONTAINMENT_TEST_NODE_COMMAND))
+            .find(|path| {
+                fs::metadata(path).is_ok_and(|metadata| {
+                    metadata.is_file()
+                        && metadata.permissions().mode() & UNIX_EXECUTABLE_PERMISSION_MASK != 0
+                })
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "production containment test requires {} on PATH",
+                    PRODUCTION_CONTAINMENT_TEST_NODE_COMMAND
+                )
+            });
+
+        // Freeze an absolute executable path before the production spawn clears PATH.
+        fs::canonicalize(&candidate).unwrap_or_else(|error| {
+            panic!(
+                "failed to canonicalize production containment Node {}: {error}",
+                candidate.display()
+            )
+        })
     }
 
     #[cfg(unix)]
@@ -3515,5 +3561,30 @@ mod tests {
             .stderr(Stdio::null())
             .status()
             .is_ok_and(|status| status.success())
+    }
+
+    #[test]
+    fn key_bearing_bot_environment_is_rebuilt_from_frozen_config() {
+        let config = build_test_runtime_config();
+        let mut command = Command::new(&config.node_bin);
+        command.env(NODE_OPTIONS_ENV_KEY, "--require=artgod-env-injection.cjs");
+
+        configure_key_bearing_node_environment(&mut command, &config.process_env);
+
+        let explicit_env = command
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().into_owned(),
+                    value
+                        .expect("configured bot env values must be present")
+                        .to_string_lossy()
+                        .into_owned(),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
+        assert_eq!(explicit_env, config.process_env);
+        assert!(!explicit_env.contains_key(NODE_OPTIONS_ENV_KEY));
     }
 }

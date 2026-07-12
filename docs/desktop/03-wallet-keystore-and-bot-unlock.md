@@ -135,15 +135,17 @@ These are hard rules, not suggestions.
 12. Release builds verify the exact key-bearing runtime code and dependency
     file set against hashes embedded in the Rust desktop executable before
     prompting.
-13. Userland bidding mutations are proposals, not wallet authority. Every bidding start requires a native-reviewed mandate resolved by Rust from canonical live collection records with enabled or paused bidding jobs.
-14. Without relying on HTTP middleware or a prior SQLite approval flag, the bidding signer must reject offers outside the approved chain, ArtGod collection ID, contract address, OpenSea slug, maximum WETH for any one NFT, and fixed per-offer quantity.
-15. Native wallet prompts are serialized by one composition-owned coordinator;
+13. Key-bearing Node processes clear the parent environment and receive only
+    the frozen, Rust-resolved ArtGod child-process map.
+14. Userland bidding mutations are proposals, not wallet authority. Every bidding start requires a native-reviewed mandate resolved by Rust from canonical live collection records with enabled or paused bidding jobs.
+15. Without relying on HTTP middleware or a prior SQLite approval flag, the bidding signer must reject offers outside the approved chain, ArtGod collection ID, contract address, OpenSea slug, maximum WETH for any one NFT, and fixed per-offer quantity.
+16. Native wallet prompts are serialized by one composition-owned coordinator;
     overlapping requests fail closed instead of opening independently.
-16. Every bot start owns one monotonic lifecycle generation from before dependency
+17. Every bot start owns one monotonic lifecycle generation from before dependency
     stabilization through prompt, decrypt, process publication, and secret
     handoff. Stop or core shutdown cancels that generation and prevents stale work
     from becoming active.
-17. A bot process must not outlive the desktop parent. The retained stdin lease
+18. A bot process must not outlive the desktop parent. The retained stdin lease
     provides the portable liveness boundary, reinforced by platform process
     containment where available.
 
@@ -1224,6 +1226,7 @@ Rules:
 - remove flow behavior
 - same-bot start exclusion, cross-bot independence, stop cancellation, core
   generation invalidation, and stale-controller fencing
+- key-bearing bot command environment replacement
 
 ### Rust Integration Tests
 

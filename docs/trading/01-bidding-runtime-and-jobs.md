@@ -445,6 +445,8 @@ Trading-specific rules:
   parent-PID race check; Windows uses a kill-on-close Job Object; macOS uses the
   retained pipe boundary
 - bot process args and env contain no private keys
+- bot startup replaces the ambient parent environment with the frozen ArtGod
+  runtime map
 - lifecycle events and runtime-state DB rows contain only non-secret metadata
 - every bot restart requires a fresh unlock
 - every start is generation-reserved before dependency waiting and unlock;
