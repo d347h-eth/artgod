@@ -17,6 +17,10 @@ use crate::generated_font::{
     ADVANCE_WIDTH, ASCII_END, ASCII_GLYPHS, ASCII_START, CELL_HEIGHT, CELL_WIDTH,
 };
 
+mod generated_window_size {
+    include!(concat!(env!("OUT_DIR"), "/generated_window_size.rs"));
+}
+
 const BACKGROUND: u32 = 0x101317;
 const PANEL: u32 = 0x171C22;
 const PANEL_MUTED: u32 = 0x1F2630;
@@ -47,6 +51,8 @@ const CARET_TEXT_GAP_PX: i32 = 4;
 const FIELD_HEIGHT: i32 = CELL_HEIGHT as i32 + (FIELD_INNER_PADDING_Y * 2);
 const TEXT_WINDOW_SIZE: (u32, u32) = (820, 360);
 const UNLOCK_WINDOW_SIZE: (u32, u32) = (920, 460);
+// Uses the canonical Admin launch dimensions for complete bidding authorization pages.
+const BIDDING_REVIEW_WINDOW_SIZE: (u32, u32) = generated_window_size::ADMIN_WINDOW_SIZE;
 const REVEAL_WINDOW_SIZE: (u32, u32) = (920, 420);
 const STARTUP_SUBMIT_GUARD: Duration = Duration::from_millis(250);
 const REVIEW_NEXT_LABEL: &str = "Next";
@@ -172,6 +178,7 @@ pub enum PromptUiError {
 
 pub fn prompt_unlock(spec: UnlockPromptSpec<'_>) -> Result<Option<String>, PromptUiError> {
     let title = spec.title.to_owned();
+    let window_size = resolve_unlock_window_size(&spec.review_pages)?;
     let initial_screen = if let Some(page) = spec.review_pages.first() {
         build_confirm_screen(ConfirmPromptSpec {
             title: spec.title,
@@ -200,13 +207,36 @@ pub fn prompt_unlock(spec: UnlockPromptSpec<'_>) -> Result<Option<String>, Promp
         unlock_label: spec.unlock_label.to_owned(),
         cancel_label: spec.cancel_label.to_owned(),
     });
-    match run_flow(title, flow, initial_screen, UNLOCK_WINDOW_SIZE)? {
+    match run_flow(title, flow, initial_screen, window_size)? {
         FlowResult::UnlockSubmitted(passphrase) => Ok(Some(passphrase)),
         FlowResult::Cancelled => Ok(None),
         other => Err(PromptUiError::Render(format!(
             "Prompt returned unexpected unlock result: {other:?}"
         ))),
     }
+}
+
+fn resolve_unlock_window_size(review_pages: &[String]) -> Result<(u32, u32), PromptUiError> {
+    if review_pages.is_empty() {
+        return Ok(UNLOCK_WINDOW_SIZE);
+    }
+    validate_bidding_review_pages(review_pages)?;
+    Ok(BIDDING_REVIEW_WINDOW_SIZE)
+}
+
+/// Rejects bidding review pages that would collide with the prompt controls.
+pub(crate) fn validate_bidding_review_pages(review_pages: &[String]) -> Result<(), PromptUiError> {
+    let size = PhysicalSize::new(BIDDING_REVIEW_WINDOW_SIZE.0, BIDDING_REVIEW_WINDOW_SIZE.1);
+    let layout = ConfirmScreenLayout::for_size(size);
+    for (index, page) in review_pages.iter().enumerate() {
+        if !layout.message_fits(page) {
+            return Err(PromptUiError::Render(format!(
+                "Bidding authorization page {} is too large to display safely",
+                index + 1
+            )));
+        }
+    }
+    Ok(())
 }
 
 pub fn prompt_import(
@@ -1434,31 +1464,28 @@ enum ConfirmFocus {
     Cancel,
 }
 
-impl ConfirmScreenState {
-    fn render(&mut self, canvas: &mut Canvas<'_>, size: PhysicalSize<u32>) {
+#[derive(Clone, Copy)]
+struct ConfirmScreenLayout {
+    panel: Rect,
+    message_x: i32,
+    message_y: i32,
+    max_message_cols: usize,
+    confirm_rect: Rect,
+    cancel_rect: Rect,
+}
+
+impl ConfirmScreenLayout {
+    fn for_size(size: PhysicalSize<u32>) -> Self {
         let panel = Rect::new(
             CONTENT_MARGIN,
             CONTENT_MARGIN,
             size.width as i32 - (CONTENT_MARGIN * 2),
             size.height as i32 - (CONTENT_MARGIN * 2),
         );
-        canvas.fill_rect(panel, PANEL);
-        canvas.stroke_rect(panel, PANEL_BORDER);
-        canvas.draw_text(panel.x + 18, panel.y + 18, &self.title, WARNING);
-
+        let message_x = panel.x + 18;
         let message_y = panel.y + 18 + LINE_HEIGHT + 8;
         let body_width = panel.w - 36;
-        let max_cols = max(12, body_width / ADVANCE_WIDTH as i32);
-        let lines = wrap_text(&self.message, max_cols as usize);
-        for (index, line) in lines.iter().enumerate() {
-            canvas.draw_text(
-                panel.x + 18,
-                message_y + ((index as i32) * LINE_HEIGHT),
-                line,
-                TEXT,
-            );
-        }
-
+        let max_message_cols = max(12, body_width / ADVANCE_WIDTH as i32) as usize;
         let buttons_y = panel.y + panel.h - BUTTON_HEIGHT - 18;
         let cancel_rect = Rect::new(
             panel.x + panel.w - BUTTON_WIDTH - BUTTON_EDGE_INSET,
@@ -1472,9 +1499,54 @@ impl ConfirmScreenState {
             BUTTON_WIDTH,
             BUTTON_HEIGHT,
         );
+        Self {
+            panel,
+            message_x,
+            message_y,
+            max_message_cols,
+            confirm_rect,
+            cancel_rect,
+        }
+    }
+
+    fn message_lines(&self, message: &str) -> Vec<String> {
+        wrap_text(message, self.max_message_cols)
+    }
+
+    fn message_fits(&self, message: &str) -> bool {
+        let line_count = i32::try_from(self.message_lines(message).len()).unwrap_or(i32::MAX);
+        let message_bottom = self
+            .message_y
+            .saturating_add(line_count.saturating_mul(LINE_HEIGHT));
+        message_bottom <= self.confirm_rect.y
+    }
+}
+
+impl ConfirmScreenState {
+    fn render(&mut self, canvas: &mut Canvas<'_>, size: PhysicalSize<u32>) {
+        let layout = ConfirmScreenLayout::for_size(size);
+        canvas.fill_rect(layout.panel, PANEL);
+        canvas.stroke_rect(layout.panel, PANEL_BORDER);
+        canvas.draw_text(
+            layout.panel.x + 18,
+            layout.panel.y + 18,
+            &self.title,
+            WARNING,
+        );
+
+        let lines = layout.message_lines(&self.message);
+        for (index, line) in lines.iter().enumerate() {
+            canvas.draw_text(
+                layout.message_x,
+                layout.message_y + ((index as i32) * LINE_HEIGHT),
+                line,
+                TEXT,
+            );
+        }
+
         draw_button(
             canvas,
-            confirm_rect,
+            layout.confirm_rect,
             &self.confirm_label,
             self.focus == ConfirmFocus::Confirm,
             true,
@@ -1482,7 +1554,7 @@ impl ConfirmScreenState {
         );
         draw_button(
             canvas,
-            cancel_rect,
+            layout.cancel_rect,
             &self.cancel_label,
             self.focus == ConfirmFocus::Cancel,
             false,
@@ -1519,30 +1591,12 @@ impl ConfirmScreenState {
     ) -> Option<ScreenResult> {
         let x = position.x as i32;
         let y = position.y as i32;
-        let panel = Rect::new(
-            CONTENT_MARGIN,
-            CONTENT_MARGIN,
-            size.width as i32 - (CONTENT_MARGIN * 2),
-            size.height as i32 - (CONTENT_MARGIN * 2),
-        );
-        let buttons_y = panel.y + panel.h - BUTTON_HEIGHT - 18;
-        let cancel_rect = Rect::new(
-            panel.x + panel.w - BUTTON_WIDTH - BUTTON_EDGE_INSET,
-            buttons_y,
-            BUTTON_WIDTH,
-            BUTTON_HEIGHT,
-        );
-        let confirm_rect = Rect::new(
-            cancel_rect.x - BUTTON_GAP - BUTTON_WIDTH,
-            buttons_y,
-            BUTTON_WIDTH,
-            BUTTON_HEIGHT,
-        );
-        if confirm_rect.contains(x, y) {
+        let layout = ConfirmScreenLayout::for_size(size);
+        if layout.confirm_rect.contains(x, y) {
             self.focus = ConfirmFocus::Confirm;
             return self.activate_focused();
         }
-        if cancel_rect.contains(x, y) {
+        if layout.cancel_rect.contains(x, y) {
             self.focus = ConfirmFocus::Cancel;
             return self.activate_focused();
         }
@@ -1876,6 +1930,33 @@ mod tests {
             wrap_text("abcdef", 4),
             vec!["abcd".to_owned(), "ef".to_owned()]
         );
+    }
+
+    #[test]
+    fn bidding_reviews_use_the_tall_unlock_window() {
+        let review_pages = vec!["Bidding authorization".to_owned()];
+
+        assert_eq!(
+            resolve_unlock_window_size(&review_pages).unwrap(),
+            BIDDING_REVIEW_WINDOW_SIZE
+        );
+        assert_eq!(resolve_unlock_window_size(&[]).unwrap(), UNLOCK_WINDOW_SIZE);
+    }
+
+    #[test]
+    fn bidding_review_fit_guard_rejects_the_first_oversized_row() {
+        let layout = ConfirmScreenLayout::for_size(PhysicalSize::new(
+            BIDDING_REVIEW_WINDOW_SIZE.0,
+            BIDDING_REVIEW_WINDOW_SIZE.1,
+        ));
+        let maximum_rows = ((layout.confirm_rect.y - layout.message_y) / LINE_HEIGHT) as usize;
+        let fitting_page = vec!["x"; maximum_rows].join("\n");
+        let oversized_page = vec!["x"; maximum_rows + 1].join("\n");
+
+        assert!(layout.message_fits(&fitting_page));
+        assert!(!layout.message_fits(&oversized_page));
+        assert!(validate_bidding_review_pages(&[fitting_page]).is_ok());
+        assert!(validate_bidding_review_pages(&[oversized_page]).is_err());
     }
 
     #[test]

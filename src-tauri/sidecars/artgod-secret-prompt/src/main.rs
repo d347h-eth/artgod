@@ -20,6 +20,9 @@ use prompt_ui::{
 use thiserror::Error;
 use zeroize::Zeroizing;
 
+// Bounds each untrusted display field before the manual prompt lays it out.
+const MAX_PROMPT_VALUE_CHARS: usize = 120;
+
 fn main() {
     let exit_code = match run() {
         Ok(()) => 0,
@@ -267,7 +270,6 @@ fn build_bidding_mandate_review_pages(summary: &UnlockBiddingMandateSummary) -> 
 }
 
 fn compact_prompt_value(value: &str) -> String {
-    const MAX_PROMPT_VALUE_CHARS: usize = 120;
     value
         .chars()
         .filter_map(|character| match character {
@@ -450,8 +452,8 @@ impl SecretPromptHelperError {
 mod tests {
     use super::*;
     use artgod_secret_prompt_protocol::{
-        SecretPromptResponse, UnlockBiddingCollectionSummary, UnlockSecretPromptRequest,
-        UnlockSecretPromptResponse,
+        SecretPromptResponse, UnlockBiddingCollectionSummary, UnlockBiddingTokenScopeItem,
+        UnlockSecretPromptRequest, UnlockSecretPromptResponse,
     };
 
     #[test]
@@ -504,6 +506,45 @@ mod tests {
         assert!(pages[1].contains("ArtGod collection ID: #7"));
         assert!(pages[1].contains("Maximum WETH per NFT: 1.25"));
         assert!(pages[1].contains("Maximum NFTs per offer: 1"));
+    }
+
+    #[test]
+    fn maximum_compacted_values_with_canonical_labels_fit_the_admin_sized_prompt() {
+        let max_slug = "x".repeat(MAX_PROMPT_VALUE_CHARS);
+        let max_numeric_value = "9".repeat(MAX_PROMPT_VALUE_CHARS);
+        let pages = build_bidding_mandate_review_pages(&UnlockBiddingMandateSummary {
+            chain_id: u64::MAX,
+            chain_name: max_slug.clone(),
+            dry_run: false,
+            weth_allowance_cap_eth: max_numeric_value.clone(),
+            trait_offers_enabled: true,
+            collections: vec![UnlockBiddingCollectionSummary {
+                collection_id: u64::MAX,
+                artgod_slug: max_slug.clone(),
+                contract_address: "0xffffffffffffffffffffffffffffffffffffffff".to_owned(),
+                opensea_slug: max_slug,
+                token_scope_label: "token range".to_owned(),
+                token_scope_items: vec![
+                    UnlockBiddingTokenScopeItem {
+                        label: "scope".to_owned(),
+                        value: "token range".to_owned(),
+                    },
+                    UnlockBiddingTokenScopeItem {
+                        label: "start token".to_owned(),
+                        value: max_numeric_value.clone(),
+                    },
+                    UnlockBiddingTokenScopeItem {
+                        label: "total supply".to_owned(),
+                        value: max_numeric_value.clone(),
+                    },
+                ],
+                max_unit_bid_eth: max_numeric_value,
+                max_quantity: u32::MAX,
+            }],
+        });
+
+        prompt_ui::validate_bidding_review_pages(&pages)
+            .expect("maximum compacted bidding review should fit");
     }
 
     #[test]
