@@ -683,6 +683,11 @@ Unlock rules:
 - passphrase prompt is always native
 - bidding policy review is always native and precedes passphrase submission
 - Admin supplies only proposed collection ids and WETH price caps; Rust supplies the displayed and injected ArtGod id, contract, token-scope summary, OpenSea slug, and fixed one-NFT offer quantity
+- Admin separately batch-loads the maximum enabled-job ceiling per collection
+  as an editable price prefill. Missing enabled jobs produce a blank field, and
+  the convenience read never selects or authorizes a collection.
+- Admin orders prefills from highest to lowest without moving rows during edits;
+  the native review orders the final canonical caps from highest to lowest.
 - Rust reads the canonical collection catalog through the shared `COMMON_HTTP_FETCH_*` per-attempt timeout and bounded retry policy
 - decrypt happens in Rust only
 - decrypted key lifetime in Rust must be as short as practical
