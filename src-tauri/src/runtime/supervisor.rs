@@ -10,8 +10,10 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
+use zeroize::Zeroizing;
 
 use super::app_config::load_app_config_state;
+use super::bot_lifecycle::{BotLifecycleCoordinator, BotStartReservation, BotWorkerLifecycleLease};
 use crate::desktop_log::{append_child_process_log_line, append_desktop_supervisor_log};
 use crate::runtime::bidding_mandate::BiddingMandate;
 use crate::runtime::bot_runtime::{
@@ -19,6 +21,7 @@ use crate::runtime::bot_runtime::{
     bot_runtime_spec,
 };
 use crate::runtime::config::{BotRuntimeLaunchConfig, DesktopRuntimeConfig};
+use crate::runtime::process_containment::{ChildProcessContainment, prepare_process_containment};
 use crate::runtime::process_registry::{
     BACKEND_ARTIFACT, BACKEND_PROCESS_NAME, INDEXER_WORKERS, NATS_PROCESS_NAME,
     SUPERVISOR_PROCESS_NAME,
@@ -47,6 +50,8 @@ const SUPERVISOR_LOG_LEVEL_ERROR: &str = "error";
 const RUNTIME_LIFECYCLE_LOCK_ERROR: &str = "Failed to lock runtime lifecycle state";
 // Trading bots must quickly prove they entered their managed bootstrap path after unlock/start.
 const BOT_START_SIGNAL_TIMEOUT: Duration = Duration::from_secs(30);
+// A recipient that does not consume the secret frame must not block Stop or core shutdown.
+const BOT_SECRET_HANDOFF_TIMEOUT: Duration = Duration::from_secs(10);
 // Once bootstrapping started, long warmup is allowed as long as the bot keeps reporting progress.
 const BOT_BOOTSTRAP_STALL_TIMEOUT: Duration = Duration::from_secs(180);
 
@@ -75,6 +80,7 @@ struct RuntimeController {
 }
 
 struct BotRuntimeController {
+    generation: u64,
     stop_tx: Sender<()>,
     join_handle: JoinHandle<()>,
 }
@@ -84,6 +90,7 @@ struct ManagedBotRuntimeStatus {
     state: BotRuntimeState,
     last_error: Option<String>,
     bidding_mandate: Option<BiddingMandate>,
+    lifecycle_generation: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -94,6 +101,7 @@ pub struct RuntimeManager {
     core_running_since: Arc<Mutex<Option<Instant>>>,
     bot_statuses: Arc<Mutex<HashMap<BotKind, ManagedBotRuntimeStatus>>>,
     bot_controllers: Arc<Mutex<HashMap<BotKind, BotRuntimeController>>>,
+    bot_lifecycle: BotLifecycleCoordinator,
 }
 
 impl RuntimeManager {
@@ -113,6 +121,7 @@ impl RuntimeManager {
             core_running_since: Arc::new(Mutex::new(None)),
             bot_statuses: Arc::new(Mutex::new(HashMap::new())),
             bot_controllers: Arc::new(Mutex::new(HashMap::new())),
+            bot_lifecycle: BotLifecycleCoordinator::default(),
         }
     }
 
@@ -194,7 +203,9 @@ impl RuntimeManager {
     }
 
     fn stop_locked(&self, app: AppHandle) -> Result<RuntimeStatus, String> {
-        self.stop_all_bots(&app);
+        // Invalidate prompt/decrypt work before waiting for every bot generation to stop.
+        self.bot_lifecycle.invalidate_core();
+        self.stop_all_bots(&app)?;
 
         let controller = {
             let mut guard = self
@@ -306,6 +317,7 @@ impl RuntimeManager {
 
         let status_ref = Arc::clone(&self.status);
         let core_running_since_ref = Arc::clone(&self.core_running_since);
+        let bot_lifecycle = self.bot_lifecycle.clone();
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
         let app_handle = app.clone();
         let join_handle = thread::spawn(move || {
@@ -314,6 +326,7 @@ impl RuntimeManager {
                 config,
                 status_ref,
                 core_running_since_ref,
+                bot_lifecycle,
                 stop_rx,
             );
         });
@@ -357,14 +370,20 @@ impl RuntimeManager {
             status.last_error = last_error;
             if !bot_runtime_state_is_active(state) {
                 status.bidding_mandate = None;
+                status.lifecycle_generation = None;
             }
         }
         self.emit_bot_runtime_state_changed(app, bot_kind)
     }
 
-    /// Atomically reserves one bot start before asynchronous native authorization work begins.
-    pub fn begin_bot_unlock(&self, app: &AppHandle, bot_kind: BotKind) -> Result<(), String> {
-        {
+    /// Atomically reserves one bot generation before native authorization work begins.
+    pub(crate) fn begin_bot_unlock(
+        &self,
+        app: &AppHandle,
+        bot_kind: BotKind,
+    ) -> Result<BotStartReservation, String> {
+        let reservation = self.bot_lifecycle.reserve_start(bot_kind)?;
+        self.bot_lifecycle.with_current_start(&reservation, || {
             let mut statuses = self
                 .bot_statuses
                 .lock()
@@ -372,27 +391,79 @@ impl RuntimeManager {
             let status = statuses
                 .entry(bot_kind)
                 .or_insert_with(default_managed_bot_runtime_status);
-            if bot_runtime_state_is_active(status.state) {
-                return Err("Bot is already active.".to_owned());
-            }
+            // The lifecycle coordinator is authoritative; overwrite any stale visible state.
             status.state = BotRuntimeState::AwaitingUnlock;
             status.last_error = None;
             status.bidding_mandate = None;
+            status.lifecycle_generation = Some(reservation.generation());
+            Ok(())
+        })?;
+        if let Err(error) = self.emit_bot_runtime_state_changed(app, bot_kind) {
+            if let Ok(mut statuses) = self.bot_statuses.lock() {
+                let status = statuses
+                    .entry(bot_kind)
+                    .or_insert_with(default_managed_bot_runtime_status);
+                status.state = BotRuntimeState::Error;
+                status.last_error = Some(error.clone());
+                status.bidding_mandate = None;
+                status.lifecycle_generation = None;
+            }
+            return Err(error);
         }
-        self.emit_bot_runtime_state_changed(app, bot_kind)
+        Ok(reservation)
     }
 
-    /// Records the native authority that will be handed to one bidding process.
-    pub fn set_bot_bidding_mandate(
+    /// Serializes a stopped-bot metadata mutation against start and stop.
+    pub(crate) fn with_idle_bot_mutation<T>(
+        &self,
+        bot_kind: BotKind,
+        mutation: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        self.bot_lifecycle
+            .with_idle_bot_mutation(bot_kind, mutation)
+    }
+
+    /// Mutates visible state only for the exact pending bot-start generation.
+    pub(crate) fn set_reserved_bot_runtime_state(
         &self,
         app: &AppHandle,
-        bot_kind: BotKind,
+        reservation: &BotStartReservation,
+        state: BotRuntimeState,
+        last_error: Option<String>,
+    ) -> Result<(), String> {
+        self.bot_lifecycle.with_current_start(reservation, || {
+            let mut statuses = self
+                .bot_statuses
+                .lock()
+                .map_err(|_| "Failed to lock bot runtime status".to_owned())?;
+            let status = statuses
+                .entry(reservation.bot_kind())
+                .or_insert_with(default_managed_bot_runtime_status);
+            status.state = state;
+            status.last_error = last_error;
+            if bot_runtime_state_is_active(state) {
+                status.lifecycle_generation = Some(reservation.generation());
+            } else {
+                status.bidding_mandate = None;
+                status.lifecycle_generation = None;
+            }
+            Ok(())
+        })?;
+        self.emit_bot_runtime_state_changed(app, reservation.bot_kind())
+    }
+
+    /// Records the native authority only for the generation that will receive it.
+    pub(crate) fn set_reserved_bot_bidding_mandate(
+        &self,
+        app: &AppHandle,
+        reservation: &BotStartReservation,
         bidding_mandate: Option<BiddingMandate>,
     ) -> Result<(), String> {
+        let bot_kind = reservation.bot_kind();
         if bot_kind != BotKind::Bidding && bidding_mandate.is_some() {
             return Err("Only the bidding bot may hold a bidding mandate.".to_owned());
         }
-        {
+        self.bot_lifecycle.with_current_start(reservation, || {
             let mut statuses = self
                 .bot_statuses
                 .lock()
@@ -401,7 +472,8 @@ impl RuntimeManager {
                 .entry(bot_kind)
                 .or_insert_with(default_managed_bot_runtime_status);
             status.bidding_mandate = bidding_mandate;
-        }
+            Ok(())
+        })?;
         self.emit_bot_runtime_state_changed(app, bot_kind)
     }
 
@@ -422,27 +494,12 @@ impl RuntimeManager {
 
     pub fn wait_until_bot_dependencies_stable(
         &self,
-        bot_kind: BotKind,
+        reservation: &BotStartReservation,
         stabilization_delay_ms: u64,
     ) -> Result<(), String> {
-        let spec = bot_runtime_spec(bot_kind);
         loop {
-            let status = self.status()?;
-            if status.state != "running" {
-                return Err("Core runtime is not running.".to_owned());
-            }
-            for process in spec.critical_processes {
-                if !status
-                    .running_processes
-                    .iter()
-                    .any(|running| running == process)
-                {
-                    return Err(format!(
-                        "Critical dependency is unavailable for {:?}: {process}",
-                        bot_kind
-                    ));
-                }
-            }
+            reservation.validate()?;
+            self.validate_bot_dependencies_now(reservation.bot_kind())?;
 
             let running_since = self
                 .core_running_since
@@ -461,61 +518,99 @@ impl RuntimeManager {
         }
     }
 
+    /// Rechecks the bot/core generation and dependencies without another stability wait.
+    pub(crate) fn validate_bot_start(
+        &self,
+        reservation: &BotStartReservation,
+    ) -> Result<(), String> {
+        reservation.validate()?;
+        self.validate_bot_dependencies_now(reservation.bot_kind())
+    }
+
     pub(crate) fn start_bot_runtime(
         &self,
         app: AppHandle,
+        reservation: &BotStartReservation,
         launch_config: BotRuntimeLaunchConfig,
-        secret_envelope: Vec<u8>,
+        secret_envelope: Zeroizing<Vec<u8>>,
     ) -> Result<(), String> {
         let bot_kind = launch_config.spec.bot_kind;
-        {
-            let controllers = self
+        if reservation.bot_kind() != bot_kind {
+            return Err("Bot start reservation does not match its launch config.".to_owned());
+        }
+
+        let spec = launch_config.spec;
+        let worker_lease = reservation.worker_lease();
+        let generation = worker_lease.generation();
+        let app_handle = app.clone();
+        let status_ref = Arc::clone(&self.status);
+        let bot_statuses_ref = Arc::clone(&self.bot_statuses);
+        let bot_controllers_ref = Arc::clone(&self.bot_controllers);
+        let bot_lifecycle = self.bot_lifecycle.clone();
+        let worker_lifecycle = bot_lifecycle.clone();
+        self.bot_lifecycle.commit_start(reservation, || {
+            // Commit only while the core and every declared dependency are still available.
+            self.validate_bot_dependencies_now(bot_kind)?;
+            let mut controllers = self
                 .bot_controllers
                 .lock()
                 .map_err(|_| "Failed to lock bot runtime controllers".to_owned())?;
             if controllers.contains_key(&bot_kind) {
                 return Err(format!("{bot_kind:?} bot is already active."));
             }
-        }
 
-        let spec = launch_config.spec;
-        let app_handle = app.clone();
-        let status_ref = Arc::clone(&self.status);
-        let bot_statuses_ref = Arc::clone(&self.bot_statuses);
-        let bot_controllers_ref = Arc::clone(&self.bot_controllers);
-        let (stop_tx, stop_rx) = mpsc::channel::<()>();
-        let join_handle = thread::spawn(move || {
-            run_bot_runtime_loop(
-                app_handle,
-                launch_config,
-                status_ref,
-                bot_statuses_ref,
-                stop_rx,
-                secret_envelope,
-            );
-            if let Ok(mut controllers) = bot_controllers_ref.lock() {
-                controllers.remove(&spec.bot_kind);
-            }
-        });
+            let (start_tx, start_rx) = mpsc::channel::<()>();
+            let (stop_tx, stop_rx) = mpsc::channel::<()>();
+            let join_handle = thread::Builder::new()
+                .spawn(move || {
+                    if start_rx.recv().is_ok() {
+                        run_bot_runtime_loop(
+                            app_handle,
+                            launch_config,
+                            status_ref,
+                            bot_statuses_ref,
+                            worker_lease,
+                            stop_rx,
+                            secret_envelope,
+                        );
+                    }
+                    if let Ok(mut controllers) = bot_controllers_ref.lock()
+                        && controllers
+                            .get(&spec.bot_kind)
+                            .is_some_and(|controller| controller.generation == generation)
+                    {
+                        controllers.remove(&spec.bot_kind);
+                    }
+                    worker_lifecycle.finish_controller(spec.bot_kind, generation);
+                })
+                .map_err(|error| format!("Failed to spawn bot supervisor thread: {error}"))?;
 
-        {
-            let mut controllers = self
-                .bot_controllers
-                .lock()
-                .map_err(|_| "Failed to lock bot runtime controllers".to_owned())?;
             controllers.insert(
                 bot_kind,
                 BotRuntimeController {
+                    generation,
                     stop_tx,
                     join_handle,
                 },
             );
-        }
+            // Release the worker while stop is excluded and active ownership is already fenced.
+            if start_tx.send(()).is_err() {
+                let controller = controllers.remove(&bot_kind);
+                drop(controllers);
+                if let Some(controller) = controller {
+                    let _ = controller.stop_tx.send(());
+                    drop(controller.join_handle);
+                }
+                return Err("Bot supervisor stopped before process startup.".to_owned());
+            }
+            Ok(())
+        })?;
 
         Ok(())
     }
 
     pub fn stop_bot_runtime(&self, app: &AppHandle, bot_kind: BotKind) -> Result<(), String> {
+        let _stop_reservation = self.bot_lifecycle.reserve_stop(bot_kind)?;
         let controller = {
             let mut controllers = self
                 .bot_controllers
@@ -527,23 +622,37 @@ impl RuntimeManager {
         if let Some(controller) = controller {
             let _ = controller.stop_tx.send(());
             let _ = controller.join_handle.join();
-            self.set_bot_runtime_state(app, bot_kind, BotRuntimeState::Stopped, None)?;
         }
+        self.set_bot_runtime_state(app, bot_kind, BotRuntimeState::Stopped, None)?;
 
         Ok(())
     }
 
-    fn stop_all_bots(&self, app: &AppHandle) {
-        let bot_kinds = {
-            let controllers = match self.bot_controllers.lock() {
-                Ok(controllers) => controllers,
-                Err(_) => return,
-            };
-            controllers.keys().copied().collect::<Vec<_>>()
-        };
-        for bot_kind in bot_kinds {
-            let _ = self.stop_bot_runtime(app, bot_kind);
+    fn stop_all_bots(&self, app: &AppHandle) -> Result<(), String> {
+        for spec in BOT_RUNTIME_SPECS {
+            self.stop_bot_runtime(app, spec.bot_kind)?;
         }
+        Ok(())
+    }
+
+    fn validate_bot_dependencies_now(&self, bot_kind: BotKind) -> Result<(), String> {
+        let spec = bot_runtime_spec(bot_kind);
+        let status = self.status()?;
+        if status.state != "running" {
+            return Err("Core runtime is not running.".to_owned());
+        }
+        for process in spec.critical_processes {
+            if !status
+                .running_processes
+                .iter()
+                .any(|running| running == process)
+            {
+                return Err(format!(
+                    "Critical dependency is unavailable for {bot_kind:?}: {process}"
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn emit_bot_runtime_state_changed(
@@ -575,6 +684,7 @@ fn run_supervisor_loop(
     config: DesktopRuntimeConfig,
     status_ref: Arc<Mutex<RuntimeStatus>>,
     core_running_since_ref: Arc<Mutex<Option<Instant>>>,
+    bot_lifecycle: BotLifecycleCoordinator,
     stop_rx: Receiver<()>,
 ) {
     let mut restart_count: u32 = 0;
@@ -591,6 +701,8 @@ fn run_supervisor_loop(
     );
 
     loop {
+        // Every core startup/restart is a new generation for wallet-bound bot starts.
+        bot_lifecycle.invalidate_core();
         update_status(&status_ref, &app, |status| {
             status.state = if restart_count == 0 {
                 "starting".to_owned()
@@ -688,7 +800,10 @@ fn run_supervisor_loop(
             "Runtime processes are running",
         );
 
-        match monitor_processes(&mut processes, &stop_rx, &stop_signal) {
+        let monitor_outcome = monitor_processes(&mut processes, &stop_rx, &stop_signal);
+        // Cancel native prompts immediately when a running core generation ends.
+        bot_lifecycle.invalidate_core();
+        match monitor_outcome {
             MonitorOutcome::StoppedByRequest => {
                 emit_supervisor_log(
                     &app,
@@ -836,11 +951,27 @@ fn run_bot_runtime_loop(
     config: BotRuntimeLaunchConfig,
     status_ref: Arc<Mutex<RuntimeStatus>>,
     bot_statuses_ref: Arc<Mutex<HashMap<BotKind, ManagedBotRuntimeStatus>>>,
+    worker_lease: BotWorkerLifecycleLease,
     stop_rx: Receiver<()>,
-    secret_envelope: Vec<u8>,
+    secret_envelope: Zeroizing<Vec<u8>>,
 ) {
-    let stop_signal = AtomicBool::new(false);
     let spec = config.spec;
+    let bot_statuses_ref = GenerationBotStatuses {
+        statuses: bot_statuses_ref,
+        generation: worker_lease.generation(),
+    };
+
+    if worker_lease.is_cancelled() {
+        update_bot_runtime_state(
+            &app,
+            &status_ref,
+            &bot_statuses_ref,
+            spec.bot_kind,
+            BotRuntimeState::Stopped,
+            None,
+        );
+        return;
+    }
 
     let mut process = match spawn_trading_bot_process(&app, &config) {
         Ok(process) => process,
@@ -857,7 +988,7 @@ fn run_bot_runtime_loop(
         }
     };
 
-    if let Err(error) = send_bot_secret_envelope(&mut process.stdin, secret_envelope) {
+    if worker_lease.is_cancelled() {
         stop_all_processes(
             &app,
             &config.logs_dir,
@@ -868,17 +999,79 @@ fn run_bot_runtime_loop(
             &status_ref,
             &bot_statuses_ref,
             spec.bot_kind,
-            BotRuntimeState::Error,
-            Some(error),
+            BotRuntimeState::Stopped,
+            None,
+        );
+        return;
+    }
+
+    match deliver_bot_secret_envelope(
+        &mut process.process.child,
+        &mut process.stdin,
+        &stop_rx,
+        &worker_lease,
+        secret_envelope,
+        BOT_SECRET_HANDOFF_TIMEOUT,
+    ) {
+        BotSecretDeliveryOutcome::Delivered => {}
+        BotSecretDeliveryOutcome::StoppedByRequest => {
+            stop_all_processes(
+                &app,
+                &config.logs_dir,
+                std::slice::from_mut(&mut process.process),
+            );
+            update_bot_runtime_state(
+                &app,
+                &status_ref,
+                &bot_statuses_ref,
+                spec.bot_kind,
+                BotRuntimeState::Stopped,
+                None,
+            );
+            return;
+        }
+        BotSecretDeliveryOutcome::Failed(error) => {
+            stop_all_processes(
+                &app,
+                &config.logs_dir,
+                std::slice::from_mut(&mut process.process),
+            );
+            update_bot_runtime_state(
+                &app,
+                &status_ref,
+                &bot_statuses_ref,
+                spec.bot_kind,
+                BotRuntimeState::Error,
+                Some(error),
+            );
+            return;
+        }
+    }
+
+    if bot_stop_requested(&stop_rx, &worker_lease) {
+        stop_all_processes(
+            &app,
+            &config.logs_dir,
+            std::slice::from_mut(&mut process.process),
+        );
+        update_bot_runtime_state(
+            &app,
+            &status_ref,
+            &bot_statuses_ref,
+            spec.bot_kind,
+            BotRuntimeState::Stopped,
+            None,
         );
         return;
     }
 
     match wait_for_bot_start_signal(
+        &status_ref,
+        spec,
         &mut process.process.child,
         &process.lifecycle_rx,
         &stop_rx,
-        &stop_signal,
+        &worker_lease,
         BOT_START_SIGNAL_TIMEOUT,
     ) {
         BotStartOutcome::Bootstrapping(payload) => {
@@ -907,7 +1100,7 @@ fn run_bot_runtime_loop(
                 &mut process.process.child,
                 &process.lifecycle_rx,
                 &stop_rx,
-                &stop_signal,
+                &worker_lease,
                 BOT_BOOTSTRAP_STALL_TIMEOUT,
             ) {
                 BotBootstrapOutcome::Ready(payload) => {
@@ -1116,7 +1309,7 @@ fn run_bot_runtime_loop(
         spec,
         &mut process.process,
         &stop_rx,
-        &stop_signal,
+        &worker_lease,
     ) {
         BotMonitorOutcome::StoppedByRequest => {
             stop_all_processes(
@@ -1189,19 +1382,25 @@ fn run_bot_runtime_loop(
 fn update_bot_runtime_state(
     app: &AppHandle,
     status_ref: &Arc<Mutex<RuntimeStatus>>,
-    bot_statuses_ref: &Arc<Mutex<HashMap<BotKind, ManagedBotRuntimeStatus>>>,
+    bot_statuses_ref: &GenerationBotStatuses,
     bot_kind: BotKind,
     state: BotRuntimeState,
     last_error: Option<String>,
 ) {
-    if let Ok(mut bot_statuses) = bot_statuses_ref.lock() {
+    if let Ok(mut bot_statuses) = bot_statuses_ref.statuses.lock() {
         let status = bot_statuses
             .entry(bot_kind)
             .or_insert_with(default_managed_bot_runtime_status);
+        if status.lifecycle_generation != Some(bot_statuses_ref.generation) {
+            return;
+        }
         status.state = state;
         status.last_error = last_error;
-        if !bot_runtime_state_is_active(state) {
+        if bot_runtime_state_is_active(state) {
+            status.lifecycle_generation = Some(bot_statuses_ref.generation);
+        } else {
             status.bidding_mandate = None;
+            status.lifecycle_generation = None;
         }
         if let Ok(core_status) = status_ref.lock()
             && let Some(snapshot) =
@@ -1212,11 +1411,17 @@ fn update_bot_runtime_state(
     }
 }
 
+struct GenerationBotStatuses {
+    statuses: Arc<Mutex<HashMap<BotKind, ManagedBotRuntimeStatus>>>,
+    generation: u64,
+}
+
 fn default_managed_bot_runtime_status() -> ManagedBotRuntimeStatus {
     ManagedBotRuntimeStatus {
         state: BotRuntimeState::Disabled,
         last_error: None,
         bidding_mandate: None,
+        lifecycle_generation: None,
     }
 }
 
@@ -1233,7 +1438,14 @@ fn bot_runtime_state_is_active(state: BotRuntimeState) -> bool {
 struct SpawnedBotProcess {
     process: ManagedProcess,
     stdin: Option<ChildStdin>,
+    _containment: ChildProcessContainment,
     lifecycle_rx: Receiver<Result<BotLifecyclePayload, String>>,
+}
+
+struct ContainedTradingBotChild {
+    child: Child,
+    parent_liveness: Option<ChildStdin>,
+    containment: ChildProcessContainment,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -1295,11 +1507,7 @@ fn spawn_trading_bot_process(
 ) -> Result<SpawnedBotProcess, String> {
     let spec = config.spec;
 
-    let args = build_node_process_args(
-        &config.pnp_cjs_path,
-        &config.pnp_loader_path,
-        &config.artifact_path,
-    );
+    let args = build_trading_bot_process_args(config);
     let command_line = render_command_line(config.node_bin.to_string_lossy().as_ref(), &args);
     emit_supervisor_log(
         app,
@@ -1311,26 +1519,11 @@ fn spawn_trading_bot_process(
         ),
     );
 
-    let mut command = Command::new(&config.node_bin);
-    command
-        .args(&args)
-        .current_dir(&config.runtime_dir)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    for (key, value) in &config.process_env {
-        command.env(key, value);
-    }
-
-    let mut child = command.spawn().map_err(|error| {
-        format!(
-            "Failed to spawn process {} via {} {}: {error}",
-            spec.process_name,
-            config.node_bin.display(),
-            args.join(" ")
-        )
-    })?;
+    let ContainedTradingBotChild {
+        mut child,
+        parent_liveness,
+        containment,
+    } = spawn_contained_trading_bot_child(config, &args)?;
     emit_supervisor_log(
         app,
         &config.logs_dir,
@@ -1338,7 +1531,6 @@ fn spawn_trading_bot_process(
         &format!("Process {} started (pid={})", spec.process_name, child.id()),
     );
 
-    let stdin = child.stdin.take();
     let stdout = child
         .stdout
         .take()
@@ -1370,29 +1562,248 @@ fn spawn_trading_bot_process(
             output_threads,
             cleanup: None,
         },
-        stdin,
+        stdin: parent_liveness,
+        _containment: containment,
         lifecycle_rx,
     })
 }
 
-fn send_bot_secret_envelope(
-    stdin: &mut Option<ChildStdin>,
-    secret_envelope: Vec<u8>,
-) -> Result<(), String> {
-    let Some(mut stdin) = stdin.take() else {
+fn build_trading_bot_process_args(config: &BotRuntimeLaunchConfig) -> Vec<String> {
+    build_node_process_args(
+        &config.pnp_cjs_path,
+        &config.pnp_loader_path,
+        &config.artifact_path,
+    )
+}
+
+fn spawn_contained_trading_bot_child(
+    config: &BotRuntimeLaunchConfig,
+    args: &[String],
+) -> Result<ContainedTradingBotChild, String> {
+    let spec = config.spec;
+    let mut command = Command::new(&config.node_bin);
+    command
+        .args(args)
+        .current_dir(&config.runtime_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    for (key, value) in &config.process_env {
+        command.env(key, value);
+    }
+
+    let prepared_containment = prepare_process_containment(&mut command).map_err(|error| {
+        format!(
+            "Failed to prepare process containment for {}: {error}",
+            spec.process_name
+        )
+    })?;
+    let mut child = command.spawn().map_err(|error| {
+        format!(
+            "Failed to spawn process {} via {} {}: {error}",
+            spec.process_name,
+            config.node_bin.display(),
+            args.join(" ")
+        )
+    })?;
+    let containment = prepared_containment.attach(&mut child).map_err(|error| {
+        format!(
+            "Failed to contain process {} after spawn: {error}",
+            spec.process_name
+        )
+    })?;
+    // Take and retain the only parent-side writer immediately after containment attaches.
+    let parent_liveness = child.stdin.take();
+    Ok(ContainedTradingBotChild {
+        child,
+        parent_liveness,
+        containment,
+    })
+}
+
+struct BotSecretHandoff {
+    result_rx: Receiver<Result<ChildStdin, String>>,
+    join_handle: JoinHandle<()>,
+}
+
+enum BotSecretHandoffOutcome {
+    Completed(ChildStdin),
+    StoppedByRequest,
+    Failed(String),
+    ProcessExited(ExitStatus),
+    TimedOut,
+}
+
+enum BotSecretDeliveryOutcome {
+    Delivered,
+    StoppedByRequest,
+    Failed(String),
+}
+
+fn deliver_bot_secret_envelope(
+    child: &mut Child,
+    parent_liveness: &mut Option<ChildStdin>,
+    stop_rx: &Receiver<()>,
+    worker_lease: &BotWorkerLifecycleLease,
+    secret_envelope: Zeroizing<Vec<u8>>,
+    timeout: Duration,
+) -> BotSecretDeliveryOutcome {
+    let handoff = match start_bot_secret_handoff(parent_liveness.take(), secret_envelope) {
+        Ok(handoff) => handoff,
+        Err(error) => {
+            let cleanup_error = terminate_bot_during_secret_handoff(child).err();
+            return BotSecretDeliveryOutcome::Failed(join_handoff_errors(error, cleanup_error));
+        }
+    };
+
+    match wait_for_bot_secret_handoff(child, &handoff.result_rx, stop_rx, worker_lease, timeout) {
+        BotSecretHandoffOutcome::Completed(stdin) => {
+            if let Err(error) = join_bot_secret_handoff(handoff) {
+                let cleanup_error = terminate_bot_during_secret_handoff(child).err();
+                return BotSecretDeliveryOutcome::Failed(join_handoff_errors(error, cleanup_error));
+            }
+            *parent_liveness = Some(stdin);
+            BotSecretDeliveryOutcome::Delivered
+        }
+        BotSecretHandoffOutcome::StoppedByRequest => {
+            match abort_bot_secret_handoff(child, handoff) {
+                Ok(()) => BotSecretDeliveryOutcome::StoppedByRequest,
+                Err(error) => BotSecretDeliveryOutcome::Failed(error),
+            }
+        }
+        BotSecretHandoffOutcome::Failed(error) => {
+            let cleanup_error = abort_bot_secret_handoff(child, handoff).err();
+            BotSecretDeliveryOutcome::Failed(join_handoff_errors(error, cleanup_error))
+        }
+        BotSecretHandoffOutcome::ProcessExited(status) => {
+            let cleanup_error = abort_bot_secret_handoff(child, handoff).err();
+            BotSecretDeliveryOutcome::Failed(join_handoff_errors(
+                format!("Trading bot exited during secret handoff: {status}"),
+                cleanup_error,
+            ))
+        }
+        BotSecretHandoffOutcome::TimedOut => {
+            let cleanup_error = abort_bot_secret_handoff(child, handoff).err();
+            BotSecretDeliveryOutcome::Failed(join_handoff_errors(
+                format!(
+                    "Trading bot did not consume its secret frame within {}s",
+                    timeout.as_secs()
+                ),
+                cleanup_error,
+            ))
+        }
+    }
+}
+
+fn start_bot_secret_handoff(
+    stdin: Option<ChildStdin>,
+    secret_envelope: Zeroizing<Vec<u8>>,
+) -> Result<BotSecretHandoff, String> {
+    let Some(mut stdin) = stdin else {
         return Err("Trading bot stdin pipe is unavailable".to_owned());
     };
-    let mut secret_envelope = secret_envelope;
-    let write_result = stdin
-        .write_all(&secret_envelope)
-        .map_err(|error| format!("Failed to write trading bot secret envelope: {error}"))
-        .and_then(|()| {
-            stdin
-                .flush()
-                .map_err(|error| format!("Failed to flush trading bot secret envelope: {error}"))
-        });
-    secret_envelope.fill(0);
-    write_result
+
+    let (result_tx, result_rx) = mpsc::channel();
+    let join_handle = thread::Builder::new()
+        .spawn(move || {
+            let write_result = stdin
+                .write_all(&secret_envelope)
+                .map_err(|error| format!("Failed to write trading bot secret envelope: {error}"))
+                .and_then(|()| {
+                    stdin.flush().map_err(|error| {
+                        format!("Failed to flush trading bot secret envelope: {error}")
+                    })
+                });
+            drop(secret_envelope);
+            let _ = result_tx.send(write_result.map(|()| stdin));
+        })
+        .map_err(|error| format!("Failed to start trading bot secret handoff: {error}"))?;
+    Ok(BotSecretHandoff {
+        result_rx,
+        join_handle,
+    })
+}
+
+fn wait_for_bot_secret_handoff(
+    child: &mut Child,
+    result_rx: &Receiver<Result<ChildStdin, String>>,
+    stop_rx: &Receiver<()>,
+    worker_lease: &BotWorkerLifecycleLease,
+    timeout: Duration,
+) -> BotSecretHandoffOutcome {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if bot_stop_requested(stop_rx, worker_lease) {
+            return BotSecretHandoffOutcome::StoppedByRequest;
+        }
+
+        match child.try_wait() {
+            Ok(Some(status)) => return BotSecretHandoffOutcome::ProcessExited(status),
+            Ok(None) => {}
+            Err(error) => {
+                return BotSecretHandoffOutcome::Failed(format!(
+                    "Failed to monitor trading bot during secret handoff: {error}"
+                ));
+            }
+        }
+
+        let now = Instant::now();
+        if now >= deadline {
+            return BotSecretHandoffOutcome::TimedOut;
+        }
+        let poll_interval = (deadline - now).min(PROCESS_STOP_POLL_INTERVAL);
+        match result_rx.recv_timeout(poll_interval) {
+            Ok(Ok(stdin)) => return BotSecretHandoffOutcome::Completed(stdin),
+            Ok(Err(error)) => return BotSecretHandoffOutcome::Failed(error),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => {
+                return BotSecretHandoffOutcome::Failed(
+                    "Trading bot secret handoff stopped unexpectedly".to_owned(),
+                );
+            }
+        }
+    }
+}
+
+fn abort_bot_secret_handoff(child: &mut Child, handoff: BotSecretHandoff) -> Result<(), String> {
+    // Killing the reader closes the pipe and guarantees the blocking writer can be joined.
+    terminate_bot_during_secret_handoff(child)?;
+    join_bot_secret_handoff(handoff)
+}
+
+fn terminate_bot_during_secret_handoff(child: &mut Child) -> Result<(), String> {
+    match child.try_wait() {
+        Ok(Some(_)) => {}
+        Ok(None) | Err(_) => {
+            if let Err(kill_error) = child.kill() {
+                let exited_after_race = child.try_wait().is_ok_and(|status| status.is_some());
+                if !exited_after_race {
+                    return Err(format!(
+                        "Failed to terminate trading bot during secret handoff: {kill_error}"
+                    ));
+                }
+            }
+        }
+    }
+    child
+        .wait()
+        .map(|_| ())
+        .map_err(|error| format!("Failed to reap trading bot after secret handoff: {error}"))
+}
+
+fn join_bot_secret_handoff(handoff: BotSecretHandoff) -> Result<(), String> {
+    handoff
+        .join_handle
+        .join()
+        .map_err(|_| "Trading bot secret handoff task panicked".to_owned())
+}
+
+fn join_handoff_errors(primary: String, cleanup: Option<String>) -> String {
+    match cleanup {
+        Some(cleanup) => format!("{primary}; cleanup failed: {cleanup}"),
+        None => primary,
+    }
 }
 
 enum BotStartOutcome {
@@ -1405,17 +1816,25 @@ enum BotStartOutcome {
 }
 
 fn wait_for_bot_start_signal(
+    status_ref: &Arc<Mutex<RuntimeStatus>>,
+    spec: crate::runtime::bot_runtime::BotRuntimeSpec,
     child: &mut Child,
     lifecycle_rx: &Receiver<Result<BotLifecyclePayload, String>>,
     stop_rx: &Receiver<()>,
-    stop_signal: &AtomicBool,
+    worker_lease: &BotWorkerLifecycleLease,
     timeout: Duration,
 ) -> BotStartOutcome {
     let deadline = Instant::now() + timeout;
 
     loop {
-        if stop_requested(stop_rx, stop_signal) {
+        if bot_stop_requested(stop_rx, worker_lease) {
             return BotStartOutcome::StoppedByRequest;
+        }
+
+        if let Some(process) = first_unhealthy_critical_dependency(status_ref, spec) {
+            return BotStartOutcome::StartupFailure(format!(
+                "Critical dependency became unavailable during bot startup: {process}"
+            ));
         }
 
         match lifecycle_rx.recv_timeout(Duration::from_millis(100)) {
@@ -1470,13 +1889,13 @@ fn wait_for_bot_ready_after_bootstrap_start(
     child: &mut Child,
     lifecycle_rx: &Receiver<Result<BotLifecyclePayload, String>>,
     stop_rx: &Receiver<()>,
-    stop_signal: &AtomicBool,
+    worker_lease: &BotWorkerLifecycleLease,
     stall_timeout: Duration,
 ) -> BotBootstrapOutcome {
     let mut last_progress_at = Instant::now();
 
     loop {
-        if stop_requested(stop_rx, stop_signal) {
+        if bot_stop_requested(stop_rx, worker_lease) {
             return BotBootstrapOutcome::StoppedByRequest;
         }
 
@@ -1535,16 +1954,17 @@ fn monitor_bot_process(
     spec: crate::runtime::bot_runtime::BotRuntimeSpec,
     process: &mut ManagedProcess,
     stop_rx: &Receiver<()>,
-    stop_signal: &AtomicBool,
+    worker_lease: &BotWorkerLifecycleLease,
 ) -> BotMonitorOutcome {
     loop {
+        if worker_lease.is_cancelled() {
+            return BotMonitorOutcome::StoppedByRequest;
+        }
         match stop_rx.recv_timeout(MONITOR_POLL_INTERVAL) {
             Ok(()) => {
-                stop_signal.store(true, Ordering::SeqCst);
                 return BotMonitorOutcome::StoppedByRequest;
             }
             Err(RecvTimeoutError::Disconnected) => {
-                stop_signal.store(true, Ordering::SeqCst);
                 return BotMonitorOutcome::StoppedByRequest;
             }
             Err(RecvTimeoutError::Timeout) => {}
@@ -1566,16 +1986,23 @@ fn monitor_bot_process(
     }
 }
 
+fn bot_stop_requested(stop_rx: &Receiver<()>, worker_lease: &BotWorkerLifecycleLease) -> bool {
+    if worker_lease.is_cancelled() {
+        return true;
+    }
+    match stop_rx.try_recv() {
+        Ok(()) | Err(TryRecvError::Disconnected) => true,
+        Err(TryRecvError::Empty) => false,
+    }
+}
+
 fn first_unhealthy_critical_dependency(
     status_ref: &Arc<Mutex<RuntimeStatus>>,
     spec: crate::runtime::bot_runtime::BotRuntimeSpec,
 ) -> Option<String> {
     let status = status_ref.lock().ok()?;
     if status.state != "running" {
-        return spec
-            .critical_processes
-            .first()
-            .map(|process| (*process).to_owned());
+        return Some(SUPERVISOR_PROCESS_NAME.to_owned());
     }
     spec.critical_processes
         .iter()
@@ -2435,12 +2862,63 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
+    #[cfg(unix)]
+    use alloy_signer_local::PrivateKeySigner;
     use serde::Deserialize;
+    #[cfg(unix)]
+    use tempfile::tempdir;
 
     use super::*;
+    #[cfg(unix)]
+    use crate::runtime::bot_runtime::{SNIPING_BOT_SPEC, build_trading_secret_envelope};
     use crate::runtime::config::{
         DesktopRuntimeCapabilities, DesktopWalletConfig, NATS_STORAGE_DIR_NAME, RuntimeCapability,
     };
+    #[cfg(unix)]
+    use crate::runtime::resource_contract::{PNP_CJS_RELATIVE_PATH, PNP_LOADER_RELATIVE_PATH};
+    #[cfg(unix)]
+    use crate::wallet::domain::{WalletId, WalletPrivateKey};
+
+    #[cfg(unix)]
+    const PRODUCTION_CONTAINMENT_TEST_ENTRY_NAME: &str =
+        "runtime::supervisor::tests::production_bot_parent_harness_entry";
+    #[cfg(unix)]
+    const PRODUCTION_CONTAINMENT_TEST_MODE_ENV: &str = "ARTGOD_PRODUCTION_CONTAINMENT_TEST_MODE";
+    #[cfg(unix)]
+    const PRODUCTION_CONTAINMENT_TEST_MODE_PARENT: &str = "parent";
+    #[cfg(unix)]
+    const PRODUCTION_CONTAINMENT_TEST_WORKSPACE_ENV: &str =
+        "ARTGOD_PRODUCTION_CONTAINMENT_TEST_WORKSPACE";
+    #[cfg(unix)]
+    const PRODUCTION_CONTAINMENT_TEST_PID_PATH_ENV: &str =
+        "ARTGOD_PRODUCTION_CONTAINMENT_TEST_PID_PATH";
+    #[cfg(unix)]
+    const PRODUCTION_CONTAINMENT_TEST_LIFECYCLE_PATH_ENV: &str =
+        "ARTGOD_PRODUCTION_CONTAINMENT_TEST_LIFECYCLE_PATH";
+    #[cfg(unix)]
+    const PRODUCTION_CONTAINMENT_TEST_READY_PATH_ENV: &str =
+        "ARTGOD_PRODUCTION_CONTAINMENT_TEST_READY_PATH";
+    #[cfg(unix)]
+    const PRODUCTION_CONTAINMENT_TEST_WALLET_ID: &str = "11111111-1111-4111-8111-111111111111";
+    #[cfg(unix)]
+    const PRODUCTION_CONTAINMENT_TEST_CHAIN_ID: u64 = 1;
+    #[cfg(unix)]
+    const PRODUCTION_CONTAINMENT_TEST_NODE_COMMAND: &str = "node";
+    #[cfg(unix)]
+    const UNIX_KILL_COMMAND: &str = "kill";
+    #[cfg(unix)]
+    const UNIX_SIGTERM_ARG: &str = "-TERM";
+    #[cfg(unix)]
+    const UNIX_PROCESS_PROBE_ARG: &str = "-0";
+    #[cfg(unix)]
+    const PRODUCTION_CONTAINMENT_START_TIMEOUT: Duration = Duration::from_secs(15);
+    #[cfg(unix)]
+    const PRODUCTION_CONTAINMENT_EXIT_TIMEOUT: Duration = Duration::from_secs(10);
+    #[cfg(unix)]
+    const PRODUCTION_CONTAINMENT_POLL_INTERVAL: Duration = Duration::from_millis(50);
+    // Exceeds normal pipe capacity so the fixture cannot finish before Stop arrives.
+    #[cfg(unix)]
+    const BLOCKED_SECRET_HANDOFF_TEST_BYTES: usize = 2 * 1024 * 1024;
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -2545,5 +3023,497 @@ mod tests {
             assert!(!value.contains(fixture.address.as_str()));
             assert!(!value.contains(fixture.private_key_hex.as_str()));
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_interrupts_a_secret_handoff_blocked_by_an_unread_pipe() {
+        let mut child = Command::new("sleep")
+            .arg("30")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("unread secret recipient starts");
+        let mut parent_liveness = child.stdin.take();
+        let lifecycle = BotLifecycleCoordinator::default();
+        let reservation = lifecycle.reserve_start(BotKind::Sniping).unwrap();
+        let worker_lease = reservation.worker_lease();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let stop_thread = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(100));
+            stop_tx.send(()).expect("blocked handoff stop is sent");
+        });
+        let started_at = Instant::now();
+
+        let outcome = deliver_bot_secret_envelope(
+            &mut child,
+            &mut parent_liveness,
+            &stop_rx,
+            &worker_lease,
+            Zeroizing::new(vec![7_u8; BLOCKED_SECRET_HANDOFF_TEST_BYTES]),
+            BOT_SECRET_HANDOFF_TIMEOUT,
+        );
+
+        stop_thread.join().unwrap();
+        assert!(matches!(
+            outcome,
+            BotSecretDeliveryOutcome::StoppedByRequest
+        ));
+        assert!(
+            started_at.elapsed() < Duration::from_secs(5),
+            "blocked secret handoff did not stop promptly"
+        );
+        assert!(child.try_wait().unwrap().is_some());
+        assert!(parent_liveness.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "production Node parent-containment proof is run by the desktop containment script"]
+    fn production_bot_exits_gracefully_and_after_hard_parent_death() {
+        let workspace_root = test_workspace_root();
+
+        // Prove SIGTERM can complete while the desktop still retains the liveness writer.
+        let mut graceful_bot = spawn_production_test_bot(&workspace_root);
+        let graceful_ready = wait_for_production_bot_ready(&graceful_bot);
+        assert_eq!(graceful_ready.bot_kind, BotKind::Sniping);
+        send_unix_signal(graceful_bot.child.id(), UNIX_SIGTERM_ARG);
+        let graceful_status =
+            wait_for_child_exit(&mut graceful_bot.child, PRODUCTION_CONTAINMENT_EXIT_TIMEOUT);
+        assert!(
+            graceful_status.success(),
+            "production bot did not exit cleanly after SIGTERM: {graceful_status}; diagnostics: {}",
+            graceful_bot.diagnostics()
+        );
+        graceful_bot.join_output_threads();
+
+        let temp = tempdir().expect("production containment directory is created");
+        let pid_path = temp.path().join("bot.pid");
+        let lifecycle_path = temp.path().join("bot.lifecycle");
+        let ready_path = temp.path().join("bot.ready");
+        let mut parent = spawn_production_parent_harness(
+            &workspace_root,
+            &pid_path,
+            &lifecycle_path,
+            &ready_path,
+        );
+
+        wait_for_test_file(&ready_path, PRODUCTION_CONTAINMENT_START_TIMEOUT);
+        let bot_pid = read_test_pid(&pid_path);
+        assert!(
+            unix_process_is_alive(bot_pid),
+            "production bot never became active"
+        );
+        let ready_payload =
+            fs::read_to_string(&lifecycle_path).expect("production bot lifecycle is readable");
+        assert!(
+            ready_payload.contains(SNIPING_BOT_SPEC.process_name),
+            "production bot readiness lifecycle was not recorded"
+        );
+
+        // Simulate an ungraceful desktop death while the real Node bot is ready.
+        parent.hard_kill();
+
+        wait_for_unix_process_exit(bot_pid, PRODUCTION_CONTAINMENT_EXIT_TIMEOUT);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "subprocess entrypoint for the production Node containment proof"]
+    fn production_bot_parent_harness_entry() {
+        let Ok(mode) = std::env::var(PRODUCTION_CONTAINMENT_TEST_MODE_ENV) else {
+            return;
+        };
+        assert_eq!(mode, PRODUCTION_CONTAINMENT_TEST_MODE_PARENT);
+        let workspace_root = required_test_path(PRODUCTION_CONTAINMENT_TEST_WORKSPACE_ENV);
+        let pid_path = required_test_path(PRODUCTION_CONTAINMENT_TEST_PID_PATH_ENV);
+        let lifecycle_path = required_test_path(PRODUCTION_CONTAINMENT_TEST_LIFECYCLE_PATH_ENV);
+        let ready_path = required_test_path(PRODUCTION_CONTAINMENT_TEST_READY_PATH_ENV);
+        let mut bot = spawn_production_test_bot(&workspace_root);
+        let ready = wait_for_production_bot_ready(&bot);
+
+        fs::write(&pid_path, bot.child.id().to_string()).expect("production bot pid is published");
+        fs::write(
+            &lifecycle_path,
+            format!(
+                "{} {}",
+                SNIPING_BOT_SPEC.process_name,
+                ready.readiness_fields()
+            ),
+        )
+        .expect("production bot readiness lifecycle is published");
+        fs::write(&ready_path, "ready").expect("production bot readiness is published");
+
+        let _ = bot.child.wait();
+        bot.join_output_threads();
+    }
+
+    #[cfg(unix)]
+    struct ProductionTestBot {
+        child: Child,
+        _parent_liveness: Option<ChildStdin>,
+        _containment: ChildProcessContainment,
+        lifecycle_rx: Receiver<Result<BotLifecyclePayload, String>>,
+        output_threads: Vec<JoinHandle<()>>,
+        diagnostics: Arc<Mutex<String>>,
+    }
+
+    #[cfg(unix)]
+    struct ProductionParentHarness {
+        child: Child,
+        reaped: bool,
+    }
+
+    #[cfg(unix)]
+    impl ProductionParentHarness {
+        fn hard_kill(&mut self) {
+            self.child
+                .kill()
+                .expect("production parent harness is hard-killed");
+            self.child
+                .wait()
+                .expect("production parent harness is reaped");
+            self.reaped = true;
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for ProductionParentHarness {
+        fn drop(&mut self) {
+            if self.reaped {
+                return;
+            }
+            if self.child.try_wait().is_ok_and(|status| status.is_none()) {
+                let _ = self.child.kill();
+            }
+            let _ = self.child.wait();
+        }
+    }
+
+    #[cfg(unix)]
+    impl ProductionTestBot {
+        fn diagnostics(&self) -> String {
+            self.diagnostics
+                .lock()
+                .map(|diagnostics| diagnostics.clone())
+                .unwrap_or_else(|_| "diagnostics lock failed".to_owned())
+        }
+
+        fn join_output_threads(&mut self) {
+            for output_thread in self.output_threads.drain(..) {
+                let _ = output_thread.join();
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for ProductionTestBot {
+        fn drop(&mut self) {
+            self._parent_liveness.take();
+            if self.child.try_wait().is_ok_and(|status| status.is_none()) {
+                let _ = self.child.kill();
+            }
+            let _ = self.child.wait();
+            self.join_output_threads();
+        }
+    }
+
+    #[cfg(unix)]
+    fn spawn_production_test_bot(workspace_root: &Path) -> ProductionTestBot {
+        let config = production_test_launch_config(workspace_root);
+        let args = build_trading_bot_process_args(&config);
+        let ContainedTradingBotChild {
+            mut child,
+            mut parent_liveness,
+            containment,
+        } = spawn_contained_trading_bot_child(&config, &args)
+            .expect("production trading bot command starts");
+        let lifecycle = BotLifecycleCoordinator::default();
+        let reservation = lifecycle
+            .reserve_start(BotKind::Sniping)
+            .expect("production test lifecycle is reserved");
+        let worker_lease = reservation.worker_lease();
+        let (_stop_tx, stop_rx) = mpsc::channel();
+        match deliver_bot_secret_envelope(
+            &mut child,
+            &mut parent_liveness,
+            &stop_rx,
+            &worker_lease,
+            Zeroizing::new(production_test_secret_envelope()),
+            BOT_SECRET_HANDOFF_TIMEOUT,
+        ) {
+            BotSecretDeliveryOutcome::Delivered => {}
+            BotSecretDeliveryOutcome::StoppedByRequest => {
+                panic!("production secret handoff stopped unexpectedly")
+            }
+            BotSecretDeliveryOutcome::Failed(error) => {
+                panic!("production secret handoff failed: {error}")
+            }
+        }
+
+        let stdout = child.stdout.take().expect("production bot stdout is piped");
+        let stderr = child.stderr.take().expect("production bot stderr is piped");
+        let (lifecycle_tx, lifecycle_rx) = mpsc::channel();
+        let diagnostics = Arc::new(Mutex::new(String::new()));
+        let output_threads = vec![
+            spawn_production_test_stdout_worker(stdout, lifecycle_tx),
+            spawn_production_test_stderr_worker(stderr, Arc::clone(&diagnostics)),
+        ];
+
+        ProductionTestBot {
+            child,
+            _parent_liveness: parent_liveness,
+            _containment: containment,
+            lifecycle_rx,
+            output_threads,
+            diagnostics,
+        }
+    }
+
+    #[cfg(unix)]
+    fn production_test_launch_config(workspace_root: &Path) -> BotRuntimeLaunchConfig {
+        let artifact_path = workspace_root.join(SNIPING_BOT_SPEC.artifact_relative_path);
+        let pnp_cjs_path = workspace_root.join(PNP_CJS_RELATIVE_PATH);
+        let pnp_loader_path = workspace_root.join(PNP_LOADER_RELATIVE_PATH);
+        for required_path in [&artifact_path, &pnp_cjs_path, &pnp_loader_path] {
+            assert!(
+                required_path.is_file(),
+                "required production runtime file is missing: {}",
+                required_path.display()
+            );
+        }
+        BotRuntimeLaunchConfig {
+            spec: SNIPING_BOT_SPEC,
+            artifact_path,
+            node_bin: PathBuf::from(PRODUCTION_CONTAINMENT_TEST_NODE_COMMAND),
+            runtime_dir: workspace_root.to_path_buf(),
+            pnp_cjs_path,
+            pnp_loader_path,
+            chain_id: PRODUCTION_CONTAINMENT_TEST_CHAIN_ID,
+            process_env: HashMap::new(),
+            logs_dir: workspace_root.join("tmp"),
+        }
+    }
+
+    #[cfg(unix)]
+    fn production_test_secret_envelope() -> Vec<u8> {
+        let mut private_key_bytes = [0_u8; 32];
+        private_key_bytes[31] = 1;
+        let signer = PrivateKeySigner::from_slice(&private_key_bytes)
+            .expect("production test private key is valid");
+        let wallet_id = WalletId::parse(PRODUCTION_CONTAINMENT_TEST_WALLET_ID)
+            .expect("production test wallet id is valid");
+        build_trading_secret_envelope(
+            &wallet_id,
+            signer.address().to_string().as_str(),
+            BotKind::Sniping,
+            PRODUCTION_CONTAINMENT_TEST_CHAIN_ID,
+            None,
+            &WalletPrivateKey::new(private_key_bytes),
+        )
+        .expect("production test secret envelope is valid")
+    }
+
+    #[cfg(unix)]
+    fn spawn_production_test_stdout_worker(
+        stdout: std::process::ChildStdout,
+        lifecycle_tx: Sender<Result<BotLifecyclePayload, String>>,
+    ) -> JoinHandle<()> {
+        thread::spawn(move || {
+            let mut reader = BufReader::new(stdout);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line) {
+                    Ok(0) => {
+                        let _ = lifecycle_tx.send(Err(
+                            "Production bot stdout closed before another lifecycle event"
+                                .to_owned(),
+                        ));
+                        return;
+                    }
+                    Ok(_) => {
+                        let payload = line.trim_end_matches(['\r', '\n']);
+                        if let Ok(payload) = serde_json::from_str::<BotLifecyclePayload>(payload)
+                            && payload.bot_kind == BotKind::Sniping
+                            && payload.kind().is_some()
+                        {
+                            let _ = lifecycle_tx.send(Ok(payload));
+                        }
+                    }
+                    Err(error) => {
+                        let _ = lifecycle_tx.send(Err(format!(
+                            "Failed to read production bot stdout: {error}"
+                        )));
+                        return;
+                    }
+                }
+            }
+        })
+    }
+
+    #[cfg(unix)]
+    fn spawn_production_test_stderr_worker(
+        stderr: std::process::ChildStderr,
+        diagnostics: Arc<Mutex<String>>,
+    ) -> JoinHandle<()> {
+        thread::spawn(move || {
+            let mut reader = BufReader::new(stderr);
+            let mut line = String::new();
+            while reader.read_line(&mut line).is_ok_and(|bytes| bytes > 0) {
+                if let Ok(mut diagnostics) = diagnostics.lock() {
+                    diagnostics.push_str(&line);
+                }
+                line.clear();
+            }
+        })
+    }
+
+    #[cfg(unix)]
+    fn wait_for_production_bot_ready(bot: &ProductionTestBot) -> BotLifecyclePayload {
+        let deadline = Instant::now() + PRODUCTION_CONTAINMENT_START_TIMEOUT;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let event = bot
+                .lifecycle_rx
+                .recv_timeout(remaining)
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "production bot did not become ready: {error}; diagnostics: {}",
+                        bot.diagnostics()
+                    )
+                });
+            let payload = event.unwrap_or_else(|error| {
+                panic!(
+                    "production bot lifecycle failed: {error}; diagnostics: {}",
+                    bot.diagnostics()
+                )
+            });
+            if payload.kind() == Some(BotLifecycleKind::Ready) {
+                return payload;
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn spawn_production_parent_harness(
+        workspace_root: &Path,
+        pid_path: &Path,
+        lifecycle_path: &Path,
+        ready_path: &Path,
+    ) -> ProductionParentHarness {
+        let mut command = Command::new(std::env::current_exe().expect("test executable exists"));
+        let child = command
+            .args([
+                "--ignored",
+                "--exact",
+                PRODUCTION_CONTAINMENT_TEST_ENTRY_NAME,
+                "--nocapture",
+            ])
+            .env(
+                PRODUCTION_CONTAINMENT_TEST_MODE_ENV,
+                PRODUCTION_CONTAINMENT_TEST_MODE_PARENT,
+            )
+            .env(PRODUCTION_CONTAINMENT_TEST_WORKSPACE_ENV, workspace_root)
+            .env(PRODUCTION_CONTAINMENT_TEST_PID_PATH_ENV, pid_path)
+            .env(
+                PRODUCTION_CONTAINMENT_TEST_LIFECYCLE_PATH_ENV,
+                lifecycle_path,
+            )
+            .env(PRODUCTION_CONTAINMENT_TEST_READY_PATH_ENV, ready_path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("production parent harness starts");
+        ProductionParentHarness {
+            child,
+            reaped: false,
+        }
+    }
+
+    #[cfg(unix)]
+    fn test_workspace_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("workspace root exists")
+            .to_path_buf()
+    }
+
+    #[cfg(unix)]
+    fn required_test_path(key: &str) -> PathBuf {
+        std::env::var_os(key)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| panic!("required production containment path is missing: {key}"))
+    }
+
+    #[cfg(unix)]
+    fn wait_for_test_file(path: &Path, timeout: Duration) {
+        let deadline = Instant::now() + timeout;
+        while !path.is_file() {
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {}",
+                path.display()
+            );
+            thread::sleep(PRODUCTION_CONTAINMENT_POLL_INTERVAL);
+        }
+    }
+
+    #[cfg(unix)]
+    fn read_test_pid(path: &Path) -> u32 {
+        fs::read_to_string(path)
+            .expect("production bot pid is readable")
+            .trim()
+            .parse()
+            .expect("production bot pid is valid")
+    }
+
+    #[cfg(unix)]
+    fn send_unix_signal(pid: u32, signal: &str) {
+        let status = Command::new(UNIX_KILL_COMMAND)
+            .args([signal, pid.to_string().as_str()])
+            .status()
+            .expect("Unix signal command starts");
+        assert!(
+            status.success(),
+            "failed to send signal {signal} to production bot {pid}: {status}"
+        );
+    }
+
+    #[cfg(unix)]
+    fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> ExitStatus {
+        let deadline = Instant::now() + timeout;
+        loop {
+            match child.try_wait().expect("production bot exit is polled") {
+                Some(status) => return status,
+                None if Instant::now() < deadline => {
+                    thread::sleep(PRODUCTION_CONTAINMENT_POLL_INTERVAL);
+                }
+                None => panic!("production bot {} did not exit", child.id()),
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn wait_for_unix_process_exit(pid: u32, timeout: Duration) {
+        let deadline = Instant::now() + timeout;
+        while unix_process_is_alive(pid) {
+            assert!(
+                Instant::now() < deadline,
+                "production bot process {pid} survived hard parent death"
+            );
+            thread::sleep(PRODUCTION_CONTAINMENT_POLL_INTERVAL);
+        }
+    }
+
+    #[cfg(unix)]
+    fn unix_process_is_alive(pid: u32) -> bool {
+        Command::new(UNIX_KILL_COMMAND)
+            .args([UNIX_PROCESS_PROBE_ARG, pid.to_string().as_str()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
     }
 }

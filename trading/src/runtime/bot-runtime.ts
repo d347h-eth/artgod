@@ -1,4 +1,3 @@
-import { Buffer } from "node:buffer";
 import process from "node:process";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import { privateKeyToAccount } from "viem/accounts";
@@ -8,6 +7,7 @@ import {
     startBiddingRuntime,
     type BiddingRuntimeBootstrapPhase,
 } from "./bidding-runtime.js";
+import { readSecretEnvelopeFromParent } from "./parent-secret-channel.js";
 import {
     parseSecretEnvelope,
     type TradingBotKind,
@@ -51,10 +51,16 @@ type TradingBotLifecyclePayload =
     | BootstrapProgressPayload
     | ReadyPayload;
 
+const PARENT_LIVENESS_FAILURE_EXIT_CODE = 1;
+
 export async function bootstrapTradingBot(
     botKind: TradingBotKind,
 ): Promise<void> {
-    const envelopeBuffer = await readAllStdin();
+    const parentSecretChannel = await readSecretEnvelopeFromParent(
+        process.stdin,
+        exitAfterParentChannelFailure,
+    );
+    const envelopeBuffer = parentSecretChannel.envelope;
     let privateKeyHex = "";
 
     try {
@@ -142,23 +148,13 @@ export async function bootstrapTradingBot(
         if (privateKeyHex.length > 0) {
             privateKeyHex = "0x";
         }
+        // Release stdin only after runtime and metrics cleanup so graceful SIGTERM can exit.
+        parentSecretChannel.releaseAfterCleanup();
     }
 }
 
-async function readAllStdin(): Promise<Buffer> {
-    const chunks: Buffer[] = [];
-    for await (const chunk of process.stdin) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    const buffer = Buffer.concat(chunks);
-    for (const chunk of chunks) {
-        chunk.fill(0);
-    }
-    chunks.length = 0;
-    if (buffer.length === 0) {
-        throw new Error("Secret envelope is missing");
-    }
-    return buffer;
+function exitAfterParentChannelFailure(_error: Error): never {
+    process.exit(PARENT_LIVENESS_FAILURE_EXIT_CODE);
 }
 
 function waitForShutdownSignal(): Promise<void> {

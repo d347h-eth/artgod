@@ -471,6 +471,10 @@ fn sanitize_prompt_error(error: SecretPromptError) -> String {
         | SecretPromptError::ProtocolFailure { .. } => {
             "Native wallet prompt failed. See desktop-app logs.".to_owned()
         }
+        SecretPromptError::Busy { .. } => {
+            "Finish or cancel the current wallet prompt before opening another one.".to_owned()
+        }
+        SecretPromptError::LifecycleCancelled { .. } => "Wallet prompt was cancelled.".to_owned(),
         SecretPromptError::Cancelled { .. } => "Wallet prompt was cancelled.".to_owned(),
     }
 }

@@ -696,6 +696,7 @@ dependencies = [
  "artgod-secret-prompt-protocol",
  "eth-keystore",
  "futures-util",
+ "libc",
  "log",
  "rand 0.8.6",
  "reqwest",
@@ -711,6 +712,7 @@ dependencies = [
  "time",
  "toml 0.8.23",
  "uuid 1.23.2",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 

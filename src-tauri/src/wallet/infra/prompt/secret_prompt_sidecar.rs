@@ -1,3 +1,7 @@
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+
 use artgod_secret_prompt_protocol::{
     ExportConfirmSecretPromptRequest, ExportRevealAcknowledgedResponse,
     ExportRevealSecretPromptRequest, ImportSecretPromptRequest, RemoveConfirmSecretPromptRequest,
@@ -5,9 +9,12 @@ use artgod_secret_prompt_protocol::{
     SecretPromptErrorCode, SecretPromptRequest, SecretPromptResponse, UnlockBiddingMandateSummary,
     UnlockSecretPromptRequest,
 };
+use futures_util::future::{Either, select};
+use futures_util::pin_mut;
 use tauri::AppHandle;
+use tauri::async_runtime::Receiver;
 use tauri_plugin_shell::ShellExt;
-use tauri_plugin_shell::process::CommandEvent;
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use thiserror::Error;
 use zeroize::Zeroizing;
 
@@ -18,6 +25,24 @@ const SECRET_PROMPT_MAX_STDERR_BYTES: usize = 4 * 1024;
 #[derive(Clone, Debug)]
 pub struct SecretPromptSidecar {
     sidecar_name: String,
+    coordinator: Arc<SecretPromptCoordinator>,
+}
+
+#[derive(Debug, Default)]
+struct SecretPromptCoordinator {
+    active_action: Mutex<Option<SecretPromptAction>>,
+}
+
+struct SecretPromptLease {
+    coordinator: Arc<SecretPromptCoordinator>,
+    action: SecretPromptAction,
+}
+
+/// Cancellation port supplied by a lifecycle owner for a native prompt request.
+pub(crate) trait SecretPromptCancellation: Send + Sync {
+    fn is_cancelled(&self) -> bool;
+
+    fn cancelled(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 
 impl Default for SecretPromptSidecar {
@@ -31,6 +56,7 @@ impl SecretPromptSidecar {
     pub fn new() -> Self {
         Self {
             sidecar_name: SECRET_PROMPT_SIDECAR_NAME.to_owned(),
+            coordinator: Arc::new(SecretPromptCoordinator::default()),
         }
     }
 
@@ -48,6 +74,7 @@ impl SecretPromptSidecar {
                     wallet_label_hint,
                     passphrase_min_length,
                 }),
+                None,
             )
             .await?;
         match response {
@@ -72,6 +99,7 @@ impl SecretPromptSidecar {
         wallet_address: String,
         reason: String,
         bidding_mandate: Option<UnlockBiddingMandateSummary>,
+        cancellation: &dyn SecretPromptCancellation,
     ) -> Result<UnlockPromptOutput, SecretPromptError> {
         let response = self
             .run_prompt(
@@ -82,6 +110,7 @@ impl SecretPromptSidecar {
                     reason,
                     bidding_mandate,
                 }),
+                Some(cancellation),
             )
             .await?;
         match response {
@@ -111,6 +140,7 @@ impl SecretPromptSidecar {
                     wallet_address,
                     expected_confirmation,
                 }),
+                None,
             )
             .await?;
         match response {
@@ -143,6 +173,7 @@ impl SecretPromptSidecar {
                     wallet_address,
                     expected_confirmation,
                 }),
+                None,
             )
             .await?;
         match response {
@@ -173,6 +204,7 @@ impl SecretPromptSidecar {
                     wallet_address: input.wallet_address,
                     private_key: input.private_key,
                 }),
+                None,
             )
             .await?;
         match response {
@@ -188,8 +220,15 @@ impl SecretPromptSidecar {
         &self,
         app: &AppHandle,
         request: SecretPromptRequest,
+        cancellation: Option<&dyn SecretPromptCancellation>,
     ) -> Result<SecretPromptResponse, SecretPromptError> {
         let request_action = request.action();
+        let _prompt_lease = self.coordinator.reserve(request_action)?;
+        if cancellation.is_some_and(SecretPromptCancellation::is_cancelled) {
+            return Err(SecretPromptError::LifecycleCancelled {
+                action: request_action,
+            });
+        }
         let request_payload =
             serde_json::to_vec(&request).map_err(|error| SecretPromptError::ProtocolFailure {
                 message: format!("Failed to serialize secret prompt request: {error}"),
@@ -224,38 +263,79 @@ impl SecretPromptSidecar {
         {
             let mut payload = Zeroizing::new(request_payload);
             payload.push(b'\n');
-            child
-                .write(&payload)
-                .map_err(|error| SecretPromptError::StdinFailure {
+            if let Err(error) = child.write(&payload) {
+                let _ = child.kill();
+                drain_prompt_events(&mut rx).await;
+                return Err(SecretPromptError::StdinFailure {
                     action: request_action,
                     message: error.to_string(),
-                })?;
+                });
+            }
         }
+        let mut child = Some(child);
 
         let mut stdout = Zeroizing::new(Vec::<u8>::new());
         let mut stderr = Zeroizing::new(Vec::<u8>::new());
         let mut exit_code: Option<i32> = None;
 
-        while let Some(event) = rx.recv().await {
+        loop {
+            let event = match cancellation {
+                Some(cancellation) => {
+                    let wait_result = {
+                        let event_future = rx.recv();
+                        let cancellation_future = cancellation.cancelled();
+                        pin_mut!(event_future);
+                        pin_mut!(cancellation_future);
+                        match select(event_future, cancellation_future).await {
+                            Either::Left((event, _)) => Ok(event),
+                            Either::Right(((), _)) => Err(()),
+                        }
+                    };
+                    match wait_result {
+                        Ok(event) => event,
+                        Err(()) => {
+                            terminate_prompt_child(&mut child, &mut rx).await;
+                            return Err(SecretPromptError::LifecycleCancelled {
+                                action: request_action,
+                            });
+                        }
+                    }
+                }
+                None => rx.recv().await,
+            };
+            let Some(event) = event else {
+                break;
+            };
             match event {
-                CommandEvent::Stdout(bytes) => append_sidecar_output(
-                    &mut stdout,
-                    &bytes,
-                    SECRET_PROMPT_MAX_RESPONSE_BYTES,
-                    "stdout",
-                    request_action,
-                )?,
-                CommandEvent::Stderr(bytes) => append_sidecar_output(
-                    &mut stderr,
-                    &bytes,
-                    SECRET_PROMPT_MAX_STDERR_BYTES,
-                    "stderr",
-                    request_action,
-                )?,
+                CommandEvent::Stdout(bytes) => {
+                    if let Err(error) = append_sidecar_output(
+                        &mut stdout,
+                        &bytes,
+                        SECRET_PROMPT_MAX_RESPONSE_BYTES,
+                        "stdout",
+                        request_action,
+                    ) {
+                        terminate_prompt_child(&mut child, &mut rx).await;
+                        return Err(error);
+                    }
+                }
+                CommandEvent::Stderr(bytes) => {
+                    if let Err(error) = append_sidecar_output(
+                        &mut stderr,
+                        &bytes,
+                        SECRET_PROMPT_MAX_STDERR_BYTES,
+                        "stderr",
+                        request_action,
+                    ) {
+                        terminate_prompt_child(&mut child, &mut rx).await;
+                        return Err(error);
+                    }
+                }
                 CommandEvent::Terminated(terminated) => {
                     exit_code = terminated.code;
                 }
                 CommandEvent::Error(message) => {
+                    terminate_prompt_child(&mut child, &mut rx).await;
                     return Err(SecretPromptError::SpawnFailure {
                         action: request_action,
                         message,
@@ -264,6 +344,7 @@ impl SecretPromptSidecar {
                 _ => {}
             }
         }
+        drop(child.take());
 
         let response = parse_prompt_response(&stdout, request_action)?;
         if let SecretPromptResponse::Cancelled(response) = &response {
@@ -294,6 +375,55 @@ impl SecretPromptSidecar {
 
         Ok(response)
     }
+}
+
+impl SecretPromptCoordinator {
+    fn reserve(
+        self: &Arc<Self>,
+        action: SecretPromptAction,
+    ) -> Result<SecretPromptLease, SecretPromptError> {
+        let mut active_action =
+            self.active_action
+                .lock()
+                .map_err(|_| SecretPromptError::ProtocolFailure {
+                    message: "Failed to lock the native wallet prompt coordinator".to_owned(),
+                })?;
+        if let Some(active) = *active_action {
+            return Err(SecretPromptError::Busy {
+                active,
+                requested: action,
+            });
+        }
+        *active_action = Some(action);
+        Ok(SecretPromptLease {
+            coordinator: Arc::clone(self),
+            action,
+        })
+    }
+}
+
+impl Drop for SecretPromptLease {
+    fn drop(&mut self) {
+        if let Ok(mut active_action) = self.coordinator.active_action.lock()
+            && *active_action == Some(self.action)
+        {
+            *active_action = None;
+        }
+    }
+}
+
+async fn terminate_prompt_child(
+    child: &mut Option<CommandChild>,
+    events: &mut Receiver<CommandEvent>,
+) {
+    if let Some(child) = child.take() {
+        let _ = child.kill();
+    }
+    drain_prompt_events(events).await;
+}
+
+async fn drain_prompt_events(events: &mut Receiver<CommandEvent>) {
+    while events.recv().await.is_some() {}
 }
 
 fn append_sidecar_output(
@@ -386,6 +516,13 @@ pub enum SecretPromptError {
         action: SecretPromptAction,
         message: String,
     },
+    #[error("Secret prompt {requested:?} was blocked by active prompt {active:?}")]
+    Busy {
+        active: SecretPromptAction,
+        requested: SecretPromptAction,
+    },
+    #[error("Secret prompt was cancelled by its lifecycle owner for {action:?}")]
+    LifecycleCancelled { action: SecretPromptAction },
     #[error("Secret prompt was cancelled for {action:?}")]
     Cancelled { action: SecretPromptAction },
     #[error("Secret prompt helper failed for {action:?}: {message}")]
@@ -464,5 +601,36 @@ mod tests {
         .unwrap_err();
         assert!(matches!(error, SecretPromptError::ProtocolFailure { .. }));
         assert_eq!(buffer, vec![1_u8, 2_u8, 3_u8]);
+    }
+
+    #[test]
+    fn cloned_sidecars_share_one_global_prompt_slot() {
+        let sidecar = SecretPromptSidecar::new();
+        let clone = sidecar.clone();
+        let lease = sidecar
+            .coordinator
+            .reserve(SecretPromptAction::Unlock)
+            .unwrap();
+
+        let error = clone
+            .coordinator
+            .reserve(SecretPromptAction::Import)
+            .err()
+            .expect("second prompt should be rejected");
+
+        assert!(matches!(
+            error,
+            SecretPromptError::Busy {
+                active: SecretPromptAction::Unlock,
+                requested: SecretPromptAction::Import,
+            }
+        ));
+        drop(lease);
+        assert!(
+            clone
+                .coordinator
+                .reserve(SecretPromptAction::Import)
+                .is_ok()
+        );
     }
 }
