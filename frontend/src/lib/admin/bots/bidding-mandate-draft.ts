@@ -11,9 +11,28 @@ const ZERO_ETH_PATTERN = /^0(?:\.0{1,18})?$/;
 export type BiddingCollectionMandateSelection = {
 	selected: boolean;
 	maxUnitBidEth: string;
+	maxUnitBidEthEdited: boolean;
 };
 
 export type BiddingMandateSelections = Record<string, BiddingCollectionMandateSelection>;
+
+// Shows enabled-job price maxima first without moving rows while the operator edits them.
+export function sortBiddingCollectionCandidatesByMaxUnitBid(
+	candidates: AdminBiddingCollectionCandidate[]
+): AdminBiddingCollectionCandidate[] {
+	return [...candidates].sort((left, right) => {
+		const priceOrder = compareOptionalCanonicalEthDescending(
+			left.activeJobMaxCeilingEth,
+			right.activeJobMaxCeilingEth
+		);
+		if (priceOrder !== 0) return priceOrder;
+		if (left.artgodSlug !== right.artgodSlug) {
+			return left.artgodSlug < right.artgodSlug ? -1 : 1;
+		}
+		if (left.collectionId === right.collectionId) return 0;
+		return left.collectionId < right.collectionId ? -1 : 1;
+	});
+}
 
 // Formats a named chain first while keeping its external numeric identity explicit.
 export function formatBiddingChainIdentity(
@@ -34,11 +53,16 @@ export function syncBiddingMandateSelections(
 	return Object.fromEntries(
 		candidates.map((candidate) => {
 			const key = String(candidate.collectionId);
+			const existing = current[key];
+			if (existing && (existing.selected || existing.maxUnitBidEthEdited)) {
+				return [key, existing];
+			}
 			return [
 				key,
-				current[key] ?? {
+				{
 					selected: false,
-					maxUnitBidEth: ''
+					maxUnitBidEth: candidate.activeJobMaxCeilingEth ?? '',
+					maxUnitBidEthEdited: false
 				}
 			];
 		})
@@ -95,4 +119,20 @@ export function formatBiddingMandateWeiAsEth(wei: string): string {
 	const whole = padded.slice(0, -18).replace(/^0+(?=[0-9])/, '');
 	const fraction = padded.slice(-18).replace(/0+$/, '');
 	return fraction ? `${whole}.${fraction} WETH` : `${whole} WETH`;
+}
+
+function compareOptionalCanonicalEthDescending(left: string | null, right: string | null): number {
+	if (left === null) return right === null ? 0 : 1;
+	if (right === null) return -1;
+	const [leftWhole, leftFraction = ''] = left.split('.');
+	const [rightWhole, rightFraction = ''] = right.split('.');
+	if (leftWhole.length !== rightWhole.length) {
+		return rightWhole.length - leftWhole.length;
+	}
+	if (leftWhole !== rightWhole) return leftWhole < rightWhole ? 1 : -1;
+	const fractionLength = Math.max(leftFraction.length, rightFraction.length);
+	const paddedLeftFraction = leftFraction.padEnd(fractionLength, '0');
+	const paddedRightFraction = rightFraction.padEnd(fractionLength, '0');
+	if (paddedLeftFraction === paddedRightFraction) return 0;
+	return paddedLeftFraction < paddedRightFraction ? 1 : -1;
 }

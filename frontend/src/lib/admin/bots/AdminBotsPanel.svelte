@@ -16,6 +16,7 @@
 		formatBiddingMandateTokenScope,
 		formatBiddingMandateWeiAsEth,
 		isBiddingMandateDraftReady,
+		sortBiddingCollectionCandidatesByMaxUnitBid,
 		syncBiddingMandateSelections,
 		type BiddingCollectionMandateSelection,
 		type BiddingMandateSelections
@@ -39,7 +40,7 @@
 	let wallets = $state<AdminWalletRecord[]>([]);
 	let biddingCollectionCatalog = $state<AdminBiddingCollectionCatalog | null>(null);
 	let biddingCollections: AdminBiddingCollectionCandidate[] = $derived(
-		biddingCollectionCatalog?.collections ?? []
+		sortBiddingCollectionCandidatesByMaxUnitBid(biddingCollectionCatalog?.collections ?? [])
 	);
 	let biddingMandateSelections = $state<BiddingMandateSelections>({});
 	let biddingMandateReady = $derived(
@@ -354,13 +355,14 @@
 																<span>max WETH per NFT</span>
 																<input
 																	type="text"
-																	class="bootstrap-control"
+																	class="bootstrap-control mono bid-book-price"
 																	inputmode="decimal"
 																	value={selection.maxUnitBidEth}
 																	disabled={mandateEditingDisabled || !selection.selected}
 																	oninput={(event) =>
 																		updateBiddingMandateSelection(collection.collectionId, {
-																			maxUnitBidEth: event.currentTarget.value
+																			maxUnitBidEth: event.currentTarget.value,
+																			maxUnitBidEthEdited: true
 																		})}
 																/>
 															</label>
@@ -420,7 +422,9 @@
 													</div>
 													<div>
 														<span class="runtime-k">max WETH per NFT</span>
-														<span class="runtime-v">{formatBiddingMandateWeiAsEth(collection.maxUnitBidWei)}</span>
+														<span class="runtime-v mono bid-book-price"
+															>{formatBiddingMandateWeiAsEth(collection.maxUnitBidWei)}</span
+														>
 													</div>
 													<div>
 														<span class="runtime-k">max NFTs per offer</span>
@@ -650,6 +654,10 @@
 	.bidding-mandate-caps input {
 		width: 100%;
 		justify-self: stretch;
+	}
+
+	.bidding-mandate-caps .bootstrap-control.bid-book-price:disabled {
+		color: var(--c-yellow);
 	}
 
 	.active-bidding-mandate {

@@ -132,9 +132,15 @@ impl BiddingMandate {
         }
 
         collections.sort_by(|left, right| {
-            left.artgod_slug
-                .cmp(&right.artgod_slug)
-                .then(left.collection_id.cmp(&right.collection_id))
+            compare_canonical_uint_descending(
+                left.max_unit_bid_wei.as_str(),
+                right.max_unit_bid_wei.as_str(),
+            )
+            .then_with(|| {
+                left.artgod_slug
+                    .cmp(&right.artgod_slug)
+                    .then(left.collection_id.cmp(&right.collection_id))
+            })
         });
 
         Ok(Self {
@@ -181,6 +187,16 @@ pub fn format_wei_as_eth(wei: &str) -> Result<String, String> {
     } else {
         format!("{whole}.{fraction}")
     })
+}
+
+/// Validates and canonicalizes a positive Ether-unit amount from a backend read model.
+pub(crate) fn normalize_positive_eth(raw: &str) -> Result<String, String> {
+    let wei = parse_eth_to_wei(raw)
+        .map_err(|_| "Bidding authorization contains an invalid WETH amount.".to_owned())?;
+    if wei == "0" {
+        return Err("Bidding authorization contains a non-positive WETH amount.".to_owned());
+    }
+    format_wei_as_eth(wei.as_str())
 }
 
 fn parse_positive_eth_to_wei(raw: &str, collection_id: u64) -> Result<String, String> {
@@ -231,6 +247,11 @@ fn parse_eth_to_wei(raw: &str) -> Result<String, ()> {
     };
     normalized_wei.parse::<U256>().map_err(|_| ())?;
     Ok(normalized_wei.to_owned())
+}
+
+// Orders validated canonical unsigned integers numerically without lossy conversion.
+fn compare_canonical_uint_descending(left: &str, right: &str) -> std::cmp::Ordering {
+    right.len().cmp(&left.len()).then_with(|| right.cmp(left))
 }
 
 fn parse_required_bool(env: &HashMap<String, String>, key: &str) -> Result<bool, String> {
@@ -286,6 +307,84 @@ mod tests {
         assert_eq!(
             mandate.collections[0].max_quantity,
             BIDDING_MANDATE_MAX_OFFER_QUANTITY
+        );
+    }
+
+    #[test]
+    fn orders_authorized_collections_by_exact_unit_bid_cap_descending() {
+        let mandate = BiddingMandate::resolve(
+            1,
+            BiddingMandateDraft {
+                collections: vec![
+                    BiddingCollectionMandateDraft {
+                        collection_id: 7,
+                        max_unit_bid_eth: "9".to_owned(),
+                    },
+                    BiddingCollectionMandateDraft {
+                        collection_id: 8,
+                        max_unit_bid_eth: "10".to_owned(),
+                    },
+                    BiddingCollectionMandateDraft {
+                        collection_id: 9,
+                        max_unit_bid_eth: "9.5".to_owned(),
+                    },
+                    BiddingCollectionMandateDraft {
+                        collection_id: 10,
+                        max_unit_bid_eth: "9.500000000000000001".to_owned(),
+                    },
+                ],
+            },
+            vec![candidate(7), candidate(8), candidate(9), candidate(10)],
+        )
+        .unwrap();
+
+        assert_eq!(
+            mandate
+                .collections
+                .iter()
+                .map(|collection| collection.collection_id)
+                .collect::<Vec<_>>(),
+            vec![8, 10, 9, 7]
+        );
+    }
+
+    #[test]
+    fn uses_collection_identity_as_the_equal_cap_tie_breaker() {
+        let mut alpha_ten = candidate(10);
+        alpha_ten.artgod_slug = "alpha".to_owned();
+        let mut alpha_eleven = candidate(11);
+        alpha_eleven.artgod_slug = "alpha".to_owned();
+        let mut zeta = candidate(12);
+        zeta.artgod_slug = "zeta".to_owned();
+        let mandate = BiddingMandate::resolve(
+            1,
+            BiddingMandateDraft {
+                collections: vec![
+                    BiddingCollectionMandateDraft {
+                        collection_id: 12,
+                        max_unit_bid_eth: "1.2".to_owned(),
+                    },
+                    BiddingCollectionMandateDraft {
+                        collection_id: 11,
+                        max_unit_bid_eth: "1.20".to_owned(),
+                    },
+                    BiddingCollectionMandateDraft {
+                        collection_id: 10,
+                        max_unit_bid_eth: "1.2".to_owned(),
+                    },
+                ],
+            },
+            vec![zeta, alpha_eleven, alpha_ten],
+        )
+        .unwrap();
+
+        assert_eq!(
+            mandate
+                .collections
+                .iter()
+                .map(|collection| collection.collection_id)
+                .collect::<Vec<_>>(),
+            vec![10, 11, 12]
         );
     }
 
@@ -350,5 +449,12 @@ mod tests {
         assert!(!policy.dry_run);
         assert!(policy.trait_offers_enabled);
         assert_eq!(policy.weth_allowance_cap_eth, "1.25");
+    }
+
+    #[test]
+    fn normalizes_positive_backend_ether_amounts() {
+        assert_eq!(normalize_positive_eth("01.2500").unwrap(), "1.25");
+        assert!(normalize_positive_eth("0").is_err());
+        assert!(normalize_positive_eth("1e2").is_err());
     }
 }
