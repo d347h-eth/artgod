@@ -1,4 +1,4 @@
-import { expect, test, type Page, type TestInfo } from 'playwright/test';
+import { expect, test, type Locator, type Page, type TestInfo } from 'playwright/test';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/bootstrap';
 import { OPENSEA_API_KEY_ENV } from '@artgod/shared/config/opensea-integration';
@@ -29,7 +29,11 @@ import {
 	BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH,
 	installBootstrapRunDetailApiMock
 } from './helpers/bootstrap-run-detail-api';
-import { BOOTSTRAP_PROBE_STATUS_LABEL } from '../src/lib/bootstrap-contract-probe';
+import {
+	BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_ACKNOWLEDGEMENT,
+	BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING,
+	BOOTSTRAP_PROBE_STATUS_LABEL
+} from '../src/lib/bootstrap-contract-probe';
 
 const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
 
@@ -42,10 +46,27 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test.describe('bootstrap contract probe UI', () => {
-	test('starts with only the contract address input in the bootstrap form', async ({ page }) => {
+	test('keeps the contract probe locked until the safety warning is acknowledged', async ({
+		page
+	}) => {
 		await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
 
-		await expect(page.locator('input[name="address"]')).toBeVisible();
+		const addressInput = page.locator('input[name="address"]');
+		const safetyWarning = contractAddressSafetyWarning(page);
+		const acknowledgement = contractAddressSafetyAcknowledgement(page);
+		await expect(addressInput).toBeVisible();
+		await expect(addressInput).toBeDisabled();
+		await expect(safetyWarning).toBeVisible();
+		await expect(safetyWarning.locator('.warning-icon')).toBeVisible();
+		await expect(acknowledgement).not.toBeChecked();
+		await assertContractAddressSafetyWarningPlacement(addressInput, safetyWarning);
+
+		await acknowledgement.check();
+		await expect(addressInput).toBeEnabled();
+		await acknowledgement.uncheck();
+		await expect(addressInput).toBeDisabled();
+		await acknowledgement.check();
+		await expect(addressInput).toBeEnabled();
 		await expect(formLabel(page, 'Image source field')).toHaveCount(0);
 		await expect(formLabel(page, 'Collection slug')).toHaveCount(0);
 		await expect(formLabel(page, 'OpenSea slug')).toHaveCount(0);
@@ -60,6 +81,8 @@ test.describe('bootstrap contract probe UI', () => {
 	}, testInfo) => {
 		const api = await installBootstrapProbeApiMock(page);
 		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await expect(contractAddressSafetyWarning(page)).toBeVisible();
+		await expect(contractAddressSafetyAcknowledgement(page)).toBeChecked();
 
 		const card = tokenCard(page, '1');
 		await expect(card).toBeVisible();
@@ -226,6 +249,7 @@ test.describe('bootstrap contract probe UI', () => {
 	test('disables OpenSea slug input when the API key is unavailable', async ({ page }) => {
 		const api = await installBootstrapProbeApiMock(page);
 		await page.goto(`${BOOTSTRAP_PROBE_E2E_ROUTE_PATH}?opensea=disabled`);
+		await contractAddressSafetyAcknowledgement(page).check();
 		await page.locator('input[name="address"]').fill(BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
 
 		const openSeaSlugInput = page.locator('input[name="openseaSlug"]');
@@ -564,6 +588,7 @@ test.describe('bootstrap run detail UI', () => {
 
 async function openBootstrapProbe(page: Page, address: string): Promise<void> {
 	await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
+	await contractAddressSafetyAcknowledgement(page).check();
 	await page.locator('input[name="address"]').fill(address);
 	await expect(page.locator(`[data-testid="${TEST_IDS.BootstrapProbeTokenCard}"]`)).toBeVisible();
 }
@@ -574,12 +599,25 @@ async function openBootstrapProbeStatusOnly(
 	expectedStatus: string
 ): Promise<void> {
 	await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
+	await contractAddressSafetyAcknowledgement(page).check();
 	await page.locator('input[name="address"]').fill(address);
 	await expect(formRow(page, 'Contract probe status')).toContainText(expectedStatus);
 }
 
 function tokenCard(page: Page, tokenId: string) {
 	return page.locator(`[data-testid="${TEST_IDS.TokenCard}"][data-token-id="${tokenId}"]`);
+}
+
+function contractAddressSafetyWarning(page: Page): Locator {
+	return page
+		.getByRole('note')
+		.filter({ hasText: BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING });
+}
+
+function contractAddressSafetyAcknowledgement(page: Page): Locator {
+	return page.getByRole('checkbox', {
+		name: BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_ACKNOWLEDGEMENT
+	});
 }
 
 function formRow(page: Page, label: string) {
@@ -594,6 +632,18 @@ function formLabel(page: Page, label: string) {
 
 function rowControl(page: Page, label: string) {
 	return formRow(page, label).locator('input, select, textarea');
+}
+
+async function assertContractAddressSafetyWarningPlacement(
+	addressInput: Locator,
+	safetyWarning: Locator
+): Promise<void> {
+	const inputBox = await addressInput.boundingBox();
+	const warningBox = await safetyWarning.boundingBox();
+	expect(inputBox).not.toBeNull();
+	expect(warningBox).not.toBeNull();
+	if (!inputBox || !warningBox) return;
+	expect(warningBox.y + warningBox.height).toBeLessThanOrEqual(inputBox.y);
 }
 
 async function assertOpenSeaDisabledNoteFitsSlugInput(page: Page): Promise<void> {

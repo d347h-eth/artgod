@@ -331,6 +331,71 @@ a:hover {
 	margin-top: 0.15rem;
 }
 
+.bootstrap-contract-address-warning {
+	display: grid;
+	grid-template-columns: 2.25rem minmax(0, 1fr);
+	align-items: center;
+	gap: 0.75rem;
+	width: 100%;
+	max-width: 100%;
+	padding: 0.7rem 0.8rem;
+	border: 1px solid var(--c-yellow);
+	border-left-width: 0.25rem;
+	background: color-mix(in srgb, var(--c-yellow) 14%, transparent);
+	box-sizing: border-box;
+	color: var(--c-yellow);
+}
+
+.bootstrap-contract-address-warning-icon {
+	display: grid;
+	place-items: center;
+	width: 2.25rem;
+	height: 2.25rem;
+}
+
+.bootstrap-contract-address-warning .warning-icon {
+	width: 2rem;
+	height: 2rem;
+}
+
+.bootstrap-contract-address-warning p {
+	margin: 0;
+	color: var(--c-ice);
+	font-size: 0.78rem;
+	line-height: 1.45;
+	text-transform: none;
+}
+
+.bootstrap-contract-address-warning-body {
+	display: grid;
+	gap: 0.55rem;
+	min-width: 0;
+}
+
+.bootstrap-form .bootstrap-contract-address-warning-acknowledgement {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	width: fit-content;
+	max-width: 100%;
+	color: var(--c-yellow);
+	font-size: 0.72rem;
+	line-height: 1.35;
+	text-transform: none;
+	cursor: pointer;
+}
+
+.bootstrap-contract-probe-fields {
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+.bootstrap-contract-probe-fields:disabled {
+	opacity: 0.58;
+}
+
 .bootstrap-form-feedback {
 	display: grid;
 	gap: 0.2rem;

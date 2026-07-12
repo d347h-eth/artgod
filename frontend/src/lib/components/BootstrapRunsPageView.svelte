@@ -28,6 +28,8 @@
 		probeBootstrapCollectionContract
 	} from '$lib/backend-api';
 	import {
+		BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_ACKNOWLEDGEMENT,
+		BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING,
 		bootstrapProbeNeedsManualScope,
 		bootstrapProbeFormPatch,
 		bootstrapProbeStatusLabel,
@@ -44,6 +46,7 @@
 	import OpenSeaSlugResolverControl from '$lib/components/OpenSeaSlugResolverControl.svelte';
 	import TokenCardTile from '$lib/components/TokenCardTile.svelte';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
+	import WarningIcon from '$lib/components/WarningIcon.svelte';
 	import type { OpenSeaSlugResolverState } from '$lib/components/open-sea-slug-resolver-state';
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import {
@@ -172,6 +175,7 @@
 	let collectionSlugInputHasValue = $state(false);
 	let lastAutoFilledSlug = $state<string | null>(null);
 	let bootstrapAddress = $state('');
+	let contractAddressSafetyAcknowledged = $state(false);
 	let imageSourceField = $state('');
 	let imageSourceFieldInputElement = $state<HTMLInputElement | null>(null);
 	let imageSourceFieldDirty = $state(false);
@@ -515,6 +519,19 @@
 		maybeStartContractProbe(nextAddress);
 	}
 
+	function onContractAddressSafetyAcknowledgementChange(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLInputElement)) return;
+		contractAddressSafetyAcknowledged = target.checked;
+		if (target.checked) return;
+		cancelContractProbeTimer();
+		contractProbeRequestId += 1;
+		if (contractProbePending) {
+			probeStatus = 'idle';
+			probeError = null;
+		}
+	}
+
 	function onBootstrapAddressFocus(event: FocusEvent): void {
 		if (!latestProbeMatchesAddress) return;
 		const target = event.currentTarget;
@@ -649,6 +666,7 @@
 		animationSourceFieldOverride?: string,
 		sampleTokenIdOverride?: string | null
 	): void {
+		if (!contractAddressSafetyAcknowledged) return;
 		const requestId = contractProbeRequestId;
 		probeStatus = 'waiting';
 		if (!imageSourceFieldSectionVisible) {
@@ -670,6 +688,7 @@
 			return;
 		}
 		contractProbeTimer = window.setTimeout(() => {
+			if (!contractAddressSafetyAcknowledged) return;
 			void runContractProbe(
 				chainSlug,
 				address,
@@ -1298,6 +1317,9 @@
 	}
 
 	function probeSubmitGuard(address: string): string | null {
+		if (!contractAddressSafetyAcknowledged) {
+			return 'Acknowledge the contract address safety warning before queueing bootstrap';
+		}
 		if (!isBootstrapProbeableAddress(address)) return 'valid address is required';
 		if (!latestProbeMatchesAddress) return 'contract probe must complete before queueing bootstrap';
 		if (!imageSourceFieldResolved) return 'image source field must resolve before queueing bootstrap';
@@ -1535,7 +1557,29 @@
 		onsubmit={onSubmitSampleTokenProbe}
 	></form>
 	<form class="bootstrap-form bootstrap-create-form" onsubmit={onBootstrapFormSubmit}>
-		<div class="bootstrap-create-layout">
+		<div class="bootstrap-contract-address-warning" role="note">
+			<span class="bootstrap-contract-address-warning-icon">
+				<WarningIcon />
+			</span>
+			<div class="bootstrap-contract-address-warning-body">
+				<p>{BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING}</p>
+				<label class="bootstrap-contract-address-warning-acknowledgement">
+					<input
+						class={bootstrapCheckboxClass}
+						type="checkbox"
+						required
+						checked={contractAddressSafetyAcknowledged}
+						onchange={onContractAddressSafetyAcknowledgementChange}
+					/>
+					<span>{BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_ACKNOWLEDGEMENT}</span>
+				</label>
+			</div>
+		</div>
+
+		<fieldset
+			class="bootstrap-contract-probe-fields bootstrap-create-layout"
+			disabled={!contractAddressSafetyAcknowledged}
+		>
 			<div class="bootstrap-form-fields">
 				<div class="bootstrap-form-section bootstrap-address-section">
 					<label class="bootstrap-form-row">
@@ -2088,8 +2132,8 @@
 					</div>
 					{/if}
 				</div>
-			</div>
-		</form>
+		</fieldset>
+	</form>
 
 	<div class="table-wrap">
 		<table>
