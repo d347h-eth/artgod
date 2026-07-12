@@ -8,10 +8,10 @@ use tauri::{AppHandle, State};
 
 use crate::desktop_log::append_desktop_log;
 use crate::runtime::{
-    BIDDING_MANDATE_MAX_OFFER_QUANTITY, BackendCollectionCatalog, BiddingChainIdentity,
-    BiddingCollectionCandidate, BiddingCollectionCatalog, BiddingCollectionMandate,
-    BiddingCollectionMandateDraft, BiddingCollectionTokenScopeSummary, BiddingMandate,
-    BiddingMandateDraft, BiddingStartPolicySnapshot, BotCriticalDependencyStatus,
+    BIDDING_MANDATE_MAX_OFFER_QUANTITY, BackendCollectionCatalog, BackendCollectionCatalogError,
+    BiddingChainIdentity, BiddingCollectionCandidate, BiddingCollectionCatalog,
+    BiddingCollectionMandate, BiddingCollectionMandateDraft, BiddingCollectionTokenScopeSummary,
+    BiddingMandate, BiddingMandateDraft, BiddingStartPolicySnapshot, BotCriticalDependencyStatus,
     BotRuntimeSnapshot, BotRuntimeState, DesktopRuntimeConfig, DesktopWalletConfig, RuntimeManager,
     bot_runtime_spec, build_trading_secret_envelope, format_wei_as_eth,
 };
@@ -32,6 +32,8 @@ const BIDDING_OPEN_SEA_SECRET_KEYS: &[&str] = &[
     "OPENSEA_BIDDING_SECRET_KEY",
     "OPENSEA_SNAPSHOT_SECRET_KEY",
 ];
+const BOT_LOG_LEVEL_INFO: &str = "info";
+const BOT_LOG_LEVEL_ERROR: &str = "error";
 
 /// Tauri-managed bot command state for wallet-bound runtime control.
 #[derive(Clone)]
@@ -92,13 +94,7 @@ impl BotCommandState {
         app: &AppHandle,
     ) -> Result<BiddingCollectionCatalogDto, String> {
         let runtime_config = DesktopRuntimeConfig::load_or_create(app)?;
-        // Read the canonical catalog through the shared desktop HTTP policy.
-        let catalog = BackendCollectionCatalog::new(
-            runtime_config.backend_http_base_url(),
-            &runtime_config.http_fetch_resilience,
-        )?
-        .load_bidding_catalog(runtime_config.chain_id)
-        .await?;
+        let catalog = load_canonical_bidding_catalog(app, &runtime_config).await?;
         Ok(BiddingCollectionCatalogDto::from_domain(&catalog))
     }
 
@@ -122,7 +118,7 @@ impl BotCommandState {
             .map_err(|error| {
                 append_desktop_log(
                     app,
-                    "error",
+                    BOT_LOG_LEVEL_ERROR,
                     &format!("Bot wallet assignment failed: {error}"),
                 );
                 sanitize_assign_wallet_error(error)
@@ -163,7 +159,7 @@ impl BotCommandState {
             .map_err(|error| {
                 append_desktop_log(
                     app,
-                    "error",
+                    BOT_LOG_LEVEL_ERROR,
                     &format!("Trading bot recipient validation failed: {error}"),
                 );
                 "Trading bot runtime failed security validation. See desktop-app logs.".to_owned()
@@ -195,6 +191,7 @@ impl BotCommandState {
 
         // Re-resolve browser-proposed ids immediately before native authorization.
         let (bidding_mandate, prompt_mandate) = match resolve_bidding_start_mandate(
+            app,
             &runtime_config,
             &launch_config.process_env,
             bot_kind,
@@ -229,14 +226,18 @@ impl BotCommandState {
             Err(SecretPromptError::Cancelled { .. }) => {
                 append_desktop_log(
                     app,
-                    "info",
+                    BOT_LOG_LEVEL_INFO,
                     &format!("{bot_kind:?} bot unlock prompt cancelled"),
                 );
                 runtime.set_bot_runtime_state(app, bot_kind, BotRuntimeState::Locked, None)?;
                 return self.get_bot_runtime_dto(app, runtime, bot_kind);
             }
             Err(error) => {
-                append_desktop_log(app, "error", &format!("Bot unlock prompt failed: {error}"));
+                append_desktop_log(
+                    app,
+                    BOT_LOG_LEVEL_ERROR,
+                    &format!("Bot unlock prompt failed: {error}"),
+                );
                 runtime.set_bot_runtime_state(
                     app,
                     bot_kind,
@@ -255,7 +256,11 @@ impl BotCommandState {
                 passphrase: prompt_output.passphrase,
             })
             .map_err(|error| {
-                append_desktop_log(app, "error", &format!("Bot wallet unlock failed: {error}"));
+                append_desktop_log(
+                    app,
+                    BOT_LOG_LEVEL_ERROR,
+                    &format!("Bot wallet unlock failed: {error}"),
+                );
                 let message = sanitize_unlock_wallet_error(error);
                 let _ = runtime.set_bot_runtime_state(
                     app,
@@ -277,7 +282,7 @@ impl BotCommandState {
         .map_err(|error| {
             append_desktop_log(
                 app,
-                "error",
+                BOT_LOG_LEVEL_ERROR,
                 &format!("Trading secret envelope build failed: {error}"),
             );
             let _ = runtime.set_bot_runtime_state(
@@ -294,7 +299,11 @@ impl BotCommandState {
         runtime
             .start_bot_runtime(app.clone(), launch_config, secret_envelope)
             .map_err(|error| {
-                append_desktop_log(app, "error", &format!("Trading bot start failed: {error}"));
+                append_desktop_log(
+                    app,
+                    BOT_LOG_LEVEL_ERROR,
+                    &format!("Trading bot start failed: {error}"),
+                );
                 let _ = runtime.set_bot_runtime_state(
                     app,
                     bot_kind,
@@ -370,6 +379,7 @@ impl BotCommandState {
 }
 
 async fn resolve_bidding_start_mandate(
+    app: &AppHandle,
     runtime_config: &DesktopRuntimeConfig,
     frozen_process_env: &std::collections::HashMap<String, String>,
     bot_kind: BotKind,
@@ -379,13 +389,7 @@ async fn resolve_bidding_start_mandate(
         BotKind::Bidding => {
             let draft = draft
                 .ok_or_else(|| "Select at least one collection to authorize bidding.".to_owned())?;
-            // Re-read canonical identities through the shared desktop HTTP policy.
-            let catalog = BackendCollectionCatalog::new(
-                runtime_config.backend_http_base_url(),
-                &runtime_config.http_fetch_resilience,
-            )?
-            .load_bidding_catalog(runtime_config.chain_id)
-            .await?;
+            let catalog = load_canonical_bidding_catalog(app, runtime_config).await?;
             let mandate = BiddingMandate::resolve(
                 runtime_config.chain_id,
                 draft.into_domain(),
@@ -403,6 +407,31 @@ async fn resolve_bidding_start_mandate(
             Ok((None, None))
         }
     }
+}
+
+async fn load_canonical_bidding_catalog(
+    app: &AppHandle,
+    runtime_config: &DesktopRuntimeConfig,
+) -> Result<BiddingCollectionCatalog, String> {
+    // Read canonical identities through the shared desktop HTTP policy.
+    let catalog = BackendCollectionCatalog::new(
+        runtime_config.backend_http_base_url(),
+        &runtime_config.http_fetch_resilience,
+    )
+    .map_err(|error| report_bidding_catalog_error(app, error))?;
+    catalog
+        .load_bidding_catalog(runtime_config.chain_id)
+        .await
+        .map_err(|error| report_bidding_catalog_error(app, error))
+}
+
+fn report_bidding_catalog_error(app: &AppHandle, error: BackendCollectionCatalogError) -> String {
+    append_desktop_log(
+        app,
+        BOT_LOG_LEVEL_ERROR,
+        &format!("Bidding collection catalog failed: {}", error.detail()),
+    );
+    error.user_message().to_owned()
 }
 
 fn build_prompt_mandate_summary(

@@ -43,14 +43,51 @@ pub struct BackendCollectionCatalog {
     backend_http_base_url: String,
 }
 
+/// Separates concise operator recovery from durable catalog diagnostics.
+#[derive(Debug)]
+pub(crate) struct BackendCollectionCatalogError {
+    user_message: String,
+    detail: String,
+}
+
+impl BackendCollectionCatalogError {
+    /// Returns the concise recovery shown in Admin.
+    pub(crate) fn user_message(&self) -> &str {
+        &self.user_message
+    }
+
+    /// Returns the technical failure written to the durable desktop log.
+    pub(crate) fn detail(&self) -> &str {
+        &self.detail
+    }
+
+    fn client(detail: String) -> Self {
+        Self {
+            user_message: "Collection catalog could not start. Restart ArtGod.".to_owned(),
+            detail,
+        }
+    }
+}
+
+impl From<String> for BackendCollectionCatalogError {
+    fn from(detail: String) -> Self {
+        Self {
+            user_message: "Collection catalog response was invalid. See desktop-app logs."
+                .to_owned(),
+            detail,
+        }
+    }
+}
+
 impl BackendCollectionCatalog {
     /// Creates a catalog adapter for the supervisor-owned backend endpoint.
     pub(crate) fn new(
         backend_http_base_url: impl Into<String>,
         resilience: &HttpFetchResilienceConfig,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, BackendCollectionCatalogError> {
         Ok(Self {
-            client: HttpFetchClient::new(resilience)?,
+            client: HttpFetchClient::new(resilience)
+                .map_err(BackendCollectionCatalogError::client)?,
             backend_http_base_url: backend_http_base_url.into(),
         })
     }
@@ -59,7 +96,7 @@ impl BackendCollectionCatalog {
     pub async fn load_bidding_catalog(
         &self,
         chain_id: u64,
-    ) -> Result<BiddingCollectionCatalog, String> {
+    ) -> Result<BiddingCollectionCatalog, BackendCollectionCatalogError> {
         let endpoint = format!(
             "{}/api/{chain_id}/collections",
             self.backend_http_base_url.trim_end_matches('/')
@@ -87,7 +124,9 @@ impl BackendCollectionCatalog {
                 .as_ref()
                 .is_some_and(|expected| expected != &response_chain)
             {
-                return Err("Collection catalog changed chain identity between pages.".to_owned());
+                return Err("Collection catalog changed chain identity between pages."
+                    .to_owned()
+                    .into());
             }
             chain.get_or_insert(response_chain);
 
@@ -101,7 +140,9 @@ impl BackendCollectionCatalog {
                 break;
             };
             if !seen_cursors.insert(next_cursor.clone()) {
-                return Err("Collection catalog returned a repeated cursor.".to_owned());
+                return Err("Collection catalog returned a repeated cursor."
+                    .to_owned()
+                    .into());
             }
             cursor = Some(next_cursor);
         }
@@ -118,30 +159,36 @@ impl BackendCollectionCatalog {
     }
 }
 
-fn map_catalog_fetch_error(error: HttpFetchError) -> String {
+fn map_catalog_fetch_error(error: HttpFetchError) -> BackendCollectionCatalogError {
     match error {
         HttpFetchError::Transport(error) => {
-            log::debug!("Collection catalog transport failed: {error}");
-            if error.is_connect() {
-                "Start infra to use Bots.".to_owned()
+            let user_message = if error.is_connect() {
+                "Start infra to use Bots."
             } else if error.is_timeout() {
-                "Collection catalog did not respond. Restart infra and refresh Bots.".to_owned()
+                "Collection catalog did not respond. Restart infra and refresh Bots."
             } else {
-                "Collection catalog request failed. Restart infra and refresh Bots.".to_owned()
+                "Collection catalog request failed. Restart infra and refresh Bots."
+            };
+            BackendCollectionCatalogError {
+                user_message: user_message.to_owned(),
+                detail: format!("Collection catalog transport failed: {error}"),
             }
         }
-        HttpFetchError::Status(error) => {
-            log::warn!("Collection catalog request was rejected: {error}");
-            "Collection catalog request was rejected. Restart infra and refresh Bots.".to_owned()
-        }
-        HttpFetchError::Decode(error) => {
-            log::warn!("Collection catalog response was invalid: {error}");
-            "Collection catalog response was invalid. Restart infra and refresh Bots.".to_owned()
-        }
-        HttpFetchError::RetryDelay(error) => {
-            log::error!("{error}");
-            "Collection catalog request failed. See desktop-app logs.".to_owned()
-        }
+        HttpFetchError::Status(error) => BackendCollectionCatalogError {
+            user_message:
+                "Collection catalog request was rejected. Restart infra and refresh Bots."
+                    .to_owned(),
+            detail: format!("Collection catalog request was rejected: {error}"),
+        },
+        HttpFetchError::Decode(error) => BackendCollectionCatalogError {
+            user_message: "Collection catalog response was invalid. See desktop-app logs."
+                .to_owned(),
+            detail: format!("Collection catalog response was invalid: {error}"),
+        },
+        HttpFetchError::RetryDelay(error) => BackendCollectionCatalogError {
+            user_message: "Collection catalog request failed. See desktop-app logs.".to_owned(),
+            detail: error,
+        },
     }
 }
 
@@ -305,6 +352,19 @@ mod tests {
 
         assert_eq!(chain.chain_id, 1);
         assert_eq!(chain.name, "Ethereum");
+    }
+
+    #[test]
+    fn invalid_catalog_detail_stays_out_of_the_operator_message() {
+        let error = BackendCollectionCatalogError::from(
+            "raw catalog detail with http://127.0.0.1:42710".to_owned(),
+        );
+
+        assert_eq!(
+            error.user_message(),
+            "Collection catalog response was invalid. See desktop-app logs."
+        );
+        assert!(error.detail().contains("http://127.0.0.1:42710"));
     }
 
     fn collection_item() -> CollectionItem {

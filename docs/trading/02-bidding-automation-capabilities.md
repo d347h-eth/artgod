@@ -60,8 +60,8 @@ enforcement. The native prompt and active summary show the same value.
 Admin does not render controls for staged or nonexistent bot kinds. The local
 collection catalog uses the shared `COMMON_HTTP_FETCH_*` timeout and bounded
 retry policy. If infrastructure is stopped, the Bots surface directs the
-operator to start infra; other exhausted failures direct them to restart infra
-and refresh Bots without exposing raw loopback request details.
+operator to start infra; other exhausted failures provide the relevant restart,
+refresh, or desktop-log recovery without exposing raw loopback request details.
 
 ## Targeting Capabilities
 
