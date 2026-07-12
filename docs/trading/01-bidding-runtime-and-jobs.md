@@ -222,10 +222,10 @@ Primary tables:
 - `trading_job_commands`: durable Outbox for bot-side effects
 
 The Admin bidding-authorization catalog derives one optional price prefill per
-collection from the maximum `ceiling_wei` across every enabled bidding job scope.
-The backend reads all enabled jobs for the chain through one indexed streaming
-query, compares exact `BigInt` values, and returns only one Ether-unit maximum
-per collection. Paused and archived jobs do not enlarge a fresh authorization.
+collection from the maximum `ceiling_wei` across every enabled or paused bidding
+job scope. The backend reads all enabled and paused jobs for the chain through
+one indexed streaming query, compares exact `BigInt` values, and returns only
+one Ether-unit maximum per collection. Archived jobs are excluded.
 
 Implemented bidding UI:
 
@@ -445,8 +445,9 @@ Trading-specific rules:
   receives the transaction-capable wallet client
 - Admin `Bots` selects live/OpenSea-ready collections and a maximum WETH amount per NFT; the per-offer quantity is fixed at one. Immediately before the native prompt, Rust re-reads those collection ids from the canonical backend read model through the shared `COMMON_HTTP_FETCH_*` resilience policy.
 - Before selection, Admin prefills `max WETH per NFT` from the collection's
-  highest enabled job ceiling when one exists. This separate convenience read
-  never selects a collection and is not part of start-time canonical identity
+  highest enabled or paused job ceiling when one exists. This separate
+  convenience read never selects a collection and is not part of start-time
+  canonical identity
   resolution or signer enforcement.
 - The Admin launch-sized native prompt shows the frozen global bidding policy and one complete review page per collection: ArtGod id, contract, token-scope summary, OpenSea slug, per-NFT WETH cap, and the fixed one-NFT offer quantity. Oversized pages fail closed instead of clipping into the action controls.
 - Loopback HTTP has no bearer session to leak. Created, revised, paused, or archived jobs within an approved collection remain possible if Userland is compromised; placement caps and the resulting cancellation/strategy risk are intentional for the current automation model.
@@ -457,8 +458,9 @@ Trading-specific rules:
   OpenSea or order fees. The explicit limit is the node estimate plus 20%
   headroom, and gas estimation fails closed
 - onchain transactions use the shared EVM transaction policy from `@artgod/shared/evm/transactions`
-- Admin `Bots` shows the effective live/dry-run mode, allowance cap, both fee
-  caps, pending-nonce policy, and trait SignedZone trust beside the start action
+- Admin `Bots` repeats the exact Config labels and help for the allowance cap,
+  both fee caps, pending-nonce policy, and trait SignedZone trust beside the
+  start action. Values are read-only text; the dry-run setting is not displayed.
 
 ## Config Surface
 

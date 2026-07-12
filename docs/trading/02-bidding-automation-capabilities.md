@@ -58,16 +58,19 @@ this quantity: Rust fixes it at one before the native review and signer
 enforcement. The native prompt and active summary show the same value.
 
 For each eligible collection, Admin prefills `max WETH per NFT` with the highest
-ceiling among that collection's enabled token, trait, and collection jobs. A
-collection with no enabled jobs stays blank, and no collection is selected
-automatically. Admin lists priced collections from highest to lowest, leaves
-blank collections last, and highlights each prefilled value consistently with
-other bid prices. The value remains editable. Refresh updates untouched,
-unchecked prefills from current jobs without overwriting a checked or
-operator-edited authorization draft. Paused and archived jobs are excluded;
-activating a paused job above the running authorization cap requires a fresh bot
-start and native review. The native review independently orders the final edited
-caps from highest to lowest.
+ceiling among that collection's enabled or paused token, trait, and collection
+jobs. A collection with no enabled or paused jobs stays blank, and no collection
+is selected automatically. Admin lists priced collections from highest to
+lowest, leaves blank collections last, and highlights each prefilled value
+consistently with other bid prices. The value remains editable. Refresh updates
+untouched, unchecked prefills from current jobs without overwriting a checked or
+operator-edited authorization draft. Archived jobs are excluded. The native
+review independently orders the final edited caps from highest to lowest.
+
+The read-only `BIDDING SETTINGS` summary uses the same field order, labels, help
+popups, and effective values as Config. It shows the allowance cap, transaction
+fee cap, approval gas-fee cap, pending-nonce policy, and trait SignedZone trust.
+It does not invent a separate mode label or display the dry-run setting.
 
 Admin does not render controls for staged or nonexistent bot kinds. The local
 collection catalog uses the shared `COMMON_HTTP_FETCH_*` timeout and bounded
@@ -218,7 +221,7 @@ Admin read endpoints:
 | `POST` | `/api/:chain_ref/:collection_ref/bidding/jobs/target-lookup` | Resolve a token, trait, or collection draft target into an existing declared job. |
 | `GET` | `/api/:chain_ref/:collection_ref/bidding/price-tiers` | List tiers plus collection bidding settings. |
 | `GET` | `/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply-preview` | Preview changed tier-backed jobs before applying a tier update. |
-| `GET` | `/api/:chain_ref/bidding/jobs/active-ceilings` | Batch maximum enabled-job ceiling per collection for Admin authorization prefills. |
+| `GET` | `/api/:chain_ref/bidding/jobs/ceiling-prefills` | Batch maximum enabled-or-paused job ceiling per collection for Admin authorization prefills. |
 
 Admin mutation endpoints:
 

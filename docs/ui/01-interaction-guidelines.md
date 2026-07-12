@@ -129,6 +129,23 @@ feature-local markup or CSS:
 Do not fall back to raw browser-default inputs, fieldsets, checkboxes, or number
 spinners when an established ArtGod control family already exists.
 
+### Admin setting summaries
+
+Read-only summaries of Admin configuration must remain visibly connected to the
+Config surface they explain:
+
+- resolve field order, labels, and help from the Admin config schema instead of
+  hard-coding aliases or inventing synthetic settings
+- use the shared `.admin-setting-row`, `.admin-setting-label-cell`, and
+  `.admin-setting-value` class family for the same label/value grid as Config
+- use `InfoTooltip` for the same help text and keep its popup available through
+  both pointer hover and keyboard focus; `Escape` dismisses a focused popup
+- render values as text rather than disabled or read-only inputs when the user
+  is reviewing, not editing, configuration
+- allow long security-sensitive values to wrap and remain completely readable
+- omit settings that do not belong in the user journey instead of translating
+  them into an unexplained product concept such as a synthetic mode
+
 ## Page Composition Rules
 
 Collection pages should compose the shared shell like this:

@@ -683,9 +683,10 @@ Unlock rules:
 - passphrase prompt is always native
 - bidding policy review is always native and precedes passphrase submission
 - Admin supplies only proposed collection ids and WETH price caps; Rust supplies the displayed and injected ArtGod id, contract, token-scope summary, OpenSea slug, and fixed one-NFT offer quantity
-- Admin separately batch-loads the maximum enabled-job ceiling per collection
-  as an editable price prefill. Missing enabled jobs produce a blank field, and
-  the convenience read never selects or authorizes a collection.
+- Admin separately batch-loads the maximum enabled-or-paused job ceiling per
+  collection as an editable price prefill. Collections without an enabled or
+  paused job produce a blank field, and the convenience read never selects or
+  authorizes a collection.
 - Admin orders prefills from highest to lowest without moving rows during edits;
   the native review orders the final canonical caps from highest to lowest.
 - Rust reads the canonical collection catalog through the shared `COMMON_HTTP_FETCH_*` per-attempt timeout and bounded retry policy
@@ -700,6 +701,10 @@ User-facing authorization review:
   mandate
 - the trusted prompt calls the reviewed state `Bidding authorization`
 - the running summary calls granted authority `active bidding authorization`
+- the authorization prompt assumes live placement and does not display the
+  runtime dry-run setting
+- enabled trait offers explicitly state that the pinned OpenSea SignedZone is
+  trusted
 - the canonical human-readable network name appears before `chain ID #N`
 - collection identity explicitly distinguishes the ArtGod collection ID,
   OpenSea slug, contract address, and token scope
