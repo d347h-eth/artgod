@@ -694,9 +694,9 @@ dependencies = [
  "alloy-primitives",
  "alloy-signer-local",
  "artgod-secret-prompt-protocol",
+ "artgod-sensitive-process",
  "eth-keystore",
  "futures-util",
- "libc",
  "log",
  "rand 0.8.6",
  "reqwest",
@@ -712,7 +712,6 @@ dependencies = [
  "time",
  "toml 0.8.23",
  "uuid 1.23.2",
- "windows-sys 0.61.2",
  "zeroize",
 ]
 
@@ -722,6 +721,14 @@ version = "0.0.1"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "artgod-sensitive-process"
+version = "0.0.1"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

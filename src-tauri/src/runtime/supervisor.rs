@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use artgod_sensitive_process::{ChildProcessContainment, prepare_process_containment};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 use zeroize::Zeroizing;
@@ -21,7 +22,6 @@ use crate::runtime::bot_runtime::{
     bot_runtime_spec,
 };
 use crate::runtime::config::{BotRuntimeLaunchConfig, DesktopRuntimeConfig};
-use crate::runtime::process_containment::{ChildProcessContainment, prepare_process_containment};
 use crate::runtime::process_registry::{
     BACKEND_ARTIFACT, BACKEND_PROCESS_NAME, INDEXER_WORKERS, NATS_PROCESS_NAME,
     SUPERVISOR_PROCESS_NAME,

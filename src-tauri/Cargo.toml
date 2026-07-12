@@ -20,6 +20,7 @@ tauri-build = { version = "2.6.3", features = [] }
 alloy-primitives = "1.4.1"
 alloy-signer-local = { version = "1.8.3", default-features = false, features = ["keystore", "zeroize"] }
 artgod-secret-prompt-protocol = { path = "crates/artgod-secret-prompt-protocol" }
+artgod-sensitive-process = { path = "crates/artgod-sensitive-process" }
 eth-keystore = { version = "0.5.0", default-features = false }
 futures-util = "0.3"
 log = "0.4"
@@ -36,16 +37,6 @@ time = { version = "0.3", features = ["formatting"] }
 toml = "0.8"
 uuid = { version = "1.18.1", features = ["serde", "v4"] }
 zeroize = { version = "1.8", features = ["alloc"] }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = [
-    "Win32_Foundation",
-    "Win32_Security",
-    "Win32_System_JobObjects",
-] }
 
 [dev-dependencies]
 tauri = { version = "2.11.3", features = ["test"] }

@@ -7,6 +7,7 @@ license = "AGPL-3.0-only"
 [dependencies]
 arboard = "3.6"
 artgod-secret-prompt-protocol = { path = "../../crates/artgod-secret-prompt-protocol" }
+artgod-sensitive-process = { path = "../../crates/artgod-sensitive-process" }
 serde_json = "1.0"
 softbuffer = "0.4"
 thiserror = "2.0"

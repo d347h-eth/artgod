@@ -13,6 +13,7 @@ use artgod_secret_prompt_protocol::{
     SecretPromptErrorCode, SecretPromptRequest, SecretPromptResponse, UnlockBiddingMandateSummary,
     UnlockSecretPromptRequest, UnlockSecretPromptResponse,
 };
+use artgod_sensitive_process::harden_current_process;
 use prompt_ui::{
     ExportConfirmPromptSpec, ImportPromptSpec, RemoveConfirmPromptSpec, RevealPromptSpec,
     UnlockPromptSpec,
@@ -21,6 +22,12 @@ use thiserror::Error;
 use zeroize::Zeroizing;
 
 fn main() {
+    // Disable ordinary process dumps before accepting a secret-bearing prompt request.
+    if let Err(error) = harden_current_process() {
+        eprintln!("Secret prompt sensitive-process hardening failed: {error}");
+        std::process::exit(1);
+    }
+
     let exit_code = match run() {
         Ok(()) => 0,
         Err(error) => {

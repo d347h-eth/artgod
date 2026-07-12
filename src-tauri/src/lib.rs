@@ -16,6 +16,7 @@ use crate::desktop_log::{
     append_desktop_log, cleanup_desktop_logs_for_app, log_file_belongs_to_process,
     process_name_for_log_file, start_desktop_log_maintenance,
 };
+use artgod_sensitive_process::harden_current_process;
 use runtime::{
     AppConfigState, DesktopRuntimeConfig, RPC_ENDPOINT_LIST_ENV_KEY, RpcEndpointBenchmarkInput,
     RpcEndpointBenchmarkResult, RuntimeEndpoints, RuntimeManager, RuntimeStatus,
@@ -348,6 +349,12 @@ where
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Disable ordinary process dumps before desktop wallet services can accept secrets.
+    if let Err(error) = harden_current_process() {
+        eprintln!("Desktop sensitive-process hardening failed: {error}");
+        std::process::exit(1);
+    }
+
     let app = tauri::Builder::default()
         .manage(DesktopState {
             runtime: RuntimeManager::new(),

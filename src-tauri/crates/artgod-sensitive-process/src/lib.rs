@@ -5,18 +5,18 @@ use std::{
 
 /// Prepared platform containment that must be attached immediately after spawning the child.
 #[must_use = "prepared containment must be attached to the spawned child"]
-pub(crate) struct PreparedProcessContainment {
+pub struct PreparedProcessContainment {
     platform: platform::PreparedProcessContainment,
 }
 
 /// Retained platform containment whose lifetime must match the child process lifetime.
 #[must_use = "child containment must be retained for the child process lifetime"]
-pub(crate) struct ChildProcessContainment {
+pub struct ChildProcessContainment {
     _platform: platform::ChildProcessContainment,
 }
 
 /// Installs pre-spawn containment and prepares any platform-owned containment resources.
-pub(crate) fn prepare_process_containment(
+pub fn prepare_process_containment(
     command: &mut Command,
 ) -> io::Result<PreparedProcessContainment> {
     platform::prepare(command).map(|platform| PreparedProcessContainment { platform })
@@ -24,12 +24,134 @@ pub(crate) fn prepare_process_containment(
 
 impl PreparedProcessContainment {
     /// Attaches the spawned child before any secret is written to the process.
-    pub(crate) fn attach(self, child: &mut Child) -> io::Result<ChildProcessContainment> {
+    pub fn attach(self, child: &mut Child) -> io::Result<ChildProcessContainment> {
         self.platform
             .attach(child)
             .map(|platform| ChildProcessContainment {
                 _platform: platform,
             })
+    }
+}
+
+/// Disables ordinary process dumps before the caller accepts wallet secrets.
+pub fn harden_current_process() -> io::Result<()> {
+    current_process::harden()
+}
+
+#[cfg(unix)]
+mod unix_core_limits {
+    use std::{io, mem::MaybeUninit};
+
+    pub(super) fn disable() -> io::Result<()> {
+        let limits = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        if unsafe { libc::setrlimit(libc::RLIMIT_CORE, &limits) } == -1 {
+            return Err(io::Error::last_os_error());
+        }
+        verify()
+    }
+
+    pub(super) fn verify() -> io::Result<()> {
+        let mut limits = MaybeUninit::<libc::rlimit>::uninit();
+        if unsafe { libc::getrlimit(libc::RLIMIT_CORE, limits.as_mut_ptr()) } == -1 {
+            return Err(io::Error::last_os_error());
+        }
+        let limits = unsafe { limits.assume_init() };
+        if limits.rlim_cur != 0 || limits.rlim_max != 0 {
+            return Err(io::Error::other(
+                "sensitive process core limits are not both zero",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+mod current_process {
+    use std::io;
+
+    pub(super) fn harden() -> io::Result<()> {
+        super::unix_core_limits::disable()?;
+        #[cfg(target_os = "linux")]
+        linux::disable_dumpability()?;
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    mod linux {
+        use std::io;
+
+        pub(super) fn disable_dumpability() -> io::Result<()> {
+            if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0) } == -1 {
+                return Err(io::Error::last_os_error());
+            }
+            let dumpable = unsafe { libc::prctl(libc::PR_GET_DUMPABLE) };
+            if dumpable == -1 {
+                return Err(io::Error::last_os_error());
+            }
+            if dumpable != 0 {
+                return Err(io::Error::other(
+                    "sensitive process remained dumpable after prctl",
+                ));
+            }
+            Ok(())
+        }
+    }
+}
+
+#[cfg(windows)]
+mod current_process {
+    use std::io;
+
+    use windows_sys::Win32::System::{
+        ErrorReporting::{WER_FAULT_REPORTING_FLAG_NOHEAP, WerGetFlags, WerSetFlags},
+        Threading::GetCurrentProcess,
+    };
+
+    pub(super) fn harden() -> io::Result<()> {
+        let current_process = unsafe { GetCurrentProcess() };
+        let mut flags = 0;
+        check_hresult(
+            unsafe { WerGetFlags(current_process, &mut flags) },
+            "WerGetFlags",
+        )?;
+        check_hresult(
+            unsafe { WerSetFlags(flags | WER_FAULT_REPORTING_FLAG_NOHEAP) },
+            "WerSetFlags",
+        )?;
+
+        let mut installed_flags = 0;
+        check_hresult(
+            unsafe { WerGetFlags(current_process, &mut installed_flags) },
+            "WerGetFlags",
+        )?;
+        if installed_flags & WER_FAULT_REPORTING_FLAG_NOHEAP == 0 {
+            return Err(io::Error::other(
+                "Windows Error Reporting heap exclusion was not installed",
+            ));
+        }
+        Ok(())
+    }
+
+    fn check_hresult(result: i32, action: &str) -> io::Result<()> {
+        if result < 0 {
+            return Err(io::Error::other(format!(
+                "{action} failed with HRESULT 0x{:08X}",
+                result as u32
+            )));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+mod current_process {
+    use std::io;
+
+    pub(super) fn harden() -> io::Result<()> {
+        Ok(())
     }
 }
 
@@ -51,6 +173,7 @@ mod platform {
         // Configure the kernel-enforced parent-death signal in the child between fork and exec.
         unsafe {
             command.pre_exec(move || {
+                super::unix_core_limits::disable()?;
                 if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) == -1 {
                     return Err(io::Error::last_os_error());
                 }
@@ -64,6 +187,33 @@ mod platform {
             });
         }
 
+        Ok(PreparedProcessContainment)
+    }
+
+    impl PreparedProcessContainment {
+        pub(super) fn attach(self, _child: &mut Child) -> io::Result<ChildProcessContainment> {
+            Ok(ChildProcessContainment)
+        }
+    }
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+mod platform {
+    use std::{
+        io,
+        os::unix::process::CommandExt,
+        process::{Child, Command},
+    };
+
+    pub(super) struct PreparedProcessContainment;
+
+    pub(super) struct ChildProcessContainment;
+
+    pub(super) fn prepare(command: &mut Command) -> io::Result<PreparedProcessContainment> {
+        // Apply the ordinary core-file limit in the child immediately before exec.
+        unsafe {
+            command.pre_exec(super::unix_core_limits::disable);
+        }
         Ok(PreparedProcessContainment)
     }
 
@@ -162,7 +312,7 @@ mod platform {
     }
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(not(any(unix, windows)))]
 mod platform {
     use std::{
         io,
@@ -186,8 +336,15 @@ mod platform {
 
 #[cfg(test)]
 mod tests {
-    use super::prepare_process_containment;
+    use super::{harden_current_process, prepare_process_containment};
     use std::process::Command;
+
+    const CURRENT_PROCESS_HARDENING_ENTRY: &str = "tests::current_process_hardening_entry";
+    const CURRENT_PROCESS_HARDENING_MODE_ENV: &str = "ARTGOD_CURRENT_PROCESS_HARDENING_TEST_MODE";
+    #[cfg(unix)]
+    const SENSITIVE_CHILD_CORE_LIMIT_ENTRY: &str = "tests::sensitive_child_core_limit_entry";
+    #[cfg(unix)]
+    const SENSITIVE_CHILD_CORE_LIMIT_MODE_ENV: &str = "ARTGOD_SENSITIVE_CHILD_CORE_LIMIT_TEST_MODE";
 
     #[test]
     fn configured_containment_allows_a_child_to_run() {
@@ -209,6 +366,70 @@ mod tests {
         drop(containment);
     }
 
+    #[test]
+    fn current_process_hardening_is_installed_in_an_isolated_subprocess() {
+        let status = test_entry_command(
+            CURRENT_PROCESS_HARDENING_ENTRY,
+            CURRENT_PROCESS_HARDENING_MODE_ENV,
+        )
+        .status()
+        .expect("current-process hardening test entry starts");
+
+        assert!(status.success());
+    }
+
+    #[test]
+    #[ignore = "subprocess entrypoint for irreversible current-process hardening"]
+    fn current_process_hardening_entry() {
+        if std::env::var_os(CURRENT_PROCESS_HARDENING_MODE_ENV).is_none() {
+            return;
+        }
+
+        harden_current_process().expect("current process hardening is installed");
+        #[cfg(unix)]
+        super::unix_core_limits::verify().expect("soft and hard core limits are zero");
+        #[cfg(target_os = "linux")]
+        assert_eq!(unsafe { libc::prctl(libc::PR_GET_DUMPABLE) }, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sensitive_child_inherits_zero_core_limits() {
+        let mut command = test_entry_command(
+            SENSITIVE_CHILD_CORE_LIMIT_ENTRY,
+            SENSITIVE_CHILD_CORE_LIMIT_MODE_ENV,
+        );
+        let prepared =
+            prepare_process_containment(&mut command).expect("child containment is prepared");
+        let mut child = command.spawn().expect("sensitive child starts");
+        let containment = prepared
+            .attach(&mut child)
+            .expect("sensitive child is contained");
+
+        let status = child.wait().expect("sensitive child exits");
+        assert!(status.success());
+        drop(containment);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "subprocess entrypoint for sensitive child core-limit proof"]
+    fn sensitive_child_core_limit_entry() {
+        if std::env::var_os(SENSITIVE_CHILD_CORE_LIMIT_MODE_ENV).is_none() {
+            return;
+        }
+
+        super::unix_core_limits::verify().expect("soft and hard core limits are inherited as zero");
+    }
+
+    fn test_entry_command(entry: &str, mode_env: &str) -> Command {
+        let mut command = Command::new(std::env::current_exe().expect("test executable exists"));
+        command
+            .args(["--ignored", "--exact", entry, "--nocapture"])
+            .env(mode_env, "1");
+        command
+    }
+
     #[cfg(unix)]
     mod hard_parent_death {
         use std::fs;
@@ -223,8 +444,7 @@ mod tests {
 
         use super::prepare_process_containment;
 
-        const TEST_ENTRY_NAME: &str =
-            "runtime::process_containment::tests::hard_parent_death::containment_test_entry";
+        const TEST_ENTRY_NAME: &str = "tests::hard_parent_death::containment_test_entry";
         const TEST_MODE_ENV: &str = "ARTGOD_CONTAINMENT_TEST_MODE";
         const TEST_MODE_PARENT: &str = "parent";
         const TEST_MODE_CHILD: &str = "child";
