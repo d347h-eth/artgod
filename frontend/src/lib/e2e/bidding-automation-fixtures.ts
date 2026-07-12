@@ -65,6 +65,9 @@ const MARKET_ADDRESS_B = '0xcccccccccccccccccccccccccccccccccccccccc';
 const MARKET_ADDRESS_C = '0xdddddddddddddddddddddddddddddddddddddddd';
 const FIXTURE_NOW = '2026-05-01T12:00:00Z';
 
+// Enables the trait-placement paths exercised by the deterministic bidding harness.
+const BIDDING_E2E_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS = true;
+
 // Stable test-only route root used by deterministic Playwright harness pages.
 export const BIDDING_AUTOMATION_E2E_COLLECTION_BASE_PATH = COLLECTION_BASE_PATH;
 
@@ -552,6 +555,7 @@ export function buildBiddingE2eCollectionDetailData(searchParams: URLSearchParam
 		tokenStatus,
 		displayMode,
 		biddingSettings: BIDDING_E2E_SETTINGS,
+		trustOpenSeaSignedZoneTraitOffers: BIDDING_E2E_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
 		priceTiers: BIDDING_E2E_PRICE_TIERS
 	};
 }
@@ -584,6 +588,7 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 		chain: BIDDING_E2E_CHAIN,
 		collection: BIDDING_E2E_COLLECTION,
 		biddingSettings: BIDDING_E2E_SETTINGS,
+		trustOpenSeaSignedZoneTraitOffers: BIDDING_E2E_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
 		priceTiers: BIDDING_E2E_PRICE_TIERS,
 		bidBook,
 		tokenOfferCards,
@@ -611,6 +616,7 @@ export function buildBiddingE2eTokenDetailData(tokenRef: string, searchParams: U
 		media: BIDDING_E2E_MEDIA,
 		token,
 		biddingSettings: BIDDING_E2E_SETTINGS,
+		trustOpenSeaSignedZoneTraitOffers: BIDDING_E2E_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
 		priceTiers: BIDDING_E2E_PRICE_TIERS,
 		traitFilterPresentation: traitFilterPresentation(),
 		tokenBiddingJob:

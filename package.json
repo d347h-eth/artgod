@@ -77,6 +77,7 @@
         "test:bidding:automation": "yarn workspace @artgod/frontend test:bidding:automation",
         "test:bidding:automation:headed": "yarn workspace @artgod/frontend test:bidding:automation:headed",
         "test:bidding:automation:public": "yarn workspace @artgod/frontend test:bidding:automation:public",
+        "test:bidding:authorization": "yarn workspace @artgod/frontend test:bidding:authorization",
         "test:bootstrap:probe": "yarn workspace @artgod/frontend test:bootstrap:probe",
         "test:terraforms:hypercastle": "yarn workspace @artgod/frontend test:terraforms:hypercastle"
     },

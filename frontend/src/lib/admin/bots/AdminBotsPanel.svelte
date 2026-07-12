@@ -25,8 +25,9 @@
 		type BiddingMandateSelections
 	} from '$lib/admin/bots/bidding-mandate-draft';
 	import {
-		buildBiddingStartPolicySummary,
-		type BiddingStartPolicyEntry
+		buildActiveBiddingPolicySummary,
+		buildBiddingSettingsSummary,
+		type BiddingSettingEntry
 	} from '$lib/admin/bots/bidding-start-policy';
 	import {
 		beginAdminBotStart,
@@ -74,9 +75,20 @@
 	let biddingMandateReady = $derived(
 		isBiddingMandateDraftReady(biddingCollections, biddingMandateSelections)
 	);
-	let biddingStartPolicy: BiddingStartPolicyEntry[] = $derived(
-		config ? buildBiddingStartPolicySummary(config) : []
-	);
+	let biddingSettingsProjection = $derived.by((): {
+		entries: BiddingSettingEntry[];
+		error: string | null;
+	} => {
+		if (!config) return { entries: [], error: null };
+		try {
+			return { entries: buildBiddingSettingsSummary(config), error: null };
+		} catch {
+			return {
+				entries: [],
+				error: 'Bidding settings are invalid. Review Config, save the correction, then refresh Bots.'
+			};
+		}
+	});
 	let selectedWalletIds = $state<Record<AdminBotKind, string>>({
 		[TRADING_BOT_KIND.Bidding]: '',
 		[TRADING_BOT_KIND.Sniping]: ''
@@ -150,6 +162,24 @@
 			return 'healthy';
 		}
 		return `missing: ${unhealthy.map((dependency) => dependency.process).join(', ')}`;
+	}
+
+	function projectActiveBiddingPolicy(bot: AdminBotRecord): {
+		entries: BiddingSettingEntry[];
+		error: string | null;
+	} {
+		if (!config || !bot.biddingMandate) return { entries: [], error: null };
+		try {
+			return {
+				entries: buildActiveBiddingPolicySummary(config, bot.biddingMandate.startPolicy),
+				error: null
+			};
+		} catch {
+			return {
+				entries: [],
+				error: 'Active bidding authorization could not be displayed. Stop the bot and see desktop-app logs.'
+			};
+		}
 	}
 
 	function canStart(bot: AdminBotRecord): boolean {
@@ -353,6 +383,7 @@
 				<div class="admin-bots-list" aria-label="Configured bot runtimes">
 					{#each bots as bot (bot.botKind)}
 						{@const botActive = isAdminBotActive(bot.state)}
+						{@const activePolicyProjection = projectActiveBiddingPolicy(bot)}
 						<article class="admin-bot-runtime">
 							<section class="runtime-section" aria-label="Bot state">
 								<h3>bot state</h3>
@@ -387,6 +418,81 @@
 								{/if}
 							</section>
 
+							{#if bot.botKind === TRADING_BOT_KIND.Bidding && bot.biddingMandate}
+								<section
+									class="runtime-section active-bidding-mandate"
+									aria-label="Active bidding authorization"
+								>
+									<h3>
+										active bidding authorization
+										{#if biddingCollectionCatalog}
+											· {formatBiddingChainIdentity(
+												biddingCollectionCatalog.chain,
+												bot.biddingMandate.chainId
+											)}
+										{:else}
+											· chain ID #{bot.biddingMandate.chainId}
+										{/if}
+									</h3>
+									{#if activePolicyProjection.error}
+										<p class="runtime-error" role="alert">{activePolicyProjection.error}</p>
+									{:else}
+										<dl class="admin-setting-list active-bidding-policy">
+											{#each activePolicyProjection.entries as entry (entry.key)}
+												<div class="admin-setting-row">
+													<dt class="admin-setting-label-cell">
+														<span>{entry.label}</span>
+														<InfoTooltip
+															text={entry.help}
+															className="admin-setting-label-tooltip"
+														/>
+													</dt>
+													<dd class="admin-setting-value">{entry.value}</dd>
+												</div>
+											{/each}
+										</dl>
+									{/if}
+									{#each bot.biddingMandate.collections as collection (collection.collectionId)}
+										<div class="bootstrap-form-section">
+											<span class="runtime-v">
+												<strong>{collection.artgodSlug}</strong>
+												<span class="mono">· ArtGod collection ID #{collection.collectionId}</span>
+											</span>
+											<div class="runtime-kv-grid bidding-mandate-identity">
+												<div>
+													<span class="runtime-k">OpenSea slug</span>
+													<span class="runtime-v mono">{collection.openseaSlug}</span>
+												</div>
+												<div>
+													<span class="runtime-k">contract address</span>
+													<span class="runtime-v mono">{collection.contractAddress}</span>
+												</div>
+												<div>
+													<span class="runtime-k">token scope</span>
+													<span class="runtime-v">{formatBiddingMandateTokenScope(collection.tokenScope)}</span>
+												</div>
+												<div>
+													<span class="runtime-k bidding-mandate-cap-summary-label">
+														<span>{BIDDING_AUTHORIZATION_CAP_COPY.maxUnitBid.label}</span>
+														<InfoTooltip text={BIDDING_AUTHORIZATION_CAP_COPY.maxUnitBid.help} />
+													</span>
+													<span class="runtime-v mono bid-book-price"
+														>{formatBiddingMandateWeiAsEth(collection.maxUnitBidWei)}</span
+													>
+												</div>
+												<div>
+													<span class="runtime-k bidding-mandate-cap-summary-label">
+														<span>{BIDDING_AUTHORIZATION_CAP_COPY.maxQuantity.label}</span>
+														<InfoTooltip text={BIDDING_AUTHORIZATION_CAP_COPY.maxQuantity.help} />
+													</span>
+													<span class="runtime-v">{collection.maxQuantity}</span>
+												</div>
+											</div>
+										</div>
+									{/each}
+								</section>
+							{/if}
+
 							{#if bot.botKind === TRADING_BOT_KIND.Bidding}
 								{@const mandateEditingDisabled = assigningBotKind !== null ||
 									isAdminBotLifecycleActionPending(botActionState, bot.botKind) ||
@@ -395,9 +501,16 @@
 									class="runtime-section bidding-start-policy"
 									aria-label="Bidding settings"
 								>
-									<h3>bidding settings</h3>
+									<h3>
+										{botActive && bot.biddingMandate
+											? 'next-start bidding settings'
+											: 'bidding settings'}
+									</h3>
+									{#if biddingSettingsProjection.error}
+										<p class="runtime-error" role="alert">{biddingSettingsProjection.error}</p>
+									{/if}
 									<dl class="admin-setting-list">
-										{#each biddingStartPolicy as entry (entry.key)}
+										{#each biddingSettingsProjection.entries as entry (entry.key)}
 											<div class="admin-setting-row">
 												<dt class="admin-setting-label-cell">
 													<span>{entry.label}</span>
@@ -417,7 +530,9 @@
 									aria-label="Bidding authorization request"
 								>
 									<h3>
-										bidding authorization request
+										{bot.biddingMandate
+											? 'next-start bidding authorization request'
+											: 'bidding authorization request'}
 										{#if biddingCollectionCatalog}
 											· {formatBiddingChainIdentity(biddingCollectionCatalog.chain)}
 										{/if}
@@ -506,63 +621,6 @@
 										</div>
 									{/if}
 								</section>
-
-								{#if bot.biddingMandate}
-									<section
-										class="runtime-section active-bidding-mandate"
-										aria-label="Active bidding authorization"
-									>
-										<h3>
-											active bidding authorization
-											{#if biddingCollectionCatalog}
-												· {formatBiddingChainIdentity(
-													biddingCollectionCatalog.chain,
-													bot.biddingMandate.chainId
-												)}
-											{:else}
-												· chain ID #{bot.biddingMandate.chainId}
-											{/if}
-										</h3>
-										{#each bot.biddingMandate.collections as collection (collection.collectionId)}
-											<div class="bootstrap-form-section">
-												<span class="runtime-v">
-													<strong>{collection.artgodSlug}</strong>
-													<span class="mono">· ArtGod collection ID #{collection.collectionId}</span>
-												</span>
-												<div class="runtime-kv-grid bidding-mandate-identity">
-													<div>
-														<span class="runtime-k">OpenSea slug</span>
-														<span class="runtime-v mono">{collection.openseaSlug}</span>
-													</div>
-													<div>
-														<span class="runtime-k">contract address</span>
-														<span class="runtime-v mono">{collection.contractAddress}</span>
-													</div>
-													<div>
-														<span class="runtime-k">token scope</span>
-														<span class="runtime-v">{formatBiddingMandateTokenScope(collection.tokenScope)}</span>
-													</div>
-													<div>
-														<span class="runtime-k bidding-mandate-cap-summary-label">
-															<span>{BIDDING_AUTHORIZATION_CAP_COPY.maxUnitBid.label}</span>
-															<InfoTooltip text={BIDDING_AUTHORIZATION_CAP_COPY.maxUnitBid.help} />
-														</span>
-														<span class="runtime-v mono bid-book-price"
-															>{formatBiddingMandateWeiAsEth(collection.maxUnitBidWei)}</span
-														>
-													</div>
-													<div>
-														<span class="runtime-k bidding-mandate-cap-summary-label">
-															<span>{BIDDING_AUTHORIZATION_CAP_COPY.maxQuantity.label}</span>
-															<InfoTooltip text={BIDDING_AUTHORIZATION_CAP_COPY.maxQuantity.help} />
-														</span>
-														<span class="runtime-v">{collection.maxQuantity}</span>
-													</div>
-												</div>
-											</div>
-										{/each}
-									</section>
-								{/if}
 							{/if}
 
 							<div class="admin-bot-controls">
