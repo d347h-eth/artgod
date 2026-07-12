@@ -2,13 +2,15 @@ import { BIDDING_CONFIG_ENV_KEY } from '@artgod/shared/config/bidding';
 import { parseBoolean } from '@artgod/shared/utils/env';
 import type { AdminConfigField, AdminConfigState } from '$lib/admin/configuration/ports';
 
-// Config-owned fields shown beside the bidding authorization request.
-const BIDDING_START_POLICY_SETTING_KEYS = new Set<string>([
+// Config-owned fields shown in the compact Bots bidding-settings summary.
+const BIDDING_SETTINGS_SUMMARY_KEYS = new Set<string>([
 	BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers,
 	BIDDING_CONFIG_ENV_KEY.WethAllowanceCapEth,
+	BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei,
 	BIDDING_CONFIG_ENV_KEY.TxMaxFeeGwei,
 	BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth,
-	BIDDING_CONFIG_ENV_KEY.TxPendingNoncePolicy
+	BIDDING_CONFIG_ENV_KEY.TxPendingNoncePolicy,
+	BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds
 ]);
 
 export type BiddingStartPolicyEntry = {
@@ -32,9 +34,9 @@ export function buildBiddingStartPolicySummary(
 }
 
 function selectPolicyFields(fields: AdminConfigField[]): AdminConfigField[] {
-	const selected = fields.filter((field) => BIDDING_START_POLICY_SETTING_KEYS.has(field.key));
+	const selected = fields.filter((field) => BIDDING_SETTINGS_SUMMARY_KEYS.has(field.key));
 	const selectedKeys = new Set(selected.map((field) => field.key));
-	for (const key of BIDDING_START_POLICY_SETTING_KEYS) {
+	for (const key of BIDDING_SETTINGS_SUMMARY_KEYS) {
 		if (!selectedKeys.has(key)) {
 			throw new Error(`Missing effective bot policy field ${key}`);
 		}
