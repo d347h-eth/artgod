@@ -15,7 +15,7 @@ export const BIDDING_RUNTIME_ENV_KEY = {
     ScanSleepMs: "BIDDING_SCAN_SLEEP_MS",
     MaxConcurrentJobs: "BIDDING_MAX_CONCURRENT_JOBS",
     BootstrapConcurrency: "BIDDING_BOOTSTRAP_CONCURRENCY",
-    OfferExpirationSeconds: "BIDDING_OFFER_EXPIRATION_SECONDS",
+    OfferExpirationSeconds: BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds,
     CollectionOffersPollMs: "BIDDING_COLLECTION_OFFERS_POLL_MS",
     CollectionOffersTtlMs: "BIDDING_COLLECTION_OFFERS_TTL_MS",
     CollectionOffersMaxTtlMs: "BIDDING_COLLECTION_OFFERS_MAX_TTL_MS",
