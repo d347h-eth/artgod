@@ -103,6 +103,27 @@ Canonical backlog and priorities live in
   fresh-install preset is Terraforms collection ID 1 with no out-of-box token or
   run data.
 
+### Wallet and Bidding Security Assumptions
+
+Public-alpha bidding assumes a dedicated wallet funded only with the WETH and
+ETH the operator is prepared to expose to alpha automation risk.
+
+- Stopping the bot, process death, or the end of a mandate generation does not
+  cancel already signed OpenSea orders or revoke the onchain conduit allowance.
+  Offchain cancellation remains available for tracked orders outside the
+  placement mandate; cancellation and wallet funding or allowance changes
+  remain deliberate operator actions.
+- ArtGod relies on operator-selected RPC endpoints as truthful chain-state
+  inputs. Selecting and maintaining truthful endpoints is an operator
+  responsibility; the public alpha does not independently verify them.
+- Userland and loopback job mutations are untrusted proposals. The running bot
+  enforces the reviewed price and quantity caps on each offer, but aggregate
+  strategy abuse within an authorized collection is an accepted alpha risk.
+
+The complete custody and threat-model boundary is in
+`docs/desktop/03-wallet-keystore-and-bot-unlock.md`; bidding-specific runtime
+behavior is in `docs/trading/01-bidding-runtime-and-jobs.md`.
+
 ## Related Docs
 
 - `README.md`: compact project overview, quick start, and documentation map.
@@ -110,6 +131,8 @@ Canonical backlog and priorities live in
   configuration, versioning, and command reference.
 - `docs/desktop/01-tauri-build-and-runtime.md`: desktop build, runtime,
   supervisor, and release pipeline details.
+- `docs/desktop/03-wallet-keystore-and-bot-unlock.md`: wallet custody and the
+  public-alpha wallet and bidding threat model.
 - `docs/deploy/01-web-hosted-read-only.md`: hosted public read-only deployment.
 - `docs/indexer/00-overview.md`: indexer runtime topology and invariants.
 - `docs/trading/01-bidding-runtime-and-jobs.md`: bidding runtime current state.
