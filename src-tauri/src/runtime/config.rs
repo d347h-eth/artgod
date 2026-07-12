@@ -39,6 +39,7 @@ pub struct DesktopRuntimeConfig {
 }
 
 /// Immutable executable/config snapshot used from native unlock through bot spawn.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct BotRuntimeLaunchConfig {
     pub(crate) spec: BotRuntimeSpec,
     pub(crate) artifact_path: PathBuf,

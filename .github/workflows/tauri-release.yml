@@ -251,6 +251,9 @@ jobs:
               if: runner.os == 'Linux'
               run: cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security
 
+            - name: Test release bot hard-parent-death containment
+              run: yarn test:desktop:parent-containment
+
             - name: Verify bundled Yarn runtime dependencies
               shell: bash
               run: |

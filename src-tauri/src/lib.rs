@@ -364,9 +364,10 @@ pub fn run() {
             }
 
             let wallet_state =
-                WalletCommandState::load(&app.handle()).map_err(std::io::Error::other)?;
+                WalletCommandState::load(app.handle()).map_err(std::io::Error::other)?;
+            let bot_state = BotCommandState::from_wallet_state(app.handle(), &wallet_state)
+                .map_err(std::io::Error::other)?;
             app.manage(wallet_state);
-            let bot_state = BotCommandState::load(&app.handle()).map_err(std::io::Error::other)?;
             app.manage(bot_state);
 
             ensure_desktop_config_paths(app.handle()).map_err(std::io::Error::other)?;

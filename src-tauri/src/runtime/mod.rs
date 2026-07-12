@@ -2,11 +2,13 @@ mod app_config;
 mod app_config_manifest;
 mod backend_collection_catalog;
 mod bidding_mandate;
+mod bot_lifecycle;
 mod bot_runtime;
 mod config;
 mod env_keys;
 mod http_fetch_resilience;
 mod log_files;
+mod process_containment;
 mod process_registry;
 mod resource_contract;
 mod rpc_auto_sourcing;
@@ -27,10 +29,12 @@ pub use bidding_mandate::{
     BiddingCollectionTokenScopeSummary, BiddingMandate, BiddingMandateDraft,
     BiddingStartPolicySnapshot, format_wei_as_eth,
 };
+pub(crate) use bot_lifecycle::BotStartReservation;
 pub use bot_runtime::{
     BotCriticalDependencyStatus, BotRuntimeSnapshot, BotRuntimeState, bot_runtime_spec,
     build_trading_secret_envelope,
 };
+pub(crate) use config::BotRuntimeLaunchConfig;
 pub use config::{DesktopRuntimeConfig, DesktopWalletConfig};
 pub(crate) use env_keys::RPC_ENDPOINT_LIST_ENV_KEY;
 pub(crate) use log_files::ensure_runtime_log_files;

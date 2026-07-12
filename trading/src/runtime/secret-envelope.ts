@@ -4,7 +4,21 @@ import { BiddingMandate } from "../domain/bidding-mandate.js";
 export const SECRET_ENVELOPE_MAGIC = Buffer.from("AGBOTKEY", "ascii");
 export const SECRET_ENVELOPE_VERSION = 2;
 export const SECRET_KEY_LENGTH_BYTES = 32;
-const HEADER_LENGTH = SECRET_ENVELOPE_MAGIC.length + 1 + 4;
+const VERSION_FIELD_LENGTH_BYTES = 1;
+const METADATA_LENGTH_FIELD_LENGTH_BYTES = 4;
+// Bound parent-declared allocation while leaving ample room for native authorization metadata.
+export const SECRET_ENVELOPE_MAX_METADATA_LENGTH_BYTES = 1024 * 1024;
+const VERSION_OFFSET = SECRET_ENVELOPE_MAGIC.length;
+const METADATA_LENGTH_OFFSET = VERSION_OFFSET + VERSION_FIELD_LENGTH_BYTES;
+
+/** Byte length needed to discover one complete secret-envelope frame. */
+export const SECRET_ENVELOPE_HEADER_LENGTH =
+    METADATA_LENGTH_OFFSET + METADATA_LENGTH_FIELD_LENGTH_BYTES;
+// Largest frame accepted from the native desktop parent.
+const SECRET_ENVELOPE_MAX_FRAME_LENGTH =
+    SECRET_ENVELOPE_HEADER_LENGTH +
+    SECRET_ENVELOPE_MAX_METADATA_LENGTH_BYTES +
+    SECRET_KEY_LENGTH_BYTES;
 
 export type TradingBotKind = "bidding" | "sniping";
 
@@ -21,9 +35,12 @@ export type TradingSecretEnvelope = {
     privateKeyBytes: Buffer;
 };
 
-export function parseSecretEnvelope(buffer: Buffer): TradingSecretEnvelope {
-    if (buffer.length < HEADER_LENGTH + SECRET_KEY_LENGTH_BYTES) {
-        throw new Error("Secret envelope is truncated");
+/** Resolves the exact v2 frame length once the complete header is available. */
+export function resolveSecretEnvelopeFrameLength(
+    buffer: Buffer,
+): number | null {
+    if (buffer.length < SECRET_ENVELOPE_HEADER_LENGTH) {
+        return null;
     }
 
     const magic = buffer.subarray(0, SECRET_ENVELOPE_MAGIC.length);
@@ -31,23 +48,43 @@ export function parseSecretEnvelope(buffer: Buffer): TradingSecretEnvelope {
         throw new Error("Secret envelope magic is invalid");
     }
 
-    const version = buffer.readUInt8(SECRET_ENVELOPE_MAGIC.length);
+    const version = buffer.readUInt8(VERSION_OFFSET);
     if (version !== SECRET_ENVELOPE_VERSION) {
         throw new Error(`Secret envelope version is unsupported: ${version}`);
     }
 
-    const metadataLength = buffer.readUInt32BE(
-        SECRET_ENVELOPE_MAGIC.length + 1,
-    );
-    const expectedTotalLength =
-        HEADER_LENGTH + metadataLength + SECRET_KEY_LENGTH_BYTES;
+    const metadataLength = buffer.readUInt32BE(METADATA_LENGTH_OFFSET);
+    const frameLength =
+        SECRET_ENVELOPE_HEADER_LENGTH +
+        metadataLength +
+        SECRET_KEY_LENGTH_BYTES;
+    if (frameLength > SECRET_ENVELOPE_MAX_FRAME_LENGTH) {
+        throw new Error("Secret envelope metadata exceeds the maximum length");
+    }
+    return frameLength;
+}
+
+export function parseSecretEnvelope(buffer: Buffer): TradingSecretEnvelope {
+    if (
+        buffer.length <
+        SECRET_ENVELOPE_HEADER_LENGTH + SECRET_KEY_LENGTH_BYTES
+    ) {
+        throw new Error("Secret envelope is truncated");
+    }
+
+    const expectedTotalLength = resolveSecretEnvelopeFrameLength(buffer);
+    if (expectedTotalLength === null) {
+        throw new Error("Secret envelope is truncated");
+    }
     if (buffer.length !== expectedTotalLength) {
         throw new Error("Secret envelope length is invalid");
     }
 
+    const metadataLength = buffer.readUInt32BE(METADATA_LENGTH_OFFSET);
+
     const metadataBytes = buffer.subarray(
-        HEADER_LENGTH,
-        HEADER_LENGTH + metadataLength,
+        SECRET_ENVELOPE_HEADER_LENGTH,
+        SECRET_ENVELOPE_HEADER_LENGTH + metadataLength,
     );
     const metadata = JSON.parse(metadataBytes.toString("utf8")) as unknown;
     if (
@@ -67,7 +104,7 @@ export function parseSecretEnvelope(buffer: Buffer): TradingSecretEnvelope {
     );
 
     const privateKeyBytes = buffer.subarray(
-        HEADER_LENGTH + metadataLength,
+        SECRET_ENVELOPE_HEADER_LENGTH + metadataLength,
         expectedTotalLength,
     );
     if (privateKeyBytes.length !== SECRET_KEY_LENGTH_BYTES) {

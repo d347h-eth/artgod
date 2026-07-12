@@ -73,9 +73,15 @@ The desktop shell does not replace backend/indexer/trading logic. It orchestrate
 8. Any core composition process exit triggers fail-fast full stack restart.
    Wallet-bound trading bots are supervised separately and stop only when they
    crash or when one of their declared critical dependencies becomes unhealthy.
-9. Closing the admin window hides it. The runtime keeps running in the tray.
-   Graceful runtime shutdown is triggered explicitly via tray `shutdown` or app
-   exit.
+9. Bot starts are generation-fenced from before unlock through controller
+   publication. Stop remains available during authorization review and startup,
+   cancels pending work, and waits for that generation to unwind.
+10. Trading bots are parent-contained: stdin remains open after one exact
+    secret frame as a portable liveness lease, with Linux and Windows native
+    containment reinforcing parent death.
+11. Closing the admin window hides it. The runtime keeps running in the tray.
+    Graceful runtime shutdown is triggered explicitly via tray `shutdown` or app
+    exit.
 
 ## Build Commands
 
@@ -500,9 +506,21 @@ Supervisor startup order:
 7. only after semantic readiness succeeds, supervisor sets runtime status to `running`
 
 Wallet-bound bot runtimes are not part of the startup order above.
-They stay independently managed and start only after explicit admin action, dependency stabilization, native policy review/unlock, and one-shot stdin secret handoff.
+They stay independently managed and start only after explicit admin action,
+dependency stabilization, native policy review/unlock, and one exact framed
+stdin secret handoff. Desktop composition shares one prompt coordinator across
+wallet import, export, remove, and bot unlock operations, so only one native
+wallet prompt may be active.
 For bidding, Admin proposes collection ids and caps, Rust re-resolves each id through the canonical backend collection read model, and the native prompt reviews the exact identity and caps that enter the bot's immutable mandate.
 During long bidder warmup, bots move from `starting` to `bootstrapping`; the supervisor treats that as a live runtime phase and expects periodic bootstrap progress before final `running`.
+
+Each bot start reserves a monotonic lifecycle generation before dependency
+waiting, prompt, decrypt, or process spawn. After prompt completion and again
+after decrypt, Rust revalidates the exact launch config, wallet assignment,
+canonical bidding authorization, core generation, and critical dependencies.
+The controller is published under that generation before a worker barrier lets
+the bot consume wallet material; worker state updates and cleanup are accepted
+only from the matching generation.
 
 If any step fails:
 
@@ -535,6 +553,19 @@ snapshot before the native unlock prompt opens. Saving Admin configuration
 while the prompt is open cannot redirect the process that receives the
 decrypted-key envelope.
 
+The supervisor prepares parent-death containment before spawn and attaches any
+post-spawn platform resource before it writes wallet material. Linux installs
+`PR_SET_PDEATHSIG(SIGKILL)` and rechecks the expected parent PID; Windows uses a
+non-inheritable kill-on-close Job Object. Every platform also retains the bot's
+stdin writer after the single frame as a parent-liveness lease. The Node runtime
+parses the declared frame length without waiting for EOF and exits if the pipe
+later closes, errors, or carries extra data.
+
+The secret-frame write runs in a bounded handoff task while the supervisor
+retains the child handle. Stop, core invalidation, recipient exit, or handoff
+timeout force-stops the child, closing the pipe so Rust can join the writer and
+zeroize its envelope before the bot worker returns.
+
 ## Shutdown and Restart Semantics
 
 ### Trigger Paths
@@ -561,6 +592,12 @@ Supervisor stop behavior:
 4. join output threads
 5. run cleanup hooks
 
+Bot Stop is also valid before a process exists. It cancels a pending prompt or
+start generation, waits for in-flight decrypt/start work to unwind, then
+excludes stale controller publication and stale status cleanup before returning.
+If the spawned recipient does not read stdin, Stop terminates it and joins the
+blocked secret writer instead of waiting for pipe capacity.
+
 ### Restart Strategy
 
 Core composition is fail-fast:
@@ -573,6 +610,9 @@ Wallet-bound bot runtimes use separate restart semantics:
 - a bot crash does not restart the core composition
 - a bot stops if one of its declared critical dependencies becomes unhealthy
 - a bot restart always returns to a locked state and requires a fresh native unlock prompt
+- a hard desktop-parent death closes the portable liveness lease; Linux also
+  delivers the configured parent-death signal and Windows closes the retained
+  kill-on-close Job Object
 
 ## Logging
 
@@ -715,6 +755,15 @@ Current state:
 - Yarn package lifecycle scripts stay disabled in CI. Workflows run
   `yarn install --immutable`, then `yarn build:sqlite-native` for the
   allowlisted `better-sqlite3` native binding.
+- Linux build checks and Linux/macOS release builds launch the built Node bot
+  through the production command, containment, retained-stdin, and secret-frame
+  path. The proof first requires clean `SIGTERM` exit while the parent still
+  owns the liveness writer, then hard-kills a nested desktop-parent harness
+  after `bot_ready` and requires that exact bot PID to disappear. A separate
+  containment-primitive test requires heartbeat activity to stop after its
+  parent is hard-killed.
+- The ordinary build workflow compiles the Windows Job Object path on a Windows
+  runner; Windows release artifacts remain deferred.
 - Linux artifacts are GPG-signed (detached armor signatures).
 - Final release assembly re-verifies downloaded AppImage and `.deb` signatures
   before signing the checksum manifest.

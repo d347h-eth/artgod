@@ -12,6 +12,16 @@ const workflowsDirectory = path.join(rootDir, ".github", "workflows");
 const fullCommitActionReferencePattern = /^[^\s@]+@[a-f0-9]{40}$/;
 const webviewShellAclTestCommand =
     "cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security";
+const botHardParentDeathTestCommand = "yarn test:desktop:parent-containment";
+const botHardParentDeathBuildStepName =
+    "Test bot hard-parent-death containment";
+const botHardParentDeathReleaseStepName =
+    "Test release bot hard-parent-death containment";
+const windowsContainmentTarget = "x86_64-pc-windows-msvc";
+const windowsSidecarPrepareCommand =
+    "node ./scripts/build/prepare-desktop-sidecars.mjs --profile debug";
+const windowsContainmentCheckCommand =
+    "cargo check --manifest-path src-tauri/Cargo.toml --lib";
 
 test("pins every external GitHub Action to a full commit SHA", async () => {
     for (const workflow of await readWorkflows()) {
@@ -206,6 +216,118 @@ test("runs the resolved WebView shell ACL test in build and release lanes", asyn
     }
 });
 
+test("runs bot hard-parent-death containment in the ordinary Tauri build job", async () => {
+    const workflow = await readFile(
+        path.join(workflowsDirectory, "tauri-build-check.yml"),
+        "utf8",
+    );
+    const tauriCheckJob = extractWorkflowJob(workflow, "tauri-check");
+    const containmentStep = extractWorkflowStep(
+        tauriCheckJob,
+        botHardParentDeathBuildStepName,
+    );
+
+    assert.equal(countOccurrences(workflow, botHardParentDeathTestCommand), 1);
+    assert.doesNotMatch(tauriCheckJob, /^ {8}continue-on-error:/m);
+    assertStepRunsCommand(containmentStep, botHardParentDeathTestCommand);
+    assertStepIsRequired(containmentStep);
+    assertStepPrecedes(
+        tauriCheckJob,
+        "Tauri no-bundle build check",
+        botHardParentDeathBuildStepName,
+    );
+});
+
+test("runs release containment on both build platforms before artifacts leave the job", async () => {
+    const workflow = await readFile(
+        path.join(workflowsDirectory, "tauri-release.yml"),
+        "utf8",
+    );
+    const buildJob = extractWorkflowJob(workflow, "build");
+    const containmentStep = extractWorkflowStep(
+        buildJob,
+        botHardParentDeathReleaseStepName,
+    );
+
+    assert.equal(countOccurrences(workflow, botHardParentDeathTestCommand), 1);
+    assert.match(buildJob, /^ {20}- os: ubuntu-22\.04$/m);
+    assert.match(buildJob, /^ {20}- os: macos-latest$/m);
+    assert.doesNotMatch(buildJob, /^ {8}continue-on-error:/m);
+    assertStepRunsCommand(containmentStep, botHardParentDeathTestCommand);
+    assertStepIsRequired(containmentStep);
+
+    for (const buildStepName of [
+        "Build Linux Tauri bundle",
+        "Build macOS Tauri bundle",
+    ]) {
+        assertStepPrecedes(
+            buildJob,
+            buildStepName,
+            botHardParentDeathReleaseStepName,
+        );
+    }
+    for (const protectedStepName of [
+        "Collect release artifacts",
+        "Prepare macOS notarization input",
+        "Preserve macOS notarization input",
+        "Submit macOS DMG for notarization",
+        "Preserve macOS notarization submission state",
+        "Poll, verify, and staple macOS DMG",
+        "Preserve macOS notarization diagnostics",
+        "Upload Linux build artifacts",
+        "Upload macOS build artifacts",
+    ]) {
+        assertStepPrecedes(
+            buildJob,
+            botHardParentDeathReleaseStepName,
+            protectedStepName,
+        );
+    }
+});
+
+test("compiles the Windows Job Object containment path", async () => {
+    const workflow = await readFile(
+        path.join(workflowsDirectory, "tauri-build-check.yml"),
+        "utf8",
+    );
+    const windowsJob = extractWorkflowJob(
+        workflow,
+        "windows-containment-check",
+    );
+    const sidecarStep = extractWorkflowStep(
+        windowsJob,
+        "Prepare Windows secret prompt sidecar",
+    );
+    const checkStep = extractWorkflowStep(
+        windowsJob,
+        "Check Windows Job Object containment",
+    );
+
+    assert.match(windowsJob, /^ {8}runs-on: windows-latest$/m);
+    assert.doesNotMatch(windowsJob, /^ {8}if:/m);
+    assert.match(
+        windowsJob,
+        new RegExp(
+            `^ {12}CARGO_BUILD_TARGET: ${escapeRegExp(windowsContainmentTarget)}$`,
+            "m",
+        ),
+    );
+    assert.match(
+        windowsJob,
+        /^ {18}targets: \$\{\{ env\.CARGO_BUILD_TARGET \}\}$/m,
+    );
+    assertStepRunsCommand(sidecarStep, windowsSidecarPrepareCommand);
+    assertStepIsRequired(sidecarStep);
+    assertStepRunsCommand(checkStep, windowsContainmentCheckCommand);
+    assertStepIsRequired(checkStep);
+    assertStepPrecedes(
+        windowsJob,
+        "Prepare Windows secret prompt sidecar",
+        "Check Windows Job Object containment",
+    );
+    assert.doesNotMatch(windowsJob, /^ {8}continue-on-error:/m);
+});
+
 async function readWorkflows() {
     const workflowNames = (await readdir(workflowsDirectory))
         .filter((name) => name.endsWith(".yml") || name.endsWith(".yaml"))
@@ -228,4 +350,50 @@ function extractWorkflowJob(source, jobName) {
         start,
         nextJob ? start + marker.length + nextJob.index : source.length,
     );
+}
+
+function extractWorkflowStep(jobSource, stepName) {
+    const marker = `            - name: ${stepName}\n`;
+    const start = jobSource.indexOf(marker);
+    assert.notEqual(start, -1, `Workflow step ${stepName} was not found.`);
+    const remaining = jobSource.slice(start + marker.length);
+    const nextStep = remaining.match(/^ {12}- name: /m);
+    return jobSource.slice(
+        start,
+        nextStep ? start + marker.length + nextStep.index : jobSource.length,
+    );
+}
+
+function assertStepRunsCommand(step, command) {
+    assert.match(
+        step,
+        new RegExp(`^ {14}run: ${escapeRegExp(command)}\\s*$`, "m"),
+    );
+}
+
+function assertStepIsRequired(step) {
+    assert.doesNotMatch(step, /^ {14}if:/m);
+    assert.doesNotMatch(step, /^ {14}continue-on-error:/m);
+}
+
+function assertStepPrecedes(jobSource, firstStepName, secondStepName) {
+    const firstIndex = jobSource.indexOf(`- name: ${firstStepName}`);
+    const secondIndex = jobSource.indexOf(`- name: ${secondStepName}`);
+    assert.ok(firstIndex >= 0, `Workflow step ${firstStepName} was not found.`);
+    assert.ok(
+        secondIndex >= 0,
+        `Workflow step ${secondStepName} was not found.`,
+    );
+    assert.ok(
+        firstIndex < secondIndex,
+        `${firstStepName} must run before ${secondStepName}.`,
+    );
+}
+
+function countOccurrences(source, value) {
+    return source.split(value).length - 1;
+}
+
+function escapeRegExp(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

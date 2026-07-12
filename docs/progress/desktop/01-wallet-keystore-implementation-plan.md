@@ -11,7 +11,8 @@ The goal is to implement the wallet subsystem without weakening the custody mode
 - WebView never sees raw private keys
 - unlock always happens through a native prompt
 - restart = prompt
-- decrypted key material reaches Node only once at bot startup over stdin/pipe
+- decrypted key material reaches Node only once at bot startup in one framed
+  stdin write; the retained pipe then serves only as a parent-liveness lease
 - wallet storage uses the Foundry/Alloy standard Ethereum keystore path, not a custom crypto format
 - every new keystore write uses the explicit ArtGod-owned production scrypt policy
 
@@ -52,6 +53,11 @@ Current state:
 
 - the admin build is now a dedicated shell with `lifecycle`, `wallets`, `bots`, `logs`, and `status` tabs
 - wallet metadata and bot control surfaces are already wired through the native Tauri command boundary
+- one composition-owned coordinator serializes every native wallet prompt
+- bot start/stop uses generation reservations from pre-prompt stabilization
+  through controller publication and cleanup
+- trading bot processes use portable parent-pipe liveness plus Linux/Windows
+  native process containment
 - the remaining follow-up work is desktop E2E automation and future strategy implementation rather than admin-shell scaffolding
 
 ## Delivery Rules
@@ -161,8 +167,11 @@ As of 2026-07-12:
 - Slice 2 is complete.
 - Slice 3 is complete.
 - Slice 4 is complete.
-- Slice 5 is complete.
-- Slice 6 is complete, including the shared golden-fixture protocol tests and secret-leak guards around bot startup.
+- Slice 5 is complete, including cancellable generation-fenced start/stop,
+  atomic controller publication, and hard-parent-death containment.
+- Slice 6 is complete, including the shared golden-fixture protocol tests,
+  exact-frame-before-EOF parsing, retained parent-liveness lease, and secret-leak
+  guards around bot startup.
 - Post-implementation wallet hardening now pins the `eth-keystore` source and makes both explicit and Alloy-compatibility writes emit the Geth-standard scrypt profile.
 
 ## Slice 0: Admin Shell and Desktop Hardening Baseline
@@ -452,6 +461,8 @@ Primary files:
 - `src-tauri/src/runtime/mod.rs`
 - `src-tauri/src/runtime/config.rs`
 - `src-tauri/src/runtime/bot_runtime.rs`
+- `src-tauri/src/runtime/bot_lifecycle.rs`
+- `src-tauri/src/runtime/process_containment.rs`
 - `src-tauri/src/wallet/application/use_cases/assign_wallet_to_bot.rs`
 - `src-tauri/src/wallet/tauri/bot_commands.rs`
 - new `frontend/src/lib/admin/bots/**`
@@ -484,6 +495,21 @@ Tasks:
 - add explicit wallet-to-bot assignment commands and persisted assignment metadata
 - block wallet removal while a wallet remains assigned to any bot
 - surface bot state independently in the admin UI
+- construct one shared native-prompt coordinator for wallet and bot commands
+- reserve a monotonic per-bot lifecycle generation before stabilization,
+  authorization review, decrypt, or spawn
+- cancel pending start generations on Stop and core lifecycle changes, and wait
+  for in-flight prompt/decrypt/start work to unwind
+- revalidate runtime config and recipient, wallet assignment, canonical bidding
+  authorization, core generation, and critical dependencies after prompt and
+  after decrypt
+- publish the generation-tagged controller before releasing the worker barrier;
+  fence worker status updates and cleanup to the matching generation
+- write the secret frame through a bounded task while the supervisor retains
+  authority to terminate the child and join a blocked writer
+- keep Stop available in Admin while authorization review or startup is pending
+- contain bot processes with the portable parent pipe, Linux parent-death signal,
+  and Windows kill-on-close Job Object
 - pull in the minimal trading runtime bootstrap and stdin secret protocol so the split uses real bot artifacts, not placeholders
 
 Important rule:
@@ -496,6 +522,10 @@ Acceptance:
 - a bot crash or dependency loss stops only the affected bot and does not restart the full composition
 - per-bot dependency health is explicit in the admin UI
 - next bot start requires a fresh prompt
+- simultaneous starts cannot publish two controllers for the same bot
+- Stop during prompt, decrypt, or spawn cannot be followed by stale activation
+- Stop during a blocked secret-pipe write terminates the recipient and returns
+- hard desktop-parent death cannot leave the bot PID or heartbeat activity alive
 
 ## Slice 6: Trading Runtime Bootstrap and Stdin Secret Protocol
 
@@ -521,10 +551,11 @@ Tasks:
 
 - add a new `trading/` workspace
 - create one minimal bot runtime entrypoint that:
-    - reads the stdin secret envelope
+    - reads one exact stdin secret-envelope frame before EOF
     - validates metadata
     - constructs an in-memory signer
     - zeroizes the original buffer best-effort
+    - keeps monitoring stdin as the parent-liveness channel
     - reports startup success/failure
 - define the stdin secret envelope contract formally
 - keep the protocol versioned
@@ -540,12 +571,18 @@ Protocol rules:
 - never pass key bytes by CLI arg
 - never pass key bytes by temp file
 - raw key bytes stay binary, not hex text
+- parent writes and flushes one declared frame, then retains the stdin writer
+  without sending more data
+- child rejects truncated or overlong startup data and exits if the retained
+  channel later closes, errors, or receives another byte
 
 Acceptance:
 
 - a minimal bot runtime can start successfully with a wallet through stdin handoff
 - startup fails on malformed or missing payload
 - process list and environment remain secret-free
+- the bot parses the exact frame without requiring EOF
+- the bot exits when its desktop parent disappears
 
 ## Future Idea: OS-Native Wrapping
 
@@ -600,9 +637,23 @@ Minimum manual scenarios:
 - remove wallet
 - export wallet
 - start bot
+- attempt overlapping wallet prompts
+- stop during authorization review, decrypt, and process startup
+- change config, wallet assignment, or canonical authorization during start and
+  confirm the reviewed start is rejected
 - bot crash
+- hard-kill desktop parent and confirm the bot PID and heartbeat stop
 - restart desktop app
 - confirm restart requires a fresh prompt
+
+Automated desktop build/release checks run two hard-parent-death proofs on Linux
+and macOS: a production-path built Node bot must become ready, exit cleanly on
+`SIGTERM` with stdin retained, and lose its PID after its parent is hard-killed;
+a containment-primitive heartbeat must also stop after parent death. The
+ordinary build workflow compiles the Windows Job Object path on Windows.
+Lifecycle unit tests cover same-bot start exclusion, cross-bot independence,
+pending and active cancellation, core invalidation, assignment exclusion, and
+stale-generation cleanup.
 
 ## Explicit Deferrals
 

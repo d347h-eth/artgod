@@ -9,9 +9,10 @@
 		AdminBiddingCollectionCatalog,
 		AdminBiddingCollectionCandidate,
 		AdminBotKind,
+		AdminBotPort,
 		AdminBotRecord
 	} from '$lib/admin/bots/ports';
-	import { ADMIN_BOT_STATE, isAdminBotActive } from '$lib/admin/bots/ports';
+	import { formatAdminBotState, isAdminBotActive } from '$lib/admin/bots/ports';
 	import {
 		buildBiddingMandateDraft,
 		formatBiddingChainIdentity,
@@ -27,16 +28,41 @@
 		buildBiddingStartPolicySummary,
 		type BiddingStartPolicyEntry
 	} from '$lib/admin/bots/bidding-start-policy';
+	import {
+		beginAdminBotStart,
+		beginAdminBotStop,
+		canStopAdminBot,
+		createAdminBotActionState,
+		finishAdminBotAction,
+		isAdminBotLifecycleActionPending,
+		isAdminBotStartPending,
+		isAdminBotStopPending,
+		isCurrentAdminBotAction
+	} from '$lib/admin/bots/admin-bot-action-state';
+	import {
+		beginAdminBotRefresh,
+		beginAdminBotViewAction,
+		createAdminBotViewState,
+		finishAdminBotRefreshFailure,
+		finishAdminBotRefreshSuccess,
+		isCurrentAdminBotRefresh,
+		publishAdminBotActionError
+	} from '$lib/admin/bots/admin-bot-view-state';
 	import type { AdminConfigState } from '$lib/admin/configuration/ports';
 	import { createTauriAdminWalletPort } from '$lib/admin/wallets/adapters/tauri-admin-wallet-port';
-	import type { AdminWalletRecord } from '$lib/admin/wallets/ports';
+	import type { AdminWalletPort, AdminWalletRecord } from '$lib/admin/wallets/ports';
 
-	const botPort = createTauriAdminBotPort();
-	const walletPort = createTauriAdminWalletPort();
 	let {
 		config,
-		configLoading = false
-	}: { config: AdminConfigState | null; configLoading?: boolean } = $props();
+		configLoading = false,
+		botPort = createTauriAdminBotPort(),
+		walletPort = createTauriAdminWalletPort()
+	}: {
+		config: AdminConfigState | null;
+		configLoading?: boolean;
+		botPort?: AdminBotPort;
+		walletPort?: AdminWalletPort;
+	} = $props();
 
 	let bots = $state<AdminBotRecord[]>([]);
 	let wallets = $state<AdminWalletRecord[]>([]);
@@ -55,18 +81,21 @@
 		[TRADING_BOT_KIND.Bidding]: '',
 		[TRADING_BOT_KIND.Sniping]: ''
 	});
-	let errorMessage = $state<string | null>(null);
+	let viewState = $state(createAdminBotViewState());
+	let errorMessage = $derived(viewState.error?.message ?? null);
 	let loading = $state(true);
 	let refreshing = $state(false);
-	let busyAction = $state<string | null>(null);
+	let assigningBotKind = $state<AdminBotKind | null>(null);
+	let botActionState = $state(createAdminBotActionState());
 
 	onMount(() => {
 		let disposed = false;
 		let unlisten: (() => void) | null = null;
 
-		void refreshState(true);
+		void refreshState({ initialLoad: true, clearActionErrorOnSuccess: true });
 		void botPort.onStateChanged(() => {
 			if (!disposed) {
+				// Passive state events refresh data without dismissing an action failure.
 				void refreshState();
 			}
 		}).then((callback) => {
@@ -152,7 +181,15 @@
 		};
 	}
 
-	async function refreshState(initialLoad = false): Promise<void> {
+	async function refreshState(
+		options: { initialLoad?: boolean; clearActionErrorOnSuccess?: boolean } = {}
+	): Promise<void> {
+		const refresh = beginAdminBotRefresh(viewState, {
+			clearActionErrorOnSuccess: options.clearActionErrorOnSuccess
+		});
+		viewState = refresh.state;
+		const refreshRequest = refresh.request;
+		const initialLoad = options.initialLoad === true;
 		if (initialLoad) {
 			loading = true;
 		} else {
@@ -165,6 +202,9 @@
 				walletPort.listWallets(),
 				botPort.loadBiddingCollectionCatalog()
 			]);
+			if (!isCurrentAdminBotRefresh(viewState, refreshRequest)) {
+				return;
+			}
 			bots = visibleBots(nextBots);
 			wallets = nextWallets;
 			biddingCollectionCatalog = nextBiddingCollectionCatalog;
@@ -173,53 +213,113 @@
 				biddingMandateSelections
 			);
 			syncSelections(bots);
-			errorMessage = null;
+			viewState = finishAdminBotRefreshSuccess(viewState, refreshRequest);
 		} catch (error) {
-			errorMessage = toErrorMessage(error, 'Bot state could not be loaded.');
+			if (isCurrentAdminBotRefresh(viewState, refreshRequest)) {
+				viewState = finishAdminBotRefreshFailure(
+					viewState,
+					refreshRequest,
+					toErrorMessage(error, 'Bot state could not be loaded. Use refresh to try again.')
+				);
+			}
 		} finally {
-			loading = false;
-			refreshing = false;
-		}
-	}
-
-	async function withBusyAction(actionKey: string, work: () => Promise<void>): Promise<void> {
-		if (busyAction !== null) {
-			return;
-		}
-		busyAction = actionKey;
-		errorMessage = null;
-		try {
-			await work();
-		} catch (error) {
-			errorMessage = toErrorMessage(error, 'Bot action failed.');
-		} finally {
-			busyAction = null;
+			if (isCurrentAdminBotRefresh(viewState, refreshRequest)) {
+				loading = false;
+				refreshing = false;
+			}
 		}
 	}
 
 	async function handleAssignWallet(botKind: AdminBotKind): Promise<void> {
-		await withBusyAction(`assign:${botKind}`, async () => {
+		if (
+			assigningBotKind !== null ||
+			isAdminBotLifecycleActionPending(botActionState, botKind)
+		) {
+			return;
+		}
+		assigningBotKind = botKind;
+		viewState = beginAdminBotViewAction(viewState);
+		try {
 			await botPort.assignWallet(botKind, selectedWalletIds[botKind] || null);
-			await refreshState();
-		});
+			await refreshState({ clearActionErrorOnSuccess: true });
+		} catch (error) {
+			viewState = publishAdminBotActionError(
+				viewState,
+				toErrorMessage(
+					error,
+					'Wallet could not be assigned. Try again or see desktop-app logs.'
+				)
+			);
+		} finally {
+			if (assigningBotKind === botKind) {
+				assigningBotKind = null;
+			}
+		}
 	}
 
 	async function handleStart(botKind: AdminBotKind): Promise<void> {
-		await withBusyAction(`start:${botKind}`, async () => {
+		if (assigningBotKind !== null) {
+			return;
+		}
+		const started = beginAdminBotStart(botActionState, botKind);
+		if (!started) {
+			return;
+		}
+		botActionState = started.state;
+		viewState = beginAdminBotViewAction(viewState);
+		try {
 			const biddingMandate =
 				botKind === TRADING_BOT_KIND.Bidding
 					? buildBiddingMandateDraft(biddingCollections, biddingMandateSelections)
 					: null;
 			await botPort.startBot(botKind, biddingMandate);
-			await refreshState();
-		});
+			if (isCurrentAdminBotAction(botActionState, started.request)) {
+				await refreshState({ clearActionErrorOnSuccess: true });
+			}
+		} catch (error) {
+			if (isCurrentAdminBotAction(botActionState, started.request)) {
+				viewState = publishAdminBotActionError(
+					viewState,
+					toErrorMessage(
+						error,
+						'Bot could not be started. Try again or see desktop-app logs.'
+					)
+				);
+			}
+		} finally {
+			botActionState = finishAdminBotAction(botActionState, started.request);
+		}
 	}
 
 	async function handleStop(botKind: AdminBotKind): Promise<void> {
-		await withBusyAction(`stop:${botKind}`, async () => {
+		const started = beginAdminBotStop(botActionState, botKind);
+		if (!started) {
+			return;
+		}
+		botActionState = started.state;
+		viewState = beginAdminBotViewAction(viewState);
+		let stopSucceeded = false;
+		try {
 			await botPort.stopBot(botKind);
-			await refreshState();
-		});
+			stopSucceeded = true;
+			if (isCurrentAdminBotAction(botActionState, started.request)) {
+				await refreshState({ clearActionErrorOnSuccess: true });
+			}
+		} catch (error) {
+			if (isCurrentAdminBotAction(botActionState, started.request)) {
+				viewState = publishAdminBotActionError(
+					viewState,
+					toErrorMessage(
+						error,
+						'Bot could not be stopped. Try again or see desktop-app logs.'
+					)
+				);
+			}
+		} finally {
+			botActionState = finishAdminBotAction(botActionState, started.request, {
+				stopSucceeded
+			});
+		}
 	}
 </script>
 
@@ -230,8 +330,8 @@
 				<div class="runtime-controls">
 					<button
 						type="button"
-						onclick={() => void refreshState()}
-						disabled={loading || refreshing || busyAction !== null}
+						onclick={() => void refreshState({ clearActionErrorOnSuccess: true })}
+						disabled={loading || refreshing}
 					>
 						{refreshing ? 'refreshing…' : 'refresh'}
 					</button>
@@ -263,7 +363,7 @@
 									</div>
 									<div>
 										<span class="runtime-k">state</span>
-										<span class="runtime-v">{bot.state}</span>
+										<span class="runtime-v">{formatAdminBotState(bot.state)}</span>
 									</div>
 									<div>
 										<span class="runtime-k">wallet</span>
@@ -288,7 +388,9 @@
 							</section>
 
 							{#if bot.botKind === TRADING_BOT_KIND.Bidding}
-								{@const mandateEditingDisabled = busyAction !== null || botActive}
+								{@const mandateEditingDisabled = assigningBotKind !== null ||
+									isAdminBotLifecycleActionPending(botActionState, bot.botKind) ||
+									botActive}
 								<section
 									class="runtime-section bidding-start-policy"
 									aria-label="Bidding settings"
@@ -474,7 +576,9 @@
 												(event.currentTarget as HTMLSelectElement).value
 											);
 										}}
-										disabled={busyAction !== null || botActive}
+										disabled={assigningBotKind !== null ||
+											isAdminBotLifecycleActionPending(botActionState, bot.botKind) ||
+											botActive}
 									>
 										<option value="">unassigned</option>
 										{#each wallets as wallet (wallet.walletId)}
@@ -488,9 +592,11 @@
 										type="button"
 										class="action-button-positive"
 										onclick={() => void handleAssignWallet(bot.botKind)}
-										disabled={busyAction !== null || botActive}
+										disabled={assigningBotKind !== null ||
+											isAdminBotLifecycleActionPending(botActionState, bot.botKind) ||
+											botActive}
 									>
-										{busyAction === `assign:${bot.botKind}` ? 'applying…' : 'apply wallet'}
+										{assigningBotKind === bot.botKind ? 'applying…' : 'apply wallet'}
 									</button>
 								</div>
 
@@ -499,18 +605,24 @@
 										type="button"
 										class="action-button-negative"
 										onclick={() => void handleStop(bot.botKind)}
-										disabled={busyAction !== null || (bot.state !== ADMIN_BOT_STATE.Running && bot.state !== ADMIN_BOT_STATE.Bootstrapping)}
+										disabled={isAdminBotStopPending(botActionState, bot.botKind) ||
+											!canStopAdminBot(botActionState, bot)}
 									>
-										{busyAction === `stop:${bot.botKind}` ? 'stopping…' : 'stop'}
+										{isAdminBotStopPending(botActionState, bot.botKind) ? 'stopping…' : 'stop'}
 									</button>
 
 									<button
 										type="button"
 										class="action-button-positive"
 										onclick={() => void handleStart(bot.botKind)}
-										disabled={busyAction !== null || !canStart(bot)}
+										disabled={assigningBotKind !== null ||
+											isAdminBotLifecycleActionPending(botActionState, bot.botKind) ||
+											!canStart(bot)}
 									>
-										{busyAction === `start:${bot.botKind}` ? 'starting…' : 'start'}
+										{isAdminBotStartPending(botActionState, bot.botKind) &&
+										!isAdminBotStopPending(botActionState, bot.botKind)
+											? 'starting…'
+											: 'start'}
 									</button>
 								</div>
 							</div>

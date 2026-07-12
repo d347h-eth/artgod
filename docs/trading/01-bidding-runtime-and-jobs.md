@@ -116,11 +116,15 @@ Stream events can include a `version` field, but bidding decisions still come fr
 ## Runtime Bootstrap
 
 The desktop supervisor starts wallet-bound trading bots only after an explicit operator unlock.
-The Rust process owns keystore decryption and sends the unlocked key to the Node bot through the one-shot stdin secret-envelope path.
+The Rust process owns keystore decryption and sends the unlocked key to the Node
+bot in one exact stdin secret-envelope frame. It keeps the writer open afterward
+only as the desktop parent's liveness lease.
 
 Startup order:
 
-1. read secret-envelope v2, require its native bidding mandate, and construct the in-memory signer
+1. derive the secret-envelope v2 frame length from its bounded header, read that
+   exact frame without waiting for EOF, require its native bidding mandate, and
+   construct the in-memory signer
 2. load typed trading config and require its chain to match the envelope and mandate
 3. mark previously tracked active offers as unverified for enabled bidding jobs
 4. load enabled bidding jobs from SQLite with canonical collection ids and required OpenSea slugs
@@ -432,10 +436,22 @@ Desktop wallet custody is documented in `docs/desktop/03-wallet-keystore-and-bot
 Trading-specific rules:
 
 - private keys are Rust-owned until the exact bot startup moment
-- key material and the immutable native mandate are passed to Node through the one-shot stdin secret envelope only
+- key material and the immutable native mandate are passed to Node in one exact
+  stdin secret-envelope frame only; additional parent writes are forbidden
+- the Node process keeps monitoring stdin after it parses the frame and exits if
+  the desktop parent closes the channel, the stream errors, or any extra data
+  arrives
+- Linux reinforces the portable pipe with `PR_SET_PDEATHSIG(SIGKILL)` plus a
+  parent-PID race check; Windows uses a kill-on-close Job Object; macOS uses the
+  retained pipe boundary
 - bot process args and env contain no private keys
 - lifecycle events and runtime-state DB rows contain only non-secret metadata
 - every bot restart requires a fresh unlock
+- every start is generation-reserved before dependency waiting and unlock;
+  config, wallet assignment, canonical bidding authorization, core generation,
+  and critical dependencies are revalidated after the prompt and after decrypt
+- Stop remains available throughout authorization review and startup, cancels
+  the pending generation, and prevents stale worker publication or cleanup
 - WETH allowance amount is configured in Ether units through `BIDDING_WETH_ALLOWANCE_ETH`
 - startup treats that amount as an exact cap: higher and unlimited existing
   approvals are reduced, and `0` revokes instead of skipping the chain read

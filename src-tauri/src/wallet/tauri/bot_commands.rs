@@ -1,10 +1,15 @@
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use artgod_secret_prompt_protocol::{
     UnlockBiddingCollectionSummary, UnlockBiddingMandateSummary, UnlockBiddingTokenScopeItem,
 };
+use futures_util::future::{Either, select};
+use futures_util::pin_mut;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
+use zeroize::Zeroizing;
 
 use crate::desktop_log::append_desktop_log;
 use crate::runtime::{
@@ -12,8 +17,9 @@ use crate::runtime::{
     BiddingChainIdentity, BiddingCollectionCandidate, BiddingCollectionCatalog,
     BiddingCollectionMandate, BiddingCollectionMandateDraft, BiddingCollectionTokenScopeSummary,
     BiddingMandate, BiddingMandateDraft, BiddingStartPolicySnapshot, BotCriticalDependencyStatus,
-    BotRuntimeSnapshot, BotRuntimeState, DesktopRuntimeConfig, DesktopWalletConfig, RuntimeManager,
-    bot_runtime_spec, build_trading_secret_envelope, format_wei_as_eth,
+    BotRuntimeLaunchConfig, BotRuntimeSnapshot, BotRuntimeState, BotStartReservation,
+    DesktopRuntimeConfig, DesktopWalletConfig, RuntimeManager, bot_runtime_spec,
+    build_trading_secret_envelope, format_wei_as_eth,
 };
 use crate::wallet::application::use_cases::{
     AssignWalletToBot, AssignWalletToBotError, AssignWalletToBotInput, UnlockWalletForBotStart,
@@ -21,7 +27,9 @@ use crate::wallet::application::use_cases::{
 };
 use crate::wallet::domain::{BotKind, PassphrasePolicy, WalletMetadata, WalletStatus};
 use crate::wallet::infra::keystore::AlloyKeystore;
-use crate::wallet::infra::prompt::{SecretPromptError, SecretPromptSidecar};
+use crate::wallet::infra::prompt::{
+    SecretPromptCancellation, SecretPromptError, SecretPromptSidecar,
+};
 use crate::wallet::infra::storage::FsWalletStore;
 
 use super::WalletCommandState;
@@ -45,10 +53,48 @@ pub struct BotCommandState {
     bot_unlock_stabilization_delay_ms: u64,
 }
 
+struct FrozenBotStartContext {
+    launch_config: BotRuntimeLaunchConfig,
+    assigned_wallet: WalletMetadata,
+    bidding_mandate_draft: Option<BiddingMandateDraftDto>,
+    bidding_mandate: Option<BiddingMandate>,
+}
+
+struct CancelledBotStartStateGuard<'a> {
+    app: &'a AppHandle,
+    runtime: &'a RuntimeManager,
+    reservation: &'a BotStartReservation,
+}
+
+impl Drop for CancelledBotStartStateGuard<'_> {
+    fn drop(&mut self) {
+        if self.reservation.is_cancelled() {
+            let _ = self.runtime.set_bot_runtime_state(
+                self.app,
+                self.reservation.bot_kind(),
+                BotRuntimeState::Stopped,
+                None,
+            );
+        }
+    }
+}
+
+impl SecretPromptCancellation for BotStartReservation {
+    fn is_cancelled(&self) -> bool {
+        BotStartReservation::is_cancelled(self)
+    }
+
+    fn cancelled(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(BotStartReservation::cancelled(self))
+    }
+}
+
 impl BotCommandState {
-    /// Loads the bot command state from desktop app-data config.
-    pub fn load(app: &AppHandle) -> Result<Self, String> {
-        let wallet_state = WalletCommandState::load(app)?;
+    /// Derives bot command state from the composition-owned wallet state.
+    pub fn from_wallet_state(
+        app: &AppHandle,
+        wallet_state: &WalletCommandState,
+    ) -> Result<Self, String> {
         let wallet_config = DesktopWalletConfig::load_or_create(app)?;
         Ok(Self {
             store: wallet_state.store().clone(),
@@ -113,6 +159,18 @@ impl BotCommandState {
         bot_kind: BotKind,
         wallet_id: Option<String>,
     ) -> Result<BotRuntimeDto, String> {
+        runtime.with_idle_bot_mutation(bot_kind, || {
+            self.assign_wallet_while_idle(app, runtime, bot_kind, wallet_id)
+        })
+    }
+
+    fn assign_wallet_while_idle(
+        &self,
+        app: &AppHandle,
+        runtime: &RuntimeManager,
+        bot_kind: BotKind,
+        wallet_id: Option<String>,
+    ) -> Result<BotRuntimeDto, String> {
         let snapshot = runtime.bot_runtime_state(bot_kind)?;
         if snapshot.as_ref().is_some_and(is_bot_runtime_busy) {
             return Err("Stop the bot before changing its wallet assignment.".to_owned());
@@ -151,18 +209,33 @@ impl BotCommandState {
         bot_kind: BotKind,
         bidding_mandate_draft: Option<BiddingMandateDraftDto>,
     ) -> Result<BotRuntimeDto, String> {
+        // Reserve the bot generation before any prompt, catalog read, decrypt, or spawn can yield.
+        let reservation = runtime.begin_bot_unlock(app, bot_kind)?;
+        let _cancelled_start_state = CancelledBotStartStateGuard {
+            app,
+            runtime,
+            reservation: &reservation,
+        };
+
         // Freeze all bot process inputs before showing the native unlock prompt.
-        let runtime_config = DesktopRuntimeConfig::load_or_create(app)?;
-        if let Some(reason) = resolve_bot_disabled_reason_from_config(&runtime_config, bot_kind)? {
-            runtime.set_bot_runtime_state(
-                app,
-                bot_kind,
-                BotRuntimeState::Disabled,
-                Some(reason.clone()),
-            )?;
-            return Err(reason);
+        let runtime_config = match DesktopRuntimeConfig::load_or_create(app) {
+            Ok(config) => config,
+            Err(error) => return self.fail_bot_start(app, runtime, &reservation, error),
+        };
+        match resolve_bot_disabled_reason_from_config(&runtime_config, bot_kind) {
+            Ok(Some(reason)) => {
+                runtime.set_reserved_bot_runtime_state(
+                    app,
+                    &reservation,
+                    BotRuntimeState::Disabled,
+                    Some(reason.clone()),
+                )?;
+                return Err(reason);
+            }
+            Ok(None) => {}
+            Err(error) => return self.fail_bot_start(app, runtime, &reservation, error),
         }
-        let launch_config = runtime_config
+        let launch_config = match runtime_config
             .bot_runtime_launch_config(*bot_runtime_spec(bot_kind))
             .map_err(|error| {
                 append_desktop_log(
@@ -171,74 +244,95 @@ impl BotCommandState {
                     &format!("Trading bot recipient validation failed: {error}"),
                 );
                 "Trading bot runtime failed security validation. See desktop-app logs.".to_owned()
-            })?;
+            }) {
+            Ok(config) => config,
+            Err(error) => return self.fail_bot_start(app, runtime, &reservation, error),
+        };
 
-        let wallets = self
-            .store
-            .list_wallets()
-            .map_err(|error| format!("Wallet metadata could not be loaded: {error}"))?;
-        let assigned_wallet = wallets
-            .iter()
-            .find(|wallet| wallet.is_assigned_to_bot(bot_kind))
-            .cloned()
-            .ok_or_else(|| "Assign a wallet to this bot before starting it.".to_owned())?;
+        let assigned_wallet = match self.load_assigned_wallet(bot_kind) {
+            Ok(wallet) => wallet,
+            Err(error) => return self.fail_bot_start(app, runtime, &reservation, error),
+        };
 
-        // Reserve this start before the canonical collection read yields to another command.
-        runtime.begin_bot_unlock(app, bot_kind)?;
-        if let Err(error) = runtime
-            .wait_until_bot_dependencies_stable(bot_kind, self.bot_unlock_stabilization_delay_ms)
-        {
-            let _ = runtime.set_bot_runtime_state(
-                app,
-                bot_kind,
-                BotRuntimeState::Error,
-                Some(error.clone()),
-            );
-            return Err(error);
+        if let Err(error) = runtime.wait_until_bot_dependencies_stable(
+            &reservation,
+            self.bot_unlock_stabilization_delay_ms,
+        ) {
+            return self.fail_bot_start(app, runtime, &reservation, error);
         }
 
         // Re-resolve browser-proposed ids immediately before native authorization.
-        let (bidding_mandate, prompt_mandate) = match resolve_bidding_start_mandate(
+        let frozen_bidding_mandate_draft = bidding_mandate_draft.clone();
+        let resolve_bidding_mandate = resolve_bidding_start_mandate(
             app,
             &runtime_config,
             &launch_config.process_env,
             bot_kind,
             bidding_mandate_draft,
-        )
-        .await
-        {
-            Ok(authority) => authority,
-            Err(error) => {
-                let _ = runtime.set_bot_runtime_state(
-                    app,
-                    bot_kind,
-                    BotRuntimeState::Error,
-                    Some(error.clone()),
-                );
-                return Err(error);
-            }
+        );
+        let (bidding_mandate, prompt_mandate) =
+            match await_bot_start_operation(&reservation, resolve_bidding_mandate).await {
+                Ok(authority) => authority,
+                Err(error) => {
+                    return self.fail_bot_start(app, runtime, &reservation, error);
+                }
+            };
+        let frozen = FrozenBotStartContext {
+            launch_config,
+            assigned_wallet,
+            bidding_mandate_draft: frozen_bidding_mandate_draft,
+            bidding_mandate,
         };
 
         let prompt_output = match self
             .prompt
             .request_unlock(
                 app,
-                assigned_wallet.label.as_str().to_owned(),
-                assigned_wallet.address.as_str().to_owned(),
+                frozen.assigned_wallet.label.as_str().to_owned(),
+                frozen.assigned_wallet.address.as_str().to_owned(),
                 bot_runtime_spec(bot_kind).startup_reason.to_owned(),
                 prompt_mandate,
+                &reservation,
             )
             .await
         {
             Ok(output) => output,
+            Err(SecretPromptError::LifecycleCancelled { .. }) => {
+                append_desktop_log(
+                    app,
+                    BOT_LOG_LEVEL_INFO,
+                    &format!("{bot_kind:?} bot start cancelled by lifecycle owner"),
+                );
+                runtime.set_bot_runtime_state(app, bot_kind, BotRuntimeState::Stopped, None)?;
+                return self.get_bot_runtime_dto(app, runtime, bot_kind);
+            }
             Err(SecretPromptError::Cancelled { .. }) => {
                 append_desktop_log(
                     app,
                     BOT_LOG_LEVEL_INFO,
                     &format!("{bot_kind:?} bot unlock prompt cancelled"),
                 );
-                runtime.set_bot_runtime_state(app, bot_kind, BotRuntimeState::Locked, None)?;
+                runtime.set_reserved_bot_runtime_state(
+                    app,
+                    &reservation,
+                    BotRuntimeState::Locked,
+                    None,
+                )?;
                 return self.get_bot_runtime_dto(app, runtime, bot_kind);
+            }
+            Err(error @ SecretPromptError::Busy { .. }) => {
+                append_desktop_log(
+                    app,
+                    BOT_LOG_LEVEL_INFO,
+                    &format!("Bot unlock prompt deferred: {error}"),
+                );
+                runtime.set_reserved_bot_runtime_state(
+                    app,
+                    &reservation,
+                    BotRuntimeState::Locked,
+                    None,
+                )?;
+                return Err(sanitize_prompt_error(&error));
             }
             Err(error) => {
                 append_desktop_log(
@@ -246,9 +340,9 @@ impl BotCommandState {
                     BOT_LOG_LEVEL_ERROR,
                     &format!("Bot unlock prompt failed: {error}"),
                 );
-                runtime.set_bot_runtime_state(
+                runtime.set_reserved_bot_runtime_state(
                     app,
-                    bot_kind,
+                    &reservation,
                     BotRuntimeState::Error,
                     Some(sanitize_prompt_error(&error)),
                 )?;
@@ -256,35 +350,72 @@ impl BotCommandState {
             }
         };
 
-        let unlocked_wallet = self
-            .unlock_wallet_use_case()
-            .execute(UnlockWalletForBotStartInput {
-                wallet_id: assigned_wallet.wallet_id,
-                bot_kind,
-                passphrase: prompt_output.passphrase,
-            })
-            .map_err(|error| {
+        // Reject any config, assignment, authorization, or core change before decrypting.
+        if let Err(error) = self
+            .validate_frozen_bot_start_context(app, runtime, &reservation, &frozen)
+            .await
+        {
+            return self.fail_bot_start(app, runtime, &reservation, error);
+        }
+
+        let unlock_use_case = self.unlock_wallet_use_case();
+        let unlock_input = UnlockWalletForBotStartInput {
+            wallet_id: frozen.assigned_wallet.wallet_id.clone(),
+            bot_kind,
+            passphrase: prompt_output.passphrase,
+        };
+        let unlocked_wallet =
+            tauri::async_runtime::spawn_blocking(move || unlock_use_case.execute(unlock_input))
+                .await;
+        let unlocked_wallet = match unlocked_wallet {
+            Ok(result) => result.map_err(|error| {
                 append_desktop_log(
                     app,
                     BOT_LOG_LEVEL_ERROR,
                     &format!("Bot wallet unlock failed: {error}"),
                 );
-                let message = sanitize_unlock_wallet_error(error);
-                let _ = runtime.set_bot_runtime_state(
+                sanitize_unlock_wallet_error(error)
+            }),
+            Err(error) => {
+                append_desktop_log(
                     app,
-                    bot_kind,
-                    BotRuntimeState::Error,
-                    Some(message.clone()),
+                    BOT_LOG_LEVEL_ERROR,
+                    &format!("Bot wallet decrypt task failed: {error}"),
                 );
-                message
-            })?;
+                Err("Wallet could not be unlocked. See desktop-app logs.".to_owned())
+            }
+        };
+        let unlocked_wallet = match unlocked_wallet {
+            Ok(wallet) => wallet,
+            Err(error) => return self.fail_bot_start(app, runtime, &reservation, error),
+        };
+        if unlocked_wallet.bot_kind != bot_kind
+            || unlocked_wallet.metadata.wallet_id != frozen.assigned_wallet.wallet_id
+            || unlocked_wallet.metadata.address != frozen.assigned_wallet.address
+        {
+            return self.fail_bot_start(
+                app,
+                runtime,
+                &reservation,
+                "Wallet assignment changed during unlock. Review it, then start the bot again."
+                    .to_owned(),
+            );
+        }
+
+        // Strong KDF work may outlive a stop request; fence every input again before handoff.
+        if let Err(error) = self
+            .validate_frozen_bot_start_context(app, runtime, &reservation, &frozen)
+            .await
+        {
+            return self.fail_bot_start(app, runtime, &reservation, error);
+        }
 
         let secret_envelope = build_trading_secret_envelope(
             &unlocked_wallet.metadata.wallet_id,
             unlocked_wallet.metadata.address.as_str(),
             bot_kind,
-            launch_config.chain_id,
-            bidding_mandate.as_ref(),
+            frozen.launch_config.chain_id,
+            frozen.bidding_mandate.as_ref(),
             &unlocked_wallet.private_key,
         )
         .map_err(|error| {
@@ -293,35 +424,159 @@ impl BotCommandState {
                 BOT_LOG_LEVEL_ERROR,
                 &format!("Trading secret envelope build failed: {error}"),
             );
-            let _ = runtime.set_bot_runtime_state(
-                app,
-                bot_kind,
-                BotRuntimeState::Error,
-                Some("Trading bot secret handoff failed.".to_owned()),
-            );
             "Trading bot secret handoff failed.".to_owned()
-        })?;
+        });
+        let secret_envelope = match secret_envelope {
+            Ok(envelope) => Zeroizing::new(envelope),
+            Err(error) => return self.fail_bot_start(app, runtime, &reservation, error),
+        };
 
-        runtime.set_bot_bidding_mandate(app, bot_kind, bidding_mandate)?;
-        runtime.set_bot_runtime_state(app, bot_kind, BotRuntimeState::Starting, None)?;
+        if let Err(error) = runtime.validate_bot_start(&reservation) {
+            return self.fail_bot_start(app, runtime, &reservation, error);
+        }
+        runtime.set_reserved_bot_bidding_mandate(
+            app,
+            &reservation,
+            frozen.bidding_mandate.clone(),
+        )?;
+        runtime.set_reserved_bot_runtime_state(
+            app,
+            &reservation,
+            BotRuntimeState::Starting,
+            None,
+        )?;
         runtime
-            .start_bot_runtime(app.clone(), launch_config, secret_envelope)
+            .start_bot_runtime(
+                app.clone(),
+                &reservation,
+                frozen.launch_config,
+                secret_envelope,
+            )
             .map_err(|error| {
                 append_desktop_log(
                     app,
                     BOT_LOG_LEVEL_ERROR,
                     &format!("Trading bot start failed: {error}"),
                 );
-                let _ = runtime.set_bot_runtime_state(
-                    app,
-                    bot_kind,
-                    BotRuntimeState::Error,
-                    Some("Trading bot failed to start. See desktop-app logs.".to_owned()),
-                );
                 "Trading bot failed to start. See desktop-app logs.".to_owned()
-            })?;
+            })
+            .or_else(|error| self.fail_bot_start(app, runtime, &reservation, error))?;
 
         self.get_bot_runtime_dto(app, runtime, bot_kind)
+    }
+
+    async fn validate_frozen_bot_start_context(
+        &self,
+        app: &AppHandle,
+        runtime: &RuntimeManager,
+        reservation: &BotStartReservation,
+        frozen: &FrozenBotStartContext,
+    ) -> Result<(), String> {
+        runtime.validate_bot_start(reservation)?;
+
+        // Reload native config and require the exact reviewed launch recipient and environment.
+        let current_runtime_config = DesktopRuntimeConfig::load_or_create(app)?;
+        if let Some(reason) = resolve_bot_disabled_reason_from_config(
+            &current_runtime_config,
+            reservation.bot_kind(),
+        )? {
+            return Err(reason);
+        }
+        let current_launch_config = current_runtime_config
+            .bot_runtime_launch_config(*bot_runtime_spec(reservation.bot_kind()))
+            .map_err(|error| {
+                append_desktop_log(
+                    app,
+                    BOT_LOG_LEVEL_ERROR,
+                    &format!("Trading bot revalidation failed: {error}"),
+                );
+                "Trading bot runtime failed security validation. See desktop-app logs.".to_owned()
+            })?;
+        if current_launch_config != frozen.launch_config {
+            return Err(
+                "Desktop configuration changed. Review it, then start the bot again.".to_owned(),
+            );
+        }
+
+        // Re-resolve canonical identities and caps without replacing what the prompt reviewed.
+        let resolve_bidding_mandate = resolve_bidding_start_mandate(
+            app,
+            &current_runtime_config,
+            &current_launch_config.process_env,
+            reservation.bot_kind(),
+            frozen.bidding_mandate_draft.clone(),
+        );
+        let (current_bidding_mandate, _) =
+            await_bot_start_operation(reservation, resolve_bidding_mandate).await?;
+        if current_bidding_mandate != frozen.bidding_mandate {
+            return Err(
+                "Bidding authorization details changed. Review them, then start the bot again."
+                    .to_owned(),
+            );
+        }
+
+        // Re-read native inputs after the asynchronous catalog lookup closes its race window.
+        let latest_runtime_config = DesktopRuntimeConfig::load_or_create(app)?;
+        let latest_launch_config = latest_runtime_config
+            .bot_runtime_launch_config(*bot_runtime_spec(reservation.bot_kind()))
+            .map_err(|error| {
+                append_desktop_log(
+                    app,
+                    BOT_LOG_LEVEL_ERROR,
+                    &format!("Trading bot final revalidation failed: {error}"),
+                );
+                "Trading bot runtime failed security validation. See desktop-app logs.".to_owned()
+            })?;
+        if latest_launch_config != frozen.launch_config {
+            return Err(
+                "Desktop configuration changed. Review it, then start the bot again.".to_owned(),
+            );
+        }
+        let current_wallet = self.load_assigned_wallet(reservation.bot_kind())?;
+        if current_wallet.wallet_id != frozen.assigned_wallet.wallet_id
+            || current_wallet.address != frozen.assigned_wallet.address
+        {
+            return Err(
+                "Wallet assignment changed. Review it, then start the bot again.".to_owned(),
+            );
+        }
+
+        runtime.validate_bot_start(reservation)
+    }
+
+    fn load_assigned_wallet(&self, bot_kind: BotKind) -> Result<WalletMetadata, String> {
+        self.store
+            .list_wallets()
+            .map_err(|error| format!("Wallet metadata could not be loaded: {error}"))?
+            .into_iter()
+            .find(|wallet| wallet.is_assigned_to_bot(bot_kind))
+            .ok_or_else(|| "Assign a wallet to this bot before starting it.".to_owned())
+    }
+
+    fn fail_bot_start<T>(
+        &self,
+        app: &AppHandle,
+        runtime: &RuntimeManager,
+        reservation: &BotStartReservation,
+        error: String,
+    ) -> Result<T, String> {
+        if reservation.is_cancelled() {
+            let _ = runtime.set_bot_runtime_state(
+                app,
+                reservation.bot_kind(),
+                BotRuntimeState::Stopped,
+                None,
+            );
+            return Err("Bot start was cancelled.".to_owned());
+        }
+
+        let _ = runtime.set_reserved_bot_runtime_state(
+            app,
+            reservation,
+            BotRuntimeState::Error,
+            Some(error.clone()),
+        );
+        Err(error)
     }
 
     fn stop_bot(
@@ -383,6 +638,19 @@ impl BotCommandState {
                 .as_ref()
                 .map(BiddingMandateDto::from_domain),
         }
+    }
+}
+
+async fn await_bot_start_operation<T>(
+    reservation: &BotStartReservation,
+    operation: impl Future<Output = Result<T, String>>,
+) -> Result<T, String> {
+    let cancellation = reservation.cancelled();
+    pin_mut!(operation);
+    pin_mut!(cancellation);
+    match select(operation, cancellation).await {
+        Either::Left((result, _)) => result,
+        Either::Right(((), _)) => Err("Bot start was cancelled.".to_owned()),
     }
 }
 
@@ -930,6 +1198,10 @@ fn sanitize_prompt_error(error: &SecretPromptError) -> String {
         | SecretPromptError::ProtocolFailure { .. } => {
             "Native wallet prompt failed. See desktop-app logs.".to_owned()
         }
+        SecretPromptError::Busy { .. } => {
+            "Finish or cancel the current wallet prompt before starting this bot.".to_owned()
+        }
+        SecretPromptError::LifecycleCancelled { .. } => "Bot start was cancelled.".to_owned(),
         SecretPromptError::Cancelled { .. } => "Wallet prompt was cancelled.".to_owned(),
     }
 }
@@ -983,13 +1255,30 @@ pub async fn bot_start(
 }
 
 #[tauri::command]
-pub fn bot_stop(
+pub async fn bot_stop(
     app: AppHandle,
     desktop: State<'_, DesktopState>,
     state: State<'_, BotCommandState>,
     bot_kind: BotKindDto,
 ) -> Result<BotRuntimeDto, String> {
-    state.stop_bot(&app, &desktop.runtime, bot_kind.into_domain())
+    let command_state = state.inner().clone();
+    let runtime = desktop.runtime.clone();
+    let task_app = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        command_state.stop_bot(&task_app, &runtime, bot_kind.into_domain())
+    })
+    .await;
+    match result {
+        Ok(result) => result,
+        Err(error) => {
+            append_desktop_log(
+                &app,
+                BOT_LOG_LEVEL_ERROR,
+                &format!("Bot stop task failed: {error}"),
+            );
+            Err("Bot could not be stopped. See desktop-app logs.".to_owned())
+        }
+    }
 }
 
 #[cfg(test)]

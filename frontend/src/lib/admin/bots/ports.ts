@@ -14,6 +14,22 @@ export const ADMIN_BOT_STATE = {
 
 export type AdminBotState = (typeof ADMIN_BOT_STATE)[keyof typeof ADMIN_BOT_STATE];
 
+const ADMIN_BOT_STATE_LABEL: Record<AdminBotState, string> = {
+	[ADMIN_BOT_STATE.Disabled]: 'unavailable',
+	[ADMIN_BOT_STATE.Locked]: 'locked',
+	[ADMIN_BOT_STATE.AwaitingUnlock]: 'waiting for wallet unlock',
+	[ADMIN_BOT_STATE.Starting]: 'starting',
+	[ADMIN_BOT_STATE.Bootstrapping]: 'preparing bidding',
+	[ADMIN_BOT_STATE.Running]: 'running',
+	[ADMIN_BOT_STATE.Stopped]: 'stopped',
+	[ADMIN_BOT_STATE.Error]: 'failed'
+};
+
+// Translates supervisor states into lifecycle language shown to the Admin user.
+export function formatAdminBotState(state: AdminBotState): string {
+	return ADMIN_BOT_STATE_LABEL[state];
+}
+
 // Identifies states in which the native start flow or bot process holds authority.
 export function isAdminBotActive(state: AdminBotState): boolean {
 	return (

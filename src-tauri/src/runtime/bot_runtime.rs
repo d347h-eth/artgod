@@ -38,7 +38,7 @@ pub struct BotRuntimeSnapshot {
     pub bidding_mandate: Option<BiddingMandate>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BotRuntimeSpec {
     pub bot_kind: BotKind,
     pub process_name: &'static str,
