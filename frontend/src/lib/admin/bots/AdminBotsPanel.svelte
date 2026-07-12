@@ -698,6 +698,11 @@
 		margin: 0;
 	}
 
+	.bidding-start-policy :global(.admin-setting-label-tooltip .info-tooltip-popup) {
+		/* Keep Config-owned help readable inside narrow Admin panels. */
+		max-width: min(18rem, 50vw);
+	}
+
 	.bidding-mandate-editor {
 		display: grid;
 		gap: 0.55rem;

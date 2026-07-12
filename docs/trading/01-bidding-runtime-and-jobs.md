@@ -530,9 +530,15 @@ Trading-specific rules:
   OpenSea or order fees. The explicit limit is the node estimate plus 20%
   headroom, and gas estimation fails closed
 - onchain transactions use the shared EVM transaction policy from `@artgod/shared/evm/transactions`
-- Admin `Bots` repeats the exact Config labels and help for the allowance cap,
-  both fee caps, pending-nonce policy, and trait SignedZone trust beside the
-  start action. Values are read-only text; the dry-run setting is not displayed.
+- Admin `Bots` repeats the exact Config order, labels, help, and effective values
+  for trait SignedZone trust, the WETH allowance cap, minimum priority fee,
+  maximum fee per gas, maximum total WETH-approval network fee, pending-nonce
+  policy, and offer expiration beside the start action. Offer expiration is the
+  lifetime in seconds for each newly created offer. Admin shows the exact seconds
+  followed by the equivalent days, hours, and minutes, omitting day or hour
+  chunks below those thresholds. This display does not change already signed
+  offers or imply a separate product hard maximum. Values are read-only text;
+  the dry-run setting is not displayed.
 
 ## Config Surface
 
@@ -557,6 +563,7 @@ Bidding runtime groups:
   `BIDDING_TRUST_OPENSEA_SIGNED_ZONE_FOR_TRAIT_OFFERS`
 - EIP-1559 fee/nonce policy: `BIDDING_TX_*`
 - WETH approval gas-fee cap: `BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ETH`
+- newly created offer lifetime in seconds: `BIDDING_OFFER_EXPIRATION_SECONDS`
 
 The indexer `OPENSEA_API_KEY` remains dedicated to indexer/offchain ingestion and should not be merged with bot keys by convenience.
 

@@ -1241,7 +1241,7 @@ key = "BIDDING_OFFER_EXPIRATION_SECONDS"
 group = "bidding"
 label = "bidding offer expiration seconds"
 default = "13920"
-help = "Lifetime assigned to newly placed OpenSea offers, in seconds."
+help = "Lifetime in seconds for each newly created OpenSea offer."
 view = "basic"
 
 [[settings]]

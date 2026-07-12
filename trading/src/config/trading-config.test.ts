@@ -13,7 +13,9 @@ import {
 import { BIDDING_CONFIG_ENV_KEY } from "@artgod/shared/config/bidding";
 import { RPC_ENDPOINT_LIST_ENV_KEY } from "@artgod/shared/config/rpc-endpoints";
 import {
+    BIDDING_DEFAULT_OFFER_EXPIRATION_SECONDS,
     BIDDING_DEFAULT_WETH_APPROVAL_MAX_GAS_FEE_ETH,
+    BIDDING_RUNTIME_ENV_KEY,
 } from "./bidding-defaults.js";
 import {
     loadTradingConfig,
@@ -37,6 +39,15 @@ const TEST_WEIGHTED_RPC_ENDPOINTS_JSON = JSON.stringify([
     { url: TEST_RPC_ENDPOINT_A, weight: 3 },
     { url: TEST_RPC_ENDPOINT_B, weight: 1 },
 ]);
+
+describe("bidding runtime env key ownership", () => {
+    it("uses the shared offer expiration key", () => {
+        assert.equal(
+            BIDDING_RUNTIME_ENV_KEY.OfferExpirationSeconds,
+            BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds,
+        );
+    });
+});
 
 describe("loadTradingConfig", () => {
     it("loads enabled bidding config with defaults", () => {
@@ -92,6 +103,10 @@ describe("loadTradingConfig", () => {
         assert.equal(config.bidding.commandClaimTimeoutMs, 300_000);
         assert.equal(config.bidding.failedCancellationReconcileMs, 60_000);
         assert.equal(config.bidding.cancellationRemediationRetryMs, 300_000);
+        assert.equal(
+            config.bidding.offerExpirationSeconds,
+            BIDDING_DEFAULT_OFFER_EXPIRATION_SECONDS,
+        );
         assert.equal(config.bidding.trustOpenSeaSignedZoneTraitOffers, false);
         assert.equal(config.bidding.wethAllowanceCapWei, 0n);
         assert.equal(
@@ -256,12 +271,13 @@ describe("loadTradingConfig", () => {
                 [BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers]:
                     "true",
                 [BIDDING_CONFIG_ENV_KEY.WethAllowanceCapEth]: "2.5",
-                BIDDING_TX_MIN_PRIORITY_FEE_GWEI: "0.25",
+                [BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei]: "0.25",
                 BIDDING_TX_FEE_HISTORY_BLOCKS: "12",
                 BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE: "80",
                 BIDDING_TX_BASE_FEE_MULTIPLIER: "1.5",
                 [BIDDING_CONFIG_ENV_KEY.TxMaxFeeGwei]: "120",
                 [BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth]: "0.02",
+                [BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds]: "7200",
                 BIDDING_HOT_REFRESH_BROAD_COOLDOWN_MS: "25000",
                 BIDDING_HOT_REFRESH_ITEM_COOLDOWN_MS: "3000",
                 BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS: "30000",
@@ -292,6 +308,7 @@ describe("loadTradingConfig", () => {
         });
         assert.equal(config.bidding.trustOpenSeaSignedZoneTraitOffers, true);
         assert.equal(config.bidding.wethAllowanceCapWei, parseEther("2.5"));
+        assert.equal(config.bidding.offerExpirationSeconds, 7200);
         assert.equal(
             config.bidding.wethApprovalMaxGasFeeWei,
             parseEther("0.02"),
@@ -369,6 +386,28 @@ describe("loadTradingConfig", () => {
         );
     });
 
+    it("rejects an invalid offer expiration through the shared key", () => {
+        assert.throws(
+            () =>
+                loadTradingConfig(
+                    {
+                        ...requiredBaseEnv,
+                        BIDDING_ENABLED: "true",
+                        OPENSEA_STREAM_SECRET_KEY: "stream-key",
+                        OPENSEA_BIDDING_SECRET_KEY: "bidding-key",
+                        OPENSEA_SNAPSHOT_SECRET_KEY: "snapshot-key",
+                        [BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds]: "0",
+                    },
+                    {
+                        envFilePath: "/tmp/artgod/runtime.env",
+                    },
+                ),
+            new RegExp(
+                `Invalid ${BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds}`,
+            ),
+        );
+    });
+
     it("rejects invalid transaction fee policy values", () => {
         assert.throws(
             () =>
@@ -379,13 +418,13 @@ describe("loadTradingConfig", () => {
                         OPENSEA_STREAM_SECRET_KEY: "stream-key",
                         OPENSEA_BIDDING_SECRET_KEY: "bidding-key",
                         OPENSEA_SNAPSHOT_SECRET_KEY: "snapshot-key",
-                        BIDDING_TX_MIN_PRIORITY_FEE_GWEI: "0",
+                        [BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei]: "0",
                     },
                     {
                         envFilePath: "/tmp/artgod/runtime.env",
                     },
                 ),
-            /Invalid BIDDING_TX_MIN_PRIORITY_FEE_GWEI/,
+            new RegExp(`Invalid ${BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei}`),
         );
 
         assert.throws(

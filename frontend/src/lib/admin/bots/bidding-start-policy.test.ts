@@ -14,11 +14,64 @@ describe('buildBiddingStartPolicySummary', () => {
 		expect(summary).toEqual([
 			entry(BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers, 'disabled'),
 			entry(BIDDING_CONFIG_ENV_KEY.WethAllowanceCapEth, '1.5'),
+			entry(BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei, '0.25'),
 			entry(BIDDING_CONFIG_ENV_KEY.TxMaxFeeGwei, '10'),
 			entry(BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth, '0.005'),
-			entry(BIDDING_CONFIG_ENV_KEY.TxPendingNoncePolicy, 'fail')
+			entry(BIDDING_CONFIG_ENV_KEY.TxPendingNoncePolicy, 'fail'),
+			entry(
+				BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds,
+				'13920 seconds (3 hours, 52 minutes)'
+			)
 		]);
 		expect(summary.some((entry) => entry.key === BIDDING_CONFIG_ENV_KEY.DryRun)).toBe(false);
+		expect(summary.some((entry) => entry.key === BIDDING_CONFIG_ENV_KEY.TxBaseFeeMultiplier)).toBe(
+			false
+		);
+	});
+
+	it('uses the canonical Config label and help for offer lifetime and priority fee', () => {
+		const summary = buildBiddingStartPolicySummary(makeConfig());
+
+		expect(
+			summary.find((entry) => entry.key === BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei)
+		).toEqual({
+			key: BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei,
+			...CANONICAL_CONFIG_COPY[BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei],
+			value: '0.25'
+		});
+		expect(
+			summary.find((entry) => entry.key === BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds)
+		).toEqual({
+			key: BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds,
+			...CANONICAL_CONFIG_COPY[BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds],
+			value: '13920 seconds (3 hours, 52 minutes)'
+		});
+	});
+
+	it.each([
+		['1', '1 second (0 minutes)'],
+		['59', '59 seconds (0 minutes)'],
+		['60', '60 seconds (1 minute)'],
+		['3600', '3600 seconds (1 hour, 0 minutes)'],
+		['3660', '3660 seconds (1 hour, 1 minute)'],
+		['90060', '90060 seconds (1 day, 1 hour, 1 minute)'],
+		['176520', '176520 seconds (2 days, 1 hour, 2 minutes)']
+	])('shows exact offer seconds with the readable duration for %s', (value, expected) => {
+		const summary = buildBiddingStartPolicySummary(
+			makeConfig({ [BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds]: value })
+		);
+
+		expect(
+			summary.find((entry) => entry.key === BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds)?.value
+		).toBe(expected);
+	});
+
+	it.each(['0', '1.5', 'invalid'])('fails closed for invalid offer lifetime %s', (value) => {
+		const config = makeConfig({ [BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds]: value });
+
+		expect(() => buildBiddingStartPolicySummary(config)).toThrow(
+			BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds
+		);
 	});
 
 	it('makes explicit when live trait placement trusts OpenSea SignedZone', () => {
@@ -56,32 +109,55 @@ describe('buildBiddingStartPolicySummary', () => {
 		expect(summary[0]?.value).toBe('disabled');
 	});
 
-	it('fails closed when a required effective field or value is missing', () => {
+	it.each(EXPECTED_SUMMARY_KEYS)('fails closed when required value %s is missing', (key) => {
 		const missingValue = makeConfig();
-		delete missingValue.values[BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth];
+		delete missingValue.values[key];
 
-		expect(() => buildBiddingStartPolicySummary(missingValue)).toThrow(
-			BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth
-		);
+		expect(() => buildBiddingStartPolicySummary(missingValue)).toThrow(key);
+	});
 
+	it.each(EXPECTED_SUMMARY_KEYS)('fails closed when required schema field %s is missing', (key) => {
 		const missingField = makeConfig();
 		missingField.groups[0].fields = missingField.groups[0].fields.filter(
-			(field) => field.key !== BIDDING_CONFIG_ENV_KEY.WethAllowanceCapEth
+			(field) => field.key !== key
 		);
-		expect(() => buildBiddingStartPolicySummary(missingField)).toThrow(
-			'Missing effective bot policy field'
-		);
+		expect(() => buildBiddingStartPolicySummary(missingField)).toThrow(key);
 	});
 });
 
 const CONFIG_FIELD_KEYS = [
+	BIDDING_CONFIG_ENV_KEY.Enabled,
 	BIDDING_CONFIG_ENV_KEY.DryRun,
 	BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers,
 	BIDDING_CONFIG_ENV_KEY.WethAllowanceCapEth,
+	BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei,
+	BIDDING_CONFIG_ENV_KEY.TxBaseFeeMultiplier,
 	BIDDING_CONFIG_ENV_KEY.TxMaxFeeGwei,
 	BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth,
-	BIDDING_CONFIG_ENV_KEY.TxPendingNoncePolicy
+	BIDDING_CONFIG_ENV_KEY.TxPendingNoncePolicy,
+	BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds
 ];
+
+const EXPECTED_SUMMARY_KEYS = [
+	BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers,
+	BIDDING_CONFIG_ENV_KEY.WethAllowanceCapEth,
+	BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei,
+	BIDDING_CONFIG_ENV_KEY.TxMaxFeeGwei,
+	BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth,
+	BIDDING_CONFIG_ENV_KEY.TxPendingNoncePolicy,
+	BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds
+];
+
+const CANONICAL_CONFIG_COPY: Partial<Record<string, { label: string; help: string }>> = {
+	[BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei]: {
+		label: 'bidding tx min priority fee gwei',
+		help: 'Minimum EIP-1559 priority fee for bidding transactions, in gwei.'
+	},
+	[BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds]: {
+		label: 'bidding offer expiration seconds',
+		help: 'Lifetime in seconds for each newly created OpenSea offer.'
+	}
+};
 
 function makeConfig(
 	overrides: Record<string, string> = {}
@@ -89,30 +165,39 @@ function makeConfig(
 	return {
 		groups: [{ id: 'bidding', label: 'Bidding', fields: CONFIG_FIELD_KEYS.map(field) }],
 		values: {
+			[BIDDING_CONFIG_ENV_KEY.Enabled]: 'true',
 			[BIDDING_CONFIG_ENV_KEY.DryRun]: 'false',
 			[BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers]: 'false',
 			[BIDDING_CONFIG_ENV_KEY.WethAllowanceCapEth]: '1.5',
+			[BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei]: '0.25',
+			[BIDDING_CONFIG_ENV_KEY.TxBaseFeeMultiplier]: '1.25',
 			[BIDDING_CONFIG_ENV_KEY.TxMaxFeeGwei]: '10',
 			[BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth]: '0.005',
 			[BIDDING_CONFIG_ENV_KEY.TxPendingNoncePolicy]: 'fail',
+			[BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds]: '13920',
 			...overrides
 		}
 	};
 }
 
 function field(key: string): AdminConfigField {
+	const copy = CANONICAL_CONFIG_COPY[key] ?? {
+		label: `label ${key}`,
+		help: `help ${key}`
+	};
 	return {
 		key,
-		label: `label ${key}`,
+		label: copy.label,
 		inputKind: 'text',
 		secret: false,
 		options: [],
-		help: `help ${key}`,
+		help: copy.help,
 		requiredForLaunch: false,
 		validation: null
 	};
 }
 
 function entry(key: string, value: string) {
-	return { key, label: `label ${key}`, help: `help ${key}`, value };
+	const configField = field(key);
+	return { key, label: configField.label, help: configField.help, value };
 }
