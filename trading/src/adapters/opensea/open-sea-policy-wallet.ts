@@ -116,8 +116,6 @@ export type OpenSeaOfferSigningAuthorization = {
 
 export type OpenSeaPolicyWalletOptions = {
     wethAddress: string;
-    allowanceCapWei: bigint;
-    trustOpenSeaSignedZoneTraitOffers: boolean;
     biddingMandate: BiddingMandate;
 };
 
@@ -161,11 +159,12 @@ export class OpenSeaPolicyWallet {
 
     private readonly makerAddress: Address;
     private readonly wethAddress: Address;
+    private readonly biddingMandate: BiddingMandate;
     private readonly signingSessions = new AsyncLocalStorage<SigningSession>();
 
     constructor(
         private readonly signer: OpenSeaPolicyTypedDataSigner,
-        private readonly options: OpenSeaPolicyWalletOptions,
+        options: OpenSeaPolicyWalletOptions,
     ) {
         this.makerAddress = normalizeAddress(
             signer.address,
@@ -180,12 +179,7 @@ export class OpenSeaPolicyWallet {
             OPENSEA_MAINNET_SECURITY_POLICY.wethAddress,
             "configured WETH address",
         );
-        if (options.allowanceCapWei < 0n) {
-            throw new OpenSeaPolicyViolationError(
-                "configured WETH allowance cap must be non-negative",
-            );
-        }
-
+        this.biddingMandate = options.biddingMandate;
         const restrictedAccount = Object.freeze({
             address: this.makerAddress,
             type: "local",
@@ -286,7 +280,7 @@ export class OpenSeaPolicyWallet {
     ): OfferSigningExpectation {
         try {
             // Enforce native collection identity and caps at the final signing boundary.
-            this.options.biddingMandate.assertOfferAuthorized(
+            this.biddingMandate.assertOfferAuthorized(
                 authorization.job,
                 authorization.totalAmountWei,
             );
@@ -303,9 +297,12 @@ export class OpenSeaPolicyWallet {
                 "offer amount must be positive",
             );
         }
-        if (authorization.totalAmountWei > this.options.allowanceCapWei) {
+        if (
+            authorization.totalAmountWei >
+            this.biddingMandate.startPolicy.wethAllowanceCapWei
+        ) {
             throw new OpenSeaPolicyViolationError(
-                `offer amount ${authorization.totalAmountWei} exceeds configured WETH allowance cap ${this.options.allowanceCapWei}`,
+                `offer amount ${authorization.totalAmountWei} exceeds authorized WETH allowance cap ${this.biddingMandate.startPolicy.wethAllowanceCapWei}`,
             );
         }
         if (
@@ -326,7 +323,8 @@ export class OpenSeaPolicyWallet {
             );
         if (
             requiresSignedZoneTrust &&
-            !this.options.trustOpenSeaSignedZoneTraitOffers
+            !this.biddingMandate.startPolicy
+                .trustOpenSeaSignedZoneTraitOffers
         ) {
             throw new OpenSeaPolicyViolationError(
                 "trait offer requires explicit OpenSea SignedZone trust",

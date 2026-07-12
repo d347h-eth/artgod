@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import type { Hash } from "viem";
+import type { EvmTransactionPolicyConfig } from "@artgod/shared/evm/transactions";
 import {
     ViemWethAllowanceApprovalService,
     WETH_ALLOWANCE_POST_CONFIRMATION_ERROR,
@@ -49,13 +50,11 @@ describe("ViemWethAllowanceApprovalService", () => {
             },
             WETH,
             CONDUIT,
-            TRANSACTION_POLICY,
-            MAX_APPROVAL_GAS_FEE_WEI,
+            approvalAuthorization(0n),
         );
 
         const result = await service.ensureAllowance({
             ownerAddress: OWNER,
-            desiredAllowanceWei: 0n,
         });
 
         assert.equal(result.status, WETH_ALLOWANCE_RECONCILIATION_STATUS.Exact);
@@ -90,13 +89,11 @@ describe("ViemWethAllowanceApprovalService", () => {
             },
             WETH,
             CONDUIT,
-            TRANSACTION_POLICY,
-            MAX_APPROVAL_GAS_FEE_WEI,
+            approvalAuthorization(50n),
         );
 
         const result = await service.ensureAllowance({
             ownerAddress: OWNER,
-            desiredAllowanceWei: 50n,
         });
 
         assert.equal(result.status, WETH_ALLOWANCE_RECONCILIATION_STATUS.Exact);
@@ -134,13 +131,11 @@ describe("ViemWethAllowanceApprovalService", () => {
             },
             WETH,
             CONDUIT,
-            TRANSACTION_POLICY,
-            MAX_APPROVAL_GAS_FEE_WEI,
+            approvalAuthorization(0n),
         );
 
         const result = await service.ensureAllowance({
             ownerAddress: OWNER,
-            desiredAllowanceWei: 0n,
         });
 
         assert.equal(
@@ -244,13 +239,11 @@ describe("ViemWethAllowanceApprovalService", () => {
             },
             WETH,
             CONDUIT,
-            TRANSACTION_POLICY,
-            MAX_APPROVAL_GAS_FEE_WEI,
+            approvalAuthorization(75n),
         );
 
         const result = await service.ensureAllowance({
             ownerAddress: OWNER,
-            desiredAllowanceWei: 75n,
             onProgress(detail) {
                 progress.push(detail);
             },
@@ -323,13 +316,11 @@ describe("ViemWethAllowanceApprovalService", () => {
             },
             WETH,
             CONDUIT,
-            TRANSACTION_POLICY,
-            MAX_APPROVAL_GAS_FEE_WEI,
+            approvalAuthorization(75n),
         );
 
         const result = await service.ensureAllowance({
             ownerAddress: OWNER,
-            desiredAllowanceWei: 75n,
             dryRun: true,
         });
 
@@ -361,15 +352,13 @@ describe("ViemWethAllowanceApprovalService", () => {
             },
             WETH,
             CONDUIT,
-            TRANSACTION_POLICY,
-            MAX_APPROVAL_GAS_FEE_WEI,
+            approvalAuthorization(75n),
         );
 
         await assert.rejects(
             () =>
                 service.ensureAllowance({
                     ownerAddress: OWNER,
-                    desiredAllowanceWei: 75n,
                 }),
             new RegExp(WETH_ALLOWANCE_POST_CONFIRMATION_ERROR),
         );
@@ -396,15 +385,13 @@ describe("ViemWethAllowanceApprovalService", () => {
             },
             WETH,
             CONDUIT,
-            TRANSACTION_POLICY,
-            1n,
+            approvalAuthorization(75n, TRANSACTION_POLICY, 1n),
         );
 
         await assert.rejects(
             () =>
                 service.ensureAllowance({
                     ownerAddress: OWNER,
-                    desiredAllowanceWei: 75n,
                 }),
             new RegExp(WETH_APPROVAL_GAS_FEE_CAP_ERROR),
         );
@@ -452,7 +439,7 @@ describe("ViemWethAllowanceApprovalService", () => {
             },
             WETH,
             CONDUIT,
-            {
+            approvalAuthorization(75n, {
                 fees: {
                     minPriorityFeePerGasWei: 10_000_000n,
                     priorityFeeHistoryBlockCount: 20,
@@ -463,13 +450,11 @@ describe("ViemWethAllowanceApprovalService", () => {
                 nonce: {
                     pendingNoncePolicy: "fail",
                 },
-            },
-            MAX_APPROVAL_GAS_FEE_WEI,
+            }),
         );
 
         await service.ensureAllowance({
             ownerAddress: OWNER,
-            desiredAllowanceWei: 75n,
         });
 
         assert.deepEqual(writes, [
@@ -503,21 +488,31 @@ describe("ViemWethAllowanceApprovalService", () => {
             },
             WETH,
             CONDUIT,
-            TRANSACTION_POLICY,
-            MAX_APPROVAL_GAS_FEE_WEI,
+            approvalAuthorization(75n),
         );
 
         await assert.rejects(
             () =>
                 service.ensureAllowance({
                     ownerAddress: OWNER,
-                    desiredAllowanceWei: 75n,
                 }),
             /pending nonce queue detected/,
         );
         assert.equal(writeCalls, 0);
     });
 });
+
+function approvalAuthorization(
+    allowanceWei: bigint,
+    transactionPolicy: EvmTransactionPolicyConfig = TRANSACTION_POLICY,
+    maxTotalGasFeeWei: bigint = MAX_APPROVAL_GAS_FEE_WEI,
+) {
+    return {
+        allowanceWei,
+        transactionPolicy,
+        maxTotalGasFeeWei,
+    };
+}
 
 function createTransactionPolicyReadDefaults(): {
     estimateContractGas(): Promise<bigint>;

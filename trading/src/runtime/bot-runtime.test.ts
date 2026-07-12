@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     releaseAfterCleanup: vi.fn(),
     stopMetrics: vi.fn(async () => undefined),
     startBiddingRuntime: vi.fn(),
+    wethAllowanceCapWei: 500000000000000000n,
 }));
 
 vi.mock("./parent-secret-channel.js", () => ({
@@ -25,7 +26,19 @@ vi.mock("./parent-secret-channel.js", () => ({
 vi.mock("../config/trading-config.js", () => ({
     loadTradingConfig: vi.fn(() => ({
         chainId: 1,
-        bidding: { enabled: true },
+        bidding: {
+            enabled: true,
+            wethAllowanceCapWei: mocks.wethAllowanceCapWei,
+            wethApprovalMaxGasFeeWei: 10000000000000000n,
+            trustOpenSeaSignedZoneTraitOffers: true,
+            transactionPolicy: {
+                fees: {
+                    minPriorityFeePerGasWei: 100000000n,
+                    maxFeePerGasWei: 10000000000n,
+                },
+                nonce: { pendingNoncePolicy: "fail" },
+            },
+        },
         metrics: {
             enabled: false,
             host: "127.0.0.1",
@@ -51,6 +64,7 @@ afterEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
     mocks.frame = undefined;
+    mocks.wethAllowanceCapWei = 500000000000000000n;
 });
 
 describe("bootstrapTradingBot", () => {
@@ -105,6 +119,21 @@ describe("bootstrapTradingBot", () => {
         });
         expect(exposedOutput).not.toContain(fixture.privateKeyHex);
         expect(exposedOutput).not.toContain(`0x${fixture.privateKeyHex}`);
+    });
+
+    it("rejects typed config drift before runtime composition", async () => {
+        const fixture = createSecretEnvelopeTestFrame();
+        mocks.frame = fixture.frame;
+        mocks.wethAllowanceCapWei = 1n;
+
+        await expect(
+            bootstrapTradingBot(TRADING_BOT_KIND.Bidding),
+        ).rejects.toThrow("does not match typed runtime config");
+
+        expect(mocks.startBiddingRuntime).not.toHaveBeenCalled();
+        expect(mocks.stopMetrics).not.toHaveBeenCalled();
+        expect(fixture.frame.every((byte) => byte === 0)).toBe(true);
+        expect(mocks.releaseAfterCleanup).toHaveBeenCalledOnce();
     });
 });
 

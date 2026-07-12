@@ -12,6 +12,7 @@ import {
     type TradingSecretEnvelopeMetadata,
 } from "./secret-envelope.js";
 import { consumeTradingSigningAuthority } from "./trading-signing-authority.js";
+import { assertBiddingPolicyMatchesConfig } from "./bidding-policy-agreement.js";
 import {
     TRADING_METRICS_LOG_COMPONENT,
     TRADING_METRICS_PREFIX,
@@ -82,6 +83,10 @@ export async function bootstrapTradingBot(
             if (!metadata.biddingMandate) {
                 throw new Error("Bidding secret envelope mandate is missing");
             }
+            assertBiddingPolicyMatchesConfig(
+                config.bidding,
+                metadata.biddingMandate,
+            );
 
             const lifecycle = createBiddingLifecyclePort(
                 metadata,
