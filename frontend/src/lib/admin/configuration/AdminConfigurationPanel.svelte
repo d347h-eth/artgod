@@ -231,8 +231,8 @@
 
 					<section class="runtime-section admin-config-group">
 						<h3>Desktop</h3>
-						<label class="admin-config-row admin-config-checkbox-row">
-							<span class="admin-config-label-cell">autostart infra</span>
+						<label class="admin-setting-row admin-config-checkbox-row">
+							<span class="admin-setting-label-cell">autostart infra</span>
 							<input
 								type="checkbox"
 								class="bootstrap-checkbox"
@@ -252,19 +252,19 @@
 								{@const validationIssue = fieldValidationIssue(field)}
 								{#if field.inputKind === 'weighted_endpoint_list'}
 									<div
-										class="admin-config-row admin-config-textarea-row"
+										class="admin-setting-row admin-config-textarea-row"
 										class:admin-config-row-warning={validationIssue !== null}
 									>
-										<span class="admin-config-label-cell">
+										<span class="admin-setting-label-cell">
 											<span>{field.label}</span>
 											{#if validationIssue}
 												<InfoTooltip
 													text={validationIssue.message}
 													tone="warning"
-													className="admin-config-label-tooltip"
+													className="admin-setting-label-tooltip"
 												/>
 											{/if}
-											<InfoTooltip text={field.help} className="admin-config-label-tooltip" />
+											<InfoTooltip text={field.help} className="admin-setting-label-tooltip" />
 										</span>
 										<RpcEndpointListInput
 											value={fieldValue(field)}
@@ -288,8 +288,8 @@
 										/>
 									</div>
 									{#if fieldSupportsRpcAutoSourcing(field)}
-										<div class="admin-config-row admin-config-sourcing-row">
-											<span class="admin-config-label-cell">RPC endpoints sourcing</span>
+										<div class="admin-setting-row admin-config-sourcing-row">
+											<span class="admin-setting-label-cell">RPC endpoints sourcing</span>
 											<div class="admin-config-sourcing-cell">
 												<div class="admin-config-sourcing-actions">
 													<button
@@ -317,20 +317,20 @@
 									{/if}
 								{:else}
 									<label
-										class="admin-config-row"
+										class="admin-setting-row"
 										class:admin-config-textarea-row={field.inputKind === 'textarea'}
 										class:admin-config-row-warning={validationIssue !== null}
 									>
-										<span class="admin-config-label-cell">
+										<span class="admin-setting-label-cell">
 											<span>{field.label}</span>
 											{#if validationIssue}
 												<InfoTooltip
 													text={validationIssue.message}
 													tone="warning"
-													className="admin-config-label-tooltip"
+													className="admin-setting-label-tooltip"
 												/>
 											{/if}
-											<InfoTooltip text={field.help} className="admin-config-label-tooltip" />
+											<InfoTooltip text={field.help} className="admin-setting-label-tooltip" />
 										</span>
 										{#if field.inputKind === 'checkbox'}
 											<input
@@ -462,36 +462,8 @@
 		max-width: 100%;
 	}
 
-	.admin-config-row {
-		display: grid;
-		grid-template-columns: minmax(9.5rem, 13.6rem) minmax(8rem, 25.85rem);
-		align-items: center;
-		gap: 0.7rem;
-		width: min(40.15rem, 100%);
-		max-width: 100%;
-	}
-
-	.admin-config-label-cell {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.35rem;
-		min-width: 0;
-		font-size: 0.75rem;
-		text-transform: uppercase;
-		color: var(--c-sand);
-		line-height: 1.15;
-	}
-
-	.admin-config-label-cell > span:first-child {
-		min-width: 0;
-	}
-
-	.admin-config-row-warning .admin-config-label-cell {
+	.admin-config-row-warning .admin-setting-label-cell {
 		color: var(--c-yellow);
-	}
-
-	:global(.admin-config-label-tooltip.info-tooltip) {
-		transform: translateY(-3px);
 	}
 
 	.admin-config-checkbox-row {

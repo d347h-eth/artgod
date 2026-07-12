@@ -4,6 +4,7 @@ import type {
 	AdminBiddingMandateDraft,
 	AdminBiddingTokenScopeSummary
 } from '$lib/admin/bots/ports';
+import { BIDDING_AUTHORIZATION_CAP_COPY } from '$lib/admin/bots/bidding-authorization-copy';
 
 const POSITIVE_ETH_PATTERN = /^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,18})?$/;
 const ZERO_ETH_PATTERN = /^0(?:\.0{1,18})?$/;
@@ -11,9 +12,28 @@ const ZERO_ETH_PATTERN = /^0(?:\.0{1,18})?$/;
 export type BiddingCollectionMandateSelection = {
 	selected: boolean;
 	maxUnitBidEth: string;
+	maxUnitBidEthEdited: boolean;
 };
 
 export type BiddingMandateSelections = Record<string, BiddingCollectionMandateSelection>;
+
+// Shows current-job price maxima first without moving rows while the operator edits them.
+export function sortBiddingCollectionCandidatesByMaxUnitBid(
+	candidates: AdminBiddingCollectionCandidate[]
+): AdminBiddingCollectionCandidate[] {
+	return [...candidates].sort((left, right) => {
+		const priceOrder = compareCanonicalEthDescending(
+			left.jobCeilingPrefillEth,
+			right.jobCeilingPrefillEth
+		);
+		if (priceOrder !== 0) return priceOrder;
+		if (left.artgodSlug !== right.artgodSlug) {
+			return left.artgodSlug < right.artgodSlug ? -1 : 1;
+		}
+		if (left.collectionId === right.collectionId) return 0;
+		return left.collectionId < right.collectionId ? -1 : 1;
+	});
+}
 
 // Formats a named chain first while keeping its external numeric identity explicit.
 export function formatBiddingChainIdentity(
@@ -34,11 +54,16 @@ export function syncBiddingMandateSelections(
 	return Object.fromEntries(
 		candidates.map((candidate) => {
 			const key = String(candidate.collectionId);
+			const existing = current[key];
+			if (existing && (existing.selected || existing.maxUnitBidEthEdited)) {
+				return [key, existing];
+			}
 			return [
 				key,
-				current[key] ?? {
+				{
 					selected: false,
-					maxUnitBidEth: ''
+					maxUnitBidEth: candidate.jobCeilingPrefillEth,
+					maxUnitBidEthEdited: false
 				}
 			];
 		})
@@ -56,7 +81,7 @@ export function buildBiddingMandateDraft(
 		const maxUnitBidEth = selection.maxUnitBidEth.trim();
 		if (!POSITIVE_ETH_PATTERN.test(maxUnitBidEth) || ZERO_ETH_PATTERN.test(maxUnitBidEth)) {
 			throw new Error(
-				`${candidate.artgodSlug}: max WETH per NFT must be positive with at most 18 decimals.`
+				`${candidate.artgodSlug}: ${BIDDING_AUTHORIZATION_CAP_COPY.maxUnitBid.label} must be positive with at most 18 decimals.`
 			);
 		}
 		return [{ collectionId: candidate.collectionId, maxUnitBidEth }];
@@ -95,4 +120,18 @@ export function formatBiddingMandateWeiAsEth(wei: string): string {
 	const whole = padded.slice(0, -18).replace(/^0+(?=[0-9])/, '');
 	const fraction = padded.slice(-18).replace(/0+$/, '');
 	return fraction ? `${whole}.${fraction} WETH` : `${whole} WETH`;
+}
+
+function compareCanonicalEthDescending(left: string, right: string): number {
+	const [leftWhole, leftFraction = ''] = left.split('.');
+	const [rightWhole, rightFraction = ''] = right.split('.');
+	if (leftWhole.length !== rightWhole.length) {
+		return rightWhole.length - leftWhole.length;
+	}
+	if (leftWhole !== rightWhole) return leftWhole < rightWhole ? 1 : -1;
+	const fractionLength = Math.max(leftFraction.length, rightFraction.length);
+	const paddedLeftFraction = leftFraction.padEnd(fractionLength, '0');
+	const paddedRightFraction = rightFraction.padEnd(fractionLength, '0');
+	if (paddedLeftFraction === paddedRightFraction) return 0;
+	return paddedLeftFraction < paddedRightFraction ? 1 : -1;
 }

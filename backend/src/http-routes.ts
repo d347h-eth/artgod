@@ -153,6 +153,10 @@ import type {
     ListCollectionBiddingPriceTiersRoute,
 } from "./http/handlers/trading/list-collection-bidding-price-tiers.js";
 import type {
+    ListBiddingJobCeilingPrefillsHttpAdapter,
+    ListBiddingJobCeilingPrefillsRoute,
+} from "./http/handlers/trading/list-bidding-job-ceiling-prefills.js";
+import type {
     GetTokenBiddingJobHttpAdapter,
     GetTokenBiddingJobRoute,
 } from "./http/handlers/trading/get-token-bidding-job.js";
@@ -291,6 +295,7 @@ export function registerApiRoutes(
     updateCollectionCustomizationAdapter: UpdateCollectionCustomizationHttpAdapter,
     listCollectionBiddingBidBookAdapter: ListCollectionBiddingBidBookHttpAdapter,
     listCollectionBiddingPriceTiersAdapter: ListCollectionBiddingPriceTiersHttpAdapter,
+    listBiddingJobCeilingPrefillsAdapter: ListBiddingJobCeilingPrefillsHttpAdapter,
     getTokenBiddingJobAdapter: GetTokenBiddingJobHttpAdapter,
     getTokenBiddingBidBookAdapter: GetTokenBiddingBidBookHttpAdapter,
     lookupBiddingJobTargetAdapter: LookupBiddingJobTargetHttpAdapter,
@@ -541,6 +546,12 @@ export function registerApiRoutes(
         options,
         "/api/:chain_ref/:collection_ref/bidding/price-tiers",
         listCollectionBiddingPriceTiersAdapter.handle,
+    );
+    registerObservedGet<ListBiddingJobCeilingPrefillsRoute>(
+        app,
+        options,
+        TRADING_API_ROUTE_TEMPLATE.BiddingJobCeilingPrefills,
+        listBiddingJobCeilingPrefillsAdapter.handle,
     );
     registerObservedGet<PreviewBiddingPriceTierReapplyRoute>(
         app,

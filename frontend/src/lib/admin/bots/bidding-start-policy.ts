@@ -1,52 +1,54 @@
 import { BIDDING_CONFIG_ENV_KEY } from '@artgod/shared/config/bidding';
+import { parseBoolean } from '@artgod/shared/utils/env';
+import type { AdminConfigField, AdminConfigState } from '$lib/admin/configuration/ports';
+
+// Config-owned fields shown beside the bidding authorization request.
+const BIDDING_START_POLICY_SETTING_KEYS = new Set<string>([
+	BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers,
+	BIDDING_CONFIG_ENV_KEY.WethAllowanceCapEth,
+	BIDDING_CONFIG_ENV_KEY.TxMaxFeeGwei,
+	BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth,
+	BIDDING_CONFIG_ENV_KEY.TxPendingNoncePolicy
+]);
 
 export type BiddingStartPolicyEntry = {
+	key: string;
 	label: string;
+	help: string;
 	value: string;
 };
 
-// Builds the compact effective-policy summary shown immediately before bidding bot start.
+// Builds the effective-policy summary from the same schema and values as Config.
 export function buildBiddingStartPolicySummary(
-	values: Record<string, string>
+	config: Pick<AdminConfigState, 'groups' | 'values'>
 ): BiddingStartPolicyEntry[] {
-	const dryRun = parseBooleanSetting(values, BIDDING_CONFIG_ENV_KEY.DryRun);
-	const trustTraitOffers = parseBooleanSetting(
-		values,
-		BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers
-	);
-	return [
-		{
-			label: 'mode',
-			value: dryRun ? 'dry run' : 'live orders'
-		},
-		{
-			label: 'WETH allowance cap',
-			value: `${requireSetting(values, BIDDING_CONFIG_ENV_KEY.WethAllowanceCapEth)} WETH`
-		},
-		{
-			label: 'approval max fee / gas',
-			value: `${requireSetting(values, BIDDING_CONFIG_ENV_KEY.TxMaxFeeGwei)} gwei`
-		},
-		{
-			label: 'approval max gas fee',
-			value: `${requireSetting(values, BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth)} ETH`
-		},
-		{
-			label: 'pending nonce policy',
-			value: requireSetting(values, BIDDING_CONFIG_ENV_KEY.TxPendingNoncePolicy)
-		},
-		{
-			label: 'trait and multi-trait offers',
-			value: trustTraitOffers ? 'enabled · pinned OpenSea SignedZone trusted' : 'disabled'
-		}
-	];
+	const selectedFields = selectPolicyFields(config.groups.flatMap((group) => group.fields));
+	return selectedFields.map((field) => ({
+		key: field.key,
+		label: field.label,
+		help: field.help,
+		value: formatPolicyValue(field.key, requireSetting(config.values, field.key))
+	}));
 }
 
-function parseBooleanSetting(values: Record<string, string>, key: string): boolean {
-	const value = requireSetting(values, key).trim().toLowerCase();
-	if (value === 'true') return true;
-	if (value === 'false') return false;
-	throw new Error(`Invalid effective bot policy setting ${key}: ${value}`);
+function selectPolicyFields(fields: AdminConfigField[]): AdminConfigField[] {
+	const selected = fields.filter((field) => BIDDING_START_POLICY_SETTING_KEYS.has(field.key));
+	const selectedKeys = new Set(selected.map((field) => field.key));
+	for (const key of BIDDING_START_POLICY_SETTING_KEYS) {
+		if (!selectedKeys.has(key)) {
+			throw new Error(`Missing effective bot policy field ${key}`);
+		}
+	}
+	if (selected.length !== selectedKeys.size) {
+		throw new Error('Effective bot policy fields contain duplicate keys.');
+	}
+	return selected;
+}
+
+function formatPolicyValue(key: string, value: string): string {
+	if (key !== BIDDING_CONFIG_ENV_KEY.TrustOpenSeaSignedZoneTraitOffers) return value;
+	const enabled = parseBoolean(value, key, false);
+	return enabled ? 'enabled · pinned OpenSea SignedZone trusted' : 'disabled';
 }
 
 function requireSetting(values: Record<string, string>, key: string): string {

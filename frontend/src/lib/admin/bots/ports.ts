@@ -46,13 +46,19 @@ export type AdminBiddingChainIdentity = {
 	name: string;
 };
 
-export type AdminBiddingCollectionCandidate = {
-	chainId: number;
+// Identity fields shared by catalog candidates and active authorizations.
+export type AdminBiddingCollectionIdentity = {
 	collectionId: number;
 	artgodSlug: string;
 	contractAddress: string;
 	openseaSlug: string;
 	tokenScope: AdminBiddingTokenScopeSummary;
+};
+
+// Catalog-only collection data used to initialize an authorization request.
+export type AdminBiddingCollectionCandidate = AdminBiddingCollectionIdentity & {
+	chainId: number;
+	jobCeilingPrefillEth: string;
 };
 
 export type AdminBiddingCollectionCatalog = {
@@ -70,7 +76,7 @@ export type AdminBiddingMandateDraft = {
 	collections: AdminBiddingCollectionMandateDraft[];
 };
 
-export type AdminBiddingCollectionMandate = AdminBiddingCollectionCandidate & {
+export type AdminBiddingCollectionMandate = AdminBiddingCollectionIdentity & {
 	maxUnitBidWei: string;
 	maxQuantity: number;
 };

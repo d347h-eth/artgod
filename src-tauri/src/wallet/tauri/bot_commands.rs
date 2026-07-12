@@ -94,7 +94,15 @@ impl BotCommandState {
         app: &AppHandle,
     ) -> Result<BiddingCollectionCatalogDto, String> {
         let runtime_config = DesktopRuntimeConfig::load_or_create(app)?;
-        let catalog = load_canonical_bidding_catalog(app, &runtime_config).await?;
+        let reader = BackendCollectionCatalog::new(
+            runtime_config.backend_http_base_url(),
+            &runtime_config.http_fetch_resilience,
+        )
+        .map_err(|error| report_bidding_catalog_error(app, error))?;
+        let catalog = reader
+            .load_bidding_catalog(runtime_config.chain_id)
+            .await
+            .map_err(|error| report_bidding_catalog_error(app, error))?;
         Ok(BiddingCollectionCatalogDto::from_domain(&catalog))
     }
 
@@ -413,7 +421,7 @@ async fn load_canonical_bidding_catalog(
     app: &AppHandle,
     runtime_config: &DesktopRuntimeConfig,
 ) -> Result<BiddingCollectionCatalog, String> {
-    // Read canonical identities through the shared desktop HTTP policy.
+    // Re-read canonical identities and current-job eligibility through the shared HTTP policy.
     let catalog = BackendCollectionCatalog::new(
         runtime_config.backend_http_base_url(),
         &runtime_config.http_fetch_resilience,
@@ -467,7 +475,6 @@ fn build_prompt_mandate_summary(
     Ok(UnlockBiddingMandateSummary {
         chain_id: mandate.chain_id,
         chain_name: chain_name.to_owned(),
-        dry_run: policy.dry_run,
         weth_allowance_cap_eth: policy.weth_allowance_cap_eth.clone(),
         trait_offers_enabled: policy.trait_offers_enabled,
         collections,
@@ -539,6 +546,7 @@ pub struct BiddingCollectionCandidateDto {
     contract_address: String,
     opensea_slug: String,
     token_scope: BiddingTokenScopeSummaryDto,
+    job_ceiling_prefill_eth: String,
 }
 
 /// Admin transport shape for canonical bidding chain context and collections.
@@ -622,7 +630,7 @@ impl BiddingMandateDraftDto {
 }
 
 impl BiddingCollectionCandidateDto {
-    fn from_domain(candidate: &BiddingCollectionCandidate) -> Self {
+    fn from_domain(candidate: &BiddingCollectionCandidate, job_ceiling_prefill_eth: &str) -> Self {
         Self {
             chain_id: candidate.chain_id,
             collection_id: candidate.collection_id,
@@ -630,6 +638,7 @@ impl BiddingCollectionCandidateDto {
             contract_address: candidate.contract_address.clone(),
             opensea_slug: candidate.opensea_slug.clone(),
             token_scope: BiddingTokenScopeSummaryDto::from_domain(&candidate.token_scope),
+            job_ceiling_prefill_eth: job_ceiling_prefill_eth.to_owned(),
         }
     }
 }
@@ -642,7 +651,12 @@ impl BiddingCollectionCatalogDto {
             collections: catalog
                 .collections
                 .iter()
-                .map(BiddingCollectionCandidateDto::from_domain)
+                .map(|candidate| {
+                    BiddingCollectionCandidateDto::from_domain(
+                        candidate,
+                        catalog.job_ceiling_prefill_eth(candidate.collection_id),
+                    )
+                })
                 .collect(),
         }
     }
@@ -980,9 +994,15 @@ pub fn bot_stop(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use serde_json::json;
 
-    use super::BiddingMandateDraftDto;
+    use super::{BiddingCollectionCatalogDto, BiddingMandateDraftDto};
+    use crate::runtime::{
+        BiddingChainIdentity, BiddingCollectionCandidate, BiddingCollectionCatalog,
+        BiddingCollectionTokenScopeSummary,
+    };
 
     #[test]
     fn bidding_draft_rejects_browser_offer_quantity_override() {
@@ -995,5 +1015,36 @@ mod tests {
         });
 
         assert!(serde_json::from_value::<BiddingMandateDraftDto>(draft).is_err());
+    }
+
+    #[test]
+    fn admin_catalog_adds_job_ceiling_prefill_without_changing_canonical_identity() {
+        let catalog = BiddingCollectionCatalog::from_candidates_and_job_prefills(
+            BiddingChainIdentity {
+                chain_id: 1,
+                name: "Ethereum".to_owned(),
+            },
+            vec![BiddingCollectionCandidate {
+                chain_id: 1,
+                collection_id: 7,
+                artgod_slug: "example".to_owned(),
+                contract_address: "0x1111111111111111111111111111111111111111".to_owned(),
+                opensea_slug: "example-opensea".to_owned(),
+                token_scope: BiddingCollectionTokenScopeSummary {
+                    label: "all contract tokens".to_owned(),
+                    items: Vec::new(),
+                },
+            }],
+            HashMap::from([(7, "1.25".to_owned())]),
+        );
+        let dto = BiddingCollectionCatalogDto::from_domain(&catalog);
+
+        let value = serde_json::to_value(dto).unwrap();
+        assert_eq!(value["collections"][0]["jobCeilingPrefillEth"], "1.25");
+        assert_eq!(value["collections"][0]["collectionId"], 7);
+        assert_eq!(
+            value["collections"][0]["contractAddress"],
+            "0x1111111111111111111111111111111111111111"
+        );
     }
 }

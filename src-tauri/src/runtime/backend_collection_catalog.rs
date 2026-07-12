@@ -1,14 +1,15 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
 
-use super::bidding_mandate::BiddingCollectionTokenScopeSummary;
+use super::bidding_mandate::{BiddingCollectionTokenScopeSummary, normalize_positive_eth};
 use super::http_fetch_resilience::{HttpFetchClient, HttpFetchError, HttpFetchResilienceConfig};
 
 const COLLECTION_STATUS_QUERY_PARAM: &str = "status";
 const COLLECTION_CURSOR_QUERY_PARAM: &str = "cursor";
 const COLLECTION_STATUS_LIVE: &str = "live";
+const BIDDING_JOB_CEILING_PREFILLS_ROUTE_SUFFIX: &str = "bidding/jobs/ceiling-prefills";
 
 /// Canonical display identity for the chain that owns the bidding catalog.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -23,6 +24,35 @@ pub struct BiddingChainIdentity {
 pub struct BiddingCollectionCatalog {
     pub chain: BiddingChainIdentity,
     pub collections: Vec<BiddingCollectionCandidate>,
+    job_ceiling_prefill_eth_by_collection: HashMap<u64, String>,
+}
+
+impl BiddingCollectionCatalog {
+    /// Keeps only collections backed by current enabled or paused bidding intent.
+    pub(crate) fn from_candidates_and_job_prefills(
+        chain: BiddingChainIdentity,
+        collections: Vec<BiddingCollectionCandidate>,
+        job_ceiling_prefill_eth_by_collection: HashMap<u64, String>,
+    ) -> Self {
+        let collections = collections
+            .into_iter()
+            .filter(|candidate| {
+                job_ceiling_prefill_eth_by_collection.contains_key(&candidate.collection_id)
+            })
+            .collect();
+        Self {
+            chain,
+            collections,
+            job_ceiling_prefill_eth_by_collection,
+        }
+    }
+
+    /// Returns the required current-job price prefill for an eligible collection.
+    pub(crate) fn job_ceiling_prefill_eth(&self, collection_id: u64) -> &str {
+        self.job_ceiling_prefill_eth_by_collection
+            .get(&collection_id)
+            .expect("eligible bidding collection must have a job ceiling prefill")
+    }
 }
 
 /// Canonical collection identity eligible for native bidding authorization.
@@ -41,6 +71,11 @@ pub struct BiddingCollectionCandidate {
 pub struct BackendCollectionCatalog {
     client: HttpFetchClient,
     backend_http_base_url: String,
+}
+
+struct BiddingCollectionIdentityCatalog {
+    chain: BiddingChainIdentity,
+    collections: Vec<BiddingCollectionCandidate>,
 }
 
 /// Separates concise operator recovery from durable catalog diagnostics.
@@ -64,6 +99,13 @@ impl BackendCollectionCatalogError {
     fn client(detail: String) -> Self {
         Self {
             user_message: "Collection catalog could not start. Restart ArtGod.".to_owned(),
+            detail,
+        }
+    }
+
+    fn invalid_prefill(detail: String) -> Self {
+        Self {
+            user_message: "Bidding limit prefills were invalid. See desktop-app logs.".to_owned(),
             detail,
         }
     }
@@ -92,11 +134,26 @@ impl BackendCollectionCatalog {
         })
     }
 
-    /// Streams every live page with its chain context and OpenSea-ready collections.
+    /// Loads collections with canonical identity and current declared bidding intent.
     pub async fn load_bidding_catalog(
         &self,
         chain_id: u64,
     ) -> Result<BiddingCollectionCatalog, BackendCollectionCatalogError> {
+        let identity_catalog = self.load_collection_identity_catalog(chain_id).await?;
+        let job_prefills = self
+            .load_job_ceiling_prefill_eth_by_collection(chain_id)
+            .await?;
+        Ok(BiddingCollectionCatalog::from_candidates_and_job_prefills(
+            identity_catalog.chain,
+            identity_catalog.collections,
+            job_prefills,
+        ))
+    }
+
+    async fn load_collection_identity_catalog(
+        &self,
+        chain_id: u64,
+    ) -> Result<BiddingCollectionIdentityCatalog, BackendCollectionCatalogError> {
         let endpoint = format!(
             "{}/api/{chain_id}/collections",
             self.backend_http_base_url.trim_end_matches('/')
@@ -152,11 +209,61 @@ impl BackendCollectionCatalog {
                 .cmp(&right.artgod_slug)
                 .then(left.collection_id.cmp(&right.collection_id))
         });
-        Ok(BiddingCollectionCatalog {
+        Ok(BiddingCollectionIdentityCatalog {
             chain: chain.ok_or_else(|| "Collection catalog omitted chain identity.".to_owned())?,
             collections: candidates,
         })
     }
+
+    async fn load_job_ceiling_prefill_eth_by_collection(
+        &self,
+        chain_id: u64,
+    ) -> Result<HashMap<u64, String>, BackendCollectionCatalogError> {
+        let endpoint = format!(
+            "{}/api/{chain_id}/{BIDDING_JOB_CEILING_PREFILLS_ROUTE_SUFFIX}",
+            self.backend_http_base_url.trim_end_matches('/')
+        );
+        let query: [(&str, &str); 0] = [];
+
+        // Fetch every enabled-or-paused ceiling maximum through one backend batch read.
+        let response = self
+            .client
+            .get_json::<ListBiddingJobCeilingPrefillsResponse, _>(endpoint.as_str(), &query)
+            .await
+            .map_err(map_ceiling_prefill_fetch_error)?;
+        map_job_ceiling_prefill_response(response, chain_id)
+            .map_err(BackendCollectionCatalogError::invalid_prefill)
+    }
+}
+
+fn map_job_ceiling_prefill_response(
+    response: ListBiddingJobCeilingPrefillsResponse,
+    expected_chain_id: u64,
+) -> Result<HashMap<u64, String>, String> {
+    map_chain_identity(response.chain, expected_chain_id)?;
+    let mut prefills = HashMap::with_capacity(response.prefills.len());
+    for prefill in response.prefills {
+        if prefill.collection_id == 0 {
+            return Err("Bidding job ceiling prefills returned collection ID zero.".to_owned());
+        }
+        let max_ceiling_eth =
+            normalize_positive_eth(prefill.max_ceiling_eth.as_str()).map_err(|_| {
+                format!(
+                    "Collection {} returned an invalid bidding job ceiling prefill.",
+                    prefill.collection_id
+                )
+            })?;
+        if prefills
+            .insert(prefill.collection_id, max_ceiling_eth)
+            .is_some()
+        {
+            return Err(format!(
+                "Collection {} appeared more than once in bidding job ceiling prefills.",
+                prefill.collection_id
+            ));
+        }
+    }
+    Ok(prefills)
 }
 
 fn map_catalog_fetch_error(error: HttpFetchError) -> BackendCollectionCatalogError {
@@ -192,6 +299,37 @@ fn map_catalog_fetch_error(error: HttpFetchError) -> BackendCollectionCatalogErr
     }
 }
 
+fn map_ceiling_prefill_fetch_error(error: HttpFetchError) -> BackendCollectionCatalogError {
+    match error {
+        HttpFetchError::Transport(error) => {
+            let user_message = if error.is_connect() {
+                "Start infra to use Bots."
+            } else if error.is_timeout() {
+                "Bidding limit prefills did not respond. Restart infra and refresh Bots."
+            } else {
+                "Bidding limit prefills failed. Restart infra and refresh Bots."
+            };
+            BackendCollectionCatalogError {
+                user_message: user_message.to_owned(),
+                detail: format!("Bidding job ceiling prefills transport failed: {error}"),
+            }
+        }
+        HttpFetchError::Status(error) => BackendCollectionCatalogError {
+            user_message: "Bidding limit prefills were rejected. Restart infra and refresh Bots."
+                .to_owned(),
+            detail: format!("Bidding job ceiling prefills request was rejected: {error}"),
+        },
+        HttpFetchError::Decode(error) => BackendCollectionCatalogError {
+            user_message: "Bidding limit prefills were invalid. See desktop-app logs.".to_owned(),
+            detail: format!("Bidding job ceiling prefills response was invalid: {error}"),
+        },
+        HttpFetchError::RetryDelay(error) => BackendCollectionCatalogError {
+            user_message: "Bidding limit prefills failed. See desktop-app logs.".to_owned(),
+            detail: error,
+        },
+    }
+}
+
 fn map_chain_identity(
     chain: CollectionChain,
     expected_chain_id: u64,
@@ -217,7 +355,7 @@ fn map_bidding_candidate(
     expected_chain_id: u64,
 ) -> Result<Option<BiddingCollectionCandidate>, String> {
     if item.chain_id != expected_chain_id
-        || item.opensea_status != Some(OpenSeaCollectionStatus::Ready)
+        || !has_completed_opensea_readiness(item.opensea_ready_at.as_deref())
     {
         return Ok(None);
     }
@@ -260,6 +398,20 @@ struct ListCollectionsResponse {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ListBiddingJobCeilingPrefillsResponse {
+    chain: CollectionChain,
+    prefills: Vec<BiddingJobCeilingPrefill>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BiddingJobCeilingPrefill {
+    collection_id: u64,
+    max_ceiling_eth: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CollectionChain {
     public_chain_id: u64,
     name: String,
@@ -280,21 +432,12 @@ struct CollectionItem {
     slug: String,
     address: String,
     opensea_slug: Option<String>,
-    opensea_status: Option<OpenSeaCollectionStatus>,
+    opensea_ready_at: Option<String>,
     token_scope: Option<BiddingCollectionTokenScopeSummary>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum OpenSeaCollectionStatus {
-    Pending,
-    IdentityRunning,
-    Subscribing,
-    SnapshotPending,
-    SnapshotRunning,
-    Ready,
-    Retrying,
-    Failed,
+fn has_completed_opensea_readiness(ready_at: Option<&str>) -> bool {
+    ready_at.is_some_and(|value| !value.trim().is_empty())
 }
 
 fn normalize_slug(value: Option<String>) -> Option<String> {
@@ -314,13 +457,15 @@ fn normalize_artgod_slug(value: String, collection_id: u64) -> Result<String, St
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     #[test]
-    fn maps_only_ready_collection_identity_into_canonical_candidate() {
+    fn maps_completed_opensea_identity_into_canonical_candidate() {
         let candidate = map_bidding_candidate(collection_item(), 1)
             .expect("candidate should map")
-            .expect("ready collection should be eligible");
+            .expect("previously ready collection should be eligible");
 
         assert_eq!(candidate.collection_id, 7);
         assert_eq!(
@@ -332,11 +477,65 @@ mod tests {
     }
 
     #[test]
-    fn ignores_collection_without_ready_opensea_identity() {
+    fn maps_previously_ready_collection_while_current_reconcile_retries() {
+        let item = serde_json::from_value::<CollectionItem>(json!({
+            "chainId": 1,
+            "collectionId": 7,
+            "slug": "shared-contract-art",
+            "address": "0x1111111111111111111111111111111111111111",
+            "openseaSlug": "Shared-Contract-OpenSea",
+            "openseaStatus": "retrying",
+            "openseaReadyAt": "2026-07-12 00:57:00",
+            "tokenScope": {
+                "label": "token range",
+                "items": []
+            }
+        }))
+        .expect("collection response should deserialize");
+
+        assert!(map_bidding_candidate(item, 1).unwrap().is_some());
+    }
+
+    #[test]
+    fn ignores_collection_without_completed_opensea_readiness() {
         let mut item = collection_item();
-        item.opensea_status = Some(OpenSeaCollectionStatus::Pending);
+        item.opensea_ready_at = None;
 
         assert!(map_bidding_candidate(item, 1).unwrap().is_none());
+
+        let mut blank = collection_item();
+        blank.opensea_ready_at = Some("   ".to_owned());
+
+        assert!(map_bidding_candidate(blank, 1).unwrap().is_none());
+    }
+
+    #[test]
+    fn authorization_catalog_excludes_collections_without_current_jobs() {
+        let current = map_bidding_candidate(collection_item(), 1)
+            .unwrap()
+            .expect("ready collection should map");
+        let mut archived_only = current.clone();
+        archived_only.collection_id = 8;
+        archived_only.artgod_slug = "archived-only".to_owned();
+
+        let catalog = BiddingCollectionCatalog::from_candidates_and_job_prefills(
+            BiddingChainIdentity {
+                chain_id: 1,
+                name: "Ethereum".to_owned(),
+            },
+            vec![archived_only, current],
+            HashMap::from([(7, "1.25".to_owned())]),
+        );
+
+        assert_eq!(
+            catalog
+                .collections
+                .iter()
+                .map(|candidate| candidate.collection_id)
+                .collect::<Vec<_>>(),
+            vec![7]
+        );
+        assert_eq!(catalog.job_ceiling_prefill_eth(7), "1.25");
     }
 
     #[test]
@@ -367,6 +566,46 @@ mod tests {
         assert!(error.detail().contains("http://127.0.0.1:42710"));
     }
 
+    #[test]
+    fn maps_canonical_job_ceiling_prefills_and_rejects_duplicates() {
+        let response = ListBiddingJobCeilingPrefillsResponse {
+            chain: CollectionChain {
+                public_chain_id: 1,
+                name: "Ethereum".to_owned(),
+            },
+            prefills: vec![BiddingJobCeilingPrefill {
+                collection_id: 7,
+                max_ceiling_eth: "01.2500".to_owned(),
+            }],
+        };
+
+        assert_eq!(
+            map_job_ceiling_prefill_response(response, 1)
+                .unwrap()
+                .get(&7)
+                .map(String::as_str),
+            Some("1.25")
+        );
+
+        let duplicate = ListBiddingJobCeilingPrefillsResponse {
+            chain: CollectionChain {
+                public_chain_id: 1,
+                name: "Ethereum".to_owned(),
+            },
+            prefills: vec![
+                BiddingJobCeilingPrefill {
+                    collection_id: 7,
+                    max_ceiling_eth: "1".to_owned(),
+                },
+                BiddingJobCeilingPrefill {
+                    collection_id: 7,
+                    max_ceiling_eth: "2".to_owned(),
+                },
+            ],
+        };
+        assert!(map_job_ceiling_prefill_response(duplicate, 1).is_err());
+    }
+
     fn collection_item() -> CollectionItem {
         CollectionItem {
             chain_id: 1,
@@ -374,7 +613,7 @@ mod tests {
             slug: "shared-contract-art".to_owned(),
             address: "0x1111111111111111111111111111111111111111".to_owned(),
             opensea_slug: Some("Shared-Contract-OpenSea".to_owned()),
-            opensea_status: Some(OpenSeaCollectionStatus::Ready),
+            opensea_ready_at: Some("2026-07-12 00:57:00".to_owned()),
             token_scope: Some(BiddingCollectionTokenScopeSummary {
                 label: "token range".to_owned(),
                 items: Vec::new(),

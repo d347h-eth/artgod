@@ -221,6 +221,12 @@ Primary tables:
 - `trading_bidding_order_cancellations`: bot-owned active-offer cancellation lifecycle facts for bid-book visibility and stale-index suppression
 - `trading_job_commands`: durable Outbox for bot-side effects
 
+The Admin bidding-authorization catalog derives one optional price prefill per
+collection from the maximum `ceiling_wei` across every enabled or paused bidding
+job scope. The backend reads all enabled and paused jobs for the chain through
+one indexed streaming query, compares exact `BigInt` values, and returns only
+one Ether-unit maximum per collection. Archived jobs are excluded.
+
 Implemented bidding UI:
 
 - collection bidding offers page is the primary operations surface for bid display and job targeting
@@ -437,8 +443,23 @@ Trading-specific rules:
   and fails closed unless it equals the configured cap
 - OpenSea cannot create approval transactions; only ArtGod's allowance adapter
   receives the transaction-capable wallet client
-- Admin `Bots` selects live/OpenSea-ready collections and a maximum WETH amount per NFT; the per-offer quantity is fixed at one. Immediately before the native prompt, Rust re-reads those collection ids from the canonical backend read model through the shared `COMMON_HTTP_FETCH_*` resilience policy.
-- The Admin launch-sized native prompt shows the frozen global bidding policy and one complete review page per collection: ArtGod id, contract, token-scope summary, OpenSea slug, per-NFT WETH cap, and the fixed one-NFT offer quantity. Oversized pages fail closed instead of clipping into the action controls.
+- Admin `Bots` selects live/OpenSea-ready collections and a
+  `max WETH for any one NFT` safety limit; the per-offer quantity is fixed at
+  one. OpenSea-ready means the collection has a persisted slug and non-null
+  `opensea_ready_at`; transient reconciliation status does not remove a
+  previously ready collection. Each candidate must also have an enabled or
+  paused bidding job. Immediately before the native prompt, Rust re-reads both
+  canonical identity and current-job eligibility through the shared
+  `COMMON_HTTP_FETCH_*` resilience policy.
+- The same batched current-job read defines checklist membership and prefills
+  `max WETH for any one NFT` from each collection's highest enabled or paused
+  job ceiling. The prefill remains editable and does not replace the cap the
+  user reviews or the signer enforces. Archived-only collections are excluded.
+- The Admin launch-sized native prompt shows the frozen global bidding policy
+  and one complete review page per collection: ArtGod id, contract, token-scope
+  summary, OpenSea slug, `maximum WETH for any one NFT`, and the fixed one-NFT
+  offer quantity. Oversized pages fail closed instead of clipping into the
+  action controls.
 - Loopback HTTP has no bearer session to leak. Created, revised, paused, or archived jobs within an approved collection remain possible if Userland is compromised; placement caps and the resulting cancellation/strategy risk are intentional for the current automation model.
 - Existing OpenSea orders survive bot shutdown and are not automatically coupled to mandate expiry. Cancellation occurs only through job cancellation paths, but unauthenticated loopback mutation is accepted as capable of invoking those paths.
 - `BIDDING_TX_MAX_FEE_GWEI` caps the approval transaction fee per gas unit
@@ -447,8 +468,9 @@ Trading-specific rules:
   OpenSea or order fees. The explicit limit is the node estimate plus 20%
   headroom, and gas estimation fails closed
 - onchain transactions use the shared EVM transaction policy from `@artgod/shared/evm/transactions`
-- Admin `Bots` shows the effective live/dry-run mode, allowance cap, both fee
-  caps, pending-nonce policy, and trait SignedZone trust beside the start action
+- Admin `Bots` repeats the exact Config labels and help for the allowance cap,
+  both fee caps, pending-nonce policy, and trait SignedZone trust beside the
+  start action. Values are read-only text; the dry-run setting is not displayed.
 
 ## Config Surface
 

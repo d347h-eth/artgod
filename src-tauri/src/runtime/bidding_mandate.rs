@@ -4,10 +4,7 @@ use alloy_primitives::U256;
 use serde::{Deserialize, Serialize};
 
 use super::backend_collection_catalog::BiddingCollectionCandidate;
-use super::env_keys::{
-    BIDDING_DRY_RUN_ENV_KEY, BIDDING_TRAIT_OFFERS_ENABLED_ENV_KEY,
-    BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY,
-};
+use super::env_keys::{BIDDING_TRAIT_OFFERS_ENABLED_ENV_KEY, BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY};
 
 /// Maximum collections that one native bidding unlock may authorize.
 const MAX_BIDDING_MANDATE_COLLECTIONS: usize = 64;
@@ -68,13 +65,12 @@ pub struct BiddingCollectionTokenScopeItem {
 /// Frozen global bidding settings displayed by the native unlock prompt.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BiddingStartPolicySnapshot {
-    pub dry_run: bool,
     pub weth_allowance_cap_eth: String,
     pub trait_offers_enabled: bool,
 }
 
 impl BiddingMandate {
-    /// Resolves untrusted collection ids against canonical live OpenSea-ready collection records.
+    /// Resolves untrusted collection ids against canonical collections with current bidding intent.
     pub fn resolve(
         chain_id: u64,
         draft: BiddingMandateDraft,
@@ -107,7 +103,7 @@ impl BiddingMandate {
                 .get(&proposed.collection_id)
                 .ok_or_else(|| {
                     format!(
-                        "Collection {} is not live and OpenSea-ready.",
+                        "Collection {} is not eligible for bidding authorization. Refresh Bots.",
                         proposed.collection_id
                     )
                 })?;
@@ -132,9 +128,15 @@ impl BiddingMandate {
         }
 
         collections.sort_by(|left, right| {
-            left.artgod_slug
-                .cmp(&right.artgod_slug)
-                .then(left.collection_id.cmp(&right.collection_id))
+            compare_canonical_uint_descending(
+                left.max_unit_bid_wei.as_str(),
+                right.max_unit_bid_wei.as_str(),
+            )
+            .then_with(|| {
+                left.artgod_slug
+                    .cmp(&right.artgod_slug)
+                    .then(left.collection_id.cmp(&right.collection_id))
+            })
         });
 
         Ok(Self {
@@ -147,7 +149,6 @@ impl BiddingMandate {
 impl BiddingStartPolicySnapshot {
     /// Parses prompt-visible policy from the same frozen env passed to the bot process.
     pub fn from_process_env(env: &HashMap<String, String>) -> Result<Self, String> {
-        let dry_run = parse_required_bool(env, BIDDING_DRY_RUN_ENV_KEY)?;
         let trait_offers_enabled = parse_required_bool(env, BIDDING_TRAIT_OFFERS_ENABLED_ENV_KEY)?;
         let allowance = env
             .get(BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY)
@@ -159,7 +160,6 @@ impl BiddingStartPolicySnapshot {
             format!("Invalid bidding policy setting {BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY}.")
         })?;
         Ok(Self {
-            dry_run,
             weth_allowance_cap_eth: format_wei_as_eth(allowance_wei.as_str())?,
             trait_offers_enabled,
         })
@@ -183,15 +183,25 @@ pub fn format_wei_as_eth(wei: &str) -> Result<String, String> {
     })
 }
 
+/// Validates and canonicalizes a positive Ether-unit amount from a backend read model.
+pub(crate) fn normalize_positive_eth(raw: &str) -> Result<String, String> {
+    let wei = parse_eth_to_wei(raw)
+        .map_err(|_| "Bidding authorization contains an invalid WETH amount.".to_owned())?;
+    if wei == "0" {
+        return Err("Bidding authorization contains a non-positive WETH amount.".to_owned());
+    }
+    format_wei_as_eth(wei.as_str())
+}
+
 fn parse_positive_eth_to_wei(raw: &str, collection_id: u64) -> Result<String, String> {
     let normalized_wei = parse_eth_to_wei(raw).map_err(|_| {
         format!(
-            "Collection {collection_id} maximum unit bid must be a positive decimal with at most 18 fractional digits."
+            "Collection {collection_id} maximum WETH for any one NFT must be a positive decimal with at most 18 fractional digits."
         )
     })?;
     if normalized_wei == "0" {
         return Err(format!(
-            "Collection {collection_id} maximum unit bid must be greater than zero."
+            "Collection {collection_id} maximum WETH for any one NFT must be greater than zero."
         ));
     }
     Ok(normalized_wei)
@@ -231,6 +241,11 @@ fn parse_eth_to_wei(raw: &str) -> Result<String, ()> {
     };
     normalized_wei.parse::<U256>().map_err(|_| ())?;
     Ok(normalized_wei.to_owned())
+}
+
+// Orders validated canonical unsigned integers numerically without lossy conversion.
+fn compare_canonical_uint_descending(left: &str, right: &str) -> std::cmp::Ordering {
+    right.len().cmp(&left.len()).then_with(|| right.cmp(left))
 }
 
 fn parse_required_bool(env: &HashMap<String, String>, key: &str) -> Result<bool, String> {
@@ -290,6 +305,84 @@ mod tests {
     }
 
     #[test]
+    fn orders_authorized_collections_by_exact_unit_bid_cap_descending() {
+        let mandate = BiddingMandate::resolve(
+            1,
+            BiddingMandateDraft {
+                collections: vec![
+                    BiddingCollectionMandateDraft {
+                        collection_id: 7,
+                        max_unit_bid_eth: "9".to_owned(),
+                    },
+                    BiddingCollectionMandateDraft {
+                        collection_id: 8,
+                        max_unit_bid_eth: "10".to_owned(),
+                    },
+                    BiddingCollectionMandateDraft {
+                        collection_id: 9,
+                        max_unit_bid_eth: "9.5".to_owned(),
+                    },
+                    BiddingCollectionMandateDraft {
+                        collection_id: 10,
+                        max_unit_bid_eth: "9.500000000000000001".to_owned(),
+                    },
+                ],
+            },
+            vec![candidate(7), candidate(8), candidate(9), candidate(10)],
+        )
+        .unwrap();
+
+        assert_eq!(
+            mandate
+                .collections
+                .iter()
+                .map(|collection| collection.collection_id)
+                .collect::<Vec<_>>(),
+            vec![8, 10, 9, 7]
+        );
+    }
+
+    #[test]
+    fn uses_collection_identity_as_the_equal_cap_tie_breaker() {
+        let mut alpha_ten = candidate(10);
+        alpha_ten.artgod_slug = "alpha".to_owned();
+        let mut alpha_eleven = candidate(11);
+        alpha_eleven.artgod_slug = "alpha".to_owned();
+        let mut zeta = candidate(12);
+        zeta.artgod_slug = "zeta".to_owned();
+        let mandate = BiddingMandate::resolve(
+            1,
+            BiddingMandateDraft {
+                collections: vec![
+                    BiddingCollectionMandateDraft {
+                        collection_id: 12,
+                        max_unit_bid_eth: "1.2".to_owned(),
+                    },
+                    BiddingCollectionMandateDraft {
+                        collection_id: 11,
+                        max_unit_bid_eth: "1.20".to_owned(),
+                    },
+                    BiddingCollectionMandateDraft {
+                        collection_id: 10,
+                        max_unit_bid_eth: "1.2".to_owned(),
+                    },
+                ],
+            },
+            vec![zeta, alpha_eleven, alpha_ten],
+        )
+        .unwrap();
+
+        assert_eq!(
+            mandate
+                .collections
+                .iter()
+                .map(|collection| collection.collection_id)
+                .collect::<Vec<_>>(),
+            vec![10, 11, 12]
+        );
+    }
+
+    #[test]
     fn rejects_unknown_and_duplicate_collection_ids() {
         let unknown = BiddingMandate::resolve(
             1,
@@ -302,7 +395,7 @@ mod tests {
             vec![candidate(7)],
         )
         .unwrap_err();
-        assert!(unknown.contains("not live and OpenSea-ready"));
+        assert!(unknown.contains("not eligible for bidding authorization"));
 
         let duplicate = BiddingMandate::resolve(
             1,
@@ -328,14 +421,13 @@ mod tests {
     fn rejects_zero_or_overprecision_bid_limits() {
         for value in ["0", "0.0000000000000000001", "1e2", "-1"] {
             let error = parse_positive_eth_to_wei(value, 7).unwrap_err();
-            assert!(error.contains("maximum unit bid"));
+            assert!(error.contains("maximum WETH for any one NFT"));
         }
     }
 
     #[test]
     fn parses_frozen_start_policy_without_floating_point() {
         let policy = BiddingStartPolicySnapshot::from_process_env(&HashMap::from([
-            (BIDDING_DRY_RUN_ENV_KEY.to_owned(), "false".to_owned()),
             (
                 BIDDING_TRAIT_OFFERS_ENABLED_ENV_KEY.to_owned(),
                 "true".to_owned(),
@@ -347,8 +439,14 @@ mod tests {
         ]))
         .unwrap();
 
-        assert!(!policy.dry_run);
         assert!(policy.trait_offers_enabled);
         assert_eq!(policy.weth_allowance_cap_eth, "1.25");
+    }
+
+    #[test]
+    fn normalizes_positive_backend_ether_amounts() {
+        assert_eq!(normalize_positive_eth("01.2500").unwrap(), "1.25");
+        assert!(normalize_positive_eth("0").is_err());
+        assert!(normalize_positive_eth("1e2").is_err());
     }
 }

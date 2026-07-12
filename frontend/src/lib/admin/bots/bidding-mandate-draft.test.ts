@@ -5,9 +5,11 @@ import {
 	formatBiddingChainIdentity,
 	formatBiddingMandateTokenScope,
 	formatBiddingMandateWeiAsEth,
+	sortBiddingCollectionCandidatesByMaxUnitBid,
 	syncBiddingMandateSelections,
 	type BiddingMandateSelections
 } from './bidding-mandate-draft';
+import { BIDDING_AUTHORIZATION_CAP_COPY } from './bidding-authorization-copy';
 
 const CANDIDATE: AdminBiddingCollectionCandidate = {
 	chainId: 1,
@@ -15,7 +17,8 @@ const CANDIDATE: AdminBiddingCollectionCandidate = {
 	artgodSlug: 'shared-contract-art',
 	contractAddress: '0x1111111111111111111111111111111111111111',
 	openseaSlug: 'shared-contract-opensea',
-	tokenScope: { label: 'range', items: [{ label: 'tokens', value: '100-199' }] }
+	tokenScope: { label: 'range', items: [{ label: 'tokens', value: '100-199' }] },
+	jobCeilingPrefillEth: '1.25'
 };
 
 describe('bidding mandate draft', () => {
@@ -30,7 +33,8 @@ describe('bidding mandate draft', () => {
 		const selections: BiddingMandateSelections = {
 			[CANDIDATE.collectionId]: {
 				selected: true,
-				maxUnitBidEth: '1.25'
+				maxUnitBidEth: '1.25',
+				maxUnitBidEthEdited: false
 			}
 		};
 
@@ -41,12 +45,82 @@ describe('bidding mandate draft', () => {
 
 	it('preserves price caps only for candidates still returned by Rust', () => {
 		const stale = {
-			'7': { selected: true, maxUnitBidEth: '0.5' },
-			'9': { selected: true, maxUnitBidEth: '4' }
+			'7': { selected: true, maxUnitBidEth: '0.5', maxUnitBidEthEdited: true },
+			'9': { selected: true, maxUnitBidEth: '4', maxUnitBidEthEdited: true }
 		};
 
 		expect(syncBiddingMandateSelections([CANDIDATE], stale)).toEqual({
-			'7': { selected: true, maxUnitBidEth: '0.5' }
+			'7': { selected: true, maxUnitBidEth: '0.5', maxUnitBidEthEdited: true }
+		});
+	});
+
+	it('prefills current-job maxima without selecting collections', () => {
+		expect(syncBiddingMandateSelections([CANDIDATE], {})).toEqual({
+			'7': {
+				selected: false,
+				maxUnitBidEth: '1.25',
+				maxUnitBidEthEdited: false
+			}
+		});
+	});
+
+	it('orders current-job maxima by exact WETH value', () => {
+		const candidates = [
+			{ ...CANDIDATE, collectionId: 9, artgodSlug: 'nine', jobCeilingPrefillEth: '9' },
+			{ ...CANDIDATE, collectionId: 10, artgodSlug: 'ten', jobCeilingPrefillEth: '10' },
+			{ ...CANDIDATE, collectionId: 11, artgodSlug: 'fraction', jobCeilingPrefillEth: '9.5' },
+			{
+				...CANDIDATE,
+				collectionId: 12,
+				artgodSlug: 'precise',
+				jobCeilingPrefillEth: '9.500000000000000001'
+			}
+		];
+
+		expect(
+			sortBiddingCollectionCandidatesByMaxUnitBid(candidates).map(
+				(candidate) => candidate.collectionId
+			)
+		).toEqual([10, 12, 11, 9]);
+		expect(candidates.map((candidate) => candidate.collectionId)).toEqual([9, 10, 11, 12]);
+	});
+
+	it('uses collection identity as a stable tie-breaker for equal price maxima', () => {
+		const candidates = [
+			{ ...CANDIDATE, collectionId: 10, artgodSlug: 'zeta', jobCeilingPrefillEth: '1.2' },
+			{ ...CANDIDATE, collectionId: 9, artgodSlug: 'alpha', jobCeilingPrefillEth: '1.20' },
+			{ ...CANDIDATE, collectionId: 8, artgodSlug: 'alpha', jobCeilingPrefillEth: '1.2' }
+		];
+
+		expect(
+			sortBiddingCollectionCandidatesByMaxUnitBid(candidates).map(
+				(candidate) => candidate.collectionId
+			)
+		).toEqual([8, 9, 10]);
+	});
+
+	it('refreshes untouched prefills without overwriting checked or edited drafts', () => {
+		const changedCandidate = { ...CANDIDATE, jobCeilingPrefillEth: '2' };
+		expect(
+			syncBiddingMandateSelections([changedCandidate], {
+				'7': { selected: false, maxUnitBidEth: '1.25', maxUnitBidEthEdited: false }
+			})
+		).toEqual({
+			'7': { selected: false, maxUnitBidEth: '2', maxUnitBidEthEdited: false }
+		});
+		expect(
+			syncBiddingMandateSelections([changedCandidate], {
+				'7': { selected: true, maxUnitBidEth: '1.25', maxUnitBidEthEdited: false }
+			})
+		).toEqual({
+			'7': { selected: true, maxUnitBidEth: '1.25', maxUnitBidEthEdited: false }
+		});
+		expect(
+			syncBiddingMandateSelections([changedCandidate], {
+				'7': { selected: false, maxUnitBidEth: '1.5', maxUnitBidEthEdited: true }
+			})
+		).toEqual({
+			'7': { selected: false, maxUnitBidEth: '1.5', maxUnitBidEthEdited: true }
 		});
 	});
 
@@ -54,9 +128,9 @@ describe('bidding mandate draft', () => {
 		expect(() => buildBiddingMandateDraft([CANDIDATE], {})).toThrow('Select at least one');
 		expect(() =>
 			buildBiddingMandateDraft([CANDIDATE], {
-				'7': { selected: true, maxUnitBidEth: '0.0' }
+				'7': { selected: true, maxUnitBidEth: '0.0', maxUnitBidEthEdited: true }
 			})
-		).toThrow('max WETH per NFT');
+		).toThrow(BIDDING_AUTHORIZATION_CAP_COPY.maxUnitBid.label);
 	});
 
 	it('formats active native wei caps without floating point conversion', () => {
@@ -70,8 +144,6 @@ describe('bidding mandate draft', () => {
 				items: [{ label: 'scope', value: 'all contract tokens' }]
 			})
 		).toBe('all contract tokens');
-		expect(formatBiddingMandateTokenScope(CANDIDATE.tokenScope)).toBe(
-			'range · tokens: 100-199'
-		);
+		expect(formatBiddingMandateTokenScope(CANDIDATE.tokenScope)).toBe('range · tokens: 100-199');
 	});
 });

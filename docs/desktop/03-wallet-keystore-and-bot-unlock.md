@@ -100,8 +100,8 @@ These are hard rules, not suggestions.
 12. Release builds verify the exact key-bearing runtime code and dependency
     file set against hashes embedded in the Rust desktop executable before
     prompting.
-13. Userland bidding mutations are proposals, not wallet authority. Every bidding start requires a native-reviewed mandate resolved by Rust from canonical live collection records.
-14. Without relying on HTTP middleware or a prior SQLite approval flag, the bidding signer must reject offers outside the approved chain, ArtGod collection ID, contract address, OpenSea slug, per-NFT WETH cap, and fixed per-offer quantity.
+13. Userland bidding mutations are proposals, not wallet authority. Every bidding start requires a native-reviewed mandate resolved by Rust from canonical live collection records with enabled or paused bidding jobs.
+14. Without relying on HTTP middleware or a prior SQLite approval flag, the bidding signer must reject offers outside the approved chain, ArtGod collection ID, contract address, OpenSea slug, maximum WETH for any one NFT, and fixed per-offer quantity.
 
 ## Threat Model
 
@@ -131,13 +131,13 @@ The current bounded residual risk is explicit: compromised Userland code or a
 raw loopback client may cause the bot to act on created, revised, paused, or
 archived jobs for a collection already granted in the current native mandate.
 Placement remains bounded by the approved chain, ArtGod collection ID, contract
-address, OpenSea slug, maximum unit bid, and fixed per-offer quantity. Exact-token
-membership in the displayed ArtGod token scope is currently enforced by the
-canonical backend mutation paths, not independently by the signer; independent
-signer enforcement is deferred. Pause/archive mutations may also cause offchain
-cancellation of tracked offers. That availability and strategy risk is accepted
-for the current local alpha. No browser-readable bearer/session credential is
-introduced over loopback HTTP.
+address, OpenSea slug, maximum WETH for any one NFT, and fixed per-offer
+quantity. Exact-token membership in the displayed ArtGod token scope is
+currently enforced by the canonical backend mutation paths, not independently
+by the signer; independent signer enforcement is deferred. Pause/archive
+mutations may also cause offchain cancellation of tracked offers. That
+availability and strategy risk is accepted for the current local alpha. No
+browser-readable bearer/session credential is introduced over loopback HTTP.
 
 ## Why Hybrid Instead of WebView-Only
 
@@ -683,6 +683,16 @@ Unlock rules:
 - passphrase prompt is always native
 - bidding policy review is always native and precedes passphrase submission
 - Admin supplies only proposed collection ids and WETH price caps; Rust supplies the displayed and injected ArtGod id, contract, token-scope summary, OpenSea slug, and fixed one-NFT offer quantity
+- Admin batch-loads the maximum enabled-or-paused job ceiling per collection.
+  That current-job set defines checklist membership and supplies the editable
+  price prefill; archived-only collections and collections without jobs are
+  omitted.
+- Admin orders prefills from highest to lowest without moving rows during edits;
+  the native review orders the final canonical caps from highest to lowest.
+- The catalog admits only live collections with a persisted OpenSea slug and
+  non-null `opensea_ready_at` that also have an enabled or paused bidding job. A
+  transient reconciliation state does not revoke readiness established by the
+  successful initial snapshot.
 - Rust reads the canonical collection catalog through the shared `COMMON_HTTP_FETCH_*` per-attempt timeout and bounded retry policy
 - decrypt happens in Rust only
 - decrypted key lifetime in Rust must be as short as practical
@@ -695,10 +705,14 @@ User-facing authorization review:
   mandate
 - the trusted prompt calls the reviewed state `Bidding authorization`
 - the running summary calls granted authority `active bidding authorization`
+- the authorization prompt assumes live placement and does not display the
+  runtime dry-run setting
+- enabled trait offers explicitly state that the pinned OpenSea SignedZone is
+  trusted
 - the canonical human-readable network name appears before `chain ID #N`
 - collection identity explicitly distinguishes the ArtGod collection ID,
   OpenSea slug, contract address, and token scope
-- caps state both unit and denominator: `max WETH per NFT` and
+- caps state both unit and denominator: `max WETH for any one NFT` and
   `max NFTs per offer`
 - Admin shows the fixed offer quantity as a read-only input with value `1`; the
   native prompt and active summary show that same value

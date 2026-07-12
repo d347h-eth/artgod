@@ -9,6 +9,9 @@ import {
 } from "../observability/artgod-span-attributes.js";
 import type { ApmPort, SpanAttributes } from "../observability/apm.js";
 import {
+    COLLECTION_STANDARD,
+    COLLECTION_STATUS,
+    OPENSEA_COLLECTION_STATUS,
     OPENSEA_STREAM_INGESTION_STATUS,
     TOKEN_BROWSER_STATUS,
 } from "../types/browse.js";
@@ -60,6 +63,43 @@ describe("SqliteCollectionsReadModel observability", () => {
     afterEach(() => {
         setDbPath(join(tmpdir(), "artgod-collections-read-closed.sqlite"));
         rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it("exposes durable OpenSea readiness while current synchronization retries", () => {
+        const readyAt = "2026-07-12 00:57:00";
+        db.prepare(
+            "INSERT INTO collections " +
+                "(chain_id, collection_id, slug, address, standard, status, opensea_slug, opensea_status, opensea_ready_at, created_at, updated_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).run(
+            1,
+            7,
+            "ready-retrying",
+            "0x7777777777777777777777777777777777777777",
+            COLLECTION_STANDARD.Erc721,
+            COLLECTION_STATUS.Live,
+            "ready-retrying-opensea",
+            OPENSEA_COLLECTION_STATUS.Retrying,
+            readyAt,
+            readyAt,
+            readyAt,
+        );
+
+        const page = new SqliteCollectionsReadModel([
+            ZERO_ADDRESS,
+        ]).listCollections({
+            chainId: 1,
+            status: COLLECTION_STATUS.Live,
+            limit: 10,
+        });
+
+        expect(page.items).toEqual([
+            expect.objectContaining({
+                collectionId: 7,
+                openseaStatus: OPENSEA_COLLECTION_STATUS.Retrying,
+                openseaReadyAt: readyAt,
+            }),
+        ]);
     });
 
     it("does not run a previous-page token query on first page", () => {
@@ -980,6 +1020,7 @@ function createSchema(): void {
             bootstrap_anchor_block INTEGER,
             opensea_slug TEXT,
             opensea_status TEXT,
+            opensea_ready_at TEXT,
             opensea_stream_ingestion_status TEXT NOT NULL DEFAULT '${OPENSEA_STREAM_INGESTION_STATUS.Enabled}',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,

@@ -3,6 +3,8 @@
 	import { TRADING_BOT_KIND } from '@artgod/shared/types';
 	import AdminSectionFrame from '$lib/admin/components/AdminSectionFrame.svelte';
 	import { createTauriAdminBotPort } from '$lib/admin/bots/adapters/tauri-admin-bot-port';
+	import { BIDDING_AUTHORIZATION_CAP_COPY } from '$lib/admin/bots/bidding-authorization-copy';
+	import InfoTooltip from '$lib/components/InfoTooltip.svelte';
 	import type {
 		AdminBiddingCollectionCatalog,
 		AdminBiddingCollectionCandidate,
@@ -16,6 +18,7 @@
 		formatBiddingMandateTokenScope,
 		formatBiddingMandateWeiAsEth,
 		isBiddingMandateDraftReady,
+		sortBiddingCollectionCandidatesByMaxUnitBid,
 		syncBiddingMandateSelections,
 		type BiddingCollectionMandateSelection,
 		type BiddingMandateSelections
@@ -39,14 +42,14 @@
 	let wallets = $state<AdminWalletRecord[]>([]);
 	let biddingCollectionCatalog = $state<AdminBiddingCollectionCatalog | null>(null);
 	let biddingCollections: AdminBiddingCollectionCandidate[] = $derived(
-		biddingCollectionCatalog?.collections ?? []
+		sortBiddingCollectionCandidatesByMaxUnitBid(biddingCollectionCatalog?.collections ?? [])
 	);
 	let biddingMandateSelections = $state<BiddingMandateSelections>({});
 	let biddingMandateReady = $derived(
 		isBiddingMandateDraftReady(biddingCollections, biddingMandateSelections)
 	);
 	let biddingStartPolicy: BiddingStartPolicyEntry[] = $derived(
-		config ? buildBiddingStartPolicySummary(config.values) : []
+		config ? buildBiddingStartPolicySummary(config) : []
 	);
 	let selectedWalletIds = $state<Record<AdminBotKind, string>>({
 		[TRADING_BOT_KIND.Bidding]: '',
@@ -291,11 +294,17 @@
 									aria-label="Bidding settings"
 								>
 									<h3>bidding settings</h3>
-									<dl>
-										{#each biddingStartPolicy as entry (entry.label)}
-											<div>
-												<dt>{entry.label}</dt>
-												<dd>{entry.value}</dd>
+									<dl class="admin-setting-list">
+										{#each biddingStartPolicy as entry (entry.key)}
+											<div class="admin-setting-row">
+												<dt class="admin-setting-label-cell">
+													<span>{entry.label}</span>
+													<InfoTooltip
+														text={entry.help}
+														className="admin-setting-label-tooltip"
+													/>
+												</dt>
+												<dd class="admin-setting-value">{entry.value}</dd>
 											</div>
 										{/each}
 									</dl>
@@ -312,7 +321,7 @@
 										{/if}
 									</h3>
 									{#if biddingCollections.length === 0}
-										<span class="muted">no live OpenSea-ready collections</span>
+										<span class="muted">no collections ready for bidding authorization</span>
 									{:else}
 										<div class="bidding-mandate-collections">
 											{#each biddingCollections as collection (collection.collectionId)}
@@ -351,21 +360,34 @@
 														</div>
 														<div class="bootstrap-form bidding-mandate-caps">
 															<label class="bootstrap-form-row">
-																<span>max WETH per NFT</span>
+																<span class="bootstrap-form-label-cell">
+																	<span>{BIDDING_AUTHORIZATION_CAP_COPY.maxUnitBid.label}</span>
+																	<InfoTooltip
+																		text={BIDDING_AUTHORIZATION_CAP_COPY.maxUnitBid.help}
+																		className="bootstrap-form-label-tooltip"
+																	/>
+																</span>
 																<input
 																	type="text"
-																	class="bootstrap-control"
+																	class="bootstrap-control mono bid-book-price"
 																	inputmode="decimal"
 																	value={selection.maxUnitBidEth}
 																	disabled={mandateEditingDisabled || !selection.selected}
 																	oninput={(event) =>
 																		updateBiddingMandateSelection(collection.collectionId, {
-																			maxUnitBidEth: event.currentTarget.value
+																			maxUnitBidEth: event.currentTarget.value,
+																			maxUnitBidEthEdited: true
 																		})}
 																/>
 															</label>
 															<label class="bootstrap-form-row">
-																<span>max NFTs per offer</span>
+																<span class="bootstrap-form-label-cell">
+																	<span>{BIDDING_AUTHORIZATION_CAP_COPY.maxQuantity.label}</span>
+																	<InfoTooltip
+																		text={BIDDING_AUTHORIZATION_CAP_COPY.maxQuantity.help}
+																		className="bootstrap-form-label-tooltip"
+																	/>
+																</span>
 																<input
 																	type="text"
 																	class="bootstrap-control"
@@ -419,11 +441,19 @@
 														<span class="runtime-v">{formatBiddingMandateTokenScope(collection.tokenScope)}</span>
 													</div>
 													<div>
-														<span class="runtime-k">max WETH per NFT</span>
-														<span class="runtime-v">{formatBiddingMandateWeiAsEth(collection.maxUnitBidWei)}</span>
+														<span class="runtime-k bidding-mandate-cap-summary-label">
+															<span>{BIDDING_AUTHORIZATION_CAP_COPY.maxUnitBid.label}</span>
+															<InfoTooltip text={BIDDING_AUTHORIZATION_CAP_COPY.maxUnitBid.help} />
+														</span>
+														<span class="runtime-v mono bid-book-price"
+															>{formatBiddingMandateWeiAsEth(collection.maxUnitBidWei)}</span
+														>
 													</div>
 													<div>
-														<span class="runtime-k">max NFTs per offer</span>
+														<span class="runtime-k bidding-mandate-cap-summary-label">
+															<span>{BIDDING_AUTHORIZATION_CAP_COPY.maxQuantity.label}</span>
+															<InfoTooltip text={BIDDING_AUTHORIZATION_CAP_COPY.maxQuantity.help} />
+														</span>
 														<span class="runtime-v">{collection.maxQuantity}</span>
 													</div>
 												</div>
@@ -539,35 +569,21 @@
 
 	.bidding-start-policy {
 		display: grid;
-		gap: 0.35rem;
-		width: fit-content;
+		align-content: start;
+		gap: 0.72rem;
+		width: min(40.15rem, 100%);
 		max-width: 100%;
 	}
 
 	.bidding-start-policy dl {
 		display: grid;
-		grid-template-columns: minmax(9.5rem, 17rem) minmax(0, 1fr);
-		gap: 0.3rem 1.25rem;
-		width: min(40.15rem, 100%);
+		gap: 0.72rem;
 		margin: 0;
-	}
-
-	.bidding-start-policy dl > div {
-		display: contents;
 	}
 
 	.bidding-start-policy dt,
 	.bidding-start-policy dd {
 		margin: 0;
-		font-size: 0.75rem;
-	}
-
-	.bidding-start-policy dt {
-		color: var(--c-sand);
-	}
-
-	.bidding-start-policy dd {
-		overflow-wrap: anywhere;
 	}
 
 	.bidding-mandate-editor {
@@ -637,7 +653,7 @@
 	}
 
 	.bidding-mandate-caps .bootstrap-form-row {
-		grid-template-columns: 8.75rem 11ch;
+		grid-template-columns: 13.75rem 11ch;
 		gap: 0.7rem;
 		width: fit-content;
 	}
@@ -647,9 +663,20 @@
 		text-align: right;
 	}
 
+	.bidding-mandate-cap-summary-label {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		min-width: 0;
+	}
+
 	.bidding-mandate-caps input {
 		width: 100%;
 		justify-self: stretch;
+	}
+
+	.bidding-mandate-caps .bootstrap-control.bid-book-price:disabled {
+		color: var(--c-yellow);
 	}
 
 	.active-bidding-mandate {
@@ -659,5 +686,9 @@
 
 	.active-bidding-mandate > .bootstrap-form-section {
 		gap: 0.65rem;
+	}
+
+	.active-bidding-mandate .bidding-mandate-identity > div {
+		grid-template-columns: 13.75rem minmax(0, 1fr);
 	}
 </style>

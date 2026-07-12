@@ -13,12 +13,48 @@
 	} = $props();
 
 	const normalizedText = $derived(text.trim());
+	const tooltipId = $props.id();
+	const popupId = `${tooltipId}-popup`;
+	let dismissed = $state(false);
+
+	function showFromActivation(event: MouseEvent): void {
+		event.preventDefault();
+		event.stopPropagation();
+		dismissed = false;
+		if (event.currentTarget instanceof HTMLElement) {
+			event.currentTarget.focus();
+		}
+	}
+
+	function handleKeydown(event: KeyboardEvent): void {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			event.stopPropagation();
+			dismissed = true;
+			if (event.currentTarget instanceof HTMLElement) {
+				event.currentTarget.blur();
+			}
+			return;
+		}
+		if (event.key !== 'Enter' && event.key !== ' ') return;
+		event.preventDefault();
+		event.stopPropagation();
+		dismissed = false;
+	}
 </script>
 
 {#if normalizedText.length > 0}
 	<span
 		class={`info-tooltip info-tooltip-${tone} ${className}`}
-		aria-label={normalizedText}
+		class:info-tooltip-dismissed={dismissed}
+		role="button"
+		aria-label={tone === 'warning' ? 'Warning details' : 'Help'}
+		aria-describedby={popupId}
+		tabindex="0"
+		onmouseenter={() => (dismissed = false)}
+		onfocus={() => (dismissed = false)}
+		onclick={showFromActivation}
+		onkeydown={handleKeydown}
 	>
 		<span class="info-tooltip-mark" aria-hidden="true">
 			{#if tone === 'warning'}
@@ -27,7 +63,7 @@
 				<InfoIcon />
 			{/if}
 		</span>
-		<span class="info-tooltip-popup" role="tooltip">{normalizedText}</span>
+		<span id={popupId} class="info-tooltip-popup" role="tooltip">{normalizedText}</span>
 	</span>
 {/if}
 
@@ -81,6 +117,7 @@
 		line-height: 1.35;
 		letter-spacing: 0;
 		text-transform: none;
+		text-align: left;
 		white-space: normal;
 		transform: translateY(-50%);
 		pointer-events: none;
@@ -90,11 +127,13 @@
 		border-color: var(--c-yellow);
 	}
 
-	.info-tooltip:hover {
+	.info-tooltip:hover,
+	.info-tooltip:focus-visible {
 		color: var(--c-yellow);
 	}
 
-	.info-tooltip:hover .info-tooltip-popup {
+	.info-tooltip:not(.info-tooltip-dismissed):hover .info-tooltip-popup,
+	.info-tooltip:not(.info-tooltip-dismissed):focus-visible .info-tooltip-popup {
 		display: block;
 	}
 </style>

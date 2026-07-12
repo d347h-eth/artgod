@@ -749,6 +749,26 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/bidding/jobs/ceiling-prefills:
+        get:
+            tags: [Trading]
+            summary: List bidding job ceiling prefills
+            description: Returns one maximum ceiling per collection across all enabled and paused bidding job scopes. This admin-only batch read defines current bidding-authorization membership and supplies editable price prefills; archived jobs are excluded.
+            operationId: listBiddingJobCeilingPrefills
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+            responses:
+                "200":
+                    description: Bidding job ceiling prefills
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/ListBiddingJobCeilingPrefillsResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/{collection_ref}/bidding/price-tiers:
         get:
             tags: [Trading]
@@ -1916,6 +1936,10 @@ components:
                     nullable: true
                 openseaStatus:
                     type: string
+                    nullable: true
+                openseaReadyAt:
+                    type: string
+                    format: date-time
                     nullable: true
                 openseaStreamIngestionStatus:
                     allOf:
@@ -3645,6 +3669,30 @@ components:
                     type: array
                     items:
                         $ref: "#/components/schemas/BiddingJob"
+
+        BiddingJobCeilingPrefill:
+            type: object
+            required: [collectionId, maxCeilingEth]
+            additionalProperties: false
+            properties:
+                collectionId:
+                    type: integer
+                    minimum: 1
+                maxCeilingEth:
+                    type: string
+                    description: Maximum WETH-per-NFT ceiling across enabled and paused jobs for this collection.
+
+        ListBiddingJobCeilingPrefillsResponse:
+            type: object
+            required: [chain, prefills]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                prefills:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BiddingJobCeilingPrefill"
 
         ListCollectionBiddingPriceTiersResponse:
             type: object

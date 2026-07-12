@@ -400,8 +400,43 @@ a:hover {
 	min-width: 0;
 }
 
-.bootstrap-form-label-tooltip.info-tooltip {
-	transform: translateY(-3px);
+.admin-setting-row {
+	display: grid;
+	grid-template-columns: minmax(9.5rem, 13.6rem) minmax(8rem, 25.85rem);
+	align-items: center;
+	gap: 0.7rem;
+	width: min(40.15rem, 100%);
+	max-width: 100%;
+}
+
+.admin-setting-label-cell {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	min-width: 0;
+	font-size: 0.75rem;
+	text-transform: uppercase;
+	color: var(--c-sand);
+	line-height: 1.15;
+}
+
+.admin-setting-label-cell > span:first-child {
+	min-width: 0;
+}
+
+.bootstrap-form-label-tooltip.info-tooltip,
+.admin-setting-label-tooltip.info-tooltip {
+	/* Offset the trigger without trapping its popup below disabled controls. */
+	top: -3px;
+}
+
+.admin-setting-value {
+	min-width: 0;
+	color: var(--c-ice);
+	font-size: 0.78rem;
+	line-height: 1.35;
+	white-space: normal;
+	overflow-wrap: anywhere;
 }
 
 .bootstrap-control,

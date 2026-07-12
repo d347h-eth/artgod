@@ -114,7 +114,6 @@ pub struct UnlockSecretPromptRequest {
 pub struct UnlockBiddingMandateSummary {
     pub chain_id: u64,
     pub chain_name: String,
-    pub dry_run: bool,
     pub weth_allowance_cap_eth: String,
     pub trait_offers_enabled: bool,
     pub collections: Vec<UnlockBiddingCollectionSummary>,
