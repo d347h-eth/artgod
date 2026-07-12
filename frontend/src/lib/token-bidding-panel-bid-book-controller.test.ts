@@ -172,6 +172,7 @@ function testBidBook(bids: ApiBiddingBidBookRow[]): ApiBiddingBidBook {
 			lastError: null
 		},
 		biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+		biddingAuthorization: null,
 		ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 		bids
 	};

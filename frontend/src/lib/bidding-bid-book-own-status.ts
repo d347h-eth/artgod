@@ -2,6 +2,7 @@ import {
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
+	resolveTradingBiddingAuthorizationJobPhase,
 	TRADING_JOB_STATUS
 } from '@artgod/shared/types';
 import type { ApiBiddingBidBook, ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
@@ -18,8 +19,11 @@ const OWN_JOB_INTENT_PHASE_LABELS = {
 	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Cancelled]: 'cancelled',
 	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed]: 'cancel failed',
 	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling]: 'canceling',
+	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.AuthorizationRequired]: 'authorization required',
+	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.AuthorizationUnavailable]: 'authorization unavailable',
 	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused]: 'paused',
 	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued]: 'queued',
+	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot]: 'waiting for bidding bot',
 	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Verifying]: 'verifying',
 	[TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Replacing]: 'replacing'
 } as const;
@@ -66,6 +70,13 @@ export function ownBiddingJobStateBadges(
 ): BidBookOwnStatusBadge[] {
 	if (!job) {
 		return [];
+	}
+	const authorizationPhase =
+		job.status === TRADING_JOB_STATUS.Enabled && bidBook?.biddingAuthorization
+			? resolveTradingBiddingAuthorizationJobPhase(bidBook.biddingAuthorization.status)
+			: null;
+	if (authorizationPhase) {
+		return [ownJobIntentPhaseBadge(authorizationPhase)];
 	}
 
 	const marketBid = bidBook?.bids.find(

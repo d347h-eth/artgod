@@ -44,6 +44,7 @@
 		shouldPreserveBiddingAutomationPanelDraftOnLoadChange
 	} from '$lib/bidding-automation-panel-state';
 	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
+	import { biddingAuthorizationRecoveryMessage } from '$lib/bidding-authorization';
 	import { ownBiddingJobStateBadges } from '$lib/bidding-bid-book-own-status';
 	import {
 		BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
@@ -164,6 +165,14 @@
 			isBiddingAutomationTraitTarget({ draft, job: currentJob })
 	);
 	const bidStateBadges = $derived(ownBiddingJobStateBadges(currentJob, bidBook));
+	const authorizationRecoveryMessage = $derived(
+		currentJob?.status === TRADING_JOB_STATUS.Enabled && collection
+			? biddingAuthorizationRecoveryMessage(
+					bidBook?.biddingAuthorization ?? null,
+					collection.slug
+				)
+			: null
+	);
 	const selectedPriceTier = $derived(resolveSelectedPriceTier());
 	const displayedFloorEth = $derived(
 		pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier
@@ -892,7 +901,11 @@
 				</div>
 			{/if}
 		</div>
-		{#if currentJob?.runtime?.lastError}
+		{#if authorizationRecoveryMessage}
+			<p class="runtime-warn token-bidding-feedback" role="alert">
+				{authorizationRecoveryMessage}
+			</p>
+		{:else if currentJob?.runtime?.lastError}
 			<p class="runtime-error token-bidding-feedback" role="alert">{currentJob.runtime.lastError}</p>
 		{/if}
 		{#if traitOfferTrustRequired}

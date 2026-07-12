@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import {
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+	TRADING_BIDDING_AUTHORIZATION_STATUS,
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	TRADING_BIDDING_BID_BOOK_SOURCE,
@@ -122,6 +123,7 @@ describe('BiddingAutomationPanel', () => {
 						lastError: null
 					},
 					biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+					biddingAuthorization: null,
 					ownMakerAddress: null,
 					bids: []
 				},
@@ -167,6 +169,7 @@ describe('BiddingAutomationPanel', () => {
 						lastError: null
 					},
 					biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+					biddingAuthorization: null,
 					ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 					bids: [
 						{
@@ -222,6 +225,51 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).not.toContain('>queued</span>');
 	});
 
+	it('replaces queued state and internal errors with actionable authorization recovery', () => {
+		const job = testTokenJob(TRADING_JOB_STATUS.Enabled);
+		if (job.runtime) {
+			job.runtime.lastError = 'native bidding mandate rejected offer';
+		}
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: testChain(),
+				collection: testCollection(),
+				token: testToken(),
+				job,
+				bidBook: {
+					state: {
+						source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+						updatedAt: null,
+						snapshotRefreshedAtMs: null,
+						projectedAt: null,
+						rowCount: 0,
+						durationMs: null,
+						lastError: null
+					},
+					biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+					biddingAuthorization: {
+						status: TRADING_BIDDING_AUTHORIZATION_STATUS.NotIncluded,
+						maxUnitBidWei: null,
+						maxUnitBidEth: null,
+						maxQuantity: null
+					},
+					ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+					bids: []
+				},
+				onClose: () => {},
+				onJobChange: () => {}
+			}
+		});
+
+		expect(body).toContain('>authorization required</span>');
+		expect(body).not.toContain('>queued</span>');
+		expect(body).toContain(
+			'Stop and start the bidding bot in Admin, then include milady in the new bidding authorization.'
+		);
+		expect(body).not.toContain('native bidding mandate rejected offer');
+	});
+
 	it('uses bid-book row state over stale panel job lifecycle badges', () => {
 		const { body } = render(BiddingAutomationPanel, {
 			props: {
@@ -241,6 +289,7 @@ describe('BiddingAutomationPanel', () => {
 						lastError: null
 					},
 					biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+					biddingAuthorization: null,
 					ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 					bids: [
 						{
@@ -315,6 +364,7 @@ describe('BiddingAutomationPanel', () => {
 						lastError: null
 					},
 					biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+					biddingAuthorization: null,
 					ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 					bids: [
 						{

@@ -139,8 +139,14 @@ Startup order:
 12. start the low-cadence failed-cancellation reconciliation loop
 13. emit `bot_ready` only after bootstrap is complete
 
-`trading_bot_runtime_state` stores non-secret bot heartbeat state.
-Backend bid-book reads use it to decide whether the bot snapshot projection can be treated as live.
+`trading_bot_runtime_state` stores non-secret bot heartbeat state and the UUID of
+the exact process session publishing that heartbeat. During the first
+bootstrapping write, the Node process atomically replaces its rows in
+`trading_bidding_runtime_authorized_collections` with the collection identity and
+limits parsed from the immutable mandate it will enforce. Backend bid-book reads
+bind those rows to the same fresh session. This projection is diagnostic input
+for Userland only; SQLite never grants signing authority.
+Backend bid-book reads also use the heartbeat to decide whether the bot snapshot projection can be treated as live.
 Active-order evidence restored from a prior bot process is rendered as `verifying` until the current process proves, replaces, or clears that order through OpenSea-backed runtime work.
 
 ## Current Runtime Mode
@@ -222,6 +228,7 @@ Primary tables:
 - `trading_jobs`: common declared job envelope for bidding and future sniping
 - `trading_bidding_job_specs`: bidding strategy fields (`floor_wei`, `ceiling_wei`, `delta_wei`, quantity, trait criteria)
 - `trading_bidding_job_runtime_state`: bot-owned active-offer/runtime state for cancellation and diagnostics
+- `trading_bidding_runtime_authorized_collections`: non-secret, session-bound read projection of the collection identity and per-offer limits enforced by the current bidding process
 - `trading_bidding_order_cancellations`: bot-owned active-offer cancellation lifecycle facts for bid-book visibility and stale-index suppression
 - `trading_job_commands`: durable Outbox for bot-side effects
 
@@ -302,6 +309,7 @@ Backend source selection:
 - otherwise use `orders`
 - standard/admin reads may overlay own declared jobs as `own_job_intent` rows before the bot has landed a matching market offer
 - public single-collection reads stay market-only and do not expose local own-job context
+- private Userland reads resolve current collection authorization only from rows bound to the same fresh runtime session; public reads return no local authorization detail
 - own market-position badges (`winning`, `draw`, `losing`) are attached only from the bot-persisted runtime decision for the active order id
 - prior-process active-order evidence can keep an own row visible, but strategy badges stay hidden and the row is marked `verifying` until the running bot verifies the order in the current process
 - runtime-backed own rows prefer the bot-persisted active order timing even when the visible row is backed by a projected or indexed market order
@@ -309,21 +317,29 @@ Backend source selection:
 - completed own cancellations suppress stale indexed own order rows, with a short `cancelled` confirmation row before disappearance
 - the backend must not infer own bid position from bid-book rows or exact-scope price comparisons
 
-Frontend feed and lifecycle labels:
+Frontend feed, lifecycle, and authorization labels:
 
 - `bid-book feed: bidding bot` means the visible rows come from the bot's current market snapshot projection
 - `bid-book feed: indexed orders` means the visible rows come from canonical OpenSea orders populated by polling, reconciliation, and stream updates
 - `bidding bot: starting` means the latest bidding bot runtime row has a fresh bootstrapping heartbeat
 - `bidding bot: active` means the latest bidding bot runtime row has a fresh running heartbeat
 - `bidding bot: inactive` means the latest bidding bot runtime row is stopped, missing, or stale
+- `bidding authorization: included` means the fresh process session includes the current canonical collection identity
+- `bidding authorization: not included` means that session has no authority row for the collection
+- `bidding authorization: update required` means the approved contract address or OpenSea slug no longer matches the canonical collection
+- `bidding authorization: inactive` means there is no fresh process session whose authority can be active
+- `bidding authorization: unavailable` means a fresh process heartbeat exists but no usable same-session authorization projection is available
 
-The feed and lifecycle are independent. An active bot can still accompany the indexed-orders feed when the bot projection is unavailable or stale.
+Feed, lifecycle, and authorization are independent. An active bot can accompany
+the indexed-orders feed when the market projection is unavailable or stale, and
+a non-authorized collection can still receive the bidding bot's market feed.
 
 Bid-book row materialization:
 
 - `market_bid`: a real row from OpenSea order data, either the bot snapshot projection or canonical orders
 - `own_job_intent`: a local declared job or own active-order lifecycle row rendered from backend-owned runtime/cancellation facts
-- queued or paused own-intent rows use a floor-ceiling price range because no single market order price exists yet
+- queued, waiting, authorization-required, or paused own-intent rows use a floor-ceiling price range because no single market order price exists yet
+- enabled intent is `waiting for bidding bot` when no fresh process exists, `authorization required` when the fresh process omits the collection or holds stale collection identity, and `authorization unavailable` when its session projection cannot be resolved
 - replacing, canceling, cancel failed, and cancelled own-intent rows use the real active order id and exact current price
 - runtime-active own-intent rows use the bot-persisted active order id and exact current price until the market row appears
 - bid-book tables show floor and ceiling columns only when visible rows carry bid-limit or range data

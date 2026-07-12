@@ -44,6 +44,11 @@ user-visible authorization lifecycle:
    accepting the wallet passphrase
 3. `active bidding authorization` shows the authority held by the running bot
 
+Private Userland bid-book reads project that same active authority as a compact
+collection status. The projection is session-bound and display-only: it can
+explain whether a job can be placed by the current process, but it never grants
+wallet authority or replaces the in-memory signer policy.
+
 A collection is eligible for the request when it is live, has a persisted
 OpenSea slug, and has previously completed its initial OpenSea snapshot, recorded
 by non-null `opensea_ready_at`. Current reconciliation may temporarily report
@@ -186,16 +191,21 @@ Backend source selection:
 - use `bot_snapshot` when the collection has enabled bidding jobs, the bidding bot heartbeat is live, and projection metadata is fresh
 - otherwise use `orders`
 - standard/admin bid-book reads include own declared-job overlays when the bot has not yet produced or reobserved the matching market bid
-- public single-collection mode keeps bid-book reads market-only and never exposes local own-job context
+- public single-collection mode keeps bid-book reads market-only and never exposes local own-job or active-authorization context
 
-Frontend feed and lifecycle labels:
+Frontend feed, lifecycle, and authorization labels:
 
 - `bot_snapshot` displays as `bid-book feed: bidding bot`
 - `orders` displays as `bid-book feed: indexed orders`
 - a fresh bootstrapping heartbeat displays as `bidding bot: starting`
 - a fresh running heartbeat displays as `bidding bot: active`
 - a stopped, missing, or stale heartbeat displays as `bidding bot: inactive`
-- feed source and bot lifecycle remain independent
+- a fresh session that includes the current canonical collection displays as `bidding authorization: included`
+- a fresh session without the collection displays as `bidding authorization: not included`
+- changed canonical collection identity displays as `bidding authorization: update required`
+- no fresh session displays as `bidding authorization: inactive`
+- a fresh heartbeat without a usable same-session projection displays as `bidding authorization: unavailable`
+- feed source, bot lifecycle, and collection authorization remain independent
 
 Bid-book filters:
 
@@ -211,7 +221,8 @@ Own-bid display:
 - Rows from a live bot runtime can mark the configured bot wallet as `You`.
 - Own market rows can carry position signals: `winning`, `draw`, or `losing`, but only from a fresh bot-snapshot read and the bot-persisted runtime decision for the active order id.
 - Own market rows can carry bot-owned strategy-limit signals rendered as `hit ceiling` and `at floor`.
-- Own declared jobs can appear as `own_job_intent` rows with `queued` or `paused` phase.
+- Own declared jobs can appear as `own_job_intent` rows with `queued`, `waiting for bidding bot`, `authorization required`, `authorization unavailable`, or `paused` phase.
+- `authorization required` replaces an enabled job's indefinite `queued` state when the current process omits the collection or its approved identity is stale. The bidding panel directs the user to stop and start the bot in Admin and include or review the collection in the new bidding authorization.
 - Own active-order lifecycle rows can appear as `own_job_intent` rows with `replacing`, `canceling`, `cancel failed`, or `cancelled` phase.
 - Own-intent rows use range pricing for queued/paused intent and exact order pricing for runtime/cancellation-backed lifecycle rows.
 - Bid-book floor and ceiling columns are shown only when visible rows have bid-limit or range values.

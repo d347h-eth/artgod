@@ -10,6 +10,10 @@
 	} from '$lib/bidding-bid-book-source';
 	import type { BidBookOwnStatusBadge } from '$lib/bidding-bid-book-own-status';
 	import {
+		BIDDING_AUTHORIZATION_META_LABEL,
+		biddingAuthorizationLabel
+	} from '$lib/bidding-authorization';
+	import {
 		BID_BOOK_UPDATE_FLASH_MODE,
 		bidBookUpdateFlash
 	} from '$lib/bid-book-update-flash';
@@ -55,6 +59,12 @@
 			<span class="runtime-k">bidding bot</span>
 			<span class="runtime-v">{bidBook.biddingBotStatus}</span>
 		</div>
+		{#if bidBook.biddingAuthorization}
+			<div>
+				<span class="runtime-k">{BIDDING_AUTHORIZATION_META_LABEL}</span>
+				<span class="runtime-v">{biddingAuthorizationLabel(bidBook.biddingAuthorization)}</span>
+			</div>
+		{/if}
 		<div>
 			<span class="runtime-k">rows</span>
 			<span class="runtime-v">{bidBook.state.rowCount}</span>

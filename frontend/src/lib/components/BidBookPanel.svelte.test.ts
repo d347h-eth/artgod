@@ -70,6 +70,7 @@ describe('BidBookPanel', () => {
 				lastError: null
 			},
 			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+			biddingAuthorization: null,
 			ownMakerAddress: null,
 			bids: [
 				{
@@ -216,6 +217,7 @@ describe('BidBookPanel', () => {
 				lastError: null
 			},
 			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+			biddingAuthorization: null,
 			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 			bids: [
 				{
@@ -285,6 +287,7 @@ describe('BidBookPanel', () => {
 				lastError: null
 			},
 			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+			biddingAuthorization: null,
 			ownMakerAddress: null,
 			bids: [
 				{
@@ -352,6 +355,7 @@ describe('BidBookPanel', () => {
 				lastError: null
 			},
 			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+			biddingAuthorization: null,
 			ownMakerAddress: null,
 			bids: [BASE_BID]
 		};
@@ -385,6 +389,7 @@ describe('BidBookPanel', () => {
 				lastError: null
 			},
 			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+			biddingAuthorization: null,
 			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 			bids: [
 				{
@@ -424,6 +429,7 @@ describe('BidBookPanel', () => {
 				lastError: null
 			},
 			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+			biddingAuthorization: null,
 			ownMakerAddress: null,
 			bids: [
 				{
@@ -464,6 +470,7 @@ describe('BidBookPanel', () => {
 				lastError: null
 			},
 			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+			biddingAuthorization: null,
 			ownMakerAddress: null,
 			bids: [
 				{
@@ -559,6 +566,7 @@ describe('BidBookPanel', () => {
 				lastError: null
 			},
 			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+			biddingAuthorization: null,
 			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 			bids: [
 				{
@@ -665,6 +673,7 @@ describe('BidBookPanel', () => {
 				lastError: null
 			},
 			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+			biddingAuthorization: null,
 			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 			bids: [activeIntent]
 		};
@@ -754,6 +763,7 @@ describe('BidBookPanel', () => {
 				lastError: null
 			},
 			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+			biddingAuthorization: null,
 			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 			bids: [
 				{
@@ -864,6 +874,7 @@ describe('BidBookPanel', () => {
 				lastError: null
 			},
 			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+			biddingAuthorization: null,
 			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 			bids: [cancelingIntent, failedIntent, replacingIntent, cancelledIntent]
 		};
@@ -900,6 +911,7 @@ describe('BidBookPanel', () => {
 				lastError: null
 			},
 			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+			biddingAuthorization: null,
 			ownMakerAddress: null,
 			bids: [{ ...BASE_BID, orderId: '0xclickable-trait' }]
 		};

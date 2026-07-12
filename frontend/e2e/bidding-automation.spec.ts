@@ -35,6 +35,7 @@ const COLLECTION_PATH = '/e2e-harness/collection';
 const BIDDING_PATH = `${COLLECTION_PATH}/bidding`;
 const MARKET_MAKER_A = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const CANCELLATION_PHASE_SCENARIO_QUERY = `${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.CancellationPhases}`;
+const AUTHORIZATION_REQUIRED_SCENARIO_QUERY = `${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.AuthorizationRequired}`;
 const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
 
 test.beforeEach(({ page }, testInfo) => {
@@ -471,6 +472,40 @@ test.describe('bidding automation fixture harness', () => {
 		await expect(page.getByRole('button', { name: 'show bidding panel' })).toHaveCount(0);
 	});
 
+	test('shows an active bot feed and the collection authorization block independently', async ({
+		page
+	}, testInfo) => {
+		await installBiddingAutomationApiMock(page);
+		await openHarnessPage(
+			page,
+			`${BIDDING_PATH}?bid_scope=token&${AUTHORIZATION_REQUIRED_SCENARIO_QUERY}`
+		);
+
+		const summary = page.locator('section.bid-book-summary-panel').first();
+		await expect(metaValue(summary, 'bid-book feed')).toHaveText('bidding bot');
+		await expect(metaValue(summary, 'bidding bot')).toHaveText('active');
+		await expect(metaValue(summary, 'bidding authorization')).toHaveText('not included');
+
+		await openHarnessPage(
+			page,
+			`${COLLECTION_PATH}/101?${AUTHORIZATION_REQUIRED_SCENARIO_QUERY}`
+		);
+		await page.getByRole('button', { name: 'bid on token' }).click();
+
+		const panel = page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`);
+		await expect(panel).toContainText('job-token-101');
+		await expect(panel).toContainText('authorization required');
+		await expect(panel).toContainText(
+			'Stop and start the bidding bot in Admin, then include e2e-bidding in the new bidding authorization.'
+		);
+		await expect(panel.getByText('queued', { exact: true })).toHaveCount(0);
+
+		await testInfo.attach('bidding-authorization-required.png', {
+			body: await page.screenshot({ fullPage: true }),
+			contentType: 'image/png'
+		});
+	});
+
 	test('renders token-detail cancellation phases in rows and the token bidding panel', async ({
 		page
 	}) => {
@@ -559,6 +594,14 @@ test.describe('bidding automation fixture harness', () => {
 async function openHarnessPage(page: Page, path: string): Promise<void> {
 	await page.goto(path, { waitUntil: 'domcontentloaded' });
 	await page.waitForFunction(() => document.documentElement.dataset.artgodHydrated === '1');
+}
+
+function metaValue(summary: Locator, label: string): Locator {
+	return summary
+		.locator('.runtime-k')
+		.filter({ hasText: new RegExp(`^${label}$`) })
+		.locator('..')
+		.locator('.runtime-v');
 }
 
 async function expectSecondaryTabHoverChrome(locator: Locator): Promise<void> {

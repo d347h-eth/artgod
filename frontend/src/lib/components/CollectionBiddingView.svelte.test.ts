@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import {
+	TRADING_BIDDING_AUTHORIZATION_STATUS,
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	TRADING_BOT_LIFECYCLE_STATUS,
@@ -27,12 +28,12 @@ function marketMaterialization(): ApiBiddingBidBookRow['materialization'] {
 	};
 }
 
-function ownQueuedMaterialization(): ApiBiddingBidBookRow['materialization'] {
+function ownAuthorizationRequiredMaterialization(): ApiBiddingBidBookRow['materialization'] {
 	return {
 		kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
 		jobId: 'job-token-1',
 		status: TRADING_JOB_STATUS.Enabled,
-		phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued
+		phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.AuthorizationRequired
 	};
 }
 
@@ -71,6 +72,7 @@ describe('CollectionBiddingView', () => {
 						lastError: null
 					},
 					biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+					biddingAuthorization: null,
 					ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 					bids: [
 						{
@@ -181,7 +183,13 @@ describe('CollectionBiddingView', () => {
 						durationMs: null,
 						lastError: null
 					},
-					biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+					biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+					biddingAuthorization: {
+						status: TRADING_BIDDING_AUTHORIZATION_STATUS.NotIncluded,
+						maxUnitBidWei: null,
+						maxUnitBidEth: null,
+						maxQuantity: null
+					},
 					ownMakerAddress: null,
 					bids: [
 						{
@@ -258,7 +266,7 @@ describe('CollectionBiddingView', () => {
 								{
 									orderId: 'job-token-1',
 									source: 'orders',
-									materialization: ownQueuedMaterialization(),
+									materialization: ownAuthorizationRequiredMaterialization(),
 									scope: {
 										kind: 'token',
 										label: '#1',
@@ -330,8 +338,10 @@ describe('CollectionBiddingView', () => {
 		expect(body).toContain('bid-price');
 		expect(body).toContain('0.42 WETH');
 		expect(body).toContain('2 offers');
-		expect(body).toContain('bid-book-own-status-queued');
-		expect(body).toContain('>queued</span>');
+		expect(body).toContain('bidding authorization');
+		expect(body).toContain('>not included</span>');
+		expect(body).toContain('bid-book-own-status-authorization_required');
+		expect(body).toContain('>authorization required</span>');
 		expect(body).toContain('500 tokens');
 		expect(body).toContain('showing 251-251 of 500');
 		expect(body.indexOf('showing 251-251 of 500')).toBeGreaterThan(
@@ -382,6 +392,7 @@ describe('CollectionBiddingView', () => {
 						lastError: null
 					},
 					biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+					biddingAuthorization: null,
 					ownMakerAddress: '0x9999999999999999999999999999999999999999',
 					bids: []
 				},

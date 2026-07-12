@@ -46,6 +46,10 @@
 		formatBidBookNextUpdate
 	} from '$lib/bidding-bid-book-source';
 	import {
+		BIDDING_AUTHORIZATION_META_LABEL,
+		biddingAuthorizationLabel
+	} from '$lib/bidding-authorization';
+	import {
 		biddingBidBookLivePollIntervalMs,
 		captureBiddingLiveRefreshAnchor,
 		restoreBiddingLiveRefreshAnchor,
@@ -1176,6 +1180,14 @@
 									<span class="runtime-k">bidding bot</span>
 									<span class="runtime-v">{activeBidBook.biddingBotStatus}</span>
 								</div>
+								{#if activeBidBook.biddingAuthorization}
+									<div>
+										<span class="runtime-k">{BIDDING_AUTHORIZATION_META_LABEL}</span>
+										<span class="runtime-v"
+											>{biddingAuthorizationLabel(activeBidBook.biddingAuthorization)}</span
+										>
+									</div>
+								{/if}
 								<div>
 									<span class="runtime-k">tokens</span>
 									<span class="runtime-v">{activeTokenOfferCardsPage.totalItems}</span>
