@@ -23,9 +23,6 @@ pub(crate) const COMMON_HTTP_FETCH_RETRY_BASE_DELAY_MS_ENV_KEY: &str =
 pub(crate) const COMMON_HTTP_FETCH_RETRY_MAX_DELAY_MS_ENV_KEY: &str =
     "COMMON_HTTP_FETCH_RETRY_MAX_DELAY_MS";
 
-/// Env key for the bidding runtime's live-versus-dry-run policy.
-pub(crate) const BIDDING_DRY_RUN_ENV_KEY: &str = "BIDDING_DRY_RUN";
-
 /// Env key for the exact OpenSea conduit WETH allowance cap.
 pub(crate) const BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY: &str = "BIDDING_WETH_ALLOWANCE_ETH";
 

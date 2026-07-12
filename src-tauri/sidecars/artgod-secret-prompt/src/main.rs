@@ -215,13 +215,17 @@ fn handle_unlock_request(
 
 fn build_bidding_mandate_review_pages(summary: &UnlockBiddingMandateSummary) -> Vec<String> {
     let mut pages = Vec::with_capacity(summary.collections.len() + 1);
+    let trait_offer_policy = if summary.trait_offers_enabled {
+        "enabled; pinned OpenSea SignedZone trusted"
+    } else {
+        "disabled"
+    };
     pages.push(format!(
-        "Bidding authorization\nNetwork: {}\nChain ID: #{}\nMode: {}\nWETH allowance cap: {} WETH\nTrait offers: {}\nCollections: {}",
+        "Bidding authorization\nNetwork: {}\nChain ID: #{}\nWETH allowance cap: {} WETH\nTrait offers: {}\nCollections: {}",
         render_prompt_value(summary.chain_name.as_str()),
         summary.chain_id,
-        if summary.dry_run { "dry run" } else { "live orders" },
         render_prompt_value(summary.weth_allowance_cap_eth.as_str()),
-        if summary.trait_offers_enabled { "enabled" } else { "disabled" },
+        trait_offer_policy,
         summary.collections.len(),
     ));
     for (index, collection) in summary.collections.iter().enumerate() {
@@ -484,7 +488,6 @@ mod tests {
         let pages = build_bidding_mandate_review_pages(&UnlockBiddingMandateSummary {
             chain_id: 1,
             chain_name: "Ethereum".to_owned(),
-            dry_run: false,
             weth_allowance_cap_eth: "0.5".to_owned(),
             trait_offers_enabled: true,
             collections: vec![UnlockBiddingCollectionSummary {
@@ -500,6 +503,9 @@ mod tests {
         });
 
         assert!(pages[0].starts_with("Bidding authorization\nNetwork: Ethereum\nChain ID: #1"));
+        assert!(!pages[0].contains("Mode:"));
+        assert!(!pages[0].contains("dry run"));
+        assert!(pages[0].contains("Trait offers: enabled; pinned OpenSea SignedZone trusted"));
         assert!(pages[1].contains("ArtGod collection ID: #7"));
         assert!(pages[1].contains("Maximum WETH per NFT: 1.25"));
         assert!(pages[1].contains("Maximum NFTs per offer: 1"));
@@ -510,7 +516,6 @@ mod tests {
         let pages = build_bidding_mandate_review_pages(&UnlockBiddingMandateSummary {
             chain_id: u64::MAX,
             chain_name: "Ethereum".to_owned(),
-            dry_run: false,
             weth_allowance_cap_eth: "0.5".to_owned(),
             trait_offers_enabled: true,
             collections: vec![UnlockBiddingCollectionSummary {

@@ -4,10 +4,7 @@ use alloy_primitives::U256;
 use serde::{Deserialize, Serialize};
 
 use super::backend_collection_catalog::BiddingCollectionCandidate;
-use super::env_keys::{
-    BIDDING_DRY_RUN_ENV_KEY, BIDDING_TRAIT_OFFERS_ENABLED_ENV_KEY,
-    BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY,
-};
+use super::env_keys::{BIDDING_TRAIT_OFFERS_ENABLED_ENV_KEY, BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY};
 
 /// Maximum collections that one native bidding unlock may authorize.
 const MAX_BIDDING_MANDATE_COLLECTIONS: usize = 64;
@@ -68,7 +65,6 @@ pub struct BiddingCollectionTokenScopeItem {
 /// Frozen global bidding settings displayed by the native unlock prompt.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BiddingStartPolicySnapshot {
-    pub dry_run: bool,
     pub weth_allowance_cap_eth: String,
     pub trait_offers_enabled: bool,
 }
@@ -153,7 +149,6 @@ impl BiddingMandate {
 impl BiddingStartPolicySnapshot {
     /// Parses prompt-visible policy from the same frozen env passed to the bot process.
     pub fn from_process_env(env: &HashMap<String, String>) -> Result<Self, String> {
-        let dry_run = parse_required_bool(env, BIDDING_DRY_RUN_ENV_KEY)?;
         let trait_offers_enabled = parse_required_bool(env, BIDDING_TRAIT_OFFERS_ENABLED_ENV_KEY)?;
         let allowance = env
             .get(BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY)
@@ -165,7 +160,6 @@ impl BiddingStartPolicySnapshot {
             format!("Invalid bidding policy setting {BIDDING_WETH_ALLOWANCE_CAP_ENV_KEY}.")
         })?;
         Ok(Self {
-            dry_run,
             weth_allowance_cap_eth: format_wei_as_eth(allowance_wei.as_str())?,
             trait_offers_enabled,
         })
@@ -434,7 +428,6 @@ mod tests {
     #[test]
     fn parses_frozen_start_policy_without_floating_point() {
         let policy = BiddingStartPolicySnapshot::from_process_env(&HashMap::from([
-            (BIDDING_DRY_RUN_ENV_KEY.to_owned(), "false".to_owned()),
             (
                 BIDDING_TRAIT_OFFERS_ENABLED_ENV_KEY.to_owned(),
                 "true".to_owned(),
@@ -446,7 +439,6 @@ mod tests {
         ]))
         .unwrap();
 
-        assert!(!policy.dry_run);
         assert!(policy.trait_offers_enabled);
         assert_eq!(policy.weth_allowance_cap_eth, "1.25");
     }

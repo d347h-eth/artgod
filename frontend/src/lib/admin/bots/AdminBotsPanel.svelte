@@ -3,6 +3,7 @@
 	import { TRADING_BOT_KIND } from '@artgod/shared/types';
 	import AdminSectionFrame from '$lib/admin/components/AdminSectionFrame.svelte';
 	import { createTauriAdminBotPort } from '$lib/admin/bots/adapters/tauri-admin-bot-port';
+	import InfoTooltip from '$lib/components/InfoTooltip.svelte';
 	import type {
 		AdminBiddingCollectionCatalog,
 		AdminBiddingCollectionCandidate,
@@ -47,7 +48,7 @@
 		isBiddingMandateDraftReady(biddingCollections, biddingMandateSelections)
 	);
 	let biddingStartPolicy: BiddingStartPolicyEntry[] = $derived(
-		config ? buildBiddingStartPolicySummary(config.values) : []
+		config ? buildBiddingStartPolicySummary(config) : []
 	);
 	let selectedWalletIds = $state<Record<AdminBotKind, string>>({
 		[TRADING_BOT_KIND.Bidding]: '',
@@ -292,11 +293,17 @@
 									aria-label="Bidding settings"
 								>
 									<h3>bidding settings</h3>
-									<dl>
-										{#each biddingStartPolicy as entry (entry.label)}
-											<div>
-												<dt>{entry.label}</dt>
-												<dd>{entry.value}</dd>
+									<dl class="admin-setting-list">
+										{#each biddingStartPolicy as entry (entry.key)}
+											<div class="admin-setting-row">
+												<dt class="admin-setting-label-cell">
+													<span>{entry.label}</span>
+													<InfoTooltip
+														text={entry.help}
+														className="admin-setting-label-tooltip"
+													/>
+												</dt>
+												<dd class="admin-setting-value">{entry.value}</dd>
 											</div>
 										{/each}
 									</dl>
@@ -543,35 +550,21 @@
 
 	.bidding-start-policy {
 		display: grid;
-		gap: 0.35rem;
-		width: fit-content;
+		align-content: start;
+		gap: 0.72rem;
+		width: min(40.15rem, 100%);
 		max-width: 100%;
 	}
 
 	.bidding-start-policy dl {
 		display: grid;
-		grid-template-columns: minmax(9.5rem, 17rem) minmax(0, 1fr);
-		gap: 0.3rem 1.25rem;
-		width: min(40.15rem, 100%);
+		gap: 0.72rem;
 		margin: 0;
-	}
-
-	.bidding-start-policy dl > div {
-		display: contents;
 	}
 
 	.bidding-start-policy dt,
 	.bidding-start-policy dd {
 		margin: 0;
-		font-size: 0.75rem;
-	}
-
-	.bidding-start-policy dt {
-		color: var(--c-sand);
-	}
-
-	.bidding-start-policy dd {
-		overflow-wrap: anywhere;
 	}
 
 	.bidding-mandate-editor {

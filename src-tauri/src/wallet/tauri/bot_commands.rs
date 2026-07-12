@@ -483,7 +483,6 @@ fn build_prompt_mandate_summary(
     Ok(UnlockBiddingMandateSummary {
         chain_id: mandate.chain_id,
         chain_name: chain_name.to_owned(),
-        dry_run: policy.dry_run,
         weth_allowance_cap_eth: policy.weth_allowance_cap_eth.clone(),
         trait_offers_enabled: policy.trait_offers_enabled,
         collections,
