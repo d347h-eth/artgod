@@ -14,15 +14,16 @@ const BID_BOOK_REFRESH_SIGNAL_KEY_PART = {
 	NoProjection: 'no-projection'
 } as const;
 
-// Converts bid-book source internals into the user-facing refresh pace label.
-export function bidBookRefreshPaceLabel(source: ApiBiddingBidBook['state']['source']): string {
-	return source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot ? 'competitive' : 'normal';
+// Converts the selected bid-book source into the user-facing feed label.
+export function bidBookFeedLabel(source: ApiBiddingBidBook['state']['source']): string {
+	return source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot ? 'bidding bot' : 'indexed orders';
 }
 
-// Explains the refresh pace without exposing backend source names.
-export function bidBookRefreshPaceTitle(source: ApiBiddingBidBook['state']['source']): string {
-	const pace = bidBookRefreshPaceLabel(source);
-	return `The bid book is refreshed at a ${pace} pace based on periodic orderbook polling with immediate updates from the inbound events stream.`;
+// Explains which market feed supplies the visible bid book.
+export function bidBookFeedTitle(source: ApiBiddingBidBook['state']['source']): string {
+	return source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot
+		? "Bids are supplied by the bidding bot's current market feed."
+		: 'Bids are supplied by OpenSea orders indexed by ArtGod.';
 }
 
 // Resolves the best available source refresh timestamp for bid-book update signals.

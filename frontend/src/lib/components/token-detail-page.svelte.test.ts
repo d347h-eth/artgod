@@ -8,7 +8,8 @@ import {
 } from '@artgod/shared/extensions/terraforms';
 import {
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
-	TRADING_BIDDING_BID_SCOPE_KIND
+	TRADING_BIDDING_BID_SCOPE_KIND,
+	TRADING_BOT_LIFECYCLE_STATUS
 } from '@artgod/shared/types';
 import { installBuiltInCollectionExtensions } from '$lib/collection-extension-built-ins';
 import type { ApiBiddingBidBookRow, ApiTokenDetailTrait } from '$lib/api-types';
@@ -117,6 +118,7 @@ describe('token detail page', () => {
 								durationMs: null,
 								lastError: null
 							},
+							biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
 							ownMakerAddress: null,
 							bids: [
 								{

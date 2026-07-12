@@ -15,6 +15,7 @@ import {
 	TRADING_BIDDING_BID_SCOPE_KIND,
 	TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
 	TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
+	TRADING_BOT_LIFECYCLE_STATUS,
 	TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND,
 	TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND,
 	TRADING_BIDDING_TIER_SELECTION_MODE,
@@ -810,6 +811,7 @@ function buildBidBook(params: {
 			durationMs: null,
 			lastError: null
 		},
+		biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
 		ownMakerAddress: OWN_ADDRESS,
 		bids
 	};
@@ -846,6 +848,7 @@ function buildTokenDetailBidBook(
 			durationMs: null,
 			lastError: null
 		},
+		biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
 		ownMakerAddress: OWN_ADDRESS,
 		bids
 	};

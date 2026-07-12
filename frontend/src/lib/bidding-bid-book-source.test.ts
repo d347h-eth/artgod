@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { TRADING_BIDDING_BID_BOOK_SOURCE } from '@artgod/shared/types';
 import {
 	bidBookNextUpdateTitle,
+	bidBookFeedLabel,
+	bidBookFeedTitle,
 	bidBookRefreshSignalKey,
 	bidBookSourceRefreshTimestampMs,
 	formatBidBookNextUpdate
@@ -9,6 +11,17 @@ import {
 import type { ApiBiddingBidBook } from '$lib/api-types';
 
 describe('bidding bid-book source metadata', () => {
+	it('maps source ownership to explicit bid-book feed labels', () => {
+		expect(bidBookFeedLabel(TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot)).toBe('bidding bot');
+		expect(bidBookFeedLabel(TRADING_BIDDING_BID_BOOK_SOURCE.Orders)).toBe('indexed orders');
+		expect(bidBookFeedTitle(TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot)).toContain(
+			"bidding bot's current market feed"
+		);
+		expect(bidBookFeedTitle(TRADING_BIDDING_BID_BOOK_SOURCE.Orders)).toContain(
+			'OpenSea orders indexed by ArtGod'
+		);
+	});
+
 	it('resolves order-backed source refresh timestamps from updatedAt', () => {
 		const state: ApiBiddingBidBook['state'] = {
 			source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,

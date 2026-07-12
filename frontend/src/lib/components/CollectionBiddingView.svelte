@@ -41,8 +41,8 @@
 	import {
 		BID_BOOK_RELATIVE_TIME_TICK_MS,
 		bidBookNextUpdateTitle,
-		bidBookRefreshPaceLabel,
-		bidBookRefreshPaceTitle,
+		bidBookFeedLabel,
+		bidBookFeedTitle,
 		formatBidBookNextUpdate
 	} from '$lib/bidding-bid-book-source';
 	import {
@@ -1167,10 +1167,14 @@
 					<section class="runtime-section bid-book-summary-panel">
 							<div class="runtime-kv-grid bid-book-meta">
 								<div>
-									<span class="runtime-k">refresh pace</span>
-									<span class="runtime-v" title={bidBookRefreshPaceTitle(activeBidBook.state.source)}>
-										{bidBookRefreshPaceLabel(activeBidBook.state.source)}
+									<span class="runtime-k">bid-book feed</span>
+									<span class="runtime-v" title={bidBookFeedTitle(activeBidBook.state.source)}>
+										{bidBookFeedLabel(activeBidBook.state.source)}
 									</span>
+								</div>
+								<div>
+									<span class="runtime-k">bidding bot</span>
+									<span class="runtime-v">{activeBidBook.biddingBotStatus}</span>
 								</div>
 								<div>
 									<span class="runtime-k">tokens</span>

@@ -3,6 +3,7 @@ import { render } from 'svelte/server';
 import {
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+	TRADING_BOT_LIFECYCLE_STATUS,
 	TRADING_JOB_STATUS
 } from '@artgod/shared/types';
 import type { ApiBiddingBidBookRow } from '$lib/api-types';
@@ -69,6 +70,7 @@ describe('CollectionBiddingView', () => {
 						durationMs: null,
 						lastError: null
 					},
+					biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
 					ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 					bids: [
 						{
@@ -126,7 +128,11 @@ describe('CollectionBiddingView', () => {
 		expect(body).toContain(
 			'<button type="button" class="secondary-tab-active" disabled="">collection</button>'
 		);
-		expect(body).toContain('refresh pace');
+		expect(body).toContain('bid-book feed');
+		expect(body).toContain('indexed orders');
+		expect(body).toContain('bidding bot');
+		expect(body).toContain('inactive');
+		expect(body).not.toContain('refresh pace');
 		expect(body).not.toContain('facet-panel-controls-row');
 		expect(body).not.toContain('class="facet-column"');
 		expect(body).not.toContain('class="detail-layout"');
@@ -175,6 +181,7 @@ describe('CollectionBiddingView', () => {
 						durationMs: null,
 						lastError: null
 					},
+					biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
 					ownMakerAddress: null,
 					bids: [
 						{
@@ -374,6 +381,7 @@ describe('CollectionBiddingView', () => {
 						durationMs: null,
 						lastError: null
 					},
+					biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
 					ownMakerAddress: '0x9999999999999999999999999999999999999999',
 					bids: []
 				},

@@ -13,6 +13,7 @@ import {
 	type TradingBiddingBidBookOwnJobPhase,
 	type TradingBiddingJobRuntimeBidPosition,
 	type TradingBiddingJobRuntimeConstraint,
+	type TradingBotLifecycleStatus,
 	type TradingBiddingJobPricingSource,
 	type TradingBiddingTierSelectionMode
 } from '@artgod/shared/types';
@@ -741,6 +742,7 @@ export type ApiBiddingBidBook = {
 		durationMs: number | null;
 		lastError: string | null;
 	};
+	biddingBotStatus: TradingBotLifecycleStatus;
 	ownMakerAddress: string | null;
 	bids: ApiBiddingBidBookRow[];
 };

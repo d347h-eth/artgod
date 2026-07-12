@@ -7,7 +7,7 @@ import {
 	getCollectionBiddingPriceTiers,
 	getRuntimeConfig
 } from '$lib/backend-api';
-import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
+import { emptyBiddingBidBook, emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import { resolvePreferredCollectionBiddingNavigationHref } from '$lib/bidding-navigation-preferences';
 import {
@@ -44,19 +44,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			collection: null,
 			biddingSettings: defaultBiddingCollectionSettings(),
 			priceTiers: [],
-			bidBook: {
-				state: {
-					source: 'orders',
-					updatedAt: null,
-					snapshotRefreshedAtMs: null,
-					projectedAt: null,
-					rowCount: 0,
-					durationMs: null,
-					lastError: null
-				},
-				ownMakerAddress: null,
-				bids: []
-			},
+			bidBook: emptyBiddingBidBook(),
 			tokenOfferCards: emptyBiddingTokenOfferCardsPage(),
 			facets: [],
 			media: {

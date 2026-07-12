@@ -10,6 +10,7 @@ import {
 	TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
 	TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
 	TRADING_BIDDING_TIER_SELECTION_MODE,
+	TRADING_BOT_LIFECYCLE_STATUS,
 	TRADING_JOB_TARGET_KIND,
 	TRADING_JOB_STATUS
 } from '@artgod/shared/types';
@@ -120,6 +121,7 @@ describe('BiddingAutomationPanel', () => {
 						durationMs: null,
 						lastError: null
 					},
+					biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
 					ownMakerAddress: null,
 					bids: []
 				},
@@ -164,6 +166,7 @@ describe('BiddingAutomationPanel', () => {
 						durationMs: null,
 						lastError: null
 					},
+					biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
 					ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 					bids: [
 						{
@@ -237,6 +240,7 @@ describe('BiddingAutomationPanel', () => {
 						durationMs: null,
 						lastError: null
 					},
+					biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
 					ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 					bids: [
 						{
@@ -310,6 +314,7 @@ describe('BiddingAutomationPanel', () => {
 						durationMs: null,
 						lastError: null
 					},
+					biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
 					ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 					bids: [
 						{
