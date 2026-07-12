@@ -400,10 +400,6 @@ a:hover {
 	min-width: 0;
 }
 
-.bootstrap-form-label-tooltip.info-tooltip {
-	transform: translateY(-3px);
-}
-
 .admin-setting-row {
 	display: grid;
 	grid-template-columns: minmax(9.5rem, 13.6rem) minmax(8rem, 25.85rem);
@@ -428,8 +424,10 @@ a:hover {
 	min-width: 0;
 }
 
+.bootstrap-form-label-tooltip.info-tooltip,
 .admin-setting-label-tooltip.info-tooltip {
-	transform: translateY(-3px);
+	/* Offset the trigger without trapping its popup below disabled controls. */
+	top: -3px;
 }
 
 .admin-setting-value {
