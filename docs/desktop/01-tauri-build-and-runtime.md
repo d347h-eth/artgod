@@ -557,6 +557,16 @@ The wallet-bound Node command clears the parent process environment before it
 applies that frozen, Rust-resolved ArtGod map. Ambient launcher values such as
 Node startup options or dynamic-loader controls therefore cannot execute code
 in the key-bearing process before the stdin envelope is consumed.
+The fixed Node arguments place `--disable-sigusr1` exactly once before the PnP
+hooks and trading artifact, so `SIGUSR1` cannot open a debugging session in the
+key-bearing process.
+
+`src-tauri/crates/artgod-sensitive-process` owns sensitive-process startup and
+child containment. At Tauri-core and native-prompt startup, Unix lowers both
+the soft and hard `RLIMIT_CORE` values to zero. Linux additionally sets and
+verifies `PR_SET_DUMPABLE=0`; Windows enables the supported WER no-heap flag
+and verifies it before secret handling. A supported-platform failure stops the
+Rust process before wallet services or prompt input can proceed.
 
 The supervisor prepares parent-death containment before spawn and attaches any
 post-spawn platform resource before it writes wallet material. Linux installs
@@ -565,6 +575,15 @@ non-inheritable kill-on-close Job Object. Every platform also retains the bot's
 stdin writer after the single frame as a parent-liveness lease. The Node runtime
 parses the declared frame length without waiting for EOF and exits if the pipe
 later closes, errors, or carries extra data.
+
+Sensitive Unix child preparation repeats the zero core limit immediately before
+`exec`, so the key-bearing Node process inherits soft and hard core limits of
+zero. Linux resets process dumpability across ordinary `exec`, so the Rust
+pre-exec hook does not claim to make Node nondumpable. Strong post-exec Node
+nondumpability would require a separately reviewed pinned native bootstrap;
+that remains deferred under the accepted same-user memory and full-host
+exclusions. ArtGod does not use `LD_PRELOAD`, host sysctls, shell limits, or
+global user configuration for this boundary.
 
 The secret-frame write runs in a bounded handoff task while the supervisor
 retains the child handle. Stop, core invalidation, recipient exit, or handoff
@@ -767,8 +786,14 @@ Current state:
   after `bot_ready` and requires that exact bot PID to disappear. A separate
   containment-primitive test requires heartbeat activity to stop after its
   parent is hard-killed.
-- The ordinary build workflow compiles the Windows Job Object path on a Windows
-  runner; Windows release artifacts remain deferred.
+- Sensitive-process and hard-parent-death gates run before no-bundle or release
+  packaging. They cover the retired prompt-response inputs, isolated current-
+  process/core-limit controls, sensitive-child inheritance, fixed Node
+  arguments, pinned-Node `SIGUSR1` behavior, the frozen environment, and the
+  existing parent-death proofs.
+- The ordinary build workflow compiles the Windows WER no-heap and Job Object
+  paths on a Windows runner. That lane is compile-only; Windows release
+  artifacts and an executed Windows hardening proof remain deferred.
 - Linux artifacts are GPG-signed (detached armor signatures).
 - Final release assembly re-verifies downloaded AppImage and `.deb` signatures
   before signing the checksum manifest.

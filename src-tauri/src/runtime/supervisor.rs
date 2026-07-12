@@ -52,6 +52,8 @@ const RUNTIME_LIFECYCLE_LOCK_ERROR: &str = "Failed to lock runtime lifecycle sta
 const BOT_START_SIGNAL_TIMEOUT: Duration = Duration::from_secs(30);
 // A recipient that does not consume the secret frame must not block Stop or core shutdown.
 const BOT_SECRET_HANDOFF_TIMEOUT: Duration = Duration::from_secs(10);
+/// Prevents a signal from opening Node's inspector inside a key-bearing process.
+const KEY_BEARING_NODE_DISABLE_SIGUSR1_ARG: &str = "--disable-sigusr1";
 // Once bootstrapping started, long warmup is allowed as long as the bot keeps reporting progress.
 const BOT_BOOTSTRAP_STALL_TIMEOUT: Duration = Duration::from_secs(180);
 
@@ -1569,11 +1571,13 @@ fn spawn_trading_bot_process(
 }
 
 fn build_trading_bot_process_args(config: &BotRuntimeLaunchConfig) -> Vec<String> {
-    build_node_process_args(
+    let mut args = vec![KEY_BEARING_NODE_DISABLE_SIGUSR1_ARG.to_owned()];
+    args.extend(build_node_process_args(
         &config.pnp_cjs_path,
         &config.pnp_loader_path,
         &config.artifact_path,
-    )
+    ));
+    args
 }
 
 /// Replaces ambient parent variables with the frozen ArtGod bot environment.
@@ -2996,6 +3000,22 @@ mod tests {
         }
     }
 
+    fn build_test_bot_launch_config() -> BotRuntimeLaunchConfig {
+        let config = build_test_runtime_config();
+        let spec = crate::runtime::bot_runtime::BIDDING_BOT_SPEC;
+        BotRuntimeLaunchConfig {
+            spec,
+            artifact_path: config.runtime_dir.join(spec.artifact_relative_path),
+            node_bin: config.node_bin,
+            runtime_dir: config.runtime_dir,
+            pnp_cjs_path: config.pnp_cjs_path,
+            pnp_loader_path: config.pnp_loader_path,
+            chain_id: config.chain_id,
+            process_env: config.process_env,
+            logs_dir: config.logs_dir,
+        }
+    }
+
     #[test]
     fn nats_launch_uses_configured_store_root_dir() {
         let config = build_test_runtime_config();
@@ -3020,17 +3040,11 @@ mod tests {
     #[test]
     fn trading_bot_launch_shape_does_not_leak_wallet_material() {
         let fixture = load_fixture();
-        let config = build_test_runtime_config();
-        let spec = crate::runtime::bot_runtime::BIDDING_BOT_SPEC;
-        let artifact_path = config.runtime_dir.join(spec.artifact_relative_path);
-        let args = build_node_process_args(
-            &config.pnp_cjs_path,
-            &config.pnp_loader_path,
-            &artifact_path,
-        );
+        let config = build_test_bot_launch_config();
+        let args = build_trading_bot_process_args(&config);
         let command_line = render_command_line(config.node_bin.to_string_lossy().as_ref(), &args);
 
-        assert!(command_line.contains(spec.artifact_relative_path));
+        assert!(command_line.contains(config.spec.artifact_relative_path));
         assert!(!command_line.contains(fixture.wallet_id.as_str()));
         assert!(!command_line.contains(fixture.address.as_str()));
         assert!(!command_line.contains(fixture.private_key_hex.as_str()));
@@ -3040,6 +3054,29 @@ mod tests {
             assert!(!value.contains(fixture.address.as_str()));
             assert!(!value.contains(fixture.private_key_hex.as_str()));
         }
+    }
+
+    #[test]
+    fn trading_bot_node_args_disable_signal_started_inspection_exactly_once() {
+        let config = build_test_bot_launch_config();
+        let args = build_trading_bot_process_args(&config);
+        let base_args = build_node_process_args(
+            &config.pnp_cjs_path,
+            &config.pnp_loader_path,
+            &config.artifact_path,
+        );
+
+        assert_eq!(
+            args.first().map(String::as_str),
+            Some(KEY_BEARING_NODE_DISABLE_SIGUSR1_ARG)
+        );
+        assert_eq!(
+            args.iter()
+                .filter(|arg| arg.as_str() == KEY_BEARING_NODE_DISABLE_SIGUSR1_ARG)
+                .count(),
+            1
+        );
+        assert_eq!(args[1..], base_args);
     }
 
     #[cfg(unix)]

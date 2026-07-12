@@ -452,6 +452,36 @@ mod tests {
         UnlockSecretPromptRequest, UnlockSecretPromptResponse,
     };
     use std::io::Cursor;
+    use std::process::Command;
+
+    const HELPER_HARDENING_TEST_ENTRY: &str = "tests::helper_process_hardening_entry";
+    const HELPER_HARDENING_REPORT: &str = "helper_sensitive_process_hardened";
+
+    #[test]
+    fn helper_process_reports_hardening_from_an_isolated_subprocess() {
+        let output = Command::new(std::env::current_exe().expect("helper test executable exists"))
+            .args([
+                "--ignored",
+                "--exact",
+                HELPER_HARDENING_TEST_ENTRY,
+                "--nocapture",
+            ])
+            .output()
+            .expect("helper hardening test entry starts");
+
+        assert!(output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains(HELPER_HARDENING_REPORT),
+            "helper hardening subprocess did not report its verified state"
+        );
+    }
+
+    #[test]
+    #[ignore = "subprocess entrypoint for irreversible helper-process hardening"]
+    fn helper_process_hardening_entry() {
+        harden_current_process().expect("helper process hardening is installed");
+        println!("{HELPER_HARDENING_REPORT}");
+    }
 
     #[test]
     fn parse_request_payload_rejects_oversized_input() {

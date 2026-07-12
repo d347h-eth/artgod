@@ -58,7 +58,11 @@ Current state:
   through controller publication and cleanup
 - trading bot processes use portable parent-pipe liveness plus Linux/Windows
   native process containment
-- the remaining follow-up work is desktop E2E automation and future strategy implementation rather than admin-shell scaffolding
+- one internal sensitive-process crate owns core/dump controls and bot-child
+  preparation/attachment across the desktop and prompt-helper packages
+- remaining follow-up work includes full prompt-process lifecycle containment,
+  desktop E2E automation, and future strategy implementation rather than
+  admin-shell scaffolding
 
 ## Delivery Rules
 
@@ -126,6 +130,9 @@ Component split:
   : part of the main Tauri core process
 - secret prompt helper
   : separate sidecar process only for native secret input/output
+- sensitive-process component
+  : shared internal Rust crate for current-process hardening and supported child
+  preparation/attachment
 
 This split is important because only the helper is out-of-process.
 The actual wallet state and decrypt logic remain in the main Tauri Rust runtime.
@@ -173,6 +180,11 @@ As of 2026-07-12:
   exact-frame-before-EOF parsing, retained parent-liveness lease, and secret-leak
   guards around bot startup.
 - Post-implementation wallet hardening now pins the `eth-keystore` source and makes both explicit and Alloy-compatibility writes emit the Geth-standard scrypt profile.
+- The release baseline removes environment-submitted prompt responses, disables
+  ordinary core dumps, hardens supported Rust processes, and disables
+  signal-started inspection for key-bearing Node.
+- Full prompt-action process containment remains deferred to the dedicated
+  prompt-lifecycle assignment; this baseline only establishes its shared owner.
 
 ## Slice 0: Admin Shell and Desktop Hardening Baseline
 
@@ -462,7 +474,7 @@ Primary files:
 - `src-tauri/src/runtime/config.rs`
 - `src-tauri/src/runtime/bot_runtime.rs`
 - `src-tauri/src/runtime/bot_lifecycle.rs`
-- `src-tauri/src/runtime/process_containment.rs`
+- `src-tauri/crates/artgod-sensitive-process/src/lib.rs`
 - `src-tauri/src/wallet/application/use_cases/assign_wallet_to_bot.rs`
 - `src-tauri/src/wallet/tauri/bot_commands.rs`
 - new `frontend/src/lib/admin/bots/**`
@@ -510,6 +522,8 @@ Tasks:
 - keep Stop available in Admin while authorization review or startup is pending
 - contain bot processes with the portable parent pipe, Linux parent-death signal,
   and Windows kill-on-close Job Object
+- set sensitive Unix child core limits to zero without weakening the Linux
+  parent-death PID race check
 - pull in the minimal trading runtime bootstrap and stdin secret protocol so the split uses real bot artifacts, not placeholders
 
 Important rule:
@@ -649,8 +663,12 @@ Minimum manual scenarios:
 Automated desktop build/release checks run two hard-parent-death proofs on Linux
 and macOS: a production-path built Node bot must become ready, exit cleanly on
 `SIGTERM` with stdin retained, and lose its PID after its parent is hard-killed;
-a containment-primitive heartbeat must also stop after parent death. The
-ordinary build workflow compiles the Windows Job Object path on Windows.
+a containment-primitive heartbeat must also stop after parent death. Before
+packaging, sensitive-process checks also prove isolated Unix core limits,
+Linux Rust nondumpability, child core-limit inheritance, fixed Node arguments,
+and `SIGUSR1` inspector suppression. The ordinary build workflow compiles the
+Windows WER no-heap and Job Object paths on Windows; that coverage is
+compile-only.
 Lifecycle unit tests cover same-bot start exclusion, cross-bot independence,
 pending and active cancellation, core invalidation, assignment exclusion, and
 stale-generation cleanup.
@@ -666,6 +684,8 @@ These stay deferred even after the wallet subsystem lands:
 - unlock TTL
 - clipboard-based export convenience
 - backend HTTP wallet APIs
+- full prompt-action spawn/liveness/kill-reap migration onto the shared
+  sensitive-process component
 
 ## Final Rule
 
