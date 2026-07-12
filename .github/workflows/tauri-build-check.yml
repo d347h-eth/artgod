@@ -72,17 +72,20 @@ jobs:
             - name: Test desktop release security
               run: yarn test:desktop:release
 
-            - name: Tauri no-bundle build check
-              env:
-                  DESKTOP_NODE_DIST_TARGET: linux-x64
-                  DESKTOP_NATS_DIST_TARGET: linux-x64
-              run: yarn tauri build --debug --no-bundle --ci
+            - name: Test sensitive process hardening
+              run: yarn test:desktop:sensitive-process
 
             - name: Test Admin WebView shell ACL
               run: cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security
 
             - name: Test bot hard-parent-death containment
               run: yarn test:desktop:parent-containment
+
+            - name: Tauri no-bundle build check
+              env:
+                  DESKTOP_NODE_DIST_TARGET: linux-x64
+                  DESKTOP_NATS_DIST_TARGET: linux-x64
+              run: yarn tauri build --debug --no-bundle --ci
 
             - name: Verify bundled Yarn runtime dependencies
               shell: bash
@@ -121,5 +124,5 @@ jobs:
             - name: Prepare Windows secret prompt sidecar
               run: node ./scripts/build/prepare-desktop-sidecars.mjs --profile debug
 
-            - name: Check Windows Job Object containment
+            - name: Check Windows sensitive-process hardening
               run: cargo check --manifest-path src-tauri/Cargo.toml --lib

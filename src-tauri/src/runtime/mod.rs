@@ -8,7 +8,6 @@ mod config;
 mod env_keys;
 mod http_fetch_resilience;
 mod log_files;
-mod process_containment;
 mod process_registry;
 mod resource_contract;
 mod rpc_auto_sourcing;

@@ -467,6 +467,10 @@ Trading-specific rules:
 - bot process args and env contain no private keys
 - bot startup replaces the ambient parent environment with the frozen ArtGod
   runtime map
+- the fixed key-bearing Node arguments include `--disable-sigusr1` exactly once
+  before the PnP hooks and runtime artifact
+- sensitive Unix child preparation sets both `RLIMIT_CORE` values to zero, which
+  Node inherits across `exec`
 - lifecycle events and runtime-state DB rows contain only non-secret metadata
 - every bot restart requires a fresh unlock
 - every start is generation-reserved before dependency waiting and unlock;
@@ -516,6 +520,9 @@ Trading-specific rules:
 - Operator-selected RPC endpoints are trusted chain-state inputs. Selecting
   truthful endpoints is an operator responsibility; a malicious or dishonest
   selected RPC is outside the public-alpha threat model.
+- Linux `exec` resets dumpability, so Rust child preparation does not claim
+  post-exec Node nondumpability. A pinned native bootstrap remains deferred
+  under the same-user process-memory and full-host exclusions.
 - `BIDDING_TX_MAX_FEE_GWEI` caps the approval transaction fee per gas unit
 - `BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ETH` separately caps its worst-case network
   gas fee as explicit gas limit times selected max fee per gas; it does not cap

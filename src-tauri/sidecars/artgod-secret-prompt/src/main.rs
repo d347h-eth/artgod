@@ -13,6 +13,7 @@ use artgod_secret_prompt_protocol::{
     SecretPromptErrorCode, SecretPromptRequest, SecretPromptResponse, UnlockBiddingMandateSummary,
     UnlockSecretPromptRequest, UnlockSecretPromptResponse,
 };
+use artgod_sensitive_process::harden_current_process;
 use prompt_ui::{
     ExportConfirmPromptSpec, ImportPromptSpec, RemoveConfirmPromptSpec, RevealPromptSpec,
     UnlockPromptSpec,
@@ -21,6 +22,12 @@ use thiserror::Error;
 use zeroize::Zeroizing;
 
 fn main() {
+    // Disable ordinary process dumps before accepting a secret-bearing prompt request.
+    if let Err(error) = harden_current_process() {
+        eprintln!("Secret prompt sensitive-process hardening failed: {error}");
+        std::process::exit(1);
+    }
+
     let exit_code = match run() {
         Ok(()) => 0,
         Err(error) => {
@@ -39,12 +46,7 @@ fn main() {
 
 fn run() -> Result<(), SecretPromptHelperError> {
     let action = read_action_from_args()?;
-    let request = if let Some(response) = try_test_mode_response(action)? {
-        write_response(&response)?;
-        return Ok(());
-    } else {
-        read_request(action)?
-    };
+    let request = read_request(action)?;
 
     if request.action() != action {
         return Err(SecretPromptHelperError::ActionMismatch {
@@ -80,45 +82,38 @@ fn read_action_from_args() -> Result<SecretPromptAction, SecretPromptHelperError
     })
 }
 
-fn try_test_mode_response(
-    action: SecretPromptAction,
-) -> Result<Option<SecretPromptResponse>, SecretPromptHelperError> {
-    let enabled = env::var("ARTGOD_SECRET_PROMPT_TEST_MODE")
-        .ok()
-        .map(|value| value == "1")
-        .unwrap_or(false);
-    if !enabled {
-        return Ok(None);
-    }
-
-    let raw_response = env::var("ARTGOD_SECRET_PROMPT_TEST_RESPONSE").map_err(|_| {
-        SecretPromptHelperError::InvalidRequest(
-            "ARTGOD_SECRET_PROMPT_TEST_RESPONSE is required in test mode".to_owned(),
-        )
-    })?;
-    let response: SecretPromptResponse = serde_json::from_str(&raw_response).map_err(|error| {
-        SecretPromptHelperError::InvalidRequest(format!(
-            "Invalid ARTGOD_SECRET_PROMPT_TEST_RESPONSE: {error}"
-        ))
-    })?;
-    if response.action() != action {
-        return Err(SecretPromptHelperError::ActionMismatch {
-            expected: action,
-            actual: response.action(),
-        });
-    }
-    Ok(Some(response))
-}
-
 fn read_request(
     action: SecretPromptAction,
 ) -> Result<SecretPromptRequest, SecretPromptHelperError> {
     let mut stdin = io::stdin().lock();
+    read_request_from(action, &mut stdin)
+}
+
+fn read_request_from(
+    action: SecretPromptAction,
+    reader: impl BufRead,
+) -> Result<SecretPromptRequest, SecretPromptHelperError> {
     let mut raw_request = Zeroizing::new(String::new());
-    stdin.read_line(&mut raw_request).map_err(|error| {
-        SecretPromptHelperError::IoFailure(format!("Failed to read prompt request: {error}"))
-    })?;
-    parse_request_payload(action, raw_request.as_str())
+    reader
+        .take((SECRET_PROMPT_MAX_REQUEST_BYTES + 2) as u64)
+        .read_line(&mut raw_request)
+        .map_err(|error| {
+            SecretPromptHelperError::IoFailure(format!("Failed to read prompt request: {error}"))
+        })?;
+    if raw_request.len() > SECRET_PROMPT_MAX_REQUEST_BYTES + 1 {
+        return Err(SecretPromptHelperError::InvalidRequest(format!(
+            "Request payload exceeded {} bytes for action {}",
+            SECRET_PROMPT_MAX_REQUEST_BYTES,
+            action.as_cli_arg()
+        )));
+    }
+    let request_payload = raw_request
+        .strip_suffix('\n')
+        .unwrap_or(raw_request.as_str());
+    let request_payload = request_payload
+        .strip_suffix('\r')
+        .unwrap_or(request_payload);
+    parse_request_payload(action, request_payload)
 }
 
 fn parse_request_payload(
@@ -456,12 +451,53 @@ mod tests {
         SecretPromptResponse, UnlockBiddingCollectionSummary, UnlockBiddingTokenScopeItem,
         UnlockSecretPromptRequest, UnlockSecretPromptResponse,
     };
+    use std::io::Cursor;
+    use std::process::Command;
+
+    const HELPER_HARDENING_TEST_ENTRY: &str = "tests::helper_process_hardening_entry";
+    const HELPER_HARDENING_REPORT: &str = "helper_sensitive_process_hardened";
+
+    #[test]
+    fn helper_process_reports_hardening_from_an_isolated_subprocess() {
+        let output = Command::new(std::env::current_exe().expect("helper test executable exists"))
+            .args([
+                "--ignored",
+                "--exact",
+                HELPER_HARDENING_TEST_ENTRY,
+                "--nocapture",
+            ])
+            .output()
+            .expect("helper hardening test entry starts");
+
+        assert!(output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains(HELPER_HARDENING_REPORT),
+            "helper hardening subprocess did not report its verified state"
+        );
+    }
+
+    #[test]
+    #[ignore = "subprocess entrypoint for irreversible helper-process hardening"]
+    fn helper_process_hardening_entry() {
+        harden_current_process().expect("helper process hardening is installed");
+        println!("{HELPER_HARDENING_REPORT}");
+    }
 
     #[test]
     fn parse_request_payload_rejects_oversized_input() {
         let oversized = "x".repeat(SECRET_PROMPT_MAX_REQUEST_BYTES + 1);
         let error =
             parse_request_payload(SecretPromptAction::Unlock, oversized.as_str()).unwrap_err();
+        assert!(matches!(error, SecretPromptHelperError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn read_request_rejects_an_oversized_line_without_reading_to_eof() {
+        let oversized = "x".repeat(SECRET_PROMPT_MAX_REQUEST_BYTES + 2);
+        let reader = Cursor::new(oversized.into_bytes());
+
+        let error = read_request_from(SecretPromptAction::Unlock, reader).unwrap_err();
+
         assert!(matches!(error, SecretPromptHelperError::InvalidRequest(_)));
     }
 

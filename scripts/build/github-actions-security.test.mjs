@@ -8,10 +8,24 @@ const rootDir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "../..",
 );
+const packageManifestPath = path.join(rootDir, "package.json");
 const workflowsDirectory = path.join(rootDir, ".github", "workflows");
 const fullCommitActionReferencePattern = /^[^\s@]+@[a-f0-9]{40}$/;
 const webviewShellAclTestCommand =
     "cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security";
+const sensitiveProcessTestCommand = "yarn test:desktop:sensitive-process";
+const sensitiveProcessBuildStepName = "Test sensitive process hardening";
+const sensitiveProcessReleaseStepName =
+    "Test release sensitive process hardening";
+const sensitiveProcessGateScriptName = "test:desktop:sensitive-process";
+const sensitiveProcessGateCommands = [
+    "yarn build:desktop-sidecars --profile release",
+    "node ./scripts/build/node-sensitive-process.test.mjs",
+    "cargo test --manifest-path src-tauri/crates/artgod-sensitive-process/Cargo.toml",
+    "cargo test --manifest-path src-tauri/sidecars/artgod-secret-prompt/Cargo.toml --locked",
+    "runtime::supervisor::tests::trading_bot_node_args_disable_signal_started_inspection_exactly_once",
+    "runtime::supervisor::tests::key_bearing_bot_environment_is_rebuilt_from_frozen_config",
+];
 const botHardParentDeathTestCommand = "yarn test:desktop:parent-containment";
 const botHardParentDeathBuildStepName =
     "Test bot hard-parent-death containment";
@@ -233,9 +247,58 @@ test("runs bot hard-parent-death containment in the ordinary Tauri build job", a
     assertStepIsRequired(containmentStep);
     assertStepPrecedes(
         tauriCheckJob,
+        botHardParentDeathBuildStepName,
         "Tauri no-bundle build check",
+    );
+});
+
+test("runs sensitive-process hardening before the ordinary Tauri build", async () => {
+    const workflow = await readFile(
+        path.join(workflowsDirectory, "tauri-build-check.yml"),
+        "utf8",
+    );
+    const tauriCheckJob = extractWorkflowJob(workflow, "tauri-check");
+    const hardeningStep = extractWorkflowStep(
+        tauriCheckJob,
+        sensitiveProcessBuildStepName,
+    );
+
+    assert.equal(countOccurrences(workflow, sensitiveProcessTestCommand), 1);
+    assertStepRunsCommand(hardeningStep, sensitiveProcessTestCommand);
+    assertStepIsRequired(hardeningStep);
+    assertStepPrecedes(
+        tauriCheckJob,
+        sensitiveProcessBuildStepName,
         botHardParentDeathBuildStepName,
     );
+    assertStepPrecedes(
+        tauriCheckJob,
+        sensitiveProcessBuildStepName,
+        "Tauri no-bundle build check",
+    );
+});
+
+test("keeps every sensitive-process proof in the release gate alias", async () => {
+    const packageManifest = JSON.parse(
+        await readFile(packageManifestPath, "utf8"),
+    );
+    const gateScript =
+        packageManifest.scripts?.[sensitiveProcessGateScriptName];
+    assert.equal(typeof gateScript, "string");
+
+    let previousCommandIndex = -1;
+    for (const command of sensitiveProcessGateCommands) {
+        const commandIndex = gateScript.indexOf(command);
+        assert.ok(
+            commandIndex >= 0,
+            `${sensitiveProcessGateScriptName} omits ${command}.`,
+        );
+        assert.ok(
+            commandIndex > previousCommandIndex,
+            `${sensitiveProcessGateScriptName} runs ${command} out of order.`,
+        );
+        previousCommandIndex = commandIndex;
+    }
 });
 
 test("runs release containment on both build platforms before artifacts leave the job", async () => {
@@ -262,8 +325,8 @@ test("runs release containment on both build platforms before artifacts leave th
     ]) {
         assertStepPrecedes(
             buildJob,
-            buildStepName,
             botHardParentDeathReleaseStepName,
+            buildStepName,
         );
     }
     for (const protectedStepName of [
@@ -285,7 +348,40 @@ test("runs release containment on both build platforms before artifacts leave th
     }
 });
 
-test("compiles the Windows Job Object containment path", async () => {
+test("runs release sensitive-process hardening on both platforms before packaging", async () => {
+    const workflow = await readFile(
+        path.join(workflowsDirectory, "tauri-release.yml"),
+        "utf8",
+    );
+    const buildJob = extractWorkflowJob(workflow, "build");
+    const hardeningStep = extractWorkflowStep(
+        buildJob,
+        sensitiveProcessReleaseStepName,
+    );
+
+    assert.equal(countOccurrences(workflow, sensitiveProcessTestCommand), 1);
+    assert.match(buildJob, /^ {20}- os: ubuntu-22\.04$/m);
+    assert.match(buildJob, /^ {20}- os: macos-latest$/m);
+    assertStepRunsCommand(hardeningStep, sensitiveProcessTestCommand);
+    assertStepIsRequired(hardeningStep);
+    assertStepPrecedes(
+        buildJob,
+        sensitiveProcessReleaseStepName,
+        botHardParentDeathReleaseStepName,
+    );
+    for (const buildStepName of [
+        "Build Linux Tauri bundle",
+        "Build macOS Tauri bundle",
+    ]) {
+        assertStepPrecedes(
+            buildJob,
+            sensitiveProcessReleaseStepName,
+            buildStepName,
+        );
+    }
+});
+
+test("compiles the Windows sensitive-process hardening path", async () => {
     const workflow = await readFile(
         path.join(workflowsDirectory, "tauri-build-check.yml"),
         "utf8",
@@ -300,7 +396,7 @@ test("compiles the Windows Job Object containment path", async () => {
     );
     const checkStep = extractWorkflowStep(
         windowsJob,
-        "Check Windows Job Object containment",
+        "Check Windows sensitive-process hardening",
     );
 
     assert.match(windowsJob, /^ {8}runs-on: windows-latest$/m);
@@ -323,7 +419,7 @@ test("compiles the Windows Job Object containment path", async () => {
     assertStepPrecedes(
         windowsJob,
         "Prepare Windows secret prompt sidecar",
-        "Check Windows Job Object containment",
+        "Check Windows sensitive-process hardening",
     );
     assert.doesNotMatch(windowsJob, /^ {8}continue-on-error:/m);
 });

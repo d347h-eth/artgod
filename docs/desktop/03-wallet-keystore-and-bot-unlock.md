@@ -150,6 +150,12 @@ These are hard rules, not suggestions.
 18. A bot process must not outlive the desktop parent. The retained stdin lease
     provides the portable liveness boundary, reinforced by platform process
     containment where available.
+19. Production prompt responses must follow one bounded stdin request and native
+    interaction. Environment variables cannot submit a helper response.
+20. The Tauri process and native prompt helper must install supported current-
+    process dump hardening before accepting wallet secrets.
+21. Sensitive Unix child preparation must set both core limits to zero, and the
+    key-bearing Node command must include `--disable-sigusr1` exactly once.
 
 ## Threat Model
 
@@ -641,6 +647,13 @@ Example directions:
 
 The helper never talks to the WebView directly.
 
+The production helper reads one size-bounded request from stdin and validates
+its action before opening native interaction. It has no environment-controlled
+response path, test mode, or release feature that can supply import, unlock,
+remove, export-confirm, or export-reveal output. Release-input tests reject the
+retired environment keys and production environment-value reads; automation
+must use test-only fixtures or protocol seams.
+
 The prompt adapter is shared by desktop composition and admits one prompt at a
 time across every wallet action. A bot lifecycle cancellation terminates its
 active unlock prompt; later prompt output cannot revive the cancelled start.
@@ -1034,6 +1047,11 @@ material:
 - macOS and other platforms use the retained pipe as the portable hard-parent-
   death boundary
 
+The OS preparation/attachment primitives now live in the shared internal
+`artgod-sensitive-process` crate. The bot supervisor uses that crate directly;
+migrating every native prompt action onto shared preparation, retained
+liveness, and kill/reap lifecycle remains separate prompt-lifecycle work.
+
 Containment setup is fail-closed. If the platform control cannot be prepared or
 attached, the child is terminated before the secret frame is written.
 Linux build checks and Linux/macOS release builds run the hard-parent-death
@@ -1043,7 +1061,30 @@ event, proves graceful `SIGTERM` exit while stdin remains open, then hard-kills
 a nested desktop-parent harness and requires the bot PID to disappear. A
 separate containment-primitive test proves that heartbeat activity also stops
 after parent death. The ordinary build workflow additionally compiles the
-Windows Job Object path on a Windows runner.
+Windows WER no-heap and Job Object paths on a Windows runner; it does not claim
+an executed Windows proof.
+
+## Crash and Inspection Hardening
+
+The current release baseline disables ordinary secret-bearing crash material:
+
+- Tauri core and the prompt helper set Unix soft and hard `RLIMIT_CORE` to zero
+  before secret handling
+- Linux Tauri core and prompt helper additionally set and verify
+  `PR_SET_DUMPABLE=0`
+- supported Windows desktop processes set and verify the Windows Error
+  Reporting no-heap flag
+- sensitive Unix child preparation repeats the zero core limit before `exec`,
+  so Node inherits it
+- the key-bearing Node command fixes `--disable-sigusr1` once before its PnP
+  hooks and artifact
+
+This does not expand the public-alpha threat model to same-user debuggers or
+full-host compromise. Linux resets dumpability when Rust executes Node, so the
+pre-exec call is not a Node nondumpability guarantee. A trusted post-exec native
+Node bootstrap would add native build, integrity, signing, and notarization
+surface and remains explicitly deferred. `LD_PRELOAD`, host sysctls, shell
+limits, and global user configuration are not used.
 
 ## Restart Policy
 
@@ -1262,6 +1303,9 @@ Rules:
 - same-bot start exclusion, cross-bot independence, stop cancellation, core
   generation invalidation, and stale-controller fencing
 - key-bearing bot command environment replacement
+- exact key-bearing Node arguments and disabled signal-started inspection
+- isolated current-process core-limit and Linux nondumpability controls
+- sensitive-child inherited core limits
 
 ### Rust Integration Tests
 
@@ -1269,6 +1313,7 @@ Rules:
 - command -> use-case wiring
 - prompt cancellation handling
 - helper stdio protocol handling
+- production helper rejection of retired environment-submitted responses
 - WebView capability policy rejects every `shell:*` permission
 - main WebView raw shell spawn and stdin-write calls are denied by the resolved ACL
 - Admin configuration mutation during an open prompt cannot change the frozen recipient

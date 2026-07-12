@@ -163,6 +163,16 @@ jobs:
             - name: Check desktop runtime registry consistency
               run: yarn check:runtime-registry
 
+            - name: Test release sensitive process hardening
+              run: yarn test:desktop:sensitive-process
+
+            - name: Test release Admin WebView shell ACL
+              if: runner.os == 'Linux'
+              run: cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security
+
+            - name: Test release bot hard-parent-death containment
+              run: yarn test:desktop:parent-containment
+
             - name: Validate macOS signing and notarization secrets
               if: runner.os == 'macOS'
               shell: bash
@@ -246,13 +256,6 @@ jobs:
                   rm -f "$CERT_PATH" "$KEYCHAIN_PATH"
                   test ! -e "$CERT_PATH"
                   test ! -e "$KEYCHAIN_PATH"
-
-            - name: Test release Admin WebView shell ACL
-              if: runner.os == 'Linux'
-              run: cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security
-
-            - name: Test release bot hard-parent-death containment
-              run: yarn test:desktop:parent-containment
 
             - name: Verify bundled Yarn runtime dependencies
               shell: bash
