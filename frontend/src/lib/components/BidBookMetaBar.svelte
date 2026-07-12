@@ -4,11 +4,15 @@
 	import {
 		BID_BOOK_RELATIVE_TIME_TICK_MS,
 		bidBookNextUpdateTitle,
-		bidBookRefreshPaceLabel,
-		bidBookRefreshPaceTitle,
+		bidBookFeedLabel,
+		bidBookFeedTitle,
 		formatBidBookNextUpdate
 	} from '$lib/bidding-bid-book-source';
 	import type { BidBookOwnStatusBadge } from '$lib/bidding-bid-book-own-status';
+	import {
+		BIDDING_AUTHORIZATION_META_LABEL,
+		biddingAuthorizationLabel
+	} from '$lib/bidding-authorization';
 	import {
 		BID_BOOK_UPDATE_FLASH_MODE,
 		bidBookUpdateFlash
@@ -46,11 +50,21 @@
 <section class="runtime-section bid-book-summary-panel">
 	<div class="runtime-kv-grid bid-book-meta">
 		<div>
-			<span class="runtime-k">refresh pace</span>
-			<span class="runtime-v" title={bidBookRefreshPaceTitle(bidBook.state.source)}>
-				{bidBookRefreshPaceLabel(bidBook.state.source)}
+			<span class="runtime-k">bid-book feed</span>
+			<span class="runtime-v" title={bidBookFeedTitle(bidBook.state.source)}>
+				{bidBookFeedLabel(bidBook.state.source)}
 			</span>
 		</div>
+		<div>
+			<span class="runtime-k">bidding bot</span>
+			<span class="runtime-v">{bidBook.biddingBotStatus}</span>
+		</div>
+		{#if bidBook.biddingAuthorization}
+			<div>
+				<span class="runtime-k">{BIDDING_AUTHORIZATION_META_LABEL}</span>
+				<span class="runtime-v">{biddingAuthorizationLabel(bidBook.biddingAuthorization)}</span>
+			</div>
+		{/if}
 		<div>
 			<span class="runtime-k">rows</span>
 			<span class="runtime-v">{bidBook.state.rowCount}</span>

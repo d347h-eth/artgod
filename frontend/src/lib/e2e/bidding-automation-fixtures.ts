@@ -8,6 +8,7 @@ import {
 import {
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+	TRADING_BIDDING_AUTHORIZATION_STATUS,
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
 	TRADING_BIDDING_BID_BOOK_PRICE_KIND,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
@@ -15,6 +16,7 @@ import {
 	TRADING_BIDDING_BID_SCOPE_KIND,
 	TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
 	TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
+	TRADING_BOT_LIFECYCLE_STATUS,
 	TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND,
 	TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND,
 	TRADING_BIDDING_TIER_SELECTION_MODE,
@@ -71,7 +73,8 @@ export const BIDDING_E2E_SCENARIO_QUERY_PARAM = 'e2e_bidding_scenario';
 
 // Test-owned lifecycle scenarios that keep the default harness fixture stable.
 export const BIDDING_E2E_SCENARIO = {
-	CancellationPhases: 'cancellation_phases'
+	CancellationPhases: 'cancellation_phases',
+	AuthorizationRequired: 'authorization_required'
 } as const;
 
 type BiddingE2eScenario = (typeof BIDDING_E2E_SCENARIO)[keyof typeof BIDDING_E2E_SCENARIO];
@@ -688,7 +691,7 @@ export function buildBiddingE2eMutationJob(body: unknown, fallbackJobId: string)
 
 function parseBiddingE2eScenario(searchParams: URLSearchParams): BiddingE2eScenario | null {
 	const value = searchParams.get(BIDDING_E2E_SCENARIO_QUERY_PARAM);
-	return value === BIDDING_E2E_SCENARIO.CancellationPhases ? value : null;
+	return Object.values(BIDDING_E2E_SCENARIO).find((scenario) => scenario === value) ?? null;
 }
 
 function bidRowsForScenario(scenario: BiddingE2eScenario | null): ApiBiddingBidBookRow[] {
@@ -773,6 +776,7 @@ function buildBidBook(params: {
 	makerFilter: string | null;
 	scenario: BiddingE2eScenario | null;
 }): ApiBiddingBidBook {
+	const runtime = biddingRuntimeForScenario(params.scenario);
 	const bids = bidRowsForScenario(params.scenario).filter((row) => {
 		if (params.bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
 			if (row.scope.kind !== TRADING_BIDDING_BID_SCOPE_KIND.Token) {
@@ -802,7 +806,7 @@ function buildBidBook(params: {
 
 	return {
 		state: {
-			source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+			source: runtime.source,
 			updatedAt: FIXTURE_NOW,
 			snapshotRefreshedAtMs: null,
 			projectedAt: null,
@@ -810,6 +814,8 @@ function buildBidBook(params: {
 			durationMs: null,
 			lastError: null
 		},
+		biddingBotStatus: runtime.biddingBotStatus,
+		biddingAuthorization: runtime.biddingAuthorization,
 		ownMakerAddress: OWN_ADDRESS,
 		bids
 	};
@@ -819,6 +825,7 @@ function buildTokenDetailBidBook(
 	tokenId: string,
 	scenario: BiddingE2eScenario | null
 ): ApiBiddingBidBook {
+	const runtime = biddingRuntimeForScenario(scenario);
 	const token = tokenCardById(tokenId);
 	const bids = bidRowsForScenario(scenario).filter((row) => {
 		if (row.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
@@ -838,7 +845,7 @@ function buildTokenDetailBidBook(
 	});
 	return {
 		state: {
-			source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+			source: runtime.source,
 			updatedAt: FIXTURE_NOW,
 			snapshotRefreshedAtMs: null,
 			projectedAt: null,
@@ -846,8 +853,35 @@ function buildTokenDetailBidBook(
 			durationMs: null,
 			lastError: null
 		},
+		biddingBotStatus: runtime.biddingBotStatus,
+		biddingAuthorization: runtime.biddingAuthorization,
 		ownMakerAddress: OWN_ADDRESS,
 		bids
+	};
+}
+
+// Models an active snapshot feed whose running bot cannot place bids for this collection.
+function biddingRuntimeForScenario(
+	scenario: BiddingE2eScenario | null
+): Pick<ApiBiddingBidBook, 'biddingBotStatus' | 'biddingAuthorization'> & {
+	source: ApiBiddingBidBook['state']['source'];
+} {
+	if (scenario === BIDDING_E2E_SCENARIO.AuthorizationRequired) {
+		return {
+			source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+			biddingAuthorization: {
+				status: TRADING_BIDDING_AUTHORIZATION_STATUS.NotIncluded,
+				maxUnitBidWei: null,
+				maxUnitBidEth: null,
+				maxQuantity: null
+			}
+		};
+	}
+	return {
+		source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+		biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+		biddingAuthorization: null
 	};
 }
 

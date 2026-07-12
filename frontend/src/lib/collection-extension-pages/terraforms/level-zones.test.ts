@@ -10,6 +10,7 @@ import {
 	buildTerraformsLevelZoneRows,
 	buildTerraformsZoneTokenHref,
 	formatTerraformsZoneSupplyTokenCount,
+	formatTerraformsZoneTokenFilterLabel,
 	resolveTerraformsHypercastleLevel,
 	resolveTerraformsLevelZoneAriaSort,
 	resolveTerraformsLevelZoneDefaultSortDirection,
@@ -136,6 +137,21 @@ describe('Terraforms level Zone table data', () => {
 			})
 		).toBe(
 			`/ethereum/terraforms?limit=${DEFAULT_PAGE_LIMIT}&mode=grid&token_status=all&traits=Zone%3AAlto`
+		);
+	});
+
+	it('includes a selected Level before the Zone in token-filter links', () => {
+		expect(
+			buildTerraformsZoneTokenHref({
+				basePath: '/ethereum/terraforms',
+				levelNumber: 12,
+				zoneName: 'Alto'
+			})
+		).toBe(
+			`/ethereum/terraforms?limit=${DEFAULT_PAGE_LIMIT}&mode=grid&token_status=all&traits=Level%3A12&traits=Zone%3AAlto`
+		);
+		expect(formatTerraformsZoneTokenFilterLabel({ levelNumber: 12, zoneName: 'Alto' })).toBe(
+			'filter tokens by Level 12, Zone Alto'
 		);
 	});
 });

@@ -572,7 +572,7 @@ The bidding port is successful when:
 - the real bidding runtime replaces the placeholder runtime in `trading/`
 - the bot runs under ArtGod’s existing wallet-bound desktop supervisor
 - DB-backed job mutations and live runtime reconciliation work without restart
-- bid-book UI can display the competitive bot snapshot projection and normal orders fallback
+- bid-book UI can identify the bidding-bot snapshot or indexed-orders feed independently from bot lifecycle
 - no material bidding behavior was lost during the port
 - authoritative offer discovery still comes from direct OpenSea snapshot plus SDK paths
 - missed stream events do not invalidate competitiveness because snapshot polling remains intact

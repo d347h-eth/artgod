@@ -478,8 +478,10 @@ General rules:
 
 - bid-book metadata renders as one compact horizontal chip row
 - metadata labels use `key: value` formatting
-- the source label is `refresh pace`
-- user-facing refresh pace values are `normal` and `competitive`
+- the source label is `bid-book feed`
+- user-facing feed values are `bidding bot` and `indexed orders`
+- show the independent `bidding bot` lifecycle beside the feed as `starting`, `active`, or `inactive`
+- `starting` means a fresh bootstrapping heartbeat, `active` means a fresh running heartbeat, and `inactive` means a stopped, missing, or stale heartbeat
 - timing/projection diagnostics belong in logs, not in the bid-book metadata row
 - bid rows should not use table row borders for visual grouping
 - use spacing, buckets, and muted state instead of heavy separators

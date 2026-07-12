@@ -384,8 +384,9 @@ Token detail manages the exact token target.
 
 Display rules:
 
-- source value `orders` is labeled `normal`
-- source value `bot_snapshot` is labeled `competitive`
+- source value `orders` is labeled `bid-book feed: indexed orders`
+- source value `bot_snapshot` is labeled `bid-book feed: bidding bot`
+- bot lifecycle is shown independently as `bidding bot: starting`, `active`, or `inactive`
 - WETH prices omit the WETH suffix
 - multi-quantity offers display as quantity times unit price
 - token detail always shows scope because multiple bid scopes can apply to one token

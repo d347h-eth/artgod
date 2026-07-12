@@ -52,6 +52,21 @@ describe("BiddingMandate", () => {
             "does not match envelope chain",
         );
     });
+
+    it("exposes a non-secret copy of the exact enforced collection authority", () => {
+        expect(createMandate().snapshot()).toEqual({
+            chainId: 1,
+            collections: [
+                {
+                    collectionId: COLLECTION_ID,
+                    contractAddress: COLLECTION_ADDRESS,
+                    openseaSlug: OPENSEA_SLUG,
+                    maxUnitBidWei: "10",
+                    maxQuantity: 2,
+                },
+            ],
+        });
+    });
 });
 
 function createMandate(): BiddingMandate {

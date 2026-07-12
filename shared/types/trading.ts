@@ -16,6 +16,35 @@ export const TRADING_BOT_RUNTIME_STATE = {
 export type TradingBotRuntimeState =
     (typeof TRADING_BOT_RUNTIME_STATE)[keyof typeof TRADING_BOT_RUNTIME_STATE];
 
+// Names the user-facing lifecycle derived from a bot's persisted heartbeat state.
+export const TRADING_BOT_LIFECYCLE_STATUS = {
+    Starting: "starting",
+    Active: "active",
+    Inactive: "inactive",
+} as const;
+
+export type TradingBotLifecycleStatus =
+    (typeof TRADING_BOT_LIFECYCLE_STATUS)[keyof typeof TRADING_BOT_LIFECYCLE_STATUS];
+
+// Names the Userland-readable relationship between one collection and the current bidding process authority.
+export const TRADING_BIDDING_AUTHORIZATION_STATUS = {
+    Included: "included",
+    NotIncluded: "not_included",
+    UpdateRequired: "update_required",
+    Inactive: "inactive",
+    Unavailable: "unavailable",
+} as const;
+
+export type TradingBiddingAuthorizationStatus =
+    (typeof TRADING_BIDDING_AUTHORIZATION_STATUS)[keyof typeof TRADING_BIDDING_AUTHORIZATION_STATUS];
+
+// Carries the current process authorization status and exact approved offer limits for one collection.
+export type TradingBiddingAuthorization = {
+    status: TradingBiddingAuthorizationStatus;
+    maxUnitBidWei: string | null;
+    maxQuantity: number | null;
+};
+
 export const TRADING_JOB_STATUS = {
     Enabled: "enabled",
     Paused: "paused",
@@ -366,6 +395,9 @@ export type TradingBiddingBidBookRowMaterializationKind =
 // Names user-facing own-intent states before a real market bid row is visible.
 export const TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE = {
     Queued: "queued",
+    WaitingForBot: "waiting_for_bot",
+    AuthorizationRequired: "authorization_required",
+    AuthorizationUnavailable: "authorization_unavailable",
     Paused: "paused",
     Verifying: "verifying",
     Replacing: "replacing",
@@ -376,6 +408,25 @@ export const TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE = {
 
 export type TradingBiddingBidBookOwnJobPhase =
     (typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE)[keyof typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE];
+
+// Resolves the enabled-job phase that follows directly from current bidding authorization availability.
+export function resolveTradingBiddingAuthorizationJobPhase(
+    status: TradingBiddingAuthorizationStatus,
+): TradingBiddingBidBookOwnJobPhase | null {
+    if (status === TRADING_BIDDING_AUTHORIZATION_STATUS.Inactive) {
+        return TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot;
+    }
+    if (
+        status === TRADING_BIDDING_AUTHORIZATION_STATUS.NotIncluded ||
+        status === TRADING_BIDDING_AUTHORIZATION_STATUS.UpdateRequired
+    ) {
+        return TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.AuthorizationRequired;
+    }
+    if (status === TRADING_BIDDING_AUTHORIZATION_STATUS.Unavailable) {
+        return TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.AuthorizationUnavailable;
+    }
+    return null;
+}
 
 // Names bot-owned market position decisions persisted after a real bidding refresh.
 export const TRADING_BIDDING_JOB_RUNTIME_BID_POSITION = {

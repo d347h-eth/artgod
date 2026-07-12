@@ -11,6 +11,18 @@ type BiddingCollectionAuthority = {
     maxQuantity: bigint;
 };
 
+// Carries the non-secret authority accepted by one bidding process into local runtime projections.
+export type BiddingMandateSnapshot = {
+    chainId: number;
+    collections: Array<{
+        collectionId: number;
+        contractAddress: string;
+        openseaSlug: string;
+        maxUnitBidWei: string;
+        maxQuantity: number;
+    }>;
+};
+
 // Signals that an offer falls outside the authority granted by the native prompt.
 export class BiddingMandateViolationError extends Error {
     constructor(message: string) {
@@ -110,6 +122,23 @@ export class BiddingMandate {
                 `collection ${job.collectionId} total ${totalAmountWei} exceeds unit cap ${authority.maxUnitBidWei} for quantity ${quantity}`,
             );
         }
+    }
+
+    // Returns a display-safe copy of the exact authority enforced by this process.
+    public snapshot(): BiddingMandateSnapshot {
+        return {
+            chainId: this.chainId,
+            collections: Array.from(
+                this.collectionsById.values(),
+                (collection) => ({
+                    collectionId: collection.collectionId,
+                    contractAddress: collection.contractAddress,
+                    openseaSlug: collection.openseaSlug,
+                    maxUnitBidWei: collection.maxUnitBidWei.toString(),
+                    maxQuantity: Number(collection.maxQuantity),
+                }),
+            ),
+        };
     }
 }
 

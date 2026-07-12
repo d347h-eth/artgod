@@ -265,7 +265,7 @@ Bid-book projection should:
 - keep projecting from the bot's collection-level snapshot while the bot is live
 - project all rows present in the complete snapshot
 - expose source/freshness metadata clearly enough for the backend to choose
-  between competitive bot projection and normal orders fallback
+  between the bidding-bot projection and indexed-orders fallback
 - not block bidder command or hot paths
 
 ## Dynamic Freshness Policy

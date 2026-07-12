@@ -466,7 +466,7 @@ Desktop-first default path behavior:
 - `ARTGOD_DB_PATH` defaults to `sqlite/main/db` and is resolved relative to app-data dir unless absolute.
 - `USERLAND_UI_DIST_DIR` defaults to `frontend/userland` and is resolved relative to desktop runtime resources dir unless absolute.
 - bidding jobs are loaded from the ArtGod SQLite database.
-- bidding bot heartbeat is written to SQLite as non-secret runtime state so backend reads can choose between competitive bot snapshots and normal orders fallback.
+- bidding bot heartbeat is written to SQLite as non-secret runtime state so backend reads can expose bot lifecycle independently from choosing the bot snapshot or indexed-orders bid-book feed.
 
 Important:
 

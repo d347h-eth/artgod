@@ -703,7 +703,7 @@ Status: complete.
 - Source own maker identity from bot/runtime state when available, and keep orders fallback honest when it cannot know the wallet.
 - Keep all bot decision semantics inside the runtime; UI consumes read models only.
 - Connect own bid rows to declared jobs where possible so clicking/editing opens the current job rather than only drafting a new target.
-- Preserve the current bid-book source language: `refresh pace` is `normal` for orders and `competitive` for bot snapshot projection.
+- Show bid-book source as `bid-book feed: indexed orders` or `bid-book feed: bidding bot`, independently from `bidding bot: starting`, `active`, or `inactive` lifecycle state.
 - Keep constraint labels compact and deterministic; no explanatory prose in rows.
 - Reuse Slice 12 target lookup or explicit runtime job association; do not infer editability from maker address alone.
 - Keep row-level state as a read model. The frontend should not reimplement runtime bidding decisions.

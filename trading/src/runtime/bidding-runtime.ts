@@ -42,7 +42,7 @@ import { OpenSeaEventStream } from "../adapters/opensea/open-sea-event-stream.js
 import { OpenSeaMarketEventFactory } from "../adapters/opensea/open-sea-market-event-factory.js";
 import { OpenSeaPolicyWallet } from "../adapters/opensea/open-sea-policy-wallet.js";
 import { TokenBucketRateLimiter } from "../adapters/support/token-bucket-rate-limiter.js";
-import { SqliteTradingBotRuntimeState } from "../adapters/runtime/sqlite-trading-bot-runtime-state.js";
+import { SqliteBiddingBotRuntimeState } from "../adapters/runtime/sqlite-bidding-bot-runtime-state.js";
 import { ViemWethAllowanceApprovalService } from "../adapters/wallet/viem-weth-allowance-approval-service.js";
 import { ViemMakerWethBalanceService } from "../adapters/wallet/viem-maker-weth-balance-service.js";
 import { Bidder } from "../application/use-cases/bidding/bidder.js";
@@ -172,7 +172,8 @@ export async function startBiddingRuntime(
         walletId: params.walletId,
         address: params.makerAddress,
     };
-    const runtimeState = new SqliteTradingBotRuntimeState(
+    const runtimeState = new SqliteBiddingBotRuntimeState(
+        params.biddingMandate.snapshot(),
         params.config.bidding.runtimeHeartbeat.intervalMs,
     );
     // Publish a bootstrapping heartbeat so backend readers can see the bot process is alive but not snapshot-ready.

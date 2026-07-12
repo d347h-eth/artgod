@@ -7,9 +7,10 @@
 		ApiTraitRangeFilter
 	} from '$lib/api-types';
 	import {
-		filterTraitFacetsBySearch,
-		filterTraitFacetValuesBySearch,
-		hasTraitValueSearch,
+		filterTraitFacetsByRootSearch,
+		filterTraitFacetValuesByBucketSearch,
+		filterTraitFacetValuesByRootSearch,
+		hasRootTraitValueSearch,
 		isTraitFacetValueSearchable
 	} from '$lib/trait-facet-search';
 	import {
@@ -60,10 +61,10 @@
 	let activeRangeMap = $derived(
 		new Map(selectedRanges.map((item) => [item.key, { fromValue: item.fromValue, toValue: item.toValue }]))
 	);
-	let rootTraitValueSearchActive = $derived(hasTraitValueSearch(rootTraitValueSearch));
+	let rootTraitValueSearchActive = $derived(hasRootTraitValueSearch(rootTraitValueSearch));
 	let hasSearchableFacets = $derived(facets.some(isTraitFacetValueSearchable));
 	let visibleFacets = $derived(
-		rootTraitValueSearchActive ? filterTraitFacetsBySearch(facets, rootTraitValueSearch) : facets
+		rootTraitValueSearchActive ? filterTraitFacetsByRootSearch(facets, rootTraitValueSearch) : facets
 	);
 
 	$effect(() => {
@@ -159,9 +160,10 @@
 	}
 
 	function visibleFacetValues(facet: ApiTraitFacet): Array<{ value: string; tokenCount: number }> {
-		const search = rootTraitValueSearchActive ? rootTraitValueSearch : traitSearchValue(facet.key);
 		return sortTraitFacetValues(
-			filterTraitFacetValuesBySearch(facet, search),
+			rootTraitValueSearchActive
+				? filterTraitFacetValuesByRootSearch(facet, rootTraitValueSearch)
+				: filterTraitFacetValuesByBucketSearch(facet, traitSearchValue(facet.key)),
 			traitSortMode(facet.key)
 		);
 	}

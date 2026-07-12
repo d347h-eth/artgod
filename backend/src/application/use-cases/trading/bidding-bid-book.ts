@@ -11,9 +11,11 @@ import type {
 import type {
     TradingBiddingBidBookSource,
     TradingBiddingBidBookOwnJobPhase,
+    TradingBiddingAuthorization,
     TradingBiddingBidScopeKind,
     TradingBiddingJobRuntimeBidPosition,
     TradingBiddingJobRuntimeConstraint,
+    TradingBotLifecycleStatus,
     TradingJobStatus,
     TradingTraitCriterion,
     CollectionBiddingBidScopeFilter,
@@ -121,6 +123,8 @@ export type BiddingBidBookOwnStatus = {
 
 export type PersistedBiddingBidBook = {
     state: PersistedBiddingBidBookState;
+    biddingBotStatus: TradingBotLifecycleStatus;
+    biddingAuthorization: TradingBiddingAuthorization | null;
     ownMakerAddress: string | null;
     bids: PersistedBiddingBidBookRow[];
 };
@@ -175,8 +179,15 @@ export type BiddingBidBookRowView = {
 
 export type BiddingBidBookView = {
     state: PersistedBiddingBidBookState;
+    biddingBotStatus: TradingBotLifecycleStatus;
+    biddingAuthorization: BiddingAuthorizationView | null;
     ownMakerAddress: string | null;
     bids: BiddingBidBookRowView[];
+};
+
+// Presents approved bidding limits in both storage and user-facing units.
+export type BiddingAuthorizationView = TradingBiddingAuthorization & {
+    maxUnitBidEth: string | null;
 };
 
 export type BiddingTokenOfferCardView = TokenCard & {
@@ -223,6 +234,17 @@ export function mapPersistedBidBookToView(
 ): BiddingBidBookView {
     return {
         state: bidBook.state,
+        biddingBotStatus: bidBook.biddingBotStatus,
+        biddingAuthorization: bidBook.biddingAuthorization
+            ? {
+                  ...bidBook.biddingAuthorization,
+                  maxUnitBidEth: bidBook.biddingAuthorization.maxUnitBidWei
+                      ? formatEther(
+                            BigInt(bidBook.biddingAuthorization.maxUnitBidWei),
+                        )
+                      : null,
+              }
+            : null,
         ownMakerAddress: bidBook.ownMakerAddress,
         bids: mapPersistedBidRowsToView(bidBook.bids),
     };

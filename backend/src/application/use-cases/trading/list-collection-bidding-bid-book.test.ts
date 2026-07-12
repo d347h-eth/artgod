@@ -3,6 +3,7 @@ import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
 import {
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_SCOPE_KIND,
+    TRADING_BOT_LIFECYCLE_STATUS,
 } from "@artgod/shared/types";
 import { TRAIT_FILTER_DISPLAY_KIND } from "@artgod/shared/types";
 import type {
@@ -364,6 +365,8 @@ function bidBook(bids: PersistedBiddingBidBookRow[]): PersistedBiddingBidBook {
             durationMs: null,
             lastError: null,
         },
+        biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+        biddingAuthorization: null,
         ownMakerAddress: null,
         bids,
     };

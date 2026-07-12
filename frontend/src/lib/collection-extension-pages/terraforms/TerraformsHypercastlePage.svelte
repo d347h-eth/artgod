@@ -115,7 +115,7 @@
 	let levelSurfaces = $state(buildTerraformsHypercastleLevelSurfaces());
 	let paletteCopyStates = $state<Record<string, TerraformsLevelZonePaletteCopyState>>({});
 	let paletteCopyFeedbackTimer: number | null = null;
-	let biomePreviewPalette = $state<readonly string[] | null>(null);
+	let activeZone = $state<TerraformsLevelZoneRow | null>(null);
 	let traitCounts = $state<TerraformsHypercastleTraitCounts>(
 		TERRAFORMS_HYPERCASTLE_EMPTY_TRAIT_COUNTS
 	);
@@ -178,6 +178,7 @@
 	);
 	let showBiomeTable = $derived(detailTitle !== null && biomeRows.length > 0);
 	let showDetailTitle = $derived(detailTitle !== null && !allLevelsSelected);
+	let biomePreviewPalette = $derived(activeZone?.palette ?? null);
 
 	afterNavigate(() => {
 		syncSelectionFromCurrentLocation();
@@ -266,7 +267,7 @@
 
 	function applySelectionState(nextSelection: TerraformsHypercastleSelection): void {
 		selection = nextSelection;
-		biomePreviewPalette = null;
+		activeZone = null;
 		biomeSortColumn = defaultTerraformsBiomeSortColumn();
 		biomeSortDirection = defaultTerraformsBiomeSortDirection();
 		if (typeof nextSelection === 'number') {
@@ -336,12 +337,12 @@
 
 	function applyZonePalette(row: TerraformsLevelZoneRow): void {
 		if (selectedLevelNumber === null) return;
-		biomePreviewPalette = row.palette;
+		activeZone = row;
 		applyZoneSurface(row.zoneIndex);
 	}
 
 	function resetBiomePreviewColors(): void {
-		biomePreviewPalette = null;
+		activeZone = null;
 	}
 
 	async function copyZonePalette(row: TerraformsLevelZoneRow): Promise<void> {
@@ -398,6 +399,7 @@
 		return buildTerraformsZoneTokenHref({
 			basePath,
 			mediaMode: media.selectedMode,
+			levelNumber: selectedLevelNumber,
 			zoneName: row.name
 		});
 	}
@@ -406,6 +408,23 @@
 		return buildTerraformsBiomeTokenHref({
 			basePath,
 			mediaMode: media.selectedMode,
+			levelNumber: selectedLevelNumber,
+			zoneName: activeZone?.name,
+			biomeIndex
+		});
+	}
+
+	function zoneTokenFilterLabel(row: TerraformsLevelZoneRow): string {
+		return formatTerraformsZoneTokenFilterLabel({
+			levelNumber: selectedLevelNumber,
+			zoneName: row.name
+		});
+	}
+
+	function biomeTokenFilterLabel(biomeIndex: number): string {
+		return formatTerraformsBiomeTokenLabel({
+			levelNumber: selectedLevelNumber,
+			zoneName: activeZone?.name,
 			biomeIndex
 		});
 	}
@@ -533,8 +552,8 @@
 										<a
 											class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.tableLink}
 											href={zoneTokenHref(row)}
-											title={formatTerraformsZoneTokenFilterLabel(row.name)}
-											aria-label={formatTerraformsZoneTokenFilterLabel(row.name)}
+											title={zoneTokenFilterLabel(row)}
+											aria-label={zoneTokenFilterLabel(row)}
 										>
 											{row.name}
 										</a>
@@ -619,8 +638,8 @@
 										<a
 											class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.tableLink}
 											href={biomeTokenHref(row.biomeIndex)}
-											title={formatTerraformsBiomeTokenLabel(row.biomeIndex)}
-											aria-label={formatTerraformsBiomeTokenLabel(row.biomeIndex)}
+											title={biomeTokenFilterLabel(row.biomeIndex)}
+											aria-label={biomeTokenFilterLabel(row.biomeIndex)}
 										>
 											{row.biomeIndex}
 										</a>

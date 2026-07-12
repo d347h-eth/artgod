@@ -10,6 +10,7 @@ import {
 	getTokenDetail
 } from '$lib/backend-api';
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
+import { emptyBiddingBidBook } from '$lib/bidding-empty-state';
 import { parseShowMutedBidBook } from '$lib/bidding-query';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
 import { withQuery } from '$lib/route-paths';
@@ -51,19 +52,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			biddingSettings: defaultBiddingCollectionSettings(),
 			priceTiers: [],
 			traitFilterPresentation: defaultTraitFilterPresentationState(),
-			tokenBiddingBidBook: {
-				state: {
-					source: 'orders',
-					updatedAt: null,
-					snapshotRefreshedAtMs: null,
-					projectedAt: null,
-					rowCount: 0,
-					durationMs: null,
-					lastError: null
-				},
-				ownMakerAddress: null,
-				bids: []
-			},
+			tokenBiddingBidBook: emptyBiddingBidBook(),
 			showMuted: parseShowMutedBidBook(url.searchParams),
 			backPath,
 			backQuery

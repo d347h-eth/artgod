@@ -17,6 +17,14 @@ const BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH = 64;
 // Complete EVM contract-address length required before bootstrap probing starts.
 export const BOOTSTRAP_CONTRACT_ADDRESS_LENGTH = 42;
 
+// Safety guidance shown beside the contract address before any bootstrap probe runs.
+export const BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING =
+	'Only enter a verified, well-known contract address. Do not probe a contract with private or unverified source code. Confirm the address is authentic before continuing.';
+
+// Explicit user acknowledgment required before the bootstrap probe form is enabled.
+export const BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_ACKNOWLEDGEMENT =
+	'I have verified the contract address and want to continue.';
+
 // Contract probe status labels drive bootstrap form flow hints.
 export const BOOTSTRAP_PROBE_STATUS_LABEL = {
 	Enumerable: 'enumerable',

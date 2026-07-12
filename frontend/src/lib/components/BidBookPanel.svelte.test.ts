@@ -7,6 +7,7 @@ import {
 	TRADING_BIDDING_BID_SCOPE_KIND,
 	TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
 	TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
+	TRADING_BOT_LIFECYCLE_STATUS,
 	TRADING_JOB_STATUS
 } from '@artgod/shared/types';
 import type { ApiBiddingBidBook, ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
@@ -68,6 +69,8 @@ describe('BidBookPanel', () => {
 				durationMs: null,
 				lastError: null
 			},
+			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+			biddingAuthorization: null,
 			ownMakerAddress: null,
 			bids: [
 				{
@@ -213,6 +216,8 @@ describe('BidBookPanel', () => {
 				durationMs: null,
 				lastError: null
 			},
+			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+			biddingAuthorization: null,
 			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 			bids: [
 				{
@@ -281,6 +286,8 @@ describe('BidBookPanel', () => {
 				durationMs: null,
 				lastError: null
 			},
+			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+			biddingAuthorization: null,
 			ownMakerAddress: null,
 			bids: [
 				{
@@ -347,6 +354,8 @@ describe('BidBookPanel', () => {
 				durationMs: null,
 				lastError: null
 			},
+			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+			biddingAuthorization: null,
 			ownMakerAddress: null,
 			bids: [BASE_BID]
 		};
@@ -379,6 +388,8 @@ describe('BidBookPanel', () => {
 				durationMs: null,
 				lastError: null
 			},
+			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+			biddingAuthorization: null,
 			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 			bids: [
 				{
@@ -417,6 +428,8 @@ describe('BidBookPanel', () => {
 				durationMs: null,
 				lastError: null
 			},
+			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+			biddingAuthorization: null,
 			ownMakerAddress: null,
 			bids: [
 				{
@@ -456,6 +469,8 @@ describe('BidBookPanel', () => {
 				durationMs: null,
 				lastError: null
 			},
+			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+			biddingAuthorization: null,
 			ownMakerAddress: null,
 			bids: [
 				{
@@ -550,6 +565,8 @@ describe('BidBookPanel', () => {
 				durationMs: null,
 				lastError: null
 			},
+			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+			biddingAuthorization: null,
 			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 			bids: [
 				{
@@ -655,6 +672,8 @@ describe('BidBookPanel', () => {
 				durationMs: null,
 				lastError: null
 			},
+			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+			biddingAuthorization: null,
 			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 			bids: [activeIntent]
 		};
@@ -743,6 +762,8 @@ describe('BidBookPanel', () => {
 				durationMs: null,
 				lastError: null
 			},
+			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+			biddingAuthorization: null,
 			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 			bids: [
 				{
@@ -852,6 +873,8 @@ describe('BidBookPanel', () => {
 				durationMs: null,
 				lastError: null
 			},
+			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+			biddingAuthorization: null,
 			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 			bids: [cancelingIntent, failedIntent, replacingIntent, cancelledIntent]
 		};
@@ -887,6 +910,8 @@ describe('BidBookPanel', () => {
 				durationMs: null,
 				lastError: null
 			},
+			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+			biddingAuthorization: null,
 			ownMakerAddress: null,
 			bids: [{ ...BASE_BID, orderId: '0xclickable-trait' }]
 		};

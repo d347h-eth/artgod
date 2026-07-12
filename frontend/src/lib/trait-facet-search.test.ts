@@ -2,39 +2,35 @@ import { TRAIT_FILTER_DISPLAY_KIND } from '@artgod/shared/types';
 import { describe, expect, it } from 'vitest';
 import type { ApiTraitFacet } from '$lib/api-types';
 import {
-	filterTraitFacetsBySearch,
-	filterTraitFacetValuesBySearch,
-	hasTraitValueSearch,
-	TRAIT_VALUE_SEARCH_MIN_LENGTH,
-	traitValueMatchesSearch
+	filterTraitFacetsByRootSearch,
+	filterTraitFacetValuesByBucketSearch,
+	hasBucketTraitValueSearch,
+	hasRootTraitValueSearch,
+	TRAIT_FACET_BUCKET_SEARCH_MIN_LENGTH,
+	TRAIT_FACET_ROOT_SEARCH_MIN_LENGTH
 } from './trait-facet-search';
 
 describe('trait facet search', () => {
-	it('requires two normalized characters before search becomes active', () => {
-		expect(TRAIT_VALUE_SEARCH_MIN_LENGTH).toBe(2);
-		expect(hasTraitValueSearch('a')).toBe(false);
-		expect(hasTraitValueSearch(' ab ')).toBe(true);
-	});
-
-	it('matches values with normalized substring and wildcard searches', () => {
-		expect(traitValueMatchesSearch('Blue Beanie', ' b ')).toBe(true);
-		expect(traitValueMatchesSearch('Blue Beanie', ' bea ')).toBe(true);
-		expect(traitValueMatchesSearch('Blue Beanie', 'blue*')).toBe(true);
-		expect(traitValueMatchesSearch('Blue Beanie', 'green*')).toBe(false);
+	it('keeps root and bucket search activation thresholds independent', () => {
+		expect(TRAIT_FACET_ROOT_SEARCH_MIN_LENGTH).toBe(2);
+		expect(TRAIT_FACET_BUCKET_SEARCH_MIN_LENGTH).toBe(1);
+		expect(hasRootTraitValueSearch('a')).toBe(false);
+		expect(hasRootTraitValueSearch(' ab ')).toBe(true);
+		expect(hasBucketTraitValueSearch(' b ')).toBe(true);
 	});
 
 	it('filters set-like facet values without searching range facets', () => {
 		const hat = facet('Hat', TRAIT_FILTER_DISPLAY_KIND.Set, ['Beanie', 'Cap']);
 		const level = facet('Level', TRAIT_FILTER_DISPLAY_KIND.Range, ['7']);
 
-	expect(filterTraitFacetValuesBySearch(hat, 'bea')).toEqual([
-		{ value: 'Beanie', tokenCount: 1, marketplaceBiddingSupported: true }
-	]);
-	expect(filterTraitFacetValuesBySearch(hat, 'b')).toEqual([
-		{ value: 'Beanie', tokenCount: 1, marketplaceBiddingSupported: true },
-		{ value: 'Cap', tokenCount: 2, marketplaceBiddingSupported: true }
-	]);
-		expect(filterTraitFacetValuesBySearch(level, '7')).toEqual([]);
+		expect(filterTraitFacetValuesByBucketSearch(hat, 'bea')).toEqual([
+			{ value: 'Beanie', tokenCount: 1, marketplaceBiddingSupported: true }
+		]);
+		expect(filterTraitFacetValuesByBucketSearch(hat, 'b')).toEqual([
+			{ value: 'Beanie', tokenCount: 1, marketplaceBiddingSupported: true }
+		]);
+		expect(filterTraitFacetValuesByBucketSearch(hat, 'blue*')).toEqual([]);
+		expect(filterTraitFacetValuesByBucketSearch(level, '7')).toEqual([]);
 	});
 
 	it('filters root-level facet buckets to matching set-like traits only', () => {
@@ -44,8 +40,15 @@ describe('trait facet search', () => {
 			facet('Level', TRAIT_FILTER_DISPLAY_KIND.Range, ['7'])
 		];
 
-		expect(filterTraitFacetsBySearch(facets, 'bl').map((item) => item.key)).toEqual(['Background']);
-		expect(filterTraitFacetsBySearch(facets, '').map((item) => item.key)).toEqual([
+		expect(filterTraitFacetsByRootSearch(facets, 'bl').map((item) => item.key)).toEqual([
+			'Background'
+		]);
+		expect(filterTraitFacetsByRootSearch(facets, 'b').map((item) => item.key)).toEqual([
+			'Hat',
+			'Background',
+			'Level'
+		]);
+		expect(filterTraitFacetsByRootSearch(facets, '').map((item) => item.key)).toEqual([
 			'Hat',
 			'Background',
 			'Level'
@@ -53,7 +56,8 @@ describe('trait facet search', () => {
 	});
 
 	it('treats whitespace-only root searches as empty', () => {
-		expect(hasTraitValueSearch('   ')).toBe(false);
+		expect(hasRootTraitValueSearch('   ')).toBe(false);
+		expect(hasBucketTraitValueSearch('   ')).toBe(false);
 	});
 });
 

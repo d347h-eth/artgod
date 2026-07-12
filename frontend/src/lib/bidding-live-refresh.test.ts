@@ -14,7 +14,7 @@ describe('bidding live refresh', () => {
 		vi.unstubAllGlobals();
 	});
 
-	it('uses the faster cadence for competitive bot snapshots', () => {
+	it('uses the faster cadence for bidding-bot snapshots', () => {
 		expect(biddingBidBookLivePollIntervalMs(TRADING_BIDDING_BID_BOOK_SOURCE.Orders)).toBe(
 			DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG.normalPollMs
 		);

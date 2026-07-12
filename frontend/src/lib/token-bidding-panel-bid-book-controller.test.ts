@@ -5,7 +5,8 @@ import {
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	TRADING_BIDDING_BID_BOOK_PRICE_KIND,
 	TRADING_BIDDING_BID_BOOK_SOURCE,
-	TRADING_BIDDING_BID_SCOPE_KIND
+	TRADING_BIDDING_BID_SCOPE_KIND,
+	TRADING_BOT_LIFECYCLE_STATUS
 } from '@artgod/shared/types';
 import type {
 	ApiBiddingBidBook,
@@ -170,6 +171,8 @@ function testBidBook(bids: ApiBiddingBidBookRow[]): ApiBiddingBidBook {
 			durationMs: null,
 			lastError: null
 		},
+		biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+		biddingAuthorization: null,
 		ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 		bids
 	};
