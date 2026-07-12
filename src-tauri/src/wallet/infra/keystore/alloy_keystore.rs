@@ -105,6 +105,12 @@ fn decrypt_wallet_key(
 ) -> Result<WalletPrivateKey, AlloyKeystoreError> {
     let signer = PrivateKeySigner::decrypt_keystore(&wallet.keystore_path, passphrase.as_bytes())
         .map_err(|_| AlloyKeystoreError::UnlockRejected)?;
+    let decrypted_address = WalletAddress::from_alloy(signer.address());
+
+    // Bind decrypted key material to the canonical wallet identity before returning it.
+    if !wallet.metadata.matches_address(&decrypted_address) {
+        return Err(AlloyKeystoreError::WalletAddressMismatch);
+    }
     Ok(WalletPrivateKey::new(signer.to_bytes().0))
 }
 
@@ -179,6 +185,8 @@ pub enum AlloyKeystoreError {
     InvalidPath { path: String },
     #[error("Wallet passphrase was rejected or the keystore is unreadable")]
     UnlockRejected,
+    #[error("Wallet keystore address does not match stored wallet metadata")]
+    WalletAddressMismatch,
     #[error("Wallet keystore operation failed: {message}")]
     IoFailure { message: String },
     #[error("Wallet keystore document is invalid: {message}")]
@@ -193,6 +201,7 @@ mod tests {
 
     const FOUNDRY_FIXTURE_PASSWORD: &str = "keystorepassword";
     const FOUNDRY_FIXTURE_ADDRESS: &str = "0xec554aeafe75601aaab43bd4621a22284db566c2";
+    const MISMATCHED_FIXTURE_ADDRESS: &str = "0x0000000000000000000000000000000000000001";
     const TEST_PASSWORD: &str = "correct horse battery staple";
     const TEST_PRIVATE_KEY: [u8; 32] = [0x11; 32];
 
@@ -252,23 +261,45 @@ mod tests {
             )
             .expect("fixture should decrypt");
 
-        assert_eq!(
-            record.metadata.address.normalized(),
-            FOUNDRY_FIXTURE_ADDRESS.to_lowercase()
-        );
-        assert_eq!(private_key.as_bytes().len(), 32);
+        let signer = PrivateKeySigner::from_slice(private_key.as_bytes())
+            .expect("fixture private key should be valid");
+        let decrypted_address = WalletAddress::from_alloy(signer.address());
+        assert!(record.metadata.matches_address(&decrypted_address));
 
         // Prove unlock remains a byte-for-byte read-only operation.
         let decrypted_payload = std::fs::read(fixture_path).expect("fixture should still read");
         assert_eq!(decrypted_payload, original_payload);
     }
 
+    #[test]
+    fn rejects_keystore_when_decrypted_address_differs_from_wallet_metadata() {
+        let source_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/wallet/infra/keystore/fixtures/foundry-keystore-v3.json");
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let fixture_path = temp_dir.path().join("foundry-keystore-v3.json");
+        std::fs::copy(source_path, &fixture_path).expect("fixture should copy");
+        let record = test_wallet_record_with_address(fixture_path, MISMATCHED_FIXTURE_ADDRESS);
+
+        let error = AlloyKeystore
+            .decrypt_wallet(
+                &record,
+                &Zeroizing::new(FOUNDRY_FIXTURE_PASSWORD.to_owned()),
+            )
+            .expect_err("mismatched wallet identity should be rejected");
+
+        assert!(matches!(error, AlloyKeystoreError::WalletAddressMismatch));
+    }
+
     fn test_wallet_record(path: std::path::PathBuf) -> WalletRecord {
+        test_wallet_record_with_address(path, FOUNDRY_FIXTURE_ADDRESS)
+    }
+
+    fn test_wallet_record_with_address(path: std::path::PathBuf, address: &str) -> WalletRecord {
         WalletRecord::new(
             crate::wallet::domain::WalletMetadata::new(
                 crate::wallet::domain::WalletId::new_random(),
                 crate::wallet::domain::WalletLabel::parse("Fixture").unwrap(),
-                crate::wallet::domain::WalletAddress::parse(FOUNDRY_FIXTURE_ADDRESS).unwrap(),
+                crate::wallet::domain::WalletAddress::parse(address).unwrap(),
                 crate::wallet::domain::now_rfc3339(),
             ),
             path,
