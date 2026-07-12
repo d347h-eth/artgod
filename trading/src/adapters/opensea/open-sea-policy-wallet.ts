@@ -115,7 +115,6 @@ export type OpenSeaOfferSigningAuthorization = {
 };
 
 export type OpenSeaPolicyWalletOptions = {
-    makerAddress: string;
     wethAddress: string;
     allowanceCapWei: bigint;
     trustOpenSeaSignedZoneTraitOffers: boolean;
@@ -169,17 +168,12 @@ export class OpenSeaPolicyWallet {
         private readonly options: OpenSeaPolicyWalletOptions,
     ) {
         this.makerAddress = normalizeAddress(
-            options.makerAddress,
-            "configured maker address",
+            signer.address,
+            "typed-data signer",
         );
         this.wethAddress = normalizeAddress(
             options.wethAddress,
             "configured WETH address",
-        );
-        assertAddressEquals(
-            this.signer.address,
-            this.makerAddress,
-            "typed-data signer",
         );
         assertAddressEquals(
             this.wethAddress,
