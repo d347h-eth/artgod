@@ -1,12 +1,15 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
-import {
-	BackendApiError,
-	getTokenBiddingBidBook,
-	getTokenDetail
-} from '$lib/backend-api';
+import { BackendApiError, getTokenBiddingBidBook, getTokenDetail } from '$lib/backend-api';
 import { parseShowMutedBidBook } from '$lib/bidding-query';
-import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
+import {
+	MEDIA_MODE_QUERY_PARAM,
+	MEDIA_PREFERENCE_QUERY_PARAM,
+	MEDIA_VARIANT_QUERY_PARAM,
+	buildTokenMediaQuery,
+	normalizeMediaMode,
+	normalizeMediaPreferenceValue
+} from '$lib/media-mode';
 import { defaultTraitFilterPresentationState } from '$lib/trait-filter-presentation';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -19,7 +22,11 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	}
 
 	const { backPath, backQuery } = normalizeReturnState(url.searchParams);
-	const mediaMode = normalizeMediaMode(url.searchParams.get('media_mode'));
+	const mediaMode = normalizeMediaMode(url.searchParams.get(MEDIA_MODE_QUERY_PARAM));
+	const mediaPreference = normalizeMediaPreferenceValue(
+		url.searchParams.get(MEDIA_PREFERENCE_QUERY_PARAM)
+	);
+	const mediaVariant = normalizeMediaMode(url.searchParams.get(MEDIA_VARIANT_QUERY_PARAM));
 
 	try {
 		// Load token media/details and read-only bid book without exposing bidding job controls.
@@ -29,7 +36,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				PUBLIC_COLLECTION_SCOPE.chainRef,
 				PUBLIC_COLLECTION_SCOPE.collectionRef,
 				params.token_ref,
-				buildMediaModeQuery(mediaMode)
+				buildTokenMediaQuery({ mediaMode, mediaPreference, mediaVariant })
 			),
 			getTokenBiddingBidBook(
 				fetch,
@@ -43,7 +50,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			collection: response.collection,
 			media: response.media,
 			token: response.token,
-			traitFilterPresentation: response.traitFilterPresentation ?? defaultTraitFilterPresentationState(),
+			traitFilterPresentation:
+				response.traitFilterPresentation ?? defaultTraitFilterPresentationState(),
 			tokenBiddingBidBook: biddingBidBookResponse.bidBook,
 			showMuted: parseShowMutedBidBook(url.searchParams),
 			backPath,
@@ -83,12 +91,6 @@ function normalizeReturnState(searchParams: URLSearchParams): {
 		backPath,
 		backQuery: query.toString()
 	};
-}
-
-function buildMediaModeQuery(mediaMode: string | null): URLSearchParams {
-	const query = new URLSearchParams();
-	appendMediaModeParam(query, mediaMode);
-	return query;
 }
 
 function toKitError(cause: unknown): never {

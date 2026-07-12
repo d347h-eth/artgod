@@ -34,6 +34,7 @@
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
+	import type { CollectionMediaPreferenceInput } from '$lib/media-mode';
 	import {
 		collectionBiddingNavigationVisibilityForDeployment,
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -57,6 +58,7 @@
 		selectedTraits,
 		selectedTraitRanges,
 		mediaMode,
+		mediaPreference = null,
 		blockExplorer = getDefaultBlockExplorerConfig()
 	}: {
 		chain: ApiChain | null;
@@ -66,6 +68,7 @@
 		selectedTraits: ApiTokenAttribute[];
 		selectedTraitRanges: ApiTraitRangeFilter[];
 		mediaMode: string | null;
+		mediaPreference?: CollectionMediaPreferenceInput;
 		blockExplorer?: BlockExplorerConfig;
 	} = $props();
 
@@ -124,6 +127,7 @@
 		return buildCollectionNavigation({
 			basePath,
 			mediaMode,
+			mediaPreference,
 			selectedTraits,
 			selectedTraitRanges,
 			token: {
@@ -597,7 +601,12 @@
 	{/snippet}
 	{#snippet headerActions()}
 		{#if collection}
-			<CollectionJumpForm chainRef={chain?.slug ?? ''} basePath={basePath} mediaMode={mediaMode} />
+			<CollectionJumpForm
+				chainRef={chain?.slug ?? ''}
+				basePath={basePath}
+				mediaMode={mediaMode}
+				{mediaPreference}
+			/>
 		{/if}
 		<KeyboardShortcutsHelp {keyboardShortcutsHelp} {blockExplorer} />
 	{/snippet}

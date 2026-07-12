@@ -23,7 +23,6 @@ export type CollectionExtensionNavigationActivityEventTarget = {
 // Extension page targets route to a generic collection extension page host.
 export type CollectionExtensionNavigationPageTarget = CollectionExtensionPageRef & {
 	kind: typeof COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND.ExtensionPage;
-	preserveMediaMode?: boolean;
 };
 
 // Extension navigation targets can grow with collection-page route targets later.
@@ -60,9 +59,10 @@ export type CollectionExtensionNavigationRegistrar = {
 	) => void;
 };
 
-type RegisteredCollectionExtensionNavigationGroup = CollectionExtensionNavigationGroupRegistration & {
-	registrationIndex: number;
-};
+type RegisteredCollectionExtensionNavigationGroup =
+	CollectionExtensionNavigationGroupRegistration & {
+		registrationIndex: number;
+	};
 
 const COLLECTION_EXTENSION_NAVIGATION_DEFAULT_ORDER = 1000;
 let nextRegistrationIndex = 0;
@@ -94,13 +94,17 @@ export function resolveCollectionExtensionNavigationGroups(input: {
 	collectionExtensions?: readonly ApiCollectionExtensionSummary[];
 }): CollectionExtensionNavigationGroup[] {
 	const availableActivityEvents = new Set(input.activityEventFeeds.map(activityEventKey));
-	const availableExtensions = new Set(input.collectionExtensions?.map((extension) => extension.key) ?? []);
+	const availableExtensions = new Set(
+		input.collectionExtensions?.map((extension) => extension.key) ?? []
+	);
 	return [...collectionNavigationGroupsById.values()]
 		.sort(compareNavigationGroups)
 		.map((group) => ({
 			id: group.id,
 			label: group.label,
-			tabs: group.tabs.filter((tab) => tabIsAvailable(tab, availableActivityEvents, availableExtensions))
+			tabs: group.tabs.filter((tab) =>
+				tabIsAvailable(tab, availableActivityEvents, availableExtensions)
+			)
 		}))
 		.filter((group) => group.tabs.length > 0);
 }
@@ -138,7 +142,9 @@ function tabIsAvailable(
 		case COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND.ActivityExtensionEvent:
 			return availableActivityEvents.has(activityEventKey(tab.target.event));
 		case COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND.ExtensionPage:
-			return availableExtensions.has(tab.target.extensionKey) && hasCollectionExtensionPage(tab.target);
+			return (
+				availableExtensions.has(tab.target.extensionKey) && hasCollectionExtensionPage(tab.target)
+			);
 	}
 }
 

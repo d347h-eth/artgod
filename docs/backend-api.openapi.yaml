@@ -275,12 +275,12 @@ paths:
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/MediaMode"
+                - $ref: "#/components/parameters/MediaPreference"
                 - $ref: "#/components/parameters/ActivityKindFilter"
                 - $ref: "#/components/parameters/ExtensionEventFilter"
                 - $ref: "#/components/parameters/ActivityTokenIdFilter"
                 - $ref: "#/components/parameters/ActivityMakerFilter"
                 - $ref: "#/components/parameters/ActivityContentHashFilter"
-                - $ref: "#/components/parameters/MediaMode"
                 - $ref: "#/components/parameters/Limit"
                 - $ref: "#/components/parameters/Cursor"
                 - name: traits
@@ -348,6 +348,7 @@ paths:
                 - $ref: "#/components/parameters/Limit"
                 - $ref: "#/components/parameters/Cursor"
                 - $ref: "#/components/parameters/MediaMode"
+                - $ref: "#/components/parameters/MediaPreference"
                 - name: token_status
                   in: query
                   required: false
@@ -707,6 +708,8 @@ paths:
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/MediaMode"
+                - $ref: "#/components/parameters/MediaPreference"
                 - $ref: "#/components/parameters/BidScopeFilter"
                 - $ref: "#/components/parameters/BiddingTraitJoinMode"
                 - $ref: "#/components/parameters/Limit"
@@ -1164,6 +1167,7 @@ paths:
                 - $ref: "#/components/parameters/TokenRef"
                 - $ref: "#/components/parameters/ActivityKindFilter"
                 - $ref: "#/components/parameters/MediaMode"
+                - $ref: "#/components/parameters/MediaPreference"
                 - $ref: "#/components/parameters/Limit"
                 - $ref: "#/components/parameters/Cursor"
             responses:
@@ -1304,6 +1308,8 @@ paths:
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/TokenRef"
                 - $ref: "#/components/parameters/MediaMode"
+                - $ref: "#/components/parameters/MediaPreference"
+                - $ref: "#/components/parameters/MediaVariant"
             responses:
                 "200":
                     description: Token detail with animation_url and trait rarity stats
@@ -1324,16 +1330,19 @@ paths:
             summary: Get token preview payload for the modal
             description: |
                 Lightweight token media payload used by the token preview modal.
-                Returns only media-mode state plus `tokenId`, `image`, and `animationUrl`.
+                Returns only media source, preference, and variant state plus `tokenId`,
+                `image`, and `animationUrl`.
             operationId: getTokenPreview
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/TokenRef"
                 - $ref: "#/components/parameters/MediaMode"
+                - $ref: "#/components/parameters/MediaPreference"
+                - $ref: "#/components/parameters/MediaVariant"
             responses:
                 "200":
-                    description: Token preview payload for the selected media mode
+                    description: Token preview payload for the selected media source and variant
                     content:
                         application/json:
                             schema:
@@ -1745,12 +1754,30 @@ components:
             in: query
             required: false
             schema:
+                $ref: "#/components/schemas/CollectionMediaModeKey"
+            description: |
+                Token media source.
+                `snapshot` uses locally stored canonical or extension-provided media.
+                `live` requests current media from the collection contract when supported.
+        MediaPreference:
+            name: media_preference
+            in: query
+            required: false
+            schema:
+                $ref: "#/components/schemas/CollectionMediaPreferenceValue"
+            description: |
+                Extension-owned binary media preference.
+                `enabled` activates the extension's preferred-media behavior and `disabled`
+                deactivates it. A missing value uses the response preference's `defaultEnabled` value.
+        MediaVariant:
+            name: media_variant
+            in: query
+            required: false
+            schema:
                 type: string
             description: |
-                Extension-driven media mode.
-                `snapshot` requests canonical token media.
-                `artifact` requests extension-provided media when available.
-                Unsupported or missing artifact media falls back to canonical token media.
+                Explicit token media variant selected from the response's `availableVariants`.
+                Supported only by token detail and preview endpoints.
         BidScopeFilter:
             name: bid_scope
             in: query
@@ -4119,7 +4146,38 @@ components:
                 totalPages:
                     type: integer
 
+        CollectionMediaModeKey:
+            type: string
+            description: Extension-open media mode key; current token source examples include snapshot and live.
+            example: snapshot
+
         CollectionMediaMode:
+            type: object
+            required: [key, label]
+            additionalProperties: false
+            properties:
+                key:
+                    $ref: "#/components/schemas/CollectionMediaModeKey"
+                label:
+                    type: string
+
+        CollectionMediaPreferenceValue:
+            type: string
+            enum: [enabled, disabled]
+
+        CollectionMediaPreference:
+            type: object
+            required: [label, enabled, defaultEnabled]
+            additionalProperties: false
+            properties:
+                label:
+                    type: string
+                enabled:
+                    type: boolean
+                defaultEnabled:
+                    type: boolean
+
+        TokenMediaVariantOption:
             type: object
             required: [key, label]
             additionalProperties: false
@@ -4131,17 +4189,58 @@ components:
 
         CollectionMediaState:
             type: object
-            required: [selectedMode, defaultMode, availableModes]
+            required: [selectedMode, defaultMode, availableModes, preference]
             additionalProperties: false
             properties:
                 selectedMode:
-                    type: string
+                    $ref: "#/components/schemas/CollectionMediaModeKey"
                 defaultMode:
-                    type: string
+                    $ref: "#/components/schemas/CollectionMediaModeKey"
                 availableModes:
                     type: array
                     items:
                         $ref: "#/components/schemas/CollectionMediaMode"
+                preference:
+                    nullable: true
+                    allOf:
+                        - $ref: "#/components/schemas/CollectionMediaPreference"
+
+        TokenMediaState:
+            type: object
+            required:
+                [
+                    selectedMode,
+                    defaultMode,
+                    availableModes,
+                    preference,
+                    selectedVariant,
+                    defaultVariant,
+                    availableVariants,
+                ]
+            additionalProperties: false
+            properties:
+                selectedMode:
+                    $ref: "#/components/schemas/CollectionMediaModeKey"
+                defaultMode:
+                    $ref: "#/components/schemas/CollectionMediaModeKey"
+                availableModes:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/CollectionMediaMode"
+                preference:
+                    nullable: true
+                    allOf:
+                        - $ref: "#/components/schemas/CollectionMediaPreference"
+                selectedVariant:
+                    type: string
+                    nullable: true
+                defaultVariant:
+                    type: string
+                    nullable: true
+                availableVariants:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/TokenMediaVariantOption"
 
         GetCollectionDetailResponse:
             type: object
@@ -4465,7 +4564,7 @@ components:
                 collection:
                     $ref: "#/components/schemas/CollectionListItem"
                 media:
-                    $ref: "#/components/schemas/CollectionMediaState"
+                    $ref: "#/components/schemas/TokenMediaState"
                 token:
                     $ref: "#/components/schemas/TokenDetail"
 
@@ -4475,7 +4574,7 @@ components:
             additionalProperties: false
             properties:
                 media:
-                    $ref: "#/components/schemas/CollectionMediaState"
+                    $ref: "#/components/schemas/TokenMediaState"
                 token:
                     $ref: "#/components/schemas/TokenPreview"
 
@@ -4489,7 +4588,7 @@ components:
                 collection:
                     $ref: "#/components/schemas/CollectionListItem"
                 media:
-                    $ref: "#/components/schemas/CollectionMediaState"
+                    $ref: "#/components/schemas/TokenMediaState"
                 token:
                     $ref: "#/components/schemas/TokenDetail"
                 activities:

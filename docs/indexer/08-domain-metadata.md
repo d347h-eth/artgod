@@ -159,7 +159,11 @@ The first embedded extension, `terraforms`, shadows the metadata path in a very 
 - real-token artifact refresh atomically writes the real token's extension artifacts and `Minted=true` traits while recording a durable retirement for the matching synthetic id
 - delayed synthetic task retries no-op after that retirement marker instead of recreating the synthetic row
 
-The resulting extension artifact row is then used later by backend read paths to override effective `image` and `animationUrl` while leaving canonical `token_metadata` untouched.
+The resulting extension artifact rows become token-local choices under the
+backend's snapshot media source. The read path can prefer or explicitly select
+one of them to override effective `image` and `animationUrl` while leaving
+canonical `token_metadata` untouched. Live renderer requests do not mutate or
+reuse these artifact rows.
 
 ## Failure Behavior
 

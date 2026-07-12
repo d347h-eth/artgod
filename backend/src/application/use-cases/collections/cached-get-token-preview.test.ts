@@ -11,10 +11,29 @@ import type {
 import { MemoryQueryCache } from "../../../infra/cache/memory.js";
 import { QUERY_CACHE_NAMESPACES } from "../../../ports/query-cache.js";
 import {
+    COLLECTION_MEDIA_MODE_OPTIONS,
+    COLLECTION_MEDIA_MODES,
+    COLLECTION_MEDIA_PREFERENCE_VALUES,
+} from "@artgod/shared/extensions";
+import {
     getCurrentQueryCacheDebugInfo,
     QUERY_CACHE_DEBUG_STATUSES,
     runWithQueryCacheDebugContext,
 } from "../../../utils/query-cache-debug.js";
+
+// Extension-neutral variant fixtures exercise cache identity without Terraforms vocabulary.
+const TEST_MEDIA_VARIANTS = {
+    Preferred: "preferred",
+    Alternate: "alternate",
+    Current: "current",
+} as const;
+
+// Extension-neutral source fixture keeps the generic cache test out of extension domains.
+const TEST_EXTENSION_MEDIA_MODE = "extension-mode";
+const TEST_EXTENSION_MEDIA_OPTION = {
+    key: TEST_EXTENSION_MEDIA_MODE,
+    label: "extension",
+};
 
 describe("CachedGetTokenPreview", () => {
     afterEach(() => {
@@ -58,11 +77,24 @@ describe("CachedGetTokenPreview", () => {
             getTokenPreview: vi.fn(() =>
                 createPreviewOutput({
                     media: {
-                        selectedMode: "snapshot",
-                        defaultMode: "artifact",
+                        selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+                        defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
                         availableModes: [
-                            { key: "artifact", label: "artifact" },
-                            { key: "snapshot", label: "snapshot" },
+                            COLLECTION_MEDIA_MODE_OPTIONS.Snapshot,
+                            TEST_EXTENSION_MEDIA_OPTION,
+                        ],
+                        preference: null,
+                        selectedVariant: TEST_MEDIA_VARIANTS.Alternate,
+                        defaultVariant: TEST_MEDIA_VARIANTS.Preferred,
+                        availableVariants: [
+                            {
+                                key: TEST_MEDIA_VARIANTS.Preferred,
+                                label: "preferred",
+                            },
+                            {
+                                key: TEST_MEDIA_VARIANTS.Alternate,
+                                label: "alternate",
+                            },
                         ],
                     },
                 }),
@@ -75,7 +107,9 @@ describe("CachedGetTokenPreview", () => {
         });
 
         runWithQueryCacheDebugContext(() => {
-            cached.getTokenPreview(createInput({ mediaMode: "snapshot" }));
+            cached.getTokenPreview(
+                createInput({ mediaMode: COLLECTION_MEDIA_MODES.Snapshot }),
+            );
             expect(getCurrentQueryCacheDebugInfo()).toEqual({
                 status: QUERY_CACHE_DEBUG_STATUSES.Bypass,
                 ageMs: null,
@@ -83,7 +117,9 @@ describe("CachedGetTokenPreview", () => {
             });
         });
         runWithQueryCacheDebugContext(() => {
-            cached.getTokenPreview(createInput({ mediaMode: "snapshot" }));
+            cached.getTokenPreview(
+                createInput({ mediaMode: COLLECTION_MEDIA_MODES.Snapshot }),
+            );
             expect(getCurrentQueryCacheDebugInfo().status).toBe(
                 QUERY_CACHE_DEBUG_STATUSES.Bypass,
             );
@@ -94,19 +130,24 @@ describe("CachedGetTokenPreview", () => {
 
     it("bypasses stale entries whose response media does not match the request", () => {
         const cache = new MemoryQueryCache({ maxEntries: 8 });
-        const liveInput = createInput({ mediaMode: "live" });
+        const liveInput = createInput({ mediaMode: TEST_EXTENSION_MEDIA_MODE });
         const liveKey = buildTokenPreviewDefaultQueryCacheKey(liveInput);
         cache.set(
             QUERY_CACHE_NAMESPACES.TokenPreviewDefault,
             liveKey,
             createPreviewOutput({
                 media: {
-                    selectedMode: "live",
-                    defaultMode: "artifact",
+                    selectedMode: TEST_EXTENSION_MEDIA_MODE,
+                    defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
                     availableModes: [
-                        { key: "artifact", label: "artifact" },
-                        { key: "snapshot", label: "snapshot" },
-                        { key: "live", label: "live" },
+                        COLLECTION_MEDIA_MODE_OPTIONS.Snapshot,
+                        TEST_EXTENSION_MEDIA_OPTION,
+                    ],
+                    preference: null,
+                    selectedVariant: TEST_MEDIA_VARIANTS.Current,
+                    defaultVariant: TEST_MEDIA_VARIANTS.Current,
+                    availableVariants: [
+                        { key: TEST_MEDIA_VARIANTS.Current, label: "current" },
                     ],
                 },
             }),
@@ -114,12 +155,17 @@ describe("CachedGetTokenPreview", () => {
         );
         const output = createPreviewOutput({
             media: {
-                selectedMode: "live",
-                defaultMode: "artifact",
+                selectedMode: TEST_EXTENSION_MEDIA_MODE,
+                defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
                 availableModes: [
-                    { key: "artifact", label: "artifact" },
-                    { key: "snapshot", label: "snapshot" },
-                    { key: "live", label: "live" },
+                    COLLECTION_MEDIA_MODE_OPTIONS.Snapshot,
+                    TEST_EXTENSION_MEDIA_OPTION,
+                ],
+                preference: null,
+                selectedVariant: TEST_MEDIA_VARIANTS.Current,
+                defaultVariant: TEST_MEDIA_VARIANTS.Current,
+                availableVariants: [
+                    { key: TEST_MEDIA_VARIANTS.Current, label: "current" },
                 ],
             },
         });
@@ -236,12 +282,17 @@ describe("CachedGetTokenPreview", () => {
             warmupConcurrency: 2,
         });
 
-        cached.getTokenPreview(createInput({ tokenRef: "1" }));
+        cached.getTokenPreview(
+            createInput({
+                tokenRef: "1",
+                mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+            }),
+        );
         cached.warmTokenPreviews({
             chainRef: "ethereum",
             collectionRef: "terraforms",
             tokenRefs: ["1", "2", "2"],
-            mediaMode: "artifact",
+            mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
         });
 
         await vi.runAllTimersAsync();
@@ -250,7 +301,10 @@ describe("CachedGetTokenPreview", () => {
             cache.getEntry<GetTokenPreviewOutput>(
                 QUERY_CACHE_NAMESPACES.TokenPreviewDefault,
                 buildTokenPreviewDefaultQueryCacheKey(
-                    createInput({ tokenRef: "2", mediaMode: "artifact" }),
+                    createInput({
+                        tokenRef: "2",
+                        mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+                    }),
                 ),
             )?.value.token.tokenId,
         ).toBe("2");
@@ -264,10 +318,12 @@ describe("token preview default query cache helpers", () => {
                 chainRef: "Ethereum",
                 collectionRef: "Terraforms",
                 tokenRef: "7710",
-                mediaMode: "Artifact",
+                mediaMode: "Snapshot",
+                mediaPreference: COLLECTION_MEDIA_PREFERENCE_VALUES.Enabled,
+                mediaVariant: TEST_MEDIA_VARIANTS.Preferred.toUpperCase(),
             }),
         ).toBe(
-            "chain=ethereum|collection=terraforms|token=7710|mode=artifact",
+            "chain=ethereum|collection=terraforms|token=7710|mode=snapshot|preference=enabled|variant=preferred",
         );
     });
 
@@ -279,11 +335,24 @@ describe("token preview default query cache helpers", () => {
             isTokenPreviewDefaultCacheEligible(
                 createPreviewOutput({
                     media: {
-                        selectedMode: "snapshot",
-                        defaultMode: "artifact",
+                        selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+                        defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
                         availableModes: [
-                            { key: "artifact", label: "artifact" },
-                            { key: "snapshot", label: "snapshot" },
+                            COLLECTION_MEDIA_MODE_OPTIONS.Snapshot,
+                            TEST_EXTENSION_MEDIA_OPTION,
+                        ],
+                        preference: null,
+                        selectedVariant: TEST_MEDIA_VARIANTS.Alternate,
+                        defaultVariant: TEST_MEDIA_VARIANTS.Preferred,
+                        availableVariants: [
+                            {
+                                key: TEST_MEDIA_VARIANTS.Preferred,
+                                label: "preferred",
+                            },
+                            {
+                                key: TEST_MEDIA_VARIANTS.Alternate,
+                                label: "alternate",
+                            },
                         ],
                     },
                 }),
@@ -299,7 +368,6 @@ function createInput(
         chainRef: "ethereum",
         collectionRef: "terraforms",
         tokenRef: "7710",
-        mediaMode: "artifact",
         ...overrides,
     };
 }
@@ -309,11 +377,18 @@ function createPreviewOutput(
 ): GetTokenPreviewOutput {
     return {
         media: {
-            selectedMode: "artifact",
-            defaultMode: "artifact",
+            selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+            defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
             availableModes: [
-                { key: "artifact", label: "artifact" },
-                { key: "snapshot", label: "snapshot" },
+                COLLECTION_MEDIA_MODE_OPTIONS.Snapshot,
+                TEST_EXTENSION_MEDIA_OPTION,
+            ],
+            preference: null,
+            selectedVariant: TEST_MEDIA_VARIANTS.Preferred,
+            defaultVariant: TEST_MEDIA_VARIANTS.Preferred,
+            availableVariants: [
+                { key: TEST_MEDIA_VARIANTS.Preferred, label: "preferred" },
+                { key: TEST_MEDIA_VARIANTS.Alternate, label: "alternate" },
             ],
         },
         token: {

@@ -194,7 +194,12 @@ That toolbar is local content chrome, not page chrome. It is the correct place f
 - results summary
 - `load previous`
 - display mode tabs (`grid` / `table`)
-- media mode tabs (`artifact` / `snapshot` / future extension modes)
+- media source tabs (`snapshot` / extension-provided sources such as `live`)
+- an extension-provided media preference toggle when the collection exposes one
+
+Keep the source tabs and preference toggle in the same horizontal control group
+with a visible gap between them. The preference must not create a new toolbar row
+or push the token results downward.
 
 Do not name these inner toolbars `panel-top-actions`; reserve that name for page-level action rows owned by `CollectionPageLayout`.
 
@@ -215,7 +220,7 @@ Do not name these inner toolbars `panel-top-actions`; reserve that name for page
 - Component/class family: `.secondary-tabs`
 - Scope:
     - token display mode
-    - token media mode
+    - token media source
     - bid scope filters
 - Visual contract:
     - active/selected: orange
@@ -584,30 +589,99 @@ Pricing rules:
 - switching back to manual keeps the last resolved values for reuse
 - collection settings may switch tier selection from inline buttons to a dropdown when a collection has many tiers
 
-## Media Mode State
+## Media Selection State
 
-Collection media selection is URL-driven and extension-aware.
+Collection media selection is URL-driven and extension-aware. Source,
+preference, and token-local variant are separate concepts:
 
-Rules:
+- `media_mode` selects the collection media source, currently `snapshot` plus
+  extension-provided sources such as Terraforms `live`
+- `media_preference` carries an extension-owned preference; Terraforms uses
+  `enabled|disabled` for `prefer V2`
+- `media_variant` selects one exact media choice for a token response and must
+  not become collection-wide state
 
-- backend still returns a single effective media set per token response
-- collection pages receive `media.selectedMode`, `media.defaultMode`, and `media.availableModes`
-- token browser and holder-token browser expose the page-level media switch in the inner `results-toolbar`
-- token preview modal inherits the current page media mode on open and can cycle modes locally for that token only
-- in token-browser surfaces, token preview modal can step through the current visible token results
-- token detail page honors `media_mode` from the URL on load, then exposes a local floating media switch for page-only inspection
-- `V` cycles to the next media mode in the ordered list
-- when token preview modal is open, `V` affects the modal only
-- when token preview modal is open in token-browser surfaces, `A` / `ArrowLeft` opens the previous token and `D` / `ArrowRight` opens the next token
-- on token detail page, `V` affects only the currently opened token detail media
-- otherwise `V` affects the page-level media mode in token-browser surfaces
-- collection page navigation preserves `media_mode` across:
+Collection-level rules:
+
+- backend returns one effective media set per token response, not all media
+  payloads in parallel
+- collection pages receive `media.selectedMode`, `media.defaultMode`,
+  `media.availableModes`, and nullable `media.preference`
+- token browser and holder-token browser expose source tabs in the inner
+  `results-toolbar`
+- when a preference exists, its toggle follows the source tabs on the same row
+  with approximately one compact source-button width between the groups
+- `prefer V2` is enabled by default; generated URLs omit the default and
+  preserve explicit `media_preference=disabled`
+- media preference is URL state, not a `localStorage` fallback
+- token cards do not perform live renderer calls; live collection browsing keeps
+  their canonical metadata image
+
+Token-level rules:
+
+- token preview and token detail responses add `selectedVariant`,
+  `defaultVariant`, and `availableVariants`
+- token preview opens with the page source and preference, then lets the backend
+  choose the token's initial variant
+- preview controls render source choices first and the available variants for
+  that source in a second row
+- token detail uses the same source-first, variant-second control order
+- changing source clears an explicit variant and reapplies the current media
+  preference to the new source
+- choosing a variant affects only the current token; it does not change the
+  collection browser's source or preference
+- adjacent-token preview keeps source and preference; an explicitly chosen
+  variant is requested for the next token and falls back through that token's
+  backend default when unavailable, while a preference-selected default remains
+  unset in the request so each token resolves independently
+- token-local controls must not render choices that do not exist for that token
+- request failures keep the modal stable and provide a compact retry action
+
+Terraforms-specific selection rules:
+
+- snapshot can expose `V2 artifact`, `V2 lost terrain`, canonical `V2`, and the
+  temporary canonical `V0` approximation
+- canonical V2 requires both canonical animation media and normalized
+  `Version = 2.0`; canonical animation without that trait is labeled V0 because
+  current normalized state cannot distinguish V0 from V1
+- V2 artifact and canonical V2 may both be present and must remain separately
+  selectable
+- canonical preference enabled selects V2 artifact before canonical V2 and
+  canonical V0
+- canonical preference disabled selects canonical V2 before canonical V0 and
+  never auto-selects an artifact
+- V2 lost terrain is exposed only for canonical tokens and is never selected
+  automatically
+- synthetic tokens expose only their V2 artifact, keep it selected regardless
+  of the preference, and do not expose live
+- live exposes explicit V2, V1, and V0 renders from one pinned chain state; it
+  does not use snapshot artifacts or artifact-only canvas overrides
+- preference enabled opens live on V2; preference disabled opens live on the
+  token's owner-selected renderer
+- live preview requests bypass backend/frontend caches and adjacent-token
+  prefetch
+
+Shortcut and navigation rules:
+
+- `V` cycles the token-local variant while token preview or token detail owns
+  focus
+- activity-event previews keep their existing flat extension render-mode cycle
+- when no token-local media surface owns the shortcut, `V` affects the page-level
+  media source in token-browser surfaces
+- when token preview is open in token-browser surfaces, `A` / `ArrowLeft` opens
+  the previous token and `D` / `ArrowRight` opens the next token
+- collection page navigation preserves `media_mode` and `media_preference`
+  across:
     - tokens
     - activities
     - holders
     - holder-token pages
     - token detail
-- pages that do not render token media may still carry `media_mode` forward as navigation state
+- pages that do not render token media may still carry the source and preference
+  forward as navigation state
+- collection navigation does not carry `media_variant`; token detail may accept
+  it as initial token-local URL state, while in-page source/version inspection
+  remains local to the open detail page
 
 ## Pagination Patterns
 

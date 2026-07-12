@@ -3,6 +3,7 @@
 		ApiChain,
 		ApiCollection,
 		ApiCollectionMediaMode,
+		ApiCollectionMediaPreference,
 		ApiTokenCard
 	} from '$lib/api-types';
 	import MarketPriceIcon from '$lib/components/MarketPriceIcon.svelte';
@@ -28,6 +29,7 @@
 		href,
 		selectedMediaMode,
 		availableMediaModes,
+		mediaPreference = null,
 		tokenPreview,
 		adjacentTokenResolver = null,
 		priceLabel = null,
@@ -45,6 +47,7 @@
 		href: string;
 		selectedMediaMode: string;
 		availableMediaModes: ApiCollectionMediaMode[];
+		mediaPreference?: ApiCollectionMediaPreference | null;
 		tokenPreview: TokenPreviewController;
 		adjacentTokenResolver?: TokenPreviewAdjacentResolver | null;
 		priceLabel?: string | null;
@@ -114,6 +117,7 @@
 		image={token.image}
 		{selectedMediaMode}
 		{availableMediaModes}
+		{mediaPreference}
 		{tokenPreview}
 		{adjacentTokenResolver}
 		mode="grid"

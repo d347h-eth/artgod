@@ -224,6 +224,7 @@
 		return buildCollectionNavigation({
 			basePath,
 			mediaMode: media.selectedMode,
+			mediaPreference: media.preference,
 			selectedTraits: activeTraits,
 			selectedTraitRanges: activeTraitRanges,
 			token: {
@@ -258,6 +259,7 @@
 			selectedTraits: traits,
 			selectedTraitRanges: traitRanges,
 			mediaMode: media.selectedMode,
+			mediaPreference: media.preference,
 			cursor,
 			tokenId: filters.tokenId,
 			maker: filters.maker,
@@ -275,7 +277,8 @@
 			basePath: joinPath(basePath, `holders/${encodeURIComponent(address)}`),
 			selectedTraits: [],
 			selectedTraitRanges: [],
-			mediaMode: media.selectedMode
+			mediaMode: media.selectedMode,
+			mediaPreference: media.preference
 		});
 	}
 
@@ -283,7 +286,8 @@
 		return buildTokenDetailHref({
 			basePath: normalizeBasePath(basePath),
 			tokenId,
-			mediaMode: media.selectedMode
+			mediaMode: media.selectedMode,
+			mediaPreference: media.preference
 		});
 	}
 
@@ -662,7 +666,12 @@
 	{/snippet}
 	{#snippet headerActions()}
 		{#if collection}
-			<CollectionJumpForm chainRef={chain?.slug ?? ''} basePath={basePath} mediaMode={media.selectedMode} />
+				<CollectionJumpForm
+					chainRef={chain?.slug ?? ''}
+					basePath={basePath}
+					mediaMode={media.selectedMode}
+					mediaPreference={media.preference}
+				/>
 		{/if}
 		<KeyboardShortcutsHelp {keyboardShortcutsHelp} {blockExplorer} />
 	{/snippet}
@@ -847,7 +856,8 @@
 													token={tokenSummary(activity)}
 													imageOverride={activityPreviewImage(activity)}
 													selectedMediaMode={activityPreviewMode(activity)}
-													availableMediaModes={activityPreviewModes(activity)}
+											availableMediaModes={activityPreviewModes(activity)}
+											mediaPreference={media.preference}
 													previewContext={activityPreviewContext(activity)}
 													tokenPreview={tokenPreview}
 												/>

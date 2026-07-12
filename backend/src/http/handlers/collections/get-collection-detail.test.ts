@@ -4,6 +4,10 @@ import {
     ARTGOD_TRACE_ATTRIBUTE_VALUE,
 } from "@artgod/shared/observability";
 import { TOKEN_BROWSER_STATUS } from "@artgod/shared/types";
+import {
+    COLLECTION_MEDIA_MODES,
+    COLLECTION_MEDIA_QUERY_PARAMS,
+} from "@artgod/shared/extensions";
 import { describe, expect, it } from "vitest";
 import {
     getCollectionDetailSpanAttributes,
@@ -14,7 +18,7 @@ describe("get collection detail span attributes", () => {
     it("summarizes collection request shape without raw filter values", () => {
         const attributes = getCollectionDetailSpanAttributes(
             request(
-                "/api/ethereum/terraforms?limit=250&token_status=all&cursor=opaque&owner=0xabc&traits=Hat:Beanie,Mood:Calm&trait_ranges=Power:3..9&media_mode=artifact",
+                `/api/ethereum/terraforms?limit=250&token_status=all&cursor=opaque&owner=0xabc&traits=Hat:Beanie,Mood:Calm&trait_ranges=Power:3..9&${COLLECTION_MEDIA_QUERY_PARAMS.MediaMode}=${COLLECTION_MEDIA_MODES.Snapshot}`,
             ),
         );
 

@@ -1,10 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
-import {
-	BackendApiError,
-	getCollectionBiddingBidBook,
-	getRuntimeConfig
-} from '$lib/backend-api';
+import { BackendApiError, getCollectionBiddingBidBook, getRuntimeConfig } from '$lib/backend-api';
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import { resolvePreferredCollectionBiddingNavigationHref } from '$lib/bidding-navigation-preferences';
 import {
@@ -12,7 +8,7 @@ import {
 	parseCollectionBiddingTraitFilterJoinMode,
 	parseShowMutedBidBook
 } from '$lib/bidding-query';
-import { normalizeMediaMode } from '$lib/media-mode';
+import { MEDIA_MODE_QUERY_PARAM, normalizeMediaMode } from '$lib/media-mode';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 	PUBLIC_COLLECTION_SCOPE,
@@ -29,7 +25,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
 		throw redirect(307, preferredHref);
 	}
 
-	const mediaMode = normalizeMediaMode(url.searchParams.get('media_mode'));
+	const mediaMode = normalizeMediaMode(url.searchParams.get(MEDIA_MODE_QUERY_PARAM));
 
 	try {
 		// Load bid-book data without exposing bidding job management.
@@ -44,12 +40,12 @@ export const load: PageLoad = async ({ fetch, url }) => {
 		]);
 		return {
 			chain: bidBookResponse.chain,
-				collection: bidBookResponse.collection,
-				biddingSettings: defaultBiddingCollectionSettings(),
-				priceTiers: [],
-				bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh,
-				blockExplorer: runtimeConfigResponse.blockExplorer,
-				bidBook: bidBookResponse.bidBook,
+			collection: bidBookResponse.collection,
+			biddingSettings: defaultBiddingCollectionSettings(),
+			priceTiers: [],
+			bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh,
+			blockExplorer: runtimeConfigResponse.blockExplorer,
+			bidBook: bidBookResponse.bidBook,
 			tokenOfferCards: bidBookResponse.tokenOfferCards,
 			facets: bidBookResponse.traits.facets,
 			media: bidBookResponse.media,

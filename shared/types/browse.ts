@@ -1,6 +1,7 @@
 import type {
     CollectionExtensionKey,
     CollectionMediaPresentation,
+    TokenMediaPresentation,
 } from "../extensions/index.js";
 import type { ActivityExtensionEventFeed } from "./activity-feed.js";
 import type { TraitFilterDisplayKind } from "./customization.js";
@@ -318,3 +319,6 @@ export type TokenCursorPage = ForwardCursorPage<TokenCard> & {
 export type CollectionHolderPage = ForwardCursorPage<CollectionHolder>;
 
 export type CollectionMediaState = CollectionMediaPresentation;
+
+// Token media adds an extension-owned variant choice to the collection source state.
+export type TokenMediaState = TokenMediaPresentation;

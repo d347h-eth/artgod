@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COLLECTION_MEDIA_QUERY_PARAMS } from '@artgod/shared/extensions';
+import { COLLECTION_MEDIA_MODES, COLLECTION_MEDIA_QUERY_PARAMS } from '@artgod/shared/extensions';
 import {
 	buildTerraformsHypercastleSelectionHref,
 	formatTerraformsHypercastleSelectionQueryValue,
@@ -12,7 +12,7 @@ const TEST_HYPERCASTLE_URL = new URL(
 	'https://artgod.test/extensions/terraforms/hypercastle?media_mode=snapshot'
 );
 const TEST_HYPERCASTLE_PATH = '/extensions/terraforms/hypercastle';
-const TEST_MEDIA_MODE = 'snapshot';
+const TEST_MEDIA_MODE = COLLECTION_MEDIA_MODES.Snapshot;
 const TEST_VALID_LEVEL = 12;
 const TEST_UNKNOWN_LEVEL = 99;
 const TEST_INVALID_SELECTION = 'nope';

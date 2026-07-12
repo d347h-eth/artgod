@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+    COLLECTION_MEDIA_MODE_OPTIONS,
+    COLLECTION_MEDIA_MODES,
+} from "@artgod/shared/extensions";
 import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
 import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
 import {
@@ -108,8 +112,7 @@ describe("GetCollectionDetailUseCase observability", () => {
                 expect.objectContaining({
                     name: "backend.collection_detail.trait_facets",
                     attributes: expect.objectContaining({
-                        [ARTGOD_SPAN_ATTRIBUTE.CollectionRangeOnlyKeysCount]:
-                            1,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionRangeOnlyKeysCount]: 1,
                     }),
                 }),
             ]),
@@ -144,9 +147,10 @@ function collection(): CollectionListItem {
 
 function mediaState(): CollectionMediaState {
     return {
-        selectedMode: "snapshot",
-        defaultMode: "snapshot",
-        availableModes: [],
+        selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+        defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+        availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+        preference: null,
     };
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
 	TRADING_BIDDING_AUTHORIZATION_STATUS,
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
@@ -114,16 +115,21 @@ describe('CollectionBiddingView', () => {
 					}
 				],
 				media: {
-					selectedMode: 'artifact',
-					defaultMode: 'artifact',
-					availableModes: [{ key: 'artifact', label: 'artifact' }]
+					selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+					defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+					availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+					preference: {
+						label: 'prefer modern media',
+						enabled: false,
+						defaultEnabled: true
+					}
 				},
 				basePath: '/ethereum/milady',
 				selectedTraits: [{ key: 'Hat', value: 'Beanie' }],
 				selectedTraitRanges: [],
 				bidScope: 'collection',
 				traitJoinMode: 'or',
-				mediaMode: 'artifact'
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot
 			}
 		});
 
@@ -142,10 +148,10 @@ describe('CollectionBiddingView', () => {
 		expect(body).not.toContain('>Hat=Beanie<');
 		expect(body).toContain('placeholder="maker address/.eth"');
 		expect(body).toContain(
-			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0x9999999999999999999999999999999999999999'
+			'/ethereum/milady/bidding?media_mode=snapshot&amp;media_preference=disabled&amp;bid_scope=collection&amp;maker=0x9999999999999999999999999999999999999999'
 		);
 		expect(body).toContain(
-			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+			'/ethereum/milady/bidding?media_mode=snapshot&amp;media_preference=disabled&amp;bid_scope=collection&amp;maker=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 		);
 		expect(body).toContain('>my bids</a>');
 	});
@@ -314,9 +320,10 @@ describe('CollectionBiddingView', () => {
 					}
 				],
 				media: {
-					selectedMode: 'artifact',
-					defaultMode: 'artifact',
-					availableModes: [{ key: 'artifact', label: 'artifact' }]
+					selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+					defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+					availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+					preference: null
 				},
 				basePath: '/ethereum/milady',
 				selectedTraits: [],
@@ -324,7 +331,7 @@ describe('CollectionBiddingView', () => {
 				bidScope: 'token',
 				traitJoinMode: 'or',
 				makerFilter: '0x9999999999999999999999999999999999999999',
-				mediaMode: 'artifact'
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot
 			}
 		});
 
@@ -398,9 +405,10 @@ describe('CollectionBiddingView', () => {
 				},
 				facets: [],
 				media: {
-					selectedMode: 'artifact',
-					defaultMode: 'artifact',
-					availableModes: [{ key: 'artifact', label: 'artifact' }]
+					selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+					defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+					availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+					preference: null
 				},
 				basePath: '/ethereum/milady',
 				selectedTraits: [],
@@ -408,20 +416,20 @@ describe('CollectionBiddingView', () => {
 				bidScope: 'traits',
 				traitJoinMode: 'or',
 				makerFilter: '0x9999999999999999999999999999999999999999',
-				mediaMode: 'artifact'
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot
 			}
 		});
 
 		expect(body).toContain(
 			'<button type="button" class="secondary-tab-active" disabled="">traits</button>'
 		);
-		expect(body).toContain('/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection');
+		expect(body).toContain('/ethereum/milady/bidding?media_mode=snapshot&amp;bid_scope=collection');
 		expect(body).toContain('value="0x9999999999999999999999999999999999999999"');
 		expect(body).toContain(
 			'<button type="button" class="secondary-tab-active" disabled="">my bids</button>'
 		);
 		expect(body).toContain(
-			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0x9999999999999999999999999999999999999999'
+			'/ethereum/milady/bidding?media_mode=snapshot&amp;bid_scope=collection&amp;maker=0x9999999999999999999999999999999999999999'
 		);
 	});
 });

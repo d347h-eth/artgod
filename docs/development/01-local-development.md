@@ -146,6 +146,9 @@ yarn test:bidding:automation
 # Run deterministic public single-collection guardrails; verifies bid books stay visible while local bidding writes stay hidden.
 yarn test:bidding:automation:public
 
+# Run deterministic Terraforms media source, preference, version, retry, and responsive-layout checks.
+yarn test:terraforms:media
+
 # Run deterministic Terraforms Hypercastle page checks with browser probing and screenshot artifacts.
 yarn test:terraforms:hypercastle
 
@@ -159,9 +162,12 @@ yarn test:bidding:attached
 The deterministic suites use `/e2e-harness/collection` routes, do not require
 OpenSea, the bidding bot runtime, or a local SQLite dataset, and are the primary
 coverage for bidding automation and extension-page UI behavior. The Terraforms
-Hypercastle suite mounts the production collection extension page shell with
-fixture data, performs an in-browser SVG/interaction probe, and writes full-page
-default/hover screenshots plus `terraforms-hypercastle-probe.json` under
+media suite exercises the production toolbar, preview modal, and token-detail
+surface at desktop and touch viewports, including live request retries and
+no-cache behavior. The Terraforms Hypercastle suite mounts the production
+collection extension page shell with fixture data, performs an in-browser
+SVG/interaction probe, and writes full-page default/hover screenshots plus
+`terraforms-hypercastle-probe.json` under
 `frontend/test-results/playwright-terraforms-hypercastle/` for visual iteration.
 The attached smoke suite intentionally stays small because it depends on
 whatever local app/data is currently running.
@@ -385,8 +391,12 @@ expensive backend read queries. The current cached paths are:
 
 - the default collection browser request for the public collection page
   (`listed`, first page, no filters)
-- the token preview modal endpoint, default media mode only, with
-  stale-while-revalidate warmup from the default collection page
+- eligible snapshot requests for the token preview modal, keyed by source,
+  preference, and token-local variant, with stale-while-revalidate warmup from
+  the default collection page
+
+Request-time live media is never eligible for backend preview caching or
+frontend adjacent-token prefetch.
 
 Leave it `disabled` for local/admin setups unless you explicitly want that
 behavior.

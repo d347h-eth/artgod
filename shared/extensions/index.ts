@@ -1,12 +1,26 @@
 import { normalizeAddressRef } from "../utils/ref-resolver.js";
 
+// Core collection media sources available without an installed extension.
 export const COLLECTION_MEDIA_MODES = {
     Snapshot: "snapshot",
-    Artifact: "artifact",
 } as const;
 
+// Core media source labels shared by collection and token presentation state.
+export const COLLECTION_MEDIA_MODE_OPTIONS = {
+    Snapshot: { key: COLLECTION_MEDIA_MODES.Snapshot, label: "snapshot" },
+} as const;
+
+// URL query keys that carry collection and token media selection state.
 export const COLLECTION_MEDIA_QUERY_PARAMS = {
     MediaMode: "media_mode",
+    MediaPreference: "media_preference",
+    MediaVariant: "media_variant",
+} as const;
+
+// Generic query values used by extension-owned binary media preferences.
+export const COLLECTION_MEDIA_PREFERENCE_VALUES = {
+    Enabled: "enabled",
+    Disabled: "disabled",
 } as const;
 
 export type CollectionExtensionKey = string;
@@ -14,17 +28,45 @@ export type CollectionExtensionKey = string;
 export type CoreCollectionMediaMode =
     (typeof COLLECTION_MEDIA_MODES)[keyof typeof COLLECTION_MEDIA_MODES];
 
+// Collection media sources remain open so installed extensions can own additional keys.
 export type CollectionMediaMode = CoreCollectionMediaMode | (string & {});
 
+// Describes one user-facing collection media source choice.
 export type CollectionMediaModeOption = {
     key: CollectionMediaMode;
     label: string;
 };
 
+// Serialized query values for an extension-owned binary media preference.
+export type CollectionMediaPreferenceValue =
+    (typeof COLLECTION_MEDIA_PREFERENCE_VALUES)[keyof typeof COLLECTION_MEDIA_PREFERENCE_VALUES];
+
+// Describes the effective optional preference shown on collection media surfaces.
+export type CollectionMediaPreference = {
+    label: string;
+    enabled: boolean;
+    defaultEnabled: boolean;
+};
+
+// Describes one exact media choice available for the current token and source.
+export type TokenMediaVariantOption = {
+    key: string;
+    label: string;
+};
+
+// Collection media state carries only source and optional preference selection.
 export type CollectionMediaPresentation = {
     selectedMode: CollectionMediaMode;
     defaultMode: CollectionMediaMode;
     availableModes: CollectionMediaModeOption[];
+    preference: CollectionMediaPreference | null;
+};
+
+// Token media state adds the exact variant selected for the current token.
+export type TokenMediaPresentation = CollectionMediaPresentation & {
+    selectedVariant: string | null;
+    defaultVariant: string | null;
+    availableVariants: TokenMediaVariantOption[];
 };
 
 export type CollectionExtensionInstall = {

@@ -131,4 +131,4 @@ This deferred plan does not change:
 - discrete/set trait filtering
 - trait template rendering for token cards
 - trait template rendering for activity rows
-- collection extension media modes
+- collection-extension media sources, preferences, or token variants

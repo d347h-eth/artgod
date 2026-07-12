@@ -1,7 +1,8 @@
 import type { Component } from 'svelte';
 import {
 	TERRAFORMS_EXTENSION_EVENT_KEYS,
-	TERRAFORMS_EXTENSION_KEY
+	TERRAFORMS_EXTENSION_KEY,
+	TERRAFORMS_EXTENSION_PAGE_REFS
 } from '@artgod/shared/extensions/terraforms';
 import { describe, expect, it } from 'vitest';
 import {
@@ -157,5 +158,9 @@ describe('resolveCollectionExtensionNavigationGroups', () => {
 		expect(groups[pageGroupIndex].tabs.map((tab) => tab.label)).toEqual([
 			TERRAFORMS_EXTENSION_PAGE_LABELS.Hypercastle
 		]);
+		expect(collectionExtensionNavigationTabPage(groups[pageGroupIndex].tabs[0]!)).toMatchObject({
+			extensionKey: TERRAFORMS_EXTENSION_KEY,
+			pageRef: TERRAFORMS_EXTENSION_PAGE_REFS.Hypercastle
+		});
 	});
 });

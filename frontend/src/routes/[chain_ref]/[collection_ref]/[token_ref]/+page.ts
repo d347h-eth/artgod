@@ -1,6 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
-import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
 	BackendApiError,
 	getCollectionBiddingPriceTiers,
@@ -12,7 +12,14 @@ import {
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import { emptyBiddingBidBook } from '$lib/bidding-empty-state';
 import { parseShowMutedBidBook } from '$lib/bidding-query';
-import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
+import {
+	MEDIA_MODE_QUERY_PARAM,
+	MEDIA_PREFERENCE_QUERY_PARAM,
+	MEDIA_VARIANT_QUERY_PARAM,
+	buildTokenMediaQuery,
+	normalizeMediaMode,
+	normalizeMediaPreferenceValue
+} from '$lib/media-mode';
 import { withQuery } from '$lib/route-paths';
 import { defaultTraitFilterPresentationState } from '$lib/trait-filter-presentation';
 import {
@@ -31,11 +38,18 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 		if (!matchesPublicCollectionRoute(params.chain_ref, params.collection_ref)) {
 			throw error(404, 'Not found');
 		}
-		throw redirect(307, withQuery(publicCollectionTokenDetailPath(params.token_ref), url.searchParams));
+		throw redirect(
+			307,
+			withQuery(publicCollectionTokenDetailPath(params.token_ref), url.searchParams)
+		);
 	}
 
 	const { backPath, backQuery } = normalizeReturnState(url.searchParams);
-	const mediaMode = normalizeMediaMode(url.searchParams.get('media_mode'));
+	const mediaMode = normalizeMediaMode(url.searchParams.get(MEDIA_MODE_QUERY_PARAM));
+	const mediaPreference = normalizeMediaPreferenceValue(
+		url.searchParams.get(MEDIA_PREFERENCE_QUERY_PARAM)
+	);
+	const mediaVariant = normalizeMediaMode(url.searchParams.get(MEDIA_VARIANT_QUERY_PARAM));
 
 	if (IS_ADMIN_FRONTEND_TARGET) {
 		return {
@@ -44,9 +58,11 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			media: {
 				selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
 				defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
-				availableModes: [
-					{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
-				]
+				availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+				preference: null,
+				selectedVariant: null,
+				defaultVariant: null,
+				availableVariants: []
 			},
 			token: null,
 			biddingSettings: defaultBiddingCollectionSettings(),
@@ -73,7 +89,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				params.chain_ref,
 				params.collection_ref,
 				params.token_ref,
-				buildMediaModeQuery(mediaMode)
+				buildTokenMediaQuery({ mediaMode, mediaPreference, mediaVariant })
 			),
 			getTokenBiddingJob(fetch, params.chain_ref, params.collection_ref, params.token_ref),
 			getTokenBiddingBidBook(fetch, params.chain_ref, params.collection_ref, params.token_ref),
@@ -131,12 +147,6 @@ function normalizeReturnState(searchParams: URLSearchParams): {
 		backPath,
 		backQuery: query.toString()
 	};
-}
-
-function buildMediaModeQuery(mediaMode: string | null): URLSearchParams {
-	const query = new URLSearchParams();
-	appendMediaModeParam(query, mediaMode);
-	return query;
 }
 
 function toKitError(cause: unknown): never {

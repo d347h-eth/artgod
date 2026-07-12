@@ -1,5 +1,6 @@
 import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
+import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
@@ -136,7 +137,7 @@ describe('BidBookPanel', () => {
 				bidBook,
 				view: 'trait-demand',
 				basePath: '/ethereum/terraforms',
-				mediaMode: 'artifact'
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot
 			}
 		});
 
@@ -195,7 +196,7 @@ describe('BidBookPanel', () => {
 				view: 'trait-demand',
 				showMuted: true,
 				basePath: '/ethereum/terraforms',
-				mediaMode: 'artifact'
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot
 			}
 		});
 
@@ -268,7 +269,9 @@ describe('BidBookPanel', () => {
 			}
 		});
 
-		expect(body).toMatch(/<tr class="bid-book-own-row">[\s\S]*data-open-sea-order-hash="0xown-low"/);
+		expect(body).toMatch(
+			/<tr class="bid-book-own-row">[\s\S]*data-open-sea-order-hash="0xown-low"/
+		);
 		expect(body).not.toContain('data-open-sea-order-hash="0xother-low"');
 		expect(body).toContain('expand 1');
 		expect(body).not.toContain('>floor</th>');
@@ -330,7 +333,7 @@ describe('BidBookPanel', () => {
 			props: {
 				bidBook,
 				basePath: '/ethereum/terraforms',
-				mediaMode: 'artifact'
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot
 			}
 		});
 
@@ -490,7 +493,7 @@ describe('BidBookPanel', () => {
 			props: {
 				bidBook,
 				basePath: '/ethereum/terraforms',
-				mediaMode: 'artifact',
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 				makerFilterHref: (makerAddress: string) =>
 					`/ethereum/terraforms/bidding?maker=${makerAddress}`,
 				onSelectBid: () => {}
@@ -589,7 +592,7 @@ describe('BidBookPanel', () => {
 				job,
 				showScope: true,
 				basePath: '/ethereum/terraforms',
-				mediaMode: 'artifact'
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot
 			}
 		});
 
@@ -684,7 +687,7 @@ describe('BidBookPanel', () => {
 				job,
 				showScope: true,
 				basePath: '/ethereum/terraforms',
-				mediaMode: 'artifact'
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot
 			}
 		});
 
@@ -787,7 +790,7 @@ describe('BidBookPanel', () => {
 				job,
 				showScope: true,
 				basePath: '/ethereum/terraforms',
-				mediaMode: 'artifact'
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot
 			}
 		});
 
@@ -809,7 +812,7 @@ describe('BidBookPanel', () => {
 				showScope: true,
 				showOwnStateBadges: false,
 				basePath: '/ethereum/terraforms',
-				mediaMode: 'artifact'
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot
 			}
 		});
 
@@ -885,7 +888,7 @@ describe('BidBookPanel', () => {
 				job: null,
 				showScope: true,
 				basePath: '/ethereum/terraforms',
-				mediaMode: 'artifact'
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot
 			}
 		});
 
@@ -921,7 +924,7 @@ describe('BidBookPanel', () => {
 				bidBook,
 				view: 'trait-demand',
 				basePath: '/ethereum/terraforms',
-				mediaMode: 'artifact',
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 				preferredDemandTraitKey: 'Mode',
 				traitValueHref: (trait: { key: string; value: string }) =>
 					`/ethereum/terraforms/bidding?traits=${trait.key}:${trait.value}`

@@ -4,7 +4,7 @@
 		getDefaultBlockExplorerConfig,
 		type BlockExplorerConfig
 	} from '@artgod/shared/config/block-explorer';
-	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+	import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 	import { ACTIVITY_FEED_FILTER_KIND } from '@artgod/shared/types';
 	import CollectionActivitiesView from '$lib/components/CollectionActivitiesView.svelte';
 	import type {
@@ -69,8 +69,9 @@
 			selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
 			defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
 			availableModes: [
-				{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
-			]
+				COLLECTION_MEDIA_MODE_OPTIONS.Snapshot
+			],
+			preference: null
 		}
 	}
 	activities={data?.activities ?? fallbackActivities}

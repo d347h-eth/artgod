@@ -1,9 +1,12 @@
 import {
 	TERRAFORMS_EXTENSION_KEY,
-	TERRAFORMS_EXTENSION_PAGE_REFS
+	TERRAFORMS_EXTENSION_PAGE_REFS,
+	TERRAFORMS_MEDIA_MODE_OPTIONS,
+	TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED,
+	TERRAFORMS_MEDIA_PREFERENCE_LABEL
 } from '@artgod/shared/extensions/terraforms';
 import { getDefaultBlockExplorerConfig } from '@artgod/shared/config/block-explorer';
-import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import type { CollectionExtensionPageLoadResult } from '$lib/collection-extension-pages/page-load';
 
 const TERRAFORMS_E2E_FIXTURE_NOW = '2026-05-24T00:00:00Z';
@@ -34,12 +37,17 @@ export function buildTerraformsExtensionPageE2eData(): CollectionExtensionPageLo
 			activityEventFeeds: []
 		},
 		media: {
-			selectedMode: COLLECTION_MEDIA_MODES.Artifact,
-			defaultMode: COLLECTION_MEDIA_MODES.Artifact,
+			selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+			defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
 			availableModes: [
-				{ key: COLLECTION_MEDIA_MODES.Artifact, label: COLLECTION_MEDIA_MODES.Artifact },
-				{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
-			]
+				COLLECTION_MEDIA_MODE_OPTIONS.Snapshot,
+				TERRAFORMS_MEDIA_MODE_OPTIONS.Live
+			],
+			preference: {
+				label: TERRAFORMS_MEDIA_PREFERENCE_LABEL,
+				enabled: TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED,
+				defaultEnabled: TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED
+			}
 		},
 		basePath: TERRAFORMS_E2E_COLLECTION_BASE_PATH,
 		page: {

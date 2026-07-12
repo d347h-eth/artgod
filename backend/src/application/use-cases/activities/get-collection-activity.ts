@@ -19,6 +19,7 @@ import {
     buildActivityFeedIncludes,
     collectActivityTokenIds,
 } from "./token-presentation-summary.js";
+import type { CollectionMediaPreferenceValue } from "@artgod/shared/extensions";
 
 export type GetCollectionActivityInput = {
     chainRef: string;
@@ -29,6 +30,7 @@ export type GetCollectionActivityInput = {
     traits: TraitFilter[];
     traitRanges: TraitRangeFilter[];
     mediaMode?: string;
+    mediaPreference?: CollectionMediaPreferenceValue;
     tokenId?: string;
     maker?: string;
     contentHash?: string;
@@ -75,6 +77,7 @@ export class GetCollectionActivityUseCase {
                 chainId: number;
                 collectionId: number;
                 mediaMode?: string;
+                mediaPreference?: CollectionMediaPreferenceValue;
             }): CollectionMediaState;
         },
         readonly activityReadPort: {
@@ -104,6 +107,7 @@ export class GetCollectionActivityUseCase {
                 collectionId: number;
                 tokenIds: string[];
                 mediaMode?: string;
+                mediaPreference?: CollectionMediaPreferenceValue;
                 includeListings?: boolean;
             }): TokenCard[];
         },
@@ -152,6 +156,7 @@ export class GetCollectionActivityUseCase {
                     chainId: chain.publicChainId,
                     collectionId: collection.collectionId,
                     mediaMode: input.mediaMode,
+                    mediaPreference: input.mediaPreference,
                 }),
         );
         const activities = this.apm.withSyncSpan(
@@ -159,8 +164,9 @@ export class GetCollectionActivityUseCase {
             {
                 ...activityAttributes,
                 [ARTGOD_SPAN_ATTRIBUTE.ActivityLimit]: input.limit,
-                [ARTGOD_SPAN_ATTRIBUTE.ActivityCursorPresent]:
-                    Boolean(input.cursor),
+                [ARTGOD_SPAN_ATTRIBUTE.ActivityCursorPresent]: Boolean(
+                    input.cursor,
+                ),
                 [ARTGOD_SPAN_ATTRIBUTE.ActivityTraitsCount]:
                     input.traits.length,
                 [ARTGOD_SPAN_ATTRIBUTE.ActivityTraitRangesCount]:
@@ -239,6 +245,7 @@ export class GetCollectionActivityUseCase {
                     collectionId: collection.collectionId,
                     tokenIds: activityTokenIds,
                     mediaMode: media.selectedMode,
+                    mediaPreference: input.mediaPreference,
                 }),
         );
         const eventMediaByActivityId = this.apm.withSyncSpan(

@@ -40,7 +40,9 @@ describe('KeyboardShortcutsHelp', () => {
 
 		expect(body).toContain('keyboard shortcuts');
 		expect(body).toContain('>ABOUT<');
-		expect(body.indexOf(APP_VERSION)).toBeLessThan(body.indexOf('Token Browser Preview Navigation'));
+		expect(body.indexOf(APP_VERSION)).toBeLessThan(
+			body.indexOf('Token Browser Preview Navigation')
+		);
 		expect(body).toContain(
 			'ArtGod is free and copyleft open-source software (AGPL-3.0). There is no funding, no sale, no airdrop, no farming, and no token.'
 		);
@@ -49,6 +51,7 @@ describe('KeyboardShortcutsHelp', () => {
 		expect(body).toContain('https://explorer.example/account/donations.artgod.eth');
 		expect(body).toContain('https://explorer.example/account/artgod.eth');
 		expect(body).toContain('Token Browser Preview Navigation');
+		expect(body).toContain('Token Detail');
 		expect(body).toContain('Collection Navigation');
 		expect(body).toContain('Bidding');
 		expect(body).toContain(APP_VERSION);
@@ -75,10 +78,16 @@ describe('KeyboardShortcutsHelp', () => {
 		expect(body).toContain('hide or show the bidding panel');
 		expect(body).toContain('>C<');
 		expect(body).toContain('clear the current bidding target');
+		expect(body).toContain('switch to the next media source for current token results');
+		expect(body).toContain('switch to the next media version for the current token');
+		expect(body).toContain('switch media version, or event mode for an activity preview');
+		expect(body).not.toContain('switch to the next media mode for current token results');
 		expect(body).not.toContain('>Esc<');
 		expect(body).not.toContain('cycle bidding view');
-		expect(body.indexOf('decrease preview height')).toBeLessThan(
-			body.indexOf('increase preview height')
+		expect(body.indexOf('decrease preview size')).toBeLessThan(
+			body.indexOf('increase preview size')
 		);
+		expect(body).toContain('reset preview size');
+		expect(body).not.toContain('preview height');
 	});
 });

@@ -26,6 +26,7 @@ import {
     parseLimit,
     parseMaker,
     parseMediaMode,
+    parseMediaPreference,
     parseTraits,
     parseTraitRanges,
 } from "../../common/request-query.js";
@@ -41,6 +42,7 @@ export type ListCollectionBiddingBidBookRoute = {
         [PAGINATION_QUERY_PARAMS.Limit]?: string;
         [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Maker]?: string;
         [COLLECTION_MEDIA_QUERY_PARAMS.MediaMode]?: string;
+        [COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference]?: string;
         [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.TraitJoin]?: string;
         [TRAIT_FILTER_QUERY_PARAMS.Traits]?: string | string[];
         [TRAIT_FILTER_QUERY_PARAMS.Trait]?: string | string[];
@@ -90,6 +92,11 @@ export class ListCollectionBiddingBidBookHttpAdapter {
                 mediaMode: parseMediaMode(
                     searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode),
                 ),
+                mediaPreference: parseMediaPreference(
+                    searchParams.get(
+                        COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference,
+                    ),
+                ),
                 limit: parseLimit(
                     searchParams.get(PAGINATION_QUERY_PARAMS.Limit),
                 ),
@@ -108,9 +115,7 @@ export function getCollectionBiddingBidBookSpanAttributes(
     const searchParams = getSearchParams(request);
     return {
         [BIDDING_SPAN_ATTRIBUTE.ScopeFilter]: normalizeScopeFilterAttribute(
-            searchParams.get(
-                COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.BidScope,
-            ),
+            searchParams.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.BidScope),
         ),
         [BIDDING_SPAN_ATTRIBUTE.TraitJoin]: normalizeTraitJoinAttribute(
             searchParams.get(
@@ -132,11 +137,10 @@ export function getCollectionBiddingBidBookSpanAttributes(
             searchParams,
             COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Maker,
         ),
-        [BIDDING_SPAN_ATTRIBUTE.TraitFiltersCount]:
-            countDelimitedQuerySegments(
-                searchParams,
-                [TRAIT_FILTER_QUERY_PARAMS.Traits, TRAIT_FILTER_QUERY_PARAMS.Trait],
-            ),
+        [BIDDING_SPAN_ATTRIBUTE.TraitFiltersCount]: countDelimitedQuerySegments(
+            searchParams,
+            [TRAIT_FILTER_QUERY_PARAMS.Traits, TRAIT_FILTER_QUERY_PARAMS.Trait],
+        ),
         [BIDDING_SPAN_ATTRIBUTE.TraitRangesCount]: countDelimitedQuerySegments(
             searchParams,
             [

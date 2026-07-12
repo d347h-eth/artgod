@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import CollectionDetailView from './CollectionDetailView.svelte';
+
+const TEST_MEDIA = {
+	Source: { Network: 'network-source' },
+	PreferenceLabel: 'always prefer modern media'
+} as const;
 
 describe('CollectionDetailView', () => {
 	it('renders token rows and trait facets', () => {
@@ -27,12 +33,17 @@ describe('CollectionDetailView', () => {
 					updatedAt: '2026-01-01T00:00:00Z'
 				},
 				media: {
-					selectedMode: 'artifact',
-					defaultMode: 'artifact',
+					selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+					defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
 					availableModes: [
-						{ key: 'artifact', label: 'artifact' },
-						{ key: 'snapshot', label: 'snapshot' }
-					]
+						COLLECTION_MEDIA_MODE_OPTIONS.Snapshot,
+						{ key: TEST_MEDIA.Source.Network, label: 'network' }
+					],
+					preference: {
+						label: TEST_MEDIA.PreferenceLabel,
+						enabled: true,
+						defaultEnabled: true
+					}
 				},
 				tokens: {
 					items: [
@@ -81,27 +92,33 @@ describe('CollectionDetailView', () => {
 
 		expect(body).toContain('tokens');
 		expect(body).toContain(
-			'/ethereum/milady/activity?limit=25&amp;kind=sales&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+			'/ethereum/milady/activity?limit=25&amp;kind=sales&amp;media_mode=snapshot&amp;traits=Hat%3ABeanie'
 		);
 		expect(body).toContain(
-			'/ethereum/milady/customization?media_mode=artifact&amp;traits=Hat%3ABeanie'
+			'/ethereum/milady/customization?media_mode=snapshot&amp;traits=Hat%3ABeanie'
 		);
-		expect(body).toContain(
-			'/ethereum/milady/bidding?media_mode=artifact&amp;traits=Hat%3ABeanie'
-		);
+		expect(body).toContain('/ethereum/milady/bidding?media_mode=snapshot&amp;traits=Hat%3ABeanie');
 		expect(body).toContain('explore');
 		expect(body).toContain('asset events');
 		expect(body).toContain('<span class="runtime-tab-active">asks</span>');
 		expect(body).toContain('>offers<');
 		expect(body).toContain('>tokens<');
 		expect(body).toContain(
-			'/ethereum/milady?limit=25&amp;mode=grid&amp;media_mode=artifact&amp;traits=Hat%3ABeanie&amp;token_status=all'
+			'/ethereum/milady?limit=25&amp;mode=grid&amp;media_mode=snapshot&amp;traits=Hat%3ABeanie&amp;token_status=all'
 		);
 		expect(body).toContain('/ethereum/blockspace?collection=milady');
 		expect(body).toContain('placeholder="jump to token #/owner/.eth"');
-		expect(body).toContain('<span class="secondary-tab-active">artifact</span>');
+		expect(body).toContain('class="token-media-controls-group"');
+		expect(body).toContain('aria-label="Token media source"');
+		expect(body).toContain('<span class="secondary-tab-active">snapshot</span>');
+		expect(body).toContain('>network</a>');
+		expect(body).toContain(TEST_MEDIA.PreferenceLabel);
+		expect(body.indexOf('aria-label="Token media source"')).toBeLessThan(
+			body.indexOf(TEST_MEDIA.PreferenceLabel)
+		);
+		expect(body).toContain('aria-pressed="true"');
 		expect(body).toContain(
-			'/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=listed&amp;media_mode=snapshot&amp;traits=Hat%3ABeanie'
+			`/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=listed&amp;media_mode=${TEST_MEDIA.Source.Network}&amp;traits=Hat%3ABeanie`
 		);
 		expect(body).toContain('>filter<');
 		expect(body).toContain('>reset<');
@@ -112,7 +129,7 @@ describe('CollectionDetailView', () => {
 		expect(body).toContain('bid on all tokens');
 		expect(body).toContain('token 1');
 		expect(body).toContain(
-			'/ethereum/milady/1?media_mode=artifact&amp;returnPath=%2Fethereum%2Fmilady&amp;returnQuery=limit%3D25%26mode%3Dgrid%26token_status%3Dlisted%26media_mode%3Dartifact%26traits%3DHat%253ABeanie'
+			'/ethereum/milady/1?media_mode=snapshot&amp;returnPath=%2Fethereum%2Fmilady&amp;returnQuery=limit%3D25%26mode%3Dgrid%26token_status%3Dlisted%26media_mode%3Dsnapshot%26traits%3DHat%253ABeanie'
 		);
 		expect(body).toContain('0.5 ETH');
 		expect(body).toContain('ask-price');

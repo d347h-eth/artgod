@@ -5,6 +5,10 @@ import {
 } from "@artgod/shared/types";
 import { describe, expect, it } from "vitest";
 import {
+    COLLECTION_MEDIA_MODES,
+    COLLECTION_MEDIA_QUERY_PARAMS,
+} from "@artgod/shared/extensions";
+import {
     BIDDING_SPAN_ATTRIBUTE,
     TRACE_ATTRIBUTE_VALUE,
 } from "../../../application/use-cases/trading/bidding-observability.js";
@@ -17,7 +21,7 @@ describe("get collection bidding bid-book span attributes", () => {
     it("summarizes bidding request shape without raw filter values", () => {
         const attributes = getCollectionBiddingBidBookSpanAttributes(
             request(
-                "/api/ethereum/terraforms/bidding/bids?bid_scope=traits&trait_join=and&limit=50&cursor=opaque&maker=0xabc&traits=Hat:Beanie,Mood:Calm&trait_ranges=Power:3..9&media_mode=artifact",
+                `/api/ethereum/terraforms/bidding/bids?bid_scope=traits&trait_join=and&limit=50&cursor=opaque&maker=0xabc&traits=Hat:Beanie,Mood:Calm&trait_ranges=Power:3..9&${COLLECTION_MEDIA_QUERY_PARAMS.MediaMode}=${COLLECTION_MEDIA_MODES.Snapshot}`,
             ),
         );
 
@@ -44,10 +48,8 @@ describe("get collection bidding bid-book span attributes", () => {
         );
 
         expect(attributes).toMatchObject({
-            [BIDDING_SPAN_ATTRIBUTE.ScopeFilter]:
-                TRACE_ATTRIBUTE_VALUE.Invalid,
-            [BIDDING_SPAN_ATTRIBUTE.TraitJoin]:
-                TRACE_ATTRIBUTE_VALUE.Invalid,
+            [BIDDING_SPAN_ATTRIBUTE.ScopeFilter]: TRACE_ATTRIBUTE_VALUE.Invalid,
+            [BIDDING_SPAN_ATTRIBUTE.TraitJoin]: TRACE_ATTRIBUTE_VALUE.Invalid,
             [BIDDING_SPAN_ATTRIBUTE.Limit]: undefined,
             [BIDDING_SPAN_ATTRIBUTE.LimitPresent]: true,
             [BIDDING_SPAN_ATTRIBUTE.CursorPresent]: false,

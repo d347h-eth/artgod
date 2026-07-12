@@ -1,10 +1,13 @@
 import type {
     ChainRecord,
-    CollectionMediaState,
     CollectionListItem,
     TokenDetail,
+    TokenMediaState,
 } from "@artgod/shared/types/browse";
-import { COLLECTION_MEDIA_MODES } from "@artgod/shared/extensions";
+import {
+    COLLECTION_MEDIA_MODES,
+    type CollectionMediaPreferenceValue,
+} from "@artgod/shared/extensions";
 import {
     COLLECTION_MEDIA_PURPOSE,
     type MediaPurposePolicyFeatureState,
@@ -19,12 +22,14 @@ export type GetTokenDetailInput = {
     collectionRef: string;
     tokenRef: string;
     mediaMode?: string;
+    mediaPreference?: CollectionMediaPreferenceValue;
+    mediaVariant?: string;
 };
 
 export type GetTokenDetailOutput = {
     chain: ChainRecord;
     collection: CollectionListItem;
-    media: CollectionMediaState;
+    media: TokenMediaState;
     token: TokenDetail;
     traitFilterPresentation: TraitFilterPresentationFeatureState;
 };
@@ -43,18 +48,17 @@ export class GetTokenDetailUseCase {
                 chainId: number,
                 collectionRef: string,
             ): CollectionListItem;
-            getCollectionTokenDetail(params: {
+            getCollectionTokenDetailPresentation(params: {
                 chainId: number;
                 collectionId: number;
                 tokenId: string;
                 mediaMode?: string;
-            }): MaybePromise<TokenDetail>;
-            getCollectionTokenMediaState(params: {
-                chainId: number;
-                collectionId: number;
-                tokenId: string;
-                mediaMode?: string;
-            }): CollectionMediaState;
+                mediaPreference?: CollectionMediaPreferenceValue;
+                mediaVariant?: string;
+            }): MaybePromise<{
+                media: TokenMediaState;
+                token: TokenDetail;
+            }>;
         },
         readonly customizationReadPort: {
             getTraitFilterPresentationState(params: {
@@ -82,19 +86,18 @@ export class GetTokenDetailUseCase {
             input.collectionRef,
         );
 
-        const media = this.collectionDetailReadPort.getCollectionTokenMediaState({
-            chainId: chain.publicChainId,
-            collectionId: collection.collectionId,
-            tokenId: input.tokenRef,
-            mediaMode: input.mediaMode,
-        });
-
-        const token = await this.collectionDetailReadPort.getCollectionTokenDetail({
-            chainId: chain.publicChainId,
-            collectionId: collection.collectionId,
-            tokenId: input.tokenRef,
-            mediaMode: media.selectedMode,
-        });
+        // Resolve media selection and token presentation against one extension-read context.
+        const { media, token } =
+            await this.collectionDetailReadPort.getCollectionTokenDetailPresentation(
+                {
+                    chainId: chain.publicChainId,
+                    collectionId: collection.collectionId,
+                    tokenId: input.tokenRef,
+                    mediaMode: input.mediaMode,
+                    mediaPreference: input.mediaPreference,
+                    mediaVariant: input.mediaVariant,
+                },
+            );
         const mediaPurposePolicy =
             this.customizationReadPort.getMediaPurposePolicyState({
                 chainId: chain.publicChainId,

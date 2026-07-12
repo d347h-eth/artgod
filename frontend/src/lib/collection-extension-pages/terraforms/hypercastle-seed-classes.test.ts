@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { COLLECTION_MEDIA_MODES, COLLECTION_MEDIA_QUERY_PARAMS } from '@artgod/shared/extensions';
+import {
+	COLLECTION_MEDIA_MODES,
+	COLLECTION_MEDIA_PREFERENCE_VALUES,
+	COLLECTION_MEDIA_QUERY_PARAMS
+} from '@artgod/shared/extensions';
 import { PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
 import { TOKEN_BROWSER_STATUS, TRAIT_FILTER_QUERY_PARAMS } from '@artgod/shared/types/browse';
 import {
 	TERRAFORMS_MODE_ATTRIBUTE_KEY,
 	TERRAFORMS_MODE_ATTRIBUTE_VALUES,
+	TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED,
+	TERRAFORMS_MEDIA_PREFERENCE_LABEL,
 	TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_STARTS,
 	TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
 	TERRAFORMS_RENDERER_SEED_THRESHOLDS,
@@ -30,6 +36,12 @@ import {
 	TERRAFORMS_HYPERCASTLE_Y_SEED_CHARACTER_SETS
 } from '$lib/collection-extension-pages/terraforms/hypercastle-seed-classes';
 import { TOKEN_STATUS_QUERY_PARAM } from '$lib/token-browser-query';
+
+const DISABLED_MEDIA_PREFERENCE = {
+	label: TERRAFORMS_MEDIA_PREFERENCE_LABEL,
+	enabled: false,
+	defaultEnabled: TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED
+};
 
 describe('Terraforms Hypercastle seed classes', () => {
 	it('models Godmode as the origin overdrive bucket', () => {
@@ -78,9 +90,7 @@ describe('Terraforms Hypercastle seed classes', () => {
 		expect(TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION.summary.rest).toContain(
 			'mintpass redemption path'
 		);
-		expect(TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION.summary.rest).not.toContain(
-			'separate charsets'
-		);
+		expect(TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION.summary.rest).not.toContain('separate charsets');
 		expect(TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION.summary.rest).toContain(
 			`${TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY} 0-${TERRAFORMS_RENDERER_SEED_THRESHOLDS.OriginXSeed.toString()}`
 		);
@@ -154,12 +164,11 @@ describe('Terraforms Hypercastle seed classes', () => {
 			TERRAFORMS_HYPERCASTLE_Y_SEED_CHARACTER_SET_COUNT
 		);
 		for (const [index, characterSet] of TERRAFORMS_HYPERCASTLE_Y_SEED_CHARACTER_SETS.entries()) {
-			const originCharacters = TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION.characterSets[index]?.characters;
+			const originCharacters =
+				TERRAFORMS_HYPERCASTLE_ORIGIN_SECTION.characterSets[index]?.characters;
 			expect(characterSet.characters).toEqual([...(originCharacters ?? [])].reverse());
 		}
-		expect(TERRAFORMS_HYPERCASTLE_Y_SEED_CHARACTER_SETS[0]?.characters.join('')).toBe(
-			'▉█▇▆▅▄▃▂▁▀'
-		);
+		expect(TERRAFORMS_HYPERCASTLE_Y_SEED_CHARACTER_SETS[0]?.characters.join('')).toBe('▉█▇▆▅▄▃▂▁▀');
 	});
 
 	it('keeps the canonical Godmode parcel list explicit', () => {
@@ -173,7 +182,8 @@ describe('Terraforms Hypercastle seed classes', () => {
 	it('builds links back into token browsing and token detail routes', () => {
 		const originHref = buildTerraformsOriginTokenHref({
 			basePath: '/ethereum/terraforms',
-			mediaMode: COLLECTION_MEDIA_MODES.Artifact
+			mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+			mediaPreference: DISABLED_MEDIA_PREFERENCE
 		});
 		const originQuery = new URL(originHref, 'http://artgod.local').searchParams;
 
@@ -182,12 +192,16 @@ describe('Terraforms Hypercastle seed classes', () => {
 			`${TERRAFORMS_MODE_ATTRIBUTE_KEY}:${TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform}`
 		]);
 		expect(originQuery.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode)).toBe(
-			COLLECTION_MEDIA_MODES.Artifact
+			COLLECTION_MEDIA_MODES.Snapshot
+		);
+		expect(originQuery.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference)).toBe(
+			COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled
 		);
 		expect(
 			buildTerraformsSeedClassTokenHref({
 				basePath: '/ethereum/terraforms',
-				mediaMode: COLLECTION_MEDIA_MODES.Artifact,
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+				mediaPreference: DISABLED_MEDIA_PREFERENCE,
 				seedClass: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.Godmode
 			})
 		).toContain('traits=Seed+Class%3AGodmode');
@@ -195,18 +209,21 @@ describe('Terraforms Hypercastle seed classes', () => {
 			buildTerraformsHypercastleTokenHref({
 				basePath: '/ethereum/terraforms',
 				tokenId: '1955',
-				mediaMode: COLLECTION_MEDIA_MODES.Artifact
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+				mediaPreference: DISABLED_MEDIA_PREFERENCE
 			})
-		).toBe('/ethereum/terraforms/1955?media_mode=artifact');
+		).toBe('/ethereum/terraforms/1955?media_mode=snapshot&media_preference=disabled');
 		expect(formatTerraformsHypercastleTokenLabel('1955')).toBe('#1955');
 	});
 
 	it('builds a normalized API query for loading sample token cards', () => {
 		const originQuery = buildTerraformsOriginSampleQuery({
-			mediaMode: COLLECTION_MEDIA_MODES.Artifact
+			mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+			mediaPreference: DISABLED_MEDIA_PREFERENCE
 		});
 		const seedClassQuery = buildTerraformsSeedClassSampleQuery({
-			mediaMode: COLLECTION_MEDIA_MODES.Artifact,
+			mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+			mediaPreference: DISABLED_MEDIA_PREFERENCE,
 			seedClass: TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed
 		});
 
@@ -215,7 +232,10 @@ describe('Terraforms Hypercastle seed classes', () => {
 		);
 		expect(originQuery.get(TOKEN_STATUS_QUERY_PARAM)).toBe(TOKEN_BROWSER_STATUS.All);
 		expect(originQuery.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode)).toBe(
-			COLLECTION_MEDIA_MODES.Artifact
+			COLLECTION_MEDIA_MODES.Snapshot
+		);
+		expect(originQuery.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference)).toBe(
+			COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled
 		);
 		expect(originQuery.getAll(TRAIT_FILTER_QUERY_PARAMS.Traits)).toEqual([
 			`${TERRAFORMS_MODE_ATTRIBUTE_KEY}:${TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream}`,
@@ -226,7 +246,10 @@ describe('Terraforms Hypercastle seed classes', () => {
 		);
 		expect(seedClassQuery.get(TOKEN_STATUS_QUERY_PARAM)).toBe(TOKEN_BROWSER_STATUS.All);
 		expect(seedClassQuery.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode)).toBe(
-			COLLECTION_MEDIA_MODES.Artifact
+			COLLECTION_MEDIA_MODES.Snapshot
+		);
+		expect(seedClassQuery.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference)).toBe(
+			COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled
 		);
 		expect(seedClassQuery.getAll(TRAIT_FILTER_QUERY_PARAMS.Traits)).toEqual([
 			`${TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY}:${TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES.XSeed}`

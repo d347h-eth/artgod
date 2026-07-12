@@ -3,6 +3,10 @@
 		import { invalidateAll } from '$app/navigation';
 		import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
 		import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+		import {
+			COLLECTION_MEDIA_MODE_OPTIONS,
+			COLLECTION_MEDIA_MODES
+		} from '@artgod/shared/extensions';
 	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 	import CollectionDetailView from '$lib/components/CollectionDetailView.svelte';
 	import CollectionsPageView from '$lib/components/CollectionsPageView.svelte';
@@ -84,9 +88,10 @@
 		collection={data.collection ?? null}
 		media={
 			data.media ?? {
-				selectedMode: 'snapshot',
-				defaultMode: 'snapshot',
-				availableModes: [{ key: 'snapshot', label: 'snapshot' }]
+				selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+				defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+				availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+				preference: null
 			}
 		}
 		tokens={data.tokens ?? fallbackTokens}

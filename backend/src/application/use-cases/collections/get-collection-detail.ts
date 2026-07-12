@@ -12,6 +12,7 @@ import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import { applyTraitFilterPresentationToFacets } from "@artgod/shared/read-models/collections";
 import { renderTraitSummaryTemplate } from "@artgod/shared/types";
+import type { CollectionMediaPreferenceValue } from "@artgod/shared/extensions";
 
 export type GetCollectionDetailInput = {
     chainRef: string;
@@ -23,6 +24,7 @@ export type GetCollectionDetailInput = {
     traitRanges: TraitRangeFilter[];
     owner?: string;
     mediaMode?: string;
+    mediaPreference?: CollectionMediaPreferenceValue;
 };
 
 export type GetCollectionDetailOutput = {
@@ -67,6 +69,7 @@ export class GetCollectionDetailUseCase {
                 traitRangeFilters?: TraitRangeFilter[];
                 owner?: string;
                 mediaMode?: string;
+                mediaPreference?: CollectionMediaPreferenceValue;
             }): TokenCursorPage;
             listCollectionTraitFacets(
                 chainId: number,
@@ -80,6 +83,7 @@ export class GetCollectionDetailUseCase {
                 chainId: number;
                 collectionId: number;
                 mediaMode?: string;
+                mediaPreference?: CollectionMediaPreferenceValue;
             }): CollectionMediaState;
         },
         readonly customizationReadPort: {
@@ -141,6 +145,7 @@ export class GetCollectionDetailUseCase {
                     chainId: chain.publicChainId,
                     collectionId: collection.collectionId,
                     mediaMode: input.mediaMode,
+                    mediaPreference: input.mediaPreference,
                 }),
         );
 
@@ -151,14 +156,16 @@ export class GetCollectionDetailUseCase {
                 [ARTGOD_SPAN_ATTRIBUTE.CollectionTokenStatus]:
                     input.tokenStatus,
                 [ARTGOD_SPAN_ATTRIBUTE.CollectionLimit]: input.limit,
-                [ARTGOD_SPAN_ATTRIBUTE.CollectionCursorPresent]:
-                    Boolean(input.cursor),
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionCursorPresent]: Boolean(
+                    input.cursor,
+                ),
                 [ARTGOD_SPAN_ATTRIBUTE.CollectionTraitFiltersCount]:
                     input.traits.length,
                 [ARTGOD_SPAN_ATTRIBUTE.CollectionTraitRangesCount]:
                     input.traitRanges.length,
-                [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]:
-                    Boolean(input.owner),
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]: Boolean(
+                    input.owner,
+                ),
             },
             () =>
                 this.collectionDetailReadPort.listCollectionTokens({
@@ -171,6 +178,7 @@ export class GetCollectionDetailUseCase {
                     traitRangeFilters: input.traitRanges,
                     owner: input.owner,
                     mediaMode: media.selectedMode,
+                    mediaPreference: input.mediaPreference,
                 }),
         );
         const traitFilterPresentation = this.apm.withSyncSpan(
@@ -186,8 +194,9 @@ export class GetCollectionDetailUseCase {
             "backend.collection_detail.trait_facets",
             {
                 ...attributes,
-                [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]:
-                    Boolean(input.owner),
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]: Boolean(
+                    input.owner,
+                ),
                 [ARTGOD_SPAN_ATTRIBUTE.CollectionRangeOnlyKeysCount]:
                     traitFilterPresentation.effectiveConfig.rangeKeys.length,
             },

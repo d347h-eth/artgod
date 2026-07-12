@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import {
+	COLLECTION_MEDIA_MODES,
+	COLLECTION_MEDIA_PREFERENCE_VALUES
+} from '@artgod/shared/extensions';
 import CollectionHoldersView from './CollectionHoldersView.svelte';
 
 describe('CollectionHoldersView', () => {
@@ -47,7 +51,8 @@ describe('CollectionHoldersView', () => {
 					totalPages: 2
 				},
 				basePath: '/ethereum/milady',
-				selectedMediaMode: 'artifact',
+				selectedMediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+				selectedMediaPreference: COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled,
 				requestCursor: null
 			}
 		});
@@ -62,12 +67,17 @@ describe('CollectionHoldersView', () => {
 		expect(body).toContain('showing 1-2 of 4');
 		expect(body).toContain('load next');
 		expect(body).toContain(
-			'/ethereum/milady?limit=2&amp;mode=grid&amp;media_mode=artifact&amp;token_status=listed'
+			'/ethereum/milady/holders?limit=2&amp;cursor=opaque-cursor-2&amp;media_mode=snapshot&amp;media_preference=disabled'
 		);
-		expect(body).toContain('/ethereum/milady/activity?limit=2&amp;kind=sales&amp;media_mode=artifact');
+		expect(body).toContain(
+			'/ethereum/milady?limit=2&amp;mode=grid&amp;media_mode=snapshot&amp;media_preference=disabled&amp;token_status=listed'
+		);
+		expect(body).toContain(
+			'/ethereum/milady/activity?limit=2&amp;kind=sales&amp;media_mode=snapshot&amp;media_preference=disabled'
+		);
 		expect(body).toContain('<span class="runtime-tab-active">holders</span>');
 		expect(body).toContain(
-			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=artifact'
+			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=snapshot&amp;media_preference=disabled'
 		);
 	});
 
@@ -115,7 +125,7 @@ describe('CollectionHoldersView', () => {
 					totalPages: 1
 				},
 				basePath: '/ethereum/milady',
-				selectedMediaMode: 'artifact',
+				selectedMediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 				requestCursor: null
 			}
 		});

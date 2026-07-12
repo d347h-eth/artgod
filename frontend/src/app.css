@@ -1584,6 +1584,29 @@ th {
 	outline: none;
 }
 
+.token-media-controls-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 4.5rem;
+	flex-wrap: nowrap;
+	white-space: nowrap;
+}
+
+.token-media-controls-group > .secondary-tabs {
+	flex-wrap: nowrap;
+}
+
+.token-media-preference-toggle[aria-pressed='true'] {
+	color: var(--c-orange);
+	border-color: var(--c-orange);
+}
+
+.token-media-preference-toggle[aria-pressed='true']:hover,
+.token-media-preference-toggle[aria-pressed='true']:focus-visible {
+	color: var(--c-yellow);
+	border-color: var(--c-yellow);
+}
+
 .facet-panel-action-button:disabled {
 	cursor: default;
 	opacity: 0.45;
@@ -2626,6 +2649,10 @@ th {
 	padding: 0.75rem;
 }
 
+.results-toolbar {
+	flex-wrap: wrap;
+}
+
 .panel-top-actions-stack {
 	display: grid;
 	align-items: stretch;
@@ -2847,7 +2874,13 @@ th {
 	display: inline-flex;
 	flex-direction: column;
 	align-items: center;
+	gap: 0.3rem;
 	z-index: 1;
+}
+
+.token-preview-touch-controls-hidden {
+	visibility: hidden;
+	pointer-events: none;
 }
 
 .token-preview-navigation-buttons,
@@ -2877,8 +2910,8 @@ th {
 }
 
 .token-preview-media-mode-button-active {
-	border-color: color-mix(in srgb, var(--c-yellow) 62%, transparent);
-	color: color-mix(in srgb, var(--c-yellow) 72%, transparent);
+	border-color: color-mix(in srgb, var(--c-orange) 62%, transparent);
+	color: color-mix(in srgb, var(--c-orange) 72%, transparent);
 	cursor: default;
 }
 
@@ -2932,8 +2965,14 @@ th {
 }
 
 .token-preview-error {
+	gap: 0.65rem;
 	border-color: color-mix(in srgb, var(--c-yellow) 45%, transparent);
 	color: var(--c-yellow);
+}
+
+.token-preview-retry-button {
+	color: var(--c-cyan);
+	border-color: var(--c-blue);
 }
 
 .token-preview-network-spinner {
@@ -3012,12 +3051,29 @@ th {
 
 .token-detail-media-controls {
 	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.35rem;
 	justify-content: center;
 	padding-top: 0.55rem;
 }
 
 .token-detail-media-controls .secondary-tabs {
 	justify-content: center;
+}
+
+.token-detail-media-error {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.55rem;
+	margin-top: 0.55rem;
+	color: var(--c-yellow);
+	font-size: 0.72rem;
+	text-transform: uppercase;
+}
+
+.token-detail-media-retry {
+	flex: 0 0 auto;
 }
 
 .token-detail-meta {

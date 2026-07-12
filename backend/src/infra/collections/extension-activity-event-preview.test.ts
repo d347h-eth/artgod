@@ -165,5 +165,11 @@ function buildRpc(): BackendCollectionExtensionRenderContext["rpc"] {
         async getStorageAt() {
             throw new Error("Unexpected storage read");
         },
+        async getCurrentBlockNumber() {
+            throw new Error("Unexpected current block read");
+        },
+        async getBlockTimestamp() {
+            throw new Error("Unexpected block timestamp read");
+        },
     };
 }

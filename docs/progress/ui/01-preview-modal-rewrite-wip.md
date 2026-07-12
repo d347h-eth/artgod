@@ -1,190 +1,137 @@
-# Preview Modal Rewrite WIP
-
-Status: staging note for a full preview-modal revamp.
-
-Canonical target design:
-
-- `docs/ui/02-preview-modal-system.md`
-
-This document captures the current implementation gaps against the canonical preview-modal system and defines the intended rewrite boundary. It is not the implementation plan itself.
-
-## Why This Exists
-
-The current preview modal is not just cosmetically off from the canonical design. It is based on a different model:
-
-- mixed `iframe` / raw `img` rendering
-- height-first sizing
-- static `vh` / `vw` assumptions
-- inline page mounting
-
-The canonical design instead requires:
-
-- always-sandboxed `iframe` rendering
-- viewport-derived contain-fit sizing
-- a single persisted scale factor
-- explicit centering and viewport ownership
-- responsive behavior across resize and orientation changes
-
-This mismatch is large enough that a clean rewrite is preferred over incremental patching.
-
-## Current Implementation Snapshot
-
-Primary files:
-
-- `frontend/src/lib/components/TokenPreviewOverlay.svelte`
-- `frontend/src/lib/components/token-preview-controller.ts`
-- `frontend/src/app.css`
-
-Current behavior, in short:
-
-- preview opens inline inside page components
-- preview media is fetched on demand
-- media renders as `iframe` when `animationUrl` exists
-- media renders as raw `img` when only `image` exists
-- persisted user sizing controls only preview height percent
-- CSS uses `90vh` / `90vw`-style bounds and a hard-coded iframe aspect ratio
-
-## Audit Findings
-
-### 1. Security model divergence
-
-The current overlay renders raw `img` for image-only tokens.
-
-Why this matters:
-
-- the canonical design requires preview media to always render inside a sandboxed iframe
-- this is a core security invariant, not a visual preference
-
-Implication:
-
-- the current implementation already violates the top-down isolation rule
-
-### 2. Wrong sizing model
-
-The current controller persists only a height percent and exports that as a CSS variable.
-
-Why this matters:
-
-- the canonical design defines one scalar preview scale factor
-- that scalar must be applied to the current usable viewport box
-- sizing must be derived from available viewport width and height together
-
-Implication:
-
-- current behavior is height-driven, not viewport-box-driven
-- width fitting becomes incidental instead of guaranteed
-
-### 3. Hard-coded media assumptions
-
-The current iframe styling uses a fixed `3 / 4` aspect ratio.
-
-Why this matters:
-
-- the canonical system must support arbitrary media aspect ratios
-- contain-fit behavior must come from viewport-box math, not a fixed ratio guess
-
-Implication:
-
-- the current implementation bakes in assumptions that conflict with the design target
-
-### 4. No real viewport model
-
-The current implementation relies on plain `vh` / `vw` CSS sizing and does not model:
-
-- visual viewport changes
-- safe-area insets
-- orientation changes
-- dynamic recomputation on resize
-
-Why this matters:
-
-- the canonical design is explicitly viewport-driven and continuous
-- mobile viewport behavior is one of the main reasons the current modal became unreliable
-
-### 5. Modal ownership is too weak
-
-The current preview overlay is mounted inline inside page components.
-
-Why this matters:
-
-- the canonical design wants modal ownership at top level, equivalent to a body-level portal
-- preview layout should not depend on incidental ancestor layout, overflow, or width behavior
-
-Implication:
-
-- current mounting makes the modal more fragile than the target system allows
-
-### 6. Missing stable loading/error composition
-
-The current modal opens before media resolves, but does not render an explicit loading box or stable media box placeholder.
-
-Why this matters:
-
-- the canonical design expects the preview to remain centered and visually stable in loading, loaded, and error states
-
-Implication:
-
-- current behavior can feel visually inconsistent during async state transitions
-
-### 7. Missing background scroll lock
-
-The canonical design explicitly expects background page scrolling to be locked while the modal is open.
-
-This is currently not modeled as part of the preview system.
-
-## Rewrite Boundary
-
-The following pieces should be treated as replaceable:
-
-- `frontend/src/lib/components/TokenPreviewOverlay.svelte`
-- `frontend/src/lib/components/token-preview-controller.ts`
-- the preview-modal CSS block in `frontend/src/app.css`
-
-These pieces can be preserved conceptually, but should be reattached to the new system rather than treated as constraints on the rewrite:
-
-- preview invocation from token browser and activities
-- close behavior
-- preview media-mode cycling
-- adjacent-token navigation behavior
-- persisted user preview scale as a concept
-
-## Target Rewrite Shape
-
-The replacement system should center around one consistent modal model:
-
-- one modal host with top-level ownership
-- one preview state model for open/loading/ready/error
-- one persisted scalar scale preference in the range `5..100`
-- one viewport-derived preview-box computation path
-- one always-sandboxed iframe rendering path
-
-The rewrite should be driven by `docs/ui/02-preview-modal-system.md`, not by compatibility with the old implementation.
-
-## Constraints Already Settled
-
-The following design constraints are already decided:
-
-- preview media must always be sandboxed and rendered through `iframe`
-- responsive-document mode is the first-class operating mode
-- fixed-layout scaled mode is only future work
-- fixed-layout support must not rely on runtime DOM inspection or mutation inside the iframe
-
-## Open Work
-
-Still needed later:
-
-- a concrete embedded implementation plan
-- final decision on modal host placement in the Svelte tree
-- eventual test strategy for viewport fitting, centering, loading stability, and keyboard behavior
+# Preview Modal Implementation Record
+
+Status: the original rewrite is complete. This file is retained as a completion
+record and follow-up checklist; the canonical design remains
+`docs/ui/02-preview-modal-system.md`.
+
+## Why This Record Exists
+
+The original preview used mixed iframe/image rendering, height-first sizing,
+inline page ownership, and static viewport assumptions. Those constraints
+conflicted with the required isolation and viewport-fit model, so the modal was
+replaced as one system rather than incrementally restyled.
+
+Do not use the original implementation model as a compatibility constraint.
+Future preview changes must preserve the current security, ownership, sizing,
+and request-state boundaries below.
+
+## Completed Baseline
+
+The current preview system provides:
+
+- one root-layout modal host shared by token-browser and activity surfaces
+- one controller for closed, loading, ready, and error state
+- always-sandboxed iframe rendering through the shared token media frame
+- a fixed fullscreen overlay independent of collection-page ancestor layout
+- dynamic viewport units, safe-area insets, and contain-fit box sizing
+- one persisted scale percentage in the `5..100` range
+- aspect-ratio-aware width/height fitting without a fixed renderer ratio
+- resize and visual-viewport observation for touch-control placement
+- background document scroll lock while preview is open
+- keyboard close, scale, media, and adjacent-token controls
+- touch navigation with measured space for optional bottom controls
+- a stable error box with an explicit retry action
+
+The modal still treats responsive iframe documents as the first-class content
+mode. Fixed-layout scaling remains future work and requires declared intrinsic
+media dimensions; runtime inspection or mutation inside the sandbox is not an
+acceptable substitute.
+
+## Current Token Media Contract
+
+Token preview no longer treats every media choice as one flat collection mode.
+The state is split into:
+
+1. collection source: `snapshot` or an extension-provided source such as `live`
+2. collection preference: an optional extension-owned choice, such as
+   Terraforms `prefer V2`
+3. token-local variant: the exact persisted or request-time render available for
+   the current token and source
+
+The token preview read contract returns only:
+
+- source and preference state
+- selected/default/available token variants
+- `tokenId`
+- effective `image`
+- effective `animationUrl`
+
+The modal displays source controls first and token-local variant controls in a
+second row. It inherits source and preference from the page. Switching source
+clears an explicit variant and reapplies the preference; selecting a variant
+does not mutate page-level collection state.
+
+Adjacent-token navigation carries source and preference. It also carries an
+explicitly selected variant and lets the backend fall back when that choice is
+unavailable on the next token. A preference-selected default stays unset in the
+request so each token resolves its own default. The `V` shortcut cycles the
+token-local variant while token preview is open.
+
+## Terraforms Snapshot And Live Behavior
+
+Terraforms snapshot preview can expose:
+
+- `V2 artifact` from the normal V2 extension artifact
+- `V2 lost terrain` from the extra lost-terrain artifact
+- canonical `V2` when canonical metadata has animation media and normalized
+  `Version = 2.0`
+- canonical `V0` as the temporary approximation when canonical animation media
+  lacks that trait, because normalized state cannot distinguish V0 from V1
+
+The V2 artifact and canonical V2 choices can coexist. Lost terrain is always an
+explicit user choice and is never auto-selected. Synthetic Terraforms tokens
+have no canonical metadata and remain artifact-only.
+
+Terraforms live preview exposes V2, V1, and V0. The backend reads current token
+state from one pinned block and invokes the selected Terraforms renderer. It does
+not use snapshot artifacts or the artifact lane's Daydream canvas override.
+
+Live requests are strict request-time reads:
+
+- no backend preview-cache hit or write
+- no frontend preview-cache reuse
+- no adjacent-token prefetch
+- failures remain visible with retry rather than silently falling back to a
+  snapshot
+
+## Activity Preview Boundary
+
+Activity-event preview is a separate extension contract. It keeps its existing
+flat event render-mode controls and must not be forced into token
+source/preference/variant semantics merely because it shares the modal host and
+media frame.
+
+## Implementation Map
+
+- `frontend/src/routes/+layout.svelte`: shared modal host
+- `frontend/src/lib/components/TokenPreviewOverlay.svelte`: overlay, controls,
+  focus, scroll lock, touch gestures, and rendered request states
+- `frontend/src/lib/components/token-preview-controller.ts`: preview request,
+  navigation, media selection, cache eligibility, retry, and shortcut state
+- `frontend/src/lib/components/TokenMediaFrame.svelte`: sandboxed iframe boundary
+- `frontend/src/app.css`: viewport, contain-fit, control, and state styling
+- `docs/ui/02-preview-modal-system.md`: canonical design invariants
+
+## Verification Contract
+
+Preview changes require rendered inspection, not only unit or component checks.
+Review at representative desktop and narrow touch viewports:
+
+- initial open and loading stability
+- snapshot source with each available variant combination
+- live V2, V1, and V0 selection
+- source switching with the preference enabled and disabled
+- explicit lost-terrain selection without automatic activation
+- adjacent tokens with different variant availability
+- live request failure and retry
+- centered contain-fit behavior at minimum and maximum scale
+- resize/orientation response and background scroll lock
+- desktop two-row controls and touch layouts where the full control stack does
+  or does not fit
 
 ## Practical Conclusion
 
-This should be treated as a clean replacement effort, not as a CSS cleanup.
-
-The current implementation is valuable mainly as a source of:
-
-- integration points
-- shortcut behavior
-- media-mode behavior
-
-It should not be used as the architectural template for the new preview-modal system.
+The preview rewrite is no longer open work. New changes should extend the shared
+controller and overlay while preserving the canonical modal invariants and the
+separation between collection source, extension preference, token variant, and
+activity-event render mode.

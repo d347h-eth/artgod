@@ -575,11 +575,21 @@ Current Terraforms artifact usage:
 - when `PERSIST_RAW_DEBUG_PAYLOADS=true`, `attributes_json` stores the parsed v2 metadata attributes
 - `image` and `animation_url` store the parsed v2 metadata fields used by backend read paths
 - `html_content` stores the direct v2 renderer `tokenHTML(...)` response used for backend animation override
-- backend resolves Terraforms collection browsing from `terraforms-v2-media`
-- backend exposes `terraforms-v2-lost-terrain` only as a token-local media mode on token detail / preview
-- Terraforms `live` media is not stored here; backend resolves it on demand from the main contract `tokenHTML(tokenId)` and preserves the canonical metadata image
+- under the `snapshot` source, backend exposes `terraforms-v2-media` as the
+  token-local `V2 artifact` choice and can prefer it for token cards and initial
+  preview selection
+- backend exposes `terraforms-v2-lost-terrain` only as the explicit token-local
+  `V2 lost terrain` choice on token detail / preview; it is never auto-selected
+- the canonical snapshot choice remains in `token_metadata.animation_url`; a
+  canonical animation with normalized metadata `Version = 2.0` is labeled V2,
+  while canonical animation without that trait is temporarily labeled V0
+  because normalized state cannot distinguish V0 from V1
+- Terraforms `live` media is not stored here; backend reconstructs current token
+  state at one pinned block and invokes the explicitly selected V2, V1, or V0
+  renderer on demand
+- live preview requests bypass preview caches and adjacent-token prefetch
 - Terraforms writes extension-owned normalized traits such as `Minted`, renderer `Seed`, optional `Seed Class`, and optional Beacon-derived `Seasons`
-- unminted placement rows are extension-owned synthetic `tokens` without canonical `token_metadata`; Terraforms writes `Minted=false`, `Mode=Terrain`, and Terrain renderer traits for those rows
+- unminted placement rows are extension-owned synthetic `tokens` without canonical `token_metadata`; Terraforms writes `Minted=false`, `Mode=Terrain`, and Terrain renderer traits for those rows, and their media selection is artifact-only
 
 ### `collection_extension_synthetic_token_retirements`
 

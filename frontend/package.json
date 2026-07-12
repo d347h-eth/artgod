@@ -29,6 +29,7 @@
         "test:bidding:attached:headed:artifacts": "ARTGOD_E2E_PERSIST_SUCCESS_ARTIFACTS=1 playwright test -c playwright.attached.config.ts e2e/bidding-panel.attached.spec.ts --headed",
         "test:bidding:automation": "playwright test -c playwright.bidding-automation.config.ts e2e/bidding-automation.spec.ts",
         "test:bidding:automation:headed": "playwright test -c playwright.bidding-automation.config.ts e2e/bidding-automation.spec.ts --headed",
+        "test:terraforms:media": "playwright test -c playwright.bidding-automation.config.ts e2e/terraforms-media.spec.ts",
         "test:bidding:automation:public": "playwright test -c playwright.bidding-automation-public.config.ts e2e/bidding-automation-public.spec.ts",
         "test:bidding:authorization": "playwright test -c playwright.bidding-authorization.config.ts e2e/bidding-authorization.spec.ts",
         "test:bootstrap:probe": "playwright test -c playwright.bootstrap-probe.config.ts e2e/bootstrap-probe.spec.ts",

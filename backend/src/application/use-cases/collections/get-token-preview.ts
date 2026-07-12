@@ -1,10 +1,13 @@
 import type {
     ChainRecord,
-    CollectionMediaState,
     CollectionListItem,
     TokenMediaPreview,
+    TokenMediaState,
 } from "@artgod/shared/types/browse";
-import { COLLECTION_MEDIA_MODES } from "@artgod/shared/extensions";
+import {
+    COLLECTION_MEDIA_MODES,
+    type CollectionMediaPreferenceValue,
+} from "@artgod/shared/extensions";
 import {
     COLLECTION_MEDIA_PURPOSE,
     type MediaPurposePolicyFeatureState,
@@ -18,12 +21,14 @@ export type GetTokenPreviewInput = {
     collectionRef: string;
     tokenRef: string;
     mediaMode?: string;
+    mediaPreference?: CollectionMediaPreferenceValue;
+    mediaVariant?: string;
 };
 
 export type TokenPreview = TokenMediaPreview;
 
 export type GetTokenPreviewOutput = {
-    media: CollectionMediaState;
+    media: TokenMediaState;
     token: TokenPreview;
 };
 
@@ -34,19 +39,21 @@ export type GetTokenPreviewPort = {
 };
 
 type CollectionDetailReadPort = {
-    resolveCollectionRef(chainId: number, collectionRef: string): CollectionListItem;
-    getCollectionTokenPreview(params: {
+    resolveCollectionRef(
+        chainId: number,
+        collectionRef: string,
+    ): CollectionListItem;
+    getCollectionTokenPreviewPresentation(params: {
         chainId: number;
         collectionId: number;
         tokenId: string;
         mediaMode?: string;
-    }): MaybePromise<TokenMediaPreview>;
-    getCollectionTokenMediaState(params: {
-        chainId: number;
-        collectionId: number;
-        tokenId: string;
-        mediaMode?: string;
-    }): CollectionMediaState;
+        mediaPreference?: CollectionMediaPreferenceValue;
+        mediaVariant?: string;
+    }): MaybePromise<{
+        media: TokenMediaState;
+        token: TokenMediaPreview;
+    }>;
 };
 
 export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
@@ -78,18 +85,18 @@ export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
             chain.publicChainId,
             input.collectionRef,
         );
-        const media = this.collectionDetailReadPort.getCollectionTokenMediaState({
-            chainId: chain.publicChainId,
-            collectionId: collection.collectionId,
-            tokenId: input.tokenRef,
-            mediaMode: input.mediaMode,
-        });
-        const token = await this.collectionDetailReadPort.getCollectionTokenPreview({
-            chainId: chain.publicChainId,
-            collectionId: collection.collectionId,
-            tokenId: input.tokenRef,
-            mediaMode: media.selectedMode,
-        });
+        // Resolve media selection and token presentation against one extension-read context.
+        const { media, token } =
+            await this.collectionDetailReadPort.getCollectionTokenPreviewPresentation(
+                {
+                    chainId: chain.publicChainId,
+                    collectionId: collection.collectionId,
+                    tokenId: input.tokenRef,
+                    mediaMode: input.mediaMode,
+                    mediaPreference: input.mediaPreference,
+                    mediaVariant: input.mediaVariant,
+                },
+            );
         const mediaPurposePolicy =
             this.customizationReadPort.getMediaPurposePolicyState({
                 chainId: chain.publicChainId,

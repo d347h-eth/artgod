@@ -34,8 +34,8 @@ Donations welcome: donations.artgod.eth
   and collection bidding jobs, price tiers, live command reconciliation, and
   bid-book feedback.
 - Frontend customizations: collection extension system, extension-provided media
-  modes, collection-owned presentation overrides, and Terraforms as the first
-  bundled extension.
+  selection, collection-owned presentation overrides, and Terraforms as the
+  first bundled extension.
 - Local operations: native Admin config, runtime control, wallet unlock,
   logs, optional observability stack, and desktop release packaging.
 
@@ -169,7 +169,7 @@ Product domains:
   review, product language, identity, units, errors, cross-surface consistency,
   and rendered verification.
 - `docs/ui/01-interaction-guidelines.md`: established UI interaction, layout,
-  control, style-reuse, navigation, media-mode, and pagination contracts.
+  control, style-reuse, navigation, media-selection, and pagination contracts.
 - `docs/ui/02-preview-modal-system.md`: preview modal security and sizing model.
 
 Desktop, deploy, and operations:

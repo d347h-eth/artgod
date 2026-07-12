@@ -1,7 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
 	BackendApiError,
 	getCollectionBiddingPriceTiers,
@@ -53,9 +53,8 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 			media: {
 				selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
 				defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
-				availableModes: [
-					{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
-				]
+				availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+				preference: null
 			},
 			facets: [],
 			selectedTraits: [],
@@ -93,13 +92,13 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 			requestCursor: query.get('cursor') ?? null,
 			tokenStatus,
 			displayMode,
-				biddingSettings: priceTiersResponse.settings,
-				priceTiers: priceTiersResponse.tiers,
-				trustOpenSeaSignedZoneTraitOffers:
-					runtimeConfigResponse.bidding.trustOpenSeaSignedZoneTraitOffers,
-				bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh,
-				blockExplorer: runtimeConfigResponse.blockExplorer
-			};
+			biddingSettings: priceTiersResponse.settings,
+			priceTiers: priceTiersResponse.tiers,
+			trustOpenSeaSignedZoneTraitOffers:
+				runtimeConfigResponse.bidding.trustOpenSeaSignedZoneTraitOffers,
+			bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh,
+			blockExplorer: runtimeConfigResponse.blockExplorer
+		};
 	} catch (cause) {
 		toKitError(cause);
 	}

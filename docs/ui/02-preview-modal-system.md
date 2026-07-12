@@ -172,10 +172,35 @@ The preview system should behave as if it had these responsibilities:
 Backend/read-contract notes:
 
 - preview modal should use a dedicated lightweight backend read contract, not the full token-detail endpoint
-- preview data contract should include only media-mode state plus `tokenId`, `image`, and `animationUrl`
-- preview-specific caching is allowed because the modal does not depend on ownership or market-state fields
+- token preview data should include only `tokenId`, `image`, `animationUrl`,
+  collection source/preference state, and token-local variant state
+- activity-event preview keeps its separate extension render-mode contract
+- only snapshot token previews are eligible for preview caching
+- request-time live media must bypass backend/frontend preview caches and
+  adjacent-token prefetch
 
 It should not take on responsibilities that belong to the iframe document, except for enforcing outer-box sizing and future explicit fixed-layout scaling.
+
+## Media Selection Controls
+
+Token media source and exact token media are separate control rows:
+
+1. source row: `snapshot` and extension-provided sources such as `live`
+2. variant row: only the choices available for the current token and source
+
+The modal inherits the collection page's source and media preference when it
+opens. The preference chooses the initial variant but is not duplicated as a
+third modal control. Switching source clears the explicit variant and asks the
+backend to apply the same preference to the new source. Explicit lost-terrain
+media is never an automatic choice.
+
+Both rows belong to the modal control overlay and must not alter the centered
+preview-box calculation. On touch layouts, render them only where the measured
+backdrop space can contain the complete control stack.
+
+Activity-event previews are a distinct flow. Their extension-provided render
+modes remain one flat row and must not be presented as token source/variant
+choices.
 
 ## Recommended UX Behavior
 
@@ -185,6 +210,9 @@ It should not take on responsibilities that belong to the iframe document, excep
 - respond smoothly to resize/orientation changes
 - keep the preview visually stable while loading
 - keep the preview centered in loading, loaded, and error states
+- keep the current source and variant controls available during a recoverable
+  request failure
+- provide a compact retry action for expected preview request failures
 - do not stretch or crop content merely to fill space
 
 ## Things To Avoid

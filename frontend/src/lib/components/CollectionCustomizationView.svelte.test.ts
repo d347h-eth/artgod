@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import { TERRAFORMS_TRAIT_SUMMARY_TEMPLATE } from '@artgod/shared/extensions/terraforms';
-import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import {
-	COLLECTION_MEDIA_SOURCE,
-	defaultMediaPurposePolicyConfig
-} from '@artgod/shared/types';
+	COLLECTION_MEDIA_MODES,
+	COLLECTION_MEDIA_PREFERENCE_VALUES
+} from '@artgod/shared/extensions';
+import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
+import { COLLECTION_MEDIA_SOURCE, defaultMediaPurposePolicyConfig } from '@artgod/shared/types';
 import CollectionCustomizationView from './CollectionCustomizationView.svelte';
 
 describe('CollectionCustomizationView', () => {
@@ -84,7 +85,8 @@ describe('CollectionCustomizationView', () => {
 				basePath: '/ethereum/terraforms',
 				selectedTraits: [],
 				selectedTraitRanges: [],
-				mediaMode: 'artifact'
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+				mediaPreference: COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled
 			}
 		});
 
@@ -99,5 +101,6 @@ describe('CollectionCustomizationView', () => {
 		expect(body).toContain('<textarea');
 		expect(body).toContain('placeholder="empty = hidden"');
 		expect(body).toContain('>save<');
+		expect(body).toContain('media_preference=disabled');
 	});
 });

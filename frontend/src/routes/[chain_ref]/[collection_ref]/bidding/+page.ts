@@ -1,6 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
-import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
 	BackendApiError,
 	getCollectionBiddingBidBook,
@@ -16,7 +16,7 @@ import {
 	parseBidBookMakerFilter,
 	parseShowMutedBidBook
 } from '$lib/bidding-query';
-import { normalizeMediaMode } from '$lib/media-mode';
+import { MEDIA_MODE_QUERY_PARAM, normalizeMediaMode } from '$lib/media-mode';
 import { withQuery } from '$lib/route-paths';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -50,9 +50,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			media: {
 				selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
 				defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
-				availableModes: [
-					{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
-				]
+				availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+				preference: null
 			},
 			basePath: '/',
 			selectedTraits: parseSelectedTraits(url.searchParams),
@@ -61,7 +60,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			traitJoinMode: parseCollectionBiddingTraitFilterJoinMode(url.searchParams),
 			showMuted: parseShowMutedBidBook(url.searchParams),
 			makerFilter: parseBidBookMakerFilter(url.searchParams),
-			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode')),
+			mediaMode: normalizeMediaMode(url.searchParams.get(MEDIA_MODE_QUERY_PARAM)),
 			requestCursor: url.searchParams.get('cursor')
 		};
 	}
@@ -81,13 +80,13 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 		return {
 			chain: bidBookResponse.chain,
 			collection: bidBookResponse.collection,
-				biddingSettings: priceTiersResponse.settings,
-				priceTiers: priceTiersResponse.tiers,
-				trustOpenSeaSignedZoneTraitOffers:
-					runtimeConfigResponse.bidding.trustOpenSeaSignedZoneTraitOffers,
-				bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh,
-				blockExplorer: runtimeConfigResponse.blockExplorer,
-				bidBook: bidBookResponse.bidBook,
+			biddingSettings: priceTiersResponse.settings,
+			priceTiers: priceTiersResponse.tiers,
+			trustOpenSeaSignedZoneTraitOffers:
+				runtimeConfigResponse.bidding.trustOpenSeaSignedZoneTraitOffers,
+			bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh,
+			blockExplorer: runtimeConfigResponse.blockExplorer,
+			bidBook: bidBookResponse.bidBook,
 			tokenOfferCards: bidBookResponse.tokenOfferCards,
 			facets: bidBookResponse.traits.facets,
 			media: bidBookResponse.media,
@@ -98,7 +97,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			traitJoinMode: parseCollectionBiddingTraitFilterJoinMode(url.searchParams),
 			showMuted: parseShowMutedBidBook(url.searchParams),
 			makerFilter: parseBidBookMakerFilter(url.searchParams),
-			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode')),
+			mediaMode: normalizeMediaMode(url.searchParams.get(MEDIA_MODE_QUERY_PARAM)),
 			requestCursor: url.searchParams.get('cursor')
 		};
 	} catch (cause) {

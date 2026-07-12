@@ -6,6 +6,10 @@ import {
     TRADING_BOT_LIFECYCLE_STATUS,
 } from "@artgod/shared/types";
 import { TRAIT_FILTER_DISPLAY_KIND } from "@artgod/shared/types";
+import {
+    COLLECTION_MEDIA_MODE_OPTIONS,
+    COLLECTION_MEDIA_MODES,
+} from "@artgod/shared/extensions";
 import type {
     ChainRecord,
     CollectionListItem,
@@ -94,7 +98,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
             traits: [{ key: "Mode", value: "Terrain" }],
             traitRanges: [],
             makerAddress: "0x1111111111111111111111111111111111111111",
-            mediaMode: "artifact",
+            mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
             limit: 25,
         });
 
@@ -316,9 +320,10 @@ function collection(): CollectionListItem {
 
 function media(): CollectionMediaState {
     return {
-        selectedMode: "snapshot",
-        defaultMode: "snapshot",
-        availableModes: [{ key: "snapshot", label: "snapshot" }],
+        selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+        defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+        availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+        preference: null,
     };
 }
 

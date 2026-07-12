@@ -1,7 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { getDefaultBlockExplorerConfig } from '@artgod/shared/config/block-explorer';
-import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import { BackendApiError, getCollectionActivities, getRuntimeConfig } from '$lib/backend-api';
 import {
 	ACTIVITY_CONTENT_HASH_QUERY_PARAM,
@@ -53,9 +53,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			media: {
 				selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
 				defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
-				availableModes: [
-					{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
-				]
+				availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+				preference: null
 			},
 			facets: [],
 			selectedTraits: [],

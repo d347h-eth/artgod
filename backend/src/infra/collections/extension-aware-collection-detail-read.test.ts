@@ -5,6 +5,7 @@ import {
     TERRAFORMS_EXTENSION_KEY,
     TERRAFORMS_MAIN_READ_FUNCTIONS,
     TERRAFORMS_MEDIA_MODES,
+    TERRAFORMS_MEDIA_VARIANTS,
 } from "@artgod/shared/extensions/terraforms";
 import type {
     CollectionListItem,
@@ -15,9 +16,9 @@ import type {
     TraitFacet,
 } from "@artgod/shared/types";
 import { ExtensionAwareCollectionDetailRead } from "./extension-aware-collection-detail-read.js";
+import { COLLECTION_MEDIA_PREFERENCE_VALUES } from "@artgod/shared/extensions";
 
-const TERRAFORMS_MAIN_CONTRACT =
-    "0x4e1f41613c9084fdb9e34e11fae9412427480e56";
+const TERRAFORMS_MAIN_CONTRACT = "0x4e1f41613c9084fdb9e34e11fae9412427480e56";
 const TERRAFORMS_RENDERER_V2_CONTRACT =
     "0x8af860c8f157f4e3b6a54913bfa6bb96ab2605c2";
 const TERRAFORMS_TOKEN_URI_V2_CONTRACT =
@@ -62,6 +63,13 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
                 },
                 getArtifact() {
                     return null;
+                },
+                getCanonicalTokenMediaFacts() {
+                    return {
+                        isCanonicalToken: true,
+                        animationUrl: null,
+                        attributes: new Map(),
+                    };
                 },
                 listTokenCardArtifactsByTokenIds() {
                     return new Map();
@@ -180,6 +188,44 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
         });
     });
 
+    it("keeps snapshot cards canonical when V2 preference is disabled", () => {
+        const readModel = new ExtensionAwareCollectionDetailRead(
+            {
+                ...createBaseReadPort(),
+                listCollectionTokens() {
+                    return {
+                        items: [tokenCard("1", "canonical-1")],
+                        prevCursor: null,
+                        nextCursor: null,
+                        limit: 250,
+                        totalItems: 1,
+                        marketplaceBiddingSupportedTotalItems: 1,
+                        rangeStart: 1,
+                        rangeEnd: 1,
+                        currentPage: 1,
+                        totalPages: 1,
+                    };
+                },
+            },
+            {
+                ...createExtensionRecords(),
+                listTokenCardArtifactsByTokenIds() {
+                    throw new Error("Unexpected artifact batch");
+                },
+            },
+        );
+
+        const page = readModel.listCollectionTokens({
+            chainId: 1,
+            collectionId: 7,
+            tokenStatus: "listed",
+            limit: 250,
+            mediaPreference: COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled,
+        });
+
+        expect(page.items.map((token) => token.image)).toEqual(["canonical-1"]);
+    });
+
     it("batches extension artifacts when resolving token cards by explicit ids", () => {
         const apm = new CapturingApm();
         const requestedTokenIds: string[][] = [];
@@ -275,6 +321,12 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
                 async getStorageAt() {
                     throw new Error("Unexpected token-card storage read");
                 },
+                async getCurrentBlockNumber() {
+                    throw new Error("Unexpected token-card block read");
+                },
+                async getBlockTimestamp() {
+                    throw new Error("Unexpected token-card timestamp read");
+                },
             },
         );
 
@@ -289,13 +341,20 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
         expect(page.items.map((token) => token.image)).toEqual(["canonical-1"]);
     });
 
-    it("resolves live previews through the injected backend RPC client", async () => {
-        const calls: Array<{ functionName: string; args?: readonly unknown[] }> =
-            [];
+    it("resolves one live preview presentation without repeating canonical or renderer reads", async () => {
+        const calls: Array<{
+            functionName: string;
+            args?: readonly unknown[];
+        }> = [];
+        let basePreviewReads = 0;
+        let canonicalMediaReads = 0;
+        let currentBlockReads = 0;
+        let storageReads = 0;
         const readModel = new ExtensionAwareCollectionDetailRead(
             {
                 ...createBaseReadPort(),
                 getCollectionTokenPreview(): TokenMediaPreview {
+                    basePreviewReads += 1;
                     return {
                         tokenId: "7710",
                         image: "canonical-image",
@@ -303,7 +362,17 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
                     };
                 },
             },
-            createLiveExtensionRecords(),
+            {
+                ...createLiveExtensionRecords(),
+                getCanonicalTokenMediaFacts() {
+                    canonicalMediaReads += 1;
+                    return {
+                        isCanonicalToken: true,
+                        animationUrl: "snapshot-animation",
+                        attributes: new Map(),
+                    };
+                },
+            },
             undefined,
             {
                 async readContract<T = unknown>(params: {
@@ -317,29 +386,47 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
                     return "<html>live</html>" as T;
                 },
                 async getStorageAt() {
-                    throw new Error("Unexpected storage read");
+                    storageReads += 1;
+                    return "0x02";
+                },
+                async getCurrentBlockNumber() {
+                    currentBlockReads += 1;
+                    return 22_010_001;
+                },
+                async getBlockTimestamp() {
+                    return 1_700_000_000;
                 },
             },
         );
 
-        const token = await readModel.getCollectionTokenPreview({
-            chainId: 1,
-            collectionId: 7,
-            tokenId: "7710",
-            mediaMode: TERRAFORMS_MEDIA_MODES.Live,
-        });
+        const presentation =
+            await readModel.getCollectionTokenPreviewPresentation({
+                chainId: 1,
+                collectionId: 7,
+                tokenId: "7710",
+                mediaMode: TERRAFORMS_MEDIA_MODES.Live,
+                mediaPreference: COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled,
+            });
 
+        expect(basePreviewReads).toBe(1);
+        expect(canonicalMediaReads).toBe(1);
+        expect(currentBlockReads).toBe(1);
+        expect(storageReads).toBe(1);
         expect(calls).toEqual([
             {
                 functionName: TERRAFORMS_MAIN_READ_FUNCTIONS.TokenHtml,
                 args: [7710n],
             },
         ]);
-        expect(token.image).toBe("canonical-image");
+        expect(presentation.media.selectedVariant).toBe(
+            TERRAFORMS_MEDIA_VARIANTS.V2,
+        );
+        expect(presentation.token.image).toBe("canonical-image");
         expect(
-            Buffer.from(token.animationUrl!.split(",")[1]!, "base64").toString(
-                "utf8",
-            ),
+            Buffer.from(
+                presentation.token.animationUrl!.split(",")[1]!,
+                "base64",
+            ).toString("utf8"),
         ).toBe("<html>live</html>");
     });
 
@@ -416,6 +503,13 @@ function createExtensionRecords() {
         },
         getArtifact() {
             return null;
+        },
+        getCanonicalTokenMediaFacts() {
+            return {
+                isCanonicalToken: true,
+                animationUrl: "snapshot-animation",
+                attributes: new Map(),
+            };
         },
         listTokenCardArtifactsByTokenIds() {
             return new Map();

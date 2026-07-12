@@ -197,7 +197,8 @@
 			displayMode,
 			selectedTraits: [],
 			selectedTraitRanges: [],
-			mediaMode: media.selectedMode
+			mediaMode: media.selectedMode,
+			mediaPreference: media.preference
 		});
 	}
 
@@ -205,6 +206,7 @@
 		return buildCollectionNavigation({
 			basePath: collectionBasePath,
 			mediaMode: media.selectedMode,
+			mediaPreference: media.preference,
 			selectedTraits,
 			selectedTraitRanges,
 			token: {
@@ -241,8 +243,9 @@
 				limit: tokens.limit,
 				displayMode,
 				selectedTraits: nextTraits,
-				selectedTraitRanges: nextRanges,
-				mediaMode: media.selectedMode
+					selectedTraitRanges: nextRanges,
+					mediaMode: media.selectedMode,
+					mediaPreference: media.preference
 			}),
 			{
 				invalidateAll: true,
@@ -388,8 +391,9 @@
 		{#if collection}
 			<CollectionJumpForm
 				chainRef={chain?.slug ?? ''}
-				basePath={collectionBasePath}
-				mediaMode={media.selectedMode}
+					basePath={collectionBasePath}
+					mediaMode={media.selectedMode}
+					mediaPreference={media.preference}
 			/>
 		{/if}
 		<KeyboardShortcutsHelp {keyboardShortcutsHelp} {blockExplorer} />

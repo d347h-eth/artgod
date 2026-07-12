@@ -1,10 +1,21 @@
 import {
 	TERRAFORMS_BIOME_ATTRIBUTE_KEY,
 	TERRAFORMS_EXTENSION_KEY,
+	TERRAFORMS_MEDIA_MODE_OPTIONS,
+	TERRAFORMS_MEDIA_MODES,
+	TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED,
+	TERRAFORMS_MEDIA_PREFERENCE_LABEL,
+	TERRAFORMS_MEDIA_VARIANT_OPTIONS,
+	TERRAFORMS_MEDIA_VARIANTS,
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES,
 	TERRAFORMS_ZONE_ATTRIBUTE_KEY
 } from '@artgod/shared/extensions/terraforms';
+import {
+	COLLECTION_MEDIA_MODE_OPTIONS,
+	COLLECTION_MEDIA_MODES,
+	COLLECTION_MEDIA_PREFERENCE_VALUES
+} from '@artgod/shared/extensions';
 import {
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
@@ -39,6 +50,7 @@ import type {
 	ApiTokenAttribute,
 	ApiTokenCard,
 	ApiTokenDetail,
+	ApiTokenMediaState,
 	ApiTraitFacet,
 	ApiTraitFilterPresentationFeatureState,
 	ApiTraitRangeFilter,
@@ -52,7 +64,13 @@ import {
 } from '$lib/bidding-query';
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import { defaultTraitFilterPresentationState } from '$lib/trait-filter-presentation';
-import { normalizeMediaMode } from '$lib/media-mode';
+import {
+	MEDIA_MODE_QUERY_PARAM,
+	MEDIA_PREFERENCE_QUERY_PARAM,
+	MEDIA_VARIANT_QUERY_PARAM,
+	normalizeMediaMode,
+	normalizeMediaPreferenceValue
+} from '$lib/media-mode';
 import { parseCollectionTokenStatus, parseDisplayMode } from '$lib/token-browser-query';
 import { parseSelectedTraitRanges, parseSelectedTraits } from '$lib/trait-filters';
 
@@ -64,6 +82,7 @@ const MARKET_ADDRESS_A = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const MARKET_ADDRESS_B = '0xcccccccccccccccccccccccccccccccccccccccc';
 const MARKET_ADDRESS_C = '0xdddddddddddddddddddddddddddddddddddddddd';
 const FIXTURE_NOW = '2026-05-01T12:00:00Z';
+const TOKEN_MEDIA_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
 
 // Enables the trait-placement paths exercised by the deterministic bidding harness.
 const BIDDING_E2E_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS = true;
@@ -108,9 +127,26 @@ export const BIDDING_E2E_COLLECTION: ApiCollection = {
 
 // Shared deterministic media fixture for token-card and token-detail rendering.
 export const BIDDING_E2E_MEDIA: ApiCollectionMediaState = {
-	selectedMode: 'artifact',
-	defaultMode: 'artifact',
-	availableModes: [{ key: 'artifact', label: 'artifact' }]
+	selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+	defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+	availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot, TERRAFORMS_MEDIA_MODE_OPTIONS.Live],
+	preference: {
+		label: TERRAFORMS_MEDIA_PREFERENCE_LABEL,
+		enabled: TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED,
+		defaultEnabled: TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED
+	}
+};
+
+// Token-detail harness media adds token-local version capability state.
+export const BIDDING_E2E_TOKEN_MEDIA: ApiTokenMediaState = {
+	...BIDDING_E2E_MEDIA,
+	selectedVariant: TERRAFORMS_MEDIA_VARIANTS.V2Artifact,
+	defaultVariant: TERRAFORMS_MEDIA_VARIANTS.V2Artifact,
+	availableVariants: [
+		TERRAFORMS_MEDIA_VARIANT_OPTIONS.V2Artifact,
+		TERRAFORMS_MEDIA_VARIANT_OPTIONS.V2LostTerrain,
+		TERRAFORMS_MEDIA_VARIANT_OPTIONS.V2
+	]
 };
 
 // Shared deterministic collection settings fixture used by bidding forms and tiers.
@@ -150,10 +186,7 @@ export const BIDDING_E2E_FACETS: ApiTraitFacet[] = [
 		displayKind: 'set',
 		minValue: null,
 		maxValue: null,
-		values: [
-			biddingE2eFacetValue('Terrain', 3),
-			biddingE2eFacetValue('Daydream', 1)
-		]
+		values: [biddingE2eFacetValue('Terrain', 3), biddingE2eFacetValue('Daydream', 1)]
 	},
 	{
 		key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
@@ -535,6 +568,7 @@ export function buildBiddingE2eCollectionDetailData(searchParams: URLSearchParam
 	const selectedTraitRanges = parseSelectedTraitRanges(searchParams);
 	const tokenStatus = parseCollectionTokenStatus(searchParams.get('token_status'));
 	const displayMode = parseDisplayMode(searchParams.get('mode'));
+	const media = resolveBiddingE2eCollectionMedia(searchParams);
 	const tokens = buildTokensPage({
 		selectedTraits,
 		selectedTraitRanges,
@@ -549,7 +583,7 @@ export function buildBiddingE2eCollectionDetailData(searchParams: URLSearchParam
 		facets: BIDDING_E2E_FACETS,
 		selectedTraits,
 		selectedTraitRanges,
-		media: BIDDING_E2E_MEDIA,
+		media,
 		basePath: COLLECTION_BASE_PATH,
 		requestCursor: searchParams.get('cursor'),
 		tokenStatus,
@@ -568,6 +602,7 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 	const traitJoinMode = parseCollectionBiddingTraitFilterJoinMode(searchParams);
 	const makerFilter = parseBidBookMakerFilter(searchParams);
 	const scenario = parseBiddingE2eScenario(searchParams);
+	const media = resolveBiddingE2eCollectionMedia(searchParams);
 	const bidBook = buildBidBook({
 		bidScope,
 		traitJoinMode,
@@ -593,7 +628,7 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 		bidBook,
 		tokenOfferCards,
 		facets: BIDDING_E2E_FACETS,
-		media: BIDDING_E2E_MEDIA,
+		media,
 		basePath: COLLECTION_BASE_PATH,
 		selectedTraits,
 		selectedTraitRanges,
@@ -601,7 +636,7 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 		traitJoinMode,
 		showMuted: parseShowMutedBidBook(searchParams),
 		makerFilter,
-		mediaMode: normalizeMediaMode(searchParams.get('media_mode')),
+		mediaMode: media.selectedMode,
 		requestCursor: searchParams.get('cursor')
 	};
 }
@@ -613,7 +648,7 @@ export function buildBiddingE2eTokenDetailData(tokenRef: string, searchParams: U
 	return {
 		chain: BIDDING_E2E_CHAIN,
 		collection: BIDDING_E2E_COLLECTION,
-		media: BIDDING_E2E_MEDIA,
+		media: resolveBiddingE2eTokenMedia(searchParams),
 		token,
 		biddingSettings: BIDDING_E2E_SETTINGS,
 		trustOpenSeaSignedZoneTraitOffers: BIDDING_E2E_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
@@ -631,6 +666,77 @@ export function buildBiddingE2eTokenDetailData(tokenRef: string, searchParams: U
 	};
 }
 
+// Resolves collection media controls from the same URL contract used by production pages.
+export function resolveBiddingE2eCollectionMedia(
+	searchParams: URLSearchParams
+): ApiCollectionMediaState {
+	const requestedMode = normalizeMediaMode(searchParams.get(MEDIA_MODE_QUERY_PARAM));
+	const selectedMode =
+		requestedMode === TERRAFORMS_MEDIA_MODES.Live
+			? TERRAFORMS_MEDIA_MODES.Live
+			: COLLECTION_MEDIA_MODES.Snapshot;
+	const requestedPreference = normalizeMediaPreferenceValue(
+		searchParams.get(MEDIA_PREFERENCE_QUERY_PARAM)
+	);
+	const preferenceEnabled = resolveBiddingE2eMediaPreference(requestedPreference);
+
+	return {
+		selectedMode,
+		defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+		availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot, TERRAFORMS_MEDIA_MODE_OPTIONS.Live],
+		preference: {
+			label: TERRAFORMS_MEDIA_PREFERENCE_LABEL,
+			enabled: preferenceEnabled,
+			defaultEnabled: TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED
+		}
+	};
+}
+
+// Resolves token-local variants so rendered tests exercise both source-specific version rows.
+export function resolveBiddingE2eTokenMedia(searchParams: URLSearchParams): ApiTokenMediaState {
+	const collectionMedia = resolveBiddingE2eCollectionMedia(searchParams);
+	const preferenceEnabled =
+		collectionMedia.preference?.enabled ?? TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED;
+	const isLive = collectionMedia.selectedMode === TERRAFORMS_MEDIA_MODES.Live;
+	const availableVariants = isLive
+		? [
+				TERRAFORMS_MEDIA_VARIANT_OPTIONS.V2,
+				TERRAFORMS_MEDIA_VARIANT_OPTIONS.V1,
+				TERRAFORMS_MEDIA_VARIANT_OPTIONS.V0
+			]
+		: [
+				TERRAFORMS_MEDIA_VARIANT_OPTIONS.V2Artifact,
+				TERRAFORMS_MEDIA_VARIANT_OPTIONS.V2LostTerrain,
+				TERRAFORMS_MEDIA_VARIANT_OPTIONS.V2
+			];
+	const defaultVariant = isLive
+		? preferenceEnabled
+			? TERRAFORMS_MEDIA_VARIANTS.V2
+			: TERRAFORMS_MEDIA_VARIANTS.V0
+		: preferenceEnabled
+			? TERRAFORMS_MEDIA_VARIANTS.V2Artifact
+			: TERRAFORMS_MEDIA_VARIANTS.V2;
+	const requestedVariant = normalizeMediaMode(searchParams.get(MEDIA_VARIANT_QUERY_PARAM));
+	const selectedVariant = availableVariants.some((variant) => variant.key === requestedVariant)
+		? requestedVariant
+		: defaultVariant;
+
+	return {
+		...collectionMedia,
+		selectedVariant,
+		defaultVariant,
+		availableVariants
+	};
+}
+
+function resolveBiddingE2eMediaPreference(
+	requestedPreference: ReturnType<typeof normalizeMediaPreferenceValue>
+): boolean {
+	if (requestedPreference === COLLECTION_MEDIA_PREFERENCE_VALUES.Enabled) return true;
+	if (requestedPreference === COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled) return false;
+	return TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED;
+}
+
 // Resolves fixture lookup responses for existing bidding automation jobs.
 export function findBiddingE2eJobForTarget(body: unknown): ApiBiddingJob | null {
 	if (!isLookupBody(body)) {
@@ -640,7 +746,8 @@ export function findBiddingE2eJobForTarget(body: unknown): ApiBiddingJob | null 
 	if (target.type === TRADING_JOB_TARGET_KIND.Token) {
 		return (
 			JOBS.find(
-				(job) => job.target.type === TRADING_JOB_TARGET_KIND.Token && job.target.tokenId === target.tokenId
+				(job) =>
+					job.target.type === TRADING_JOB_TARGET_KIND.Token && job.target.tokenId === target.tokenId
 			) ?? null
 		);
 	}
@@ -909,7 +1016,7 @@ function tokenCard(
 		tokenId,
 		marketplaceBiddingSupported: true,
 		name: `E2E Token #${tokenId}`,
-		image: null,
+		image: TOKEN_MEDIA_PIXEL,
 		animationUrl: null,
 		traitSummary,
 		listingPrice: listingPriceEth ? ethToWei(listingPriceEth) : null,
@@ -1217,7 +1324,11 @@ function isLookupBody(value: unknown): value is {
 		return false;
 	}
 	const target = (value as { target?: unknown }).target;
-	return !!target && typeof target === 'object' && typeof (target as { type?: unknown }).type === 'string';
+	return (
+		!!target &&
+		typeof target === 'object' &&
+		typeof (target as { type?: unknown }).type === 'string'
+	);
 }
 
 function isJobMutationBody(value: unknown): value is {

@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { logger } from "@artgod/shared/utils";
 import {
+    COLLECTION_MEDIA_MODE_OPTIONS,
+    COLLECTION_MEDIA_MODES,
+    COLLECTION_MEDIA_PREFERENCE_VALUES,
+} from "@artgod/shared/extensions";
+import {
     buildCollectionDetailDefaultQueryCacheKey,
     isCollectionDetailDefaultQueryCacheEligible,
     isPublicCollectionDetailCacheEligible,
@@ -40,7 +45,9 @@ describe("PublicCollectionDetailCache", () => {
         );
 
         await runWithQueryCacheDebugContext(async () => {
-            expect(await cached.getCollectionDetail(createInput())).toBe(output);
+            expect(await cached.getCollectionDetail(createInput())).toBe(
+                output,
+            );
             expect(getCurrentQueryCacheDebugStatus()).toBe(
                 QUERY_CACHE_DEBUG_STATUSES.Miss,
             );
@@ -90,6 +97,44 @@ describe("PublicCollectionDetailCache", () => {
         });
 
         expect(inner.getCollectionDetail).toHaveBeenCalledTimes(1);
+    });
+
+    it("bypasses the warmed page for an explicit disabled media preference", async () => {
+        const preferredOutput = createOutput();
+        const disabledOutput = createOutput();
+        const inner = {
+            getCollectionDetail: vi
+                .fn()
+                .mockReturnValueOnce(preferredOutput)
+                .mockReturnValueOnce(disabledOutput),
+        };
+        const cached = new PublicCollectionDetailCache(
+            inner,
+            createDefaultMediaModePort(),
+            null,
+            {
+                defaultInput: createInput(),
+                refreshMs: 5000,
+                previewWarmRefreshMs: 600000,
+            },
+        );
+
+        await cached.getCollectionDetail(createInput());
+
+        runWithQueryCacheDebugContext(() => {
+            expect(
+                cached.getCollectionDetail(
+                    createInput({
+                        mediaPreference:
+                            COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled,
+                    }),
+                ),
+            ).toBe(disabledOutput);
+            expect(getCurrentQueryCacheDebugStatus()).toBe(
+                QUERY_CACHE_DEBUG_STATUSES.Bypass,
+            );
+        });
+        expect(inner.getCollectionDetail).toHaveBeenCalledTimes(2);
     });
 
     it("bypasses cache for non-default collection detail queries", () => {
@@ -237,9 +282,7 @@ describe("collection detail default query cache helpers", () => {
                 chainRef: "Ethereum",
                 collectionRef: "Terraforms",
             }),
-        ).toBe(
-            "chain=ethereum|collection=terraforms|status=listed|limit=250",
-        );
+        ).toBe("chain=ethereum|collection=terraforms|status=listed|limit=250");
     });
 });
 
@@ -284,12 +327,10 @@ function createOutput(): GetCollectionDetailOutput {
             facets: [],
         },
         media: {
-            selectedMode: "artifact",
-            defaultMode: "artifact",
-            availableModes: [
-                { key: "artifact", label: "artifact" },
-                { key: "snapshot", label: "snapshot" },
-            ],
+            selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+            defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+            availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+            preference: null,
         },
         tokens: {
             items: [
@@ -301,7 +342,8 @@ function createOutput(): GetCollectionDetailOutput {
                     animationUrl: null,
                     traitSummary: null,
                     listingPrice: "500000000000000000",
-                    listingCurrency: "0x0000000000000000000000000000000000000000",
+                    listingCurrency:
+                        "0x0000000000000000000000000000000000000000",
                     attributes: [],
                     hasMetadata: true,
                     metadataUpdatedAt: "2026-01-01T00:00:00.000Z",
@@ -314,7 +356,8 @@ function createOutput(): GetCollectionDetailOutput {
                     animationUrl: null,
                     traitSummary: null,
                     listingPrice: "600000000000000000",
-                    listingCurrency: "0x0000000000000000000000000000000000000000",
+                    listingCurrency:
+                        "0x0000000000000000000000000000000000000000",
                     attributes: [],
                     hasMetadata: true,
                     metadataUpdatedAt: "2026-01-01T00:00:00.000Z",
@@ -342,6 +385,6 @@ function createDefaultMediaModePort(): {
     getDefaultMediaMode(): string;
 } {
     return {
-        getDefaultMediaMode: () => "artifact",
+        getDefaultMediaMode: () => COLLECTION_MEDIA_MODES.Snapshot,
     };
 }

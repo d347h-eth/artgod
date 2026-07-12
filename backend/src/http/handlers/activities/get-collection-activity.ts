@@ -26,6 +26,7 @@ import {
     parseLimit,
     parseMaker,
     parseMediaMode,
+    parseMediaPreference,
     parseTraits,
     parseTraitRanges,
 } from "../../common/request-query.js";
@@ -48,8 +49,7 @@ const ACTIVITY_SPAN_ATTRIBUTE = {
     CursorPresent: ARTGOD_SPAN_ATTRIBUTE.ActivityCursorPresent,
     Kind: ARTGOD_SPAN_ATTRIBUTE.ActivityKind,
     ExtensionEvent: ARTGOD_SPAN_ATTRIBUTE.ActivityExtensionEvent,
-    ExtensionEventPresent:
-        ARTGOD_SPAN_ATTRIBUTE.ActivityExtensionEventPresent,
+    ExtensionEventPresent: ARTGOD_SPAN_ATTRIBUTE.ActivityExtensionEventPresent,
     TraitsCount: ARTGOD_SPAN_ATTRIBUTE.ActivityTraitsCount,
     TraitRangesCount: ARTGOD_SPAN_ATTRIBUTE.ActivityTraitRangesCount,
     TokenFilterPresent: ARTGOD_SPAN_ATTRIBUTE.ActivityTokenFilterPresent,
@@ -102,6 +102,9 @@ export class GetCollectionActivityHttpAdapter {
         const mediaMode = parseMediaMode(
             searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode),
         );
+        const mediaPreference = parseMediaPreference(
+            searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference),
+        );
         const tokenId = parseActivityTokenId(
             searchParams.get(ACTIVITY_FEED_QUERY_PARAMS.TokenId),
         );
@@ -124,6 +127,7 @@ export class GetCollectionActivityHttpAdapter {
             traits,
             traitRanges,
             mediaMode,
+            mediaPreference,
             tokenId,
             maker,
             contentHash,

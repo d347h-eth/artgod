@@ -407,6 +407,7 @@
 		return buildCollectionNavigation({
 			basePath,
 			mediaMode,
+			mediaPreference: media.preference,
 			selectedTraits: activeTraits,
 			selectedTraitRanges: activeTraitRanges,
 			token: {
@@ -441,6 +442,7 @@
 			bidScope,
 			traitJoinMode: nextTraitJoinMode,
 			mediaMode,
+			mediaPreference: media.preference,
 			maker: makerFilter,
 			showMuted
 		});
@@ -453,6 +455,7 @@
 			bidScope: nextBidScope,
 			traitJoinMode,
 			mediaMode,
+			mediaPreference: media.preference,
 			maker: makerFilter,
 			showMuted
 		});
@@ -472,6 +475,7 @@
 			bidScope,
 			traitJoinMode,
 			mediaMode,
+			mediaPreference: media.preference,
 			maker: makerFilter,
 			showMuted
 		});
@@ -486,6 +490,7 @@
 			basePath,
 			tokenId,
 			mediaMode,
+			mediaPreference: media.preference,
 			returnPath: biddingPath(),
 			returnQuery: biddingReturnQuery()
 		});
@@ -497,6 +502,7 @@
 			selectedTraitRanges: activeTraitRanges,
 			bidScope: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
 			mediaMode,
+			mediaPreference: media.preference,
 			maker: makerFilter,
 			limit: activeTokenOfferCardsPage.limit,
 			cursor
@@ -513,6 +519,7 @@
 			bidScope,
 			traitJoinMode,
 			mediaMode,
+			mediaPreference: media.preference,
 			maker: makerFilter,
 			showMuted,
 			limit: activeTokenOfferCardsPage.limit,
@@ -610,6 +617,7 @@
 			activeTokenOfferCardsPage.limit,
 			activeBidBook.state.source,
 			media.selectedMode,
+			media.preference?.enabled ?? null,
 			makerFilter ?? 'all-makers',
 			showMuted ? 'show-muted' : 'hide-muted',
 			...traitFilterPaginationSignatureParts({ traits: activeTraits, ranges: activeTraitRanges })
@@ -640,6 +648,7 @@
 			bidScope,
 			traitJoinMode: nextMode,
 			mediaMode,
+			mediaPreference: media.preference,
 			maker: makerFilter,
 			showMuted
 		});
@@ -652,6 +661,7 @@
 			bidScope,
 			traitJoinMode,
 			mediaMode,
+			mediaPreference: media.preference,
 			maker: makerAddress,
 			showMuted
 		});
@@ -1009,8 +1019,9 @@
 		showScope={bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection}
 		view={bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits ? 'trait-demand' : 'rows'}
 		{showMuted}
-		{basePath}
-		{mediaMode}
+			{basePath}
+			{mediaMode}
+			mediaPreference={media.preference}
 		preferredDemandTraitKey={preferredBidBookDemandTraitKey}
 		traitValueHref={bidBookTraitValueHref}
 		makerFilterHref={makerFilterHref}
@@ -1045,7 +1056,12 @@
 	{/snippet}
 	{#snippet headerActions()}
 		{#if collection}
-			<CollectionJumpForm chainRef={chain?.slug ?? ''} basePath={basePath} mediaMode={mediaMode} />
+				<CollectionJumpForm
+					chainRef={chain?.slug ?? ''}
+					basePath={basePath}
+					{mediaMode}
+					mediaPreference={media.preference}
+				/>
 		{/if}
 		<KeyboardShortcutsHelp {keyboardShortcutsHelp} {blockExplorer} />
 	{/snippet}
@@ -1248,8 +1264,9 @@
 													{collection}
 													token={token}
 													href={tokenOfferCardHref(token.tokenId)}
-													selectedMediaMode={media.selectedMode}
-													availableMediaModes={media.availableModes}
+												selectedMediaMode={media.selectedMode}
+												availableMediaModes={media.availableModes}
+												mediaPreference={media.preference}
 													{tokenPreview}
 													adjacentTokenResolver={resolveAdjacentOfferTokenId}
 													marketPrices={tokenOfferMarketPrices(token)}
