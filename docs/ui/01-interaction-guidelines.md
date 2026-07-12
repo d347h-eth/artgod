@@ -597,7 +597,7 @@ preference, and token-local variant are separate concepts:
 - `media_mode` selects the collection media source, currently `snapshot` plus
   extension-provided sources such as Terraforms `live`
 - `media_preference` carries an extension-owned preference; Terraforms uses
-  `enabled|disabled` for `always prefer V2`
+  `enabled|disabled` for `prefer V2`
 - `media_variant` selects one exact media choice for a token response and must
   not become collection-wide state
 
@@ -610,8 +610,8 @@ Collection-level rules:
 - token browser and holder-token browser expose source tabs in the inner
   `results-toolbar`
 - when a preference exists, its toggle follows the source tabs on the same row
-  with enough spacing to read as a separate action
-- `always prefer V2` is enabled by default; generated URLs omit the default and
+  with approximately one compact source-button width between the groups
+- `prefer V2` is enabled by default; generated URLs omit the default and
   preserve explicit `media_preference=disabled`
 - media preference is URL state, not a `localStorage` fallback
 - token cards do not perform live renderer calls; live collection browsing keeps

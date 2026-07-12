@@ -42,7 +42,7 @@ Core release characteristics:
       from token-local renderer choices. Snapshot can expose canonical media,
       the cached V2 artifact, and the token's V2 lost-terrain artifact; live
       preview can render V2, V1, or V0 directly from one pinned chain state.
-    - `always prefer V2` is enabled by default and remains explicit URL state
+    - `prefer V2` is enabled by default and remains explicit URL state
       when a user disables it. Request-time live media bypasses preview caches
       and adjacent-token prefetch.
 - Userland collection browsing includes shared collection-page chrome, tokens,

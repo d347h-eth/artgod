@@ -44,7 +44,7 @@ The state is split into:
 
 1. collection source: `snapshot` or an extension-provided source such as `live`
 2. collection preference: an optional extension-owned choice, such as
-   Terraforms `always prefer V2`
+   Terraforms `prefer V2`
 3. token-local variant: the exact persisted or request-time render available for
    the current token and source
 

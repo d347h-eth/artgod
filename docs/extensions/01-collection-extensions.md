@@ -210,7 +210,7 @@ The backend separates collection media source from token-local media variant:
 - collection sources are `snapshot` and extension-provided `live`
 - `media_mode` owns the selected source
 - `media_preference=enabled|disabled` owns the extension preference; Terraforms
-  labels it `always prefer V2`, enables it by default, and omits the default
+  labels it `prefer V2`, enables it by default, and omits the default
   value from generated URLs
 - `media_variant` identifies one token-local choice and is not a collection-wide
   rendering mode

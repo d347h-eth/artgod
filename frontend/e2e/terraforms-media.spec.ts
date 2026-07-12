@@ -30,6 +30,8 @@ const TOKEN_PREVIEW_E2E_SCALE_PERCENT = '45';
 const TERRAFORMS_MEDIA_E2E_TOUCH_PROJECT = 'pixel-7';
 // Landscape geometry intentionally removes the vertical backdrop needed by the control stack.
 const TERRAFORMS_MEDIA_E2E_CONSTRAINED_VIEWPORT = { width: 915, height: 412 } as const;
+// The source-to-preference gap should read as approximately one compact source control.
+const MEDIA_SOURCE_TO_PREFERENCE_MIN_GAP_RATIO = 0.9;
 const MEDIA_REQUEST_ERROR_MESSAGE = 'E2E live V0 request failed';
 const MEDIA_REQUEST_KIND = {
 	Detail: 'detail',
@@ -83,22 +85,28 @@ test.describe('Terraforms media selection', () => {
 
 		const source = page.getByLabel('Token media source');
 		const preference = page.getByRole('button', { name: TERRAFORMS_MEDIA_PREFERENCE_LABEL });
-		await expect(
-			source.getByText(COLLECTION_MEDIA_MODE_OPTIONS.Snapshot.label, { exact: true })
-		).toBeVisible();
+		const snapshotSource = source.getByText(COLLECTION_MEDIA_MODE_OPTIONS.Snapshot.label, {
+			exact: true
+		});
+		await expect(snapshotSource).toBeVisible();
 		await expect(
 			source.getByRole('link', { name: TERRAFORMS_MEDIA_MODE_OPTIONS.Live.label, exact: true })
 		).toBeVisible();
 		await expect(preference).toHaveAttribute('aria-pressed', 'true');
 
 		const sourceBox = await source.boundingBox();
+		const snapshotSourceBox = await snapshotSource.boundingBox();
 		const preferenceBox = await preference.boundingBox();
 		expect(sourceBox).not.toBeNull();
+		expect(snapshotSourceBox).not.toBeNull();
 		expect(preferenceBox).not.toBeNull();
 		expect(Math.abs((sourceBox?.y ?? 0) - (preferenceBox?.y ?? 0))).toBeLessThan(8);
-		expect(
-			(preferenceBox?.x ?? 0) - ((sourceBox?.x ?? 0) + (sourceBox?.width ?? 0))
-		).toBeGreaterThan(4);
+		const sourceToPreferenceGap =
+			(preferenceBox?.x ?? 0) - ((sourceBox?.x ?? 0) + (sourceBox?.width ?? 0));
+		expect(sourceToPreferenceGap).toBeGreaterThanOrEqual(
+			(snapshotSourceBox?.width ?? 0) * MEDIA_SOURCE_TO_PREFERENCE_MIN_GAP_RATIO
+		);
+		await captureSuccessArtifact(page, testInfo, 'toolbar-preference-enabled');
 
 		await preference.click();
 		await expect(page).toHaveURL(

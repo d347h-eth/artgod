@@ -1587,7 +1587,7 @@ th {
 .token-media-controls-group {
 	display: inline-flex;
 	align-items: center;
-	gap: 0.5rem;
+	gap: 4.5rem;
 	flex-wrap: nowrap;
 	white-space: nowrap;
 }

@@ -194,7 +194,7 @@ Current shared extension exports:
     - artifact refs for v2 media and lost terrain
     - Terraforms-owned `live` source and token-local V2 artifact, V2 lost
       terrain, V2, V1, and V0 variants
-    - `always prefer V2` label and renderer-selection contracts
+    - `prefer V2` label and renderer-selection contracts
     - Terraforms beacon/dream activity event keys
     - Terraforms mode, canvas, renderer, and config helpers
     - embedded mainnet contract match and renderer contract addresses

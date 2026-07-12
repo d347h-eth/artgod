@@ -260,7 +260,7 @@ export const TERRAFORMS_MEDIA_MODE_OPTIONS = {
 } as const;
 
 // Terraforms owns the product label attached to the generic media preference.
-export const TERRAFORMS_MEDIA_PREFERENCE_LABEL = "always prefer V2";
+export const TERRAFORMS_MEDIA_PREFERENCE_LABEL = "prefer V2";
 
 // Terraforms enables its V2 preference until the user explicitly disables it.
 export const TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED = true;
