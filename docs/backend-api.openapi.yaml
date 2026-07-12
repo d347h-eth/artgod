@@ -1937,6 +1937,10 @@ components:
                 openseaStatus:
                     type: string
                     nullable: true
+                openseaReadyAt:
+                    type: string
+                    format: date-time
+                    nullable: true
                 openseaStreamIngestionStatus:
                     allOf:
                         - $ref: "#/components/schemas/OpenSeaStreamIngestionStatus"

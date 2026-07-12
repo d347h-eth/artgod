@@ -130,6 +130,7 @@ export type CollectionListItem = {
     status: CollectionStatus;
     openseaSlug?: string | null;
     openseaStatus?: OpenSeaCollectionStatus | null;
+    openseaReadyAt?: string | null;
     openseaStreamIngestionStatus?: OpenSeaStreamIngestionStatus | null;
     deploymentBlock: number | null;
     bootstrapAnchorBlock: number | null;

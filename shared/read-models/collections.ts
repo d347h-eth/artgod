@@ -116,6 +116,7 @@ type CollectionRow = {
     status: string;
     opensea_slug: string | null;
     opensea_status: string | null;
+    opensea_ready_at: string | null;
     opensea_stream_ingestion_status: string;
     deployment_block: number | null;
     bootstrap_anchor_block: number | null;
@@ -292,7 +293,7 @@ const ATTRIBUTE_VALUE_NORMALIZED_NUMERIC_SQL =
     "CASE WHEN LTRIM(a.value, '0') = '' THEN '0' ELSE LTRIM(a.value, '0') END";
 const COLLECTION_SELECT_COLUMNS =
     "chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, " +
-    "opensea_slug, opensea_status, opensea_stream_ingestion_status, " +
+    "opensea_slug, opensea_status, opensea_ready_at, opensea_stream_ingestion_status, " +
     "token_scope_kind, scope_start_token_id, scope_total_supply, " +
     "(SELECT COUNT(1) FROM collection_scope_tokens " +
     "WHERE collection_scope_tokens.chain_id = collections.chain_id " +
@@ -3030,6 +3031,7 @@ function mapCollectionRow(row: CollectionRow): CollectionListItem {
         status: row.status as CollectionListItem["status"],
         openseaSlug: row.opensea_slug,
         openseaStatus: row.opensea_status as CollectionListItem["openseaStatus"],
+        openseaReadyAt: row.opensea_ready_at,
         openseaStreamIngestionStatus:
             row.opensea_stream_ingestion_status as OpenSeaStreamIngestionStatus,
         deploymentBlock: row.deployment_block,

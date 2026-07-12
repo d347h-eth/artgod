@@ -307,7 +307,7 @@ fn map_bidding_candidate(
     expected_chain_id: u64,
 ) -> Result<Option<BiddingCollectionCandidate>, String> {
     if item.chain_id != expected_chain_id
-        || item.opensea_status != Some(OpenSeaCollectionStatus::Ready)
+        || !has_completed_opensea_readiness(item.opensea_ready_at.as_deref())
     {
         return Ok(None);
     }
@@ -384,21 +384,12 @@ struct CollectionItem {
     slug: String,
     address: String,
     opensea_slug: Option<String>,
-    opensea_status: Option<OpenSeaCollectionStatus>,
+    opensea_ready_at: Option<String>,
     token_scope: Option<BiddingCollectionTokenScopeSummary>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum OpenSeaCollectionStatus {
-    Pending,
-    IdentityRunning,
-    Subscribing,
-    SnapshotPending,
-    SnapshotRunning,
-    Ready,
-    Retrying,
-    Failed,
+fn has_completed_opensea_readiness(ready_at: Option<&str>) -> bool {
+    ready_at.is_some_and(|value| !value.trim().is_empty())
 }
 
 fn normalize_slug(value: Option<String>) -> Option<String> {
@@ -418,13 +409,15 @@ fn normalize_artgod_slug(value: String, collection_id: u64) -> Result<String, St
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     #[test]
-    fn maps_only_ready_collection_identity_into_canonical_candidate() {
+    fn maps_completed_opensea_identity_into_canonical_candidate() {
         let candidate = map_bidding_candidate(collection_item(), 1)
             .expect("candidate should map")
-            .expect("ready collection should be eligible");
+            .expect("previously ready collection should be eligible");
 
         assert_eq!(candidate.collection_id, 7);
         assert_eq!(
@@ -436,11 +429,36 @@ mod tests {
     }
 
     #[test]
-    fn ignores_collection_without_ready_opensea_identity() {
+    fn maps_previously_ready_collection_while_current_reconcile_retries() {
+        let item = serde_json::from_value::<CollectionItem>(json!({
+            "chainId": 1,
+            "collectionId": 7,
+            "slug": "shared-contract-art",
+            "address": "0x1111111111111111111111111111111111111111",
+            "openseaSlug": "Shared-Contract-OpenSea",
+            "openseaStatus": "retrying",
+            "openseaReadyAt": "2026-07-12 00:57:00",
+            "tokenScope": {
+                "label": "token range",
+                "items": []
+            }
+        }))
+        .expect("collection response should deserialize");
+
+        assert!(map_bidding_candidate(item, 1).unwrap().is_some());
+    }
+
+    #[test]
+    fn ignores_collection_without_completed_opensea_readiness() {
         let mut item = collection_item();
-        item.opensea_status = Some(OpenSeaCollectionStatus::Pending);
+        item.opensea_ready_at = None;
 
         assert!(map_bidding_candidate(item, 1).unwrap().is_none());
+
+        let mut blank = collection_item();
+        blank.opensea_ready_at = Some("   ".to_owned());
+
+        assert!(map_bidding_candidate(blank, 1).unwrap().is_none());
     }
 
     #[test]
@@ -518,7 +536,7 @@ mod tests {
             slug: "shared-contract-art".to_owned(),
             address: "0x1111111111111111111111111111111111111111".to_owned(),
             opensea_slug: Some("Shared-Contract-OpenSea".to_owned()),
-            opensea_status: Some(OpenSeaCollectionStatus::Ready),
+            opensea_ready_at: Some("2026-07-12 00:57:00".to_owned()),
             token_scope: Some(BiddingCollectionTokenScopeSummary {
                 label: "token range".to_owned(),
                 items: Vec::new(),

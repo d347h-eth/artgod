@@ -2632,6 +2632,7 @@ describe("backend api routes", () => {
             label: "all contract tokens",
             items: [{ label: "scope", value: "all contract tokens" }],
         });
+        expect(first.payload.page.items[0].openseaReadyAt).toBeNull();
         expect(first.payload.page.nextCursor).toEqual(expect.any(String));
 
         const second = await resolve(
