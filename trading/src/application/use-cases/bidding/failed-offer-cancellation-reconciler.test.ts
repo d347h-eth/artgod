@@ -127,11 +127,13 @@ class FakeBiddingService implements BiddingService {
 function createReconciler(
     repository: FailedOfferCancellationRepositoryPort,
     biddingService: BiddingService,
+    dryRun: boolean,
 ): FailedOfferCancellationReconciler {
     return new FailedOfferCancellationReconciler(repository, biddingService, {
         chainId: 1,
         batchSize: 10,
         cancellationRetryMs: 300_000,
+        dryRun,
     });
 }
 
@@ -141,7 +143,7 @@ describe("FailedOfferCancellationReconciler", () => {
             FAILED_CANCELLATION_RECORD,
         ]);
         const biddingService = new FakeBiddingService();
-        const reconciler = createReconciler(repository, biddingService);
+        const reconciler = createReconciler(repository, biddingService, true);
 
         const completedCount = await reconciler.reconcileFailedCancellations();
 
@@ -151,6 +153,7 @@ describe("FailedOfferCancellationReconciler", () => {
         assert.equal(repository.completed[0]?.orderId, "0xmine");
         assert.ok(repository.completed[0]?.completedAt);
         assert.deepEqual(biddingService.lookups, [FAILED_CANCELLATION_RECORD]);
+        assert.deepEqual(biddingService.cancelledOrders, []);
     });
 
     it("leaves expired failed cancellation open when OpenSea still shows an active order", async () => {
@@ -167,13 +170,41 @@ describe("FailedOfferCancellationReconciler", () => {
                 offerScope: "item",
             },
         };
-        const reconciler = createReconciler(repository, biddingService);
+        const reconciler = createReconciler(repository, biddingService, false);
 
         const completedCount = await reconciler.reconcileFailedCancellations();
 
         assert.equal(completedCount, 0);
         assert.deepEqual(repository.completed, []);
         assert.deepEqual(biddingService.cancelledOrders, []);
+    });
+
+    it("keeps an active unexpired cancellation unresolved in dry-run after lookup", async () => {
+        const repository = new FakeFailedCancellationRepository([
+            {
+                ...FAILED_CANCELLATION_RECORD,
+                expirationTimeMs: Date.now() + 60_000,
+            },
+        ]);
+        const biddingService = new FakeBiddingService();
+        biddingService.result = {
+            status: BIDDING_ORDER_RECOVERY_STATUS.Active,
+            order: {
+                id: "0xmine",
+                maker: "0xmaker",
+                price: 1n,
+                protocolAddress: "0xprotocol",
+            },
+        };
+        const reconciler = createReconciler(repository, biddingService, true);
+
+        const completedCount = await reconciler.reconcileFailedCancellations();
+
+        assert.equal(completedCount, 0);
+        assert.equal(biddingService.lookups.length, 1);
+        assert.equal(biddingService.lookups[0]?.orderId, "0xmine");
+        assert.deepEqual(biddingService.cancelledOrders, []);
+        assert.deepEqual(repository.completed, []);
     });
 
     it("retries active failed cancellation before the stored expiration threshold", async () => {
@@ -194,7 +225,7 @@ describe("FailedOfferCancellationReconciler", () => {
                 offerScope: "item",
             },
         };
-        const reconciler = createReconciler(repository, biddingService);
+        const reconciler = createReconciler(repository, biddingService, false);
 
         const completedCount = await reconciler.reconcileFailedCancellations();
 
@@ -240,11 +271,12 @@ describe("FailedOfferCancellationReconciler", () => {
             },
         };
         biddingService.cancelError = new Error("OpenSea cancel failed");
-        const reconciler = createReconciler(repository, biddingService);
+        const reconciler = createReconciler(repository, biddingService, false);
 
         const completedCount = await reconciler.reconcileFailedCancellations();
 
         assert.equal(completedCount, 0);
+        assert.equal(biddingService.cancelledOrders.length, 1);
         assert.deepEqual(restoredFailures, [
             {
                 jobId: "job-token",
@@ -286,7 +318,7 @@ describe("FailedOfferCancellationReconciler", () => {
                 offerScope: "item",
             },
         };
-        const reconciler = createReconciler(repository, biddingService);
+        const reconciler = createReconciler(repository, biddingService, true);
 
         const completedCount = await reconciler.reconcileFailedCancellations();
 
@@ -327,7 +359,7 @@ describe("FailedOfferCancellationReconciler", () => {
             status: BIDDING_ORDER_RECOVERY_STATUS.Inconclusive,
             reason: BIDDING_ORDER_RECOVERY_REASON.DirectLookupFailed,
         };
-        const reconciler = createReconciler(repository, biddingService);
+        const reconciler = createReconciler(repository, biddingService, true);
 
         const completedCount = await reconciler.reconcileFailedCancellations();
 
@@ -350,7 +382,7 @@ describe("FailedOfferCancellationReconciler", () => {
             status: BIDDING_ORDER_RECOVERY_STATUS.Inconclusive,
             reason: BIDDING_ORDER_RECOVERY_REASON.DirectLookupFailed,
         };
-        const reconciler = createReconciler(repository, biddingService);
+        const reconciler = createReconciler(repository, biddingService, true);
 
         const completedCount = await reconciler.reconcileFailedCancellations();
 
@@ -375,7 +407,7 @@ describe("FailedOfferCancellationReconciler", () => {
                 status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
             };
         };
-        const reconciler = createReconciler(repository, biddingService);
+        const reconciler = createReconciler(repository, biddingService, true);
 
         const completedCount = await reconciler.reconcileFailedCancellations();
 

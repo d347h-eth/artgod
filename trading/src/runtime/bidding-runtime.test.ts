@@ -10,6 +10,7 @@ import {
     collectTokenWarmCandidateCount,
     collectWatchedCollectionSlugs,
     createCriteriaOfferRefreshReasonResolver,
+    createFailedCancellationReconcilerConfig,
     formatOpenSeaStreamSocketError,
 } from "./bidding-runtime.js";
 
@@ -57,6 +58,18 @@ function makeTraitOfferEvent(
 }
 
 describe("bidding runtime helpers", () => {
+    it("passes the explicit dry-run policy into failed-cancellation reconciliation", () => {
+        const config = createFailedCancellationReconcilerConfig(
+            1,
+            300_000,
+            true,
+        );
+
+        assert.equal(config.chainId, 1);
+        assert.equal(config.cancellationRetryMs, 300_000);
+        assert.equal(config.dryRun, true);
+    });
+
     it("collects watched collections from all job targets without duplicates", () => {
         const jobs = [
             makeJob("token-a", "terraforms", {

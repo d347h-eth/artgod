@@ -55,7 +55,10 @@ import {
     CollectionOfferSnapshotService,
     type CollectionOfferBootstrapProgress,
 } from "../application/use-cases/bidding/collection-offer-snapshot-service.js";
-import { FailedOfferCancellationReconciler } from "../application/use-cases/bidding/failed-offer-cancellation-reconciler.js";
+import {
+    FailedOfferCancellationReconciler,
+    type FailedOfferCancellationReconcilerConfig,
+} from "../application/use-cases/bidding/failed-offer-cancellation-reconciler.js";
 import { AttrFilter } from "../application/use-cases/market/pipeline/lib/attr-filter.js";
 import { BidderRefresh } from "../application/use-cases/market/pipeline/lib/bidder-refresh.js";
 import { CollectionOfferSnapshotRefresh } from "../application/use-cases/market/pipeline/lib/collection-offer-snapshot-refresh.js";
@@ -138,6 +141,20 @@ const BIDDING_RUNTIME_LOG_ACTION = {
 
 // Failed-cancellation reconciliation stays small because it performs direct OpenSea order recovery.
 const FAILED_CANCELLATION_RECONCILIATION_BATCH_SIZE = 25;
+
+// Maps typed runtime policy into the failed-cancellation use-case contract.
+export function createFailedCancellationReconcilerConfig(
+    chainId: number,
+    cancellationRetryMs: number,
+    dryRun: boolean,
+): FailedOfferCancellationReconcilerConfig {
+    return {
+        chainId,
+        batchSize: FAILED_CANCELLATION_RECONCILIATION_BATCH_SIZE,
+        cancellationRetryMs,
+        dryRun,
+    };
+}
 
 export interface BiddingRuntimeLifecyclePort {
     bootstrapping(update: BiddingRuntimeBootstrapLifecycleUpdate): void;
@@ -721,12 +738,11 @@ export async function startBiddingRuntime(
     const failedCancellationReconciler = new FailedOfferCancellationReconciler(
         biddingJobRuntimeState,
         biddingService,
-        {
-            chainId: params.config.chainId,
-            batchSize: FAILED_CANCELLATION_RECONCILIATION_BATCH_SIZE,
-            cancellationRetryMs:
-                params.biddingConfig.cancellationRemediationRetryMs,
-        },
+        createFailedCancellationReconcilerConfig(
+            params.config.chainId,
+            params.biddingConfig.cancellationRemediationRetryMs,
+            params.biddingConfig.dryRun,
+        ),
     );
     const failedCancellationLoop =
         startBiddingFailedCancellationReconciliationLoop(

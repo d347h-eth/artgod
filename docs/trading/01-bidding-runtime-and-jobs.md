@@ -270,6 +270,7 @@ Command effects:
 - inconclusive direct order recovery keeps the command retryable because the bot cannot prove whether the order is still live
 - terminal cancellation failures are written back to `trading_bidding_order_cancellations` so the bid book renders `cancel failed` instead of leaving an unresolved `canceling` row
 - failed cancellation rows are periodically rechecked by `BIDDING_FAILED_CANCELLATION_RECONCILE_MS` and marked completed only after OpenSea proves the tracked order is absent
+- dry-run keeps those recovery lookups and may repair local state when OpenSea proves the order absent, but it never places a live offer or emits a cancellation signature; an active remote order remains unresolved
 
 Reconciliation also updates watched collections:
 

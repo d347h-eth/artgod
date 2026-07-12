@@ -52,6 +52,7 @@ export type FailedOfferCancellationReconcilerConfig = {
     chainId: number;
     batchSize: number;
     cancellationRetryMs: number;
+    dryRun: boolean;
 };
 
 const log = createBiddingComponentLogger(
@@ -67,6 +68,7 @@ export const FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION = {
     Recovered: "failedCancellationRecovered",
     FailureRestored: "failedCancellationFailureRestored",
     RetryFailed: "failedCancellationRetryFailed",
+    RetrySkippedDryRun: "failedCancellationRetrySkippedDryRun",
     RetrySkippedExpired: "failedCancellationRetrySkippedExpired",
     RetryStarted: "failedCancellationRetryStarted",
     RetrySucceeded: "failedCancellationRetrySucceeded",
@@ -95,6 +97,7 @@ export class FailedOfferCancellationReconciler {
 
         for (const record of records) {
             try {
+                // Recover remote state before deciding whether local completion or a live retry is safe.
                 const result = await this.biddingService.getOrder(
                     record.orderId,
                     record.protocolAddress ?? undefined,
@@ -127,7 +130,18 @@ export class FailedOfferCancellationReconciler {
                 }
 
                 if (result.status === BIDDING_ORDER_RECOVERY_STATUS.Active) {
-                    if (this.shouldRetryCancellation(record)) {
+                    if (this.config.dryRun) {
+                        await this.restoreTerminalFailureIfAvailable(record);
+                        log.debug(
+                            FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.RetrySkippedDryRun,
+                            "Skipping failed cancellation retry in dry-run mode",
+                            {
+                                jobId: record.jobId,
+                                orderId: record.orderId,
+                                collectionSlug: record.collectionSlug,
+                            },
+                        );
+                    } else if (this.shouldRetryCancellation(record)) {
                         const didComplete = await this.retryActiveCancellation(
                             record,
                             result.order,
@@ -136,19 +150,20 @@ export class FailedOfferCancellationReconciler {
                             completedCount += 1;
                         }
                         continue;
+                    } else {
+                        await this.restoreTerminalFailureIfAvailable(record);
+                        log.debug(
+                            FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.RetrySkippedExpired,
+                            "Skipping failed cancellation retry because the offer is past its stored expiration",
+                            {
+                                jobId: record.jobId,
+                                orderId: record.orderId,
+                                collectionSlug: record.collectionSlug,
+                                expirationTimeMs: record.expirationTimeMs,
+                            },
+                        );
                     }
 
-                    await this.restoreTerminalFailureIfAvailable(record);
-                    log.debug(
-                        FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.RetrySkippedExpired,
-                        "Skipping failed cancellation retry because the offer is past its stored expiration",
-                        {
-                            jobId: record.jobId,
-                            orderId: record.orderId,
-                            collectionSlug: record.collectionSlug,
-                            expirationTimeMs: record.expirationTimeMs,
-                        },
-                    );
                     log.debug(
                         FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION.StillActive,
                         "Failed offer cancellation still has an active order",
@@ -215,6 +230,7 @@ export class FailedOfferCancellationReconciler {
         );
 
         try {
+            // Retry only in live mode after OpenSea proved the tracked order is active.
             await this.biddingService.cancelRecoveredOrder(order, {
                 priority: BIDDING_SERVICE_REQUEST_PRIORITY.Background,
             });
