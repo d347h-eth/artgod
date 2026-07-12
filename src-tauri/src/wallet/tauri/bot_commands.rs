@@ -104,13 +104,13 @@ impl BotCommandState {
             .load_bidding_catalog(runtime_config.chain_id)
             .await
             .map_err(|error| report_bidding_catalog_error(app, error))?;
-        let active_job_ceiling_eth_by_collection = reader
-            .load_active_job_ceiling_eth_by_collection(runtime_config.chain_id)
+        let job_ceiling_prefill_eth_by_collection = reader
+            .load_job_ceiling_prefill_eth_by_collection(runtime_config.chain_id)
             .await
             .map_err(|error| report_bidding_catalog_error(app, error))?;
         Ok(BiddingCollectionCatalogDto::from_domain(
             &catalog,
-            &active_job_ceiling_eth_by_collection,
+            &job_ceiling_prefill_eth_by_collection,
         ))
     }
 
@@ -555,7 +555,7 @@ pub struct BiddingCollectionCandidateDto {
     contract_address: String,
     opensea_slug: String,
     token_scope: BiddingTokenScopeSummaryDto,
-    active_job_max_ceiling_eth: Option<String>,
+    job_ceiling_prefill_eth: Option<String>,
 }
 
 /// Admin transport shape for canonical bidding chain context and collections.
@@ -641,7 +641,7 @@ impl BiddingMandateDraftDto {
 impl BiddingCollectionCandidateDto {
     fn from_domain(
         candidate: &BiddingCollectionCandidate,
-        active_job_ceiling_eth_by_collection: &HashMap<u64, String>,
+        job_ceiling_prefill_eth_by_collection: &HashMap<u64, String>,
     ) -> Self {
         Self {
             chain_id: candidate.chain_id,
@@ -650,7 +650,7 @@ impl BiddingCollectionCandidateDto {
             contract_address: candidate.contract_address.clone(),
             opensea_slug: candidate.opensea_slug.clone(),
             token_scope: BiddingTokenScopeSummaryDto::from_domain(&candidate.token_scope),
-            active_job_max_ceiling_eth: active_job_ceiling_eth_by_collection
+            job_ceiling_prefill_eth: job_ceiling_prefill_eth_by_collection
                 .get(&candidate.collection_id)
                 .cloned(),
         }
@@ -660,7 +660,7 @@ impl BiddingCollectionCandidateDto {
 impl BiddingCollectionCatalogDto {
     fn from_domain(
         catalog: &BiddingCollectionCatalog,
-        active_job_ceiling_eth_by_collection: &HashMap<u64, String>,
+        job_ceiling_prefill_eth_by_collection: &HashMap<u64, String>,
     ) -> Self {
         Self {
             chain: BiddingChainIdentityDto::from_domain(&catalog.chain),
@@ -671,7 +671,7 @@ impl BiddingCollectionCatalogDto {
                 .map(|candidate| {
                     BiddingCollectionCandidateDto::from_domain(
                         candidate,
-                        active_job_ceiling_eth_by_collection,
+                        job_ceiling_prefill_eth_by_collection,
                     )
                 })
                 .collect(),
@@ -1035,7 +1035,7 @@ mod tests {
     }
 
     #[test]
-    fn admin_catalog_adds_active_job_ceiling_without_changing_canonical_identity() {
+    fn admin_catalog_adds_job_ceiling_prefill_without_changing_canonical_identity() {
         let catalog = BiddingCollectionCatalog {
             chain: BiddingChainIdentity {
                 chain_id: 1,
@@ -1059,7 +1059,7 @@ mod tests {
         );
 
         let value = serde_json::to_value(dto).unwrap();
-        assert_eq!(value["collections"][0]["activeJobMaxCeilingEth"], "1.25");
+        assert_eq!(value["collections"][0]["jobCeilingPrefillEth"], "1.25");
         assert_eq!(value["collections"][0]["collectionId"], 7);
         assert_eq!(
             value["collections"][0]["contractAddress"],

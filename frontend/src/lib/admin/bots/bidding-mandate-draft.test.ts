@@ -17,7 +17,7 @@ const CANDIDATE: AdminBiddingCollectionCandidate = {
 	contractAddress: '0x1111111111111111111111111111111111111111',
 	openseaSlug: 'shared-contract-opensea',
 	tokenScope: { label: 'range', items: [{ label: 'tokens', value: '100-199' }] },
-	activeJobMaxCeilingEth: '1.25'
+	jobCeilingPrefillEth: '1.25'
 };
 
 describe('bidding mandate draft', () => {
@@ -53,7 +53,7 @@ describe('bidding mandate draft', () => {
 		});
 	});
 
-	it('prefills enabled-job maxima without selecting collections', () => {
+	it('prefills current-job maxima without selecting collections', () => {
 		expect(syncBiddingMandateSelections([CANDIDATE], {})).toEqual({
 			'7': {
 				selected: false,
@@ -62,23 +62,23 @@ describe('bidding mandate draft', () => {
 			}
 		});
 		expect(
-			syncBiddingMandateSelections([{ ...CANDIDATE, activeJobMaxCeilingEth: null }], {})
+			syncBiddingMandateSelections([{ ...CANDIDATE, jobCeilingPrefillEth: null }], {})
 		).toEqual({
 			'7': { selected: false, maxUnitBidEth: '', maxUnitBidEthEdited: false }
 		});
 	});
 
-	it('orders enabled-job maxima by exact WETH value with missing prefills last', () => {
+	it('orders current-job maxima by exact WETH value with missing prefills last', () => {
 		const candidates = [
-			{ ...CANDIDATE, collectionId: 8, artgodSlug: 'blank', activeJobMaxCeilingEth: null },
-			{ ...CANDIDATE, collectionId: 9, artgodSlug: 'nine', activeJobMaxCeilingEth: '9' },
-			{ ...CANDIDATE, collectionId: 10, artgodSlug: 'ten', activeJobMaxCeilingEth: '10' },
-			{ ...CANDIDATE, collectionId: 11, artgodSlug: 'fraction', activeJobMaxCeilingEth: '9.5' },
+			{ ...CANDIDATE, collectionId: 8, artgodSlug: 'blank', jobCeilingPrefillEth: null },
+			{ ...CANDIDATE, collectionId: 9, artgodSlug: 'nine', jobCeilingPrefillEth: '9' },
+			{ ...CANDIDATE, collectionId: 10, artgodSlug: 'ten', jobCeilingPrefillEth: '10' },
+			{ ...CANDIDATE, collectionId: 11, artgodSlug: 'fraction', jobCeilingPrefillEth: '9.5' },
 			{
 				...CANDIDATE,
 				collectionId: 12,
 				artgodSlug: 'precise',
-				activeJobMaxCeilingEth: '9.500000000000000001'
+				jobCeilingPrefillEth: '9.500000000000000001'
 			}
 		];
 
@@ -92,9 +92,9 @@ describe('bidding mandate draft', () => {
 
 	it('uses collection identity as a stable tie-breaker for equal price maxima', () => {
 		const candidates = [
-			{ ...CANDIDATE, collectionId: 10, artgodSlug: 'zeta', activeJobMaxCeilingEth: '1.2' },
-			{ ...CANDIDATE, collectionId: 9, artgodSlug: 'alpha', activeJobMaxCeilingEth: '1.20' },
-			{ ...CANDIDATE, collectionId: 8, artgodSlug: 'alpha', activeJobMaxCeilingEth: '1.2' }
+			{ ...CANDIDATE, collectionId: 10, artgodSlug: 'zeta', jobCeilingPrefillEth: '1.2' },
+			{ ...CANDIDATE, collectionId: 9, artgodSlug: 'alpha', jobCeilingPrefillEth: '1.20' },
+			{ ...CANDIDATE, collectionId: 8, artgodSlug: 'alpha', jobCeilingPrefillEth: '1.2' }
 		];
 
 		expect(
@@ -105,7 +105,7 @@ describe('bidding mandate draft', () => {
 	});
 
 	it('refreshes untouched prefills without overwriting checked or edited drafts', () => {
-		const changedCandidate = { ...CANDIDATE, activeJobMaxCeilingEth: '2' };
+		const changedCandidate = { ...CANDIDATE, jobCeilingPrefillEth: '2' };
 		expect(
 			syncBiddingMandateSelections([changedCandidate], {
 				'7': { selected: false, maxUnitBidEth: '1.25', maxUnitBidEthEdited: false }

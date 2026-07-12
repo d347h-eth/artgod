@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import type { ChainRecord } from "@artgod/shared/types";
-import { ListActiveBiddingJobCeilingsUseCase } from "./list-active-bidding-job-ceilings.js";
+import { ListBiddingJobCeilingPrefillsUseCase } from "./list-bidding-job-ceiling-prefills.js";
 
 const ETHEREUM: ChainRecord = {
     id: 1,
@@ -11,10 +11,10 @@ const ETHEREUM: ChainRecord = {
     name: "Ethereum",
 };
 
-describe("ListActiveBiddingJobCeilingsUseCase", () => {
+describe("ListBiddingJobCeilingPrefillsUseCase", () => {
     it("resolves the chain and formats exact collection maxima in Ether units", () => {
         const calls: number[] = [];
-        const useCase = new ListActiveBiddingJobCeilingsUseCase(
+        const useCase = new ListBiddingJobCeilingPrefillsUseCase(
             1,
             {
                 resolveChainRef: (chainRef, defaultChainId) => {
@@ -24,7 +24,7 @@ describe("ListActiveBiddingJobCeilingsUseCase", () => {
                 },
             },
             {
-                listActiveCeilingMaxima: ({ chainId }) => {
+                listCeilingPrefillMaxima: ({ chainId }) => {
                     calls.push(chainId);
                     return [
                         {
@@ -41,10 +41,10 @@ describe("ListActiveBiddingJobCeilingsUseCase", () => {
         );
 
         assert.deepEqual(
-            useCase.listActiveBiddingJobCeilings({ chainRef: "ethereum" }),
+            useCase.listBiddingJobCeilingPrefills({ chainRef: "ethereum" }),
             {
                 chain: ETHEREUM,
-                ceilings: [
+                prefills: [
                     { collectionId: 7, maxCeilingEth: "1.25" },
                     { collectionId: 9, maxCeilingEth: "10" },
                 ],

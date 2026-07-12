@@ -9,7 +9,7 @@ use super::http_fetch_resilience::{HttpFetchClient, HttpFetchError, HttpFetchRes
 const COLLECTION_STATUS_QUERY_PARAM: &str = "status";
 const COLLECTION_CURSOR_QUERY_PARAM: &str = "cursor";
 const COLLECTION_STATUS_LIVE: &str = "live";
-const ACTIVE_BIDDING_JOB_CEILINGS_ROUTE_SUFFIX: &str = "bidding/jobs/active-ceilings";
+const BIDDING_JOB_CEILING_PREFILLS_ROUTE_SUFFIX: &str = "bidding/jobs/ceiling-prefills";
 
 /// Canonical display identity for the chain that owns the bidding catalog.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -166,56 +166,56 @@ impl BackendCollectionCatalog {
         })
     }
 
-    /// Loads one editable Admin price prefill for each collection with enabled jobs.
-    pub async fn load_active_job_ceiling_eth_by_collection(
+    /// Loads one editable Admin price prefill for each collection with enabled or paused jobs.
+    pub async fn load_job_ceiling_prefill_eth_by_collection(
         &self,
         chain_id: u64,
     ) -> Result<HashMap<u64, String>, BackendCollectionCatalogError> {
         let endpoint = format!(
-            "{}/api/{chain_id}/{ACTIVE_BIDDING_JOB_CEILINGS_ROUTE_SUFFIX}",
+            "{}/api/{chain_id}/{BIDDING_JOB_CEILING_PREFILLS_ROUTE_SUFFIX}",
             self.backend_http_base_url.trim_end_matches('/')
         );
         let query: [(&str, &str); 0] = [];
 
-        // Fetch every enabled-job ceiling maximum through one backend batch read.
+        // Fetch every enabled-or-paused ceiling maximum through one backend batch read.
         let response = self
             .client
-            .get_json::<ListActiveBiddingJobCeilingsResponse, _>(endpoint.as_str(), &query)
+            .get_json::<ListBiddingJobCeilingPrefillsResponse, _>(endpoint.as_str(), &query)
             .await
-            .map_err(map_active_ceiling_fetch_error)?;
-        map_active_job_ceiling_response(response, chain_id)
+            .map_err(map_ceiling_prefill_fetch_error)?;
+        map_job_ceiling_prefill_response(response, chain_id)
             .map_err(BackendCollectionCatalogError::invalid_prefill)
     }
 }
 
-fn map_active_job_ceiling_response(
-    response: ListActiveBiddingJobCeilingsResponse,
+fn map_job_ceiling_prefill_response(
+    response: ListBiddingJobCeilingPrefillsResponse,
     expected_chain_id: u64,
 ) -> Result<HashMap<u64, String>, String> {
     map_chain_identity(response.chain, expected_chain_id)?;
-    let mut ceilings = HashMap::with_capacity(response.ceilings.len());
-    for ceiling in response.ceilings {
-        if ceiling.collection_id == 0 {
-            return Err("Active bidding job ceilings returned collection ID zero.".to_owned());
+    let mut prefills = HashMap::with_capacity(response.prefills.len());
+    for prefill in response.prefills {
+        if prefill.collection_id == 0 {
+            return Err("Bidding job ceiling prefills returned collection ID zero.".to_owned());
         }
         let max_ceiling_eth =
-            normalize_positive_eth(ceiling.max_ceiling_eth.as_str()).map_err(|_| {
+            normalize_positive_eth(prefill.max_ceiling_eth.as_str()).map_err(|_| {
                 format!(
-                    "Collection {} returned an invalid active bidding job ceiling.",
-                    ceiling.collection_id
+                    "Collection {} returned an invalid bidding job ceiling prefill.",
+                    prefill.collection_id
                 )
             })?;
-        if ceilings
-            .insert(ceiling.collection_id, max_ceiling_eth)
+        if prefills
+            .insert(prefill.collection_id, max_ceiling_eth)
             .is_some()
         {
             return Err(format!(
-                "Collection {} appeared more than once in active bidding job ceilings.",
-                ceiling.collection_id
+                "Collection {} appeared more than once in bidding job ceiling prefills.",
+                prefill.collection_id
             ));
         }
     }
-    Ok(ceilings)
+    Ok(prefills)
 }
 
 fn map_catalog_fetch_error(error: HttpFetchError) -> BackendCollectionCatalogError {
@@ -251,7 +251,7 @@ fn map_catalog_fetch_error(error: HttpFetchError) -> BackendCollectionCatalogErr
     }
 }
 
-fn map_active_ceiling_fetch_error(error: HttpFetchError) -> BackendCollectionCatalogError {
+fn map_ceiling_prefill_fetch_error(error: HttpFetchError) -> BackendCollectionCatalogError {
     match error {
         HttpFetchError::Transport(error) => {
             let user_message = if error.is_connect() {
@@ -263,17 +263,17 @@ fn map_active_ceiling_fetch_error(error: HttpFetchError) -> BackendCollectionCat
             };
             BackendCollectionCatalogError {
                 user_message: user_message.to_owned(),
-                detail: format!("Active bidding job ceilings transport failed: {error}"),
+                detail: format!("Bidding job ceiling prefills transport failed: {error}"),
             }
         }
         HttpFetchError::Status(error) => BackendCollectionCatalogError {
             user_message: "Bidding limit prefills were rejected. Restart infra and refresh Bots."
                 .to_owned(),
-            detail: format!("Active bidding job ceilings request was rejected: {error}"),
+            detail: format!("Bidding job ceiling prefills request was rejected: {error}"),
         },
         HttpFetchError::Decode(error) => BackendCollectionCatalogError {
             user_message: "Bidding limit prefills were invalid. See desktop-app logs.".to_owned(),
-            detail: format!("Active bidding job ceilings response was invalid: {error}"),
+            detail: format!("Bidding job ceiling prefills response was invalid: {error}"),
         },
         HttpFetchError::RetryDelay(error) => BackendCollectionCatalogError {
             user_message: "Bidding limit prefills failed. See desktop-app logs.".to_owned(),
@@ -350,14 +350,14 @@ struct ListCollectionsResponse {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ListActiveBiddingJobCeilingsResponse {
+struct ListBiddingJobCeilingPrefillsResponse {
     chain: CollectionChain,
-    ceilings: Vec<ActiveBiddingJobCeiling>,
+    prefills: Vec<BiddingJobCeilingPrefill>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ActiveBiddingJobCeiling {
+struct BiddingJobCeilingPrefill {
     collection_id: u64,
     max_ceiling_eth: String,
 }
@@ -472,43 +472,43 @@ mod tests {
     }
 
     #[test]
-    fn maps_canonical_active_ceiling_prefills_and_rejects_duplicates() {
-        let response = ListActiveBiddingJobCeilingsResponse {
+    fn maps_canonical_job_ceiling_prefills_and_rejects_duplicates() {
+        let response = ListBiddingJobCeilingPrefillsResponse {
             chain: CollectionChain {
                 public_chain_id: 1,
                 name: "Ethereum".to_owned(),
             },
-            ceilings: vec![ActiveBiddingJobCeiling {
+            prefills: vec![BiddingJobCeilingPrefill {
                 collection_id: 7,
                 max_ceiling_eth: "01.2500".to_owned(),
             }],
         };
 
         assert_eq!(
-            map_active_job_ceiling_response(response, 1)
+            map_job_ceiling_prefill_response(response, 1)
                 .unwrap()
                 .get(&7)
                 .map(String::as_str),
             Some("1.25")
         );
 
-        let duplicate = ListActiveBiddingJobCeilingsResponse {
+        let duplicate = ListBiddingJobCeilingPrefillsResponse {
             chain: CollectionChain {
                 public_chain_id: 1,
                 name: "Ethereum".to_owned(),
             },
-            ceilings: vec![
-                ActiveBiddingJobCeiling {
+            prefills: vec![
+                BiddingJobCeilingPrefill {
                     collection_id: 7,
                     max_ceiling_eth: "1".to_owned(),
                 },
-                ActiveBiddingJobCeiling {
+                BiddingJobCeilingPrefill {
                     collection_id: 7,
                     max_ceiling_eth: "2".to_owned(),
                 },
             ],
         };
-        assert!(map_active_job_ceiling_response(duplicate, 1).is_err());
+        assert!(map_job_ceiling_prefill_response(duplicate, 1).is_err());
     }
 
     fn collection_item() -> CollectionItem {

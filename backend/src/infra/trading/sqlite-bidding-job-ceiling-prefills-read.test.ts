@@ -17,13 +17,13 @@ import {
     type TradingJobTargetKind,
 } from "@artgod/shared/types";
 import {
-    ACTIVE_BIDDING_JOB_CEILINGS_SQL,
-    SqliteActiveBiddingJobCeilingsRead,
-} from "./sqlite-active-bidding-job-ceilings-read.js";
+    BIDDING_JOB_CEILING_PREFILLS_SQL,
+    SqliteBiddingJobCeilingPrefillsRead,
+} from "./sqlite-bidding-job-ceiling-prefills-read.js";
 
 async function createTempDbPath(): Promise<string> {
     const dir = await mkdtemp(
-        join(tmpdir(), "artgod-active-bidding-ceilings-"),
+        join(tmpdir(), "artgod-bidding-ceiling-prefills-"),
     );
     return join(dir, "main.sqlite");
 }
@@ -100,13 +100,13 @@ function seedJob(params: {
     ).run({ jobId: params.jobId, ceilingWei: params.ceilingWei });
 }
 
-describe("SqliteActiveBiddingJobCeilingsRead", () => {
+describe("SqliteBiddingJobCeilingPrefillsRead", () => {
     beforeEach(async () => {
         setDbPath(await createTempDbPath());
         await createMigrationRunner().runMigrations();
     });
 
-    it("returns exact enabled maxima across every bidding scope in one chain", () => {
+    it("returns exact enabled and paused maxima across every bidding scope in one chain", () => {
         const firstCollectionId = seedCollection({
             chainId: 1,
             slug: "first",
@@ -184,48 +184,57 @@ describe("SqliteActiveBiddingJobCeilingsRead", () => {
             ceilingWei: "102000000000000000000",
         });
 
-        const repository = new SqliteActiveBiddingJobCeilingsRead();
+        const repository = new SqliteBiddingJobCeilingPrefillsRead();
 
-        assert.deepEqual(repository.listActiveCeilingMaxima({ chainId: 1 }), [
+        assert.deepEqual(repository.listCeilingPrefillMaxima({ chainId: 1 }), [
             {
                 collectionId: firstCollectionId,
-                maxCeilingWei: "12000000000000000000",
+                maxCeilingWei: "99000000000000000000",
+            },
+            {
+                collectionId: secondCollectionId,
+                maxCeilingWei: "5000000000000000000",
             },
         ]);
     });
 
-    it("fails closed when any enabled ceiling is not canonical positive wei", () => {
-        const collectionId = seedCollection({
-            chainId: 1,
-            slug: "invalid-ceiling",
-            address: "0x4444444444444444444444444444444444444444",
-        });
-        seedJob({
-            jobId: "invalid",
-            chainId: 1,
-            collectionId,
-            targetKind: TRADING_JOB_TARGET_KIND.Token,
-            ceilingWei: "01",
-        });
+    it.each([TRADING_JOB_STATUS.Enabled, TRADING_JOB_STATUS.Paused])(
+        "fails closed when a %s ceiling is not canonical positive wei",
+        (status) => {
+            const collectionId = seedCollection({
+                chainId: 1,
+                slug: "invalid-ceiling",
+                address: "0x4444444444444444444444444444444444444444",
+            });
+            seedJob({
+                jobId: "invalid",
+                chainId: 1,
+                collectionId,
+                status,
+                targetKind: TRADING_JOB_TARGET_KIND.Token,
+                ceilingWei: "01",
+            });
 
-        assert.throws(
-            () =>
-                new SqliteActiveBiddingJobCeilingsRead().listActiveCeilingMaxima(
-                    {
-                        chainId: 1,
-                    },
-                ),
-            /invalid ceiling_wei/,
-        );
-    });
+            assert.throws(
+                () =>
+                    new SqliteBiddingJobCeilingPrefillsRead().listCeilingPrefillMaxima(
+                        {
+                            chainId: 1,
+                        },
+                    ),
+                /invalid ceiling_wei/,
+            );
+        },
+    );
 
     it("uses covering job lookup and spec primary-key indexes without a table scan", () => {
         const plan = db.raw
-            .prepare(`EXPLAIN QUERY PLAN ${ACTIVE_BIDDING_JOB_CEILINGS_SQL}`)
+            .prepare(`EXPLAIN QUERY PLAN ${BIDDING_JOB_CEILING_PREFILLS_SQL}`)
             .all({
                 chainId: 1,
                 botKind: TRADING_BOT_KIND.Bidding,
-                status: TRADING_JOB_STATUS.Enabled,
+                enabledStatus: TRADING_JOB_STATUS.Enabled,
+                pausedStatus: TRADING_JOB_STATUS.Paused,
             }) as Array<{ detail: string }>;
         const detail = plan.map((row) => row.detail).join("\n");
 

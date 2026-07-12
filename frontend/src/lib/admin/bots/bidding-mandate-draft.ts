@@ -22,8 +22,8 @@ export function sortBiddingCollectionCandidatesByMaxUnitBid(
 ): AdminBiddingCollectionCandidate[] {
 	return [...candidates].sort((left, right) => {
 		const priceOrder = compareOptionalCanonicalEthDescending(
-			left.activeJobMaxCeilingEth,
-			right.activeJobMaxCeilingEth
+			left.jobCeilingPrefillEth,
+			right.jobCeilingPrefillEth
 		);
 		if (priceOrder !== 0) return priceOrder;
 		if (left.artgodSlug !== right.artgodSlug) {
@@ -61,7 +61,7 @@ export function syncBiddingMandateSelections(
 				key,
 				{
 					selected: false,
-					maxUnitBidEth: candidate.activeJobMaxCeilingEth ?? '',
+					maxUnitBidEth: candidate.jobCeilingPrefillEth ?? '',
 					maxUnitBidEthEdited: false
 				}
 			];

@@ -454,8 +454,8 @@ beforeAll(async () => {
         await import("./infra/trading/sqlite-bidding-jobs-repository.js");
     const biddingBidBookRepositoryModule =
         await import("./infra/trading/sqlite-bidding-bid-book-repository.js");
-    const activeBiddingJobCeilingsReadModule =
-        await import("./infra/trading/sqlite-active-bidding-job-ceilings-read.js");
+    const biddingJobCeilingPrefillsReadModule =
+        await import("./infra/trading/sqlite-bidding-job-ceiling-prefills-read.js");
     const biddingPriceTiersRepositoryModule =
         await import("./infra/trading/sqlite-bidding-price-tiers-repository.js");
     const collectionSettingsRepositoryModule =
@@ -464,8 +464,8 @@ beforeAll(async () => {
         await import("./application/use-cases/trading/list-collection-bidding-bid-book.js");
     const listCollectionBiddingPriceTiersUseCaseModule =
         await import("./application/use-cases/trading/list-collection-bidding-price-tiers.js");
-    const listActiveBiddingJobCeilingsUseCaseModule =
-        await import("./application/use-cases/trading/list-active-bidding-job-ceilings.js");
+    const listBiddingJobCeilingPrefillsUseCaseModule =
+        await import("./application/use-cases/trading/list-bidding-job-ceiling-prefills.js");
     const getTokenBiddingJobUseCaseModule =
         await import("./application/use-cases/trading/get-token-bidding-job.js");
     const getTokenBiddingBidBookUseCaseModule =
@@ -498,8 +498,8 @@ beforeAll(async () => {
         await import("./application/use-cases/trading/archive-collection-bidding-price-tier.js");
     const biddingJobsRepository =
         new biddingJobsRepositoryModule.SqliteBiddingJobsRepository();
-    const activeBiddingJobCeilingsRead =
-        new activeBiddingJobCeilingsReadModule.SqliteActiveBiddingJobCeilingsRead();
+    const biddingJobCeilingPrefillsRead =
+        new biddingJobCeilingPrefillsReadModule.SqliteBiddingJobCeilingPrefillsRead();
     const biddingBidBookRepository =
         new biddingBidBookRepositoryModule.SqliteBiddingBidBookRepository();
     const biddingPriceTiersRepository =
@@ -522,11 +522,11 @@ beforeAll(async () => {
             biddingPriceTiersRepository,
             collectionSettingsRepository,
         );
-    const listActiveBiddingJobCeilingsUseCase =
-        new listActiveBiddingJobCeilingsUseCaseModule.ListActiveBiddingJobCeilingsUseCase(
+    const listBiddingJobCeilingPrefillsUseCase =
+        new listBiddingJobCeilingPrefillsUseCaseModule.ListBiddingJobCeilingPrefillsUseCase(
             1,
             chainsReadModel,
-            activeBiddingJobCeilingsRead,
+            biddingJobCeilingPrefillsRead,
         );
     const getTokenBiddingJobUseCase =
         new getTokenBiddingJobUseCaseModule.GetTokenBiddingJobUseCase(
@@ -1056,7 +1056,7 @@ beforeAll(async () => {
         updateCollectionCustomizationUseCase,
         listCollectionBiddingBidBookUseCase,
         listCollectionBiddingPriceTiersUseCase,
-        listActiveBiddingJobCeilingsUseCase,
+        listBiddingJobCeilingPrefillsUseCase,
         getTokenBiddingJobUseCase,
         getTokenBiddingBidBookUseCase,
         biddingJobTargetLookupUseCase,
@@ -1114,7 +1114,7 @@ beforeAll(async () => {
         updateCollectionCustomizationUseCase,
         listCollectionBiddingBidBookUseCase,
         listCollectionBiddingPriceTiersUseCase,
-        listActiveBiddingJobCeilingsUseCase,
+        listBiddingJobCeilingPrefillsUseCase,
         getTokenBiddingJobUseCase,
         getTokenBiddingBidBookUseCase,
         biddingJobTargetLookupUseCase,
@@ -2653,7 +2653,7 @@ describe("backend api routes", () => {
         expect(result.payload.page.items[0].address).toBe(TERRAFORMS_ADDRESS);
     });
 
-    it("lists one enabled bidding ceiling maximum per collection on the admin route", async () => {
+    it("lists one enabled-or-paused bidding ceiling prefill per collection on the admin route", async () => {
         clearTradingJobFixtures();
         const csrf = await issueAdminCsrf();
 
@@ -2695,20 +2695,20 @@ describe("backend api routes", () => {
 
         const result = await resolve(
             "GET",
-            "/api/ethereum/bidding/jobs/active-ceilings",
+            "/api/ethereum/bidding/jobs/ceiling-prefills",
         );
         expect(result.statusCode).toBe(200);
         expect(result.payload.chain).toMatchObject({
             publicChainId: 1,
             name: "Ethereum",
         });
-        expect(result.payload.ceilings).toEqual([
-            expect.objectContaining({ maxCeilingEth: "10" }),
+        expect(result.payload.prefills).toEqual([
+            expect.objectContaining({ maxCeilingEth: "99" }),
         ]);
 
         const publicResult = await resolvePublic(
             "GET",
-            "/api/ethereum/bidding/jobs/active-ceilings",
+            "/api/ethereum/bidding/jobs/ceiling-prefills",
         );
         expect(publicResult.statusCode).toBe(404);
     });
