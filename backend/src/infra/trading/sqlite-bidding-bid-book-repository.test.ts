@@ -14,6 +14,7 @@ import {
     COLLECTION_STATUS,
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    TRADING_BIDDING_AUTHORIZATION_STATUS,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
     TRADING_BIDDING_BID_BOOK_PRICE_KIND,
@@ -143,6 +144,7 @@ describe("SqliteBiddingBidBookRepository", () => {
             bidBook.biddingBotStatus,
             TRADING_BOT_LIFECYCLE_STATUS.Inactive,
         );
+        assert.equal(bidBook.biddingAuthorization, null);
         assert.ok(
             apm.spans.some(
                 (span) =>
@@ -212,6 +214,70 @@ describe("SqliteBiddingBidBookRepository", () => {
         assert.equal(
             bidBook.biddingBotStatus,
             TRADING_BOT_LIFECYCLE_STATUS.Starting,
+        );
+        assert.equal(bidBook.biddingAuthorization, null);
+    });
+
+    it("keeps bot feed and active collection authorization as independent signals", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedBiddingRuntime(collectionId, false);
+        insertProjectedState(collectionId, Date.now());
+
+        const bidBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+
+        assert.equal(
+            bidBook.state.source,
+            TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+        );
+        assert.deepEqual(bidBook.biddingAuthorization, {
+            status: TRADING_BIDDING_AUTHORIZATION_STATUS.NotIncluded,
+            maxUnitBidWei: null,
+            maxQuantity: null,
+        });
+        assert.equal(
+            bidBook.bids[0]?.materialization.kind ===
+                TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent
+                ? bidBook.bids[0].materialization.phase
+                : null,
+            TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.AuthorizationRequired,
+        );
+    });
+
+    it("requires a new authorization when canonical collection identity changed", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedBiddingRuntime(collectionId, true, {
+            contractAddress: "0x2222222222222222222222222222222222222222",
+        });
+
+        const bidBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+
+        assert.deepEqual(bidBook.biddingAuthorization, {
+            status: TRADING_BIDDING_AUTHORIZATION_STATUS.UpdateRequired,
+            maxUnitBidWei: "200",
+            maxQuantity: 1,
+        });
+        assert.equal(
+            bidBook.bids[0]?.materialization.kind ===
+                TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent
+                ? bidBook.bids[0].materialization.phase
+                : null,
+            TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.AuthorizationRequired,
         );
     });
 
@@ -835,7 +901,7 @@ describe("SqliteBiddingBidBookRepository", () => {
         );
     });
 
-    it("renders active order evidence as verifying when the bot heartbeat is stale", () => {
+    it("renders active job intent as waiting when the bot heartbeat is stale", () => {
         const repository = new SqliteBiddingBidBookRepository();
         seedBiddingRuntime(collectionId);
         db.prepare(
@@ -873,6 +939,10 @@ describe("SqliteBiddingBidBookRepository", () => {
             bidBook.biddingBotStatus,
             TRADING_BOT_LIFECYCLE_STATUS.Inactive,
         );
+        assert.equal(
+            bidBook.biddingAuthorization?.status,
+            TRADING_BIDDING_AUTHORIZATION_STATUS.Inactive,
+        );
 
         assert.deepEqual(
             ownRows.map((bid) => ({
@@ -887,7 +957,7 @@ describe("SqliteBiddingBidBookRepository", () => {
             [
                 {
                     orderId: "own-indexed-order",
-                    phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Verifying,
+                    phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot,
                     ownStatus: null,
                 },
             ],
@@ -896,7 +966,10 @@ describe("SqliteBiddingBidBookRepository", () => {
 
     it("keeps real own indexed orders as market rows when only orders fallback has live evidence", () => {
         const repository = new SqliteBiddingBidBookRepository();
-        seedBiddingBotRuntimeState();
+        seedBiddingBotRuntimeState(
+            TRADING_BOT_RUNTIME_STATE.Running,
+            collectionId,
+        );
         db.prepare(
             "UPDATE trading_bot_runtime_state SET heartbeat_at = ? WHERE bot_kind = ?",
         ).run("2026-05-17T00:00:00Z", TRADING_BOT_KIND.Bidding);
@@ -1240,7 +1313,10 @@ describe("SqliteBiddingBidBookRepository", () => {
         const jobsRepository = new SqliteBiddingJobsRepository();
         const bidBookRepository = new SqliteBiddingBidBookRepository();
         const targetTraits = [{ type: "Biome", value: "42" }];
-        seedBiddingBotRuntimeState();
+        seedBiddingBotRuntimeState(
+            TRADING_BOT_RUNTIME_STATE.Running,
+            collectionId,
+        );
         insertProjectedState(collectionId, Date.now());
 
         const created = jobsRepository.upsertCollectionJob({
@@ -1469,7 +1545,10 @@ describe("SqliteBiddingBidBookRepository", () => {
     it("keeps the active own market row visible after price tier reapply until fresh runtime arrives", () => {
         const jobsRepository = new SqliteBiddingJobsRepository();
         const bidBookRepository = new SqliteBiddingBidBookRepository();
-        seedBiddingBotRuntimeState();
+        seedBiddingBotRuntimeState(
+            TRADING_BOT_RUNTIME_STATE.Running,
+            collectionId,
+        );
         insertProjectedState(collectionId, Date.now());
 
         const created = jobsRepository.upsertTokenJob({
@@ -1906,7 +1985,14 @@ describe("SqliteBiddingBidBookRepository", () => {
     });
 });
 
-function seedBiddingRuntime(collectionId: number): void {
+function seedBiddingRuntime(
+    collectionId: number,
+    authorizeCollection: boolean = true,
+    authorizationIdentity: {
+        contractAddress?: string;
+        openseaSlug?: string;
+    } = {},
+): void {
     db.prepare(
         "INSERT INTO trading_jobs " +
             "(job_id, bot_kind, chain_id, collection_id, status, target_kind, token_id, revision) " +
@@ -1922,22 +2008,47 @@ function seedBiddingRuntime(collectionId: number): void {
             "(job_id, floor_wei, ceiling_wei, delta_wei, quantity, target_traits_json) " +
             "VALUES ('collection-job', '100', '200', '1', 1, '[]')",
     ).run();
-    seedBiddingBotRuntimeState();
+    seedBiddingBotRuntimeState(
+        TRADING_BOT_RUNTIME_STATE.Running,
+        authorizeCollection ? collectionId : undefined,
+        authorizationIdentity,
+    );
 }
 
 function seedBiddingBotRuntimeState(
     state: TradingBotRuntimeState = TRADING_BOT_RUNTIME_STATE.Running,
+    authorizedCollectionId?: number,
+    authorizationIdentity: {
+        contractAddress?: string;
+        openseaSlug?: string;
+    } = {},
 ): void {
+    const sessionId = "bidding-runtime-session";
     db.prepare(
         "INSERT INTO trading_bot_runtime_state " +
-            "(bot_kind, chain_id, wallet_id, address, state, heartbeat_at, started_at, updated_at, last_error) " +
-            "VALUES (?, 1, 'wallet-1', ?, ?, ?, ?, ?, NULL)",
+            "(bot_kind, chain_id, wallet_id, address, runtime_session_id, state, heartbeat_at, started_at, updated_at, last_error) " +
+            "VALUES (?, 1, 'wallet-1', ?, ?, ?, ?, ?, ?, NULL)",
     ).run(
         TRADING_BOT_KIND.Bidding,
         BIDDING_MAKER_ADDRESS,
+        sessionId,
         state,
         new Date().toISOString(),
         new Date().toISOString(),
+        new Date().toISOString(),
+    );
+    if (authorizedCollectionId === undefined) {
+        return;
+    }
+    db.prepare(
+        "INSERT INTO trading_bidding_runtime_authorized_collections " +
+            "(runtime_session_id, chain_id, wallet_id, collection_id, contract_address, opensea_slug, max_unit_bid_wei, max_quantity, published_at) " +
+            "VALUES (?, 1, 'wallet-1', ?, ?, ?, '200', 1, ?)",
+    ).run(
+        sessionId,
+        authorizedCollectionId,
+        authorizationIdentity.contractAddress ?? COLLECTION_ADDRESS,
+        authorizationIdentity.openseaSlug ?? BID_BOOK_FIXTURE_OPENSEA_SLUG,
         new Date().toISOString(),
     );
 }

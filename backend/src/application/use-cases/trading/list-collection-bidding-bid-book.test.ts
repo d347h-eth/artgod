@@ -366,6 +366,7 @@ function bidBook(bids: PersistedBiddingBidBookRow[]): PersistedBiddingBidBook {
             lastError: null,
         },
         biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+        biddingAuthorization: null,
         ownMakerAddress: null,
         bids,
     };

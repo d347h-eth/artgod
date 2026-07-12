@@ -702,6 +702,7 @@ paths:
                 Token-scoped offers and trait-scoped bid rows below 10% of the top collection-wide bid are hidden; token-card offer counts also exclude hidden token offers.
                 Source is `bot_snapshot` when enabled collection jobs exist, the bidding bot heartbeat is live, and projection metadata is fresh; otherwise source is `orders`.
                 `biddingBotStatus` is independent of source: `starting` requires a fresh bootstrapping heartbeat, `active` requires a fresh running heartbeat, and `inactive` covers stopped, missing, or stale heartbeat state.
+                Private Userland reads also return the collection's session-bound `biddingAuthorization`; public reads return `null` and do not expose local authorization details.
             operationId: listCollectionBiddingBidBook
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
@@ -1270,7 +1271,7 @@ paths:
         get:
             tags: [Trading]
             summary: Get token bid book
-            description: Returns display-only bid rows applicable to the token across collection, trait, token-set, and exact-token scopes.
+            description: Returns display-only bid rows applicable to the token across collection, trait, token-set, and exact-token scopes. Private Userland reads include the current collection bidding authorization; public reads return `null` for that field.
             operationId: getTokenBiddingBidBook
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
@@ -3084,6 +3085,29 @@ components:
             type: string
             enum: [starting, active, inactive]
 
+        BiddingAuthorizationStatus:
+            type: string
+            enum:
+                [included, not_included, update_required, inactive, unavailable]
+
+        BiddingAuthorization:
+            type: object
+            required: [status, maxUnitBidWei, maxUnitBidEth, maxQuantity]
+            additionalProperties: false
+            nullable: true
+            properties:
+                status:
+                    $ref: "#/components/schemas/BiddingAuthorizationStatus"
+                maxUnitBidWei:
+                    type: string
+                    nullable: true
+                maxUnitBidEth:
+                    type: string
+                    nullable: true
+                maxQuantity:
+                    type: integer
+                    nullable: true
+
         BiddingBidScopeKind:
             type: string
             enum: [collection, trait, token, token_set, unknown]
@@ -3123,7 +3147,19 @@ components:
 
         BiddingBidBookOwnJobPhase:
             type: string
-            enum: [queued, active_order, paused]
+            enum:
+                [
+                    queued,
+                    waiting_for_bot,
+                    authorization_required,
+                    authorization_unavailable,
+                    paused,
+                    verifying,
+                    replacing,
+                    canceling,
+                    cancel_failed,
+                    cancelled,
+                ]
 
         BiddingBidBookRowMaterialization:
             type: object
@@ -3303,13 +3339,22 @@ components:
 
         BiddingBidBook:
             type: object
-            required: [state, biddingBotStatus, ownMakerAddress, bids]
+            required:
+                [
+                    state,
+                    biddingBotStatus,
+                    biddingAuthorization,
+                    ownMakerAddress,
+                    bids,
+                ]
             additionalProperties: false
             properties:
                 state:
                     $ref: "#/components/schemas/BiddingBidBookState"
                 biddingBotStatus:
                     $ref: "#/components/schemas/TradingBotLifecycleStatus"
+                biddingAuthorization:
+                    $ref: "#/components/schemas/BiddingAuthorization"
                 ownMakerAddress:
                     type: string
                     nullable: true

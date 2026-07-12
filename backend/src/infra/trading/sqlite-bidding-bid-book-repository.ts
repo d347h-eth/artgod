@@ -18,6 +18,7 @@ import {
 import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    TRADING_BIDDING_AUTHORIZATION_STATUS,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
     TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
@@ -28,10 +29,12 @@ import {
     TRADING_JOB_TARGET_KIND,
     formatTradingBiddingBidScopeLabel,
     normalizeTradingTraitText,
+    resolveTradingBiddingAuthorizationJobPhase,
     isTradingBiddingJobRuntimeBidPosition,
     isTradingBiddingJobRuntimeConstraint,
     type CollectionBiddingBidScopeFilter,
     type CollectionBiddingTraitFilterJoinMode,
+    type TradingBiddingAuthorization,
     type TradingBiddingBidBookSource,
     type TradingBiddingBidScopeKind,
     type TradingBiddingJobRuntimeBidPosition,
@@ -94,6 +97,19 @@ type ProjectionStateRow = {
 type BotRuntimeStateRow = {
     state: TradingBotRuntimeState;
     heartbeat_at: string | null;
+    runtime_session_id: string | null;
+    authorization_collection_id: number | null;
+    authorization_contract_address: string | null;
+    authorization_opensea_slug: string | null;
+    authorization_max_unit_bid_wei: string | null;
+    authorization_max_quantity: number | null;
+    current_contract_address: string;
+    current_opensea_slug: string | null;
+};
+
+type BiddingBotReadContext = {
+    lifecycleStatus: TradingBotLifecycleStatus;
+    authorization: TradingBiddingAuthorization;
 };
 
 type KnownBiddingMakerRow = {
@@ -278,6 +294,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
     }>;
     private readonly selectBiddingBotRuntimeState: BetterSqlite3NamedStatement<{
         chainId: number;
+        collectionId: number;
         botKind: typeof TRADING_BOT_KIND.Bidding;
     }>;
     private readonly selectKnownBiddingMaker: BetterSqlite3NamedStatement<{
@@ -367,15 +384,28 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
 
         this.selectBiddingBotRuntimeState = db.prepare<{
             chainId: number;
+            collectionId: number;
             botKind: typeof TRADING_BOT_KIND.Bidding;
         }>(
-            "SELECT state, heartbeat_at " +
-                "FROM trading_bot_runtime_state " +
-                "WHERE chain_id = @chainId AND bot_kind = @botKind " +
-                "ORDER BY heartbeat_at DESC " +
+            "SELECT r.state, r.heartbeat_at, r.runtime_session_id, " +
+                "a.collection_id AS authorization_collection_id, " +
+                "a.contract_address AS authorization_contract_address, " +
+                "a.opensea_slug AS authorization_opensea_slug, " +
+                "a.max_unit_bid_wei AS authorization_max_unit_bid_wei, " +
+                "a.max_quantity AS authorization_max_quantity, " +
+                "c.address AS current_contract_address, c.opensea_slug AS current_opensea_slug " +
+                "FROM trading_bot_runtime_state r " +
+                "JOIN collections c ON c.chain_id = @chainId AND c.collection_id = @collectionId " +
+                "LEFT JOIN trading_bidding_runtime_authorized_collections a " +
+                "ON a.runtime_session_id = r.runtime_session_id " +
+                "AND a.chain_id = r.chain_id AND a.wallet_id = r.wallet_id " +
+                "AND a.collection_id = @collectionId " +
+                "WHERE r.chain_id = @chainId AND r.bot_kind = @botKind " +
+                "ORDER BY r.heartbeat_at DESC " +
                 "LIMIT 1",
         ) as BetterSqlite3NamedStatement<{
             chainId: number;
+            collectionId: number;
             botKind: typeof TRADING_BOT_KIND.Bidding;
         }>;
 
@@ -535,7 +565,11 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                   () => this.loadKnownBiddingMakerAddress(params.chainId),
               )
             : null;
-        const biddingBotStatus = this.resolveBiddingBotStatus(params);
+        const biddingBotContext = this.resolveBiddingBotContext(params);
+        const biddingBotStatus = biddingBotContext.lifecycleStatus;
+        const biddingAuthorization = params.includeOwnJobContext
+            ? biddingBotContext.authorization
+            : null;
         const runtimeHeartbeatLive =
             biddingBotStatus === TRADING_BOT_LIFECYCLE_STATUS.Active;
         const source = this.apm.withSyncSpan(
@@ -552,11 +586,13 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                       params.chainId,
                       params.collectionId,
                       biddingBotStatus,
+                      biddingAuthorization,
                   )
                 : this.loadIndexedOrdersBidBook(
                       params.chainId,
                       params.collectionId,
                       biddingBotStatus,
+                      biddingAuthorization,
                   );
         const markedBidBook = this.apm.withSyncSpan(
             "backend.bidding.repository.mark_own",
@@ -575,6 +611,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                   params.collectionId,
                   knownMakerAddress,
                   runtimeHeartbeatLive,
+                  biddingAuthorization,
               )
             : [];
         const cancelledOwnOrderIds = this.loadCompletedOwnCancellationOrderIds(
@@ -655,6 +692,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         return {
             state: bidBook.state,
             biddingBotStatus: bidBook.biddingBotStatus,
+            biddingAuthorization: bidBook.biddingAuthorization,
             ownMakerAddress: bidBook.ownMakerAddress,
             bids: finalBids,
         };
@@ -680,7 +718,11 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                   () => this.loadKnownBiddingMakerAddress(params.chainId),
               )
             : null;
-        const biddingBotStatus = this.resolveBiddingBotStatus(params);
+        const biddingBotContext = this.resolveBiddingBotContext(params);
+        const biddingBotStatus = biddingBotContext.lifecycleStatus;
+        const biddingAuthorization = params.includeOwnJobContext
+            ? biddingBotContext.authorization
+            : null;
         const runtimeHeartbeatLive =
             biddingBotStatus === TRADING_BOT_LIFECYCLE_STATUS.Active;
         const source = this.apm.withSyncSpan(
@@ -697,11 +739,13 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                       params.chainId,
                       params.collectionId,
                       biddingBotStatus,
+                      biddingAuthorization,
                   )
                 : this.loadIndexedOrdersBidBook(
                       params.chainId,
                       params.collectionId,
                       biddingBotStatus,
+                      biddingAuthorization,
                   );
         const markedBidBook = this.apm.withSyncSpan(
             "backend.bidding.repository.mark_own",
@@ -720,6 +764,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                   params.collectionId,
                   knownMakerAddress,
                   runtimeHeartbeatLive,
+                  biddingAuthorization,
               )
             : [];
         const cancelledOwnOrderIds = this.loadCompletedOwnCancellationOrderIds(
@@ -773,6 +818,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         return {
             state: bidBook.state,
             biddingBotStatus: bidBook.biddingBotStatus,
+            biddingAuthorization: bidBook.biddingAuthorization,
             ownMakerAddress: bidBook.ownMakerAddress,
             bids: this.apm.withSyncSpan(
                 "backend.bidding.repository.own_signals",
@@ -830,10 +876,10 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         );
     }
 
-    private resolveBiddingBotStatus(params: {
+    private resolveBiddingBotContext(params: {
         chainId: number;
         collectionId: number;
-    }): TradingBotLifecycleStatus {
+    }): BiddingBotReadContext {
         const attributes = baseCollectionSpanAttributes(params);
         // Resolve one bounded lifecycle for source selection, own-runtime verification, and the API read model.
         const runtimeState = this.apm.withSyncSpan(
@@ -842,10 +888,11 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
             () =>
                 this.selectBiddingBotRuntimeState.get({
                     chainId: params.chainId,
+                    collectionId: params.collectionId,
                     botKind: TRADING_BOT_KIND.Bidding,
                 }) as BotRuntimeStateRow | undefined,
         );
-        return resolveTradingBotLifecycleStatus(
+        const lifecycleStatus = resolveTradingBotLifecycleStatus(
             runtimeState
                 ? {
                       state: runtimeState.state,
@@ -855,6 +902,13 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
             Date.now(),
             this.config.runtimeHeartbeatStaleMs,
         );
+        return {
+            lifecycleStatus,
+            authorization: resolveBiddingAuthorization(
+                runtimeState,
+                lifecycleStatus,
+            ),
+        };
     }
 
     private hasEnabledBiddingJobs(params: {
@@ -904,11 +958,13 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         collectionId: number,
         ownMakerAddress: string | null,
         runtimeHeartbeatLive: boolean,
+        biddingAuthorization: TradingBiddingAuthorization | null,
     ): BiddingJobSignal[] {
         const activeJobs = this.loadActiveBiddingJobs(
             chainId,
             collectionId,
             runtimeHeartbeatLive,
+            biddingAuthorization,
         );
         const cancellationJobs = this.loadIncompleteOwnCancellationJobs(
             chainId,
@@ -933,6 +989,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         chainId: number,
         collectionId: number,
         runtimeHeartbeatLive: boolean,
+        biddingAuthorization: TradingBiddingAuthorization | null,
     ): BiddingJobSignal[] {
         // Load declared jobs once so own-bid row signals can be computed from backend read models.
         const attributes = {
@@ -958,7 +1015,10 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
             },
             () =>
                 rows.map((row) =>
-                    mapBiddingJobSignalRow(row, runtimeHeartbeatLive),
+                    applyBiddingAuthorizationPhase(
+                        mapBiddingJobSignalRow(row, runtimeHeartbeatLive),
+                        biddingAuthorization,
+                    ),
                 ),
         );
     }
@@ -1011,6 +1071,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         chainId: number,
         collectionId: number,
         biddingBotStatus: TradingBotLifecycleStatus,
+        biddingAuthorization: TradingBiddingAuthorization | null,
     ): PersistedBiddingBidBook {
         const attributes = {
             ...baseCollectionSpanAttributes({ chainId, collectionId }),
@@ -1051,6 +1112,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                 ? mapProjectionStateRow(stateRow)
                 : emptyState(TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot),
             biddingBotStatus,
+            biddingAuthorization,
             ownMakerAddress: null,
             bids,
         };
@@ -1060,6 +1122,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         chainId: number,
         collectionId: number,
         biddingBotStatus: TradingBotLifecycleStatus,
+        biddingAuthorization: TradingBiddingAuthorization | null,
     ): PersistedBiddingBidBook {
         // Load active indexed OpenSea buy orders as the passive bid-book source.
         const attributes = {
@@ -1100,10 +1163,89 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                 rowCount: bids.length,
             },
             biddingBotStatus,
+            biddingAuthorization,
             ownMakerAddress: null,
             bids,
         };
     }
+}
+
+function resolveBiddingAuthorization(
+    runtimeState: BotRuntimeStateRow | undefined,
+    lifecycleStatus: TradingBotLifecycleStatus,
+): TradingBiddingAuthorization {
+    if (lifecycleStatus === TRADING_BOT_LIFECYCLE_STATUS.Inactive) {
+        return emptyBiddingAuthorization(
+            TRADING_BIDDING_AUTHORIZATION_STATUS.Inactive,
+        );
+    }
+    if (!runtimeState?.runtime_session_id) {
+        return emptyBiddingAuthorization(
+            TRADING_BIDDING_AUTHORIZATION_STATUS.Unavailable,
+        );
+    }
+    if (runtimeState.authorization_collection_id === null) {
+        return emptyBiddingAuthorization(
+            TRADING_BIDDING_AUTHORIZATION_STATUS.NotIncluded,
+        );
+    }
+    if (
+        !runtimeState.authorization_contract_address ||
+        !runtimeState.authorization_opensea_slug ||
+        !runtimeState.authorization_max_unit_bid_wei ||
+        runtimeState.authorization_max_quantity === null
+    ) {
+        return emptyBiddingAuthorization(
+            TRADING_BIDDING_AUTHORIZATION_STATUS.Unavailable,
+        );
+    }
+
+    const authorization = {
+        maxUnitBidWei: runtimeState.authorization_max_unit_bid_wei,
+        maxQuantity: runtimeState.authorization_max_quantity,
+    };
+    const identityMatches =
+        normalizeRuntimeIdentity(
+            runtimeState.authorization_contract_address,
+        ) === normalizeRuntimeIdentity(runtimeState.current_contract_address) &&
+        normalizeRuntimeIdentity(runtimeState.authorization_opensea_slug) ===
+            normalizeRuntimeIdentity(runtimeState.current_opensea_slug);
+    return {
+        status: identityMatches
+            ? TRADING_BIDDING_AUTHORIZATION_STATUS.Included
+            : TRADING_BIDDING_AUTHORIZATION_STATUS.UpdateRequired,
+        ...authorization,
+    };
+}
+
+function emptyBiddingAuthorization(
+    status:
+        | typeof TRADING_BIDDING_AUTHORIZATION_STATUS.Inactive
+        | typeof TRADING_BIDDING_AUTHORIZATION_STATUS.NotIncluded
+        | typeof TRADING_BIDDING_AUTHORIZATION_STATUS.Unavailable,
+): TradingBiddingAuthorization {
+    return {
+        status,
+        maxUnitBidWei: null,
+        maxQuantity: null,
+    };
+}
+
+function normalizeRuntimeIdentity(value: string | null): string {
+    return value?.trim().toLowerCase() ?? "";
+}
+
+function applyBiddingAuthorizationPhase(
+    job: BiddingJobSignal,
+    authorization: TradingBiddingAuthorization | null,
+): BiddingJobSignal {
+    if (!authorization || job.status !== TRADING_JOB_STATUS.Enabled) {
+        return job;
+    }
+    const phaseOverride = resolveTradingBiddingAuthorizationJobPhase(
+        authorization.status,
+    );
+    return phaseOverride ? { ...job, phaseOverride } : job;
 }
 
 function baseCollectionSpanAttributes(params: {

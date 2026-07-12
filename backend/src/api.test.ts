@@ -81,6 +81,7 @@ import {
     ACTIVITY_SCOPE_KIND,
     ACTIVITY_SOURCE_KIND,
     COLLECTION_STANDARD,
+    TRADING_BIDDING_AUTHORIZATION_STATUS,
     TRADING_BIDDING_BID_BOOK_PRICE_KIND,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_SCOPE_KIND,
@@ -1456,6 +1457,9 @@ describe("backend api routes", () => {
         expect(tokenBiddingBids.statusCode).toBe(200);
         expect(tokenBiddingBids.payload.collection.slug).toBe("terraforms");
         expect(tokenBiddingBids.payload.bidBook).toBeDefined();
+        expect(
+            tokenBiddingBids.payload.bidBook.biddingAuthorization,
+        ).toBeNull();
 
         const nonPublicBiddingBids = await resolvePublic(
             "GET",
@@ -1828,6 +1832,9 @@ describe("backend api routes", () => {
 
         const collection = getCollectionFixtureByAddress(MILADY_ADDRESS);
         db.prepare(
+            "UPDATE collections SET opensea_slug = ? WHERE collection_id = ?",
+        ).run("milady", collection.collection_id);
+        db.prepare(
             "INSERT INTO trading_jobs " +
                 "(job_id, bot_kind, chain_id, collection_id, status, target_kind, token_id, revision) " +
                 "VALUES (?, ?, 1, ?, ?, ?, '1', 1)",
@@ -1875,21 +1882,41 @@ describe("backend api routes", () => {
         expect(noRuntimeHeartbeat.payload.bidBook.biddingBotStatus).toBe(
             TRADING_BOT_LIFECYCLE_STATUS.Inactive,
         );
+        expect(noRuntimeHeartbeat.payload.bidBook.biddingAuthorization).toEqual(
+            {
+                status: TRADING_BIDDING_AUTHORIZATION_STATUS.Inactive,
+                maxUnitBidWei: null,
+                maxUnitBidEth: null,
+                maxQuantity: null,
+            },
+        );
         expect(
             noRuntimeHeartbeat.payload.bidBook.bids.map(
                 (bid: { orderId: string }) => bid.orderId,
             ),
         ).toContain("bid-book-runtime-orders");
 
+        const runtimeSessionId = "runtime-source-session";
         db.prepare(
             "INSERT INTO trading_bot_runtime_state " +
-                "(bot_kind, chain_id, wallet_id, address, state, heartbeat_at, started_at, updated_at, last_error) " +
-                "VALUES (?, 1, 'wallet-1', '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', ?, ?, ?, ?, NULL)",
+                "(bot_kind, chain_id, wallet_id, address, runtime_session_id, state, heartbeat_at, started_at, updated_at, last_error) " +
+                "VALUES (?, 1, 'wallet-1', '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', ?, ?, ?, ?, ?, NULL)",
         ).run(
             TRADING_BOT_KIND.Bidding,
+            runtimeSessionId,
             TRADING_BOT_RUNTIME_STATE.Running,
             new Date().toISOString(),
             new Date().toISOString(),
+            new Date().toISOString(),
+        );
+        db.prepare(
+            "INSERT INTO trading_bidding_runtime_authorized_collections " +
+                "(runtime_session_id, chain_id, wallet_id, collection_id, contract_address, opensea_slug, max_unit_bid_wei, max_quantity, published_at) " +
+                "VALUES (?, 1, 'wallet-1', ?, ?, 'milady', '200000000000000000', 1, ?)",
+        ).run(
+            runtimeSessionId,
+            collection.collection_id,
+            MILADY_ADDRESS.toLowerCase(),
             new Date().toISOString(),
         );
 
@@ -1902,6 +1929,12 @@ describe("backend api routes", () => {
         expect(liveRuntime.payload.bidBook.biddingBotStatus).toBe(
             TRADING_BOT_LIFECYCLE_STATUS.Active,
         );
+        expect(liveRuntime.payload.bidBook.biddingAuthorization).toEqual({
+            status: TRADING_BIDDING_AUTHORIZATION_STATUS.Included,
+            maxUnitBidWei: "200000000000000000",
+            maxUnitBidEth: "0.2",
+            maxQuantity: 1,
+        });
         expect(
             liveRuntime.payload.bidBook.bids.map(
                 (bid: { orderId: string }) => bid.orderId,
@@ -1926,6 +1959,9 @@ describe("backend api routes", () => {
         expect(staleHeartbeat.payload.bidBook.state.source).toBe("orders");
         expect(staleHeartbeat.payload.bidBook.biddingBotStatus).toBe(
             TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+        );
+        expect(staleHeartbeat.payload.bidBook.biddingAuthorization.status).toBe(
+            TRADING_BIDDING_AUTHORIZATION_STATUS.Inactive,
         );
         expect(staleHeartbeat.payload.bidBook.ownMakerAddress).toBe(
             "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
