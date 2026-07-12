@@ -1,7 +1,14 @@
-	import { error } from '@sveltejs/kit';
-	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-	import { BackendApiError, getCollectionHolders, getRuntimeConfig } from '$lib/backend-api';
-import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
+import { error } from '@sveltejs/kit';
+import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+import { BackendApiError, getCollectionHolders, getRuntimeConfig } from '$lib/backend-api';
+import {
+	MEDIA_MODE_QUERY_PARAM,
+	MEDIA_PREFERENCE_QUERY_PARAM,
+	appendMediaModeParam,
+	appendNormalizedMediaPreferenceParam,
+	normalizeMediaMode,
+	normalizeMediaPreferenceValue
+} from '$lib/media-mode';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 	PUBLIC_COLLECTION_SCOPE
@@ -30,7 +37,10 @@ export const load: PageLoad = async ({ fetch, url }) => {
 			collection: response.collection,
 			holders: response.holders,
 			basePath: '/',
-			selectedMediaMode: normalizeMediaMode(url.searchParams.get('media_mode')),
+			selectedMediaMode: normalizeMediaMode(url.searchParams.get(MEDIA_MODE_QUERY_PARAM)),
+			selectedMediaPreference: normalizeMediaPreferenceValue(
+				url.searchParams.get(MEDIA_PREFERENCE_QUERY_PARAM)
+			),
 			requestCursor: query.get('cursor') ?? null,
 			blockExplorer: runtimeConfigResponse.blockExplorer
 		};
@@ -50,7 +60,8 @@ function normalizeCollectionHoldersParams(raw: URLSearchParams): URLSearchParams
 		params.set('cursor', cursor.trim());
 	}
 
-	appendMediaModeParam(params, normalizeMediaMode(raw.get('media_mode')));
+	appendMediaModeParam(params, normalizeMediaMode(raw.get(MEDIA_MODE_QUERY_PARAM)));
+	appendNormalizedMediaPreferenceParam(params, raw.get(MEDIA_PREFERENCE_QUERY_PARAM));
 
 	return params;
 }

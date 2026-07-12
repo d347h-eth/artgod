@@ -8,7 +8,7 @@ import {
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES
 } from '@artgod/shared/extensions/terraforms';
 import { TOKEN_BROWSER_STATUS } from '@artgod/shared/types/browse';
-import type { ApiTokenCard } from '$lib/api-types';
+import type { ApiCollectionMediaPreference, ApiTokenCard } from '$lib/api-types';
 import {
 	buildTerraformsHypercastleTraitTokenHref,
 	buildTerraformsHypercastleTraitsTokenHref
@@ -249,10 +249,12 @@ ${TERRAFORMS_HYPERCASTLE_SEED_CLASS_LABELS.NonOriginScope}: ${formatSeedRange(NO
 export function buildTerraformsOriginTokenHref(input: {
 	basePath: string;
 	mediaMode?: string | null;
+	mediaPreference?: ApiCollectionMediaPreference | null;
 }): string {
 	return buildTerraformsHypercastleTraitsTokenHref({
 		basePath: input.basePath,
 		mediaMode: input.mediaMode,
+		mediaPreference: input.mediaPreference,
 		traits: [
 			{
 				key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
@@ -269,6 +271,7 @@ export function buildTerraformsOriginTokenHref(input: {
 // Builds the collection-detail query used to load Origin sample cards.
 export function buildTerraformsOriginSampleQuery(input: {
 	mediaMode?: string | null;
+	mediaPreference?: ApiCollectionMediaPreference | null;
 }): URLSearchParams {
 	const raw = buildTokenBrowserQuery({
 		limit: TERRAFORMS_HYPERCASTLE_SEED_CLASS_SAMPLE_POOL_LIMIT,
@@ -285,7 +288,8 @@ export function buildTerraformsOriginSampleQuery(input: {
 			}
 		],
 		selectedTraitRanges: [],
-		mediaMode: input.mediaMode ?? null
+		mediaMode: input.mediaMode ?? null,
+		mediaPreference: input.mediaPreference ?? null
 	});
 	return normalizeTokenBrowserParams(raw, TOKEN_BROWSER_STATUS.All);
 }
@@ -294,11 +298,13 @@ export function buildTerraformsOriginSampleQuery(input: {
 export function buildTerraformsSeedClassTokenHref(input: {
 	basePath: string;
 	mediaMode?: string | null;
+	mediaPreference?: ApiCollectionMediaPreference | null;
 	seedClass: string;
 }): string {
 	return buildTerraformsHypercastleTraitTokenHref({
 		basePath: input.basePath,
 		mediaMode: input.mediaMode,
+		mediaPreference: input.mediaPreference,
 		traitKey: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
 		traitValue: input.seedClass
 	});
@@ -309,11 +315,13 @@ export function buildTerraformsHypercastleTokenHref(input: {
 	basePath: string;
 	tokenId: string;
 	mediaMode?: string | null;
+	mediaPreference?: ApiCollectionMediaPreference | null;
 }): string {
 	return buildTokenDetailHref({
 		basePath: input.basePath,
 		tokenId: input.tokenId,
-		mediaMode: input.mediaMode ?? null
+		mediaMode: input.mediaMode ?? null,
+		mediaPreference: input.mediaPreference ?? null
 	});
 }
 
@@ -325,6 +333,7 @@ export function formatTerraformsHypercastleTokenLabel(tokenId: string): string {
 // Builds the collection-detail query used to load Seed Class sample cards.
 export function buildTerraformsSeedClassSampleQuery(input: {
 	mediaMode?: string | null;
+	mediaPreference?: ApiCollectionMediaPreference | null;
 	seedClass: string;
 }): URLSearchParams {
 	const raw = buildTokenBrowserQuery({
@@ -333,7 +342,8 @@ export function buildTerraformsSeedClassSampleQuery(input: {
 		tokenStatus: TOKEN_BROWSER_STATUS.All,
 		selectedTraits: [{ key: TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY, value: input.seedClass }],
 		selectedTraitRanges: [],
-		mediaMode: input.mediaMode ?? null
+		mediaMode: input.mediaMode ?? null,
+		mediaPreference: input.mediaPreference ?? null
 	});
 	return normalizeTokenBrowserParams(raw, TOKEN_BROWSER_STATUS.All);
 }

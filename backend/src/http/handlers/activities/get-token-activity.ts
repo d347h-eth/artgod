@@ -9,7 +9,9 @@ import {
     parseCursor,
     parseLimit,
     parseMediaMode,
+    parseMediaPreference,
 } from "../../common/request-query.js";
+import { COLLECTION_MEDIA_QUERY_PARAMS } from "@artgod/shared/extensions";
 
 export type GetTokenActivityRoute = {
     Params: {
@@ -45,7 +47,12 @@ export class GetTokenActivityHttpAdapter {
         const limit = parseLimit(searchParams.get("limit"));
         const cursor = parseCursor(searchParams.get("cursor"));
         const kind = parseActivityFilterKind(searchParams.get("kind"));
-        const mediaMode = parseMediaMode(searchParams.get("media_mode"));
+        const mediaMode = parseMediaMode(
+            searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode),
+        );
+        const mediaPreference = parseMediaPreference(
+            searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference),
+        );
 
         return {
             chainRef: request.params.chain_ref,
@@ -55,6 +62,7 @@ export class GetTokenActivityHttpAdapter {
             cursor: cursor ?? undefined,
             kind,
             mediaMode,
+            mediaPreference,
         };
     }
 

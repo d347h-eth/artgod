@@ -106,8 +106,9 @@ export class ExtensionActivityEventPreviewRead {
         const eventAttributes = {
             ...attributes,
             [ARTGOD_SPAN_ATTRIBUTE.ExtensionKey]: install.extensionKey,
-            [ARTGOD_SPAN_ATTRIBUTE.ExtensionEventKey]:
-                payloadEventKey(event.payload),
+            [ARTGOD_SPAN_ATTRIBUTE.ExtensionEventKey]: payloadEventKey(
+                event.payload,
+            ),
         };
         const modes = this.apm.withSyncSpan(
             "backend.extension.activity_event_preview.modes",
@@ -144,8 +145,7 @@ export class ExtensionActivityEventPreviewRead {
             "backend.extension.activity_event_preview.resolve",
             {
                 ...eventAttributes,
-                [ARTGOD_SPAN_ATTRIBUTE.ActivityRenderMode]:
-                    modes.selectedMode,
+                [ARTGOD_SPAN_ATTRIBUTE.ActivityRenderMode]: modes.selectedMode,
                 [ARTGOD_SPAN_ATTRIBUTE.ActivityPreviewModesCount]:
                     modes.availableModes.length,
             },
@@ -166,6 +166,7 @@ export class ExtensionActivityEventPreviewRead {
                 selectedMode: modes.selectedMode,
                 defaultMode: modes.defaultMode,
                 availableModes: modes.availableModes,
+                preference: null,
             },
             token,
         };

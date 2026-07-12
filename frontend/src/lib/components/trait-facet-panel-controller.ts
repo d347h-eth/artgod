@@ -1,7 +1,7 @@
 import { browser } from '$app/environment';
 import { get, writable, type Readable } from 'svelte/store';
 import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
-import { LOCAL_STORAGE_KEYS } from '$lib/local-storage-keys';
+import { LOCAL_STORAGE_BOOLEAN_VALUES, LOCAL_STORAGE_KEYS } from '$lib/local-storage-keys';
 
 const TRAIT_PANEL_COLLAPSED_ROOT_CLASS = 'trait-facet-panel-collapsed';
 
@@ -78,7 +78,7 @@ function readInitialCollapsed(): boolean {
 		}
 		const stored = window.localStorage.getItem(LOCAL_STORAGE_KEYS.traitFacetPanelCollapsed);
 		if (stored === null) return true;
-		return stored === '1';
+		return stored === LOCAL_STORAGE_BOOLEAN_VALUES.True;
 	} catch {
 		return true;
 	}
@@ -89,7 +89,7 @@ function syncCollapsedPreference(collapsed: boolean): void {
 	try {
 		window.localStorage.setItem(
 			LOCAL_STORAGE_KEYS.traitFacetPanelCollapsed,
-			collapsed ? '1' : '0'
+			collapsed ? LOCAL_STORAGE_BOOLEAN_VALUES.True : LOCAL_STORAGE_BOOLEAN_VALUES.False
 		);
 	} catch {
 		// Ignore storage failures and keep the in-memory state.

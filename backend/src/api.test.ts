@@ -60,6 +60,10 @@ import {
     TERRAFORMS_MAIN_READ_FUNCTIONS,
     TERRAFORMS_MEDIA_MODE_OPTIONS,
     TERRAFORMS_MEDIA_MODES,
+    TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED,
+    TERRAFORMS_MEDIA_PREFERENCE_LABEL,
+    TERRAFORMS_MEDIA_VARIANT_OPTIONS,
+    TERRAFORMS_MEDIA_VARIANTS,
     TERRAFORMS_MODE_ATTRIBUTE_KEY,
     TERRAFORMS_MODE_ATTRIBUTE_VALUES,
     TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY,
@@ -105,7 +109,13 @@ import {
     COLLECTION_MEDIA_SOURCE,
     defaultMediaPurposePolicyConfig,
 } from "@artgod/shared/types";
-import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
+import {
+    COLLECTION_MEDIA_MODE_OPTIONS,
+    COLLECTION_MEDIA_MODES,
+    COLLECTION_MEDIA_PREFERENCE_VALUES,
+    COLLECTION_MEDIA_QUERY_PARAMS,
+    EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND,
+} from "@artgod/shared/extensions";
 import {
     buildStartCollectionBootstrapPath,
     buildStartCollectionOpenSeaSyncPath,
@@ -296,7 +306,13 @@ beforeAll(async () => {
             );
         },
         async getStorageAt() {
-            throw new Error("Unexpected backend extension storage read");
+            return "0x02" as const;
+        },
+        async getCurrentBlockNumber() {
+            return 22_010_001;
+        },
+        async getBlockTimestamp() {
+            return 1_700_000_000;
         },
     };
     const collectionsReadModel =
@@ -2804,7 +2820,7 @@ describe("backend api routes", () => {
 
         const explicitDefaultMode = await resolveCached(
             "GET",
-            "/api/ethereum/terraforms?limit=250&media_mode=artifact",
+            `/api/ethereum/terraforms?limit=250&${COLLECTION_MEDIA_QUERY_PARAMS.MediaMode}=${COLLECTION_MEDIA_MODES.Snapshot}`,
         );
         expect(explicitDefaultMode.statusCode).toBe(200);
         expect(
@@ -2815,7 +2831,7 @@ describe("backend api routes", () => {
 
         const nonDefaultMode = await resolveCached(
             "GET",
-            "/api/ethereum/terraforms?limit=250&media_mode=snapshot",
+            `/api/ethereum/terraforms?limit=250&${COLLECTION_MEDIA_QUERY_PARAMS.MediaMode}=${TERRAFORMS_MEDIA_MODES.Live}`,
         );
         expect(nonDefaultMode.statusCode).toBe(200);
         expect(
@@ -2925,13 +2941,31 @@ describe("backend api routes", () => {
 
         expect(result.statusCode).toBe(200);
         expect(Object.keys(result.payload)).toEqual(["media", "token"]);
-        expect(result.payload.media.selectedMode).toBe("artifact");
-        expect(result.payload.media.defaultMode).toBe("artifact");
+        expect(result.payload.media.selectedMode).toBe(
+            COLLECTION_MEDIA_MODES.Snapshot,
+        );
+        expect(result.payload.media.defaultMode).toBe(
+            COLLECTION_MEDIA_MODES.Snapshot,
+        );
         expect(result.payload.media.availableModes).toEqual([
-            { key: "artifact", label: "artifact" },
-            { key: "lost-terrain", label: "lost" },
-            { key: "snapshot", label: "snapshot" },
+            COLLECTION_MEDIA_MODE_OPTIONS.Snapshot,
             TERRAFORMS_MEDIA_MODE_OPTIONS.Live,
+        ]);
+        expect(result.payload.media.preference).toEqual({
+            label: TERRAFORMS_MEDIA_PREFERENCE_LABEL,
+            enabled: TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED,
+            defaultEnabled: TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED,
+        });
+        expect(result.payload.media.selectedVariant).toBe(
+            TERRAFORMS_MEDIA_VARIANTS.V2Artifact,
+        );
+        expect(result.payload.media.defaultVariant).toBe(
+            TERRAFORMS_MEDIA_VARIANTS.V2Artifact,
+        );
+        expect(result.payload.media.availableVariants).toEqual([
+            TERRAFORMS_MEDIA_VARIANT_OPTIONS.V2Artifact,
+            TERRAFORMS_MEDIA_VARIANT_OPTIONS.V2LostTerrain,
+            TERRAFORMS_MEDIA_VARIANT_OPTIONS.V0,
         ]);
         expect(result.payload.token).toEqual({
             tokenId: "7710",
@@ -2943,7 +2977,7 @@ describe("backend api routes", () => {
     it("returns Terraforms live preview from main-contract tokenHTML", async () => {
         const result = await resolve(
             "GET",
-            "/api/ethereum/terraforms/7710/preview?media_mode=live",
+            `/api/ethereum/terraforms/7710/preview?${COLLECTION_MEDIA_QUERY_PARAMS.MediaMode}=${TERRAFORMS_MEDIA_MODES.Live}`,
         );
 
         expect(result.statusCode).toBe(200);
@@ -2958,13 +2992,18 @@ describe("backend api routes", () => {
         );
     });
 
-    it("returns Terraforms lost-terrain preview only when the token has that artifact", async () => {
+    it("returns Terraforms lost-terrain preview only when the token has that variant", async () => {
         const lost = await resolve(
             "GET",
-            "/api/ethereum/terraforms/7710/preview?media_mode=lost-terrain",
+            `/api/ethereum/terraforms/7710/preview?${COLLECTION_MEDIA_QUERY_PARAMS.MediaMode}=${COLLECTION_MEDIA_MODES.Snapshot}&${COLLECTION_MEDIA_QUERY_PARAMS.MediaVariant}=${TERRAFORMS_MEDIA_VARIANTS.V2LostTerrain}`,
         );
         expect(lost.statusCode).toBe(200);
-        expect(lost.payload.media.selectedMode).toBe("lost-terrain");
+        expect(lost.payload.media.selectedMode).toBe(
+            COLLECTION_MEDIA_MODES.Snapshot,
+        );
+        expect(lost.payload.media.selectedVariant).toBe(
+            TERRAFORMS_MEDIA_VARIANTS.V2LostTerrain,
+        );
         expect(lost.payload.token.image).toBe(
             "data:image/svg+xml;base64,terraforms-lost-image",
         );
@@ -2974,21 +3013,22 @@ describe("backend api routes", () => {
 
         const terrain = await resolve(
             "GET",
-            "/api/ethereum/terraforms/7711/preview?media_mode=lost-terrain",
+            `/api/ethereum/terraforms/7711/preview?${COLLECTION_MEDIA_QUERY_PARAMS.MediaMode}=${COLLECTION_MEDIA_MODES.Snapshot}&${COLLECTION_MEDIA_QUERY_PARAMS.MediaVariant}=${TERRAFORMS_MEDIA_VARIANTS.V2LostTerrain}`,
         );
         expect(terrain.statusCode).toBe(200);
         expect(terrain.payload.media.availableModes).toEqual([
-            { key: "artifact", label: "artifact" },
-            { key: "snapshot", label: "snapshot" },
+            COLLECTION_MEDIA_MODE_OPTIONS.Snapshot,
             TERRAFORMS_MEDIA_MODE_OPTIONS.Live,
         ]);
-        expect(terrain.payload.media.selectedMode).toBe("artifact");
+        expect(terrain.payload.media.selectedVariant).toBe(
+            TERRAFORMS_MEDIA_VARIANTS.V2Artifact,
+        );
     });
 
     it("marks warmed preview responses with query cache headers", async () => {
         await waitForCachedHit("/api/ethereum/terraforms?limit=250");
         const preview = await waitForCachedHit(
-            "/api/ethereum/terraforms/7710/preview?media_mode=artifact",
+            `/api/ethereum/terraforms/7710/preview?${COLLECTION_MEDIA_QUERY_PARAMS.MediaMode}=${COLLECTION_MEDIA_MODES.Snapshot}`,
         );
         expect(preview.statusCode).toBe(200);
         expect(
@@ -3015,7 +3055,7 @@ describe("backend api routes", () => {
 
         const preview = await resolveCached(
             "GET",
-            "/api/ethereum/terraforms/7710/preview?media_mode=artifact",
+            `/api/ethereum/terraforms/7710/preview?${COLLECTION_MEDIA_QUERY_PARAMS.MediaMode}=${COLLECTION_MEDIA_MODES.Snapshot}`,
         );
         expect(preview.statusCode).toBe(200);
         expect(
@@ -3776,14 +3816,19 @@ describe("backend api routes", () => {
                 }),
             ]),
         );
-        expect(result.payload.media.selectedMode).toBe("artifact");
-        expect(result.payload.media.defaultMode).toBe("artifact");
+        expect(result.payload.media.selectedMode).toBe(
+            COLLECTION_MEDIA_MODES.Snapshot,
+        );
+        expect(result.payload.media.defaultMode).toBe(
+            COLLECTION_MEDIA_MODES.Snapshot,
+        );
         expect(result.payload.media.availableModes).toEqual([
-            { key: "artifact", label: "artifact" },
-            { key: "lost-terrain", label: "lost" },
-            { key: "snapshot", label: "snapshot" },
+            COLLECTION_MEDIA_MODE_OPTIONS.Snapshot,
             TERRAFORMS_MEDIA_MODE_OPTIONS.Live,
         ]);
+        expect(result.payload.media.selectedVariant).toBe(
+            TERRAFORMS_MEDIA_VARIANTS.V2Artifact,
+        );
         expect(result.payload.token.tokenId).toBe("7710");
         expect(result.payload.token.image).toBe(
             "data:image/svg+xml;base64,terraforms-v2-image",
@@ -3796,7 +3841,7 @@ describe("backend api routes", () => {
     it("returns Terraforms live token detail from main-contract tokenHTML", async () => {
         const result = await resolve(
             "GET",
-            "/api/ethereum/terraforms/7710?media_mode=live",
+            `/api/ethereum/terraforms/7710?${COLLECTION_MEDIA_QUERY_PARAMS.MediaMode}=${TERRAFORMS_MEDIA_MODES.Live}`,
         );
 
         expect(result.statusCode).toBe(200);
@@ -3811,13 +3856,15 @@ describe("backend api routes", () => {
         );
     });
 
-    it("returns Terraforms lost-terrain media only for non-terrain tokens", async () => {
+    it("returns Terraforms lost-terrain media only when that variant exists", async () => {
         const lost = await resolve(
             "GET",
-            "/api/ethereum/terraforms/7710?media_mode=lost-terrain",
+            `/api/ethereum/terraforms/7710?${COLLECTION_MEDIA_QUERY_PARAMS.MediaMode}=${COLLECTION_MEDIA_MODES.Snapshot}&${COLLECTION_MEDIA_QUERY_PARAMS.MediaVariant}=${TERRAFORMS_MEDIA_VARIANTS.V2LostTerrain}`,
         );
         expect(lost.statusCode).toBe(200);
-        expect(lost.payload.media.selectedMode).toBe("lost-terrain");
+        expect(lost.payload.media.selectedVariant).toBe(
+            TERRAFORMS_MEDIA_VARIANTS.V2LostTerrain,
+        );
         expect(lost.payload.token.image).toBe(
             "data:image/svg+xml;base64,terraforms-lost-image",
         );
@@ -3828,8 +3875,7 @@ describe("backend api routes", () => {
         const terrain = await resolve("GET", "/api/ethereum/terraforms/7711");
         expect(terrain.statusCode).toBe(200);
         expect(terrain.payload.media.availableModes).toEqual([
-            { key: "artifact", label: "artifact" },
-            { key: "snapshot", label: "snapshot" },
+            COLLECTION_MEDIA_MODE_OPTIONS.Snapshot,
             TERRAFORMS_MEDIA_MODE_OPTIONS.Live,
         ]);
     });
@@ -3837,10 +3883,15 @@ describe("backend api routes", () => {
     it("returns Terraforms canonical media when snapshot mode is requested", async () => {
         const result = await resolve(
             "GET",
-            "/api/ethereum/terraforms/7710?media_mode=snapshot",
+            `/api/ethereum/terraforms/7710?${COLLECTION_MEDIA_QUERY_PARAMS.MediaMode}=${COLLECTION_MEDIA_MODES.Snapshot}&${COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference}=${COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled}`,
         );
         expect(result.statusCode).toBe(200);
-        expect(result.payload.media.selectedMode).toBe("snapshot");
+        expect(result.payload.media.selectedMode).toBe(
+            COLLECTION_MEDIA_MODES.Snapshot,
+        );
+        expect(result.payload.media.selectedVariant).toBe(
+            TERRAFORMS_MEDIA_VARIANTS.V0,
+        );
         expect(result.payload.token.image).toBe(
             "https://example.com/terraforms-default.png",
         );
@@ -3855,7 +3906,9 @@ describe("backend api routes", () => {
             "/api/ethereum/terraforms?token_status=all&limit=10",
         );
         expect(result.statusCode).toBe(200);
-        expect(result.payload.media.selectedMode).toBe("artifact");
+        expect(result.payload.media.selectedMode).toBe(
+            COLLECTION_MEDIA_MODES.Snapshot,
+        );
         expect(result.payload.tokens.items).toHaveLength(2);
         expect(result.payload.tokens.items[0].tokenId).toBe("7710");
         expect(result.payload.tokens.items[0].image).toBe(
@@ -3869,10 +3922,12 @@ describe("backend api routes", () => {
     it("returns Terraforms collection tokens with canonical images in snapshot mode", async () => {
         const result = await resolve(
             "GET",
-            "/api/ethereum/terraforms?token_status=all&limit=10&media_mode=snapshot",
+            `/api/ethereum/terraforms?token_status=all&limit=10&${COLLECTION_MEDIA_QUERY_PARAMS.MediaMode}=${COLLECTION_MEDIA_MODES.Snapshot}&${COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference}=${COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled}`,
         );
         expect(result.statusCode).toBe(200);
-        expect(result.payload.media.selectedMode).toBe("snapshot");
+        expect(result.payload.media.selectedMode).toBe(
+            COLLECTION_MEDIA_MODES.Snapshot,
+        );
         expect(result.payload.tokens.items[0].image).toBe(
             "https://example.com/terraforms-default.png",
         );
@@ -3903,26 +3958,30 @@ describe("backend api routes", () => {
                 "onchain:sale:7710:0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc:1:7710",
         });
 
-        const artifact = await resolve(
+        const preferred = await resolve(
             "GET",
             "/api/ethereum/terraforms/activity?limit=10&kind=sales",
         );
-        expect(artifact.statusCode).toBe(200);
-        expect(artifact.payload.media.selectedMode).toBe("artifact");
-        expect(artifact.payload.included.hasTraitSummaryTemplate).toBe(true);
-        expect(artifact.payload.included.tokensById["7710"].image).toBe(
+        expect(preferred.statusCode).toBe(200);
+        expect(preferred.payload.media.selectedMode).toBe(
+            COLLECTION_MEDIA_MODES.Snapshot,
+        );
+        expect(preferred.payload.included.hasTraitSummaryTemplate).toBe(true);
+        expect(preferred.payload.included.tokensById["7710"].image).toBe(
             "data:image/svg+xml;base64,terraforms-v2-image",
         );
-        expect(artifact.payload.included.tokensById["7710"].traitSummary).toBe(
+        expect(preferred.payload.included.tokensById["7710"].traitSummary).toBe(
             "Kairo B12 Pulse L7\nTerraform A S0 Y-Seed",
         );
 
         const snapshot = await resolve(
             "GET",
-            "/api/ethereum/terraforms/activity?limit=10&kind=sales&media_mode=snapshot",
+            `/api/ethereum/terraforms/activity?limit=10&kind=sales&${COLLECTION_MEDIA_QUERY_PARAMS.MediaMode}=${COLLECTION_MEDIA_MODES.Snapshot}&${COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference}=${COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled}`,
         );
         expect(snapshot.statusCode).toBe(200);
-        expect(snapshot.payload.media.selectedMode).toBe("snapshot");
+        expect(snapshot.payload.media.selectedMode).toBe(
+            COLLECTION_MEDIA_MODES.Snapshot,
+        );
         expect(snapshot.payload.included.hasTraitSummaryTemplate).toBe(true);
         expect(snapshot.payload.included.tokensById["7710"].image).toBe(
             "https://example.com/terraforms-default.png",

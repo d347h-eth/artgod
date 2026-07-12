@@ -30,7 +30,16 @@
 			entries: [
 				{
 					keys: ['V'],
-					description: 'switch to the next media mode for current token results'
+					description: 'switch to the next media source for current token results'
+				}
+			]
+		},
+		{
+			title: 'Token Detail',
+			entries: [
+				{
+					keys: ['V'],
+					description: 'switch to the next media version for the current token'
 				}
 			]
 		},
@@ -111,19 +120,19 @@
 			entries: [
 				{
 					keys: ['V'],
-					description: 'switch to the next media mode for the opened token'
+					description: 'switch media version, or event mode for an activity preview'
 				},
 				{
 					keys: ['-'],
-					description: 'decrease preview height'
+					description: 'decrease preview size'
 				},
 				{
 					keys: ['+'],
-					description: 'increase preview height'
+					description: 'increase preview size'
 				},
 				{
 					keys: ['0'],
-					description: 'reset preview height'
+					description: 'reset preview size'
 				}
 			]
 		}

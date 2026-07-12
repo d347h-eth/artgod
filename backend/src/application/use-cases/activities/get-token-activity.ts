@@ -3,15 +3,16 @@ import type {
     ActivityFeedPage,
     ActivityFeedFilterKind,
     ChainRecord,
-    CollectionMediaState,
     CollectionListItem,
     TokenCard,
     TokenDetail,
+    TokenMediaState,
 } from "@artgod/shared/types";
 import {
     buildActivityFeedIncludes,
     collectActivityTokenIds,
 } from "./token-presentation-summary.js";
+import type { CollectionMediaPreferenceValue } from "@artgod/shared/extensions";
 
 type MaybePromise<T> = T | Promise<T>;
 
@@ -23,12 +24,13 @@ export type GetTokenActivityInput = {
     cursor?: string;
     kind?: ActivityFeedFilterKind;
     mediaMode?: string;
+    mediaPreference?: CollectionMediaPreferenceValue;
 };
 
 export type GetTokenActivityOutput = {
     chain: ChainRecord;
     collection: CollectionListItem;
-    media: CollectionMediaState;
+    media: TokenMediaState;
     token: TokenDetail;
     activities: ActivityFeedPage;
     included: ActivityFeedIncludes;
@@ -48,18 +50,16 @@ export class GetTokenActivityUseCase {
                 chainId: number,
                 collectionRef: string,
             ): CollectionListItem;
-            getCollectionTokenDetail(params: {
+            getCollectionTokenDetailPresentation(params: {
                 chainId: number;
                 collectionId: number;
                 tokenId: string;
                 mediaMode?: string;
-            }): MaybePromise<TokenDetail>;
-            getCollectionTokenMediaState(params: {
-                chainId: number;
-                collectionId: number;
-                tokenId: string;
-                mediaMode?: string;
-            }): CollectionMediaState;
+                mediaPreference?: CollectionMediaPreferenceValue;
+            }): MaybePromise<{
+                media: TokenMediaState;
+                token: TokenDetail;
+            }>;
         },
         readonly activityReadPort: {
             listTokenActivities(params: {
@@ -77,6 +77,7 @@ export class GetTokenActivityUseCase {
                 collectionId: number;
                 tokenIds: string[];
                 mediaMode?: string;
+                mediaPreference?: CollectionMediaPreferenceValue;
                 includeListings?: boolean;
             }): TokenCard[];
         },
@@ -103,18 +104,15 @@ export class GetTokenActivityUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
-        const media = this.collectionReadPort.getCollectionTokenMediaState({
-            chainId: chain.publicChainId,
-            collectionId: collection.collectionId,
-            tokenId: input.tokenRef,
-            mediaMode: input.mediaMode,
-        });
-        const token = await this.collectionReadPort.getCollectionTokenDetail({
-            chainId: chain.publicChainId,
-            collectionId: collection.collectionId,
-            tokenId: input.tokenRef,
-            mediaMode: media.selectedMode,
-        });
+        // Resolve media selection and token presentation against one extension-read context.
+        const { media, token } =
+            await this.collectionReadPort.getCollectionTokenDetailPresentation({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+                tokenId: input.tokenRef,
+                mediaMode: input.mediaMode,
+                mediaPreference: input.mediaPreference,
+            });
         const activities = this.activityReadPort.listTokenActivities({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
@@ -134,6 +132,7 @@ export class GetTokenActivityUseCase {
                 collectionId: collection.collectionId,
                 tokenIds: collectActivityTokenIds(activities.items),
                 mediaMode: media.selectedMode,
+                mediaPreference: input.mediaPreference,
             }),
             activityRowTraitSummaryTemplate.effectiveConfig.template,
         );

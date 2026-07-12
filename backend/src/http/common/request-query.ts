@@ -1,6 +1,11 @@
 import type { FastifyRequest } from "fastify";
 import { DEFAULT_PAGE_LIMIT } from "@artgod/shared/config/pagination";
-import type { CollectionMediaMode } from "@artgod/shared/extensions";
+import {
+    COLLECTION_MEDIA_PREFERENCE_VALUES,
+    COLLECTION_MEDIA_QUERY_PARAMS,
+    type CollectionMediaMode,
+    type CollectionMediaPreferenceValue,
+} from "@artgod/shared/extensions";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import {
     isAddressRef,
@@ -350,12 +355,41 @@ export function parseTraitRanges(
 export function parseMediaMode(
     raw: string | null,
 ): CollectionMediaMode | undefined {
+    return parseMediaKey(raw, COLLECTION_MEDIA_QUERY_PARAMS.MediaMode);
+}
+
+export function parseMediaPreference(
+    raw: string | null,
+): CollectionMediaPreferenceValue | undefined {
+    if (!raw || !raw.trim()) {
+        return undefined;
+    }
+    const normalized = raw.trim().toLowerCase();
+    if (
+        normalized !== COLLECTION_MEDIA_PREFERENCE_VALUES.Enabled &&
+        normalized !== COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled
+    ) {
+        throw new ReadModelBadRequestError(
+            `Invalid ${COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference}; use ${COLLECTION_MEDIA_PREFERENCE_VALUES.Enabled} or ${COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled}`,
+        );
+    }
+    return normalized;
+}
+
+export function parseMediaVariant(raw: string | null): string | undefined {
+    return parseMediaKey(raw, COLLECTION_MEDIA_QUERY_PARAMS.MediaVariant);
+}
+
+function parseMediaKey(
+    raw: string | null,
+    queryParam: string,
+): string | undefined {
     if (!raw || !raw.trim()) {
         return undefined;
     }
     const normalized = raw.trim().toLowerCase();
     if (!/^[a-z0-9_-]+$/.test(normalized)) {
-        throw new ReadModelBadRequestError("Invalid media_mode");
+        throw new ReadModelBadRequestError(`Invalid ${queryParam}`);
     }
     return normalized;
 }

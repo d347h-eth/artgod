@@ -7,7 +7,7 @@
 		DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
 		type BiddingBidBookLiveRefreshConfig
 	} from '@artgod/shared/config/bidding';
-	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+	import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 	import {
 		TRADING_BIDDING_BID_SCOPE_KIND,
 		resolveTraitFilterDisplayKind,
@@ -15,7 +15,9 @@
 	} from '@artgod/shared/types';
 	import BidBookPanel from '$lib/components/BidBookPanel.svelte';
 	import BiddingAutomationPanel from '$lib/components/BiddingAutomationPanel.svelte';
+	import LoadingBladeBar from '$lib/components/LoadingBladeBar.svelte';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
+	import TokenDetailMediaError from '$lib/components/TokenDetailMediaError.svelte';
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import TokenDetailExtensionSectionOutlet from '$lib/token-detail-extension-sections/TokenDetailExtensionSectionOutlet.svelte';
 	import type {
@@ -27,9 +29,9 @@
 		ApiChain,
 		ApiCollection,
 		ApiCollectionBiddingBidScopeFilter,
-		ApiCollectionMediaState,
 		ApiTraitFilterPresentationFeatureState,
 		ApiTokenDetail,
+		ApiTokenMediaState,
 		ApiTokenDetailTrait
 	} from '$lib/api-types';
 	import { buildCollectionActivityHref } from '$lib/activity-query';
@@ -59,7 +61,11 @@
 	import { BIDDING_SELECTION_ACTION_LABEL } from '$lib/bidding-selection-actions';
 	import { formatListingPrice } from '$lib/listing-price';
 	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
-	import { appendMediaModeParam, nextMediaMode } from '$lib/media-mode';
+	import {
+		appendCollectionMediaParams,
+		buildTokenMediaQuery,
+		nextMediaOption
+	} from '$lib/media-mode';
 	import {
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionOwnerTokensPath,
@@ -89,7 +95,7 @@
 	type PageData = {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
-		media: ApiCollectionMediaState;
+		media: ApiTokenMediaState;
 		token: ApiTokenDetail | null;
 		biddingSettings?: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
@@ -103,10 +109,18 @@
 		backQuery: string | null;
 	};
 
+	type TokenDetailMediaRequest = {
+		mediaMode: string;
+		mediaVariant: string | null;
+	};
+
 	let { data }: { data?: PageData } = $props();
 	let displayedToken = $state<ApiTokenDetail | null>(data?.token ?? null);
-	let displayedMedia = $state<ApiCollectionMediaState>(resolveInitialMediaState(data?.media));
+	let displayedMedia = $state<ApiTokenMediaState>(resolveInitialMediaState(data?.media));
 	let displayedMediaAspectRatio = $state<number | null>(null);
+	let tokenDetailMediaError = $state<string | null>(null);
+	let failedTokenDetailMediaRequest = $state<TokenDetailMediaRequest | null>(null);
+	let tokenDetailMediaPending = $state(false);
 	let tokenBiddingJob = $state<ApiBiddingJob | null>(data?.tokenBiddingJob ?? null);
 	let tokenBiddingBidBook = $state<ApiBiddingBidBook>(
 		data?.tokenBiddingBidBook ?? emptyBiddingBidBook()
@@ -142,6 +156,9 @@
 		displayedToken = data?.token ?? null;
 		displayedMedia = resolveInitialMediaState(data?.media);
 		displayedMediaAspectRatio = null;
+		tokenDetailMediaError = null;
+		failedTokenDetailMediaRequest = null;
+		tokenDetailMediaPending = false;
 		tokenBiddingJob = data?.tokenBiddingJob ?? null;
 		tokenBiddingBidBook = data?.tokenBiddingBidBook ?? emptyBiddingBidBook();
 		selectedTokenBidBookBid = null;
@@ -159,7 +176,7 @@
 				: `/${data.chain.slug}/${data.collection.slug}`);
 		if (data.backQuery) return `${base}?${data.backQuery}`;
 		const query = new URLSearchParams();
-		appendMediaModeParam(query, collectionNavigationMediaMode());
+		appendCollectionMediaParams(query, collectionNavigationMediaState());
 		const suffix = query.toString();
 		return suffix ? `${base}?${suffix}` : base;
 	}
@@ -168,7 +185,7 @@
 		if (!data?.chain || !data.collection || !displayedToken?.currentHolder) return null;
 		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
 			const query = new URLSearchParams();
-			appendMediaModeParam(query, collectionNavigationMediaMode());
+			appendCollectionMediaParams(query, collectionNavigationMediaState());
 			const suffix = query.toString();
 			const path = publicCollectionOwnerTokensPath(displayedToken.currentHolder);
 			return suffix ? `${path}?${suffix}` : path;
@@ -177,7 +194,8 @@
 			basePath: `/${data.chain.slug}/${data.collection.slug}/holders/${encodeURIComponent(displayedToken.currentHolder)}`,
 			selectedTraits: [],
 			selectedTraitRanges: [],
-			mediaMode: collectionNavigationMediaMode()
+			mediaMode: collectionNavigationMediaMode(),
+			mediaPreference: displayedMedia.preference
 		});
 	}
 
@@ -221,6 +239,7 @@
 			selectedTraitRanges: [],
 			bidScope,
 			mediaMode: collectionNavigationMediaMode(),
+			mediaPreference: displayedMedia.preference,
 			maker: bid.maker.address,
 			showMuted: data?.showMuted ?? false
 		});
@@ -358,6 +377,7 @@
 					selectedTraits: [],
 					selectedTraitRanges: [],
 					mediaMode: collectionNavigationMediaMode(),
+					mediaPreference: displayedMedia.preference,
 					tokenId: filters.tokenId ?? null,
 					maker: filters.maker ?? null,
 					contentHash: filters.contentHash ?? null,
@@ -433,8 +453,23 @@
 		return `${value.toFixed(2)}%`;
 	}
 
-	function hasMediaModeChoices(): boolean {
+	function hasMediaSourceChoices(): boolean {
 		return displayedMedia.availableModes.length > 1;
+	}
+
+	function shouldRenderMediaSourceRow(): boolean {
+		return (
+			displayedMedia.availableModes.length > 0 &&
+			(hasMediaSourceChoices() || hasMediaVariants())
+		);
+	}
+
+	function hasMediaVariantChoices(): boolean {
+		return displayedMedia.availableVariants.length > 1;
+	}
+
+	function hasMediaVariants(): boolean {
+		return displayedMedia.availableVariants.length > 0;
 	}
 
 	function currentTraitFilterPresentation(): ApiTraitFilterPresentationFeatureState {
@@ -450,13 +485,17 @@
 	}
 
 	function collectionNavigationMediaMode(): string | null {
-		if (displayedMedia.selectedMode === COLLECTION_MEDIA_MODES.Artifact) {
-			return displayedMedia.selectedMode;
-		}
-		if (displayedMedia.selectedMode === COLLECTION_MEDIA_MODES.Snapshot) {
-			return displayedMedia.selectedMode;
-		}
-		return displayedMedia.defaultMode;
+		return displayedMedia.selectedMode;
+	}
+
+	function collectionNavigationMediaState(): {
+		mediaMode: string | null;
+		mediaPreference: ApiTokenMediaState['preference'];
+	} {
+		return {
+			mediaMode: collectionNavigationMediaMode(),
+			mediaPreference: displayedMedia.preference
+		};
 	}
 
 	function returnedFromOwnerTokens(): boolean {
@@ -495,7 +534,8 @@
 			tokenStatus,
 			selectedTraits: [{ key: trait.key, value: trait.value }],
 			selectedTraitRanges: [],
-			mediaMode: collectionNavigationMediaMode()
+			mediaMode: collectionNavigationMediaMode(),
+			mediaPreference: displayedMedia.preference
 		});
 	}
 
@@ -510,6 +550,7 @@
 			bidScope: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
 			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
 			mediaMode: collectionNavigationMediaMode(),
+			mediaPreference: displayedMedia.preference,
 			showMuted: data?.showMuted ?? false
 		});
 		// Keep trait bid scope explicit so stored scope preferences cannot override this jump.
@@ -521,22 +562,63 @@
 		if (!browser || !data?.chain || !data.collection || !displayedToken) {
 			return;
 		}
-		if (!hasMediaModeChoices()) {
+		if (!hasMediaSourceChoices() || tokenDetailMediaPending) {
 			return;
 		}
 		if (nextMode === displayedMedia.selectedMode) {
 			return;
 		}
+		await requestTokenDetailMedia(nextMode, null);
+	}
+
+	async function setTokenDetailMediaVariant(nextVariant: string): Promise<void> {
+		if (!browser || !data?.chain || !data.collection || !displayedToken) {
+			return;
+		}
+		if (
+			tokenDetailMediaPending ||
+			!hasMediaVariantChoices() ||
+			nextVariant === displayedMedia.selectedVariant ||
+			!displayedMedia.availableVariants.some((variant) => variant.key === nextVariant)
+		) {
+			return;
+		}
+		await requestTokenDetailMedia(displayedMedia.selectedMode, nextVariant);
+	}
+
+	async function requestTokenDetailMedia(
+		mediaMode: string,
+		mediaVariant: string | null
+	): Promise<void> {
+		if (
+			!browser ||
+			!data?.chain ||
+			!data.collection ||
+			!displayedToken ||
+			tokenDetailMediaPending
+		) {
+			return;
+		}
 
 		const activeRequestId = ++tokenDetailRequestId;
+		tokenDetailMediaPending = true;
+		tokenDetailMediaError = null;
+		failedTokenDetailMediaRequest = null;
+		// Keep the requested source and version visible if the request needs recovery.
+		markTokenDetailMediaRequestPending(mediaMode, mediaVariant);
 
 		try {
+			// Fetch the selected source and media version together so the controls match the media.
 			const response = await getTokenDetail(
 				fetch,
 				data.chain.slug,
 				data.collection.slug,
 				displayedToken.tokenId,
-				buildMediaModeQuery(nextMode)
+				buildTokenMediaQuery({
+					mediaMode,
+					mediaPreference: displayedMedia.preference,
+					mediaVariant
+				})
 			);
 			if (activeRequestId !== tokenDetailRequestId) return;
 
@@ -544,7 +626,34 @@
 			displayedMedia = response.media;
 		} catch {
 			if (activeRequestId !== tokenDetailRequestId) return;
+			failedTokenDetailMediaRequest = { mediaMode, mediaVariant };
+			tokenDetailMediaError = 'Unable to load media.';
+		} finally {
+			if (activeRequestId === tokenDetailRequestId) {
+				tokenDetailMediaPending = false;
+			}
 		}
+	}
+
+	function markTokenDetailMediaRequestPending(
+		mediaMode: string,
+		mediaVariant: string | null
+	): void {
+		const retainsKnownSourceOptions = displayedMedia.selectedMode === mediaMode;
+		displayedMedia = {
+			...displayedMedia,
+			selectedMode: mediaMode,
+			selectedVariant:
+				mediaVariant ?? (retainsKnownSourceOptions ? displayedMedia.selectedVariant : null),
+			defaultVariant: retainsKnownSourceOptions ? displayedMedia.defaultVariant : null,
+			availableVariants: retainsKnownSourceOptions ? displayedMedia.availableVariants : []
+		};
+	}
+
+	async function retryTokenDetailMedia(): Promise<void> {
+		const request = failedTokenDetailMediaRequest;
+		if (!request) return;
+		await requestTokenDetailMedia(request.mediaMode, request.mediaVariant);
 	}
 
 	async function refreshTokenBiddingData(): Promise<void> {
@@ -587,25 +696,27 @@
 		if (event.metaKey || event.ctrlKey || event.altKey) return;
 		if (isKeyboardTextEntryTarget(event.target)) return;
 		if (event.key !== 'v' && event.key !== 'V') return;
-		if (!hasMediaModeChoices()) return;
+		if (!hasMediaVariantChoices() || !displayedMedia.selectedVariant) return;
 		event.preventDefault();
-		void setTokenDetailMediaMode(
-			nextMediaMode(displayedMedia.availableModes, displayedMedia.selectedMode)
+		void setTokenDetailMediaVariant(
+			nextMediaOption(displayedMedia.availableVariants, displayedMedia.selectedVariant)
 		);
 	}
 
-	function buildMediaModeQuery(mediaMode: string | null): URLSearchParams {
-		const query = new URLSearchParams();
-		appendMediaModeParam(query, mediaMode);
-		return query;
-	}
-
-	function resolveInitialMediaState(input: ApiCollectionMediaState | null | undefined): ApiCollectionMediaState {
+	function resolveInitialMediaState(
+		input: ApiTokenMediaState | null | undefined
+	): ApiTokenMediaState {
 		if (input) return input;
 		return {
-			selectedMode: 'snapshot',
-			defaultMode: 'snapshot',
-			availableModes: [{ key: 'snapshot', label: 'snapshot' }]
+			selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+			defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+			availableModes: [
+				COLLECTION_MEDIA_MODE_OPTIONS.Snapshot
+			],
+			preference: null,
+			selectedVariant: null,
+			defaultVariant: null,
+			availableVariants: []
 		};
 	}
 
@@ -628,20 +739,53 @@
 					<div class="token-detail-empty muted">no media available</div>
 				{/if}
 			</div>
-			{#if hasMediaModeChoices()}
-				<div class="token-detail-media-controls">
-					<div class="secondary-tabs" aria-label="Token detail media mode">
-						{#each displayedMedia.availableModes as mode}
-							{#if mode.key === displayedMedia.selectedMode}
-								<span class="secondary-tab-active">{mode.label}</span>
-							{:else}
-								<button type="button" onclick={() => void setTokenDetailMediaMode(mode.key)}>
-									{mode.label}
-								</button>
-							{/if}
-						{/each}
-					</div>
+			{#if hasMediaSourceChoices() || hasMediaVariants()}
+				<div class="token-detail-media-controls" aria-busy={tokenDetailMediaPending}>
+					{#if shouldRenderMediaSourceRow()}
+						<div class="secondary-tabs" aria-label="Token detail source">
+							{#each displayedMedia.availableModes as mode}
+								{#if mode.key === displayedMedia.selectedMode}
+									<span class="secondary-tab-active">{mode.label}</span>
+								{:else}
+									<button
+										type="button"
+										disabled={tokenDetailMediaPending}
+										onclick={() => void setTokenDetailMediaMode(mode.key)}
+									>
+										{mode.label}
+									</button>
+								{/if}
+							{/each}
+						</div>
+					{/if}
+
+					{#if hasMediaVariants()}
+						<div class="secondary-tabs" aria-label="Token detail media version">
+							{#each displayedMedia.availableVariants as variant}
+								{#if variant.key === displayedMedia.selectedVariant}
+									<span class="secondary-tab-active">{variant.label}</span>
+								{:else}
+									<button
+										type="button"
+										disabled={tokenDetailMediaPending}
+										onclick={() => void setTokenDetailMediaVariant(variant.key)}
+									>
+										{variant.label}
+									</button>
+								{/if}
+							{/each}
+						</div>
+					{/if}
+					{#if tokenDetailMediaPending}
+						<LoadingBladeBar ariaLabel="loading token media" barLength={1} />
+					{/if}
 				</div>
+			{/if}
+			{#if tokenDetailMediaError}
+				<TokenDetailMediaError
+					message={tokenDetailMediaError}
+					onRetry={() => void retryTokenDetailMedia()}
+				/>
 			{/if}
 		</div>
 
@@ -756,6 +900,7 @@
 				showMuted={data?.showMuted ?? false}
 				basePath={collectionTokensBasePath()}
 				mediaMode={collectionNavigationMediaMode()}
+				mediaPreference={displayedMedia.preference}
 				traitValueHref={bidBookTraitValueHref}
 				makerBidHref={bidBookMakerHref}
 				onFilterTraitDemandGroup={onBidBookTraitFilter}

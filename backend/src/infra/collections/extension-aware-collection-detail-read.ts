@@ -1,13 +1,18 @@
 import {
+    COLLECTION_MEDIA_MODE_OPTIONS,
     COLLECTION_MEDIA_MODES,
     type CollectionExtensionInstall,
     type CollectionMediaMode,
+    type CollectionMediaPreferenceValue,
     type CollectionMediaPresentation,
+    type TokenMediaPresentation,
 } from "@artgod/shared/extensions";
 import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import type {
     BackendCollectionExtensionArtifactRecord,
+    BackendCollectionExtensionCanonicalMediaRecord,
+    BackendCollectionExtensionMediaContext,
     BackendCollectionExtensionRenderContext,
 } from "../../application/collection-extensions/types.js";
 import type {
@@ -19,14 +24,13 @@ import type {
     TokenCursorPage,
     TokenDetail,
     TokenMediaPreview,
+    TokenMediaState,
     TraitCatalogFacet,
     TraitFacet,
     TraitFilter,
     TraitRangeFilter,
 } from "@artgod/shared/types/browse";
 import { resolveBackendCollectionExtension } from "../../application/collection-extensions/index.js";
-
-type MaybePromise<T> = T | Promise<T>;
 
 type CollectionExtensionRecordsPort = {
     getInstallByCollectionId(
@@ -40,6 +44,11 @@ type CollectionExtensionRecordsPort = {
         extensionKey: CollectionExtensionInstall["extensionKey"];
         artifactRef: string;
     }): BackendCollectionExtensionArtifactRecord | null;
+    getCanonicalTokenMediaFacts(params: {
+        chainId: number;
+        collectionId: number;
+        tokenId: string;
+    }): BackendCollectionExtensionCanonicalMediaRecord;
     listTokenCardArtifactsByTokenIds(params: {
         chainId: number;
         collectionId: number;
@@ -64,6 +73,7 @@ type CollectionDetailReadPort = {
         traitRangeFilters?: TraitRangeFilter[];
         owner?: string;
         mediaMode?: CollectionMediaMode;
+        mediaPreference?: CollectionMediaPreferenceValue;
     }): TokenCursorPage;
     listCollectionTraitFacets(
         chainId: number,
@@ -91,18 +101,23 @@ type CollectionDetailReadPort = {
         collectionId: number;
         tokenId: string;
         mediaMode?: CollectionMediaMode;
+        mediaPreference?: CollectionMediaPreferenceValue;
+        mediaVariant?: string;
     }): TokenDetail;
     getCollectionTokenPreview(params: {
         chainId: number;
         collectionId: number;
         tokenId: string;
         mediaMode?: CollectionMediaMode;
+        mediaPreference?: CollectionMediaPreferenceValue;
+        mediaVariant?: string;
     }): TokenMediaPreview;
     listCollectionTokenCardsByIds(params: {
         chainId: number;
         collectionId: number;
         tokenIds: string[];
         mediaMode?: CollectionMediaMode;
+        mediaPreference?: CollectionMediaPreferenceValue;
         includeListings?: boolean;
     }): TokenCard[];
     countMarketplaceBiddingSupportedTokensByIds(params: {
@@ -110,6 +125,26 @@ type CollectionDetailReadPort = {
         collectionId: number;
         tokenIds: string[];
     }): number;
+};
+
+type CollectionTokenMediaQuery = {
+    chainId: number;
+    collectionId: number;
+    tokenId: string;
+    mediaMode?: CollectionMediaMode;
+    mediaPreference?: CollectionMediaPreferenceValue;
+    mediaVariant?: string;
+};
+
+type ResolvedBackendCollectionExtension = NonNullable<
+    ReturnType<typeof resolveBackendCollectionExtension>
+>;
+
+type ResolvedTokenMediaContext = {
+    media: TokenMediaPresentation;
+    install: CollectionExtensionInstall | null;
+    extension: ResolvedBackendCollectionExtension | null;
+    context: BackendCollectionExtensionMediaContext | null;
 };
 
 export class ExtensionAwareCollectionDetailRead {
@@ -135,17 +170,9 @@ export class ExtensionAwareCollectionDetailRead {
         chainId: number;
         collectionId: number;
         mediaMode?: CollectionMediaMode;
+        mediaPreference?: CollectionMediaPreferenceValue;
     }): CollectionMediaState {
         return this.resolveCollectionMediaState(params);
-    }
-
-    getCollectionTokenMediaState(params: {
-        chainId: number;
-        collectionId: number;
-        tokenId: string;
-        mediaMode?: CollectionMediaMode;
-    }): CollectionMediaState {
-        return this.resolveTokenMediaState(params);
     }
 
     listCollectionTokens(params: {
@@ -158,12 +185,10 @@ export class ExtensionAwareCollectionDetailRead {
         traitRangeFilters?: TraitRangeFilter[];
         owner?: string;
         mediaMode?: CollectionMediaMode;
+        mediaPreference?: CollectionMediaPreferenceValue;
     }): TokenCursorPage {
         const page = this.baseReadPort.listCollectionTokens(params);
         const mediaState = this.resolveCollectionMediaState(params);
-        if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Snapshot) {
-            return page;
-        }
 
         const install = this.extensionRecords.getInstallByCollectionId(
             params.chainId,
@@ -177,10 +202,13 @@ export class ExtensionAwareCollectionDetailRead {
         if (!extension) {
             return page;
         }
-        const artifactRef = extension.resolveArtifactRef(
-            install,
-            mediaState.selectedMode,
-        );
+        const artifactRef = extension.resolveTokenCardArtifactRef(install, {
+            mediaMode: mediaState.selectedMode,
+            mediaPreferenceEnabled: mediaState.preference?.enabled ?? false,
+        });
+        if (!artifactRef) {
+            return page;
+        }
         const artifactsByTokenId = artifactRef
             ? this.listTokenCardArtifactsByTokenIds({
                   chainId: params.chainId,
@@ -196,6 +224,7 @@ export class ExtensionAwareCollectionDetailRead {
             items: page.items.map((token) =>
                 extension.resolveTokenCard(install, token, {
                     mediaMode: mediaState.selectedMode,
+                    mediaVariant: null,
                     artifact: artifactsByTokenId.get(token.tokenId) ?? null,
                 }),
             ),
@@ -240,82 +269,48 @@ export class ExtensionAwareCollectionDetailRead {
         return this.baseReadPort.listCollectionHolders(params);
     }
 
-    getCollectionTokenDetail(params: {
-        chainId: number;
-        collectionId: number;
-        tokenId: string;
-        mediaMode?: CollectionMediaMode;
-    }): MaybePromise<TokenDetail> {
+    async getCollectionTokenDetailPresentation(
+        params: CollectionTokenMediaQuery,
+    ): Promise<{ media: TokenMediaState; token: TokenDetail }> {
+        // Read canonical token data before applying the extension-owned presentation.
         const token = this.baseReadPort.getCollectionTokenDetail(params);
-        const mediaState = this.resolveTokenMediaState(params);
-        if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Snapshot) {
-            return token;
+        const resolved = await this.resolveTokenMediaContext(params);
+        if (!resolved.install || !resolved.extension || !resolved.context) {
+            return { media: resolved.media, token };
         }
 
-        const install = this.extensionRecords.getInstallByCollectionId(
-            params.chainId,
-            params.collectionId,
-        );
-        if (!install?.enabled) {
-            return token;
-        }
-
-        const extension = resolveBackendCollectionExtension(install);
-        if (!extension) {
-            return token;
-        }
-
-        return extension.resolveTokenDetail(
-            install,
+        // Render with the same artifact and RPC context used to select the media state.
+        const presentedToken = await resolved.extension.resolveTokenDetail(
+            resolved.install,
             token,
-            this.resolveMediaContext(
-                install,
-                extension,
-                params.chainId,
-                params.collectionId,
-                params.tokenId,
-                mediaState.selectedMode,
-            ),
+            resolved.context,
         );
+        return { media: resolved.media, token: presentedToken };
     }
 
-    getCollectionTokenPreview(params: {
-        chainId: number;
-        collectionId: number;
-        tokenId: string;
-        mediaMode?: CollectionMediaMode;
-    }): MaybePromise<TokenMediaPreview> {
+    async getCollectionTokenDetail(
+        params: CollectionTokenMediaQuery,
+    ): Promise<TokenDetail> {
+        return (await this.getCollectionTokenDetailPresentation(params)).token;
+    }
+
+    async getCollectionTokenPreviewPresentation(
+        params: CollectionTokenMediaQuery,
+    ): Promise<{ media: TokenMediaState; token: TokenMediaPreview }> {
+        // Read canonical token data before applying the extension-owned presentation.
         const token = this.baseReadPort.getCollectionTokenPreview(params);
-        const mediaState = this.resolveTokenMediaState(params);
-        if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Snapshot) {
-            return token;
+        const resolved = await this.resolveTokenMediaContext(params);
+        if (!resolved.install || !resolved.extension || !resolved.context) {
+            return { media: resolved.media, token };
         }
 
-        const install = this.extensionRecords.getInstallByCollectionId(
-            params.chainId,
-            params.collectionId,
-        );
-        if (!install?.enabled) {
-            return token;
-        }
-
-        const extension = resolveBackendCollectionExtension(install);
-        if (!extension) {
-            return token;
-        }
-
-        return extension.resolveTokenPreview(
-            install,
+        // Render with the same artifact and RPC context used to select the media state.
+        const presentedToken = await resolved.extension.resolveTokenPreview(
+            resolved.install,
             token,
-            this.resolveMediaContext(
-                install,
-                extension,
-                params.chainId,
-                params.collectionId,
-                params.tokenId,
-                mediaState.selectedMode,
-            ),
+            resolved.context,
         );
+        return { media: resolved.media, token: presentedToken };
     }
 
     listCollectionTokenCardsByIds(params: {
@@ -323,13 +318,11 @@ export class ExtensionAwareCollectionDetailRead {
         collectionId: number;
         tokenIds: string[];
         mediaMode?: CollectionMediaMode;
+        mediaPreference?: CollectionMediaPreferenceValue;
         includeListings?: boolean;
     }): TokenCard[] {
         const tokens = this.baseReadPort.listCollectionTokenCardsByIds(params);
         const mediaState = this.resolveCollectionMediaState(params);
-        if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Snapshot) {
-            return tokens;
-        }
 
         const install = this.extensionRecords.getInstallByCollectionId(
             params.chainId,
@@ -344,10 +337,13 @@ export class ExtensionAwareCollectionDetailRead {
             return tokens;
         }
 
-        const artifactRef = extension.resolveArtifactRef(
-            install,
-            mediaState.selectedMode,
-        );
+        const artifactRef = extension.resolveTokenCardArtifactRef(install, {
+            mediaMode: mediaState.selectedMode,
+            mediaPreferenceEnabled: mediaState.preference?.enabled ?? false,
+        });
+        if (!artifactRef) {
+            return tokens;
+        }
         const artifactsByTokenId = artifactRef
             ? this.listTokenCardArtifactsByTokenIds({
                   chainId: params.chainId,
@@ -361,6 +357,7 @@ export class ExtensionAwareCollectionDetailRead {
         return tokens.map((token) =>
             extension.resolveTokenCard(install, token, {
                 mediaMode: mediaState.selectedMode,
+                mediaVariant: null,
                 artifact: artifactsByTokenId.get(token.tokenId) ?? null,
             }),
         );
@@ -371,7 +368,9 @@ export class ExtensionAwareCollectionDetailRead {
         collectionId: number;
         tokenIds: string[];
     }): number {
-        return this.baseReadPort.countMarketplaceBiddingSupportedTokensByIds(params);
+        return this.baseReadPort.countMarketplaceBiddingSupportedTokensByIds(
+            params,
+        );
     }
 
     private listTokenCardArtifactsByTokenIds(params: {
@@ -408,35 +407,36 @@ export class ExtensionAwareCollectionDetailRead {
         chainId: number;
         collectionId: number;
         mediaMode?: CollectionMediaMode;
+        mediaPreference?: CollectionMediaPreferenceValue;
     }): CollectionMediaPresentation {
         const install = this.extensionRecords.getInstallByCollectionId(
             params.chainId,
             params.collectionId,
         );
-        if (!install?.enabled) {
-            return {
-                selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
-                defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
-                availableModes: [
-                    {
-                        key: COLLECTION_MEDIA_MODES.Snapshot,
-                        label: "snapshot",
-                    },
-                ],
-            };
-        }
+        const extension = install?.enabled
+            ? resolveBackendCollectionExtension(install)
+            : null;
+        return this.resolveCollectionMediaPresentation(
+            params,
+            install,
+            extension,
+        );
+    }
 
-        const extension = resolveBackendCollectionExtension(install);
-        if (!extension) {
+    private resolveCollectionMediaPresentation(
+        params: {
+            mediaMode?: CollectionMediaMode;
+            mediaPreference?: CollectionMediaPreferenceValue;
+        },
+        install: CollectionExtensionInstall | null,
+        extension: ResolvedBackendCollectionExtension | null,
+    ): CollectionMediaPresentation {
+        if (!install?.enabled || !extension) {
             return {
                 selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
                 defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
-                availableModes: [
-                    {
-                        key: COLLECTION_MEDIA_MODES.Snapshot,
-                        label: "snapshot",
-                    },
-                ],
+                availableModes: [{ ...COLLECTION_MEDIA_MODE_OPTIONS.Snapshot }],
+                preference: null,
             };
         }
 
@@ -452,6 +452,11 @@ export class ExtensionAwareCollectionDetailRead {
             selectedMode,
             defaultMode,
             availableModes,
+            preference:
+                extension.resolveMediaPreference?.(
+                    install,
+                    params.mediaPreference,
+                ) ?? null,
         };
     }
 
@@ -499,76 +504,168 @@ export class ExtensionAwareCollectionDetailRead {
         };
     }
 
-    private resolveTokenMediaState(params: {
-        chainId: number;
-        collectionId: number;
-        tokenId: string;
-        mediaMode?: CollectionMediaMode;
-    }): CollectionMediaPresentation {
+    private async resolveTokenMediaContext(
+        params: CollectionTokenMediaQuery,
+    ): Promise<ResolvedTokenMediaContext> {
         const install = this.extensionRecords.getInstallByCollectionId(
             params.chainId,
             params.collectionId,
         );
-        if (!install?.enabled) {
-            return this.resolveCollectionMediaState(params);
+        const extension = install?.enabled
+            ? resolveBackendCollectionExtension(install)
+            : null;
+        const defaultMedia = this.resolveDefaultTokenMediaState(
+            params,
+            install,
+            extension,
+        );
+        if (!install?.enabled || !extension) {
+            return {
+                media: defaultMedia,
+                install: null,
+                extension: null,
+                context: null,
+            };
         }
 
-        const extension = resolveBackendCollectionExtension(install);
-        if (!extension?.resolveTokenMediaPresentation) {
-            return this.resolveCollectionMediaState(params);
-        }
-
+        const rpc = createRequestScopedRpc(this.rpc);
         const artifactCache = new Map<
             string,
             BackendCollectionExtensionArtifactRecord | null
         >();
-        const mediaState = extension.resolveTokenMediaPresentation(install, {
-            requestedMode: params.mediaMode,
-            getArtifact: (artifactRef) => {
-                if (!artifactCache.has(artifactRef)) {
-                    artifactCache.set(
+        const getArtifact = (
+            artifactRef: string,
+        ): BackendCollectionExtensionArtifactRecord | null => {
+            if (!artifactCache.has(artifactRef)) {
+                artifactCache.set(
+                    artifactRef,
+                    this.extensionRecords.getArtifact({
+                        chainId: params.chainId,
+                        collectionId: params.collectionId,
+                        tokenId: params.tokenId,
+                        extensionKey: install.extensionKey,
                         artifactRef,
-                        this.extensionRecords.getArtifact({
-                            chainId: params.chainId,
-                            collectionId: params.collectionId,
-                            tokenId: params.tokenId,
-                            extensionKey: install.extensionKey,
-                            artifactRef,
-                        }),
-                    );
-                }
-                return artifactCache.get(artifactRef) ?? null;
-            },
+                    }),
+                );
+            }
+            return artifactCache.get(artifactRef) ?? null;
+        };
+
+        let media = defaultMedia;
+        if (extension.resolveTokenMediaPresentation) {
+            // Read canonical facts once for token-level variant selection.
+            const canonical = this.extensionRecords.getCanonicalTokenMediaFacts(
+                {
+                    chainId: params.chainId,
+                    collectionId: params.collectionId,
+                    tokenId: params.tokenId,
+                },
+            );
+            media =
+                (await extension.resolveTokenMediaPresentation(install, {
+                    tokenId: params.tokenId,
+                    requestedMode: params.mediaMode,
+                    requestedPreference: params.mediaPreference,
+                    requestedVariant: params.mediaVariant,
+                    canonical: {
+                        isCanonicalToken: canonical.isCanonicalToken,
+                        animationUrl: canonical.animationUrl,
+                        getAttributeValue: (key) =>
+                            canonical.attributes.get(key) ?? null,
+                    },
+                    getArtifact,
+                    rpc,
+                })) ?? defaultMedia;
+        }
+
+        const artifactRef = extension.resolveTokenArtifactRef(install, {
+            mediaMode: media.selectedMode,
+            mediaVariant: media.selectedVariant,
         });
 
-        return mediaState ?? this.resolveCollectionMediaState(params);
-    }
-
-    private resolveMediaContext(
-        install: CollectionExtensionInstall,
-        extension: NonNullable<
-            ReturnType<typeof resolveBackendCollectionExtension>
-        >,
-        chainId: number,
-        collectionId: number,
-        tokenId: string,
-        mediaMode: CollectionMediaMode,
-    ) {
-        const artifactRef = extension.resolveArtifactRef(install, mediaMode);
-        const artifact = artifactRef
-            ? this.extensionRecords.getArtifact({
-                  chainId,
-                  collectionId,
-                  tokenId,
-                  extensionKey: install.extensionKey,
-                  artifactRef,
-              })
-            : null;
-
         return {
-            mediaMode,
-            artifact,
-            rpc: this.rpc,
+            media,
+            install,
+            extension,
+            context: {
+                mediaMode: media.selectedMode,
+                mediaVariant: media.selectedVariant,
+                artifact: artifactRef ? getArtifact(artifactRef) : null,
+                rpc,
+            },
         };
     }
+
+    private resolveDefaultTokenMediaState(
+        params: {
+            mediaMode?: CollectionMediaMode;
+            mediaPreference?: CollectionMediaPreferenceValue;
+        },
+        install: CollectionExtensionInstall | null,
+        extension: ResolvedBackendCollectionExtension | null,
+    ): TokenMediaPresentation {
+        return {
+            ...this.resolveCollectionMediaPresentation(
+                params,
+                install,
+                extension,
+            ),
+            selectedVariant: null,
+            defaultVariant: null,
+            availableVariants: [],
+        };
+    }
+}
+
+type BackendCollectionExtensionRpc =
+    BackendCollectionExtensionRenderContext["rpc"];
+type BackendContractReadParams = Parameters<
+    BackendCollectionExtensionRpc["readContract"]
+>[0];
+type BackendStorageReadParams = Parameters<
+    BackendCollectionExtensionRpc["getStorageAt"]
+>[0];
+
+function createRequestScopedRpc(
+    rpc: BackendCollectionExtensionRpc | undefined,
+): BackendCollectionExtensionRpc | undefined {
+    if (!rpc) {
+        return undefined;
+    }
+
+    let currentBlockNumberRead: Promise<number> | undefined;
+    const storageReads: Array<{
+        params: BackendStorageReadParams;
+        result: ReturnType<BackendCollectionExtensionRpc["getStorageAt"]>;
+    }> = [];
+
+    return {
+        readContract<T = unknown>(
+            params: BackendContractReadParams,
+        ): Promise<T> {
+            return rpc.readContract<T>(params);
+        },
+        getStorageAt(params) {
+            const cached = storageReads.find(
+                (read) =>
+                    read.params.address === params.address &&
+                    read.params.slot === params.slot &&
+                    read.params.blockNumber === params.blockNumber,
+            );
+            if (cached) {
+                return cached.result;
+            }
+
+            const result = rpc.getStorageAt(params);
+            storageReads.push({ params: { ...params }, result });
+            return result;
+        },
+        getCurrentBlockNumber() {
+            currentBlockNumberRead ??= rpc.getCurrentBlockNumber();
+            return currentBlockNumberRead;
+        },
+        getBlockTimestamp(blockNumber) {
+            return rpc.getBlockTimestamp(blockNumber);
+        },
+    };
 }

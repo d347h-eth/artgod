@@ -21,6 +21,7 @@ import {
     parseCursor,
     parseLimit,
     parseMediaMode,
+    parseMediaPreference,
     parseOwner,
     parseTokenBrowserStatus,
     parseTraits,
@@ -47,10 +48,8 @@ const COLLECTION_SPAN_ATTRIBUTE = {
     CursorPresent: ARTGOD_SPAN_ATTRIBUTE.CollectionCursorPresent,
     TokenStatus: ARTGOD_SPAN_ATTRIBUTE.CollectionTokenStatus,
     OwnerPresent: ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent,
-    TraitFiltersCount:
-        ARTGOD_SPAN_ATTRIBUTE.CollectionTraitFiltersCount,
-    TraitRangesCount:
-        ARTGOD_SPAN_ATTRIBUTE.CollectionTraitRangesCount,
+    TraitFiltersCount: ARTGOD_SPAN_ATTRIBUTE.CollectionTraitFiltersCount,
+    TraitRangesCount: ARTGOD_SPAN_ATTRIBUTE.CollectionTraitRangesCount,
     MediaModePresent: ARTGOD_SPAN_ATTRIBUTE.CollectionMediaModePresent,
 } as const;
 
@@ -87,6 +86,9 @@ export class GetCollectionDetailHttpAdapter {
         const mediaMode = parseMediaMode(
             searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode),
         );
+        const mediaPreference = parseMediaPreference(
+            searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference),
+        );
 
         return {
             chainRef: request.params.chain_ref,
@@ -98,6 +100,7 @@ export class GetCollectionDetailHttpAdapter {
             traitRanges,
             owner,
             mediaMode,
+            mediaPreference,
         };
     }
 
@@ -133,21 +136,15 @@ export function getCollectionDetailSpanAttributes(
             COLLECTION_DETAIL_QUERY_PARAMS.Owner,
         ),
         [COLLECTION_SPAN_ATTRIBUTE.TraitFiltersCount]:
-            countDelimitedQuerySegments(
-                searchParams,
-                [
-                    TRAIT_FILTER_QUERY_PARAMS.Traits,
-                    TRAIT_FILTER_QUERY_PARAMS.Trait,
-                ],
-            ),
+            countDelimitedQuerySegments(searchParams, [
+                TRAIT_FILTER_QUERY_PARAMS.Traits,
+                TRAIT_FILTER_QUERY_PARAMS.Trait,
+            ]),
         [COLLECTION_SPAN_ATTRIBUTE.TraitRangesCount]:
-            countDelimitedQuerySegments(
-                searchParams,
-                [
-                    TRAIT_FILTER_QUERY_PARAMS.TraitRanges,
-                    TRAIT_FILTER_QUERY_PARAMS.TraitRange,
-                ],
-            ),
+            countDelimitedQuerySegments(searchParams, [
+                TRAIT_FILTER_QUERY_PARAMS.TraitRanges,
+                TRAIT_FILTER_QUERY_PARAMS.TraitRange,
+            ]),
         [COLLECTION_SPAN_ATTRIBUTE.MediaModePresent]: hasQueryValue(
             searchParams,
             COLLECTION_MEDIA_QUERY_PARAMS.MediaMode,

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import {
+	COLLECTION_MEDIA_MODES,
+	COLLECTION_MEDIA_MODE_OPTIONS,
+	COLLECTION_MEDIA_PREFERENCE_VALUES
+} from '@artgod/shared/extensions';
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import HolderTokensView from './HolderTokensView.svelte';
 
@@ -27,12 +32,14 @@ describe('HolderTokensView', () => {
 					updatedAt: '2026-01-01T00:00:00Z'
 				},
 				media: {
-					selectedMode: 'artifact',
-					defaultMode: 'artifact',
-					availableModes: [
-						{ key: 'artifact', label: 'artifact' },
-						{ key: 'snapshot', label: 'snapshot' }
-					]
+					selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+					defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+					availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+					preference: {
+						label: 'prefer modern media',
+						enabled: false,
+						defaultEnabled: true
+					}
 				},
 				tokens: {
 					items: [
@@ -85,16 +92,16 @@ describe('HolderTokensView', () => {
 		expect(body).toContain('tokens currently held by');
 		expect(body).toContain('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 		expect(body).toContain(
-			'/ethereum/milady?limit=25&amp;mode=grid&amp;media_mode=artifact&amp;traits=Hat%3ABeanie&amp;token_status=listed'
+			'/ethereum/milady?limit=25&amp;mode=grid&amp;media_mode=snapshot&amp;media_preference=disabled&amp;traits=Hat%3ABeanie&amp;token_status=listed'
 		);
 		expect(body).toContain(
-			'/ethereum/milady/activity?limit=25&amp;kind=sales&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+			'/ethereum/milady/activity?limit=25&amp;kind=sales&amp;media_mode=snapshot&amp;media_preference=disabled&amp;traits=Hat%3ABeanie'
 		);
 		expect(body).toContain(
-			'/ethereum/milady/customization?media_mode=artifact&amp;traits=Hat%3ABeanie'
+			'/ethereum/milady/customization?media_mode=snapshot&amp;media_preference=disabled&amp;traits=Hat%3ABeanie'
 		);
 		expect(body).toContain(
-			'<a href="/ethereum/milady/holders?media_mode=artifact">holders</a>'
+			'<a href="/ethereum/milady/holders?media_mode=snapshot&amp;media_preference=disabled">holders</a>'
 		);
 		expect(body).not.toContain('<span class="runtime-tab-active">holders</span>');
 		expect(body).toContain('>filter<');

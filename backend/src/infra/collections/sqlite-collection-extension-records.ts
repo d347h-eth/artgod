@@ -4,6 +4,12 @@ import type {
     CollectionExtensionKey,
 } from "@artgod/shared/extensions";
 import type { BackendCollectionExtensionArtifactRecord } from "../../application/collection-extensions/types.js";
+import type { BackendCollectionExtensionCanonicalMediaRecord } from "../../application/collection-extensions/types.js";
+import {
+    TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+    TOKEN_ATTRIBUTE_SOURCE_KIND,
+} from "@artgod/shared/types/token-attributes";
+import { TOKEN_RECORD_KIND } from "@artgod/shared/types/token-records";
 
 type InstallRow = {
     chain_id: number;
@@ -30,6 +36,13 @@ type TokenCardArtifactRow = {
     image: string | null;
 };
 
+type CanonicalMediaFactRow = {
+    record_kind: string;
+    animation_url: string | null;
+    attribute_key: string | null;
+    attribute_value: string | null;
+};
+
 export class SqliteCollectionExtensionRecords {
     private selectInstallByCollectionId = db.prepare<{
         chainId: number;
@@ -53,6 +66,26 @@ export class SqliteCollectionExtensionRecords {
             "WHERE chain_id = @chainId AND collection_id = @collectionId AND token_id = @tokenId " +
             "AND extension_key = @extensionKey AND artifact_ref = @artifactRef " +
             "LIMIT 1",
+    );
+
+    private selectCanonicalMediaFacts = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        tokenId: string;
+        sourceKind: string;
+        sourceKey: string;
+    }>(
+        "SELECT t.record_kind, m.animation_url, ak.key AS attribute_key, a.value AS attribute_value " +
+            "FROM tokens t " +
+            "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
+            "AND m.collection_id = t.collection_id AND m.token_id = t.token_id " +
+            "LEFT JOIN token_attributes ta ON ta.chain_id = t.chain_id " +
+            "AND ta.collection_id = t.collection_id AND ta.token_id = t.token_id " +
+            "AND ta.source_kind = @sourceKind AND ta.source_key = @sourceKey " +
+            "LEFT JOIN attributes a ON a.id = ta.attribute_id " +
+            "LEFT JOIN attribute_keys ak ON ak.id = a.attribute_key_id " +
+            "WHERE t.chain_id = @chainId AND t.collection_id = @collectionId " +
+            "AND t.token_id = @tokenId",
     );
 
     getInstallByCollectionId(
@@ -102,6 +135,34 @@ export class SqliteCollectionExtensionRecords {
             image: row.image,
             animationUrl: row.animation_url,
             htmlContent: row.html_content,
+        };
+    }
+
+    getCanonicalTokenMediaFacts(params: {
+        chainId: number;
+        collectionId: number;
+        tokenId: string;
+    }): BackendCollectionExtensionCanonicalMediaRecord {
+        // Read only canonical metadata-backed traits needed for token media decisions.
+        const rows = this.selectCanonicalMediaFacts.all({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            tokenId: params.tokenId,
+            sourceKind: TOKEN_ATTRIBUTE_SOURCE_KIND.Metadata,
+            sourceKey: TOKEN_ATTRIBUTE_METADATA_SOURCE_KEY,
+        }) as CanonicalMediaFactRow[];
+        const first = rows[0];
+        return {
+            isCanonicalToken:
+                first?.record_kind === TOKEN_RECORD_KIND.Canonical,
+            animationUrl: first?.animation_url ?? null,
+            attributes: new Map(
+                rows.flatMap((row) =>
+                    row.attribute_key !== null && row.attribute_value !== null
+                        ? [[row.attribute_key, row.attribute_value] as const]
+                        : [],
+                ),
+            ),
         };
     }
 

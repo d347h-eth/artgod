@@ -54,6 +54,7 @@
 		return buildCollectionNavigation({
 			basePath,
 			mediaMode: media.selectedMode,
+			mediaPreference: media.preference,
 			selectedTraits: [],
 			selectedTraitRanges: [],
 			activityEventFeeds: collection?.activityEventFeeds ?? [],
@@ -81,7 +82,12 @@
 
 {#snippet extensionHeaderActions()}
 	{#if collection}
-		<CollectionJumpForm chainRef={chain?.slug ?? ''} {basePath} mediaMode={media.selectedMode} />
+		<CollectionJumpForm
+			chainRef={chain?.slug ?? ''}
+			{basePath}
+			mediaMode={media.selectedMode}
+			mediaPreference={media.preference}
+		/>
 	{/if}
 	<KeyboardShortcutsHelp {keyboardShortcutsHelp} {blockExplorer} />
 {/snippet}

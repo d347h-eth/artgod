@@ -5,6 +5,10 @@ import {
 	resolveCollectionSectionShortcutHref
 } from '$lib/collection-navigation';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+import {
+	COLLECTION_MEDIA_MODES,
+	COLLECTION_MEDIA_PREFERENCE_VALUES
+} from '@artgod/shared/extensions';
 import { COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND } from '$lib/collection-extension-navigation';
 
 describe('buildCollectionNavigation', () => {
@@ -17,7 +21,8 @@ describe('buildCollectionNavigation', () => {
 	it('builds collection section hrefs from explicit navigation state', () => {
 		const navigation = buildCollectionNavigation({
 			basePath: '/ethereum/milady',
-			mediaMode: 'artifact',
+			mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+			mediaPreference: COLLECTION_MEDIA_PREFERENCE_VALUES.Disabled,
 			selectedTraits: [{ key: 'Mode', value: 'Terrain' }],
 			selectedTraitRanges: [],
 			token: {
@@ -34,16 +39,16 @@ describe('buildCollectionNavigation', () => {
 		});
 
 		expect(navigation.hrefs.asks).toBe(
-			'/ethereum/milady?limit=25&mode=grid&media_mode=artifact&traits=Mode%3ATerrain&token_status=listed'
+			'/ethereum/milady?limit=25&mode=grid&media_mode=snapshot&media_preference=disabled&traits=Mode%3ATerrain&token_status=listed'
 		);
 		expect(navigation.hrefs.offers).toBe(
-			'/ethereum/milady/bidding?media_mode=artifact&bid_scope=traits&traits=Mode%3ATerrain'
+			'/ethereum/milady/bidding?media_mode=snapshot&media_preference=disabled&bid_scope=traits&traits=Mode%3ATerrain'
 		);
 		expect(navigation.hrefs.tokens).toBe(
-			'/ethereum/milady?limit=25&mode=grid&media_mode=artifact&traits=Mode%3ATerrain&token_status=all'
+			'/ethereum/milady?limit=25&mode=grid&media_mode=snapshot&media_preference=disabled&traits=Mode%3ATerrain&token_status=all'
 		);
 		expect(navigation.hrefs.activityKind('listings')).toBe(
-			'/ethereum/milady/activity?limit=25&kind=listings&media_mode=artifact&traits=Mode%3ATerrain'
+			'/ethereum/milady/activity?limit=25&kind=listings&media_mode=snapshot&media_preference=disabled&traits=Mode%3ATerrain'
 		);
 		expect(
 			navigation.hrefs.extensionPage({
@@ -51,16 +56,15 @@ describe('buildCollectionNavigation', () => {
 				extensionKey: 'terraforms',
 				pageRef: 'hypercastle'
 			})
-		).toBe('/ethereum/milady/extensions/terraforms/hypercastle');
-		expect(
-			navigation.hrefs.extensionPage({
-				kind: COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND.ExtensionPage,
-				extensionKey: 'terraforms',
-				pageRef: 'hypercastle',
-				preserveMediaMode: true
-			})
-		).toBe('/ethereum/milady/extensions/terraforms/hypercastle?media_mode=artifact');
-		expect(navigation.hrefs.holders).toBe('/ethereum/milady/holders?media_mode=artifact');
+		).toBe(
+			'/ethereum/milady/extensions/terraforms/hypercastle?media_mode=snapshot&media_preference=disabled'
+		);
+		expect(navigation.hrefs.holders).toBe(
+			'/ethereum/milady/holders?media_mode=snapshot&media_preference=disabled'
+		);
+		expect(navigation.hrefs.customization).toBe(
+			'/ethereum/milady/customization?media_mode=snapshot&media_preference=disabled&traits=Mode%3ATerrain'
+		);
 		expect(navigation.hrefs.blockspace).toBe('/ethereum/blockspace?collection=milady');
 	});
 
@@ -83,7 +87,7 @@ describe('resolveCollectionSectionShortcutHref', () => {
 	it('maps collection numeric shortcuts to explicit main-nav targets', () => {
 		const navigation = buildCollectionNavigation({
 			basePath: '/ethereum/milady',
-			mediaMode: 'artifact',
+			mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 			selectedTraits: [],
 			selectedTraitRanges: [],
 			token: {
@@ -100,13 +104,13 @@ describe('resolveCollectionSectionShortcutHref', () => {
 		});
 
 		expect(resolveCollectionSectionShortcutHref(keyEvent('1'), navigation)).toBe(
-			'/ethereum/milady?limit=25&mode=grid&media_mode=artifact&token_status=listed'
+			'/ethereum/milady?limit=25&mode=grid&media_mode=snapshot&token_status=listed'
 		);
 		expect(resolveCollectionSectionShortcutHref(keyEvent('2'), navigation)).toBe(
-			'/ethereum/milady/bidding?media_mode=artifact&bid_scope=traits'
+			'/ethereum/milady/bidding?media_mode=snapshot&bid_scope=traits'
 		);
 		expect(resolveCollectionSectionShortcutHref(keyEvent('3'), navigation)).toBe(
-			'/ethereum/milady?limit=25&mode=grid&media_mode=artifact&token_status=all'
+			'/ethereum/milady?limit=25&mode=grid&media_mode=snapshot&token_status=all'
 		);
 		expect(resolveCollectionSectionShortcutHref(keyEvent('4'), navigation)).toBeNull();
 	});
@@ -125,7 +129,10 @@ describe('resolveCollectionSectionShortcutHref', () => {
 			resolveCollectionSectionShortcutHref(keyEvent('1', elementLike('INPUT', 'text')), navigation)
 		).toBeNull();
 		expect(
-			resolveCollectionSectionShortcutHref(keyEvent('1', elementLike('INPUT', 'checkbox')), navigation)
+			resolveCollectionSectionShortcutHref(
+				keyEvent('1', elementLike('INPUT', 'checkbox')),
+				navigation
+			)
 		).toBe(`/ethereum/milady?limit=${DEFAULT_PAGE_LIMIT}&mode=grid&token_status=listed`);
 		expect(resolveCollectionSectionShortcutHref(keyEvent('2'), navigation)).toBeNull();
 		expect(resolveCollectionSectionShortcutHref(keyEvent('4'), navigation)).toBeNull();
@@ -134,7 +141,7 @@ describe('resolveCollectionSectionShortcutHref', () => {
 	it('can hide offers navigation explicitly', () => {
 		const navigation = buildCollectionNavigation({
 			basePath: '/',
-			mediaMode: 'artifact',
+			mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 			selectedTraits: [],
 			selectedTraitRanges: [],
 			bidding: {

@@ -5,13 +5,20 @@ import {
 	QUERY_CACHE_DEBUG_TTL_HEADER_NAME
 } from '@artgod/shared/observability/http';
 import { TRAIT_CATALOG_QUERY_PARAMS } from '@artgod/shared/types';
+import { COLLECTION_MEDIA_MODES, COLLECTION_MEDIA_QUERY_PARAMS } from '@artgod/shared/extensions';
 import { logger } from '@artgod/shared/utils/logger';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	getBlockspaceStateWithHeaders,
 	getCollectionDetailWithHeaders,
-	getCollectionTraitCatalog
+	getCollectionTraitCatalog,
+	getTokenDetail,
+	getTokenPreview
 } from './backend-api';
+
+const TEST_EXTENSION_MEDIA_SOURCE = {
+	RequestTime: 'test-request-time'
+} as const;
 
 describe('backend api observability', () => {
 	afterEach(() => {
@@ -142,5 +149,29 @@ describe('backend api observability', () => {
 				headers: expect.any(Headers)
 			}
 		);
+	});
+
+	it('bypasses HTTP cache only for explicit non-snapshot token media requests during SSR', async () => {
+		vi.spyOn(logger, 'info').mockImplementation(() => {});
+		const fetchMock = vi
+			.spyOn(globalThis, 'fetch')
+			.mockResolvedValue(new Response(JSON.stringify({})));
+		const requestTimeParams = new URLSearchParams({
+			[COLLECTION_MEDIA_QUERY_PARAMS.MediaMode]: TEST_EXTENSION_MEDIA_SOURCE.RequestTime
+		});
+		const snapshotParams = new URLSearchParams({
+			[COLLECTION_MEDIA_QUERY_PARAMS.MediaMode]: COLLECTION_MEDIA_MODES.Snapshot
+		});
+
+		await getTokenDetail(globalThis.fetch, 'ethereum', 'terraforms', '1', requestTimeParams);
+		await getTokenPreview(globalThis.fetch, 'ethereum', 'terraforms', '1', requestTimeParams);
+		await getTokenDetail(globalThis.fetch, 'ethereum', 'terraforms', '1', snapshotParams);
+		await getTokenPreview(globalThis.fetch, 'ethereum', 'terraforms', '1');
+
+		const requestInits = fetchMock.mock.calls.map((call) => call[1] as RequestInit);
+		expect(requestInits[0]?.cache).toBe('no-store');
+		expect(requestInits[1]?.cache).toBe('no-store');
+		expect(requestInits[2]?.cache).toBeUndefined();
+		expect(requestInits[3]?.cache).toBeUndefined();
 	});
 });

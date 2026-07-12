@@ -2,7 +2,7 @@ import { error, redirect } from '@sveltejs/kit';
 import { normalizeAddressRef } from '@artgod/shared/utils/ref-resolver';
 import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
 	BackendApiError,
 	getCollectionBiddingPriceTiers,
@@ -29,7 +29,10 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 		if (!matchesPublicCollectionRoute(params.chain_ref, params.collection_ref)) {
 			throw error(404, 'Not found');
 		}
-		throw redirect(307, withQuery(publicCollectionOwnerTokensPath(params.owner_ref), url.searchParams));
+		throw redirect(
+			307,
+			withQuery(publicCollectionOwnerTokensPath(params.owner_ref), url.searchParams)
+		);
 	}
 
 	const owner = normalizeAddressRef(params.owner_ref);
@@ -56,9 +59,8 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 			media: {
 				selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
 				defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
-				availableModes: [
-					{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
-				]
+				availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+				preference: null
 			},
 			facets: [],
 			selectedTraits: [],
@@ -98,14 +100,14 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 			browserBasePath,
 			owner,
 			requestCursor: query.get('cursor') ?? null,
-				displayMode,
-				biddingSettings: priceTiersResponse.settings,
-				priceTiers: priceTiersResponse.tiers,
-				trustOpenSeaSignedZoneTraitOffers:
-					runtimeConfigResponse.bidding.trustOpenSeaSignedZoneTraitOffers,
-				bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh,
-				blockExplorer: runtimeConfigResponse.blockExplorer
-			};
+			displayMode,
+			biddingSettings: priceTiersResponse.settings,
+			priceTiers: priceTiersResponse.tiers,
+			trustOpenSeaSignedZoneTraitOffers:
+				runtimeConfigResponse.bidding.trustOpenSeaSignedZoneTraitOffers,
+			bidBookLiveRefreshConfig: runtimeConfigResponse.bidding.bidBookLiveRefresh,
+			blockExplorer: runtimeConfigResponse.blockExplorer
+		};
 	} catch (cause) {
 		toKitError(cause);
 	}

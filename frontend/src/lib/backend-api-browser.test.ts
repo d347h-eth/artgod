@@ -1,6 +1,11 @@
 import { ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME } from '@artgod/shared/observability/http';
+import { COLLECTION_MEDIA_MODES, COLLECTION_MEDIA_QUERY_PARAMS } from '@artgod/shared/extensions';
 import { logger } from '@artgod/shared/utils/logger';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const TEST_EXTENSION_MEDIA_SOURCE = {
+	RequestTime: 'test-request-time'
+} as const;
 
 describe('backend api browser mode', () => {
 	afterEach(() => {
@@ -94,5 +99,48 @@ describe('backend api browser mode', () => {
 			'11111111111111111111111111111111',
 			'22222222222222222222222222222222'
 		]);
+	});
+
+	it('bypasses HTTP cache only for explicit non-snapshot token media requests in the browser', async () => {
+		vi.doMock('$app/environment', () => ({
+			browser: true,
+			building: false,
+			dev: true,
+			version: 'test'
+		}));
+		vi.stubGlobal('window', {});
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({}))
+		);
+		const requestTimeParams = new URLSearchParams({
+			[COLLECTION_MEDIA_QUERY_PARAMS.MediaMode]: TEST_EXTENSION_MEDIA_SOURCE.RequestTime
+		});
+		const snapshotParams = new URLSearchParams({
+			[COLLECTION_MEDIA_QUERY_PARAMS.MediaMode]: COLLECTION_MEDIA_MODES.Snapshot
+		});
+		const { getTokenDetail, getTokenPreview } = await import('./backend-api');
+
+		await getTokenDetail(
+			fetchMock as typeof fetch,
+			'ethereum',
+			'terraforms',
+			'1',
+			requestTimeParams
+		);
+		await getTokenPreview(
+			fetchMock as typeof fetch,
+			'ethereum',
+			'terraforms',
+			'1',
+			requestTimeParams
+		);
+		await getTokenDetail(fetchMock as typeof fetch, 'ethereum', 'terraforms', '1', snapshotParams);
+		await getTokenPreview(fetchMock as typeof fetch, 'ethereum', 'terraforms', '1');
+
+		const requestInits = fetchMock.mock.calls.map((call) => call[1] as RequestInit);
+		expect(requestInits[0]?.cache).toBe('no-store');
+		expect(requestInits[1]?.cache).toBe('no-store');
+		expect(requestInits[2]?.cache).toBeUndefined();
+		expect(requestInits[3]?.cache).toBeUndefined();
 	});
 });

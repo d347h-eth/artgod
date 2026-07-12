@@ -7,6 +7,7 @@
 		ApiCollection,
 		ApiCollectionHoldersPage
 	} from '$lib/api-types';
+	import type { CollectionMediaPreferenceInput } from '$lib/media-mode';
 
 	type PageData = {
 		chain: ApiChain | null;
@@ -14,6 +15,7 @@
 		holders: ApiCollectionHoldersPage;
 			basePath: string;
 			selectedMediaMode: string | null;
+			selectedMediaPreference: CollectionMediaPreferenceInput;
 			requestCursor: string | null;
 			blockExplorer?: BlockExplorerConfig;
 		};
@@ -38,6 +40,7 @@
 	holders={data?.holders ?? fallbackHolders}
 		basePath={data?.basePath ?? '/'}
 		selectedMediaMode={data?.selectedMediaMode ?? null}
+		selectedMediaPreference={data?.selectedMediaPreference ?? null}
 		requestCursor={data?.requestCursor ?? null}
 		blockExplorer={data?.blockExplorer}
 	/>

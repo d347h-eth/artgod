@@ -1,4 +1,5 @@
 import { resolveOwnerAddressRef } from '$lib/components/owner-ref';
+import type { CollectionMediaPreferenceInput } from '$lib/media-mode';
 import { joinPath } from '$lib/route-paths';
 import { buildOwnerTokensHref, buildTokenDetailHref } from '$lib/token-browser-query';
 
@@ -7,6 +8,7 @@ type ResolveCollectionJumpHrefInput = {
 	chainRef: string;
 	basePath: string;
 	mediaMode: string | null;
+	mediaPreference?: CollectionMediaPreferenceInput;
 	value: string;
 };
 
@@ -21,18 +23,27 @@ export async function resolveCollectionJumpHref(
 		return buildTokenDetailHref({
 			basePath: input.basePath,
 			tokenId: nextValue,
-			mediaMode: input.mediaMode
+			mediaMode: input.mediaMode,
+			mediaPreference: input.mediaPreference
 		});
 	}
 	const ownerAddress = await resolveOwnerAddressRef(input);
-	return ownerAddress ? buildOwnerHref(input.basePath, input.mediaMode, ownerAddress) : null;
+	return ownerAddress
+		? buildOwnerHref(input.basePath, input.mediaMode, input.mediaPreference ?? null, ownerAddress)
+		: null;
 }
 
-function buildOwnerHref(basePath: string, mediaMode: string | null, ownerRef: string): string {
+function buildOwnerHref(
+	basePath: string,
+	mediaMode: string | null,
+	mediaPreference: CollectionMediaPreferenceInput,
+	ownerRef: string
+): string {
 	return buildOwnerTokensHref({
 		basePath: joinPath(basePath, `holders/${encodeURIComponent(ownerRef)}`),
 		selectedTraits: [],
 		selectedTraitRanges: [],
-		mediaMode
+		mediaMode,
+		mediaPreference
 	});
 }

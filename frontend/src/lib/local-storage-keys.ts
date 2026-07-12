@@ -9,3 +9,9 @@ export const LOCAL_STORAGE_KEYS = {
 	// Remembers that the mobile preview swipe hint has been dismissed.
 	tokenPreviewSwipeHintDismissed: 'artgod.tokenPreview.swipeHintDismissed'
 } as const;
+
+// Serialized booleans shared by compact localStorage-backed UI preferences.
+export const LOCAL_STORAGE_BOOLEAN_VALUES = {
+	False: '0',
+	True: '1'
+} as const;

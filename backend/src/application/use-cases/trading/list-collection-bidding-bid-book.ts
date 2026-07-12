@@ -43,6 +43,7 @@ import {
 } from "./bidding-token-offer-cards.js";
 import { filterBidBookRowsByCollectionBidFloor } from "./bidding-bid-book-low-signal.js";
 export type { ListCollectionBiddingBidBookOutput } from "./bidding-bid-book.js";
+import type { CollectionMediaPreferenceValue } from "@artgod/shared/extensions";
 
 export type ListCollectionBiddingBidBookInput = {
     chainRef: string;
@@ -54,6 +55,7 @@ export type ListCollectionBiddingBidBookInput = {
     traitRanges: TraitRangeFilter[];
     makerAddress?: string | null;
     mediaMode?: string;
+    mediaPreference?: CollectionMediaPreferenceValue;
     limit: number;
     cursor?: string | null;
 };
@@ -76,6 +78,7 @@ export class ListCollectionBiddingBidBookUseCase {
                 chainId: number;
                 collectionId: number;
                 mediaMode?: string;
+                mediaPreference?: CollectionMediaPreferenceValue;
             }): CollectionMediaState;
             listCollectionTraitFacets(
                 chainId: number,
@@ -90,6 +93,7 @@ export class ListCollectionBiddingBidBookUseCase {
                 collectionId: number;
                 tokenIds: string[];
                 mediaMode?: string;
+                mediaPreference?: CollectionMediaPreferenceValue;
                 includeListings?: boolean;
             }): TokenCard[];
             countMarketplaceBiddingSupportedTokensByIds(params: {
@@ -160,6 +164,7 @@ export class ListCollectionBiddingBidBookUseCase {
                     chainId: chain.publicChainId,
                     collectionId: collection.collectionId,
                     mediaMode: input.mediaMode,
+                    mediaPreference: input.mediaPreference,
                 }),
         );
         const traitFilterPresentation = this.apm.withSyncSpan(
@@ -246,7 +251,8 @@ export class ListCollectionBiddingBidBookUseCase {
                     this.buildTokenOfferCardsPage({
                         chainId: chain.publicChainId,
                         collectionId: collection.collectionId,
-                        mediaMode: input.mediaMode,
+                        mediaMode: media.selectedMode,
+                        mediaPreference: input.mediaPreference,
                         tokenBidBook: persistedBidBook,
                         collectionBidBook:
                             collectionFloorBidBook ??
@@ -350,6 +356,7 @@ export class ListCollectionBiddingBidBookUseCase {
         chainId: number;
         collectionId: number;
         mediaMode?: string;
+        mediaPreference?: CollectionMediaPreferenceValue;
         tokenBidBook: PersistedBiddingBidBook;
         collectionBidBook: PersistedBiddingBidBook;
         selectedTraits: TraitFilter[];
@@ -466,6 +473,7 @@ export class ListCollectionBiddingBidBookUseCase {
         chainId: number;
         collectionId: number;
         mediaMode?: string;
+        mediaPreference?: CollectionMediaPreferenceValue;
         attributes: SpanAttributes;
         tokenIds: string[];
         offersByTokenId: Map<string, PersistedBiddingBidBookRow[]>;
@@ -491,6 +499,7 @@ export class ListCollectionBiddingBidBookUseCase {
                     collectionId: params.collectionId,
                     tokenIds: params.tokenIds,
                     mediaMode: params.mediaMode,
+                    mediaPreference: params.mediaPreference,
                     includeListings: true,
                 }),
         );

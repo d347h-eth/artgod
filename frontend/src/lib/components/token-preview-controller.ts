@@ -3,9 +3,16 @@ import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import { ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS } from '@artgod/shared/types';
 import { getContext, setContext } from 'svelte';
 import { get, writable, type Readable } from 'svelte/store';
-import type { ApiCollectionMediaMode, TokenPreviewApiResponse } from '$lib/api-types';
+import type {
+	ActivityEventPreviewApiResponse,
+	ApiCollectionMediaMode,
+	ApiCollectionMediaPreference,
+	ApiTokenMediaVariantOption,
+	ApiTokenMediaState,
+	TokenPreviewApiResponse
+} from '$lib/api-types';
 import { getActivityEventPreview, getTokenPreview } from '$lib/backend-api';
-import { appendMediaModeParam, nextMediaMode } from '$lib/media-mode';
+import { buildTokenMediaQuery, nextMediaOption, nextMediaMode } from '$lib/media-mode';
 import {
 	resolveTokenMediaAspectRatio,
 	resolveTokenMediaIframeSource,
@@ -22,16 +29,34 @@ const TOKEN_PREVIEW_CONTEXT_KEY = Symbol('token-preview-controller');
 const TOKEN_PREVIEW_CACHE_CONTEXT_KIND = {
 	Token: 'token'
 } as const;
+// Cache-key segments distinguish preference and default-version requests without leaking raw booleans.
+const TOKEN_PREVIEW_CACHE_KEY_PART = {
+	PreferenceDisabled: 'preference:disabled',
+	PreferenceEnabled: 'preference:enabled',
+	DefaultVariant: 'variant:default'
+} as const;
 export const TOKEN_PREVIEW_CONTEXT_KIND = {
 	ActivityEvent: 'activity-event'
 } as const;
+// Preview lifecycle values shared by the controller, overlay, and focused tests.
+export const TOKEN_PREVIEW_STATUS = {
+	Closed: 'closed',
+	Loading: 'loading',
+	Ready: 'ready',
+	Error: 'error'
+} as const;
 let fallbackTokenPreviewController: TokenPreviewController | null = null;
+
+// Preview lifecycle status protects the overlay from ad hoc state strings.
+export type TokenPreviewStatus = (typeof TOKEN_PREVIEW_STATUS)[keyof typeof TOKEN_PREVIEW_STATUS];
 
 type TokenPreviewRequest = {
 	chainRef: string;
 	collectionRef: string;
 	tokenId: string;
 	mediaMode: string;
+	mediaPreference: ApiCollectionMediaPreference | null;
+	mediaVariant: string | null;
 	previewContext: TokenPreviewContext | null;
 };
 
@@ -41,7 +66,7 @@ export type TokenPreviewContext = {
 };
 
 type CachedTokenPreview = {
-	response: TokenPreviewApiResponse;
+	response: TokenPreviewApiResponse | ActivityEventPreviewApiResponse;
 	iframeSource: TokenPreviewIframeSource;
 };
 
@@ -51,13 +76,18 @@ export type TokenPreviewIframeSource = TokenMediaIframeSource;
 
 export type TokenPreviewState = {
 	open: boolean;
-	status: 'closed' | 'loading' | 'ready' | 'error';
+	status: TokenPreviewStatus;
 	iframeSource: TokenPreviewIframeSource | null;
 	tokenId: string | null;
 	chainRef: string | null;
 	collectionRef: string | null;
 	selectedMediaMode: string;
 	availableMediaModes: ApiCollectionMediaMode[];
+	mediaPreference: ApiCollectionMediaPreference | null;
+	selectedMediaVariant: string | null;
+	defaultMediaVariant: string | null;
+	availableMediaVariants: ApiTokenMediaVariantOption[];
+	requestedMediaVariant: string | null;
 	previewContext: TokenPreviewContext | null;
 	scalePercent: number;
 	aspectRatio: number | null;
@@ -74,12 +104,16 @@ export type TokenPreviewController = {
 		tokenId: string;
 		selectedMediaMode: string;
 		availableMediaModes: ApiCollectionMediaMode[];
+		mediaPreference?: ApiCollectionMediaPreference | null;
 		previewContext?: TokenPreviewContext | null;
 		previewAspectRatio?: number | null;
 		adjacentTokenResolver?: TokenPreviewAdjacentResolver | null;
 	}): Promise<void>;
 	setTokenPreviewMediaMode(nextMode: string): Promise<void>;
+	setTokenPreviewMediaVariant(nextVariant: string): Promise<void>;
 	cycleTokenPreviewMediaMode(): Promise<void>;
+	cycleTokenPreviewMediaVariant(): Promise<void>;
+	retryTokenPreview(): Promise<void>;
 	navigatePreviousTokenPreview(): Promise<void>;
 	navigateNextTokenPreview(): Promise<void>;
 	closeTokenPreview(): void;
@@ -90,13 +124,18 @@ export type TokenPreviewController = {
 export function createTokenPreviewController(): TokenPreviewController {
 	const state = writable<TokenPreviewState>({
 		open: false,
-		status: 'closed',
+		status: TOKEN_PREVIEW_STATUS.Closed,
 		iframeSource: null,
 		tokenId: null,
 		chainRef: null,
 		collectionRef: null,
 		selectedMediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 		availableMediaModes: [],
+		mediaPreference: null,
+		selectedMediaVariant: null,
+		defaultMediaVariant: null,
+		availableMediaVariants: [],
+		requestedMediaVariant: null,
 		previewContext: null,
 		scalePercent: readInitialTokenPreviewScalePercent(),
 		aspectRatio: null,
@@ -106,6 +145,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 	});
 	let requestId = 0;
 	let adjacentTokenResolver: TokenPreviewAdjacentResolver | null = null;
+	let lastFailedRequest: TokenPreviewRequest | null = null;
 	const previewCache = new Map<string, CachedTokenPreview>();
 	const previewRequestsInFlight = new Map<string, Promise<CachedTokenPreview | null>>();
 
@@ -115,9 +155,12 @@ export function createTokenPreviewController(): TokenPreviewController {
 		tokenId: string;
 		selectedMediaMode: string;
 		availableMediaModes: ApiCollectionMediaMode[];
+		mediaPreference?: ApiCollectionMediaPreference | null;
 		previewContext?: TokenPreviewContext | null;
 		previewAspectRatio?: number | null;
 		adjacentTokenResolver?: TokenPreviewAdjacentResolver | null;
+		mediaVariant?: string | null;
+		bypassCache?: boolean;
 	}): Promise<void> {
 		const chainRef = params.chainRef.trim();
 		const collectionRef = params.collectionRef.trim();
@@ -126,23 +169,41 @@ export function createTokenPreviewController(): TokenPreviewController {
 
 		adjacentTokenResolver = params.adjacentTokenResolver ?? null;
 		const previewContext = params.previewContext ?? null;
+		const mediaPreference = previewContext ? null : (params.mediaPreference ?? null);
+		const mediaVariant = previewContext ? null : (params.mediaVariant ?? null);
+		const request: TokenPreviewRequest = {
+			chainRef,
+			collectionRef,
+			tokenId,
+			mediaMode: params.selectedMediaMode,
+			mediaPreference,
+			mediaVariant,
+			previewContext
+		};
 		const activeRequestId = ++requestId;
+		lastFailedRequest = null;
 		state.update((current) => {
-			const keepDisplayedMedia = current.iframeSource !== null && current.status !== 'error';
+			const keepDisplayedMedia =
+				current.iframeSource !== null && current.status !== TOKEN_PREVIEW_STATUS.Error;
+			const retainsKnownSourceOptions =
+				!previewContext && current.selectedMediaMode === params.selectedMediaMode;
 			const adjacentAvailability = resolveAdjacentAvailability(tokenId);
 			return {
 				...current,
 				open: true,
-				status: 'loading',
+				status: TOKEN_PREVIEW_STATUS.Loading,
 				tokenId: keepDisplayedMedia ? current.tokenId : tokenId,
 				chainRef,
 				collectionRef,
-				selectedMediaMode: keepDisplayedMedia
-					? current.selectedMediaMode
-					: params.selectedMediaMode,
-				availableMediaModes: keepDisplayedMedia
-					? current.availableMediaModes
-					: params.availableMediaModes,
+				selectedMediaMode: params.selectedMediaMode,
+				availableMediaModes: params.availableMediaModes,
+				mediaPreference,
+				selectedMediaVariant: previewContext
+					? null
+					: (mediaVariant ?? (retainsKnownSourceOptions ? current.selectedMediaVariant : null)),
+				defaultMediaVariant: retainsKnownSourceOptions ? current.defaultMediaVariant : null,
+				availableMediaVariants: retainsKnownSourceOptions ? current.availableMediaVariants : [],
+				requestedMediaVariant: mediaVariant,
 				previewContext,
 				aspectRatio: resolveTokenMediaAspectRatio(
 					params.previewAspectRatio ?? null,
@@ -155,40 +216,41 @@ export function createTokenPreviewController(): TokenPreviewController {
 		});
 
 		try {
-			const preview = await loadTokenPreview({
-				chainRef,
-				collectionRef,
-				tokenId,
-				mediaMode: params.selectedMediaMode,
-				previewContext
-			});
+			const preview = await loadTokenPreview(request, params.bypassCache ?? false);
 			if (activeRequestId !== requestId) return;
 			if (!preview) {
+				lastFailedRequest = request;
 				setPreviewError('No preview media available');
 				return;
 			}
+			const tokenMedia = previewContext ? null : (preview.response.media as ApiTokenMediaState);
 
 			state.update((current) => ({
 				...current,
 				open: true,
-				status: 'ready',
+				status: TOKEN_PREVIEW_STATUS.Ready,
 				iframeSource: preview.iframeSource,
 				tokenId: preview.response.token.tokenId,
 				selectedMediaMode: preview.response.media.selectedMode,
 				availableMediaModes: preview.response.media.availableModes,
+				mediaPreference: tokenMedia?.preference ?? null,
+				selectedMediaVariant: tokenMedia?.selectedVariant ?? null,
+				defaultMediaVariant: tokenMedia?.defaultVariant ?? null,
+				availableMediaVariants: tokenMedia?.availableVariants ?? [],
+				requestedMediaVariant: mediaVariant,
 				previewContext,
 				...resolveAdjacentAvailability(preview.response.token.tokenId),
 				errorMessage: null
 			}));
 			prefetchAdjacentNeighbors({
-				chainRef,
-				collectionRef,
+				...request,
 				tokenId: preview.response.token.tokenId,
 				mediaMode: preview.response.media.selectedMode,
-				previewContext
+				mediaPreference: tokenMedia?.preference ?? mediaPreference
 			});
 		} catch {
 			if (activeRequestId !== requestId) return;
+			lastFailedRequest = request;
 			setPreviewError('Unable to load preview');
 		}
 	}
@@ -203,6 +265,23 @@ export function createTokenPreviewController(): TokenPreviewController {
 		}
 		const nextMode = nextMediaMode(current.availableMediaModes, current.selectedMediaMode);
 		await setTokenPreviewMediaMode(nextMode);
+	}
+
+	async function cycleTokenPreviewMediaVariant(): Promise<void> {
+		const current = get(state);
+		if (
+			!current.open ||
+			current.previewContext ||
+			current.availableMediaVariants.length <= 1 ||
+			!current.selectedMediaVariant
+		) {
+			return;
+		}
+		const nextVariant = nextMediaOption(
+			current.availableMediaVariants,
+			current.selectedMediaVariant
+		);
+		await setTokenPreviewMediaVariant(nextVariant);
 	}
 
 	async function setTokenPreviewMediaMode(nextMode: string): Promise<void> {
@@ -222,25 +301,80 @@ export function createTokenPreviewController(): TokenPreviewController {
 			tokenId: current.tokenId,
 			selectedMediaMode: nextMode,
 			availableMediaModes: current.availableMediaModes,
+			mediaPreference: current.mediaPreference,
+			mediaVariant: null,
 			previewContext: current.previewContext,
 			previewAspectRatio: current.aspectRatio,
 			adjacentTokenResolver
 		});
 	}
 
+	async function setTokenPreviewMediaVariant(nextVariant: string): Promise<void> {
+		const current = get(state);
+		if (
+			!current.open ||
+			current.previewContext ||
+			!current.chainRef ||
+			!current.collectionRef ||
+			!current.tokenId ||
+			current.availableMediaVariants.length <= 1 ||
+			nextVariant === current.selectedMediaVariant ||
+			!current.availableMediaVariants.some((variant) => variant.key === nextVariant)
+		) {
+			return;
+		}
+		await openTokenPreview({
+			chainRef: current.chainRef,
+			collectionRef: current.collectionRef,
+			tokenId: current.tokenId,
+			selectedMediaMode: current.selectedMediaMode,
+			availableMediaModes: current.availableMediaModes,
+			mediaPreference: current.mediaPreference,
+			mediaVariant: nextVariant,
+			previewContext: null,
+			previewAspectRatio: current.aspectRatio,
+			adjacentTokenResolver
+		});
+	}
+
+	async function retryTokenPreview(): Promise<void> {
+		const current = get(state);
+		const request = lastFailedRequest;
+		if (!current.open || !request) return;
+		await openTokenPreview({
+			chainRef: request.chainRef,
+			collectionRef: request.collectionRef,
+			tokenId: request.tokenId,
+			selectedMediaMode: request.mediaMode,
+			availableMediaModes: current.availableMediaModes,
+			mediaPreference: request.mediaPreference,
+			mediaVariant: request.mediaVariant,
+			previewContext: request.previewContext,
+			previewAspectRatio: current.aspectRatio,
+			adjacentTokenResolver,
+			bypassCache: true
+		});
+	}
+
 	function closeTokenPreview(): void {
 		requestId += 1;
 		adjacentTokenResolver = null;
+		lastFailedRequest = null;
 		state.update((current) => ({
 			...current,
 			open: false,
-			status: 'closed',
+			status: TOKEN_PREVIEW_STATUS.Closed,
 			iframeSource: null,
 			tokenId: null,
 			chainRef: null,
 			collectionRef: null,
 			selectedMediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 			availableMediaModes: [],
+			mediaPreference: null,
+			selectedMediaVariant: null,
+			defaultMediaVariant: null,
+			availableMediaVariants: [],
+			requestedMediaVariant: null,
 			previewContext: null,
 			aspectRatio: null,
 			errorMessage: null,
@@ -263,7 +397,11 @@ export function createTokenPreviewController(): TokenPreviewController {
 
 		if (event.key === 'v' || event.key === 'V') {
 			event.preventDefault();
-			void cycleTokenPreviewMediaMode();
+			if (current.previewContext) {
+				void cycleTokenPreviewMediaMode();
+			} else {
+				void cycleTokenPreviewMediaVariant();
+			}
 			return;
 		}
 
@@ -300,7 +438,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 		state.update((current) => ({
 			...current,
 			open: true,
-			status: 'error',
+			status: TOKEN_PREVIEW_STATUS.Error,
 			iframeSource: null,
 			errorMessage: message
 		}));
@@ -324,6 +462,8 @@ export function createTokenPreviewController(): TokenPreviewController {
 			tokenId: nextTokenId,
 			selectedMediaMode: current.selectedMediaMode,
 			availableMediaModes: current.availableMediaModes,
+			mediaPreference: current.mediaPreference,
+			mediaVariant: current.requestedMediaVariant,
 			previewContext: current.previewContext,
 			previewAspectRatio: current.aspectRatio,
 			adjacentTokenResolver
@@ -372,7 +512,10 @@ export function createTokenPreviewController(): TokenPreviewController {
 		state: { subscribe: state.subscribe },
 		openTokenPreview,
 		setTokenPreviewMediaMode,
+		setTokenPreviewMediaVariant,
 		cycleTokenPreviewMediaMode,
+		cycleTokenPreviewMediaVariant,
+		retryTokenPreview,
 		navigatePreviousTokenPreview,
 		navigateNextTokenPreview,
 		closeTokenPreview,
@@ -381,8 +524,12 @@ export function createTokenPreviewController(): TokenPreviewController {
 	};
 
 	async function loadTokenPreview(
-		request: TokenPreviewRequest
+		request: TokenPreviewRequest,
+		bypassCache = false
 	): Promise<CachedTokenPreview | null> {
+		if (bypassCache || !isPreviewCacheable(request)) {
+			return fetchTokenPreview(request);
+		}
 		const cacheKey = buildTokenPreviewCacheKey(request);
 		const cached = previewCache.get(cacheKey);
 		if (cached) {
@@ -394,21 +541,9 @@ export function createTokenPreviewController(): TokenPreviewController {
 			return inFlight;
 		}
 
-		const promise = loadPreviewResponse(request)
-			.then((response) => {
-				const iframeSource = resolveTokenMediaIframeSource(
-					response.token.animationUrl,
-					response.token.image,
-					tokenMediaTitle(response.token.tokenId)
-				);
-				if (!iframeSource) {
-					return null;
-				}
-				const preview = {
-					response,
-					iframeSource
-				};
-				previewCache.set(cacheKey, preview);
+		const promise = fetchTokenPreview(request)
+			.then((preview) => {
+				if (preview) previewCache.set(cacheKey, preview);
 				return preview;
 			})
 			.finally(() => {
@@ -420,7 +555,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 	}
 
 	function prefetchAdjacentNeighbors(request: TokenPreviewRequest): void {
-		if (!adjacentTokenResolver) {
+		if (!adjacentTokenResolver || !isPreviewCacheable(request)) {
 			return;
 		}
 		for (const step of [-1, 1] as const) {
@@ -429,17 +564,30 @@ export function createTokenPreviewController(): TokenPreviewController {
 				continue;
 			}
 			void loadTokenPreview({
-				chainRef: request.chainRef,
-				collectionRef: request.collectionRef,
-				tokenId: adjacentTokenId,
-				mediaMode: request.mediaMode,
-				previewContext: request.previewContext
+				...request,
+				tokenId: adjacentTokenId
 			}).catch(() => undefined);
 		}
 	}
 }
 
-function loadPreviewResponse(request: TokenPreviewRequest): Promise<TokenPreviewApiResponse> {
+async function fetchTokenPreview(request: TokenPreviewRequest): Promise<CachedTokenPreview | null> {
+	const response = await loadPreviewResponse(request);
+	const iframeSource = resolveTokenMediaIframeSource(
+		response.token.animationUrl,
+		response.token.image,
+		tokenMediaTitle(response.token.tokenId)
+	);
+	return iframeSource ? { response, iframeSource } : null;
+}
+
+function isPreviewCacheable(request: TokenPreviewRequest): boolean {
+	return Boolean(request.previewContext) || request.mediaMode === COLLECTION_MEDIA_MODES.Snapshot;
+}
+
+function loadPreviewResponse(
+	request: TokenPreviewRequest
+): Promise<TokenPreviewApiResponse | ActivityEventPreviewApiResponse> {
 	if (request.previewContext?.kind === TOKEN_PREVIEW_CONTEXT_KIND.ActivityEvent) {
 		return getActivityEventPreview(
 			globalThis.fetch,
@@ -454,7 +602,11 @@ function loadPreviewResponse(request: TokenPreviewRequest): Promise<TokenPreview
 		request.chainRef,
 		request.collectionRef,
 		request.tokenId,
-		buildMediaModeQuery(request.mediaMode)
+		buildTokenMediaQuery({
+			mediaMode: request.mediaMode,
+			mediaPreference: request.mediaPreference,
+			mediaVariant: request.mediaVariant
+		})
 	);
 }
 
@@ -520,12 +672,6 @@ function persistScalePercent(value: number): void {
 	}
 }
 
-function buildMediaModeQuery(mediaMode: string): URLSearchParams {
-	const params = new URLSearchParams();
-	appendMediaModeParam(params, mediaMode);
-	return params;
-}
-
 function buildRenderModeQuery(renderMode: string): URLSearchParams {
 	const params = new URLSearchParams();
 	params.set(ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS.RenderMode, renderMode);
@@ -538,6 +684,10 @@ function buildTokenPreviewCacheKey(request: TokenPreviewRequest): string {
 		request.collectionRef.trim().toLowerCase(),
 		request.tokenId.trim(),
 		request.mediaMode.trim().toLowerCase(),
+		request.mediaPreference?.enabled === false
+			? TOKEN_PREVIEW_CACHE_KEY_PART.PreferenceDisabled
+			: TOKEN_PREVIEW_CACHE_KEY_PART.PreferenceEnabled,
+		request.mediaVariant?.trim().toLowerCase() ?? TOKEN_PREVIEW_CACHE_KEY_PART.DefaultVariant,
 		request.previewContext
 			? `${request.previewContext.kind}:${request.previewContext.activityId}`
 			: TOKEN_PREVIEW_CACHE_CONTEXT_KIND.Token

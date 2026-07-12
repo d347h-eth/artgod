@@ -1,8 +1,15 @@
-	import { error, redirect } from '@sveltejs/kit';
-	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
-	import { BackendApiError, getCollectionHolders, getRuntimeConfig } from '$lib/backend-api';
-import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
+import { error, redirect } from '@sveltejs/kit';
+import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+import { BackendApiError, getCollectionHolders, getRuntimeConfig } from '$lib/backend-api';
+import {
+	MEDIA_MODE_QUERY_PARAM,
+	MEDIA_PREFERENCE_QUERY_PARAM,
+	appendMediaModeParam,
+	appendNormalizedMediaPreferenceParam,
+	normalizeMediaMode,
+	normalizeMediaPreferenceValue
+} from '$lib/media-mode';
 import { withQuery } from '$lib/route-paths';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -40,6 +47,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			},
 			basePath: '/',
 			selectedMediaMode: COLLECTION_MEDIA_MODES.Snapshot,
+			selectedMediaPreference: null,
 			requestCursor: null
 		};
 	}
@@ -56,7 +64,10 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			collection: response.collection,
 			holders: response.holders,
 			basePath: `/${response.chain.slug}/${response.collection.slug}`,
-			selectedMediaMode: normalizeMediaMode(url.searchParams.get('media_mode')),
+			selectedMediaMode: normalizeMediaMode(url.searchParams.get(MEDIA_MODE_QUERY_PARAM)),
+			selectedMediaPreference: normalizeMediaPreferenceValue(
+				url.searchParams.get(MEDIA_PREFERENCE_QUERY_PARAM)
+			),
 			requestCursor: query.get('cursor') ?? null,
 			blockExplorer: runtimeConfigResponse.blockExplorer
 		};
@@ -76,7 +87,8 @@ function normalizeCollectionHoldersParams(raw: URLSearchParams): URLSearchParams
 		params.set('cursor', cursor.trim());
 	}
 
-	appendMediaModeParam(params, normalizeMediaMode(raw.get('media_mode')));
+	appendMediaModeParam(params, normalizeMediaMode(raw.get(MEDIA_MODE_QUERY_PARAM)));
+	appendNormalizedMediaPreferenceParam(params, raw.get(MEDIA_PREFERENCE_QUERY_PARAM));
 
 	return params;
 }

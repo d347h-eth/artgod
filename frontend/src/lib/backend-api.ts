@@ -29,6 +29,7 @@ import type {
 	DefaultChainResponse,
 	ApiCollectionCustomizationSource,
 	ApiImageCacheMode,
+	ActivityEventPreviewApiResponse,
 	OwnerRefResolutionApiResponse,
 	OpenSeaCollectionSyncApiResponse,
 	OpenSeaStreamIngestionApiResponse,
@@ -75,6 +76,7 @@ import {
 	sanitizeHttpRequestTarget
 } from '@artgod/shared/observability/http';
 import { logger } from '@artgod/shared/utils/logger';
+import { COLLECTION_MEDIA_MODES, COLLECTION_MEDIA_QUERY_PARAMS } from '@artgod/shared/extensions';
 
 // Max duration for transient backend retry loop during early runtime startup.
 const STARTUP_RETRY_WINDOW_MS = 12_000;
@@ -84,6 +86,8 @@ const FRONTEND_SSR_LOG_COMPONENT = 'FrontendSSR';
 const FRONTEND_SSR_BACKEND_API_RESPONSE_ACTION = 'backend_api_response';
 const FRONTEND_SSR_BACKEND_API_FAILURE_ACTION = 'backend_api_failure';
 const CSRF_REJECTION_MESSAGES = new Set(['Invalid CSRF token', 'Missing CSRF header']);
+// Request-time token media bypasses the browser HTTP cache for every extension-owned source.
+const NON_SNAPSHOT_TOKEN_MEDIA_GET_INIT: RequestInit = { cache: 'no-store' };
 let csrfTokenCache: string | null = null;
 let csrfTokenInflight: Promise<void> | null = null;
 
@@ -744,7 +748,8 @@ export async function getTokenDetail(
 	const suffix = query ? `?${query}` : '';
 	return requestJson<TokenDetailApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}${suffix}`
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}${suffix}`,
+		tokenMediaRequestInit(params)
 	);
 }
 
@@ -759,7 +764,8 @@ export async function getTokenPreview(
 	const suffix = query ? `?${query}` : '';
 	return requestJson<TokenPreviewApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/preview${suffix}`
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/preview${suffix}`,
+		tokenMediaRequestInit(params)
 	);
 }
 
@@ -769,10 +775,10 @@ export async function getActivityEventPreview(
 	collectionRef: string,
 	activityId: number,
 	params?: URLSearchParams
-): Promise<TokenPreviewApiResponse> {
+): Promise<ActivityEventPreviewApiResponse> {
 	const query = params?.toString() ?? '';
 	const suffix = query ? `?${query}` : '';
-	return requestJson<TokenPreviewApiResponse>(
+	return requestJson<ActivityEventPreviewApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/activity/${encodeURIComponent(
 			String(activityId)
@@ -928,13 +934,14 @@ export async function applyBootstrapStepAction(
 	);
 }
 
-async function requestJson<T>(fetchFn: typeof fetch, path: string): Promise<T> {
-	return (await requestJsonResponse<T>(fetchFn, path)).payload;
+async function requestJson<T>(fetchFn: typeof fetch, path: string, init?: RequestInit): Promise<T> {
+	return (await requestJsonResponse<T>(fetchFn, path, init)).payload;
 }
 
 async function requestJsonResponse<T>(
 	fetchFn: typeof fetch,
-	path: string
+	path: string,
+	init?: RequestInit
 ): Promise<BackendJsonResponse<T>> {
 	let backendOrigin: string;
 	try {
@@ -947,7 +954,7 @@ async function requestJsonResponse<T>(
 	const requestFetch = selectRequestFetch(fetchFn, backendOrigin);
 	for (;;) {
 		try {
-			return await requestJsonOnce<T>(requestFetch, `${backendOrigin}${path}`);
+			return await requestJsonOnce<T>(requestFetch, `${backendOrigin}${path}`, init);
 		} catch (cause) {
 			const mapped = toBackendApiError(cause);
 			if (!isRetryableStartupError(mapped) || Date.now() >= deadline) {
@@ -960,12 +967,16 @@ async function requestJsonResponse<T>(
 
 async function requestJsonOnce<T>(
 	fetchFn: typeof fetch,
-	url: string
+	url: string,
+	init?: RequestInit
 ): Promise<BackendJsonResponse<T>> {
 	const requestLog = createSsrBackendRequestLogContext('GET', url);
 	let response: Response;
 	try {
-		response = await fetchFn(url, buildBackendRequestInit({ credentials: 'include' }, requestLog));
+		response = await fetchFn(
+			url,
+			buildBackendRequestInit({ ...init, credentials: 'include' }, requestLog)
+		);
 	} catch (cause) {
 		logSsrBackendApiFailure(requestLog, cause);
 		throw cause;
@@ -984,6 +995,15 @@ async function requestJsonOnce<T>(
 		payload: payload as T,
 		headers: response.headers
 	};
+}
+
+function tokenMediaRequestInit(params?: URLSearchParams): RequestInit | undefined {
+	const requestedSource =
+		params?.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode)?.trim().toLowerCase() ?? '';
+	if (!requestedSource || requestedSource === COLLECTION_MEDIA_MODES.Snapshot) {
+		return undefined;
+	}
+	return NON_SNAPSHOT_TOKEN_MEDIA_GET_INIT;
 }
 
 async function requestJsonWithBody<T>(

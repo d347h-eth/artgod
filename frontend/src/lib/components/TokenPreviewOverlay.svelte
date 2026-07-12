@@ -3,9 +3,10 @@
 	import LoadingBladeBar from '$lib/components/LoadingBladeBar.svelte';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
 	import { resolvePreviewBackdropGesture } from '$lib/preview-backdrop-gesture';
-	import { LOCAL_STORAGE_KEYS } from '$lib/local-storage-keys';
+	import { LOCAL_STORAGE_BOOLEAN_VALUES, LOCAL_STORAGE_KEYS } from '$lib/local-storage-keys';
 	import {
 		getTokenPreviewController,
+		TOKEN_PREVIEW_STATUS,
 		tokenPreviewStyle
 	} from '$lib/components/token-preview-controller';
 
@@ -14,6 +15,7 @@
 
 	let overlayElement = $state<HTMLDivElement | null>(null);
 	let previewBoxElement = $state<HTMLDivElement | null>(null);
+	let touchMediaControlsElement = $state<HTMLDivElement | null>(null);
 	let swipeHintElement = $state<HTMLButtonElement | null>(null);
 	let suppressBackdropClick = $state(false);
 	let touchBackdropGesture = $state<{
@@ -84,6 +86,14 @@
 	function onPreviewControlPointerleave(controlId: string): void {
 		if (hoveredPreviewControl !== controlId) return;
 		hoveredPreviewControl = null;
+	}
+
+	function previewSourceControlId(sourceKey: string): string {
+		return `mode:${sourceKey}`;
+	}
+
+	function previewVariantControlId(variantKey: string): string {
+		return `variant:${variantKey}`;
 	}
 
 	function beginTouchGesture(event: TouchEvent, source: 'backdrop' | 'hint'): void {
@@ -180,7 +190,10 @@
 	function readSwipeHintDismissed(): boolean {
 		if (!browser) return false;
 		try {
-			return window.localStorage.getItem(LOCAL_STORAGE_KEYS.tokenPreviewSwipeHintDismissed) === '1';
+			return (
+				window.localStorage.getItem(LOCAL_STORAGE_KEYS.tokenPreviewSwipeHintDismissed) ===
+				LOCAL_STORAGE_BOOLEAN_VALUES.True
+			);
 		} catch {
 			return false;
 		}
@@ -191,7 +204,10 @@
 		swipeHintDismissed = true;
 		if (!browser) return;
 		try {
-			window.localStorage.setItem(LOCAL_STORAGE_KEYS.tokenPreviewSwipeHintDismissed, '1');
+			window.localStorage.setItem(
+				LOCAL_STORAGE_KEYS.tokenPreviewSwipeHintDismissed,
+				LOCAL_STORAGE_BOOLEAN_VALUES.True
+			);
 		} catch {
 			// Ignore storage failures and keep the in-memory dismissal state.
 		}
@@ -212,7 +228,7 @@
 			!$tokenPreviewState.open ||
 			!isTouchLikePreviewEnvironment ||
 			shouldRenderTouchSwipeHint() ||
-			$tokenPreviewState.availableMediaModes.length <= 1
+			!shouldRenderTouchMediaControls()
 		) {
 			touchModeButtonsFit = false;
 			return;
@@ -220,11 +236,21 @@
 
 		const overlayRect = overlayElement.getBoundingClientRect();
 		const boxRect = previewBoxElement.getBoundingClientRect();
-		const bottomMargin = Math.max(0, overlayRect.bottom - boxRect.bottom);
-		const controlHeight = readOverlayCssPx('--token-preview-control-height', 28);
+		const controlsRect = touchMediaControlsElement?.getBoundingClientRect();
+		if (!controlsRect) {
+			touchModeButtonsFit = false;
+			return;
+		}
 		const bottomBuffer = readOverlayCssPx('--token-preview-mobile-min-backdrop-buffer', 28);
+		const safeLeft = readOverlayCssPx('--token-preview-pad-left', 0);
+		const safeRight = readOverlayCssPx('--token-preview-pad-right', 0);
+		const fitsSafeWidth =
+			controlsRect.left >= overlayRect.left + safeLeft &&
+			controlsRect.right <= overlayRect.right - safeRight;
 
-		touchModeButtonsFit = bottomMargin >= controlHeight + bottomBuffer;
+		// Render only when the complete stack clears the box and every device safe area.
+		touchModeButtonsFit =
+			fitsSafeWidth && controlsRect.top - boxRect.bottom >= bottomBuffer;
 	}
 
 	function shouldRenderTouchSwipeHint(): boolean {
@@ -235,13 +261,26 @@
 		);
 	}
 
-	function shouldRenderTouchModeButtons(): boolean {
+	function shouldRenderTouchMediaControls(): boolean {
 		return (
 			isTouchLikePreviewEnvironment &&
 			!shouldRenderTouchSwipeHint() &&
-			$tokenPreviewState.availableMediaModes.length > 1 &&
-			touchModeButtonsFit
+			(hasSourceModeControls() || hasVariantControls())
 		);
+	}
+
+	function hasSourceModeControls(): boolean {
+		if ($tokenPreviewState.previewContext) {
+			return $tokenPreviewState.availableMediaModes.length > 1;
+		}
+		return (
+			$tokenPreviewState.availableMediaModes.length > 0 &&
+			($tokenPreviewState.availableMediaModes.length > 1 || hasVariantControls())
+		);
+	}
+
+	function hasVariantControls(): boolean {
+		return !$tokenPreviewState.previewContext && $tokenPreviewState.availableMediaVariants.length > 0;
 	}
 
 	function shouldRenderDesktopControls(): boolean {
@@ -249,7 +288,8 @@
 			!isTouchLikePreviewEnvironment &&
 			($tokenPreviewState.canNavigatePrevious ||
 				$tokenPreviewState.canNavigateNext ||
-				$tokenPreviewState.availableMediaModes.length > 1)
+				hasSourceModeControls() ||
+				hasVariantControls())
 		);
 	}
 
@@ -294,6 +334,7 @@
 		const observer = new ResizeObserver(update);
 		if (overlayElement) observer.observe(overlayElement);
 		if (previewBoxElement) observer.observe(previewBoxElement);
+		if (touchMediaControlsElement) observer.observe(touchMediaControlsElement);
 
 		return () => {
 			cancelAnimationFrame(frameId);
@@ -416,18 +457,24 @@
 					</div>
 				{/if}
 
-				{#if $tokenPreviewState.availableMediaModes.length > 1}
-					<div class="token-preview-media-mode-buttons" aria-label="Preview media mode">
+				{#if hasSourceModeControls()}
+					<div
+						class="token-preview-media-mode-buttons"
+						aria-label={$tokenPreviewState.previewContext
+							? 'Preview event mode'
+							: 'Preview source'}
+					>
 						{#each $tokenPreviewState.availableMediaModes as mode}
 							<button
 								type="button"
 								class:token-preview-media-mode-button-active={mode.key === $tokenPreviewState.selectedMediaMode}
-								class:token-preview-media-mode-button-hovered={hoveredPreviewControl === `mode:${mode.key}`}
+								class:token-preview-media-mode-button-hovered={hoveredPreviewControl === previewSourceControlId(mode.key)}
 								class="token-preview-media-mode-button"
 								disabled={mode.key === $tokenPreviewState.selectedMediaMode}
 								onpointerenter={(event) =>
-									onPreviewControlPointerenter(`mode:${mode.key}`, event)}
-								onpointerleave={() => onPreviewControlPointerleave(`mode:${mode.key}`)}
+									onPreviewControlPointerenter(previewSourceControlId(mode.key), event)}
+								onpointerleave={() =>
+									onPreviewControlPointerleave(previewSourceControlId(mode.key))}
 								onclick={(event) => {
 									blurPreviewControl(event);
 									void tokenPreview.setTokenPreviewMediaMode(mode.key);
@@ -438,22 +485,57 @@
 						{/each}
 					</div>
 				{/if}
+
+				{#if hasVariantControls()}
+					<div class="token-preview-media-mode-buttons" aria-label="Preview media version">
+						{#each $tokenPreviewState.availableMediaVariants as variant}
+							<button
+								type="button"
+								class:token-preview-media-mode-button-active={variant.key === $tokenPreviewState.selectedMediaVariant}
+								class:token-preview-media-mode-button-hovered={hoveredPreviewControl === previewVariantControlId(variant.key)}
+								class="token-preview-media-mode-button"
+								disabled={variant.key === $tokenPreviewState.selectedMediaVariant}
+								onpointerenter={(event) =>
+									onPreviewControlPointerenter(previewVariantControlId(variant.key), event)}
+								onpointerleave={() =>
+									onPreviewControlPointerleave(previewVariantControlId(variant.key))}
+								onclick={(event) => {
+									blurPreviewControl(event);
+									void tokenPreview.setTokenPreviewMediaVariant(variant.key);
+								}}
+							>
+								{variant.label}
+							</button>
+						{/each}
+					</div>
+				{/if}
 			</div>
 		{/if}
 
-		{#if shouldRenderTouchSwipeHint() || shouldRenderTouchModeButtons()}
+		{#if shouldRenderTouchSwipeHint()}
 			<div class="token-preview-touch-controls">
-				{#if shouldRenderTouchSwipeHint()}
-					<button
-						bind:this={swipeHintElement}
-						type="button"
-						class="token-preview-media-mode-button token-preview-swipe-hint-button"
-						onclick={() => dismissSwipeHint()}
+				<button
+					bind:this={swipeHintElement}
+					type="button"
+					class="token-preview-media-mode-button token-preview-swipe-hint-button"
+					onclick={() => dismissSwipeHint()}
+				>
+					swipe for navigation
+				</button>
+			</div>
+		{:else if shouldRenderTouchMediaControls()}
+			<div
+				bind:this={touchMediaControlsElement}
+				class:token-preview-touch-controls-hidden={!touchModeButtonsFit}
+				class="token-preview-touch-controls"
+			>
+				{#if hasSourceModeControls()}
+					<div
+						class="token-preview-media-mode-buttons"
+						aria-label={$tokenPreviewState.previewContext
+							? 'Preview event mode'
+							: 'Preview source'}
 					>
-						swipe for navigation
-					</button>
-				{:else if shouldRenderTouchModeButtons()}
-					<div class="token-preview-media-mode-buttons" aria-label="Preview media mode">
 						{#each $tokenPreviewState.availableMediaModes as mode}
 							<button
 								type="button"
@@ -470,13 +552,39 @@
 						{/each}
 					</div>
 				{/if}
+
+				{#if hasVariantControls()}
+					<div class="token-preview-media-mode-buttons" aria-label="Preview media version">
+						{#each $tokenPreviewState.availableMediaVariants as variant}
+							<button
+								type="button"
+								class:token-preview-media-mode-button-active={variant.key === $tokenPreviewState.selectedMediaVariant}
+								class="token-preview-media-mode-button"
+								disabled={variant.key === $tokenPreviewState.selectedMediaVariant}
+								onclick={(event) => {
+									blurPreviewControl(event);
+									void tokenPreview.setTokenPreviewMediaVariant(variant.key);
+								}}
+							>
+								{variant.label}
+							</button>
+						{/each}
+					</div>
+				{/if}
 			</div>
 		{/if}
 
-		{#if $tokenPreviewState.status === 'error'}
+		{#if $tokenPreviewState.status === TOKEN_PREVIEW_STATUS.Error}
 			<div bind:this={previewBoxElement} class="token-preview-box">
 				<div class="token-preview-state token-preview-error">
-					{$tokenPreviewState.errorMessage ?? 'Unable to load preview'}
+					<span>{$tokenPreviewState.errorMessage ?? 'Unable to load preview'}</span>
+					<button
+						type="button"
+						class="token-preview-media-mode-button token-preview-retry-button"
+						onclick={() => void tokenPreview.retryTokenPreview()}
+					>
+						retry
+					</button>
 				</div>
 			</div>
 			{:else if $tokenPreviewState.iframeSource}
@@ -487,9 +595,15 @@
 						title={$tokenPreviewState.tokenId ? `token ${$tokenPreviewState.tokenId}` : 'token preview'}
 					/>
 				</div>
+			{:else if $tokenPreviewState.status === TOKEN_PREVIEW_STATUS.Loading}
+				<div bind:this={previewBoxElement} class="token-preview-box">
+					<div class="token-preview-state">
+						<LoadingBladeBar ariaLabel="loading preview" barLength={1} />
+					</div>
+				</div>
 			{/if}
 
-		{#if $tokenPreviewState.status === 'loading'}
+		{#if $tokenPreviewState.status === TOKEN_PREVIEW_STATUS.Loading && $tokenPreviewState.iframeSource}
 			<div class="token-preview-network-spinner">
 				<LoadingBladeBar ariaLabel="loading preview" barLength={1} />
 			</div>

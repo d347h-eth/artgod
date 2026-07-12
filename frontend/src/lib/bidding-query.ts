@@ -8,7 +8,7 @@ import {
 	type CollectionBiddingTraitFilterJoinMode
 } from '@artgod/shared/types';
 import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
-import { appendMediaModeParam } from '$lib/media-mode';
+import { appendCollectionMediaParams, type CollectionMediaPreferenceInput } from '$lib/media-mode';
 import { joinPath, withQuery } from '$lib/route-paths';
 import { appendTraitParams, appendTraitRangeParams } from '$lib/trait-filters';
 
@@ -31,13 +31,17 @@ export function buildCollectionBiddingQuery(params: {
 	bidScope?: CollectionBiddingBidScopeFilter;
 	traitJoinMode?: CollectionBiddingTraitFilterJoinMode;
 	mediaMode?: string | null;
+	mediaPreference?: CollectionMediaPreferenceInput;
 	maker?: string | null;
 	showMuted?: boolean;
 	limit?: number | null;
 	cursor?: string | null;
 }): URLSearchParams {
 	const query = new URLSearchParams();
-	appendMediaModeParam(query, params.mediaMode ?? null);
+	appendCollectionMediaParams(query, {
+		mediaMode: params.mediaMode ?? null,
+		mediaPreference: params.mediaPreference ?? null
+	});
 	if (params.bidScope && params.bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
 		query.set(BID_SCOPE_QUERY_PARAM, params.bidScope);
 	}
@@ -72,15 +76,13 @@ export function buildCollectionBiddingHref(params: {
 	bidScope?: CollectionBiddingBidScopeFilter;
 	traitJoinMode?: CollectionBiddingTraitFilterJoinMode;
 	mediaMode?: string | null;
+	mediaPreference?: CollectionMediaPreferenceInput;
 	maker?: string | null;
 	showMuted?: boolean;
 	limit?: number | null;
 	cursor?: string | null;
 }): string {
-	return withQuery(
-		joinPath(params.basePath, 'bidding'),
-		buildCollectionBiddingQuery(params)
-	);
+	return withQuery(joinPath(params.basePath, 'bidding'), buildCollectionBiddingQuery(params));
 }
 
 export function parseShowMutedBidBook(searchParams: URLSearchParams): boolean {

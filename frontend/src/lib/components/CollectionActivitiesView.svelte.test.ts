@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
 	TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS,
 	TERRAFORMS_BEACON_EVENT_GROUPS,
@@ -52,12 +53,14 @@ describe('CollectionActivitiesView', () => {
 					updatedAt: '2026-01-01T00:00:00Z'
 				},
 				media: {
-					selectedMode: 'artifact',
-					defaultMode: 'artifact',
-					availableModes: [
-						{ key: 'artifact', label: 'artifact' },
-						{ key: 'snapshot', label: 'snapshot' }
-					]
+					selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+					defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+					availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+					preference: {
+						label: 'prefer modern media',
+						enabled: false,
+						defaultEnabled: true
+					}
 				},
 				activities: {
 					items: [
@@ -180,15 +183,15 @@ describe('CollectionActivitiesView', () => {
 		expect(body).toContain('<span class="runtime-tab-active">sales</span>');
 		expect(body).not.toContain('Activity type filters');
 		expect(body).toContain(
-			'/ethereum/milady?limit=25&amp;mode=grid&amp;media_mode=artifact&amp;traits=Hat%3ABeanie&amp;token_status=listed'
+			'/ethereum/milady?limit=25&amp;mode=grid&amp;media_mode=snapshot&amp;media_preference=disabled&amp;traits=Hat%3ABeanie&amp;token_status=listed'
 		);
 		expect(body).toContain(
-			'/ethereum/milady/activity?limit=25&amp;kind=listings&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+			'/ethereum/milady/activity?limit=25&amp;kind=listings&amp;media_mode=snapshot&amp;media_preference=disabled&amp;traits=Hat%3ABeanie'
 		);
 		expect(body).toContain(
-			'/ethereum/milady/customization?media_mode=artifact&amp;traits=Hat%3ABeanie'
+			'/ethereum/milady/customization?media_mode=snapshot&amp;media_preference=disabled&amp;traits=Hat%3ABeanie'
 		);
-		expect(body).toContain('/ethereum/milady/1?media_mode=artifact');
+		expect(body).toContain('/ethereum/milady/1?media_mode=snapshot&amp;media_preference=disabled');
 		expect(body).toContain('Milady #1');
 		expect(body).toContain('https://example.com/1.png');
 		expect(body).toContain('preview token 1');
@@ -200,10 +203,10 @@ describe('CollectionActivitiesView', () => {
 		expect(body).toContain('0x9999...9999');
 		expect(body).toContain('0xaaaa...aaaa');
 		expect(body).toContain(
-			'/ethereum/milady/holders/0x9999999999999999999999999999999999999999?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=artifact'
+			'/ethereum/milady/holders/0x9999999999999999999999999999999999999999?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=snapshot&amp;media_preference=disabled'
 		);
 		expect(body).toContain(
-			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=artifact'
+			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=snapshot&amp;media_preference=disabled'
 		);
 		expect(body).toContain('title="2024-09-10 20:33:20 UTC"');
 		expect(body).toContain(
@@ -238,12 +241,10 @@ describe('CollectionActivitiesView', () => {
 					updatedAt: '2026-01-01T00:00:00Z'
 				},
 				media: {
-					selectedMode: 'artifact',
-					defaultMode: 'artifact',
-					availableModes: [
-						{ key: 'artifact', label: 'artifact' },
-						{ key: 'snapshot', label: 'snapshot' }
-					]
+					selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+					defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+					availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+					preference: null
 				},
 				activities: {
 					items: [
@@ -387,12 +388,10 @@ describe('CollectionActivitiesView', () => {
 					]
 				},
 				media: {
-					selectedMode: 'artifact',
-					defaultMode: 'artifact',
-					availableModes: [
-						{ key: 'artifact', label: 'artifact' },
-						{ key: 'snapshot', label: 'snapshot' }
-					]
+					selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+					defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+					availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+					preference: null
 				},
 				activities: {
 					items: [
@@ -483,7 +482,7 @@ describe('CollectionActivitiesView', () => {
 		expect(body).not.toContain('extension events');
 		expect(body).toContain('<th class="activities-media-col"><!--[-1-->media');
 		expect(body).toContain('<th class="activities-content-col"><!--[-1-->heightmap');
-		expect(body).toContain('/ethereum/terraforms/7710?media_mode=artifact');
+		expect(body).toContain('/ethereum/terraforms/7710?media_mode=snapshot');
 		expect(body).toContain('filter token 7710');
 		expect(body).toContain('token_id=7710');
 		expect(body).toContain('filter-icon');
@@ -549,12 +548,10 @@ describe('CollectionActivitiesView', () => {
 					]
 				},
 				media: {
-					selectedMode: 'artifact',
-					defaultMode: 'artifact',
-					availableModes: [
-						{ key: 'artifact', label: 'artifact' },
-						{ key: 'snapshot', label: 'snapshot' }
-					]
+					selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+					defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+					availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+					preference: null
 				},
 				activities: {
 					items: [

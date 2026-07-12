@@ -49,10 +49,7 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
     ) {
         this.defaultInput = options.defaultInput;
         this.refreshMs = Math.max(1, options.refreshMs);
-        this.previewWarmRefreshMs = Math.max(
-            1,
-            options.previewWarmRefreshMs,
-        );
+        this.previewWarmRefreshMs = Math.max(1, options.previewWarmRefreshMs);
     }
 
     start(): void {
@@ -78,7 +75,12 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
     getCollectionDetail(
         input: GetCollectionDetailInput,
     ): GetCollectionDetailOutput | Promise<GetCollectionDetailOutput> {
-        if (!isPublicCollectionDetailCacheShapeEligible(input, this.defaultInput)) {
+        if (
+            !isPublicCollectionDetailCacheShapeEligible(
+                input,
+                this.defaultInput,
+            )
+        ) {
             markCurrentQueryCacheBypass();
             return this.inner.getCollectionDetail(input);
         }
@@ -161,8 +163,7 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
         }
         if (
             this.lastPreviewWarmupAt !== null &&
-            refreshedAt - this.lastPreviewWarmupAt <
-                this.previewWarmRefreshMs
+            refreshedAt - this.lastPreviewWarmupAt < this.previewWarmRefreshMs
         ) {
             return;
         }
@@ -178,9 +179,10 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
 
     private resolveRequestMode(
         input: GetCollectionDetailInput,
-    ):
-        | PublicCollectionRequestMode
-        | Promise<PublicCollectionRequestMode> {
+    ): PublicCollectionRequestMode | Promise<PublicCollectionRequestMode> {
+        if (input.mediaPreference) {
+            return PUBLIC_COLLECTION_REQUEST_MODES.Bypass;
+        }
         if (!input.mediaMode) {
             return PUBLIC_COLLECTION_REQUEST_MODES.Canonical;
         }
@@ -206,7 +208,8 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
             return this.defaultMediaMode;
         }
 
-        const defaultMediaMode = this.defaultMediaModePort.getDefaultMediaMode();
+        const defaultMediaMode =
+            this.defaultMediaModePort.getDefaultMediaMode();
         if (isPromiseLike(defaultMediaMode)) {
             return defaultMediaMode.then((resolvedMode) => {
                 this.defaultMediaMode = resolvedMode;
@@ -229,7 +232,8 @@ export function isCollectionDetailDefaultQueryCacheEligible(
         !input.owner &&
         input.traits.length === 0 &&
         input.traitRanges.length === 0 &&
-        !input.mediaMode
+        !input.mediaMode &&
+        !input.mediaPreference
     );
 }
 
@@ -264,7 +268,8 @@ function isCollectionDetailDefaultQueryCacheShapeEligible(
         !input.cursor &&
         !input.owner &&
         input.traits.length === 0 &&
-        input.traitRanges.length === 0
+        input.traitRanges.length === 0 &&
+        !input.mediaPreference
     );
 }
 
@@ -276,9 +281,7 @@ const PUBLIC_COLLECTION_REQUEST_MODES = {
 type PublicCollectionRequestMode =
     (typeof PUBLIC_COLLECTION_REQUEST_MODES)[keyof typeof PUBLIC_COLLECTION_REQUEST_MODES];
 
-function isPromiseLike<T>(
-    value: T | Promise<T>,
-): value is Promise<T> {
+function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
     return (
         typeof value === "object" &&
         value !== null &&

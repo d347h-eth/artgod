@@ -8,6 +8,7 @@
 		ApiTraitRangeFilter,
 		CollectionCustomizationApiResponse
 	} from '$lib/api-types';
+	import type { CollectionMediaPreferenceInput } from '$lib/media-mode';
 
 	type PageData = {
 		chain: ApiChain | null;
@@ -17,6 +18,7 @@
 			selectedTraits: ApiTokenAttribute[];
 			selectedTraitRanges: ApiTraitRangeFilter[];
 			mediaMode: string | null;
+			mediaPreference: CollectionMediaPreferenceInput;
 			blockExplorer?: BlockExplorerConfig;
 		};
 
@@ -31,5 +33,6 @@
 		selectedTraits={data?.selectedTraits ?? []}
 		selectedTraitRanges={data?.selectedTraitRanges ?? []}
 		mediaMode={data?.mediaMode ?? null}
+		mediaPreference={data?.mediaPreference ?? null}
 		blockExplorer={data?.blockExplorer}
 	/>

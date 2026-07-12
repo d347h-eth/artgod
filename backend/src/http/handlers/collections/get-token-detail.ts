@@ -6,7 +6,10 @@ import type {
 import {
     getSearchParams,
     parseMediaMode,
+    parseMediaPreference,
+    parseMediaVariant,
 } from "../../common/request-query.js";
+import { COLLECTION_MEDIA_QUERY_PARAMS } from "@artgod/shared/extensions";
 
 export type GetTokenDetailRoute = {
     Params: {
@@ -41,7 +44,15 @@ export class GetTokenDetailHttpAdapter {
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             tokenRef: request.params.token_ref,
-            mediaMode: parseMediaMode(searchParams.get("media_mode")),
+            mediaMode: parseMediaMode(
+                searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode),
+            ),
+            mediaPreference: parseMediaPreference(
+                searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference),
+            ),
+            mediaVariant: parseMediaVariant(
+                searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaVariant),
+            ),
         };
     }
 

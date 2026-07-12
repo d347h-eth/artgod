@@ -46,7 +46,7 @@
 		writePaginationWindow
 	} from '$lib/components/pagination-window';
 	import { buildAskMarketPrice, type MarketPriceItem } from '$lib/market-price';
-	import { appendMediaModeParam, nextMediaMode } from '$lib/media-mode';
+	import { appendCollectionMediaParams, nextMediaMode } from '$lib/media-mode';
 
 	type MaybePromise<T> = T | Promise<T>;
 
@@ -159,7 +159,8 @@
 			tokens.limit,
 			displayMode,
 			tokenStatus,
-			media.selectedMode
+			media.selectedMode,
+			media.preference?.enabled ?? null
 		);
 		const incoming = pageToPaginationWindow(tokens, requestCursor);
 		const cached = browser ? readPaginationWindow<ApiTokenCard>(signature) : null;
@@ -199,6 +200,7 @@
 			basePath: collectionBasePath,
 			tokenId,
 			mediaMode: media.selectedMode,
+			mediaPreference: media.preference,
 			returnPath: browserBasePath,
 			returnQuery: buildReturnQuery()
 		});
@@ -209,7 +211,10 @@
 		query.set('limit', String(tokens.limit));
 		query.set('mode', displayMode);
 		query.set('token_status', tokenStatus);
-		query.set('media_mode', media.selectedMode);
+		appendCollectionMediaParams(query, {
+			mediaMode: media.selectedMode,
+			mediaPreference: media.preference
+		});
 		if (requestCursor) {
 			query.set('cursor', requestCursor);
 		}
@@ -270,6 +275,7 @@
 			selectedTraits: traits,
 			selectedTraitRanges: traitRanges,
 			mediaMode: media.selectedMode,
+			mediaPreference: media.preference,
 			cursor
 		});
 	}
@@ -280,7 +286,8 @@
 		limit: number,
 		mode: 'grid' | 'table',
 		activeTokenStatus: 'listed' | 'all' | 'listed_then_unlisted',
-		activeMediaMode: string
+		activeMediaMode: string,
+		activeMediaPreference: boolean | null
 	): string {
 		return buildPaginationWindowSignature([
 			browserBasePath,
@@ -288,6 +295,7 @@
 			mode,
 			activeTokenStatus,
 			activeMediaMode,
+			activeMediaPreference,
 			...traitFilterPaginationSignatureParts({ traits, ranges: traitRanges })
 		]);
 	}
@@ -352,7 +360,36 @@
 			selectedTraits: activeTraits,
 			selectedTraitRanges: activeTraitRanges,
 			mediaMode: nextMediaMode,
+			mediaPreference: media.preference,
 			cursor: requestCursor
+		});
+	}
+
+	function mediaPreferenceHref(): string | null {
+		if (!media.preference) return null;
+		return buildTokenBrowserHref({
+			basePath: browserBasePath,
+			limit: tokens.limit,
+			displayMode,
+			tokenStatus,
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
+			mediaMode: media.selectedMode,
+			mediaPreference: {
+				...media.preference,
+				enabled: !media.preference.enabled
+			},
+			cursor: requestCursor
+		});
+	}
+
+	async function toggleMediaPreference(): Promise<void> {
+		const href = mediaPreferenceHref();
+		if (!href) return;
+		await goto(href, {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
 		});
 	}
 
@@ -524,15 +561,29 @@
 				{/if}
 			{/snippet}
 			{#snippet rightActions()}
-				{#if hasMediaModeChoices}
-					<div class="secondary-tabs" aria-label="Token media mode">
-						{#each media.availableModes as mode}
-							{#if mode.key === media.selectedMode}
-								<span class="secondary-tab-active">{mode.label}</span>
-							{:else}
-								<a href={mediaModeHref(mode.key)}>{mode.label}</a>
-							{/if}
-						{/each}
+				{#if hasMediaModeChoices || media.preference}
+					<div class="token-media-controls-group">
+						{#if hasMediaModeChoices}
+							<div class="secondary-tabs" aria-label="Token media source">
+								{#each media.availableModes as mode}
+									{#if mode.key === media.selectedMode}
+										<span class="secondary-tab-active">{mode.label}</span>
+									{:else}
+										<a href={mediaModeHref(mode.key)}>{mode.label}</a>
+									{/if}
+								{/each}
+							</div>
+						{/if}
+						{#if media.preference}
+							<button
+								type="button"
+								class="facet-panel-action-button token-media-preference-toggle"
+								aria-pressed={media.preference.enabled}
+								onclick={() => void toggleMediaPreference()}
+							>
+								{media.preference.label}
+							</button>
+						{/if}
 					</div>
 				{/if}
 			{/snippet}
@@ -549,8 +600,9 @@
 									{collection}
 									{token}
 									href={tokenDetailHref(token.tokenId)}
-									selectedMediaMode={media.selectedMode}
-									availableMediaModes={media.availableModes}
+								selectedMediaMode={media.selectedMode}
+								availableMediaModes={media.availableModes}
+								mediaPreference={media.preference}
 									{tokenPreview}
 									adjacentTokenResolver={resolveAdjacentPreviewTokenId}
 									marketPrices={tokenMarketPrices(token)}
@@ -608,8 +660,9 @@
 												collectionRef={collection?.slug ?? null}
 												tokenId={token.tokenId}
 												image={token.image}
-												selectedMediaMode={media.selectedMode}
-												availableMediaModes={media.availableModes}
+										selectedMediaMode={media.selectedMode}
+										availableMediaModes={media.availableModes}
+										mediaPreference={media.preference}
 												{tokenPreview}
 												adjacentTokenResolver={resolveAdjacentPreviewTokenId}
 												mode="inline"

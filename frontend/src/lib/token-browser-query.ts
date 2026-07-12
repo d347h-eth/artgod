@@ -6,7 +6,13 @@ import {
 	type TokenBrowserStatus
 } from '@artgod/shared/types/browse';
 import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
-import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
+import {
+	appendCollectionMediaParams,
+	appendMediaModeParam,
+	appendNormalizedMediaPreferenceParam,
+	normalizeMediaMode,
+	type CollectionMediaPreferenceInput
+} from '$lib/media-mode';
 import { normalizeBasePath, withQuery } from '$lib/route-paths';
 import {
 	appendNormalizedTraitParams,
@@ -50,6 +56,10 @@ export function normalizeTokenBrowserParams(
 		params,
 		normalizeMediaMode(raw.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode))
 	);
+	appendNormalizedMediaPreferenceParam(
+		params,
+		raw.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference)
+	);
 	appendNormalizedTraitParams(params, raw);
 	appendNormalizedTraitRangeParams(params, raw);
 
@@ -63,13 +73,17 @@ export function buildTokenBrowserQuery(params: {
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	mediaMode?: string | null;
+	mediaPreference?: CollectionMediaPreferenceInput;
 	cursor?: string | null;
 }): URLSearchParams {
 	const query = new URLSearchParams();
 	query.set(PAGINATION_QUERY_PARAMS.Limit, String(params.limit));
 	query.set('mode', params.displayMode);
 	query.set(TOKEN_STATUS_QUERY_PARAM, params.tokenStatus);
-	appendMediaModeParam(query, params.mediaMode ?? null);
+	appendCollectionMediaParams(query, {
+		mediaMode: params.mediaMode ?? null,
+		mediaPreference: params.mediaPreference ?? null
+	});
 	if (params.cursor?.trim()) {
 		query.set(PAGINATION_QUERY_PARAMS.Cursor, params.cursor.trim());
 	}
@@ -86,6 +100,7 @@ export function buildTokenBrowserHref(params: {
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	mediaMode?: string | null;
+	mediaPreference?: CollectionMediaPreferenceInput;
 	cursor?: string | null;
 }): string {
 	return withQuery(normalizeBasePath(params.basePath), buildTokenBrowserQuery(params));
@@ -96,6 +111,7 @@ export function buildOwnerTokensHref(params: {
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	mediaMode?: string | null;
+	mediaPreference?: CollectionMediaPreferenceInput;
 	limit?: number;
 	displayMode?: TokenBrowserDisplayMode;
 	cursor?: string | null;
@@ -110,7 +126,8 @@ export function buildOwnerTokensHref(params: {
 		!cursor?.trim() &&
 		params.selectedTraits.length === 0 &&
 		params.selectedTraitRanges.length === 0 &&
-		!(params.mediaMode ?? '').trim()
+		!(params.mediaMode ?? '').trim() &&
+		mediaPreferenceUsesDefault(params.mediaPreference ?? null)
 	) {
 		return params.basePath;
 	}
@@ -123,19 +140,31 @@ export function buildOwnerTokensHref(params: {
 		selectedTraits: params.selectedTraits,
 		selectedTraitRanges: params.selectedTraitRanges,
 		mediaMode: params.mediaMode ?? null,
+		mediaPreference: params.mediaPreference ?? null,
 		cursor
 	});
+}
+
+function mediaPreferenceUsesDefault(preference: CollectionMediaPreferenceInput): boolean {
+	return (
+		preference === null ||
+		(typeof preference === 'object' && preference.enabled === preference.defaultEnabled)
+	);
 }
 
 export function buildTokenDetailHref(params: {
 	basePath: string;
 	tokenId: string;
 	mediaMode?: string | null;
+	mediaPreference?: CollectionMediaPreferenceInput;
 	returnPath?: string | null;
 	returnQuery?: string | null;
 }): string {
 	const query = new URLSearchParams();
-	appendMediaModeParam(query, params.mediaMode ?? null);
+	appendCollectionMediaParams(query, {
+		mediaMode: params.mediaMode ?? null,
+		mediaPreference: params.mediaPreference ?? null
+	});
 	if (params.returnPath?.trim()) {
 		query.set('returnPath', params.returnPath.trim());
 	}

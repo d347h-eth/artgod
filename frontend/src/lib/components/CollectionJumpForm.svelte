@@ -1,15 +1,18 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolveCollectionJumpHref } from '$lib/components/collection-jump';
+	import type { CollectionMediaPreferenceInput } from '$lib/media-mode';
 
 	let {
 		chainRef,
 		basePath,
-		mediaMode
+		mediaMode,
+		mediaPreference = null
 	}: {
 		chainRef: string;
 		basePath: string;
 		mediaMode: string | null;
+		mediaPreference?: CollectionMediaPreferenceInput;
 	} = $props();
 
 	let value = $state('');
@@ -21,6 +24,7 @@
 			chainRef,
 			basePath,
 			mediaMode,
+			mediaPreference,
 			value
 		}).catch(() => null);
 		if (!href) return;

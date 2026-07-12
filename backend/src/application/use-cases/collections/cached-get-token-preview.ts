@@ -13,17 +13,22 @@ import type {
     GetTokenPreviewOutput,
     GetTokenPreviewPort,
 } from "./get-token-preview.js";
+import {
+    COLLECTION_MEDIA_MODES,
+    type CollectionMediaPreferenceValue,
+} from "@artgod/shared/extensions";
 
 type MaybePromise<T> = T | Promise<T>;
 
-// Names an omitted media mode inside preview cache keys.
-const DEFAULT_MEDIA_MODE_CACHE_KEY = "default";
+// Names an omitted media query dimension inside preview cache keys.
+const OMITTED_MEDIA_QUERY_CACHE_KEY = "default";
 
 export type WarmTokenPreviewEntriesInput = {
     chainRef: string;
     collectionRef: string;
     tokenRefs: string[];
     mediaMode?: string;
+    mediaPreference?: CollectionMediaPreferenceValue;
 };
 
 export type TokenPreviewWarmupPort = {
@@ -63,7 +68,10 @@ export class CachedGetTokenPreview
             QUERY_CACHE_NAMESPACES.TokenPreviewDefault,
             key,
         );
-        if (cached && isTokenPreviewDefaultCacheEntryEligible(input, cached.value)) {
+        if (
+            cached &&
+            isTokenPreviewDefaultCacheEntryEligible(input, cached.value)
+        ) {
             const now = Date.now();
             const ageMs = Math.max(0, now - cached.storedAt);
             markCurrentQueryCacheHit({
@@ -100,6 +108,7 @@ export class CachedGetTokenPreview
             chainRef: input.chainRef,
             collectionRef: input.collectionRef,
             mediaMode: input.mediaMode,
+            mediaPreference: input.mediaPreference,
         });
         if (this.warmupInFlight.has(warmupKey)) {
             return;
@@ -148,9 +157,16 @@ export class CachedGetTokenPreview
         }, 0);
     }
 
-    private async runWarmup(input: WarmTokenPreviewEntriesInput): Promise<void> {
+    private async runWarmup(
+        input: WarmTokenPreviewEntriesInput,
+    ): Promise<void> {
         const workers = Array.from(
-            { length: Math.min(this.warmupConcurrency, input.tokenRefs.length) },
+            {
+                length: Math.min(
+                    this.warmupConcurrency,
+                    input.tokenRefs.length,
+                ),
+            },
             () => this.runWarmupWorker(input),
         );
         await Promise.all(workers);
@@ -169,6 +185,7 @@ export class CachedGetTokenPreview
                 collectionRef: input.collectionRef,
                 tokenRef,
                 mediaMode: input.mediaMode,
+                mediaPreference: input.mediaPreference,
             };
             const key = buildTokenPreviewDefaultQueryCacheKey(entryInput);
             const cached = this.cache.getEntry<GetTokenPreviewOutput>(
@@ -228,13 +245,19 @@ export function buildTokenPreviewDefaultQueryCacheKey(
         `collection=${normalizeSlugRef(input.collectionRef)}`,
         `token=${input.tokenRef.trim()}`,
         `mode=${normalizeMediaModeCacheKey(input.mediaMode)}`,
+        `preference=${normalizeMediaPreferenceCacheKey(input.mediaPreference)}`,
+        `variant=${normalizeMediaVariantCacheKey(input.mediaVariant)}`,
     ].join("|");
 }
 
 export function isTokenPreviewDefaultCacheEligible(
     output: GetTokenPreviewOutput,
 ): boolean {
-    return output.media.selectedMode === output.media.defaultMode;
+    return (
+        output.media.selectedMode === COLLECTION_MEDIA_MODES.Snapshot &&
+        output.media.selectedMode === output.media.defaultMode &&
+        output.media.selectedVariant === output.media.defaultVariant
+    );
 }
 
 function isTokenPreviewDefaultCacheEntryEligible(
@@ -245,29 +268,51 @@ function isTokenPreviewDefaultCacheEntryEligible(
         return false;
     }
     const requestedMode = normalizeMediaModeCacheKey(input.mediaMode);
-    if (requestedMode === DEFAULT_MEDIA_MODE_CACHE_KEY) {
+    if (requestedMode === OMITTED_MEDIA_QUERY_CACHE_KEY) {
         return true;
     }
-    return requestedMode === normalizeMediaModeCacheKey(output.media.selectedMode);
+    return (
+        requestedMode === normalizeMediaModeCacheKey(output.media.selectedMode)
+    );
 }
 
 function buildTokenPreviewWarmupKey(params: {
     chainRef: string;
     collectionRef: string;
     mediaMode?: string;
+    mediaPreference?: CollectionMediaPreferenceValue;
 }): string {
     return [
         normalizeSlugRef(params.chainRef),
         normalizeSlugRef(params.collectionRef),
         normalizeMediaModeCacheKey(params.mediaMode),
+        normalizeMediaPreferenceCacheKey(params.mediaPreference),
     ].join("|");
+}
+
+function normalizeMediaPreferenceCacheKey(
+    mediaPreference: string | undefined,
+): string {
+    const normalized = mediaPreference?.trim().toLowerCase();
+    return normalized && normalized.length > 0
+        ? normalized
+        : OMITTED_MEDIA_QUERY_CACHE_KEY;
+}
+
+function normalizeMediaVariantCacheKey(
+    mediaVariant: string | undefined,
+): string {
+    const normalized = mediaVariant?.trim().toLowerCase();
+    return normalized && normalized.length > 0
+        ? normalized
+        : OMITTED_MEDIA_QUERY_CACHE_KEY;
 }
 
 function normalizeMediaModeCacheKey(mediaMode: string | undefined): string {
     const normalized = mediaMode?.trim().toLowerCase();
     return normalized && normalized.length > 0
         ? normalized
-        : DEFAULT_MEDIA_MODE_CACHE_KEY;
+        : OMITTED_MEDIA_QUERY_CACHE_KEY;
 }
 
 function uniqueTokenRefs(tokenRefs: string[]): string[] {

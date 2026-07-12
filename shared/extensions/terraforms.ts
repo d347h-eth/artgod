@@ -134,6 +134,10 @@ export const TERRAFORMS_BEACON_V2_READ_FUNCTIONS = {
 
 // Terraforms main-contract read methods used by live media and renderer lookup.
 export const TERRAFORMS_MAIN_READ_FUNCTIONS = {
+    Dreamers: "dreamers",
+    RevealTimestamp: "REVEAL_TIMESTAMP",
+    Seed: "seed",
+    TokenToCanvasData: "tokenToCanvasData",
     TokenHtml: "tokenHTML",
     TokenToPlacement: "tokenToPlacement",
     TokenToStatus: "tokenToStatus",
@@ -245,27 +249,109 @@ export const TERRAFORMS_EVENT_RENDER_MODE_OPTIONS = [
     { key: TERRAFORMS_EVENT_RENDER_MODES.Network, label: "network" },
 ] as const;
 
+// Terraforms adds request-time live media to the core snapshot source.
 export const TERRAFORMS_MEDIA_MODES = {
-    LostTerrain: "lost-terrain",
     Live: "live",
 } as const;
 
 // Terraforms token-local and collection-level media labels exposed by backend.
 export const TERRAFORMS_MEDIA_MODE_OPTIONS = {
-    LostTerrain: { key: TERRAFORMS_MEDIA_MODES.LostTerrain, label: "lost" },
     Live: { key: TERRAFORMS_MEDIA_MODES.Live, label: "live" },
+} as const;
+
+// Terraforms owns the product label attached to the generic media preference.
+export const TERRAFORMS_MEDIA_PREFERENCE_LABEL = "always prefer V2";
+
+// Terraforms enables its V2 preference until the user explicitly disables it.
+export const TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED = true;
+
+// Canonical V2 metadata identifies its renderer through this normalized trait.
+export const TERRAFORMS_VERSION_ATTRIBUTE_KEY = "Version";
+// Canonical renderer-version trait values emitted by Terraforms metadata.
+export const TERRAFORMS_VERSION_ATTRIBUTE_VALUES = {
+    V2: "2.0",
+} as const;
+
+// Token-local Terraforms media choices exposed for the selected source mode.
+export const TERRAFORMS_MEDIA_VARIANTS = {
+    V2Artifact: "v2-artifact",
+    V2LostTerrain: "v2-lost-terrain",
+    V2: "v2",
+    V1: "v1",
+    V0: "v0",
+} as const;
+
+// User-facing labels for token-local Terraforms media choices.
+export const TERRAFORMS_MEDIA_VARIANT_OPTIONS = {
+    V2Artifact: {
+        key: TERRAFORMS_MEDIA_VARIANTS.V2Artifact,
+        label: "V2 artifact",
+    },
+    V2LostTerrain: {
+        key: TERRAFORMS_MEDIA_VARIANTS.V2LostTerrain,
+        label: "V2 lost terrain",
+    },
+    V2: { key: TERRAFORMS_MEDIA_VARIANTS.V2, label: "V2" },
+    V1: { key: TERRAFORMS_MEDIA_VARIANTS.V1, label: "V1" },
+    V0: { key: TERRAFORMS_MEDIA_VARIANTS.V0, label: "V0" },
+} as const;
+
+// Shared renderer entrypoint used by each TerraformsData proxy.
+export const TERRAFORMS_RENDERER_READ_FUNCTIONS = {
+    TokenHtml: "tokenHTML",
+    TokenUri: "tokenURI",
+} as const;
+
+// Terraforms renderer indices stored by the main contract.
+export const TERRAFORMS_RENDERER_INDICES = {
+    V0: 0n,
+    V1: 1n,
+    V2: 2n,
 } as const;
 
 export const TERRAFORMS_KNOWN_TOKEN_URI_ADDRESSES_BY_INDEX: Readonly<
     Record<string, string>
 > = {
-    "0": normalizeAddressRef("0xA5aFC9fE76a28fB12C60954Ed6e2e5f8ceF64Ff2"),
-    "1": normalizeAddressRef("0xB51A3bB80d50A3153C1b63B0E38FC200676f5bA5"),
-    "2": normalizeAddressRef("0x8aF860C8F157F4E3B6A54913BFA6Bb96ab2605C2"),
+    [TERRAFORMS_RENDERER_INDICES.V0.toString()]: normalizeAddressRef(
+        "0xA5aFC9fE76a28fB12C60954Ed6e2e5f8ceF64Ff2",
+    ),
+    [TERRAFORMS_RENDERER_INDICES.V1.toString()]: normalizeAddressRef(
+        "0xB51A3bB80d50A3153C1b63B0E38FC200676f5bA5",
+    ),
+    [TERRAFORMS_RENDERER_INDICES.V2.toString()]: normalizeAddressRef(
+        "0x8aF860C8F157F4E3B6A54913BFA6Bb96ab2605C2",
+    ),
+};
+
+// Owner-selected renderer indices corresponding to explicit media variants.
+export const TERRAFORMS_RENDERER_INDEX_BY_MEDIA_VARIANT: Readonly<
+    Record<string, bigint>
+> = {
+    [TERRAFORMS_MEDIA_VARIANTS.V0]: TERRAFORMS_RENDERER_INDICES.V0,
+    [TERRAFORMS_MEDIA_VARIANTS.V1]: TERRAFORMS_RENDERER_INDICES.V1,
+    [TERRAFORMS_MEDIA_VARIANTS.V2]: TERRAFORMS_RENDERER_INDICES.V2,
+};
+
+// Explicit media variants corresponding to owner-selected renderer indices.
+export const TERRAFORMS_MEDIA_VARIANT_BY_RENDERER_INDEX: Readonly<
+    Record<string, string>
+> = {
+    [TERRAFORMS_RENDERER_INDICES.V0.toString()]: TERRAFORMS_MEDIA_VARIANTS.V0,
+    [TERRAFORMS_RENDERER_INDICES.V1.toString()]: TERRAFORMS_MEDIA_VARIANTS.V1,
+    [TERRAFORMS_RENDERER_INDICES.V2.toString()]: TERRAFORMS_MEDIA_VARIANTS.V2,
 };
 
 // Immutable placement rotation seed from the deployed Terraforms main contract.
 export const TERRAFORMS_PLACEMENT_SEED = 10196n;
+
+// V0 decay begins after this many seconds per dreamer from contract reveal.
+export const TERRAFORMS_DECAY_DELAY_SECONDS_PER_DREAMER = 3_650n * 86_400n;
+
+// V0 decay increments once per year after the delay window.
+export const TERRAFORMS_DECAY_PERIOD_SECONDS = 365n * 86_400n;
+
+// Decay stays disabled once the main contract reaches this dreamer count.
+export const TERRAFORMS_DECAY_DREAMER_THRESHOLD = 500n;
 
 // Terraforms renderer seed is a hidden per-token value derived from level/tile.
 export const TERRAFORMS_RENDERER_SEED_ATTRIBUTE_KEY = "Seed";
@@ -308,12 +394,17 @@ export const TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_STARTS = [
 // Each V2 renderer extra range contributes ten UTF-16 code units.
 export const TERRAFORMS_RENDERER_EXTRA_CHARACTER_RANGE_LENGTH = 10;
 
-// Normal committed canvases render with the Terraformed enum value.
+// Terraforms onchain status enum values used by live renderer reconstruction.
+export const TERRAFORMS_TERRAIN_STATUS = 0n;
+export const TERRAFORMS_DAYDREAM_STATUS = 1n;
 export const TERRAFORMS_TERRAFORMED_STATUS = 2n;
 
-// Origin parcels keep their origin lineage when rendered as committed canvases.
+// Origin parcels keep their origin lineage across dreaming and committed states.
 export const TERRAFORMS_ORIGIN_DAYDREAM_STATUS = 3n;
 export const TERRAFORMS_ORIGIN_TERRAFORMED_STATUS = 4n;
+
+// Deployed Terraforms storage slot owning each token's dynamic canvas array.
+export const TERRAFORMS_TOKEN_TO_CANVAS_DATA_STORAGE_SLOT = 18n;
 
 export const TERRAFORMS_TOKEN_TO_URI_ADDRESS_INDEX_STORAGE_SLOT = 11128n;
 

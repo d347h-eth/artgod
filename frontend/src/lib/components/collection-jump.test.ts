@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import { resolveCollectionJumpHref } from './collection-jump';
 
 const { resolveOwnerRefMock } = vi.hoisted(() => ({
@@ -20,10 +21,10 @@ describe('resolveCollectionJumpHref', () => {
 				fetchFn: fetch,
 				chainRef: 'ethereum',
 				basePath: '/ethereum/terraforms',
-				mediaMode: 'artifact',
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 				value: '5081'
 			})
-		).resolves.toBe('/ethereum/terraforms/5081?media_mode=artifact');
+		).resolves.toBe('/ethereum/terraforms/5081?media_mode=snapshot');
 		expect(resolveOwnerRefMock).not.toHaveBeenCalled();
 	});
 
@@ -33,7 +34,7 @@ describe('resolveCollectionJumpHref', () => {
 				fetchFn: fetch,
 				chainRef: 'ethereum',
 				basePath: '/ethereum/terraforms',
-				mediaMode: 'snapshot',
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 				value: '0xAbCDEFabcdefABCDEFabcdefabcdefABCDEFabcd'
 			})
 		).resolves.toBe(
@@ -53,11 +54,11 @@ describe('resolveCollectionJumpHref', () => {
 				fetchFn: fetch,
 				chainRef: 'ethereum',
 				basePath: '/ethereum/terraforms',
-				mediaMode: 'artifact',
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 				value: 'vitalik.eth'
 			})
 		).resolves.toBe(
-			'/ethereum/terraforms/holders/0xd8da6bf26964af9d7eed9e03e53415d37aa96045?limit=250&mode=grid&token_status=listed_then_unlisted&media_mode=artifact'
+			'/ethereum/terraforms/holders/0xd8da6bf26964af9d7eed9e03e53415d37aa96045?limit=250&mode=grid&token_status=listed_then_unlisted&media_mode=snapshot'
 		);
 		expect(resolveOwnerRefMock).toHaveBeenCalledWith(fetch, 'ethereum', 'vitalik.eth');
 	});
@@ -68,7 +69,7 @@ describe('resolveCollectionJumpHref', () => {
 				fetchFn: fetch,
 				chainRef: 'ethereum',
 				basePath: '/ethereum/terraforms',
-				mediaMode: 'artifact',
+				mediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 				value: 'not-an-owner'
 			})
 		).resolves.toBeNull();

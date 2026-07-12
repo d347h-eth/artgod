@@ -2,8 +2,10 @@ import type {
     CollectionExtensionKey,
     CollectionExtensionInstall,
     CollectionMediaMode,
-    CollectionMediaPresentation,
+    CollectionMediaPreference,
+    CollectionMediaPreferenceValue,
     CollectionMediaModeOption,
+    TokenMediaPresentation,
 } from "@artgod/shared/extensions";
 import type {
     ActivityExtensionEventFeed,
@@ -30,15 +32,36 @@ export type BackendCollectionExtensionArtifactRecord = {
 
 export type BackendCollectionExtensionMediaContext = {
     mediaMode: CollectionMediaMode;
+    mediaVariant: string | null;
     artifact: BackendCollectionExtensionArtifactRecord | null;
     rpc?: BackendCollectionExtensionRenderContext["rpc"];
 };
 
+// Exposes canonical token facts needed for extension-owned media selection.
+export type BackendCollectionExtensionCanonicalMediaFacts = {
+    isCanonicalToken: boolean;
+    animationUrl: string | null;
+    getAttributeValue(key: string): string | null;
+};
+
+// Carries canonical media facts from the persistence adapter into extension reads.
+export type BackendCollectionExtensionCanonicalMediaRecord = {
+    isCanonicalToken: boolean;
+    animationUrl: string | null;
+    attributes: ReadonlyMap<string, string>;
+};
+
+// Supplies one token's requested and available media state to an extension.
 export type BackendCollectionExtensionTokenMediaContext = {
+    tokenId: string;
     requestedMode?: CollectionMediaMode;
+    requestedPreference?: CollectionMediaPreferenceValue;
+    requestedVariant?: string;
+    canonical: BackendCollectionExtensionCanonicalMediaFacts;
     getArtifact(
         artifactRef: string,
     ): BackendCollectionExtensionArtifactRecord | null;
+    rpc?: BackendCollectionExtensionRenderContext["rpc"];
 };
 
 export type BackendCollectionExtensionActivityEventContext = {
@@ -68,6 +91,8 @@ export type BackendCollectionExtensionRenderContext = {
             slot: BackendRpcHex;
             blockNumber?: number;
         }): Promise<BackendRpcHex | null>;
+        getCurrentBlockNumber(): Promise<number>;
+        getBlockTimestamp(blockNumber: number): Promise<number>;
     };
 };
 
@@ -98,13 +123,27 @@ export interface BackendCollectionExtension {
         install: CollectionExtensionInstall,
     ): CollectionMediaModeOption[];
     defaultMediaMode(install: CollectionExtensionInstall): CollectionMediaMode;
+    resolveMediaPreference?(
+        install: CollectionExtensionInstall,
+        requestedPreference?: CollectionMediaPreferenceValue,
+    ): CollectionMediaPreference | null;
     resolveTokenMediaPresentation?(
         install: CollectionExtensionInstall,
         context: BackendCollectionExtensionTokenMediaContext,
-    ): CollectionMediaPresentation | null;
-    resolveArtifactRef(
+    ): TokenMediaPresentation | null | Promise<TokenMediaPresentation | null>;
+    resolveTokenCardArtifactRef(
         install: CollectionExtensionInstall,
-        mediaMode: CollectionMediaMode,
+        context: {
+            mediaMode: CollectionMediaMode;
+            mediaPreferenceEnabled: boolean;
+        },
+    ): string | null;
+    resolveTokenArtifactRef(
+        install: CollectionExtensionInstall,
+        context: {
+            mediaMode: CollectionMediaMode;
+            mediaVariant: string | null;
+        },
     ): string | null;
     resolveTokenCard(
         install: CollectionExtensionInstall,

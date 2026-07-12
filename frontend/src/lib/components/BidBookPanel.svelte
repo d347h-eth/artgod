@@ -38,6 +38,7 @@
 	import BidBookTraitDemandTable from '$lib/components/BidBookTraitDemandTable.svelte';
 	import { joinPath } from '$lib/route-paths';
 	import { buildOwnerTokensHref } from '$lib/token-browser-query';
+	import type { CollectionMediaPreferenceInput } from '$lib/media-mode';
 
 	type BidBookTimeMode = CompactTimeDisplayMode;
 	type BidBookPanelView = 'rows' | 'trait-demand';
@@ -80,6 +81,7 @@
 		view = 'rows',
 		basePath = '/',
 		mediaMode = null,
+		mediaPreference = null,
 		preferredDemandTraitKey = null,
 		traitValueHref = null,
 		makerFilterHref = null,
@@ -100,6 +102,7 @@
 		view?: BidBookPanelView;
 		basePath?: string;
 		mediaMode?: string | null;
+		mediaPreference?: CollectionMediaPreferenceInput;
 		preferredDemandTraitKey?: string | null;
 		traitValueHref?: BidBookTraitValueHref | null;
 		makerFilterHref?: ((makerAddress: string) => string) | null;
@@ -332,7 +335,8 @@
 				basePath: joinPath(basePath, `holders/${encodeURIComponent(bid.maker.address)}`),
 				selectedTraits: [],
 				selectedTraitRanges: [],
-				mediaMode
+				mediaMode,
+				mediaPreference
 			})
 		);
 	}

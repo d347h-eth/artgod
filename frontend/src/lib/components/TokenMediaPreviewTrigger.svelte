@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { ApiCollectionMediaMode } from '$lib/api-types';
+	import type { ApiCollectionMediaMode, ApiCollectionMediaPreference } from '$lib/api-types';
 	import type {
 		TokenPreviewAdjacentResolver,
 		TokenPreviewContext,
@@ -13,6 +13,7 @@
 		image,
 		selectedMediaMode,
 		availableMediaModes,
+		mediaPreference = null,
 		tokenPreview,
 		previewContext = null,
 		adjacentTokenResolver = null,
@@ -27,6 +28,7 @@
 		image: string | null;
 		selectedMediaMode: string;
 		availableMediaModes: ApiCollectionMediaMode[];
+		mediaPreference?: ApiCollectionMediaPreference | null;
 		tokenPreview: TokenPreviewController;
 		previewContext?: TokenPreviewContext | null;
 		adjacentTokenResolver?: TokenPreviewAdjacentResolver | null;
@@ -46,6 +48,7 @@
 			tokenId,
 			selectedMediaMode,
 			availableMediaModes,
+			mediaPreference,
 			previewContext,
 			previewAspectRatio: tokenAspectRatio,
 			adjacentTokenResolver

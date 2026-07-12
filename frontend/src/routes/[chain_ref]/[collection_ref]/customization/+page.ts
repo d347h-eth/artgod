@@ -1,7 +1,12 @@
-	import { error } from '@sveltejs/kit';
-	import type { PageLoad } from './$types';
-	import { BackendApiError, getCollectionCustomization, getRuntimeConfig } from '$lib/backend-api';
-import { normalizeMediaMode } from '$lib/media-mode';
+import { error } from '@sveltejs/kit';
+import type { PageLoad } from './$types';
+import { BackendApiError, getCollectionCustomization, getRuntimeConfig } from '$lib/backend-api';
+import {
+	MEDIA_MODE_QUERY_PARAM,
+	MEDIA_PREFERENCE_QUERY_PARAM,
+	normalizeMediaMode,
+	normalizeMediaPreferenceValue
+} from '$lib/media-mode';
 import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 import { parseSelectedTraitRanges, parseSelectedTraits } from '$lib/trait-filters';
@@ -19,7 +24,10 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			basePath: '/',
 			selectedTraits: parseSelectedTraits(url.searchParams),
 			selectedTraitRanges: parseSelectedTraitRanges(url.searchParams),
-			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode'))
+			mediaMode: normalizeMediaMode(url.searchParams.get(MEDIA_MODE_QUERY_PARAM)),
+			mediaPreference: normalizeMediaPreferenceValue(
+				url.searchParams.get(MEDIA_PREFERENCE_QUERY_PARAM)
+			)
 		};
 	}
 
@@ -35,7 +43,10 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			basePath: `/${response.chain.slug}/${response.collection.slug}`,
 			selectedTraits: parseSelectedTraits(url.searchParams),
 			selectedTraitRanges: parseSelectedTraitRanges(url.searchParams),
-			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode')),
+			mediaMode: normalizeMediaMode(url.searchParams.get(MEDIA_MODE_QUERY_PARAM)),
+			mediaPreference: normalizeMediaPreferenceValue(
+				url.searchParams.get(MEDIA_PREFERENCE_QUERY_PARAM)
+			),
 			blockExplorer: runtimeConfigResponse.blockExplorer
 		};
 	} catch (cause) {

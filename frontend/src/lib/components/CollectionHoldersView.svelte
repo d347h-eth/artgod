@@ -25,7 +25,10 @@
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
-	import { appendMediaModeParam } from '$lib/media-mode';
+	import {
+		appendCollectionMediaParams,
+		type CollectionMediaPreferenceInput
+	} from '$lib/media-mode';
 	import { joinPath } from '$lib/route-paths';
 	import {
 		collectionBiddingNavigationVisibilityForDeployment,
@@ -40,6 +43,7 @@
 		holders,
 		basePath,
 		selectedMediaMode,
+		selectedMediaPreference = null,
 		requestCursor,
 		blockExplorer = getDefaultBlockExplorerConfig()
 	}: {
@@ -48,6 +52,7 @@
 		holders: ApiCollectionHoldersPage;
 		basePath: string;
 		selectedMediaMode: string | null;
+		selectedMediaPreference?: CollectionMediaPreferenceInput;
 		requestCursor: string | null;
 		blockExplorer?: BlockExplorerConfig;
 	} = $props();
@@ -124,6 +129,7 @@
 		return buildCollectionNavigation({
 			basePath,
 			mediaMode: selectedMediaMode,
+			mediaPreference: selectedMediaPreference,
 			selectedTraits: [],
 			selectedTraitRanges: [],
 			token: {
@@ -151,7 +157,8 @@
 			basePath: `${holdersPath()}/${encodeURIComponent(owner)}`,
 			selectedTraits: [],
 			selectedTraitRanges: [],
-			mediaMode: selectedMediaMode
+			mediaMode: selectedMediaMode,
+			mediaPreference: selectedMediaPreference
 		});
 	}
 
@@ -164,7 +171,10 @@
 		const query = new URLSearchParams();
 		query.set('limit', String(holders.limit));
 		query.set('cursor', tailNextCursor);
-		appendMediaModeParam(query, selectedMediaMode);
+		appendCollectionMediaParams(query, {
+			mediaMode: selectedMediaMode,
+			mediaPreference: selectedMediaPreference
+		});
 		return `${holdersPath()}?${query.toString()}`;
 	}
 
@@ -238,7 +248,12 @@
 	{/snippet}
 	{#snippet headerActions()}
 		{#if collection}
-			<CollectionJumpForm chainRef={chain?.slug ?? ''} basePath={basePath} mediaMode={selectedMediaMode} />
+			<CollectionJumpForm
+				chainRef={chain?.slug ?? ''}
+				basePath={basePath}
+				mediaMode={selectedMediaMode}
+				mediaPreference={selectedMediaPreference}
+			/>
 		{/if}
 		<KeyboardShortcutsHelp {keyboardShortcutsHelp} {blockExplorer} />
 	{/snippet}

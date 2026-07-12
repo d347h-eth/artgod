@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
 	TERRAFORMS_EXTENSION_KEY,
 	TERRAFORMS_EXTENSION_EVENT_KEYS,
+	TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED,
+	TERRAFORMS_MEDIA_PREFERENCE_LABEL,
+	TERRAFORMS_MEDIA_VARIANT_OPTIONS,
+	TERRAFORMS_MEDIA_VARIANTS,
 	TERRAFORMS_MODE_ATTRIBUTE_KEY,
 	TERRAFORMS_MODE_ATTRIBUTE_VALUES
 } from '@artgod/shared/extensions/terraforms';
@@ -35,7 +40,9 @@ function marketMaterialization(): ApiBiddingBidBookRow['materialization'] {
 	};
 }
 
-function tokenDetailTrait(input: Omit<ApiTokenDetailTrait, 'marketplaceBiddingSupported'>): ApiTokenDetailTrait {
+function tokenDetailTrait(
+	input: Omit<ApiTokenDetailTrait, 'marketplaceBiddingSupported'>
+): ApiTokenDetailTrait {
 	return {
 		...input,
 		marketplaceBiddingSupported: true
@@ -67,12 +74,13 @@ describe('token detail page', () => {
 						updatedAt: '2026-01-01T00:00:00Z'
 					},
 					media: {
-						selectedMode: 'artifact',
-						defaultMode: 'artifact',
-						availableModes: [
-							{ key: 'artifact', label: 'artifact' },
-							{ key: 'snapshot', label: 'snapshot' }
-						]
+						selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+						defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+						availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+						preference: null,
+						selectedVariant: null,
+						defaultVariant: null,
+						availableVariants: []
 					},
 					traitFilterPresentation: {
 						selectedSource: 'user',
@@ -106,161 +114,158 @@ describe('token detail page', () => {
 						],
 						hasMetadata: true,
 						metadataUpdatedAt: '2026-01-01T00:00:00Z'
+					},
+					tokenBiddingJob: null,
+					tokenBiddingBidBook: {
+						state: {
+							source: 'orders',
+							updatedAt: null,
+							snapshotRefreshedAtMs: null,
+							projectedAt: null,
+							rowCount: 4,
+							durationMs: null,
+							lastError: null
 						},
-						tokenBiddingJob: null,
-						tokenBiddingBidBook: {
-							state: {
+						biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+						biddingAuthorization: null,
+						ownMakerAddress: null,
+						bids: [
+							{
+								orderId: '0xcollection-bid',
 								source: 'orders',
-								updatedAt: null,
+								materialization: marketMaterialization(),
+								scope: {
+									kind: 'collection',
+									label: 'collection',
+									tokenId: null,
+									traits: []
+								},
+								maker: {
+									address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+									label: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+									isOwn: false
+								},
+								price: exactPrice('100000000000000000', '0.1'),
+								bidLimits: null,
+								quantity: '1',
+								currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+								currencySymbol: 'WETH',
+								protocolAddress: null,
+								validUntil: 4_000_000_000,
+								placedAt: '2026-01-01T00:00:00Z',
 								snapshotRefreshedAtMs: null,
-								projectedAt: null,
-								rowCount: 4,
-								durationMs: null,
-								lastError: null
+								seenAt: '2026-01-01T00:00:00Z',
+								ownStatus: null
 							},
-							biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
-							biddingAuthorization: null,
-							ownMakerAddress: null,
-							bids: [
-								{
-									orderId: '0xcollection-bid',
-									source: 'orders',
-									materialization: marketMaterialization(),
-									scope: {
-										kind: 'collection',
-										label: 'collection',
-										tokenId: null,
-										traits: []
-									},
-									maker: {
-										address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-										label: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-										isOwn: false
-									},
-									price: exactPrice('100000000000000000', '0.1'),
-									bidLimits: null,
-									quantity: '1',
-									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
-									currencySymbol: 'WETH',
-									protocolAddress: null,
-									validUntil: 4_000_000_000,
-									placedAt: '2026-01-01T00:00:00Z',
-									snapshotRefreshedAtMs: null,
-									seenAt: '2026-01-01T00:00:00Z',
-										ownStatus: null
+							{
+								orderId: '0xown-collection-bid',
+								source: 'orders',
+								materialization: marketMaterialization(),
+								scope: {
+									kind: 'collection',
+									label: 'collection',
+									tokenId: null,
+									traits: []
 								},
-								{
-									orderId: '0xown-collection-bid',
-									source: 'orders',
-									materialization: marketMaterialization(),
-									scope: {
-										kind: 'collection',
-										label: 'collection',
-										tokenId: null,
-										traits: []
-									},
-									maker: {
-										address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
-										label: 'You',
-										isOwn: true
-									},
-									price: exactPrice('100000000000000000', '0.1'),
-									bidLimits: null,
-									quantity: '1',
-									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
-									currencySymbol: 'WETH',
-									protocolAddress: null,
-									validUntil: 4_000_000_000,
-									placedAt: '2026-01-01T00:00:00Z',
-									snapshotRefreshedAtMs: null,
-									seenAt: '2026-01-01T00:00:00Z',
-									ownStatus: null
+								maker: {
+									address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+									label: 'You',
+									isOwn: true
 								},
-								{
-									orderId: '0xtoken-bid',
-									source: 'orders',
-									materialization: marketMaterialization(),
-									scope: {
-										kind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
-										label: '#1',
-										tokenId: '1',
-										traits: []
-									},
-									maker: {
-										address: '0xdddddddddddddddddddddddddddddddddddddddd',
-										label: '0xdddddddddddddddddddddddddddddddddddddddd',
-										isOwn: false
-									},
-									price: exactPrice('100000000000000000', '0.1'),
-									bidLimits: null,
-									quantity: '1',
-									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
-									currencySymbol: 'WETH',
-									protocolAddress: null,
-									validUntil: 4_000_000_000,
-									placedAt: '2026-01-01T00:00:00Z',
-									snapshotRefreshedAtMs: null,
-									seenAt: '2026-01-01T00:00:00Z',
-									ownStatus: null
+								price: exactPrice('100000000000000000', '0.1'),
+								bidLimits: null,
+								quantity: '1',
+								currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+								currencySymbol: 'WETH',
+								protocolAddress: null,
+								validUntil: 4_000_000_000,
+								placedAt: '2026-01-01T00:00:00Z',
+								snapshotRefreshedAtMs: null,
+								seenAt: '2026-01-01T00:00:00Z',
+								ownStatus: null
+							},
+							{
+								orderId: '0xtoken-bid',
+								source: 'orders',
+								materialization: marketMaterialization(),
+								scope: {
+									kind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+									label: '#1',
+									tokenId: '1',
+									traits: []
 								},
-								{
-									orderId: '0xtrait-bid',
-									source: 'orders',
-									materialization: marketMaterialization(),
-									scope: {
-										kind: 'trait',
-										label: 'Hat=Beanie',
-										tokenId: null,
-										traits: [{ type: 'Hat', value: 'Beanie' }]
-									},
-									maker: {
-										address: '0xcccccccccccccccccccccccccccccccccccccccc',
-										label: '0xcccccccccccccccccccccccccccccccccccccccc',
-										isOwn: false
-									},
-									price: exactPrice('100000000000000000', '0.1'),
-									bidLimits: null,
-									quantity: '1',
-									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
-									currencySymbol: 'WETH',
-									protocolAddress: null,
-									validUntil: 4_000_000_000,
-									placedAt: '2026-01-01T00:00:00Z',
-									snapshotRefreshedAtMs: null,
-									seenAt: '2026-01-01T00:00:00Z',
-									ownStatus: null
-								}
-							]
-						},
-						backPath: '/ethereum/milady',
-						backQuery: 'cursor=opaque-cursor-token&token_status=listed&mode=grid&media_mode=artifact'
-					}
+								maker: {
+									address: '0xdddddddddddddddddddddddddddddddddddddddd',
+									label: '0xdddddddddddddddddddddddddddddddddddddddd',
+									isOwn: false
+								},
+								price: exactPrice('100000000000000000', '0.1'),
+								bidLimits: null,
+								quantity: '1',
+								currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+								currencySymbol: 'WETH',
+								protocolAddress: null,
+								validUntil: 4_000_000_000,
+								placedAt: '2026-01-01T00:00:00Z',
+								snapshotRefreshedAtMs: null,
+								seenAt: '2026-01-01T00:00:00Z',
+								ownStatus: null
+							},
+							{
+								orderId: '0xtrait-bid',
+								source: 'orders',
+								materialization: marketMaterialization(),
+								scope: {
+									kind: 'trait',
+									label: 'Hat=Beanie',
+									tokenId: null,
+									traits: [{ type: 'Hat', value: 'Beanie' }]
+								},
+								maker: {
+									address: '0xcccccccccccccccccccccccccccccccccccccccc',
+									label: '0xcccccccccccccccccccccccccccccccccccccccc',
+									isOwn: false
+								},
+								price: exactPrice('100000000000000000', '0.1'),
+								bidLimits: null,
+								quantity: '1',
+								currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+								currencySymbol: 'WETH',
+								protocolAddress: null,
+								validUntil: 4_000_000_000,
+								placedAt: '2026-01-01T00:00:00Z',
+								snapshotRefreshedAtMs: null,
+								seenAt: '2026-01-01T00:00:00Z',
+								ownStatus: null
+							}
+						]
+					},
+					backPath: '/ethereum/milady',
+					backQuery: 'cursor=opaque-cursor-token&token_status=listed&mode=grid&media_mode=snapshot'
+				}
 			}
 		});
 
 		expect(body).toContain('back to collection');
 		expect(body).toContain(
-			'?cursor=opaque-cursor-token&amp;token_status=listed&amp;mode=grid&amp;media_mode=artifact'
+			'?cursor=opaque-cursor-token&amp;token_status=listed&amp;mode=grid&amp;media_mode=snapshot'
 		);
 		expect(body).toContain('milady #1');
 		expect(body).toContain('class="token-detail-media-frame"');
 		expect(body).toContain('https://example.com/1.html');
-		expect(body).toContain('aria-label="Token detail media mode"');
-		expect(body).toContain('class="secondary-tab-active"');
-		expect(body).toContain('>artifact<');
-		expect(body).toContain('>snapshot<');
+		expect(body).not.toContain('token-detail-media-controls');
 		expect(body).toContain('current holder:');
 		expect(body).toContain('Beanie');
 		expect(body).toContain('66.67%');
 		expect(body).toContain(
-			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=artifact'
+			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=snapshot'
 		);
 		expect(body).toContain(
 			'https://opensea.io/item/ethereum/0x1111111111111111111111111111111111111111/1'
 		);
 		expect(body).toContain('0.5 ETH [OS]');
 		expect(body).toContain(
-			'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+			'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=snapshot&amp;traits=Hat%3ABeanie'
 		);
 		expect(body).not.toContain('traits=Power%3A7');
 		expect(body).toContain('<th class="bid-book-col-center">scope</th>');
@@ -276,10 +281,10 @@ describe('token detail page', () => {
 		expect(body).toContain('aria-label="place bid on #1"');
 		expect(body).not.toContain('aria-label="place bid on collection"');
 		expect(body).toContain(
-			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+			'/ethereum/milady/bidding?media_mode=snapshot&amp;bid_scope=collection&amp;maker=0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 		);
 		expect(body).toContain(
-			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=traits&amp;maker=0xcccccccccccccccccccccccccccccccccccccccc'
+			'/ethereum/milady/bidding?media_mode=snapshot&amp;bid_scope=traits&amp;maker=0xcccccccccccccccccccccccccccccccccccccccc'
 		);
 		expect(body).not.toContain('role="dialog" aria-label="bidding automation"');
 		expect(body).not.toContain('bidding-automation-panel-collapsed');
@@ -315,12 +320,13 @@ describe('token detail page', () => {
 						updatedAt: '2026-01-01T00:00:00Z'
 					},
 					media: {
-						selectedMode: 'artifact',
-						defaultMode: 'artifact',
-						availableModes: [
-							{ key: 'artifact', label: 'artifact' },
-							{ key: 'snapshot', label: 'snapshot' }
-						]
+						selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+						defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+						availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+						preference: null,
+						selectedVariant: null,
+						defaultVariant: null,
+						availableVariants: []
 					},
 					traitFilterPresentation: {
 						selectedSource: 'user',
@@ -383,21 +389,21 @@ describe('token detail page', () => {
 					},
 					backPath: '/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 					backQuery:
-						'cursor=opaque-cursor-token&token_status=listed_then_unlisted&mode=grid&media_mode=artifact'
+						'cursor=opaque-cursor-token&token_status=listed_then_unlisted&mode=grid&media_mode=snapshot'
 				}
 			}
 		});
 
 		expect(body).toContain('back to holder');
 		expect(body).toContain(
-			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?cursor=opaque-cursor-token&amp;token_status=listed_then_unlisted&amp;mode=grid&amp;media_mode=artifact'
+			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?cursor=opaque-cursor-token&amp;token_status=listed_then_unlisted&amp;mode=grid&amp;media_mode=snapshot'
 		);
 		expect(body).toContain('srcdoc=');
 		expect(body).not.toContain('token-detail-media-image');
-		expect(body).toContain('aria-label="Token detail media mode"');
+		expect(body).not.toContain('token-detail-media-controls');
 		expect(body).toContain('>[OS]<');
 		expect(body).toContain(
-			'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+			'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=snapshot&amp;traits=Hat%3ABeanie'
 		);
 		expect(body).not.toContain('role="dialog" aria-label="bidding automation"');
 		expect(body).not.toContain('bidding-automation-panel-collapsed');
@@ -408,7 +414,7 @@ describe('token detail page', () => {
 		expect(body).not.toContain('>modify<');
 	});
 
-	it('keeps token-local lost mode out of collection navigation links', () => {
+	it('keeps the single source row above token-local media versions and out of navigation links', () => {
 		const { body } = render(TokenDetailPage, {
 			props: {
 				data: {
@@ -433,12 +439,20 @@ describe('token detail page', () => {
 						extensions: [{ key: TERRAFORMS_EXTENSION_KEY }]
 					},
 					media: {
-						selectedMode: 'lost-terrain',
-						defaultMode: 'artifact',
-						availableModes: [
-							{ key: 'artifact', label: 'artifact' },
-							{ key: 'lost-terrain', label: 'lost' },
-							{ key: 'snapshot', label: 'snapshot' }
+						selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+						defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+						availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+						preference: {
+							label: TERRAFORMS_MEDIA_PREFERENCE_LABEL,
+							enabled: false,
+							defaultEnabled: TERRAFORMS_MEDIA_PREFERENCE_DEFAULT_ENABLED
+						},
+						selectedVariant: TERRAFORMS_MEDIA_VARIANTS.V2LostTerrain,
+						defaultVariant: TERRAFORMS_MEDIA_VARIANTS.V2Artifact,
+						availableVariants: [
+							TERRAFORMS_MEDIA_VARIANT_OPTIONS.V2Artifact,
+							TERRAFORMS_MEDIA_VARIANT_OPTIONS.V2LostTerrain,
+							TERRAFORMS_MEDIA_VARIANT_OPTIONS.V0
 						]
 					},
 					traitFilterPresentation: {
@@ -475,14 +489,18 @@ describe('token detail page', () => {
 			}
 		});
 
-		expect(body).toContain('>lost<');
+		expect(body).toContain('aria-label="Token detail source"');
+		expect(body).toContain('aria-label="Token detail media version"');
+		expect(body).toContain(`>${TERRAFORMS_MEDIA_VARIANT_OPTIONS.V2LostTerrain.label}<`);
 		expect(body).toContain('secondary-tab-active');
-		expect(body).toContain('/ethereum/terraforms?media_mode=artifact');
 		expect(body).toContain(
-			'/ethereum/terraforms/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=artifact'
+			'/ethereum/terraforms?media_mode=snapshot&amp;media_preference=disabled'
 		);
 		expect(body).toContain(
-			`/ethereum/terraforms?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=${encodeURIComponent(
+			'/ethereum/terraforms/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=snapshot&amp;media_preference=disabled'
+		);
+		expect(body).toContain(
+			`/ethereum/terraforms?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=snapshot&amp;media_preference=disabled&amp;traits=${encodeURIComponent(
 				`${TERRAFORMS_MODE_ATTRIBUTE_KEY}:${TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terraform}`
 			)}`
 		);
@@ -491,9 +509,9 @@ describe('token detail page', () => {
 		expect(body).toContain(
 			`/ethereum/terraforms/activity?limit=250&amp;extension_event=${encodeURIComponent(
 				`${TERRAFORMS_EXTENSION_KEY}:${TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed}`
-			)}&amp;media_mode=artifact&amp;token_id=7710`
+			)}&amp;media_mode=snapshot&amp;media_preference=disabled&amp;token_id=7710`
 		);
-		expect(body).not.toContain('media_mode=lost-terrain');
+		expect(body).not.toContain('media_variant=');
 	});
 
 	it('hides Terraforms dreams section for terrain tokens', () => {
@@ -521,9 +539,13 @@ describe('token detail page', () => {
 						extensions: [{ key: TERRAFORMS_EXTENSION_KEY }]
 					},
 					media: {
-						selectedMode: 'artifact',
-						defaultMode: 'artifact',
-						availableModes: [{ key: 'artifact', label: 'artifact' }]
+						selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+						defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+						availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+						preference: null,
+						selectedVariant: null,
+						defaultVariant: null,
+						availableVariants: []
 					},
 					traitFilterPresentation: {
 						selectedSource: 'user',
@@ -587,12 +609,13 @@ describe('token detail page', () => {
 						updatedAt: '2026-01-01T00:00:00Z'
 					},
 					media: {
-						selectedMode: 'artifact',
-						defaultMode: 'artifact',
-						availableModes: [
-							{ key: 'artifact', label: 'artifact' },
-							{ key: 'snapshot', label: 'snapshot' }
-						]
+						selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+						defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+						availableModes: [COLLECTION_MEDIA_MODE_OPTIONS.Snapshot],
+						preference: null,
+						selectedVariant: null,
+						defaultVariant: null,
+						availableVariants: []
 					},
 					traitFilterPresentation: {
 						selectedSource: 'user',
@@ -616,12 +639,12 @@ describe('token detail page', () => {
 					},
 					tokenBiddingJob: null,
 					backPath: '/ethereum/milady/bidding',
-					backQuery: 'media_mode=artifact'
+					backQuery: 'media_mode=snapshot'
 				}
 			}
 		});
 
 		expect(body).toContain('back to bidding');
-		expect(body).toContain('/ethereum/milady/bidding?media_mode=artifact');
+		expect(body).toContain('/ethereum/milady/bidding?media_mode=snapshot');
 	});
-	});
+});

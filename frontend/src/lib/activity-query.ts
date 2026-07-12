@@ -10,9 +10,13 @@ import type {
 	ApiTraitRangeFilter
 } from '$lib/api-types';
 import {
+	appendCollectionMediaParams,
 	appendMediaModeParam,
+	appendNormalizedMediaPreferenceParam,
 	MEDIA_MODE_QUERY_PARAM,
-	normalizeMediaMode
+	MEDIA_PREFERENCE_QUERY_PARAM,
+	normalizeMediaMode,
+	type CollectionMediaPreferenceInput
 } from '$lib/media-mode';
 import { joinPath, withQuery } from '$lib/route-paths';
 import {
@@ -53,17 +57,37 @@ export function normalizeCollectionActivityParams(
 	}
 
 	if (selection.extensionEvent) {
-		params.set(ACTIVITY_EXTENSION_EVENT_QUERY_PARAM, formatActivityExtensionEventRef(selection.extensionEvent));
+		params.set(
+			ACTIVITY_EXTENSION_EVENT_QUERY_PARAM,
+			formatActivityExtensionEventRef(selection.extensionEvent)
+		);
 	} else {
 		params.set(ACTIVITY_KIND_QUERY_PARAM, selection.kind);
 	}
 	appendMediaModeParam(params, normalizeMediaMode(raw.get(MEDIA_MODE_QUERY_PARAM)));
+	appendNormalizedMediaPreferenceParam(params, raw.get(MEDIA_PREFERENCE_QUERY_PARAM));
 	appendNormalizedTraitParams(params, raw);
 	appendNormalizedTraitRangeParams(params, raw);
-	appendOptionalActivityFilter(params, ACTIVITY_TOKEN_ID_QUERY_PARAM, raw.get(ACTIVITY_TOKEN_ID_QUERY_PARAM));
-	appendOptionalActivityFilter(params, ACTIVITY_MAKER_QUERY_PARAM, raw.get(ACTIVITY_MAKER_QUERY_PARAM));
-	appendOptionalActivityFilter(params, ACTIVITY_CONTENT_HASH_QUERY_PARAM, raw.get(ACTIVITY_CONTENT_HASH_QUERY_PARAM));
-	appendOptionalActivityFilter(params, ACTIVITY_EVENT_GROUP_QUERY_PARAM, raw.get(ACTIVITY_EVENT_GROUP_QUERY_PARAM));
+	appendOptionalActivityFilter(
+		params,
+		ACTIVITY_TOKEN_ID_QUERY_PARAM,
+		raw.get(ACTIVITY_TOKEN_ID_QUERY_PARAM)
+	);
+	appendOptionalActivityFilter(
+		params,
+		ACTIVITY_MAKER_QUERY_PARAM,
+		raw.get(ACTIVITY_MAKER_QUERY_PARAM)
+	);
+	appendOptionalActivityFilter(
+		params,
+		ACTIVITY_CONTENT_HASH_QUERY_PARAM,
+		raw.get(ACTIVITY_CONTENT_HASH_QUERY_PARAM)
+	);
+	appendOptionalActivityFilter(
+		params,
+		ACTIVITY_EVENT_GROUP_QUERY_PARAM,
+		raw.get(ACTIVITY_EVENT_GROUP_QUERY_PARAM)
+	);
 
 	return params;
 }
@@ -75,6 +99,7 @@ export function buildCollectionActivityQuery(params: {
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	mediaMode?: string | null;
+	mediaPreference?: CollectionMediaPreferenceInput;
 	cursor?: string | null;
 	tokenId?: string | null;
 	maker?: string | null;
@@ -84,11 +109,17 @@ export function buildCollectionActivityQuery(params: {
 	const query = new URLSearchParams();
 	query.set('limit', String(params.limit));
 	if (params.extensionEvent) {
-		query.set(ACTIVITY_EXTENSION_EVENT_QUERY_PARAM, formatActivityExtensionEventRef(params.extensionEvent));
+		query.set(
+			ACTIVITY_EXTENSION_EVENT_QUERY_PARAM,
+			formatActivityExtensionEventRef(params.extensionEvent)
+		);
 	} else {
 		query.set(ACTIVITY_KIND_QUERY_PARAM, params.kind ?? COLLECTION_ACTIVITY_FILTER_KINDS[0]);
 	}
-	appendMediaModeParam(query, params.mediaMode ?? null);
+	appendCollectionMediaParams(query, {
+		mediaMode: params.mediaMode ?? null,
+		mediaPreference: params.mediaPreference ?? null
+	});
 	if (params.cursor?.trim()) {
 		query.set('cursor', params.cursor.trim());
 	}
@@ -109,6 +140,7 @@ export function buildCollectionActivityHref(params: {
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	mediaMode?: string | null;
+	mediaPreference?: CollectionMediaPreferenceInput;
 	cursor?: string | null;
 	tokenId?: string | null;
 	maker?: string | null;
@@ -122,6 +154,7 @@ export function buildCollectionActivityHref(params: {
 		selectedTraits: params.selectedTraits,
 		selectedTraitRanges: params.selectedTraitRanges,
 		mediaMode: params.mediaMode ?? null,
+		mediaPreference: params.mediaPreference ?? null,
 		cursor: params.cursor ?? null,
 		tokenId: params.tokenId ?? null,
 		maker: params.maker ?? null,

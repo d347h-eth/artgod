@@ -31,6 +31,13 @@ import type {
 	BootstrapTaskStatus
 } from '@artgod/shared/bootstrap/pipeline';
 import type { BootstrapOpenSeaSlugProbeStatus } from '@artgod/shared/bootstrap/opensea-slug-probe';
+import type {
+	CollectionMediaModeOption,
+	CollectionMediaPreference,
+	CollectionMediaPresentation,
+	TokenMediaPresentation,
+	TokenMediaVariantOption
+} from '@artgod/shared/extensions';
 
 export type ApiChain = {
 	id: number;
@@ -76,16 +83,12 @@ export type ApiCollectionExtensionSummary = {
 	key: string;
 };
 
-export type ApiCollectionMediaMode = {
-	key: string;
-	label: string;
-};
-
-export type ApiCollectionMediaState = {
-	selectedMode: string;
-	defaultMode: string;
-	availableModes: ApiCollectionMediaMode[];
-};
+// Frontend API aliases retain transport-facing names while reusing the shared media owner contracts.
+export type ApiCollectionMediaMode = CollectionMediaModeOption;
+export type ApiCollectionMediaPreference = CollectionMediaPreference;
+export type ApiTokenMediaVariantOption = TokenMediaVariantOption;
+export type ApiCollectionMediaState = CollectionMediaPresentation;
+export type ApiTokenMediaState = TokenMediaPresentation;
 
 export type ApiActivityEventMedia = {
 	image: string | null;
@@ -900,12 +903,17 @@ export type BatchTokenBiddingJobLookupApiResponse = {
 export type TokenDetailApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;
-	media: ApiCollectionMediaState;
+	media: ApiTokenMediaState;
 	token: ApiTokenDetail;
 	traitFilterPresentation: ApiTraitFilterPresentationFeatureState;
 };
 
 export type TokenPreviewApiResponse = {
+	media: ApiTokenMediaState;
+	token: ApiTokenPreview;
+};
+
+export type ActivityEventPreviewApiResponse = {
 	media: ApiCollectionMediaState;
 	token: ApiTokenPreview;
 };
@@ -913,7 +921,7 @@ export type TokenPreviewApiResponse = {
 export type TokenActivitiesApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;
-	media: ApiCollectionMediaState;
+	media: ApiTokenMediaState;
 	token: ApiTokenDetail;
 	activities: ApiActivitiesPage;
 	included: {

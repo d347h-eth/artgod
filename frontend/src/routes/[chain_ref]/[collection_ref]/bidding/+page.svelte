@@ -1,5 +1,6 @@
 	<script lang="ts">
 		import CollectionBiddingView from '$lib/components/CollectionBiddingView.svelte';
+		import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 		import type { BiddingBidBookLiveRefreshConfig } from '@artgod/shared/config/bidding';
 		import type { BlockExplorerConfig } from '@artgod/shared/config/block-explorer';
 		import type {
@@ -50,9 +51,12 @@
 
 	function defaultMedia(): ApiCollectionMediaState {
 		return {
-			selectedMode: 'snapshot',
-			defaultMode: 'snapshot',
-			availableModes: [{ key: 'snapshot', label: 'snapshot' }]
+			selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+			defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+			availableModes: [
+				COLLECTION_MEDIA_MODE_OPTIONS.Snapshot
+			],
+			preference: null
 		};
 	}
 </script>

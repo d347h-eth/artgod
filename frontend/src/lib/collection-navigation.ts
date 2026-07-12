@@ -23,7 +23,7 @@ import {
 import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 import { buildCollectionCustomizationHref } from '$lib/customization-query';
 import type { CollectionExtensionNavigationPageTarget } from '$lib/collection-extension-navigation';
-import { appendMediaModeParam } from '$lib/media-mode';
+import { appendCollectionMediaParams, type CollectionMediaPreferenceInput } from '$lib/media-mode';
 import { joinPath, normalizeBasePath, withQuery } from '$lib/route-paths';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -35,6 +35,7 @@ import { buildCollectionTokenNavigationQuery } from '$lib/token-browser-navigati
 export type CollectionNavigationState = {
 	basePath: string;
 	mediaMode?: string | null;
+	mediaPreference?: CollectionMediaPreferenceInput;
 	activityEventFeeds?: ApiActivityExtensionEventFeed[];
 	collectionExtensions?: ApiCollectionExtensionSummary[];
 	selectedTraits: ApiTokenAttribute[];
@@ -99,6 +100,7 @@ export function buildCollectionBasePath(target: CollectionRouteTarget): string {
 export function buildCollectionNavigation(state: CollectionNavigationState): CollectionNavigation {
 	const normalizedBasePath = normalizeBasePath(state.basePath);
 	const mediaMode = state.mediaMode ?? null;
+	const mediaPreference = state.mediaPreference ?? null;
 	const tokenLimit = state.token?.limit ?? DEFAULT_PAGE_LIMIT;
 	const tokenDisplayMode = state.token?.displayMode ?? 'grid';
 	const activityLimit = state.activity?.limit ?? tokenLimit;
@@ -116,7 +118,8 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		displayMode: tokenDisplayMode,
 		selectedTraits: state.selectedTraits,
 		selectedTraitRanges: state.selectedTraitRanges,
-		mediaMode
+		mediaMode,
+		mediaPreference
 	});
 	const activityQuery = buildCollectionActivityQuery({
 		limit: activityLimit,
@@ -124,7 +127,8 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		extensionEvent: activityExtensionEvent,
 		selectedTraits: state.selectedTraits,
 		selectedTraitRanges: state.selectedTraitRanges,
-		mediaMode
+		mediaMode,
+		mediaPreference
 	});
 	const biddingQuery = buildCollectionBiddingQuery({
 		selectedTraits: state.selectedTraits,
@@ -132,6 +136,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		bidScope: state.bidding?.bidScope,
 		traitJoinMode: state.bidding?.traitJoinMode,
 		mediaMode,
+		mediaPreference,
 		maker: state.bidding?.maker,
 		showMuted: state.bidding?.showMuted
 	});
@@ -155,9 +160,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 	};
 	const extensionPageHref = (target: CollectionExtensionNavigationPageTarget): string => {
 		const query = new URLSearchParams();
-		if (target.preserveMediaMode) {
-			appendMediaModeParam(query, mediaMode);
-		}
+		appendCollectionMediaParams(query, { mediaMode, mediaPreference });
 		return withQuery(
 			joinPath(
 				normalizedBasePath,
@@ -166,10 +169,12 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 			query
 		);
 	};
-	const offersHref = showBiddingOffers ? withQuery(joinPath(normalizedBasePath, 'bidding'), biddingQuery) : null;
+	const offersHref = showBiddingOffers
+		? withQuery(joinPath(normalizedBasePath, 'bidding'), biddingQuery)
+		: null;
 
 	const holdersQuery = new URLSearchParams();
-	appendMediaModeParam(holdersQuery, mediaMode);
+	appendCollectionMediaParams(holdersQuery, { mediaMode, mediaPreference });
 
 	return {
 		basePath: normalizedBasePath,
@@ -192,7 +197,8 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 				basePath: normalizedBasePath,
 				selectedTraits: state.selectedTraits,
 				selectedTraitRanges: state.selectedTraitRanges,
-				mediaMode
+				mediaMode,
+				mediaPreference
 			}),
 			tokenStatus: tokenStatusHref,
 			activityKind: activityKindHref,

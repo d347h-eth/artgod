@@ -9,7 +9,7 @@
 	} from '@artgod/shared/config/bootstrap';
 	import { OPENSEA_API_KEY_ENV } from '@artgod/shared/config/opensea-integration';
 	import { IMAGE_CACHE_MODE, imageCacheModeLabel } from '@artgod/shared/media/token-image-cache';
-	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+	import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 	import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 	import type {
 		ApiChain,
@@ -127,7 +127,7 @@
 	const manualScopeProbeMessage =
 		'The probe could not confirm the collection supply. This usually means the collection is on a shared contract. Enable manual editing below, then set the manual scope and supply for this collection.';
 	const bootstrapPreviewMediaModes: ApiCollectionMediaMode[] = [
-		{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
+		COLLECTION_MEDIA_MODE_OPTIONS.Snapshot
 	];
 	const tokenPreview = getTokenPreviewController();
 	const bootstrapFieldHelp = {

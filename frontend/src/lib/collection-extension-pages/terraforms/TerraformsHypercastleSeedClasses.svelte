@@ -58,6 +58,7 @@
 		return buildTerraformsSeedClassTokenHref({
 			basePath,
 			mediaMode: media.selectedMode,
+			mediaPreference: media.preference,
 			seedClass
 		});
 	}
@@ -65,7 +66,8 @@
 	function originHref(): string {
 		return buildTerraformsOriginTokenHref({
 			basePath,
-			mediaMode: media.selectedMode
+			mediaMode: media.selectedMode,
+			mediaPreference: media.preference
 		});
 	}
 
@@ -73,7 +75,8 @@
 		return buildTerraformsHypercastleTokenHref({
 			basePath,
 			tokenId,
-			mediaMode: media.selectedMode
+			mediaMode: media.selectedMode,
+			mediaPreference: media.preference
 		});
 	}
 
@@ -108,7 +111,10 @@
 				fetch,
 				chain.slug,
 				collection.slug,
-				buildTerraformsOriginSampleQuery({ mediaMode: media.selectedMode })
+				buildTerraformsOriginSampleQuery({
+					mediaMode: media.selectedMode,
+					mediaPreference: media.preference
+				})
 			);
 			if (cancelled()) return;
 			updateSampleState(TERRAFORMS_HYPERCASTLE_ORIGIN_SAMPLE_KEY, {
@@ -144,6 +150,7 @@
 				collection.slug,
 				buildTerraformsSeedClassSampleQuery({
 					mediaMode: media.selectedMode,
+					mediaPreference: media.preference,
 					seedClass: row.traitValue
 				})
 			);
@@ -302,8 +309,9 @@
 								{collection}
 								{token}
 								href={tokenHref(token.tokenId)}
-								selectedMediaMode={media.selectedMode}
-								availableMediaModes={media.availableModes}
+									selectedMediaMode={media.selectedMode}
+									availableMediaModes={media.availableModes}
+									mediaPreference={media.preference}
 								{tokenPreview}
 								adjacentTokenResolver={sampleAdjacentOriginTokenId}
 							/>
@@ -392,6 +400,7 @@
 										href={tokenHref(token.tokenId)}
 										selectedMediaMode={media.selectedMode}
 										availableMediaModes={media.availableModes}
+										mediaPreference={media.preference}
 										{tokenPreview}
 										adjacentTokenResolver={(step, currentTokenId) =>
 											sampleAdjacentTokenId(row, step, currentTokenId)}

@@ -5,7 +5,7 @@ import {
 	TERRAFORMS_ZONE_ATTRIBUTE_KEY
 } from '@artgod/shared/extensions/terraforms';
 import { TOKEN_BROWSER_STATUS } from '@artgod/shared/types/browse';
-import type { ApiTokenAttribute } from '$lib/api-types';
+import type { ApiCollectionMediaPreference, ApiTokenAttribute } from '$lib/api-types';
 import { buildTokenBrowserHref, TOKEN_BROWSER_DISPLAY_MODES } from '$lib/token-browser-query';
 
 const TERRAFORMS_HYPERCASTLE_TOKEN_FILTER_LABEL_PREFIX = 'filter tokens by';
@@ -49,6 +49,7 @@ export function formatTerraformsHypercastleTokenFilterLabel(
 export function buildTerraformsHypercastleTraitsTokenHref(input: {
 	basePath: string;
 	mediaMode?: string | null;
+	mediaPreference?: ApiCollectionMediaPreference | null;
 	traits: readonly ApiTokenAttribute[];
 }): string {
 	return buildTokenBrowserHref({
@@ -58,7 +59,8 @@ export function buildTerraformsHypercastleTraitsTokenHref(input: {
 		tokenStatus: TOKEN_BROWSER_STATUS.All,
 		selectedTraits: [...input.traits],
 		selectedTraitRanges: [],
-		mediaMode: input.mediaMode ?? null
+		mediaMode: input.mediaMode ?? null,
+		mediaPreference: input.mediaPreference ?? null
 	});
 }
 
@@ -66,12 +68,14 @@ export function buildTerraformsHypercastleTraitsTokenHref(input: {
 export function buildTerraformsHypercastleTraitTokenHref(input: {
 	basePath: string;
 	mediaMode?: string | null;
+	mediaPreference?: ApiCollectionMediaPreference | null;
 	traitKey: string;
 	traitValue: string;
 }): string {
 	return buildTerraformsHypercastleTraitsTokenHref({
 		basePath: input.basePath,
 		mediaMode: input.mediaMode,
+		mediaPreference: input.mediaPreference,
 		traits: [{ key: input.traitKey, value: input.traitValue }]
 	});
 }
