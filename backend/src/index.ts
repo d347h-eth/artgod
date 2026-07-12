@@ -63,6 +63,7 @@ import { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runt
 import { ResolveOwnerRefUseCase } from "./application/use-cases/owners/resolve-owner-ref.js";
 import { ListCollectionBiddingBidBookUseCase } from "./application/use-cases/trading/list-collection-bidding-bid-book.js";
 import { ListCollectionBiddingPriceTiersUseCase } from "./application/use-cases/trading/list-collection-bidding-price-tiers.js";
+import { ListActiveBiddingJobCeilingsUseCase } from "./application/use-cases/trading/list-active-bidding-job-ceilings.js";
 import { GetTokenBiddingJobUseCase } from "./application/use-cases/trading/get-token-bidding-job.js";
 import { GetTokenBiddingBidBookUseCase } from "./application/use-cases/trading/get-token-bidding-bid-book.js";
 import { BiddingJobTargetLookupUseCase } from "./application/use-cases/trading/bidding-job-target-lookup.js";
@@ -113,6 +114,7 @@ import { PublicCollectionBlockspaceCache } from "./infra/sync-backfill/public-co
 import { SqliteSyncBackfillRepository } from "./infra/sync-backfill/sqlite-sync-backfill-repository.js";
 import { NatsTradingJobCommandSignalPublisher } from "./infra/trading/nats-trading-job-command-signals.js";
 import { SqliteBiddingBidBookRepository } from "./infra/trading/sqlite-bidding-bid-book-repository.js";
+import { SqliteActiveBiddingJobCeilingsRead } from "./infra/trading/sqlite-active-bidding-job-ceilings-read.js";
 import { SqliteBiddingJobsRepository } from "./infra/trading/sqlite-bidding-jobs-repository.js";
 import { SqliteBiddingPriceTiersRepository } from "./infra/trading/sqlite-bidding-price-tiers-repository.js";
 import {
@@ -224,6 +226,8 @@ export function createBackendApp(
         backendRpcClient,
     );
     const biddingJobsRepository = new SqliteBiddingJobsRepository();
+    const activeBiddingJobCeilingsRead =
+        new SqliteActiveBiddingJobCeilingsRead();
     const biddingBidBookRepository = new SqliteBiddingBidBookRepository(
         backendObservability.apm,
         {
@@ -540,6 +544,12 @@ export function createBackendApp(
             biddingPriceTiersRepository,
             collectionSettingsRepository,
         );
+    const listActiveBiddingJobCeilingsUseCase =
+        new ListActiveBiddingJobCeilingsUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            activeBiddingJobCeilingsRead,
+        );
     const getTokenBiddingJobUseCase = new GetTokenBiddingJobUseCase(
         config.defaultChainId,
         chainsReadModel,
@@ -692,6 +702,7 @@ export function createBackendApp(
         updateCollectionCustomizationUseCase,
         listCollectionBiddingBidBookUseCase,
         listCollectionBiddingPriceTiersUseCase,
+        listActiveBiddingJobCeilingsUseCase,
         getTokenBiddingJobUseCase,
         getTokenBiddingBidBookUseCase,
         biddingJobTargetLookupUseCase,

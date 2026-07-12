@@ -454,6 +454,8 @@ beforeAll(async () => {
         await import("./infra/trading/sqlite-bidding-jobs-repository.js");
     const biddingBidBookRepositoryModule =
         await import("./infra/trading/sqlite-bidding-bid-book-repository.js");
+    const activeBiddingJobCeilingsReadModule =
+        await import("./infra/trading/sqlite-active-bidding-job-ceilings-read.js");
     const biddingPriceTiersRepositoryModule =
         await import("./infra/trading/sqlite-bidding-price-tiers-repository.js");
     const collectionSettingsRepositoryModule =
@@ -462,6 +464,8 @@ beforeAll(async () => {
         await import("./application/use-cases/trading/list-collection-bidding-bid-book.js");
     const listCollectionBiddingPriceTiersUseCaseModule =
         await import("./application/use-cases/trading/list-collection-bidding-price-tiers.js");
+    const listActiveBiddingJobCeilingsUseCaseModule =
+        await import("./application/use-cases/trading/list-active-bidding-job-ceilings.js");
     const getTokenBiddingJobUseCaseModule =
         await import("./application/use-cases/trading/get-token-bidding-job.js");
     const getTokenBiddingBidBookUseCaseModule =
@@ -494,6 +498,8 @@ beforeAll(async () => {
         await import("./application/use-cases/trading/archive-collection-bidding-price-tier.js");
     const biddingJobsRepository =
         new biddingJobsRepositoryModule.SqliteBiddingJobsRepository();
+    const activeBiddingJobCeilingsRead =
+        new activeBiddingJobCeilingsReadModule.SqliteActiveBiddingJobCeilingsRead();
     const biddingBidBookRepository =
         new biddingBidBookRepositoryModule.SqliteBiddingBidBookRepository();
     const biddingPriceTiersRepository =
@@ -515,6 +521,12 @@ beforeAll(async () => {
             collectionsReadModel,
             biddingPriceTiersRepository,
             collectionSettingsRepository,
+        );
+    const listActiveBiddingJobCeilingsUseCase =
+        new listActiveBiddingJobCeilingsUseCaseModule.ListActiveBiddingJobCeilingsUseCase(
+            1,
+            chainsReadModel,
+            activeBiddingJobCeilingsRead,
         );
     const getTokenBiddingJobUseCase =
         new getTokenBiddingJobUseCaseModule.GetTokenBiddingJobUseCase(
@@ -1044,6 +1056,7 @@ beforeAll(async () => {
         updateCollectionCustomizationUseCase,
         listCollectionBiddingBidBookUseCase,
         listCollectionBiddingPriceTiersUseCase,
+        listActiveBiddingJobCeilingsUseCase,
         getTokenBiddingJobUseCase,
         getTokenBiddingBidBookUseCase,
         biddingJobTargetLookupUseCase,
@@ -1101,6 +1114,7 @@ beforeAll(async () => {
         updateCollectionCustomizationUseCase,
         listCollectionBiddingBidBookUseCase,
         listCollectionBiddingPriceTiersUseCase,
+        listActiveBiddingJobCeilingsUseCase,
         getTokenBiddingJobUseCase,
         getTokenBiddingBidBookUseCase,
         biddingJobTargetLookupUseCase,
@@ -2637,6 +2651,66 @@ describe("backend api routes", () => {
         expect(result.statusCode).toBe(200);
         expect(result.payload.page.items).toHaveLength(1);
         expect(result.payload.page.items[0].address).toBe(TERRAFORMS_ADDRESS);
+    });
+
+    it("lists one enabled bidding ceiling maximum per collection on the admin route", async () => {
+        clearTradingJobFixtures();
+        const csrf = await issueAdminCsrf();
+
+        await resolve(
+            "PUT",
+            "/api/ethereum/milady/1/bidding/job",
+            {
+                status: TRADING_JOB_STATUS.Enabled,
+                floorEth: "1",
+                ceilingEth: "9",
+                deltaEth: "0.01",
+            },
+            csrf,
+        );
+        await resolve(
+            "PUT",
+            "/api/ethereum/milady/bidding/jobs/collection",
+            {
+                status: TRADING_JOB_STATUS.Enabled,
+                floorEth: "1",
+                ceilingEth: "10",
+                deltaEth: "0.01",
+                quantity: 1,
+            },
+            csrf,
+        );
+        await resolve(
+            "PUT",
+            "/api/ethereum/milady/bidding/jobs/traits",
+            {
+                status: TRADING_JOB_STATUS.Paused,
+                floorEth: "1",
+                ceilingEth: "99",
+                deltaEth: "0.01",
+                targetTraits: [{ type: "Hat", value: "Beanie" }],
+            },
+            csrf,
+        );
+
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/bidding/jobs/active-ceilings",
+        );
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.chain).toMatchObject({
+            publicChainId: 1,
+            name: "Ethereum",
+        });
+        expect(result.payload.ceilings).toEqual([
+            expect.objectContaining({ maxCeilingEth: "10" }),
+        ]);
+
+        const publicResult = await resolvePublic(
+            "GET",
+            "/api/ethereum/bidding/jobs/active-ceilings",
+        );
+        expect(publicResult.statusCode).toBe(404);
     });
 
     it("defaults collection detail to listed tokens sorted by price", async () => {

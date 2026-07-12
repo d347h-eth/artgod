@@ -749,6 +749,26 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/bidding/jobs/active-ceilings:
+        get:
+            tags: [Trading]
+            summary: List active bidding job ceiling maxima
+            description: Returns one maximum ceiling per collection across all enabled bidding job scopes. This admin-only batch read supplies editable bidding authorization prefills; paused and archived jobs are excluded.
+            operationId: listActiveBiddingJobCeilings
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+            responses:
+                "200":
+                    description: Active bidding job ceiling maxima
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/ListActiveBiddingJobCeilingsResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/{collection_ref}/bidding/price-tiers:
         get:
             tags: [Trading]
@@ -3645,6 +3665,30 @@ components:
                     type: array
                     items:
                         $ref: "#/components/schemas/BiddingJob"
+
+        ActiveBiddingJobCeiling:
+            type: object
+            required: [collectionId, maxCeilingEth]
+            additionalProperties: false
+            properties:
+                collectionId:
+                    type: integer
+                    minimum: 1
+                maxCeilingEth:
+                    type: string
+                    description: Maximum WETH-per-NFT ceiling across enabled jobs for this collection.
+
+        ListActiveBiddingJobCeilingsResponse:
+            type: object
+            required: [chain, ceilings]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                ceilings:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/ActiveBiddingJobCeiling"
 
         ListCollectionBiddingPriceTiersResponse:
             type: object
