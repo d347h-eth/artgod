@@ -44,7 +44,9 @@ This comparison established that:
 The Geth comparison also highlighted its decrypted-key address binding. ArtGod's
 desktop adapter now performs the same identity check before returning key
 material to export, remove verification, or bot-unlock callers. That adapter
-change is outside this vendored crate.
+also takes immediate zeroizing ownership of the plaintext allocation returned by
+`decrypt_key` before constructing the Alloy signer. Those adapter changes are
+outside this vendored crate.
 
 ## Archive-to-Vendor Inventory
 

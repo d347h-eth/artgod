@@ -103,8 +103,15 @@ fn decrypt_wallet_key(
     wallet: &WalletRecord,
     passphrase: &Zeroizing<String>,
 ) -> Result<WalletPrivateKey, AlloyKeystoreError> {
-    let signer = PrivateKeySigner::decrypt_keystore(&wallet.keystore_path, passphrase.as_bytes())
+    // Take zeroizing ownership of the plaintext allocation as soon as decryption returns it.
+    let private_key = eth_keystore::decrypt_key(&wallet.keystore_path, passphrase.as_bytes())
+        .map(Zeroizing::new)
         .map_err(|_| AlloyKeystoreError::UnlockRejected)?;
+    let signer = PrivateKeySigner::from_slice(private_key.as_slice())
+        .map_err(|_| AlloyKeystoreError::UnlockRejected)?;
+
+    // Erase the decrypted allocation once Alloy has validated and copied the key.
+    drop(private_key);
     let decrypted_address = WalletAddress::from_alloy(signer.address());
 
     // Bind decrypted key material to the canonical wallet identity before returning it.

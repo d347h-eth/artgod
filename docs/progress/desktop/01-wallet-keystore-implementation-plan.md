@@ -154,7 +154,7 @@ The slices are intentionally ordered so early slices produce a usable wallet sub
 
 ## Current Status
 
-As of 2026-07-11:
+As of 2026-07-12:
 
 - Slice 0 is complete.
 - Slice 1 is complete.
@@ -269,7 +269,8 @@ Tasks:
     - validate private key
     - derive EVM address
     - encrypt through the explicit-parameter `eth-keystore` writer
-    - decrypt using Alloy keystore support
+    - decrypt through the source-pinned `eth-keystore` implementation
+    - take immediate `Zeroizing` ownership of returned plaintext before Alloy validation and address derivation
     - consume the source-pinned writer's single compile-time production scrypt policy
     - zeroize plaintext and derived KDF key buffers
 - avoid custom cryptography implementation in this slice

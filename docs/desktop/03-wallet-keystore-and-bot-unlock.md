@@ -16,7 +16,8 @@ The design follows Foundry-like operational semantics:
 The storage and crypto path should align with Foundry/Paradigm wherever practical:
 
 - standard Ethereum keystore JSON files at rest
-- `alloy-signer-local` keystore support for decrypt operations
+- the source-pinned `eth-keystore` decrypt primitive with immediate zeroizing ownership of returned plaintext
+- Alloy signer validation and address derivation after decrypt
 - a source-pinned `eth-keystore` writer with explicit ArtGod-owned scrypt work parameters
 - the same bounded unlock behavior at the desktop core-process boundary
 
@@ -52,7 +53,8 @@ ArtGod should not invent a custom wallet cryptography format unless there is a c
 Current design decision:
 
 - use standard Ethereum keystore JSON for secret storage
-- use `alloy-signer-local` keystore support for validation and decrypt operations
+- use the source-pinned `eth-keystore` primitive for decrypt operations and immediately wrap its returned plaintext allocation in `Zeroizing`
+- use Alloy for private-key validation and address derivation
 - use the same underlying `eth-keystore` construction through a narrow, source-pinned explicit-parameter writer
 - own the production scrypt work policy in the source-pinned writer rather than in Admin or environment configuration
 - keep an ArtGod-owned metadata index for label, assignment, and status
@@ -241,7 +243,7 @@ Responsibilities:
 - export wallets
 - remove wallets
 - unlock a wallet for bot startup
-- call the source-pinned writer for encryption and Alloy for decryption
+- call the source-pinned `eth-keystore` implementation for encryption and decryption, then use Alloy to validate recovered key material
 - own all plaintext key handling inside the main app process
 
 This is the core business service for wallet custody inside the desktop app.
@@ -382,7 +384,8 @@ Reason:
 
 Implementation rule:
 
-- use `alloy-signer-local` for decrypt operations and the source-pinned `eth-keystore` writer for encryption
+- use the source-pinned `eth-keystore` implementation for encryption and decryption
+- take immediate `Zeroizing` ownership of the plaintext allocation returned by decrypt before constructing the Alloy signer
 - pass the compile-time ArtGod scrypt policy explicitly on every write
 - do not reimplement keystore cryptography unless there is a compelling reviewed reason
 - keep the Ethereum keystore file and ArtGod metadata file separate
