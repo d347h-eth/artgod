@@ -92,9 +92,13 @@ impl BotCommandState {
         app: &AppHandle,
     ) -> Result<BiddingCollectionCatalogDto, String> {
         let runtime_config = DesktopRuntimeConfig::load_or_create(app)?;
-        let catalog = BackendCollectionCatalog::new(runtime_config.backend_http_base_url())
-            .load_bidding_catalog(runtime_config.chain_id)
-            .await?;
+        // Read the canonical catalog through the shared desktop HTTP policy.
+        let catalog = BackendCollectionCatalog::new(
+            runtime_config.backend_http_base_url(),
+            &runtime_config.http_fetch_resilience,
+        )?
+        .load_bidding_catalog(runtime_config.chain_id)
+        .await?;
         Ok(BiddingCollectionCatalogDto::from_domain(&catalog))
     }
 
@@ -375,9 +379,13 @@ async fn resolve_bidding_start_mandate(
         BotKind::Bidding => {
             let draft = draft
                 .ok_or_else(|| "Select at least one collection to authorize bidding.".to_owned())?;
-            let catalog = BackendCollectionCatalog::new(runtime_config.backend_http_base_url())
-                .load_bidding_catalog(runtime_config.chain_id)
-                .await?;
+            // Re-read canonical identities through the shared desktop HTTP policy.
+            let catalog = BackendCollectionCatalog::new(
+                runtime_config.backend_http_base_url(),
+                &runtime_config.http_fetch_resilience,
+            )?
+            .load_bidding_catalog(runtime_config.chain_id)
+            .await?;
             let mandate = BiddingMandate::resolve(
                 runtime_config.chain_id,
                 draft.into_domain(),

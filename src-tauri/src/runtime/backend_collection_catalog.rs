@@ -4,6 +4,7 @@ use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
 
 use super::bidding_mandate::BiddingCollectionTokenScopeSummary;
+use super::http_fetch_resilience::{HttpFetchClient, HttpFetchError, HttpFetchResilienceConfig};
 
 const COLLECTION_STATUS_QUERY_PARAM: &str = "status";
 const COLLECTION_CURSOR_QUERY_PARAM: &str = "cursor";
@@ -38,17 +39,20 @@ pub struct BiddingCollectionCandidate {
 
 /// Reads non-secret collection identity through the backend's canonical read model.
 pub struct BackendCollectionCatalog {
-    client: reqwest::Client,
+    client: HttpFetchClient,
     backend_http_base_url: String,
 }
 
 impl BackendCollectionCatalog {
     /// Creates a catalog adapter for the supervisor-owned backend endpoint.
-    pub fn new(backend_http_base_url: impl Into<String>) -> Self {
-        Self {
-            client: reqwest::Client::new(),
+    pub(crate) fn new(
+        backend_http_base_url: impl Into<String>,
+        resilience: &HttpFetchResilienceConfig,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            client: HttpFetchClient::new(resilience)?,
             backend_http_base_url: backend_http_base_url.into(),
-        }
+        })
     }
 
     /// Streams every live page with its chain context and OpenSea-ready collections.
@@ -66,24 +70,17 @@ impl BackendCollectionCatalog {
         let mut candidates = Vec::new();
 
         loop {
-            let mut request = self
-                .client
-                .get(endpoint.as_str())
-                .query(&[(COLLECTION_STATUS_QUERY_PARAM, COLLECTION_STATUS_LIVE)]);
+            let mut query = vec![(COLLECTION_STATUS_QUERY_PARAM, COLLECTION_STATUS_LIVE)];
             if let Some(value) = cursor.as_deref() {
-                request = request.query(&[(COLLECTION_CURSOR_QUERY_PARAM, value)]);
+                query.push((COLLECTION_CURSOR_QUERY_PARAM, value));
             }
 
             // Resolve collection identity from the same read model used by Userland.
-            let response = request
-                .send()
+            let response = self
+                .client
+                .get_json::<ListCollectionsResponse, _>(endpoint.as_str(), &query)
                 .await
-                .map_err(|_| "Start infra to use Bots.".to_owned())?
-                .error_for_status()
-                .map_err(|error| format!("Collection catalog request was rejected: {error}"))?
-                .json::<ListCollectionsResponse>()
-                .await
-                .map_err(|error| format!("Collection catalog response was invalid: {error}"))?;
+                .map_err(map_catalog_fetch_error)?;
 
             let response_chain = map_chain_identity(response.chain, chain_id)?;
             if chain
@@ -118,6 +115,33 @@ impl BackendCollectionCatalog {
             chain: chain.ok_or_else(|| "Collection catalog omitted chain identity.".to_owned())?,
             collections: candidates,
         })
+    }
+}
+
+fn map_catalog_fetch_error(error: HttpFetchError) -> String {
+    match error {
+        HttpFetchError::Transport(error) => {
+            log::debug!("Collection catalog transport failed: {error}");
+            if error.is_connect() {
+                "Start infra to use Bots.".to_owned()
+            } else if error.is_timeout() {
+                "Collection catalog did not respond. Restart infra and refresh Bots.".to_owned()
+            } else {
+                "Collection catalog request failed. Restart infra and refresh Bots.".to_owned()
+            }
+        }
+        HttpFetchError::Status(error) => {
+            log::warn!("Collection catalog request was rejected: {error}");
+            "Collection catalog request was rejected. Restart infra and refresh Bots.".to_owned()
+        }
+        HttpFetchError::Decode(error) => {
+            log::warn!("Collection catalog response was invalid: {error}");
+            "Collection catalog response was invalid. Restart infra and refresh Bots.".to_owned()
+        }
+        HttpFetchError::RetryDelay(error) => {
+            log::error!("{error}");
+            "Collection catalog request failed. See desktop-app logs.".to_owned()
+        }
     }
 }
 

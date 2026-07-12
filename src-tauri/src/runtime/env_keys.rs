@@ -8,6 +8,21 @@ pub(crate) const RPC_AUTO_SOURCING_TRACKING_POLICY_ENV_KEY: &str =
 // Env key for the optional local media-cache directory shared by runtime children.
 pub(crate) const COMMON_MEDIA_CACHE_DIR_ENV_KEY: &str = "COMMON_MEDIA_CACHE_DIR";
 
+// Env key for the per-attempt timeout shared by ordinary HTTP fetches.
+pub(crate) const COMMON_HTTP_FETCH_TIMEOUT_MS_ENV_KEY: &str = "COMMON_HTTP_FETCH_TIMEOUT_MS";
+
+// Env key for the total attempt limit shared by ordinary HTTP fetches.
+pub(crate) const COMMON_HTTP_FETCH_RETRY_MAX_ATTEMPTS_ENV_KEY: &str =
+    "COMMON_HTTP_FETCH_RETRY_MAX_ATTEMPTS";
+
+// Env key for the initial retry delay shared by ordinary HTTP fetches.
+pub(crate) const COMMON_HTTP_FETCH_RETRY_BASE_DELAY_MS_ENV_KEY: &str =
+    "COMMON_HTTP_FETCH_RETRY_BASE_DELAY_MS";
+
+// Env key for the maximum retry delay shared by ordinary HTTP fetches.
+pub(crate) const COMMON_HTTP_FETCH_RETRY_MAX_DELAY_MS_ENV_KEY: &str =
+    "COMMON_HTTP_FETCH_RETRY_MAX_DELAY_MS";
+
 /// Env key for the bidding runtime's live-versus-dry-run policy.
 pub(crate) const BIDDING_DRY_RUN_ENV_KEY: &str = "BIDDING_DRY_RUN";
 

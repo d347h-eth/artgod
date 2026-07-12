@@ -2482,6 +2482,8 @@ mod tests {
                 ),
                 ("NODE_ENV".to_owned(), "production".to_owned()),
             ]),
+            http_fetch_resilience:
+                crate::runtime::http_fetch_resilience::HttpFetchResilienceConfig::test_fixture(),
             logs_dir: PathBuf::from("/runtime/logs"),
             capabilities: DesktopRuntimeCapabilities {
                 opensea: RuntimeCapability {

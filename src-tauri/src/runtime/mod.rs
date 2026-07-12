@@ -5,6 +5,7 @@ mod bidding_mandate;
 mod bot_runtime;
 mod config;
 mod env_keys;
+mod http_fetch_resilience;
 mod log_files;
 mod private_file;
 mod process_registry;
