@@ -2867,6 +2867,8 @@ where
 mod tests {
     use std::collections::HashMap;
     use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
 
     #[cfg(unix)]
@@ -2911,6 +2913,11 @@ mod tests {
     const PRODUCTION_CONTAINMENT_TEST_CHAIN_ID: u64 = 1;
     #[cfg(unix)]
     const PRODUCTION_CONTAINMENT_TEST_NODE_COMMAND: &str = "node";
+    #[cfg(unix)]
+    const PRODUCTION_CONTAINMENT_TEST_EXECUTABLE_PATH_ENV: &str = "PATH";
+    // Unix permission bits used to match executable lookup for the test Node command.
+    #[cfg(unix)]
+    const UNIX_EXECUTABLE_PERMISSION_MASK: u32 = 0o111;
     #[cfg(unix)]
     const UNIX_KILL_COMMAND: &str = "kill";
     #[cfg(unix)]
@@ -3286,6 +3293,7 @@ mod tests {
         let artifact_path = workspace_root.join(SNIPING_BOT_SPEC.artifact_relative_path);
         let pnp_cjs_path = workspace_root.join(PNP_CJS_RELATIVE_PATH);
         let pnp_loader_path = workspace_root.join(PNP_LOADER_RELATIVE_PATH);
+        let node_bin = resolve_production_containment_test_node();
         for required_path in [&artifact_path, &pnp_cjs_path, &pnp_loader_path] {
             assert!(
                 required_path.is_file(),
@@ -3296,7 +3304,7 @@ mod tests {
         BotRuntimeLaunchConfig {
             spec: SNIPING_BOT_SPEC,
             artifact_path,
-            node_bin: PathBuf::from(PRODUCTION_CONTAINMENT_TEST_NODE_COMMAND),
+            node_bin,
             runtime_dir: workspace_root.to_path_buf(),
             pnp_cjs_path,
             pnp_loader_path,
@@ -3304,6 +3312,34 @@ mod tests {
             process_env: HashMap::new(),
             logs_dir: workspace_root.join("tmp"),
         }
+    }
+
+    #[cfg(unix)]
+    fn resolve_production_containment_test_node() -> PathBuf {
+        let search_path = std::env::var_os(PRODUCTION_CONTAINMENT_TEST_EXECUTABLE_PATH_ENV)
+            .expect("production containment test requires PATH to locate Node");
+        let candidate = std::env::split_paths(&search_path)
+            .map(|directory| directory.join(PRODUCTION_CONTAINMENT_TEST_NODE_COMMAND))
+            .find(|path| {
+                fs::metadata(path).is_ok_and(|metadata| {
+                    metadata.is_file()
+                        && metadata.permissions().mode() & UNIX_EXECUTABLE_PERMISSION_MASK != 0
+                })
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "production containment test requires {} on PATH",
+                    PRODUCTION_CONTAINMENT_TEST_NODE_COMMAND
+                )
+            });
+
+        // Freeze an absolute executable path before the production spawn clears PATH.
+        fs::canonicalize(&candidate).unwrap_or_else(|error| {
+            panic!(
+                "failed to canonicalize production containment Node {}: {error}",
+                candidate.display()
+            )
+        })
     }
 
     #[cfg(unix)]
