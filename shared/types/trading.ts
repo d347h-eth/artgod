@@ -16,6 +16,16 @@ export const TRADING_BOT_RUNTIME_STATE = {
 export type TradingBotRuntimeState =
     (typeof TRADING_BOT_RUNTIME_STATE)[keyof typeof TRADING_BOT_RUNTIME_STATE];
 
+// Names the user-facing lifecycle derived from a bot's persisted heartbeat state.
+export const TRADING_BOT_LIFECYCLE_STATUS = {
+    Starting: "starting",
+    Active: "active",
+    Inactive: "inactive",
+} as const;
+
+export type TradingBotLifecycleStatus =
+    (typeof TRADING_BOT_LIFECYCLE_STATUS)[keyof typeof TRADING_BOT_LIFECYCLE_STATUS];
+
 export const TRADING_JOB_STATUS = {
     Enabled: "enabled",
     Paused: "paused",

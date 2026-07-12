@@ -22,10 +22,12 @@ import {
     TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
     TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
     TRADING_BIDDING_BID_SCOPE_KIND,
+    TRADING_BOT_LIFECYCLE_STATUS,
     TRADING_BOT_KIND,
     TRADING_BOT_RUNTIME_STATE,
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
+    type TradingBotRuntimeState,
 } from "@artgod/shared/types";
 import {
     exactBidBookRowPrice,
@@ -137,6 +139,10 @@ describe("SqliteBiddingBidBookRepository", () => {
             bidBook.bids.map((bid) => bid.orderId),
             ["fallback-order"],
         );
+        assert.equal(
+            bidBook.biddingBotStatus,
+            TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+        );
         assert.ok(
             apm.spans.some(
                 (span) =>
@@ -182,6 +188,30 @@ describe("SqliteBiddingBidBookRepository", () => {
                     span.name === "backend.bidding.repository.own_signals",
             )?.attributes[BIDDING_SPAN_ATTRIBUTE.JobsCount],
             0,
+        );
+    });
+
+    it("reports a fresh bootstrapping heartbeat as starting without changing the indexed feed", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedBiddingBotRuntimeState(TRADING_BOT_RUNTIME_STATE.Bootstrapping);
+
+        const bidBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: false,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+
+        assert.equal(
+            bidBook.state.source,
+            TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+        );
+        assert.equal(
+            bidBook.biddingBotStatus,
+            TRADING_BOT_LIFECYCLE_STATUS.Starting,
         );
     });
 
@@ -304,6 +334,10 @@ describe("SqliteBiddingBidBookRepository", () => {
         assert.equal(
             collectionBook.state.source,
             TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+        );
+        assert.equal(
+            collectionBook.biddingBotStatus,
+            TRADING_BOT_LIFECYCLE_STATUS.Active,
         );
         assert.equal(
             collectionBook.ownMakerAddress,
@@ -834,6 +868,11 @@ describe("SqliteBiddingBidBookRepository", () => {
             selectedTraitRanges: [],
         });
         const ownRows = bidBook.bids.filter((bid) => bid.isOwn);
+
+        assert.equal(
+            bidBook.biddingBotStatus,
+            TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+        );
 
         assert.deepEqual(
             ownRows.map((bid) => ({
@@ -1623,7 +1662,7 @@ describe("SqliteBiddingBidBookRepository", () => {
         });
     });
 
-    it("falls back to indexed orders when enabled bot projections are stale", () => {
+    it("keeps active bot lifecycle separate when enabled bot projections are stale", () => {
         const repository = new SqliteBiddingBidBookRepository();
         seedBiddingRuntime(collectionId);
         const staleSnapshotMs =
@@ -1663,6 +1702,10 @@ describe("SqliteBiddingBidBookRepository", () => {
         assert.equal(
             bidBook.state.source,
             TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+        );
+        assert.equal(
+            bidBook.biddingBotStatus,
+            TRADING_BOT_LIFECYCLE_STATUS.Active,
         );
         assert.deepEqual(
             bidBook.bids.map((bid) => bid.orderId),
@@ -1882,7 +1925,9 @@ function seedBiddingRuntime(collectionId: number): void {
     seedBiddingBotRuntimeState();
 }
 
-function seedBiddingBotRuntimeState(): void {
+function seedBiddingBotRuntimeState(
+    state: TradingBotRuntimeState = TRADING_BOT_RUNTIME_STATE.Running,
+): void {
     db.prepare(
         "INSERT INTO trading_bot_runtime_state " +
             "(bot_kind, chain_id, wallet_id, address, state, heartbeat_at, started_at, updated_at, last_error) " +
@@ -1890,7 +1935,7 @@ function seedBiddingBotRuntimeState(): void {
     ).run(
         TRADING_BOT_KIND.Bidding,
         BIDDING_MAKER_ADDRESS,
-        TRADING_BOT_RUNTIME_STATE.Running,
+        state,
         new Date().toISOString(),
         new Date().toISOString(),
         new Date().toISOString(),

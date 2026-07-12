@@ -86,6 +86,7 @@ import {
     TRADING_BIDDING_BID_SCOPE_KIND,
     TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
     TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
+    TRADING_BOT_LIFECYCLE_STATUS,
     TRADING_BOT_KIND,
     TRADING_BOT_RUNTIME_STATE,
     TRADING_BIDDING_TIER_SELECTION_MODE,
@@ -1871,6 +1872,9 @@ describe("backend api routes", () => {
         );
         expect(noRuntimeHeartbeat.statusCode).toBe(200);
         expect(noRuntimeHeartbeat.payload.bidBook.state.source).toBe("orders");
+        expect(noRuntimeHeartbeat.payload.bidBook.biddingBotStatus).toBe(
+            TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+        );
         expect(
             noRuntimeHeartbeat.payload.bidBook.bids.map(
                 (bid: { orderId: string }) => bid.orderId,
@@ -1895,6 +1899,9 @@ describe("backend api routes", () => {
         );
         expect(liveRuntime.statusCode).toBe(200);
         expect(liveRuntime.payload.bidBook.state.source).toBe("bot_snapshot");
+        expect(liveRuntime.payload.bidBook.biddingBotStatus).toBe(
+            TRADING_BOT_LIFECYCLE_STATUS.Active,
+        );
         expect(
             liveRuntime.payload.bidBook.bids.map(
                 (bid: { orderId: string }) => bid.orderId,
@@ -1917,6 +1924,9 @@ describe("backend api routes", () => {
         );
         expect(staleHeartbeat.statusCode).toBe(200);
         expect(staleHeartbeat.payload.bidBook.state.source).toBe("orders");
+        expect(staleHeartbeat.payload.bidBook.biddingBotStatus).toBe(
+            TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+        );
         expect(staleHeartbeat.payload.bidBook.ownMakerAddress).toBe(
             "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         );
@@ -1955,6 +1965,9 @@ describe("backend api routes", () => {
         );
         expect(staleProjection.statusCode).toBe(200);
         expect(staleProjection.payload.bidBook.state.source).toBe("orders");
+        expect(staleProjection.payload.bidBook.biddingBotStatus).toBe(
+            TRADING_BOT_LIFECYCLE_STATUS.Active,
+        );
     });
 
     it("enriches own bid rows with backend-owned position and job constraint signals", async () => {

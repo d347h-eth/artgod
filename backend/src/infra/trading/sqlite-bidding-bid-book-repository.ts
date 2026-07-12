@@ -9,7 +9,7 @@ import { isTokenSetAttributeSchema } from "@artgod/shared/types/token-sets";
 import { logger } from "@artgod/shared/utils";
 import {
     isFreshEpochMs,
-    isTradingBotRuntimeHeartbeatLive,
+    resolveTradingBotLifecycleStatus,
 } from "@artgod/shared/trading/runtime-state";
 import {
     DEFAULT_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
@@ -22,8 +22,8 @@ import {
     TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
     TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
     TRADING_BIDDING_BID_SCOPE_KIND,
+    TRADING_BOT_LIFECYCLE_STATUS,
     TRADING_BOT_KIND,
-    TRADING_BOT_RUNTIME_STATE,
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
     formatTradingBiddingBidScopeLabel,
@@ -36,6 +36,7 @@ import {
     type TradingBiddingBidScopeKind,
     type TradingBiddingJobRuntimeBidPosition,
     type TradingBiddingJobRuntimeConstraint,
+    type TradingBotLifecycleStatus,
     type TradingBotRuntimeState,
     type TradingJobStatus,
     type TradingTraitCriterion,
@@ -278,7 +279,6 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
     private readonly selectBiddingBotRuntimeState: BetterSqlite3NamedStatement<{
         chainId: number;
         botKind: typeof TRADING_BOT_KIND.Bidding;
-        state: typeof TRADING_BOT_RUNTIME_STATE.Running;
     }>;
     private readonly selectKnownBiddingMaker: BetterSqlite3NamedStatement<{
         chainId: number;
@@ -368,17 +368,15 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         this.selectBiddingBotRuntimeState = db.prepare<{
             chainId: number;
             botKind: typeof TRADING_BOT_KIND.Bidding;
-            state: typeof TRADING_BOT_RUNTIME_STATE.Running;
         }>(
             "SELECT state, heartbeat_at " +
                 "FROM trading_bot_runtime_state " +
-                "WHERE chain_id = @chainId AND bot_kind = @botKind AND state = @state " +
+                "WHERE chain_id = @chainId AND bot_kind = @botKind " +
                 "ORDER BY heartbeat_at DESC " +
                 "LIMIT 1",
         ) as BetterSqlite3NamedStatement<{
             chainId: number;
             botKind: typeof TRADING_BOT_KIND.Bidding;
-            state: typeof TRADING_BOT_RUNTIME_STATE.Running;
         }>;
 
         this.selectKnownBiddingMaker = db.prepare<{
@@ -537,7 +535,9 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                   () => this.loadKnownBiddingMakerAddress(params.chainId),
               )
             : null;
-        const runtimeHeartbeatLive = this.isBiddingRuntimeHeartbeatLive(params);
+        const biddingBotStatus = this.resolveBiddingBotStatus(params);
+        const runtimeHeartbeatLive =
+            biddingBotStatus === TRADING_BOT_LIFECYCLE_STATUS.Active;
         const source = this.apm.withSyncSpan(
             "backend.bidding.repository.source_select",
             attributes,
@@ -548,10 +548,15 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         );
         const rawBidBook =
             source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot
-                ? this.loadProjectedBidBook(params.chainId, params.collectionId)
+                ? this.loadProjectedBidBook(
+                      params.chainId,
+                      params.collectionId,
+                      biddingBotStatus,
+                  )
                 : this.loadIndexedOrdersBidBook(
                       params.chainId,
                       params.collectionId,
+                      biddingBotStatus,
                   );
         const markedBidBook = this.apm.withSyncSpan(
             "backend.bidding.repository.mark_own",
@@ -649,6 +654,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         );
         return {
             state: bidBook.state,
+            biddingBotStatus: bidBook.biddingBotStatus,
             ownMakerAddress: bidBook.ownMakerAddress,
             bids: finalBids,
         };
@@ -674,7 +680,9 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                   () => this.loadKnownBiddingMakerAddress(params.chainId),
               )
             : null;
-        const runtimeHeartbeatLive = this.isBiddingRuntimeHeartbeatLive(params);
+        const biddingBotStatus = this.resolveBiddingBotStatus(params);
+        const runtimeHeartbeatLive =
+            biddingBotStatus === TRADING_BOT_LIFECYCLE_STATUS.Active;
         const source = this.apm.withSyncSpan(
             "backend.bidding.repository.source_select",
             attributes,
@@ -685,10 +693,15 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         );
         const rawBidBook =
             source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot
-                ? this.loadProjectedBidBook(params.chainId, params.collectionId)
+                ? this.loadProjectedBidBook(
+                      params.chainId,
+                      params.collectionId,
+                      biddingBotStatus,
+                  )
                 : this.loadIndexedOrdersBidBook(
                       params.chainId,
                       params.collectionId,
+                      biddingBotStatus,
                   );
         const markedBidBook = this.apm.withSyncSpan(
             "backend.bidding.repository.mark_own",
@@ -759,6 +772,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         );
         return {
             state: bidBook.state,
+            biddingBotStatus: bidBook.biddingBotStatus,
             ownMakerAddress: bidBook.ownMakerAddress,
             bids: this.apm.withSyncSpan(
                 "backend.bidding.repository.own_signals",
@@ -816,12 +830,12 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         );
     }
 
-    private isBiddingRuntimeHeartbeatLive(params: {
+    private resolveBiddingBotStatus(params: {
         chainId: number;
         collectionId: number;
-    }): boolean {
+    }): TradingBotLifecycleStatus {
         const attributes = baseCollectionSpanAttributes(params);
-        // Use the same live-heartbeat proof for snapshot source selection and own runtime verification.
+        // Resolve one bounded lifecycle for source selection, own-runtime verification, and the API read model.
         const runtimeState = this.apm.withSyncSpan(
             "backend.bidding.repository.source_runtime_state",
             attributes,
@@ -829,10 +843,9 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                 this.selectBiddingBotRuntimeState.get({
                     chainId: params.chainId,
                     botKind: TRADING_BOT_KIND.Bidding,
-                    state: TRADING_BOT_RUNTIME_STATE.Running,
                 }) as BotRuntimeStateRow | undefined,
         );
-        return isTradingBotRuntimeHeartbeatLive(
+        return resolveTradingBotLifecycleStatus(
             runtimeState
                 ? {
                       state: runtimeState.state,
@@ -997,6 +1010,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
     private loadProjectedBidBook(
         chainId: number,
         collectionId: number,
+        biddingBotStatus: TradingBotLifecycleStatus,
     ): PersistedBiddingBidBook {
         const attributes = {
             ...baseCollectionSpanAttributes({ chainId, collectionId }),
@@ -1036,6 +1050,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
             state: stateRow
                 ? mapProjectionStateRow(stateRow)
                 : emptyState(TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot),
+            biddingBotStatus,
             ownMakerAddress: null,
             bids,
         };
@@ -1044,6 +1059,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
     private loadIndexedOrdersBidBook(
         chainId: number,
         collectionId: number,
+        biddingBotStatus: TradingBotLifecycleStatus,
     ): PersistedBiddingBidBook {
         // Load active indexed OpenSea buy orders as the passive bid-book source.
         const attributes = {
@@ -1083,6 +1099,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                 updatedAt,
                 rowCount: bids.length,
             },
+            biddingBotStatus,
             ownMakerAddress: null,
             bids,
         };

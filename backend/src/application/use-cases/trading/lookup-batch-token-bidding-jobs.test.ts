@@ -6,6 +6,7 @@ import {
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_SCOPE_KIND,
     TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
+    TRADING_BOT_LIFECYCLE_STATUS,
     TRADING_BOT_KIND,
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
@@ -232,6 +233,7 @@ function bidBook(bids: ReturnType<typeof bidBookRow>[]) {
             durationMs: null,
             lastError: null,
         },
+        biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
         ownMakerAddress: null,
         bids,
     };

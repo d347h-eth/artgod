@@ -701,6 +701,7 @@ paths:
                 `bid_scope=token` also returns `tokenOfferCards`, a paginated token-card page with all non-muted explicit token-scoped offers for each returned token.
                 Token-scoped offers and trait-scoped bid rows below 10% of the top collection-wide bid are hidden; token-card offer counts also exclude hidden token offers.
                 Source is `bot_snapshot` when enabled collection jobs exist, the bidding bot heartbeat is live, and projection metadata is fresh; otherwise source is `orders`.
+                `biddingBotStatus` is independent of source: `starting` requires a fresh bootstrapping heartbeat, `active` requires a fresh running heartbeat, and `inactive` covers stopped, missing, or stale heartbeat state.
             operationId: listCollectionBiddingBidBook
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
@@ -3079,6 +3080,10 @@ components:
             type: string
             enum: [bot_snapshot, orders]
 
+        TradingBotLifecycleStatus:
+            type: string
+            enum: [starting, active, inactive]
+
         BiddingBidScopeKind:
             type: string
             enum: [collection, trait, token, token_set, unknown]
@@ -3298,11 +3303,13 @@ components:
 
         BiddingBidBook:
             type: object
-            required: [state, ownMakerAddress, bids]
+            required: [state, biddingBotStatus, ownMakerAddress, bids]
             additionalProperties: false
             properties:
                 state:
                     $ref: "#/components/schemas/BiddingBidBookState"
+                biddingBotStatus:
+                    $ref: "#/components/schemas/TradingBotLifecycleStatus"
                 ownMakerAddress:
                     type: string
                     nullable: true

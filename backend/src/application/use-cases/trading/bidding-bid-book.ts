@@ -14,6 +14,7 @@ import type {
     TradingBiddingBidScopeKind,
     TradingBiddingJobRuntimeBidPosition,
     TradingBiddingJobRuntimeConstraint,
+    TradingBotLifecycleStatus,
     TradingJobStatus,
     TradingTraitCriterion,
     CollectionBiddingBidScopeFilter,
@@ -121,6 +122,7 @@ export type BiddingBidBookOwnStatus = {
 
 export type PersistedBiddingBidBook = {
     state: PersistedBiddingBidBookState;
+    biddingBotStatus: TradingBotLifecycleStatus;
     ownMakerAddress: string | null;
     bids: PersistedBiddingBidBookRow[];
 };
@@ -175,6 +177,7 @@ export type BiddingBidBookRowView = {
 
 export type BiddingBidBookView = {
     state: PersistedBiddingBidBookState;
+    biddingBotStatus: TradingBotLifecycleStatus;
     ownMakerAddress: string | null;
     bids: BiddingBidBookRowView[];
 };
@@ -223,6 +226,7 @@ export function mapPersistedBidBookToView(
 ): BiddingBidBookView {
     return {
         state: bidBook.state,
+        biddingBotStatus: bidBook.biddingBotStatus,
         ownMakerAddress: bidBook.ownMakerAddress,
         bids: mapPersistedBidRowsToView(bidBook.bids),
     };

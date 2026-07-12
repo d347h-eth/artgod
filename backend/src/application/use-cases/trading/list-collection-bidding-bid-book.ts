@@ -265,16 +265,14 @@ export class ListCollectionBiddingBidBookUseCase {
         const visibleBidBook =
             input.scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
                 ? {
-                      state: persistedBidBook.state,
-                      ownMakerAddress: persistedBidBook.ownMakerAddress,
+                      ...persistedBidBook,
                       bids: pageCards.flatMap((card) => card.persistedOffers),
                   }
                 : input.scopeFilter ===
                         COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits &&
                     collectionFloorBidBook
                   ? {
-                        state: persistedBidBook.state,
-                        ownMakerAddress: persistedBidBook.ownMakerAddress,
+                        ...persistedBidBook,
                         bids: filterBidBookRowsByCollectionBidFloor({
                             bids: persistedBidBook.bids,
                             collectionBids: collectionFloorBidBook.bids,
