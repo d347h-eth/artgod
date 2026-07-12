@@ -445,9 +445,11 @@ Trading-specific rules:
   receives the transaction-capable wallet client
 - Admin `Bots` selects live/OpenSea-ready collections and a
   `max WETH for any one NFT` safety limit; the per-offer quantity is fixed at
-  one. Immediately before the native prompt, Rust re-reads those collection ids
-  from the canonical backend read model through the shared
-  `COMMON_HTTP_FETCH_*` resilience policy.
+  one. OpenSea-ready means the collection has a persisted slug and non-null
+  `opensea_ready_at`; transient reconciliation status does not remove a
+  previously ready collection. Immediately before the native prompt, Rust
+  re-reads those collection ids from the canonical backend read model through
+  the shared `COMMON_HTTP_FETCH_*` resilience policy.
 - Before selection, Admin prefills `max WETH for any one NFT` from the
   collection's highest enabled or paused job ceiling when one exists. This
   separate convenience read never selects a collection and is not part of

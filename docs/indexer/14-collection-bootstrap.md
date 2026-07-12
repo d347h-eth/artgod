@@ -286,9 +286,13 @@ A collection should be considered OpenSea-ready once:
 - an explicit OpenSea slug was provided and persisted
 - OpenSea integration is enabled
 - initial snapshot succeeded
-- `collections.opensea_status = ready`
+- `collections.opensea_ready_at` is non-null
 
-Stream health is tracked separately. Stream degradation does not unset OpenSea readiness; reconcile is the recovery path.
+`opensea_ready_at` is the durable record that initial setup succeeded.
+`opensea_status` describes the current bootstrap or reconciliation activity and
+may temporarily become `retrying` after readiness. Stream health and
+reconciliation failures do not clear durable OpenSea readiness; reconcile is the
+recovery path.
 
 If OpenSea integration is disabled, there is no OpenSea-ready target for bootstrap. The collection can still become onchain-live, and run-detail polling treats the OpenSea steps as out of scope.
 

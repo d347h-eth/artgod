@@ -160,7 +160,10 @@ Important semantic split:
 - `status = prepared` means collection identity/scope hints are persisted, but
   no bootstrap data has been written yet
 - `status = live` means onchain bootstrap finished
-- `opensea_status = ready` means the first OpenSea snapshot finished successfully
+- non-null `opensea_ready_at` means the first OpenSea snapshot finished
+  successfully and remains the durable readiness fact
+- `opensea_status` describes the current OpenSea bootstrap or reconciliation
+  activity and may be `retrying` after durable readiness
 
 Fresh installs seed Terraforms as the first prepared collection row through
 `051_preset_terraforms_collection.sql`. The preset stores enough collection

@@ -689,6 +689,9 @@ Unlock rules:
   authorizes a collection.
 - Admin orders prefills from highest to lowest without moving rows during edits;
   the native review orders the final canonical caps from highest to lowest.
+- The catalog admits only live collections with a persisted OpenSea slug and
+  non-null `opensea_ready_at`. A transient reconciliation state does not revoke
+  readiness established by the successful initial snapshot.
 - Rust reads the canonical collection catalog through the shared `COMMON_HTTP_FETCH_*` per-attempt timeout and bounded retry policy
 - decrypt happens in Rust only
 - decrypted key lifetime in Rust must be as short as practical

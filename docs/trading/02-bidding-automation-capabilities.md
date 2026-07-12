@@ -44,6 +44,13 @@ user-visible authorization lifecycle:
    accepting the wallet passphrase
 3. `active bidding authorization` shows the authority held by the running bot
 
+A collection is eligible for the request when it is live, has a persisted
+OpenSea slug, and has previously completed its initial OpenSea snapshot, recorded
+by non-null `opensea_ready_at`. Current reconciliation may temporarily report
+`retrying` without removing that durable readiness. Job status does not control
+checklist membership; enabled and paused jobs only supply editable price
+prefills.
+
 Identity and limits must remain explicit across all three states:
 
 - human-readable chain name before `chain ID #N`
