@@ -1,7 +1,9 @@
 # Wallet Keystore and Bot Unlock Model
 
 This document defines the canonical desktop wallet custody model for ArtGod.
-It covers private-key import/export/remove, encrypted local keystore storage, native secret-entry flows, and one-shot secret handoff into trading bot runtimes.
+It covers private-key import/export/remove, encrypted local keystore storage,
+native secret-entry flows, and the single-frame secret handoff and parent-liveness
+channel used by trading bot runtimes.
 
 This is intentionally stricter than a typical desktop wallet UX.
 
@@ -40,8 +42,13 @@ ArtGod will use a hybrid desktop model:
 - raw private-key entry, passphrase entry, and plaintext export display do not live in the WebView
 - those secret-entry flows are owned by Rust via a dedicated native secret-prompt helper sidecar
 - encrypted wallet storage is owned by Rust and kept in desktop app-data as standard Ethereum keystore JSON files, outside backend/indexer SQLite
-- trading bot runtimes receive decrypted key material only once at startup over a one-shot pipe/stdin channel
-- bidding starts also receive one immutable native-reviewed collection mandate over that same one-shot channel
+- trading bot runtimes receive decrypted key material only once at startup in one
+  framed stdin write; Rust retains the pipe afterward only as a parent-liveness
+  lease
+- bidding starts also receive one immutable native-reviewed collection mandate
+  in that same frame
+- one composition-owned coordinator permits only one native wallet prompt across
+  import, export, remove, and bot unlock flows at a time
 - any bot restart requires a fresh passphrase prompt
 
 This design explicitly rejects all session unlock caching.
@@ -119,7 +126,7 @@ These are hard rules, not suggestions.
 7. Raw private keys may exist only in:
    : the native secret prompt
    : Rust keystore service memory during import/export/unlock
-   : bot runtime memory after one-shot startup handoff
+   : bot runtime memory after the single-frame startup handoff
 8. Every bot start and every bot restart is a fresh unlock event.
 9. There is no session unlock cache, no unlock TTL, and no silent reuse after restart.
 10. If decryption or prompt flow fails, the bot remains stopped and locked.
@@ -130,6 +137,15 @@ These are hard rules, not suggestions.
     prompting.
 13. Userland bidding mutations are proposals, not wallet authority. Every bidding start requires a native-reviewed mandate resolved by Rust from canonical live collection records with enabled or paused bidding jobs.
 14. Without relying on HTTP middleware or a prior SQLite approval flag, the bidding signer must reject offers outside the approved chain, ArtGod collection ID, contract address, OpenSea slug, maximum WETH for any one NFT, and fixed per-offer quantity.
+15. Native wallet prompts are serialized by one composition-owned coordinator;
+    overlapping requests fail closed instead of opening independently.
+16. Every bot start owns one monotonic lifecycle generation from before dependency
+    stabilization through prompt, decrypt, process publication, and secret
+    handoff. Stop or core shutdown cancels that generation and prevents stale work
+    from becoming active.
+17. A bot process must not outlive the desktop parent. The retained stdin lease
+    provides the portable liveness boundary, reinforced by platform process
+    containment where available.
 
 ## Threat Model
 
@@ -232,6 +248,11 @@ Responsibilities:
 These commands are inbound adapters only.
 They are analogous to the existing runtime commands in `src-tauri/src/lib.rs`.
 
+Desktop composition creates the wallet command state first and derives bot
+command state from it. Both therefore share the same prompt adapter and prompt
+coordinator; importing, exporting, removing, and unlocking cannot open
+independent native wallet prompts concurrently.
+
 ### 2) Rust Keystore Service
 
 This is also part of the main Tauri core process.
@@ -284,11 +305,17 @@ For export, the bounded operation is:
 
 For bot startup, the bounded operation is:
 
+- reserve the bot's next lifecycle generation before any asynchronous work
 - resolve and freeze the trusted bundled bot recipient before prompting
 - collect passphrase
+- revalidate core health, runtime config, wallet assignment, and canonical
+  bidding authorization after the prompt
 - decrypt key
-- spawn bot
-- send key once over stdin/pipe
+- repeat the same revalidation after decrypt
+- publish the generation-tagged controller before releasing its worker to spawn
+- attach platform process containment before writing the secret
+- send one exact frame over stdin/pipe and retain the now-idle writer as the
+  parent-liveness lease
 - drop plaintext buffers in the main Rust process
 
 Important:
@@ -323,6 +350,9 @@ Required behavior:
 
 - a bot failure must not tear down the full core composition
 - a bot may be stopped when one of its declared critical dependencies becomes unhealthy
+- Stop remains available while a native authorization prompt or startup work is
+  pending; it cancels that start generation and waits for the pending operation
+  to unwind before completing
 - a bot restart must return that bot to a locked state
 - a locked bot requires a fresh passphrase prompt before it starts again
 
@@ -574,6 +604,10 @@ Example directions:
 
 The helper never talks to the WebView directly.
 
+The prompt adapter is shared by desktop composition and admits one prompt at a
+time across every wallet action. A bot lifecycle cancellation terminates its
+active unlock prompt; later prompt output cannot revive the cancelled start.
+
 ## WebView Responsibilities
 
 The admin WebView remains the operator control plane.
@@ -758,19 +792,25 @@ sequenceDiagram
 
     U->>W: Start bidding/sniping bot
     W->>T: start bot(botKind, collection ids + caps)
+    T->>B: reserve lifecycle generation
     T->>T: re-resolve canonical collection identities
     T->>P: review frozen policy and enter passphrase
     P-->>T: passphrase
+    T->>T: revalidate config, wallet, authorization, and core
     T->>K: decrypt wallet
-    K-->>B: plaintext key bytes
-    B->>N: spawn bot and write key + mandate envelope to stdin
-    B->>N: close stdin
+    K-->>T: plaintext key bytes
+    T->>T: repeat full revalidation
+    T->>B: publish generation-tagged controller
+    B->>N: spawn contained bot and write one exact frame
+    B-->>N: retain stdin as parent-liveness lease
     N-->>B: startup success/failure
 ```
 
 Unlock rules:
 
 - passphrase prompt is always native
+- one composition-owned prompt coordinator serializes import, export, remove,
+  and unlock prompts; an overlapping request fails closed
 - bidding policy review is always native and precedes passphrase submission
 - Admin supplies only proposed collection ids and WETH price caps; Rust supplies the displayed and injected ArtGod id, contract, token-scope summary, OpenSea slug, and fixed one-NFT offer quantity
 - Admin batch-loads the maximum enabled-or-paused job ceiling per collection.
@@ -784,9 +824,24 @@ Unlock rules:
   transient reconciliation state does not revoke readiness established by the
   successful initial snapshot.
 - Rust reads the canonical collection catalog through the shared `COMMON_HTTP_FETCH_*` per-attempt timeout and bounded retry policy
+- a per-bot monotonic lifecycle generation is reserved before dependency waiting,
+  prompt, decrypt, or spawn work begins
+- Stop remains available during authorization review and startup; it cancels the
+  pending generation, terminates an active prompt, and waits for decrypt or
+  spawn work already in progress to unwind safely
+- after prompt completion and again after decrypt, Rust rechecks the exact
+  runtime config and recipient, wallet assignment, canonical authorization,
+  lifecycle generation, core generation, and critical dependencies
 - decrypt happens in Rust only
 - decrypted key lifetime in Rust must be as short as practical
-- the secret channel is one-shot and immediately closed after write
+- controller publication and generation ownership are committed before the
+  worker barrier is released, so Stop can always find a worker that may consume
+  wallet material
+- the secret payload is a single exact frame written by a bounded, cancellable
+  task; Rust sends no later bytes and retains stdin only as the parent-liveness
+  lease
+- Stop, core invalidation, recipient exit, or handoff timeout terminates the
+  recipient and joins the secret writer before the worker returns
 - if bot startup fails, the decrypted key is discarded and the bot remains locked
 
 User-facing authorization review:
@@ -834,7 +889,8 @@ The supervisor must never pass secrets through:
 - temp files
 - shared database rows
 
-The canonical handoff is a one-shot stdin/pipe payload.
+The canonical handoff is one framed stdin/pipe payload followed by a retained,
+otherwise-idle parent-liveness lease on the same pipe.
 
 Suggested format:
 
@@ -876,9 +932,14 @@ Protocol requirements:
 
 - metadata is non-secret
 - raw key bytes are binary, not hex text
-- child process must reject malformed or partial payloads
+- child process derives the exact frame length from the bounded header and does
+  not wait for EOF before parsing it
+- child process must reject malformed, partial, or overlong payloads
 - bidding child process must reject a missing, duplicate, malformed, or wrong-chain mandate; sniping envelopes must not carry one
-- parent closes the pipe immediately after the payload is written
+- parent writes and flushes exactly one frame, then keeps its stdin writer open
+  without sending any additional data
+- after accepting the frame, the child exits if stdin closes, errors, or
+  supplies any extra data; closure therefore means the desktop parent is gone
 - child must not persist the payload anywhere
 
 ## Node Bot Bootstrap Rules
@@ -886,11 +947,14 @@ Protocol requirements:
 The bot entrypoint must:
 
 - block normal startup until the secret payload is read
-- read the one-shot payload into a `Buffer`
+- read the exact framed payload into a `Buffer` before stdin reaches EOF
 - construct the in-memory signer as early as possible
 - parse the immutable bidding mandate before runtime composition
 - overwrite the original `Buffer` after signer construction
-- refuse to start if stdin is empty, malformed, or truncated
+- refuse to start if stdin is empty, malformed, truncated, or contains bytes
+  beyond the declared frame
+- retain stdin liveness listeners for the full bot lifetime and exit immediately
+  if the parent channel closes, errors, or receives later data
 - emit `bot_bootstrapping` after config, jobs, wallet, and adapter setup succeeds but before configured WETH allowance approval or long snapshot/current-price warmup can block startup
 - emit `bot_bootstrap_progress` while long warmup and startup command-replay phases are advancing
 - emit `bot_ready` only after authoritative snapshot bootstrap, current-price bootstrap, and startup command replay complete
@@ -917,6 +981,33 @@ Bootstrap lifecycle:
 
 The heartbeat table is safe for backend read-source decisions because it stores only bot kind, chain, wallet id, public address, state, timestamps, and last error.
 
+## Parent-Death Containment
+
+The retained stdin writer is the portable parent-liveness lease. Normal bot
+shutdown still uses the supervisor's graceful-stop path; an unexpected EOF,
+stream error, or extra byte on the parent channel makes the Node runtime exit.
+
+The desktop process also applies platform containment before it may send wallet
+material:
+
+- Linux installs `PR_SET_PDEATHSIG` with `SIGKILL` in the child before `exec` and
+  rechecks the expected parent PID to close the fork-to-`prctl` race
+- Windows assigns the child to a non-inheritable Job Object configured with
+  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`
+- macOS and other platforms use the retained pipe as the portable hard-parent-
+  death boundary
+
+Containment setup is fail-closed. If the platform control cannot be prepared or
+attached, the child is terminated before the secret frame is written.
+Linux build checks and Linux/macOS release builds run the hard-parent-death
+proof. It launches the built Node bot through the same contained spawn and
+retained-stdin handoff used by the supervisor, waits for its real `bot_ready`
+event, proves graceful `SIGTERM` exit while stdin remains open, then hard-kills
+a nested desktop-parent harness and requires the bot PID to disappear. A
+separate containment-primitive test proves that heartbeat activity also stops
+after parent death. The ordinary build workflow additionally compiles the
+Windows Job Object path on a Windows runner.
+
 ## Restart Policy
 
 This project explicitly chooses the simplest strict rule:
@@ -942,6 +1033,8 @@ If a bot exits unexpectedly:
 1. mark the bot in an error state
 2. discard any decrypted material in Rust
 3. require a fresh passphrase prompt before the next start
+4. clear controller and status only when the exiting worker still owns the
+   matching lifecycle generation
 
 ## Future Idea: OS-Native Wrapping
 
@@ -1071,20 +1164,27 @@ frontend/src/routes/+layout.svelte
 
 Exact route paths can be decided during implementation, but they must remain admin-only and must not be served from the userland browser origin.
 
-## Supervisor and Composition Changes Required
+## Supervisor and Composition Model
 
-To support bots securely, the desktop runtime will need a new distinction between:
+The desktop runtime keeps an explicit distinction between:
 
 - core runtimes
 - wallet-bound bot runtimes
 
-Expected supervisor behavior:
+Supervisor behavior:
 
 - core runtime startup remains explicit and fail-fast
 - bot runtimes are started separately after core health is stable
 - bot crashes do not force full desktop composition restart
 - bot status is surfaced independently in the admin UI
-- bot unlock requests are serialized through the Rust prompt path
+- all wallet prompts are serialized through the composition-owned Rust prompt
+  adapter
+- each bot start and stop is serialized by a monotonic generation reservation
+- stop and core shutdown cancel pending starts before waiting for them to finish
+- controller publication is atomic with generation ownership and precedes the
+  worker start barrier
+- worker status updates and cleanup are generation-fenced so an older exit
+  cannot erase a newer controller or state
 
 This means wallet-bound bots should not simply be appended to the current `INDEXER_WORKERS` list with identical restart semantics.
 
@@ -1122,6 +1222,8 @@ Rules:
 - wrong-passphrase rejection
 - duplicate wallet detection
 - remove flow behavior
+- same-bot start exclusion, cross-bot independence, stop cancellation, core
+  generation invalidation, and stale-controller fencing
 
 ### Rust Integration Tests
 
@@ -1135,6 +1237,10 @@ Rules:
 - modified, added, unpinned, and symbolic-link runtime files fail integrity validation
 - the staged release recipient matches the hashes embedded by the release build
 - bot start requiring fresh unlock after restart
+- one shared prompt coordinator rejects overlapping wallet operations
+- stop cancels prompt/decrypt/start and cannot be followed by stale controller
+  publication
+- hard parent death removes the child PID and stops its heartbeat activity
 
 ### Node Bot Tests
 
@@ -1142,6 +1248,9 @@ Rules:
 - malformed envelope rejection
 - startup failure on missing secret
 - best-effort buffer zeroization after signer construction
+- exact frame parsing before EOF
+- rejection of bytes after the frame and exit on parent-channel close/error
+- bounded Stop while a recipient leaves the secret pipe unread
 
 ### Manual Desktop Verification
 
@@ -1157,6 +1266,8 @@ The manual matrix should explicitly verify:
 - `plugin:shell|spawn` and `plugin:shell|stdin_write` are denied from the main WebView
 - restart=prompt behavior
 - bot crash -> locked state
+- Stop remains usable during authorization review, decrypt, and startup
+- hard-killing the desktop process cannot leave the bot PID or heartbeat active
 - Admin request, trusted prompt, and active authorization use the same named
   chain, qualified IDs, collection identity, units, and limits
 - global policy, all-contract, token-range, and explicit-token-ID review pages
@@ -1177,7 +1288,7 @@ The manual matrix should explicitly verify:
 
 - bot assignment model
 - bot startup unlock flow
-- one-shot stdin secret handoff
+- single-frame stdin secret handoff with retained parent-liveness lease
 - independent bot supervisor lifecycle
 
 ### Phase 3
