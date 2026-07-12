@@ -45,9 +45,9 @@ ArtGod will use a hybrid desktop model:
 
 This design explicitly rejects all session unlock caching.
 
-## Alignment With Foundry and Alloy
+## Alignment With Foundry, Alloy, and Geth
 
-ArtGod should not invent a custom wallet cryptography format unless there is a compelling security reason that cannot be achieved with the Foundry/Alloy path.
+ArtGod should not invent a custom wallet cryptography format unless there is a compelling security reason that cannot be achieved with established Ethereum V3 implementations and primitives.
 
 Current design decision:
 
@@ -58,6 +58,30 @@ Current design decision:
 - keep an ArtGod-owned metadata index for label, assignment, and status
 
 This keeps ArtGod aligned with the standard Ethereum V3 format and Foundry-compatible decrypt path without inheriting the upstream writer's weak default work factor.
+
+### Direct Implementation Comparison
+
+The remediation was reviewed directly against exact upstream sources on 2026-07-12:
+
+- Foundry [`v1.7.1` at `4072e48705af9d93e3c0f6e29e93b5e9a40caed8`](https://github.com/foundry-rs/foundry/tree/4072e48705af9d93e3c0f6e29e93b5e9a40caed8), released 2026-05-08
+- Geth [`v1.17.4` at `36a7dc72e96b3f42846be925cfeb2fad18489917`](https://github.com/ethereum/go-ethereum/tree/36a7dc72e96b3f42846be925cfeb2fad18489917), released 2026-06-22
+
+Supplemental checks against Foundry master
+[`61a1bb421e4aa5c4ce38da57f5e9064b0aff3330`](https://github.com/foundry-rs/foundry/tree/61a1bb421e4aa5c4ce38da57f5e9064b0aff3330)
+and Geth master
+[`3ab52d837d7baec73b53cdfbdb3bfb5fee6a81fe`](https://github.com/ethereum/go-ethereum/tree/3ab52d837d7baec73b53cdfbdb3bfb5fee6a81fe)
+confirmed the same relevant behavior.
+
+Foundry uses the same Ethereum V3/Alloy read path but still writes the weak
+`eth-keystore` default. Geth does not patch scrypt: it owns a parameterized
+keystore wrapper around the unmodified Go scrypt implementation and uses
+`N=2^18`, `r=8`, `p=1`, `dklen=32` as its standard profile. ArtGod likewise
+keeps the scrypt primitive unchanged; the source-pinned patch restores the
+missing parameter control in the Rust wrapper and enforces the Geth-standard
+profile on every ArtGod writer path.
+
+The detailed source, dependency, and before/after inventory is recorded in the
+[`eth-keystore` patch record](../../src-tauri/vendor/eth-keystore/ARTGOD-PATCH.md).
 
 ## Scope
 
@@ -351,8 +375,8 @@ ArtGod should store private keys using the standard Ethereum keystore JSON forma
 
 Reason:
 
-- this aligns directly with Foundry/Paradigm wallet handling
-- this lets ArtGod reuse the Ethereum V3 construction used by Alloy and Foundry
+- this interoperates with Foundry's Ethereum V3 read path
+- this lets ArtGod reuse the Ethereum V3 construction used by Alloy, Foundry, and Geth
 - this avoids custom cryptography design and maintenance work
 - this keeps the on-disk format recognizable and auditable
 
@@ -379,6 +403,7 @@ The keystore service must:
 - derive the wallet address in Rust
 - use Alloy/`eth-keystore` keystore encryption and decryption primitives
 - emit the exact ArtGod-owned scrypt work policy on every new import
+- reject decrypted key material unless its derived address matches the stored wallet metadata
 - zeroize passphrase and plaintext key buffers after use
 - zeroize derived KDF key buffers after encryption and decryption
 
@@ -388,6 +413,7 @@ Recommended baseline:
 - the Foundry-compatible Ethereum V3 format and shared Alloy/`eth-keystore` primitives
 - passphrase confirmation on import
 - strict tamper detection on decrypt
+- decrypted private-key binding to the canonical stored wallet address
 
 The implementation should treat the Ethereum V3 format and the pinned Alloy/`eth-keystore` primitives as the source of truth for the file crypto path.
 ArtGod owns wallet orchestration, metadata, runtime boundaries, and the work-factor policy, not a custom encryption scheme.
@@ -430,7 +456,8 @@ AlloyKeystore::write_keystore
   -> write_private_file_atomic
 ```
 
-The after profile is the [Geth-standard](https://geth.ethereum.org/docs/developers/dapp-developer/native-accounts), roughly 256 MiB profile already represented by the Foundry-compatible repository fixture.
+The after profile is Geth's [standard](https://geth.ethereum.org/docs/developers/dapp-developer/native-accounts), roughly 256 MiB profile.
+The same parameters appear in the [Ethereum V3 scrypt test vector](https://ethereum.org/developers/docs/data-structures-and-encoding/web3-secret-storage/) and in a keystore sample committed in Foundry's tests; those samples demonstrate read compatibility, not Foundry's writer policy.
 It exceeds the current [OWASP minimum](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html) of `N=2^17`, `r=8`, `p=1`.
 The values must not be exposed through Admin config or environment variables.
 
@@ -440,6 +467,12 @@ Unlock and export remain read-only keystore operations.
 Development and test profiles optimize only the `scrypt` dependency so production-strength parameters remain practical in local checks.
 The release profile has no special override and uses the same ArtGod KDF policy through normally optimized dependencies.
 The Ethereum V3 cryptographic construction remains unchanged.
+
+### Decrypted Wallet Identity Binding
+
+Every successful decrypt derives the address from the recovered private key and compares it through the canonical wallet-address matching rule with the address stored in wallet metadata.
+A mismatch is rejected at the shared Rust keystore adapter before key material can reach export, remove verification, or bot-unlock callers.
+The trading runtime keeps its independent key-to-envelope-address check as defense in depth.
 
 ## Passphrase Policy
 
@@ -1081,6 +1114,7 @@ Rules:
 - exact scrypt parameters on every newly written keystore
 - Alloy's compatibility writer uses the same strong policy
 - Foundry-compatible keystore decrypt without file mutation
+- mismatched keystore and wallet-metadata addresses fail closed
 - tamper detection
 - wrong-passphrase rejection
 - duplicate wallet detection

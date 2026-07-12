@@ -17,7 +17,7 @@ use crate::wallet::application::use_cases::{
 };
 use crate::wallet::domain::{ValidatedWalletSecret, WalletAddress, WalletPrivateKey, WalletRecord};
 
-/// Alloy-backed Ethereum keystore adapter aligned with Foundry's wallet path.
+/// Ethereum V3 keystore adapter with an ArtGod-owned write policy.
 #[derive(Clone, Debug, Default)]
 pub struct AlloyKeystore;
 
