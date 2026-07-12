@@ -3,6 +3,7 @@ use std::sync::Arc;
 use alloy_primitives::hex;
 use serde::Serialize;
 use tauri::{AppHandle, State};
+use zeroize::Zeroizing;
 
 use crate::desktop_log::append_desktop_log;
 use crate::runtime::DesktopWalletConfig;
@@ -84,6 +85,13 @@ impl WalletCommandState {
 
     pub(crate) fn prompt(&self) -> &SecretPromptSidecar {
         &self.prompt
+    }
+
+    /// Closes prompt admission and fully cleans the active helper before shutdown continues.
+    pub(crate) fn shutdown_prompts_and_wait(&self) -> Result<(), String> {
+        self.prompt
+            .shutdown_and_wait()
+            .map_err(|error| format!("Failed to close native wallet prompt: {error}"))
     }
 
     fn list_wallet_dtos(&self) -> Result<Vec<WalletMetadataDto>, String> {
@@ -258,7 +266,10 @@ impl WalletCommandState {
                 sanitize_export_wallet_error(error)
             })?;
 
-        let private_key = format!("0x{}", hex::encode(exported_wallet.private_key.as_bytes()));
+        let private_key = Zeroizing::new(format!(
+            "0x{}",
+            hex::encode(exported_wallet.private_key.as_bytes())
+        ));
         self.prompt
             .reveal_exported_private_key(
                 app,
@@ -463,12 +474,16 @@ fn sanitize_export_wallet_error(error: ExportWalletError) -> String {
 
 fn sanitize_prompt_error(error: SecretPromptError) -> String {
     match error {
-        SecretPromptError::SpawnFailure { .. } | SecretPromptError::StdinFailure { .. } => {
+        SecretPromptError::SpawnFailure { .. }
+        | SecretPromptError::ContainmentFailure { .. }
+        | SecretPromptError::StdinFailure { .. } => {
             "Native wallet prompt is unavailable. See desktop-app logs.".to_owned()
         }
         SecretPromptError::HelperFailure { .. }
         | SecretPromptError::UnexpectedResponse { .. }
-        | SecretPromptError::ProtocolFailure { .. } => {
+        | SecretPromptError::ProtocolFailure { .. }
+        | SecretPromptError::Timeout { .. }
+        | SecretPromptError::CoordinatorFailure => {
             "Native wallet prompt failed. See desktop-app logs.".to_owned()
         }
         SecretPromptError::Busy { .. } => {

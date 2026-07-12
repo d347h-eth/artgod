@@ -79,7 +79,10 @@ The desktop shell does not replace backend/indexer/trading logic. It orchestrate
 10. Trading bots are parent-contained: stdin remains open after one exact
     secret frame as a portable liveness lease, with Linux and Windows native
     containment reinforcing parent death.
-11. Closing the admin window hides it. The runtime keeps running in the tray.
+11. Every native wallet prompt is likewise a contained sensitive child. Its
+    stdin stays open after one exact request so loss of the desktop owner closes
+    import, unlock, remove, export-confirm, or export-reveal immediately.
+12. Closing the admin window hides it. The runtime keeps running in the tray.
     Graceful runtime shutdown is triggered explicitly via tray `shutdown` or app
     exit.
 
@@ -590,6 +593,16 @@ retains the child handle. Stop, core invalidation, recipient exit, or handoff
 timeout force-stops the child, closing the pipe so Rust can join the writer and
 zeroize its envelope before the bot worker returns.
 
+Native wallet prompts use the same containment preparation before spawn and
+attachment before request bytes. One process owner runs the bounded request
+writer and bounded stdout/stderr readers, retains stdin after flush as the
+portable desktop-liveness lease, and kills, reaps, and joins all I/O work on
+cancellation, timeout, protocol failure, app exit, or dropped prompt work. The
+helper watches that same stdin after its exact newline-delimited request; EOF or
+read error closes the native window without a success response, while later
+bytes fail the protocol. Forced export-reveal closure scrubs the private-key UI
+state before the window is destroyed.
+
 ## Shutdown and Restart Semantics
 
 ### Trigger Paths
@@ -621,6 +634,11 @@ start generation, waits for in-flight decrypt/start work to unwind, then
 excludes stale controller publication and stale status cleanup before returning.
 If the spawned recipient does not read stdin, Stop terminates it and joins the
 blocked secret writer instead of waiting for pipe capacity.
+
+Admin/tray shutdown and `ExitRequested` cancel the composition-owned prompt
+controller before runtime shutdown waits begin. Prompt task drop has the same
+kill/reap/join boundary. Bot Stop remains an additional cancellation source only
+for the unlock prompt owned by that bot generation.
 
 ### Restart Strategy
 
@@ -786,14 +804,20 @@ Current state:
   after `bot_ready` and requires that exact bot PID to disappear. A separate
   containment-primitive test requires heartbeat activity to stop after its
   parent is hard-killed.
-- Sensitive-process and hard-parent-death gates run before no-bundle or release
-  packaging. They cover the retired prompt-response inputs, isolated current-
-  process/core-limit controls, sensitive-child inheritance, fixed Node
-  arguments, pinned-Node `SIGUSR1` behavior, the frozen environment, and the
-  existing parent-death proofs.
+- Linux build checks, a required ordinary macOS job, and Linux/macOS release
+  builds run the prompt parent-containment gate. It covers every prompt action,
+  blocked request writing, bounded output, timeout, cancellation/response
+  races, task drop, app-exit cleanup, stdin owner loss, and export-reveal hard
+  parent death before packaging.
+- Sensitive-process and parent-death gates run before no-bundle or release
+  packaging. They also cover the retired prompt-response inputs, isolated
+  current-process/core-limit controls, sensitive-child inheritance, fixed Node
+  arguments, pinned-Node `SIGUSR1` behavior, the frozen environment, and the bot
+  parent-death proofs.
 - The ordinary build workflow compiles the Windows WER no-heap and Job Object
-  paths on a Windows runner. That lane is compile-only; Windows release
-  artifacts and an executed Windows hardening proof remain deferred.
+  paths, including the prompt owner, on a Windows runner. That lane is
+  compile-only; Windows release artifacts and an executed Windows prompt/bot
+  containment proof remain deferred.
 - Linux artifacts are GPG-signed (detached armor signatures).
 - Final release assembly re-verifies downloaded AppImage and `.deb` signatures
   before signing the checksum manifest.

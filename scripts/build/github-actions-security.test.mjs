@@ -26,11 +26,30 @@ const sensitiveProcessGateCommands = [
     "runtime::supervisor::tests::trading_bot_node_args_disable_signal_started_inspection_exactly_once",
     "runtime::supervisor::tests::key_bearing_bot_environment_is_rebuilt_from_frozen_config",
 ];
-const botHardParentDeathTestCommand = "yarn test:desktop:parent-containment";
-const botHardParentDeathBuildStepName =
-    "Test bot hard-parent-death containment";
-const botHardParentDeathReleaseStepName =
-    "Test release bot hard-parent-death containment";
+const secretPromptParentContainmentTestCommand =
+    "yarn test:desktop:secret-prompt-parent-containment";
+const secretPromptParentContainmentGateScriptName =
+    "test:desktop:secret-prompt-parent-containment";
+const secretPromptParentContainmentGateCommands = [
+    "cargo test --manifest-path src-tauri/Cargo.toml --locked --offline wallet::infra::prompt::secret_prompt_sidecar::tests --lib",
+    "cargo test --manifest-path src-tauri/Cargo.toml --locked --offline wallet::infra::prompt::secret_prompt_sidecar::tests::export_reveal_fixture_never_survives_hard_parent_death --lib -- --ignored --exact",
+    "cargo test --manifest-path src-tauri/sidecars/artgod-secret-prompt/Cargo.toml --locked --offline",
+];
+const desktopParentContainmentTestCommand =
+    "yarn test:desktop:parent-containment";
+const desktopParentContainmentGateScriptName =
+    "test:desktop:parent-containment";
+const desktopParentContainmentBuildStepName = "Test desktop parent containment";
+const desktopParentContainmentReleaseStepName =
+    "Test release desktop parent containment";
+const macosPromptContainmentJobName = "macos-prompt-containment-check";
+const macosRootCargoFetchStepName = "Fetch macOS root Cargo dependencies";
+const macosRootCargoFetchCommand =
+    "cargo fetch --manifest-path src-tauri/Cargo.toml --locked";
+const macosPromptSidecarPrepareStepName = "Prepare macOS secret prompt sidecar";
+const macosPromptSidecarPrepareCommand =
+    "node ./scripts/build/prepare-desktop-sidecars.mjs --profile debug";
+const macosPromptContainmentStepName = "Test secret prompt parent containment";
 const windowsContainmentTarget = "x86_64-pc-windows-msvc";
 const windowsSidecarPrepareCommand =
     "node ./scripts/build/prepare-desktop-sidecars.mjs --profile debug";
@@ -230,7 +249,7 @@ test("runs the resolved WebView shell ACL test in build and release lanes", asyn
     }
 });
 
-test("runs bot hard-parent-death containment in the ordinary Tauri build job", async () => {
+test("runs desktop parent containment in the ordinary Linux Tauri build job", async () => {
     const workflow = await readFile(
         path.join(workflowsDirectory, "tauri-build-check.yml"),
         "utf8",
@@ -238,16 +257,19 @@ test("runs bot hard-parent-death containment in the ordinary Tauri build job", a
     const tauriCheckJob = extractWorkflowJob(workflow, "tauri-check");
     const containmentStep = extractWorkflowStep(
         tauriCheckJob,
-        botHardParentDeathBuildStepName,
+        desktopParentContainmentBuildStepName,
     );
 
-    assert.equal(countOccurrences(workflow, botHardParentDeathTestCommand), 1);
+    assert.equal(
+        countOccurrences(workflow, desktopParentContainmentTestCommand),
+        1,
+    );
     assert.doesNotMatch(tauriCheckJob, /^ {8}continue-on-error:/m);
-    assertStepRunsCommand(containmentStep, botHardParentDeathTestCommand);
+    assertStepRunsCommand(containmentStep, desktopParentContainmentTestCommand);
     assertStepIsRequired(containmentStep);
     assertStepPrecedes(
         tauriCheckJob,
-        botHardParentDeathBuildStepName,
+        desktopParentContainmentBuildStepName,
         "Tauri no-bundle build check",
     );
 });
@@ -269,7 +291,7 @@ test("runs sensitive-process hardening before the ordinary Tauri build", async (
     assertStepPrecedes(
         tauriCheckJob,
         sensitiveProcessBuildStepName,
-        botHardParentDeathBuildStepName,
+        desktopParentContainmentBuildStepName,
     );
     assertStepPrecedes(
         tauriCheckJob,
@@ -301,6 +323,83 @@ test("keeps every sensitive-process proof in the release gate alias", async () =
     }
 });
 
+test("keeps prompt lifecycle proofs in the combined parent-containment gate", async () => {
+    const packageManifest = JSON.parse(
+        await readFile(packageManifestPath, "utf8"),
+    );
+    const promptGateScript =
+        packageManifest.scripts?.[secretPromptParentContainmentGateScriptName];
+    assert.equal(typeof promptGateScript, "string");
+
+    let previousCommandIndex = -1;
+    for (const command of secretPromptParentContainmentGateCommands) {
+        const commandIndex = promptGateScript.indexOf(command);
+        assert.ok(
+            commandIndex >= 0,
+            `${secretPromptParentContainmentGateScriptName} omits ${command}.`,
+        );
+        assert.ok(
+            commandIndex > previousCommandIndex,
+            `${secretPromptParentContainmentGateScriptName} runs ${command} out of order.`,
+        );
+        previousCommandIndex = commandIndex;
+    }
+
+    const combinedGateScript =
+        packageManifest.scripts?.[desktopParentContainmentGateScriptName];
+    assert.equal(typeof combinedGateScript, "string");
+    assert.ok(
+        combinedGateScript.includes(secretPromptParentContainmentTestCommand),
+        `${desktopParentContainmentGateScriptName} omits ${secretPromptParentContainmentTestCommand}.`,
+    );
+});
+
+test("runs prompt parent containment in an ordinary required macOS job", async () => {
+    const workflow = await readFile(
+        path.join(workflowsDirectory, "tauri-build-check.yml"),
+        "utf8",
+    );
+    const macosJob = extractWorkflowJob(
+        workflow,
+        macosPromptContainmentJobName,
+    );
+    const rootCargoFetchStep = extractWorkflowStep(
+        macosJob,
+        macosRootCargoFetchStepName,
+    );
+    const sidecarStep = extractWorkflowStep(
+        macosJob,
+        macosPromptSidecarPrepareStepName,
+    );
+    const containmentStep = extractWorkflowStep(
+        macosJob,
+        macosPromptContainmentStepName,
+    );
+
+    assert.match(macosJob, /^ {8}runs-on: macos-latest$/m);
+    assert.doesNotMatch(macosJob, /^ {8}if:/m);
+    assert.doesNotMatch(macosJob, /^ {8}continue-on-error:/m);
+    assertStepRunsCommand(rootCargoFetchStep, macosRootCargoFetchCommand);
+    assertStepIsRequired(rootCargoFetchStep);
+    assertStepRunsCommand(sidecarStep, macosPromptSidecarPrepareCommand);
+    assertStepIsRequired(sidecarStep);
+    assertStepRunsCommand(
+        containmentStep,
+        secretPromptParentContainmentTestCommand,
+    );
+    assertStepIsRequired(containmentStep);
+    assertStepPrecedes(
+        macosJob,
+        macosPromptSidecarPrepareStepName,
+        macosPromptContainmentStepName,
+    );
+    assertStepPrecedes(
+        macosJob,
+        macosRootCargoFetchStepName,
+        macosPromptContainmentStepName,
+    );
+});
+
 test("runs release containment on both build platforms before artifacts leave the job", async () => {
     const workflow = await readFile(
         path.join(workflowsDirectory, "tauri-release.yml"),
@@ -309,14 +408,17 @@ test("runs release containment on both build platforms before artifacts leave th
     const buildJob = extractWorkflowJob(workflow, "build");
     const containmentStep = extractWorkflowStep(
         buildJob,
-        botHardParentDeathReleaseStepName,
+        desktopParentContainmentReleaseStepName,
     );
 
-    assert.equal(countOccurrences(workflow, botHardParentDeathTestCommand), 1);
+    assert.equal(
+        countOccurrences(workflow, desktopParentContainmentTestCommand),
+        1,
+    );
     assert.match(buildJob, /^ {20}- os: ubuntu-22\.04$/m);
     assert.match(buildJob, /^ {20}- os: macos-latest$/m);
     assert.doesNotMatch(buildJob, /^ {8}continue-on-error:/m);
-    assertStepRunsCommand(containmentStep, botHardParentDeathTestCommand);
+    assertStepRunsCommand(containmentStep, desktopParentContainmentTestCommand);
     assertStepIsRequired(containmentStep);
 
     for (const buildStepName of [
@@ -325,7 +427,7 @@ test("runs release containment on both build platforms before artifacts leave th
     ]) {
         assertStepPrecedes(
             buildJob,
-            botHardParentDeathReleaseStepName,
+            desktopParentContainmentReleaseStepName,
             buildStepName,
         );
     }
@@ -342,7 +444,7 @@ test("runs release containment on both build platforms before artifacts leave th
     ]) {
         assertStepPrecedes(
             buildJob,
-            botHardParentDeathReleaseStepName,
+            desktopParentContainmentReleaseStepName,
             protectedStepName,
         );
     }
@@ -367,7 +469,7 @@ test("runs release sensitive-process hardening on both platforms before packagin
     assertStepPrecedes(
         buildJob,
         sensitiveProcessReleaseStepName,
-        botHardParentDeathReleaseStepName,
+        desktopParentContainmentReleaseStepName,
     );
     for (const buildStepName of [
         "Build Linux Tauri bundle",

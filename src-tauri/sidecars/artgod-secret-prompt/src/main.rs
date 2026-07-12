@@ -1,8 +1,10 @@
 mod generated_font;
+mod owner_liveness;
 mod prompt_ui;
 
 use std::env;
 use std::io::{self, BufRead, Write};
+use std::process::ExitCode;
 
 use artgod_secret_prompt_protocol::{
     CancelledSecretPromptResponse, ErrorSecretPromptResponse, ExportConfirmSecretPromptRequest,
@@ -14,6 +16,7 @@ use artgod_secret_prompt_protocol::{
     UnlockSecretPromptRequest, UnlockSecretPromptResponse,
 };
 use artgod_sensitive_process::harden_current_process;
+use owner_liveness::OwnerLiveness;
 use prompt_ui::{
     ExportConfirmPromptSpec, ImportPromptSpec, RemoveConfirmPromptSpec, RevealPromptSpec,
     UnlockPromptSpec,
@@ -21,15 +24,16 @@ use prompt_ui::{
 use thiserror::Error;
 use zeroize::Zeroizing;
 
-fn main() {
+fn main() -> ExitCode {
     // Disable ordinary process dumps before accepting a secret-bearing prompt request.
     if let Err(error) = harden_current_process() {
         eprintln!("Secret prompt sensitive-process hardening failed: {error}");
-        std::process::exit(1);
+        return ExitCode::FAILURE;
     }
 
-    let exit_code = match run() {
-        Ok(()) => 0,
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(SecretPromptHelperError::OwnerLost) => ExitCode::FAILURE,
         Err(error) => {
             let action = error.action().unwrap_or(SecretPromptAction::Unlock);
             let response = SecretPromptResponse::Error(ErrorSecretPromptResponse {
@@ -38,10 +42,9 @@ fn main() {
                 message: error.public_message(),
             });
             let _ = write_response(&response);
-            1
+            ExitCode::FAILURE
         }
-    };
-    std::process::exit(exit_code);
+    }
 }
 
 fn run() -> Result<(), SecretPromptHelperError> {
@@ -55,7 +58,8 @@ fn run() -> Result<(), SecretPromptHelperError> {
         });
     }
 
-    let response = handle_request(request)?;
+    let owner_liveness = OwnerLiveness::default();
+    let response = handle_request(request, &owner_liveness)?;
     write_response(&response)?;
     Ok(())
 }
@@ -94,18 +98,24 @@ fn read_request_from(
     reader: impl BufRead,
 ) -> Result<SecretPromptRequest, SecretPromptHelperError> {
     let mut raw_request = Zeroizing::new(String::new());
-    reader
+    let bytes_read = reader
         .take((SECRET_PROMPT_MAX_REQUEST_BYTES + 2) as u64)
         .read_line(&mut raw_request)
         .map_err(|error| {
             SecretPromptHelperError::IoFailure(format!("Failed to read prompt request: {error}"))
         })?;
+    if bytes_read == 0 {
+        return Err(SecretPromptHelperError::OwnerLost);
+    }
     if raw_request.len() > SECRET_PROMPT_MAX_REQUEST_BYTES + 1 {
         return Err(SecretPromptHelperError::InvalidRequest(format!(
             "Request payload exceeded {} bytes for action {}",
             SECRET_PROMPT_MAX_REQUEST_BYTES,
             action.as_cli_arg()
         )));
+    }
+    if !raw_request.ends_with('\n') {
+        return Err(SecretPromptHelperError::OwnerLost);
     }
     let request_payload = raw_request
         .strip_suffix('\n')
@@ -140,30 +150,38 @@ fn parse_request_payload(
 
 fn handle_request(
     request: SecretPromptRequest,
+    owner_liveness: &OwnerLiveness,
 ) -> Result<SecretPromptResponse, SecretPromptHelperError> {
     match request {
-        SecretPromptRequest::Import(payload) => handle_import_request(payload),
-        SecretPromptRequest::Unlock(payload) => handle_unlock_request(payload),
-        SecretPromptRequest::RemoveConfirm(payload) => handle_remove_confirm_request(payload),
-        SecretPromptRequest::ExportConfirm(payload) => handle_export_confirm_request(payload),
-        SecretPromptRequest::ExportReveal(payload) => handle_export_reveal_request(payload),
+        SecretPromptRequest::Import(payload) => handle_import_request(payload, owner_liveness),
+        SecretPromptRequest::Unlock(payload) => handle_unlock_request(payload, owner_liveness),
+        SecretPromptRequest::RemoveConfirm(payload) => {
+            handle_remove_confirm_request(payload, owner_liveness)
+        }
+        SecretPromptRequest::ExportConfirm(payload) => {
+            handle_export_confirm_request(payload, owner_liveness)
+        }
+        SecretPromptRequest::ExportReveal(payload) => {
+            handle_export_reveal_request(payload, owner_liveness)
+        }
     }
 }
 
 fn handle_import_request(
     payload: ImportSecretPromptRequest,
+    owner_liveness: &OwnerLiveness,
 ) -> Result<SecretPromptResponse, SecretPromptHelperError> {
-    let Some(output) = prompt_ui::prompt_import(ImportPromptSpec {
-        title: "Import Wallet",
-        wallet_label_hint: payload.wallet_label_hint.as_deref().unwrap_or(""),
-        passphrase_min_length: payload.passphrase_min_length,
-        ok_label: "OK",
-        cancel_label: "Cancel",
-    })
-    .map_err(|error| SecretPromptHelperError::UiFailure {
-        action: SecretPromptAction::Import,
-        message: error.to_string(),
-    })?
+    let Some(output) = prompt_ui::prompt_import(
+        ImportPromptSpec {
+            title: "Import Wallet",
+            wallet_label_hint: payload.wallet_label_hint.as_deref().unwrap_or(""),
+            passphrase_min_length: payload.passphrase_min_length,
+            ok_label: "OK",
+            cancel_label: "Cancel",
+        },
+        owner_liveness,
+    )
+    .map_err(|error| map_prompt_ui_error(SecretPromptAction::Import, error))?
     else {
         return Ok(cancelled(SecretPromptAction::Import));
     };
@@ -179,6 +197,7 @@ fn handle_import_request(
 
 fn handle_unlock_request(
     payload: UnlockSecretPromptRequest,
+    owner_liveness: &OwnerLiveness,
 ) -> Result<SecretPromptResponse, SecretPromptHelperError> {
     let passphrase_message = format!(
         "Unlock wallet \"{}\" ({}) to {}",
@@ -189,17 +208,17 @@ fn handle_unlock_request(
         .as_ref()
         .map(build_bidding_mandate_review_pages)
         .unwrap_or_default();
-    let Some(passphrase) = prompt_ui::prompt_unlock(UnlockPromptSpec {
-        title: "Unlock Wallet",
-        passphrase_message: &passphrase_message,
-        review_pages,
-        unlock_label: "Unlock",
-        cancel_label: "Cancel",
-    })
-    .map_err(|error| SecretPromptHelperError::UiFailure {
-        action: SecretPromptAction::Unlock,
-        message: error.to_string(),
-    })?
+    let Some(passphrase) = prompt_ui::prompt_unlock(
+        UnlockPromptSpec {
+            title: "Unlock Wallet",
+            passphrase_message: &passphrase_message,
+            review_pages,
+            unlock_label: "Unlock",
+            cancel_label: "Cancel",
+        },
+        owner_liveness,
+    )
+    .map_err(|error| map_prompt_ui_error(SecretPromptAction::Unlock, error))?
     else {
         return Ok(cancelled(SecretPromptAction::Unlock));
     };
@@ -279,27 +298,28 @@ fn render_prompt_value(value: &str) -> String {
 
 fn handle_remove_confirm_request(
     payload: RemoveConfirmSecretPromptRequest,
+    owner_liveness: &OwnerLiveness,
 ) -> Result<SecretPromptResponse, SecretPromptHelperError> {
     let message = format!(
         "Remove wallet \"{}\" ({}) from this device?",
         payload.wallet_label, payload.wallet_address
     );
     let confirmation_message = format!("Type {} to continue", payload.expected_confirmation);
-    let Some(output) = prompt_ui::prompt_remove_confirmation(RemoveConfirmPromptSpec {
-        title: "Remove Wallet",
-        message: &message,
-        confirm_label: "Remove",
-        cancel_label: "Cancel",
-        typed_confirmation_message: &confirmation_message,
-        typed_confirmation_ok_label: "OK",
-        expected_confirmation: &payload.expected_confirmation,
-        passphrase_message: "Enter wallet passphrase",
-        passphrase_ok_label: "OK",
-    })
-    .map_err(|error| SecretPromptHelperError::UiFailure {
-        action: SecretPromptAction::RemoveConfirm,
-        message: error.to_string(),
-    })?
+    let Some(output) = prompt_ui::prompt_remove_confirmation(
+        RemoveConfirmPromptSpec {
+            title: "Remove Wallet",
+            message: &message,
+            confirm_label: "Remove",
+            cancel_label: "Cancel",
+            typed_confirmation_message: &confirmation_message,
+            typed_confirmation_ok_label: "OK",
+            expected_confirmation: &payload.expected_confirmation,
+            passphrase_message: "Enter wallet passphrase",
+            passphrase_ok_label: "OK",
+        },
+        owner_liveness,
+    )
+    .map_err(|error| map_prompt_ui_error(SecretPromptAction::RemoveConfirm, error))?
     else {
         return Ok(cancelled(SecretPromptAction::RemoveConfirm));
     };
@@ -313,27 +333,28 @@ fn handle_remove_confirm_request(
 
 fn handle_export_confirm_request(
     payload: ExportConfirmSecretPromptRequest,
+    owner_liveness: &OwnerLiveness,
 ) -> Result<SecretPromptResponse, SecretPromptHelperError> {
     let message = format!(
         "Reveal the private key for wallet \"{}\" ({})?",
         payload.wallet_label, payload.wallet_address
     );
     let confirmation_message = format!("Type {} to continue", payload.expected_confirmation);
-    let Some(output) = prompt_ui::prompt_export_confirmation(ExportConfirmPromptSpec {
-        title: "Export Wallet",
-        message: &message,
-        confirm_label: "Reveal",
-        cancel_label: "Cancel",
-        typed_confirmation_message: &confirmation_message,
-        typed_confirmation_ok_label: "OK",
-        expected_confirmation: &payload.expected_confirmation,
-        passphrase_message: "Enter wallet passphrase",
-        passphrase_ok_label: "OK",
-    })
-    .map_err(|error| SecretPromptHelperError::UiFailure {
-        action: SecretPromptAction::ExportConfirm,
-        message: error.to_string(),
-    })?
+    let Some(output) = prompt_ui::prompt_export_confirmation(
+        ExportConfirmPromptSpec {
+            title: "Export Wallet",
+            message: &message,
+            confirm_label: "Reveal",
+            cancel_label: "Cancel",
+            typed_confirmation_message: &confirmation_message,
+            typed_confirmation_ok_label: "OK",
+            expected_confirmation: &payload.expected_confirmation,
+            passphrase_message: "Enter wallet passphrase",
+            passphrase_ok_label: "OK",
+        },
+        owner_liveness,
+    )
+    .map_err(|error| map_prompt_ui_error(SecretPromptAction::ExportConfirm, error))?
     else {
         return Ok(cancelled(SecretPromptAction::ExportConfirm));
     };
@@ -347,20 +368,23 @@ fn handle_export_confirm_request(
 
 fn handle_export_reveal_request(
     payload: ExportRevealSecretPromptRequest,
+    owner_liveness: &OwnerLiveness,
 ) -> Result<SecretPromptResponse, SecretPromptHelperError> {
-    let message = format!(
+    let message = Zeroizing::new(format!(
         "Wallet: {} ({})\n\nPrivate key:\n{}\n\nClipboard copy is disabled. Close this window when you are done.",
-        payload.wallet_label, payload.wallet_address, payload.private_key
-    );
-    prompt_ui::reveal(RevealPromptSpec {
-        title: "Export Wallet",
-        message: &message,
-        acknowledge_label: "Close",
-    })
-    .map_err(|error| SecretPromptHelperError::UiFailure {
-        action: SecretPromptAction::ExportReveal,
-        message: error.to_string(),
-    })?;
+        payload.wallet_label,
+        payload.wallet_address,
+        payload.private_key.as_str()
+    ));
+    prompt_ui::reveal(
+        RevealPromptSpec {
+            title: "Export Wallet",
+            message: &message,
+            acknowledge_label: "Close",
+        },
+        owner_liveness,
+    )
+    .map_err(|error| map_prompt_ui_error(SecretPromptAction::ExportReveal, error))?;
     Ok(SecretPromptResponse::ExportRevealAcknowledged(
         ExportRevealAcknowledgedResponse { acknowledged: true },
     ))
@@ -368,6 +392,20 @@ fn handle_export_reveal_request(
 
 fn cancelled(action: SecretPromptAction) -> SecretPromptResponse {
     SecretPromptResponse::Cancelled(CancelledSecretPromptResponse { action })
+}
+
+fn map_prompt_ui_error(
+    action: SecretPromptAction,
+    error: prompt_ui::PromptUiError,
+) -> SecretPromptHelperError {
+    match error {
+        prompt_ui::PromptUiError::OwnerLost => SecretPromptHelperError::OwnerLost,
+        prompt_ui::PromptUiError::ProtocolViolation => SecretPromptHelperError::ProtocolViolation,
+        other => SecretPromptHelperError::UiFailure {
+            action,
+            message: other.to_string(),
+        },
+    }
 }
 
 fn write_response(response: &SecretPromptResponse) -> Result<(), SecretPromptHelperError> {
@@ -400,6 +438,10 @@ fn serialize_response_payload(
 
 #[derive(Debug, Error)]
 enum SecretPromptHelperError {
+    #[error("Secret prompt owner was lost")]
+    OwnerLost,
+    #[error("Secret prompt received additional stdin bytes")]
+    ProtocolViolation,
     #[error("Prompt request was invalid: {0}")]
     InvalidRequest(String),
     #[error("Prompt action mismatch: expected {expected:?}, got {actual:?}")]
@@ -421,13 +463,18 @@ impl SecretPromptHelperError {
         match self {
             Self::ActionMismatch { expected, .. } => Some(*expected),
             Self::UiFailure { action, .. } => Some(*action),
-            Self::InvalidRequest(_) | Self::IoFailure(_) => None,
+            Self::OwnerLost
+            | Self::ProtocolViolation
+            | Self::InvalidRequest(_)
+            | Self::IoFailure(_) => None,
         }
     }
 
     fn code(&self) -> SecretPromptErrorCode {
         match self {
-            Self::InvalidRequest(_) => SecretPromptErrorCode::InvalidRequest,
+            Self::OwnerLost | Self::ProtocolViolation | Self::InvalidRequest(_) => {
+                SecretPromptErrorCode::InvalidRequest
+            }
             Self::ActionMismatch { .. } => SecretPromptErrorCode::ActionMismatch,
             Self::IoFailure(_) | Self::UiFailure { .. } => SecretPromptErrorCode::InternalFailure,
         }
@@ -435,6 +482,10 @@ impl SecretPromptHelperError {
 
     fn public_message(&self) -> String {
         match self {
+            Self::OwnerLost => "Secret prompt owner was lost".to_owned(),
+            Self::ProtocolViolation => {
+                "Secret prompt received unexpected additional input".to_owned()
+            }
             Self::InvalidRequest(message) => message.clone(),
             Self::ActionMismatch { expected, actual } => {
                 format!("Expected {:?} request, got {:?}", expected, actual)
@@ -499,6 +550,24 @@ mod tests {
         let error = read_request_from(SecretPromptAction::Unlock, reader).unwrap_err();
 
         assert!(matches!(error, SecretPromptHelperError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn read_request_treats_eof_before_a_request_as_owner_loss() {
+        let error = read_request_from(SecretPromptAction::Unlock, Cursor::new(Vec::new()))
+            .expect_err("closed owner stdin must not become a protocol response");
+
+        assert!(matches!(error, SecretPromptHelperError::OwnerLost));
+    }
+
+    #[test]
+    fn read_request_treats_eof_before_newline_as_owner_loss() {
+        let request =
+            br#"{"type":"unlock","walletLabel":"Primary","walletAddress":"0x123","reason":"test"}"#;
+        let error = read_request_from(SecretPromptAction::Unlock, Cursor::new(request))
+            .expect_err("partial owner request must not open the prompt");
+
+        assert!(matches!(error, SecretPromptHelperError::OwnerLost));
     }
 
     #[test]
@@ -597,7 +666,7 @@ mod tests {
     #[test]
     fn serialize_response_payload_appends_newline() {
         let response = SecretPromptResponse::UnlockSubmitted(UnlockSecretPromptResponse {
-            passphrase: "secret".to_owned(),
+            passphrase: Zeroizing::new("secret".to_owned()),
         });
         let payload = serialize_response_payload(&response).unwrap();
         assert!(payload.ends_with(b"\n"));

@@ -12,10 +12,12 @@ use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowAttributes, WindowId};
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::generated_font::{
     ADVANCE_WIDTH, ASCII_END, ASCII_GLYPHS, ASCII_START, CELL_HEIGHT, CELL_WIDTH,
 };
+use crate::owner_liveness::{OwnerLiveness, OwnerLivenessEvent};
 
 mod generated_window_size {
     include!(concat!(env!("OUT_DIR"), "/generated_window_size.rs"));
@@ -123,9 +125,9 @@ pub enum TextValidationSpec<'a> {
 #[derive(Debug)]
 pub struct ImportPromptOutput {
     pub label: String,
-    pub private_key: String,
-    pub passphrase: String,
-    pub passphrase_confirmation: String,
+    pub private_key: Zeroizing<String>,
+    pub passphrase: Zeroizing<String>,
+    pub passphrase_confirmation: Zeroizing<String>,
 }
 
 pub struct RemoveConfirmPromptSpec<'a> {
@@ -143,7 +145,7 @@ pub struct RemoveConfirmPromptSpec<'a> {
 #[derive(Debug)]
 pub struct RemoveConfirmPromptOutput {
     pub typed_confirmation: String,
-    pub passphrase: String,
+    pub passphrase: Zeroizing<String>,
 }
 
 pub struct ExportConfirmPromptSpec<'a> {
@@ -161,11 +163,17 @@ pub struct ExportConfirmPromptSpec<'a> {
 #[derive(Debug)]
 pub struct ExportConfirmPromptOutput {
     pub typed_confirmation: String,
-    pub passphrase: String,
+    pub passphrase: Zeroizing<String>,
 }
 
 #[derive(Debug, Error)]
 pub enum PromptUiError {
+    #[error("Secret prompt owner was lost")]
+    OwnerLost,
+    #[error("Secret prompt received unexpected additional input")]
+    ProtocolViolation,
+    #[error("Failed to start prompt owner-liveness watcher: {0}")]
+    OwnerLiveness(String),
     #[error("Failed to create prompt event loop: {0}")]
     EventLoop(String),
     #[error("Failed to create prompt window: {0}")]
@@ -176,7 +184,10 @@ pub enum PromptUiError {
     Render(String),
 }
 
-pub fn prompt_unlock(spec: UnlockPromptSpec<'_>) -> Result<Option<String>, PromptUiError> {
+pub fn prompt_unlock(
+    spec: UnlockPromptSpec<'_>,
+    owner_liveness: &OwnerLiveness,
+) -> Result<Option<Zeroizing<String>>, PromptUiError> {
     let title = spec.title.to_owned();
     let window_size = resolve_unlock_window_size(&spec.review_pages)?;
     let initial_screen = if let Some(page) = spec.review_pages.first() {
@@ -207,7 +218,7 @@ pub fn prompt_unlock(spec: UnlockPromptSpec<'_>) -> Result<Option<String>, Promp
         unlock_label: spec.unlock_label.to_owned(),
         cancel_label: spec.cancel_label.to_owned(),
     });
-    match run_flow(title, flow, initial_screen, window_size)? {
+    match run_flow(title, flow, initial_screen, window_size, owner_liveness)? {
         FlowResult::UnlockSubmitted(passphrase) => Ok(Some(passphrase)),
         FlowResult::Cancelled => Ok(None),
         other => Err(PromptUiError::Render(format!(
@@ -241,6 +252,7 @@ pub(crate) fn validate_bidding_review_pages(review_pages: &[String]) -> Result<(
 
 pub fn prompt_import(
     spec: ImportPromptSpec<'_>,
+    owner_liveness: &OwnerLiveness,
 ) -> Result<Option<ImportPromptOutput>, PromptUiError> {
     let title = spec.title.to_owned();
     let flow = PromptFlow::Import(ImportFlowState {
@@ -263,7 +275,13 @@ pub fn prompt_import(
         max_len: 64,
         validation: TextValidationSpec::None,
     });
-    match run_flow(title, flow, initial_screen, TEXT_WINDOW_SIZE)? {
+    match run_flow(
+        title,
+        flow,
+        initial_screen,
+        TEXT_WINDOW_SIZE,
+        owner_liveness,
+    )? {
         FlowResult::ImportSubmitted(output) => Ok(Some(output)),
         FlowResult::Cancelled => Ok(None),
         other => Err(PromptUiError::Render(format!(
@@ -274,6 +292,7 @@ pub fn prompt_import(
 
 pub fn prompt_remove_confirmation(
     spec: RemoveConfirmPromptSpec<'_>,
+    owner_liveness: &OwnerLiveness,
 ) -> Result<Option<RemoveConfirmPromptOutput>, PromptUiError> {
     let title = spec.title.to_owned();
     let flow = PromptFlow::Remove(RemoveFlowState {
@@ -293,7 +312,13 @@ pub fn prompt_remove_confirmation(
         confirm_label: spec.confirm_label,
         cancel_label: spec.cancel_label,
     });
-    match run_flow(title, flow, initial_screen, TEXT_WINDOW_SIZE)? {
+    match run_flow(
+        title,
+        flow,
+        initial_screen,
+        TEXT_WINDOW_SIZE,
+        owner_liveness,
+    )? {
         FlowResult::RemoveConfirmSubmitted(output) => Ok(Some(output)),
         FlowResult::Cancelled => Ok(None),
         other => Err(PromptUiError::Render(format!(
@@ -304,6 +329,7 @@ pub fn prompt_remove_confirmation(
 
 pub fn prompt_export_confirmation(
     spec: ExportConfirmPromptSpec<'_>,
+    owner_liveness: &OwnerLiveness,
 ) -> Result<Option<ExportConfirmPromptOutput>, PromptUiError> {
     let title = spec.title.to_owned();
     let flow = PromptFlow::ExportConfirm(ExportConfirmFlowState {
@@ -322,7 +348,13 @@ pub fn prompt_export_confirmation(
         confirm_label: spec.confirm_label,
         cancel_label: spec.cancel_label,
     });
-    match run_flow(title, flow, initial_screen, TEXT_WINDOW_SIZE)? {
+    match run_flow(
+        title,
+        flow,
+        initial_screen,
+        TEXT_WINDOW_SIZE,
+        owner_liveness,
+    )? {
         FlowResult::ExportConfirmSubmitted(output) => Ok(Some(output)),
         FlowResult::Cancelled => Ok(None),
         other => Err(PromptUiError::Render(format!(
@@ -331,13 +363,17 @@ pub fn prompt_export_confirmation(
     }
 }
 
-pub fn reveal(spec: RevealPromptSpec<'_>) -> Result<(), PromptUiError> {
+pub fn reveal(
+    spec: RevealPromptSpec<'_>,
+    owner_liveness: &OwnerLiveness,
+) -> Result<(), PromptUiError> {
     let title = spec.title.to_owned();
     match run_flow(
         title,
         PromptFlow::SingleReveal,
         build_reveal_screen(spec),
         REVEAL_WINDOW_SIZE,
+        owner_liveness,
     )? {
         FlowResult::RevealAcknowledged => Ok(()),
         FlowResult::Cancelled => Err(PromptUiError::Render(
@@ -354,17 +390,48 @@ fn run_flow(
     flow: PromptFlow,
     screen: ScreenState,
     window_size: (u32, u32),
+    owner_liveness: &OwnerLiveness,
 ) -> Result<FlowResult, PromptUiError> {
-    let event_loop =
-        EventLoop::new().map_err(|error| PromptUiError::EventLoop(error.to_string()))?;
-    let mut app = PromptApp::new(title, flow, screen, window_size);
-    event_loop
-        .run_app(&mut app)
+    let event_loop = EventLoop::<OwnerLivenessEvent>::with_user_event()
+        .build()
         .map_err(|error| PromptUiError::EventLoop(error.to_string()))?;
+    // Arm stdin ownership before winit is allowed to create the native window.
+    owner_liveness
+        .start_stdin_watcher(event_loop.create_proxy())
+        .map_err(|error| PromptUiError::OwnerLiveness(error.to_string()))?;
+    let mut app = PromptApp::new(title, flow, screen, window_size, owner_liveness.clone());
+    let run_result = event_loop.run_app(&mut app);
+    if let Some(event) = owner_liveness.forced_event() {
+        app.scrub_secret_state();
+        return Err(prompt_error_for_owner_event(event));
+    }
+    if let Err(error) = run_result {
+        if owner_liveness.claim_ui_completion() {
+            return Err(PromptUiError::EventLoop(error.to_string()));
+        }
+        if let Some(event) = owner_liveness.forced_event() {
+            app.scrub_secret_state();
+            return Err(prompt_error_for_owner_event(event));
+        }
+        return Err(PromptUiError::EventLoop(error.to_string()));
+    }
     if let Some(error) = app.error {
         return Err(error);
     }
+    if app.result.is_none() && !owner_liveness.claim_ui_completion() {
+        if let Some(event) = owner_liveness.forced_event() {
+            app.scrub_secret_state();
+            return Err(prompt_error_for_owner_event(event));
+        }
+    }
     Ok(app.result.unwrap_or(FlowResult::Cancelled))
+}
+
+fn prompt_error_for_owner_event(event: OwnerLivenessEvent) -> PromptUiError {
+    match event {
+        OwnerLivenessEvent::OwnerLost => PromptUiError::OwnerLost,
+        OwnerLivenessEvent::ProtocolViolation => PromptUiError::ProtocolViolation,
+    }
 }
 
 fn build_text_screen(spec: TextPromptSpec<'_>) -> ScreenState {
@@ -399,19 +466,35 @@ fn build_confirm_screen(spec: ConfirmPromptSpec<'_>) -> ScreenState {
 fn build_reveal_screen(spec: RevealPromptSpec<'_>) -> ScreenState {
     ScreenState::Reveal(RevealScreenState {
         title: spec.title.to_owned(),
-        message: spec.message.to_owned(),
+        message: Zeroizing::new(spec.message.to_owned()),
         acknowledge_label: spec.acknowledge_label.to_owned(),
     })
 }
 
 #[derive(Debug)]
 enum FlowResult {
-    UnlockSubmitted(String),
+    UnlockSubmitted(Zeroizing<String>),
     RevealAcknowledged,
     ImportSubmitted(ImportPromptOutput),
     RemoveConfirmSubmitted(RemoveConfirmPromptOutput),
     ExportConfirmSubmitted(ExportConfirmPromptOutput),
     Cancelled,
+}
+
+impl FlowResult {
+    fn scrub_secrets(&mut self) {
+        match self {
+            Self::UnlockSubmitted(passphrase) => passphrase.zeroize(),
+            Self::ImportSubmitted(output) => {
+                output.private_key.zeroize();
+                output.passphrase.zeroize();
+                output.passphrase_confirmation.zeroize();
+            }
+            Self::RemoveConfirmSubmitted(output) => output.passphrase.zeroize(),
+            Self::ExportConfirmSubmitted(output) => output.passphrase.zeroize(),
+            Self::RevealAcknowledged | Self::Cancelled => {}
+        }
+    }
 }
 
 enum FlowTransition {
@@ -442,8 +525,8 @@ struct ImportFlowState {
     cancel_label: String,
     passphrase_min_length: usize,
     label: Option<String>,
-    private_key: Option<String>,
-    passphrase: Option<String>,
+    private_key: Option<Zeroizing<String>>,
+    passphrase: Option<Zeroizing<String>>,
 }
 
 struct RemoveFlowState {
@@ -455,7 +538,7 @@ struct RemoveFlowState {
     passphrase_message: String,
     passphrase_ok_label: String,
     confirmed: bool,
-    typed_confirmation: Option<String>,
+    typed_confirmation: Option<Zeroizing<String>>,
 }
 
 struct ExportConfirmFlowState {
@@ -466,7 +549,7 @@ struct ExportConfirmFlowState {
     expected_confirmation: String,
     passphrase_message: String,
     passphrase_ok_label: String,
-    typed_confirmation: Option<String>,
+    typed_confirmation: Option<Zeroizing<String>>,
 }
 
 impl PromptFlow {
@@ -487,6 +570,18 @@ impl PromptFlow {
             Self::Import(flow) => flow.on_result(result),
             Self::Remove(flow) => flow.on_result(result),
             Self::ExportConfirm(flow) => flow.on_result(result),
+        }
+    }
+
+    fn scrub_secrets(&mut self) {
+        match self {
+            Self::Import(state) => {
+                zeroize_optional_text(&mut state.private_key);
+                zeroize_optional_text(&mut state.passphrase);
+            }
+            Self::Remove(state) => zeroize_optional_text(&mut state.typed_confirmation),
+            Self::ExportConfirm(state) => zeroize_optional_text(&mut state.typed_confirmation),
+            Self::Unlock(_) | Self::SingleReveal => {}
         }
     }
 }
@@ -537,7 +632,7 @@ impl ImportFlowState {
             ScreenResult::Cancelled => Ok(FlowTransition::Finish(FlowResult::Cancelled)),
             ScreenResult::Submitted(value) => {
                 if self.label.is_none() {
-                    self.label = Some(value);
+                    self.label = Some(take_sensitive_text(value));
                     return Ok(FlowTransition::Continue(build_text_screen(
                         TextPromptSpec {
                             title: &self.title,
@@ -583,7 +678,11 @@ impl ImportFlowState {
                             input_kind: TextInputKind::Passphrase,
                             max_len: 256,
                             validation: TextValidationSpec::MatchesValue {
-                                expected: self.passphrase.as_deref().unwrap_or_default(),
+                                expected: self
+                                    .passphrase
+                                    .as_ref()
+                                    .map(|passphrase| passphrase.as_str())
+                                    .unwrap_or_default(),
                             },
                         },
                     )));
@@ -646,7 +745,7 @@ impl RemoveFlowState {
             }
             ScreenResult::Submitted(passphrase) if self.confirmed => Ok(FlowTransition::Finish(
                 FlowResult::RemoveConfirmSubmitted(RemoveConfirmPromptOutput {
-                    typed_confirmation: self.typed_confirmation.take().unwrap_or_default(),
+                    typed_confirmation: take_optional_sensitive_text(&mut self.typed_confirmation),
                     passphrase,
                 }),
             )),
@@ -694,7 +793,7 @@ impl ExportConfirmFlowState {
             }
             ScreenResult::Submitted(passphrase) => Ok(FlowTransition::Finish(
                 FlowResult::ExportConfirmSubmitted(ExportConfirmPromptOutput {
-                    typed_confirmation: self.typed_confirmation.take().unwrap_or_default(),
+                    typed_confirmation: take_optional_sensitive_text(&mut self.typed_confirmation),
                     passphrase,
                 }),
             )),
@@ -719,10 +818,17 @@ struct PromptApp {
     clipboard: Option<Clipboard>,
     screen_started_at: Instant,
     screen_interacted: bool,
+    owner_liveness: OwnerLiveness,
 }
 
 impl PromptApp {
-    fn new(title: String, flow: PromptFlow, screen: ScreenState, window_size: (u32, u32)) -> Self {
+    fn new(
+        title: String,
+        flow: PromptFlow,
+        screen: ScreenState,
+        window_size: (u32, u32),
+        owner_liveness: OwnerLiveness,
+    ) -> Self {
         Self {
             title,
             flow,
@@ -737,6 +843,7 @@ impl PromptApp {
             clipboard: Clipboard::new().ok(),
             screen_started_at: Instant::now(),
             screen_interacted: false,
+            owner_liveness,
         }
     }
 
@@ -747,6 +854,10 @@ impl PromptApp {
     }
 
     fn finish(&mut self, event_loop: &ActiveEventLoop, result: FlowResult) {
+        if !self.owner_liveness.claim_ui_completion() {
+            self.force_close_for_owner(event_loop);
+            return;
+        }
         self.result = Some(result);
         event_loop.exit();
     }
@@ -775,18 +886,54 @@ impl PromptApp {
     }
 
     fn advance(&mut self, event_loop: &ActiveEventLoop, result: ScreenResult) {
+        if self.owner_liveness.forced_event().is_some() {
+            self.force_close_for_owner(event_loop);
+            return;
+        }
         match self.flow.on_result(result) {
             Ok(FlowTransition::Continue(next_screen)) => {
+                if self.owner_liveness.forced_event().is_some() {
+                    self.force_close_for_owner(event_loop);
+                    return;
+                }
                 self.screen = next_screen;
                 self.reset_screen_guard();
                 self.request_redraw();
             }
             Ok(FlowTransition::Finish(result)) => self.finish(event_loop, result),
             Err(error) => {
-                self.error = Some(error);
-                event_loop.exit();
+                self.fail(event_loop, error);
             }
         }
+    }
+
+    fn fail(&mut self, event_loop: &ActiveEventLoop, error: PromptUiError) {
+        if self.owner_liveness.claim_ui_completion() {
+            self.error = Some(error);
+            event_loop.exit();
+        } else {
+            self.force_close_for_owner(event_loop);
+        }
+    }
+
+    fn force_close_for_owner(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(event) = self.owner_liveness.forced_event() else {
+            return;
+        };
+        self.scrub_secret_state();
+        self.surface = None;
+        self.window = None;
+        self.error = Some(prompt_error_for_owner_event(event));
+        event_loop.exit();
+    }
+
+    fn scrub_secret_state(&mut self) {
+        self.flow.scrub_secrets();
+        self.screen.scrub_secrets();
+        if let Some(result) = &mut self.result {
+            result.scrub_secrets();
+        }
+        self.result = None;
     }
 
     fn render(&mut self) -> Result<(), PromptUiError> {
@@ -801,7 +948,10 @@ impl PromptApp {
             return Ok(());
         }
         surface.resize(size)?;
-        let mut pixels = vec![BACKGROUND; (size.width as usize) * (size.height as usize)];
+        let mut pixels = Zeroizing::new(vec![
+            BACKGROUND;
+            (size.width as usize) * (size.height as usize)
+        ]);
         {
             let mut canvas = Canvas::new(&mut pixels, size.width as usize, size.height as usize);
             self.screen.render(&mut canvas, size);
@@ -816,14 +966,19 @@ impl PromptApp {
         let Ok(text) = clipboard.get_text() else {
             return;
         };
+        let text = Zeroizing::new(text);
         if let ScreenState::Text(screen) = &mut self.screen {
             screen.insert_text(&normalize_paste(&text, screen.input_kind));
         }
     }
 }
 
-impl ApplicationHandler for PromptApp {
+impl ApplicationHandler<OwnerLivenessEvent> for PromptApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.owner_liveness.forced_event().is_some() {
+            self.force_close_for_owner(event_loop);
+            return;
+        }
         let attributes = WindowAttributes::default()
             .with_title(self.title.clone())
             .with_resizable(false)
@@ -834,16 +989,14 @@ impl ApplicationHandler for PromptApp {
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Rc::new(window),
             Err(error) => {
-                self.error = Some(PromptUiError::Window(error.to_string()));
-                event_loop.exit();
+                self.fail(event_loop, PromptUiError::Window(error.to_string()));
                 return;
             }
         };
         let surface = match RenderSurface::new(window.clone()) {
             Ok(surface) => surface,
             Err(error) => {
-                self.error = Some(error);
-                event_loop.exit();
+                self.fail(event_loop, error);
                 return;
             }
         };
@@ -865,8 +1018,7 @@ impl ApplicationHandler for PromptApp {
             },
             WindowEvent::RedrawRequested => {
                 if let Err(error) = self.render() {
-                    self.error = Some(error);
-                    event_loop.exit();
+                    self.fail(event_loop, error);
                 }
             }
             WindowEvent::Resized(_) => self.request_redraw(),
@@ -950,6 +1102,10 @@ impl ApplicationHandler for PromptApp {
             }
             _ => {}
         }
+    }
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, _event: OwnerLivenessEvent) {
+        self.force_close_for_owner(event_loop);
     }
 }
 
@@ -1051,11 +1207,22 @@ impl ScreenState {
             Self::Reveal(screen) => screen.handle_click(cursor_position, size),
         }
     }
+
+    fn scrub_secrets(&mut self) {
+        match self {
+            Self::Text(screen) => {
+                screen.value.zeroize();
+                screen.validation.scrub_secrets();
+            }
+            Self::Reveal(screen) => screen.message.zeroize(),
+            Self::Confirm(_) => {}
+        }
+    }
 }
 
 #[derive(Debug)]
 enum ScreenResult {
-    Submitted(String),
+    Submitted(Zeroizing<String>),
     Confirmed,
     Acknowledged,
     Cancelled,
@@ -1064,7 +1231,7 @@ enum ScreenResult {
 struct TextScreenState {
     title: String,
     message: String,
-    value: String,
+    value: Zeroizing<String>,
     mode: TextPromptMode,
     ok_label: String,
     cancel_label: String,
@@ -1087,8 +1254,8 @@ enum TextFocus {
 enum TextValidation {
     None,
     MinLength { min_length: usize },
-    MatchesValue { expected: String },
-    ExactValue { expected: String },
+    MatchesValue { expected: Zeroizing<String> },
+    ExactValue { expected: Zeroizing<String> },
 }
 
 struct ValidationFeedback {
@@ -1103,11 +1270,18 @@ impl TextValidation {
             TextValidationSpec::None => Self::None,
             TextValidationSpec::MinLength { min_length } => Self::MinLength { min_length },
             TextValidationSpec::MatchesValue { expected } => Self::MatchesValue {
-                expected: expected.to_owned(),
+                expected: Zeroizing::new(expected.to_owned()),
             },
             TextValidationSpec::ExactValue { expected } => Self::ExactValue {
-                expected: expected.to_owned(),
+                expected: Zeroizing::new(expected.to_owned()),
             },
+        }
+    }
+
+    fn scrub_secrets(&mut self) {
+        match self {
+            Self::MatchesValue { expected } | Self::ExactValue { expected } => expected.zeroize(),
+            Self::None | Self::MinLength { .. } => {}
         }
     }
 }
@@ -1428,7 +1602,7 @@ impl TextScreenState {
             TextValidation::ExactValue { expected } => {
                 if self.value.is_empty() {
                     Some(ValidationFeedback {
-                        message: format!("Type {expected} exactly to continue."),
+                        message: format!("Type {} exactly to continue.", expected.as_str()),
                         color: TEXT_MUTED,
                         blocking: true,
                     })
@@ -1440,7 +1614,7 @@ impl TextScreenState {
                     })
                 } else {
                     Some(ValidationFeedback {
-                        message: format!("Type {expected} exactly to continue."),
+                        message: format!("Type {} exactly to continue.", expected.as_str()),
                         color: WARNING,
                         blocking: true,
                     })
@@ -1509,7 +1683,7 @@ impl ConfirmScreenLayout {
         }
     }
 
-    fn message_lines(&self, message: &str) -> Vec<String> {
+    fn message_lines(&self, message: &str) -> Vec<Zeroizing<String>> {
         wrap_text(message, self.max_message_cols)
     }
 
@@ -1606,7 +1780,7 @@ impl ConfirmScreenState {
 
 struct RevealScreenState {
     title: String,
-    message: String,
+    message: Zeroizing<String>,
     acknowledge_label: String,
 }
 
@@ -1831,11 +2005,11 @@ fn glyph_rows(ch: char) -> Option<&'static [u32; CELL_HEIGHT]> {
     ASCII_GLYPHS.get((code as usize) - ASCII_START as usize)
 }
 
-fn wrap_text(text: &str, max_cols: usize) -> Vec<String> {
-    let mut lines = Vec::<String>::new();
+fn wrap_text(text: &str, max_cols: usize) -> Vec<Zeroizing<String>> {
+    let mut lines = Vec::<Zeroizing<String>>::new();
     for raw_line in text.split('\n') {
         if raw_line.is_empty() {
-            lines.push(String::new());
+            lines.push(Zeroizing::new(String::new()));
             continue;
         }
         let mut start = 0;
@@ -1843,12 +2017,12 @@ fn wrap_text(text: &str, max_cols: usize) -> Vec<String> {
         while start < bytes.len() {
             let remaining = bytes.len() - start;
             let take = min(max_cols, remaining);
-            lines.push(raw_line[start..start + take].to_owned());
+            lines.push(Zeroizing::new(raw_line[start..start + take].to_owned()));
             start += take;
         }
     }
     if lines.is_empty() {
-        lines.push(String::new());
+        lines.push(Zeroizing::new(String::new()));
     }
     lines
 }
@@ -1863,13 +2037,32 @@ fn adjusted_scroll(current: usize, cursor_index: usize, visible_chars: usize) ->
     current
 }
 
-fn sanitize_initial_value(value: &str, input_kind: TextInputKind, max_len: usize) -> String {
-    let normalized = normalize_submit(value, input_kind);
-    normalized.chars().take(max_len).collect()
+fn take_sensitive_text(mut value: Zeroizing<String>) -> String {
+    std::mem::take(&mut *value)
 }
 
-fn filter_insert_text(text: &str, input_kind: TextInputKind) -> String {
-    match input_kind {
+fn take_optional_sensitive_text(value: &mut Option<Zeroizing<String>>) -> String {
+    value.take().map(take_sensitive_text).unwrap_or_default()
+}
+
+fn zeroize_optional_text(value: &mut Option<Zeroizing<String>>) {
+    if let Some(value) = value {
+        value.zeroize();
+    }
+    *value = None;
+}
+
+fn sanitize_initial_value(
+    value: &str,
+    input_kind: TextInputKind,
+    max_len: usize,
+) -> Zeroizing<String> {
+    let normalized = normalize_submit(value, input_kind);
+    Zeroizing::new(normalized.chars().take(max_len).collect())
+}
+
+fn filter_insert_text(text: &str, input_kind: TextInputKind) -> Zeroizing<String> {
+    Zeroizing::new(match input_kind {
         TextInputKind::PrivateKey => text
             .chars()
             .filter(|ch| !ch.is_whitespace())
@@ -1879,11 +2072,11 @@ fn filter_insert_text(text: &str, input_kind: TextInputKind) -> String {
             .chars()
             .filter(|ch| ch.is_ascii() && !ch.is_ascii_control())
             .collect(),
-    }
+    })
 }
 
-fn normalize_paste(text: &str, input_kind: TextInputKind) -> String {
-    match input_kind {
+fn normalize_paste(text: &str, input_kind: TextInputKind) -> Zeroizing<String> {
+    Zeroizing::new(match input_kind {
         TextInputKind::PrivateKey => text
             .chars()
             .filter(|ch| !ch.is_whitespace())
@@ -1894,14 +2087,14 @@ fn normalize_paste(text: &str, input_kind: TextInputKind) -> String {
             .chars()
             .filter(|ch| ch.is_ascii() && !ch.is_ascii_control())
             .collect(),
-    }
+    })
 }
 
-fn normalize_submit(text: &str, input_kind: TextInputKind) -> String {
-    match input_kind {
+fn normalize_submit(text: &str, input_kind: TextInputKind) -> Zeroizing<String> {
+    Zeroizing::new(match input_kind {
         TextInputKind::PrivateKey => text.chars().filter(|ch| !ch.is_whitespace()).collect(),
         _ => text.to_owned(),
-    }
+    })
 }
 
 #[cfg(test)]
@@ -1911,7 +2104,7 @@ mod tests {
     #[test]
     fn private_key_paste_strips_whitespace() {
         assert_eq!(
-            normalize_paste(" 0x12 34\n", TextInputKind::PrivateKey),
+            normalize_paste(" 0x12 34\n", TextInputKind::PrivateKey).as_str(),
             "0x1234"
         );
     }
@@ -1919,7 +2112,7 @@ mod tests {
     #[test]
     fn label_insert_rejects_control_chars() {
         assert_eq!(
-            filter_insert_text("abc\tdef\n", TextInputKind::Label),
+            filter_insert_text("abc\tdef\n", TextInputKind::Label).as_str(),
             "abcdef"
         );
     }
@@ -1927,7 +2120,10 @@ mod tests {
     #[test]
     fn wrap_text_hard_wraps_ascii_lines() {
         assert_eq!(
-            wrap_text("abcdef", 4),
+            wrap_text("abcdef", 4)
+                .iter()
+                .map(|line| line.as_str())
+                .collect::<Vec<_>>(),
             vec!["abcd".to_owned(), "ef".to_owned()]
         );
     }
@@ -1964,7 +2160,7 @@ mod tests {
         let screen = TextScreenState {
             title: "Import Wallet".to_owned(),
             message: "Keystore passphrase".to_owned(),
-            value: "short".to_owned(),
+            value: Zeroizing::new("short".to_owned()),
             mode: TextPromptMode::Secret,
             ok_label: "OK".to_owned(),
             cancel_label: "Cancel".to_owned(),
@@ -1989,14 +2185,14 @@ mod tests {
         let screen = TextScreenState {
             title: "Import Wallet".to_owned(),
             message: "Confirm keystore passphrase".to_owned(),
-            value: "very-secret-123".to_owned(),
+            value: Zeroizing::new("very-secret-123".to_owned()),
             mode: TextPromptMode::Secret,
             ok_label: "OK".to_owned(),
             cancel_label: "Cancel".to_owned(),
             input_kind: TextInputKind::Passphrase,
             max_len: 256,
             validation: TextValidation::MatchesValue {
-                expected: "very-secret-123".to_owned(),
+                expected: Zeroizing::new("very-secret-123".to_owned()),
             },
             focus: TextFocus::Input,
             cursor_index: 15,
@@ -2016,14 +2212,14 @@ mod tests {
         let screen = TextScreenState {
             title: "Export Wallet".to_owned(),
             message: "Type EXPORT to continue".to_owned(),
-            value: "WRONG".to_owned(),
+            value: Zeroizing::new("WRONG".to_owned()),
             mode: TextPromptMode::Plain,
             ok_label: "OK".to_owned(),
             cancel_label: "Cancel".to_owned(),
             input_kind: TextInputKind::Confirmation,
             max_len: 64,
             validation: TextValidation::ExactValue {
-                expected: "EXPORT".to_owned(),
+                expected: Zeroizing::new("EXPORT".to_owned()),
             },
             focus: TextFocus::Input,
             cursor_index: 5,
@@ -2037,5 +2233,30 @@ mod tests {
                 .map(|feedback| feedback.message),
             Some("Type EXPORT exactly to continue.".to_owned())
         );
+    }
+
+    #[test]
+    fn forced_export_reveal_closure_scrubs_private_key_ui_state() {
+        let private_key = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let screen = build_reveal_screen(RevealPromptSpec {
+            title: "Export Wallet",
+            message: private_key,
+            acknowledge_label: "Close",
+        });
+        let mut app = PromptApp::new(
+            "Export Wallet".to_owned(),
+            PromptFlow::SingleReveal,
+            screen,
+            REVEAL_WINDOW_SIZE,
+            OwnerLiveness::default(),
+        );
+
+        app.scrub_secret_state();
+
+        let ScreenState::Reveal(reveal) = &app.screen else {
+            panic!("export reveal screen must remain inspectable after explicit scrub");
+        };
+        assert!(reveal.message.is_empty());
+        assert!(app.result.is_none());
     }
 }

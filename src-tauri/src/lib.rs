@@ -500,7 +500,16 @@ pub fn run() {
             if state.shutdown_requested.swap(true, Ordering::SeqCst) {
                 return;
             }
-            if let Err(error) = state.runtime.stop(app_handle.clone()) {
+            let outcome = stop_desktop_process_owners(app_handle);
+            if let Err(error) = outcome.prompt {
+                log::error!("Native wallet prompt shutdown on exit failed: {error}");
+                append_desktop_log(
+                    app_handle,
+                    "error",
+                    "Native wallet prompt could not be closed cleanly during app exit",
+                );
+            }
+            if let Err(error) = outcome.runtime {
                 log::error!("Desktop runtime shutdown on exit failed: {error}");
                 append_desktop_log(
                     app_handle,
@@ -521,8 +530,16 @@ fn request_runtime_shutdown(app_handle: &AppHandle, reason: &str) {
     append_desktop_log(app_handle, "info", reason);
     let app_handle = app_handle.clone();
     std::thread::spawn(move || {
-        let state = app_handle.state::<DesktopState>();
-        if let Err(error) = state.runtime.stop(app_handle.clone()) {
+        let outcome = stop_desktop_process_owners(&app_handle);
+        if let Err(error) = outcome.prompt {
+            log::error!("Native wallet prompt shutdown failed: {error}");
+            append_desktop_log(
+                &app_handle,
+                "error",
+                "Native wallet prompt could not be closed cleanly during shutdown",
+            );
+        }
+        if let Err(error) = outcome.runtime {
             log::error!("Desktop runtime shutdown failed: {error}");
             append_desktop_log(
                 &app_handle,
@@ -538,6 +555,37 @@ fn request_runtime_shutdown(app_handle: &AppHandle, reason: &str) {
         }
         app_handle.exit(0);
     });
+}
+
+fn shutdown_wallet_prompts(app_handle: &AppHandle) -> Result<(), String> {
+    app_handle
+        .state::<WalletCommandState>()
+        .shutdown_prompts_and_wait()
+}
+
+type DesktopProcessOwnerShutdown = ProcessOwnerShutdown<RuntimeStatus>;
+
+fn stop_desktop_process_owners(app_handle: &AppHandle) -> DesktopProcessOwnerShutdown {
+    let state = app_handle.state::<DesktopState>();
+    stop_process_owners(
+        || shutdown_wallet_prompts(app_handle),
+        || state.runtime.stop(app_handle.clone()),
+    )
+}
+
+fn stop_process_owners<T>(
+    shutdown_prompts: impl FnOnce() -> Result<(), String>,
+    stop_runtime: impl FnOnce() -> Result<T, String>,
+) -> ProcessOwnerShutdown<T> {
+    // Prompt admission must close before bot/runtime shutdown begins.
+    let prompt = shutdown_prompts();
+    let runtime = stop_runtime();
+    ProcessOwnerShutdown { prompt, runtime }
+}
+
+struct ProcessOwnerShutdown<T> {
+    prompt: Result<(), String>,
+    runtime: Result<T, String>,
 }
 
 fn show_admin_window(app_handle: &AppHandle) {
@@ -858,4 +906,39 @@ fn open_url(url: &str) -> Result<(), String> {
         .spawn()
         .map_err(|error| format!("Failed to open URL {url}: {error}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum ShutdownStep {
+        PromptAdmission,
+        Runtime,
+    }
+
+    #[test]
+    fn process_shutdown_closes_prompt_admission_before_stopping_runtime() {
+        let steps = Mutex::new(Vec::new());
+
+        let outcome = stop_process_owners(
+            || {
+                steps.lock().unwrap().push(ShutdownStep::PromptAdmission);
+                Err("prompt cleanup failed".to_owned())
+            },
+            || {
+                steps.lock().unwrap().push(ShutdownStep::Runtime);
+                Ok(())
+            },
+        );
+
+        assert!(outcome.prompt.is_err());
+        assert!(outcome.runtime.is_ok());
+        assert_eq!(
+            *steps.lock().unwrap(),
+            vec![ShutdownStep::PromptAdmission, ShutdownStep::Runtime]
+        );
+    }
 }

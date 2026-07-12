@@ -170,7 +170,7 @@ jobs:
               if: runner.os == 'Linux'
               run: cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security
 
-            - name: Test release bot hard-parent-death containment
+            - name: Test release desktop parent containment
               run: yarn test:desktop:parent-containment
 
             - name: Validate macOS signing and notarization secrets

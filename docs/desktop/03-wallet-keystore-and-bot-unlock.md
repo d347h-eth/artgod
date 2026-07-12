@@ -142,7 +142,10 @@ These are hard rules, not suggestions.
 14. Userland bidding mutations are proposals, not wallet authority. Every bidding start requires a native-reviewed mandate resolved by Rust from canonical live collection records with enabled or paused bidding jobs.
 15. Without relying on HTTP middleware or a prior SQLite approval flag, the bidding signer must reject offers outside the approved chain, ArtGod collection ID, contract address, OpenSea slug, maximum WETH for any one NFT, and fixed per-offer quantity.
 16. Native wallet prompts are serialized by one composition-owned coordinator;
-    overlapping requests fail closed instead of opening independently.
+    overlapping requests fail closed instead of opening independently. Every
+    helper is contained before request bytes, retains stdin as the portable
+    desktop-liveness lease, and is killed and reaped before that coordinator
+    lease is released.
 17. Every bot start owns one monotonic lifecycle generation from before dependency
     stabilization through prompt, decrypt, process publication, and secret
     handoff. Stop or core shutdown cancels that generation and prevents stale work
@@ -151,7 +154,9 @@ These are hard rules, not suggestions.
     provides the portable liveness boundary, reinforced by platform process
     containment where available.
 19. Production prompt responses must follow one bounded stdin request and native
-    interaction. Environment variables cannot submit a helper response.
+    interaction. Environment variables cannot submit a helper response. The
+    helper must close without success when stdin reaches EOF or errors and must
+    reject any byte after the one request.
 20. The Tauri process and native prompt helper must install supported current-
     process dump hardening before accepting wallet secrets.
 21. Sensitive Unix child preparation must set both core limits to zero, and the
@@ -655,8 +660,22 @@ retired environment keys and production environment-value reads; automation
 must use test-only fixtures or protocol seams.
 
 The prompt adapter is shared by desktop composition and admits one prompt at a
-time across every wallet action. A bot lifecycle cancellation terminates its
-active unlock prompt; later prompt output cannot revive the cancelled start.
+time across every wallet action. It resolves the canonical Tauri-bundled helper,
+prepares and attaches shared sensitive-process containment, then writes the
+bounded zeroizing request from a separate cancellable task. The process owner
+retains stdin after flush, reads bounded zeroizing stdout/stderr, and owns the
+only kill/reap path. Cancellation, timeout, protocol failure, blocked I/O, task
+drop, app exit, and Bot Stop for unlock all finish process and I/O cleanup before
+the global coordinator lease is released.
+
+After reading the exact newline-delimited request, the helper watches that same
+stdin before and throughout native interaction. EOF or read error means its
+desktop owner is gone and closes the window without a success response; any
+additional byte fails the protocol. UI completion and owner loss share one
+atomic terminal decision. Forced closure scrubs input, validation, output,
+render scratch, and export-reveal private-key state before destroying the
+window. A bot lifecycle cancellation terminates its active unlock prompt; later
+prompt output cannot revive the cancelled start.
 
 ## WebView Responsibilities
 
@@ -1044,9 +1063,12 @@ The heartbeat table is safe for backend read-source decisions because it stores 
 
 ## Parent-Death Containment
 
-The retained stdin writer is the portable parent-liveness lease. Normal bot
-shutdown still uses the supervisor's graceful-stop path; an unexpected EOF,
-stream error, or extra byte on the parent channel makes the Node runtime exit.
+The retained stdin writer is the portable parent-liveness lease for both bots
+and native prompts. Normal bot shutdown still uses the supervisor's graceful-
+stop path; an unexpected EOF, stream error, or extra byte on the bot parent
+channel makes the Node runtime exit. For prompts, owner loss or later input
+closes native interaction immediately; export reveal produces no success reply
+and scrubs its plaintext display state.
 
 The desktop process also applies platform containment before it may send wallet
 material:
@@ -1058,22 +1080,24 @@ material:
 - macOS and other platforms use the retained pipe as the portable hard-parent-
   death boundary
 
-The OS preparation/attachment primitives now live in the shared internal
-`artgod-sensitive-process` crate. The bot supervisor uses that crate directly;
-migrating every native prompt action onto shared preparation, retained
-liveness, and kill/reap lifecycle remains separate prompt-lifecycle work.
+The OS preparation/attachment primitives live in the shared internal
+`artgod-sensitive-process` crate. Both the bot supervisor and the prompt process
+owner use that crate directly. Import, unlock, remove-confirm, export-confirm,
+and export-reveal share one spawn/write/liveness/kill/reap implementation; there
+is no action-specific supervisor.
 
 Containment setup is fail-closed. If the platform control cannot be prepared or
-attached, the child is terminated before the secret frame is written.
-Linux build checks and Linux/macOS release builds run the hard-parent-death
-proof. It launches the built Node bot through the same contained spawn and
-retained-stdin handoff used by the supervisor, waits for its real `bot_ready`
-event, proves graceful `SIGTERM` exit while stdin remains open, then hard-kills
-a nested desktop-parent harness and requires the bot PID to disappear. A
-separate containment-primitive test proves that heartbeat activity also stops
-after parent death. The ordinary build workflow additionally compiles the
-Windows WER no-heap and Job Object paths on a Windows runner; it does not claim
-an executed Windows proof.
+attached, the child is terminated before secret bytes are written. Linux build
+checks, an ordinary required macOS job, and Linux/macOS release builds run the
+prompt pipe and hard-parent-death proofs. They cover every action plus blocked
+writing, bounded output, timeout, task drop, app exit, stdin owner loss, terminal
+races, and export reveal. The bot proof separately launches the built Node bot,
+waits for its real `bot_ready` event, proves graceful `SIGTERM` exit while stdin
+remains open, then hard-kills a nested desktop-parent harness and requires the
+bot PID to disappear. The ordinary build workflow compiles the Windows WER
+no-heap and Job Object paths on a Windows runner; Windows prompt/bot containment
+remains compile-only until an executed Windows proof and public release lane are
+added.
 
 ## Crash and Inspection Hardening
 
@@ -1324,6 +1348,11 @@ Rules:
 - command -> use-case wiring
 - prompt cancellation handling
 - helper stdio protocol handling
+- every prompt action kill/reap and shared-coordinator exclusion
+- blocked writer, malformed/oversized output, timeout, task-drop, app-exit, and
+  response/cancellation race cleanup
+- stdin owner loss before and after request read, later-byte rejection, and
+  export-reveal forced-state scrubbing
 - production helper rejection of retired environment-submitted responses
 - WebView capability policy rejects every `shell:*` permission
 - main WebView raw shell spawn and stdin-write calls are denied by the resolved ACL
@@ -1334,7 +1363,8 @@ Rules:
 - one shared prompt coordinator rejects overlapping wallet operations
 - stop cancels prompt/decrypt/start and cannot be followed by stale controller
   publication
-- hard parent death removes the child PID and stops its heartbeat activity
+- hard parent death removes bot and export-reveal helper PIDs and stops bot
+  heartbeat activity
 
 ### Node Bot Tests
 

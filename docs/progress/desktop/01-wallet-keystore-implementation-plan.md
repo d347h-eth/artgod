@@ -58,11 +58,13 @@ Current state:
   through controller publication and cleanup
 - trading bot processes use portable parent-pipe liveness plus Linux/Windows
   native process containment
-- one internal sensitive-process crate owns core/dump controls and bot-child
-  preparation/attachment across the desktop and prompt-helper packages
-- remaining follow-up work includes full prompt-process lifecycle containment,
-  desktop E2E automation, and future strategy implementation rather than
-  admin-shell scaffolding
+- every prompt action uses the same bounded process owner, retained stdin
+  liveness lease, kill/reap cleanup, and shared Linux/Windows containment
+- one internal sensitive-process crate owns core/dump controls and child
+  preparation/attachment across bot and prompt process owners
+- remaining follow-up work includes broader desktop E2E automation and future
+  strategy implementation rather than admin-shell or prompt containment
+  scaffolding
 
 ## Delivery Rules
 
@@ -183,8 +185,11 @@ As of 2026-07-12:
 - The release baseline removes environment-submitted prompt responses, disables
   ordinary core dumps, hardens supported Rust processes, and disables
   signal-started inspection for key-bearing Node.
-- Full prompt-action process containment remains deferred to the dedicated
-  prompt-lifecycle assignment; this baseline only establishes its shared owner.
+- Prompt lifecycle containment is complete for import, unlock, remove-confirm,
+  export-confirm, and export-reveal. Canonical helper resolution, shared
+  containment, cancellable bounded I/O, retained stdin liveness, app/task
+  cancellation, timeout/protocol cleanup, and forced reveal-state scrubbing all
+  share one owner.
 
 ## Slice 0: Admin Shell and Desktop Hardening Baseline
 
@@ -660,15 +665,17 @@ Minimum manual scenarios:
 - restart desktop app
 - confirm restart requires a fresh prompt
 
-Automated desktop build/release checks run two hard-parent-death proofs on Linux
-and macOS: a production-path built Node bot must become ready, exit cleanly on
-`SIGTERM` with stdin retained, and lose its PID after its parent is hard-killed;
-a containment-primitive heartbeat must also stop after parent death. Before
-packaging, sensitive-process checks also prove isolated Unix core limits,
-Linux Rust nondumpability, child core-limit inheritance, fixed Node arguments,
-and `SIGUSR1` inspector suppression. The ordinary build workflow compiles the
-Windows WER no-heap and Job Object paths on Windows; that coverage is
-compile-only.
+Automated Linux build checks, a required ordinary macOS job, and Linux/macOS
+release builds run prompt parent-containment proofs for all actions, bounded and
+blocked I/O, timeout, task/app cancellation, stdin owner loss, terminal races,
+and export-reveal hard parent death. The production-path Node bot must also
+become ready, exit cleanly on `SIGTERM` with stdin retained, and lose its PID
+after its parent is hard-killed; a containment-primitive heartbeat must stop
+after parent death. Before packaging, sensitive-process checks also prove
+isolated Unix core limits, Linux Rust nondumpability, child core-limit
+inheritance, fixed Node arguments, and `SIGUSR1` inspector suppression. The
+ordinary build workflow compiles the Windows WER no-heap and Job Object paths on
+Windows; runtime prompt/bot containment coverage remains compile-only there.
 Lifecycle unit tests cover same-bot start exclusion, cross-bot independence,
 pending and active cancellation, core invalidation, assignment exclusion, and
 stale-generation cleanup.
@@ -684,8 +691,8 @@ These stay deferred even after the wallet subsystem lands:
 - unlock TTL
 - clipboard-based export convenience
 - backend HTTP wallet APIs
-- full prompt-action spawn/liveness/kill-reap migration onto the shared
-  sensitive-process component
+- an executed Windows prompt/bot containment proof and Windows public release
+  lane
 
 ## Final Rule
 
