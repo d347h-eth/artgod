@@ -56,15 +56,16 @@ function seedCollection(params: {
     return Number(result.lastInsertRowid);
 }
 
-function seedJob(params: {
+type SeedJobRecord = {
     jobId: string;
     chainId: number;
     collectionId: number;
     botKind?: TradingBotKind;
     status?: TradingJobStatus;
     targetKind: TradingJobTargetKind;
-    ceilingWei: string;
-}): void {
+};
+
+function seedJobRecord(params: SeedJobRecord): void {
     const tokenId =
         params.targetKind === TRADING_JOB_TARGET_KIND.Token
             ? params.jobId
@@ -90,6 +91,14 @@ function seedJob(params: {
         targetKind: params.targetKind,
         tokenId,
     });
+}
+
+function seedJob(
+    params: SeedJobRecord & {
+        ceilingWei: string;
+    },
+): void {
+    seedJobRecord(params);
     db.prepare<{
         jobId: string;
         ceilingWei: string;
@@ -196,6 +205,40 @@ describe("SqliteBiddingJobCeilingPrefillsRead", () => {
                 maxCeilingWei: "5000000000000000000",
             },
         ]);
+    });
+
+    it("omits archived-only collections and current jobs without bidding specs", () => {
+        const archivedOnlyCollectionId = seedCollection({
+            chainId: 1,
+            slug: "archived-only",
+            address: "0x4444444444444444444444444444444444444444",
+        });
+        const missingSpecCollectionId = seedCollection({
+            chainId: 1,
+            slug: "missing-spec",
+            address: "0x5555555555555555555555555555555555555555",
+        });
+        seedJob({
+            jobId: "archived-only",
+            chainId: 1,
+            collectionId: archivedOnlyCollectionId,
+            status: TRADING_JOB_STATUS.Archived,
+            targetKind: TRADING_JOB_TARGET_KIND.Collection,
+            ceilingWei: "1000000000000000000",
+        });
+        seedJobRecord({
+            jobId: "enabled-without-spec",
+            chainId: 1,
+            collectionId: missingSpecCollectionId,
+            targetKind: TRADING_JOB_TARGET_KIND.Collection,
+        });
+
+        assert.deepEqual(
+            new SqliteBiddingJobCeilingPrefillsRead().listCeilingPrefillMaxima({
+                chainId: 1,
+            }),
+            [],
+        );
     });
 
     it.each([TRADING_JOB_STATUS.Enabled, TRADING_JOB_STATUS.Paused])(

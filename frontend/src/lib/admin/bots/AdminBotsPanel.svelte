@@ -321,7 +321,7 @@
 										{/if}
 									</h3>
 									{#if biddingCollections.length === 0}
-										<span class="muted">no live OpenSea-ready collections</span>
+										<span class="muted">no collections ready for bidding authorization</span>
 									{:else}
 										<div class="bidding-mandate-collections">
 											{#each biddingCollections as collection (collection.collectionId)}

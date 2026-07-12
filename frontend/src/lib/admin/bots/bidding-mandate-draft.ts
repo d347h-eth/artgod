@@ -17,12 +17,12 @@ export type BiddingCollectionMandateSelection = {
 
 export type BiddingMandateSelections = Record<string, BiddingCollectionMandateSelection>;
 
-// Shows enabled-job price maxima first without moving rows while the operator edits them.
+// Shows current-job price maxima first without moving rows while the operator edits them.
 export function sortBiddingCollectionCandidatesByMaxUnitBid(
 	candidates: AdminBiddingCollectionCandidate[]
 ): AdminBiddingCollectionCandidate[] {
 	return [...candidates].sort((left, right) => {
-		const priceOrder = compareOptionalCanonicalEthDescending(
+		const priceOrder = compareCanonicalEthDescending(
 			left.jobCeilingPrefillEth,
 			right.jobCeilingPrefillEth
 		);
@@ -62,7 +62,7 @@ export function syncBiddingMandateSelections(
 				key,
 				{
 					selected: false,
-					maxUnitBidEth: candidate.jobCeilingPrefillEth ?? '',
+					maxUnitBidEth: candidate.jobCeilingPrefillEth,
 					maxUnitBidEthEdited: false
 				}
 			];
@@ -122,9 +122,7 @@ export function formatBiddingMandateWeiAsEth(wei: string): string {
 	return fraction ? `${whole}.${fraction} WETH` : `${whole} WETH`;
 }
 
-function compareOptionalCanonicalEthDescending(left: string | null, right: string | null): number {
-	if (left === null) return right === null ? 0 : 1;
-	if (right === null) return -1;
+function compareCanonicalEthDescending(left: string, right: string): number {
 	const [leftWhole, leftFraction = ''] = left.split('.');
 	const [rightWhole, rightFraction = ''] = right.split('.');
 	if (leftWhole.length !== rightWhole.length) {

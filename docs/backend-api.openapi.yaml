@@ -753,7 +753,7 @@ paths:
         get:
             tags: [Trading]
             summary: List bidding job ceiling prefills
-            description: Returns one maximum ceiling per collection across all enabled and paused bidding job scopes. This admin-only batch read supplies editable bidding authorization prefills; archived jobs are excluded.
+            description: Returns one maximum ceiling per collection across all enabled and paused bidding job scopes. This admin-only batch read defines current bidding-authorization membership and supplies editable price prefills; archived jobs are excluded.
             operationId: listBiddingJobCeilingPrefills
             parameters:
                 - $ref: "#/components/parameters/ChainRef"

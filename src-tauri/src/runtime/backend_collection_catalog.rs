@@ -24,6 +24,35 @@ pub struct BiddingChainIdentity {
 pub struct BiddingCollectionCatalog {
     pub chain: BiddingChainIdentity,
     pub collections: Vec<BiddingCollectionCandidate>,
+    job_ceiling_prefill_eth_by_collection: HashMap<u64, String>,
+}
+
+impl BiddingCollectionCatalog {
+    /// Keeps only collections backed by current enabled or paused bidding intent.
+    pub(crate) fn from_candidates_and_job_prefills(
+        chain: BiddingChainIdentity,
+        collections: Vec<BiddingCollectionCandidate>,
+        job_ceiling_prefill_eth_by_collection: HashMap<u64, String>,
+    ) -> Self {
+        let collections = collections
+            .into_iter()
+            .filter(|candidate| {
+                job_ceiling_prefill_eth_by_collection.contains_key(&candidate.collection_id)
+            })
+            .collect();
+        Self {
+            chain,
+            collections,
+            job_ceiling_prefill_eth_by_collection,
+        }
+    }
+
+    /// Returns the required current-job price prefill for an eligible collection.
+    pub(crate) fn job_ceiling_prefill_eth(&self, collection_id: u64) -> &str {
+        self.job_ceiling_prefill_eth_by_collection
+            .get(&collection_id)
+            .expect("eligible bidding collection must have a job ceiling prefill")
+    }
 }
 
 /// Canonical collection identity eligible for native bidding authorization.
@@ -42,6 +71,11 @@ pub struct BiddingCollectionCandidate {
 pub struct BackendCollectionCatalog {
     client: HttpFetchClient,
     backend_http_base_url: String,
+}
+
+struct BiddingCollectionIdentityCatalog {
+    chain: BiddingChainIdentity,
+    collections: Vec<BiddingCollectionCandidate>,
 }
 
 /// Separates concise operator recovery from durable catalog diagnostics.
@@ -100,11 +134,26 @@ impl BackendCollectionCatalog {
         })
     }
 
-    /// Streams every live page with its chain context and OpenSea-ready collections.
+    /// Loads collections with canonical identity and current declared bidding intent.
     pub async fn load_bidding_catalog(
         &self,
         chain_id: u64,
     ) -> Result<BiddingCollectionCatalog, BackendCollectionCatalogError> {
+        let identity_catalog = self.load_collection_identity_catalog(chain_id).await?;
+        let job_prefills = self
+            .load_job_ceiling_prefill_eth_by_collection(chain_id)
+            .await?;
+        Ok(BiddingCollectionCatalog::from_candidates_and_job_prefills(
+            identity_catalog.chain,
+            identity_catalog.collections,
+            job_prefills,
+        ))
+    }
+
+    async fn load_collection_identity_catalog(
+        &self,
+        chain_id: u64,
+    ) -> Result<BiddingCollectionIdentityCatalog, BackendCollectionCatalogError> {
         let endpoint = format!(
             "{}/api/{chain_id}/collections",
             self.backend_http_base_url.trim_end_matches('/')
@@ -160,14 +209,13 @@ impl BackendCollectionCatalog {
                 .cmp(&right.artgod_slug)
                 .then(left.collection_id.cmp(&right.collection_id))
         });
-        Ok(BiddingCollectionCatalog {
+        Ok(BiddingCollectionIdentityCatalog {
             chain: chain.ok_or_else(|| "Collection catalog omitted chain identity.".to_owned())?,
             collections: candidates,
         })
     }
 
-    /// Loads one editable Admin price prefill for each collection with enabled or paused jobs.
-    pub async fn load_job_ceiling_prefill_eth_by_collection(
+    async fn load_job_ceiling_prefill_eth_by_collection(
         &self,
         chain_id: u64,
     ) -> Result<HashMap<u64, String>, BackendCollectionCatalogError> {
@@ -459,6 +507,35 @@ mod tests {
         blank.opensea_ready_at = Some("   ".to_owned());
 
         assert!(map_bidding_candidate(blank, 1).unwrap().is_none());
+    }
+
+    #[test]
+    fn authorization_catalog_excludes_collections_without_current_jobs() {
+        let current = map_bidding_candidate(collection_item(), 1)
+            .unwrap()
+            .expect("ready collection should map");
+        let mut archived_only = current.clone();
+        archived_only.collection_id = 8;
+        archived_only.artgod_slug = "archived-only".to_owned();
+
+        let catalog = BiddingCollectionCatalog::from_candidates_and_job_prefills(
+            BiddingChainIdentity {
+                chain_id: 1,
+                name: "Ethereum".to_owned(),
+            },
+            vec![archived_only, current],
+            HashMap::from([(7, "1.25".to_owned())]),
+        );
+
+        assert_eq!(
+            catalog
+                .collections
+                .iter()
+                .map(|candidate| candidate.collection_id)
+                .collect::<Vec<_>>(),
+            vec![7]
+        );
+        assert_eq!(catalog.job_ceiling_prefill_eth(7), "1.25");
     }
 
     #[test]

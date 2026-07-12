@@ -62,16 +62,10 @@ describe('bidding mandate draft', () => {
 				maxUnitBidEthEdited: false
 			}
 		});
-		expect(
-			syncBiddingMandateSelections([{ ...CANDIDATE, jobCeilingPrefillEth: null }], {})
-		).toEqual({
-			'7': { selected: false, maxUnitBidEth: '', maxUnitBidEthEdited: false }
-		});
 	});
 
-	it('orders current-job maxima by exact WETH value with missing prefills last', () => {
+	it('orders current-job maxima by exact WETH value', () => {
 		const candidates = [
-			{ ...CANDIDATE, collectionId: 8, artgodSlug: 'blank', jobCeilingPrefillEth: null },
 			{ ...CANDIDATE, collectionId: 9, artgodSlug: 'nine', jobCeilingPrefillEth: '9' },
 			{ ...CANDIDATE, collectionId: 10, artgodSlug: 'ten', jobCeilingPrefillEth: '10' },
 			{ ...CANDIDATE, collectionId: 11, artgodSlug: 'fraction', jobCeilingPrefillEth: '9.5' },
@@ -87,8 +81,8 @@ describe('bidding mandate draft', () => {
 			sortBiddingCollectionCandidatesByMaxUnitBid(candidates).map(
 				(candidate) => candidate.collectionId
 			)
-		).toEqual([10, 12, 11, 9, 8]);
-		expect(candidates.map((candidate) => candidate.collectionId)).toEqual([8, 9, 10, 11, 12]);
+		).toEqual([10, 12, 11, 9]);
+		expect(candidates.map((candidate) => candidate.collectionId)).toEqual([9, 10, 11, 12]);
 	});
 
 	it('uses collection identity as a stable tie-breaker for equal price maxima', () => {

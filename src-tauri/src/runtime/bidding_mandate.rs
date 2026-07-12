@@ -70,7 +70,7 @@ pub struct BiddingStartPolicySnapshot {
 }
 
 impl BiddingMandate {
-    /// Resolves untrusted collection ids against canonical live OpenSea-ready collection records.
+    /// Resolves untrusted collection ids against canonical collections with current bidding intent.
     pub fn resolve(
         chain_id: u64,
         draft: BiddingMandateDraft,
@@ -103,7 +103,7 @@ impl BiddingMandate {
                 .get(&proposed.collection_id)
                 .ok_or_else(|| {
                     format!(
-                        "Collection {} is not live and OpenSea-ready.",
+                        "Collection {} is not eligible for bidding authorization. Refresh Bots.",
                         proposed.collection_id
                     )
                 })?;
@@ -395,7 +395,7 @@ mod tests {
             vec![candidate(7)],
         )
         .unwrap_err();
-        assert!(unknown.contains("not live and OpenSea-ready"));
+        assert!(unknown.contains("not eligible for bidding authorization"));
 
         let duplicate = BiddingMandate::resolve(
             1,

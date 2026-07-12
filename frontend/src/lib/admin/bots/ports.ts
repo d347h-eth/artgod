@@ -58,7 +58,7 @@ export type AdminBiddingCollectionIdentity = {
 // Catalog-only collection data used to initialize an authorization request.
 export type AdminBiddingCollectionCandidate = AdminBiddingCollectionIdentity & {
 	chainId: number;
-	jobCeilingPrefillEth: string | null;
+	jobCeilingPrefillEth: string;
 };
 
 export type AdminBiddingCollectionCatalog = {
