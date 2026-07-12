@@ -57,10 +57,11 @@ orders. Userland currently creates only one-NFT offers, so Admin does not send
 this quantity: Rust fixes it at one before the native review and signer
 enforcement. The native prompt and active summary show the same value.
 
-Admin does not render controls for staged or nonexistent bot kinds. If the local
-collection catalog cannot be reached because infrastructure is stopped, the
-Bots surface directs the operator to start infra instead of exposing the raw
-loopback request error.
+Admin does not render controls for staged or nonexistent bot kinds. The local
+collection catalog uses the shared `COMMON_HTTP_FETCH_*` timeout and bounded
+retry policy. If infrastructure is stopped, the Bots surface directs the
+operator to start infra; other exhausted failures direct them to restart infra
+and refresh Bots without exposing raw loopback request details.
 
 ## Targeting Capabilities
 

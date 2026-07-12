@@ -101,7 +101,7 @@ These are hard rules, not suggestions.
     file set against hashes embedded in the Rust desktop executable before
     prompting.
 13. Userland bidding mutations are proposals, not wallet authority. Every bidding start requires a native-reviewed mandate resolved by Rust from canonical live collection records.
-14. The bidding signer must reject offers outside the mandate without relying on HTTP middleware or a prior SQLite approval flag.
+14. Without relying on HTTP middleware or a prior SQLite approval flag, the bidding signer must reject offers outside the approved chain, ArtGod collection ID, contract address, OpenSea slug, per-NFT WETH cap, and fixed per-offer quantity.
 
 ## Threat Model
 
@@ -128,12 +128,16 @@ This design does not claim to protect against:
 The objective is to make the wallet boundary materially narrower and more auditable, not to solve full host compromise.
 
 The current bounded residual risk is explicit: compromised Userland code or a
-raw loopback client may cause the bot to act on created or revised jobs for a
-collection already granted in the current native mandate, but only within that
-collection's identity, maximum unit bid, and maximum per-offer quantity. This
-avoids per-job native approvals while preventing silent expansion to another
-ArtGod token scope, contract, or OpenSea orderbook slug. No browser-readable
-bearer/session credential is introduced over loopback HTTP.
+raw loopback client may cause the bot to act on created, revised, paused, or
+archived jobs for a collection already granted in the current native mandate.
+Placement remains bounded by the approved chain, ArtGod collection ID, contract
+address, OpenSea slug, maximum unit bid, and fixed per-offer quantity. Exact-token
+membership in the displayed ArtGod token scope is currently enforced by the
+canonical backend mutation paths, not independently by the signer; independent
+signer enforcement is deferred. Pause/archive mutations may also cause offchain
+cancellation of tracked offers. That availability and strategy risk is accepted
+for the current local alpha. No browser-readable bearer/session credential is
+introduced over loopback HTTP.
 
 ## Why Hybrid Instead of WebView-Only
 
@@ -678,7 +682,8 @@ Unlock rules:
 
 - passphrase prompt is always native
 - bidding policy review is always native and precedes passphrase submission
-- Admin supplies only proposed collection ids and WETH price caps; Rust supplies the displayed and injected ArtGod id, contract, token scope, OpenSea slug, and fixed one-NFT offer quantity
+- Admin supplies only proposed collection ids and WETH price caps; Rust supplies the displayed and injected ArtGod id, contract, token-scope summary, OpenSea slug, and fixed one-NFT offer quantity
+- Rust reads the canonical collection catalog through the shared `COMMON_HTTP_FETCH_*` per-attempt timeout and bounded retry policy
 - decrypt happens in Rust only
 - decrypted key lifetime in Rust must be as short as practical
 - the secret channel is one-shot and immediately closed after write
@@ -701,6 +706,8 @@ User-facing authorization review:
   native review and signer enforcement
 - Admin, prompt, and active summary must show the same Rust-resolved identity and
   limits in the same terms
+- bidding policy and collection review pages use the Admin launch-sized prompt
+  window; the helper fails closed instead of drawing a page over its action controls
 
 The word `native` remains appropriate when explaining the trusted prompt boundary
 to developers. It is not a substitute for explaining the user's bidding task in
@@ -787,8 +794,8 @@ The bot entrypoint must:
 - write only non-secret heartbeat/state rows to `trading_bot_runtime_state`
 - load bidding jobs from SQLite after secret handoff; the DB contains declared job config, not wallet material
 - carry `collectionId` on every runtime job and require an OpenSea slug for every enabled placement job
-- enforce the mandate again at the final restricted OpenSea signing boundary for every offer revision
-- keep offchain cancellation outside the placement mandate so existing orders can always be explicitly cancelled
+- enforce the mandate's chain, collection ID, contract, OpenSea slug, WETH cap, and fixed quantity again at the final restricted OpenSea signing boundary for every offer revision
+- keep offchain cancellation outside the placement mandate; unauthenticated loopback pause/archive mutations can therefore cancel tracked offers as an accepted local-alpha availability risk
 - never log the payload or derived private-key hex
 
 Important limitation:
@@ -1045,6 +1052,8 @@ The manual matrix should explicitly verify:
 - bot crash -> locked state
 - Admin request, trusted prompt, and active authorization use the same named
   chain, qualified IDs, collection identity, units, and limits
+- global policy, all-contract, token-range, and explicit-token-ID review pages
+  show every value with the native prompt action controls still visible
 - loading, disabled, infrastructure-offline, validation, and active states are
   read end to end from the operator's perspective
 
