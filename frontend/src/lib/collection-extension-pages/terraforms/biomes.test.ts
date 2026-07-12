@@ -5,6 +5,7 @@ import {
 	applyTerraformsBiomeTokenCounts,
 	buildTerraformsBiomeRows,
 	buildTerraformsBiomeTokenHref,
+	formatTerraformsBiomeTokenLabel,
 	formatTerraformsBiomeSupplyTokenCount,
 	resolveTerraformsBiomeAriaSort,
 	resolveTerraformsBiomeDefaultSortDirection,
@@ -182,5 +183,25 @@ describe('Terraforms Biome table data', () => {
 		).toBe(
 			`/ethereum/terraforms?limit=${DEFAULT_PAGE_LIMIT}&mode=grid&token_status=all&traits=Biome%3A42`
 		);
+	});
+
+	it('includes the selected Level and Zone before the Biome in token-filter links', () => {
+		expect(
+			buildTerraformsBiomeTokenHref({
+				basePath: '/ethereum/terraforms',
+				levelNumber: 12,
+				zoneName: 'Alto',
+				biomeIndex: 42
+			})
+		).toBe(
+			`/ethereum/terraforms?limit=${DEFAULT_PAGE_LIMIT}&mode=grid&token_status=all&traits=Level%3A12&traits=Zone%3AAlto&traits=Biome%3A42`
+		);
+		expect(
+			formatTerraformsBiomeTokenLabel({
+				levelNumber: 12,
+				zoneName: 'Alto',
+				biomeIndex: 42
+			})
+		).toBe('filter tokens by Level 12, Zone Alto, Biome 42');
 	});
 });

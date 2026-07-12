@@ -1,9 +1,9 @@
+import { TERRAFORMS_BIOMES, type TerraformsBiome } from '@artgod/shared/extensions/terraforms';
 import {
-	TERRAFORMS_BIOME_ATTRIBUTE_KEY,
-	TERRAFORMS_BIOMES,
-	type TerraformsBiome
-} from '@artgod/shared/extensions/terraforms';
-import { buildTerraformsHypercastleTraitTokenHref } from '$lib/collection-extension-pages/terraforms/hypercastle-token-links';
+	buildTerraformsHypercastleTokenFilterTraits,
+	buildTerraformsHypercastleTraitsTokenHref,
+	formatTerraformsHypercastleTokenFilterLabel
+} from '$lib/collection-extension-pages/terraforms/hypercastle-token-links';
 import type { TerraformsTraitCountIndex } from '$lib/collection-extension-pages/terraforms/trait-catalog-counts';
 import {
 	compareTerraformsTraitTableNullableNumbers,
@@ -73,8 +73,6 @@ export const TERRAFORMS_BIOME_TABLE_DOM = {
 
 const TERRAFORMS_BIOME_ROW_KEY_PREFIX = 'biome';
 const TERRAFORMS_BIOME_ROW_KEY_SEPARATOR = ':';
-const TERRAFORMS_BIOME_TOKEN_LABEL_PREFIX = 'filter tokens by Biome';
-const TERRAFORMS_BIOME_TOKEN_LABEL_SEPARATOR = ' ';
 const TERRAFORMS_BIOME_CHARACTER_LABEL_PREFIX = 'Biome character';
 const TERRAFORMS_BIOME_CHARACTER_LABEL_SEPARATOR = ' ';
 const TERRAFORMS_BIOME_EMPTY_STRING = '';
@@ -233,24 +231,33 @@ export function resolveTerraformsBiomeDisplayCharacters(biome: TerraformsBiome):
 	return biome.characters.map((character, index) => overrides[index] ?? character);
 }
 
-// Builds a token-browser href filtered to one Biome number.
+// Builds a token-browser href filtered to the active Level, Zone, and one Biome number.
 export function buildTerraformsBiomeTokenHref(input: {
 	basePath: string;
 	mediaMode?: string | null;
+	levelNumber?: number | null;
+	zoneName?: string | null;
 	biomeIndex: number;
 }): string {
-	return buildTerraformsHypercastleTraitTokenHref({
+	return buildTerraformsHypercastleTraitsTokenHref({
 		basePath: input.basePath,
 		mediaMode: input.mediaMode ?? null,
-		traitKey: TERRAFORMS_BIOME_ATTRIBUTE_KEY,
-		traitValue: String(input.biomeIndex)
+		traits: buildTerraformsHypercastleTokenFilterTraits({
+			levelNumber: input.levelNumber,
+			zoneName: input.zoneName,
+			biomeIndex: input.biomeIndex
+		})
 	});
 }
 
-// Builds the accessible label for a Biome token filter link.
-export function formatTerraformsBiomeTokenLabel(biomeIndex: number): string {
-	return [TERRAFORMS_BIOME_TOKEN_LABEL_PREFIX, String(biomeIndex)].join(
-		TERRAFORMS_BIOME_TOKEN_LABEL_SEPARATOR
+// Builds the accessible label for a Biome link with its active Level and Zone scope.
+export function formatTerraformsBiomeTokenLabel(input: {
+	levelNumber?: number | null;
+	zoneName?: string | null;
+	biomeIndex: number;
+}): string {
+	return formatTerraformsHypercastleTokenFilterLabel(
+		buildTerraformsHypercastleTokenFilterTraits(input)
 	);
 }
 

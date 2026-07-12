@@ -1,10 +1,13 @@
 import {
 	TERRAFORMS_HYPERCASTLE_LEVELS,
-	TERRAFORMS_ZONE_ATTRIBUTE_KEY,
 	TERRAFORMS_ZONES,
 	type TerraformsLevelSummary
 } from '@artgod/shared/extensions/terraforms';
-import { buildTerraformsHypercastleTraitTokenHref } from '$lib/collection-extension-pages/terraforms/hypercastle-token-links';
+import {
+	buildTerraformsHypercastleTokenFilterTraits,
+	buildTerraformsHypercastleTraitsTokenHref,
+	formatTerraformsHypercastleTokenFilterLabel
+} from '$lib/collection-extension-pages/terraforms/hypercastle-token-links';
 import type { TerraformsTraitCountIndex } from '$lib/collection-extension-pages/terraforms/trait-catalog-counts';
 import {
 	compareTerraformsTraitTableNullableNumbers,
@@ -127,7 +130,6 @@ const TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_SEPARATOR = ', ';
 const TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_LABEL = 'copy palette';
 const TERRAFORMS_LEVEL_ZONE_PALETTE_COPIED_LABEL = 'copied palette';
 const TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_FAILED_LABEL = 'palette copy failed';
-const TERRAFORMS_LEVEL_ZONE_TOKEN_FILTER_LABEL_PREFIX = 'filter tokens by Zone';
 const TERRAFORMS_LEVEL_ZONE_EMPTY_STRING = '';
 const TERRAFORMS_LEVEL_ZONE_COUNT_FORMAT = new Intl.NumberFormat(undefined, {
 	maximumFractionDigits: 0
@@ -190,17 +192,20 @@ export function applyTerraformsLevelZoneTokenCounts(
 		: [];
 }
 
-// Builds a token-browser href filtered to one Zone name.
+// Builds a token-browser href filtered to the active Level and one Zone name.
 export function buildTerraformsZoneTokenHref(input: {
 	basePath: string;
 	mediaMode?: string | null;
+	levelNumber?: number | null;
 	zoneName: string;
 }): string {
-	return buildTerraformsHypercastleTraitTokenHref({
+	return buildTerraformsHypercastleTraitsTokenHref({
 		basePath: input.basePath,
 		mediaMode: input.mediaMode ?? null,
-		traitKey: TERRAFORMS_ZONE_ATTRIBUTE_KEY,
-		traitValue: input.zoneName
+		traits: buildTerraformsHypercastleTokenFilterTraits({
+			levelNumber: input.levelNumber,
+			zoneName: input.zoneName
+		})
 	});
 }
 
@@ -264,10 +269,13 @@ export function formatTerraformsZonePaletteCopyValue(row: TerraformsLevelZoneRow
 	return row.palette.join(TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_SEPARATOR);
 }
 
-// Builds the accessible label for Zone token-filter links.
-export function formatTerraformsZoneTokenFilterLabel(zoneName: string): string {
-	return [TERRAFORMS_LEVEL_ZONE_TOKEN_FILTER_LABEL_PREFIX, zoneName].join(
-		TERRAFORMS_LEVEL_ZONE_LEVEL_TITLE_SEPARATOR
+// Builds the accessible label for a Zone link with its active Level scope.
+export function formatTerraformsZoneTokenFilterLabel(input: {
+	levelNumber?: number | null;
+	zoneName: string;
+}): string {
+	return formatTerraformsHypercastleTokenFilterLabel(
+		buildTerraformsHypercastleTokenFilterTraits(input)
 	);
 }
 

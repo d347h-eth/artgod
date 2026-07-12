@@ -30,6 +30,7 @@ import {
 	defaultTerraformsBiomeSortDirection,
 	formatTerraformsBiomeSupplyTokenCount,
 	formatTerraformsBiomeSortLabel,
+	formatTerraformsBiomeTokenLabel,
 	sortTerraformsBiomeRows,
 	TERRAFORMS_BIOME_FONT_FAMILY_NAME,
 	TERRAFORMS_BIOME_TABLE_COLUMNS,
@@ -73,6 +74,7 @@ import {
 	formatTerraformsZoneSupplyTokenCount,
 	formatTerraformsZonePaletteCopyLabel,
 	formatTerraformsZonePaletteCopyValue,
+	formatTerraformsZoneTokenFilterLabel,
 	sortTerraformsLevelZoneRows,
 	TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_STATES,
 	TERRAFORMS_LEVEL_ZONE_SECTION_LABELS,
@@ -171,6 +173,11 @@ type HypercastleSampleRequest = {
 	traitSummary: string;
 	selectedTraits: ApiTokenAttribute[];
 	tokenIds: readonly string[];
+};
+
+type HypercastleTokenFilterScope = {
+	levelNumber: number | null;
+	zoneName?: string | null;
 };
 
 const ACCESSIBLE_ROLES = {
@@ -820,8 +827,10 @@ test.describe('Terraforms Hypercastle overview', () => {
 				name: TERRAFORMS_BIOME_TABLE_LABELS.Heading
 			})
 		).toBeVisible();
-		await assertZoneTableRows(zoneTable, expectedAllLevelZoneRows());
-		await assertBiomeTableRows(biomeTable);
+		await assertZoneTableRows(zoneTable, expectedAllLevelZoneRows(), null);
+		await assertBiomeTableRows(biomeTable, expectedAllLevelBiomeRows(), {
+			levelNumber: null
+		});
 		await assertTraitPreviewScale(zoneTable, biomeTable);
 		const surfaceKeyBeforeAllLevelsReroll = await page
 			.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.svg)
@@ -869,8 +878,14 @@ test.describe('Terraforms Hypercastle overview', () => {
 		await expect(biomeColorResetButton).toBeDisabled();
 		await assertBiomeResetButtonChrome(page, biomeColorResetButton, true);
 		await assertBiomeResetButtonPlacement(biomeColorResetButton, biomeTable);
-		await assertZoneTableRows(zoneTable, expectedDefaultLevelZoneRows());
-		await assertBiomeTableRows(biomeTable, expectedSelectedLevelBiomeRows());
+		await assertZoneTableRows(
+			zoneTable,
+			expectedDefaultLevelZoneRows(),
+			HYPERCASTLE_REACHABILITY_LEVEL_NUMBER
+		);
+		await assertBiomeTableRows(biomeTable, expectedSelectedLevelBiomeRows(), {
+			levelNumber: HYPERCASTLE_REACHABILITY_LEVEL_NUMBER
+		});
 		await assertTraitTableHeaderChrome(page, zoneTable);
 		await assertTraitTableHeaderChrome(page, biomeTable);
 		await biomeTable
@@ -884,14 +899,17 @@ test.describe('Terraforms Hypercastle overview', () => {
 				expectedUnsortedSelectedLevelBiomeRows(),
 				TERRAFORMS_BIOME_TABLE_COLUMNS.Supply,
 				TERRAFORMS_TRAIT_TABLE_SORT_DIRECTIONS.Descending
-			)
+			),
+			{ levelNumber: HYPERCASTLE_REACHABILITY_LEVEL_NUMBER }
 		);
 		await biomeTable
 			.getByRole(ACCESSIBLE_ROLES.button, {
 				name: formatTerraformsBiomeSortLabel(TERRAFORMS_BIOME_TABLE_COLUMNS.Number)
 			})
 			.click();
-		await assertBiomeTableRows(biomeTable, expectedSelectedLevelBiomeRows());
+		await assertBiomeTableRows(biomeTable, expectedSelectedLevelBiomeRows(), {
+			levelNumber: HYPERCASTLE_REACHABILITY_LEVEL_NUMBER
+		});
 		const selectedLevelHrefBeforeTokenNavigation = page.url();
 		await zoneTable
 			.locator(TABLE_SELECTORS.bodyRows)
@@ -934,7 +952,8 @@ test.describe('Terraforms Hypercastle overview', () => {
 				expectedUnsortedLevelZoneRows(HYPERCASTLE_DETAIL_LEVEL),
 				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Supply,
 				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending
-			)
+			),
+			HYPERCASTLE_REACHABILITY_LEVEL_NUMBER
 		);
 		await zoneTable
 			.getByRole(ACCESSIBLE_ROLES.button, {
@@ -947,10 +966,15 @@ test.describe('Terraforms Hypercastle overview', () => {
 				expectedUnsortedLevelZoneRows(HYPERCASTLE_DETAIL_LEVEL),
 				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name,
 				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending
-			)
+			),
+			HYPERCASTLE_REACHABILITY_LEVEL_NUMBER
 		);
 		await reachableLevelGuide.click();
-		await assertZoneTableRows(zoneTable, expectedDefaultLevelZoneRows());
+		await assertZoneTableRows(
+			zoneTable,
+			expectedDefaultLevelZoneRows(),
+			HYPERCASTLE_REACHABILITY_LEVEL_NUMBER
+		);
 
 		const detailMetrics = await collectHypercastleLevelDetailMetrics(page);
 		const defaultRows = expectedDefaultLevelZoneRows();
@@ -988,7 +1012,8 @@ test.describe('Terraforms Hypercastle overview', () => {
 				expectedUnsortedLevelZoneRows(HYPERCASTLE_TEXTURE_LEVEL),
 				defaultTerraformsSelectedLevelZoneSortColumn(),
 				defaultTerraformsSelectedLevelZoneSortDirection()
-			)
+			),
+			HYPERCASTLE_TEXTURE_LEVEL_NUMBER
 		);
 		await expect(surfaceRerollButton).toBeVisible();
 		const texturedLevelLayer = page.locator(
@@ -1050,6 +1075,10 @@ test.describe('Terraforms Hypercastle overview', () => {
 		expect(textureFillColors.length).toBeGreaterThan(0);
 		expect(textureFillColors.every((color) => targetRow.palette.includes(color))).toBe(true);
 		await assertBiomePalettePreview(page, biomeTable, targetRow.palette);
+		await assertBiomeTableRows(biomeTable, expectedSelectedLevelBiomeRows(), {
+			levelNumber: HYPERCASTLE_TEXTURE_LEVEL_NUMBER,
+			zoneName: targetRow.name
+		});
 		await expect(biomeColorResetButton).toBeVisible();
 		await expect(biomeColorResetButton).toBeEnabled();
 		await assertBiomeResetButtonChrome(page, biomeColorResetButton, false);
@@ -1061,6 +1090,9 @@ test.describe('Terraforms Hypercastle overview', () => {
 		await expect(biomeColorResetButton).toBeDisabled();
 		await assertBiomeResetButtonChrome(page, biomeColorResetButton, true);
 		await assertBiomePalettePreviewReset(page, biomeTable);
+		await assertBiomeTableRows(biomeTable, expectedSelectedLevelBiomeRows(), {
+			levelNumber: HYPERCASTLE_TEXTURE_LEVEL_NUMBER
+		});
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.surfaceScreenshot);
 		expect(browserErrors.consoleErrors).toEqual([]);
 		expect(browserErrors.pageErrors).toEqual([]);
@@ -1330,7 +1362,8 @@ async function collectHypercastleLevelDetailMetrics(
 
 async function assertZoneTableRows(
 	zoneTable: Locator,
-	expectedRows: readonly TerraformsLevelZoneRow[]
+	expectedRows: readonly TerraformsLevelZoneRow[],
+	levelNumber: number | null
 ): Promise<void> {
 	const rows = zoneTable.locator(TABLE_SELECTORS.bodyRows);
 	await expect(rows).toHaveCount(expectedRows.length);
@@ -1342,8 +1375,13 @@ async function assertZoneTableRows(
 			buildTerraformsZoneTokenHref({
 				basePath: HYPERCASTLE_E2E_COLLECTION_BASE_PATH,
 				mediaMode: HYPERCASTLE_E2E_MEDIA_MODE,
+				levelNumber,
 				zoneName: row.name
 			})
+		);
+		await expect(cells.nth(0).locator(TAG_NAMES.anchor)).toHaveAttribute(
+			SVG_ATTRIBUTE_NAMES.title,
+			formatTerraformsZoneTokenFilterLabel({ levelNumber, zoneName: row.name })
 		);
 		await expect(
 			cells.nth(1).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.paletteSwatch)
@@ -1358,7 +1396,8 @@ async function assertZoneTableRows(
 
 async function assertBiomeTableRows(
 	biomeTable: Locator,
-	expectedRows = expectedAllLevelBiomeRows()
+	expectedRows: ReturnType<typeof buildTerraformsBiomeRows>,
+	filterScope: HypercastleTokenFilterScope
 ): Promise<void> {
 	const rows = biomeTable.locator(TABLE_SELECTORS.bodyRows);
 	await expect(rows).toHaveCount(expectedRows.length);
@@ -1375,6 +1414,16 @@ async function assertBiomeTableRows(
 			buildTerraformsBiomeTokenHref({
 				basePath: HYPERCASTLE_E2E_COLLECTION_BASE_PATH,
 				mediaMode: HYPERCASTLE_E2E_MEDIA_MODE,
+				levelNumber: filterScope.levelNumber,
+				zoneName: filterScope.zoneName,
+				biomeIndex: row.biomeIndex
+			})
+		);
+		await expect(cells.nth(0).locator(TAG_NAMES.anchor)).toHaveAttribute(
+			SVG_ATTRIBUTE_NAMES.title,
+			formatTerraformsBiomeTokenLabel({
+				levelNumber: filterScope.levelNumber,
+				zoneName: filterScope.zoneName,
 				biomeIndex: row.biomeIndex
 			})
 		);
