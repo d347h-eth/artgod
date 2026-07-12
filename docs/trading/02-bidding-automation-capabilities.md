@@ -114,7 +114,9 @@ popups, and effective values as Config. In Config order, it shows trait
 SignedZone trust, the WETH allowance cap, minimum priority fee, maximum fee per
 gas, maximum total WETH-approval network fee, pending-nonce policy, and offer
 expiration. Offer expiration is the lifetime in seconds for each newly created
-offer; it does not change already signed offers or imply a separate product hard
+offer. The summary shows the exact seconds followed by the equivalent days,
+hours, and minutes, omitting day or hour chunks below those thresholds. This
+display does not change already signed offers or imply a separate product hard
 maximum. It remains an operational Config setting rather than part of the native
 bidding authorization review. The summary does not display the dry-run setting.
 

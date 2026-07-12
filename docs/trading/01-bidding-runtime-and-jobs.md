@@ -534,9 +534,11 @@ Trading-specific rules:
   for trait SignedZone trust, the WETH allowance cap, minimum priority fee,
   maximum fee per gas, maximum total WETH-approval network fee, pending-nonce
   policy, and offer expiration beside the start action. Offer expiration is the
-  lifetime in seconds for each newly created offer; it does not change already
-  signed offers or imply a separate product hard maximum. Values are read-only
-  text; the dry-run setting is not displayed.
+  lifetime in seconds for each newly created offer. Admin shows the exact seconds
+  followed by the equivalent days, hours, and minutes, omitting day or hour
+  chunks below those thresholds. This display does not change already signed
+  offers or imply a separate product hard maximum. Values are read-only text;
+  the dry-run setting is not displayed.
 
 ## Config Surface
 

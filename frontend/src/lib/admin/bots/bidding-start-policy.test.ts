@@ -18,7 +18,10 @@ describe('buildBiddingStartPolicySummary', () => {
 			entry(BIDDING_CONFIG_ENV_KEY.TxMaxFeeGwei, '10'),
 			entry(BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth, '0.005'),
 			entry(BIDDING_CONFIG_ENV_KEY.TxPendingNoncePolicy, 'fail'),
-			entry(BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds, '13920')
+			entry(
+				BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds,
+				'13920 seconds (3 hours, 52 minutes)'
+			)
 		]);
 		expect(summary.some((entry) => entry.key === BIDDING_CONFIG_ENV_KEY.DryRun)).toBe(false);
 		expect(summary.some((entry) => entry.key === BIDDING_CONFIG_ENV_KEY.TxBaseFeeMultiplier)).toBe(
@@ -41,8 +44,34 @@ describe('buildBiddingStartPolicySummary', () => {
 		).toEqual({
 			key: BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds,
 			...CANONICAL_CONFIG_COPY[BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds],
-			value: '13920'
+			value: '13920 seconds (3 hours, 52 minutes)'
 		});
+	});
+
+	it.each([
+		['1', '1 second (0 minutes)'],
+		['59', '59 seconds (0 minutes)'],
+		['60', '60 seconds (1 minute)'],
+		['3600', '3600 seconds (1 hour, 0 minutes)'],
+		['3660', '3660 seconds (1 hour, 1 minute)'],
+		['90060', '90060 seconds (1 day, 1 hour, 1 minute)'],
+		['176520', '176520 seconds (2 days, 1 hour, 2 minutes)']
+	])('shows exact offer seconds with the readable duration for %s', (value, expected) => {
+		const summary = buildBiddingStartPolicySummary(
+			makeConfig({ [BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds]: value })
+		);
+
+		expect(
+			summary.find((entry) => entry.key === BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds)?.value
+		).toBe(expected);
+	});
+
+	it.each(['0', '1.5', 'invalid'])('fails closed for invalid offer lifetime %s', (value) => {
+		const config = makeConfig({ [BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds]: value });
+
+		expect(() => buildBiddingStartPolicySummary(config)).toThrow(
+			BIDDING_CONFIG_ENV_KEY.OfferExpirationSeconds
+		);
 	});
 
 	it('makes explicit when live trait placement trusts OpenSea SignedZone', () => {
