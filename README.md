@@ -133,10 +133,21 @@ Revocation, rotation, and compromise-response details are in
 `docs/desktop/05-linux-gpg-release-signing.md`; the complete maintainer release
 procedure is in `docs/desktop/06-release-signing-runbook.md`.
 
+## Operator Guide
+
+After verifying the download, read the
+[ArtGod Operator Guide](docs/project/02-public-alpha-starter-guide.md) before
+starting ArtGod. It sets expectations for the public alpha, walks through a
+safe first run, and explains OpenSea and RPC configuration, bidding safety,
+metadata and media limitations, and where to send feedback.
+
 ## Documentation Map
 
 Start here when navigating the repo:
 
+- [ArtGod Operator Guide](docs/project/02-public-alpha-starter-guide.md): public
+  alpha expectations, a safe first run, configuration guidance, bidding safety,
+  and feedback channels.
 - `docs/project/01-public-alpha-scope.md`: product positioning, current public
   alpha snapshot, project structure, and release boundaries.
 - `docs/development/01-local-development.md`: local setup, desktop dev,
