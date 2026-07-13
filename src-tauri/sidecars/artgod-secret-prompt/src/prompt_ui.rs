@@ -39,7 +39,11 @@ const BUTTON_DISABLED_TEXT: u32 = 0x667381;
 const CARET: u32 = 0xF3F5F7;
 const MASK: u32 = 0xE6EBF1;
 const WARNING: u32 = 0xF4D35E;
-const SUCCESS: u32 = 0x93D1DE;
+const ARTGOD_CYAN: u32 = 0x93D1DE;
+const ARTGOD_YELLOW: u32 = 0xF6E518;
+const SUCCESS: u32 = ARTGOD_CYAN;
+const BIDDING_REVIEW_LABEL: u32 = ARTGOD_CYAN;
+const BIDDING_REVIEW_AMOUNT: u32 = ARTGOD_YELLOW;
 
 const LINE_HEIGHT: i32 = CELL_HEIGHT as i32;
 const BUTTON_HEIGHT: i32 = 48;
@@ -74,9 +78,76 @@ pub struct TextPromptSpec<'a> {
 pub struct UnlockPromptSpec<'a> {
     pub title: &'a str,
     pub passphrase_message: &'a str,
-    pub review_pages: Vec<String>,
+    pub review_pages: Vec<BiddingReviewPage>,
     pub unlock_label: &'a str,
     pub cancel_label: &'a str,
+}
+
+/// One trusted bidding-authorization review page rendered before wallet unlock.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BiddingReviewPage {
+    pub heading: Option<String>,
+    pub rows: Vec<BiddingReviewRow>,
+}
+
+/// One label and its styled values on a bidding-authorization review page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BiddingReviewRow {
+    pub indentation_columns: usize,
+    pub label: String,
+    pub values: Vec<BiddingReviewValue>,
+}
+
+impl BiddingReviewRow {
+    /// Builds a non-price row whose value keeps the ordinary text color.
+    pub(crate) fn plain(label: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            indentation_columns: 0,
+            label: label.into(),
+            values: vec![BiddingReviewValue::Plain(value.into())],
+        }
+    }
+
+    /// Builds a nested non-price row for collection scope details.
+    pub(crate) fn indented_plain(
+        indentation_columns: usize,
+        label: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
+        Self {
+            indentation_columns,
+            label: label.into(),
+            values: vec![BiddingReviewValue::Plain(value.into())],
+        }
+    }
+
+    /// Builds a row with explicitly typed plain and highlighted value segments.
+    pub(crate) fn with_values(label: impl Into<String>, values: Vec<BiddingReviewValue>) -> Self {
+        Self {
+            indentation_columns: 0,
+            label: label.into(),
+            values,
+        }
+    }
+}
+
+/// A plain or exclusively highlighted value segment in a bidding review row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum BiddingReviewValue {
+    Plain(String),
+    Amount(String),
+}
+
+impl BiddingReviewValue {
+    /// Keeps contextual value text in the ordinary text color.
+    pub(crate) fn plain(value: impl Into<String>) -> Self {
+        Self::Plain(value.into())
+    }
+
+    /// Highlights one exact amount and its unit with the bidding amount color.
+    pub(crate) fn amount(value: impl Into<String>) -> Self {
+        Self::Amount(value.into())
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -191,12 +262,7 @@ pub fn prompt_unlock(
     let title = spec.title.to_owned();
     let window_size = resolve_unlock_window_size(&spec.review_pages)?;
     let initial_screen = if let Some(page) = spec.review_pages.first() {
-        build_confirm_screen(ConfirmPromptSpec {
-            title: spec.title,
-            message: page,
-            confirm_label: REVIEW_NEXT_LABEL,
-            cancel_label: spec.cancel_label,
-        })
+        build_bidding_review_screen(spec.title, page, REVIEW_NEXT_LABEL, spec.cancel_label)
     } else {
         build_text_screen(TextPromptSpec {
             title: spec.title,
@@ -227,7 +293,9 @@ pub fn prompt_unlock(
     }
 }
 
-fn resolve_unlock_window_size(review_pages: &[String]) -> Result<(u32, u32), PromptUiError> {
+fn resolve_unlock_window_size(
+    review_pages: &[BiddingReviewPage],
+) -> Result<(u32, u32), PromptUiError> {
     if review_pages.is_empty() {
         return Ok(UNLOCK_WINDOW_SIZE);
     }
@@ -236,11 +304,13 @@ fn resolve_unlock_window_size(review_pages: &[String]) -> Result<(u32, u32), Pro
 }
 
 /// Rejects bidding review pages that would collide with the prompt controls.
-pub(crate) fn validate_bidding_review_pages(review_pages: &[String]) -> Result<(), PromptUiError> {
+pub(crate) fn validate_bidding_review_pages(
+    review_pages: &[BiddingReviewPage],
+) -> Result<(), PromptUiError> {
     let size = PhysicalSize::new(BIDDING_REVIEW_WINDOW_SIZE.0, BIDDING_REVIEW_WINDOW_SIZE.1);
     let layout = ConfirmScreenLayout::for_size(size);
     for (index, page) in review_pages.iter().enumerate() {
-        if !layout.message_fits(page) {
+        if !layout.bidding_review_fits(page) {
             return Err(PromptUiError::Render(format!(
                 "Bidding authorization page {} is too large to display safely",
                 index + 1
@@ -456,9 +526,24 @@ fn build_text_screen(spec: TextPromptSpec<'_>) -> ScreenState {
 fn build_confirm_screen(spec: ConfirmPromptSpec<'_>) -> ScreenState {
     ScreenState::Confirm(ConfirmScreenState {
         title: spec.title.to_owned(),
-        message: spec.message.to_owned(),
+        content: ConfirmScreenContent::Plain(spec.message.to_owned()),
         confirm_label: spec.confirm_label.to_owned(),
         cancel_label: spec.cancel_label.to_owned(),
+        focus: ConfirmFocus::Cancel,
+    })
+}
+
+fn build_bidding_review_screen(
+    title: &str,
+    page: &BiddingReviewPage,
+    confirm_label: &str,
+    cancel_label: &str,
+) -> ScreenState {
+    ScreenState::Confirm(ConfirmScreenState {
+        title: title.to_owned(),
+        content: ConfirmScreenContent::BiddingReview(page.clone()),
+        confirm_label: confirm_label.to_owned(),
+        cancel_label: cancel_label.to_owned(),
         focus: ConfirmFocus::Cancel,
     })
 }
@@ -513,7 +598,7 @@ enum PromptFlow {
 struct UnlockFlowState {
     title: String,
     passphrase_message: String,
-    review_pages: Vec<String>,
+    review_pages: Vec<BiddingReviewPage>,
     page_index: usize,
     unlock_label: String,
     cancel_label: String,
@@ -593,13 +678,11 @@ impl UnlockFlowState {
             ScreenResult::Confirmed if !self.review_pages.is_empty() => {
                 self.page_index += 1;
                 if let Some(page) = self.review_pages.get(self.page_index) {
-                    return Ok(FlowTransition::Continue(build_confirm_screen(
-                        ConfirmPromptSpec {
-                            title: &self.title,
-                            message: page,
-                            confirm_label: REVIEW_NEXT_LABEL,
-                            cancel_label: &self.cancel_label,
-                        },
+                    return Ok(FlowTransition::Continue(build_bidding_review_screen(
+                        &self.title,
+                        page,
+                        REVIEW_NEXT_LABEL,
+                        &self.cancel_label,
                     )));
                 }
                 Ok(FlowTransition::Continue(build_text_screen(
@@ -1626,11 +1709,41 @@ impl TextScreenState {
 
 struct ConfirmScreenState {
     title: String,
-    message: String,
+    content: ConfirmScreenContent,
     confirm_label: String,
     cancel_label: String,
     focus: ConfirmFocus,
 }
+
+enum ConfirmScreenContent {
+    Plain(String),
+    BiddingReview(BiddingReviewPage),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BiddingReviewTextRole {
+    Plain,
+    Label,
+    Amount,
+}
+
+impl BiddingReviewTextRole {
+    fn color(self) -> u32 {
+        match self {
+            Self::Plain => TEXT,
+            Self::Label => BIDDING_REVIEW_LABEL,
+            Self::Amount => BIDDING_REVIEW_AMOUNT,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct BiddingReviewTextSpan {
+    text: String,
+    role: BiddingReviewTextRole,
+}
+
+type BiddingReviewTextLine = Vec<BiddingReviewTextSpan>;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ConfirmFocus {
@@ -1687,8 +1800,16 @@ impl ConfirmScreenLayout {
         wrap_text(message, self.max_message_cols)
     }
 
-    fn message_fits(&self, message: &str) -> bool {
-        let line_count = i32::try_from(self.message_lines(message).len()).unwrap_or(i32::MAX);
+    fn bidding_review_lines(&self, page: &BiddingReviewPage) -> Vec<BiddingReviewTextLine> {
+        wrap_bidding_review_page(page, self.max_message_cols)
+    }
+
+    fn bidding_review_fits(&self, page: &BiddingReviewPage) -> bool {
+        let line_count = i32::try_from(self.bidding_review_lines(page).len()).unwrap_or(i32::MAX);
+        self.line_count_fits(line_count)
+    }
+
+    fn line_count_fits(&self, line_count: i32) -> bool {
         let message_bottom = self
             .message_y
             .saturating_add(line_count.saturating_mul(LINE_HEIGHT));
@@ -1708,14 +1829,29 @@ impl ConfirmScreenState {
             WARNING,
         );
 
-        let lines = layout.message_lines(&self.message);
-        for (index, line) in lines.iter().enumerate() {
-            canvas.draw_text(
-                layout.message_x,
-                layout.message_y + ((index as i32) * LINE_HEIGHT),
-                line,
-                TEXT,
-            );
+        match &self.content {
+            ConfirmScreenContent::Plain(message) => {
+                let lines = layout.message_lines(message);
+                for (index, line) in lines.iter().enumerate() {
+                    canvas.draw_text(
+                        layout.message_x,
+                        layout.message_y + ((index as i32) * LINE_HEIGHT),
+                        line,
+                        TEXT,
+                    );
+                }
+            }
+            ConfirmScreenContent::BiddingReview(page) => {
+                let lines = layout.bidding_review_lines(page);
+                for (index, line) in lines.iter().enumerate() {
+                    let mut x = layout.message_x;
+                    let y = layout.message_y + ((index as i32) * LINE_HEIGHT);
+                    for span in line {
+                        canvas.draw_text(x, y, &span.text, span.role.color());
+                        x += (span.text.chars().count() as i32) * ADVANCE_WIDTH as i32;
+                    }
+                }
+            }
         }
 
         draw_button(
@@ -2027,6 +2163,69 @@ fn wrap_text(text: &str, max_cols: usize) -> Vec<Zeroizing<String>> {
     lines
 }
 
+fn wrap_bidding_review_page(
+    page: &BiddingReviewPage,
+    max_cols: usize,
+) -> Vec<BiddingReviewTextLine> {
+    let mut lines = page
+        .heading
+        .as_deref()
+        .map(|heading| {
+            wrap_bidding_review_spans(vec![(heading, BiddingReviewTextRole::Plain)], max_cols)
+        })
+        .unwrap_or_default();
+    for row in &page.rows {
+        let indentation = " ".repeat(row.indentation_columns);
+        let label = format!("{indentation}{}: ", row.label);
+        let mut spans = vec![(label.as_str(), BiddingReviewTextRole::Label)];
+        spans.extend(row.values.iter().map(|value| match value {
+            BiddingReviewValue::Plain(value) => (value.as_str(), BiddingReviewTextRole::Plain),
+            BiddingReviewValue::Amount(value) => (value.as_str(), BiddingReviewTextRole::Amount),
+        }));
+        lines.extend(wrap_bidding_review_spans(spans, max_cols));
+    }
+    lines
+}
+
+fn wrap_bidding_review_spans(
+    spans: Vec<(&str, BiddingReviewTextRole)>,
+    max_cols: usize,
+) -> Vec<BiddingReviewTextLine> {
+    let mut lines = vec![BiddingReviewTextLine::new()];
+    let mut column = 0;
+    for (text, role) in spans {
+        let text_columns = text.chars().count();
+        if role == BiddingReviewTextRole::Amount
+            && text_columns <= max_cols
+            && column > 0
+            && column + text_columns > max_cols
+        {
+            // Keep an exact amount and its unit together when both fit on one line.
+            lines.push(Vec::new());
+            column = 0;
+        }
+        for character in text.chars() {
+            if column == max_cols {
+                lines.push(Vec::new());
+                column = 0;
+            }
+            let current_line = lines.last_mut().expect("review line must exist");
+            if let Some(current_span) = current_line.last_mut()
+                && current_span.role == role
+            {
+                current_span.text.push(character);
+            } else {
+                current_line.push(BiddingReviewTextSpan {
+                    text: character.to_string(),
+                    role,
+                });
+            }
+            column += 1;
+        }
+    }
+    lines
+}
+
 fn adjusted_scroll(current: usize, cursor_index: usize, visible_chars: usize) -> usize {
     if cursor_index < current {
         return cursor_index;
@@ -2130,7 +2329,10 @@ mod tests {
 
     #[test]
     fn bidding_reviews_use_the_tall_unlock_window() {
-        let review_pages = vec!["Bidding authorization".to_owned()];
+        let review_pages = vec![BiddingReviewPage {
+            heading: Some("Bidding authorization".to_owned()),
+            rows: Vec::new(),
+        }];
 
         assert_eq!(
             resolve_unlock_window_size(&review_pages).unwrap(),
@@ -2146,13 +2348,98 @@ mod tests {
             BIDDING_REVIEW_WINDOW_SIZE.1,
         ));
         let maximum_rows = ((layout.confirm_rect.y - layout.message_y) / LINE_HEIGHT) as usize;
-        let fitting_page = vec!["x"; maximum_rows].join("\n");
-        let oversized_page = vec!["x"; maximum_rows + 1].join("\n");
+        let build_page = |row_count| BiddingReviewPage {
+            heading: None,
+            rows: (0..row_count)
+                .map(|_| BiddingReviewRow::plain("x", "y"))
+                .collect(),
+        };
+        let fitting_page = build_page(maximum_rows);
+        let oversized_page = build_page(maximum_rows + 1);
 
-        assert!(layout.message_fits(&fitting_page));
-        assert!(!layout.message_fits(&oversized_page));
+        assert!(layout.bidding_review_fits(&fitting_page));
+        assert!(!layout.bidding_review_fits(&oversized_page));
         assert!(validate_bidding_review_pages(&[fitting_page]).is_ok());
         assert!(validate_bidding_review_pages(&[oversized_page]).is_err());
+    }
+
+    #[test]
+    fn bidding_review_wrap_preserves_label_amount_and_plain_roles() {
+        let page = BiddingReviewPage {
+            heading: None,
+            rows: vec![BiddingReviewRow::with_values(
+                "Allowance",
+                vec![
+                    BiddingReviewValue::amount("1 WETH"),
+                    BiddingReviewValue::plain(" for conduit"),
+                ],
+            )],
+        };
+
+        let lines = wrap_bidding_review_page(&page, 15);
+
+        assert_eq!(
+            lines,
+            vec![
+                vec![BiddingReviewTextSpan {
+                    text: "Allowance: ".to_owned(),
+                    role: BiddingReviewTextRole::Label,
+                }],
+                vec![
+                    BiddingReviewTextSpan {
+                        text: "1 WETH".to_owned(),
+                        role: BiddingReviewTextRole::Amount,
+                    },
+                    BiddingReviewTextSpan {
+                        text: " for cond".to_owned(),
+                        role: BiddingReviewTextRole::Plain,
+                    },
+                ],
+                vec![BiddingReviewTextSpan {
+                    text: "uit".to_owned(),
+                    role: BiddingReviewTextRole::Plain,
+                }],
+            ]
+        );
+    }
+
+    #[test]
+    fn bidding_review_render_uses_cyan_labels_and_artgod_yellow_amounts() {
+        assert_eq!(BiddingReviewTextRole::Plain.color(), TEXT);
+        assert_eq!(BiddingReviewTextRole::Label.color(), ARTGOD_CYAN);
+        assert_eq!(BiddingReviewTextRole::Amount.color(), ARTGOD_YELLOW);
+        assert_ne!(
+            BiddingReviewTextRole::Label.color(),
+            BiddingReviewTextRole::Plain.color()
+        );
+        assert_ne!(
+            BiddingReviewTextRole::Amount.color(),
+            BiddingReviewTextRole::Plain.color()
+        );
+
+        let size = PhysicalSize::new(BIDDING_REVIEW_WINDOW_SIZE.0, BIDDING_REVIEW_WINDOW_SIZE.1);
+        let mut pixels = vec![BACKGROUND; size.width as usize * size.height as usize];
+        let mut canvas = Canvas::new(&mut pixels, size.width as usize, size.height as usize);
+        let mut screen = ConfirmScreenState {
+            title: "Unlock Wallet".to_owned(),
+            content: ConfirmScreenContent::BiddingReview(BiddingReviewPage {
+                heading: Some("Bidding authorization".to_owned()),
+                rows: vec![BiddingReviewRow::with_values(
+                    "Allowance",
+                    vec![BiddingReviewValue::amount("1 WETH")],
+                )],
+            }),
+            confirm_label: REVIEW_NEXT_LABEL.to_owned(),
+            cancel_label: "Cancel".to_owned(),
+            focus: ConfirmFocus::Cancel,
+        };
+
+        screen.render(&mut canvas, size);
+
+        assert!(pixels.contains(&BIDDING_REVIEW_LABEL));
+        assert!(pixels.contains(&BIDDING_REVIEW_AMOUNT));
+        assert!(pixels.contains(&TEXT));
+        assert_ne!(BIDDING_REVIEW_AMOUNT, WARNING);
     }
 
     #[test]

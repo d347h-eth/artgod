@@ -942,6 +942,9 @@ User-facing authorization review:
 - the global review states the WETH allowance cap, minimum priority fee and
   maximum fee in Gwei per gas, maximum network fee in ETH per one approval
   transaction, pending-transaction behavior, and trait-offer trust
+- every review field label is cyan; only each exact WETH, ETH, or Gwei amount
+  together with its unit is yellow, while ordinary values and scope text remain
+  plain
 - the canonical human-readable network name appears before `chain ID #N`
 - collection identity explicitly distinguishes the ArtGod collection ID,
   OpenSea slug, contract address, and token scope
