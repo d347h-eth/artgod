@@ -1,8 +1,8 @@
 //! Fixed layout for executable resources bundled with the desktop application.
 #![allow(dead_code)]
 
-/// Source path staged into Tauri's bundled runtime resource directory.
-pub(crate) const BUNDLED_RUNTIME_SOURCE_RELATIVE_PATH: &str = "resources/runtime";
+/// Runtime resource path used by both Tauri source staging and copied build output.
+pub(crate) const BUNDLED_RUNTIME_RELATIVE_PATH: &str = "resources/runtime";
 
 /// Generated Rust source that embeds release runtime file hashes.
 pub(crate) const GENERATED_WALLET_RECIPIENT_INTEGRITY_FILE_NAME: &str =

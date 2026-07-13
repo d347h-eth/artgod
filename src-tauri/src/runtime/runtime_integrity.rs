@@ -21,6 +21,13 @@ struct PinnedRuntimeFile<'a> {
     sha256: &'a str,
 }
 
+// Bounds each missing/unexpected category in local integrity diagnostics.
+#[cfg(any(not(debug_assertions), test))]
+const FILE_SET_DIAGNOSTIC_PATH_LIMIT: usize = 8;
+// Bounds one rendered relative path so a hostile filename cannot flood local logs.
+#[cfg(any(not(debug_assertions), test))]
+const FILE_SET_DIAGNOSTIC_PATH_CHAR_LIMIT: usize = 240;
+
 // `include!` requires a literal path; the contract test keeps this name synchronized.
 #[cfg(any(not(debug_assertions), test))]
 include!(concat!(env!("OUT_DIR"), "/wallet_recipient_integrity.rs"));
@@ -59,12 +66,30 @@ fn verify_pinned_runtime_files(
     }
     let runtime_dir = canonicalize_directory(runtime_dir, "Bundled runtime resources")?;
     let actual_files = collect_protected_files(&runtime_dir, protected_roots)?;
-    let mut expected_files = HashSet::<PathBuf>::with_capacity(pinned_files.len());
-    let mut files_to_hash = Vec::<(PathBuf, &str)>::with_capacity(pinned_files.len());
+    let actual_relative_files = relative_file_set(&runtime_dir, &actual_files)?;
+    let mut expected_relative_files = HashSet::<PathBuf>::with_capacity(pinned_files.len());
 
     for pinned in pinned_files {
         let relative_path = validate_relative_path(pinned.relative_path)?;
-        let candidate = runtime_dir.join(relative_path);
+        if !expected_relative_files.insert(relative_path.to_path_buf()) {
+            return Err(format!(
+                "Wallet recipient runtime integrity manifest contains a duplicate path: {}",
+                pinned.relative_path
+            ));
+        }
+    }
+
+    if actual_relative_files != expected_relative_files {
+        return Err(format_file_set_difference(
+            &expected_relative_files,
+            &actual_relative_files,
+        ));
+    }
+
+    let mut expected_files = HashSet::<PathBuf>::with_capacity(pinned_files.len());
+    let mut files_to_hash = Vec::<(PathBuf, &str)>::with_capacity(pinned_files.len());
+    for pinned in pinned_files {
+        let candidate = runtime_dir.join(validate_relative_path(pinned.relative_path)?);
         let canonical = canonicalize_regular_file(&candidate, "Pinned runtime file")?;
         if !canonical.starts_with(&runtime_dir) {
             return Err(format!(
@@ -72,21 +97,12 @@ fn verify_pinned_runtime_files(
                 canonical.display()
             ));
         }
-        if !expected_files.insert(canonical.clone()) {
-            return Err(format!(
-                "Wallet recipient runtime integrity manifest contains a duplicate path: {}",
-                pinned.relative_path
-            ));
-        }
+        expected_files.insert(canonical.clone());
         files_to_hash.push((canonical, pinned.sha256));
     }
 
-    if actual_files != expected_files {
-        return Err(
-            "Wallet recipient runtime file set differs from the embedded release manifest."
-                .to_owned(),
-        );
-    }
+    // Reject path replacement or aliasing between file-set collection and canonicalization.
+    ensure_canonical_file_set_unchanged(&actual_files, &expected_files)?;
 
     for (path, expected_sha256) in files_to_hash {
         let actual_sha256 = sha256_file(&path)?;
@@ -109,6 +125,84 @@ fn verify_pinned_runtime_files(
     }
 
     Ok(())
+}
+
+#[cfg(any(not(debug_assertions), test))]
+fn ensure_canonical_file_set_unchanged(
+    collected_files: &HashSet<PathBuf>,
+    canonicalized_expected_files: &HashSet<PathBuf>,
+) -> Result<(), String> {
+    if collected_files != canonicalized_expected_files {
+        return Err(
+            "Wallet recipient runtime files changed during integrity validation.".to_owned(),
+        );
+    }
+    Ok(())
+}
+
+#[cfg(any(not(debug_assertions), test))]
+fn relative_file_set(
+    runtime_dir: &Path,
+    files: &HashSet<PathBuf>,
+) -> Result<HashSet<PathBuf>, String> {
+    files
+        .iter()
+        .map(|path| {
+            path.strip_prefix(runtime_dir)
+                .map(Path::to_path_buf)
+                .map_err(|_| {
+                    format!(
+                        "Wallet recipient runtime file escapes bundled resources: {}",
+                        path.display()
+                    )
+                })
+        })
+        .collect()
+}
+
+#[cfg(any(not(debug_assertions), test))]
+fn format_file_set_difference(
+    expected_files: &HashSet<PathBuf>,
+    actual_files: &HashSet<PathBuf>,
+) -> String {
+    let missing = expected_files.difference(actual_files).collect::<Vec<_>>();
+    let unexpected = actual_files.difference(expected_files).collect::<Vec<_>>();
+    format!(
+        "Wallet recipient runtime file set differs from the embedded release manifest. Missing files ({}): {}; unexpected files ({}): {}.",
+        missing.len(),
+        format_diagnostic_paths(missing),
+        unexpected.len(),
+        format_diagnostic_paths(unexpected),
+    )
+}
+
+#[cfg(any(not(debug_assertions), test))]
+fn format_diagnostic_paths(mut paths: Vec<&PathBuf>) -> String {
+    paths.sort();
+    let omitted = paths.len().saturating_sub(FILE_SET_DIAGNOSTIC_PATH_LIMIT);
+    paths.truncate(FILE_SET_DIAGNOSTIC_PATH_LIMIT);
+    let mut rendered = paths
+        .into_iter()
+        .map(|path| format!("{:?}", bounded_relative_path(path)))
+        .collect::<Vec<_>>();
+    if omitted > 0 {
+        rendered.push(format!("(+{omitted} more)"));
+    }
+    format!("[{}]", rendered.join(", "))
+}
+
+#[cfg(any(not(debug_assertions), test))]
+fn bounded_relative_path(path: &Path) -> String {
+    let value = path.to_string_lossy();
+    let mut characters = value.chars();
+    let mut bounded = characters
+        .by_ref()
+        .take(FILE_SET_DIAGNOSTIC_PATH_CHAR_LIMIT)
+        .collect::<String>();
+    if characters.next().is_some() {
+        bounded.push_str("...");
+    }
+    bounded
 }
 
 #[cfg(any(not(debug_assertions), test))]
@@ -248,7 +342,7 @@ mod tests {
     use crate::runtime::{
         bot_runtime::BIDDING_BOT_SPEC,
         resource_contract::{
-            BUNDLED_RUNTIME_SOURCE_RELATIVE_PATH, NODE_BINARY_RELATIVE_PATH, PNP_CJS_RELATIVE_PATH,
+            BUNDLED_RUNTIME_RELATIVE_PATH, NODE_BINARY_RELATIVE_PATH, PNP_CJS_RELATIVE_PATH,
             PNP_LOADER_RELATIVE_PATH,
         },
     };
@@ -271,8 +365,7 @@ mod tests {
     #[cfg(not(debug_assertions))]
     #[test]
     fn embedded_release_manifest_matches_staged_wallet_recipient() {
-        let runtime_dir =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join(BUNDLED_RUNTIME_SOURCE_RELATIVE_PATH);
+        let runtime_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(BUNDLED_RUNTIME_RELATIVE_PATH);
         let required_paths = [
             runtime_dir.join(NODE_BINARY_RELATIVE_PATH),
             runtime_dir.join(PNP_CJS_RELATIVE_PATH),
@@ -345,6 +438,74 @@ mod tests {
             .expect_err("added file must fail");
 
         assert!(error.contains("file set differs"));
+        assert!(error.contains("Missing files (0): []"));
+        assert!(error.contains("unexpected files (1): [\"code/injected.mjs\"]"));
+        assert!(!error.contains(temp.path().to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn missing_runtime_file_reports_a_relative_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        fs::create_dir_all(temp.path().join("code")).expect("create protected root");
+        let pinned = [PinnedRuntimeFile {
+            relative_path: "code/missing.mjs",
+            sha256: "unused",
+        }];
+
+        let error = verify_pinned_runtime_files(temp.path(), &["code"], &pinned, &[])
+            .expect_err("missing file must fail");
+
+        assert!(error.contains("Missing files (1): [\"code/missing.mjs\"]"));
+        assert!(error.contains("unexpected files (0): []"));
+        assert!(!error.contains(temp.path().to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn file_set_diagnostics_are_sorted_and_bounded() {
+        let omitted_count = 2;
+        let expected_count = FILE_SET_DIAGNOSTIC_PATH_LIMIT + omitted_count;
+        let expected = (0..expected_count)
+            .map(|index| PathBuf::from(format!("code/missing-{index:02}.mjs")))
+            .collect::<HashSet<_>>();
+        let actual = ["code/unexpected-b.mjs", "code/unexpected-a.mjs"]
+            .into_iter()
+            .map(PathBuf::from)
+            .collect::<HashSet<_>>();
+
+        let error = format_file_set_difference(&expected, &actual);
+
+        assert!(error.contains(&format!("Missing files ({expected_count}):")));
+        assert!(error.contains("\"code/missing-00.mjs\", \"code/missing-01.mjs\""));
+        assert!(!error.contains("code/missing-08.mjs"));
+        assert!(error.contains(&format!("(+{omitted_count} more)")));
+        assert!(error.contains(
+            "unexpected files (2): [\"code/unexpected-a.mjs\", \"code/unexpected-b.mjs\"]"
+        ));
+    }
+
+    #[test]
+    fn file_set_diagnostics_bound_individual_path_length() {
+        let long_name = format!(
+            "code/{}.mjs",
+            "x".repeat(FILE_SET_DIAGNOSTIC_PATH_CHAR_LIMIT + 20)
+        );
+        let expected = HashSet::from([PathBuf::from(long_name)]);
+
+        let error = format_file_set_difference(&expected, &HashSet::new());
+
+        assert!(error.contains("...\""));
+        assert!(error.len() < FILE_SET_DIAGNOSTIC_PATH_CHAR_LIMIT + 200);
+    }
+
+    #[test]
+    fn canonical_file_set_change_during_validation_fails_closed() {
+        let collected = HashSet::from([PathBuf::from("runtime/first.mjs")]);
+        let canonicalized = HashSet::from([PathBuf::from("runtime/second.mjs")]);
+
+        let error = ensure_canonical_file_set_unchanged(&collected, &canonicalized)
+            .expect_err("changed canonical set must fail");
+
+        assert!(error.contains("changed during integrity validation"));
     }
 
     #[test]

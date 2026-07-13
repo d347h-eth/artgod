@@ -81,11 +81,14 @@ jobs:
             - name: Test desktop parent containment
               run: yarn test:desktop:parent-containment
 
+            - name: Test Tauri runtime output reconciliation
+              run: cargo test --manifest-path src-tauri/Cargo.toml --locked --offline --test tauri_runtime_output_reconciliation
+
             - name: Tauri no-bundle build check
               env:
                   DESKTOP_NODE_DIST_TARGET: linux-x64
                   DESKTOP_NATS_DIST_TARGET: linux-x64
-              run: yarn tauri build --debug --no-bundle --ci
+              run: yarn build:desktop:no-bundle --debug
 
             - name: Verify bundled Yarn runtime dependencies
               shell: bash

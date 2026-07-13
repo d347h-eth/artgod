@@ -97,14 +97,14 @@ yarn build:web
 yarn build:userland
 yarn build:admin
 yarn build:desktop
+yarn build:desktop:no-bundle
 yarn build:runtime
 yarn build:desktop-runtime-resources
 yarn build:desktop-sidecars --profile release
 yarn prepare:tauri-linux-tools
 yarn check:runtime-registry
 yarn clean:build
-yarn tauri build --no-bundle --ci
-yarn tauri build --debug --no-bundle --ci
+yarn build:desktop:no-bundle --debug
 ```
 
 `yarn tauri ...` resolves the project-pinned `@tauri-apps/cli` binary. The
@@ -130,6 +130,11 @@ What each command does:
 
 - `yarn build:desktop`
   : Alias for `yarn build:admin`.
+
+- `yarn build:desktop:no-bundle`
+  : Runs the project-pinned Tauri CLI with `build --no-bundle --ci`.
+  : Produces a release-mode executable and adjacent resources by default; optional Tauri arguments such as `--debug` and `--target` are forwarded by Yarn.
+  : The Rust build reconciles only Tauri's copied runtime destination before the fresh staged resources are installed, so repeated builds do not require the broad `clean:build` command.
 
 - `yarn build:runtime`
   : Runs `scripts/build/build-runtime-artifacts.mjs`.
@@ -162,6 +167,7 @@ What each command does:
 - `yarn clean:build`
   : Runs `scripts/build/clean-build-artifacts.mjs`.
   : Removes dist and cache outputs across workspaces (`dist*`, `.vite`, `.vitest`, `.svelte-kit`, `src-tauri/target`, `src-tauri/resources/runtime`, `src-tauri/binaries`, sidecar crate `target/*`).
+  : Use this broad cleanup for recovery or deliberately cold builds, not as a prerequisite for repeated no-bundle QA.
 
 ## Tauri Build Hooking
 
@@ -182,6 +188,13 @@ This ensures `yarn tauri build ...` always has:
    Rust embeds the wallet-recipient integrity manifest
 
 before final Tauri bundle generation starts.
+
+During Rust compilation, `src-tauri/build.rs` derives the active Cargo profile
+output from `OUT_DIR` and removes only its prior `resources/runtime` copy before
+`tauri-build` installs the freshly staged resource tree. This applies equally
+to default or custom Cargo target directories, explicit target triples, and
+debug or release profiles. It preserves compiled dependencies, incremental
+caches, executables, sidecars, and unrelated bundle output.
 
 ## Build Helper Scripts
 
@@ -267,6 +280,17 @@ Responsibilities:
 - stages the built binary into `src-tauri/binaries/artgod-secret-prompt-<target-triple>(.exe)`
 - stages a fat `artgod-secret-prompt-universal-apple-darwin` sidecar when Tauri builds the macOS universal target
 - keeps sidecar build output separate from the main `src-tauri/target` tree by using `src-tauri/target/sidecars`
+
+### `src-tauri/build/tauri_runtime_output.rs`
+
+Responsibilities:
+
+- derives the exact Tauri profile output directory from Cargo's `OUT_DIR`
+- removes only the previously copied `resources/runtime` destination before
+  `tauri-build` copies current resources
+- treats missing output as already reconciled and fails the build on any real
+  inspection or removal error
+- removes a file or symbolic-link leaf without following it
 
 ### `scripts/build/macos-code-signing.mjs`
 
@@ -389,6 +413,11 @@ closure. The exact Node executable, both loaders, and selected bot artifact
 must also appear in the embedded manifest. Debug builds keep the same fixed
 bundled paths but skip release hashing so staged resources can be rebuilt during
 development.
+
+File-set failures keep the Admin message generic while desktop-app logs report
+deterministic missing and unexpected counts plus a bounded list of escaped
+relative paths. Absolute install paths, hashes, environment values, and file
+contents are not included in that diagnostic.
 
 ## Desktop Runtime Config Store
 
@@ -814,6 +843,9 @@ Current state:
   current-process/core-limit controls, sensitive-child inheritance, fixed Node
   arguments, pinned-Node `SIGUSR1` behavior, the frozen environment, and the bot
   parent-death proofs.
+- The ordinary Linux build check runs the focused runtime-output reconciliation
+  test before its single no-bundle build. The test removes an obsolete runtime
+  tree while proving unrelated profile output survives.
 - The ordinary build workflow compiles the Windows WER no-heap and Job Object
   paths, including the prompt owner, on a Windows runner. That lane is
   compile-only; Windows release artifacts and an executed Windows prompt/bot
@@ -895,6 +927,11 @@ Common issues and checks:
 
 - Stale dist/cache state
   : Run `yarn clean:build`.
+
+- Repeated local no-bundle QA
+  : Use `yarn build:desktop:no-bundle`. The build automatically replaces only
+  Tauri's copied runtime tree, so `clean:build` is unnecessary unless broader
+  generated state is damaged.
 
 - Desktop config key errors on startup
   : Check Admin `config`, app-data `settings.json`, the rendered `.env`, and required `DESKTOP_*` keys.

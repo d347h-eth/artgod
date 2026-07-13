@@ -34,6 +34,7 @@
         "build:userland": "node ./scripts/build/build-frontend-target.mjs userland",
         "build:admin": "node ./scripts/build/build-frontend-target.mjs admin",
         "build:desktop": "node ./scripts/build/build-frontend-target.mjs admin",
+        "build:desktop:no-bundle": "tauri build --no-bundle --ci",
         "build:runtime": "node ./scripts/build/build-runtime-artifacts.mjs",
         "build:sqlite-native": "node ./scripts/build/build-sqlite-native-binding.mjs",
         "build:desktop-runtime-resources": "node ./scripts/build/prepare-desktop-runtime-resources.mjs",
