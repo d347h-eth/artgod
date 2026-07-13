@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from 'playwright/test';
 import {
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
+	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
 	TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
@@ -11,11 +12,17 @@ import {
 } from '@artgod/shared/types';
 import { TOKEN_BROWSER_STATUS } from '@artgod/shared/types/browse';
 import {
+	TERRAFORMS_MODE_ATTRIBUTE_KEY,
+	TERRAFORMS_MODE_ATTRIBUTE_VALUES,
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES
 } from '@artgod/shared/extensions/terraforms';
 import { BIDDING_SELECTION_ACTION_LABEL } from '../src/lib/bidding-selection-actions';
-import { BID_SCOPE_QUERY_PARAM } from '../src/lib/bidding-query';
+import {
+	BID_BOOK_MAKER_QUERY_PARAM,
+	BID_BOOK_OWNERSHIP_QUERY_PARAM,
+	BID_SCOPE_QUERY_PARAM
+} from '../src/lib/bidding-query';
 import { TERRAFORMS_BID_BOOK_TRAIT_PREVIEW_DOM } from '../src/lib/bid-book-trait-previews/terraforms/preview-model';
 import {
 	TERRAFORMS_BIOME_CHARACTER_BAND_DOM,
@@ -406,7 +413,34 @@ test.describe('bidding automation fixture harness', () => {
 			`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}&${FIRST_RUN_INTENT_SCENARIO_QUERY}`
 		);
 
-		await expect(page.getByRole('link', { name: 'my bids' })).toHaveCount(0);
+		const opponentTraitSignature =
+			`${TERRAFORMS_MODE_ATTRIBUTE_KEY}=${TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain}`;
+		const opponentGroup = page.locator('.bid-book-demand-group-row').filter({
+			has: page.locator(
+				`[data-testid="${TEST_IDS.BidBookTraitBucketBid}"][data-traits="${opponentTraitSignature}"]`
+			)
+		});
+		await expect(opponentGroup).toBeVisible();
+		const myBidsLink = page.getByRole('link', { name: 'my bids' });
+		const myBidsHref = await myBidsLink.getAttribute('href');
+		if (!myBidsHref) {
+			throw new Error('my bids link is missing its destination');
+		}
+		const myBidsUrl = new URL(myBidsHref, page.url());
+		expect(myBidsUrl.searchParams.get(BID_BOOK_OWNERSHIP_QUERY_PARAM)).toBe(
+			COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own
+		);
+		expect(myBidsUrl.searchParams.get(BID_BOOK_MAKER_QUERY_PARAM)).toBeNull();
+
+		await myBidsLink.click();
+		await expect(page).toHaveURL(
+			new RegExp(
+				`${BID_BOOK_OWNERSHIP_QUERY_PARAM}=${COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own}`
+			)
+		);
+		await expect(opponentGroup).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'my bids' })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'all bids' })).toBeVisible();
 		const intentRow = rowForJob(page, BIDDING_E2E_FIRST_RUN_INTENT.JobId);
 		await expect(intentRow).toBeVisible();
 		const makerCell = intentRow.locator('.bid-book-maker-cell');

@@ -4,6 +4,7 @@ import {
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	type CollectionStandard,
 	type CollectionBiddingBidScopeFilter,
+	type CollectionBiddingBidBookOwnershipFilter,
 	type CollectionBiddingTraitFilterJoinMode,
 	type CollectionMediaSource,
 	type CollectionStatus,
@@ -663,6 +664,7 @@ export type ApiBiddingJob = {
 export type ApiBiddingBidBookSource = TradingBiddingBidBookSource;
 export type ApiBiddingBidScopeKind = 'collection' | 'trait' | 'token' | 'token_set' | 'unknown';
 export type ApiCollectionBiddingBidScopeFilter = CollectionBiddingBidScopeFilter;
+export type ApiCollectionBiddingBidBookOwnershipFilter = CollectionBiddingBidBookOwnershipFilter;
 export type ApiCollectionBiddingTraitFilterJoinMode = CollectionBiddingTraitFilterJoinMode;
 export type ApiBiddingBidBookPrice =
 	| {

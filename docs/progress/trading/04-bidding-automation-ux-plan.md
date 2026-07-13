@@ -114,8 +114,8 @@ Token detail renders the same panel inline and does not show the floating-panel 
 
 The bid book should become the primary bidding operations surface.
 
-Near the scope controls, the `my bids` action applies the existing maker filter with the user's bidding address when the backend/runtime can expose it.
-Do not invent a separate filtering path for own bids.
+Near the scope controls, the `my bids` action applies local ownership so declared intent remains findable before the backend/runtime knows a bidding address.
+Keep local ownership separate from exact marketplace maker-address filtering.
 
 Own bid rows display the runtime-owned state that is available from the backend read model:
 
@@ -447,7 +447,7 @@ Artifacts:
 ### Slice 8: Own Bid State and My Bids
 
 - Expose known bidding maker address from runtime/backend state.
-- Make `my bids` apply the existing maker filter.
+- Make `my bids` apply the local-ownership filter.
 - Enrich own bid rows with winning/draw/losing and job constraint state.
 
 Artifacts:
@@ -702,7 +702,7 @@ Status: complete.
 
 - Enrich own bid rows with job-linked status: winning, draw, losing, hit ceiling, and at floor.
 - Add compact icons or labels directly on own bid rows.
-- Use the existing maker-address filter for addressed `my bids`; do not make local declared-job visibility depend on that filter.
+- Use a separate local-ownership filter for `my bids`; keep exact maker-address filtering marketplace-only.
 - Source passive own-market identity from bot/runtime state when available, and keep orders fallback honest when it cannot know the wallet.
 - Keep all bot decision semantics inside the runtime; UI consumes read models only.
 - Connect own bid rows to declared jobs where possible so clicking/editing opens the current job rather than only drafting a new target.
@@ -723,6 +723,7 @@ Current implementation notes:
 - Bid-book rows now distinguish `market_bid` from `own_job_intent`, so queued or paused declared jobs can be shown before they are visible in OpenSea orders, the bot snapshot projection, or any runtime maker identity.
 - `own_job_intent` rows are intrinsically local and use `You` with no maker address; `ownMakerAddress` remains passive identity for recognizing and filtering observed market rows only.
 - Maker-address filters exclude identityless intent, and the frontend renders its `You` label as plain text without maker navigation or highlighting.
+- Private `my bids` reads use local ownership so addressless intent remains discoverable before the first bidding runtime identity exists.
 - The bidding runtime persists active order feedback and market decision fields into `trading_bidding_job_runtime_state`, and backend reads use that feedback to turn own-intent rows into exact active-order rows when available.
 - Standard/admin bid-book reads may include own-intent overlays; public single-collection reads remain market-only and omit local own-job context.
 - The repository does not compute own-bid position from exact scope or passive order rows; visible `winning`, `draw`, and `losing` states require a fresh bot-snapshot row whose order id matches the bot-persisted active order id and runtime decision.

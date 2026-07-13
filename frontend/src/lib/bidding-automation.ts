@@ -12,6 +12,7 @@ import { BIDDING_AUTOMATION_PRICING_MODE } from './bidding-automation-contracts'
 import {
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 	TRADING_BIDDING_BID_SCOPE_KIND,
+	type CollectionBiddingBidBookOwnershipFilter,
 	type TokenBrowserStatus
 } from '@artgod/shared/types';
 export {
@@ -77,6 +78,7 @@ export type BiddingAutomationTokenFilterSnapshot = {
 	tokenStatus?: TokenBrowserStatus | null;
 	ownerAddress?: string | null;
 	makerAddress?: string | null;
+	ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
 };
 
 // Builds the canonical filter snapshot consumed by bidding selection and draft flows.
@@ -88,6 +90,7 @@ export function buildBiddingAutomationTokenFilterSnapshot(params: {
 	tokenStatus?: TokenBrowserStatus | null;
 	ownerAddress?: string | null;
 	makerAddress?: string | null;
+	ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
 }): BiddingAutomationTokenFilterSnapshot {
 	return {
 		source: params.source,
@@ -96,7 +99,8 @@ export function buildBiddingAutomationTokenFilterSnapshot(params: {
 		traitJoinMode: params.traitJoinMode,
 		tokenStatus: params.tokenStatus ?? null,
 		ownerAddress: params.ownerAddress ?? null,
-		makerAddress: params.makerAddress ?? null
+		makerAddress: params.makerAddress ?? null,
+		ownershipFilter: params.ownershipFilter ?? null
 	};
 }
 
@@ -110,6 +114,7 @@ export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
 	tokenStatus?: TokenBrowserStatus | null;
 	ownerAddress?: string | null;
 	makerAddress?: string | null;
+	ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
 }): BiddingAutomationTokenFilterSnapshot {
 	return buildBiddingAutomationTokenFilterSnapshot({
 		source: params.source,
@@ -121,7 +126,8 @@ export function buildBiddingAutomationResolvedTokenFilterSnapshot(params: {
 		traitJoinMode: params.traitJoinMode,
 		tokenStatus: params.tokenStatus,
 		ownerAddress: params.ownerAddress,
-		makerAddress: params.makerAddress
+		makerAddress: params.makerAddress,
+		ownershipFilter: params.ownershipFilter
 	});
 }
 

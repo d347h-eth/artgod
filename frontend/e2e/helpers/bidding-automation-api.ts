@@ -36,6 +36,18 @@ const BIDDING_E2E_API_PATH_SUFFIX = {
 export async function installBiddingAutomationApiMock(page: Page): Promise<BiddingAutomationApiMock> {
 	const mutations: CapturedBiddingMutation[] = [];
 	let pendingResolve: ((mutation: CapturedBiddingMutation) => void) | null = null;
+	let activeScenario: string | null = null;
+
+	// Retain harness-only scenario state when production navigation rebuilds the query string.
+	page.on('framenavigated', (frame) => {
+		if (frame !== page.mainFrame()) {
+			return;
+		}
+		const scenario = new URL(frame.url()).searchParams.get(BIDDING_E2E_SCENARIO_QUERY_PARAM);
+		if (scenario) {
+			activeScenario = scenario;
+		}
+	});
 
 	await page.route('**/api/security/csrf', async (route) => {
 		await route.fulfill({
@@ -87,10 +99,12 @@ export async function installBiddingAutomationApiMock(page: Page): Promise<Biddi
 		}
 
 		if (request.method() === 'GET' && url.pathname.endsWith('/bidding/bids')) {
+			const searchParams = biddingFixtureSearchParams(url, request, activeScenario);
+			activeScenario = searchParams.get(BIDDING_E2E_SCENARIO_QUERY_PARAM) ?? activeScenario;
 			await route.fulfill({
 				status: 200,
 				contentType: 'application/json',
-				body: JSON.stringify(bidBookResponse(url, request))
+				body: JSON.stringify(bidBookResponse(url, searchParams))
 			});
 			return;
 		}
@@ -289,8 +303,7 @@ function jobResponse(input: {
 	};
 }
 
-function bidBookResponse(url: URL, request: Request): unknown {
-	const searchParams = biddingFixtureSearchParams(url, request);
+function bidBookResponse(url: URL, searchParams: URLSearchParams): unknown {
 	const tokenId = tokenIdFromTokenScopedBiddingPath(url.pathname);
 	if (tokenId) {
 		const data = buildBiddingE2eTokenDetailData(tokenId, searchParams);
@@ -318,7 +331,11 @@ function bidBookResponse(url: URL, request: Request): unknown {
 	};
 }
 
-function biddingFixtureSearchParams(url: URL, request: Request): URLSearchParams {
+function biddingFixtureSearchParams(
+	url: URL,
+	request: Request,
+	activeScenario: string | null
+): URLSearchParams {
 	const searchParams = new URLSearchParams(url.searchParams);
 	if (!searchParams.has(BIDDING_E2E_SCENARIO_QUERY_PARAM)) {
 		const referer = request.headers().referer;
@@ -328,6 +345,9 @@ function biddingFixtureSearchParams(url: URL, request: Request): URLSearchParams
 			if (scenario) {
 				searchParams.set(BIDDING_E2E_SCENARIO_QUERY_PARAM, scenario);
 			}
+		}
+		if (!searchParams.has(BIDDING_E2E_SCENARIO_QUERY_PARAM) && activeScenario) {
+			searchParams.set(BIDDING_E2E_SCENARIO_QUERY_PARAM, activeScenario);
 		}
 	}
 	return searchParams;

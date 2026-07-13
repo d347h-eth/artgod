@@ -5,6 +5,7 @@ import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settin
 import { resolvePreferredCollectionBiddingNavigationHref } from '$lib/bidding-navigation-preferences';
 import {
 	parseBidBookMakerFilter,
+	parseBidBookOwnershipFilter,
 	parseCollectionBiddingTraitFilterJoinMode,
 	parseShowMutedBidBook
 } from '$lib/bidding-query';
@@ -56,6 +57,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
 			traitJoinMode: parseCollectionBiddingTraitFilterJoinMode(url.searchParams),
 			showMuted: parseShowMutedBidBook(url.searchParams),
 			makerFilter: parseBidBookMakerFilter(url.searchParams),
+			ownershipFilter: parseBidBookOwnershipFilter(url.searchParams),
 			mediaMode,
 			requestCursor: url.searchParams.get('cursor')
 		};

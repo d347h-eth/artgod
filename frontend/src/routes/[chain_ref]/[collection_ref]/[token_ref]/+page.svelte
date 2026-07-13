@@ -48,7 +48,8 @@
 		BID_SCOPE_QUERY_PARAM,
 		COLLECTION_BIDDING_BID_SCOPE_FILTER,
 		COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
-		buildCollectionBiddingQuery
+		buildCollectionBiddingQuery,
+		parseBidBookOwnershipFilter
 	} from '$lib/bidding-query';
 	import {
 		bestBiddingAutomationBid,
@@ -507,6 +508,14 @@
 		return backPath.includes('/holders/');
 	}
 
+	function returnBiddingOwnershipFilter() {
+		const backPath = data?.backPath?.trim() ?? '';
+		if (!backPath.endsWith('/bidding')) {
+			return null;
+		}
+		return parseBidBookOwnershipFilter(new URLSearchParams(data?.backQuery ?? ''));
+	}
+
 	function parseReturnLimit(raw: string | null): number {
 		if (!raw || !/^\d+$/.test(raw.trim())) {
 			return DEFAULT_PAGE_LIMIT;
@@ -555,6 +564,7 @@
 			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
 			mediaMode: collectionNavigationMediaMode(),
 			mediaPreference: displayedMedia.preference,
+			ownershipFilter: returnBiddingOwnershipFilter(),
 			showMuted: data?.showMuted ?? false
 		});
 		// Keep trait bid scope explicit so stored scope preferences cannot override this jump.

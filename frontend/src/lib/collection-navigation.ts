@@ -17,6 +17,7 @@ import type {
 } from '$lib/api-types';
 import {
 	buildCollectionBiddingQuery,
+	type CollectionBiddingBidBookOwnershipFilter,
 	type CollectionBiddingBidScopeFilter,
 	type CollectionBiddingTraitFilterJoinMode
 } from '$lib/bidding-query';
@@ -55,6 +56,7 @@ export type CollectionNavigationState = {
 		bidScope?: CollectionBiddingBidScopeFilter;
 		traitJoinMode?: CollectionBiddingTraitFilterJoinMode;
 		maker?: string | null;
+		ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
 		showMuted?: boolean;
 	};
 	blockspace?: {
@@ -138,6 +140,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		mediaMode,
 		mediaPreference,
 		maker: state.bidding?.maker,
+		ownershipFilter: state.bidding?.ownershipFilter,
 		showMuted: state.bidding?.showMuted
 	});
 

@@ -10,6 +10,7 @@
 		ApiBiddingTokenOfferCardsPage,
 		ApiChain,
 		ApiCollection,
+		ApiCollectionBiddingBidBookOwnershipFilter,
 		ApiCollectionBiddingBidScopeFilter,
 		ApiCollectionBiddingTraitFilterJoinMode,
 		ApiCollectionMediaState,
@@ -43,6 +44,7 @@
 		traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 		showMuted: boolean;
 		makerFilter: string | null;
+		ownershipFilter: ApiCollectionBiddingBidBookOwnershipFilter | null;
 		mediaMode: string | null;
 		requestCursor: string | null;
 	};
@@ -80,6 +82,7 @@
 	traitJoinMode={data?.traitJoinMode ?? COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or}
 	showMuted={data?.showMuted ?? false}
 	makerFilter={data?.makerFilter ?? null}
+	ownershipFilter={data?.ownershipFilter ?? null}
 	mediaMode={data?.mediaMode ?? null}
 	requestCursor={data?.requestCursor ?? null}
 />

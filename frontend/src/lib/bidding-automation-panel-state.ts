@@ -273,6 +273,7 @@ function resolveFilterIdentityKey(
 		filter.source,
 		filter.tokenStatus ?? '',
 		filter.makerAddress ?? '',
+		filter.ownershipFilter ?? '',
 		filter.traitJoinMode,
 		...filter.selectedTraits
 			.map((trait) => `${trait.key}=${trait.value}`)

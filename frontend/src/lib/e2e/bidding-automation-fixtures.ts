@@ -20,6 +20,7 @@ import {
 } from '@artgod/shared/extensions';
 import {
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
+	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 	TRADING_BIDDING_AUTHORIZATION_STATUS,
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
@@ -48,6 +49,7 @@ import type {
 	ApiBiddingTokenOfferCardsPage,
 	ApiChain,
 	ApiCollection,
+	ApiCollectionBiddingBidBookOwnershipFilter,
 	ApiCollectionBiddingBidScopeFilter,
 	ApiCollectionBiddingTraitFilterJoinMode,
 	ApiCollectionMediaState,
@@ -62,6 +64,7 @@ import type {
 } from '$lib/api-types';
 import {
 	parseBidBookMakerFilter,
+	parseBidBookOwnershipFilter,
 	parseCollectionBiddingBidScopeFilter,
 	parseCollectionBiddingTraitFilterJoinMode,
 	parseShowMutedBidBook
@@ -646,6 +649,7 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 	const bidScope = parseCollectionBiddingBidScopeFilter(searchParams);
 	const traitJoinMode = parseCollectionBiddingTraitFilterJoinMode(searchParams);
 	const makerFilter = parseBidBookMakerFilter(searchParams);
+	const ownershipFilter = parseBidBookOwnershipFilter(searchParams);
 	const scenario = parseBiddingE2eScenario(searchParams);
 	const media = resolveBiddingE2eCollectionMedia(searchParams);
 	const bidBook = buildBidBook({
@@ -653,6 +657,7 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 		traitJoinMode,
 		selectedTraits,
 		makerFilter,
+		ownershipFilter,
 		scenario
 	});
 	const tokenOfferCards = buildTokenOfferCardsPage({
@@ -660,6 +665,7 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 		selectedTraitRanges,
 		traitJoinMode,
 		makerFilter,
+		ownershipFilter,
 		cursor: searchParams.get('cursor'),
 		scenario
 	});
@@ -681,6 +687,7 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 		traitJoinMode,
 		showMuted: parseShowMutedBidBook(searchParams),
 		makerFilter,
+		ownershipFilter,
 		mediaMode: media.selectedMode,
 		requestCursor: searchParams.get('cursor')
 	};
@@ -896,6 +903,7 @@ function buildTokenOfferCardsPage(params: {
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 	makerFilter: string | null;
+	ownershipFilter: ApiCollectionBiddingBidBookOwnershipFilter | null;
 	cursor: string | null;
 	scenario: BiddingE2eScenario | null;
 }): ApiBiddingTokenOfferCardsPage {
@@ -905,7 +913,7 @@ function buildTokenOfferCardsPage(params: {
 			(row) =>
 				row.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token &&
 				row.scope.tokenId === token.tokenId &&
-				bidMatchesMakerFilter(row, params.makerFilter)
+				bidMatchesBidderFilter(row, params.makerFilter, params.ownershipFilter)
 		);
 		return offers.length > 0 ? { ...token, offers } : null;
 	}).filter((card): card is ApiBiddingTokenOfferCard => !!card);
@@ -935,6 +943,7 @@ function buildBidBook(params: {
 	traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 	selectedTraits: ApiTokenAttribute[];
 	makerFilter: string | null;
+	ownershipFilter: ApiCollectionBiddingBidBookOwnershipFilter | null;
 	scenario: BiddingE2eScenario | null;
 }): ApiBiddingBidBook {
 	const runtime = biddingRuntimeForScenario(params.scenario);
@@ -960,7 +969,7 @@ function buildBidBook(params: {
 				return false;
 			}
 		}
-		return bidMatchesMakerFilter(row, params.makerFilter);
+		return bidMatchesBidderFilter(row, params.makerFilter, params.ownershipFilter);
 	});
 
 	return {
@@ -1060,7 +1069,14 @@ function biddingRuntimeForScenario(scenario: BiddingE2eScenario | null): Pick<
 	};
 }
 
-function bidMatchesMakerFilter(row: ApiBiddingBidBookRow, makerFilter: string | null): boolean {
+function bidMatchesBidderFilter(
+	row: ApiBiddingBidBookRow,
+	makerFilter: string | null,
+	ownershipFilter: ApiCollectionBiddingBidBookOwnershipFilter | null
+): boolean {
+	if (ownershipFilter === COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own) {
+		return row.maker.isOwn;
+	}
 	if (!makerFilter) {
 		return true;
 	}

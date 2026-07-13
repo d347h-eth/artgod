@@ -318,7 +318,7 @@ Control rules:
 - Do not make identityless `You` text a dead maker link or attach an empty address title, holder route, maker-filter route, or hover/focus highlighting.
 - Render maker navigation and cross-row maker highlighting only when the row carries an observed marketplace address.
 - Maker-address filters exclude identityless own-job intent; they must not use a zero address, empty string, current runtime address, or any other placeholder to make local intent filterable.
-- The `my bids` shortcut remains an address-filter shortcut and is available only when passive own-market identity is known; local job visibility must not depend on that shortcut.
+- The private `my bids` shortcut uses local ownership, remains available before passive market identity is known, and includes both own market bids and addressless own-job intent.
 - In trait-demand summaries, count addressless own intent as one local actor without inventing an address.
 
 ### Button and focus behavior
