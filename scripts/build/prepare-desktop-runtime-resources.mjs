@@ -18,8 +18,9 @@ import {
     stageDesktopRuntimeDependencies,
 } from "./desktop-runtime-dependency-staging.mjs";
 import {
+    DESKTOP_BUILD_TARGET_ENV_KEYS,
     DESKTOP_NODE_DIST_TARGET,
-    inferDesktopNodeDistTarget,
+    resolveDesktopDistributionTargetFromEnvironment,
 } from "./native-runtime-dependencies.mjs";
 import { verifyStagedDesktopRuntimeDependencies } from "./verify-staged-desktop-runtime-dependencies.mjs";
 
@@ -30,19 +31,24 @@ const packageJson = JSON.parse(
     await readFile(path.join(rootDir, "package.json"), "utf8"),
 );
 const nodeVersion = parseExactSemver(packageJson.engines?.node, "engines.node");
-const defaultDistTarget = inferDesktopNodeDistTarget(
-    process.platform,
-    process.arch,
-);
-const nodeDistTarget =
-    process.env.DESKTOP_NODE_DIST_TARGET?.trim() || defaultDistTarget;
+const nodeDistTarget = resolveDesktopDistributionTargetFromEnvironment({
+    distributionTargetEnvKey:
+        DESKTOP_BUILD_TARGET_ENV_KEYS.NodeDistributionTarget,
+});
 const nodeCacheRoot = path.join(rootDir, ".cache", "desktop-node-runtime");
 const natsVersion = parseExactSemver(
     process.env.DESKTOP_NATS_VERSION?.trim() || "2.10.17",
     "DESKTOP_NATS_VERSION",
 );
-const natsDistTarget =
-    process.env.DESKTOP_NATS_DIST_TARGET?.trim() || defaultDistTarget;
+const natsDistTarget = resolveDesktopDistributionTargetFromEnvironment({
+    distributionTargetEnvKey:
+        DESKTOP_BUILD_TARGET_ENV_KEYS.NatsDistributionTarget,
+});
+if (nodeDistTarget !== natsDistTarget) {
+    throw new Error(
+        `Desktop Node and NATS targets must match. Received ${nodeDistTarget} and ${natsDistTarget}.`,
+    );
+}
 const natsCacheRoot = path.join(rootDir, ".cache", "desktop-nats-runtime");
 
 const resourcesRootDir = path.join(

@@ -3,6 +3,11 @@ import { chmod, copyFile, mkdir, readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+    DESKTOP_RUST_TARGET,
+    MACOS_UNIVERSAL_NATIVE_ARCHITECTURES,
+    resolveDesktopRustTargetFromEnvironment,
+} from "./native-runtime-dependencies.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,13 +73,15 @@ function resolveProfile(argv) {
 }
 
 async function resolveTargetSpec() {
-    const configuredTarget =
-        process.env.CARGO_BUILD_TARGET?.trim() ||
-        process.env.TAURI_ENV_TARGET_TRIPLE?.trim();
-    if (configuredTarget === "universal-apple-darwin") {
+    const configuredTarget = resolveDesktopRustTargetFromEnvironment(
+        process.env,
+    );
+    if (configuredTarget === DESKTOP_RUST_TARGET.DarwinUniversal) {
         return {
             requestedTarget: configuredTarget,
-            buildTargets: ["aarch64-apple-darwin", "x86_64-apple-darwin"],
+            buildTargets: MACOS_UNIVERSAL_NATIVE_ARCHITECTURES.map(
+                ({ rustTarget }) => rustTarget,
+            ),
             universalTarget: configuredTarget,
         };
     }

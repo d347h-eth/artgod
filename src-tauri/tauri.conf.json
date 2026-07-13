@@ -7,7 +7,7 @@
         "frontendDist": "../frontend/dist",
         "devUrl": "http://localhost:42701",
         "beforeDevCommand": "node ./scripts/build/dev-frontend-target.mjs admin --prepare-desktop-sidecars=debug",
-        "beforeBuildCommand": "yarn build:admin && yarn build:userland && yarn build:desktop-runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release && node ./scripts/build/macos-code-signing.mjs sign-staged"
+        "beforeBuildCommand": "yarn build:sqlite-native --if-needed && yarn build:admin && yarn build:userland && yarn build:desktop-runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release && node ./scripts/build/macos-code-signing.mjs sign-staged"
     },
     "app": {
         "windows": [
