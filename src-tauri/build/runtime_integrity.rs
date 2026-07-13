@@ -7,12 +7,11 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 use crate::resource_contract::{
-    BUNDLED_RUNTIME_SOURCE_RELATIVE_PATH, GENERATED_WALLET_RECIPIENT_INTEGRITY_FILE_NAME,
+    BUNDLED_RUNTIME_RELATIVE_PATH, GENERATED_WALLET_RECIPIENT_INTEGRITY_FILE_NAME,
     WALLET_RECIPIENT_PROTECTED_ROOTS,
 };
 
 const CARGO_MANIFEST_DIR_ENV_KEY: &str = "CARGO_MANIFEST_DIR";
-const CARGO_OUT_DIR_ENV_KEY: &str = "OUT_DIR";
 const CARGO_PROFILE_ENV_KEY: &str = "PROFILE";
 const CARGO_RELEASE_PROFILE: &str = "release";
 
@@ -22,11 +21,12 @@ struct IntegrityEntry {
 }
 
 /// Embeds deterministic hashes of every file that can execute in a release bot process.
-pub(crate) fn generate_wallet_recipient_integrity_manifest() -> Result<(), Box<dyn Error>> {
+pub(crate) fn generate_wallet_recipient_integrity_manifest(
+    output_dir: &Path,
+) -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(env::var(CARGO_MANIFEST_DIR_ENV_KEY)?);
-    let runtime_dir = manifest_dir.join(BUNDLED_RUNTIME_SOURCE_RELATIVE_PATH);
-    let output_path = PathBuf::from(env::var(CARGO_OUT_DIR_ENV_KEY)?)
-        .join(GENERATED_WALLET_RECIPIENT_INTEGRITY_FILE_NAME);
+    let runtime_dir = manifest_dir.join(BUNDLED_RUNTIME_RELATIVE_PATH);
+    let output_path = output_dir.join(GENERATED_WALLET_RECIPIENT_INTEGRITY_FILE_NAME);
     let release_build = env::var(CARGO_PROFILE_ENV_KEY)? == CARGO_RELEASE_PROFILE;
 
     println!("cargo:rerun-if-changed={}", runtime_dir.display());
