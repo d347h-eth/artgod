@@ -8,6 +8,13 @@ pub(crate) const BUNDLED_RUNTIME_RELATIVE_PATH: &str = "resources/runtime";
 pub(crate) const GENERATED_WALLET_RECIPIENT_INTEGRITY_FILE_NAME: &str =
     "wallet_recipient_integrity.rs";
 
+/// Build-time snapshot used to prove final bundle bytes match the embedded authority.
+pub(crate) const WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_FILE_NAME: &str =
+    ".artgod-wallet-recipient-integrity.json";
+
+/// Schema version for the build-time wallet-recipient integrity snapshot.
+pub(crate) const WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_VERSION: u64 = 1;
+
 /// Resource subdirectory bundled by Tauri for local runtime artifacts.
 pub(crate) const BUNDLED_RUNTIME_DIR_NAME: &str = "runtime";
 
@@ -16,6 +23,9 @@ pub(crate) const TAURI_BUNDLED_RESOURCES_DIR_NAME: &str = "resources";
 
 /// macOS bundle resources directory relative to the executable directory.
 pub(crate) const MACOS_BUNDLE_RESOURCES_DIR_NAME: &str = "Resources";
+
+/// Linux shared-data directory below the installation prefix.
+pub(crate) const LINUX_SHARED_DATA_DIR_NAME: &str = "share";
 
 /// Bundled Node executable used by every desktop Node runtime.
 #[cfg(windows)]
@@ -33,15 +43,6 @@ pub(crate) const NATS_BINARY_RELATIVE_PATH: &str = "nats/nats-server.exe";
 #[cfg(not(windows))]
 pub(crate) const NATS_BINARY_RELATIVE_PATH: &str = "nats/nats-server";
 
-/// Bundled Yarn PnP CommonJS hook used by desktop Node runtimes.
-pub(crate) const PNP_CJS_RELATIVE_PATH: &str = ".pnp.cjs";
-
-/// Bundled Yarn PnP ESM loader used by desktop Node runtimes.
-pub(crate) const PNP_LOADER_RELATIVE_PATH: &str = ".pnp.loader.mjs";
-
-/// Bundled Yarn dependency directory used by the PnP hooks.
-pub(crate) const YARN_RUNTIME_RELATIVE_PATH: &str = ".yarn";
-
 /// Bundled Node distribution directory.
 pub(crate) const NODE_RUNTIME_RELATIVE_PATH: &str = "node";
 
@@ -49,10 +50,5 @@ pub(crate) const NODE_RUNTIME_RELATIVE_PATH: &str = "node";
 pub(crate) const TRADING_RUNTIME_RELATIVE_PATH: &str = "trading";
 
 /// Complete code/dependency roots that can execute inside a key-bearing bot process.
-pub(crate) const WALLET_RECIPIENT_PROTECTED_ROOTS: &[&str] = &[
-    PNP_CJS_RELATIVE_PATH,
-    PNP_LOADER_RELATIVE_PATH,
-    YARN_RUNTIME_RELATIVE_PATH,
-    NODE_RUNTIME_RELATIVE_PATH,
-    TRADING_RUNTIME_RELATIVE_PATH,
-];
+pub(crate) const WALLET_RECIPIENT_PROTECTED_ROOTS: &[&str] =
+    &[NODE_RUNTIME_RELATIVE_PATH, TRADING_RUNTIME_RELATIVE_PATH];

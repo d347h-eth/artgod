@@ -341,10 +341,7 @@ mod tests {
     #[cfg(not(debug_assertions))]
     use crate::runtime::{
         bot_runtime::BIDDING_BOT_SPEC,
-        resource_contract::{
-            BUNDLED_RUNTIME_RELATIVE_PATH, NODE_BINARY_RELATIVE_PATH, PNP_CJS_RELATIVE_PATH,
-            PNP_LOADER_RELATIVE_PATH,
-        },
+        resource_contract::{BUNDLED_RUNTIME_RELATIVE_PATH, NODE_BINARY_RELATIVE_PATH},
     };
 
     fn write_file(root: &Path, relative_path: &str, contents: &[u8]) -> PathBuf {
@@ -368,8 +365,6 @@ mod tests {
         let runtime_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(BUNDLED_RUNTIME_RELATIVE_PATH);
         let required_paths = [
             runtime_dir.join(NODE_BINARY_RELATIVE_PATH),
-            runtime_dir.join(PNP_CJS_RELATIVE_PATH),
-            runtime_dir.join(PNP_LOADER_RELATIVE_PATH),
             runtime_dir.join(BIDDING_BOT_SPEC.artifact_relative_path),
         ];
         let required_paths = required_paths

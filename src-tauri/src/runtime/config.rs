@@ -8,10 +8,11 @@ use super::app_config::{ensure_desktop_config_paths, load_or_materialize_process
 use super::bot_runtime::BotRuntimeSpec;
 use super::env_keys::{COMMON_MEDIA_CACHE_DIR_ENV_KEY, RPC_ENDPOINT_LIST_ENV_KEY};
 use super::http_fetch_resilience::HttpFetchResilienceConfig;
+#[cfg(target_os = "linux")]
+use super::resource_contract::LINUX_SHARED_DATA_DIR_NAME;
 use super::resource_contract::{
     BUNDLED_RUNTIME_DIR_NAME, MACOS_BUNDLE_RESOURCES_DIR_NAME, NATS_BINARY_RELATIVE_PATH,
-    NODE_BINARY_RELATIVE_PATH, PNP_CJS_RELATIVE_PATH, PNP_LOADER_RELATIVE_PATH,
-    TAURI_BUNDLED_RESOURCES_DIR_NAME,
+    NODE_BINARY_RELATIVE_PATH, TAURI_BUNDLED_RESOURCES_DIR_NAME,
 };
 use super::runtime_integrity::verify_wallet_recipient_runtime;
 
@@ -21,8 +22,6 @@ pub struct DesktopRuntimeConfig {
     pub nats_bin: PathBuf,
     pub nats_store_dir: PathBuf,
     pub runtime_dir: PathBuf,
-    pub pnp_cjs_path: PathBuf,
-    pub pnp_loader_path: PathBuf,
     pub nats_host: String,
     pub nats_port: u16,
     pub nats_url: String,
@@ -45,8 +44,6 @@ pub(crate) struct BotRuntimeLaunchConfig {
     pub(crate) artifact_path: PathBuf,
     pub(crate) node_bin: PathBuf,
     pub(crate) runtime_dir: PathBuf,
-    pub(crate) pnp_cjs_path: PathBuf,
-    pub(crate) pnp_loader_path: PathBuf,
     pub(crate) chain_id: u64,
     pub(crate) process_env: HashMap<String, String>,
     pub(crate) logs_dir: PathBuf,
@@ -116,16 +113,6 @@ impl DesktopRuntimeConfig {
             "Desktop NATS binary",
         )?;
         let nats_store_dir = build_nats_store_dir(&app_data_dir)?;
-        let pnp_cjs_path = resolve_bundled_runtime_file(
-            &runtime_dir,
-            PNP_CJS_RELATIVE_PATH,
-            "Yarn PnP CommonJS hook",
-        )?;
-        let pnp_loader_path = resolve_bundled_runtime_file(
-            &runtime_dir,
-            PNP_LOADER_RELATIVE_PATH,
-            "Yarn PnP ESM loader",
-        )?;
         let backend_port = parse_port(get_required(&process_env, "BACKEND_PORT")?)?;
         let chain_id = parse_u64(get_required(&process_env, "CHAIN_ID")?)?;
         let auto_start = parse_bool(get_required(&process_env, "DESKTOP_AUTO_START")?)?;
@@ -209,8 +196,6 @@ impl DesktopRuntimeConfig {
             nats_bin,
             nats_store_dir,
             runtime_dir,
-            pnp_cjs_path,
-            pnp_loader_path,
             nats_host,
             nats_port,
             nats_url,
@@ -244,23 +229,13 @@ impl DesktopRuntimeConfig {
             spec.artifact_relative_path,
             "Trading bot runtime artifact",
         )?;
-        verify_wallet_recipient_runtime(
-            &self.runtime_dir,
-            &[
-                &self.node_bin,
-                &self.pnp_cjs_path,
-                &self.pnp_loader_path,
-                &artifact_path,
-            ],
-        )?;
+        verify_wallet_recipient_runtime(&self.runtime_dir, &[&self.node_bin, &artifact_path])?;
 
         Ok(BotRuntimeLaunchConfig {
             spec,
             artifact_path,
             node_bin: self.node_bin.clone(),
             runtime_dir: self.runtime_dir.clone(),
-            pnp_cjs_path: self.pnp_cjs_path.clone(),
-            pnp_loader_path: self.pnp_loader_path.clone(),
             chain_id: self.chain_id,
             process_env: self.process_env.clone(),
             logs_dir: self.logs_dir.clone(),
@@ -492,7 +467,11 @@ fn resolve_runtime_resources_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let resource_dir = app.path().resource_dir().ok();
     let current_exe = std::env::current_exe().ok();
     let exe_dir = current_exe.as_deref().and_then(Path::parent);
-    let candidates = build_runtime_resources_dir_candidates(resource_dir.as_deref(), exe_dir);
+    let candidates = build_runtime_resources_dir_candidates(
+        resource_dir.as_deref(),
+        exe_dir,
+        app.package_info().name.as_str(),
+    );
 
     for candidate in &candidates {
         if !candidate.exists() {
@@ -535,13 +514,14 @@ fn resolve_runtime_resources_dir(app: &AppHandle) -> Result<PathBuf, String> {
     };
 
     Err(format!(
-        "DESKTOP runtime resources directory not found. Checked: {checked}. Build runtime resources with `yarn build:runtime && yarn build:desktop-runtime-resources`.",
+        "DESKTOP runtime resources directory not found. Checked: {checked}. Build runtime resources with `yarn build:desktop-runtime && yarn build:desktop-runtime-resources`.",
     ))
 }
 
 fn build_runtime_resources_dir_candidates(
     resource_dir: Option<&Path>,
     exe_dir: Option<&Path>,
+    product_name: &str,
 ) -> Vec<PathBuf> {
     let mut candidates = Vec::<PathBuf>::new();
 
@@ -554,6 +534,16 @@ fn build_runtime_resources_dir_candidates(
     }
 
     if let Some(exe_dir) = exe_dir {
+        #[cfg(target_os = "linux")]
+        if let Some(install_prefix) = exe_dir.parent() {
+            candidates.push(
+                install_prefix
+                    .join(LINUX_SHARED_DATA_DIR_NAME)
+                    .join(product_name)
+                    .join(TAURI_BUNDLED_RESOURCES_DIR_NAME)
+                    .join(BUNDLED_RUNTIME_DIR_NAME),
+            );
+        }
         candidates.push(exe_dir.join(BUNDLED_RUNTIME_DIR_NAME));
         candidates.push(resolve_from_base_dir(
             exe_dir,
@@ -629,8 +619,6 @@ mod tests {
         let runtime_dir = fs::canonicalize(runtime_dir).expect("canonical runtime dir");
         let node_bin = write_runtime_file(&runtime_dir, NODE_BINARY_RELATIVE_PATH);
         let nats_bin = write_runtime_file(&runtime_dir, NATS_BINARY_RELATIVE_PATH);
-        let pnp_cjs_path = write_runtime_file(&runtime_dir, PNP_CJS_RELATIVE_PATH);
-        let pnp_loader_path = write_runtime_file(&runtime_dir, PNP_LOADER_RELATIVE_PATH);
         write_runtime_file(&runtime_dir, BIDDING_BOT_SPEC.artifact_relative_path);
         let app_data_dir = runtime_dir.join("app-data");
 
@@ -640,8 +628,6 @@ mod tests {
             nats_bin,
             nats_store_dir: app_data_dir.join(NATS_STORAGE_DIR_NAME),
             runtime_dir: runtime_dir.clone(),
-            pnp_cjs_path,
-            pnp_loader_path,
             nats_host: "127.0.0.1".to_owned(),
             nats_port: 42720,
             nats_url: "nats://127.0.0.1:42720".to_owned(),
@@ -719,15 +705,27 @@ mod tests {
     }
 
     #[test]
-    fn runtime_resource_candidates_include_appimage_resource_layout() {
+    fn runtime_resource_candidates_include_standard_and_no_bundle_layouts() {
         let resource_dir = Path::new("/tmp/.mount_ArtGod/usr/lib/ArtGod");
         let exe_dir = Path::new("/tmp/.mount_ArtGod/usr/bin");
 
-        let candidates = build_runtime_resources_dir_candidates(Some(resource_dir), Some(exe_dir));
+        let candidates =
+            build_runtime_resources_dir_candidates(Some(resource_dir), Some(exe_dir), "ArtGod");
 
         assert!(candidates.contains(&resource_dir.join("resources/runtime")));
         assert!(candidates.contains(&resource_dir.join("runtime")));
-        assert!(candidates.contains(&exe_dir.join("runtime")));
+        assert!(candidates.contains(&exe_dir.join("resources/runtime")));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn runtime_resource_candidates_include_linux_bundle_layout() {
+        let exe_dir = Path::new("/tmp/.mount_ArtGod/usr/bin");
+        let candidates = build_runtime_resources_dir_candidates(None, Some(exe_dir), "ArtGod");
+
+        assert!(candidates.contains(&PathBuf::from(
+            "/tmp/.mount_ArtGod/usr/share/ArtGod/resources/runtime"
+        )));
     }
 
     #[test]
@@ -739,8 +737,6 @@ mod tests {
             .expect("launch config should freeze");
         let original_node = launch.node_bin.clone();
         let original_runtime_dir = launch.runtime_dir.clone();
-        let original_pnp_cjs = launch.pnp_cjs_path.clone();
-        let original_pnp_loader = launch.pnp_loader_path.clone();
         let original_artifact = launch.artifact_path.clone();
         let original_media_dir = launch
             .process_env
@@ -750,8 +746,6 @@ mod tests {
         // This represents Admin settings changing after the native prompt opens.
         config.node_bin = temp.path().join("attacker-node");
         config.runtime_dir = temp.path().join("attacker-runtime");
-        config.pnp_cjs_path = temp.path().join("attacker-pnp-cjs");
-        config.pnp_loader_path = temp.path().join("attacker-pnp-loader");
         config.chain_id = 31337;
         config.process_env.insert(
             COMMON_MEDIA_CACHE_DIR_ENV_KEY.to_owned(),
@@ -763,8 +757,6 @@ mod tests {
 
         assert_eq!(launch.node_bin, original_node);
         assert_eq!(launch.runtime_dir, original_runtime_dir);
-        assert_eq!(launch.pnp_cjs_path, original_pnp_cjs);
-        assert_eq!(launch.pnp_loader_path, original_pnp_loader);
         assert_eq!(launch.artifact_path, original_artifact);
         assert_eq!(launch.chain_id, 1);
         assert_eq!(
