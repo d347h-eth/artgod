@@ -311,6 +311,16 @@ Control rules:
 - asks, tokens, holder-token pages, and offers must share this component instead of each implementing their own action row.
 - public single-collection deployments may show read-only offers, but must not expose bidding job or tier write controls.
 
+### Bid-book maker identity
+
+- A local declared bidding job is owned by the user even before any bidding runtime or marketplace maker address is known.
+- Render an identityless `own_job_intent` as plain `You` in the maker column while preserving its own-row treatment, lifecycle badge, token-card state, and edit action.
+- Do not make identityless `You` text a dead maker link or attach an empty address title, holder route, maker-filter route, or hover/focus highlighting.
+- Render maker navigation and cross-row maker highlighting only when the row carries an observed marketplace address.
+- Maker-address filters exclude identityless own-job intent; they must not use a zero address, empty string, current runtime address, or any other placeholder to make local intent filterable.
+- The `my bids` shortcut remains an address-filter shortcut and is available only when passive own-market identity is known; local job visibility must not depend on that shortcut.
+- In trait-demand summaries, count addressless own intent as one local actor without inventing an address.
+
 ### Button and focus behavior
 
 Action polarity and placement:

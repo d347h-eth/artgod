@@ -232,7 +232,11 @@
 		return data.backPath && data.backPath !== collectionPath ? 'back to holder' : 'back to collection';
 	}
 
-	function bidBookMakerHref(bid: ApiBiddingBidBookRow): string {
+	function bidBookMakerHref(bid: ApiBiddingBidBookRow): string | null {
+		const makerAddress = bid.maker.address;
+		if (!makerAddress) {
+			return null;
+		}
 		const bidScope = bidBookScopeForBid(bid);
 		const query = buildCollectionBiddingQuery({
 			selectedTraits: [],
@@ -240,7 +244,7 @@
 			bidScope,
 			mediaMode: collectionNavigationMediaMode(),
 			mediaPreference: displayedMedia.preference,
-			maker: bid.maker.address,
+			maker: makerAddress,
 			showMuted: data?.showMuted ?? false
 		});
 		// Keep the clicked bid scope explicit so stored scope preferences cannot override this jump.

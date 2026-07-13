@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from 'playwright/test';
 import {
+	COLLECTION_BIDDING_BID_SCOPE_FILTER,
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
 	TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
@@ -14,6 +15,7 @@ import {
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES
 } from '@artgod/shared/extensions/terraforms';
 import { BIDDING_SELECTION_ACTION_LABEL } from '../src/lib/bidding-selection-actions';
+import { BID_SCOPE_QUERY_PARAM } from '../src/lib/bidding-query';
 import { TERRAFORMS_BID_BOOK_TRAIT_PREVIEW_DOM } from '../src/lib/bid-book-trait-previews/terraforms/preview-model';
 import {
 	TERRAFORMS_BIOME_CHARACTER_BAND_DOM,
@@ -27,6 +29,7 @@ import {
 } from './attached-app';
 import { installBiddingAutomationApiMock } from './helpers/bidding-automation-api';
 import {
+	BIDDING_E2E_FIRST_RUN_INTENT,
 	BIDDING_E2E_SCENARIO,
 	BIDDING_E2E_SCENARIO_QUERY_PARAM
 } from '../src/lib/e2e/bidding-automation-fixtures';
@@ -36,6 +39,7 @@ const BIDDING_PATH = `${COLLECTION_PATH}/bidding`;
 const MARKET_MAKER_A = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const CANCELLATION_PHASE_SCENARIO_QUERY = `${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.CancellationPhases}`;
 const AUTHORIZATION_REQUIRED_SCENARIO_QUERY = `${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.AuthorizationRequired}`;
+const FIRST_RUN_INTENT_SCENARIO_QUERY = `${BIDDING_E2E_SCENARIO_QUERY_PARAM}=${BIDDING_E2E_SCENARIO.FirstRunIntent}`;
 const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
 
 test.beforeEach(({ page }, testInfo) => {
@@ -390,6 +394,50 @@ test.describe('bidding automation fixture harness', () => {
 		await expect(page.locator('#bidding-automation-ceiling')).toHaveValue('0.400');
 		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanelModify}"]`)).toBeDisabled();
 		await page.locator('#bidding-automation-floor').fill('0.360');
+		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanelModify}"]`)).toBeEnabled();
+	});
+
+	test('keeps the first bidding job visible and editable before bidder identity exists', async ({
+		page
+	}, testInfo) => {
+		await installBiddingAutomationApiMock(page);
+		await openHarnessPage(
+			page,
+			`${BIDDING_PATH}?${BID_SCOPE_QUERY_PARAM}=${COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}&${FIRST_RUN_INTENT_SCENARIO_QUERY}`
+		);
+
+		await expect(page.getByRole('link', { name: 'my bids' })).toHaveCount(0);
+		const intentRow = rowForJob(page, BIDDING_E2E_FIRST_RUN_INTENT.JobId);
+		await expect(intentRow).toBeVisible();
+		const makerCell = intentRow.locator('.bid-book-maker-cell');
+		await expect(makerCell).toContainText('You');
+		await expect(makerCell.getByRole('link')).toHaveCount(0);
+		await expect(
+			intentRow.locator(ownStatusSelector(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot))
+		).toContainText('waiting for bidding bot');
+
+		const traitSignature = `${BIDDING_E2E_FIRST_RUN_INTENT.TraitType}=${BIDDING_E2E_FIRST_RUN_INTENT.TraitValue}`;
+		await clickCenterVerifiedAction(
+			page
+				.locator(
+					`[data-testid="${TEST_IDS.BidBookTraitBucketBid}"][data-traits="${traitSignature}"]`
+				)
+				.first()
+		);
+
+		const panel = page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`);
+		await expect(panel).toContainText(BIDDING_E2E_FIRST_RUN_INTENT.JobId);
+		await expect(page.locator('#bidding-automation-floor')).toHaveValue('0.325');
+		await expect(page.locator('#bidding-automation-ceiling')).toHaveValue('0.375');
+		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanelCreate}"]`)).toHaveCount(0);
+		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanelModify}"]`)).toBeDisabled();
+
+		await testInfo.attach('first-run-bidding-job-intent.png', {
+			body: await page.screenshot({ fullPage: true }),
+			contentType: 'image/png'
+		});
+
+		await page.locator('#bidding-automation-floor').fill('0.330');
 		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanelModify}"]`)).toBeEnabled();
 	});
 

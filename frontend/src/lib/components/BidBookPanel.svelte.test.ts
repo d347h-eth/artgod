@@ -644,7 +644,7 @@ describe('BidBookPanel', () => {
 				traits: []
 			},
 			maker: {
-				address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+				address: null,
 				label: 'You',
 				isOwn: true
 			},
@@ -691,7 +691,8 @@ describe('BidBookPanel', () => {
 			}
 		});
 
-		expect(body).toContain('>You</a>');
+		expect(body).toContain('<span>You</span>');
+		expect(body).not.toContain('>You</a>');
 		expect(body).toContain('bid-book-own-status-losing');
 		expect(body).toContain('>losing</span>');
 		expect(body).toContain('bid-book-own-status-ceiling');
@@ -701,7 +702,7 @@ describe('BidBookPanel', () => {
 		expect(body).toContain('>0.20</td>');
 	});
 
-	it('shows queued for own job intents instead of computing a market position locally', () => {
+	it('shows the first job intent before a bidding maker identity exists', () => {
 		const job: ApiBiddingJob = {
 			jobId: 'job-token-1',
 			status: TRADING_JOB_STATUS.Enabled,
@@ -721,14 +722,14 @@ describe('BidBookPanel', () => {
 			},
 			runtime: null
 		};
-		const queuedIntent: ApiBiddingBidBookRow = {
+		const waitingIntent: ApiBiddingBidBookRow = {
 			...BASE_BID,
 			orderId: 'job-intent:job-token-1',
 			materialization: {
 				kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
 				jobId: 'job-token-1',
 				status: TRADING_JOB_STATUS.Enabled,
-				phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued
+				phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot
 			},
 			scope: {
 				kind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
@@ -737,7 +738,7 @@ describe('BidBookPanel', () => {
 				traits: []
 			},
 			maker: {
-				address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+				address: null,
 				label: 'You',
 				isOwn: true
 			},
@@ -765,9 +766,9 @@ describe('BidBookPanel', () => {
 				durationMs: null,
 				lastError: null
 			},
-			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Active,
+			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
 			biddingAuthorization: null,
-			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			ownMakerAddress: null,
 			bids: [
 				{
 					...BASE_BID,
@@ -780,7 +781,7 @@ describe('BidBookPanel', () => {
 					},
 					price: exactPrice('300000000000000000', '0.3')
 				},
-				queuedIntent
+				waitingIntent
 			]
 		};
 
@@ -795,7 +796,9 @@ describe('BidBookPanel', () => {
 		});
 
 		expect(body).toContain('>state<');
-		expect(body).toContain('>queued</span>');
+		expect(body).toContain('<span>You</span>');
+		expect(body).not.toContain('>You</a>');
+		expect(body).toContain('>waiting for bidding bot</span>');
 		expect(body).not.toContain('>winning</span>');
 		expect(body).not.toContain('outbid');
 		expect(body).not.toContain('no active bid');
@@ -817,7 +820,8 @@ describe('BidBookPanel', () => {
 		});
 
 		expect(hiddenMetaBody).not.toContain('>state<');
-		expect(hiddenMetaBody).toContain('>queued</span>');
+		expect(hiddenMetaBody).toContain('<span>You</span>');
+		expect(hiddenMetaBody).toContain('>waiting for bidding bot</span>');
 	});
 
 	it('shows cancellation phases for own job intents', () => {
@@ -831,7 +835,7 @@ describe('BidBookPanel', () => {
 				phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling
 			},
 			maker: {
-				address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+				address: null,
 				label: 'You',
 				isOwn: true
 			}

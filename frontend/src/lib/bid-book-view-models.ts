@@ -15,7 +15,7 @@ export type BidBookRowsTableRow = {
 	floor: string;
 	ceiling: string;
 	quantityPrefix: string | null;
-	makerHref: string;
+	makerHref: string | null;
 	makerHighlighted: boolean;
 	placedAtLabel: string;
 	placedAtTitle: string | undefined;
@@ -81,7 +81,7 @@ export type BidBookDemandTableBidRow = {
 	floor: string;
 	ceiling: string;
 	quantityPrefix: string | null;
-	makerHref: string;
+	makerHref: string | null;
 	makerHighlighted: boolean;
 	placedAtLabel: string;
 	placedAtTitle: string | undefined;

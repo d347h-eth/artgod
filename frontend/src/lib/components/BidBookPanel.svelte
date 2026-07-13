@@ -106,7 +106,7 @@
 		preferredDemandTraitKey?: string | null;
 		traitValueHref?: BidBookTraitValueHref | null;
 		makerFilterHref?: ((makerAddress: string) => string) | null;
-		makerBidHref?: ((bid: ApiBiddingBidBookRow) => string) | null;
+		makerBidHref?: ((bid: ApiBiddingBidBookRow) => string | null) | null;
 		onSelectTraitDemandBid?:
 			| ((selection: BidBookTraitDemandBidSelection) => MaybePromise<void>)
 			| null;
@@ -327,12 +327,16 @@
 		return sortDemandTraitsForDisplay(bid.scope.traits, activeDemandTraitKey);
 	}
 
-	function makerHref(bid: ApiBiddingBidBookRow): string {
+	function makerHref(bid: ApiBiddingBidBookRow): string | null {
+		const makerAddress = bid.maker.address;
+		if (!makerAddress) {
+			return null;
+		}
 		return (
 			makerBidHref?.(bid) ??
-			makerFilterHref?.(bid.maker.address) ??
+			makerFilterHref?.(makerAddress) ??
 			buildOwnerTokensHref({
-				basePath: joinPath(basePath, `holders/${encodeURIComponent(bid.maker.address)}`),
+				basePath: joinPath(basePath, `holders/${encodeURIComponent(makerAddress)}`),
 				selectedTraits: [],
 				selectedTraitRanges: [],
 				mediaMode,
@@ -341,16 +345,20 @@
 		);
 	}
 
-	function makerHighlightKey(bid: ApiBiddingBidBookRow): string {
-		return bid.maker.address.toLowerCase();
+	function makerHighlightKey(bid: ApiBiddingBidBookRow): string | null {
+		return bid.maker.address?.toLowerCase() ?? null;
 	}
 
 	function isMakerHighlighted(bid: ApiBiddingBidBookRow): boolean {
-		return highlightedMakerAddress === makerHighlightKey(bid);
+		const makerKey = makerHighlightKey(bid);
+		return makerKey !== null && highlightedMakerAddress === makerKey;
 	}
 
 	function setHighlightedMaker(bid: ApiBiddingBidBookRow): void {
-		highlightedMakerAddress = makerHighlightKey(bid);
+		const makerKey = makerHighlightKey(bid);
+		if (makerKey !== null) {
+			highlightedMakerAddress = makerKey;
+		}
 	}
 
 	function clearHighlightedMaker(): void {
@@ -746,7 +754,17 @@
 	}
 
 	function activeDemandMakerCount(group: BidBookDemandGroup): number {
-		return new Set(activeDemandBids(group).map((bid) => bid.maker.address.toLowerCase())).size;
+		const makerAddresses = new Set<string>();
+		let hasAddresslessOwnIntent = false;
+		for (const bid of activeDemandBids(group)) {
+			const makerAddress = bid.maker.address;
+			if (makerAddress) {
+				makerAddresses.add(makerAddress.toLowerCase());
+			} else if (bid.maker.isOwn) {
+				hasAddresslessOwnIntent = true;
+			}
+		}
+		return makerAddresses.size + (hasAddresslessOwnIntent ? 1 : 0);
 	}
 
 	function isMutedBidInRows(rows: ApiBiddingBidBookRow[], bid: ApiBiddingBidBookRow): boolean {

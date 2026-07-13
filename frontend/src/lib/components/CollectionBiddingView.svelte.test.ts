@@ -8,7 +8,11 @@ import {
 	TRADING_BOT_LIFECYCLE_STATUS,
 	TRADING_JOB_STATUS
 } from '@artgod/shared/types';
-import type { ApiBiddingBidBookRow } from '$lib/api-types';
+import type {
+	ApiBiddingBidBookRow,
+	ApiBiddingMarketBidMaterialization,
+	ApiBiddingOwnJobIntentMaterialization
+} from '$lib/api-types';
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import CollectionBiddingView from './CollectionBiddingView.svelte';
 
@@ -20,7 +24,7 @@ function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
 	};
 }
 
-function marketMaterialization(): ApiBiddingBidBookRow['materialization'] {
+function marketMaterialization(): ApiBiddingMarketBidMaterialization {
 	return {
 		kind: 'market_bid',
 		jobId: null,
@@ -29,7 +33,7 @@ function marketMaterialization(): ApiBiddingBidBookRow['materialization'] {
 	};
 }
 
-function ownAuthorizationRequiredMaterialization(): ApiBiddingBidBookRow['materialization'] {
+function ownAuthorizationRequiredMaterialization(): ApiBiddingOwnJobIntentMaterialization {
 	return {
 		kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
 		jobId: 'job-token-1',
@@ -280,7 +284,7 @@ describe('CollectionBiddingView', () => {
 										traits: []
 									},
 									maker: {
-										address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+										address: null,
 										label: 'You',
 										isOwn: true
 									},
