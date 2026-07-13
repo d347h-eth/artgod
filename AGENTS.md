@@ -17,6 +17,15 @@ Agent is not allowed to work on 'main' or 'dev' branch. Agent is not allowed to 
   interpretation that would degrade code clarity, architecture, or maintainable
   design.
 
+## Non-Negotiable Native UI Inspection Safety Rule
+
+- Agents must not launch, automate, capture, or otherwise interact with native
+  GUI windows, X11, or Wayland. Agents must not synthesize native-window input
+  or use ad hoc scripts to inspect native UI.
+- Native rendered inspection is user-QA-only. Skip agent-driven native visual
+  inspection, report it explicitly at handoff, and do not bypass this rule with
+  alternate display servers, automation tools, or capture mechanisms.
+
 ## Non-Negotiable User-Perspective UI/UX Rule
 
 - Before changing any user-visible surface, read
