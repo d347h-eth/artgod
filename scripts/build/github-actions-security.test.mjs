@@ -55,6 +55,13 @@ const windowsSidecarPrepareCommand =
     "node ./scripts/build/prepare-desktop-sidecars.mjs --profile debug";
 const windowsContainmentCheckCommand =
     "cargo check --manifest-path src-tauri/Cargo.toml --lib";
+const desktopNoBundleBuildScriptName = "build:desktop:no-bundle";
+const desktopNoBundleBuildCommand = "yarn build:desktop:no-bundle --debug";
+const tauriNoBundleBuildStepName = "Tauri no-bundle build check";
+const tauriRuntimeOutputReconciliationTestCommand =
+    "cargo test --manifest-path src-tauri/Cargo.toml --locked --offline --test tauri_runtime_output_reconciliation";
+const tauriRuntimeOutputReconciliationStepName =
+    "Test Tauri runtime output reconciliation";
 
 test("pins every external GitHub Action to a full commit SHA", async () => {
     for (const workflow of await readWorkflows()) {
@@ -234,6 +241,39 @@ test("checks synchronized project versions on ordinary desktop builds", async ()
         /run:\s*node \.\/scripts\/build\/sync-version\.mjs --check/,
     );
     assert.doesNotMatch(buildCheckWorkflow, /run:\s*yarn check:version/);
+});
+
+test("tests runtime output reconciliation before one no-bundle build", async () => {
+    const packageManifest = JSON.parse(
+        await readFile(packageManifestPath, "utf8"),
+    );
+    assert.equal(
+        packageManifest.scripts?.[desktopNoBundleBuildScriptName],
+        "tauri build --no-bundle --ci",
+    );
+
+    const workflow = await readFile(
+        path.join(workflowsDirectory, "tauri-build-check.yml"),
+        "utf8",
+    );
+    const tauriCheckJob = extractWorkflowJob(workflow, "tauri-check");
+    const reconciliationStep = extractWorkflowStep(
+        tauriCheckJob,
+        tauriRuntimeOutputReconciliationStepName,
+    );
+    const buildStep = extractWorkflowStep(
+        tauriCheckJob,
+        tauriNoBundleBuildStepName,
+    );
+
+    assert.ok(
+        reconciliationStep.includes(
+            tauriRuntimeOutputReconciliationTestCommand,
+        ),
+    );
+    assert.equal(countOccurrences(buildStep, desktopNoBundleBuildCommand), 1);
+    assertStepIsRequired(reconciliationStep);
+    assertStepIsRequired(buildStep);
 });
 
 test("runs the resolved WebView shell ACL test in build and release lanes", async () => {
