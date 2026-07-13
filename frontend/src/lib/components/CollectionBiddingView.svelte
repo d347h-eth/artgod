@@ -22,6 +22,7 @@
 		ApiBiddingTokenOfferCardsPage,
 		ApiChain,
 		ApiCollection,
+		ApiCollectionBiddingBidBookOwnershipFilter,
 		ApiCollectionBiddingBidScopeFilter,
 		ApiCollectionBiddingTraitFilterJoinMode,
 		ApiCollectionMediaState,
@@ -32,6 +33,7 @@
 	} from '$lib/api-types';
 	import {
 		BID_SCOPE_QUERY_PARAM,
+		COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
 		COLLECTION_BIDDING_BID_SCOPE_FILTER,
 		COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 		buildCollectionBiddingHref,
@@ -158,6 +160,7 @@
 		traitJoinMode,
 		showMuted = false,
 		makerFilter = null,
+		ownershipFilter = null,
 		mediaMode,
 		requestCursor = null,
 		blockExplorer = getDefaultBlockExplorerConfig()
@@ -179,6 +182,7 @@
 		traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 		showMuted?: boolean;
 		makerFilter?: string | null;
+		ownershipFilter?: ApiCollectionBiddingBidBookOwnershipFilter | null;
 		mediaMode: string | null;
 		requestCursor?: string | null;
 		blockExplorer?: BlockExplorerConfig;
@@ -266,7 +270,6 @@
 	const biddingSelectionSummary = $derived(
 		describeBiddingAutomationSelection(currentBiddingSelection)
 	);
-	const ownMakerAddress = $derived(activeBidBook.ownMakerAddress);
 	const biddingFilterKey = $derived(activeBiddingFilterKey());
 	const canBidOnTraits = $derived(
 		canDraftTraitJobFromFilters({
@@ -425,6 +428,7 @@
 				bidScope,
 				traitJoinMode,
 				maker: makerFilter,
+				ownershipFilter,
 				showMuted
 			}
 		});
@@ -444,6 +448,7 @@
 			mediaMode,
 			mediaPreference: media.preference,
 			maker: makerFilter,
+			ownershipFilter,
 			showMuted
 		});
 	}
@@ -457,6 +462,7 @@
 			mediaMode,
 			mediaPreference: media.preference,
 			maker: makerFilter,
+			ownershipFilter,
 			showMuted
 		});
 		// Keep clicked scopes explicit so stored preferences cannot override a scope change.
@@ -477,6 +483,7 @@
 			mediaMode,
 			mediaPreference: media.preference,
 			maker: makerFilter,
+			ownershipFilter,
 			showMuted
 		});
 		if (bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
@@ -504,6 +511,7 @@
 			mediaMode,
 			mediaPreference: media.preference,
 			maker: makerFilter,
+			ownershipFilter,
 			limit: activeTokenOfferCardsPage.limit,
 			cursor
 		});
@@ -521,6 +529,7 @@
 			mediaMode,
 			mediaPreference: media.preference,
 			maker: makerFilter,
+			ownershipFilter,
 			showMuted,
 			limit: activeTokenOfferCardsPage.limit,
 			cursor
@@ -619,6 +628,7 @@
 			media.selectedMode,
 			media.preference?.enabled ?? null,
 			makerFilter ?? 'all-makers',
+			ownershipFilter,
 			showMuted ? 'show-muted' : 'hide-muted',
 			...traitFilterPaginationSignatureParts({ traits: activeTraits, ranges: activeTraitRanges })
 		]);
@@ -650,6 +660,7 @@
 			mediaMode,
 			mediaPreference: media.preference,
 			maker: makerFilter,
+			ownershipFilter,
 			showMuted
 		});
 	}
@@ -663,6 +674,7 @@
 			mediaMode,
 			mediaPreference: media.preference,
 			maker: makerAddress,
+			ownershipFilter: null,
 			showMuted
 		});
 		if (bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
@@ -671,12 +683,28 @@
 		return withQuery(biddingPath(), query);
 	}
 
-	function isShowingOwnMakerBids(): boolean {
-		return (
-			!!makerFilter &&
-			!!ownMakerAddress &&
-			makerFilter.toLowerCase() === ownMakerAddress.toLowerCase()
-		);
+	function ownershipFilterHref(
+		nextOwnershipFilter: ApiCollectionBiddingBidBookOwnershipFilter | null
+	): string {
+		const query = buildCollectionBiddingQuery({
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
+			bidScope,
+			traitJoinMode,
+			mediaMode,
+			mediaPreference: media.preference,
+			maker: null,
+			ownershipFilter: nextOwnershipFilter,
+			showMuted
+		});
+		if (bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
+			query.set(BID_SCOPE_QUERY_PARAM, COLLECTION_BIDDING_BID_SCOPE_FILTER.Token);
+		}
+		return withQuery(biddingPath(), query);
+	}
+
+	function isShowingOwnBids(): boolean {
+		return ownershipFilter === COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own;
 	}
 
 	async function onMakerFilterApply(makerAddress: string): Promise<void> {
@@ -878,7 +906,8 @@
 			selectedTraitRanges: params.ranges ?? activeTraitRanges,
 			traitJoinMode: params.nextTraitJoinMode ?? traitJoinMode,
 			tokenStatus: null,
-			makerAddress: makerFilter
+			makerAddress: makerFilter,
+			ownershipFilter
 		});
 	}
 
@@ -887,6 +916,7 @@
 			bidScope,
 			traitJoinMode,
 			makerFilter,
+			ownershipFilter,
 			activeTraits,
 			activeTraitRanges
 		});
@@ -1074,12 +1104,16 @@
 					onApply={onMakerFilterApply}
 					onClear={onMakerFilterClear}
 				/>
-				{#if ownMakerAddress}
+				{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 					<div class="secondary-tabs" aria-label="Own bid filter">
-						{#if isShowingOwnMakerBids()}
+						{#if isShowingOwnBids()}
+							<a href={ownershipFilterHref(null)}>all bids</a>
 							<button type="button" class="secondary-tab-active" disabled>my bids</button>
 						{:else}
-							<a href={makerFilterHref(ownMakerAddress)}>my bids</a>
+							<a
+								href={ownershipFilterHref(COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own)}
+								>my bids</a
+							>
 						{/if}
 					</div>
 				{/if}

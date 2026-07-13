@@ -49,6 +49,7 @@ import { extractQueryCacheResponseHeaders } from '$lib/query-cache-response-head
 import { browser } from '$app/environment';
 import {
 	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
+	type CollectionBiddingBidBookOwnershipFilter,
 	type CollectionBiddingTraitFilterJoinMode,
 	type OpenSeaStreamIngestionStatus,
 	type TokenBrowserStatus,
@@ -524,6 +525,7 @@ export type BatchTokenBiddingJobSelectionRequest =
 			traitRanges: { key: string; fromValue: string | null; toValue: string | null }[];
 			traitJoinMode: CollectionBiddingTraitFilterJoinMode;
 			makerAddress?: string | null;
+			ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
 	  };
 
 export async function lookupBatchTokenBiddingJobs(

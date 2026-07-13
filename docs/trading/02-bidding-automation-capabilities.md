@@ -229,7 +229,7 @@ Backend source selection:
 
 - use `bot_snapshot` when the collection has enabled bidding jobs, the bidding bot heartbeat is live, and projection metadata is fresh
 - otherwise use `orders`
-- standard/admin bid-book reads include own declared-job overlays when the bot has not yet produced or reobserved the matching market bid
+- standard/admin bid-book reads include own declared-job overlays when the bot has not yet produced or reobserved the matching market bid, including before any runtime maker address is known
 - public single-collection mode keeps bid-book reads market-only and never exposes local own-job or active-authorization context
 
 Frontend feed, lifecycle, and authorization labels:
@@ -251,19 +251,22 @@ Bid-book filters:
 - `bid_scope=token` shows token-scoped offers as token cards.
 - `bid_scope=traits` shows trait/criteria bid buckets.
 - `bid_scope=collection` shows collection-wide bids.
-- `maker` filters all bid-book representations to one maker address.
+- `maker` filters addressed market rows to one observed maker address; identityless local job intents are excluded from maker-address-filtered results.
 - Trait filters support OR and AND join modes where trait bid discovery needs them.
 - Token-scoped offers and trait-scoped bid rows below 10% of the top collection-wide bid are hidden unless they are own rows.
 
 Own-bid display:
 
-- Rows from a live bot runtime can mark the configured bot wallet as `You`.
+- `ownMakerAddress` remains passive market identity for recognizing observed own market rows; `my bids` uses the separate local-ownership filter and does not require that address.
+- Own declared-job rows are marked as `You` from local job ownership even when no runtime maker address exists.
+- Private `ownership=own` reads include both own market rows and addressless own declared-job rows, while exact maker filters continue to exclude addressless intent.
 - Own market rows can carry position signals: `winning`, `draw`, or `losing`, but only from a fresh bot-snapshot read and the bot-persisted runtime decision for the active order id.
 - Own market rows can carry bot-owned strategy-limit signals rendered as `hit ceiling` and `at floor`.
 - Own declared jobs can appear as `own_job_intent` rows with `queued`, `waiting for bidding bot`, `authorization required`, `authorization unavailable`, or `paused` phase.
 - `authorization required` replaces an enabled job's indefinite `queued` state when the current process omits the collection or its approved identity is stale. The bidding panel directs the user to stop and start the bot in Admin and include or review the collection in the new bidding authorization.
 - Own active-order lifecycle rows can appear as `own_job_intent` rows with `replacing`, `canceling`, `cancel failed`, or `cancelled` phase.
 - Own-intent rows use range pricing for queued/paused intent and exact order pricing for runtime/cancellation-backed lifecycle rows.
+- Own-intent rows carry no marketplace maker address and render plain `You`; maker navigation, address titles, and maker highlighting remain available only for observed market rows.
 - Bid-book floor and ceiling columns are shown only when visible rows have bid-limit or range values.
 - Backend and frontend code must not infer own bid position from passive order rows, exact-scope grouping, or local price comparisons.
 

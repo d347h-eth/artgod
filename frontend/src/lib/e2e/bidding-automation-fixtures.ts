@@ -7,6 +7,8 @@ import {
 	TERRAFORMS_MEDIA_PREFERENCE_LABEL,
 	TERRAFORMS_MEDIA_VARIANT_OPTIONS,
 	TERRAFORMS_MEDIA_VARIANTS,
+	TERRAFORMS_MODE_ATTRIBUTE_KEY,
+	TERRAFORMS_MODE_ATTRIBUTE_VALUES,
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_KEY,
 	TERRAFORMS_SEED_CLASS_ATTRIBUTE_VALUES,
 	TERRAFORMS_ZONE_ATTRIBUTE_KEY
@@ -18,6 +20,7 @@ import {
 } from '@artgod/shared/extensions';
 import {
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
+	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 	TRADING_BIDDING_AUTHORIZATION_STATUS,
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
@@ -37,6 +40,8 @@ import {
 import type {
 	ApiBiddingBidBook,
 	ApiBiddingBidBookRow,
+	ApiBiddingMarketBidBookRow,
+	ApiBiddingOwnJobIntentRow,
 	ApiBiddingCollectionSettings,
 	ApiBiddingJob,
 	ApiBiddingPriceTier,
@@ -44,6 +49,7 @@ import type {
 	ApiBiddingTokenOfferCardsPage,
 	ApiChain,
 	ApiCollection,
+	ApiCollectionBiddingBidBookOwnershipFilter,
 	ApiCollectionBiddingBidScopeFilter,
 	ApiCollectionBiddingTraitFilterJoinMode,
 	ApiCollectionMediaState,
@@ -58,6 +64,7 @@ import type {
 } from '$lib/api-types';
 import {
 	parseBidBookMakerFilter,
+	parseBidBookOwnershipFilter,
 	parseCollectionBiddingBidScopeFilter,
 	parseCollectionBiddingTraitFilterJoinMode,
 	parseShowMutedBidBook
@@ -96,10 +103,18 @@ export const BIDDING_E2E_SCENARIO_QUERY_PARAM = 'e2e_bidding_scenario';
 // Test-owned lifecycle scenarios that keep the default harness fixture stable.
 export const BIDDING_E2E_SCENARIO = {
 	CancellationPhases: 'cancellation_phases',
-	AuthorizationRequired: 'authorization_required'
+	AuthorizationRequired: 'authorization_required',
+	FirstRunIntent: 'first_run_intent'
 } as const;
 
 type BiddingE2eScenario = (typeof BIDDING_E2E_SCENARIO)[keyof typeof BIDDING_E2E_SCENARIO];
+
+// Owns the first-run declared-job identity shared by the fixture and Playwright assertions.
+export const BIDDING_E2E_FIRST_RUN_INTENT = {
+	JobId: 'job-first-run-mode-daydream',
+	TraitType: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+	TraitValue: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Daydream
+} as const;
 
 // Shared deterministic chain fixture for all bidding automation harness pages.
 export const BIDDING_E2E_CHAIN: ApiChain = {
@@ -233,8 +248,6 @@ const BASE_BID_ROWS: ApiBiddingBidBookRow[] = [
 		scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
 		priceEth: '0.350',
 		ceilingEth: '0.500',
-		maker: OWN_ADDRESS,
-		isOwn: true,
 		jobId: 'job-collection',
 		phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
 		status: TRADING_JOB_STATUS.Paused
@@ -282,8 +295,6 @@ const BASE_BID_ROWS: ApiBiddingBidBookRow[] = [
 		scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
 		priceEth: '0.350',
 		ceilingEth: '0.400',
-		maker: OWN_ADDRESS,
-		isOwn: true,
 		jobId: 'job-trait-biome-42',
 		phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
 		status: TRADING_JOB_STATUS.Enabled,
@@ -311,8 +322,6 @@ const BASE_BID_ROWS: ApiBiddingBidBookRow[] = [
 		scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
 		tokenId: '101',
 		priceEth: '0.710',
-		maker: OWN_ADDRESS,
-		isOwn: true,
 		jobId: 'job-token-101',
 		phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
 		status: TRADING_JOB_STATUS.Enabled,
@@ -339,8 +348,6 @@ const BASE_BID_ROWS: ApiBiddingBidBookRow[] = [
 		scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
 		tokenId: '102',
 		priceEth: '0.020',
-		maker: OWN_ADDRESS,
-		isOwn: true,
 		jobId: 'job-token-102-low',
 		phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
 		status: TRADING_JOB_STATUS.Enabled,
@@ -370,8 +377,6 @@ const CANCELLATION_PHASE_BID_ROWS: ApiBiddingBidBookRow[] = [
 		scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
 		tokenId: '103',
 		priceEth: '0.245',
-		maker: OWN_ADDRESS,
-		isOwn: true,
 		jobId: 'job-token-103-canceling',
 		phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling,
 		status: TRADING_JOB_STATUS.Archived,
@@ -383,8 +388,6 @@ const CANCELLATION_PHASE_BID_ROWS: ApiBiddingBidBookRow[] = [
 		scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
 		tokenId: '104',
 		priceEth: '0.255',
-		maker: OWN_ADDRESS,
-		isOwn: true,
 		jobId: 'job-token-104-cancel-failed',
 		phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed,
 		status: TRADING_JOB_STATUS.Archived,
@@ -395,8 +398,6 @@ const CANCELLATION_PHASE_BID_ROWS: ApiBiddingBidBookRow[] = [
 		orderId: '0xtrait-biome-7-canceling',
 		scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
 		priceEth: '0.275',
-		maker: OWN_ADDRESS,
-		isOwn: true,
 		jobId: 'job-trait-biome-7-canceling',
 		phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Canceling,
 		status: TRADING_JOB_STATUS.Archived,
@@ -408,14 +409,43 @@ const CANCELLATION_PHASE_BID_ROWS: ApiBiddingBidBookRow[] = [
 		orderId: '0xtrait-zone-xleph-cancel-failed',
 		scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
 		priceEth: '0.265',
-		maker: OWN_ADDRESS,
-		isOwn: true,
 		jobId: 'job-trait-zone-xleph-cancel-failed',
 		phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.CancelFailed,
 		status: TRADING_JOB_STATUS.Archived,
 		traits: [{ type: TERRAFORMS_ZONE_ATTRIBUTE_KEY, value: 'Xleph' }],
 		validUntil: 1_900_000_000,
 		placedAt: FIXTURE_NOW
+	})
+];
+
+const FIRST_RUN_INTENT_BID_ROWS: ApiBiddingBidBookRow[] = [
+	bidRow({
+		orderId: '0xfirst-run-market-mode-terrain',
+		scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+		priceEth: '0.300',
+		maker: MARKET_ADDRESS_A,
+		traits: [
+			{
+				type: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+				value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain
+			}
+		],
+		validUntil: 1_900_000_000
+	}),
+	bidRow({
+		orderId: 'job-intent:first-run-mode-daydream:1',
+		scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+		priceEth: '0.325',
+		ceilingEth: '0.375',
+		jobId: BIDDING_E2E_FIRST_RUN_INTENT.JobId,
+		phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot,
+		status: TRADING_JOB_STATUS.Enabled,
+		traits: [
+			{
+				type: BIDDING_E2E_FIRST_RUN_INTENT.TraitType,
+				value: BIDDING_E2E_FIRST_RUN_INTENT.TraitValue
+			}
+		]
 	})
 ];
 
@@ -544,6 +574,24 @@ const JOBS: ApiBiddingJob[] = [
 		ceilingEth: '0.500',
 		deltaEth: '0.004',
 		revision: 4
+	}),
+	biddingJob({
+		jobId: BIDDING_E2E_FIRST_RUN_INTENT.JobId,
+		status: TRADING_JOB_STATUS.Enabled,
+		target: {
+			type: TRADING_JOB_TARGET_KIND.Collection,
+			quantity: 1,
+			targetTraits: [
+				{
+					type: BIDDING_E2E_FIRST_RUN_INTENT.TraitType,
+					value: BIDDING_E2E_FIRST_RUN_INTENT.TraitValue
+				}
+			]
+		},
+		floorEth: '0.325',
+		ceilingEth: '0.375',
+		deltaEth: '0.004',
+		revision: 1
 	})
 ];
 
@@ -601,6 +649,7 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 	const bidScope = parseCollectionBiddingBidScopeFilter(searchParams);
 	const traitJoinMode = parseCollectionBiddingTraitFilterJoinMode(searchParams);
 	const makerFilter = parseBidBookMakerFilter(searchParams);
+	const ownershipFilter = parseBidBookOwnershipFilter(searchParams);
 	const scenario = parseBiddingE2eScenario(searchParams);
 	const media = resolveBiddingE2eCollectionMedia(searchParams);
 	const bidBook = buildBidBook({
@@ -608,6 +657,7 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 		traitJoinMode,
 		selectedTraits,
 		makerFilter,
+		ownershipFilter,
 		scenario
 	});
 	const tokenOfferCards = buildTokenOfferCardsPage({
@@ -615,6 +665,7 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 		selectedTraitRanges,
 		traitJoinMode,
 		makerFilter,
+		ownershipFilter,
 		cursor: searchParams.get('cursor'),
 		scenario
 	});
@@ -636,6 +687,7 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 		traitJoinMode,
 		showMuted: parseShowMutedBidBook(searchParams),
 		makerFilter,
+		ownershipFilter,
 		mediaMode: media.selectedMode,
 		requestCursor: searchParams.get('cursor')
 	};
@@ -808,9 +860,13 @@ function parseBiddingE2eScenario(searchParams: URLSearchParams): BiddingE2eScena
 }
 
 function bidRowsForScenario(scenario: BiddingE2eScenario | null): ApiBiddingBidBookRow[] {
-	return scenario === BIDDING_E2E_SCENARIO.CancellationPhases
-		? [...BASE_BID_ROWS, ...CANCELLATION_PHASE_BID_ROWS]
-		: BASE_BID_ROWS;
+	if (scenario === BIDDING_E2E_SCENARIO.FirstRunIntent) {
+		return FIRST_RUN_INTENT_BID_ROWS;
+	}
+	if (scenario === BIDDING_E2E_SCENARIO.CancellationPhases) {
+		return [...BASE_BID_ROWS, ...CANCELLATION_PHASE_BID_ROWS];
+	}
+	return BASE_BID_ROWS;
 }
 
 function buildTokensPage(params: {
@@ -847,6 +903,7 @@ function buildTokenOfferCardsPage(params: {
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 	makerFilter: string | null;
+	ownershipFilter: ApiCollectionBiddingBidBookOwnershipFilter | null;
 	cursor: string | null;
 	scenario: BiddingE2eScenario | null;
 }): ApiBiddingTokenOfferCardsPage {
@@ -856,8 +913,7 @@ function buildTokenOfferCardsPage(params: {
 			(row) =>
 				row.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token &&
 				row.scope.tokenId === token.tokenId &&
-				(!params.makerFilter ||
-					row.maker.address.toLowerCase() === params.makerFilter.toLowerCase())
+				bidMatchesBidderFilter(row, params.makerFilter, params.ownershipFilter)
 		);
 		return offers.length > 0 ? { ...token, offers } : null;
 	}).filter((card): card is ApiBiddingTokenOfferCard => !!card);
@@ -887,6 +943,7 @@ function buildBidBook(params: {
 	traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 	selectedTraits: ApiTokenAttribute[];
 	makerFilter: string | null;
+	ownershipFilter: ApiCollectionBiddingBidBookOwnershipFilter | null;
 	scenario: BiddingE2eScenario | null;
 }): ApiBiddingBidBook {
 	const runtime = biddingRuntimeForScenario(params.scenario);
@@ -912,9 +969,7 @@ function buildBidBook(params: {
 				return false;
 			}
 		}
-		return (
-			!params.makerFilter || row.maker.address.toLowerCase() === params.makerFilter.toLowerCase()
-		);
+		return bidMatchesBidderFilter(row, params.makerFilter, params.ownershipFilter);
 	});
 
 	return {
@@ -929,7 +984,7 @@ function buildBidBook(params: {
 		},
 		biddingBotStatus: runtime.biddingBotStatus,
 		biddingAuthorization: runtime.biddingAuthorization,
-		ownMakerAddress: OWN_ADDRESS,
+		ownMakerAddress: runtime.ownMakerAddress,
 		bids
 	};
 }
@@ -968,17 +1023,31 @@ function buildTokenDetailBidBook(
 		},
 		biddingBotStatus: runtime.biddingBotStatus,
 		biddingAuthorization: runtime.biddingAuthorization,
-		ownMakerAddress: OWN_ADDRESS,
+		ownMakerAddress: runtime.ownMakerAddress,
 		bids
 	};
 }
 
 // Models an active snapshot feed whose running bot cannot place bids for this collection.
-function biddingRuntimeForScenario(
-	scenario: BiddingE2eScenario | null
-): Pick<ApiBiddingBidBook, 'biddingBotStatus' | 'biddingAuthorization'> & {
+function biddingRuntimeForScenario(scenario: BiddingE2eScenario | null): Pick<
+	ApiBiddingBidBook,
+	'biddingBotStatus' | 'biddingAuthorization' | 'ownMakerAddress'
+> & {
 	source: ApiBiddingBidBook['state']['source'];
 } {
+	if (scenario === BIDDING_E2E_SCENARIO.FirstRunIntent) {
+		return {
+			source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+			biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
+			biddingAuthorization: {
+				status: TRADING_BIDDING_AUTHORIZATION_STATUS.Inactive,
+				maxUnitBidWei: null,
+				maxUnitBidEth: null,
+				maxQuantity: null
+			},
+			ownMakerAddress: null
+		};
+	}
 	if (scenario === BIDDING_E2E_SCENARIO.AuthorizationRequired) {
 		return {
 			source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
@@ -988,14 +1057,30 @@ function biddingRuntimeForScenario(
 				maxUnitBidWei: null,
 				maxUnitBidEth: null,
 				maxQuantity: null
-			}
+			},
+			ownMakerAddress: OWN_ADDRESS
 		};
 	}
 	return {
 		source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
 		biddingBotStatus: TRADING_BOT_LIFECYCLE_STATUS.Inactive,
-		biddingAuthorization: null
+		biddingAuthorization: null,
+		ownMakerAddress: OWN_ADDRESS
 	};
+}
+
+function bidMatchesBidderFilter(
+	row: ApiBiddingBidBookRow,
+	makerFilter: string | null,
+	ownershipFilter: ApiCollectionBiddingBidBookOwnershipFilter | null
+): boolean {
+	if (ownershipFilter === COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own) {
+		return row.maker.isOwn;
+	}
+	if (!makerFilter) {
+		return true;
+	}
+	return row.maker.address?.toLowerCase() === makerFilter.toLowerCase();
 }
 
 function traitFilterPresentation(): ApiTraitFilterPresentationFeatureState {
@@ -1072,50 +1157,45 @@ function biddingE2eFacetValue(
 	};
 }
 
-function bidRow(params: {
+type BidRowCommonParams = {
 	orderId: string;
 	scopeKind: ApiBiddingBidBookRow['scope']['kind'];
 	priceEth: string;
 	ceilingEth?: string;
-	maker: string;
-	isOwn?: boolean;
 	tokenId?: string;
 	traits?: { type: string; value: string }[];
-	jobId?: string;
-	phase?: ApiBiddingBidBookRow['materialization']['phase'];
-	status?: ApiBiddingJob['status'];
 	validUntil?: number | null;
 	placedAt?: string | null;
 	ownStatus?: ApiBiddingBidBookRow['ownStatus'];
-}): ApiBiddingBidBookRow {
+};
+
+type MarketBidRowParams = BidRowCommonParams & {
+	maker: string;
+	isOwn?: boolean;
+	jobId?: never;
+	phase?: never;
+	status?: never;
+};
+
+type OwnJobIntentRowParams = BidRowCommonParams & {
+	jobId: string;
+	phase?: ApiBiddingOwnJobIntentRow['materialization']['phase'];
+	status?: ApiBiddingJob['status'];
+	maker?: never;
+	isOwn?: never;
+};
+
+function bidRow(params: MarketBidRowParams | OwnJobIntentRowParams): ApiBiddingBidBookRow {
 	const traits = params.traits ?? [];
 	const hasRange = !!params.ceilingEth;
-	return {
+	const row = {
 		orderId: params.orderId,
 		source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
-		materialization: params.jobId
-			? {
-					kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
-					jobId: params.jobId,
-					status: params.status ?? TRADING_JOB_STATUS.Enabled,
-					phase: params.phase ?? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued
-				}
-			: {
-					kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid,
-					jobId: null,
-					status: null,
-					phase: null
-				},
 		scope: {
 			kind: params.scopeKind,
 			label: scopeLabel(params.scopeKind, params.tokenId ?? null, traits),
 			tokenId: params.tokenId ?? null,
 			traits
-		},
-		maker: {
-			address: params.maker,
-			label: params.isOwn ? 'You' : params.maker,
-			isOwn: params.isOwn ?? false
 		},
 		price: hasRange
 			? {
@@ -1143,11 +1223,41 @@ function bidRow(params: {
 		currencySymbol: 'WETH',
 		protocolAddress: null,
 		validUntil: params.validUntil ?? null,
-		placedAt: params.placedAt ?? (params.jobId ? null : FIXTURE_NOW),
+		placedAt: params.placedAt ?? (params.jobId !== undefined ? null : FIXTURE_NOW),
 		snapshotRefreshedAtMs: null,
 		seenAt: FIXTURE_NOW,
 		ownStatus: params.ownStatus ?? null
 	};
+	if (params.jobId !== undefined) {
+		return {
+			...row,
+			materialization: {
+				kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+				jobId: params.jobId,
+				status: params.status ?? TRADING_JOB_STATUS.Enabled,
+				phase: params.phase ?? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued
+			},
+			maker: {
+				address: null,
+				label: 'You',
+				isOwn: true
+			}
+		} satisfies ApiBiddingOwnJobIntentRow;
+	}
+	return {
+		...row,
+		materialization: {
+			kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid,
+			jobId: null,
+			status: null,
+			phase: null
+		},
+		maker: {
+			address: params.maker,
+			label: params.isOwn ? 'You' : params.maker,
+			isOwn: params.isOwn ?? false
+		}
+	} satisfies ApiBiddingMarketBidBookRow;
 }
 
 function scopeLabel(

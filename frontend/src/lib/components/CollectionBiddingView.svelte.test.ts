@@ -3,12 +3,17 @@ import { render } from 'svelte/server';
 import { COLLECTION_MEDIA_MODE_OPTIONS, COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
 	TRADING_BIDDING_AUTHORIZATION_STATUS,
+	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	TRADING_BOT_LIFECYCLE_STATUS,
 	TRADING_JOB_STATUS
 } from '@artgod/shared/types';
-import type { ApiBiddingBidBookRow } from '$lib/api-types';
+import type {
+	ApiBiddingBidBookRow,
+	ApiBiddingMarketBidMaterialization,
+	ApiBiddingOwnJobIntentMaterialization
+} from '$lib/api-types';
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import CollectionBiddingView from './CollectionBiddingView.svelte';
 
@@ -20,7 +25,7 @@ function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
 	};
 }
 
-function marketMaterialization(): ApiBiddingBidBookRow['materialization'] {
+function marketMaterialization(): ApiBiddingMarketBidMaterialization {
 	return {
 		kind: 'market_bid',
 		jobId: null,
@@ -29,7 +34,7 @@ function marketMaterialization(): ApiBiddingBidBookRow['materialization'] {
 	};
 }
 
-function ownAuthorizationRequiredMaterialization(): ApiBiddingBidBookRow['materialization'] {
+function ownAuthorizationRequiredMaterialization(): ApiBiddingOwnJobIntentMaterialization {
 	return {
 		kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
 		jobId: 'job-token-1',
@@ -151,7 +156,7 @@ describe('CollectionBiddingView', () => {
 			'/ethereum/milady/bidding?media_mode=snapshot&amp;media_preference=disabled&amp;bid_scope=collection&amp;maker=0x9999999999999999999999999999999999999999'
 		);
 		expect(body).toContain(
-			'/ethereum/milady/bidding?media_mode=snapshot&amp;media_preference=disabled&amp;bid_scope=collection&amp;maker=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+			'/ethereum/milady/bidding?media_mode=snapshot&amp;media_preference=disabled&amp;bid_scope=collection&amp;ownership=own'
 		);
 		expect(body).toContain('>my bids</a>');
 	});
@@ -280,7 +285,7 @@ describe('CollectionBiddingView', () => {
 										traits: []
 									},
 									maker: {
-										address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+										address: null,
 										label: 'You',
 										isOwn: true
 									},
@@ -330,7 +335,7 @@ describe('CollectionBiddingView', () => {
 				selectedTraitRanges: [],
 				bidScope: 'token',
 				traitJoinMode: 'or',
-				makerFilter: '0x9999999999999999999999999999999999999999',
+				ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
 				mediaMode: COLLECTION_MEDIA_MODES.Snapshot
 			}
 		});
@@ -363,6 +368,7 @@ describe('CollectionBiddingView', () => {
 		expect(body).toContain('load next');
 		expect(body).toContain('class="facet-panel-controls-row"');
 		expect(body).not.toContain('facet-filter-mode-button');
+		expect(body).toContain('ownership=own');
 	});
 
 	it('renders explicit collection bid-scope links so stored preferences do not override scope clicks', () => {
@@ -415,7 +421,7 @@ describe('CollectionBiddingView', () => {
 				selectedTraitRanges: [],
 				bidScope: 'traits',
 				traitJoinMode: 'or',
-				makerFilter: '0x9999999999999999999999999999999999999999',
+				ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
 				mediaMode: COLLECTION_MEDIA_MODES.Snapshot
 			}
 		});
@@ -424,12 +430,15 @@ describe('CollectionBiddingView', () => {
 			'<button type="button" class="secondary-tab-active" disabled="">traits</button>'
 		);
 		expect(body).toContain('/ethereum/milady/bidding?media_mode=snapshot&amp;bid_scope=collection');
-		expect(body).toContain('value="0x9999999999999999999999999999999999999999"');
+		expect(body).not.toContain('value="0x9999999999999999999999999999999999999999"');
 		expect(body).toContain(
 			'<button type="button" class="secondary-tab-active" disabled="">my bids</button>'
 		);
 		expect(body).toContain(
-			'/ethereum/milady/bidding?media_mode=snapshot&amp;bid_scope=collection&amp;maker=0x9999999999999999999999999999999999999999'
+			'/ethereum/milady/bidding?media_mode=snapshot&amp;bid_scope=collection&amp;ownership=own'
+		);
+		expect(body).toContain(
+			'/ethereum/milady/bidding?media_mode=snapshot&amp;bid_scope=traits">all bids</a>'
 		);
 	});
 });

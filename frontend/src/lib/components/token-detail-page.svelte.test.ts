@@ -17,7 +17,11 @@ import {
 	TRADING_BOT_LIFECYCLE_STATUS
 } from '@artgod/shared/types';
 import { installBuiltInCollectionExtensions } from '$lib/collection-extension-built-ins';
-import type { ApiBiddingBidBookRow, ApiTokenDetailTrait } from '$lib/api-types';
+import type {
+	ApiBiddingBidBookRow,
+	ApiBiddingMarketBidMaterialization,
+	ApiTokenDetailTrait
+} from '$lib/api-types';
 import { TERRAFORMS_TOKEN_DETAIL_SECTION_LABELS } from '$lib/activity-extension-views/terraforms/constants';
 import TokenDetailPage from '../../routes/[chain_ref]/[collection_ref]/[token_ref]/+page.svelte';
 
@@ -31,7 +35,7 @@ function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
 	};
 }
 
-function marketMaterialization(): ApiBiddingBidBookRow['materialization'] {
+function marketMaterialization(): ApiBiddingMarketBidMaterialization {
 	return {
 		kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid,
 		jobId: null,

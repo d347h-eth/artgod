@@ -1,10 +1,12 @@
 import { PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
 import {
 	COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS,
+	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
 	COLLECTION_BIDDING_BID_SCOPE_FILTERS,
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 	type CollectionBiddingBidScopeFilter,
+	type CollectionBiddingBidBookOwnershipFilter,
 	type CollectionBiddingTraitFilterJoinMode
 } from '@artgod/shared/types';
 import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
@@ -15,12 +17,18 @@ import { appendTraitParams, appendTraitRangeParams } from '$lib/trait-filters';
 export {
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
 	COLLECTION_BIDDING_BID_SCOPE_FILTERS,
+	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE
 };
-export type { CollectionBiddingBidScopeFilter, CollectionBiddingTraitFilterJoinMode };
+export type {
+	CollectionBiddingBidBookOwnershipFilter,
+	CollectionBiddingBidScopeFilter,
+	CollectionBiddingTraitFilterJoinMode
+};
 
 export const BID_SCOPE_QUERY_PARAM = COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.BidScope;
 export const BID_BOOK_MAKER_QUERY_PARAM = COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Maker;
+export const BID_BOOK_OWNERSHIP_QUERY_PARAM = COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Ownership;
 const SHOW_MUTED_BID_BOOK_QUERY_PARAM = COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted;
 
 type OrderedQueryControlValues<T extends string> = readonly [T, ...T[]];
@@ -33,6 +41,7 @@ export function buildCollectionBiddingQuery(params: {
 	mediaMode?: string | null;
 	mediaPreference?: CollectionMediaPreferenceInput;
 	maker?: string | null;
+	ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
 	showMuted?: boolean;
 	limit?: number | null;
 	cursor?: string | null;
@@ -55,7 +64,9 @@ export function buildCollectionBiddingQuery(params: {
 	if (params.showMuted) {
 		query.set(SHOW_MUTED_BID_BOOK_QUERY_PARAM, 'true');
 	}
-	if (params.maker?.trim()) {
+	if (params.ownershipFilter === COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own) {
+		query.set(BID_BOOK_OWNERSHIP_QUERY_PARAM, params.ownershipFilter);
+	} else if (params.maker?.trim()) {
 		query.set(BID_BOOK_MAKER_QUERY_PARAM, params.maker.trim());
 	}
 	if (params.limit && Number.isInteger(params.limit) && params.limit > 0) {
@@ -78,6 +89,7 @@ export function buildCollectionBiddingHref(params: {
 	mediaMode?: string | null;
 	mediaPreference?: CollectionMediaPreferenceInput;
 	maker?: string | null;
+	ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
 	showMuted?: boolean;
 	limit?: number | null;
 	cursor?: string | null;
@@ -92,6 +104,16 @@ export function parseShowMutedBidBook(searchParams: URLSearchParams): boolean {
 export function parseBidBookMakerFilter(searchParams: URLSearchParams): string | null {
 	const value = searchParams.get(BID_BOOK_MAKER_QUERY_PARAM)?.trim();
 	return value ? value : null;
+}
+
+// Parses the private own-only bid-book filter from the canonical shared value.
+export function parseBidBookOwnershipFilter(
+	searchParams: URLSearchParams
+): CollectionBiddingBidBookOwnershipFilter | null {
+	return searchParams.get(BID_BOOK_OWNERSHIP_QUERY_PARAM) ===
+		COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own
+		? COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own
+		: null;
 }
 
 export function parseCollectionBiddingBidScopeFilter(

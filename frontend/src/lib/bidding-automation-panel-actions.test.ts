@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+	COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
 	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	TRADING_BIDDING_BID_SCOPE_KIND,
@@ -476,7 +477,8 @@ describe('bidding automation panel actions', () => {
 					selectedTraits: [{ key: 'Mode', value: 'Terrain', marketplaceBiddingSupported: true }],
 					selectedTraitRanges: [],
 					traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
-					makerAddress: '0xcccccccccccccccccccccccccccccccccccccccc',
+					makerAddress: null,
+					ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
 					tokenStatus: null
 				},
 				tokenCount: 2,
@@ -502,7 +504,8 @@ describe('bidding automation panel actions', () => {
 					traits: [{ key: 'Mode', value: 'Terrain' }],
 					traitRanges: [],
 					traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
-					makerAddress: '0xcccccccccccccccccccccccccccccccccccccccc'
+					makerAddress: null,
+					ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own
 				}
 			}
 		);

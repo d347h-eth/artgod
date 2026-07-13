@@ -383,7 +383,7 @@ describe('BiddingAutomationPanel', () => {
 								traits: []
 							},
 							maker: {
-								address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+								address: null,
 								label: 'You',
 								isOwn: true
 							},

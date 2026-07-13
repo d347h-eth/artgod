@@ -7,6 +7,7 @@ import {
 import {
 	buildCollectionBiddingQuery,
 	parseBidBookMakerFilter,
+	parseBidBookOwnershipFilter,
 	nextCollectionBiddingBidScopeFilter,
 	parseCollectionBiddingBidScopeFilter,
 	parseCollectionBiddingTraitFilterJoinMode
@@ -50,6 +51,20 @@ describe('buildCollectionBiddingQuery', () => {
 		});
 		expect(query.get('maker')).toBe('0x1111111111111111111111111111111111111111');
 		expect(parseBidBookMakerFilter(query)).toBe('0x1111111111111111111111111111111111111111');
+	});
+
+	it('uses semantic own ownership instead of a maker address', () => {
+		const query = buildCollectionBiddingQuery({
+			selectedTraits: [],
+			selectedTraitRanges: [],
+			bidScope: 'collection',
+			maker: '0x1111111111111111111111111111111111111111',
+			ownershipFilter: 'own'
+		});
+
+		expect(query.get('ownership')).toBe('own');
+		expect(query.get('maker')).toBeNull();
+		expect(parseBidBookOwnershipFilter(query)).toBe('own');
 	});
 
 	it('preserves an explicitly disabled media preference', () => {

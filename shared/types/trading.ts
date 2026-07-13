@@ -372,8 +372,18 @@ export const COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS = {
     BidScope: "bid_scope",
     TraitJoin: "trait_join",
     Maker: "maker",
+    Ownership: "ownership",
     ShowMuted: "show_muted",
 } as const;
+
+// Names local-ownership filters supported by private bid-book reads.
+export const COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER = {
+    Own: "own",
+} as const;
+
+// Identifies the requested local-ownership subset of a private bid book.
+export type CollectionBiddingBidBookOwnershipFilter =
+    (typeof COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER)[keyof typeof COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER];
 
 export const TRADING_BIDDING_BID_BOOK_SOURCE = {
     BotSnapshot: "bot_snapshot",

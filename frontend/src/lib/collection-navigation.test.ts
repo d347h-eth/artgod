@@ -10,6 +10,7 @@ import {
 	COLLECTION_MEDIA_PREFERENCE_VALUES
 } from '@artgod/shared/extensions';
 import { COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND } from '$lib/collection-extension-navigation';
+import { COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER } from '@artgod/shared/types';
 
 describe('buildCollectionNavigation', () => {
 	it('builds the standard collection base path from route refs', () => {
@@ -34,7 +35,8 @@ describe('buildCollectionNavigation', () => {
 				kind: 'sales'
 			},
 			bidding: {
-				bidScope: 'traits'
+				bidScope: 'traits',
+				ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own
 			}
 		});
 
@@ -42,7 +44,7 @@ describe('buildCollectionNavigation', () => {
 			'/ethereum/milady?limit=25&mode=grid&media_mode=snapshot&media_preference=disabled&traits=Mode%3ATerrain&token_status=listed'
 		);
 		expect(navigation.hrefs.offers).toBe(
-			'/ethereum/milady/bidding?media_mode=snapshot&media_preference=disabled&bid_scope=traits&traits=Mode%3ATerrain'
+			'/ethereum/milady/bidding?media_mode=snapshot&media_preference=disabled&bid_scope=traits&ownership=own&traits=Mode%3ATerrain'
 		);
 		expect(navigation.hrefs.tokens).toBe(
 			'/ethereum/milady?limit=25&mode=grid&media_mode=snapshot&media_preference=disabled&traits=Mode%3ATerrain&token_status=all'

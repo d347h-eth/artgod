@@ -25,6 +25,7 @@ import {
     TradingValidationError,
     type BatchTokenBiddingJobSelection,
 } from "./types.js";
+import { assertBiddingBidBookFiltersAllowed } from "./bidding-bid-book-filter-validation.js";
 
 export type BatchTokenBiddingJobSelectionTokenReadPort = {
     listCollectionTokens(params: {
@@ -165,6 +166,12 @@ function resolveTokenOfferFilterTokenIds(params: {
     collectionReadPort: BatchTokenBiddingJobSelectionTokenReadPort;
     bidBookRepositoryPort: BatchTokenBiddingJobSelectionBidBookReadPort;
 }): string[] {
+    assertBiddingBidBookFiltersAllowed({
+        includeOwnJobContext: params.includeOwnJobContext,
+        makerAddress: params.selection.makerAddress,
+        ownershipFilter: params.selection.ownershipFilter,
+    });
+
     // Read token-scoped bids from the same source-selection path used by the offers page.
     const tokenBidBook = params.bidBookRepositoryPort.listCollectionBidBook({
         chainId: params.chainId,
@@ -175,6 +182,7 @@ function resolveTokenOfferFilterTokenIds(params: {
         selectedTraits: [],
         selectedTraitRanges: [],
         makerAddress: params.selection.makerAddress ?? null,
+        ownershipFilter: params.selection.ownershipFilter ?? null,
     });
     // Read collection bids so low-signal token offers are filtered exactly like the token-offer cards.
     const collectionBidBook =
@@ -187,6 +195,7 @@ function resolveTokenOfferFilterTokenIds(params: {
             selectedTraits: [],
             selectedTraitRanges: [],
             makerAddress: null,
+            ownershipFilter: null,
         });
     const offersByTokenId = buildTokenOfferGroups({
         tokenBids: tokenBidBook.bids,

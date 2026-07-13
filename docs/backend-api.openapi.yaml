@@ -704,6 +704,7 @@ paths:
                 Source is `bot_snapshot` when enabled collection jobs exist, the bidding bot heartbeat is live, and projection metadata is fresh; otherwise source is `orders`.
                 `biddingBotStatus` is independent of source: `starting` requires a fresh bootstrapping heartbeat, `active` requires a fresh running heartbeat, and `inactive` covers stopped, missing, or stale heartbeat state.
                 Private Userland reads also return the collection's session-bound `biddingAuthorization`; public reads return `null` and do not expose local authorization details.
+                Private Userland reads accept `ownership=own` to include locally owned market bids and addressless local job intent. It cannot be combined with `maker`.
             operationId: listCollectionBiddingBidBook
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
@@ -720,6 +721,13 @@ paths:
                   description: Optional maker address filter. ENS names should be resolved through `/api/{chain_ref}/resolve-owner-ref` before calling this endpoint.
                   schema:
                       type: string
+                - name: ownership
+                  in: query
+                  required: false
+                  description: Private Userland filter for locally owned market bids and local job intent. Public reads reject this filter.
+                  schema:
+                      type: string
+                      enum: [own]
                 - name: traits
                   in: query
                   required: false
@@ -3188,25 +3196,46 @@ components:
                     cancelled,
                 ]
 
-        BiddingBidBookRowMaterialization:
+        BiddingMarketBidMaterialization:
             type: object
             required: [kind, jobId, status, phase]
             additionalProperties: false
             properties:
                 kind:
                     type: string
-                    enum: [market_bid, own_job_intent]
+                    enum: [market_bid]
                 jobId:
                     type: string
                     nullable: true
+                    enum: [null]
                 status:
-                    allOf:
-                        - $ref: "#/components/schemas/TradingJobStatus"
+                    type: string
                     nullable: true
+                    enum: [null]
                 phase:
-                    allOf:
-                        - $ref: "#/components/schemas/BiddingBidBookOwnJobPhase"
+                    type: string
                     nullable: true
+                    enum: [null]
+
+        BiddingOwnJobIntentMaterialization:
+            type: object
+            required: [kind, jobId, status, phase]
+            additionalProperties: false
+            properties:
+                kind:
+                    type: string
+                    enum: [own_job_intent]
+                jobId:
+                    type: string
+                status:
+                    $ref: "#/components/schemas/TradingJobStatus"
+                phase:
+                    $ref: "#/components/schemas/BiddingBidBookOwnJobPhase"
+
+        BiddingBidBookRowMaterialization:
+            oneOf:
+                - $ref: "#/components/schemas/BiddingMarketBidMaterialization"
+                - $ref: "#/components/schemas/BiddingOwnJobIntentMaterialization"
 
         BiddingBidBookExactPrice:
             type: object
@@ -3242,6 +3271,20 @@ components:
             oneOf:
                 - $ref: "#/components/schemas/BiddingBidBookExactPrice"
                 - $ref: "#/components/schemas/BiddingBidBookRangePrice"
+
+        BiddingBidBookBidLimits:
+            type: object
+            required: [floorWei, floorEth, ceilingWei, ceilingEth]
+            additionalProperties: false
+            properties:
+                floorWei:
+                    type: string
+                floorEth:
+                    type: string
+                ceilingWei:
+                    type: string
+                ceilingEth:
+                    type: string
 
         BiddingBidBookState:
             type: object
@@ -3279,8 +3322,58 @@ components:
                     type: string
                     nullable: true
 
+        BiddingMarketBidMaker:
+            type: object
+            required: [address, label, isOwn]
+            additionalProperties: false
+            properties:
+                address:
+                    type: string
+                label:
+                    type: string
+                isOwn:
+                    type: boolean
+
+        BiddingOwnJobIntentMaker:
+            type: object
+            required: [address, label, isOwn]
+            additionalProperties: false
+            properties:
+                address:
+                    type: string
+                    nullable: true
+                    enum: [null]
+                label:
+                    type: string
+                    enum: [You]
+                isOwn:
+                    type: boolean
+                    enum: [true]
+
+        BiddingBidBookMaker:
+            oneOf:
+                - $ref: "#/components/schemas/BiddingMarketBidMaker"
+                - $ref: "#/components/schemas/BiddingOwnJobIntentMaker"
+
         BiddingBidBookRow:
             type: object
+            description: |
+                A market bid always carries a marketplace maker address. A local
+                own_job_intent is intrinsically owned by the user and carries a
+                null maker address until a marketplace order exists.
+            oneOf:
+                - title: Market bid
+                  properties:
+                      materialization:
+                          $ref: "#/components/schemas/BiddingMarketBidMaterialization"
+                      maker:
+                          $ref: "#/components/schemas/BiddingMarketBidMaker"
+                - title: Own job intent
+                  properties:
+                      materialization:
+                          $ref: "#/components/schemas/BiddingOwnJobIntentMaterialization"
+                      maker:
+                          $ref: "#/components/schemas/BiddingOwnJobIntentMaker"
             required:
                 [
                     orderId,
@@ -3289,6 +3382,7 @@ components:
                     scope,
                     maker,
                     price,
+                    bidLimits,
                     quantity,
                     currencyAddress,
                     currencySymbol,
@@ -3324,18 +3418,15 @@ components:
                             items:
                                 $ref: "#/components/schemas/TradingTraitCriterion"
                 maker:
-                    type: object
-                    required: [address, label, isOwn]
-                    additionalProperties: false
-                    properties:
-                        address:
-                            type: string
-                        label:
-                            type: string
-                        isOwn:
-                            type: boolean
+                    description: Marketplace identity when one exists; local job intent remains labeled as You without one.
+                    allOf:
+                        - $ref: "#/components/schemas/BiddingBidBookMaker"
                 price:
                     $ref: "#/components/schemas/BiddingBidBookPrice"
+                bidLimits:
+                    allOf:
+                        - $ref: "#/components/schemas/BiddingBidBookBidLimits"
+                    nullable: true
                 quantity:
                     type: string
                 currencyAddress:

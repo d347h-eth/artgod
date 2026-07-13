@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
 import {
+    COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_SCOPE_KIND,
     TRADING_BOT_LIFECYCLE_STATUS,
@@ -25,9 +26,13 @@ import {
     type BiddingBidBookRepositoryPort,
     type PersistedBiddingBidBook,
     type PersistedBiddingBidBookRow,
+    type PersistedBiddingMarketBidRow,
 } from "./bidding-bid-book.js";
 import { BIDDING_SPAN_ATTRIBUTE } from "./bidding-observability.js";
-import { ListCollectionBiddingBidBookUseCase } from "./list-collection-bidding-bid-book.js";
+import {
+    ListCollectionBiddingBidBookUseCase,
+    type ListCollectionBiddingBidBookInput,
+} from "./list-collection-bidding-bid-book.js";
 
 class CapturingApm implements ApmPort {
     readonly spans: Array<{ name: string; attributes: SpanAttributes }> = [];
@@ -48,6 +53,45 @@ class CapturingApm implements ApmPort {
 }
 
 describe("ListCollectionBiddingBidBookUseCase observability", () => {
+    it("rejects conflicting maker and ownership filters before reading", () => {
+        const useCase = buildUseCase({
+            listCollectionBidBook: () => {
+                throw new Error("repository must not be called");
+            },
+            listTokenBidBook: () => bidBook([]),
+        });
+
+        expect(() =>
+            useCase.listCollectionBiddingBidBook(
+                biddingInput({
+                    includeOwnJobContext: true,
+                    makerAddress: "0x1111111111111111111111111111111111111111",
+                    ownershipFilter:
+                        COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+                }),
+            ),
+        ).toThrow("Maker and ownership filters cannot be combined");
+    });
+
+    it("rejects own filtering when local job context is unavailable", () => {
+        const useCase = buildUseCase({
+            listCollectionBidBook: () => {
+                throw new Error("repository must not be called");
+            },
+            listTokenBidBook: () => bidBook([]),
+        });
+
+        expect(() =>
+            useCase.listCollectionBiddingBidBook(
+                biddingInput({
+                    includeOwnJobContext: false,
+                    ownershipFilter:
+                        COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+                }),
+            ),
+        ).toThrow("Own bids are unavailable in public bid-book reads");
+    });
+
     it("wraps bidding phases and token-offer card work in spans", () => {
         const apm = new CapturingApm();
         const bidBookScopes: string[] = [];
@@ -303,6 +347,47 @@ function chain(): ChainRecord {
     };
 }
 
+function buildUseCase(
+    repository: BiddingBidBookRepositoryPort,
+): ListCollectionBiddingBidBookUseCase {
+    return new ListCollectionBiddingBidBookUseCase(
+        1,
+        { resolveChainRef: () => chain() },
+        {
+            resolveCollectionRef: () => collection(),
+            getCollectionMediaState: () => media(),
+            listCollectionTraitFacets: () => [],
+            listCollectionTokenCardsByIds: () => [],
+            countMarketplaceBiddingSupportedTokensByIds: () => 0,
+        },
+        {
+            getTraitFilterPresentationState: () => ({
+                effectiveConfig: { rangeKeys: [] },
+            }),
+            getTokenCardTraitSummaryTemplateState: () => ({
+                effectiveConfig: { template: "" },
+            }),
+        },
+        repository,
+    );
+}
+
+function biddingInput(
+    overrides: Partial<ListCollectionBiddingBidBookInput>,
+): ListCollectionBiddingBidBookInput {
+    return {
+        chainRef: "ethereum",
+        collectionRef: "terraforms",
+        includeOwnJobContext: true,
+        scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+        traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+        traits: [],
+        traitRanges: [],
+        limit: 25,
+        ...overrides,
+    };
+}
+
 function collection(): CollectionListItem {
     return {
         chainId: 1,
@@ -381,7 +466,7 @@ function bidRow(
     orderId: string,
     priceWei: string,
     tokenId: string | null = orderId === "token-offer" ? "7" : null,
-): PersistedBiddingBidBookRow {
+): PersistedBiddingMarketBidRow {
     return {
         orderId,
         source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
@@ -413,7 +498,7 @@ function traitBidRow(
     orderId: string,
     priceWei: string,
     isOwn = false,
-): PersistedBiddingBidBookRow {
+): PersistedBiddingMarketBidRow {
     return {
         ...bidRow(orderId, priceWei, null),
         scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,

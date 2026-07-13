@@ -17,6 +17,7 @@ import {
 } from "@artgod/shared/config/bidding";
 import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRADING_BIDDING_AUTHORIZATION_STATUS,
     TRADING_BIDDING_BID_BOOK_SOURCE,
@@ -33,6 +34,7 @@ import {
     isTradingBiddingJobRuntimeBidPosition,
     isTradingBiddingJobRuntimeConstraint,
     type CollectionBiddingBidScopeFilter,
+    type CollectionBiddingBidBookOwnershipFilter,
     type CollectionBiddingTraitFilterJoinMode,
     type TradingBiddingAuthorization,
     type TradingBiddingBidBookSource,
@@ -58,6 +60,7 @@ import type {
 import {
     bidBookBidLimits,
     exactBidBookRowPrice,
+    isPersistedOwnJobIntentRow,
     marketBidMaterialization,
     persistedBidBookRowEffectiveWei,
     rangeBidBookRowPrice,
@@ -520,6 +523,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         selectedTraits: TraitFilter[];
         selectedTraitRanges: TraitRangeFilter[];
         makerAddress?: string | null;
+        ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
     }): PersistedBiddingBidBook {
         return this.apm.withSyncSpan(
             "backend.bidding.repository.collection_bid_book",
@@ -556,6 +560,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         selectedTraits: TraitFilter[];
         selectedTraitRanges: TraitRangeFilter[];
         makerAddress?: string | null;
+        ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
     }): PersistedBiddingBidBook {
         const attributes = collectionBidBookSpanAttributes(params);
         const knownMakerAddress = params.includeOwnJobContext
@@ -637,12 +642,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                 [BIDDING_SPAN_ATTRIBUTE.OwnMakerPresent]:
                     knownMakerAddress !== null,
             },
-            () =>
-                maybeAddOwnJobOverlays(
-                    currentOwnBidBook,
-                    jobs,
-                    knownMakerAddress,
-                ),
+            () => maybeAddOwnJobOverlays(currentOwnBidBook, jobs),
         );
         const makerAddress = params.makerAddress?.toLowerCase() ?? null;
         const scopedBids = this.apm.withSyncSpan(
@@ -675,17 +675,20 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
             },
             () => attachOwnBidRuntimeSignals(scopedBids, jobs, source),
         );
+        const ownershipFilteredBids = signaledBids.filter((bid) =>
+            ownershipMatchesFilter(bid, params.ownershipFilter ?? null),
+        );
         const finalBids = this.apm.withSyncSpan(
             "backend.bidding.repository.maker_filter",
             {
                 ...attributes,
-                ...bidSummarySpanAttributes(signaledBids),
+                ...bidSummarySpanAttributes(ownershipFilteredBids),
                 [BIDDING_SPAN_ATTRIBUTE.Source]: source,
                 [BIDDING_SPAN_ATTRIBUTE.MakerFilterPresent]:
                     makerAddress !== null,
             },
             () =>
-                signaledBids.filter((bid) =>
+                ownershipFilteredBids.filter((bid) =>
                     makerMatchesFilter(bid, makerAddress),
                 ),
         );
@@ -790,12 +793,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                 [BIDDING_SPAN_ATTRIBUTE.OwnMakerPresent]:
                     knownMakerAddress !== null,
             },
-            () =>
-                maybeAddOwnJobOverlays(
-                    currentOwnBidBook,
-                    jobs,
-                    knownMakerAddress,
-                ),
+            () => maybeAddOwnJobOverlays(currentOwnBidBook, jobs),
         );
         const bids = this.apm.withSyncSpan(
             "backend.bidding.repository.token_filter_sort",
@@ -1670,10 +1668,15 @@ function markOwnBids(
     return {
         ...bidBook,
         ownMakerAddress,
-        bids: bidBook.bids.map((bid) => ({
-            ...bid,
-            isOwn: bid.maker.toLowerCase() === ownMakerAddress,
-        })),
+        bids: bidBook.bids.map(
+            (bid): PersistedBiddingBidBookRow =>
+                isPersistedOwnJobIntentRow(bid)
+                    ? bid
+                    : {
+                          ...bid,
+                          isOwn: bid.maker.toLowerCase() === ownMakerAddress,
+                      },
+        ),
     };
 }
 
@@ -1796,19 +1799,9 @@ function isStaleOwnJobMarketRow(
 function maybeAddOwnJobOverlays(
     bidBook: PersistedBiddingBidBook,
     jobs: BiddingJobSignal[],
-    ownMakerAddress: string | null,
 ): PersistedBiddingBidBook {
-    if (!ownMakerAddress) {
-        return bidBook;
-    }
-
     const overlayRows = jobs.flatMap((job) =>
-        resolveOwnJobOverlayRows(
-            job,
-            bidBook.bids,
-            bidBook.state.source,
-            ownMakerAddress,
-        ),
+        resolveOwnJobOverlayRows(job, bidBook.bids, bidBook.state.source),
     );
     if (overlayRows.length === 0) {
         return bidBook;
@@ -1817,7 +1810,6 @@ function maybeAddOwnJobOverlays(
     const bids = [...bidBook.bids, ...overlayRows];
     return {
         ...bidBook,
-        ownMakerAddress,
         state: {
             ...bidBook.state,
             rowCount: bids.length,
@@ -1830,16 +1822,13 @@ function resolveOwnJobOverlayRows(
     job: BiddingJobSignal,
     bids: PersistedBiddingBidBookRow[],
     source: TradingBiddingBidBookSource,
-    ownMakerAddress: string,
 ): PersistedBiddingBidBookRow[] {
     const rows: PersistedBiddingBidBookRow[] = [];
     if (shouldCreateActiveOrderLifecycleOverlay(job)) {
-        rows.push(
-            mapActiveOrderLifecycleOverlayRow(job, source, ownMakerAddress),
-        );
+        rows.push(mapActiveOrderLifecycleOverlayRow(job, source));
     }
     if (shouldCreateCurrentJobIntentOverlay(job, bids, source)) {
-        rows.push(mapCurrentJobIntentOverlayRow(job, source, ownMakerAddress));
+        rows.push(mapCurrentJobIntentOverlayRow(job, source));
     }
     return rows;
 }
@@ -1877,7 +1866,6 @@ function shouldCreateCurrentJobIntentOverlay(
 function mapCurrentJobIntentOverlayRow(
     job: BiddingJobSignal,
     source: TradingBiddingBidBookSource,
-    ownMakerAddress: string,
 ): PersistedBiddingBidBookRow {
     const activeRuntime =
         job.status === TRADING_JOB_STATUS.Enabled &&
@@ -1912,7 +1900,7 @@ function mapCurrentJobIntentOverlayRow(
         tokenId: scope.tokenId,
         scopeTraits: scope.traits,
         encodedTokenIds: null,
-        maker: ownMakerAddress,
+        maker: null,
         isOwn: true,
         price,
         bidLimits,
@@ -1933,7 +1921,6 @@ function mapCurrentJobIntentOverlayRow(
 function mapActiveOrderLifecycleOverlayRow(
     job: BiddingJobSignal,
     source: TradingBiddingBidBookSource,
-    ownMakerAddress: string,
 ): PersistedBiddingBidBookRow {
     const activeOrder = job.activeOrder;
     if (!activeOrder?.activeOrderId || !activeOrder.currentPriceWei) {
@@ -1957,7 +1944,7 @@ function mapActiveOrderLifecycleOverlayRow(
         tokenId: scope.tokenId,
         scopeTraits: scope.traits,
         encodedTokenIds: null,
-        maker: ownMakerAddress,
+        maker: null,
         isOwn: true,
         price: exactBidBookRowPrice(activeOrder.currentPriceWei),
         bidLimits: null,
@@ -2547,7 +2534,22 @@ function makerMatchesFilter(
     bid: PersistedBiddingBidBookRow,
     makerAddress: string | null,
 ): boolean {
-    return makerAddress === null || bid.maker.toLowerCase() === makerAddress;
+    return (
+        makerAddress === null ||
+        (!isPersistedOwnJobIntentRow(bid) &&
+            bid.maker.toLowerCase() === makerAddress)
+    );
+}
+
+function ownershipMatchesFilter(
+    bid: PersistedBiddingBidBookRow,
+    ownershipFilter: CollectionBiddingBidBookOwnershipFilter | null,
+): boolean {
+    return (
+        ownershipFilter === null ||
+        (ownershipFilter === COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own &&
+            bid.isOwn)
+    );
 }
 
 function tokenBidApplies(

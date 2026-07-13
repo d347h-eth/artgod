@@ -4,6 +4,7 @@ import {
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	type CollectionStandard,
 	type CollectionBiddingBidScopeFilter,
+	type CollectionBiddingBidBookOwnershipFilter,
 	type CollectionBiddingTraitFilterJoinMode,
 	type CollectionMediaSource,
 	type CollectionStatus,
@@ -663,6 +664,7 @@ export type ApiBiddingJob = {
 export type ApiBiddingBidBookSource = TradingBiddingBidBookSource;
 export type ApiBiddingBidScopeKind = 'collection' | 'trait' | 'token' | 'token_set' | 'unknown';
 export type ApiCollectionBiddingBidScopeFilter = CollectionBiddingBidScopeFilter;
+export type ApiCollectionBiddingBidBookOwnershipFilter = CollectionBiddingBidBookOwnershipFilter;
 export type ApiCollectionBiddingTraitFilterJoinMode = CollectionBiddingTraitFilterJoinMode;
 export type ApiBiddingBidBookPrice =
 	| {
@@ -683,19 +685,23 @@ export type ApiBiddingBidBookBidLimits = {
 	ceilingWei: string;
 	ceilingEth: string;
 };
+// Identifies an API row backed by an observed marketplace bid.
+export type ApiBiddingMarketBidMaterialization = {
+	kind: typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid;
+	jobId: null;
+	status: null;
+	phase: null;
+};
+// Identifies an API row backed only by the user's declared local job.
+export type ApiBiddingOwnJobIntentMaterialization = {
+	kind: typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent;
+	jobId: string;
+	status: ApiBiddingJobStatus;
+	phase: TradingBiddingBidBookOwnJobPhase;
+};
 export type ApiBiddingBidBookRowMaterialization =
-	| {
-			kind: typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid;
-			jobId: null;
-			status: null;
-			phase: null;
-	  }
-	| {
-			kind: typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent;
-			jobId: string;
-			status: ApiBiddingJobStatus;
-			phase: TradingBiddingBidBookOwnJobPhase;
-	  };
+	| ApiBiddingMarketBidMaterialization
+	| ApiBiddingOwnJobIntentMaterialization;
 export type ApiBiddingBidBookOwnPosition = 'winning' | 'draw' | 'losing';
 export type ApiBiddingBidBookOwnConstraint = 'ceiling' | 'floor';
 export type ApiBiddingBidBookOwnStatus = {
@@ -708,20 +714,14 @@ export type ApiBiddingBidBookOwnStatus = {
 	} | null;
 };
 
-export type ApiBiddingBidBookRow = {
+type ApiBiddingBidBookRowBase = {
 	orderId: string;
 	source: ApiBiddingBidBookSource;
-	materialization: ApiBiddingBidBookRowMaterialization;
 	scope: {
 		kind: ApiBiddingBidScopeKind;
 		label: string;
 		tokenId: string | null;
 		traits: ApiTradingTraitCriterion[];
-	};
-	maker: {
-		address: string;
-		label: string;
-		isOwn: boolean;
 	};
 	price: ApiBiddingBidBookPrice;
 	bidLimits: ApiBiddingBidBookBidLimits | null;
@@ -735,6 +735,27 @@ export type ApiBiddingBidBookRow = {
 	seenAt: string | null;
 	ownStatus: ApiBiddingBidBookOwnStatus | null;
 };
+
+export type ApiBiddingMarketBidBookRow = ApiBiddingBidBookRowBase & {
+	materialization: ApiBiddingMarketBidMaterialization;
+	maker: {
+		address: string;
+		label: string;
+		isOwn: boolean;
+	};
+};
+
+export type ApiBiddingOwnJobIntentRow = ApiBiddingBidBookRowBase & {
+	materialization: ApiBiddingOwnJobIntentMaterialization;
+	maker: {
+		address: null;
+		label: string;
+		isOwn: true;
+	};
+};
+
+// Preserves marketplace maker requirements across frontend bid-book rows.
+export type ApiBiddingBidBookRow = ApiBiddingMarketBidBookRow | ApiBiddingOwnJobIntentRow;
 
 export type ApiBiddingBidBook = {
 	state: {

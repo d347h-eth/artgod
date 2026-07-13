@@ -584,7 +584,8 @@ describe('buildBiddingAutomationTokenFilterSnapshot', () => {
 				traitJoinMode: 'or',
 			tokenStatus: null,
 			ownerAddress: null,
-			makerAddress: null
+			makerAddress: null,
+			ownershipFilter: null
 		});
 	});
 });

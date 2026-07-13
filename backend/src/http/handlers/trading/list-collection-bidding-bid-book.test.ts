@@ -1,5 +1,7 @@
 import type { FastifyRequest } from "fastify";
 import {
+    COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
+    COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS,
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 } from "@artgod/shared/types";
@@ -14,6 +16,7 @@ import {
 } from "../../../application/use-cases/trading/bidding-observability.js";
 import {
     getCollectionBiddingBidBookSpanAttributes,
+    ListCollectionBiddingBidBookHttpAdapter,
     type ListCollectionBiddingBidBookRoute,
 } from "./list-collection-bidding-bid-book.js";
 
@@ -58,12 +61,70 @@ describe("get collection bidding bid-book span attributes", () => {
     });
 });
 
+describe("ListCollectionBiddingBidBookHttpAdapter", () => {
+    it("maps the private own-bid filter into the use-case input", async () => {
+        let captured: unknown;
+        const adapter = new ListCollectionBiddingBidBookHttpAdapter(
+            {
+                listCollectionBiddingBidBook: (input) => {
+                    captured = input;
+                    return input as never;
+                },
+            },
+            true,
+        );
+
+        await adapter.handle(
+            routeRequest(
+                `/api/ethereum/terraforms/bidding/bids?${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Ownership}=${COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own}`,
+            ),
+        );
+
+        expect(captured).toEqual(
+            expect.objectContaining({
+                includeOwnJobContext: true,
+                ownershipFilter:
+                    COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+            }),
+        );
+    });
+
+    it("rejects unknown ownership filter values", async () => {
+        const adapter = new ListCollectionBiddingBidBookHttpAdapter(
+            {
+                listCollectionBiddingBidBook: (input) => input as never,
+            },
+            true,
+        );
+
+        await expect(
+            adapter.handle(
+                routeRequest(
+                    `/api/ethereum/terraforms/bidding/bids?${COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Ownership}=unknown`,
+                ),
+            ),
+        ).rejects.toThrow("Invalid bid ownership filter");
+    });
+});
+
 function request(
     url: string,
 ): FastifyRequest<ListCollectionBiddingBidBookRoute> {
     return {
         raw: {
             url,
+        },
+    } as FastifyRequest<ListCollectionBiddingBidBookRoute>;
+}
+
+function routeRequest(
+    url: string,
+): FastifyRequest<ListCollectionBiddingBidBookRoute> {
+    return {
+        raw: { url },
+        params: {
+            chain_ref: "ethereum",
+            collection_ref: "terraforms",
         },
     } as FastifyRequest<ListCollectionBiddingBidBookRoute>;
 }

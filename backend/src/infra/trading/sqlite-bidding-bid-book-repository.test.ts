@@ -13,6 +13,7 @@ import {
     COLLECTION_STANDARD,
     COLLECTION_STATUS,
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRADING_BIDDING_AUTHORIZATION_STATUS,
     TRADING_BIDDING_BID_BOOK_SOURCE,
@@ -218,6 +219,118 @@ describe("SqliteBiddingBidBookRepository", () => {
         assert.equal(bidBook.biddingAuthorization, null);
     });
 
+    it("renders local job intent before the first bidding runtime identity exists", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedCollectionBiddingJob(collectionId);
+
+        const collectionBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+        assert.equal(collectionBook.ownMakerAddress, null);
+        assert.deepEqual(
+            collectionBook.bids.map((bid) => ({
+                orderId: bid.orderId,
+                source: bid.source,
+                materialization: bid.materialization,
+                scopeKind: bid.scopeKind,
+                maker: bid.maker,
+                isOwn: bid.isOwn,
+                price: bid.price,
+                bidLimits: bid.bidLimits,
+                placedAt: bid.placedAt,
+                validUntil: bid.validUntil,
+                ownStatus: bid.ownStatus,
+            })),
+            [
+                {
+                    orderId: "job-intent:collection-job:1",
+                    source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+                    materialization: {
+                        kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+                        jobId: "collection-job",
+                        status: TRADING_JOB_STATUS.Enabled,
+                        phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot,
+                    },
+                    scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+                    maker: null,
+                    isOwn: true,
+                    price: {
+                        kind: TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range,
+                        floorWei: "100",
+                        floorEth: "0.0000000000000001",
+                        ceilingWei: "200",
+                        ceilingEth: "0.0000000000000002",
+                    },
+                    bidLimits: {
+                        floorWei: "100",
+                        floorEth: "0.0000000000000001",
+                        ceilingWei: "200",
+                        ceilingEth: "0.0000000000000002",
+                    },
+                    validUntil: null,
+                    placedAt: null,
+                    ownStatus: null,
+                },
+            ],
+        );
+
+        const tokenBook = repository.listTokenBidBook({
+            chainId: 1,
+            collectionId,
+            tokenId: "1",
+            tokenTraits: [],
+            includeOwnJobContext: true,
+        });
+        assert.deepEqual(
+            tokenBook.bids.map((bid) => bid.orderId),
+            ["job-intent:collection-job:1"],
+        );
+
+        const ownFilteredBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+            ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+        });
+        assert.deepEqual(
+            ownFilteredBook.bids.map((bid) => bid.orderId),
+            ["job-intent:collection-job:1"],
+        );
+
+        const makerFilteredBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+            makerAddress: BIDDING_MAKER_ADDRESS,
+        });
+        assert.deepEqual(makerFilteredBook.bids, []);
+
+        const publicBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: false,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+        assert.deepEqual(publicBook.bids, []);
+    });
+
     it("keeps bot feed and active collection authorization as independent signals", () => {
         const repository = new SqliteBiddingBidBookRepository();
         seedBiddingRuntime(collectionId, false);
@@ -420,6 +533,21 @@ describe("SqliteBiddingBidBookRepository", () => {
                 status: TRADING_JOB_STATUS.Enabled,
             },
         });
+
+        const ownCollectionBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+            ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+        });
+        assert.deepEqual(
+            ownCollectionBook.bids.map((bid) => bid.orderId),
+            ["own-collection"],
+        );
 
         const tokenBook = repository.listTokenBidBook({
             chainId: 1,
@@ -669,7 +797,7 @@ describe("SqliteBiddingBidBookRepository", () => {
             [
                 {
                     orderId: "failed-cancel-own-order",
-                    maker: BIDDING_MAKER_ADDRESS,
+                    maker: null,
                     isOwn: true,
                     materialization: {
                         kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
@@ -1160,7 +1288,7 @@ describe("SqliteBiddingBidBookRepository", () => {
                         ceilingWei: "200",
                         ceilingEth: "0.0000000000000002",
                     },
-                    maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    maker: null,
                 },
             ],
         );
@@ -1513,7 +1641,11 @@ describe("SqliteBiddingBidBookRepository", () => {
         );
         assert.deepEqual(
             recreatedBook.bids
-                .filter((bid) => bid.maker === BIDDING_MAKER_ADDRESS)
+                .filter(
+                    (bid) =>
+                        bid.materialization.kind ===
+                        TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+                )
                 .map((bid) => ({
                     jobId: bid.materialization.jobId,
                     kind: bid.materialization.kind,
@@ -1993,6 +2125,15 @@ function seedBiddingRuntime(
         openseaSlug?: string;
     } = {},
 ): void {
+    seedCollectionBiddingJob(collectionId);
+    seedBiddingBotRuntimeState(
+        TRADING_BOT_RUNTIME_STATE.Running,
+        authorizeCollection ? collectionId : undefined,
+        authorizationIdentity,
+    );
+}
+
+function seedCollectionBiddingJob(collectionId: number): void {
     db.prepare(
         "INSERT INTO trading_jobs " +
             "(job_id, bot_kind, chain_id, collection_id, status, target_kind, token_id, revision) " +
@@ -2008,11 +2149,6 @@ function seedBiddingRuntime(
             "(job_id, floor_wei, ceiling_wei, delta_wei, quantity, target_traits_json) " +
             "VALUES ('collection-job', '100', '200', '1', 1, '[]')",
     ).run();
-    seedBiddingBotRuntimeState(
-        TRADING_BOT_RUNTIME_STATE.Running,
-        authorizeCollection ? collectionId : undefined,
-        authorizationIdentity,
-    );
 }
 
 function seedBiddingBotRuntimeState(
