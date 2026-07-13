@@ -150,9 +150,10 @@ Rules:
   rejection, invalid data, and unavailable infrastructure
 - keep the current safe state visible when recovery is possible
 
-Example: a refused request to the local collection catalog can say
-`Start infra to use Bots.` An HTTP rejection or invalid response is a different
-failure and must not be mislabeled as stopped infrastructure.
+Example: a connection failure to the local collection catalog can say
+`Start infra to prepare bidding authorization.` Local bot state and wallet
+assignment remain available. An HTTP rejection or invalid response is a
+different failure and must not be mislabeled as stopped infrastructure.
 
 ## Cross-Surface Consistency
 

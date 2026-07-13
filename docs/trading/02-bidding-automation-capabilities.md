@@ -132,9 +132,11 @@ in that Config summary, not in the active or native authorization.
 
 Admin does not render controls for staged or nonexistent bot kinds. The local
 collection catalog uses the shared `COMMON_HTTP_FETCH_*` timeout and bounded
-retry policy. If infrastructure is stopped, the Bots surface directs the
-operator to start infra; other exhausted failures provide the relevant restart,
-refresh, or desktop-log recovery without exposing raw loopback request details.
+retry policy. If infrastructure is stopped, local bot state and wallet
+assignment remain available while the authorization request directs the
+operator to start infra and Start remains disabled. Other exhausted catalog
+failures provide the relevant restart, refresh, or desktop-log recovery without
+exposing raw loopback request details.
 
 ## Targeting Capabilities
 
