@@ -45,6 +45,10 @@ const desktopParentContainmentBuildStepName = "Test desktop parent containment";
 const desktopParentContainmentReleaseStepName =
     "Test release desktop parent containment";
 const macosPromptContainmentJobName = "macos-prompt-containment-check";
+const macosUniversalSqliteBuildStepName =
+    "Build universal macOS SQLite dependency";
+const macosUniversalSqliteBuildCommand =
+    "node ./scripts/build/verify-macos-universal-sqlite-build.mjs";
 const macosRootCargoFetchStepName = "Fetch macOS root Cargo dependencies";
 const macosRootCargoFetchCommand =
     "cargo fetch --manifest-path src-tauri/Cargo.toml --locked";
@@ -80,6 +84,13 @@ const desktopAdminManifestTestCommand =
     "node ./scripts/build/test-desktop-admin-manifest.mjs";
 const desktopAdminManifestStepName = "Test desktop Admin manifest";
 const desktopAdminManifestWorkflowCommand = "yarn test:desktop:admin-manifest";
+const sqliteNativeBuildStepName = "Build trusted native SQLite dependency";
+const macosUniversalVerificationJobName = "verify-macos-universal";
+const macosRunnerArchitectureStepName = "Verify runner architecture";
+const macosFinalArtifactDownloadStepName = "Download finalized macOS artifact";
+const macosUniversalVerificationStepName = "Verify universal macOS runtime";
+const macosUniversalVerificationCommand =
+    'node ./scripts/build/macos-code-signing.mjs verify-dmg "$MACOS_RELEASE_ASSET_DIR"';
 
 test("pins every external GitHub Action to a full commit SHA", async () => {
     for (const workflow of await readWorkflows()) {
@@ -224,8 +235,104 @@ test("publishes only after successful release assembly", async () => {
 
     assert.match(assembleJob, /!cancelled\(\)/);
     assert.doesNotMatch(assembleJob, /always\(\)/);
+    assert.match(
+        assembleJob,
+        /needs\['verify-macos-universal'\]\.result == 'success'/,
+    );
     assert.match(publishJob, /!cancelled\(\)/);
     assert.match(publishJob, /needs\.assemble-release\.result == 'success'/);
+});
+
+test("executes the finalized macOS runtime on Apple Silicon and Intel", async () => {
+    const releaseWorkflow = await readFile(
+        path.join(workflowsDirectory, "tauri-release.yml"),
+        "utf8",
+    );
+    const verificationJob = extractWorkflowJob(
+        releaseWorkflow,
+        macosUniversalVerificationJobName,
+    );
+    const verificationStep = extractWorkflowStep(
+        verificationJob,
+        macosUniversalVerificationStepName,
+    );
+    const runnerArchitectureStep = extractWorkflowStep(
+        verificationJob,
+        macosRunnerArchitectureStepName,
+    );
+    const artifactDownloadStep = extractWorkflowStep(
+        verificationJob,
+        macosFinalArtifactDownloadStepName,
+    );
+
+    assert.match(verificationJob, /^ {20}- os: macos-15$/m);
+    assert.match(verificationJob, /^ {22}architecture: arm64$/m);
+    assert.match(verificationJob, /^ {20}- os: macos-15-intel$/m);
+    assert.match(verificationJob, /^ {22}architecture: x64$/m);
+    assert.match(verificationJob, /needs\.build\.result == 'success'/);
+    assert.match(
+        verificationJob,
+        /needs\['resume-macos-notarization'\]\.result == 'success'/,
+    );
+    assert.doesNotMatch(verificationJob, /^ {8}continue-on-error:/m);
+    assert.match(runnerArchitectureStep, /process\.arch/);
+    assert.match(runnerArchitectureStep, /\$\{\{ matrix\.architecture \}\}/);
+    assert.match(
+        artifactDownloadStep,
+        /uses: actions\/download-artifact@[a-f0-9]{40}/,
+    );
+    assert.match(
+        artifactDownloadStep,
+        /name: \$\{\{ env\.DESKTOP_MACOS_ARTIFACT_NAME \}\}/,
+    );
+    assert.match(
+        artifactDownloadStep,
+        /path: \$\{\{ env\.MACOS_RELEASE_ASSET_DIR \}\}/,
+    );
+    assert.ok(
+        verificationJob.indexOf(macosFinalArtifactDownloadStepName) <
+            verificationJob.indexOf(macosUniversalVerificationStepName),
+    );
+    assertStepRunsCommand(verificationStep, macosUniversalVerificationCommand);
+    assertStepIsRequired(verificationStep);
+});
+
+test("builds native SQLite for the selected release target", async () => {
+    const releaseWorkflow = await readFile(
+        path.join(workflowsDirectory, "tauri-release.yml"),
+        "utf8",
+    );
+    const buildJob = extractWorkflowJob(releaseWorkflow, "build");
+    const sqliteBuildStep = extractWorkflowStep(
+        buildJob,
+        sqliteNativeBuildStepName,
+    );
+
+    assert.match(
+        sqliteBuildStep,
+        /DESKTOP_NODE_DIST_TARGET: \$\{\{ matrix\.node_dist_target \}\}/,
+    );
+    assertStepRunsCommand(sqliteBuildStep, "yarn build:sqlite-native");
+    assertStepIsRequired(sqliteBuildStep);
+});
+
+test("cross-builds the universal SQLite binding before release tags", async () => {
+    const buildCheckWorkflow = await readFile(
+        path.join(workflowsDirectory, "tauri-build-check.yml"),
+        "utf8",
+    );
+    const macosJob = extractWorkflowJob(
+        buildCheckWorkflow,
+        macosPromptContainmentJobName,
+    );
+    const sqliteBuildStep = extractWorkflowStep(
+        macosJob,
+        macosUniversalSqliteBuildStepName,
+    );
+
+    assert.match(macosJob, /^ {8}runs-on: macos-latest$/m);
+    assertStepRunsCommand(sqliteBuildStep, macosUniversalSqliteBuildCommand);
+    assertStepIsRequired(sqliteBuildStep);
 });
 
 test("starts the final bundled Node runtime before macOS notarization", async () => {

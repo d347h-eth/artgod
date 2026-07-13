@@ -5,6 +5,13 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
+import { verifyMacOSUniversalMachOFiles } from "./macos-universal-runtime.mjs";
+import {
+    DESKTOP_BUILD_TARGET_ENV_KEYS,
+    DESKTOP_RUST_TARGET,
+    resolveDesktopRustTargetFromEnvironment,
+} from "./native-runtime-dependencies.mjs";
+import { verifyStagedDesktopRuntimeDependencies } from "./verify-staged-desktop-runtime-dependencies.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,6 +24,7 @@ const appleSigningIdentityEnvKey = "APPLE_SIGNING_IDENTITY";
 const bundledNodeRelativeSuffix = "/runtime/node/node";
 const bundledNatsRelativeSuffix = "/runtime/nats/nats-server";
 const secretPromptBinaryNamePrefix = "artgod-secret-prompt";
+const appExecutableDirectoryPrefix = "Contents/MacOS/";
 const appBundleExtension = ".app";
 const dmgBundleExtension = ".dmg";
 const nodeRuntimeEntitlementsPath = path.join(
@@ -35,7 +43,7 @@ const defaultMacOSBundleRoot = path.join(
     rootDir,
     "src-tauri",
     "target",
-    "universal-apple-darwin",
+    DESKTOP_RUST_TARGET.DarwinUniversal,
     "release",
     "bundle",
     "macos",
@@ -44,12 +52,23 @@ const defaultMacOSDmgBundleRoot = path.join(
     rootDir,
     "src-tauri",
     "target",
-    "universal-apple-darwin",
+    DESKTOP_RUST_TARGET.DarwinUniversal,
     "release",
     "bundle",
     "dmg",
 );
 const requiredBundleExecutables = [
+    {
+        label: "Tauri app executable",
+        matches: (relativePath) =>
+            relativePath.startsWith(appExecutableDirectoryPrefix) &&
+            !relativePath
+                .slice(appExecutableDirectoryPrefix.length)
+                .includes("/") &&
+            !path.posix
+                .basename(relativePath)
+                .startsWith(secretPromptBinaryNamePrefix),
+    },
     {
         label: "bundled Node runtime",
         matches: (relativePath) =>
@@ -161,6 +180,11 @@ async function verifyMacOSAppBundleAtPath(inputPath) {
     assertRequiredBundleExecutables(appPath, machOFiles);
     const nodeRuntimePath = resolveBundledNodeRuntime(machOFiles);
 
+    const architectureCoverage = await verifyMacOSUniversalMachOFiles(
+        machOFiles,
+        { commandRunner: runCommand },
+    );
+
     for (const filePath of sortNestedFirst(machOFiles)) {
         await verifyCodeSignature(filePath);
         if (filePath === nodeRuntimePath) {
@@ -177,9 +201,13 @@ async function verifyMacOSAppBundleAtPath(inputPath) {
     ]);
 
     await verifyNodeRuntimeStartup(nodeRuntimePath);
+    await verifyStagedDesktopRuntimeDependencies({
+        resourcesRootDir: path.dirname(path.dirname(nodeRuntimePath)),
+        nodeBinaryPath: nodeRuntimePath,
+    });
 
     console.log(
-        `Verified ${machOFiles.length} signed Mach-O file(s) inside ${path.relative(rootDir, appPath)}.`,
+        `Verified ${machOFiles.length} signed Mach-O file(s), ${architectureCoverage.universalFileCount} fat file(s), and native runtime dependencies inside ${path.relative(rootDir, appPath)}.`,
     );
 }
 
@@ -189,9 +217,8 @@ function resolveTemporaryDirectory() {
 
 function isMacOSBuildTarget() {
     const explicitTarget = [
-        process.env.TAURI_ENV_TARGET_TRIPLE,
-        process.env.CARGO_BUILD_TARGET,
-        process.env.TARGET,
+        resolveDesktopRustTargetFromEnvironment(process.env),
+        process.env[DESKTOP_BUILD_TARGET_ENV_KEYS.RustTarget],
     ]
         .map((value) => value?.trim())
         .find(Boolean);
@@ -314,7 +341,8 @@ async function resolveSingleBundlePath(inputPath, extension, matchesEntry) {
     return bundles[0];
 }
 
-function assertRequiredBundleExecutables(appPath, machOFiles) {
+// Requires each process entry point that makes the mounted app operational.
+export function assertRequiredBundleExecutables(appPath, machOFiles) {
     const relativePaths = machOFiles.map((filePath) =>
         normalizePath(path.relative(appPath, filePath)),
     );
@@ -407,6 +435,7 @@ async function readPropertyList(filePath, commandRunner) {
 export async function verifyNodeRuntimeStartup(filePath, options = {}) {
     const commandRunner = options.commandRunner ?? runCommand;
     const logger = options.logger ?? console.log;
+    const expectedArchitecture = options.expectedArchitecture ?? process.arch;
     const { stdout } = await commandRunner(
         filePath,
         ["--eval", nodeRuntimeSmokeScript],
@@ -415,6 +444,12 @@ export async function verifyNodeRuntimeStartup(filePath, options = {}) {
     const runtimeIdentity = stdout.trim();
     if (!runtimeIdentity) {
         throw new Error("Bundled Node runtime reported no runtime identity.");
+    }
+    const [reportedArchitecture] = runtimeIdentity.split(/\s+/);
+    if (reportedArchitecture !== expectedArchitecture) {
+        throw new Error(
+            `Bundled Node runtime reported architecture ${reportedArchitecture}; expected ${expectedArchitecture}.`,
+        );
     }
     logger(`Started bundled Node runtime: ${runtimeIdentity}`);
 }

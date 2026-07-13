@@ -127,6 +127,9 @@ jobs:
             - name: Install workspace dependencies
               run: yarn install --immutable --mode=skip-build
 
+            - name: Build universal macOS SQLite dependency
+              run: node ./scripts/build/verify-macos-universal-sqlite-build.mjs
+
             - name: Fetch macOS root Cargo dependencies
               run: cargo fetch --manifest-path src-tauri/Cargo.toml --locked
 
