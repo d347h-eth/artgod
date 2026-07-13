@@ -42,10 +42,10 @@ desktop configuration actions rather than child-process runtime behavior.
 Chainlist endpoint sourcing action, defaults to no-tracking endpoints, and is
 targeted only at `desktop`.
 
-Bundled executable-resource locations are not settings. Node, NATS, Yarn PnP
-hooks, and runtime artifact paths are owned by the desktop build/runtime
-contract and must not be exposed through this manifest or persisted Admin
-overrides.
+Bundled executable-resource locations are not settings. Node, NATS, runtime
+artifact paths, and package-local dependency paths are owned by the desktop
+build/runtime contract and must not be exposed through this manifest or
+persisted Admin overrides.
 
 Public web deployment still manages public-hosting-only values directly through deployment env files. Those settings remain in the manifest for `.env.example` and generated defaults, but should be marked `desktop_managed = false` when they do not belong in the desktop Admin UI or desktop-rendered `.env`.
 
@@ -79,7 +79,7 @@ Optional fields:
 
 For ordinary app settings, keep the short `default = "..."` form. Use `defaults = { local = "...", deploy = "...", desktop = "..." }` only when at least one context needs a different value. Use `targets = ["deploy"]` for deploy orchestration keys that should appear only in `.env.deploy.example`.
 
-Backend/indexer-specific override URLs such as `BACKEND_APM_OTLP_HTTP_URL`, `BACKEND_APM_PYROSCOPE_URL`, `INDEXER_APM_OTLP_HTTP_URL`, and `INDEXER_APM_PYROSCOPE_URL` intentionally keep blank defaults. Runtime config falls back to the root `OBSERVABILITY_*` settings, so defaults stay centralized while component-specific overrides remain available.
+Backend/indexer-specific override URLs such as `BACKEND_APM_OTLP_HTTP_URL`, `BACKEND_APM_PYROSCOPE_URL`, `INDEXER_APM_OTLP_HTTP_URL`, and `INDEXER_APM_PYROSCOPE_URL` intentionally keep blank defaults. Runtime config falls back to the root `OBSERVABILITY_*` settings, so defaults stay centralized while component-specific overrides remain available. All backend/indexer/trading metrics and APM settings target only `local` and `deploy`; the desktop build selects dependency-free no-op adapters, so those groups must not appear in Admin or its rendered `.env`.
 
 ## Change Workflow
 

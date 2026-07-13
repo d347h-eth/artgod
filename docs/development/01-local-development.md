@@ -36,7 +36,7 @@ yarn dev:composition
 
 ```sh
 yarn build:userland
-yarn build:runtime
+yarn build:desktop-runtime
 yarn build:desktop-runtime-resources
 yarn dev:desktop
 ```
@@ -63,10 +63,13 @@ yarn build:desktop:no-bundle
 `yarn build:desktop:no-bundle` is the canonical local release-like QA path. It
 exercises wallet-recipient integrity validation and supports repeated builds
 without `yarn clean:build`: the Rust build step removes only Tauri's prior
-copied `resources/runtime` tree before Tauri installs the newly staged files.
+copied `resources/runtime` tree and writes the freshly staged tree beside the
+Linux executable after Tauri's build step.
 Cargo dependencies, incremental outputs, executables, and bundle artifacts are
 preserved. Pass `--debug` for a faster debug no-bundle build; debug builds do
-not enforce release runtime hashes.
+not enforce release runtime hashes. After a debug build, run
+`yarn check:desktop-no-bundle-runtime` to compare its actual adjacent runtime
+with staging exactly; this is the same one-build output check used by CI.
 
 ## Build From Source
 
@@ -102,6 +105,7 @@ Linux x64 bundle:
 sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libfuse2 libssl-dev libxdo-dev patchelf file xdg-utils python3 make g++
 yarn prepare:tauri-linux-tools
 yarn tauri build --ci --target x86_64-unknown-linux-gnu --bundles appimage,deb
+yarn check:linux-bundled-runtime src-tauri/target/x86_64-unknown-linux-gnu/release/bundle
 ```
 
 The preparation step materializes the exact AppImage packaging tools pinned in
@@ -126,6 +130,12 @@ macOS universal DMG:
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
 yarn tauri build --ci --target universal-apple-darwin --bundles dmg
 ```
+
+The Tauri application shell, Node, and NATS are universal, while the staged
+SQLite and Sharp native add-ons match the build host architecture. The local
+backend, indexer, and trading runtime is therefore not supported or verified
+on the opposite architecture; see
+`docs/desktop/01-tauri-build-and-runtime.md`.
 
 Windows x64 NSIS installer:
 
@@ -419,8 +429,9 @@ overrides only after the operator chooses defaults, saves configuration, or
 launches from saved configuration.
 
 Executable resources are not configurable through Admin. Desktop Node, NATS,
-Yarn PnP hooks, and runtime artifacts always come from the staged Tauri
-`runtime` resources built by `yarn build:desktop-runtime-resources`.
+runtime artifacts, and their isolated package-local dependencies always come
+from the staged Tauri `runtime` resources built by
+`yarn build:desktop-runtime-resources`.
 
 A stale `.env` without `settings.json` is treated as an inactive legacy file:
 Admin can show that it exists, but the supervisor will not boot from it.

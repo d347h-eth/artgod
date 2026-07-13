@@ -44,7 +44,7 @@ Current milestone: Bidding runtime operational; bid-book and DB job management i
 - Slice 7 completed across desktop config and packaging docs.
 - Desktop generated env now exposes the dedicated bot OpenSea key split and the `BIDDING_*` runtime surface without reusing the indexer `OPENSEA_API_KEY`.
 - Desktop runtime treats SQLite as the authoritative bidding-job store.
-- Runtime resource staging already carries trading artifacts plus Yarn PnP cache/loader data required by packaged bot startup.
+- Runtime resource staging carries trading artifacts plus its reviewed package-local SQLite dependency tree; Yarn PnP cache and loader state stay build-time only.
 - Runtime registry checks now enforce that trading bot artifacts are built, referenced by desktop bot specs, copied into staged resources, and included in Tauri bundle resources.
 - Desktop docs now describe bidding config paths, lifecycle bootstrapping semantics, and non-secret bot lifecycle event requirements.
 - Added a simple startup WETH allowance adapter that approves the configured `BIDDING_WETH_ALLOWANCE_ETH` amount to the OpenSea SDK-selected conduit before bidder bootstrap continues.

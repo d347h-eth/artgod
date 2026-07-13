@@ -490,7 +490,8 @@ Trading-specific rules:
 - bot startup replaces the ambient parent environment with the frozen ArtGod
   runtime map
 - the fixed key-bearing Node arguments include `--disable-sigusr1` exactly once
-  before the PnP hooks and runtime artifact
+  before the runtime artifact; installed desktop builds use package-local
+  dependencies without an executable loader hook
 - sensitive Unix child preparation sets both `RLIMIT_CORE` values to zero, which
   Node inherits across `exec`
 - lifecycle events and runtime-state DB rows contain only non-secret metadata

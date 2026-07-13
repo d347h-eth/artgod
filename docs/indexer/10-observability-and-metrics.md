@@ -18,6 +18,11 @@ Current setup is local-first and split by signal type:
 - Traces: backend API and indexer runtimes send OTLP traces directly to Tempo (`:42732`), and Grafana reads Tempo.
 - Profiles: backend API and indexer runtimes send profiles directly to Pyroscope (`:42733`), and Grafana reads Pyroscope.
 
+This exporter graph applies to the full local/deploy runtime profile. Desktop
+artifacts resolve APM and metrics to compile-time no-op adapters, exclude
+Pyroscope, Datadog pprof, OpenTelemetry, and Prometheus packages, and do not
+expose exporter settings in Admin or its rendered environment.
+
 Observability containers run behind the `observability` compose profile in `docker-compose.yml` for local dev and `docker-compose.deploy.yml` for the public deploy stack.
 
 ## Components and Wiring
@@ -138,8 +143,10 @@ Main env flags (declared in `config/settings.manifest.toml`, generated into `.en
 
 Design notes:
 
-- metrics and APM exporters are optional and degrade to no-op paths when disabled.
-- packages are loaded lazily at runtime; missing packages do not crash observability-disabled runs.
+- these metrics and APM settings target only local and deploy runtimes.
+- in the full local/deploy profile, exporters are optional and degrade to no-op paths when disabled.
+- full-profile exporter packages are loaded lazily at runtime; missing packages do not crash observability-disabled runs.
+- the desktop profile selects no-op modules during artifact construction, so exporter implementations and packages never enter staged desktop resources.
 - Observability config accepts workspace-specific names (`INDEXER_*`, `BACKEND_*`, `TRADING_*`) and composition-level endpoint names (`OBSERVABILITY_*`) only.
 
 ## What Is Instrumented Today
