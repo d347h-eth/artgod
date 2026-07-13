@@ -4,7 +4,6 @@ import {
     chmod,
     cp,
     mkdir,
-    readdir,
     readFile,
     rm,
     stat,
@@ -14,6 +13,15 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+    assertNoForbiddenDesktopRuntimePaths,
+    stageDesktopRuntimeDependencies,
+} from "./desktop-runtime-dependency-staging.mjs";
+import {
+    DESKTOP_NODE_DIST_TARGET,
+    inferDesktopNodeDistTarget,
+} from "./native-runtime-dependencies.mjs";
+import { verifyStagedDesktopRuntimeDependencies } from "./verify-staged-desktop-runtime-dependencies.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,7 +30,10 @@ const packageJson = JSON.parse(
     await readFile(path.join(rootDir, "package.json"), "utf8"),
 );
 const nodeVersion = parseExactSemver(packageJson.engines?.node, "engines.node");
-const defaultDistTarget = inferNodeDistTarget(process.platform, process.arch);
+const defaultDistTarget = inferDesktopNodeDistTarget(
+    process.platform,
+    process.arch,
+);
 const nodeDistTarget =
     process.env.DESKTOP_NODE_DIST_TARGET?.trim() || defaultDistTarget;
 const nodeCacheRoot = path.join(rootDir, ".cache", "desktop-node-runtime");
@@ -40,27 +51,6 @@ const resourcesRootDir = path.join(
     "resources",
     "runtime",
 );
-// Yarn PnP runtime resources copied into the Tauri bundle.
-const yarnRuntimeDirName = ".yarn";
-const yarnCacheDirName = "cache";
-const yarnUnpluggedDirName = "unplugged";
-const yarnInstallStateFileName = "install-state.gz";
-const yarnCacheArchiveExtension = ".zip";
-const pnpRuntimeHookFileName = ".pnp.cjs";
-const pnpRuntimeLoaderFileName = ".pnp.loader.mjs";
-const pnpUnpluggedPackageLocationPrefix = `./${yarnRuntimeDirName}/${yarnUnpluggedDirName}/`;
-// The generated PnP runtime state is the authority for unplugged package archive identity.
-const pnpRuntimeStateAssignmentPattern =
-    /const RAW_RUNTIME_STATE =\n([\s\S]*?);\n/;
-const pnpLineContinuationPattern = /\\\r?\n/g;
-const npmPackageReferencePattern = /(?:^|#)npm:([^#]+)/;
-const packageReferenceVersionPattern = /version=([^&]+)/;
-const yarnNpmCacheArchiveProtocolName = "npm";
-// Official Linux Node distributions used by this script are glibc builds.
-const linuxNodeDistTargetPrefix = "linux-";
-// Some native packages colocate musl and glibc binaries under one Linux prebuild dir.
-const linuxMuslNativePrebuildFileMarker = ".musl.";
-
 const copySpecs = [
     {
         source: path.join(rootDir, "backend", "dist-desktop"),
@@ -87,47 +77,6 @@ const copySpecs = [
         target: path.join(resourcesRootDir, "database", "migrations"),
         description: "database migrations",
     },
-    {
-        source: path.join(rootDir, pnpRuntimeHookFileName),
-        target: path.join(resourcesRootDir, pnpRuntimeHookFileName),
-        description: "Yarn PnP runtime hook (.pnp.cjs)",
-    },
-    {
-        source: path.join(rootDir, pnpRuntimeLoaderFileName),
-        target: path.join(resourcesRootDir, pnpRuntimeLoaderFileName),
-        description: "Yarn PnP runtime hook (.pnp.loader.mjs)",
-    },
-    {
-        source: path.join(rootDir, yarnRuntimeDirName, yarnCacheDirName),
-        target: path.join(
-            resourcesRootDir,
-            yarnRuntimeDirName,
-            yarnCacheDirName,
-        ),
-        description: "Yarn local package cache",
-    },
-    {
-        source: path.join(rootDir, yarnRuntimeDirName, yarnUnpluggedDirName),
-        target: path.join(
-            resourcesRootDir,
-            yarnRuntimeDirName,
-            yarnUnpluggedDirName,
-        ),
-        description: "Yarn unplugged native/runtime packages",
-    },
-    {
-        source: path.join(
-            rootDir,
-            yarnRuntimeDirName,
-            yarnInstallStateFileName,
-        ),
-        target: path.join(
-            resourcesRootDir,
-            yarnRuntimeDirName,
-            yarnInstallStateFileName,
-        ),
-        description: "Yarn install state",
-    },
 ];
 
 await rm(resourcesRootDir, { recursive: true, force: true });
@@ -139,12 +88,15 @@ for (const spec of copySpecs) {
     await cp(spec.source, spec.target, { recursive: true });
 }
 
-// Keep only native prebuilds that match the bundled desktop runtime target.
-await pruneNativePrebuilds(resourcesRootDir, nodeDistTarget);
-// Remove duplicate package archives for dependencies already resolved from .yarn/unplugged.
-await pruneUnpluggedPackageCacheArchives(resourcesRootDir);
+// Materialize only the reviewed package closures beside their runtime artifacts.
+await assertNoForbiddenDesktopRuntimePaths(resourcesRootDir);
+await stageDesktopRuntimeDependencies({
+    rootDir,
+    destinationRootDir: resourcesRootDir,
+    nodeTarget: nodeDistTarget,
+});
 
-await bundleNodeRuntime({
+const bundledNodeBinaryPath = await bundleNodeRuntime({
     cacheRootDir: nodeCacheRoot,
     nodeVersion,
     nodeDistTarget,
@@ -155,6 +107,11 @@ await bundleNatsRuntime({
     natsVersion,
     natsDistTarget,
     resourcesRootDir,
+});
+// Prove the bundled Node can load and execute every staged native dependency.
+await verifyStagedDesktopRuntimeDependencies({
+    resourcesRootDir,
+    nodeBinaryPath: bundledNodeBinaryPath,
 });
 
 // Keep runtime resources directory tracked in git between clean/build cycles.
@@ -169,7 +126,7 @@ async function assertExists(targetPath, description) {
         await access(targetPath);
     } catch {
         throw new Error(
-            `Missing ${description}: ${path.relative(rootDir, targetPath)}. Run \`yarn install --immutable\` and then \`yarn build:runtime\`.`,
+            `Missing ${description}: ${path.relative(rootDir, targetPath)}. Run \`yarn install --immutable\` and then \`yarn build:desktop-runtime\`.`,
         );
     }
 }
@@ -184,320 +141,45 @@ function parseExactSemver(rawValue, sourceName) {
     return normalized;
 }
 
-function inferNodeDistTarget(platform, arch) {
-    if (platform === "linux") {
-        if (arch === "x64") return "linux-x64";
-        if (arch === "arm64") return "linux-arm64";
-    }
-    if (platform === "darwin") {
-        if (arch === "x64") return "darwin-x64";
-        if (arch === "arm64") return "darwin-arm64";
-    }
-    if (platform === "win32") {
-        if (arch === "x64") return "win-x64";
-        if (arch === "arm64") return "win-arm64";
-    }
-    throw new Error(
-        `Unsupported platform/arch for automatic Node runtime target: ${platform}/${arch}. Set DESKTOP_NODE_DIST_TARGET and DESKTOP_NATS_DIST_TARGET explicitly.`,
-    );
-}
-
-async function pruneNativePrebuilds(targetRootDir, target) {
-    const allowedTargets = getNativePrebuildTargets(target);
-    const unpluggedDir = path.join(
-        targetRootDir,
-        yarnRuntimeDirName,
-        yarnUnpluggedDirName,
-    );
-    const prebuildDirs = await findDirectoriesNamed(unpluggedDir, "prebuilds");
-
-    for (const prebuildDir of prebuildDirs) {
-        const entries = await readdir(prebuildDir, { withFileTypes: true });
-        const pruneTasks = [];
-
-        for (const entry of entries) {
-            if (!entry.isDirectory()) continue;
-
-            const prebuildTargetDir = path.join(prebuildDir, entry.name);
-            if (!allowedTargets.has(entry.name)) {
-                pruneTasks.push(
-                    rm(prebuildTargetDir, {
-                        recursive: true,
-                        force: true,
-                    }),
-                );
-                continue;
-            }
-
-            pruneTasks.push(
-                pruneNativePrebuildFiles(prebuildTargetDir, target),
-            );
-        }
-
-        await Promise.all(pruneTasks);
-    }
-}
-
-async function pruneUnpluggedPackageCacheArchives(targetRootDir) {
-    const cacheDir = path.join(
-        targetRootDir,
-        yarnRuntimeDirName,
-        yarnCacheDirName,
-    );
-    const unpluggedDir = path.join(
-        targetRootDir,
-        yarnRuntimeDirName,
-        yarnUnpluggedDirName,
-    );
-    const pnpHookPath = path.join(targetRootDir, pnpRuntimeHookFileName);
-    const unpluggedArchivePrefixes =
-        await collectUnpluggedPackageArchivePrefixes(pnpHookPath);
-
-    if (unpluggedArchivePrefixes.size === 0) {
-        const unpluggedEntries = await readdir(unpluggedDir, {
-            withFileTypes: true,
-        });
-        if (unpluggedEntries.some((entry) => entry.isDirectory())) {
-            throw new Error(
-                `Unable to find Yarn unplugged package locations in ${pnpRuntimeHookFileName}; refusing to leave duplicate package archives unpruned.`,
-            );
-        }
-        return;
-    }
-
-    const cacheEntries = await readdir(cacheDir, { withFileTypes: true });
-    const archivePrefixes = [...unpluggedArchivePrefixes].sort((a, b) =>
-        a.localeCompare(b),
-    );
-    const archivesToPrune = cacheEntries
-        .filter(
-            (entry) =>
-                entry.isFile() &&
-                isUnpluggedPackageCacheArchive(entry.name, archivePrefixes),
-        )
-        .map((entry) => path.join(cacheDir, entry.name));
-
-    await Promise.all(
-        archivesToPrune.map((archivePath) => rm(archivePath, { force: true })),
-    );
-
-    if (archivesToPrune.length > 0) {
-        console.log(
-            `Pruned ${archivesToPrune.length} Yarn cache archive(s) already resolved from ${yarnRuntimeDirName}/${yarnUnpluggedDirName}.`,
-        );
-    }
-}
-
-async function collectUnpluggedPackageArchivePrefixes(pnpHookPath) {
-    const pnpRuntimeState = await readPnpRuntimeState(pnpHookPath);
-    const prefixes = new Set();
-
-    for (const [
-        packageName,
-        packageReferences,
-    ] of pnpRuntimeState.packageRegistryData) {
-        if (typeof packageName !== "string") continue;
-        if (!Array.isArray(packageReferences)) continue;
-
-        for (const [packageReference, packageData] of packageReferences) {
-            const packageLocation = packageData?.packageLocation;
-            if (!isUnpluggedPackageLocation(packageLocation)) continue;
-
-            prefixes.add(extractUnpluggedPackageDirectoryName(packageLocation));
-
-            const packageVersion = resolveNpmPackageVersion(packageReference);
-            if (packageVersion) {
-                prefixes.add(
-                    formatYarnNpmCacheArchivePrefix(
-                        packageName,
-                        packageVersion,
-                    ),
-                );
-            }
-        }
-    }
-
-    return prefixes;
-}
-
-async function readPnpRuntimeState(pnpHookPath) {
-    const pnpHook = await readFile(pnpHookPath, "utf8");
-    const rawRuntimeStateMatch = pnpHook.match(
-        pnpRuntimeStateAssignmentPattern,
-    );
-    if (!rawRuntimeStateMatch) {
-        throw new Error(
-            `Unable to find RAW_RUNTIME_STATE in ${pnpRuntimeHookFileName}.`,
-        );
-    }
-
-    const rawRuntimeStateLiteral = rawRuntimeStateMatch[1].trim();
-    if (
-        !rawRuntimeStateLiteral.startsWith("'") ||
-        !rawRuntimeStateLiteral.endsWith("'")
-    ) {
-        throw new Error(
-            `Unsupported RAW_RUNTIME_STATE literal format in ${pnpRuntimeHookFileName}.`,
-        );
-    }
-
-    const runtimeStateJson = rawRuntimeStateLiteral
-        .slice(1, -1)
-        .replace(pnpLineContinuationPattern, "");
-    const runtimeState = JSON.parse(runtimeStateJson);
-    if (!Array.isArray(runtimeState.packageRegistryData)) {
-        throw new Error(
-            `Missing packageRegistryData in ${pnpRuntimeHookFileName}.`,
-        );
-    }
-    return runtimeState;
-}
-
-function isUnpluggedPackageLocation(packageLocation) {
-    return (
-        typeof packageLocation === "string" &&
-        packageLocation.startsWith(pnpUnpluggedPackageLocationPrefix)
-    );
-}
-
-function extractUnpluggedPackageDirectoryName(packageLocation) {
-    const relativeLocation = packageLocation.slice(
-        pnpUnpluggedPackageLocationPrefix.length,
-    );
-    return relativeLocation.split("/")[0];
-}
-
-function resolveNpmPackageVersion(packageReference) {
-    if (typeof packageReference !== "string") return null;
-
-    const npmReferenceMatch = packageReference.match(
-        npmPackageReferencePattern,
-    );
-    if (npmReferenceMatch) return npmReferenceMatch[1];
-
-    const versionMatch = packageReference.match(packageReferenceVersionPattern);
-    return versionMatch?.[1] ?? null;
-}
-
-function formatYarnNpmCacheArchivePrefix(packageName, packageVersion) {
-    return `${formatYarnCachePackageName(packageName)}-${yarnNpmCacheArchiveProtocolName}-${packageVersion}`;
-}
-
-function formatYarnCachePackageName(packageName) {
-    return packageName.replace("/", "-");
-}
-
-function isUnpluggedPackageCacheArchive(fileName, archivePrefixes) {
-    if (!fileName.endsWith(yarnCacheArchiveExtension)) return false;
-
-    return archivePrefixes.some((archivePrefix) =>
-        fileName.startsWith(`${archivePrefix}-`),
-    );
-}
-
-async function pruneNativePrebuildFiles(prebuildTargetDir, target) {
-    if (!isLinuxGlibcNodeTarget(target)) return;
-
-    const entries = await readdir(prebuildTargetDir, { withFileTypes: true });
-    await Promise.all(
-        entries
-            .filter(
-                (entry) =>
-                    entry.isFile() && isLinuxMuslNativePrebuild(entry.name),
-            )
-            .map((entry) =>
-                rm(path.join(prebuildTargetDir, entry.name), {
-                    force: true,
-                }),
-            ),
-    );
-}
-
-function isLinuxGlibcNodeTarget(target) {
-    return target.startsWith(linuxNodeDistTargetPrefix);
-}
-
-function isLinuxMuslNativePrebuild(fileName) {
-    return fileName.includes(linuxMuslNativePrebuildFileMarker);
-}
-
-function getNativePrebuildTargets(target) {
-    const targets = {
-        "linux-x64": ["linux-x64", "linuxglibc-x64"],
-        "linux-arm64": ["linux-arm64", "linuxglibc-arm64"],
-        "darwin-x64": ["darwin-x64"],
-        "darwin-arm64": ["darwin-arm64"],
-        "darwin-universal": ["darwin-x64", "darwin-arm64"],
-        "win-x64": ["win32-x64"],
-        "win-arm64": ["win32-arm64"],
-    };
-    const allowedTargets = targets[target];
-    if (!allowedTargets) {
-        throw new Error(
-            `Unsupported DESKTOP_NODE_DIST_TARGET "${target}" for native prebuild pruning.`,
-        );
-    }
-    return new Set(allowedTargets);
-}
-
-async function findDirectoriesNamed(rootDir, targetName) {
-    const matches = [];
-    const entries = await readdir(rootDir, { withFileTypes: true });
-
-    for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-
-        const entryPath = path.join(rootDir, entry.name);
-        if (entry.name === targetName) {
-            matches.push(entryPath);
-            continue;
-        }
-
-        matches.push(...(await findDirectoriesNamed(entryPath, targetName)));
-    }
-
-    return matches;
-}
-
 function getNodeArchiveSpec(nodeVersion, target) {
     const baseName = `node-v${nodeVersion}`;
     const specs = {
-        "linux-x64": {
+        [DESKTOP_NODE_DIST_TARGET.LinuxX64]: {
             archiveName: `${baseName}-linux-x64.tar.xz`,
             unpackDir: `${baseName}-linux-x64`,
             binaryRelativePath: "bin/node",
             binaryName: "node",
             archiveKind: "tar.xz",
         },
-        "linux-arm64": {
+        [DESKTOP_NODE_DIST_TARGET.LinuxArm64]: {
             archiveName: `${baseName}-linux-arm64.tar.xz`,
             unpackDir: `${baseName}-linux-arm64`,
             binaryRelativePath: "bin/node",
             binaryName: "node",
             archiveKind: "tar.xz",
         },
-        "darwin-x64": {
+        [DESKTOP_NODE_DIST_TARGET.DarwinX64]: {
             archiveName: `${baseName}-darwin-x64.tar.xz`,
             unpackDir: `${baseName}-darwin-x64`,
             binaryRelativePath: "bin/node",
             binaryName: "node",
             archiveKind: "tar.xz",
         },
-        "darwin-arm64": {
+        [DESKTOP_NODE_DIST_TARGET.DarwinArm64]: {
             archiveName: `${baseName}-darwin-arm64.tar.xz`,
             unpackDir: `${baseName}-darwin-arm64`,
             binaryRelativePath: "bin/node",
             binaryName: "node",
             archiveKind: "tar.xz",
         },
-        "win-x64": {
+        [DESKTOP_NODE_DIST_TARGET.WindowsX64]: {
             archiveName: `${baseName}-win-x64.zip`,
             unpackDir: `${baseName}-win-x64`,
             binaryRelativePath: "node.exe",
             binaryName: "node.exe",
             archiveKind: "zip",
         },
-        "win-arm64": {
+        [DESKTOP_NODE_DIST_TARGET.WindowsArm64]: {
             archiveName: `${baseName}-win-arm64.zip`,
             unpackDir: `${baseName}-win-arm64`,
             binaryRelativePath: "node.exe",
@@ -508,7 +190,7 @@ function getNodeArchiveSpec(nodeVersion, target) {
     const spec = specs[target];
     if (!spec) {
         throw new Error(
-            `Unsupported DESKTOP_NODE_DIST_TARGET "${target}". Supported targets: ${Object.keys(specs).join(", ")}, darwin-universal.`,
+            `Unsupported DESKTOP_NODE_DIST_TARGET "${target}". Supported targets: ${Object.keys(specs).join(", ")}, ${DESKTOP_NODE_DIST_TARGET.DarwinUniversal}.`,
         );
     }
     return spec;
@@ -517,42 +199,42 @@ function getNodeArchiveSpec(nodeVersion, target) {
 function getNatsArchiveSpec(natsVersion, target) {
     const baseName = `nats-server-v${natsVersion}`;
     const specs = {
-        "linux-x64": {
+        [DESKTOP_NODE_DIST_TARGET.LinuxX64]: {
             archiveName: `${baseName}-linux-amd64.tar.gz`,
             unpackDir: `${baseName}-linux-amd64`,
             binaryRelativePath: "nats-server",
             binaryName: "nats-server",
             archiveKind: "tar.gz",
         },
-        "linux-arm64": {
+        [DESKTOP_NODE_DIST_TARGET.LinuxArm64]: {
             archiveName: `${baseName}-linux-arm64.tar.gz`,
             unpackDir: `${baseName}-linux-arm64`,
             binaryRelativePath: "nats-server",
             binaryName: "nats-server",
             archiveKind: "tar.gz",
         },
-        "darwin-x64": {
+        [DESKTOP_NODE_DIST_TARGET.DarwinX64]: {
             archiveName: `${baseName}-darwin-amd64.tar.gz`,
             unpackDir: `${baseName}-darwin-amd64`,
             binaryRelativePath: "nats-server",
             binaryName: "nats-server",
             archiveKind: "tar.gz",
         },
-        "darwin-arm64": {
+        [DESKTOP_NODE_DIST_TARGET.DarwinArm64]: {
             archiveName: `${baseName}-darwin-arm64.tar.gz`,
             unpackDir: `${baseName}-darwin-arm64`,
             binaryRelativePath: "nats-server",
             binaryName: "nats-server",
             archiveKind: "tar.gz",
         },
-        "win-x64": {
+        [DESKTOP_NODE_DIST_TARGET.WindowsX64]: {
             archiveName: `${baseName}-windows-amd64.zip`,
             unpackDir: `${baseName}-windows-amd64`,
             binaryRelativePath: "nats-server.exe",
             binaryName: "nats-server.exe",
             archiveKind: "zip",
         },
-        "win-arm64": {
+        [DESKTOP_NODE_DIST_TARGET.WindowsArm64]: {
             archiveName: `${baseName}-windows-arm64.zip`,
             unpackDir: `${baseName}-windows-arm64`,
             binaryRelativePath: "nats-server.exe",
@@ -563,7 +245,7 @@ function getNatsArchiveSpec(natsVersion, target) {
     const spec = specs[target];
     if (!spec) {
         throw new Error(
-            `Unsupported DESKTOP_NATS_DIST_TARGET "${target}". Supported targets: ${Object.keys(specs).join(", ")}, darwin-universal.`,
+            `Unsupported DESKTOP_NATS_DIST_TARGET "${target}". Supported targets: ${Object.keys(specs).join(", ")}, ${DESKTOP_NODE_DIST_TARGET.DarwinUniversal}.`,
         );
     }
     return spec;
@@ -604,6 +286,7 @@ async function bundleNodeRuntime({
         ) + "\n",
         "utf8",
     );
+    return outputPath;
 }
 
 async function bundleNatsRuntime({
@@ -644,26 +327,26 @@ async function bundleNatsRuntime({
 }
 
 async function ensureNodeBinary({ cacheRootDir, nodeVersion, nodeDistTarget }) {
-    if (nodeDistTarget === "darwin-universal") {
+    if (nodeDistTarget === DESKTOP_NODE_DIST_TARGET.DarwinUniversal) {
         if (process.platform !== "darwin") {
             throw new Error(
-                "DESKTOP_NODE_DIST_TARGET=darwin-universal requires running the build on macOS.",
+                `DESKTOP_NODE_DIST_TARGET=${DESKTOP_NODE_DIST_TARGET.DarwinUniversal} requires running the build on macOS.`,
             );
         }
         const arm64Binary = await ensureNodeBinaryForConcreteTarget({
             cacheRootDir,
             nodeVersion,
-            concreteTarget: "darwin-arm64",
+            concreteTarget: DESKTOP_NODE_DIST_TARGET.DarwinArm64,
         });
         const x64Binary = await ensureNodeBinaryForConcreteTarget({
             cacheRootDir,
             nodeVersion,
-            concreteTarget: "darwin-x64",
+            concreteTarget: DESKTOP_NODE_DIST_TARGET.DarwinX64,
         });
         const universalDir = path.join(
             cacheRootDir,
             "assembled",
-            `node-v${nodeVersion}-darwin-universal`,
+            `node-v${nodeVersion}-${DESKTOP_NODE_DIST_TARGET.DarwinUniversal}`,
         );
         const universalBinaryPath = path.join(universalDir, "node");
         if (!(await pathExists(universalBinaryPath))) {
@@ -688,26 +371,26 @@ async function ensureNodeBinary({ cacheRootDir, nodeVersion, nodeDistTarget }) {
 }
 
 async function ensureNatsBinary({ cacheRootDir, natsVersion, natsDistTarget }) {
-    if (natsDistTarget === "darwin-universal") {
+    if (natsDistTarget === DESKTOP_NODE_DIST_TARGET.DarwinUniversal) {
         if (process.platform !== "darwin") {
             throw new Error(
-                "DESKTOP_NATS_DIST_TARGET=darwin-universal requires running the build on macOS.",
+                `DESKTOP_NATS_DIST_TARGET=${DESKTOP_NODE_DIST_TARGET.DarwinUniversal} requires running the build on macOS.`,
             );
         }
         const arm64Binary = await ensureNatsBinaryForConcreteTarget({
             cacheRootDir,
             natsVersion,
-            concreteTarget: "darwin-arm64",
+            concreteTarget: DESKTOP_NODE_DIST_TARGET.DarwinArm64,
         });
         const x64Binary = await ensureNatsBinaryForConcreteTarget({
             cacheRootDir,
             natsVersion,
-            concreteTarget: "darwin-x64",
+            concreteTarget: DESKTOP_NODE_DIST_TARGET.DarwinX64,
         });
         const universalDir = path.join(
             cacheRootDir,
             "assembled",
-            `nats-server-v${natsVersion}-darwin-universal`,
+            `nats-server-v${natsVersion}-${DESKTOP_NODE_DIST_TARGET.DarwinUniversal}`,
         );
         const universalBinaryPath = path.join(universalDir, "nats-server");
         if (!(await pathExists(universalBinaryPath))) {

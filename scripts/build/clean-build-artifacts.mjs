@@ -2,6 +2,10 @@
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+    DESKTOP_RUNTIME_DEPENDENCY_ROOTS,
+    DESKTOP_RUNTIME_NODE_MODULES_DIRECTORY_NAME,
+} from "./native-runtime-dependencies.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,6 +39,17 @@ for (const workspace of workspaces) {
         candidatePaths.add(path.join(workspaceRoot, dir));
     }
     candidatePaths.add(path.join(workspaceRoot, "node_modules", ".vite"));
+}
+
+// Parent-containment fixtures materialize these package-local runtime dependencies.
+for (const runtime of Object.values(DESKTOP_RUNTIME_DEPENDENCY_ROOTS)) {
+    candidatePaths.add(
+        path.join(
+            rootDir,
+            runtime.directoryName,
+            DESKTOP_RUNTIME_NODE_MODULES_DIRECTORY_NAME,
+        ),
+    );
 }
 
 // Rust/Tauri build output cache.
