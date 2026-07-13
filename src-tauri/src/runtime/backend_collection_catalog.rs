@@ -10,6 +10,9 @@ const COLLECTION_STATUS_QUERY_PARAM: &str = "status";
 const COLLECTION_CURSOR_QUERY_PARAM: &str = "cursor";
 const COLLECTION_STATUS_LIVE: &str = "live";
 const BIDDING_JOB_CEILING_PREFILLS_ROUTE_SUFFIX: &str = "bidding/jobs/ceiling-prefills";
+// Directs recovery for authorization data without hiding local Bot controls.
+const BIDDING_AUTHORIZATION_INFRA_OFFLINE_MESSAGE: &str =
+    "Start infra to prepare bidding authorization.";
 
 /// Canonical display identity for the chain that owns the bidding catalog.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -270,7 +273,7 @@ fn map_catalog_fetch_error(error: HttpFetchError) -> BackendCollectionCatalogErr
     match error {
         HttpFetchError::Transport(error) => {
             let user_message = if error.is_connect() {
-                "Start infra to use Bots."
+                BIDDING_AUTHORIZATION_INFRA_OFFLINE_MESSAGE
             } else if error.is_timeout() {
                 "Collection catalog did not respond. Restart infra and refresh Bots."
             } else {
@@ -303,7 +306,7 @@ fn map_ceiling_prefill_fetch_error(error: HttpFetchError) -> BackendCollectionCa
     match error {
         HttpFetchError::Transport(error) => {
             let user_message = if error.is_connect() {
-                "Start infra to use Bots."
+                BIDDING_AUTHORIZATION_INFRA_OFFLINE_MESSAGE
             } else if error.is_timeout() {
                 "Bidding limit prefills did not respond. Restart infra and refresh Bots."
             } else {

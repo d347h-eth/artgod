@@ -2,6 +2,7 @@ import { expect, test, type Page, type TestInfo } from 'playwright/test';
 import {
 	ADMIN_BOTS_AUTHORIZATION_SCENARIO,
 	ADMIN_BOTS_AUTHORIZATION_SCENARIO_QUERY_PARAM,
+	ADMIN_BOTS_INFRASTRUCTURE_OFFLINE_MESSAGE,
 	type AdminBotsAuthorizationScenario
 } from '../src/lib/e2e/admin-bots-authorization-fixtures';
 
@@ -97,6 +98,34 @@ test('renders actionable validation recovery without hiding safe bot state', asy
 	await expect(page.getByText('stopped', { exact: true })).toBeVisible();
 	await assertNoHorizontalOverflow(page);
 	await attachSurface(page, testInfo, ADMIN_BOTS_AUTHORIZATION_SCENARIO.ValidationError);
+});
+
+test('keeps wallet unassignment available while infrastructure is offline', async ({ page }) => {
+	await openScenario(page, ADMIN_BOTS_AUTHORIZATION_SCENARIO.InfrastructureOffline);
+	const botState = page.getByRole('region', { name: 'Bot state' });
+	const authorization = page.getByRole('region', { name: 'Bidding authorization request' });
+	const walletSelect = page.getByRole('combobox');
+
+	await expect(botState.getByText('stopped', { exact: true })).toBeVisible();
+	await expect(
+		botState.getByText('Bidding wallet · 0x1111111111111111111111111111111111111111')
+	).toBeVisible();
+	await expect(walletSelect).toBeEnabled();
+	await expect(page.getByRole('button', { name: 'apply wallet' })).toBeEnabled();
+	await expect(authorization.getByRole('alert')).toHaveText(
+		ADMIN_BOTS_INFRASTRUCTURE_OFFLINE_MESSAGE
+	);
+	await expect(page.getByRole('button', { name: 'start' })).toBeDisabled();
+
+	await walletSelect.selectOption('');
+	await page.getByRole('button', { name: 'apply wallet' }).click();
+
+	await expect(botState.getByText('unassigned', { exact: true })).toBeVisible();
+	await expect(walletSelect).toHaveValue('');
+	await expect(authorization.getByRole('alert')).toHaveText(
+		ADMIN_BOTS_INFRASTRUCTURE_OFFLINE_MESSAGE
+	);
+	await expect(page.getByRole('button', { name: 'start' })).toBeDisabled();
 });
 
 async function openScenario(page: Page, scenario: AdminBotsAuthorizationScenario): Promise<void> {

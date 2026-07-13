@@ -47,7 +47,8 @@
 		finishAdminBotRefreshFailure,
 		finishAdminBotRefreshSuccess,
 		isCurrentAdminBotRefresh,
-		publishAdminBotActionError
+		publishAdminBotActionError,
+		type AdminBotRefreshRequest
 	} from '$lib/admin/bots/admin-bot-view-state';
 	import type { AdminConfigState } from '$lib/admin/configuration/ports';
 	import { createTauriAdminWalletPort } from '$lib/admin/wallets/adapters/tauri-admin-wallet-port';
@@ -68,10 +69,13 @@
 	let bots = $state<AdminBotRecord[]>([]);
 	let wallets = $state<AdminWalletRecord[]>([]);
 	let biddingCollectionCatalog = $state<AdminBiddingCollectionCatalog | null>(null);
+	let biddingCollectionCatalogError = $state<string | null>(null);
+	let biddingCollectionCatalogLoading = $state(true);
 	let biddingCollections: AdminBiddingCollectionCandidate[] = $derived(
 		sortBiddingCollectionCandidatesByMaxUnitBid(biddingCollectionCatalog?.collections ?? [])
 	);
 	let biddingMandateSelections = $state<BiddingMandateSelections>({});
+	let baseStateCurrent = $state(false);
 	let biddingMandateReady = $derived(
 		isBiddingMandateDraftReady(biddingCollections, biddingMandateSelections)
 	);
@@ -187,6 +191,10 @@
 			bot.disabledReason === null &&
 			bot.assignedWallet !== null &&
 			!isAdminBotActive(bot.state) &&
+			baseStateCurrent &&
+			biddingCollectionCatalog !== null &&
+			!biddingCollectionCatalogLoading &&
+			biddingCollectionCatalogError === null &&
 			biddingMandateReady
 		);
 	}
@@ -226,23 +234,24 @@
 			refreshing = true;
 		}
 
+		biddingCollectionCatalog = null;
+		biddingCollectionCatalogError = null;
+		biddingCollectionCatalogLoading = true;
+		baseStateCurrent = false;
+		void refreshBiddingCollectionCatalog(refreshRequest);
+
 		try {
-			const [nextBots, nextWallets, nextBiddingCollectionCatalog] = await Promise.all([
+			const [nextBots, nextWallets] = await Promise.all([
 				botPort.listBots(),
-				walletPort.listWallets(),
-				botPort.loadBiddingCollectionCatalog()
+				walletPort.listWallets()
 			]);
 			if (!isCurrentAdminBotRefresh(viewState, refreshRequest)) {
 				return;
 			}
 			bots = visibleBots(nextBots);
 			wallets = nextWallets;
-			biddingCollectionCatalog = nextBiddingCollectionCatalog;
-			biddingMandateSelections = syncBiddingMandateSelections(
-				nextBiddingCollectionCatalog.collections,
-				biddingMandateSelections
-			);
 			syncSelections(bots);
+			baseStateCurrent = true;
 			viewState = finishAdminBotRefreshSuccess(viewState, refreshRequest);
 		} catch (error) {
 			if (isCurrentAdminBotRefresh(viewState, refreshRequest)) {
@@ -256,6 +265,33 @@
 			if (isCurrentAdminBotRefresh(viewState, refreshRequest)) {
 				loading = false;
 				refreshing = false;
+			}
+		}
+	}
+
+	async function refreshBiddingCollectionCatalog(
+		refreshRequest: AdminBotRefreshRequest
+	): Promise<void> {
+		try {
+			const nextCatalog = await botPort.loadBiddingCollectionCatalog();
+			if (!isCurrentAdminBotRefresh(viewState, refreshRequest)) {
+				return;
+			}
+			biddingCollectionCatalog = nextCatalog;
+			biddingMandateSelections = syncBiddingMandateSelections(
+				nextCatalog.collections,
+				biddingMandateSelections
+			);
+		} catch (error) {
+			if (isCurrentAdminBotRefresh(viewState, refreshRequest)) {
+				biddingCollectionCatalogError = toErrorMessage(
+					error,
+					'Bidding authorization could not be prepared. Use refresh to try again.'
+				);
+			}
+		} finally {
+			if (isCurrentAdminBotRefresh(viewState, refreshRequest)) {
+				biddingCollectionCatalogLoading = false;
 			}
 		}
 	}
@@ -537,7 +573,11 @@
 											· {formatBiddingChainIdentity(biddingCollectionCatalog.chain)}
 										{/if}
 									</h3>
-									{#if biddingCollections.length === 0}
+									{#if biddingCollectionCatalogLoading}
+										<span class="muted">Loading bidding authorization…</span>
+									{:else if biddingCollectionCatalogError}
+										<p class="runtime-error" role="alert">{biddingCollectionCatalogError}</p>
+									{:else if biddingCollections.length === 0}
 										<span class="muted">no collections ready for bidding authorization</span>
 									{:else}
 										<div class="bidding-mandate-collections">

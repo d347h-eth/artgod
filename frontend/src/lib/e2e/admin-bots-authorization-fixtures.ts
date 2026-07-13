@@ -17,6 +17,10 @@ import type { AdminWalletPort, AdminWalletRecord } from '$lib/admin/wallets/port
 // Query key owned by the deterministic Admin bidding authorization harness.
 export const ADMIN_BOTS_AUTHORIZATION_SCENARIO_QUERY_PARAM = 'scenario';
 
+// Mirrors the native recovery returned when authorization data cannot reach infra.
+export const ADMIN_BOTS_INFRASTRUCTURE_OFFLINE_MESSAGE =
+	'Start infra to prepare bidding authorization.';
+
 // Materially different Admin states covered by rendered authorization verification.
 export const ADMIN_BOTS_AUTHORIZATION_SCENARIO = {
 	Stopped: 'stopped',
@@ -25,7 +29,8 @@ export const ADMIN_BOTS_AUTHORIZATION_SCENARIO = {
 	Bootstrapping: 'bootstrapping',
 	Active: 'active',
 	ConfigDrift: 'config_drift',
-	ValidationError: 'validation_error'
+	ValidationError: 'validation_error',
+	InfrastructureOffline: 'infrastructure_offline'
 } as const;
 
 export type AdminBotsAuthorizationScenario =
@@ -109,6 +114,9 @@ export function createAdminBotsAuthorizationFixture(scenario: AdminBotsAuthoriza
 			return [record];
 		},
 		async loadBiddingCollectionCatalog() {
+			if (scenario === ADMIN_BOTS_AUTHORIZATION_SCENARIO.InfrastructureOffline) {
+				throw new Error(ADMIN_BOTS_INFRASTRUCTURE_OFFLINE_MESSAGE);
+			}
 			return CATALOG;
 		},
 		async assignWallet(_botKind: AdminBotKind, walletId: string | null) {
