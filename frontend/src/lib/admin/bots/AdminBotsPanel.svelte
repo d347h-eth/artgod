@@ -743,6 +743,7 @@
 		display: grid;
 		gap: 0.85rem;
 		width: min(48rem, 100%);
+		padding-bottom: 1rem;
 	}
 
 	.admin-bots-list {
