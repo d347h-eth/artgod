@@ -4,6 +4,22 @@ ArtGod-owned development, desktop, deploy, and observability ports live in the `
 
 The runtime env defaults are sourced from `config/settings.manifest.toml` and generated into `.env.example` plus `shared/config/generated-settings-defaults.ts`. Docker/container listeners are declared in the compose and observability config files listed below.
 
+## Installed Desktop Binding Scope
+
+The installed desktop composition owns two persistent inbound TCP listeners:
+
+- backend API and userland static content on `127.0.0.1:42710` by default
+- bundled NATS clients on `127.0.0.1:42720` by default
+
+Rust requires the numeric IPv4 loopback address `127.0.0.1` for both listeners
+before it starts child processes. It passes NATS an explicit address flag and
+rebuilds the backend child value from validated config. Custom ports remain
+supported, but desktop wildcard, hostname, IPv6, LAN, and public bind addresses
+are rejected. `42701` is a development/Admin Vite port, not the installed
+userland origin. The installed desktop does not start the `42723` NATS monitor,
+and its metrics/APM implementations are compile-time no-ops; compose and deploy
+binding requirements remain separate.
+
 ## App Layer
 
 | Port    | Surface                            | Used By                                                 | Source                                                   |

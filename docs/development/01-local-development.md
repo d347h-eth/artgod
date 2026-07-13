@@ -56,8 +56,14 @@ yarn install --immutable
 # Build the trusted native SQLite dependency; package scripts stay disabled globally.
 yarn build:sqlite-native
 
+# Prove native listener config/argv before building release-like output.
+yarn test:desktop:listener-boundaries
+
 # Build a release-mode executable and adjacent runtime resources without packaging a bundle.
 yarn build:desktop:no-bundle
+
+# Exercise the staged bundled Node/native dependencies and NATS socket.
+yarn check:desktop-runtime-resources
 ```
 
 `yarn build:desktop:no-bundle` is the canonical local release-like QA path. It
@@ -96,6 +102,8 @@ Fresh checkout bundle preparation:
 ```sh
 corepack enable
 yarn install --immutable
+yarn build:sqlite-native
+yarn test:desktop:listener-boundaries
 ```
 
 Each Tauri build below runs the target-aware native SQLite preparation through
@@ -107,6 +115,7 @@ Linux x64 bundle:
 sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libfuse2 libssl-dev libxdo-dev patchelf file xdg-utils python3 make g++
 yarn prepare:tauri-linux-tools
 yarn tauri build --ci --target x86_64-unknown-linux-gnu --bundles appimage,deb
+yarn check:desktop-runtime-resources
 yarn check:linux-bundled-runtime src-tauri/target/x86_64-unknown-linux-gnu/release/bundle
 ```
 
@@ -130,6 +139,8 @@ macOS Universal 2 app in a DMG:
 
 ```sh
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
+DESKTOP_NODE_DIST_TARGET=darwin-universal \
+DESKTOP_NATS_DIST_TARGET=darwin-universal \
 yarn tauri build --ci --target universal-apple-darwin --bundles dmg
 ```
 
@@ -524,6 +535,10 @@ yarn dev:composition
 
 # Build the release-like no-bundle desktop executable for local QA.
 yarn build:desktop:no-bundle
+
+# Verify installed desktop listener config/argv and the staged NATS socket.
+yarn test:desktop:listener-boundaries
+yarn check:desktop-runtime-resources
 
 # Start only the backend workspace dev server.
 yarn workspace @artgod/backend run dev

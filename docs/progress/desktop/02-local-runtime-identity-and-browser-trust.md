@@ -6,7 +6,10 @@ It is intentionally separate from the CSRF tab-stability fix because the problem
 ## Current Security Boundary
 
 ArtGod desktop serves userland through local browser origins and accepts backend writes from configured local origins.
-The production desktop browser UI uses `http://127.0.0.1:42701`, so that origin must remain trusted while this runtime shape exists.
+The production desktop browser UI is served by the backend at
+`http://127.0.0.1:42710` by default, so that origin must remain trusted while
+this runtime shape exists. Port `42701` is the development/Admin Vite origin,
+not the installed userland origin.
 
 Current CSRF protection is still useful, but it has a narrow purpose:
 
@@ -114,7 +117,7 @@ Platform code signing and browser TLS trust are separate trust systems.
 Release signing can prove that an executable came from the ArtGod release signer.
 It does not by itself:
 
-- make `https://127.0.0.1:42701` trusted in Chrome, Safari, Firefox, or Edge
+- make `https://127.0.0.1:<BACKEND_PORT>` trusted in Chrome, Safari, Firefox, or Edge
 - bind a TCP port to the signed executable
 - tell the browser that a localhost certificate belongs to the signed ArtGod process
 - stop another process from presenting a different certificate unless the client verifies the expected identity
@@ -237,5 +240,6 @@ Do not fold it into CSRF handling.
 Near-term rule:
 
 - Keep CSRF focused on browser cross-site protection.
-- Keep `http://127.0.0.1:42701` trusted while production desktop userland is served there.
+- Keep the configured `http://127.0.0.1:<BACKEND_PORT>` origin trusted while
+  production desktop userland is served there.
 - Treat local port ownership and runtime identity as a separate supervisor/security backlog item.
