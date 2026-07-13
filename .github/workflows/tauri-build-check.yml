@@ -72,11 +72,17 @@ jobs:
             - name: Test desktop release security
               run: yarn test:desktop:release
 
+            - name: Test desktop Admin manifest
+              run: yarn test:desktop:admin-manifest
+
             - name: Test sensitive process hardening
               run: yarn test:desktop:sensitive-process
 
             - name: Test Admin WebView shell ACL
               run: cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security
+
+            - name: Test Linux runtime resource layout
+              run: cargo test --manifest-path src-tauri/Cargo.toml --test linux_runtime_resource_layout
 
             - name: Test desktop parent containment
               run: yarn test:desktop:parent-containment
@@ -90,17 +96,11 @@ jobs:
                   DESKTOP_NATS_DIST_TARGET: linux-x64
               run: yarn build:desktop:no-bundle --debug
 
-            - name: Verify bundled Yarn runtime dependencies
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  test -d src-tauri/resources/runtime/.yarn/cache
-                  test -d src-tauri/resources/runtime/.yarn/unplugged
-                  test -f src-tauri/resources/runtime/.yarn/install-state.gz
-                  test -f src-tauri/resources/runtime/.pnp.cjs
-                  test -f src-tauri/resources/runtime/.pnp.loader.mjs
-                  test -f src-tauri/resources/runtime/node/node
-                  test -f src-tauri/resources/runtime/nats/nats-server
+            - name: Verify staged desktop runtime dependencies
+              run: yarn check:desktop-runtime-resources
+
+            - name: Verify no-bundle desktop runtime output
+              run: yarn check:desktop-no-bundle-runtime
 
     macos-prompt-containment-check:
         runs-on: macos-latest

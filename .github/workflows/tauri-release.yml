@@ -163,12 +163,20 @@ jobs:
             - name: Check desktop runtime registry consistency
               run: yarn check:runtime-registry
 
+            - name: Test desktop Admin manifest
+              if: runner.os == 'Linux'
+              run: yarn test:desktop:admin-manifest
+
             - name: Test release sensitive process hardening
               run: yarn test:desktop:sensitive-process
 
             - name: Test release Admin WebView shell ACL
               if: runner.os == 'Linux'
               run: cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security
+
+            - name: Test Linux runtime resource layout
+              if: runner.os == 'Linux'
+              run: cargo test --manifest-path src-tauri/Cargo.toml --test linux_runtime_resource_layout
 
             - name: Test release desktop parent containment
               run: yarn test:desktop:parent-containment
@@ -257,17 +265,12 @@ jobs:
                   test ! -e "$CERT_PATH"
                   test ! -e "$KEYCHAIN_PATH"
 
-            - name: Verify bundled Yarn runtime dependencies
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  test -d src-tauri/resources/runtime/.yarn/cache
-                  test -d src-tauri/resources/runtime/.yarn/unplugged
-                  test -f src-tauri/resources/runtime/.yarn/install-state.gz
-                  test -f src-tauri/resources/runtime/.pnp.cjs
-                  test -f src-tauri/resources/runtime/.pnp.loader.mjs
-                  test -f src-tauri/resources/runtime/node/node
-                  test -f src-tauri/resources/runtime/nats/nats-server
+            - name: Verify staged desktop runtime dependencies
+              run: yarn check:desktop-runtime-resources
+
+            - name: Verify Linux bundled runtime integrity
+              if: runner.os == 'Linux'
+              run: yarn check:linux-bundled-runtime "src-tauri/target/${{ matrix.target }}/release/bundle"
 
             - name: Verify macOS signing and bundled Node startup
               if: runner.os == 'macOS'
