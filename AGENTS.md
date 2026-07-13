@@ -17,6 +17,22 @@ Agent is not allowed to work on 'main' or 'dev' branch. Agent is not allowed to 
   interpretation that would degrade code clarity, architecture, or maintainable
   design.
 
+## Non-Negotiable GUI Automation Safety Rule
+
+- Agents must not create or run ephemeral or ad hoc scripts that automate,
+  capture, or inspect GUI windows by calling system or display-server APIs,
+  manipulating X11 or Wayland, synthesizing driver-level input, or otherwise
+  interfering with the host display session.
+- Automated GUI coverage must use or extend a durable, project-owned E2E test
+  harness. Use the existing Playwright infrastructure for web and WebView flows;
+  use an appropriate maintained framework for a native-specific flow. Test code
+  must be reviewable, reusable, checked into the project, and run through a
+  documented repository command so each addition builds up the real E2E suite.
+- If no suitable harness exists, do not improvise system-level automation.
+  Building the appropriate durable harness is implementation work that must stay
+  within the authorized task scope; otherwise defer that rendered inspection to
+  user QA and report the gap explicitly at handoff.
+
 ## Non-Negotiable User-Perspective UI/UX Rule
 
 - Before changing any user-visible surface, read

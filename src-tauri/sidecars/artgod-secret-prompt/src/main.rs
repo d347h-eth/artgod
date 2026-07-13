@@ -18,8 +18,8 @@ use artgod_secret_prompt_protocol::{
 use artgod_sensitive_process::harden_current_process;
 use owner_liveness::OwnerLiveness;
 use prompt_ui::{
-    ExportConfirmPromptSpec, ImportPromptSpec, RemoveConfirmPromptSpec, RevealPromptSpec,
-    UnlockPromptSpec,
+    BiddingReviewPage, BiddingReviewRow, BiddingReviewValue, ExportConfirmPromptSpec,
+    ImportPromptSpec, RemoveConfirmPromptSpec, RevealPromptSpec, UnlockPromptSpec,
 };
 use thiserror::Error;
 use zeroize::Zeroizing;
@@ -227,63 +227,113 @@ fn handle_unlock_request(
     ))
 }
 
-fn build_bidding_mandate_review_pages(summary: &UnlockBiddingMandateSummary) -> Vec<String> {
+fn build_bidding_mandate_review_pages(
+    summary: &UnlockBiddingMandateSummary,
+) -> Vec<BiddingReviewPage> {
     let mut pages = Vec::with_capacity(summary.collections.len() + 1);
     let trait_offer_policy = if summary.trait_offers_enabled {
         "enabled; OpenSea's pinned SignedZone is trusted"
     } else {
         "disabled"
     };
-    pages.push(format!(
-        "Bidding authorization\nNetwork: {}\nChain ID: #{}\nWETH allowance cap: {} WETH for the OpenSea conduit\nMinimum priority fee per gas: {} Gwei per gas\nMaximum fee per gas: {} Gwei per gas\nMaximum network fee for one WETH approval transaction: {} ETH per approval transaction\nPending transaction policy: {}\nTrait offers: {}\nCollections: {}",
-        render_prompt_value(summary.chain_name.as_str()),
-        summary.chain_id,
-        render_prompt_value(summary.weth_allowance_cap_eth.as_str()),
-        render_prompt_value(summary.min_priority_fee_per_gas_gwei.as_str()),
-        render_prompt_value(summary.max_fee_per_gas_gwei.as_str()),
-        render_prompt_value(summary.max_total_gas_fee_eth.as_str()),
-        render_prompt_value(summary.pending_nonce_policy.as_str()),
-        trait_offer_policy,
-        summary.collections.len(),
-    ));
+    pages.push(BiddingReviewPage {
+        heading: Some("Bidding authorization".to_owned()),
+        rows: vec![
+            BiddingReviewRow::plain("Network", render_prompt_value(summary.chain_name.as_str())),
+            BiddingReviewRow::plain("Chain ID", format!("#{}", summary.chain_id)),
+            BiddingReviewRow::with_values(
+                "WETH allowance cap",
+                vec![
+                    BiddingReviewValue::amount(format!(
+                        "{} WETH",
+                        render_prompt_value(summary.weth_allowance_cap_eth.as_str())
+                    )),
+                    BiddingReviewValue::plain(" for the OpenSea conduit"),
+                ],
+            ),
+            BiddingReviewRow::with_values(
+                "Minimum priority fee per gas",
+                vec![
+                    BiddingReviewValue::amount(format!(
+                        "{} Gwei",
+                        render_prompt_value(summary.min_priority_fee_per_gas_gwei.as_str())
+                    )),
+                    BiddingReviewValue::plain(" per gas"),
+                ],
+            ),
+            BiddingReviewRow::with_values(
+                "Maximum fee per gas",
+                vec![
+                    BiddingReviewValue::amount(format!(
+                        "{} Gwei",
+                        render_prompt_value(summary.max_fee_per_gas_gwei.as_str())
+                    )),
+                    BiddingReviewValue::plain(" per gas"),
+                ],
+            ),
+            BiddingReviewRow::with_values(
+                "Maximum network fee for one WETH approval transaction",
+                vec![
+                    BiddingReviewValue::amount(format!(
+                        "{} ETH",
+                        render_prompt_value(summary.max_total_gas_fee_eth.as_str())
+                    )),
+                    BiddingReviewValue::plain(" per approval transaction"),
+                ],
+            ),
+            BiddingReviewRow::plain(
+                "Pending transaction policy",
+                render_prompt_value(summary.pending_nonce_policy.as_str()),
+            ),
+            BiddingReviewRow::plain("Trait offers", trait_offer_policy),
+            BiddingReviewRow::plain("Collections", summary.collections.len().to_string()),
+        ],
+    });
     for (index, collection) in summary.collections.iter().enumerate() {
-        let mut lines = vec![
-            format!(
-                "Collection {}/{}: {}",
-                index + 1,
-                summary.collections.len(),
-                render_prompt_value(collection.artgod_slug.as_str())
+        let mut rows = vec![
+            BiddingReviewRow::plain(
+                format!("Collection {}/{}", index + 1, summary.collections.len()),
+                render_prompt_value(collection.artgod_slug.as_str()),
             ),
-            format!("ArtGod collection ID: #{}", collection.collection_id),
-            format!(
-                "OpenSea slug: {}",
-                render_prompt_value(collection.opensea_slug.as_str())
+            BiddingReviewRow::plain(
+                "ArtGod collection ID",
+                format!("#{}", collection.collection_id),
             ),
-            format!(
-                "Contract address: {}",
-                render_prompt_value(collection.contract_address.as_str())
+            BiddingReviewRow::plain(
+                "OpenSea slug",
+                render_prompt_value(collection.opensea_slug.as_str()),
             ),
-            format!(
-                "Token scope: {}",
-                render_prompt_value(collection.token_scope_label.as_str())
+            BiddingReviewRow::plain(
+                "Contract address",
+                render_prompt_value(collection.contract_address.as_str()),
+            ),
+            BiddingReviewRow::plain(
+                "Token scope",
+                render_prompt_value(collection.token_scope_label.as_str()),
             ),
         ];
-        lines.extend(collection.token_scope_items.iter().map(|item| {
-            format!(
-                "  {}: {}",
+        rows.extend(collection.token_scope_items.iter().map(|item| {
+            BiddingReviewRow::indented_plain(
+                2,
                 render_prompt_value(item.label.as_str()),
-                render_prompt_value(item.value.as_str())
+                render_prompt_value(item.value.as_str()),
             )
         }));
-        lines.push(format!(
-            "Maximum WETH for any one NFT: {}",
-            render_prompt_value(collection.max_unit_bid_eth.as_str())
+        rows.push(BiddingReviewRow::with_values(
+            "Maximum WETH for any one NFT",
+            vec![BiddingReviewValue::amount(format!(
+                "{} WETH",
+                render_prompt_value(collection.max_unit_bid_eth.as_str())
+            ))],
         ));
-        lines.push(format!(
-            "Maximum NFTs per offer: {}",
-            collection.max_quantity
+        rows.push(BiddingReviewRow::plain(
+            "Maximum NFTs per offer",
+            collection.max_quantity.to_string(),
         ));
-        pages.push(lines.join("\n"));
+        pages.push(BiddingReviewPage {
+            heading: None,
+            rows,
+        });
     }
     pages
 }
@@ -512,6 +562,13 @@ mod tests {
     const HELPER_HARDENING_TEST_ENTRY: &str = "tests::helper_process_hardening_entry";
     const HELPER_HARDENING_REPORT: &str = "helper_sensitive_process_hardened";
 
+    fn review_row<'a>(page: &'a BiddingReviewPage, label: &str) -> &'a BiddingReviewRow {
+        page.rows
+            .iter()
+            .find(|row| row.label == label)
+            .unwrap_or_else(|| panic!("missing bidding review row {label}"))
+    }
+
     #[test]
     fn helper_process_reports_hardening_from_an_isolated_subprocess() {
         let output = Command::new(std::env::current_exe().expect("helper test executable exists"))
@@ -615,27 +672,93 @@ mod tests {
             }],
         });
 
-        assert!(pages[0].starts_with("Bidding authorization\nNetwork: Ethereum\nChain ID: #1"));
-        assert!(!pages[0].contains("Mode:"));
-        assert!(!pages[0].contains("dry run"));
-        assert!(pages[0].contains("WETH allowance cap: 0.5 WETH for the OpenSea conduit"));
-        assert!(pages[0].contains("Minimum priority fee per gas: 0.1 Gwei per gas"));
-        assert!(pages[0].contains("Maximum fee per gas: 10 Gwei per gas"));
-        assert!(pages[0].contains(
-            "Maximum network fee for one WETH approval transaction: 0.01 ETH per approval transaction"
-        ));
-        assert!(pages[0].contains(
-            "Pending transaction policy: fail if the wallet already has pending transactions"
-        ));
-        assert!(pages[0]
-            .contains("Trait offers: enabled; OpenSea's pinned SignedZone is trusted"));
-        assert!(pages[1].contains("ArtGod collection ID: #7"));
-        assert!(pages[1].contains("Maximum WETH for any one NFT: 1.25"));
-        assert!(pages[1].contains("Maximum NFTs per offer: 1"));
+        assert_eq!(pages[0].heading.as_deref(), Some("Bidding authorization"));
+        assert_eq!(
+            pages[0].rows[0],
+            BiddingReviewRow::plain("Network", "Ethereum")
+        );
+        assert_eq!(pages[0].rows[1], BiddingReviewRow::plain("Chain ID", "#1"));
+        assert!(pages[0].rows.iter().all(|row| row.label != "Mode"));
+        assert!(pages[0].rows.iter().all(|row| {
+            row.values.iter().all(|value| match value {
+                BiddingReviewValue::Plain(value) | BiddingReviewValue::Amount(value) => {
+                    !value.contains("dry run")
+                }
+            })
+        }));
+        assert_eq!(
+            review_row(&pages[0], "WETH allowance cap").values,
+            vec![
+                BiddingReviewValue::amount("0.5 WETH"),
+                BiddingReviewValue::plain(" for the OpenSea conduit"),
+            ]
+        );
+        assert_eq!(
+            review_row(&pages[0], "Minimum priority fee per gas").values,
+            vec![
+                BiddingReviewValue::amount("0.1 Gwei"),
+                BiddingReviewValue::plain(" per gas"),
+            ]
+        );
+        assert_eq!(
+            review_row(&pages[0], "Maximum fee per gas").values,
+            vec![
+                BiddingReviewValue::amount("10 Gwei"),
+                BiddingReviewValue::plain(" per gas"),
+            ]
+        );
+        assert_eq!(
+            review_row(
+                &pages[0],
+                "Maximum network fee for one WETH approval transaction"
+            )
+            .values,
+            vec![
+                BiddingReviewValue::amount("0.01 ETH"),
+                BiddingReviewValue::plain(" per approval transaction"),
+            ]
+        );
+        assert_eq!(
+            review_row(&pages[0], "Pending transaction policy").values,
+            vec![BiddingReviewValue::plain(
+                "fail if the wallet already has pending transactions"
+            )]
+        );
+        assert_eq!(
+            review_row(&pages[0], "Trait offers").values,
+            vec![BiddingReviewValue::plain(
+                "enabled; OpenSea's pinned SignedZone is trusted"
+            )]
+        );
+        assert_eq!(
+            review_row(&pages[1], "ArtGod collection ID").values,
+            vec![BiddingReviewValue::plain("#7")]
+        );
+        assert_eq!(
+            review_row(&pages[1], "Maximum WETH for any one NFT").values,
+            vec![BiddingReviewValue::amount("1.25 WETH")]
+        );
+        assert_eq!(
+            review_row(&pages[1], "Maximum NFTs per offer").values,
+            vec![BiddingReviewValue::plain("1")]
+        );
     }
 
     #[test]
-    fn token_range_review_with_complete_values_fits_the_admin_sized_prompt() {
+    fn every_collection_scope_review_fits_the_admin_sized_prompt() {
+        let collection =
+            |collection_id, artgod_slug: &str, token_scope_label: &str, token_scope_items| {
+                UnlockBiddingCollectionSummary {
+                    collection_id,
+                    artgod_slug: artgod_slug.to_owned(),
+                    contract_address: "0xffffffffffffffffffffffffffffffffffffffff".to_owned(),
+                    opensea_slug: artgod_slug.to_owned(),
+                    token_scope_label: token_scope_label.to_owned(),
+                    token_scope_items,
+                    max_unit_bid_eth: "1.25".to_owned(),
+                    max_quantity: 1,
+                }
+            };
         let pages = build_bidding_mandate_review_pages(&UnlockBiddingMandateSummary {
             chain_id: u64::MAX,
             chain_name: "Ethereum".to_owned(),
@@ -645,33 +768,118 @@ mod tests {
             max_total_gas_fee_eth: "0.01".to_owned(),
             pending_nonce_policy: "fail if the wallet already has pending transactions".to_owned(),
             trait_offers_enabled: true,
-            collections: vec![UnlockBiddingCollectionSummary {
-                collection_id: u64::MAX,
-                artgod_slug: "terraforms".to_owned(),
-                contract_address: "0xffffffffffffffffffffffffffffffffffffffff".to_owned(),
-                opensea_slug: "terraforms".to_owned(),
-                token_scope_label: "token range".to_owned(),
-                token_scope_items: vec![
-                    UnlockBiddingTokenScopeItem {
+            collections: vec![
+                collection(
+                    1,
+                    "all-tokens",
+                    "all contract tokens",
+                    vec![UnlockBiddingTokenScopeItem {
                         label: "scope".to_owned(),
-                        value: "token range".to_owned(),
-                    },
-                    UnlockBiddingTokenScopeItem {
-                        label: "start token".to_owned(),
-                        value: "0".to_owned(),
-                    },
-                    UnlockBiddingTokenScopeItem {
-                        label: "total supply".to_owned(),
-                        value: "9911".to_owned(),
-                    },
-                ],
+                        value: "all contract tokens".to_owned(),
+                    }],
+                ),
+                collection(
+                    u64::MAX,
+                    "token-range",
+                    "token range",
+                    vec![
+                        UnlockBiddingTokenScopeItem {
+                            label: "scope".to_owned(),
+                            value: "token range".to_owned(),
+                        },
+                        UnlockBiddingTokenScopeItem {
+                            label: "start token".to_owned(),
+                            value: "0".to_owned(),
+                        },
+                        UnlockBiddingTokenScopeItem {
+                            label: "total supply".to_owned(),
+                            value: "9911".to_owned(),
+                        },
+                    ],
+                ),
+                collection(
+                    3,
+                    "explicit-token-ids",
+                    "explicit token ids",
+                    vec![
+                        UnlockBiddingTokenScopeItem {
+                            label: "scope".to_owned(),
+                            value: "explicit token ids".to_owned(),
+                        },
+                        UnlockBiddingTokenScopeItem {
+                            label: "token count".to_owned(),
+                            value: "42".to_owned(),
+                        },
+                    ],
+                ),
+            ],
+        });
+
+        prompt_ui::validate_bidding_review_pages(&pages)
+            .expect("every canonical bidding review page should fit");
+        assert_eq!(
+            pages[1]
+                .rows
+                .iter()
+                .filter(|row| row.indentation_columns > 0)
+                .map(|row| row.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["scope"]
+        );
+        assert_eq!(
+            pages[2]
+                .rows
+                .iter()
+                .filter(|row| row.indentation_columns > 0)
+                .map(|row| row.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["scope", "start token", "total supply"]
+        );
+        assert_eq!(
+            pages[3]
+                .rows
+                .iter()
+                .filter(|row| row.indentation_columns > 0)
+                .map(|row| row.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["scope", "token count"]
+        );
+    }
+
+    #[test]
+    fn collection_scope_labels_and_values_are_rendered_without_reinterpretation() {
+        let pages = build_bidding_mandate_review_pages(&UnlockBiddingMandateSummary {
+            chain_id: 1,
+            chain_name: "Ethereum".to_owned(),
+            weth_allowance_cap_eth: "0.5".to_owned(),
+            min_priority_fee_per_gas_gwei: "0.1".to_owned(),
+            max_fee_per_gas_gwei: "10".to_owned(),
+            max_total_gas_fee_eth: "0.01".to_owned(),
+            pending_nonce_policy: "fail if the wallet already has pending transactions".to_owned(),
+            trait_offers_enabled: false,
+            collections: vec![UnlockBiddingCollectionSummary {
+                collection_id: 1,
+                artgod_slug: "example".to_owned(),
+                contract_address: "0x1111111111111111111111111111111111111111".to_owned(),
+                opensea_slug: "example".to_owned(),
+                token_scope_label: "custom scope".to_owned(),
+                token_scope_items: vec![UnlockBiddingTokenScopeItem {
+                    label: "label: with punctuation".to_owned(),
+                    value: "value: with punctuation".to_owned(),
+                }],
                 max_unit_bid_eth: "1.25".to_owned(),
                 max_quantity: 1,
             }],
         });
 
-        prompt_ui::validate_bidding_review_pages(&pages)
-            .expect("canonical token-range bidding review should fit");
+        assert_eq!(
+            review_row(&pages[1], "label: with punctuation"),
+            &BiddingReviewRow::indented_plain(
+                2,
+                "label: with punctuation",
+                "value: with punctuation"
+            )
+        );
     }
 
     #[test]
