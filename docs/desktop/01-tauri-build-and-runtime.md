@@ -65,9 +65,10 @@ The desktop shell does not replace backend/indexer/trading logic. It orchestrate
    action sequence.
 6. When startup is requested, the supervisor starts local NATS from bundled
    `nats-server`, then backend, then enabled indexer workers from bundled
-   resources using bundled Node and Yarn PnP hooks. OpenSea workers are skipped
-   when OpenSea integration is disabled, and wallet-bound trading bots are
-   staged but start only on explicit operator action after unlock.
+   resources using bundled Node and each runtime's isolated package-local
+   dependencies. OpenSea workers are skipped when OpenSea integration is
+   disabled, and wallet-bound trading bots are staged but start only on
+   explicit operator action after unlock.
 7. Boot lifecycle console stays visible until lifecycle backend readiness probe
    succeeds, not merely until process state is `running`.
 8. Any core composition process exit triggers fail-fast full stack restart.
@@ -99,8 +100,12 @@ yarn build:admin
 yarn build:desktop
 yarn build:desktop:no-bundle
 yarn build:runtime
+yarn build:desktop-runtime
 yarn build:desktop-runtime-resources
 yarn build:desktop-sidecars --profile release
+yarn check:desktop-runtime-resources
+yarn check:desktop-no-bundle-runtime
+yarn check:linux-bundled-runtime <bundle-directory>
 yarn prepare:tauri-linux-tools
 yarn check:runtime-registry
 yarn clean:build
@@ -138,23 +143,36 @@ What each command does:
 
 - `yarn build:runtime`
   : Runs `scripts/build/build-runtime-artifacts.mjs`.
-  : Produces backend/indexer/trading runtime artifacts under workspace-local `dist-desktop` folders.
+  : Produces the full local/deploy backend, indexer, and trading runtime artifacts, including optional observability exporters, under workspace-local `dist-desktop` folders.
+
+- `yarn build:desktop-runtime`
+  : Runs the same artifact builder with the explicit desktop profile.
+  : Selects dependency-free observability adapters and fails if Pyroscope, Datadog pprof, OpenTelemetry, or Prometheus enters the desktop graph.
 
 - `yarn build:desktop-runtime-resources`
   : Runs `scripts/build/prepare-desktop-runtime-resources.mjs`.
-  : Copies runtime artifacts plus Yarn runtime dependency data into `src-tauri/resources/runtime` for bundling:
+  : Copies desktop-profile runtime artifacts and materializes only their reviewed native runtime dependencies into `src-tauri/resources/runtime`:
     - `backend/dist-desktop/*`
+    - `backend/node_modules/*` (`better-sqlite3`, `sharp`, and their reviewed runtime closures)
     - `indexer/dist-desktop/*`
+    - `indexer/node_modules/*` (`better-sqlite3`, `sharp`, and their reviewed runtime closures)
     - `trading/dist-desktop/*`
-    - `.yarn/cache`
-    - `.yarn/unplugged`
-    - `.yarn/install-state.gz`
-    - `.pnp.cjs`
-    - `.pnp.loader.mjs`
+    - `trading/node_modules/*` (`better-sqlite3` and its reviewed runtime closure only)
+      : Rejects Yarn project PnP hooks/state, unexpected dependency files, symbolic links, and full-profile artifacts.
 
 - `yarn build:desktop-sidecars --profile release`
   : Runs `scripts/build/prepare-desktop-sidecars.mjs`.
   : Builds the native secret-prompt sidecar and stages the target-specific binary under `src-tauri/binaries`.
+
+- `yarn check:desktop-runtime-resources`
+  : Starts the staged bundled Node with ambient PnP variables removed and executes SQLite/Sharp smoke operations through every package-local runtime dependency tree.
+
+- `yarn check:desktop-no-bundle-runtime`
+  : Compares the complete staged runtime with the adjacent runtime produced by the preceding debug no-bundle build, including entry types, executable modes, and SHA-256 bytes.
+
+- `yarn check:linux-bundled-runtime <bundle-directory>`
+  : Extracts exactly one AppImage and `.deb`, rejects links, executable-mode changes, or file-set drift, and compares every packaged runtime file's SHA-256 with `src-tauri/resources/runtime`.
+  : Also verifies the staged and packaged wallet-recipient closures against the immutable snapshot emitted when Rust generated the embedded integrity manifest.
 
 - `yarn prepare:tauri-linux-tools`
   : Runs `scripts/build/prepare-tauri-linux-bundler-tools.mjs`.
@@ -166,7 +184,7 @@ What each command does:
 
 - `yarn clean:build`
   : Runs `scripts/build/clean-build-artifacts.mjs`.
-  : Removes dist and cache outputs across workspaces (`dist*`, `.vite`, `.vitest`, `.svelte-kit`, `src-tauri/target`, `src-tauri/resources/runtime`, `src-tauri/binaries`, sidecar crate `target/*`).
+  : Removes dist and cache outputs across workspaces (`dist*`, `.vite`, `.vitest`, `.svelte-kit`, generated package-local runtime `node_modules`, `src-tauri/target`, `src-tauri/resources/runtime`, `src-tauri/binaries`, sidecar crate `target/*`).
   : Use this broad cleanup for recovery or deliberately cold builds, not as a prerequisite for repeated no-bundle QA.
 
 ## Tauri Build Hooking
@@ -174,7 +192,7 @@ What each command does:
 `src-tauri/tauri.conf.json` contains:
 
 - `beforeDevCommand = "yarn build:desktop-sidecars --profile debug && node ./scripts/build/dev-frontend-target.mjs admin"`
-- `beforeBuildCommand = "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release && node ./scripts/build/macos-code-signing.mjs sign-staged"`
+- `beforeBuildCommand = "yarn build:admin && yarn build:userland && yarn build:desktop-runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release && node ./scripts/build/macos-code-signing.mjs sign-staged"`
 - `frontendDist = "../frontend/dist"`
 
 This ensures `yarn tauri build ...` always has:
@@ -190,11 +208,17 @@ This ensures `yarn tauri build ...` always has:
 before final Tauri bundle generation starts.
 
 During Rust compilation, `src-tauri/build.rs` derives the active Cargo profile
-output from `OUT_DIR` and removes only its prior `resources/runtime` copy before
-`tauri-build` installs the freshly staged resource tree. This applies equally
-to default or custom Cargo target directories, explicit target triples, and
-debug or release profiles. It preserves compiled dependencies, incremental
-caches, executables, sidecars, and unrelated bundle output.
+output from `OUT_DIR` and removes only its prior `resources/runtime` copy. On
+Linux it then copies the validated staged tree beside the executable so
+`--no-bundle` keeps the normal `resources/runtime` layout even though Linux
+bundles use format-specific resource destinations. This applies equally to
+default or custom Cargo target directories, explicit target triples, and debug
+or release profiles. It preserves compiled dependencies, incremental caches,
+executables, sidecars, and unrelated bundle output.
+Release compilation also writes a deterministic wallet-recipient hash snapshot
+beside the executable at the same moment the hashes are embedded. The final
+Linux bundle verifier uses that snapshot so a later staging change cannot make
+the package gate approve bytes that the executable would reject.
 
 ## Build Helper Scripts
 
@@ -218,6 +242,8 @@ Responsibilities:
 
 - cleans old runtime outputs
 - builds backend/indexer/trading runtime entrypoints with `esbuild`
+- writes a versioned full/desktop profile marker into every artifact directory
+- validates the desktop metafile before artifacts can be staged
 - writes:
     - `backend/dist-desktop/server.mjs`
     - `indexer/dist-desktop/*.mjs` (all worker entrypoints)
@@ -227,16 +253,18 @@ Current build strategy details:
 
 - `bundle: true`, `format: "esm"`, `platform: "node"`
 - native packages declared by `scripts/build/native-runtime-dependencies.mjs` are externalized (`better-sqlite3`, `sharp`)
+- the default full profile retains optional metrics/tracing/profiling exporters for local and deploy runtimes
+- the explicit desktop profile resolves APM and metrics to no-op adapters and rejects `@pyroscope/nodejs`, `@datadog/pprof`, `@opentelemetry/*`, and `prom-client` in the esbuild input graph
 - Node `require` shim banner is injected for CJS dependencies bundled into ESM output
 - explicit `tsconfigRaw` is provided so runtime build does not depend on frontend `.svelte-kit` TS config state
 
 Native package note:
 
-- `better-sqlite3` and `sharp` stay as runtime PnP imports because their package-local loaders need access to native files under `.yarn/unplugged`.
+- `better-sqlite3` and `sharp` stay external so their package-local loaders can access the reviewed native files staged in each runtime's isolated `node_modules` tree.
 - `.yarnrc.yml` keeps `enableScripts: false`; CI must not override it with `YARN_ENABLE_SCRIPTS=true`.
 - `better-sqlite3` is built through the explicit trusted step `yarn build:sqlite-native`, which runs only its package-local install script from the unplugged package directory and fails if `build/Release/better_sqlite3.node` is missing.
 - `sharp` uses its optional `@img/*` prebuilt packages; it is not enabled through a broad post-install script policy.
-- `scripts/build/check-native-runtime-dependencies.mjs` can be run after `yarn build:runtime` to verify native runtime packages load from the same package boundaries used by bundled artifacts.
+- `scripts/build/check-native-runtime-dependencies.mjs` verifies the full PnP local/deploy build; desktop staging separately starts bundled Node and executes real SQLite and Sharp smoke operations through each isolated staged dependency tree.
 
 ### `scripts/build/prepare-desktop-runtime-resources.mjs`
 
@@ -253,24 +281,18 @@ Responsibilities:
   : downloaded archives are cached in `.cache/desktop-nats-runtime`
 - copies:
     - `backend/dist-desktop/*`
+    - `backend/node_modules/*`
     - `frontend/dist-userland/*`
     - `indexer/dist-desktop/*`
+    - `indexer/node_modules/*`
     - `trading/dist-desktop/*`
+    - `trading/node_modules/*`
     - `node/node` or `node/node.exe`
     - `nats/nats-server` or `nats/nats-server.exe`
-    - `.yarn/cache/*`
-    - `.yarn/unplugged/*`
-    - `.yarn/install-state.gz`
-    - `.pnp.cjs`
-    - `.pnp.loader.mjs`
-- prunes native prebuild directories that do not match the bundled Node target
-- prunes Yarn cache archives for packages that PnP resolves from
-  `.yarn/unplugged`, because those archives are duplicate runtime inputs and
-  can contain unsigned native binaries that platform bundle tooling scans inside
-  Linux AppImage or macOS DMG artifacts
-- prunes musl `.node` files from Linux glibc runtime targets because
-  linuxdeploy scans all ELF files staged into the AppImage tree, including
-  unused native prebuilds under `.yarn/unplugged`
+- resolves locked package sources through build-time PnP, then copies only the explicit runtime file allowlist into package-local `node_modules`
+- gives backend/indexer the SQLite and Sharp closures while keeping Sharp/libvips unresolvable from the key-bearing trading runtime
+- rejects project `.yarn`, `.pnp.cjs`, `.pnp.loader.mjs`, symbolic links, special files, missing packages, wrong build profiles, and unexpected package files
+- starts the bundled Node executable with ambient PnP variables removed, executes an in-memory SQLite query for every runtime, and performs a real one-pixel Sharp conversion for backend/indexer
 
 ### `scripts/build/prepare-desktop-sidecars.mjs`
 
@@ -291,13 +313,23 @@ Responsibilities:
 - treats missing output as already reconciled and fails the build on any real
   inspection or removal error
 - removes a file or symbolic-link leaf without following it
+- validates and copies the staged runtime into Linux no-bundle profile output without following symbolic links
+
+### `src-tauri/tauri.linux.conf.json`
+
+Responsibilities:
+
+- removes the base Tauri resource copy for Linux bundles so the runtime is not duplicated
+- places AppImage runtime resources under `/usr/share/ArtGod/resources/runtime`, outside linuxdeploy's `/usr/lib` ELF rewrite area
+- keeps `.deb` runtime resources under `/usr/lib/ArtGod/resources/runtime`
+- leaves the local no-bundle layout to the Rust build copy described above
 
 ### `scripts/build/macos-code-signing.mjs`
 
 Responsibilities:
 
 - signs staged macOS executable/loadable Mach-O files under `src-tauri/resources/runtime` and `src-tauri/binaries` before Rust embeds release integrity hashes and Tauri generates the final bundle artifacts
-- covers the bundled Node runtime, bundled NATS runtime, native `.node` add-ons from `.yarn/unplugged`, and the native secret-prompt sidecar
+- covers the bundled Node runtime, bundled NATS runtime, staged native `.node` add-ons, and the native secret-prompt sidecar
 - grants only the bundled Node executable the dedicated `com.apple.security.cs.allow-jit` entitlement required by V8 under hardened runtime; NATS, native libraries, the Tauri executable, and the secret-prompt sidecar do not receive that exception
 - skips non-macOS targets and local macOS builds without `APPLE_SIGNING_IDENTITY`
 - mounts the produced DMG, verifies that Node's embedded entitlements exactly match `src-tauri/entitlements/node-runtime.plist`, verifies the contained `.app` signatures, and starts Node far enough to initialize V8 before notarization
@@ -398,14 +430,14 @@ Release builds embed SHA-256 hashes for the exact code and dependency file set
 that can execute inside a key-bearing bot process:
 
 - bundled Node under `runtime/node`
-- `.pnp.cjs` and `.pnp.loader.mjs`
-- the complete bundled `.yarn` dependency tree
-- wallet-bound artifacts and chunks under `runtime/trading`
+- wallet-bound artifacts, chunks, and the isolated SQLite dependency tree under `runtime/trading`
 
 `src-tauri/build/runtime_integrity.rs` generates the Rust manifest after the
 resources are staged and, on macOS, after nested Mach-O signing. The manifest
 is compiled into the desktop executable rather than trusted from a mutable
-sidecar file.
+sidecar file. A build-time snapshot of the same protected paths and hashes is
+written beside the release executable only for package verification; runtime
+authorization continues to trust the compiled manifest.
 
 Before an unlock prompt opens, release runtime validation rejects missing,
 modified, added, unpinned, or symbolic-link entries anywhere in that protected
@@ -445,10 +477,10 @@ Desktop-specific required keys:
 
 Desktop executable resources are not operator configuration:
 
-- Node, NATS, Yarn PnP hooks, and runtime artifacts resolve only from the
-  canonical `runtime` directory bundled by Tauri.
-- Admin settings and the rendered `.env` cannot override executable, loader,
-  or runtime-resource paths.
+- Node, NATS, runtime artifacts, and their package-local dependencies resolve
+  only from the canonical `runtime` directory bundled by Tauri.
+- Admin settings and the rendered `.env` cannot override executable or
+  runtime-resource paths.
 - JetStream storage is not left to the NATS default temp path. The desktop
   supervisor always starts bundled NATS with its store root at
   `<app-data>/nats`; JetStream files live under the NATS-created `jetstream`
@@ -491,7 +523,7 @@ Core runtime keys are also validated (for backend/indexer startup), for example:
 - `NATS_URL` (must include full host:port, for example `nats://127.0.0.1:42720`)
 - `WETH_ADDRESS`
 - `SEAPORT_CONDUIT_CONTROLLER`
-- observability keys use the canonical desktop/runtime names: `OBSERVABILITY_OTLP_HTTP_URL`, `OBSERVABILITY_PYROSCOPE_URL`, `BACKEND_METRICS_*`, `BACKEND_APM_*`, `INDEXER_METRICS_*`, and `INDEXER_APM_*`
+- metrics/APM exporter settings are local/deploy-only and are not rendered into the desktop Admin manifest; desktop artifacts use compile-time no-op adapters
 
 Desktop-first default path behavior:
 
@@ -572,25 +604,21 @@ Frontend readiness behavior:
 
 ## Process Start Details
 
-Node artifacts are launched with Yarn PnP hooks:
+Node artifacts are launched directly. External native packages resolve through
+the isolated `node_modules` directory beside each backend, indexer, or trading
+artifact group; no Yarn loader executes in the installed application.
 
-- `--require <.pnp.cjs>`
-- `--experimental-loader <.pnp.loader.mjs>`
-
-This is required for correct module resolution in packaged desktop mode.
-
-Wallet-bound bot starts resolve the Node executable, both PnP hooks, the exact
-trading artifact, and configured child-process values into one immutable launch
-snapshot before the native unlock prompt opens. Saving Admin configuration
-while the prompt is open cannot redirect the process that receives the
-decrypted-key envelope.
+Wallet-bound bot starts resolve the Node executable, exact trading artifact,
+and configured child-process values into one immutable launch snapshot before
+the native unlock prompt opens. Saving Admin configuration while the prompt is
+open cannot redirect the process that receives the decrypted-key envelope.
 
 The wallet-bound Node command clears the parent process environment before it
 applies that frozen, Rust-resolved ArtGod map. Ambient launcher values such as
 Node startup options or dynamic-loader controls therefore cannot execute code
 in the key-bearing process before the stdin envelope is consumed.
-The fixed Node arguments place `--disable-sigusr1` exactly once before the PnP
-hooks and trading artifact, so `SIGUSR1` cannot open a debugging session in the
+The fixed Node arguments place `--disable-sigusr1` exactly once before the
+trading artifact, so `SIGUSR1` cannot open a debugging session in the
 key-bearing process.
 
 `src-tauri/crates/artgod-sensitive-process` owns sensitive-process startup and
@@ -826,6 +854,25 @@ Current state:
 - Yarn package lifecycle scripts stay disabled in CI. Workflows run
   `yarn install --immutable`, then `yarn build:sqlite-native` for the
   allowlisted `better-sqlite3` native binding.
+- Tauri builds use the desktop artifact profile and fail if an observability
+  exporter enters the compiled graph or if full-profile artifacts reach
+  staging. The full `yarn build:runtime` profile remains available to local
+  and deploy runtimes.
+- Desktop staging contains only reviewed package-local SQLite/Sharp dependency
+  closures; project PnP hooks, the workspace Yarn cache/install state, and
+  unrelated production/development packages are absent.
+- The existing single no-bundle/build invocation is followed by staged native
+  dependency verification and a complete comparison of its actual adjacent
+  runtime output. Linux release builds additionally extract the finished
+  AppImage and `.deb`, compare the complete runtime file set, executable modes, and SHA-256
+  bytes, and bind the protected closure back to the build-time copy of Rust's
+  embedded integrity authority.
+- The macOS application shell, Node, and NATS are universal, but SQLite/Sharp
+  native dependency staging still follows the release runner's host
+  architecture. The local backend, indexer, and trading runtime is therefore
+  not supported on the opposite architecture. This pre-existing limitation is
+  not executed in CI, and this pruning change does not claim dual-architecture
+  native-addon coverage.
 - Linux build checks and Linux/macOS release builds launch the built Node bot
   through the production command, containment, retained-stdin, and secret-frame
   path. The proof first requires clean `SIGTERM` exit while the parent still
@@ -923,7 +970,7 @@ stapled Apple notarization ticket.
 Common issues and checks:
 
 - Runtime artifacts missing
-  : Run `yarn install --immutable && yarn build:sqlite-native && yarn build:runtime && yarn build:desktop-runtime-resources`.
+  : Run `yarn install --immutable && yarn build:sqlite-native && yarn build:desktop-runtime && yarn build:desktop-runtime-resources`.
 
 - Stale dist/cache state
   : Run `yarn clean:build`.
@@ -932,6 +979,8 @@ Common issues and checks:
   : Use `yarn build:desktop:no-bundle`. The build automatically replaces only
   Tauri's copied runtime tree, so `clean:build` is unnecessary unless broader
   generated state is damaged.
+  : Run `yarn check:desktop-no-bundle-runtime` after a debug no-bundle build when
+  you want the same exact-copy proof used by CI.
 
 - Desktop config key errors on startup
   : Check Admin `config`, app-data `settings.json`, the rendered `.env`, and required `DESKTOP_*` keys.

@@ -70,10 +70,19 @@
         "./utils/paths": "./utils/paths.ts",
         "./utils/logger": "./utils/logger.ts",
         "./utils/time": "./utils/time.ts",
-        "./observability": "./observability/index.ts",
-        "./observability/apm": "./observability/apm.ts",
+        "./observability": {
+            "artgod-desktop-runtime": "./observability/index.desktop.ts",
+            "default": "./observability/index.ts"
+        },
+        "./observability/apm": {
+            "artgod-desktop-runtime": "./observability/apm.desktop.ts",
+            "default": "./observability/apm.ts"
+        },
         "./observability/http": "./observability/http.ts",
-        "./observability/metrics": "./observability/metrics/index.ts",
+        "./observability/metrics": {
+            "artgod-desktop-runtime": "./observability/metrics/desktop.ts",
+            "default": "./observability/metrics/index.ts"
+        },
         "./observability/rpc": "./observability/rpc.ts",
         "./database": "./database/db.ts",
         "./migrations": "./database/migrations.ts",

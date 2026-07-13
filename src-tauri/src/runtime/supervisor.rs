@@ -1598,13 +1598,10 @@ fn spawn_trading_bot_process(
 }
 
 fn build_trading_bot_process_args(config: &BotRuntimeLaunchConfig) -> Vec<String> {
-    let mut args = vec![KEY_BEARING_NODE_DISABLE_SIGUSR1_ARG.to_owned()];
-    args.extend(build_node_process_args(
-        &config.pnp_cjs_path,
-        &config.pnp_loader_path,
-        &config.artifact_path,
-    ));
-    args
+    vec![
+        KEY_BEARING_NODE_DISABLE_SIGUSR1_ARG.to_owned(),
+        config.artifact_path.to_string_lossy().into_owned(),
+    ]
 }
 
 /// Replaces ambient parent variables with the frozen ArtGod bot environment.
@@ -2326,16 +2323,12 @@ fn spawn_node_process(
     let artifact_path = config.runtime_dir.join(artifact_relative_path);
     if !artifact_path.exists() {
         return Err(format!(
-            "Runtime artifact missing for {process_name}: {}. Build runtime resources with `yarn build:runtime && yarn build:desktop-runtime-resources`.",
+            "Runtime artifact missing for {process_name}: {}. Build runtime resources with `yarn build:desktop-runtime && yarn build:desktop-runtime-resources`.",
             artifact_path.display()
         ));
     }
 
-    let args = build_node_process_args(
-        &config.pnp_cjs_path,
-        &config.pnp_loader_path,
-        &artifact_path,
-    );
+    let args = vec![artifact_path.to_string_lossy().into_owned()];
     spawn_process(
         app,
         config,
@@ -2437,20 +2430,6 @@ fn spawn_process(
         output_threads,
         cleanup: spec.cleanup,
     })
-}
-
-fn build_node_process_args(
-    pnp_cjs_path: &std::path::Path,
-    pnp_loader_path: &std::path::Path,
-    artifact_path: &std::path::Path,
-) -> Vec<String> {
-    vec![
-        "--require".to_owned(),
-        pnp_cjs_path.to_string_lossy().into_owned(),
-        "--experimental-loader".to_owned(),
-        pnp_loader_path.to_string_lossy().into_owned(),
-        artifact_path.to_string_lossy().into_owned(),
-    ]
 }
 
 fn render_command_line(command: &str, args: &[String]) -> String {
@@ -2915,8 +2894,6 @@ mod tests {
         DesktopRuntimeCapabilities, DesktopWalletConfig, NATS_STORAGE_DIR_NAME, RuntimeCapability,
     };
     #[cfg(unix)]
-    use crate::runtime::resource_contract::{PNP_CJS_RELATIVE_PATH, PNP_LOADER_RELATIVE_PATH};
-    #[cfg(unix)]
     use crate::wallet::domain::{WalletId, WalletPrivateKey};
 
     #[cfg(unix)]
@@ -2938,6 +2915,12 @@ mod tests {
     #[cfg(unix)]
     const PRODUCTION_CONTAINMENT_TEST_READY_PATH_ENV: &str =
         "ARTGOD_PRODUCTION_CONTAINMENT_TEST_READY_PATH";
+    #[cfg(unix)]
+    const PRODUCTION_CONTAINMENT_TEST_SQLITE_PACKAGE_RELATIVE_PATH: &str =
+        "trading/node_modules/better-sqlite3/package.json";
+    #[cfg(unix)]
+    const PRODUCTION_CONTAINMENT_TEST_SQLITE_BINDING_RELATIVE_PATH: &str =
+        "trading/node_modules/better-sqlite3/build/Release/better_sqlite3.node";
     #[cfg(unix)]
     const PRODUCTION_CONTAINMENT_TEST_WALLET_ID: &str = "11111111-1111-4111-8111-111111111111";
     #[cfg(unix)]
@@ -2993,8 +2976,6 @@ mod tests {
             nats_bin: PathBuf::from("/runtime/nats/nats-server"),
             nats_store_dir: app_data_dir.join(NATS_STORAGE_DIR_NAME),
             runtime_dir: PathBuf::from("/runtime"),
-            pnp_cjs_path: PathBuf::from("/runtime/.pnp.cjs"),
-            pnp_loader_path: PathBuf::from("/runtime/.pnp.loader.mjs"),
             nats_host: "127.0.0.1".to_owned(),
             nats_port: 42720,
             nats_url: "nats://127.0.0.1:42720".to_owned(),
@@ -3036,8 +3017,6 @@ mod tests {
             artifact_path: config.runtime_dir.join(spec.artifact_relative_path),
             node_bin: config.node_bin,
             runtime_dir: config.runtime_dir,
-            pnp_cjs_path: config.pnp_cjs_path,
-            pnp_loader_path: config.pnp_loader_path,
             chain_id: config.chain_id,
             process_env: config.process_env,
             logs_dir: config.logs_dir,
@@ -3135,15 +3114,14 @@ mod tests {
     fn trading_bot_node_args_disable_signal_started_inspection_exactly_once() {
         let config = build_test_bot_launch_config();
         let args = build_trading_bot_process_args(&config);
-        let base_args = build_node_process_args(
-            &config.pnp_cjs_path,
-            &config.pnp_loader_path,
-            &config.artifact_path,
-        );
+        let artifact_arg = config.artifact_path.to_string_lossy().into_owned();
 
         assert_eq!(
-            args.first().map(String::as_str),
-            Some(KEY_BEARING_NODE_DISABLE_SIGUSR1_ARG)
+            args,
+            vec![
+                KEY_BEARING_NODE_DISABLE_SIGUSR1_ARG.to_owned(),
+                artifact_arg,
+            ]
         );
         assert_eq!(
             args.iter()
@@ -3151,7 +3129,6 @@ mod tests {
                 .count(),
             1
         );
-        assert_eq!(args[1..], base_args);
     }
 
     #[cfg(unix)]
@@ -3403,10 +3380,12 @@ mod tests {
     #[cfg(unix)]
     fn production_test_launch_config(workspace_root: &Path) -> BotRuntimeLaunchConfig {
         let artifact_path = workspace_root.join(SNIPING_BOT_SPEC.artifact_relative_path);
-        let pnp_cjs_path = workspace_root.join(PNP_CJS_RELATIVE_PATH);
-        let pnp_loader_path = workspace_root.join(PNP_LOADER_RELATIVE_PATH);
+        let sqlite_package_path =
+            workspace_root.join(PRODUCTION_CONTAINMENT_TEST_SQLITE_PACKAGE_RELATIVE_PATH);
+        let sqlite_binding_path =
+            workspace_root.join(PRODUCTION_CONTAINMENT_TEST_SQLITE_BINDING_RELATIVE_PATH);
         let node_bin = resolve_production_containment_test_node();
-        for required_path in [&artifact_path, &pnp_cjs_path, &pnp_loader_path] {
+        for required_path in [&artifact_path, &sqlite_package_path, &sqlite_binding_path] {
             assert!(
                 required_path.is_file(),
                 "required production runtime file is missing: {}",
@@ -3418,8 +3397,6 @@ mod tests {
             artifact_path,
             node_bin,
             runtime_dir: workspace_root.to_path_buf(),
-            pnp_cjs_path,
-            pnp_loader_path,
             chain_id: PRODUCTION_CONTAINMENT_TEST_CHAIN_ID,
             process_env: HashMap::new(),
             logs_dir: workspace_root.join("tmp"),

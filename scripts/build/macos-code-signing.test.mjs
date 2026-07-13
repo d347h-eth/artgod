@@ -60,7 +60,7 @@ test("applies the dedicated JIT entitlement only to bundled Node", async () => {
 
     for (const unrelatedMachOPath of [
         "/workspace/src-tauri/resources/runtime/nats/nats-server",
-        "/workspace/src-tauri/resources/runtime/.yarn/unplugged/native.node",
+        "/workspace/src-tauri/resources/runtime/trading/node_modules/better-sqlite3/build/Release/better_sqlite3.node",
         "/workspace/src-tauri/binaries/artgod-secret-prompt-aarch64-apple-darwin",
         "/Volumes/ArtGod/ArtGod.app/Contents/MacOS/artgod-desktop",
     ]) {

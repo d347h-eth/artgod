@@ -14,7 +14,7 @@ import {
     NOOP_APM,
     type ApmPort,
     type SpanAttributes,
-} from "../observability/apm.js";
+} from "../observability/apm-contract.js";
 import type {
     CollectionHolder,
     CollectionHolderPage,

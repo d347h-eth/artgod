@@ -75,6 +75,11 @@ Official desktop builds are published under
 [GitHub Releases](https://github.com/d347h-eth/artgod/releases). The public
 alpha ships Linux x64 AppImage and `.deb` bundles plus a universal macOS DMG.
 macOS 13.5+ is required for the macOS bundle.
+The macOS application shell, Node, and NATS are universal, but the bundled
+SQLite and Sharp native add-ons match the release runner architecture. The
+local backend, indexer, and trading runtime is therefore supported only on that
+architecture. See
+`docs/desktop/01-tauri-build-and-runtime.md` for the exact limitation.
 Windows can be built from source, but signed Windows release artifacts remain
 deferred.
 

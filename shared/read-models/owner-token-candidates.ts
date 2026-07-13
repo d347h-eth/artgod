@@ -2,7 +2,7 @@ import { db } from "../database/db.js";
 import type {
     ApmPort,
     SpanAttributes,
-} from "../observability/apm.js";
+} from "../observability/apm-contract.js";
 import { normalizeAddressRef } from "../utils/ref-resolver.js";
 import type { TokenCandidates } from "./token-candidates.js";
 

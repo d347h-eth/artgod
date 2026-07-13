@@ -1161,8 +1161,8 @@ The current release baseline disables ordinary secret-bearing crash material:
   Reporting no-heap flag
 - sensitive Unix child preparation repeats the zero core limit before `exec`,
   so Node inherits it
-- the key-bearing Node command fixes `--disable-sigusr1` once before its PnP
-  hooks and artifact
+- the key-bearing Node command fixes `--disable-sigusr1` once before its
+  artifact; package-local dependencies require no executable loader hook
 
 This does not expand the public-alpha threat model to same-user debuggers or
 full-host compromise. Linux resets dumpability when Rust executes Node, so the

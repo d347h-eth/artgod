@@ -62,14 +62,15 @@ File:
 
 What is explicit here:
 
-- `beforeBuildCommand = "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release"`
+- `beforeBuildCommand = "yarn build:admin && yarn build:userland && yarn build:desktop-runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release"`
 
 This must continue to include runtime resource staging so artifacts are present in bundled resources before desktop packaging.
 Staging must include both runtime artifacts and runtime dependencies:
 
 - bundled Node runtime (`resources/runtime/node/node(.exe)`)
 - bundled NATS runtime (`resources/runtime/nats/nats-server(.exe)`)
-- Yarn runtime dependency data (`.yarn/cache`, `.yarn/unplugged`, `.yarn/install-state.gz`, `.pnp.cjs`, `.pnp.loader.mjs`)
+- reviewed package-local native dependencies (`backend/node_modules`, `indexer/node_modules`, and the SQLite-only `trading/node_modules`)
+- no project Yarn cache, install state, or PnP hooks
 
 ### 4) Root Build Command Wiring
 
@@ -80,12 +81,16 @@ File:
 What is explicit here:
 
 - `build:runtime`
+- `build:desktop-runtime`
 - `build:desktop-runtime-resources`
 - `build:desktop:no-bundle`
 - `clean:build`
 - root workspace list, which must include `trading` once wallet-bound bot runtimes exist
 
 These commands are the stable interface used by Tauri build and developers.
+`build:runtime` keeps the full local/deploy observability graph;
+`build:desktop-runtime` is the only artifact profile accepted by desktop
+resource staging.
 
 ### 5) Indexer Dev Runtime Script Registry
 
@@ -146,7 +151,7 @@ When adding a new indexer runtime (example `foo-worker`):
    : Add `foo-worker` in `scripts/build/build-runtime-artifacts.mjs` `entryPoints`.
 
 4. Ensure runtime resource staging includes the new artifact.
-   : Validate `scripts/build/prepare-desktop-runtime-resources.mjs` copies `indexer/dist-desktop/*` (all workers are included by directory copy), stages bundled Node+NATS runtimes (`resources/runtime/node/node(.exe)`, `resources/runtime/nats/nats-server(.exe)`), and keeps Yarn runtime dependency data bundled (`.yarn/cache`, `.yarn/unplugged`, `.yarn/install-state.gz`, `.pnp.cjs`, `.pnp.loader.mjs`).
+   : Validate `scripts/build/prepare-desktop-runtime-resources.mjs` copies `indexer/dist-desktop/*` (all workers are included by directory copy), stages bundled Node+NATS runtimes (`resources/runtime/node/node(.exe)`, `resources/runtime/nats/nats-server(.exe)`), and materializes only the indexer's reviewed package-local native dependency closure.
 
 5. Add supervisor launch mapping.
    : Add `("indexer-foo-worker", "indexer/dist-desktop/foo-worker.mjs")` in `INDEXER_WORKERS`.
@@ -169,11 +174,12 @@ When adding a new indexer runtime (example `foo-worker`):
 10. Verify.
     : `yarn install --immutable`
     : `yarn build:sqlite-native`
-    : `yarn build:runtime`
+    : `yarn build:runtime` to verify the full local/deploy metrics and APM graph.
+    : `yarn build:desktop-runtime`
     : `yarn build:desktop-runtime-resources`
     : `yarn build:desktop:no-bundle`
     : Start desktop app and confirm process appears in runtime state/logs.
-    : `up{job="artgod-indexer",runtime="foo-worker"}` in Prometheus/Grafana.
+    : Start the worker through the full local/deploy flow with observability enabled, then verify `up{job="artgod-indexer",runtime="foo-worker"}` in Prometheus/Grafana. The desktop profile is intentionally no-op and cannot verify this signal.
 
 When adding a new trading bot runtime (example `foo-bot`):
 
@@ -199,7 +205,7 @@ When adding a new trading bot runtime (example `foo-bot`):
 7. Verify.
    : `yarn install --immutable`
    : `yarn build:sqlite-native`
-   : `yarn build:runtime`
+   : `yarn build:desktop-runtime`
    : `yarn build:desktop-runtime-resources`
    : `yarn build:desktop:no-bundle`
    : Start desktop app and confirm the bot can be assigned, unlocked, started, and stopped without secrets leaking to env or CLI.

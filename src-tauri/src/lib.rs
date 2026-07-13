@@ -247,19 +247,6 @@ fn runtime_preflight(app: AppHandle, state: State<'_, DesktopState>) -> RuntimeP
         "Bundled NATS binary",
         &config.nats_bin,
     );
-    push_exists_check(
-        &mut checks,
-        "pnpCjs",
-        "Yarn PnP .pnp.cjs",
-        &config.pnp_cjs_path,
-    );
-    push_exists_check(
-        &mut checks,
-        "pnpLoader",
-        "Yarn PnP .pnp.loader.mjs",
-        &config.pnp_loader_path,
-    );
-
     push_env_check(&mut checks, &config, "ARTGOD_DB_PATH");
     push_env_check(&mut checks, &config, "USERLAND_UI_DIST_DIR");
     push_env_check(&mut checks, &config, RPC_ENDPOINT_LIST_ENV_KEY);

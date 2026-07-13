@@ -1,9 +1,16 @@
 #!/usr/bin/env node
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { NATIVE_RUNTIME_EXTERNAL_PACKAGES } from "./native-runtime-dependencies.mjs";
+import {
+    RUNTIME_BUILD_PROFILE_MARKER_FILE_NAME,
+    resolveRuntimeBuildProfile,
+    runtimeBuildConditions,
+    runtimeBuildProfileMarkerSource,
+    validateRuntimeBuildMetafile,
+} from "./runtime-build-profile.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +19,8 @@ const legacyOutDir = path.join(rootDir, "dist-desktop", "runtime");
 const backendOutDir = path.join(rootDir, "backend", "dist-desktop");
 const indexerOutDir = path.join(rootDir, "indexer", "dist-desktop");
 const tradingOutDir = path.join(rootDir, "trading", "dist-desktop");
+const runtimeBuildProfile = resolveRuntimeBuildProfile(process.argv.slice(2));
+const buildConditions = runtimeBuildConditions(runtimeBuildProfile);
 
 await rm(legacyOutDir, { recursive: true, force: true });
 await rm(backendOutDir, { recursive: true, force: true });
@@ -26,14 +35,16 @@ const baseBuildConfig = {
     outExtension: { ".js": ".mjs" },
     bundle: true,
     format: "esm",
-    // Emit dynamic observability imports as lazy chunks for desktop runtime builds.
+    // Preserve lazy chunks for the full local and deploy runtime graph.
     splitting: true,
     platform: "node",
     target: "node24",
     chunkNames: "chunks/[name]-[hash]",
     sourcemap: false,
     minify: false,
+    metafile: true,
     external: NATIVE_RUNTIME_EXTERNAL_PACKAGES,
+    ...(buildConditions ? { conditions: buildConditions } : {}),
     banner: {
         js: 'import { createRequire as __createRequire } from "node:module"; import { dirname as __dirnameOf } from "node:path"; import { fileURLToPath as __fileURLToPath } from "node:url"; const require = __createRequire(import.meta.url); const __filename = __fileURLToPath(import.meta.url); const __dirname = __dirnameOf(__filename);',
     },
@@ -54,15 +65,20 @@ const baseBuildConfig = {
     },
 };
 
-await build({
+const backendBuildResult = await build({
     ...baseBuildConfig,
     entryPoints: {
         server: path.join(rootDir, "backend", "src", "index.ts"),
     },
     outdir: backendOutDir,
 });
+validateRuntimeBuildMetafile(
+    runtimeBuildProfile,
+    "backend",
+    backendBuildResult.metafile,
+);
 
-await build({
+const indexerBuildResult = await build({
     ...baseBuildConfig,
     entryPoints: {
         "scheduler-worker": path.join(
@@ -152,8 +168,13 @@ await build({
     },
     outdir: indexerOutDir,
 });
+validateRuntimeBuildMetafile(
+    runtimeBuildProfile,
+    "indexer",
+    indexerBuildResult.metafile,
+);
 
-await build({
+const tradingBuildResult = await build({
     ...baseBuildConfig,
     entryPoints: {
         "bidding-bot-runtime": path.join(
@@ -173,3 +194,20 @@ await build({
     },
     outdir: tradingOutDir,
 });
+validateRuntimeBuildMetafile(
+    runtimeBuildProfile,
+    "trading",
+    tradingBuildResult.metafile,
+);
+
+const profileMarkerSource =
+    runtimeBuildProfileMarkerSource(runtimeBuildProfile);
+await Promise.all(
+    [backendOutDir, indexerOutDir, tradingOutDir].map((outputDirectory) =>
+        writeFile(
+            path.join(outputDirectory, RUNTIME_BUILD_PROFILE_MARKER_FILE_NAME),
+            profileMarkerSource,
+            "utf8",
+        ),
+    ),
+);

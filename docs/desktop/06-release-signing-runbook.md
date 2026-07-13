@@ -8,7 +8,7 @@ Signing and notarization secrets live in the GitHub Environment named
 The target release artifacts are:
 
 - Linux x64: AppImage and `.deb`
-- macOS: universal DMG
+- macOS: universal DMG, with the native-addon architecture limitation below
 - release manifest: `SHA256SUMS.txt`
 - release signatures: Linux detached signatures and `SHA256SUMS.txt.asc`
 - release trust anchor: `artgod-release-public.asc`
@@ -304,10 +304,17 @@ match that dedicated file exactly and starts Node from the mounted DMG far
 enough to initialize V8. Broader exceptions such as
 `com.apple.security.cs.allow-unsigned-executable-memory` are intentionally not
 granted.
-Runtime resource staging also removes copied Yarn cache archives for packages
-that PnP resolves from `.yarn/unplugged`. Those archives duplicate the unpacked
-runtime packages and can contain unsigned native Mach-O binaries that Apple
-notarization scans inside the DMG but `codesign` cannot sign in place.
+Runtime resource staging materializes only the reviewed package-local SQLite
+and Sharp runtime files. Project PnP hooks, the Yarn cache/install state,
+observability packages, developer tools, wrong-platform native packages, and
+other workspace dependencies never enter the DMG. Every staged native Mach-O
+file is therefore visible to the signing pass before Rust embeds its release
+integrity hashes.
+The Tauri application shell, Node, and NATS are universal, but the staged
+SQLite and Sharp native add-ons match the macOS release runner's host
+architecture. The local backend, indexer, and trading runtime is therefore not
+supported or executed on the opposite architecture; see
+`docs/desktop/01-tauri-build-and-runtime.md`.
 
 Operator verification on the final downloaded GitHub Release asset:
 

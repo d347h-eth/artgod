@@ -13,6 +13,8 @@ const workflowsDirectory = path.join(rootDir, ".github", "workflows");
 const fullCommitActionReferencePattern = /^[^\s@]+@[a-f0-9]{40}$/;
 const webviewShellAclTestCommand =
     "cargo test --manifest-path src-tauri/Cargo.toml --test webview_capability_security";
+const linuxRuntimeResourceLayoutTestCommand =
+    "cargo test --manifest-path src-tauri/Cargo.toml --test linux_runtime_resource_layout";
 const sensitiveProcessTestCommand = "yarn test:desktop:sensitive-process";
 const sensitiveProcessBuildStepName = "Test sensitive process hardening";
 const sensitiveProcessReleaseStepName =
@@ -58,10 +60,26 @@ const windowsContainmentCheckCommand =
 const desktopNoBundleBuildScriptName = "build:desktop:no-bundle";
 const desktopNoBundleBuildCommand = "yarn build:desktop:no-bundle --debug";
 const tauriNoBundleBuildStepName = "Tauri no-bundle build check";
+const stagedRuntimeVerificationStepName =
+    "Verify staged desktop runtime dependencies";
+const stagedRuntimeVerificationCommand = "yarn check:desktop-runtime-resources";
+const noBundleRuntimeVerificationStepName =
+    "Verify no-bundle desktop runtime output";
+const noBundleRuntimeVerificationCommand =
+    "yarn check:desktop-no-bundle-runtime";
+const linuxBundledRuntimeVerificationStepName =
+    "Verify Linux bundled runtime integrity";
+const linuxBundledRuntimeVerificationCommand =
+    'yarn check:linux-bundled-runtime "src-tauri/target/${{ matrix.target }}/release/bundle"';
 const tauriRuntimeOutputReconciliationTestCommand =
     "cargo test --manifest-path src-tauri/Cargo.toml --locked --offline --test tauri_runtime_output_reconciliation";
 const tauriRuntimeOutputReconciliationStepName =
     "Test Tauri runtime output reconciliation";
+const desktopAdminManifestTestScriptName = "test:desktop:admin-manifest";
+const desktopAdminManifestTestCommand =
+    "cargo test --manifest-path src-tauri/Cargo.toml --locked runtime::app_config_manifest::tests::observability_settings_are_not_admin_managed --lib -- --exact";
+const desktopAdminManifestStepName = "Test desktop Admin manifest";
+const desktopAdminManifestWorkflowCommand = "yarn test:desktop:admin-manifest";
 
 test("pins every external GitHub Action to a full commit SHA", async () => {
     for (const workflow of await readWorkflows()) {
@@ -243,7 +261,7 @@ test("checks synchronized project versions on ordinary desktop builds", async ()
     assert.doesNotMatch(buildCheckWorkflow, /run:\s*yarn check:version/);
 });
 
-test("tests runtime output reconciliation before one no-bundle build", async () => {
+test("tests reconciliation and final output around one no-bundle build", async () => {
     const packageManifest = JSON.parse(
         await readFile(packageManifestPath, "utf8"),
     );
@@ -265,15 +283,145 @@ test("tests runtime output reconciliation before one no-bundle build", async () 
         tauriCheckJob,
         tauriNoBundleBuildStepName,
     );
+    const runtimeVerificationStep = extractWorkflowStep(
+        tauriCheckJob,
+        stagedRuntimeVerificationStepName,
+    );
+    const noBundleRuntimeVerificationStep = extractWorkflowStep(
+        tauriCheckJob,
+        noBundleRuntimeVerificationStepName,
+    );
 
     assert.ok(
         reconciliationStep.includes(
             tauriRuntimeOutputReconciliationTestCommand,
         ),
     );
-    assert.equal(countOccurrences(buildStep, desktopNoBundleBuildCommand), 1);
+    assert.equal(
+        countOccurrences(tauriCheckJob, desktopNoBundleBuildCommand),
+        1,
+    );
     assertStepIsRequired(reconciliationStep);
     assertStepIsRequired(buildStep);
+    assertStepRunsCommand(
+        runtimeVerificationStep,
+        stagedRuntimeVerificationCommand,
+    );
+    assertStepIsRequired(runtimeVerificationStep);
+    assertStepRunsCommand(
+        noBundleRuntimeVerificationStep,
+        noBundleRuntimeVerificationCommand,
+    );
+    assertStepIsRequired(noBundleRuntimeVerificationStep);
+    assertStepPrecedes(
+        tauriCheckJob,
+        tauriNoBundleBuildStepName,
+        stagedRuntimeVerificationStepName,
+    );
+    assertStepPrecedes(
+        tauriCheckJob,
+        stagedRuntimeVerificationStepName,
+        noBundleRuntimeVerificationStepName,
+    );
+});
+
+test("gates desktop Admin observability removal in Tauri jobs", async () => {
+    const packageManifest = JSON.parse(
+        await readFile(packageManifestPath, "utf8"),
+    );
+    assert.equal(
+        packageManifest.scripts?.[desktopAdminManifestTestScriptName],
+        desktopAdminManifestTestCommand,
+    );
+    assert.doesNotMatch(
+        packageManifest.scripts?.["test:desktop:release-inputs"] ?? "",
+        new RegExp(
+            `(?:^|&& )yarn ${desktopAdminManifestTestScriptName}(?: |&&|$)`,
+        ),
+    );
+
+    const buildCheckWorkflow = await readFile(
+        path.join(workflowsDirectory, "tauri-build-check.yml"),
+        "utf8",
+    );
+    const buildCheckJob = extractWorkflowJob(buildCheckWorkflow, "tauri-check");
+    const buildCheckStep = extractWorkflowStep(
+        buildCheckJob,
+        desktopAdminManifestStepName,
+    );
+    assertStepRunsCommand(buildCheckStep, desktopAdminManifestWorkflowCommand);
+    assertStepIsRequired(buildCheckStep);
+
+    const releaseWorkflow = await readFile(
+        path.join(workflowsDirectory, "tauri-release.yml"),
+        "utf8",
+    );
+    const releaseBuildJob = extractWorkflowJob(releaseWorkflow, "build");
+    const releaseBuildStep = extractWorkflowStep(
+        releaseBuildJob,
+        desktopAdminManifestStepName,
+    );
+    assertStepRunsCommand(
+        releaseBuildStep,
+        desktopAdminManifestWorkflowCommand,
+    );
+    assert.match(releaseBuildStep, /^ {14}if: runner\.os == 'Linux'$/m);
+    assert.doesNotMatch(releaseBuildStep, /^ {14}continue-on-error:/m);
+});
+
+test("verifies staged and final runtime bytes after release packaging", async () => {
+    const workflow = await readFile(
+        path.join(workflowsDirectory, "tauri-release.yml"),
+        "utf8",
+    );
+    const buildJob = extractWorkflowJob(workflow, "build");
+    const stagedVerificationStep = extractWorkflowStep(
+        buildJob,
+        stagedRuntimeVerificationStepName,
+    );
+    const linuxBundleVerificationStep = extractWorkflowStep(
+        buildJob,
+        linuxBundledRuntimeVerificationStepName,
+    );
+
+    assertStepRunsCommand(
+        stagedVerificationStep,
+        stagedRuntimeVerificationCommand,
+    );
+    assertStepIsRequired(stagedVerificationStep);
+    assertStepRunsCommand(
+        linuxBundleVerificationStep,
+        linuxBundledRuntimeVerificationCommand,
+    );
+    assert.match(
+        linuxBundleVerificationStep,
+        /^ {14}if: runner\.os == 'Linux'$/m,
+    );
+    assert.doesNotMatch(
+        linuxBundleVerificationStep,
+        /^ {14}continue-on-error:/m,
+    );
+
+    for (const buildStepName of [
+        "Build Linux Tauri bundle",
+        "Build macOS Tauri bundle",
+    ]) {
+        assertStepPrecedes(
+            buildJob,
+            buildStepName,
+            stagedRuntimeVerificationStepName,
+        );
+    }
+    assertStepPrecedes(
+        buildJob,
+        stagedRuntimeVerificationStepName,
+        linuxBundledRuntimeVerificationStepName,
+    );
+    assertStepPrecedes(
+        buildJob,
+        linuxBundledRuntimeVerificationStepName,
+        "Collect release artifacts",
+    );
 });
 
 test("runs the resolved WebView shell ACL test in build and release lanes", async () => {
@@ -285,6 +433,19 @@ test("runs the resolved WebView shell ACL test in build and release lanes", asyn
         assert.ok(
             workflow.includes(webviewShellAclTestCommand),
             `${workflowName} does not run the resolved WebView shell ACL test.`,
+        );
+    }
+});
+
+test("tests the Linux runtime resource layout in build and release lanes", async () => {
+    for (const workflowName of ["tauri-build-check.yml", "tauri-release.yml"]) {
+        const workflow = await readFile(
+            path.join(workflowsDirectory, workflowName),
+            "utf8",
+        );
+        assert.ok(
+            workflow.includes(linuxRuntimeResourceLayoutTestCommand),
+            `${workflowName} does not test the Linux runtime resource layout.`,
         );
     }
 });

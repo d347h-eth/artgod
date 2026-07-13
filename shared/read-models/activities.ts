@@ -9,7 +9,7 @@ import {
     NOOP_APM,
     type ApmPort,
     type SpanAttributes,
-} from "../observability/apm.js";
+} from "../observability/apm-contract.js";
 import {
     ACTIVITY_FEED_FILTER_KIND,
     ACTIVITY_KIND,

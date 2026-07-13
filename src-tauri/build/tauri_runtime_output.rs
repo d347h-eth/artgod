@@ -11,15 +11,7 @@ pub(crate) fn reconcile_tauri_runtime_output(
     bundled_runtime_relative_path: &Path,
 ) -> Result<(), String> {
     validate_relative_path(bundled_runtime_relative_path)?;
-    let profile_output_dir = cargo_output_dir
-        .ancestors()
-        .nth(PROFILE_OUTPUT_ANCESTOR_DEPTH)
-        .ok_or_else(|| {
-            format!(
-                "Cargo OUT_DIR does not contain a profile output directory: {}",
-                cargo_output_dir.display()
-            )
-        })?;
+    let profile_output_dir = profile_output_dir(cargo_output_dir)?;
     let copied_runtime_dir = profile_output_dir.join(bundled_runtime_relative_path);
     let metadata = match fs::symlink_metadata(&copied_runtime_dir) {
         Ok(metadata) => metadata,
@@ -46,6 +38,114 @@ pub(crate) fn reconcile_tauri_runtime_output(
             copied_runtime_dir.display()
         )
     })
+}
+
+/// Copies the staged runtime beside a no-bundle executable after Tauri's build step.
+pub(crate) fn copy_staged_runtime_to_tauri_output(
+    cargo_output_dir: &Path,
+    staged_runtime_dir: &Path,
+    bundled_runtime_relative_path: &Path,
+) -> Result<(), String> {
+    validate_relative_path(bundled_runtime_relative_path)?;
+    validate_runtime_source_tree(staged_runtime_dir)?;
+
+    // Replace the complete copied runtime so obsolete generated files cannot survive.
+    reconcile_tauri_runtime_output(cargo_output_dir, bundled_runtime_relative_path)?;
+    let destination = profile_output_dir(cargo_output_dir)?.join(bundled_runtime_relative_path);
+    copy_runtime_source_tree(staged_runtime_dir, &destination)
+}
+
+pub(crate) fn profile_output_dir(cargo_output_dir: &Path) -> Result<&Path, String> {
+    cargo_output_dir
+        .ancestors()
+        .nth(PROFILE_OUTPUT_ANCESTOR_DEPTH)
+        .ok_or_else(|| {
+            format!(
+                "Cargo OUT_DIR does not contain a profile output directory: {}",
+                cargo_output_dir.display()
+            )
+        })
+}
+
+fn validate_runtime_source_tree(path: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        format!(
+            "Failed to inspect staged desktop runtime {}: {error}",
+            path.display()
+        )
+    })?;
+    if metadata.file_type().is_symlink() {
+        return Err(format!(
+            "Staged desktop runtime must not contain symbolic links: {}",
+            path.display()
+        ));
+    }
+    if metadata.is_file() {
+        return Ok(());
+    }
+    if !metadata.is_dir() {
+        return Err(format!(
+            "Staged desktop runtime contains an unsupported file type: {}",
+            path.display()
+        ));
+    }
+
+    for entry in fs::read_dir(path).map_err(|error| {
+        format!(
+            "Failed to read staged desktop runtime directory {}: {error}",
+            path.display()
+        )
+    })? {
+        let entry = entry.map_err(|error| {
+            format!(
+                "Failed to read staged desktop runtime entry below {}: {error}",
+                path.display()
+            )
+        })?;
+        validate_runtime_source_tree(&entry.path())?;
+    }
+    Ok(())
+}
+
+fn copy_runtime_source_tree(source: &Path, destination: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(source).map_err(|error| {
+        format!(
+            "Failed to inspect staged desktop runtime {}: {error}",
+            source.display()
+        )
+    })?;
+    if metadata.is_file() {
+        fs::copy(source, destination).map_err(|error| {
+            format!(
+                "Failed to copy staged desktop runtime file {} to {}: {error}",
+                source.display(),
+                destination.display()
+            )
+        })?;
+        return Ok(());
+    }
+
+    fs::create_dir_all(destination).map_err(|error| {
+        format!(
+            "Failed to create copied desktop runtime directory {}: {error}",
+            destination.display()
+        )
+    })?;
+    for entry in fs::read_dir(source).map_err(|error| {
+        format!(
+            "Failed to read staged desktop runtime directory {}: {error}",
+            source.display()
+        )
+    })? {
+        let entry = entry.map_err(|error| {
+            format!(
+                "Failed to read staged desktop runtime entry below {}: {error}",
+                source.display()
+            )
+        })?;
+        copy_runtime_source_tree(&entry.path(), &destination.join(entry.file_name()))?;
+    }
+    Ok(())
 }
 
 #[cfg(not(windows))]
@@ -131,6 +231,93 @@ mod tests {
         reconcile_tauri_runtime_output(&out_dir, runtime_relative).expect("reconcile output");
 
         assert!(!copied_runtime.exists());
+    }
+
+    #[test]
+    fn copies_the_exact_staged_runtime_without_removing_sibling_outputs() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let out_dir = synthetic_out_dir(temp.path(), "target/release");
+        let runtime_relative = Path::new(BUNDLED_RUNTIME_RELATIVE_PATH);
+        let staged_runtime = temp.path().join("staged-runtime");
+        let profile_output = out_dir.ancestors().nth(3).expect("profile output");
+        let copied_runtime = profile_output.join(runtime_relative);
+        let sibling_resource = profile_output.join("resources/keep.txt");
+        write_file(
+            &staged_runtime.join("trading/dist-desktop/index.mjs"),
+            b"current",
+        );
+        write_file(&staged_runtime.join("node/node"), b"node");
+        write_file(&copied_runtime.join("trading/stale.mjs"), b"stale");
+        write_file(&sibling_resource, b"keep");
+
+        copy_staged_runtime_to_tauri_output(&out_dir, &staged_runtime, runtime_relative)
+            .expect("copy staged runtime");
+
+        assert_eq!(
+            fs::read(copied_runtime.join("trading/dist-desktop/index.mjs"))
+                .expect("read copied artifact"),
+            b"current"
+        );
+        assert_eq!(
+            fs::read(copied_runtime.join("node/node")).expect("read copied node"),
+            b"node"
+        );
+        assert!(!copied_runtime.join("trading/stale.mjs").exists());
+        assert!(sibling_resource.is_file());
+    }
+
+    #[test]
+    fn missing_staged_runtime_fails_before_reconciling_existing_output() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let out_dir = synthetic_out_dir(temp.path(), "target/release");
+        let runtime_relative = Path::new(BUNDLED_RUNTIME_RELATIVE_PATH);
+        let copied_runtime = out_dir
+            .ancestors()
+            .nth(3)
+            .expect("profile output")
+            .join(runtime_relative);
+        let existing_file = copied_runtime.join("trading/existing.mjs");
+        write_file(&existing_file, b"existing");
+
+        let error = copy_staged_runtime_to_tauri_output(
+            &out_dir,
+            &temp.path().join("missing-runtime"),
+            runtime_relative,
+        )
+        .expect_err("missing staged runtime must fail");
+
+        assert!(error.contains("Failed to inspect staged desktop runtime"));
+        assert!(existing_file.is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staged_runtime_symlinks_fail_before_reconciling_existing_output() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let out_dir = synthetic_out_dir(temp.path(), "target/release");
+        let runtime_relative = Path::new(BUNDLED_RUNTIME_RELATIVE_PATH);
+        let staged_runtime = temp.path().join("staged-runtime");
+        let copied_runtime = out_dir
+            .ancestors()
+            .nth(3)
+            .expect("profile output")
+            .join(runtime_relative);
+        let existing_file = copied_runtime.join("trading/existing.mjs");
+        let outside_file = temp.path().join("outside.mjs");
+        write_file(&staged_runtime.join("trading/index.mjs"), b"current");
+        write_file(&existing_file, b"existing");
+        write_file(&outside_file, b"outside");
+        symlink(&outside_file, staged_runtime.join("trading/dependency.mjs"))
+            .expect("create staged runtime symlink");
+
+        let error =
+            copy_staged_runtime_to_tauri_output(&out_dir, &staged_runtime, runtime_relative)
+                .expect_err("staged runtime symlink must fail");
+
+        assert!(error.contains("must not contain symbolic links"));
+        assert!(existing_file.is_file());
     }
 
     #[test]

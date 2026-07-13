@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 
 use crate::resource_contract::{
     BUNDLED_RUNTIME_RELATIVE_PATH, GENERATED_WALLET_RECIPIENT_INTEGRITY_FILE_NAME,
+    WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_FILE_NAME, WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_VERSION,
     WALLET_RECIPIENT_PROTECTED_ROOTS,
 };
 
@@ -23,6 +24,7 @@ struct IntegrityEntry {
 /// Embeds deterministic hashes of every file that can execute in a release bot process.
 pub(crate) fn generate_wallet_recipient_integrity_manifest(
     output_dir: &Path,
+    profile_output_dir: &Path,
 ) -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(env::var(CARGO_MANIFEST_DIR_ENV_KEY)?);
     let runtime_dir = manifest_dir.join(BUNDLED_RUNTIME_RELATIVE_PATH);
@@ -39,6 +41,33 @@ pub(crate) fn generate_wallet_recipient_integrity_manifest(
     let generated = render_generated_manifest(&entries);
     let mut output = File::create(output_path)?;
     output.write_all(generated.as_bytes())?;
+    write_integrity_snapshot(profile_output_dir, &entries)?;
+    Ok(())
+}
+
+fn write_integrity_snapshot(
+    profile_output_dir: &Path,
+    entries: &[IntegrityEntry],
+) -> Result<(), Box<dyn Error>> {
+    let files = entries
+        .iter()
+        .map(|entry| {
+            serde_json::json!({
+                "relativePath": entry.relative_path,
+                "sha256": entry.sha256,
+            })
+        })
+        .collect::<Vec<_>>();
+    let snapshot = serde_json::json!({
+        "version": WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_VERSION,
+        "protectedRoots": WALLET_RECIPIENT_PROTECTED_ROOTS,
+        "files": files,
+    });
+    let mut source = serde_json::to_string_pretty(&snapshot)?;
+    source.push('\n');
+    let snapshot_path = profile_output_dir.join(WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_FILE_NAME);
+    let mut output = File::create(snapshot_path)?;
+    output.write_all(source.as_bytes())?;
     Ok(())
 }
 

@@ -2,7 +2,7 @@ import { db } from "../database/db.js";
 import type {
     ApmPort,
     SpanAttributes,
-} from "../observability/apm.js";
+} from "../observability/apm-contract.js";
 import type { TraitFilter, TraitRangeFilter } from "../types/browse.js";
 import { ReadModelBadRequestError } from "./errors.js";
 import {

@@ -160,6 +160,7 @@ help = "How often the backend refreshes cached public blockspace data."
 [[settings]]
 key = "BACKEND_METRICS_ENABLED"
 group = "backend-observability"
+targets = ["local", "deploy"]
 label = "backend metrics enabled"
 default = "false"
 input = "checkbox"
@@ -168,6 +169,7 @@ help = "Enables the backend Prometheus metrics endpoint."
 [[settings]]
 key = "BACKEND_METRICS_HOST"
 group = "backend-observability"
+targets = ["local", "deploy"]
 label = "backend metrics host"
 default = "0.0.0.0"
 help = "Network interface for the backend metrics endpoint."
@@ -175,6 +177,7 @@ help = "Network interface for the backend metrics endpoint."
 [[settings]]
 key = "BACKEND_METRICS_PORT"
 group = "backend-observability"
+targets = ["local", "deploy"]
 label = "backend metrics port"
 default = "42740"
 help = "Port for the backend Prometheus metrics endpoint."
@@ -182,6 +185,7 @@ help = "Port for the backend Prometheus metrics endpoint."
 [[settings]]
 key = "BACKEND_APM_ENABLED"
 group = "backend-observability"
+targets = ["local", "deploy"]
 label = "backend apm enabled"
 default = "false"
 input = "checkbox"
@@ -190,6 +194,7 @@ help = "Enables backend tracing and profiling exporters."
 [[settings]]
 key = "BACKEND_APM_SERVICE_NAMESPACE"
 group = "backend-observability"
+targets = ["local", "deploy"]
 label = "backend apm service namespace"
 default = "artgod.backend"
 help = "Service namespace used to group backend APM signals."
@@ -197,6 +202,7 @@ help = "Service namespace used to group backend APM signals."
 [[settings]]
 key = "BACKEND_APM_OTLP_HTTP_URL"
 group = "backend-observability"
+targets = ["local", "deploy"]
 label = "backend apm otlp http url"
 default = ""
 validation = "url"
@@ -205,6 +211,7 @@ help = "Optional backend-specific OTLP HTTP trace endpoint; blank uses the share
 [[settings]]
 key = "BACKEND_APM_PYROSCOPE_URL"
 group = "backend-observability"
+targets = ["local", "deploy"]
 label = "backend apm pyroscope url"
 default = ""
 validation = "url"
@@ -213,6 +220,7 @@ help = "Optional backend-specific Pyroscope profiling endpoint; blank uses the s
 [[settings]]
 key = "BACKEND_APM_SPAN_PROFILES_ENABLED"
 group = "backend-observability"
+targets = ["local", "deploy"]
 label = "backend apm span profiles enabled"
 default = "true"
 input = "checkbox"
@@ -221,6 +229,7 @@ help = "Links backend span context to profiling samples when tracing and profili
 [[settings]]
 key = "BACKEND_APM_TRACES_ENABLED"
 group = "backend-observability"
+targets = ["local", "deploy"]
 label = "backend apm traces enabled"
 default = "true"
 input = "checkbox"
@@ -229,6 +238,7 @@ help = "Exports backend traces to the configured OTLP endpoint when APM is enabl
 [[settings]]
 key = "BACKEND_APM_PROFILES_ENABLED"
 group = "backend-observability"
+targets = ["local", "deploy"]
 label = "backend apm profiles enabled"
 default = "true"
 input = "checkbox"
@@ -629,22 +639,25 @@ help = "Prefix added to NATS streams and durable queue names for this ArtGod ins
 [[settings]]
 key = "OBSERVABILITY_OTLP_HTTP_URL"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "observability otlp http url"
-defaults = { local = "http://127.0.0.1:42732/v1/traces", deploy = "http://tempo:42732/v1/traces", desktop = "http://127.0.0.1:42732/v1/traces" }
+defaults = { local = "http://127.0.0.1:42732/v1/traces", deploy = "http://tempo:42732/v1/traces" }
 validation = "url"
 help = "Shared OTLP HTTP trace endpoint used when workspace-specific trace endpoints are blank."
 
 [[settings]]
 key = "OBSERVABILITY_PYROSCOPE_URL"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "observability pyroscope url"
-defaults = { local = "http://127.0.0.1:42733", deploy = "http://pyroscope:42733", desktop = "http://127.0.0.1:42733" }
+defaults = { local = "http://127.0.0.1:42733", deploy = "http://pyroscope:42733" }
 validation = "url"
 help = "Shared Pyroscope profiling endpoint used when workspace-specific profile endpoints are blank."
 
 [[settings]]
 key = "INDEXER_APM_ENABLED"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer apm enabled"
 default = "false"
 input = "checkbox"
@@ -653,6 +666,7 @@ help = "Enables tracing and profiling exporters for indexer and OpenSea workers.
 [[settings]]
 key = "INDEXER_APM_SERVICE_NAMESPACE"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer apm service namespace"
 default = "artgod.indexer"
 help = "Service namespace used to group indexer APM signals."
@@ -660,6 +674,7 @@ help = "Service namespace used to group indexer APM signals."
 [[settings]]
 key = "INDEXER_APM_OTLP_HTTP_URL"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer apm otlp http url"
 default = ""
 validation = "url"
@@ -668,6 +683,7 @@ help = "Optional indexer-specific OTLP HTTP trace endpoint; blank uses the share
 [[settings]]
 key = "INDEXER_APM_PYROSCOPE_URL"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer apm pyroscope url"
 default = ""
 validation = "url"
@@ -676,6 +692,7 @@ help = "Optional indexer-specific Pyroscope profiling endpoint; blank uses the s
 [[settings]]
 key = "INDEXER_APM_SPAN_PROFILES_ENABLED"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer apm span profiles enabled"
 default = "true"
 input = "checkbox"
@@ -684,6 +701,7 @@ help = "Links indexer span context to profiling samples when tracing and profili
 [[settings]]
 key = "INDEXER_APM_TRACES_ENABLED"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer apm traces enabled"
 default = "true"
 input = "checkbox"
@@ -692,6 +710,7 @@ help = "Exports indexer traces to the configured OTLP endpoint when APM is enabl
 [[settings]]
 key = "INDEXER_APM_PROFILES_ENABLED"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer apm profiles enabled"
 default = "true"
 input = "checkbox"
@@ -700,6 +719,7 @@ help = "Exports indexer CPU profiles to the configured Pyroscope endpoint when A
 [[settings]]
 key = "INDEXER_METRICS_ENABLED"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer metrics enabled"
 default = "false"
 input = "checkbox"
@@ -708,6 +728,7 @@ help = "Enables Prometheus metrics endpoints for indexer and OpenSea workers."
 [[settings]]
 key = "INDEXER_METRICS_HOST"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer metrics host"
 default = "0.0.0.0"
 help = "Network interface for indexer metrics endpoints."
@@ -715,6 +736,7 @@ help = "Network interface for indexer metrics endpoints."
 [[settings]]
 key = "INDEXER_METRICS_PORT_SCHEDULER_WORKER"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer metrics port scheduler worker"
 default = "42741"
 help = "Prometheus metrics port for the scheduler worker."
@@ -722,6 +744,7 @@ help = "Prometheus metrics port for the scheduler worker."
 [[settings]]
 key = "INDEXER_METRICS_PORT_SYNC_WORKER"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer metrics port sync worker"
 default = "42742"
 help = "Prometheus metrics port for the sync worker."
@@ -729,6 +752,7 @@ help = "Prometheus metrics port for the sync worker."
 [[settings]]
 key = "INDEXER_METRICS_PORT_REORG_WORKER"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer metrics port reorg worker"
 default = "42743"
 help = "Prometheus metrics port for the reorg worker."
@@ -736,6 +760,7 @@ help = "Prometheus metrics port for the reorg worker."
 [[settings]]
 key = "INDEXER_METRICS_PORT_DOMAIN_WORKER"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer metrics port domain worker"
 default = "42744"
 help = "Prometheus metrics port for the domain worker."
@@ -743,6 +768,7 @@ help = "Prometheus metrics port for the domain worker."
 [[settings]]
 key = "INDEXER_METRICS_PORT_OFFCHAIN_INGEST_WORKER"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer metrics port offchain ingest worker"
 default = "42745"
 help = "Prometheus metrics port for the offchain ingest worker."
@@ -750,6 +776,7 @@ help = "Prometheus metrics port for the offchain ingest worker."
 [[settings]]
 key = "INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer metrics port opensea stream worker"
 default = "42746"
 help = "Prometheus metrics port for the OpenSea stream worker."
@@ -757,6 +784,7 @@ help = "Prometheus metrics port for the OpenSea stream worker."
 [[settings]]
 key = "INDEXER_METRICS_PORT_BOOTSTRAP_WORKER"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer metrics port bootstrap worker"
 default = "42747"
 help = "Prometheus metrics port for the collection bootstrap worker."
@@ -764,6 +792,7 @@ help = "Prometheus metrics port for the collection bootstrap worker."
 [[settings]]
 key = "INDEXER_METRICS_PORT_DEAD_LETTER_WORKER"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer metrics port dead letter worker"
 default = "42748"
 help = "Prometheus metrics port for the dead-letter worker."
@@ -771,6 +800,7 @@ help = "Prometheus metrics port for the dead-letter worker."
 [[settings]]
 key = "INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer metrics port opensea bootstrap worker"
 default = "42749"
 help = "Prometheus metrics port for the OpenSea bootstrap worker."
@@ -778,6 +808,7 @@ help = "Prometheus metrics port for the OpenSea bootstrap worker."
 [[settings]]
 key = "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer metrics port opensea reconcile worker"
 default = "42750"
 help = "Prometheus metrics port for the OpenSea reconcile worker."
@@ -785,6 +816,7 @@ help = "Prometheus metrics port for the OpenSea reconcile worker."
 [[settings]]
 key = "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer metrics port opensea reconcile scheduler worker"
 default = "42751"
 help = "Prometheus metrics port for the OpenSea reconcile scheduler worker."
@@ -792,6 +824,7 @@ help = "Prometheus metrics port for the OpenSea reconcile scheduler worker."
 [[settings]]
 key = "INDEXER_METRICS_PORT_COLLECTION_EXTENSION_WORKER"
 group = "indexer-observability"
+targets = ["local", "deploy"]
 label = "indexer metrics port collection extension worker"
 default = "42752"
 help = "Prometheus metrics port for the collection-extension worker."
@@ -1107,6 +1140,7 @@ help = "OpenSea API key for bidding collection-offer snapshots; use a separate k
 [[settings]]
 key = "TRADING_METRICS_ENABLED"
 group = "trading-observability"
+targets = ["local", "deploy"]
 label = "trading metrics enabled"
 default = "false"
 input = "checkbox"
@@ -1115,6 +1149,7 @@ help = "Enables the bidding bot Prometheus metrics endpoint."
 [[settings]]
 key = "TRADING_METRICS_HOST"
 group = "trading-observability"
+targets = ["local", "deploy"]
 label = "trading metrics host"
 default = "0.0.0.0"
 help = "Network interface for trading metrics endpoints."
@@ -1122,6 +1157,7 @@ help = "Network interface for trading metrics endpoints."
 [[settings]]
 key = "TRADING_METRICS_PORT_BIDDING_BOT"
 group = "trading-observability"
+targets = ["local", "deploy"]
 label = "trading metrics port bidding bot"
 default = "42753"
 validation = "positive_integer"
