@@ -77,7 +77,7 @@ const tauriRuntimeOutputReconciliationStepName =
     "Test Tauri runtime output reconciliation";
 const desktopAdminManifestTestScriptName = "test:desktop:admin-manifest";
 const desktopAdminManifestTestCommand =
-    "cargo test --manifest-path src-tauri/Cargo.toml --locked runtime::app_config_manifest::tests::observability_settings_are_not_admin_managed --lib -- --exact";
+    "node ./scripts/build/test-desktop-admin-manifest.mjs";
 const desktopAdminManifestStepName = "Test desktop Admin manifest";
 const desktopAdminManifestWorkflowCommand = "yarn test:desktop:admin-manifest";
 
@@ -351,6 +351,11 @@ test("gates desktop Admin observability removal in Tauri jobs", async () => {
     );
     assertStepRunsCommand(buildCheckStep, desktopAdminManifestWorkflowCommand);
     assertStepIsRequired(buildCheckStep);
+    assertStepPrecedes(
+        buildCheckJob,
+        desktopAdminManifestStepName,
+        sensitiveProcessBuildStepName,
+    );
 
     const releaseWorkflow = await readFile(
         path.join(workflowsDirectory, "tauri-release.yml"),
@@ -367,6 +372,11 @@ test("gates desktop Admin observability removal in Tauri jobs", async () => {
     );
     assert.match(releaseBuildStep, /^ {14}if: runner\.os == 'Linux'$/m);
     assert.doesNotMatch(releaseBuildStep, /^ {14}continue-on-error:/m);
+    assertStepPrecedes(
+        releaseBuildJob,
+        desktopAdminManifestStepName,
+        sensitiveProcessReleaseStepName,
+    );
 });
 
 test("verifies staged and final runtime bytes after release packaging", async () => {
