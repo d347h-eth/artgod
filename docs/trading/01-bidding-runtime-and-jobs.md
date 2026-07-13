@@ -321,8 +321,10 @@ Backend source selection:
 - use `bot_snapshot` when the collection has enabled bidding jobs, the bidding bot heartbeat is live, and projection metadata is fresh
 - otherwise use `orders`
 - standard/admin reads may overlay own declared jobs as `own_job_intent` rows before the bot has landed a matching market offer
+- own declared-job overlays do not require a known runtime maker address; the declared local job is already sufficient evidence that the intent belongs to the user
 - public single-collection reads stay market-only and do not expose local own-job context
 - private Userland reads resolve current collection authorization only from rows bound to the same fresh runtime session; public reads return no local authorization detail
+- `ownMakerAddress` reports only the known passive market identity used to recognize and filter observed marketplace rows; it is not the owner identity of a local declared job and does not gate own-job visibility
 - own market-position badges (`winning`, `draw`, `losing`) are attached only from the bot-persisted runtime decision for the active order id
 - prior-process active-order evidence can keep an own row visible, but strategy badges stay hidden and the row is marked `verifying` until the running bot verifies the order in the current process
 - runtime-backed own rows prefer the bot-persisted active order timing even when the visible row is backed by a projected or indexed market order
@@ -349,8 +351,10 @@ a non-authorized collection can still receive the bidding bot's market feed.
 
 Bid-book row materialization:
 
-- `market_bid`: a real row from OpenSea order data, either the bot snapshot projection or canonical orders
-- `own_job_intent`: a local declared job or own active-order lifecycle row rendered from backend-owned runtime/cancellation facts
+- `market_bid`: a real row from OpenSea order data, either the bot snapshot projection or canonical orders; it always carries the observed marketplace maker address
+- `own_job_intent`: a local declared job or own active-order lifecycle row rendered from backend-owned runtime/cancellation facts; it is intrinsically local, carries no marketplace maker address, and remains visible before the bidding runtime has published an identity
+- maker-address filters match only rows with that observed address, so identityless `own_job_intent` rows are excluded from address-filtered results while remaining visible in the unfiltered private bid book
+- the frontend renders an identityless own intent as plain `You`; maker links, address titles, and maker highlighting appear only after the row is an observed market bid with an address
 - queued, waiting, authorization-required, or paused own-intent rows use a floor-ceiling price range because no single market order price exists yet
 - enabled intent is `waiting for bidding bot` when no fresh process exists, `authorization required` when the fresh process omits the collection or holds stale collection identity, and `authorization unavailable` when its session projection cannot be resolved
 - replacing, canceling, cancel failed, and cancelled own-intent rows use the real active order id and exact current price

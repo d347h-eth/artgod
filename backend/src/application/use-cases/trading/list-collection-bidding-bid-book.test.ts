@@ -25,6 +25,7 @@ import {
     type BiddingBidBookRepositoryPort,
     type PersistedBiddingBidBook,
     type PersistedBiddingBidBookRow,
+    type PersistedBiddingMarketBidRow,
 } from "./bidding-bid-book.js";
 import { BIDDING_SPAN_ATTRIBUTE } from "./bidding-observability.js";
 import { ListCollectionBiddingBidBookUseCase } from "./list-collection-bidding-bid-book.js";
@@ -381,7 +382,7 @@ function bidRow(
     orderId: string,
     priceWei: string,
     tokenId: string | null = orderId === "token-offer" ? "7" : null,
-): PersistedBiddingBidBookRow {
+): PersistedBiddingMarketBidRow {
     return {
         orderId,
         source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
@@ -413,7 +414,7 @@ function traitBidRow(
     orderId: string,
     priceWei: string,
     isOwn = false,
-): PersistedBiddingBidBookRow {
+): PersistedBiddingMarketBidRow {
     return {
         ...bidRow(orderId, priceWei, null),
         scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,

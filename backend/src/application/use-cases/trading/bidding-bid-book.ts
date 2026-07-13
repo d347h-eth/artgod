@@ -35,17 +35,14 @@ export type {
     CollectionBiddingTraitFilterJoinMode,
 } from "@artgod/shared/types";
 
-export type PersistedBiddingBidBookRow = {
+type PersistedBiddingBidBookRowBase = {
     orderId: string;
     source: TradingBiddingBidBookSource;
-    materialization: BiddingBidBookRowMaterialization;
     scopeKind: TradingBiddingBidScopeKind;
     scopeLabel: string;
     tokenId: string | null;
     scopeTraits: TradingTraitCriterion[];
     encodedTokenIds: string | null;
-    maker: string;
-    isOwn: boolean;
     price: BiddingBidBookRowPrice;
     bidLimits: BiddingBidBookBidLimits | null;
     quantity: string;
@@ -59,19 +56,45 @@ export type PersistedBiddingBidBookRow = {
     ownStatus: BiddingBidBookOwnStatus | null;
 };
 
+// Identifies a row backed by an observed marketplace bid.
+export type BiddingMarketBidMaterialization = {
+    kind: typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid;
+    jobId: null;
+    status: null;
+    phase: null;
+};
+
+// Identifies a row backed only by the user's declared local job.
+export type BiddingOwnJobIntentMaterialization = {
+    kind: typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent;
+    jobId: string;
+    status: TradingJobStatus;
+    phase: TradingBiddingBidBookOwnJobPhase;
+};
+
+// Distinguishes observed marketplace bids from declared local intent.
 export type BiddingBidBookRowMaterialization =
-    | {
-          kind: typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid;
-          jobId: null;
-          status: null;
-          phase: null;
-      }
-    | {
-          kind: typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent;
-          jobId: string;
-          status: TradingJobStatus;
-          phase: TradingBiddingBidBookOwnJobPhase;
-      };
+    | BiddingMarketBidMaterialization
+    | BiddingOwnJobIntentMaterialization;
+
+// Market rows always carry the marketplace maker used for address filtering.
+export type PersistedBiddingMarketBidRow = PersistedBiddingBidBookRowBase & {
+    materialization: BiddingMarketBidMaterialization;
+    maker: string;
+    isOwn: boolean;
+};
+
+// Local job intent is owned by the user before any marketplace maker exists.
+export type PersistedBiddingOwnJobIntentRow = PersistedBiddingBidBookRowBase & {
+    materialization: BiddingOwnJobIntentMaterialization;
+    maker: null;
+    isOwn: true;
+};
+
+// Preserves the maker invariant across persisted bid-book row variants.
+export type PersistedBiddingBidBookRow =
+    | PersistedBiddingMarketBidRow
+    | PersistedBiddingOwnJobIntentRow;
 
 export type BiddingBidBookRowPrice =
     | {
@@ -149,20 +172,14 @@ export interface BiddingBidBookRepositoryPort {
     }): PersistedBiddingBidBook;
 }
 
-export type BiddingBidBookRowView = {
+type BiddingBidBookRowViewBase = {
     orderId: string;
     source: TradingBiddingBidBookSource;
-    materialization: BiddingBidBookRowMaterialization;
     scope: {
         kind: TradingBiddingBidScopeKind;
         label: string;
         tokenId: string | null;
         traits: TradingTraitCriterion[];
-    };
-    maker: {
-        address: string;
-        label: string;
-        isOwn: boolean;
     };
     price: BiddingBidBookRowPrice;
     bidLimits: BiddingBidBookBidLimits | null;
@@ -176,6 +193,31 @@ export type BiddingBidBookRowView = {
     seenAt: string | null;
     ownStatus: BiddingBidBookOwnStatus | null;
 };
+
+// Presents an observed market bid with its marketplace maker identity.
+export type BiddingMarketBidBookRowView = BiddingBidBookRowViewBase & {
+    materialization: BiddingMarketBidMaterialization;
+    maker: {
+        address: string;
+        label: string;
+        isOwn: boolean;
+    };
+};
+
+// Presents local declared intent without claiming a marketplace identity.
+export type BiddingOwnJobIntentRowView = BiddingBidBookRowViewBase & {
+    materialization: BiddingOwnJobIntentMaterialization;
+    maker: {
+        address: null;
+        label: string;
+        isOwn: true;
+    };
+};
+
+// Preserves maker identity knowledge across API bid-book row variants.
+export type BiddingBidBookRowView =
+    | BiddingMarketBidBookRowView
+    | BiddingOwnJobIntentRowView;
 
 export type BiddingBidBookView = {
     state: PersistedBiddingBidBookState;
@@ -253,20 +295,20 @@ export function mapPersistedBidBookToView(
 export function mapPersistedBidRowsToView(
     bids: PersistedBiddingBidBookRow[],
 ): BiddingBidBookRowView[] {
-    return bids.map((bid) => ({
+    return bids.map(mapPersistedBidRowToView);
+}
+
+function mapPersistedBidRowToView(
+    bid: PersistedBiddingBidBookRow,
+): BiddingBidBookRowView {
+    const row = {
         orderId: bid.orderId,
         source: bid.source,
-        materialization: bid.materialization,
         scope: {
             kind: bid.scopeKind,
             label: bid.scopeLabel,
             tokenId: bid.tokenId,
             traits: bid.scopeTraits,
-        },
-        maker: {
-            address: bid.maker,
-            label: bid.isOwn ? "You" : bid.maker,
-            isOwn: bid.isOwn,
         },
         price: bid.price,
         bidLimits: bid.bidLimits,
@@ -279,7 +321,37 @@ export function mapPersistedBidRowsToView(
         snapshotRefreshedAtMs: bid.snapshotRefreshedAtMs,
         seenAt: bid.seenAt,
         ownStatus: bid.ownStatus,
-    }));
+    };
+    if (isPersistedOwnJobIntentRow(bid)) {
+        return {
+            ...row,
+            materialization: bid.materialization,
+            maker: {
+                address: null,
+                label: "You",
+                isOwn: true,
+            },
+        };
+    }
+    return {
+        ...row,
+        materialization: bid.materialization,
+        maker: {
+            address: bid.maker,
+            label: bid.isOwn ? "You" : bid.maker,
+            isOwn: bid.isOwn,
+        },
+    };
+}
+
+// Narrows a bid-book row to local declared intent without a marketplace maker.
+export function isPersistedOwnJobIntentRow(
+    row: PersistedBiddingBidBookRow,
+): row is PersistedBiddingOwnJobIntentRow {
+    return (
+        row.materialization.kind ===
+        TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent
+    );
 }
 
 // Builds the explicit price object for rows with one marketplace/runtime price.
@@ -345,7 +417,7 @@ export function persistedBidBookRowEffectiveWei(
 }
 
 // Marks a bid-book row as a real market/order-book row.
-export function marketBidMaterialization(): BiddingBidBookRowMaterialization {
+export function marketBidMaterialization(): BiddingMarketBidMaterialization {
     return {
         kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid,
         jobId: null,

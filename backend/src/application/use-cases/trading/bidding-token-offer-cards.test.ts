@@ -11,6 +11,7 @@ import {
     marketBidMaterialization,
     type BiddingBidBookRowPrice,
     type PersistedBiddingBidBookRow,
+    type PersistedBiddingMarketBidRow,
 } from "./bidding-bid-book.js";
 import {
     buildPersistedTokenOfferCards,
@@ -170,11 +171,11 @@ describe("bidding token offer cards", () => {
 });
 
 function bid(
-    overrides: Partial<PersistedBiddingBidBookRow> & {
+    overrides: Partial<PersistedBiddingMarketBidRow> & {
         wei?: string;
         price?: BiddingBidBookRowPrice;
     },
-): PersistedBiddingBidBookRow {
+): PersistedBiddingMarketBidRow {
     const { wei, ...rowOverrides } = overrides;
     return {
         orderId: "order-1",

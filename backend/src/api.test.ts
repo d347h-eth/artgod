@@ -86,7 +86,9 @@ import {
     ACTIVITY_SOURCE_KIND,
     COLLECTION_STANDARD,
     TRADING_BIDDING_AUTHORIZATION_STATUS,
+    TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
     TRADING_BIDDING_BID_BOOK_PRICE_KIND,
+    TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_SCOPE_KIND,
     TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
@@ -2143,6 +2145,49 @@ describe("backend api routes", () => {
         ).toEqual(["own-signal-bid"]);
         expect(makerFiltered.payload.bidBook.bids[0]?.ownStatus?.position).toBe(
             TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+        );
+    });
+
+    it("renders the first created job intent before the bidding bot starts", async () => {
+        clearTradingJobFixtures();
+        const csrf = await issueAdminCsrf();
+
+        const created = await resolve(
+            "PUT",
+            "/api/ethereum/milady/1/bidding/job",
+            {
+                status: TRADING_JOB_STATUS.Enabled,
+                floorEth: "0.1",
+                ceilingEth: "0.2",
+                deltaEth: "0.01",
+            },
+            csrf,
+        );
+        expect(created.statusCode).toBe(200);
+
+        const response = await resolve(
+            "GET",
+            "/api/ethereum/milady/1/bidding/bids",
+        );
+        expect(response.statusCode).toBe(200);
+        expect(response.payload.bidBook.ownMakerAddress).toBeNull();
+        expect(response.payload.bidBook.bids).toContainEqual(
+            expect.objectContaining({
+                materialization: {
+                    kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+                    jobId: created.payload.job.jobId,
+                    status: TRADING_JOB_STATUS.Enabled,
+                    phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.WaitingForBot,
+                },
+                maker: {
+                    address: null,
+                    label: "You",
+                    isOwn: true,
+                },
+                placedAt: null,
+                validUntil: null,
+                ownStatus: null,
+            }),
         );
     });
 
