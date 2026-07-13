@@ -4,9 +4,11 @@ import type {
     TokenBrowserStatus,
     TraitFilter,
     TraitRangeFilter,
+    CollectionBiddingBidBookOwnershipFilter,
     CollectionBiddingTraitFilterJoinMode,
 } from "@artgod/shared/types";
 import {
+    COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TOKEN_BROWSER_STATUS,
     TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
@@ -128,6 +130,9 @@ export function parseBatchTokenBiddingJobSelection(
                 record.makerAddress,
                 "selection.makerAddress",
             ),
+            ownershipFilter: parseOptionalOwnershipFilter(
+                record.ownershipFilter,
+            ),
         };
     }
     throw new ReadModelBadRequestError("selection.type is invalid");
@@ -154,6 +159,18 @@ function parseTraitJoinMode(
         return value;
     }
     throw new ReadModelBadRequestError("selection.traitJoinMode is invalid");
+}
+
+function parseOptionalOwnershipFilter(
+    value: unknown,
+): CollectionBiddingBidBookOwnershipFilter | null {
+    if (value === undefined || value === null) {
+        return null;
+    }
+    if (value === COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own) {
+        return value;
+    }
+    throw new ReadModelBadRequestError("selection.ownershipFilter is invalid");
 }
 
 function parseTraits(value: unknown): TraitFilter[] {

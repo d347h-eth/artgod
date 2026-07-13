@@ -19,6 +19,7 @@ import type {
     TradingJobStatus,
     TradingTraitCriterion,
     CollectionBiddingBidScopeFilter,
+    CollectionBiddingBidBookOwnershipFilter,
     CollectionBiddingTraitFilterJoinMode,
 } from "@artgod/shared/types";
 import {
@@ -162,6 +163,7 @@ export interface BiddingBidBookRepositoryPort {
         selectedTraits: TraitFilter[];
         selectedTraitRanges: TraitRangeFilter[];
         makerAddress?: string | null;
+        ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
     }): PersistedBiddingBidBook;
     listTokenBidBook(params: {
         chainId: number;

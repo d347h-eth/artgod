@@ -354,6 +354,7 @@ Bid-book row materialization:
 - `market_bid`: a real row from OpenSea order data, either the bot snapshot projection or canonical orders; it always carries the observed marketplace maker address
 - `own_job_intent`: a local declared job or own active-order lifecycle row rendered from backend-owned runtime/cancellation facts; it is intrinsically local, carries no marketplace maker address, and remains visible before the bidding runtime has published an identity
 - maker-address filters match only rows with that observed address, so identityless `own_job_intent` rows are excluded from address-filtered results while remaining visible in the unfiltered private bid book
+- private `ownership=own` reads include both locally owned market bids and addressless `own_job_intent` rows; the ownership and maker-address filters are mutually exclusive
 - the frontend renders an identityless own intent as plain `You`; maker links, address titles, and maker highlighting appear only after the row is an observed market bid with an address
 - queued, waiting, authorization-required, or paused own-intent rows use a floor-ceiling price range because no single market order price exists yet
 - enabled intent is `waiting for bidding bot` when no fresh process exists, `authorization required` when the fresh process omits the collection or holds stale collection identity, and `authorization unavailable` when its session projection cannot be resolved

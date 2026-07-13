@@ -17,6 +17,7 @@ import {
 } from "@artgod/shared/config/bidding";
 import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRADING_BIDDING_AUTHORIZATION_STATUS,
     TRADING_BIDDING_BID_BOOK_SOURCE,
@@ -33,6 +34,7 @@ import {
     isTradingBiddingJobRuntimeBidPosition,
     isTradingBiddingJobRuntimeConstraint,
     type CollectionBiddingBidScopeFilter,
+    type CollectionBiddingBidBookOwnershipFilter,
     type CollectionBiddingTraitFilterJoinMode,
     type TradingBiddingAuthorization,
     type TradingBiddingBidBookSource,
@@ -521,6 +523,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         selectedTraits: TraitFilter[];
         selectedTraitRanges: TraitRangeFilter[];
         makerAddress?: string | null;
+        ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
     }): PersistedBiddingBidBook {
         return this.apm.withSyncSpan(
             "backend.bidding.repository.collection_bid_book",
@@ -557,6 +560,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         selectedTraits: TraitFilter[];
         selectedTraitRanges: TraitRangeFilter[];
         makerAddress?: string | null;
+        ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
     }): PersistedBiddingBidBook {
         const attributes = collectionBidBookSpanAttributes(params);
         const knownMakerAddress = params.includeOwnJobContext
@@ -671,17 +675,20 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
             },
             () => attachOwnBidRuntimeSignals(scopedBids, jobs, source),
         );
+        const ownershipFilteredBids = signaledBids.filter((bid) =>
+            ownershipMatchesFilter(bid, params.ownershipFilter ?? null),
+        );
         const finalBids = this.apm.withSyncSpan(
             "backend.bidding.repository.maker_filter",
             {
                 ...attributes,
-                ...bidSummarySpanAttributes(signaledBids),
+                ...bidSummarySpanAttributes(ownershipFilteredBids),
                 [BIDDING_SPAN_ATTRIBUTE.Source]: source,
                 [BIDDING_SPAN_ATTRIBUTE.MakerFilterPresent]:
                     makerAddress !== null,
             },
             () =>
-                signaledBids.filter((bid) =>
+                ownershipFilteredBids.filter((bid) =>
                     makerMatchesFilter(bid, makerAddress),
                 ),
         );
@@ -2531,6 +2538,17 @@ function makerMatchesFilter(
         makerAddress === null ||
         (!isPersistedOwnJobIntentRow(bid) &&
             bid.maker.toLowerCase() === makerAddress)
+    );
+}
+
+function ownershipMatchesFilter(
+    bid: PersistedBiddingBidBookRow,
+    ownershipFilter: CollectionBiddingBidBookOwnershipFilter | null,
+): boolean {
+    return (
+        ownershipFilter === null ||
+        (ownershipFilter === COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own &&
+            bid.isOwn)
     );
 }
 

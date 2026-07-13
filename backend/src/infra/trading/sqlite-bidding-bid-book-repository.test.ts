@@ -13,6 +13,7 @@ import {
     COLLECTION_STANDARD,
     COLLECTION_STATUS,
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRADING_BIDDING_AUTHORIZATION_STATUS,
     TRADING_BIDDING_BID_BOOK_SOURCE,
@@ -291,6 +292,21 @@ describe("SqliteBiddingBidBookRepository", () => {
             ["job-intent:collection-job:1"],
         );
 
+        const ownFilteredBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+            ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+        });
+        assert.deepEqual(
+            ownFilteredBook.bids.map((bid) => bid.orderId),
+            ["job-intent:collection-job:1"],
+        );
+
         const makerFilteredBook = repository.listCollectionBidBook({
             chainId: 1,
             collectionId,
@@ -517,6 +533,21 @@ describe("SqliteBiddingBidBookRepository", () => {
                 status: TRADING_JOB_STATUS.Enabled,
             },
         });
+
+        const ownCollectionBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+            ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+        });
+        assert.deepEqual(
+            ownCollectionBook.bids.map((bid) => bid.orderId),
+            ["own-collection"],
+        );
 
         const tokenBook = repository.listTokenBidBook({
             chainId: 1,

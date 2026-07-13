@@ -10,6 +10,7 @@ import {
     TRADING_BIDDING_TIER_SELECTION_MODE,
     TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
 } from "@artgod/shared/types";
 import { ArchiveCollectionBiddingPriceTierHttpAdapter } from "./archive-collection-bidding-price-tier.js";
 import { ApplyBiddingPriceTierReapplyHttpAdapter } from "./apply-bidding-price-tier-reapply.js";
@@ -221,6 +222,34 @@ describe("trading HTTP adapters", () => {
             traitRanges: [],
             traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
             makerAddress: "0x1111111111111111111111111111111111111111",
+            ownershipFilter: null,
+        });
+
+        await adapter.handle(
+            request({
+                params: { chain_ref: "ethereum", collection_ref: "terraforms" },
+                body: {
+                    status: TRADING_JOB_STATUS.Enabled,
+                    deltaEth: "0.001",
+                    selection: {
+                        type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
+                        traits: [],
+                        traitRanges: [],
+                        traitJoinMode:
+                            COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+                        ownershipFilter:
+                            COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+                    },
+                },
+            }),
+        );
+        assert.deepEqual((captured as { selection: unknown }).selection, {
+            type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
+            traits: [],
+            traitRanges: [],
+            traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+            makerAddress: null,
+            ownershipFilter: COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
         });
         await assert.rejects(
             () =>
@@ -263,6 +292,28 @@ describe("trading HTTP adapters", () => {
                     }),
                 ),
             /selection\.makerAddress must be a string/,
+        );
+        await assert.rejects(
+            () =>
+                adapter.handle(
+                    request({
+                        params: {
+                            chain_ref: "ethereum",
+                            collection_ref: "terraforms",
+                        },
+                        body: {
+                            status: TRADING_JOB_STATUS.Enabled,
+                            deltaEth: "0.001",
+                            selection: {
+                                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
+                                traitJoinMode:
+                                    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+                                ownershipFilter: "unknown",
+                            },
+                        },
+                    }),
+                ),
+            /selection\.ownershipFilter is invalid/,
         );
     });
 

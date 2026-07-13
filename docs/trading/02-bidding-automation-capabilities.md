@@ -257,8 +257,9 @@ Bid-book filters:
 
 Own-bid display:
 
-- `ownMakerAddress` is passive market identity used to recognize observed own market rows and power the address-based `my bids` shortcut; it is not required to identify a local declared job.
+- `ownMakerAddress` remains passive market identity for recognizing observed own market rows; `my bids` uses the separate local-ownership filter and does not require that address.
 - Own declared-job rows are marked as `You` from local job ownership even when no runtime maker address exists.
+- Private `ownership=own` reads include both own market rows and addressless own declared-job rows, while exact maker filters continue to exclude addressless intent.
 - Own market rows can carry position signals: `winning`, `draw`, or `losing`, but only from a fresh bot-snapshot read and the bot-persisted runtime decision for the active order id.
 - Own market rows can carry bot-owned strategy-limit signals rendered as `hit ceiling` and `at floor`.
 - Own declared jobs can appear as `own_job_intent` rows with `queued`, `waiting for bidding bot`, `authorization required`, `authorization unavailable`, or `paused` phase.

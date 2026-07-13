@@ -21,6 +21,7 @@ import {
 import {
     getSearchParams,
     parseCollectionBiddingBidScopeFilter,
+    parseCollectionBiddingBidBookOwnershipFilter,
     parseCollectionBiddingTraitFilterJoinMode,
     parseCursor,
     parseLimit,
@@ -41,6 +42,7 @@ export type ListCollectionBiddingBidBookRoute = {
         [PAGINATION_QUERY_PARAMS.Cursor]?: string;
         [PAGINATION_QUERY_PARAMS.Limit]?: string;
         [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Maker]?: string;
+        [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Ownership]?: string;
         [COLLECTION_MEDIA_QUERY_PARAMS.MediaMode]?: string;
         [COLLECTION_MEDIA_QUERY_PARAMS.MediaPreference]?: string;
         [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.TraitJoin]?: string;
@@ -87,6 +89,11 @@ export class ListCollectionBiddingBidBookHttpAdapter {
                 makerAddress: parseMaker(
                     searchParams.get(
                         COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Maker,
+                    ),
+                ),
+                ownershipFilter: parseCollectionBiddingBidBookOwnershipFilter(
+                    searchParams.get(
+                        COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Ownership,
                     ),
                 ),
                 mediaMode: parseMediaMode(

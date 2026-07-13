@@ -3,6 +3,7 @@ import type {
     ChainRecord,
     CollectionListItem,
     CollectionBiddingTraitFilterJoinMode,
+    CollectionBiddingBidBookOwnershipFilter,
     PersistedBiddingJobRecord,
     PersistedTokenBiddingJobRecord,
     TokenBrowserStatus,
@@ -113,6 +114,7 @@ export type BatchTokenBiddingJobSelection =
           traitRanges: TraitRangeFilter[];
           traitJoinMode: CollectionBiddingTraitFilterJoinMode;
           makerAddress?: string | null;
+          ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
       };
 
 export type UpsertBatchTokenBiddingJobsInput = {

@@ -13,6 +13,7 @@ import {
 } from "@artgod/shared/utils/ref-resolver";
 import {
     ACTIVITY_FEED_FILTER_KIND,
+    COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_BID_SCOPE_FILTERS,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
@@ -21,6 +22,7 @@ import {
     TRAIT_FILTER_QUERY_PARAMS,
     TOKEN_BROWSER_STATUS,
     type ActivityFeedFilterKind,
+    type CollectionBiddingBidBookOwnershipFilter,
     type CollectionBiddingBidScopeFilter,
     type CollectionBiddingTraitFilterJoinMode,
 } from "@artgod/shared/types";
@@ -158,6 +160,19 @@ export function parseOwner(raw: string | null): string | undefined {
 
 export function parseMaker(raw: string | null): string | undefined {
     return parseOptionalAddressRef(raw, "Invalid maker");
+}
+
+export function parseCollectionBiddingBidBookOwnershipFilter(
+    raw: string | null,
+): CollectionBiddingBidBookOwnershipFilter | null {
+    const value = raw?.trim();
+    if (!value) {
+        return null;
+    }
+    if (value !== COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own) {
+        throw new ReadModelBadRequestError("Invalid bid ownership filter");
+    }
+    return COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own;
 }
 
 export function parseActivityTokenId(raw: string | null): string | undefined {

@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_SCOPE_KIND,
@@ -603,7 +604,10 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
 
     it("resolves token-offer targets with the same own context as private bid-book views", () => {
         const persistedInputs: { tokenId: string }[] = [];
-        const bidBookOwnContextFlags: boolean[] = [];
+        const bidBookFilters: Array<{
+            includeOwnJobContext: boolean;
+            ownershipFilter: string | null;
+        }> = [];
         const useCase = new UpsertBatchTokenBiddingJobsUseCase(
             1,
             {
@@ -619,8 +623,12 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
                 listCollectionBidBook: ({
                     scopeFilter,
                     includeOwnJobContext,
+                    ownershipFilter,
                 }) => {
-                    bidBookOwnContextFlags.push(includeOwnJobContext);
+                    bidBookFilters.push({
+                        includeOwnJobContext,
+                        ownershipFilter: ownershipFilter ?? null,
+                    });
                     if (
                         !includeOwnJobContext ||
                         scopeFilter !==
@@ -634,6 +642,7 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
                             scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
                             tokenId: "9",
                             wei: "300000000000000000",
+                            isOwn: true,
                         }),
                     ]);
                 },
@@ -670,11 +679,22 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
                 traits: [],
                 traitRanges: [],
                 traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
-                makerAddress: "0x1111111111111111111111111111111111111111",
+                ownershipFilter:
+                    COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
             },
         });
 
-        assert.deepEqual(bidBookOwnContextFlags, [true, true]);
+        assert.deepEqual(bidBookFilters, [
+            {
+                includeOwnJobContext: true,
+                ownershipFilter:
+                    COLLECTION_BIDDING_BID_BOOK_OWNERSHIP_FILTER.Own,
+            },
+            {
+                includeOwnJobContext: true,
+                ownershipFilter: null,
+            },
+        ]);
         assert.deepEqual(result.tokenIds, ["9"]);
         assert.deepEqual(
             persistedInputs.map((input) => input.tokenId),
@@ -758,6 +778,7 @@ function bidBookRow(input: {
     tokenId: string | null;
     wei: string;
     maker?: string;
+    isOwn?: boolean;
 }) {
     return {
         orderId: input.orderId,
@@ -769,7 +790,7 @@ function bidBookRow(input: {
         scopeTraits: [],
         encodedTokenIds: null,
         maker: input.maker ?? "0x1111111111111111111111111111111111111111",
-        isOwn: false,
+        isOwn: input.isOwn ?? false,
         price: exactBidBookRowPrice(input.wei),
         bidLimits: null,
         quantity: "1",

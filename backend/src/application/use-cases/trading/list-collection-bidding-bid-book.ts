@@ -4,6 +4,7 @@ import type {
     CollectionMediaState,
     TokenCard,
     CollectionBiddingBidScopeFilter,
+    CollectionBiddingBidBookOwnershipFilter,
     CollectionBiddingTraitFilterJoinMode,
 } from "@artgod/shared/types";
 import { COLLECTION_BIDDING_BID_SCOPE_FILTER } from "@artgod/shared/types";
@@ -42,6 +43,7 @@ import {
     type PersistedTokenOfferCard,
 } from "./bidding-token-offer-cards.js";
 import { filterBidBookRowsByCollectionBidFloor } from "./bidding-bid-book-low-signal.js";
+import { assertBiddingBidBookFiltersAllowed } from "./bidding-bid-book-filter-validation.js";
 export type { ListCollectionBiddingBidBookOutput } from "./bidding-bid-book.js";
 import type { CollectionMediaPreferenceValue } from "@artgod/shared/extensions";
 
@@ -54,6 +56,7 @@ export type ListCollectionBiddingBidBookInput = {
     traits: TraitFilter[];
     traitRanges: TraitRangeFilter[];
     makerAddress?: string | null;
+    ownershipFilter?: CollectionBiddingBidBookOwnershipFilter | null;
     mediaMode?: string;
     mediaPreference?: CollectionMediaPreferenceValue;
     limit: number;
@@ -128,6 +131,8 @@ export class ListCollectionBiddingBidBookUseCase {
     listCollectionBiddingBidBook(
         input: ListCollectionBiddingBidBookInput,
     ): ListCollectionBiddingBidBookOutput {
+        assertBiddingBidBookFiltersAllowed(input);
+
         // Resolve the requested chain before reading collection-scoped bid data.
         const chain = this.apm.withSyncSpan(
             "backend.bidding.collection_bid_book.chain",
@@ -223,6 +228,7 @@ export class ListCollectionBiddingBidBookUseCase {
                     selectedTraits: input.traits,
                     selectedTraitRanges: input.traitRanges,
                     makerAddress: input.makerAddress ?? null,
+                    ownershipFilter: input.ownershipFilter ?? null,
                 }),
         );
         const collectionFloorBidBook = scopeUsesCollectionBidFloor(
@@ -348,6 +354,7 @@ export class ListCollectionBiddingBidBookUseCase {
                     selectedTraits: [],
                     selectedTraitRanges: [],
                     makerAddress: null,
+                    ownershipFilter: null,
                 }),
         );
     }
