@@ -3,44 +3,22 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { logger } from "../utils/logger.js";
+import {
+    NOOP_APM,
+    type ApmPort,
+    type RuntimeApmConfig,
+    type RuntimeApmHandle,
+    type SpanAttributes,
+} from "./apm-contract.js";
 
-export type SpanAttributeValue = string | number | boolean | null | undefined;
-
-export type SpanAttributes = Record<string, SpanAttributeValue>;
-
-export interface ApmPort {
-    withSpan<T>(
-        name: string,
-        attributes: SpanAttributes,
-        run: () => Promise<T>,
-    ): Promise<T>;
-    withSyncSpan<T>(name: string, attributes: SpanAttributes, run: () => T): T;
-}
-
-export type RuntimeApmConfig = {
-    enabled: boolean;
-    serviceNamespace: string;
-    chainId: number;
-    worker: string;
-    logComponent?: string;
-    tracerName?: string;
-    spanProfiles: {
-        enabled: boolean;
-    };
-    traces: {
-        enabled: boolean;
-        otlpHttpUrl: string;
-    };
-    profiles: {
-        enabled: boolean;
-        pyroscopeUrl: string;
-    };
-};
-
-export type RuntimeApmHandle = {
-    apm: ApmPort;
-    stop: () => Promise<void>;
-};
+export {
+    NOOP_APM,
+    type ApmPort,
+    type RuntimeApmConfig,
+    type RuntimeApmHandle,
+    type SpanAttributes,
+    type SpanAttributeValue,
+} from "./apm-contract.js";
 
 type TracingRuntime = {
     shutdown: () => Promise<void>;
@@ -96,23 +74,6 @@ type PnpApi = {
 };
 
 let cachedPnpApi: PnpApi | null | undefined;
-
-export const NOOP_APM: ApmPort = {
-    async withSpan<T>(
-        _name: string,
-        _attributes: SpanAttributes,
-        run: () => Promise<T>,
-    ): Promise<T> {
-        return run();
-    },
-    withSyncSpan<T>(
-        _name: string,
-        _attributes: SpanAttributes,
-        run: () => T,
-    ): T {
-        return run();
-    },
-};
 
 export async function initRuntimeApm(
     config: RuntimeApmConfig,

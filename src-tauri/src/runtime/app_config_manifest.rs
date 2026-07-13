@@ -337,6 +337,26 @@ mod tests {
     }
 
     #[test]
+    fn observability_settings_are_not_admin_managed() {
+        let model = load_app_config_manifest().expect("load settings manifest");
+        let observability_group_ids = [
+            "backend-observability",
+            "indexer-observability",
+            "trading-observability",
+        ];
+
+        for group_id in observability_group_ids {
+            assert!(!model.groups.iter().any(|group| group.id == group_id));
+            assert!(
+                !model
+                    .settings
+                    .iter()
+                    .any(|setting| setting.group == group_id)
+            );
+        }
+    }
+
+    #[test]
     fn manifest_marks_rpc_url_list_required_for_launch() {
         let model = load_app_config_manifest().expect("load settings manifest");
         let setting = model
