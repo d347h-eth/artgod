@@ -110,19 +110,21 @@ should also download the bundle's matching `.asc` file.
 ```sh
 gpg --import artgod-release-public.asc
 gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt
-sha256sum --ignore-missing --check SHA256SUMS.txt
 
-# Linux: verify the selected bundle's direct detached signature too.
+# Linux: verify the checksum and the bundle's direct detached signature.
+sha256sum --ignore-missing --check SHA256SUMS.txt
 gpg --verify "<linux-bundle>.asc" "<linux-bundle>"
+
+# macOS: verify the checksum.
+shasum -a 256 --ignore-missing --check SHA256SUMS.txt
 
 # Optional online verification of the GitHub Actions build provenance.
 gh attestation verify "<bundle>" -R d347h-eth/artgod
 ```
 
-On macOS, open the DMG and app normally so Gatekeeper evaluates the Developer
-ID signature and notarization ticket; do not use a Gatekeeper bypass for an
-official release. macOS users can compare `shasum -a 256 "<bundle>"` with the
-matching entry in the verified checksum manifest.
+On macOS, after the checksum passes, open the DMG and app normally so Gatekeeper
+evaluates the Developer ID signature and stapled notarization ticket. Do not use
+a Gatekeeper bypass for an official release.
 
 Release signing subkeys rotate before expiry while the offline primary key
 anchors the project identity. Rotation updates the checked-in/release-attached
