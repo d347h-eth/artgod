@@ -75,6 +75,9 @@ jobs:
             - name: Test desktop Admin manifest
               run: yarn test:desktop:admin-manifest
 
+            - name: Test desktop listener boundaries
+              run: yarn test:desktop:listener-boundaries
+
             - name: Test sensitive process hardening
               run: yarn test:desktop:sensitive-process
 
@@ -96,7 +99,7 @@ jobs:
                   DESKTOP_NATS_DIST_TARGET: linux-x64
               run: yarn build:desktop:no-bundle --debug
 
-            - name: Verify staged desktop runtime dependencies
+            - name: Verify staged desktop runtime resources
               run: yarn check:desktop-runtime-resources
 
             - name: Verify no-bundle desktop runtime output

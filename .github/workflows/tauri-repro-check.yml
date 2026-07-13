@@ -66,6 +66,9 @@ jobs:
             - name: Check desktop runtime registry consistency
               run: yarn check:runtime-registry
 
+            - name: Test desktop listener boundaries
+              run: yarn test:desktop:listener-boundaries
+
             - name: Build unsigned binary (pass A)
               shell: bash
               env:
@@ -104,6 +107,9 @@ jobs:
 
                   sha256sum "$BIN_PATH" > repro-output/manifest-b.txt
                   cp "$BIN_PATH" repro-output/artgod-desktop-b
+
+            - name: Verify staged desktop runtime resources
+              run: yarn check:desktop-runtime-resources
 
             - name: Compare unsigned build manifests
               shell: bash

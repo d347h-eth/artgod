@@ -23,6 +23,7 @@ import {
     resolveDesktopDistributionTargetFromEnvironment,
 } from "./native-runtime-dependencies.mjs";
 import { verifyStagedDesktopRuntimeDependencies } from "./verify-staged-desktop-runtime-dependencies.mjs";
+import { verifyStagedDesktopNatsLoopbackBinding } from "./verify-staged-desktop-nats-loopback.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -108,7 +109,7 @@ const bundledNodeBinaryPath = await bundleNodeRuntime({
     nodeDistTarget,
     resourcesRootDir,
 });
-await bundleNatsRuntime({
+const bundledNatsBinaryPath = await bundleNatsRuntime({
     cacheRootDir: natsCacheRoot,
     natsVersion,
     natsDistTarget,
@@ -118,6 +119,10 @@ await bundleNatsRuntime({
 await verifyStagedDesktopRuntimeDependencies({
     resourcesRootDir,
     nodeBinaryPath: bundledNodeBinaryPath,
+});
+// Prove the bundled NATS client socket cannot claim an IPv4 wildcard.
+await verifyStagedDesktopNatsLoopbackBinding({
+    natsBinaryPath: bundledNatsBinaryPath,
 });
 
 // Keep runtime resources directory tracked in git between clean/build cycles.
@@ -330,6 +335,7 @@ async function bundleNatsRuntime({
         ) + "\n",
         "utf8",
     );
+    return outputPath;
 }
 
 async function ensureNodeBinary({ cacheRootDir, nodeVersion, nodeDistTarget }) {

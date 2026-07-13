@@ -28,6 +28,23 @@ const sensitiveProcessGateCommands = [
     "runtime::supervisor::tests::trading_bot_node_args_disable_signal_started_inspection_exactly_once",
     "runtime::supervisor::tests::key_bearing_bot_environment_is_rebuilt_from_frozen_config",
 ];
+const desktopListenerBoundaryTestCommand =
+    "yarn test:desktop:listener-boundaries";
+const desktopListenerBoundaryStepName = "Test desktop listener boundaries";
+const desktopListenerBoundaryGateScriptName =
+    "test:desktop:listener-boundaries";
+const desktopListenerBoundaryGateCommand =
+    "node ./scripts/build/test-desktop-listener-boundaries.mjs && yarn tsx ./scripts/build/verify-desktop-backend-loopback.ts";
+const desktopBackendListenerBoundaryProbePath = path.join(
+    rootDir,
+    "scripts",
+    "build",
+    "verify-desktop-backend-loopback.ts",
+);
+const desktopListenerBoundaryTestSelectors = [
+    "runtime::config::tests::desktop_listener_configuration_requires_numeric_ipv4_loopback",
+    "runtime::supervisor::tests::nats_launch_binds_numeric_ipv4_loopback_and_uses_configured_store_root",
+];
 const secretPromptParentContainmentTestCommand =
     "yarn test:desktop:secret-prompt-parent-containment";
 const secretPromptParentContainmentGateScriptName =
@@ -65,8 +82,12 @@ const desktopNoBundleBuildScriptName = "build:desktop:no-bundle";
 const desktopNoBundleBuildCommand = "yarn build:desktop:no-bundle --debug";
 const tauriNoBundleBuildStepName = "Tauri no-bundle build check";
 const stagedRuntimeVerificationStepName =
-    "Verify staged desktop runtime dependencies";
+    "Verify staged desktop runtime resources";
 const stagedRuntimeVerificationCommand = "yarn check:desktop-runtime-resources";
+const stagedRuntimeVerificationGateCommands = [
+    "node ./scripts/build/verify-staged-desktop-runtime-dependencies.mjs",
+    "node ./scripts/build/verify-staged-desktop-nats-loopback.mjs",
+];
 const noBundleRuntimeVerificationStepName =
     "Verify no-bundle desktop runtime output";
 const noBundleRuntimeVerificationCommand =
@@ -615,6 +636,160 @@ test("runs sensitive-process hardening before the ordinary Tauri build", async (
         tauriCheckJob,
         sensitiveProcessBuildStepName,
         "Tauri no-bundle build check",
+    );
+});
+
+test("keeps desktop listener proofs in build, release, and reproducibility lanes", async () => {
+    const packageManifest = JSON.parse(
+        await readFile(packageManifestPath, "utf8"),
+    );
+    assert.equal(
+        packageManifest.scripts?.[desktopListenerBoundaryGateScriptName],
+        desktopListenerBoundaryGateCommand,
+    );
+
+    const listenerBoundarySource = await readFile(
+        path.join(
+            rootDir,
+            "scripts",
+            "build",
+            "test-desktop-listener-boundaries.mjs",
+        ),
+        "utf8",
+    );
+    for (const selector of desktopListenerBoundaryTestSelectors) {
+        assert.ok(
+            listenerBoundarySource.includes(selector),
+            `${desktopListenerBoundaryGateScriptName} omits ${selector}.`,
+        );
+    }
+    assert.match(listenerBoundarySource, /"--exact"/);
+    assert.match(listenerBoundarySource, /TAURI_CONFIG: testTauriConfig/);
+    const backendListenerBoundarySource = await readFile(
+        desktopBackendListenerBoundaryProbePath,
+        "utf8",
+    );
+    assert.match(backendListenerBoundarySource, /startBackendServer\(config\)/);
+    assert.match(backendListenerBoundarySource, /address\.address/);
+    assert.match(backendListenerBoundarySource, /assertIpv4WildcardPortIsFree/);
+
+    const stagedRuntimeGate =
+        packageManifest.scripts?.["check:desktop-runtime-resources"];
+    assert.equal(typeof stagedRuntimeGate, "string");
+    let previousCommandIndex = -1;
+    for (const command of stagedRuntimeVerificationGateCommands) {
+        const commandIndex = stagedRuntimeGate.indexOf(command);
+        assert.ok(
+            commandIndex >= 0,
+            `check:desktop-runtime-resources omits ${command}.`,
+        );
+        assert.ok(
+            commandIndex > previousCommandIndex,
+            `check:desktop-runtime-resources runs ${command} out of order.`,
+        );
+        previousCommandIndex = commandIndex;
+    }
+
+    const buildCheckWorkflow = await readFile(
+        path.join(workflowsDirectory, "tauri-build-check.yml"),
+        "utf8",
+    );
+    const buildCheckJob = extractWorkflowJob(buildCheckWorkflow, "tauri-check");
+    const buildCheckStep = extractWorkflowStep(
+        buildCheckJob,
+        desktopListenerBoundaryStepName,
+    );
+    assertStepRunsCommand(buildCheckStep, desktopListenerBoundaryTestCommand);
+    assertStepIsRequired(buildCheckStep);
+    assertStepPrecedes(
+        buildCheckJob,
+        desktopListenerBoundaryStepName,
+        tauriNoBundleBuildStepName,
+    );
+
+    const releaseWorkflow = await readFile(
+        path.join(workflowsDirectory, "tauri-release.yml"),
+        "utf8",
+    );
+    const releaseBuildJob = extractWorkflowJob(releaseWorkflow, "build");
+    const releaseStep = extractWorkflowStep(
+        releaseBuildJob,
+        desktopListenerBoundaryStepName,
+    );
+    assertStepRunsCommand(releaseStep, desktopListenerBoundaryTestCommand);
+    assertStepIsRequired(releaseStep);
+    for (const buildStepName of [
+        "Build Linux Tauri bundle",
+        "Build macOS Tauri bundle",
+    ]) {
+        assertStepPrecedes(
+            releaseBuildJob,
+            desktopListenerBoundaryStepName,
+            buildStepName,
+        );
+    }
+
+    const reproducibilityWorkflow = await readFile(
+        path.join(workflowsDirectory, "tauri-repro-check.yml"),
+        "utf8",
+    );
+    const reproducibilityJob = extractWorkflowJob(
+        reproducibilityWorkflow,
+        "linux-unsigned-parity",
+    );
+    const reproducibilityStep = extractWorkflowStep(
+        reproducibilityJob,
+        desktopListenerBoundaryStepName,
+    );
+    const reproducibilityStagedRuntimeStep = extractWorkflowStep(
+        reproducibilityJob,
+        stagedRuntimeVerificationStepName,
+    );
+    assertStepRunsCommand(
+        reproducibilityStep,
+        desktopListenerBoundaryTestCommand,
+    );
+    assertStepIsRequired(reproducibilityStep);
+    assertStepPrecedes(
+        reproducibilityJob,
+        desktopListenerBoundaryStepName,
+        "Build unsigned binary (pass A)",
+    );
+    assertStepRunsCommand(
+        reproducibilityStagedRuntimeStep,
+        stagedRuntimeVerificationCommand,
+    );
+    assertStepIsRequired(reproducibilityStagedRuntimeStep);
+    assertStepPrecedes(
+        reproducibilityJob,
+        "Build unsigned binary (pass B)",
+        stagedRuntimeVerificationStepName,
+    );
+    assertStepPrecedes(
+        reproducibilityJob,
+        stagedRuntimeVerificationStepName,
+        "Compare unsigned build manifests",
+    );
+
+    const reproductionScript = await readFile(
+        path.join(
+            rootDir,
+            "scripts",
+            "build",
+            "reproduce-linux-release-docker.sh",
+        ),
+        "utf8",
+    );
+    assert.ok(
+        reproductionScript.indexOf(desktopListenerBoundaryTestCommand) >= 0,
+    );
+    assert.ok(
+        reproductionScript.indexOf(desktopListenerBoundaryTestCommand) <
+            reproductionScript.indexOf("yarn tauri build --ci"),
+    );
+    assert.ok(
+        reproductionScript.indexOf(stagedRuntimeVerificationCommand) >
+            reproductionScript.indexOf("yarn tauri build --ci"),
     );
 });
 
