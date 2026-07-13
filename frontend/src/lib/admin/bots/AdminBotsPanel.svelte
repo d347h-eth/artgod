@@ -578,7 +578,16 @@
 									{:else if biddingCollectionCatalogError}
 										<p class="runtime-error" role="alert">{biddingCollectionCatalogError}</p>
 									{:else if biddingCollections.length === 0}
-										<span class="muted">no collections ready for bidding authorization</span>
+										<div class="bidding-mandate-empty-state muted">
+											<span>no collections ready for bidding authorization</span>
+											<span>A collection appears here when it:</span>
+											<ul class="bidding-mandate-requirements">
+												<li>is live in ArtGod</li>
+												<li>has an OpenSea slug</li>
+												<li>has completed its first OpenSea snapshot</li>
+												<li>has at least one enabled or paused bidding job</li>
+											</ul>
+										</div>
 									{:else}
 										<div class="bidding-mandate-collections">
 											{#each biddingCollections as collection (collection.collectionId)}
@@ -808,6 +817,18 @@
 		width: min(40.15rem, 100%);
 		max-width: 100%;
 		margin: 0;
+	}
+
+	.bidding-mandate-empty-state {
+		display: grid;
+		gap: 0.35rem;
+	}
+
+	.bidding-mandate-requirements {
+		display: grid;
+		gap: 0.2rem;
+		margin: 0;
+		padding-left: 1.2rem;
 	}
 
 	.bidding-mandate-collections,
