@@ -646,8 +646,14 @@ Every slice touching secrets must be verified against these leak paths:
 Manual desktop verification should cover:
 
 - Linux
-- macOS
+- macOS on Apple silicon and Intel
 - Windows
+
+Release acceptance additionally requires the same Universal 2 DMG to be
+mounted and exercised by the Apple silicon and Intel gates defined in
+`docs/desktop/01-tauri-build-and-runtime.md`. Each gate must verify the native
+prompt's architecture and execute the bundled Node, SQLite, and Sharp runtime
+paths, not only launch the application shell.
 
 Minimum manual scenarios:
 

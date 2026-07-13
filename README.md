@@ -73,13 +73,19 @@ Long-form setup, configuration, versioning, test, and command details live in
 
 Official desktop builds are published under
 [GitHub Releases](https://github.com/d347h-eth/artgod/releases). The public
-alpha ships Linux x64 AppImage and `.deb` bundles plus a universal macOS DMG.
-macOS 13.5+ is required for the macOS bundle.
-The macOS application shell, Node, and NATS are universal, but the bundled
-SQLite and Sharp native add-ons match the release runner architecture. The
-local backend, indexer, and trading runtime is therefore supported only on that
-architecture. See
-`docs/desktop/01-tauri-build-and-runtime.md` for the exact limitation.
+alpha ships Linux x64 AppImage and `.deb` bundles plus one macOS DMG containing
+a Universal 2 app. In [Apple's universal-binary
+model](https://developer.apple.com/documentation/apple-silicon/building-a-universal-macos-binary),
+the native runtime runs on both Intel `x86_64` and Apple silicon `arm64`; the
+DMG is the distribution container, not itself a universal binary. macOS 13.5+
+is required.
+
+The Tauri shell, bundled Node and NATS runtimes, native secret prompt, and
+`better-sqlite3` add-on contain both architecture slices. Backend and indexer
+resources bundle both official macOS Sharp/libvips package pairs, and Sharp
+selects the pair matching the Node process architecture. Required Apple silicon
+and Intel release gates execute the same mounted DMG. See
+`docs/desktop/01-tauri-build-and-runtime.md` for the complete contract.
 Windows can be built from source, but signed Windows release artifacts remain
 deferred.
 

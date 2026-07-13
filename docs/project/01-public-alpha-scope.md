@@ -55,14 +55,15 @@ Core release characteristics:
   profiles.
 - Tauri desktop runtime supervisor composes local NATS, backend, and indexer
   workers from production runtime artifacts.
-- Public release CI produces GPG-signed Linux x64 bundles and a universal
-  Developer ID-signed, notarized, and stapled macOS DMG with signed checksums
-  and GitHub build provenance. The application shell, Node, and NATS are
-  universal, but the macOS SQLite/Sharp add-ons match the release runner
-  architecture, so the local backend, indexer, and trading runtime is supported
-  only on that architecture; see
-  `docs/desktop/01-tauri-build-and-runtime.md`. Windows release packaging
-  remains deferred.
+- Public release CI produces GPG-signed Linux x64 bundles and one macOS DMG
+  containing a Developer ID-signed, notarized, and stapled Universal 2 app,
+  with signed checksums and GitHub build provenance. Its Tauri shell, Node,
+  NATS, native secret prompt, and `better-sqlite3` add-on contain Intel
+  `x86_64` and Apple silicon `arm64` slices. Backend and indexer resources carry
+  both official macOS Sharp/libvips package pairs for runtime selection by
+  process architecture. Required release gates execute the mounted DMG on both
+  architectures; see `docs/desktop/01-tauri-build-and-runtime.md`. Windows
+  release packaging remains deferred.
 - Desktop Admin UI includes header launch, logs, stop, and shutdown actions plus
   system, wallets, and bots surfaces behind the native Tauri shell.
 - Desktop wallet custody is implemented with Rust-owned Ethereum keystore

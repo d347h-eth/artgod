@@ -1452,8 +1452,14 @@ Rules:
 ### Manual Desktop Verification
 
 - Linux
-- macOS
+- macOS on Apple silicon and Intel
 - Windows
+
+The Apple silicon and Intel release gates defined in
+`docs/desktop/01-tauri-build-and-runtime.md` mount the same Universal 2 DMG.
+Both verify the native prompt's architecture and execute the bundled Node,
+SQLite, and Sharp runtime paths; checking only the Tauri shell is not sufficient
+for wallet or bot acceptance.
 
 The manual matrix should explicitly verify:
 

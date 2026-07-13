@@ -8,11 +8,20 @@ Signing and notarization secrets live in the GitHub Environment named
 The target release artifacts are:
 
 - Linux x64: AppImage and `.deb`
-- macOS: universal DMG, with the native-addon architecture limitation below
+- macOS: one DMG containing a Universal 2 app
 - release manifest: `SHA256SUMS.txt`
 - release signatures: Linux detached signatures and `SHA256SUMS.txt.asc`
 - release trust anchor: `artgod-release-public.asc`
 - GitHub provenance attestation
+
+Universal 2 uses [Apple's universal-binary
+model](https://developer.apple.com/documentation/apple-silicon/building-a-universal-macos-binary):
+the application supports Intel `x86_64` and Apple silicon `arm64` natively. The
+DMG is only the distribution container around the `.app`; it is not itself a
+universal binary. ArtGod's Tauri executable, bundled Node and NATS runtimes,
+native secret prompt, and `better-sqlite3` add-ons are fat binaries containing
+both slices. Backend and indexer resources carry both official macOS
+Sharp/libvips package pairs, selected by the running Node architecture.
 
 ## Maintainer Profile
 
@@ -77,7 +86,9 @@ Environment protection:
 Workflow policy:
 
 - `.github/workflows/tauri-build-check.yml` uses no secrets and runs on pull
-  requests, pushes to `main`, and manual dispatch.
+  requests, pushes to `main`, and manual dispatch. Its required macOS job runs
+  the real universal `better-sqlite3` cross-build and `lipo` verification before
+  any release tag.
 - `.github/workflows/tauri-release.yml` builds on pushed `v*` tags. Its manual
   dispatch path only resumes delayed macOS notarization from an existing tag
   run; it does not rebuild or create another Apple submission.
@@ -288,9 +299,14 @@ original tag and source run ID. Verbose diagnostics and the pre-staple DMG
 are internal workflow artifacts, not GitHub Release assets. Diagnostic text is
 credential-redacted before upload.
 
-During `beforeBuildCommand`, after runtime resources and sidecars are staged,
+During `beforeBuildCommand`, `yarn build:sqlite-native --if-needed` first
+produces or validates the binding required by the active Tauri/Cargo target.
+Reuse requires matching `better-sqlite3`, Node version, Node module ABI, target,
+and Mach-O architecture metadata.
+Runtime resource preparation consumes that same target context. After runtime
+resources and sidecars are staged,
 `scripts/build/macos-code-signing.mjs sign-staged` runs on the macOS runner.
-This signs executable/loadable Mach-O files before Rust embeds the release
+This signs final executable/loadable Mach-O files before Rust embeds the release
 wallet-recipient hashes, including the bundled Node runtime, bundled NATS
 runtime, native `.node` add-ons, and the secret-prompt sidecar. The release
 workflow then runs
@@ -306,15 +322,24 @@ enough to initialize V8. Broader exceptions such as
 granted.
 Runtime resource staging materializes only the reviewed package-local SQLite
 and Sharp runtime files. Project PnP hooks, the Yarn cache/install state,
-observability packages, developer tools, wrong-platform native packages, and
-other workspace dependencies never enter the DMG. Every staged native Mach-O
-file is therefore visible to the signing pass before Rust embeds its release
-integrity hashes.
-The Tauri application shell, Node, and NATS are universal, but the staged
-SQLite and Sharp native add-ons match the macOS release runner's host
-architecture. The local backend, indexer, and trading runtime is therefore not
-supported or executed on the opposite architecture; see
-`docs/desktop/01-tauri-build-and-runtime.md`.
+observability packages, developer tools, wrong-OS or unreviewed native
+packages, and other workspace dependencies never enter the DMG. Both reviewed
+macOS Sharp/libvips architecture pairs intentionally enter backend and indexer
+staging. Every staged native Mach-O file is therefore visible to the signing
+pass before Rust embeds its release integrity hashes.
+
+The Tauri application shell, Node, NATS, native secret prompt, and
+`better-sqlite3` add-ons contain both `x86_64` and `arm64` slices. Sharp keeps
+its vendor-supported architecture-specific package layout and selects the
+matching pair at runtime; see Sharp's [installation
+contract](https://sharp.pixelplumbing.com/install/). The release is accepted
+only after the same mounted DMG passes full SQLite and Sharp runtime smoke on
+GitHub's `macos-15` arm64 and `macos-15-intel` x64 runners. GitHub publishes
+those label architectures in its [hosted-runner
+reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+Tauri's corresponding universal-build and external-binary contracts are in its
+[macOS build guidance](https://v2.tauri.app/distribute/app-store/) and
+[sidecar guide](https://v2.tauri.app/develop/sidecar/).
 
 Operator verification on the final downloaded GitHub Release asset:
 
@@ -335,7 +360,10 @@ codesign --display --entitlements :- "$NODE"
 
 The displayed authority must be the expected `Developer ID Application`
 identity and Team ID. Run the normal Finder launch as well; terminal checks do
-not replace a clean-machine Gatekeeper launch test.
+not replace a clean-machine Gatekeeper launch test. CI separately inventories
+both slices in the Tauri executable, Node, NATS, native prompt, and every
+`better_sqlite3.node`, verifies the paired Sharp/libvips packages, and executes
+the mounted runtime on both required runner architectures.
 
 Official references:
 
@@ -345,6 +373,7 @@ Official references:
 - Developer ID certificates: https://developer.apple.com/help/account/certificates/create-developer-id-certificates
 - Developer ID G2 intermediate: https://developer.apple.com/support/developer-id-intermediate-certificate/
 - Developer ID / notarization overview: https://developer.apple.com/developer-id/
+- Apple universal macOS binaries: https://developer.apple.com/documentation/apple-silicon/building-a-universal-macos-binary
 - Custom notarization workflow: https://developer.apple.com/documentation/security/customizing-the-notarization-workflow
 - Apple silicon JIT under hardened runtime: https://developer.apple.com/documentation/apple-silicon/porting-just-in-time-compilers-to-apple-silicon
 - Allow execution of JIT-compiled code entitlement: https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.cs.allow-jit
@@ -353,6 +382,10 @@ Official references:
 - GitHub Actions secure use: https://docs.github.com/en/actions/reference/security/secure-use
 - GitHub Actions log masking: https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands#masking-a-value-in-a-log
 - Tauri macOS signing: https://v2.tauri.app/distribute/sign/macos/
+- Tauri universal macOS build: https://v2.tauri.app/distribute/app-store/
+- Tauri external binaries: https://v2.tauri.app/develop/sidecar/
+- Sharp cross-platform installation: https://sharp.pixelplumbing.com/install/
+- GitHub-hosted runner architectures: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
 
 ## Windows Signing
 
@@ -546,6 +579,8 @@ For the dry run, confirm:
 - `gh attestation verify "<bundle>" -R d347h-eth/artgod` succeeds for each
   platform bundle
 - the Linux bundles run on a clean supported Linux machine
+- the same DMG passes the required mounted-runtime gates on `macos-15` arm64
+  and `macos-15-intel` x64, including SQLite and Sharp smoke operations
 - macOS opens the DMG and app normally under Gatekeeper without a bypass
 
 After those checks pass, push the public tag on the same commit. This is a new
@@ -559,9 +594,10 @@ git verify-tag "$RELEASE_TAG"
 git push origin "$RELEASE_TAG"
 ```
 
-For both runs, verify Gatekeeper opens the DMG without bypass actions, verify
-the Linux signatures and checksum manifest from a clean keyring, and confirm
-the GitHub Release contains only the expected signed/stapled artifacts.
+For both runs, require both mounted-DMG architecture gates, verify Gatekeeper
+opens the DMG without bypass actions, verify the Linux signatures and checksum
+manifest from a clean keyring, and confirm the GitHub Release contains only the
+expected signed/stapled artifacts.
 Release immutability still allows title and release-note edits, but the tag and
 assets cannot be replaced after publication.
 
