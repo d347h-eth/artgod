@@ -81,6 +81,7 @@ What is explicit here:
 
 - `build:runtime`
 - `build:desktop-runtime-resources`
+- `build:desktop:no-bundle`
 - `clean:build`
 - root workspace list, which must include `trading` once wallet-bound bot runtimes exist
 
@@ -170,7 +171,7 @@ When adding a new indexer runtime (example `foo-worker`):
     : `yarn build:sqlite-native`
     : `yarn build:runtime`
     : `yarn build:desktop-runtime-resources`
-    : `yarn tauri build --no-bundle --ci`
+    : `yarn build:desktop:no-bundle`
     : Start desktop app and confirm process appears in runtime state/logs.
     : `up{job="artgod-indexer",runtime="foo-worker"}` in Prometheus/Grafana.
 
@@ -200,7 +201,7 @@ When adding a new trading bot runtime (example `foo-bot`):
    : `yarn build:sqlite-native`
    : `yarn build:runtime`
    : `yarn build:desktop-runtime-resources`
-   : `yarn tauri build --no-bundle --ci`
+   : `yarn build:desktop:no-bundle`
    : Start desktop app and confirm the bot can be assigned, unlocked, started, and stopped without secrets leaking to env or CLI.
 
 ## Remove Runtime Checklist

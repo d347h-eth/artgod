@@ -56,9 +56,17 @@ yarn install --immutable
 # Build the trusted native SQLite dependency; package scripts stay disabled globally.
 yarn build:sqlite-native
 
-# Run Tauri's beforeBuildCommand, which builds admin UI, userland UI, runtime artifacts, staged runtime resources, and release sidecars before compiling Rust.
-yarn tauri build --debug --no-bundle --ci
+# Build a release-mode executable and adjacent runtime resources without packaging a bundle.
+yarn build:desktop:no-bundle
 ```
+
+`yarn build:desktop:no-bundle` is the canonical local release-like QA path. It
+exercises wallet-recipient integrity validation and supports repeated builds
+without `yarn clean:build`: the Rust build step removes only Tauri's prior
+copied `resources/runtime` tree before Tauri installs the newly staged files.
+Cargo dependencies, incremental outputs, executables, and bundle artifacts are
+preserved. Pass `--debug` for a faster debug no-bundle build; debug builds do
+not enforce release runtime hashes.
 
 ## Build From Source
 
@@ -491,6 +499,9 @@ yarn dev
 # Build staged desktop resources and start the desktop dev shell.
 yarn dev:composition
 
+# Build the release-like no-bundle desktop executable for local QA.
+yarn build:desktop:no-bundle
+
 # Start only the backend workspace dev server.
 yarn workspace @artgod/backend run dev
 
@@ -509,6 +520,6 @@ yarn workspace @artgod/indexer run inspect:queue -- --queue order-updates-by-mak
 # Validate runtime registry consistency across build maps, supervisor mappings, dev launchers, and observability mappings.
 yarn check:runtime-registry
 
-# Remove generated build artifacts and caches.
+# Remove all generated build artifacts and caches for broad recovery.
 yarn clean:build
 ```
