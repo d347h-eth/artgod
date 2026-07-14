@@ -128,6 +128,7 @@ yarn build:runtime
 yarn build:desktop-runtime
 yarn build:desktop-runtime-resources
 yarn build:desktop-sidecars --profile release
+yarn test:desktop:listener-boundaries
 yarn check:desktop-runtime-resources
 yarn check:desktop-no-bundle-runtime
 yarn check:linux-bundled-runtime <bundle-directory>
@@ -195,6 +196,10 @@ What each command does:
 
 - `yarn check:desktop-runtime-resources`
   : Starts the staged bundled Node with ambient PnP variables removed and executes SQLite/Sharp smoke operations through every package-local runtime dependency tree.
+  : Starts the staged bundled NATS, requires its ports file and initial client `INFO` frame to report exactly `127.0.0.1` with the same valid port, and verifies that socket accepts a connection.
+
+- `yarn test:desktop:listener-boundaries`
+  : Runs the exact Rust config and supervisor argument tests that require numeric IPv4 loopback for the installed backend and NATS processes, then starts the backend on an OS-assigned port and verifies Fastify bound the configured IPv4 interface.
 
 - `yarn check:desktop-no-bundle-runtime`
   : Compares the complete staged runtime with the adjacent runtime produced by the preceding debug no-bundle build, including entry types, executable modes, and SHA-256 bytes.
@@ -332,6 +337,10 @@ Responsibilities:
 - stages the fat universal SQLite binding and both official macOS Sharp/libvips package pairs when the resolved target is `universal-apple-darwin`
 - rejects project `.yarn`, `.pnp.cjs`, `.pnp.loader.mjs`, symbolic links, special files, missing packages, wrong build profiles, and unexpected package files
 - starts the bundled Node executable with ambient PnP variables removed, executes an in-memory SQLite query for every runtime, and performs a real one-pixel Sharp conversion for backend/indexer
+- starts the staged NATS binary with explicit numeric-loopback, JetStream, and
+  isolated storage arguments on an OS-assigned port, requires its ports file and
+  initial client `INFO` frame to agree on the host and valid port, and proves
+  that socket accepts a connection before resource staging can succeed
 
 ### `scripts/build/prepare-desktop-sidecars.mjs`
 
@@ -520,10 +529,15 @@ Desktop executable resources are not operator configuration:
   only from the canonical `runtime` directory bundled by Tauri.
 - Admin settings and the rendered `.env` cannot override executable or
   runtime-resource paths.
+- Installed desktop listener ownership is Rust-side and fail-closed. Both
+  `BACKEND_HOST` and the host in `NATS_URL` must be the numeric IPv4 loopback
+  address `127.0.0.1`; hostnames, IPv6, wildcard, LAN, and public addresses are
+  rejected before child-process startup. Rust rewrites both child values to
+  their canonical loopback form.
 - JetStream storage is not left to the NATS default temp path. The desktop
-  supervisor always starts bundled NATS with its store root at
-  `<app-data>/nats`; JetStream files live under the NATS-created `jetstream`
-  child.
+  supervisor always passes `--addr 127.0.0.1` and starts bundled NATS with its
+  store root at `<app-data>/nats`; JetStream files live under the NATS-created
+  `jetstream` child.
 
 Userland link settings:
 
@@ -557,9 +571,10 @@ OpenSea capability keys:
 Core runtime keys are also validated (for backend/indexer startup), for example:
 
 - `ARTGOD_DB_PATH`
+- `BACKEND_HOST` (must be exactly `127.0.0.1` for installed desktop runtime)
 - `USERLAND_UI_DIST_DIR`
 - `RPC_URL_LIST` (JSON array of weighted HTTP JSON-RPC endpoints)
-- `NATS_URL` (must include full host:port, for example `nats://127.0.0.1:42720`)
+- `NATS_URL` (must use `nats://127.0.0.1:<port>`; `localhost`, IPv6, and non-loopback hosts are rejected)
 - `WETH_ADDRESS`
 - `SEAPORT_CONDUIT_CONTROLLER`
 - metrics/APM exporter settings are local/deploy-only and are not rendered into the desktop Admin manifest; desktop artifacts use compile-time no-op adapters
@@ -598,7 +613,8 @@ Startup trigger:
 
 Supervisor startup order:
 
-1. start bundled NATS process (`nats-server`)
+1. start bundled NATS process (`nats-server`) with an explicit
+   `--addr 127.0.0.1` client-listener bind
 2. wait for NATS port readiness
 3. start backend artifact
 4. wait for backend port readiness
@@ -646,6 +662,9 @@ Frontend readiness behavior:
 Node artifacts are launched directly. External native packages resolve through
 the isolated `node_modules` directory beside each backend, indexer, or trading
 artifact group; no Yarn loader executes in the installed application.
+Before the backend is spawned, Rust requires and canonicalizes its
+`BACKEND_HOST` to `127.0.0.1`; the backend cannot widen its installed-desktop
+socket through Admin configuration.
 
 Wallet-bound bot starts resolve the Node executable, exact trading artifact,
 and configured child-process values into one immutable launch snapshot before

@@ -68,7 +68,7 @@ key = "BACKEND_HOST"
 group = "backend"
 label = "backend host"
 defaults = { local = "127.0.0.1", deploy = "0.0.0.0", desktop = "127.0.0.1" }
-help = "Network interface the backend listens on; keep localhost for desktop and local use."
+help = "Network interface the backend listens on; installed desktop requires exactly 127.0.0.1."
 
 [[settings]]
 key = "BACKEND_PORT"
@@ -627,7 +627,7 @@ key = "NATS_URL"
 group = "queue"
 label = "nats url"
 defaults = { local = "nats://127.0.0.1:42720", deploy = "nats://nats:42720", desktop = "nats://127.0.0.1:42720" }
-help = "NATS server URL used by backend, indexer, and trading runtimes for queues."
+help = "NATS server URL used by backend, indexer, and trading runtimes for queues; installed desktop requires nats://127.0.0.1:<port>."
 
 [[settings]]
 key = "NATS_STREAM_PREFIX"

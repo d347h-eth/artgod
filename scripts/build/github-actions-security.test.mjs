@@ -28,6 +28,35 @@ const sensitiveProcessGateCommands = [
     "runtime::supervisor::tests::trading_bot_node_args_disable_signal_started_inspection_exactly_once",
     "runtime::supervisor::tests::key_bearing_bot_environment_is_rebuilt_from_frozen_config",
 ];
+const desktopListenerBoundaryTestCommand =
+    "yarn test:desktop:listener-boundaries";
+const desktopListenerBoundaryStepName = "Test desktop listener boundaries";
+const desktopListenerBoundaryGateScriptName =
+    "test:desktop:listener-boundaries";
+const desktopListenerBoundaryGateCommand =
+    "node ./scripts/build/verify-staged-desktop-nats-loopback.test.mjs && node ./scripts/build/test-desktop-listener-boundaries.mjs && yarn tsx ./scripts/build/verify-desktop-backend-loopback.ts";
+const desktopBackendListenerBoundaryProbePath = path.join(
+    rootDir,
+    "scripts",
+    "build",
+    "verify-desktop-backend-loopback.ts",
+);
+const stagedNatsListenerBoundaryProbePath = path.join(
+    rootDir,
+    "scripts",
+    "build",
+    "verify-staged-desktop-nats-loopback.mjs",
+);
+const stagedNatsListenerBoundaryTestPath = path.join(
+    rootDir,
+    "scripts",
+    "build",
+    "verify-staged-desktop-nats-loopback.test.mjs",
+);
+const desktopListenerBoundaryTestSelectors = [
+    "runtime::config::tests::desktop_listener_configuration_requires_numeric_ipv4_loopback",
+    "runtime::supervisor::tests::nats_launch_binds_numeric_ipv4_loopback_and_uses_configured_store_root",
+];
 const secretPromptParentContainmentTestCommand =
     "yarn test:desktop:secret-prompt-parent-containment";
 const secretPromptParentContainmentGateScriptName =
@@ -49,9 +78,27 @@ const macosUniversalSqliteBuildStepName =
     "Build universal macOS SQLite dependency";
 const macosUniversalSqliteBuildCommand =
     "node ./scripts/build/verify-macos-universal-sqlite-build.mjs";
+const yarnArtifactCacheStepName = "Cache Yarn local artifacts";
+const macosRuntimeCachePaths = [
+    ".yarn/cache",
+    ".yarn/unplugged",
+    ".cache/desktop-node-runtime",
+    ".cache/desktop-nats-runtime",
+];
+const workspaceInstallStepName = "Install workspace dependencies";
+const macosWorkspaceInstallCommand =
+    "yarn install --immutable --mode=skip-build";
 const macosRootCargoFetchStepName = "Fetch macOS root Cargo dependencies";
 const macosRootCargoFetchCommand =
     "cargo fetch --manifest-path src-tauri/Cargo.toml --locked";
+const macosUserlandBuildStepName = "Build macOS userland frontend";
+const macosUserlandBuildCommand = "yarn build:userland";
+const macosDesktopRuntimeBuildStepName = "Build macOS desktop runtime";
+const macosDesktopRuntimeBuildCommand = "yarn build:desktop-runtime";
+const macosDesktopRuntimeStagingStepName =
+    "Stage macOS desktop runtime resources";
+const macosDesktopRuntimeStagingCommand =
+    "yarn build:desktop-runtime-resources";
 const macosPromptSidecarPrepareStepName = "Prepare macOS secret prompt sidecar";
 const macosPromptSidecarPrepareCommand =
     "node ./scripts/build/prepare-desktop-sidecars.mjs --profile debug";
@@ -65,8 +112,12 @@ const desktopNoBundleBuildScriptName = "build:desktop:no-bundle";
 const desktopNoBundleBuildCommand = "yarn build:desktop:no-bundle --debug";
 const tauriNoBundleBuildStepName = "Tauri no-bundle build check";
 const stagedRuntimeVerificationStepName =
-    "Verify staged desktop runtime dependencies";
+    "Verify staged desktop runtime resources";
 const stagedRuntimeVerificationCommand = "yarn check:desktop-runtime-resources";
+const stagedRuntimeVerificationGateCommands = [
+    "node ./scripts/build/verify-staged-desktop-runtime-dependencies.mjs",
+    "node ./scripts/build/verify-staged-desktop-nats-loopback.mjs",
+];
 const noBundleRuntimeVerificationStepName =
     "Verify no-bundle desktop runtime output";
 const noBundleRuntimeVerificationCommand =
@@ -618,6 +669,184 @@ test("runs sensitive-process hardening before the ordinary Tauri build", async (
     );
 });
 
+test("keeps desktop listener proofs in build, release, and reproducibility lanes", async () => {
+    const packageManifest = JSON.parse(
+        await readFile(packageManifestPath, "utf8"),
+    );
+    assert.equal(
+        packageManifest.scripts?.[desktopListenerBoundaryGateScriptName],
+        desktopListenerBoundaryGateCommand,
+    );
+
+    const listenerBoundarySource = await readFile(
+        path.join(
+            rootDir,
+            "scripts",
+            "build",
+            "test-desktop-listener-boundaries.mjs",
+        ),
+        "utf8",
+    );
+    for (const selector of desktopListenerBoundaryTestSelectors) {
+        assert.ok(
+            listenerBoundarySource.includes(selector),
+            `${desktopListenerBoundaryGateScriptName} omits ${selector}.`,
+        );
+    }
+    assert.match(listenerBoundarySource, /"--exact"/);
+    assert.match(listenerBoundarySource, /TAURI_CONFIG: testTauriConfig/);
+    const backendListenerBoundarySource = await readFile(
+        desktopBackendListenerBoundaryProbePath,
+        "utf8",
+    );
+    assert.match(backendListenerBoundarySource, /startBackendServer\(config\)/);
+    assert.match(backendListenerBoundarySource, /address\.address/);
+    assert.match(backendListenerBoundarySource, /address\.family/);
+    const stagedNatsListenerBoundarySource = await readFile(
+        stagedNatsListenerBoundaryProbePath,
+        "utf8",
+    );
+    assert.match(
+        stagedNatsListenerBoundarySource,
+        /const listener = await readNatsClientListener\(portsFilePath\)/,
+    );
+    assert.match(
+        stagedNatsListenerBoundarySource,
+        /await readAndValidateNatsInitialInfo\(\{/,
+    );
+    const stagedNatsListenerBoundaryTestSource = await readFile(
+        stagedNatsListenerBoundaryTestPath,
+        "utf8",
+    );
+    assert.match(
+        stagedNatsListenerBoundaryTestSource,
+        /parseAndValidateNatsInitialInfoLine\(/,
+    );
+    assert.match(
+        stagedNatsListenerBoundaryTestSource,
+        /readAndValidateNatsInitialInfo\(/,
+    );
+
+    const stagedRuntimeGate =
+        packageManifest.scripts?.["check:desktop-runtime-resources"];
+    assert.equal(typeof stagedRuntimeGate, "string");
+    let previousCommandIndex = -1;
+    for (const command of stagedRuntimeVerificationGateCommands) {
+        const commandIndex = stagedRuntimeGate.indexOf(command);
+        assert.ok(
+            commandIndex >= 0,
+            `check:desktop-runtime-resources omits ${command}.`,
+        );
+        assert.ok(
+            commandIndex > previousCommandIndex,
+            `check:desktop-runtime-resources runs ${command} out of order.`,
+        );
+        previousCommandIndex = commandIndex;
+    }
+
+    const buildCheckWorkflow = await readFile(
+        path.join(workflowsDirectory, "tauri-build-check.yml"),
+        "utf8",
+    );
+    const buildCheckJob = extractWorkflowJob(buildCheckWorkflow, "tauri-check");
+    const buildCheckStep = extractWorkflowStep(
+        buildCheckJob,
+        desktopListenerBoundaryStepName,
+    );
+    assertStepRunsCommand(buildCheckStep, desktopListenerBoundaryTestCommand);
+    assertStepIsRequired(buildCheckStep);
+    assertStepPrecedes(
+        buildCheckJob,
+        desktopListenerBoundaryStepName,
+        tauriNoBundleBuildStepName,
+    );
+
+    const releaseWorkflow = await readFile(
+        path.join(workflowsDirectory, "tauri-release.yml"),
+        "utf8",
+    );
+    const releaseBuildJob = extractWorkflowJob(releaseWorkflow, "build");
+    const releaseStep = extractWorkflowStep(
+        releaseBuildJob,
+        desktopListenerBoundaryStepName,
+    );
+    assertStepRunsCommand(releaseStep, desktopListenerBoundaryTestCommand);
+    assertStepIsRequired(releaseStep);
+    for (const buildStepName of [
+        "Build Linux Tauri bundle",
+        "Build macOS Tauri bundle",
+    ]) {
+        assertStepPrecedes(
+            releaseBuildJob,
+            desktopListenerBoundaryStepName,
+            buildStepName,
+        );
+    }
+
+    const reproducibilityWorkflow = await readFile(
+        path.join(workflowsDirectory, "tauri-repro-check.yml"),
+        "utf8",
+    );
+    const reproducibilityJob = extractWorkflowJob(
+        reproducibilityWorkflow,
+        "linux-unsigned-parity",
+    );
+    const reproducibilityStep = extractWorkflowStep(
+        reproducibilityJob,
+        desktopListenerBoundaryStepName,
+    );
+    const reproducibilityStagedRuntimeStep = extractWorkflowStep(
+        reproducibilityJob,
+        stagedRuntimeVerificationStepName,
+    );
+    assertStepRunsCommand(
+        reproducibilityStep,
+        desktopListenerBoundaryTestCommand,
+    );
+    assertStepIsRequired(reproducibilityStep);
+    assertStepPrecedes(
+        reproducibilityJob,
+        desktopListenerBoundaryStepName,
+        "Build unsigned binary (pass A)",
+    );
+    assertStepRunsCommand(
+        reproducibilityStagedRuntimeStep,
+        stagedRuntimeVerificationCommand,
+    );
+    assertStepIsRequired(reproducibilityStagedRuntimeStep);
+    assertStepPrecedes(
+        reproducibilityJob,
+        "Build unsigned binary (pass B)",
+        stagedRuntimeVerificationStepName,
+    );
+    assertStepPrecedes(
+        reproducibilityJob,
+        stagedRuntimeVerificationStepName,
+        "Compare unsigned build manifests",
+    );
+
+    const reproductionScript = await readFile(
+        path.join(
+            rootDir,
+            "scripts",
+            "build",
+            "reproduce-linux-release-docker.sh",
+        ),
+        "utf8",
+    );
+    assert.ok(
+        reproductionScript.indexOf(desktopListenerBoundaryTestCommand) >= 0,
+    );
+    assert.ok(
+        reproductionScript.indexOf(desktopListenerBoundaryTestCommand) <
+            reproductionScript.indexOf("yarn tauri build --ci"),
+    );
+    assert.ok(
+        reproductionScript.indexOf(stagedRuntimeVerificationCommand) >
+            reproductionScript.indexOf("yarn tauri build --ci"),
+    );
+});
+
 test("keeps every sensitive-process proof in the release gate alias", async () => {
     const packageManifest = JSON.parse(
         await readFile(packageManifestPath, "utf8"),
@@ -672,7 +901,7 @@ test("keeps prompt lifecycle proofs in the combined parent-containment gate", as
     );
 });
 
-test("runs prompt parent containment in an ordinary required macOS job", async () => {
+test("runs listener, runtime, and prompt proofs in an ordinary required macOS job", async () => {
     const workflow = await readFile(
         path.join(workflowsDirectory, "tauri-build-check.yml"),
         "utf8",
@@ -681,41 +910,53 @@ test("runs prompt parent containment in an ordinary required macOS job", async (
         workflow,
         macosPromptContainmentJobName,
     );
-    const rootCargoFetchStep = extractWorkflowStep(
-        macosJob,
-        macosRootCargoFetchStepName,
-    );
-    const sidecarStep = extractWorkflowStep(
-        macosJob,
-        macosPromptSidecarPrepareStepName,
-    );
-    const containmentStep = extractWorkflowStep(
-        macosJob,
-        macosPromptContainmentStepName,
-    );
+    const cacheStep = extractWorkflowStep(macosJob, yarnArtifactCacheStepName);
 
     assert.match(macosJob, /^ {8}runs-on: macos-latest$/m);
     assert.doesNotMatch(macosJob, /^ {8}if:/m);
     assert.doesNotMatch(macosJob, /^ {8}continue-on-error:/m);
-    assertStepRunsCommand(rootCargoFetchStep, macosRootCargoFetchCommand);
-    assertStepIsRequired(rootCargoFetchStep);
-    assertStepRunsCommand(sidecarStep, macosPromptSidecarPrepareCommand);
-    assertStepIsRequired(sidecarStep);
-    assertStepRunsCommand(
-        containmentStep,
-        secretPromptParentContainmentTestCommand,
+    assert.equal(
+        countOccurrences(
+            macosJob,
+            `            - name: ${yarnArtifactCacheStepName}\n`,
+        ),
+        1,
     );
-    assertStepIsRequired(containmentStep);
+    assertStepIsRequired(cacheStep);
+    for (const cachePath of macosRuntimeCachePaths) {
+        assert.equal(countOccurrences(cacheStep, cachePath), 1);
+    }
+
+    const requiredCommandSteps = [
+        [workspaceInstallStepName, macosWorkspaceInstallCommand],
+        [macosUniversalSqliteBuildStepName, macosUniversalSqliteBuildCommand],
+        [macosRootCargoFetchStepName, macosRootCargoFetchCommand],
+        [desktopListenerBoundaryStepName, desktopListenerBoundaryTestCommand],
+        [macosUserlandBuildStepName, macosUserlandBuildCommand],
+        [macosDesktopRuntimeBuildStepName, macosDesktopRuntimeBuildCommand],
+        [macosDesktopRuntimeStagingStepName, macosDesktopRuntimeStagingCommand],
+        [stagedRuntimeVerificationStepName, stagedRuntimeVerificationCommand],
+        [macosPromptSidecarPrepareStepName, macosPromptSidecarPrepareCommand],
+        [
+            macosPromptContainmentStepName,
+            secretPromptParentContainmentTestCommand,
+        ],
+    ];
+    for (const [stepName, command] of requiredCommandSteps) {
+        assertRequiredCommandStepExactlyOnce(macosJob, stepName, command);
+    }
     assertStepPrecedes(
         macosJob,
-        macosPromptSidecarPrepareStepName,
-        macosPromptContainmentStepName,
+        yarnArtifactCacheStepName,
+        workspaceInstallStepName,
     );
-    assertStepPrecedes(
-        macosJob,
-        macosRootCargoFetchStepName,
-        macosPromptContainmentStepName,
-    );
+    for (let index = 1; index < requiredCommandSteps.length; index += 1) {
+        assertStepPrecedes(
+            macosJob,
+            requiredCommandSteps[index - 1][0],
+            requiredCommandSteps[index][0],
+        );
+    }
 });
 
 test("runs release containment on both build platforms before artifacts leave the job", async () => {
@@ -885,6 +1126,22 @@ function assertStepRunsCommand(step, command) {
         step,
         new RegExp(`^ {14}run: ${escapeRegExp(command)}\\s*$`, "m"),
     );
+}
+
+function assertRequiredCommandStepExactlyOnce(jobSource, stepName, command) {
+    assert.equal(
+        countOccurrences(jobSource, `            - name: ${stepName}\n`),
+        1,
+        `Workflow step ${stepName} must occur exactly once.`,
+    );
+    assert.equal(
+        countOccurrences(jobSource, `              run: ${command}\n`),
+        1,
+        `Workflow command ${command} must occur exactly once.`,
+    );
+    const step = extractWorkflowStep(jobSource, stepName);
+    assertStepRunsCommand(step, command);
+    assertStepIsRequired(step);
 }
 
 function assertStepIsRequired(step) {

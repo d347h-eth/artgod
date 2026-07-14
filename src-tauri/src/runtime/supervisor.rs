@@ -21,7 +21,9 @@ use crate::runtime::bot_runtime::{
     BOT_RUNTIME_SPECS, BotCriticalDependencyStatus, BotRuntimeSnapshot, BotRuntimeState,
     bot_runtime_spec,
 };
-use crate::runtime::config::{BotRuntimeLaunchConfig, DesktopRuntimeConfig};
+use crate::runtime::config::{
+    BotRuntimeLaunchConfig, DESKTOP_IPV4_LOOPBACK_HOST, DesktopRuntimeConfig,
+};
 use crate::runtime::process_registry::{
     BACKEND_ARTIFACT, BACKEND_PROCESS_NAME, INDEXER_WORKERS, NATS_PROCESS_NAME,
     SUPERVISOR_PROCESS_NAME,
@@ -30,6 +32,8 @@ use crate::wallet::domain::BotKind;
 
 /// Enables JetStream for the embedded NATS server.
 const NATS_JETSTREAM_ENABLE_ARG: &str = "-js";
+/// NATS client-listener bind flag used by the embedded runtime supervisor.
+const NATS_CLIENT_BIND_ARG: &str = "--addr";
 /// NATS server port flag used by the embedded runtime supervisor.
 const NATS_PORT_ARG: &str = "-p";
 /// NATS server storage flag that keeps JetStream data inside app-data.
@@ -2183,7 +2187,7 @@ fn spawn_runtime_processes(
         "Waiting for backend API port binding",
     );
     if let Err(error) = wait_for_port(
-        "127.0.0.1",
+        DESKTOP_IPV4_LOOPBACK_HOST,
         config.backend_port,
         STARTUP_PORT_TIMEOUT,
         "Backend API",
@@ -2307,6 +2311,8 @@ fn spawn_nats_process(
 fn build_nats_process_args(config: &DesktopRuntimeConfig) -> Vec<String> {
     vec![
         NATS_JETSTREAM_ENABLE_ARG.to_owned(),
+        NATS_CLIENT_BIND_ARG.to_owned(),
+        config.nats_host.clone(),
         NATS_PORT_ARG.to_owned(),
         config.nats_port.to_string(),
         NATS_STORE_DIR_ARG.to_owned(),
@@ -2826,7 +2832,7 @@ fn wait_for_backend_runtime_health(
 }
 
 fn probe_backend_runtime_health(backend_port: u16) -> Result<bool, String> {
-    let addr = SocketAddr::from(([127, 0, 0, 1], backend_port));
+    let addr = SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, backend_port));
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(250))
         .map_err(|error| format!("connect failed: {error}"))?;
     stream
@@ -2837,7 +2843,7 @@ fn probe_backend_runtime_health(backend_port: u16) -> Result<bool, String> {
         .map_err(|error| format!("set write timeout failed: {error}"))?;
 
     let request = format!(
-        "GET /health/runtime HTTP/1.1\r\nHost: 127.0.0.1:{backend_port}\r\nConnection: close\r\n\r\n"
+        "GET /health/runtime HTTP/1.1\r\nHost: {DESKTOP_IPV4_LOOPBACK_HOST}:{backend_port}\r\nConnection: close\r\n\r\n"
     );
     stream
         .write_all(request.as_bytes())
@@ -2976,9 +2982,9 @@ mod tests {
             nats_bin: PathBuf::from("/runtime/nats/nats-server"),
             nats_store_dir: app_data_dir.join(NATS_STORAGE_DIR_NAME),
             runtime_dir: PathBuf::from("/runtime"),
-            nats_host: "127.0.0.1".to_owned(),
+            nats_host: DESKTOP_IPV4_LOOPBACK_HOST.to_owned(),
             nats_port: 42720,
-            nats_url: "nats://127.0.0.1:42720".to_owned(),
+            nats_url: format!("nats://{DESKTOP_IPV4_LOOPBACK_HOST}:42720"),
             backend_port: 42710,
             chain_id: 1,
             auto_start: true,
@@ -3071,10 +3077,11 @@ mod tests {
     }
 
     #[test]
-    fn nats_launch_uses_configured_store_root_dir() {
+    fn nats_launch_binds_numeric_ipv4_loopback_and_uses_configured_store_root() {
         let config = build_test_runtime_config();
         let args = build_nats_process_args(&config);
 
+        assert_eq!(config.nats_host, DESKTOP_IPV4_LOOPBACK_HOST);
         assert_eq!(
             config.nats_store_dir,
             PathBuf::from("/app-data").join(NATS_STORAGE_DIR_NAME)
@@ -3083,6 +3090,8 @@ mod tests {
             args,
             vec![
                 NATS_JETSTREAM_ENABLE_ARG.to_owned(),
+                NATS_CLIENT_BIND_ARG.to_owned(),
+                DESKTOP_IPV4_LOOPBACK_HOST.to_owned(),
                 NATS_PORT_ARG.to_owned(),
                 config.nats_port.to_string(),
                 NATS_STORE_DIR_ARG.to_owned(),

@@ -169,6 +169,9 @@ jobs:
               if: runner.os == 'Linux'
               run: yarn test:desktop:admin-manifest
 
+            - name: Test desktop listener boundaries
+              run: yarn test:desktop:listener-boundaries
+
             - name: Test release sensitive process hardening
               run: yarn test:desktop:sensitive-process
 
@@ -267,7 +270,7 @@ jobs:
                   test ! -e "$CERT_PATH"
                   test ! -e "$KEYCHAIN_PATH"
 
-            - name: Verify staged desktop runtime dependencies
+            - name: Verify staged desktop runtime resources
               run: yarn check:desktop-runtime-resources
 
             - name: Verify Linux bundled runtime integrity

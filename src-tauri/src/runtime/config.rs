@@ -1,12 +1,16 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Component, Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
 
 use super::app_config::{ensure_desktop_config_paths, load_or_materialize_process_env};
 use super::bot_runtime::BotRuntimeSpec;
-use super::env_keys::{COMMON_MEDIA_CACHE_DIR_ENV_KEY, RPC_ENDPOINT_LIST_ENV_KEY};
+use super::env_keys::{
+    BACKEND_HOST_ENV_KEY, COMMON_MEDIA_CACHE_DIR_ENV_KEY, NATS_URL_ENV_KEY,
+    RPC_ENDPOINT_LIST_ENV_KEY,
+};
 use super::http_fetch_resilience::HttpFetchResilienceConfig;
 #[cfg(target_os = "linux")]
 use super::resource_contract::LINUX_SHARED_DATA_DIR_NAME;
@@ -51,6 +55,9 @@ pub(crate) struct BotRuntimeLaunchConfig {
 
 /// App-data child directory passed as the embedded NATS store root.
 pub(crate) const NATS_STORAGE_DIR_NAME: &str = "nats";
+
+/// Numeric loopback address owned by the installed desktop runtime boundary.
+pub(crate) const DESKTOP_IPV4_LOOPBACK_HOST: &str = "127.0.0.1";
 
 #[derive(Clone, Debug)]
 pub struct DesktopRuntimeCapabilities {
@@ -113,6 +120,10 @@ impl DesktopRuntimeConfig {
             "Desktop NATS binary",
         )?;
         let nats_store_dir = build_nats_store_dir(&app_data_dir)?;
+        let backend_host = parse_desktop_ipv4_loopback_host(
+            get_required(&process_env, BACKEND_HOST_ENV_KEY)?,
+            BACKEND_HOST_ENV_KEY,
+        )?;
         let backend_port = parse_port(get_required(&process_env, "BACKEND_PORT")?)?;
         let chain_id = parse_u64(get_required(&process_env, "CHAIN_ID")?)?;
         let auto_start = parse_bool(get_required(&process_env, "DESKTOP_AUTO_START")?)?;
@@ -124,8 +135,8 @@ impl DesktopRuntimeConfig {
 
         // Core runtime env is required for backend/indexer startup.
         get_required(&process_env, "ARTGOD_DB_PATH")?;
-        let nats_url = get_required(&process_env, "NATS_URL")?.to_owned();
-        let (nats_host, nats_port) = parse_nats_url(&nats_url)?;
+        let (nats_host, nats_port) = parse_nats_url(get_required(&process_env, NATS_URL_ENV_KEY)?)?;
+        let nats_url = format!("nats://{nats_host}:{nats_port}");
         get_required(&process_env, RPC_ENDPOINT_LIST_ENV_KEY)?;
         get_required(&process_env, "WETH_ADDRESS")?;
         get_required(&process_env, "SEAPORT_CONDUIT_CONTROLLER")?;
@@ -188,7 +199,9 @@ impl DesktopRuntimeConfig {
             "USERLAND_UI_DIST_DIR".to_owned(),
             userland_ui_dist_dir.to_string_lossy().into_owned(),
         );
+        merged_env.insert(BACKEND_HOST_ENV_KEY.to_owned(), backend_host);
         merged_env.insert("BACKEND_PORT".to_owned(), backend_port.to_string());
+        merged_env.insert(NATS_URL_ENV_KEY.to_owned(), nats_url.clone());
 
         Ok(Self {
             env_file_path,
@@ -212,7 +225,7 @@ impl DesktopRuntimeConfig {
     }
 
     pub fn backend_http_base_url(&self) -> String {
-        format!("http://127.0.0.1:{}", self.backend_port)
+        format!("http://{DESKTOP_IPV4_LOOPBACK_HOST}:{}", self.backend_port)
     }
 
     pub fn nats_url(&self) -> String {
@@ -385,13 +398,13 @@ fn parse_port(raw: &str) -> Result<u16, String> {
 
 fn parse_nats_url(raw: &str) -> Result<(String, u16), String> {
     let trimmed = raw.trim();
-    let without_scheme = trimmed
-        .strip_prefix("nats://")
-        .ok_or_else(|| format!("Invalid NATS_URL \"{raw}\": expected nats://<host>:<port>"))?;
+    let without_scheme = trimmed.strip_prefix("nats://").ok_or_else(|| {
+        format!("Invalid {NATS_URL_ENV_KEY} \"{raw}\": expected nats://<host>:<port>")
+    })?;
     let authority = without_scheme.split('/').next().unwrap_or("").trim();
     if authority.is_empty() {
         return Err(format!(
-            "Invalid NATS_URL \"{raw}\": missing authority section",
+            "Invalid {NATS_URL_ENV_KEY} \"{raw}\": missing authority section",
         ));
     }
 
@@ -403,41 +416,49 @@ fn parse_nats_url(raw: &str) -> Result<(String, u16), String> {
     let (host, raw_port) = if let Some(rest) = host_port.strip_prefix('[') {
         let Some(end_idx) = rest.find(']') else {
             return Err(format!(
-                "Invalid NATS_URL \"{raw}\": malformed IPv6 host segment",
+                "Invalid {NATS_URL_ENV_KEY} \"{raw}\": malformed IPv6 host segment",
             ));
         };
         let host = &rest[..end_idx];
         let after = &rest[end_idx + 1..];
         let Some(raw_port) = after.strip_prefix(':') else {
             return Err(format!(
-                "Invalid NATS_URL \"{raw}\": missing port after IPv6 host",
+                "Invalid {NATS_URL_ENV_KEY} \"{raw}\": missing port after IPv6 host",
             ));
         };
         (host.trim(), raw_port.trim())
     } else {
         let Some((host, raw_port)) = host_port.rsplit_once(':') else {
-            return Err(format!("Invalid NATS_URL \"{raw}\": missing host or port",));
+            return Err(format!(
+                "Invalid {NATS_URL_ENV_KEY} \"{raw}\": missing host or port",
+            ));
         };
         (host.trim(), raw_port.trim())
     };
 
     if host.is_empty() {
-        return Err(format!("Invalid NATS_URL \"{raw}\": host is empty"));
-    }
-    if !is_loopback_host(host) {
         return Err(format!(
-            "Invalid NATS_URL \"{raw}\": desktop runtime requires loopback host (localhost, 127.0.0.1, ::1)",
+            "Invalid {NATS_URL_ENV_KEY} \"{raw}\": host is empty"
         ));
     }
+    let host = parse_desktop_ipv4_loopback_host(host, NATS_URL_ENV_KEY)?;
     let port = parse_port(raw_port)?;
-    Ok((host.to_owned(), port))
+    Ok((host, port))
 }
 
-fn is_loopback_host(host: &str) -> bool {
-    matches!(
-        host.to_ascii_lowercase().as_str(),
-        "localhost" | "127.0.0.1" | "::1"
-    )
+fn parse_desktop_ipv4_loopback_host(raw: &str, setting_key: &str) -> Result<String, String> {
+    let normalized = raw.trim();
+    let parsed = normalized.parse::<IpAddr>().map_err(|_| {
+        format!(
+            "Invalid {setting_key} host \"{raw}\": desktop runtime requires numeric IPv4 loopback {DESKTOP_IPV4_LOOPBACK_HOST}",
+        )
+    })?;
+    if parsed != IpAddr::V4(Ipv4Addr::LOCALHOST) {
+        return Err(format!(
+            "Invalid {setting_key} host \"{raw}\": desktop runtime requires numeric IPv4 loopback {DESKTOP_IPV4_LOOPBACK_HOST}",
+        ));
+    }
+    Ok(DESKTOP_IPV4_LOOPBACK_HOST.to_owned())
 }
 
 fn parse_u64(raw: &str) -> Result<u64, String> {
@@ -628,9 +649,9 @@ mod tests {
             nats_bin,
             nats_store_dir: app_data_dir.join(NATS_STORAGE_DIR_NAME),
             runtime_dir: runtime_dir.clone(),
-            nats_host: "127.0.0.1".to_owned(),
+            nats_host: DESKTOP_IPV4_LOOPBACK_HOST.to_owned(),
             nats_port: 42720,
-            nats_url: "nats://127.0.0.1:42720".to_owned(),
+            nats_url: format!("nats://{DESKTOP_IPV4_LOOPBACK_HOST}:42720"),
             backend_port: 42710,
             chain_id: 1,
             auto_start: true,
@@ -702,6 +723,56 @@ mod tests {
 
         assert_eq!(store_dir, temp.path().join(NATS_STORAGE_DIR_NAME));
         assert!(store_dir.exists());
+    }
+
+    #[test]
+    fn desktop_listener_configuration_requires_numeric_ipv4_loopback() {
+        assert_eq!(
+            parse_desktop_ipv4_loopback_host(DESKTOP_IPV4_LOOPBACK_HOST, BACKEND_HOST_ENV_KEY)
+                .expect("numeric IPv4 loopback backend host should parse"),
+            DESKTOP_IPV4_LOOPBACK_HOST
+        );
+        assert_eq!(
+            parse_nats_url(&format!("nats://{DESKTOP_IPV4_LOOPBACK_HOST}:42720"))
+                .expect("numeric IPv4 loopback NATS URL should parse"),
+            (DESKTOP_IPV4_LOOPBACK_HOST.to_owned(), 42720)
+        );
+
+        for rejected_host in [
+            "localhost",
+            "::1",
+            "0.0.0.0",
+            "::",
+            "192.168.1.25",
+            "nats.internal",
+        ] {
+            let backend_error =
+                parse_desktop_ipv4_loopback_host(rejected_host, BACKEND_HOST_ENV_KEY)
+                    .expect_err("non-canonical backend listener host should be rejected");
+            assert!(backend_error.contains(BACKEND_HOST_ENV_KEY));
+            assert!(backend_error.contains(DESKTOP_IPV4_LOOPBACK_HOST));
+
+            let nats_host = if rejected_host.contains(':') {
+                format!("[{rejected_host}]")
+            } else {
+                rejected_host.to_owned()
+            };
+            let nats_error = parse_nats_url(&format!("nats://{nats_host}:42720"))
+                .expect_err("non-canonical NATS listener host should be rejected");
+            assert!(nats_error.contains(NATS_URL_ENV_KEY));
+            assert!(nats_error.contains(DESKTOP_IPV4_LOOPBACK_HOST));
+        }
+
+        for malformed_url in [
+            format!("http://{DESKTOP_IPV4_LOOPBACK_HOST}:42720"),
+            format!("nats://{DESKTOP_IPV4_LOOPBACK_HOST}"),
+            format!("nats://{DESKTOP_IPV4_LOOPBACK_HOST}:not-a-port"),
+        ] {
+            assert!(
+                parse_nats_url(&malformed_url).is_err(),
+                "malformed NATS URL should be rejected: {malformed_url}"
+            );
+        }
     }
 
     #[test]

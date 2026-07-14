@@ -89,6 +89,17 @@ Workflow policy:
   requests, pushes to `main`, and manual dispatch. Its required macOS job runs
   the real universal `better-sqlite3` cross-build and `lipo` verification before
   any release tag.
+- Build, release, and reproducibility lanes run
+  `yarn test:desktop:listener-boundaries` before packaging. After staging, they
+  run `yarn check:desktop-runtime-resources`. The first gate executes exact Rust
+  listener-configuration and NATS launch-argument tests plus the real backend
+  listener path. The second executes the real bundled NATS and requires its
+  ports file and initial client `INFO` frame to agree on the exact numeric IPv4
+  loopback listener and valid port before accepting a live connection, in
+  addition to the bundled Node/native-dependency smoke tests.
+- The ordinary required macOS build-check job runs both listener gates before
+  prompt containment, so pull requests exercise the host-specific listener
+  behavior without waiting for a release tag.
 - `.github/workflows/tauri-release.yml` builds on pushed `v*` tags. Its manual
   dispatch path only resumes delayed macOS notarization from an existing tag
   run; it does not rebuild or create another Apple submission.
@@ -517,6 +528,8 @@ GitHub Environment. Before the first run:
 7. Confirm both release-key fingerprints in the root README are also published
    on the selected maintainer-controlled profiles.
 8. Confirm the build check for the exact `main` commit is green.
+   The required listener-boundary and staged NATS socket proofs must pass; do
+   not accept a missing-resource or unavailable-socket skip.
 
 After the version commit is merged to `main`, prepare a dry run from that exact
 commit:
