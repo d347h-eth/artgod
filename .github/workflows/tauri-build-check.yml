@@ -122,6 +122,18 @@ jobs:
             - name: Enable Corepack
               run: corepack enable
 
+            - name: Cache Yarn local artifacts
+              uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+              with:
+                  path: |
+                      .yarn/cache
+                      .yarn/unplugged
+                      .cache/desktop-node-runtime
+                      .cache/desktop-nats-runtime
+                  key: ${{ runner.os }}-yarn-local-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
+                  restore-keys: |
+                      ${{ runner.os }}-yarn-local-
+
             - name: Setup Rust
               uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-07-10
               with:
@@ -135,6 +147,21 @@ jobs:
 
             - name: Fetch macOS root Cargo dependencies
               run: cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+
+            - name: Test desktop listener boundaries
+              run: yarn test:desktop:listener-boundaries
+
+            - name: Build macOS userland frontend
+              run: yarn build:userland
+
+            - name: Build macOS desktop runtime
+              run: yarn build:desktop-runtime
+
+            - name: Stage macOS desktop runtime resources
+              run: yarn build:desktop-runtime-resources
+
+            - name: Verify staged desktop runtime resources
+              run: yarn check:desktop-runtime-resources
 
             - name: Prepare macOS secret prompt sidecar
               run: node ./scripts/build/prepare-desktop-sidecars.mjs --profile debug

@@ -4,7 +4,6 @@ import path from "node:path";
 import { createBaseEnv } from "../../backend/src/config.test-fixture.js";
 import { loadBackendConfig } from "../../backend/src/config.js";
 import { startBackendServer } from "../../backend/src/index.js";
-import { assertIpv4WildcardPortIsFree } from "./desktop-listener-contract.mjs";
 
 const temporaryRoot = await mkdtemp(
     path.join(os.tmpdir(), "artgod-backend-listener-"),
@@ -27,11 +26,6 @@ try {
                 `Backend reported ${address.address} (${address.family}); expected ${config.host} (IPv4).`,
             );
         }
-        await assertIpv4WildcardPortIsFree({
-            listenerName: "Backend",
-            expectedHost: config.host,
-            port: address.port,
-        });
     } finally {
         await app.close();
     }

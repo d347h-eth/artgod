@@ -120,7 +120,7 @@ await verifyStagedDesktopRuntimeDependencies({
     resourcesRootDir,
     nodeBinaryPath: bundledNodeBinaryPath,
 });
-// Prove the bundled NATS client socket cannot claim an IPv4 wildcard.
+// Prove the bundled NATS reports and serves the numeric IPv4 loopback listener.
 await verifyStagedDesktopNatsLoopbackBinding({
     natsBinaryPath: bundledNatsBinaryPath,
 });

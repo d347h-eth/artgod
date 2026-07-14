@@ -34,12 +34,24 @@ const desktopListenerBoundaryStepName = "Test desktop listener boundaries";
 const desktopListenerBoundaryGateScriptName =
     "test:desktop:listener-boundaries";
 const desktopListenerBoundaryGateCommand =
-    "node ./scripts/build/test-desktop-listener-boundaries.mjs && yarn tsx ./scripts/build/verify-desktop-backend-loopback.ts";
+    "node ./scripts/build/verify-staged-desktop-nats-loopback.test.mjs && node ./scripts/build/test-desktop-listener-boundaries.mjs && yarn tsx ./scripts/build/verify-desktop-backend-loopback.ts";
 const desktopBackendListenerBoundaryProbePath = path.join(
     rootDir,
     "scripts",
     "build",
     "verify-desktop-backend-loopback.ts",
+);
+const stagedNatsListenerBoundaryProbePath = path.join(
+    rootDir,
+    "scripts",
+    "build",
+    "verify-staged-desktop-nats-loopback.mjs",
+);
+const stagedNatsListenerBoundaryTestPath = path.join(
+    rootDir,
+    "scripts",
+    "build",
+    "verify-staged-desktop-nats-loopback.test.mjs",
 );
 const desktopListenerBoundaryTestSelectors = [
     "runtime::config::tests::desktop_listener_configuration_requires_numeric_ipv4_loopback",
@@ -66,9 +78,27 @@ const macosUniversalSqliteBuildStepName =
     "Build universal macOS SQLite dependency";
 const macosUniversalSqliteBuildCommand =
     "node ./scripts/build/verify-macos-universal-sqlite-build.mjs";
+const yarnArtifactCacheStepName = "Cache Yarn local artifacts";
+const macosRuntimeCachePaths = [
+    ".yarn/cache",
+    ".yarn/unplugged",
+    ".cache/desktop-node-runtime",
+    ".cache/desktop-nats-runtime",
+];
+const workspaceInstallStepName = "Install workspace dependencies";
+const macosWorkspaceInstallCommand =
+    "yarn install --immutable --mode=skip-build";
 const macosRootCargoFetchStepName = "Fetch macOS root Cargo dependencies";
 const macosRootCargoFetchCommand =
     "cargo fetch --manifest-path src-tauri/Cargo.toml --locked";
+const macosUserlandBuildStepName = "Build macOS userland frontend";
+const macosUserlandBuildCommand = "yarn build:userland";
+const macosDesktopRuntimeBuildStepName = "Build macOS desktop runtime";
+const macosDesktopRuntimeBuildCommand = "yarn build:desktop-runtime";
+const macosDesktopRuntimeStagingStepName =
+    "Stage macOS desktop runtime resources";
+const macosDesktopRuntimeStagingCommand =
+    "yarn build:desktop-runtime-resources";
 const macosPromptSidecarPrepareStepName = "Prepare macOS secret prompt sidecar";
 const macosPromptSidecarPrepareCommand =
     "node ./scripts/build/prepare-desktop-sidecars.mjs --profile debug";
@@ -671,7 +701,31 @@ test("keeps desktop listener proofs in build, release, and reproducibility lanes
     );
     assert.match(backendListenerBoundarySource, /startBackendServer\(config\)/);
     assert.match(backendListenerBoundarySource, /address\.address/);
-    assert.match(backendListenerBoundarySource, /assertIpv4WildcardPortIsFree/);
+    assert.match(backendListenerBoundarySource, /address\.family/);
+    const stagedNatsListenerBoundarySource = await readFile(
+        stagedNatsListenerBoundaryProbePath,
+        "utf8",
+    );
+    assert.match(
+        stagedNatsListenerBoundarySource,
+        /const listener = await readNatsClientListener\(portsFilePath\)/,
+    );
+    assert.match(
+        stagedNatsListenerBoundarySource,
+        /await readAndValidateNatsInitialInfo\(\{/,
+    );
+    const stagedNatsListenerBoundaryTestSource = await readFile(
+        stagedNatsListenerBoundaryTestPath,
+        "utf8",
+    );
+    assert.match(
+        stagedNatsListenerBoundaryTestSource,
+        /parseAndValidateNatsInitialInfoLine\(/,
+    );
+    assert.match(
+        stagedNatsListenerBoundaryTestSource,
+        /readAndValidateNatsInitialInfo\(/,
+    );
 
     const stagedRuntimeGate =
         packageManifest.scripts?.["check:desktop-runtime-resources"];
@@ -847,7 +901,7 @@ test("keeps prompt lifecycle proofs in the combined parent-containment gate", as
     );
 });
 
-test("runs prompt parent containment in an ordinary required macOS job", async () => {
+test("runs listener, runtime, and prompt proofs in an ordinary required macOS job", async () => {
     const workflow = await readFile(
         path.join(workflowsDirectory, "tauri-build-check.yml"),
         "utf8",
@@ -856,41 +910,53 @@ test("runs prompt parent containment in an ordinary required macOS job", async (
         workflow,
         macosPromptContainmentJobName,
     );
-    const rootCargoFetchStep = extractWorkflowStep(
-        macosJob,
-        macosRootCargoFetchStepName,
-    );
-    const sidecarStep = extractWorkflowStep(
-        macosJob,
-        macosPromptSidecarPrepareStepName,
-    );
-    const containmentStep = extractWorkflowStep(
-        macosJob,
-        macosPromptContainmentStepName,
-    );
+    const cacheStep = extractWorkflowStep(macosJob, yarnArtifactCacheStepName);
 
     assert.match(macosJob, /^ {8}runs-on: macos-latest$/m);
     assert.doesNotMatch(macosJob, /^ {8}if:/m);
     assert.doesNotMatch(macosJob, /^ {8}continue-on-error:/m);
-    assertStepRunsCommand(rootCargoFetchStep, macosRootCargoFetchCommand);
-    assertStepIsRequired(rootCargoFetchStep);
-    assertStepRunsCommand(sidecarStep, macosPromptSidecarPrepareCommand);
-    assertStepIsRequired(sidecarStep);
-    assertStepRunsCommand(
-        containmentStep,
-        secretPromptParentContainmentTestCommand,
+    assert.equal(
+        countOccurrences(
+            macosJob,
+            `            - name: ${yarnArtifactCacheStepName}\n`,
+        ),
+        1,
     );
-    assertStepIsRequired(containmentStep);
+    assertStepIsRequired(cacheStep);
+    for (const cachePath of macosRuntimeCachePaths) {
+        assert.equal(countOccurrences(cacheStep, cachePath), 1);
+    }
+
+    const requiredCommandSteps = [
+        [workspaceInstallStepName, macosWorkspaceInstallCommand],
+        [macosUniversalSqliteBuildStepName, macosUniversalSqliteBuildCommand],
+        [macosRootCargoFetchStepName, macosRootCargoFetchCommand],
+        [desktopListenerBoundaryStepName, desktopListenerBoundaryTestCommand],
+        [macosUserlandBuildStepName, macosUserlandBuildCommand],
+        [macosDesktopRuntimeBuildStepName, macosDesktopRuntimeBuildCommand],
+        [macosDesktopRuntimeStagingStepName, macosDesktopRuntimeStagingCommand],
+        [stagedRuntimeVerificationStepName, stagedRuntimeVerificationCommand],
+        [macosPromptSidecarPrepareStepName, macosPromptSidecarPrepareCommand],
+        [
+            macosPromptContainmentStepName,
+            secretPromptParentContainmentTestCommand,
+        ],
+    ];
+    for (const [stepName, command] of requiredCommandSteps) {
+        assertRequiredCommandStepExactlyOnce(macosJob, stepName, command);
+    }
     assertStepPrecedes(
         macosJob,
-        macosPromptSidecarPrepareStepName,
-        macosPromptContainmentStepName,
+        yarnArtifactCacheStepName,
+        workspaceInstallStepName,
     );
-    assertStepPrecedes(
-        macosJob,
-        macosRootCargoFetchStepName,
-        macosPromptContainmentStepName,
-    );
+    for (let index = 1; index < requiredCommandSteps.length; index += 1) {
+        assertStepPrecedes(
+            macosJob,
+            requiredCommandSteps[index - 1][0],
+            requiredCommandSteps[index][0],
+        );
+    }
 });
 
 test("runs release containment on both build platforms before artifacts leave the job", async () => {
@@ -1060,6 +1126,22 @@ function assertStepRunsCommand(step, command) {
         step,
         new RegExp(`^ {14}run: ${escapeRegExp(command)}\\s*$`, "m"),
     );
+}
+
+function assertRequiredCommandStepExactlyOnce(jobSource, stepName, command) {
+    assert.equal(
+        countOccurrences(jobSource, `            - name: ${stepName}\n`),
+        1,
+        `Workflow step ${stepName} must occur exactly once.`,
+    );
+    assert.equal(
+        countOccurrences(jobSource, `              run: ${command}\n`),
+        1,
+        `Workflow command ${command} must occur exactly once.`,
+    );
+    const step = extractWorkflowStep(jobSource, stepName);
+    assertStepRunsCommand(step, command);
+    assertStepIsRequired(step);
 }
 
 function assertStepIsRequired(step) {

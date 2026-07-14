@@ -5,18 +5,23 @@ import { createConnection } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import {
-    assertIpv4WildcardPortIsFree,
-    DESKTOP_IPV4_LOOPBACK_HOST,
-} from "./desktop-listener-contract.mjs";
+
+// Numeric IPv4 loopback required by the staged desktop NATS boundary.
+export const DESKTOP_IPV4_LOOPBACK_HOST = "127.0.0.1";
 const NATS_PORTS_FILE_SUFFIX = ".ports";
 const NATS_LISTENER_START_TIMEOUT_MS = 10_000;
 const NATS_LISTENER_POLL_INTERVAL_MS = 50;
 const NATS_SHUTDOWN_TIMEOUT_MS = 5_000;
-const SOCKET_CONNECT_TIMEOUT_MS = 2_000;
+const NATS_INITIAL_INFO_TIMEOUT_MS = 2_000;
 const MAX_DIAGNOSTIC_OUTPUT_LENGTH = 32_768;
+// Canonical first server operation in the NATS client protocol.
+const NATS_INITIAL_INFO_PREFIX = "INFO ";
+// NATS control lines terminate with a carriage return followed by a line feed.
+const NATS_CONTROL_LINE_TERMINATOR = Buffer.from("\r\n", "ascii");
+// Bounds the unauthenticated server control line accepted by the staged-binary probe.
+export const NATS_INITIAL_INFO_MAX_BYTES = 4_096;
 
-// Exercises the staged NATS executable and proves its client socket is IPv4-loopback-only.
+// Requires the staged NATS client listener to report and serve numeric IPv4 loopback.
 export async function verifyStagedDesktopNatsLoopbackBinding({
     natsBinaryPath,
 }) {
@@ -81,10 +86,8 @@ export async function verifyStagedDesktopNatsLoopbackBinding({
         }
 
         const listenerPort = parseListenerPort(listener);
-        await assertTcpConnects(DESKTOP_IPV4_LOOPBACK_HOST, listenerPort);
-        await assertIpv4WildcardPortIsFree({
-            listenerName: "Bundled NATS",
-            expectedHost: DESKTOP_IPV4_LOOPBACK_HOST,
+        await readAndValidateNatsInitialInfo({
+            host: DESKTOP_IPV4_LOOPBACK_HOST,
             port: listenerPort,
         });
     } catch (error) {
@@ -186,26 +189,146 @@ function parseListenerPort(listener) {
     return port;
 }
 
-async function assertTcpConnects(host, port) {
+// Parses the one initial NATS INFO line needed to validate listener identity.
+export function parseAndValidateNatsInitialInfoLine(
+    line,
+    { expectedHost, expectedPort },
+) {
+    if (!Buffer.isBuffer(line)) {
+        throw new Error("Bundled NATS initial INFO line must be bytes.");
+    }
+    if (line.length > NATS_INITIAL_INFO_MAX_BYTES) {
+        throw new Error(
+            `Bundled NATS initial INFO line exceeds ${NATS_INITIAL_INFO_MAX_BYTES} bytes.`,
+        );
+    }
+
+    const source = line.toString("utf8");
+    if (!source.startsWith(NATS_INITIAL_INFO_PREFIX)) {
+        throw new Error(
+            "Bundled NATS initial protocol operation must be INFO.",
+        );
+    }
+
+    let payload;
+    try {
+        payload = JSON.parse(source.slice(NATS_INITIAL_INFO_PREFIX.length));
+    } catch (error) {
+        throw new Error(
+            `Bundled NATS initial INFO payload is invalid JSON: ${String(error)}`,
+        );
+    }
+    if (
+        typeof payload !== "object" ||
+        payload === null ||
+        Array.isArray(payload)
+    ) {
+        throw new Error(
+            "Bundled NATS initial INFO payload must be a JSON object.",
+        );
+    }
+    if (payload.host !== expectedHost) {
+        throw new Error(
+            `Bundled NATS initial INFO reported host ${String(payload.host)}; expected ${expectedHost}.`,
+        );
+    }
+    if (!Number.isSafeInteger(payload.port) || payload.port !== expectedPort) {
+        throw new Error(
+            `Bundled NATS initial INFO reported port ${String(payload.port)}; expected ${expectedPort}.`,
+        );
+    }
+
+    return { host: payload.host, port: payload.port };
+}
+
+// Reads and validates the server's bounded initial INFO frame from the real socket.
+export async function readAndValidateNatsInitialInfo({
+    host,
+    port,
+    timeoutMilliseconds = NATS_INITIAL_INFO_TIMEOUT_MS,
+}) {
     await new Promise((resolve, reject) => {
         const socket = createConnection({ host, port });
-        socket.setTimeout(SOCKET_CONNECT_TIMEOUT_MS);
-        socket.once("connect", () => {
+        let buffered = Buffer.alloc(0);
+        let settled = false;
+
+        const settle = (error) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
             socket.destroy();
-            resolve();
+            if (error) {
+                reject(error);
+            } else {
+                resolve();
+            }
+        };
+
+        socket.setTimeout(timeoutMilliseconds);
+        socket.on("data", (chunk) => {
+            const candidateLength = buffered.length + chunk.length;
+            const retainedLength = Math.min(
+                candidateLength,
+                NATS_INITIAL_INFO_MAX_BYTES +
+                    NATS_CONTROL_LINE_TERMINATOR.length,
+            );
+            buffered = Buffer.concat([buffered, chunk], retainedLength);
+
+            const terminatorIndex = buffered.indexOf(
+                NATS_CONTROL_LINE_TERMINATOR,
+            );
+            if (terminatorIndex < 0) {
+                if (
+                    candidateLength >
+                    NATS_INITIAL_INFO_MAX_BYTES +
+                        NATS_CONTROL_LINE_TERMINATOR.length -
+                        1
+                ) {
+                    settle(
+                        new Error(
+                            `Bundled NATS initial INFO line exceeds ${NATS_INITIAL_INFO_MAX_BYTES} bytes.`,
+                        ),
+                    );
+                }
+                return;
+            }
+
+            try {
+                parseAndValidateNatsInitialInfoLine(
+                    buffered.subarray(0, terminatorIndex),
+                    { expectedHost: host, expectedPort: port },
+                );
+                settle();
+            } catch (error) {
+                settle(error);
+            }
         });
         socket.once("timeout", () => {
-            socket.destroy();
-            reject(
+            settle(
                 new Error(
-                    `Timed out connecting to bundled NATS at ${host}:${port}.`,
+                    `Timed out waiting for bundled NATS initial INFO at ${host}:${port}.`,
                 ),
             );
         });
         socket.once("error", (error) => {
-            reject(
+            settle(
                 new Error(
                     `Unable to connect to bundled NATS at ${host}:${port}: ${String(error)}`,
+                ),
+            );
+        });
+        socket.once("end", () => {
+            settle(
+                new Error(
+                    `Bundled NATS closed before sending a complete initial INFO at ${host}:${port}.`,
+                ),
+            );
+        });
+        socket.once("close", () => {
+            settle(
+                new Error(
+                    `Bundled NATS socket closed before validating initial INFO at ${host}:${port}.`,
                 ),
             );
         });

@@ -97,7 +97,7 @@ Build on the target operating system. Official CI release packaging currently
 targets Linux and macOS only, but source builds are supported for Linux, macOS,
 and Windows.
 
-Fresh checkout bundle preparation:
+Fresh checkout host-runtime and listener verification:
 
 ```sh
 corepack enable
@@ -106,8 +106,8 @@ yarn build:sqlite-native
 yarn test:desktop:listener-boundaries
 ```
 
-Each Tauri build below runs the target-aware native SQLite preparation through
-`beforeBuildCommand`.
+Each Tauri build below independently runs the target-aware native SQLite
+preparation through `beforeBuildCommand`.
 
 Linux x64 bundle:
 
@@ -139,8 +139,6 @@ macOS Universal 2 app in a DMG:
 
 ```sh
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
-DESKTOP_NODE_DIST_TARGET=darwin-universal \
-DESKTOP_NATS_DIST_TARGET=darwin-universal \
 yarn tauri build --ci --target universal-apple-darwin --bundles dmg
 ```
 

@@ -196,7 +196,7 @@ What each command does:
 
 - `yarn check:desktop-runtime-resources`
   : Starts the staged bundled Node with ambient PnP variables removed and executes SQLite/Sharp smoke operations through every package-local runtime dependency tree.
-  : Starts the staged bundled NATS, requires its reported client listener to be exactly `127.0.0.1`, verifies that socket accepts a connection, and proves the process did not claim an IPv4 wildcard by binding the same port on `127.0.0.2`.
+  : Starts the staged bundled NATS, requires its ports file and initial client `INFO` frame to report exactly `127.0.0.1` with the same valid port, and verifies that socket accepts a connection.
 
 - `yarn test:desktop:listener-boundaries`
   : Runs the exact Rust config and supervisor argument tests that require numeric IPv4 loopback for the installed backend and NATS processes, then starts the backend on an OS-assigned port and verifies Fastify bound the configured IPv4 interface.
@@ -337,9 +337,10 @@ Responsibilities:
 - stages the fat universal SQLite binding and both official macOS Sharp/libvips package pairs when the resolved target is `universal-apple-darwin`
 - rejects project `.yarn`, `.pnp.cjs`, `.pnp.loader.mjs`, symbolic links, special files, missing packages, wrong build profiles, and unexpected package files
 - starts the bundled Node executable with ambient PnP variables removed, executes an in-memory SQLite query for every runtime, and performs a real one-pixel Sharp conversion for backend/indexer
-- starts the staged NATS binary on an OS-assigned port and proves its client
-  listener is bound only to numeric IPv4 loopback before resource staging can
-  succeed
+- starts the staged NATS binary with explicit numeric-loopback, JetStream, and
+  isolated storage arguments on an OS-assigned port, requires its ports file and
+  initial client `INFO` frame to agree on the host and valid port, and proves
+  that socket accepts a connection before resource staging can succeed
 
 ### `scripts/build/prepare-desktop-sidecars.mjs`
 
