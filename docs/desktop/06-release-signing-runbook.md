@@ -97,6 +97,10 @@ Workflow policy:
   ports file and initial client `INFO` frame to agree on the exact numeric IPv4
   loopback listener and valid port before accepting a live connection, in
   addition to the bundled Node/native-dependency smoke tests.
+- The mounted-DMG verifier reuses that same NATS listener proof against the
+  packaged binary and starts the native secret prompt through silent stdin
+  owner loss, before any prompt UI can open. Finalized-DMG jobs repeat those
+  probes on arm64 and x64 runners.
 - The ordinary required macOS build-check job runs both listener gates before
   prompt containment, so pull requests exercise the host-specific listener
   behavior without waiting for a release tag.
@@ -317,18 +321,34 @@ and Mach-O architecture metadata.
 Runtime resource preparation consumes that same target context. After runtime
 resources and sidecars are staged,
 `scripts/build/macos-code-signing.mjs sign-staged` runs on the macOS runner.
-This signs final executable/loadable Mach-O files before Rust embeds the release
-wallet-recipient hashes, including the bundled Node runtime, bundled NATS
-runtime, native `.node` add-ons, and the secret-prompt sidecar. The release
-workflow then runs
-`scripts/build/macos-code-signing.mjs verify-dmg` against the produced DMG,
-mounts it, and verifies the contained `.app` before notarization. The bundled
-Node executable alone is signed with
+This signs the final bundled Node and NATS runtimes, native `.node` add-ons, and
+secret-prompt sidecar before Rust builds the release executables. Rust's
+wallet-recipient manifest protects only `runtime/node` and `runtime/trading`;
+NATS and the secret-prompt sidecar remain covered by their signatures,
+fat-slice checks, and final startup probes rather than that hash manifest.
+
+The universal build emits one wallet-recipient snapshot beside each concrete
+Rust executable:
+
+- `src-tauri/target/aarch64-apple-darwin/release/.artgod-wallet-recipient-integrity.json`
+- `src-tauri/target/x86_64-apple-darwin/release/.artgod-wallet-recipient-integrity.json`
+
+The release workflow passes both authorities to
+`scripts/build/macos-code-signing.mjs verify-dmg`. It mounts the produced DMG,
+requires both snapshots to declare identical protected roots/files/hashes,
+requires the packaged files to match, and verifies the contained `.app` before
+notarization. The snapshots do not travel into later notarization jobs: the
+submission state binds the exact pre-staple DMG SHA-256, while the finalized
+arm64/x64 jobs recheck signatures and execute the runtime from that finalized
+DMG. The bundled Node executable is the only binary signed with
 `src-tauri/entitlements/node-runtime.plist`, which grants
 `com.apple.security.cs.allow-jit` so V8 can use `MAP_JIT` under Apple's hardened
 runtime. The verification command requires Node's embedded entitlements to
 match that dedicated file exactly and starts Node from the mounted DMG far
-enough to initialize V8. Broader exceptions such as
+enough to initialize V8. It also starts packaged NATS with ephemeral loopback
+and isolated JetStream storage, requires the initial NATS `INFO` identity, and
+starts the packaged secret prompt with a valid action and closed stdin so the
+helper exits through owner loss before native UI. Broader exceptions such as
 `com.apple.security.cs.allow-unsigned-executable-memory` are intentionally not
 granted.
 Runtime resource staging materializes only the reviewed package-local SQLite
@@ -337,16 +357,17 @@ observability packages, developer tools, wrong-OS or unreviewed native
 packages, and other workspace dependencies never enter the DMG. Both reviewed
 macOS Sharp/libvips architecture pairs intentionally enter backend and indexer
 staging. Every staged native Mach-O file is therefore visible to the signing
-pass before Rust embeds its release integrity hashes.
+pass; Rust then hashes the protected Node/trading closure into each executable.
 
 The Tauri application shell, Node, NATS, native secret prompt, and
 `better-sqlite3` add-ons contain both `x86_64` and `arm64` slices. Sharp keeps
 its vendor-supported architecture-specific package layout and selects the
 matching pair at runtime; see Sharp's [installation
 contract](https://sharp.pixelplumbing.com/install/). The release is accepted
-only after the same mounted DMG passes full SQLite and Sharp runtime smoke on
-GitHub's `macos-15` arm64 and `macos-15-intel` x64 runners. GitHub publishes
-those label architectures in its [hosted-runner
+only after the same mounted DMG starts Node, NATS, and the non-GUI prompt path
+and passes SQLite and Sharp smoke operations on GitHub's `macos-15` arm64 and
+`macos-15-intel` x64 runners. GitHub publishes those label
+architectures in its [hosted-runner
 reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 Tauri's corresponding universal-build and external-binary contracts are in its
 [macOS build guidance](https://v2.tauri.app/distribute/app-store/) and
@@ -373,8 +394,10 @@ The displayed authority must be the expected `Developer ID Application`
 identity and Team ID. Run the normal Finder launch as well; terminal checks do
 not replace a clean-machine Gatekeeper launch test. CI separately inventories
 both slices in the Tauri executable, Node, NATS, native prompt, and every
-`better_sqlite3.node`, verifies the paired Sharp/libvips packages, and executes
-the mounted runtime on both required runner architectures.
+`better_sqlite3.node`, binds the protected packaged files to both Rust
+integrity snapshots before notarization, verifies the paired Sharp/libvips
+packages, and runs the Node identity, NATS loopback/`INFO`, prompt owner-loss,
+SQLite, and Sharp smoke operations on both required runner architectures.
 
 Official references:
 
@@ -593,7 +616,8 @@ For the dry run, confirm:
   platform bundle
 - the Linux bundles run on a clean supported Linux machine
 - the same DMG passes the required mounted-runtime gates on `macos-15` arm64
-  and `macos-15-intel` x64, including SQLite and Sharp smoke operations
+  and `macos-15-intel` x64, including Node, NATS, non-GUI secret-prompt,
+  SQLite, and Sharp smoke operations
 - before claiming compatibility with the configured minimum macOS version,
   clean machines running that version complete native Intel and Apple silicon
   app/runtime QA; the hosted macOS 15 gates do not substitute for this check
