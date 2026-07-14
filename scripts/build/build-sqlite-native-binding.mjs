@@ -30,6 +30,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const defaultRootDir = path.resolve(__dirname, "../..");
 const sqlitePackageName = NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.BetterSqlite3;
+// Apple tool used to assemble and verify universal Mach-O bindings.
+const LIPO_COMMAND = "lipo";
+// This variadic command requires the input path before its architecture arguments.
+const LIPO_VERIFY_ARCH_COMMAND = "-verify_arch";
 
 // Reuses an already compatible binding when this script runs inside Tauri's build hook.
 const BUILD_IF_NEEDED_ARGUMENT = "--if-needed";
@@ -271,7 +275,7 @@ function runPackageInstall({ packageDir, nodeArchitecture, environment }) {
 
 function assembleUniversalMacOSBinding({ slices, outputPath, environment }) {
     const createResult = spawnSync(
-        "lipo",
+        LIPO_COMMAND,
         [
             "-create",
             ...slices.map((slice) => slice.path),
@@ -283,12 +287,11 @@ function assembleUniversalMacOSBinding({ slices, outputPath, environment }) {
     assertCommandSucceeded(createResult, "Universal SQLite binding assembly");
 
     const verifyResult = spawnSync(
-        "lipo",
-        [
-            "-verify_arch",
-            ...slices.map(({ machOArchitecture }) => machOArchitecture),
+        LIPO_COMMAND,
+        createLipoVerifyArchitectureArguments(
             outputPath,
-        ],
+            slices.map(({ machOArchitecture }) => machOArchitecture),
+        ),
         { env: environment, stdio: "inherit" },
     );
     assertCommandSucceeded(
@@ -323,12 +326,11 @@ async function isNativeBindingCompatible({
         ].includes(nodeTarget)
     ) {
         const result = spawnSync(
-            "lipo",
-            [
-                "-verify_arch",
-                ...getMacOSMachOArchitectures(nodeTarget),
+            LIPO_COMMAND,
+            createLipoVerifyArchitectureArguments(
                 nativeBindingPath,
-            ],
+                getMacOSMachOArchitectures(nodeTarget),
+            ),
             { env: environment, stdio: "ignore" },
         );
         if (result.error) {
@@ -338,6 +340,14 @@ async function isNativeBindingCompatible({
     }
 
     return nodeTarget === inferDesktopNodeDistTarget(platform, arch);
+}
+
+// Places the input before lipo's variadic architecture operands.
+export function createLipoVerifyArchitectureArguments(
+    inputPath,
+    architectures,
+) {
+    return [inputPath, LIPO_VERIFY_ARCH_COMMAND, ...architectures];
 }
 
 async function readJsonIfPresent(filePath) {

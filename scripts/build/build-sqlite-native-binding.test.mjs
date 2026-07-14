@@ -13,6 +13,7 @@ import test from "node:test";
 import {
     SQLITE_NATIVE_BUILD_METADATA_FILE_NAME,
     buildSqliteNativeBinding,
+    createLipoVerifyArchitectureArguments,
 } from "./build-sqlite-native-binding.mjs";
 import {
     BETTER_SQLITE3_NATIVE_BINDING_RELATIVE_PATH,
@@ -139,6 +140,18 @@ test("Tauri build hook reuses a compatible SQLite binding", async (t) => {
         "existing-universal-binding",
     );
     assert.match(messages[0], /Reusing compatible/);
+});
+
+test("lipo verification places its input before variadic architectures", () => {
+    const inputPath = path.join("build", "better_sqlite3.node");
+    const architectures = MACOS_UNIVERSAL_NATIVE_ARCHITECTURES.map(
+        ({ machOArchitecture }) => machOArchitecture,
+    );
+
+    assert.deepEqual(
+        createLipoVerifyArchitectureArguments(inputPath, architectures),
+        [inputPath, "-verify_arch", ...architectures],
+    );
 });
 
 test("concrete desktop targets build one matching Node architecture", async (t) => {
