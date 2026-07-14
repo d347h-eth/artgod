@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
     title: ArtGod Backend API
-    version: 0.1.0-alpha.2
+    version: 0.1.1-alpha.3
     description: |
         OpenAPI schema for the current local backend HTTP API.
 
