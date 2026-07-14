@@ -8,18 +8,167 @@ The best way to use ArtGod right now is to start small and expand gradually. Boo
 
 Use a dedicated bidding wallet funded only with the WETH and ETH you are prepared to expose to alpha software. Do not use a valuable main wallet.
 
-## A Safe First Run
+## A Full Step-by-Step Guide
 
 1. Verify the downloaded ArtGod release using the instructions in the README.
-2. Open Admin Config and prepare your RPC endpoints and OpenSea credentials.
-3. Review the trading and bidding settings, then save the configuration.
-4. Start infra and enter Userland.
-5. Bootstrap one collection and wait for it to become `live`.
-6. If you want to bid, also wait for its initial OpenSea sync to complete.
-7. Import and assign a dedicated bidding wallet.
-8. Create one small bidding job.
-9. In Admin Bots, review the bidding authorization and start the bot.
-10. Confirm that the offer appears as expected. While the bot is still active, pause or archive the job and confirm that the offer is cancelled.
+
+    Start with the [Release Key section in the README](../../README.md#release-key),
+    which contains the current key fingerprints and leads into the canonical
+    verification commands. The following examples show successful verification
+    runs. Before trusting the included release key, compare its primary and
+    active release-signing-subkey fingerprints with separately published copies
+    in more than one of these locations:
+    - [ArtGod's X account](https://x.com/artgod_eth)
+    - [ArtGod's official website](https://artgod.network)
+    - [the `d347h-eth` GitHub profile](https://github.com/d347h-eth)
+    - [the `artgod.eth` ENS text records](https://app.ens.domains/artgod.eth?tab=records)
+
+    Filenames, versions, signature timestamps, and shell prompts can differ.
+    `Good signature` confirms that the files were signed by the imported key;
+    trust the key only after both displayed fingerprints exactly match the
+    independently published ArtGod fingerprints. GPG's `[unknown]` trust label
+    and uncertified-key warning are expected when the release key has not been
+    personally certified in the local GPG trust database.
+
+    Linux:
+
+    ```text
+    $ ls -1
+    ArtGod_0.1.1-alpha.3_amd64.AppImage
+    ArtGod_0.1.1-alpha.3_amd64.AppImage.asc
+    ArtGod_0.1.1-alpha.3_amd64.deb
+    ArtGod_0.1.1-alpha.3_amd64.deb.asc
+    artgod-release-public.asc
+    SHA256SUMS.txt
+    SHA256SUMS.txt.asc
+    $ gpg --show-keys --with-fingerprint --with-subkey-fingerprint artgod-release-public.asc
+    pub   ed25519 2026-07-08 [C] [expires: 2028-07-07]
+          2528 300C 396A FEDF 0626  1962 6E5E 8A9B C0EC D353
+    uid                      ArtGod Release Primary (artgod.eth)
+    sub   ed25519 2026-07-09 [S] [expires: 2027-07-09]
+          6ED7 A348 14FF F8BB AB94  784A A4EE 961C BD9F 14AD
+
+    $ gpg --import artgod-release-public.asc
+    gpg: key 6E5E8A9BC0ECD353: public key "ArtGod Release Primary (artgod.eth)" imported
+    gpg: Total number processed: 1
+    gpg:               imported: 1
+    $ gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt
+    gpg: Signature made Tue 14 Jul 2026 04:14:43 CEST
+    gpg:                using EDDSA key 6ED7A34814FFF8BBAB94784AA4EE961CBD9F14AD
+    gpg: Good signature from "ArtGod Release Primary (artgod.eth)" [unknown]
+    gpg: WARNING: This key is not certified with a trusted signature!
+    gpg:          There is no indication that the signature belongs to the owner.
+    Primary key fingerprint: 2528 300C 396A FEDF 0626  1962 6E5E 8A9B C0EC D353
+         Subkey fingerprint: 6ED7 A348 14FF F8BB AB94  784A A4EE 961C BD9F 14AD
+    $ sha256sum --ignore-missing --check SHA256SUMS.txt
+    ./ArtGod_0.1.1-alpha.3_amd64.AppImage: OK
+    ./ArtGod_0.1.1-alpha.3_amd64.AppImage.asc: OK
+    ./ArtGod_0.1.1-alpha.3_amd64.deb: OK
+    ./ArtGod_0.1.1-alpha.3_amd64.deb.asc: OK
+    ./artgod-release-public.asc: OK
+    $ gpg --verify "ArtGod_0.1.1-alpha.3_amd64.AppImage.asc" "ArtGod_0.1.1-alpha.3_amd64.AppImage"
+    gpg: Signature made Tue 14 Jul 2026 04:08:56 CEST
+    gpg:                using EDDSA key 6ED7A34814FFF8BBAB94784AA4EE961CBD9F14AD
+    gpg: Good signature from "ArtGod Release Primary (artgod.eth)" [unknown]
+    gpg: WARNING: This key is not certified with a trusted signature!
+    gpg:          There is no indication that the signature belongs to the owner.
+    Primary key fingerprint: 2528 300C 396A FEDF 0626  1962 6E5E 8A9B C0EC D353
+         Subkey fingerprint: 6ED7 A348 14FF F8BB AB94  784A A4EE 961C BD9F 14AD
+    $ gpg --verify "ArtGod_0.1.1-alpha.3_amd64.deb.asc" "ArtGod_0.1.1-alpha.3_amd64.deb"
+    gpg: Signature made Tue 14 Jul 2026 04:08:58 CEST
+    gpg:                using EDDSA key 6ED7A34814FFF8BBAB94784AA4EE961CBD9F14AD
+    gpg: Good signature from "ArtGod Release Primary (artgod.eth)" [unknown]
+    gpg: WARNING: This key is not certified with a trusted signature!
+    gpg:          There is no indication that the signature belongs to the owner.
+    Primary key fingerprint: 2528 300C 396A FEDF 0626  1962 6E5E 8A9B C0EC D353
+         Subkey fingerprint: 6ED7 A348 14FF F8BB AB94  784A A4EE 961C BD9F 14AD
+    ```
+
+    macOS:
+
+    ```text
+    % ls -1
+    ArtGod_0.1.1-alpha.3_universal.dmg
+    artgod-release-public.asc
+    SHA256SUMS.txt
+    SHA256SUMS.txt.asc
+    % gpg --show-keys --with-fingerprint --with-subkey-fingerprint artgod-release-public.asc
+    pub   ed25519 2026-07-08 [C] [expires: 2028-07-07]
+          2528 300C 396A FEDF 0626  1962 6E5E 8A9B C0EC D353
+    uid                      ArtGod Release Primary (artgod.eth)
+    sub   ed25519 2026-07-09 [S] [expires: 2027-07-09]
+          6ED7 A348 14FF F8BB AB94  784A A4EE 961C BD9F 14AD
+
+    % gpg --import artgod-release-public.asc
+    gpg: key 6E5E8A9BC0ECD353: public key "ArtGod Release Primary (artgod.eth)" imported
+    gpg: Total number processed: 1
+    gpg:               imported: 1
+    % gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt
+    gpg: Signature made Tue Jul 14 04:14:43 2026 CEST
+    gpg:                using EDDSA key 6ED7A34814FFF8BBAB94784AA4EE961CBD9F14AD
+    gpg: Good signature from "ArtGod Release Primary (artgod.eth)" [unknown]
+    gpg: WARNING: This key is not certified with a trusted signature!
+    gpg:          There is no indication that the signature belongs to the owner.
+    Primary key fingerprint: 2528 300C 396A FEDF 0626  1962 6E5E 8A9B C0EC D353
+         Subkey fingerprint: 6ED7 A348 14FF F8BB AB94  784A A4EE 961C BD9F 14AD
+    % shasum -a 256 --ignore-missing --check SHA256SUMS.txt
+    ./ArtGod_0.1.1-alpha.3_universal.dmg: OK
+    ./artgod-release-public.asc: OK
+    ```
+
+2. Open Admin Config and source and benchmark the RPC endpoints you want to use.
+
+    Before RPC sourcing and benchmarking:
+
+    ![Admin Config before RPC endpoint sourcing and benchmarking](../assets/operator-guide/artgod-guide-01-admin-rpc-config-benchmark.png)
+
+    After RPC sourcing and benchmarking:
+
+    ![Admin Config with successfully benchmarked RPC endpoints](../assets/operator-guide/artgod-guide-02-admin-rpc-config-benchmarked.png)
+
+3. Add your OpenSea credentials, review the trading and bidding settings, and set **WETH allowance cap** to a non-zero value so bidding jobs can execute. Start with a small cap while trying the app, then save the configuration.
+
+    ![Admin Config with OpenSea credentials and bidding settings](../assets/operator-guide/artgod-guide-03-admin-config-opensea.png)
+
+4. Start the infrastructure. After it starts successfully, select **Enter the Userland**.
+
+    ![Admin showing healthy infrastructure and the Enter the Userland action](../assets/operator-guide/artgod-guide-04-admin-started-infra.png)
+
+5. Bootstrap one collection. Confirm that its contract source is publicly verified, review the detected contract capabilities, complete the bootstrap settings, and queue the bootstrap.
+
+    ![First part of the collection bootstrap form](../assets/operator-guide/artgod-guide-05-bootstrap-milady-part1.png)
+
+    ![Second part of the collection bootstrap form](../assets/operator-guide/artgod-guide-06-bootstrap-milady-part2.png)
+
+6. While the collection bootstrap runs, import a dedicated bidding wallet in Admin.
+
+    ![Dedicated bidding wallet imported in Admin](../assets/operator-guide/artgod-guide-07-admin-add-wallet.png)
+
+7. Open Admin Bots, select the dedicated wallet, and use **Apply wallet** to assign it to the bot.
+
+    ![Assigning the dedicated wallet to the bidding bot](../assets/operator-guide/artgod-guide-08-admin-bot-assign-wallet.png)
+
+8. Before bidding, wait until the collection is `live` and its initial OpenSea snapshot is complete. Its image cache can continue after these are ready.
+
+    ![Collection live with its initial OpenSea snapshot complete](../assets/operator-guide/artgod-guide-09-bootstrap-completed.png)
+
+9. ArtGod includes keyboard shortcuts. Open the cheatsheet with the `?` button in the top-right corner or press `F1`.
+
+    ![ArtGod keyboard shortcuts cheatsheet](../assets/operator-guide/artgod-guide-10-keybinds.png)
+
+10. In Userland, select one NFT as the target for your first bid.
+
+    ![One NFT selected as a bidding target](../assets/operator-guide/artgod-guide-11-select-for-bid.png)
+
+11. Create the first bidding job with a small amount to see how bidding execution works. Keep its **Ceiling ETH** at or below the **WETH allowance cap** saved in Admin Config.
+
+    ![Creating a small bidding job for one NFT](../assets/operator-guide/artgod-guide-12-create-bid.png)
+
+12. After creating the first bidding job, return to Admin and refresh the **Bots** page to load the bidding authorization request. Review its limits, select the assigned wallet, and start the bot.
+
+    ![Bidding authorization request ready for review in Admin Bots](../assets/operator-guide/artgod-guide-13-admin-start-bot.png)
+
+13. Confirm that the offer appears as expected. While the bot is still active, pause or archive the job and confirm that the offer is cancelled.
 
 Stopping the bot is not the same as cancelling its offers. Existing signed OpenSea orders and the onchain WETH allowance can remain after the bot stops. Always verify cancellation separately.
 
@@ -180,4 +329,6 @@ A useful report includes:
 - visible collection or bot state
 - relevant screenshots and logs
 
-Never send a wallet private key, wallet passphrase, OpenSea API key, or another secret. Check screenshots and copied configuration before sharing them.
+Never send a wallet private key, seed phrase, wallet passphrase, OpenSea API key, or another secret. Check screenshots and copied configuration before sharing them.
+
+You may contact ArtGod by direct message, but ArtGod will never initiate a support DM or ask for private keys, seed phrases, wallet passphrases, API keys, payments, or remote access. Treat anyone who does as an impersonator.

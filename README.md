@@ -100,8 +100,16 @@ notarization ticket.
 
 The checked-in and release-attached public key is
 [the ArtGod release public key](docs/desktop/keys/artgod-release-public.asc).
-Verify both full fingerprints against this README and another
-maintainer-controlled profile before trusting the imported key:
+Before trusting the imported key, compare both full fingerprints with this
+README and with separately published copies in more than one of these
+maintainer-controlled locations:
+
+- [ArtGod's X account](https://x.com/artgod_eth)
+- [ArtGod's official website](https://artgod.network)
+- [the `d347h-eth` GitHub profile](https://github.com/d347h-eth)
+- [the `artgod.eth` ENS text records](https://app.ens.domains/artgod.eth?tab=records)
+
+The values must match exactly everywhere you check:
 
 - Primary certification key: `2528300C396AFEDF062619626E5E8A9BC0ECD353`
 - Current release signing subkey: `6ED7A34814FFF8BBAB94784AA4EE961CBD9F14AD`
