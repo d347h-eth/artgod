@@ -14,12 +14,14 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
-    WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_FILE_NAME,
-    WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_VERSION,
     compareRuntimeTrees,
     verifyLinuxBundledRuntime,
-    verifyWalletRecipientIntegritySnapshot,
 } from "./verify-linux-bundled-runtime.mjs";
+import {
+    WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_FILE_NAME,
+    WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_VERSION,
+    verifyWalletRecipientIntegritySnapshot,
+} from "./wallet-recipient-integrity-snapshot.mjs";
 
 const productName = "ArtGod";
 
