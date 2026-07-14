@@ -55,6 +55,26 @@ test("signs staged runtimes before Rust embeds their integrity hashes", async ()
     assert.equal(tauriConfig.build.beforeBundleCommand, undefined);
 });
 
+test("keeps the Tauri minimum macOS version aligned with release docs", async () => {
+    const [tauriConfig, readme] = await Promise.all([
+        readFile(
+            new URL("../../src-tauri/tauri.conf.json", import.meta.url),
+            "utf8",
+        ).then(JSON.parse),
+        readFile(new URL("../../README.md", import.meta.url), "utf8"),
+    ]);
+    const minimumSystemVersion =
+        tauriConfig.bundle?.macOS?.minimumSystemVersion;
+
+    assert.equal(typeof minimumSystemVersion, "string");
+    assert.match(minimumSystemVersion, /^\d+\.\d+$/);
+    assert.equal(
+        readme.includes(`macOS ${minimumSystemVersion}+`),
+        true,
+        "README macOS support must match the Tauri bundle minimum.",
+    );
+});
+
 test("requires the Tauri executable with every bundled process entry point", () => {
     assert.doesNotThrow(() =>
         assertRequiredBundleExecutables(
