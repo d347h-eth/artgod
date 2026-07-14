@@ -1,14 +1,36 @@
 #!/usr/bin/env node
-import { lstat, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+    lstat,
+    mkdtemp,
+    readFile,
+    readdir,
+    rm,
+    writeFile,
+} from "node:fs/promises";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
+import {
+    verifyMacOSDeploymentTargets,
+    verifyMacOSUniversalMachOFiles,
+} from "./macos-universal-runtime.mjs";
+import {
+    DESKTOP_BUILD_TARGET_ENV_KEYS,
+    DESKTOP_RUST_TARGET,
+    resolveDesktopRustTargetFromEnvironment,
+} from "./native-runtime-dependencies.mjs";
+import { verifyStagedDesktopRuntimeDependencies } from "./verify-staged-desktop-runtime-dependencies.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "../..");
+
+// Info.plist keys that can declare the bundle's minimum macOS version.
+export const MACOS_MINIMUM_SYSTEM_VERSION_PLIST_KEY = "LSMinimumSystemVersion";
+export const MACOS_MINIMUM_SYSTEM_VERSION_BY_ARCHITECTURE_PLIST_KEY =
+    "LSMinimumSystemVersionByArchitecture";
 
 const MODE_SIGN_STAGED = "sign-staged";
 const MODE_VERIFY_APP = "verify-app";
@@ -17,6 +39,7 @@ const appleSigningIdentityEnvKey = "APPLE_SIGNING_IDENTITY";
 const bundledNodeRelativeSuffix = "/runtime/node/node";
 const bundledNatsRelativeSuffix = "/runtime/nats/nats-server";
 const secretPromptBinaryNamePrefix = "artgod-secret-prompt";
+const appExecutableDirectoryPrefix = "Contents/MacOS/";
 const appBundleExtension = ".app";
 const dmgBundleExtension = ".dmg";
 const nodeRuntimeEntitlementsPath = path.join(
@@ -25,6 +48,7 @@ const nodeRuntimeEntitlementsPath = path.join(
     "entitlements",
     "node-runtime.plist",
 );
+const tauriConfigPath = path.join(rootDir, "src-tauri", "tauri.conf.json");
 const nodeRuntimeSmokeScript =
     "process.stdout.write(`${process.arch} ${process.version}\\n`)";
 const stagedMacOSBinaryRoots = [
@@ -35,7 +59,7 @@ const defaultMacOSBundleRoot = path.join(
     rootDir,
     "src-tauri",
     "target",
-    "universal-apple-darwin",
+    DESKTOP_RUST_TARGET.DarwinUniversal,
     "release",
     "bundle",
     "macos",
@@ -44,12 +68,23 @@ const defaultMacOSDmgBundleRoot = path.join(
     rootDir,
     "src-tauri",
     "target",
-    "universal-apple-darwin",
+    DESKTOP_RUST_TARGET.DarwinUniversal,
     "release",
     "bundle",
     "dmg",
 );
 const requiredBundleExecutables = [
+    {
+        label: "Tauri app executable",
+        matches: (relativePath) =>
+            relativePath.startsWith(appExecutableDirectoryPrefix) &&
+            !relativePath
+                .slice(appExecutableDirectoryPrefix.length)
+                .includes("/") &&
+            !path.posix
+                .basename(relativePath)
+                .startsWith(secretPromptBinaryNamePrefix),
+    },
     {
         label: "bundled Node runtime",
         matches: (relativePath) =>
@@ -161,6 +196,22 @@ async function verifyMacOSAppBundleAtPath(inputPath) {
     assertRequiredBundleExecutables(appPath, machOFiles);
     const nodeRuntimePath = resolveBundledNodeRuntime(machOFiles);
 
+    const architectureCoverage = await verifyMacOSUniversalMachOFiles(
+        machOFiles,
+        { commandRunner: runCommand },
+    );
+    const minimumSystemVersion = await readMacOSMinimumSystemVersion();
+    const appInfo = await readPropertyList(
+        path.join(appPath, "Contents", "Info.plist"),
+        runCommand,
+    );
+    assertMacOSBundleMinimumSystemVersion(appInfo, minimumSystemVersion);
+    const deploymentTargetCoverage = await verifyMacOSDeploymentTargets(
+        machOFiles,
+        minimumSystemVersion,
+        { commandRunner: runCommand },
+    );
+
     for (const filePath of sortNestedFirst(machOFiles)) {
         await verifyCodeSignature(filePath);
         if (filePath === nodeRuntimePath) {
@@ -177,10 +228,50 @@ async function verifyMacOSAppBundleAtPath(inputPath) {
     ]);
 
     await verifyNodeRuntimeStartup(nodeRuntimePath);
+    await verifyStagedDesktopRuntimeDependencies({
+        resourcesRootDir: path.dirname(path.dirname(nodeRuntimePath)),
+        nodeBinaryPath: nodeRuntimePath,
+    });
 
     console.log(
-        `Verified ${machOFiles.length} signed Mach-O file(s) inside ${path.relative(rootDir, appPath)}.`,
+        `Verified ${machOFiles.length} signed Mach-O file(s), ${architectureCoverage.universalFileCount} fat file(s), ${deploymentTargetCoverage.architectureSliceCount} deployment-target slice(s) at or below macOS ${minimumSystemVersion}, and native runtime dependencies inside ${path.relative(rootDir, appPath)}.`,
     );
+}
+
+async function readMacOSMinimumSystemVersion() {
+    const tauriConfig = JSON.parse(await readFile(tauriConfigPath, "utf8"));
+    const minimumSystemVersion =
+        tauriConfig.bundle?.macOS?.minimumSystemVersion;
+    if (typeof minimumSystemVersion !== "string") {
+        throw new Error(
+            "Tauri bundle config has no macOS minimum system version.",
+        );
+    }
+    return minimumSystemVersion;
+}
+
+// Requires the mounted app metadata to advertise the configured compatibility floor.
+export function assertMacOSBundleMinimumSystemVersion(
+    appInfo,
+    minimumSystemVersion,
+) {
+    if (
+        Object.hasOwn(
+            appInfo ?? {},
+            MACOS_MINIMUM_SYSTEM_VERSION_BY_ARCHITECTURE_PLIST_KEY,
+        )
+    ) {
+        throw new Error(
+            `Bundled ${MACOS_MINIMUM_SYSTEM_VERSION_BY_ARCHITECTURE_PLIST_KEY} must be absent so it cannot override the Tauri minimum.`,
+        );
+    }
+    const bundledMinimumSystemVersion =
+        appInfo?.[MACOS_MINIMUM_SYSTEM_VERSION_PLIST_KEY];
+    if (bundledMinimumSystemVersion !== minimumSystemVersion) {
+        throw new Error(
+            `Bundled ${MACOS_MINIMUM_SYSTEM_VERSION_PLIST_KEY} does not match Tauri config. Expected ${minimumSystemVersion}; found ${bundledMinimumSystemVersion ?? "missing"}.`,
+        );
+    }
 }
 
 function resolveTemporaryDirectory() {
@@ -189,9 +280,8 @@ function resolveTemporaryDirectory() {
 
 function isMacOSBuildTarget() {
     const explicitTarget = [
-        process.env.TAURI_ENV_TARGET_TRIPLE,
-        process.env.CARGO_BUILD_TARGET,
-        process.env.TARGET,
+        resolveDesktopRustTargetFromEnvironment(process.env),
+        process.env[DESKTOP_BUILD_TARGET_ENV_KEYS.RustTarget],
     ]
         .map((value) => value?.trim())
         .find(Boolean);
@@ -314,7 +404,8 @@ async function resolveSingleBundlePath(inputPath, extension, matchesEntry) {
     return bundles[0];
 }
 
-function assertRequiredBundleExecutables(appPath, machOFiles) {
+// Requires each process entry point that makes the mounted app operational.
+export function assertRequiredBundleExecutables(appPath, machOFiles) {
     const relativePaths = machOFiles.map((filePath) =>
         normalizePath(path.relative(appPath, filePath)),
     );
@@ -407,6 +498,7 @@ async function readPropertyList(filePath, commandRunner) {
 export async function verifyNodeRuntimeStartup(filePath, options = {}) {
     const commandRunner = options.commandRunner ?? runCommand;
     const logger = options.logger ?? console.log;
+    const expectedArchitecture = options.expectedArchitecture ?? process.arch;
     const { stdout } = await commandRunner(
         filePath,
         ["--eval", nodeRuntimeSmokeScript],
@@ -415,6 +507,12 @@ export async function verifyNodeRuntimeStartup(filePath, options = {}) {
     const runtimeIdentity = stdout.trim();
     if (!runtimeIdentity) {
         throw new Error("Bundled Node runtime reported no runtime identity.");
+    }
+    const [reportedArchitecture] = runtimeIdentity.split(/\s+/);
+    if (reportedArchitecture !== expectedArchitecture) {
+        throw new Error(
+            `Bundled Node runtime reported architecture ${reportedArchitecture}; expected ${expectedArchitecture}.`,
+        );
     }
     logger(`Started bundled Node runtime: ${runtimeIdentity}`);
 }

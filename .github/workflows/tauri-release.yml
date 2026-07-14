@@ -158,6 +158,8 @@ jobs:
               run: yarn install --immutable
 
             - name: Build trusted native SQLite dependency
+              env:
+                  DESKTOP_NODE_DIST_TARGET: ${{ matrix.node_dist_target }}
               run: yarn build:sqlite-native
 
             - name: Check desktop runtime registry consistency
@@ -455,12 +457,58 @@ jobs:
                   compression-level: ${{ env.MACOS_ARTIFACT_COMPRESSION_LEVEL }}
                   if-no-files-found: ${{ env.ARTIFACT_MISSING_FILE_BEHAVIOR }}
 
-    assemble-release:
+    verify-macos-universal:
         needs:
             - build
             - resume-macos-notarization
         if: >-
             !cancelled() &&
+            ((github.event_name == 'push' && needs.build.result == 'success') ||
+            (github.event_name == 'workflow_dispatch' && needs['resume-macos-notarization'].result == 'success'))
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - os: macos-15
+                      architecture: arm64
+                    - os: macos-15-intel
+                      architecture: x64
+        runs-on: ${{ matrix.os }}
+        permissions:
+            actions: read
+            contents: read
+
+        steps:
+            - name: Checkout release tag
+              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+              with:
+                  persist-credentials: false
+
+            - name: Setup Node
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+              with:
+                  node-version-file: package.json
+
+            - name: Verify runner architecture
+              run: node --input-type=module --eval 'if (process.arch !== process.argv[1]) throw new Error(`Expected ${{ matrix.architecture }} runner, received ${process.arch}`)' "${{ matrix.architecture }}"
+
+            - name: Download finalized macOS artifact
+              uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+              with:
+                  name: ${{ env.DESKTOP_MACOS_ARTIFACT_NAME }}
+                  path: ${{ env.MACOS_RELEASE_ASSET_DIR }}
+
+            - name: Verify universal macOS runtime
+              run: node ./scripts/build/macos-code-signing.mjs verify-dmg "$MACOS_RELEASE_ASSET_DIR"
+
+    assemble-release:
+        needs:
+            - build
+            - resume-macos-notarization
+            - verify-macos-universal
+        if: >-
+            !cancelled() &&
+            needs['verify-macos-universal'].result == 'success' &&
             ((github.event_name == 'push' && needs.build.result == 'success') ||
             (github.event_name == 'workflow_dispatch' && needs['resume-macos-notarization'].result == 'success'))
         runs-on: ubuntu-latest

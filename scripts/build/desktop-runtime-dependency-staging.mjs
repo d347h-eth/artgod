@@ -30,7 +30,6 @@ export async function stageDesktopRuntimeDependencies({
     rootDir,
     destinationRootDir,
     nodeTarget,
-    hostArch = process.arch,
     pnpApi = loadPnpApi(),
 }) {
     await assertDesktopRuntimeBuildProfileMarkers(destinationRootDir);
@@ -100,7 +99,6 @@ export async function stageDesktopRuntimeDependencies({
         const packageNames = getDesktopRuntimeDependencyPackageNames(
             runtime,
             nodeTarget,
-            hostArch,
         );
 
         for (const packageName of packageNames) {

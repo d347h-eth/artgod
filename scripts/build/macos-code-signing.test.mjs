@@ -3,9 +3,14 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { DESKTOP_NODE_ARCHITECTURE } from "./native-runtime-dependencies.mjs";
 
 import {
+    assertMacOSBundleMinimumSystemVersion,
+    assertRequiredBundleExecutables,
     createMacOSCodeSignArguments,
+    MACOS_MINIMUM_SYSTEM_VERSION_BY_ARCHITECTURE_PLIST_KEY,
+    MACOS_MINIMUM_SYSTEM_VERSION_PLIST_KEY,
     resolveMacOSCodeSigningEntitlements,
     verifyNodeRuntimeEntitlements,
     verifyNodeRuntimeStartup,
@@ -15,6 +20,13 @@ const signingIdentity = "Developer ID Application: Test Maintainer (TEAMID)";
 const stagedNodePath = "/workspace/src-tauri/resources/runtime/node/node";
 const bundledNodePath =
     "/Volumes/ArtGod/ArtGod.app/Contents/Resources/resources/runtime/node/node";
+const bundledAppPath = "/Volumes/ArtGod/ArtGod.app";
+const requiredBundleMachOFiles = [
+    `${bundledAppPath}/Contents/MacOS/artgod-desktop`,
+    bundledNodePath,
+    `${bundledAppPath}/Contents/Resources/resources/runtime/nats/nats-server`,
+    `${bundledAppPath}/Contents/MacOS/artgod-secret-prompt`,
+];
 const expectedEntitlements = {
     "com.apple.security.cs.allow-jit": true,
 };
@@ -27,6 +39,9 @@ test("signs staged runtimes before Rust embeds their integrity hashes", async ()
         ),
     );
     const buildCommand = tauriConfig.build.beforeBuildCommand;
+    const sqliteBindingIndex = buildCommand.indexOf(
+        "build:sqlite-native --if-needed",
+    );
     const runtimeResourcesIndex = buildCommand.indexOf(
         "build:desktop-runtime-resources",
     );
@@ -35,10 +50,74 @@ test("signs staged runtimes before Rust embeds their integrity hashes", async ()
         "macos-code-signing.mjs sign-staged",
     );
 
+    assert.ok(sqliteBindingIndex >= 0);
     assert.ok(runtimeResourcesIndex >= 0);
+    assert.ok(sqliteBindingIndex < runtimeResourcesIndex);
     assert.ok(sidecarsIndex > runtimeResourcesIndex);
     assert.ok(signingIndex > sidecarsIndex);
     assert.equal(tauriConfig.build.beforeBundleCommand, undefined);
+});
+
+test("keeps the Tauri minimum macOS version aligned with release docs", async () => {
+    const [tauriConfig, readme] = await Promise.all([
+        readFile(
+            new URL("../../src-tauri/tauri.conf.json", import.meta.url),
+            "utf8",
+        ).then(JSON.parse),
+        readFile(new URL("../../README.md", import.meta.url), "utf8"),
+    ]);
+    const minimumSystemVersion =
+        tauriConfig.bundle?.macOS?.minimumSystemVersion;
+
+    assert.equal(typeof minimumSystemVersion, "string");
+    assert.match(minimumSystemVersion, /^\d+\.\d+$/);
+    assert.equal(
+        readme.includes(`macOS ${minimumSystemVersion}+`),
+        true,
+        "README macOS support must match the Tauri bundle minimum.",
+    );
+    assert.doesNotThrow(() =>
+        assertMacOSBundleMinimumSystemVersion(
+            {
+                [MACOS_MINIMUM_SYSTEM_VERSION_PLIST_KEY]: minimumSystemVersion,
+            },
+            minimumSystemVersion,
+        ),
+    );
+    assert.throws(
+        () => assertMacOSBundleMinimumSystemVersion({}, minimumSystemVersion),
+        /does not match Tauri config.*found missing/,
+    );
+    assert.throws(
+        () =>
+            assertMacOSBundleMinimumSystemVersion(
+                {
+                    [MACOS_MINIMUM_SYSTEM_VERSION_PLIST_KEY]:
+                        minimumSystemVersion,
+                    [MACOS_MINIMUM_SYSTEM_VERSION_BY_ARCHITECTURE_PLIST_KEY]:
+                        {},
+                },
+                minimumSystemVersion,
+            ),
+        /must be absent.*cannot override/,
+    );
+});
+
+test("requires the Tauri executable with every bundled process entry point", () => {
+    assert.doesNotThrow(() =>
+        assertRequiredBundleExecutables(
+            bundledAppPath,
+            requiredBundleMachOFiles,
+        ),
+    );
+    assert.throws(
+        () =>
+            assertRequiredBundleExecutables(
+                bundledAppPath,
+                requiredBundleMachOFiles.slice(1),
+            ),
+        /Missing required signed executable.*Tauri app executable/,
+    );
 });
 
 test("applies the dedicated JIT entitlement only to bundled Node", async () => {
@@ -206,6 +285,7 @@ test("starts bundled Node with a V8-isolate smoke expression", async () => {
     const messages = [];
 
     await verifyNodeRuntimeStartup(bundledNodePath, {
+        expectedArchitecture: DESKTOP_NODE_ARCHITECTURE.Arm64,
         async commandRunner(command, args, options) {
             calls.push({ command, args, options });
             return { stdout: "arm64 v24.3.0\n", stderr: "" };
@@ -221,6 +301,23 @@ test("starts bundled Node with a V8-isolate smoke expression", async () => {
     assert.match(calls[0].args[1], /process\.arch/);
     assert.deepEqual(calls[0].options, { capture: true });
     assert.deepEqual(messages, ["Started bundled Node runtime: arm64 v24.3.0"]);
+});
+
+test("rejects a bundled Node slice that does not match the runner", async () => {
+    await assert.rejects(
+        verifyNodeRuntimeStartup(bundledNodePath, {
+            expectedArchitecture: DESKTOP_NODE_ARCHITECTURE.X64,
+            async commandRunner() {
+                return { stdout: "arm64 v24.3.0\n", stderr: "" };
+            },
+            logger() {
+                assert.fail(
+                    "A mismatched Node slice must not be logged as success.",
+                );
+            },
+        }),
+        /reported architecture arm64; expected x64/,
+    );
 });
 
 test("rejects a bundled Node smoke command with no runtime identity", async () => {

@@ -91,13 +91,15 @@ Build on the target operating system. Official CI release packaging currently
 targets Linux and macOS only, but source builds are supported for Linux, macOS,
 and Windows.
 
-Fresh checkout build sequence:
+Fresh checkout bundle preparation:
 
 ```sh
 corepack enable
 yarn install --immutable
-yarn build:sqlite-native
 ```
+
+Each Tauri build below runs the target-aware native SQLite preparation through
+`beforeBuildCommand`.
 
 Linux x64 bundle:
 
@@ -124,18 +126,22 @@ dependencies from `.github/workflows/tauri-release.yml`, and the same Tauri
 AppImage/`.deb` build command. It restores ownership of generated build
 artifacts after the container exits.
 
-macOS universal DMG:
+macOS Universal 2 app in a DMG:
 
 ```sh
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
 yarn tauri build --ci --target universal-apple-darwin --bundles dmg
 ```
 
-The Tauri application shell, Node, and NATS are universal, while the staged
-SQLite and Sharp native add-ons match the build host architecture. The local
-backend, indexer, and trading runtime is therefore not supported or verified
-on the opposite architecture; see
-`docs/desktop/01-tauri-build-and-runtime.md`.
+After `yarn install --immutable`, that Tauri command is sufficient. Its
+target-aware `beforeBuildCommand` runs `yarn build:sqlite-native --if-needed`,
+and runtime resource preparation consumes the same Tauri/Cargo target context.
+The result contains fat `x86_64` + `arm64` Tauri, Node, NATS, native prompt, and
+`better-sqlite3` binaries plus both official macOS Sharp/libvips package pairs;
+Sharp selects the pair matching the running Node architecture. The DMG is only
+the container for that Universal 2 app. See
+`docs/desktop/01-tauri-build-and-runtime.md` for the assembly and verification
+contract.
 
 Windows x64 NSIS installer:
 
@@ -144,10 +150,13 @@ rustup target add x86_64-pc-windows-msvc
 yarn tauri build --ci --target x86_64-pc-windows-msvc --bundles nsis
 ```
 
-`yarn build:sqlite-native` is required after a fresh install because
-`.yarnrc.yml` keeps `enableScripts: false`. The command runs only the trusted
-`better-sqlite3` package-local install step from `.yarn/unplugged` and fails if
-the native SQLite binding is missing.
+`yarn build:sqlite-native` is required after a fresh install for ordinary
+host-target development because `.yarnrc.yml` keeps `enableScripts: false`.
+The command runs only the trusted `better-sqlite3` package-local build path and
+fails if the required native binding is missing. Tauri builds call the same
+target-aware command with `--if-needed` before runtime resources are staged, so
+the universal command above does not require a separate architecture-specific
+SQLite preparation step.
 
 Locally built bundles are not equivalent to official release artifacts unless
 you also provide the same signing/notarization setup. Windows source-built
@@ -472,8 +481,11 @@ Desktop release artifacts are built publicly in GitHub Actions.
 - Trigger: push a GitHub-verified OpenPGP annotated tag that exactly matches
   `v<root-package-version>` or appends the dry-run suffix `-test.N`, where `N`
   is a positive integer.
-- Targets: Linux x64 and macOS universal. Windows release packaging remains
-  deferred for the public alpha; Windows source builds are still supported.
+- Targets: Linux x64 and one macOS Universal 2 app distributed in a DMG.
+  Required Apple silicon and Intel gates run the same mounted DMG; exact runner
+  contracts live in `docs/desktop/01-tauri-build-and-runtime.md`. Windows
+  release packaging remains deferred for the public alpha; Windows source
+  builds are still supported.
 - Outputs: signed release bundles, `SHA256SUMS.txt`, `SHA256SUMS.txt.asc`, the
   public release key, Linux detached signatures, and GitHub build provenance
   attestation.

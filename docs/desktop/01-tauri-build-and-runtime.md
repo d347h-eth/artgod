@@ -48,6 +48,31 @@ The desktop build/runtime pipeline is designed to:
 
 The desktop shell does not replace backend/indexer/trading logic. It orchestrates existing runtimes.
 
+## macOS Universal 2 Contract
+
+Universal 2 has the normal macOS meaning: the shipped application supports
+Intel `x86_64` and Apple silicon `arm64` natively. A fat Mach-O contains both
+architecture slices. The `.dmg` is only a distribution container around the
+`.app`; it is not itself a universal binary. Apple documents this model in
+[Building a universal macOS
+binary](https://developer.apple.com/documentation/apple-silicon/building-a-universal-macos-binary).
+
+ArtGod applies that contract to its complete executable runtime:
+
+- the Tauri executable, bundled Node, bundled NATS, native secret prompt, and
+  every staged `better-sqlite3` add-on are fat `x86_64` + `arm64` Mach-O files
+- backend and indexer each carry the official Sharp and libvips packages for
+  both macOS architectures; Sharp selects the pair matching `process.arch`
+- the same DMG is mounted and exercised by required `macos-15` arm64 and
+  `macos-15-intel` x64 release gates
+
+The paired Sharp packages follow Sharp's documented
+[cross-platform installation](https://sharp.pixelplumbing.com/install/)
+contract rather than combining independently distributed package trees with
+`lipo`. Tauri's target-aware packaging and sidecar naming are documented in its
+[macOS build guidance](https://v2.tauri.app/distribute/app-store/) and
+[external-binary guide](https://v2.tauri.app/develop/sidecar/).
+
 ## Executable Lifecycle Summary
 
 1. Rust app process initializes and exposes runtime commands. Startup is
@@ -117,9 +142,13 @@ desktop workflows do not require the separate Cargo `tauri` subcommand.
 
 What each command does:
 
-- `yarn build:sqlite-native`
+- `yarn build:sqlite-native [--if-needed]`
   : Runs `scripts/build/build-sqlite-native-binding.mjs`.
-  : Invokes only the trusted `better-sqlite3` package-local install step from `.yarn/unplugged` and fails if `build/Release/better_sqlite3.node` is missing.
+  : Uses the Tauri/Cargo target context when present and otherwise targets the build host.
+  : Invokes only the trusted `better-sqlite3` package-local build path, produces a fat `x86_64` + `arm64` binding for the macOS universal target, and fails if the required output is missing or has the wrong architecture.
+  : `--if-needed` reuses only an existing binding whose architecture, exact
+  `better-sqlite3` version, Node version, and Node module ABI satisfy the
+  active target.
 
 - `yarn build:web`
   : Runs `scripts/build/build-frontend-target.mjs web`.
@@ -191,18 +220,19 @@ What each command does:
 
 `src-tauri/tauri.conf.json` contains:
 
-- `beforeDevCommand = "yarn build:desktop-sidecars --profile debug && node ./scripts/build/dev-frontend-target.mjs admin"`
-- `beforeBuildCommand = "yarn build:admin && yarn build:userland && yarn build:desktop-runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release && node ./scripts/build/macos-code-signing.mjs sign-staged"`
+- `beforeDevCommand = "node ./scripts/build/dev-frontend-target.mjs admin --prepare-desktop-sidecars=debug"`
+- `beforeBuildCommand = "yarn build:sqlite-native --if-needed && yarn build:admin && yarn build:userland && yarn build:desktop-runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release && node ./scripts/build/macos-code-signing.mjs sign-staged"`
 - `frontendDist = "../frontend/dist"`
 
 This ensures `yarn tauri build ...` always has:
 
-1. desktop frontend static output
-2. browser userland static output
-3. backend/indexer runtime `.mjs` artifacts
-4. staged runtime resources under `src-tauri/resources/runtime`
-5. staged native sidecar binaries under `src-tauri/binaries`
-6. macOS signatures on staged Mach-O runtime resources and sidecars before
+1. a native SQLite binding matching the active Tauri target
+2. desktop frontend static output
+3. browser userland static output
+4. backend/indexer runtime `.mjs` artifacts
+5. staged runtime resources under `src-tauri/resources/runtime`
+6. staged native sidecar binaries under `src-tauri/binaries`
+7. macOS signatures on staged Mach-O runtime resources and sidecars before
    Rust embeds the wallet-recipient integrity manifest
 
 before final Tauri bundle generation starts.
@@ -262,8 +292,12 @@ Native package note:
 
 - `better-sqlite3` and `sharp` stay external so their package-local loaders can access the reviewed native files staged in each runtime's isolated `node_modules` tree.
 - `.yarnrc.yml` keeps `enableScripts: false`; CI must not override it with `YARN_ENABLE_SCRIPTS=true`.
-- `better-sqlite3` is built through the explicit trusted step `yarn build:sqlite-native`, which runs only its package-local install script from the unplugged package directory and fails if `build/Release/better_sqlite3.node` is missing.
-- `sharp` uses its optional `@img/*` prebuilt packages; it is not enabled through a broad post-install script policy.
+- `.yarnrc.yml` `supportedArchitectures` keeps the current host plus `x64` and `arm64` package variants available, so one immutable install can supply both reviewed macOS Sharp/libvips pairs.
+- `better-sqlite3` is built through the explicit trusted step `yarn build:sqlite-native`, which targets the build host by default and builds then merges both macOS slices when the Tauri/Cargo target is `universal-apple-darwin`.
+- the target-aware Tauri build hook uses `yarn build:sqlite-native --if-needed`
+  so it reuses only a binding that satisfies the requested architecture,
+  package version, Node version, and Node module ABI contract.
+- `sharp` uses its optional `@img/*` prebuilt packages; universal macOS staging carries the official Darwin `x64` and `arm64` Sharp/libvips pairs and lets Sharp select by `process.arch`. It is not enabled through a broad post-install script policy.
 - `scripts/build/check-native-runtime-dependencies.mjs` verifies the full PnP local/deploy build; desktop staging separately starts bundled Node and executes real SQLite and Sharp smoke operations through each isolated staged dependency tree.
 
 ### `scripts/build/prepare-desktop-runtime-resources.mjs`
@@ -273,11 +307,15 @@ Responsibilities:
 - stages runtime resources for Tauri bundling under `src-tauri/resources/runtime`
 - downloads/verifies the Node distribution for the target platform and stages bundled Node under `src-tauri/resources/runtime/node`
   : source of truth for Node version is `package.json` `engines.node`
-  : download target is inferred from OS/arch or forced with `DESKTOP_NODE_DIST_TARGET`
+  : an explicit distribution target must agree with any active Tauri/Cargo
+  target context; absent either, resolution uses the other and then falls back
+  to the build host
+  : the universal macOS target downloads and merges the Intel and Apple silicon executables
   : downloaded archives are cached in `.cache/desktop-node-runtime`
 - downloads/verifies the NATS server distribution for the target platform and stages bundled NATS under `src-tauri/resources/runtime/nats`
   : source of truth for NATS version is `DESKTOP_NATS_VERSION` build env (default `2.10.17`)
-  : download target is inferred from OS/arch or forced with `DESKTOP_NATS_DIST_TARGET`
+  : download target uses the same target resolution as Node
+  : the universal macOS target downloads and merges the Intel and Apple silicon executables
   : downloaded archives are cached in `.cache/desktop-nats-runtime`
 - copies:
     - `backend/dist-desktop/*`
@@ -291,6 +329,7 @@ Responsibilities:
     - `nats/nats-server` or `nats/nats-server.exe`
 - resolves locked package sources through build-time PnP, then copies only the explicit runtime file allowlist into package-local `node_modules`
 - gives backend/indexer the SQLite and Sharp closures while keeping Sharp/libvips unresolvable from the key-bearing trading runtime
+- stages the fat universal SQLite binding and both official macOS Sharp/libvips package pairs when the resolved target is `universal-apple-darwin`
 - rejects project `.yarn`, `.pnp.cjs`, `.pnp.loader.mjs`, symbolic links, special files, missing packages, wrong build profiles, and unexpected package files
 - starts the bundled Node executable with ambient PnP variables removed, executes an in-memory SQLite query for every runtime, and performs a real one-pixel Sharp conversion for backend/indexer
 
@@ -829,6 +868,8 @@ Build-check trigger policy:
 
 - The build check runs the no-write project version contract before package
   installation, so version drift fails on pull requests and `main`.
+- Its required macOS job runs the real universal `better-sqlite3` node-gyp and
+  `lipo` path, so both slices are proven before a release tag.
 - Do not add `paths-ignore` for version-sync files; they are build-critical
   inputs for Tauri, Cargo, and workspace packaging.
 - For a version-only `yarn sync:version` commit after a green merge commit on
@@ -838,7 +879,10 @@ Build-check trigger policy:
 Build matrix:
 
 - Linux x64 (`x86_64-unknown-linux-gnu`)
-- macOS universal (`universal-apple-darwin`)
+- macOS Universal 2 package (`universal-apple-darwin`)
+- mounted-DMG execution on `macos-15` arm64 and `macos-15-intel` x64; GitHub
+  publishes the architecture behind each label in its
+  [hosted-runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 
 Outputs:
 
@@ -851,28 +895,37 @@ Outputs:
 
 Current state:
 
-- Yarn package lifecycle scripts stay disabled in CI. Workflows run
-  `yarn install --immutable`, then `yarn build:sqlite-native` for the
-  allowlisted `better-sqlite3` native binding.
+- Yarn package lifecycle scripts stay disabled in CI. After
+  `yarn install --immutable`, the target-aware Tauri `beforeBuildCommand` runs
+  `yarn build:sqlite-native --if-needed` for the allowlisted `better-sqlite3`
+  native binding before runtime resources are staged. Reuse requires matching
+  package and Node build metadata as well as the requested architecture.
 - Tauri builds use the desktop artifact profile and fail if an observability
   exporter enters the compiled graph or if full-profile artifacts reach
   staging. The full `yarn build:runtime` profile remains available to local
   and deploy runtimes.
 - Desktop staging contains only reviewed package-local SQLite/Sharp dependency
   closures; project PnP hooks, the workspace Yarn cache/install state, and
-  unrelated production/development packages are absent.
+  unrelated production/development packages are absent. Universal macOS
+  staging includes the fat SQLite binding and the two official Darwin
+  Sharp/libvips package pairs.
 - The existing single no-bundle/build invocation is followed by staged native
   dependency verification and a complete comparison of its actual adjacent
   runtime output. Linux release builds additionally extract the finished
   AppImage and `.deb`, compare the complete runtime file set, executable modes, and SHA-256
   bytes, and bind the protected closure back to the build-time copy of Rust's
   embedded integrity authority.
-- The macOS application shell, Node, and NATS are universal, but SQLite/Sharp
-  native dependency staging still follows the release runner's host
-  architecture. The local backend, indexer, and trading runtime is therefore
-  not supported on the opposite architecture. This pre-existing limitation is
-  not executed in CI, and this pruning change does not claim dual-architecture
-  native-addon coverage.
+- The macOS application shell, Node, NATS, native secret prompt, and staged
+  `better-sqlite3` add-ons are fat `x86_64` + `arm64` binaries. Backend and
+  indexer stage both official Darwin Sharp/libvips pairs. Release gates mount
+  the same DMG and execute the bundled runtime's SQLite and Sharp smoke
+  operations on `macos-15` arm64 and `macos-15-intel` x64.
+- The mounted macOS verifier requires the app's `LSMinimumSystemVersion` to
+  match Tauri's configured minimum. It inspects every architecture slice's
+  `LC_BUILD_VERSION` or legacy `LC_VERSION_MIN_MACOSX` command and rejects a
+  deployment target above that minimum. This proves each slice declares a
+  compatible deployment target; it does not replace clean-machine runtime QA
+  on the oldest supported macOS.
 - Linux build checks and Linux/macOS release builds launch the built Node bot
   through the production command, containment, retained-stdin, and secret-frame
   path. The proof first requires clean `SIGTERM` exit while the parent still
@@ -900,11 +953,15 @@ Current state:
 - Linux artifacts are GPG-signed (detached armor signatures).
 - Final release assembly re-verifies downloaded AppImage and `.deb` signatures
   before signing the checksum manifest.
-- macOS DMG is code-signed, notarized, and stapled in CI. The release workflow
-  verifies the final bundled Node JIT entitlement and starts Node from the
-  mounted DMG before submission. It preserves the exact submitted DMG and Apple
-  submission state before bounded polling, so delayed submissions can be
-  resumed from the original release tag without rebuilding or resubmitting.
+- The macOS app is code-signed, notarized, stapled, and distributed in one DMG.
+  Before submission, the build lane verifies the fat-binary inventory, the
+  final bundled Node JIT entitlement, and SQLite/Sharp native dependency smoke
+  operations from the mounted DMG on its macOS runner. Final release acceptance
+  repeats that mounted-DMG verification on both required macOS runner
+  architectures.
+  The workflow preserves the exact submitted DMG and Apple submission state
+  before bounded polling, so delayed submissions can be resumed from the
+  original release tag without rebuilding or resubmitting.
 - Every external Action is pinned to a full commit SHA, checkout credentials are
   not persisted, and write/OIDC permissions exist only in the publication job.
 - Release assembly holds the Linux signing secret but has read-only repository

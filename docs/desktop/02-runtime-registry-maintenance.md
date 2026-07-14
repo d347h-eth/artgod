@@ -62,15 +62,26 @@ File:
 
 What is explicit here:
 
-- `beforeBuildCommand = "yarn build:admin && yarn build:userland && yarn build:desktop-runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release"`
+- `beforeBuildCommand = "yarn build:sqlite-native --if-needed && yarn build:admin && yarn build:userland && yarn build:desktop-runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release && node ./scripts/build/macos-code-signing.mjs sign-staged"`
 
-This must continue to include runtime resource staging so artifacts are present in bundled resources before desktop packaging.
+This must continue to build the target-matching SQLite binding before runtime
+resource staging and sign final staged macOS Mach-O files before desktop
+packaging.
 Staging must include both runtime artifacts and runtime dependencies:
 
 - bundled Node runtime (`resources/runtime/node/node(.exe)`)
 - bundled NATS runtime (`resources/runtime/nats/nats-server(.exe)`)
-- reviewed package-local native dependencies (`backend/node_modules`, `indexer/node_modules`, and the SQLite-only `trading/node_modules`)
+- reviewed package-local native dependencies (`backend/node_modules`,
+  `indexer/node_modules`, and the SQLite-only `trading/node_modules`)
 - no project Yarn cache, install state, or PnP hooks
+
+An explicit distribution target must agree with any active Tauri/Cargo target
+context. If only one is present it owns resolution; with neither, resolution
+falls back to the build host. For `universal-apple-darwin`, Node, NATS, the
+native prompt, and `better-sqlite3` are fat `x86_64` + `arm64` binaries; backend
+and indexer each stage both official Darwin Sharp/libvips package pairs for
+process-architecture selection. Keep this one target contract shared when a
+runtime adds or removes native dependencies.
 
 ### 4) Root Build Command Wiring
 
