@@ -1,9 +1,20 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import {
+    mkdtemp,
+    mkdir,
+    readFile,
+    readdir,
+    rm,
+    writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { DESKTOP_NODE_ARCHITECTURE } from "./native-runtime-dependencies.mjs";
+import {
+    DESKTOP_NODE_ARCHITECTURE,
+    MACOS_UNIVERSAL_NATIVE_ARCHITECTURES,
+} from "./native-runtime-dependencies.mjs";
 
 import {
     assertMacOSBundleMinimumSystemVersion,
@@ -11,21 +22,30 @@ import {
     createMacOSCodeSignArguments,
     MACOS_MINIMUM_SYSTEM_VERSION_BY_ARCHITECTURE_PLIST_KEY,
     MACOS_MINIMUM_SYSTEM_VERSION_PLIST_KEY,
+    resolveMacOSUniversalWalletRecipientIntegritySnapshotPaths,
     resolveMacOSCodeSigningEntitlements,
+    verifyBundledNatsLoopbackStartup,
+    verifyMacOSWalletRecipientIntegritySnapshots,
     verifyNodeRuntimeEntitlements,
     verifyNodeRuntimeStartup,
+    verifySecretPromptStartup,
 } from "./macos-code-signing.mjs";
+import { WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_FILE_NAME } from "./wallet-recipient-integrity-snapshot.mjs";
 
 const signingIdentity = "Developer ID Application: Test Maintainer (TEAMID)";
 const stagedNodePath = "/workspace/src-tauri/resources/runtime/node/node";
 const bundledNodePath =
     "/Volumes/ArtGod/ArtGod.app/Contents/Resources/resources/runtime/node/node";
+const bundledNatsPath =
+    "/Volumes/ArtGod/ArtGod.app/Contents/Resources/resources/runtime/nats/nats-server";
+const bundledSecretPromptPath =
+    "/Volumes/ArtGod/ArtGod.app/Contents/MacOS/artgod-secret-prompt";
 const bundledAppPath = "/Volumes/ArtGod/ArtGod.app";
 const requiredBundleMachOFiles = [
     `${bundledAppPath}/Contents/MacOS/artgod-desktop`,
     bundledNodePath,
-    `${bundledAppPath}/Contents/Resources/resources/runtime/nats/nats-server`,
-    `${bundledAppPath}/Contents/MacOS/artgod-secret-prompt`,
+    bundledNatsPath,
+    bundledSecretPromptPath,
 ];
 const expectedEntitlements = {
     "com.apple.security.cs.allow-jit": true,
@@ -333,3 +353,205 @@ test("rejects a bundled Node smoke command with no runtime identity", async () =
         /reported no runtime identity/,
     );
 });
+
+test("resolves both concrete Rust snapshots for a universal macOS build", () => {
+    const cargoTargetRoot = path.join("workspace", "src-tauri", "target");
+
+    assert.deepEqual(
+        resolveMacOSUniversalWalletRecipientIntegritySnapshotPaths(
+            cargoTargetRoot,
+        ),
+        MACOS_UNIVERSAL_NATIVE_ARCHITECTURES.map(({ rustTarget }) => ({
+            rustTarget,
+            snapshotPath: path.join(
+                cargoTargetRoot,
+                rustTarget,
+                "release",
+                WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_FILE_NAME,
+            ),
+        })),
+    );
+});
+
+test("requires the mounted runtime to match both native-slice snapshots", async () => {
+    const temporaryDirectory = await mkdtemp(
+        path.join(os.tmpdir(), "artgod-macos-snapshot-test-"),
+    );
+    const runtimeRoot = path.join(temporaryDirectory, "runtime");
+
+    try {
+        const snapshot = await writeWalletRecipientRuntimeFixture(runtimeRoot);
+        const snapshots = MACOS_UNIVERSAL_NATIVE_ARCHITECTURES.map(
+            ({ rustTarget }) => ({ rustTarget, snapshot }),
+        );
+
+        await verifyMacOSWalletRecipientIntegritySnapshots(
+            snapshots,
+            runtimeRoot,
+        );
+
+        const x64Target = MACOS_UNIVERSAL_NATIVE_ARCHITECTURES.find(
+            ({ nodeArchitecture }) =>
+                nodeArchitecture === DESKTOP_NODE_ARCHITECTURE.X64,
+        ).rustTarget;
+        const arm64Target = MACOS_UNIVERSAL_NATIVE_ARCHITECTURES.find(
+            ({ nodeArchitecture }) =>
+                nodeArchitecture === DESKTOP_NODE_ARCHITECTURE.Arm64,
+        ).rustTarget;
+        const divergentSnapshotPattern = new RegExp(
+            `Universal macOS wallet-recipient integrity snapshots differ between ${arm64Target} and ${x64Target}`,
+        );
+        const mismatchedHashSnapshots = snapshots.map((entry) =>
+            entry.rustTarget === x64Target
+                ? {
+                      ...entry,
+                      snapshot: {
+                          ...snapshot,
+                          files: snapshot.files.map((file, index) =>
+                              index === 0
+                                  ? { ...file, sha256: "0".repeat(64) }
+                                  : file,
+                          ),
+                      },
+                  }
+                : entry,
+        );
+
+        await assert.rejects(
+            verifyMacOSWalletRecipientIntegritySnapshots(
+                mismatchedHashSnapshots,
+                runtimeRoot,
+            ),
+            divergentSnapshotPattern,
+        );
+
+        const mismatchedClosureSnapshots = snapshots.map((entry) =>
+            entry.rustTarget === x64Target
+                ? {
+                      ...entry,
+                      snapshot: {
+                          protectedRoots: ["node"],
+                          files: snapshot.files.filter(({ relativePath }) =>
+                              relativePath.startsWith("node/"),
+                          ),
+                      },
+                  }
+                : entry,
+        );
+        await assert.rejects(
+            verifyMacOSWalletRecipientIntegritySnapshots(
+                mismatchedClosureSnapshots,
+                runtimeRoot,
+            ),
+            divergentSnapshotPattern,
+        );
+
+        await writeFile(
+            path.join(runtimeRoot, "node", "node"),
+            "packaged-mutation",
+            "utf8",
+        );
+        await assert.rejects(
+            verifyMacOSWalletRecipientIntegritySnapshots(
+                snapshots,
+                runtimeRoot,
+            ),
+            new RegExp(
+                `Mounted macOS runtime does not match the ${arm64Target} wallet-recipient integrity snapshot`,
+            ),
+        );
+    } finally {
+        await rm(temporaryDirectory, { force: true, recursive: true });
+    }
+});
+
+test("reuses the loopback listener proof for NATS inside the mounted app", async () => {
+    const calls = [];
+    const messages = [];
+
+    await verifyBundledNatsLoopbackStartup(bundledNatsPath, {
+        async natsVerifier(input) {
+            calls.push(input);
+        },
+        logger(message) {
+            messages.push(message);
+        },
+    });
+
+    assert.deepEqual(calls, [{ natsBinaryPath: bundledNatsPath }]);
+    assert.deepEqual(messages, [
+        `Started bundled NATS on numeric IPv4 loopback: ${bundledNatsPath}`,
+    ]);
+});
+
+test("starts the secret prompt through silent owner loss before native UI", async () => {
+    const calls = [];
+    const messages = [];
+
+    await verifySecretPromptStartup(bundledSecretPromptPath, {
+        async processRunner(command, args, options) {
+            calls.push({ command, args, options });
+            return {
+                exitCode: 1,
+                signal: null,
+                stdoutProduced: false,
+                stderrProduced: false,
+            };
+        },
+        logger(message) {
+            messages.push(message);
+        },
+    });
+
+    assert.deepEqual(calls, [
+        {
+            command: bundledSecretPromptPath,
+            args: ["--action", "unlock"],
+            options: { timeoutMilliseconds: 5_000 },
+        },
+    ]);
+    assert.deepEqual(messages, [
+        `Started bundled secret prompt without opening native UI: ${bundledSecretPromptPath}`,
+    ]);
+});
+
+test("rejects an abnormal secret-prompt startup result", async () => {
+    await assert.rejects(
+        verifySecretPromptStartup(bundledSecretPromptPath, {
+            async processRunner() {
+                return {
+                    exitCode: 1,
+                    signal: null,
+                    stdoutProduced: false,
+                    stderrProduced: true,
+                };
+            },
+            logger() {
+                assert.fail(
+                    "An abnormal prompt must not be logged as success.",
+                );
+            },
+        }),
+        /produced unexpected process output/,
+    );
+});
+
+async function writeWalletRecipientRuntimeFixture(runtimeRoot) {
+    const contentsByPath = new Map([
+        ["node/node", "node-runtime"],
+        ["trading/runtime.mjs", "trading-runtime"],
+    ]);
+    for (const [relativePath, contents] of contentsByPath) {
+        const filePath = path.join(runtimeRoot, relativePath);
+        await mkdir(path.dirname(filePath), { recursive: true });
+        await writeFile(filePath, contents, "utf8");
+    }
+
+    return {
+        protectedRoots: ["node", "trading"],
+        files: [...contentsByPath].map(([relativePath, contents]) => ({
+            relativePath,
+            sha256: createHash("sha256").update(contents).digest("hex"),
+        })),
+    };
+}
