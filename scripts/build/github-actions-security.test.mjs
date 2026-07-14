@@ -142,6 +142,10 @@ const macosFinalArtifactDownloadStepName = "Download finalized macOS artifact";
 const macosUniversalVerificationStepName = "Verify universal macOS runtime";
 const macosUniversalVerificationCommand =
     'node ./scripts/build/macos-code-signing.mjs verify-dmg "$MACOS_RELEASE_ASSET_DIR"';
+const macosPreNotarizationVerificationStepName =
+    "Verify macOS signed runtime and build integrity";
+const macosPreNotarizationVerificationCommand =
+    'node ./scripts/build/macos-code-signing.mjs verify-dmg "src-tauri/target/${{ matrix.target }}/release/bundle/dmg" "src-tauri/target"';
 
 test("pins every external GitHub Action to a full commit SHA", async () => {
     for (const workflow of await readWorkflows()) {
@@ -386,25 +390,31 @@ test("cross-builds the universal SQLite binding before release tags", async () =
     assertStepIsRequired(sqliteBuildStep);
 });
 
-test("starts the final bundled Node runtime before macOS notarization", async () => {
+test("binds and starts the final macOS runtime before notarization", async () => {
     const releaseWorkflow = await readFile(
         path.join(workflowsDirectory, "tauri-release.yml"),
         "utf8",
     );
     const buildJob = extractWorkflowJob(releaseWorkflow, "build");
-    const nodeVerificationIndex = buildJob.indexOf(
-        "Verify macOS signing and bundled Node startup",
+    const verificationStep = extractWorkflowStep(
+        buildJob,
+        macosPreNotarizationVerificationStepName,
+    );
+    const runtimeVerificationIndex = buildJob.indexOf(
+        macosPreNotarizationVerificationStepName,
     );
     const notarizationInputIndex = buildJob.indexOf(
         "Prepare macOS notarization input",
     );
 
-    assert.ok(nodeVerificationIndex >= 0);
-    assert.ok(nodeVerificationIndex < notarizationInputIndex);
-    assert.match(
-        buildJob,
-        /macos-code-signing\.mjs verify-dmg "src-tauri\/target\/\$\{\{ matrix\.target \}\}\/release\/bundle\/dmg"/,
+    assert.ok(runtimeVerificationIndex >= 0);
+    assert.ok(runtimeVerificationIndex < notarizationInputIndex);
+    assertStepRunsCommand(
+        verificationStep,
+        macosPreNotarizationVerificationCommand,
     );
+    assert.match(verificationStep, /if: runner\.os == 'macOS'/);
+    assert.doesNotMatch(verificationStep, /continue-on-error:/);
 });
 
 test("checks synchronized project versions on ordinary desktop builds", async () => {

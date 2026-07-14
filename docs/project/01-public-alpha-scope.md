@@ -61,9 +61,12 @@ Core release characteristics:
   NATS, native secret prompt, and `better-sqlite3` add-on contain Intel
   `x86_64` and Apple silicon `arm64` slices. Backend and indexer resources carry
   both official macOS Sharp/libvips package pairs for runtime selection by
-  process architecture. Required release gates execute the mounted DMG on both
-  architectures; see `docs/desktop/01-tauri-build-and-runtime.md`. Windows
-  release packaging remains deferred.
+  process architecture. Before notarization, the mounted Node/trading closure
+  must match the integrity manifest built into both architecture slices.
+  Required release gates then execute Node, NATS, the non-GUI native-prompt
+  path, SQLite, and Sharp from the mounted DMG on both architectures; see
+  `docs/desktop/01-tauri-build-and-runtime.md`. Windows release packaging
+  remains deferred.
 - Desktop Admin UI includes header launch, logs, stop, and shutdown actions plus
   system, wallets, and bots surfaces behind the native Tauri shell.
 - Desktop wallet custody is implemented with Rust-owned Ethereum keystore

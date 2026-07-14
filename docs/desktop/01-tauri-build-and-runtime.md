@@ -208,6 +208,10 @@ What each command does:
   : Extracts exactly one AppImage and `.deb`, rejects links, executable-mode changes, or file-set drift, and compares every packaged runtime file's SHA-256 with `src-tauri/resources/runtime`.
   : Also verifies the staged and packaged wallet-recipient closures against the immutable snapshot emitted when Rust generated the embedded integrity manifest.
 
+- `node scripts/build/macos-code-signing.mjs verify-dmg <dmg-directory> <cargo-target-root>`
+  : Mounts the signed DMG before notarization, requires both concrete-architecture snapshots to declare the same protected roots/files/hashes, and requires the packaged `runtime/node` and `runtime/trading` bytes to match that contract.
+  : Verifies signatures, entitlements, fat Mach-O slices, and deployment targets, then starts the final Node and NATS executables, the native secret prompt through silent stdin owner loss, and the SQLite/Sharp smoke operations without opening app UI.
+
 - `yarn prepare:tauri-linux-tools`
   : Runs `scripts/build/prepare-tauri-linux-bundler-tools.mjs`.
   : Materializes the exact AppImage packaging executables declared by `config/tauri-linux-bundler-tools.json` only after size and SHA-256 verification.
@@ -251,9 +255,13 @@ default or custom Cargo target directories, explicit target triples, and debug
 or release profiles. It preserves compiled dependencies, incremental caches,
 executables, sidecars, and unrelated bundle output.
 Release compilation also writes a deterministic wallet-recipient hash snapshot
-beside the executable at the same moment the hashes are embedded. The final
-Linux bundle verifier uses that snapshot so a later staging change cannot make
-the package gate approve bytes that the executable would reject.
+beside each concrete-architecture executable at the same moment the hashes are
+embedded. The final Linux bundle verifier uses its target snapshot. A universal
+macOS build produces separate `aarch64-apple-darwin` and
+`x86_64-apple-darwin` snapshots before Tauri merges the executables; the
+pre-notarization DMG verifier requires the two snapshot contracts to agree and
+the packaged protected closure to match both. A later staging change therefore
+cannot make either package gate approve bytes that the executable would reject.
 
 ## Build Helper Scripts
 
@@ -380,7 +388,10 @@ Responsibilities:
 - covers the bundled Node runtime, bundled NATS runtime, staged native `.node` add-ons, and the native secret-prompt sidecar
 - grants only the bundled Node executable the dedicated `com.apple.security.cs.allow-jit` entitlement required by V8 under hardened runtime; NATS, native libraries, the Tauri executable, and the secret-prompt sidecar do not receive that exception
 - skips non-macOS targets and local macOS builds without `APPLE_SIGNING_IDENTITY`
-- mounts the produced DMG, verifies that Node's embedded entitlements exactly match `src-tauri/entitlements/node-runtime.plist`, verifies the contained `.app` signatures, and starts Node far enough to initialize V8 before notarization
+- mounts the produced DMG, verifies that Node's embedded entitlements exactly match `src-tauri/entitlements/node-runtime.plist`, and verifies the contained `.app` signatures
+- before notarization, requires the mounted `runtime/node` and `runtime/trading` closure to match the build-time snapshots beside both concrete Rust executables that Tauri merged into the universal app
+- starts Node far enough to initialize V8, reuses the numeric-IPv4-loopback NATS readiness probe against the mounted binary, and starts the native prompt through its silent stdin-owner-loss path before any prompt UI can open
+- executes the mounted SQLite and Sharp smoke operations; finalized-DMG jobs repeat every startup/operation proof on arm64 and x64 runners
 
 ### `scripts/build/prepare-tauri-linux-bundler-tools.mjs`
 
@@ -486,6 +497,16 @@ is compiled into the desktop executable rather than trusted from a mutable
 sidecar file. A build-time snapshot of the same protected paths and hashes is
 written beside the release executable only for package verification; runtime
 authorization continues to trust the compiled manifest.
+
+For a universal macOS build, the authoritative snapshots are:
+
+- `src-tauri/target/aarch64-apple-darwin/release/.artgod-wallet-recipient-integrity.json`
+- `src-tauri/target/x86_64-apple-darwin/release/.artgod-wallet-recipient-integrity.json`
+
+Tauri builds the two Rust executables independently and then merges them into
+the universal executable, so no synthetic universal-target snapshot replaces
+those two authorities. The pre-notarization gate verifies the mounted DMG
+against both.
 
 Before an unlock prompt opens, release runtime validation rejects missing,
 modified, added, unpinned, or symbolic-link entries anywhere in that protected
@@ -937,8 +958,11 @@ Current state:
 - The macOS application shell, Node, NATS, native secret prompt, and staged
   `better-sqlite3` add-ons are fat `x86_64` + `arm64` binaries. Backend and
   indexer stage both official Darwin Sharp/libvips pairs. Release gates mount
-  the same DMG and execute the bundled runtime's SQLite and Sharp smoke
-  operations on `macos-15` arm64 and `macos-15-intel` x64.
+  the same DMG and execute Node, the numeric-loopback NATS readiness path, the
+  native prompt's non-GUI owner-loss path, and SQLite/Sharp smoke operations on
+  `macos-15` arm64 and `macos-15-intel` x64. Before notarization, the build lane
+  also binds the mounted `runtime/node` and `runtime/trading` files to both
+  concrete-architecture copies of Rust's embedded integrity authority.
 - The mounted macOS verifier requires the app's `LSMinimumSystemVersion` to
   match Tauri's configured minimum. It inspects every architecture slice's
   `LC_BUILD_VERSION` or legacy `LC_VERSION_MIN_MACOSX` command and rejects a
@@ -974,10 +998,10 @@ Current state:
   before signing the checksum manifest.
 - The macOS app is code-signed, notarized, stapled, and distributed in one DMG.
   Before submission, the build lane verifies the fat-binary inventory, the
-  final bundled Node JIT entitlement, and SQLite/Sharp native dependency smoke
-  operations from the mounted DMG on its macOS runner. Final release acceptance
-  repeats that mounted-DMG verification on both required macOS runner
-  architectures.
+  final bundled Node JIT entitlement, both Rust integrity snapshots, and the
+  Node/NATS/secret-prompt/SQLite/Sharp runtime probes from the mounted DMG on
+  its macOS runner. Final release acceptance repeats the mounted-DMG signatures
+  and runtime probes on both required macOS runner architectures.
   The workflow preserves the exact submitted DMG and Apple submission state
   before bounded polling, so delayed submissions can be resumed from the
   original release tag without rebuilding or resubmitting.

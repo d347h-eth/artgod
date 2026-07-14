@@ -277,12 +277,9 @@ jobs:
               if: runner.os == 'Linux'
               run: yarn check:linux-bundled-runtime "src-tauri/target/${{ matrix.target }}/release/bundle"
 
-            - name: Verify macOS signing and bundled Node startup
+            - name: Verify macOS signed runtime and build integrity
               if: runner.os == 'macOS'
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  node ./scripts/build/macos-code-signing.mjs verify-dmg "src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+              run: node ./scripts/build/macos-code-signing.mjs verify-dmg "src-tauri/target/${{ matrix.target }}/release/bundle/dmg" "src-tauri/target"
 
             - name: Collect release artifacts
               shell: bash

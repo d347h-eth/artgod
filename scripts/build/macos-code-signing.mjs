@@ -19,9 +19,16 @@ import {
 import {
     DESKTOP_BUILD_TARGET_ENV_KEYS,
     DESKTOP_RUST_TARGET,
+    MACOS_UNIVERSAL_NATIVE_ARCHITECTURES,
     resolveDesktopRustTargetFromEnvironment,
 } from "./native-runtime-dependencies.mjs";
 import { verifyStagedDesktopRuntimeDependencies } from "./verify-staged-desktop-runtime-dependencies.mjs";
+import { verifyStagedDesktopNatsLoopbackBinding } from "./verify-staged-desktop-nats-loopback.mjs";
+import {
+    readWalletRecipientIntegritySnapshot,
+    verifyWalletRecipientIntegritySnapshot,
+    WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_FILE_NAME,
+} from "./wallet-recipient-integrity-snapshot.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,6 +49,12 @@ const secretPromptBinaryNamePrefix = "artgod-secret-prompt";
 const appExecutableDirectoryPrefix = "Contents/MacOS/";
 const appBundleExtension = ".app";
 const dmgBundleExtension = ".dmg";
+const cargoReleaseProfileDirectoryName = "release";
+// Production CLI request that reaches owner-loss handling without opening prompt UI.
+const secretPromptStartupArguments = Object.freeze(["--action", "unlock"]);
+// Owner loss is the helper's silent failure result when its parent input is closed.
+const secretPromptOwnerLossExitCode = 1;
+const secretPromptStartupTimeoutMilliseconds = 5_000;
 const nodeRuntimeEntitlementsPath = path.join(
     rootDir,
     "src-tauri",
@@ -161,6 +174,11 @@ async function verifyMacOSDmgBundle() {
             ? path.resolve(process.argv[3])
             : defaultMacOSDmgBundleRoot,
     );
+    const walletRecipientIntegritySnapshots = process.argv[4]
+        ? await readMacOSUniversalWalletRecipientIntegritySnapshots(
+              path.resolve(process.argv[4]),
+          )
+        : undefined;
     const mountRoot = await mkdtemp(
         path.join(resolveTemporaryDirectory(), "artgod-dmg-"),
     );
@@ -177,7 +195,9 @@ async function verifyMacOSDmgBundle() {
         ]);
         attached = true;
 
-        await verifyMacOSAppBundleAtPath(mountRoot);
+        await verifyMacOSAppBundleAtPath(mountRoot, {
+            walletRecipientIntegritySnapshots,
+        });
     } finally {
         if (attached) {
             await runCommand("hdiutil", ["detach", mountRoot]);
@@ -186,7 +206,7 @@ async function verifyMacOSDmgBundle() {
     }
 }
 
-async function verifyMacOSAppBundleAtPath(inputPath) {
+async function verifyMacOSAppBundleAtPath(inputPath, options = {}) {
     const appPath = await resolveAppBundlePath(inputPath);
     const machOFiles = await collectSignableMachOFiles([appPath]);
     if (machOFiles.length === 0) {
@@ -195,6 +215,9 @@ async function verifyMacOSAppBundleAtPath(inputPath) {
 
     assertRequiredBundleExecutables(appPath, machOFiles);
     const nodeRuntimePath = resolveBundledNodeRuntime(machOFiles);
+    const natsRuntimePath = resolveBundledNatsRuntime(machOFiles);
+    const secretPromptPath = resolveSecretPromptRuntime(machOFiles);
+    const runtimeRoot = path.dirname(path.dirname(nodeRuntimePath));
 
     const architectureCoverage = await verifyMacOSUniversalMachOFiles(
         machOFiles,
@@ -227,15 +250,147 @@ async function verifyMacOSAppBundleAtPath(inputPath) {
         appPath,
     ]);
 
+    if (options.walletRecipientIntegritySnapshots) {
+        await verifyMacOSWalletRecipientIntegritySnapshots(
+            options.walletRecipientIntegritySnapshots,
+            runtimeRoot,
+        );
+    }
     await verifyNodeRuntimeStartup(nodeRuntimePath);
+    await verifyBundledNatsLoopbackStartup(natsRuntimePath);
+    await verifySecretPromptStartup(secretPromptPath);
     await verifyStagedDesktopRuntimeDependencies({
-        resourcesRootDir: path.dirname(path.dirname(nodeRuntimePath)),
+        resourcesRootDir: runtimeRoot,
         nodeBinaryPath: nodeRuntimePath,
     });
 
     console.log(
-        `Verified ${machOFiles.length} signed Mach-O file(s), ${architectureCoverage.universalFileCount} fat file(s), ${deploymentTargetCoverage.architectureSliceCount} deployment-target slice(s) at or below macOS ${minimumSystemVersion}, and native runtime dependencies inside ${path.relative(rootDir, appPath)}.`,
+        `Verified ${machOFiles.length} signed Mach-O file(s), ${architectureCoverage.universalFileCount} fat file(s), ${deploymentTargetCoverage.architectureSliceCount} deployment-target slice(s) at or below macOS ${minimumSystemVersion}, and final Node, NATS, secret-prompt, SQLite, and Sharp runtime entry points inside ${path.relative(rootDir, appPath)}.`,
     );
+}
+
+// Resolves both concrete Cargo snapshots that feed one universal macOS executable.
+export function resolveMacOSUniversalWalletRecipientIntegritySnapshotPaths(
+    cargoTargetRoot,
+) {
+    return MACOS_UNIVERSAL_NATIVE_ARCHITECTURES.map(({ rustTarget }) =>
+        Object.freeze({
+            rustTarget,
+            snapshotPath: path.join(
+                cargoTargetRoot,
+                rustTarget,
+                cargoReleaseProfileDirectoryName,
+                WALLET_RECIPIENT_INTEGRITY_SNAPSHOT_FILE_NAME,
+            ),
+        }),
+    );
+}
+
+// Loads the two manifests embedded independently in the universal app's Rust slices.
+export async function readMacOSUniversalWalletRecipientIntegritySnapshots(
+    cargoTargetRoot,
+) {
+    return await Promise.all(
+        resolveMacOSUniversalWalletRecipientIntegritySnapshotPaths(
+            cargoTargetRoot,
+        ).map(async ({ rustTarget, snapshotPath }) =>
+            Object.freeze({
+                rustTarget,
+                snapshotPath,
+                snapshot:
+                    await readWalletRecipientIntegritySnapshot(snapshotPath),
+            }),
+        ),
+    );
+}
+
+// Requires the mounted runtime to satisfy the manifest embedded in each native slice.
+export async function verifyMacOSWalletRecipientIntegritySnapshots(
+    snapshots,
+    runtimeRoot,
+) {
+    const snapshotsByTarget = new Map();
+    for (const snapshot of snapshots ?? []) {
+        if (
+            !snapshot ||
+            typeof snapshot.rustTarget !== "string" ||
+            snapshotsByTarget.has(snapshot.rustTarget)
+        ) {
+            throw new Error(
+                "macOS wallet-recipient integrity snapshots contain an invalid or duplicate target.",
+            );
+        }
+        snapshotsByTarget.set(snapshot.rustTarget, snapshot);
+    }
+
+    const requiredSnapshots = [];
+    for (const { rustTarget } of MACOS_UNIVERSAL_NATIVE_ARCHITECTURES) {
+        const snapshot = snapshotsByTarget.get(rustTarget);
+        if (!snapshot) {
+            throw new Error(
+                `Missing wallet-recipient integrity snapshot for ${rustTarget}.`,
+            );
+        }
+        requiredSnapshots.push(snapshot);
+        snapshotsByTarget.delete(rustTarget);
+    }
+
+    if (snapshotsByTarget.size > 0) {
+        throw new Error(
+            `Unexpected macOS wallet-recipient integrity snapshot target(s): ${[...snapshotsByTarget.keys()].join(", ")}.`,
+        );
+    }
+
+    const referenceSnapshot = requiredSnapshots[0];
+    const referenceIdentity = createWalletRecipientSnapshotIdentity(
+        referenceSnapshot.snapshot,
+    );
+    for (const snapshot of requiredSnapshots.slice(1)) {
+        if (
+            !isDeepStrictEqual(
+                createWalletRecipientSnapshotIdentity(snapshot.snapshot),
+                referenceIdentity,
+            )
+        ) {
+            throw new Error(
+                `Universal macOS wallet-recipient integrity snapshots differ between ${referenceSnapshot.rustTarget} and ${snapshot.rustTarget}.`,
+            );
+        }
+    }
+
+    for (const snapshot of requiredSnapshots) {
+        try {
+            await verifyWalletRecipientIntegritySnapshot(
+                snapshot.snapshot,
+                runtimeRoot,
+            );
+        } catch (error) {
+            throw new Error(
+                `Mounted macOS runtime does not match the ${snapshot.rustTarget} wallet-recipient integrity snapshot: ${String(error)}`,
+                { cause: error },
+            );
+        }
+    }
+}
+
+function createWalletRecipientSnapshotIdentity(snapshot) {
+    if (
+        !snapshot ||
+        !Array.isArray(snapshot.protectedRoots) ||
+        !Array.isArray(snapshot.files)
+    ) {
+        throw new Error("Invalid macOS wallet-recipient integrity snapshot.");
+    }
+    return {
+        protectedRoots: [...snapshot.protectedRoots].sort((left, right) =>
+            left.localeCompare(right),
+        ),
+        files: snapshot.files
+            .map(({ relativePath, sha256 }) => ({ relativePath, sha256 }))
+            .sort((left, right) =>
+                left.relativePath.localeCompare(right.relativePath),
+            ),
+    };
 }
 
 async function readMacOSMinimumSystemVersion() {
@@ -517,6 +672,44 @@ export async function verifyNodeRuntimeStartup(filePath, options = {}) {
     logger(`Started bundled Node runtime: ${runtimeIdentity}`);
 }
 
+// Reuses the staged-binary listener proof against NATS inside the mounted app.
+export async function verifyBundledNatsLoopbackStartup(filePath, options = {}) {
+    const natsVerifier =
+        options.natsVerifier ?? verifyStagedDesktopNatsLoopbackBinding;
+    const logger = options.logger ?? console.log;
+    await natsVerifier({ natsBinaryPath: filePath });
+    logger(`Started bundled NATS on numeric IPv4 loopback: ${filePath}`);
+}
+
+// Starts the final prompt helper and closes input before any native UI can open.
+export async function verifySecretPromptStartup(filePath, options = {}) {
+    const processRunner = options.processRunner ?? runSilentProcess;
+    const logger = options.logger ?? console.log;
+    const result = await processRunner(filePath, secretPromptStartupArguments, {
+        timeoutMilliseconds: secretPromptStartupTimeoutMilliseconds,
+    });
+
+    if (result.signal !== null) {
+        throw new Error(
+            `Secret prompt startup smoke terminated with signal ${String(result.signal)}.`,
+        );
+    }
+    if (result.exitCode !== secretPromptOwnerLossExitCode) {
+        throw new Error(
+            `Secret prompt startup smoke exited with code ${String(result.exitCode)}; expected ${secretPromptOwnerLossExitCode}.`,
+        );
+    }
+    if (result.stdoutProduced || result.stderrProduced) {
+        throw new Error(
+            "Secret prompt startup smoke produced unexpected process output.",
+        );
+    }
+
+    logger(
+        `Started bundled secret prompt without opening native UI: ${filePath}`,
+    );
+}
+
 function isBundledNodeRuntime(filePath) {
     return normalizePath(filePath).endsWith(bundledNodeRelativeSuffix);
 }
@@ -526,6 +719,34 @@ function resolveBundledNodeRuntime(machOFiles) {
     if (candidates.length !== 1) {
         throw new Error(
             `Expected exactly one bundled Node runtime, found ${candidates.length}.`,
+        );
+    }
+    return candidates[0];
+}
+
+function isBundledNatsRuntime(filePath) {
+    return normalizePath(filePath).endsWith(bundledNatsRelativeSuffix);
+}
+
+function resolveBundledNatsRuntime(machOFiles) {
+    const candidates = machOFiles.filter(isBundledNatsRuntime);
+    if (candidates.length !== 1) {
+        throw new Error(
+            `Expected exactly one bundled NATS runtime, found ${candidates.length}.`,
+        );
+    }
+    return candidates[0];
+}
+
+function isSecretPromptRuntime(filePath) {
+    return path.basename(filePath).startsWith(secretPromptBinaryNamePrefix);
+}
+
+function resolveSecretPromptRuntime(machOFiles) {
+    const candidates = machOFiles.filter(isSecretPromptRuntime);
+    if (candidates.length !== 1) {
+        throw new Error(
+            `Expected exactly one secret prompt sidecar, found ${candidates.length}.`,
         );
     }
     return candidates[0];
@@ -592,6 +813,58 @@ async function runCommand(command, args, options = {}) {
     });
 }
 
+async function runSilentProcess(command, args, { timeoutMilliseconds }) {
+    return await new Promise((resolve, reject) => {
+        const child = spawn(command, args, {
+            cwd: rootDir,
+            env: process.env,
+            stdio: ["ignore", "pipe", "pipe"],
+        });
+        let stdoutProduced = false;
+        let stderrProduced = false;
+        let timedOut = false;
+        let settled = false;
+
+        child.stdout?.on("data", (chunk) => {
+            stdoutProduced ||= chunk.length > 0;
+        });
+        child.stderr?.on("data", (chunk) => {
+            stderrProduced ||= chunk.length > 0;
+        });
+
+        const timeoutHandle = setTimeout(() => {
+            timedOut = true;
+            child.kill("SIGKILL");
+        }, timeoutMilliseconds);
+
+        child.once("error", (error) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeoutHandle);
+            reject(error);
+        });
+        child.once("close", (exitCode, signal) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeoutHandle);
+            if (timedOut) {
+                reject(
+                    new Error(
+                        `Secret prompt startup smoke exceeded ${timeoutMilliseconds}ms.`,
+                    ),
+                );
+                return;
+            }
+            resolve({
+                exitCode,
+                signal,
+                stdoutProduced,
+                stderrProduced,
+            });
+        });
+    });
+}
+
 async function main() {
     const mode = process.argv[2];
     if (mode === MODE_SIGN_STAGED) {
@@ -607,7 +880,7 @@ async function main() {
         return;
     }
     throw new Error(
-        `Usage: node scripts/build/macos-code-signing.mjs ${MODE_SIGN_STAGED}|${MODE_VERIFY_APP}|${MODE_VERIFY_DMG} [app-or-bundle-root|dmg-or-bundle-root]`,
+        `Usage: node scripts/build/macos-code-signing.mjs ${MODE_SIGN_STAGED}|${MODE_VERIFY_APP}|${MODE_VERIFY_DMG} [app-or-bundle-root|dmg-or-bundle-root] [cargo-target-root-for-release-snapshots]`,
     );
 }
 
