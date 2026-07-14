@@ -581,6 +581,9 @@ For the dry run, confirm:
 - the Linux bundles run on a clean supported Linux machine
 - the same DMG passes the required mounted-runtime gates on `macos-15` arm64
   and `macos-15-intel` x64, including SQLite and Sharp smoke operations
+- before claiming compatibility with the configured minimum macOS version,
+  clean machines running that version complete native Intel and Apple silicon
+  app/runtime QA; the hosted macOS 15 gates do not substitute for this check
 - macOS opens the DMG and app normally under Gatekeeper without a bypass
 
 After those checks pass, push the public tag on the same commit. This is a new

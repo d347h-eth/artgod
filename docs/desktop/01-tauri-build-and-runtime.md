@@ -920,6 +920,12 @@ Current state:
   indexer stage both official Darwin Sharp/libvips pairs. Release gates mount
   the same DMG and execute the bundled runtime's SQLite and Sharp smoke
   operations on `macos-15` arm64 and `macos-15-intel` x64.
+- The mounted macOS verifier requires the app's `LSMinimumSystemVersion` to
+  match Tauri's configured minimum. It inspects every architecture slice's
+  `LC_BUILD_VERSION` or legacy `LC_VERSION_MIN_MACOSX` command and rejects a
+  deployment target above that minimum. This proves each slice declares a
+  compatible deployment target; it does not replace clean-machine runtime QA
+  on the oldest supported macOS.
 - Linux build checks and Linux/macOS release builds launch the built Node bot
   through the production command, containment, retained-stdin, and secret-frame
   path. The proof first requires clean `SIGTERM` exit while the parent still

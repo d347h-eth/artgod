@@ -6,8 +6,11 @@ import test from "node:test";
 import { DESKTOP_NODE_ARCHITECTURE } from "./native-runtime-dependencies.mjs";
 
 import {
+    assertMacOSBundleMinimumSystemVersion,
     assertRequiredBundleExecutables,
     createMacOSCodeSignArguments,
+    MACOS_MINIMUM_SYSTEM_VERSION_BY_ARCHITECTURE_PLIST_KEY,
+    MACOS_MINIMUM_SYSTEM_VERSION_PLIST_KEY,
     resolveMacOSCodeSigningEntitlements,
     verifyNodeRuntimeEntitlements,
     verifyNodeRuntimeStartup,
@@ -72,6 +75,31 @@ test("keeps the Tauri minimum macOS version aligned with release docs", async ()
         readme.includes(`macOS ${minimumSystemVersion}+`),
         true,
         "README macOS support must match the Tauri bundle minimum.",
+    );
+    assert.doesNotThrow(() =>
+        assertMacOSBundleMinimumSystemVersion(
+            {
+                [MACOS_MINIMUM_SYSTEM_VERSION_PLIST_KEY]: minimumSystemVersion,
+            },
+            minimumSystemVersion,
+        ),
+    );
+    assert.throws(
+        () => assertMacOSBundleMinimumSystemVersion({}, minimumSystemVersion),
+        /does not match Tauri config.*found missing/,
+    );
+    assert.throws(
+        () =>
+            assertMacOSBundleMinimumSystemVersion(
+                {
+                    [MACOS_MINIMUM_SYSTEM_VERSION_PLIST_KEY]:
+                        minimumSystemVersion,
+                    [MACOS_MINIMUM_SYSTEM_VERSION_BY_ARCHITECTURE_PLIST_KEY]:
+                        {},
+                },
+                minimumSystemVersion,
+            ),
+        /must be absent.*cannot override/,
     );
 });
 

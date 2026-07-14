@@ -1,11 +1,21 @@
 #!/usr/bin/env node
-import { lstat, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+    lstat,
+    mkdtemp,
+    readFile,
+    readdir,
+    rm,
+    writeFile,
+} from "node:fs/promises";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import { verifyMacOSUniversalMachOFiles } from "./macos-universal-runtime.mjs";
+import {
+    verifyMacOSDeploymentTargets,
+    verifyMacOSUniversalMachOFiles,
+} from "./macos-universal-runtime.mjs";
 import {
     DESKTOP_BUILD_TARGET_ENV_KEYS,
     DESKTOP_RUST_TARGET,
@@ -16,6 +26,11 @@ import { verifyStagedDesktopRuntimeDependencies } from "./verify-staged-desktop-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "../..");
+
+// Info.plist keys that can declare the bundle's minimum macOS version.
+export const MACOS_MINIMUM_SYSTEM_VERSION_PLIST_KEY = "LSMinimumSystemVersion";
+export const MACOS_MINIMUM_SYSTEM_VERSION_BY_ARCHITECTURE_PLIST_KEY =
+    "LSMinimumSystemVersionByArchitecture";
 
 const MODE_SIGN_STAGED = "sign-staged";
 const MODE_VERIFY_APP = "verify-app";
@@ -33,6 +48,7 @@ const nodeRuntimeEntitlementsPath = path.join(
     "entitlements",
     "node-runtime.plist",
 );
+const tauriConfigPath = path.join(rootDir, "src-tauri", "tauri.conf.json");
 const nodeRuntimeSmokeScript =
     "process.stdout.write(`${process.arch} ${process.version}\\n`)";
 const stagedMacOSBinaryRoots = [
@@ -184,6 +200,17 @@ async function verifyMacOSAppBundleAtPath(inputPath) {
         machOFiles,
         { commandRunner: runCommand },
     );
+    const minimumSystemVersion = await readMacOSMinimumSystemVersion();
+    const appInfo = await readPropertyList(
+        path.join(appPath, "Contents", "Info.plist"),
+        runCommand,
+    );
+    assertMacOSBundleMinimumSystemVersion(appInfo, minimumSystemVersion);
+    const deploymentTargetCoverage = await verifyMacOSDeploymentTargets(
+        machOFiles,
+        minimumSystemVersion,
+        { commandRunner: runCommand },
+    );
 
     for (const filePath of sortNestedFirst(machOFiles)) {
         await verifyCodeSignature(filePath);
@@ -207,8 +234,44 @@ async function verifyMacOSAppBundleAtPath(inputPath) {
     });
 
     console.log(
-        `Verified ${machOFiles.length} signed Mach-O file(s), ${architectureCoverage.universalFileCount} fat file(s), and native runtime dependencies inside ${path.relative(rootDir, appPath)}.`,
+        `Verified ${machOFiles.length} signed Mach-O file(s), ${architectureCoverage.universalFileCount} fat file(s), ${deploymentTargetCoverage.architectureSliceCount} deployment-target slice(s) at or below macOS ${minimumSystemVersion}, and native runtime dependencies inside ${path.relative(rootDir, appPath)}.`,
     );
+}
+
+async function readMacOSMinimumSystemVersion() {
+    const tauriConfig = JSON.parse(await readFile(tauriConfigPath, "utf8"));
+    const minimumSystemVersion =
+        tauriConfig.bundle?.macOS?.minimumSystemVersion;
+    if (typeof minimumSystemVersion !== "string") {
+        throw new Error(
+            "Tauri bundle config has no macOS minimum system version.",
+        );
+    }
+    return minimumSystemVersion;
+}
+
+// Requires the mounted app metadata to advertise the configured compatibility floor.
+export function assertMacOSBundleMinimumSystemVersion(
+    appInfo,
+    minimumSystemVersion,
+) {
+    if (
+        Object.hasOwn(
+            appInfo ?? {},
+            MACOS_MINIMUM_SYSTEM_VERSION_BY_ARCHITECTURE_PLIST_KEY,
+        )
+    ) {
+        throw new Error(
+            `Bundled ${MACOS_MINIMUM_SYSTEM_VERSION_BY_ARCHITECTURE_PLIST_KEY} must be absent so it cannot override the Tauri minimum.`,
+        );
+    }
+    const bundledMinimumSystemVersion =
+        appInfo?.[MACOS_MINIMUM_SYSTEM_VERSION_PLIST_KEY];
+    if (bundledMinimumSystemVersion !== minimumSystemVersion) {
+        throw new Error(
+            `Bundled ${MACOS_MINIMUM_SYSTEM_VERSION_PLIST_KEY} does not match Tauri config. Expected ${minimumSystemVersion}; found ${bundledMinimumSystemVersion ?? "missing"}.`,
+        );
+    }
 }
 
 function resolveTemporaryDirectory() {
