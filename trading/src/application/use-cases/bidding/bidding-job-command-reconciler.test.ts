@@ -69,6 +69,8 @@ function makeCommand(
         requestedRevision: 1,
         payload,
         attempts,
+        createdAtMs: Date.parse("2026-07-14T10:00:00Z"),
+        claimedAtMs: Date.parse("2026-07-14T10:00:01Z"),
     };
 }
 

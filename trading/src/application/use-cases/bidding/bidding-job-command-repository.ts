@@ -11,6 +11,10 @@ export type BiddingJobCommand = {
     requestedRevision: number;
     payload: Record<string, unknown>;
     attempts: number;
+    // createdAtMs is the durable enqueue time in Unix milliseconds.
+    createdAtMs: number;
+    // claimedAtMs is the current claim-attempt time in Unix milliseconds.
+    claimedAtMs: number;
 };
 
 // BiddingJobCommandRepository owns the durable Outbox command lifecycle for the running bot.

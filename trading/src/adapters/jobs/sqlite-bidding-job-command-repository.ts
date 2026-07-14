@@ -19,6 +19,8 @@ type TradingJobCommandRow = {
     requested_revision: number;
     payload_json: string;
     attempts: number;
+    created_at: string | null;
+    claimed_at: string | null;
 };
 
 export class SqliteBiddingJobCommandRepository
@@ -52,7 +54,7 @@ export class SqliteBiddingJobCommandRepository
             claimCutoff: string;
             limit: number;
         }>(
-            "SELECT command_id, job_id, command_kind, status, requested_revision, payload_json, attempts " +
+            "SELECT command_id, job_id, command_kind, status, requested_revision, payload_json, attempts, created_at, claimed_at " +
                 "FROM trading_job_commands " +
                 "WHERE bot_kind = @botKind " +
                 "AND completed_at IS NULL " +
@@ -71,7 +73,7 @@ export class SqliteBiddingJobCommandRepository
         ) as BetterSqlite3NamedStatement<{ commandId: number }>;
 
         this.selectCommandById = db.prepare<{ commandId: number }>(
-            "SELECT command_id, job_id, command_kind, status, requested_revision, payload_json, attempts " +
+            "SELECT command_id, job_id, command_kind, status, requested_revision, payload_json, attempts, created_at, claimed_at " +
                 "FROM trading_job_commands WHERE command_id = @commandId LIMIT 1",
         ) as BetterSqlite3NamedStatement<{ commandId: number }>;
 
@@ -152,6 +154,12 @@ export class SqliteBiddingJobCommandRepository
     }
 
     private mapRow(row: TradingJobCommandRow): BiddingJobCommand {
+        if (!row.created_at || !row.claimed_at) {
+            throw new Error(
+                `Claimed trading job command ${row.command_id} is missing lifecycle timestamps`,
+            );
+        }
+
         return {
             commandId: row.command_id,
             jobId: row.job_id,
@@ -160,6 +168,16 @@ export class SqliteBiddingJobCommandRepository
             requestedRevision: row.requested_revision,
             payload: this.parsePayload(row),
             attempts: row.attempts,
+            createdAtMs: parseSqliteTimestampMs(
+                row.created_at,
+                row.command_id,
+                "created_at",
+            ),
+            claimedAtMs: parseSqliteTimestampMs(
+                row.claimed_at,
+                row.command_id,
+                "claimed_at",
+            ),
         };
     }
 
@@ -182,4 +200,18 @@ export class SqliteBiddingJobCommandRepository
 
 function formatSqliteTimestamp(date: Date): string {
     return date.toISOString().replace("T", " ").slice(0, 19);
+}
+
+function parseSqliteTimestampMs(
+    value: string,
+    commandId: number,
+    field: "created_at" | "claimed_at",
+): number {
+    const timestampMs = Date.parse(`${value.replace(" ", "T")}Z`);
+    if (!Number.isFinite(timestampMs)) {
+        throw new Error(
+            `Claimed trading job command ${commandId} has invalid ${field}`,
+        );
+    }
+    return timestampMs;
 }
