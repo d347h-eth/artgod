@@ -1,7 +1,7 @@
 # ArtGod
 
 ArtGod is a local-first desktop platform for NFT collection indexing,
-exploration, market data, and bidding workflows.
+exploration, market data, and competitive bidding automation.
 
 It is free and copyleft open source (`AGPL-3.0-only`). The system is built to
 give network users more autonomy and agency: all services run locally instead of depending
@@ -30,20 +30,29 @@ Donations welcome: donations.artgod.eth
 - Real-time market data sync and visualization: onchain sync, OpenSea snapshot,
   stream, and reconcile lanes, canonical order state, bid books, and customized
   content pages.
-- Bidding automation: wallet-bound local bot runtime, DB-backed token, trait,
-  and collection bidding jobs, price tiers, live command reconciliation, and
-  bid-book feedback.
+- Competitive bidding automation: a wallet-bound local bot continuously
+  evaluates DB-backed token, trait, and collection jobs, reacts to relevant
+  marketplace bid events, and publishes real-time lifecycle feedback to the bid
+  books.
 - Frontend customizations: collection extension system, extension-provided media
   selection, collection-owned presentation overrides, and Terraforms as the
   first bundled extension.
 - Local operations: native Admin config, runtime control, wallet unlock,
   logs, optional observability stack, and desktop release packaging.
 
+ArtGod's bidding system is not merely another interface for placing bids through
+a centralized NFT marketplace. It is a competitive bot that works to maintain
+leading offers within operator-approved limits and reacts to relevant
+marketplace events without waiting for the next full scan. The bot is included
+free, with no subscription or ArtGod-imposed usage limits, and runs entirely on
+the user's machine.
+
 Wallet custody follows the same local-first model: imported EVM private keys are
 stored by the Rust desktop layer as encrypted standard Ethereum keystore files,
 separate from non-secret wallet metadata. Unlocking is per bot start, so the
 decrypted key is handed to the local trading runtime for that launch rather than
-cached as a reusable session.
+cached as a reusable session. No ArtGod-hosted service receives or controls the
+wallet key.
 
 For the current public-alpha scope and implementation snapshot, see
 `docs/project/01-public-alpha-scope.md`.
@@ -157,16 +166,16 @@ procedure is in `docs/desktop/06-release-signing-runbook.md`.
 After verifying the download, read the
 [ArtGod Operator Guide](docs/project/02-public-alpha-starter-guide.md) before
 starting ArtGod. It sets expectations for the public alpha, walks through a
-safe first run, and explains OpenSea and RPC configuration, bidding safety,
-metadata and media limitations, and where to send feedback.
+complete first-run workflow, and explains OpenSea and RPC configuration,
+bidding safety, metadata and media limitations, and where to send feedback.
 
 ## Documentation Map
 
 Start here when navigating the repo:
 
 - [ArtGod Operator Guide](docs/project/02-public-alpha-starter-guide.md): public
-  alpha expectations, a safe first run, configuration guidance, bidding safety,
-  and feedback channels.
+  alpha expectations, a step-by-step first-run workflow, configuration guidance,
+  bidding safety, and feedback channels.
 - `docs/project/01-public-alpha-scope.md`: product positioning, current public
   alpha snapshot, project structure, and release boundaries.
 - `docs/development/01-local-development.md`: local setup, desktop dev,

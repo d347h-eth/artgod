@@ -8,6 +8,8 @@ The best way to use ArtGod right now is to start small and expand gradually. Boo
 
 Use a dedicated bidding wallet funded only with the WETH and ETH you are prepared to expose to alpha software. Do not use a valuable main wallet.
 
+ArtGod's bidding system is not just a UI for manually placing marketplace offers. It is a competitive bot that runs on your machine, continuously evaluates active jobs and observed offers, and reacts to relevant marketplace events to maintain leading positions within the limits you approve. The bot is free to use, with no subscription or ArtGod-imposed usage limits, and you retain local custody of the wallet keys.
+
 ## A Full Step-by-Step Guide
 
 1. Verify the downloaded ArtGod release using the instructions in the README.
@@ -205,6 +207,8 @@ The entire composition can work with the same key or with keys from the same Ope
 Never include API keys in screenshots, logs, or feedback reports.
 
 ## Bidding Bot Operation
+
+Once active, the bot continuously evaluates enabled jobs and observed offers. It works to keep each offer competitive within the approved price limits, while relevant OpenSea events trigger targeted reevaluation between full scans.
 
 The bot performs several kinds of work:
 
