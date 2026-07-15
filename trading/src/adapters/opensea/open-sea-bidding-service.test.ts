@@ -19,6 +19,7 @@ import {
 import { TOKEN_BUCKET_RATE_LIMIT_PRIORITY } from "../support/token-bucket-rate-limiter.js";
 import {
     isRetryableOpenSeaBiddingError,
+    OPEN_SEA_BIDDING_OPERATION,
     OPENSEA_SIGNED_ZONE_TRAIT_TRUST_REQUIRED_ERROR,
     OpenSeaBiddingService as RuntimeOpenSeaBiddingService,
     type OpenSeaBiddingServiceOptions,
@@ -54,10 +55,7 @@ type TestOpenSeaBiddingServiceOptions = Omit<
     "trustOpenSeaSignedZoneTraitOffers"
 > &
     Partial<
-        Pick<
-            OpenSeaBiddingServiceOptions,
-            "trustOpenSeaSignedZoneTraitOffers"
-        >
+        Pick<OpenSeaBiddingServiceOptions, "trustOpenSeaSignedZoneTraitOffers">
     >;
 
 // Keeps unrelated adapter tests explicit about the production-required trust input.
@@ -283,6 +281,11 @@ describe("OpenSeaBiddingService", () => {
             postCost: number;
             priority: number | undefined;
         }> = [];
+        const operations: Array<{
+            operation: string;
+            priority: number;
+            succeeded: boolean;
+        }> = [];
         const service = new OpenSeaBiddingService(sdk as any, makerAddress, {
             retryPolicy: TEST_RETRY_POLICY,
             rateLimiter: {
@@ -298,6 +301,10 @@ describe("OpenSeaBiddingService", () => {
                     });
                 },
             } as any,
+            observability: {
+                onOpenSeaOperationFinished: (input) => operations.push(input),
+                onOpenSeaRetry: () => undefined,
+            },
         });
         const job = {
             id: "job-priority",
@@ -326,6 +333,152 @@ describe("OpenSeaBiddingService", () => {
                 priority: TOKEN_BUCKET_RATE_LIMIT_PRIORITY.UserCommand,
             },
         ]);
+        assert.equal(operations.length, 1);
+        assert.deepEqual(
+            operations.map(({ operation, priority, succeeded }) => ({
+                operation,
+                priority,
+                succeeded,
+            })),
+            [
+                {
+                    operation: OPEN_SEA_BIDDING_OPERATION.CreateOffer,
+                    priority: TOKEN_BUCKET_RATE_LIMIT_PRIORITY.UserCommand,
+                    succeeded: true,
+                },
+            ],
+        );
+    });
+
+    it("preserves SDK success and retries when observability callbacks throw", async () => {
+        const sdk = new MockOpenSeaSdk();
+        let sdkCalls = 0;
+        sdk.api.getOffersByNFT = async () => {
+            sdkCalls += 1;
+            if (sdkCalls === 1) {
+                throw new Error("temporary OpenSea failure");
+            }
+            return { offers: [] };
+        };
+        const service = new OpenSeaBiddingService(sdk, makerAddress, {
+            retryPolicy: TEST_MULTI_ATTEMPT_RETRY_POLICY,
+            observability: {
+                onOpenSeaOperationFinished: () => {
+                    throw new Error("operation observer failed");
+                },
+                onOpenSeaRetry: () => {
+                    throw new Error("retry observer failed");
+                },
+            },
+        });
+        const job = {
+            id: "job-throwing-observer-success",
+            revision: 1,
+            network: "eth" as const,
+            collectionId: 1,
+            collectionSlug,
+            collectionAddress,
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
+            config: { floor: 1n, ceiling: 2n, delta: 1n },
+            state: {},
+        };
+
+        const offers = await service.getActiveOffers(job);
+
+        assert.deepEqual(offers, []);
+        assert.equal(sdkCalls, 2);
+    });
+
+    it("preserves the original SDK error when operation observability throws", async () => {
+        const sdk = new MockOpenSeaSdk();
+        const sdkError = new Error(TEST_OPENSEA_NFT_NOT_FOUND_ERROR);
+        sdk.api.getOffersByNFT = async () => {
+            throw sdkError;
+        };
+        const service = new OpenSeaBiddingService(sdk, makerAddress, {
+            retryPolicy: TEST_RETRY_POLICY,
+            observability: {
+                onOpenSeaOperationFinished: () => {
+                    throw new Error("operation observer failed");
+                },
+                onOpenSeaRetry: () => {
+                    throw new Error("retry observer failed");
+                },
+            },
+        });
+        const job = {
+            id: "job-throwing-observer-error",
+            revision: 1,
+            network: "eth" as const,
+            collectionId: 1,
+            collectionSlug,
+            collectionAddress,
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
+            config: { floor: 1n, ceiling: 2n, delta: 1n },
+            state: {},
+        };
+        let caught: unknown;
+
+        try {
+            await service.getActiveOffers(job);
+        } catch (error) {
+            caught = error;
+        }
+
+        assert.equal(caught, sdkError);
+    });
+
+    it("does not report or retry a missing best offer as a provider failure", async () => {
+        const sdk = new MockOpenSeaSdk();
+        const operations: Array<{
+            operation: string;
+            succeeded: boolean;
+            expectedAbsence?: boolean;
+        }> = [];
+        const retries: string[] = [];
+        let bestOfferCalls = 0;
+        sdk.api.getBestOffer = async () => {
+            bestOfferCalls += 1;
+            throw Object.assign(new Error("Best offer not found"), {
+                status: 404,
+            });
+        };
+        const service = new OpenSeaBiddingService(sdk, makerAddress, {
+            retryPolicy: TEST_MULTI_ATTEMPT_RETRY_POLICY,
+            observability: {
+                onOpenSeaOperationFinished: (input) => operations.push(input),
+                onOpenSeaRetry: ({ operation }) => retries.push(operation),
+            },
+        });
+        const job = {
+            id: "job-missing-best-offer",
+            revision: 1,
+            network: "eth" as const,
+            collectionId: 1,
+            collectionSlug,
+            collectionAddress,
+            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
+            config: { floor: 1n, ceiling: 2n, delta: 1n },
+            state: {},
+        };
+
+        const offers = await service.getActiveOffers(job);
+
+        assert.deepEqual(offers, []);
+        assert.equal(bestOfferCalls, 1);
+        assert.deepEqual(
+            operations
+                .filter(
+                    ({ operation }) =>
+                        operation === OPEN_SEA_BIDDING_OPERATION.GetBestOffer,
+                )
+                .map(({ succeeded, expectedAbsence }) => ({
+                    succeeded,
+                    expectedAbsence,
+                })),
+            [{ succeeded: true, expectedAbsence: true }],
+        );
+        assert.ok(!retries.includes(OPEN_SEA_BIDDING_OPERATION.GetBestOffer));
     });
 
     it("blocks trait placement before the SDK unless SignedZone trust is explicitly enabled", async () => {
@@ -528,6 +681,37 @@ describe("OpenSeaBiddingService", () => {
         ]);
     });
 
+    it("completes cancellation retries when observability callbacks throw", async () => {
+        const sdk = new MockOpenSeaSdk();
+        let sdkCalls = 0;
+        sdk.offchainCancelOrder = async () => {
+            sdkCalls += 1;
+            if (sdkCalls === 1) {
+                throw new Error("temporary OpenSea failure");
+            }
+        };
+        const service = new OpenSeaBiddingService(sdk, makerAddress, {
+            retryPolicy: TEST_MULTI_ATTEMPT_RETRY_POLICY,
+            observability: {
+                onOpenSeaOperationFinished: () => {
+                    throw new Error("operation observer failed");
+                },
+                onOpenSeaRetry: () => {
+                    throw new Error("retry observer failed");
+                },
+            },
+        });
+
+        await service.cancelOffer({} as any, {
+            id: orderHash,
+            maker: makerAddress,
+            price: 1n,
+            protocolAddress,
+        });
+
+        assert.equal(sdkCalls, 2);
+    });
+
     it("recovers an order directly by hash and drops inactive direct lookups", async () => {
         const sdk = new MockOpenSeaSdk();
         const service = new OpenSeaBiddingService(sdk as any, makerAddress);
@@ -620,31 +804,72 @@ describe("OpenSeaBiddingService", () => {
 
     it("treats direct order-not-found as absent without scanning collection offers", async () => {
         const sdk = new MockOpenSeaSdk();
+        const operations: Array<{
+            operation: string;
+            succeeded: boolean;
+            expectedAbsence?: boolean;
+        }> = [];
+        const retries: string[] = [];
         const service = new OpenSeaBiddingService(sdk as any, makerAddress, {
-            retryPolicy: TEST_RETRY_POLICY,
+            retryPolicy: TEST_MULTI_ATTEMPT_RETRY_POLICY,
+            observability: {
+                onOpenSeaOperationFinished: (input) => operations.push(input),
+                onOpenSeaRetry: ({ operation }) => retries.push(operation),
+            },
         });
         let collectionScanCalls = 0;
+        let directLookupCalls = 0;
+        let directLookupError = "Order not found";
 
         sdk.api.getOrderByHash = async () => {
-            throw new Error("Order not found");
+            directLookupCalls += 1;
+            throw new Error(directLookupError);
         };
         sdk.api.getAllOffers = async () => {
             collectionScanCalls += 1;
             throw new Error("unused");
         };
 
-        const recovered = await service.getOrder(
-            orderHash,
-            protocolAddress,
-            collectionAddress,
-            undefined,
-            collectionSlug,
-        );
+        for (const expectedAbsence of [
+            "Order not found",
+            "Order is inactive",
+        ]) {
+            directLookupError = expectedAbsence;
+            const recovered = await service.getOrder(
+                orderHash,
+                protocolAddress,
+                collectionAddress,
+                undefined,
+                collectionSlug,
+            );
 
-        assert.deepEqual(recovered, {
-            status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
-        });
+            assert.deepEqual(recovered, {
+                status: BIDDING_ORDER_RECOVERY_STATUS.InactiveOrMissing,
+            });
+        }
+
+        assert.equal(directLookupCalls, 2);
         assert.equal(collectionScanCalls, 0);
+        assert.deepEqual(
+            operations.map(({ operation, succeeded, expectedAbsence }) => ({
+                operation,
+                succeeded,
+                expectedAbsence,
+            })),
+            [
+                {
+                    operation: OPEN_SEA_BIDDING_OPERATION.GetOrderByHash,
+                    succeeded: true,
+                    expectedAbsence: true,
+                },
+                {
+                    operation: OPEN_SEA_BIDDING_OPERATION.GetOrderByHash,
+                    succeeded: true,
+                    expectedAbsence: true,
+                },
+            ],
+        );
+        assert.deepEqual(retries, []);
     });
 
     it("queries maker-specific token offers and returns the best parsed order", async () => {
@@ -710,7 +935,10 @@ describe("OpenSeaBiddingService", () => {
             collectionId: 1,
             collectionSlug,
             collectionAddress,
-            target: { type: BIDDER_TARGET_TYPE.Token, tokenId: "unminted-tile-5785" },
+            target: {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "unminted-tile-5785",
+            },
             config: { floor: 1n, ceiling: 2n, delta: 1n },
             state: {},
         };

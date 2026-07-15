@@ -11,7 +11,7 @@ const TEST_DEFAULT_HISTOGRAM = "default_latency";
 const TEST_REGISTERED_HISTOGRAM = "registered_latency";
 const TEST_RESULT_LABEL = "result";
 const TEST_LATER_LABEL = "later";
-const TEST_CUSTOM_BUCKETS = [10, 50, 100] as const;
+const TEST_CUSTOM_BUCKETS = [0, 10, 50, 100] as const;
 const TEST_DEFAULT_BUCKETS = [5, 15] as const;
 const TEST_FIRST_BUCKETS = [1, 2] as const;
 const TEST_LATER_BUCKETS = [3, 4] as const;
@@ -30,6 +30,7 @@ describe("PrometheusMetrics histogram buckets", () => {
 
         const scrape = await metrics.metricsText();
         expect(bucketBoundaries(scrape, TEST_CUSTOM_HISTOGRAM)).toEqual([
+            "0",
             "10",
             "50",
             "100",

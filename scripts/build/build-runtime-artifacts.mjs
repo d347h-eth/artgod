@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { NATIVE_RUNTIME_EXTERNAL_PACKAGES } from "./native-runtime-dependencies.mjs";
 import {
+    RUNTIME_ARTIFACT,
     RUNTIME_BUILD_PROFILE_MARKER_FILE_NAME,
     resolveRuntimeBuildProfile,
     runtimeBuildConditions,
@@ -74,7 +75,7 @@ const backendBuildResult = await build({
 });
 validateRuntimeBuildMetafile(
     runtimeBuildProfile,
-    "backend",
+    RUNTIME_ARTIFACT.Backend,
     backendBuildResult.metafile,
 );
 
@@ -177,7 +178,7 @@ const indexerBuildResult = await build({
 });
 validateRuntimeBuildMetafile(
     runtimeBuildProfile,
-    "indexer",
+    RUNTIME_ARTIFACT.Indexer,
     indexerBuildResult.metafile,
 );
 
@@ -203,7 +204,7 @@ const tradingBuildResult = await build({
 });
 validateRuntimeBuildMetafile(
     runtimeBuildProfile,
-    "trading",
+    RUNTIME_ARTIFACT.Trading,
     tradingBuildResult.metafile,
 );
 

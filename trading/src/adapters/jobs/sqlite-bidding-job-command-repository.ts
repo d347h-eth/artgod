@@ -66,7 +66,7 @@ export class SqliteBiddingJobCommandRepository implements BiddingJobCommandRepos
 
         this.claimCommandById = db.prepare<{ commandId: number }>(
             "UPDATE trading_job_commands SET " +
-                "status = 'processing', attempts = attempts + 1, claimed_at = CURRENT_TIMESTAMP, last_error = NULL " +
+                "status = 'processing', attempts = attempts + 1, claimed_at = STRFTIME('%Y-%m-%d %H:%M:%f', 'now'), last_error = NULL " +
                 "WHERE command_id = @commandId",
         ) as BetterSqlite3NamedStatement<{ commandId: number }>;
 

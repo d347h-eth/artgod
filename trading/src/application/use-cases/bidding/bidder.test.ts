@@ -20,7 +20,14 @@ import {
     BIDDER_TARGET_TYPE,
     BidderJob,
 } from "../../../domain/market/strategy/job.js";
-import { Bidder } from "./bidder.js";
+import {
+    BIDDER_REFRESH_REQUEST_OUTCOME,
+    BIDDER_REFRESH_TRIGGER,
+    BIDDER_SCAN_RESULT,
+    Bidder,
+    type BidderObservabilityPort,
+    type BidderScanResult,
+} from "./bidder.js";
 import {
     BIDDING_ORDER_RECOVERY_REASON,
     BIDDING_ORDER_RECOVERY_STATUS,
@@ -183,6 +190,20 @@ const makeEvent = (
     return event;
 };
 
+const makeScanObservability = (
+    results: BidderScanResult[],
+    overrides: Partial<BidderObservabilityPort> = {},
+): BidderObservabilityPort => ({
+    onJobInventoryChanged: () => undefined,
+    onScanFinished: (input) => results.push(input.result),
+    onRefreshRequested: () => undefined,
+    onRefreshStarted: () => undefined,
+    onRefreshFinished: () => undefined,
+    onRefreshPressureChanged: () => undefined,
+    onMarketActionFinished: () => undefined,
+    ...overrides,
+});
+
 describe("Bidder stream refresh", () => {
     it("returns unique token IDs from token-targeted jobs only", () => {
         const bidder = new Bidder(
@@ -193,10 +214,16 @@ describe("Bidder stream refresh", () => {
         );
 
         bidder.addJob(
-            makeJob("token-a", "terraforms", { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" }),
+            makeJob("token-a", "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "123",
+            }),
         );
         bidder.addJob(
-            makeJob("token-b", "terraforms", { type: BIDDER_TARGET_TYPE.Token, tokenId: "456" }),
+            makeJob("token-b", "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "456",
+            }),
         );
         bidder.addJob(
             makeJob("collection-job", "terraforms", {
@@ -450,18 +477,244 @@ describe("Bidder stream refresh", () => {
         });
 
         bidder.addJob(
-            makeJob("token-1", "terraforms", { type: BIDDER_TARGET_TYPE.Token, tokenId: "1" }),
+            makeJob("token-1", "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "1",
+            }),
         );
         bidder.addJob(
-            makeJob("token-2", "terraforms", { type: BIDDER_TARGET_TYPE.Token, tokenId: "2" }),
+            makeJob("token-2", "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "2",
+            }),
         );
         bidder.addJob(
-            makeJob("token-3", "terraforms", { type: BIDDER_TARGET_TYPE.Token, tokenId: "3" }),
+            makeJob("token-3", "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "3",
+            }),
         );
 
         await bidder.scanOnce();
 
         assert.equal(maxInFlight, 2);
+    });
+
+    it("reports a completed scan with failures when every job strategy fails", async () => {
+        const biddingService = new FakeBiddingService();
+        const scanResults: BidderScanResult[] = [];
+        biddingService.activeOffersImpl = async () => {
+            throw new Error("strategy unavailable");
+        };
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            { dryRun: true },
+            undefined,
+            undefined,
+            undefined,
+            makeScanObservability(scanResults),
+        );
+        bidder.addJob(
+            makeJob("token-1", "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "1",
+            }),
+        );
+        bidder.addJob(
+            makeJob("token-2", "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "2",
+            }),
+        );
+
+        await bidder.scanOnce();
+
+        assert.deepEqual(scanResults, [
+            BIDDER_SCAN_RESULT.CompletedWithFailures,
+        ]);
+    });
+
+    it("reports a completed scan with failures when only one job strategy fails", async () => {
+        const biddingService = new FakeBiddingService();
+        const scanResults: BidderScanResult[] = [];
+        biddingService.activeOffersImpl = async (job) => {
+            if (job.id === "token-failure") {
+                throw new Error("strategy unavailable");
+            }
+            return [];
+        };
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            { dryRun: true },
+            undefined,
+            undefined,
+            undefined,
+            makeScanObservability(scanResults),
+        );
+        bidder.addJob(
+            makeJob("token-success", "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "1",
+            }),
+        );
+        bidder.addJob(
+            makeJob("token-failure", "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "2",
+            }),
+        );
+
+        await bidder.scanOnce();
+
+        assert.deepEqual(scanResults, [
+            BIDDER_SCAN_RESULT.CompletedWithFailures,
+        ]);
+    });
+
+    it("accounts for a scan refresh that coalesces behind active strategy work", async () => {
+        const biddingService = new FakeBiddingService();
+        const scanResults: BidderScanResult[] = [];
+        let callCount = 0;
+        let releaseFirstRefresh!: () => void;
+        let reportFirstRefreshStarted!: () => void;
+        let reportScanRefreshRequested!: () => void;
+        const firstRefreshGate = new Promise<void>((resolve) => {
+            releaseFirstRefresh = resolve;
+        });
+        const firstRefreshStarted = new Promise<void>((resolve) => {
+            reportFirstRefreshStarted = resolve;
+        });
+        const scanRefreshRequested = new Promise<void>((resolve) => {
+            reportScanRefreshRequested = resolve;
+        });
+        biddingService.activeOffersImpl = async () => {
+            callCount += 1;
+            if (callCount === 1) {
+                reportFirstRefreshStarted();
+                await firstRefreshGate;
+                return [];
+            }
+            throw new Error("coalesced strategy unavailable");
+        };
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            { dryRun: true },
+            undefined,
+            undefined,
+            undefined,
+            makeScanObservability(scanResults, {
+                onRefreshRequested: (input) => {
+                    if (input.trigger === BIDDER_REFRESH_TRIGGER.FullScan) {
+                        reportScanRefreshRequested();
+                    }
+                },
+            }),
+        );
+        bidder.addJob(
+            makeJob("token-1", "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "1",
+            }),
+        );
+
+        const activeRefresh = bidder.refreshJob("token-1");
+        await firstRefreshStarted;
+        const scan = bidder.scanOnce();
+        await scanRefreshRequested;
+        releaseFirstRefresh();
+        await Promise.all([activeRefresh, scan]);
+
+        assert.equal(callCount, 2);
+        assert.deepEqual(scanResults, [
+            BIDDER_SCAN_RESULT.CompletedWithFailures,
+        ]);
+    });
+
+    it("keeps scan work fail-open when observability callbacks throw", async () => {
+        const biddingService = new FakeBiddingService();
+        const scanResults: BidderScanResult[] = [];
+        let strategyCalls = 0;
+        biddingService.activeOffersImpl = async () => {
+            strategyCalls += 1;
+            return [];
+        };
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            { dryRun: true },
+            undefined,
+            undefined,
+            undefined,
+            makeScanObservability(scanResults, {
+                onJobInventoryChanged: () => {
+                    throw new Error("inventory observer unavailable");
+                },
+                onRefreshRequested: () => {
+                    throw new Error("request observer unavailable");
+                },
+                onRefreshStarted: () => {
+                    throw new Error("start observer unavailable");
+                },
+                onRefreshFinished: () => {
+                    throw new Error("finish observer unavailable");
+                },
+                onRefreshPressureChanged: () => {
+                    throw new Error("pressure observer unavailable");
+                },
+                onScanFinished: (input) => {
+                    scanResults.push(input.result);
+                    throw new Error("scan observer unavailable");
+                },
+            }),
+        );
+        bidder.addJob(
+            makeJob("token-1", "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "1",
+            }),
+        );
+
+        await bidder.scanOnce();
+
+        assert.equal(strategyCalls, 1);
+        assert.deepEqual(scanResults, [BIDDER_SCAN_RESULT.Success]);
+    });
+
+    it("reports scan failure when orchestration throws before a strategy completes", async () => {
+        const scanResults: BidderScanResult[] = [];
+        const bidder = new Bidder(
+            new FakeBiddingService() as any,
+            "0xmaker",
+            1000,
+            { dryRun: true },
+            undefined,
+            undefined,
+            undefined,
+            makeScanObservability(scanResults),
+        );
+        bidder.addJob(
+            makeJob("token-1", "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "1",
+            }),
+        );
+        (bidder as any).refreshJobForScan = async () => {
+            throw new Error("scan orchestration unavailable");
+        };
+
+        await assert.rejects(
+            () => bidder.scanOnce(),
+            /scan orchestration unavailable/,
+        );
+
+        assert.deepEqual(scanResults, [BIDDER_SCAN_RESULT.Failure]);
     });
 
     it("serializes overlapping refreshes for the same job even when global concurrency is higher", async () => {
@@ -501,9 +754,110 @@ describe("Bidder stream refresh", () => {
         assert.equal(maxInFlight, 1);
     });
 
+    it("stops refresh admission and waits for active strategy work to settle", async () => {
+        const biddingService = new FakeBiddingService();
+        let releaseRefresh!: () => void;
+        let markRefreshStarted!: () => void;
+        const refreshStarted = new Promise<void>((resolve) => {
+            markRefreshStarted = resolve;
+        });
+        const refreshGate = new Promise<void>((resolve) => {
+            releaseRefresh = resolve;
+        });
+        let callCount = 0;
+        biddingService.activeOffersImpl = async () => {
+            callCount += 1;
+            markRefreshStarted();
+            await refreshGate;
+            return [];
+        };
+        const bidder = new Bidder(biddingService as any, "0xmaker", 1000, {
+            dryRun: true,
+        });
+        bidder.addJob(
+            makeJob("token-hit", "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "123",
+            }),
+        );
+
+        const refresh = bidder.refreshJob("token-hit");
+        await refreshStarted;
+        let stopped = false;
+        const stop = bidder.stop().then(() => {
+            stopped = true;
+        });
+        await Promise.resolve();
+
+        assert.equal(stopped, false);
+        releaseRefresh();
+        await Promise.all([refresh, stop]);
+        await bidder.refreshJob("token-hit");
+        assert.equal(stopped, true);
+        assert.equal(callCount, 1);
+    });
+
+    it("keeps the admitted runtime override stable while shutdown drains strategy work", async () => {
+        const biddingService = new FakeBiddingService();
+        let releaseOfferRead!: () => void;
+        let markOfferReadStarted!: () => void;
+        const offerReadStarted = new Promise<void>((resolve) => {
+            markOfferReadStarted = resolve;
+        });
+        const offerReadGate = new Promise<void>((resolve) => {
+            releaseOfferRead = resolve;
+        });
+        biddingService.activeOffersImpl = async () => {
+            markOfferReadStarted();
+            await offerReadGate;
+            return [];
+        };
+        const bidder = new Bidder(biddingService as any, "0xmaker", 1000, {
+            dryRun: false,
+        });
+        bidder.addJob(
+            makeJob(
+                "token-hit",
+                "terraforms",
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "123" },
+                undefined,
+                { floor: 1n, ceiling: 2n, delta: 1n },
+            ),
+        );
+
+        const activation = bidder.activateJob("token-hit", {
+            floor: 4n,
+            ceiling: 4n,
+            ttlMs: 100_000,
+        });
+        await offerReadStarted;
+        const stop = bidder.stop();
+
+        releaseOfferRead();
+        await Promise.all([activation, stop]);
+
+        assert.deepEqual(biddingService.placedAmounts, [4n]);
+        assert.equal((bidder as any).runtimeOverrides.size, 0);
+    });
+
     it("collapses overlapping refresh requests for the same job into a single pending rerun", async () => {
         const biddingService = new FakeBiddingService();
         let callCount = 0;
+        const requestOutcomes: string[] = [];
+        const pressure: Array<{
+            active: number;
+            waiting: number;
+            pending: number;
+        }> = [];
+        const observability: BidderObservabilityPort = {
+            onJobInventoryChanged: () => undefined,
+            onScanFinished: () => undefined,
+            onRefreshRequested: (input) => requestOutcomes.push(input.outcome),
+            onRefreshStarted: () => undefined,
+            onRefreshFinished: () => undefined,
+            onRefreshPressureChanged: (input) => pressure.push(input),
+            onMarketActionFinished: () => undefined,
+        };
 
         biddingService.activeOffersImpl = async (job: BidderJob) => {
             if (job.id !== "token-hit") {
@@ -515,10 +869,19 @@ describe("Bidder stream refresh", () => {
             return [];
         };
 
-        const bidder = new Bidder(biddingService as any, "0xmaker", 1000, {
-            dryRun: true,
-            maxConcurrentJobs: 2,
-        });
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            {
+                dryRun: true,
+                maxConcurrentJobs: 2,
+            },
+            undefined,
+            undefined,
+            undefined,
+            observability,
+        );
 
         bidder.addJob(
             makeJob("token-hit", "terraforms", {
@@ -534,6 +897,90 @@ describe("Bidder stream refresh", () => {
         ]);
 
         assert.equal(callCount, 2);
+        assert.deepEqual(requestOutcomes, [
+            BIDDER_REFRESH_REQUEST_OUTCOME.Started,
+            BIDDER_REFRESH_REQUEST_OUTCOME.Coalesced,
+            BIDDER_REFRESH_REQUEST_OUTCOME.Coalesced,
+        ]);
+        assert.ok(pressure.some((state) => state.active === 1));
+        assert.ok(pressure.some((state) => state.pending === 1));
+        assert.deepEqual(pressure.at(-1), {
+            active: 0,
+            waiting: 0,
+            pending: 0,
+        });
+    });
+
+    it("reports command strategy timing after active collection work and its pending rerun", async () => {
+        const biddingService = new FakeBiddingService();
+        let callCount = 0;
+        let reportFirstRefreshStarted!: () => void;
+        let releaseFirstRefresh!: () => void;
+        const firstRefreshStarted = new Promise<void>((resolve) => {
+            reportFirstRefreshStarted = resolve;
+        });
+        const firstRefreshGate = new Promise<void>((resolve) => {
+            releaseFirstRefresh = resolve;
+        });
+        biddingService.activeOffersImpl = async () => {
+            callCount += 1;
+            if (callCount === 1) {
+                reportFirstRefreshStarted();
+                await firstRefreshGate;
+            }
+            return [];
+        };
+        const bidder = new Bidder(biddingService as any, "0xmaker", 1000, {
+            dryRun: true,
+        });
+        bidder.addJob(
+            makeJob("collection-hit", "terraforms", {
+                type: BIDDER_TARGET_TYPE.Collection,
+                quantity: 1,
+            }),
+        );
+
+        const activeRefresh = bidder.refreshJob("collection-hit");
+        await firstRefreshStarted;
+        const pendingRerun = bidder.refreshJob("collection-hit");
+        const strategyStartedAtMs: number[] = [];
+        const commandRefresh = bidder.refreshJobForCommand(
+            "collection-hit",
+            (startedAtMs) => strategyStartedAtMs.push(startedAtMs),
+        );
+        await Promise.resolve();
+
+        assert.deepEqual(strategyStartedAtMs, []);
+        releaseFirstRefresh();
+        await Promise.all([activeRefresh, pendingRerun, commandRefresh]);
+
+        assert.equal(callCount, 3);
+        assert.equal(strategyStartedAtMs.length, 1);
+        assert.ok(Number.isFinite(strategyStartedAtMs[0]));
+    });
+
+    it("keeps command strategy work fail-open when its timing observer throws", async () => {
+        const biddingService = new FakeBiddingService();
+        let strategyCalls = 0;
+        biddingService.activeOffersImpl = async () => {
+            strategyCalls += 1;
+            return [];
+        };
+        const bidder = new Bidder(biddingService as any, "0xmaker", 1000, {
+            dryRun: true,
+        });
+        bidder.addJob(
+            makeJob("token-hit", "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "123",
+            }),
+        );
+
+        await bidder.refreshJobForCommand("token-hit", () => {
+            throw new Error("strategy timing observer unavailable");
+        });
+
+        assert.equal(strategyCalls, 1);
     });
 
     it("uses the token index and does not do live warm-up during item-scope refresh", async () => {
@@ -977,7 +1424,10 @@ describe("Bidder stream refresh", () => {
         });
 
         bidder.addJob(
-            makeJob("blocker", "terraforms", { type: BIDDER_TARGET_TYPE.Token, tokenId: "1" }),
+            makeJob("blocker", "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "1",
+            }),
         );
         bidder.addJob(
             makeJob(
@@ -1061,7 +1511,10 @@ describe("Bidder stream refresh", () => {
         );
 
         bidder.addJob(
-            makeJob("blocker", "terraforms", { type: BIDDER_TARGET_TYPE.Token, tokenId: "1" }),
+            makeJob("blocker", "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "1",
+            }),
         );
         bidder.addJob(
             makeJob(
@@ -1148,7 +1601,7 @@ describe("Bidder stream refresh", () => {
         await activationPromise;
         await normalRefreshPromise;
 
-        assert.deepEqual(biddingService.placedAmounts, [4n, 4n]);
+        assert.deepEqual(biddingService.placedAmounts, [1n, 4n]);
     });
 
     it("clamps the effective floor to the cached WETH balance when balance is below the configured floor", async () => {

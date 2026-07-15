@@ -278,7 +278,7 @@ function sanitizeHistogramBuckets(
         return [...fallback];
     }
     const normalized = buckets
-        .filter((bucket) => Number.isFinite(bucket) && bucket > 0)
+        .filter((bucket) => Number.isFinite(bucket) && bucket >= 0)
         .map((bucket) => Number(bucket))
         .sort((a, b) => a - b);
     return normalized.length > 0 ? normalized : [...fallback];

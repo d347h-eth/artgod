@@ -11,8 +11,11 @@ import {
     collectWatchedCollectionSlugs,
     createCriteriaOfferRefreshReasonResolver,
     createFailedCancellationReconcilerConfig,
+    disposeBiddingRuntimeBidStream,
     formatOpenSeaStreamSocketError,
+    shutdownBiddingRuntime,
 } from "./bidding-runtime.js";
+import { BIDDING_RUNTIME_METRIC_STATE } from "../adapters/observability/bidding-runtime-metric-contract.js";
 
 function makeJob(
     id: string,
@@ -58,6 +61,308 @@ function makeTraitOfferEvent(
 }
 
 describe("bidding runtime helpers", () => {
+    it("keeps a retired stream shutdown-visible until its active dispatch drains", async () => {
+        const events: string[] = [];
+        let releaseDispatch!: () => void;
+        const dispatchGate = new Promise<void>((resolve) => {
+            releaseDispatch = resolve;
+        });
+        const bidStreams = new Map([
+            [
+                "terraforms",
+                {
+                    stream: {
+                        dispose: () => {
+                            events.push("stream:dispose");
+                        },
+                        disposeAndDrain: async () => {
+                            events.push("stream:retirement-started");
+                            await dispatchGate;
+                            events.push("stream:retirement-finished");
+                        },
+                    },
+                },
+            ],
+        ]);
+        const retirement = disposeBiddingRuntimeBidStream(
+            bidStreams,
+            "terraforms",
+        );
+        const shutdown = shutdownBiddingRuntime({
+            commandAdmissionDrains: [
+                async () => {
+                    await retirement;
+                },
+            ],
+            bidPipelineDrain: () => {
+                events.push("pipeline:drained");
+            },
+            bidderDrain: () => undefined,
+            collectionSnapshotDrain: () => undefined,
+            bidBookProjectionDrain: () => undefined,
+            independentDrains: [],
+            bidStreams,
+            disconnectStreamClient: () => undefined,
+            stopHeartbeat: () => undefined,
+            markStopped: () => undefined,
+            setMetricState: () => undefined,
+            now: Date.now,
+        });
+
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        assert.equal(bidStreams.has("terraforms"), true);
+        assert.equal(events.includes("pipeline:drained"), false);
+
+        releaseDispatch();
+        await shutdown;
+
+        assert.equal(bidStreams.has("terraforms"), false);
+        assert.equal(
+            events.indexOf("pipeline:drained") >
+                events.indexOf("stream:retirement-finished"),
+            true,
+        );
+    });
+
+    it("drains upstream producers before downstream consumers and continues after phase failures", async () => {
+        const events: string[] = [];
+        const commandFailure = new Error("command drain failed");
+        const streamFailure = new Error("stream drain failed");
+        const pipelineFailure = new Error("bid pipeline drain failed");
+        let releaseStreamDrain: (() => void) | undefined;
+        const streamDrainGate = new Promise<void>((resolve) => {
+            releaseStreamDrain = resolve;
+        });
+        const bidStreams = new Map([
+            [
+                "terraforms",
+                {
+                    stream: {
+                        dispose: () => {
+                            events.push("stream:first-dispose");
+                        },
+                        disposeAndDrain: async () => {
+                            events.push("stream:first-drain");
+                            throw streamFailure;
+                        },
+                    },
+                },
+            ],
+            [
+                "otherdeed",
+                {
+                    stream: {
+                        dispose: () => {
+                            events.push("stream:second-dispose");
+                        },
+                        disposeAndDrain: async () => {
+                            events.push("stream:second-drain-started");
+                            await streamDrainGate;
+                            events.push("stream:second-drain-settled");
+                        },
+                    },
+                },
+            ],
+        ]);
+        let now = 100;
+
+        const shutdown = shutdownBiddingRuntime({
+            commandAdmissionDrains: [
+                async () => {
+                    events.push("command:rejected");
+                    throw commandFailure;
+                },
+                async () => {
+                    events.push("command:sibling-settled");
+                },
+            ],
+            bidPipelineDrain: async () => {
+                events.push("pipeline:drained");
+                throw pipelineFailure;
+            },
+            bidderDrain: async () => {
+                events.push("bidder:drained");
+            },
+            collectionSnapshotDrain: async () => {
+                events.push("snapshot:drained");
+            },
+            bidBookProjectionDrain: async () => {
+                events.push("projection:drained");
+            },
+            independentDrains: [
+                async () => {
+                    events.push("independent:drained");
+                },
+            ],
+            bidStreams,
+            disconnectStreamClient: () => {
+                events.push("stream-client:disconnect");
+            },
+            stopHeartbeat: () => {
+                events.push("runtime:heartbeat-stopped");
+            },
+            markStopped: () => {
+                events.push("runtime:stopped");
+            },
+            setMetricState: (state) => {
+                events.push(`metric:${state}`);
+            },
+            now: () => {
+                const current = now;
+                now += 25;
+                return current;
+            },
+        });
+
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        assert.equal(events.includes("command:sibling-settled"), true);
+        assert.equal(events.includes("stream:first-drain"), true);
+        assert.equal(events.includes("stream:second-drain-started"), true);
+        assert.equal(events.includes("stream:second-drain-settled"), false);
+        assert.equal(events.includes("pipeline:drained"), false);
+        assert.equal(events.includes("bidder:drained"), false);
+        assert.equal(bidStreams.size, 2);
+        assert.equal(events.includes("stream-client:disconnect"), false);
+        assert.equal(events.includes("runtime:stopped"), false);
+
+        releaseStreamDrain?.();
+        await assert.rejects(shutdown, (error: unknown) => {
+            assert.equal(error instanceof AggregateError, true);
+            assert.deepEqual((error as AggregateError).errors, [
+                commandFailure,
+                streamFailure,
+                pipelineFailure,
+            ]);
+            return true;
+        });
+
+        assert.equal(bidStreams.size, 0);
+        assert.equal(
+            events[0],
+            `metric:${BIDDING_RUNTIME_METRIC_STATE.ShuttingDown}`,
+        );
+        assert.equal(
+            events.indexOf("pipeline:drained") >
+                events.indexOf("stream:second-drain-settled"),
+            true,
+        );
+        assert.equal(
+            events.indexOf("bidder:drained") >
+                events.indexOf("pipeline:drained"),
+            true,
+        );
+        assert.equal(
+            events.indexOf("snapshot:drained") >
+                events.indexOf("bidder:drained"),
+            true,
+        );
+        assert.equal(
+            events.indexOf("projection:drained") >
+                events.indexOf("snapshot:drained"),
+            true,
+        );
+        assert.equal(
+            events.indexOf("independent:drained") >
+                events.indexOf("projection:drained"),
+            true,
+        );
+        assert.equal(
+            events.indexOf("stream-client:disconnect") >
+                events.indexOf("independent:drained"),
+            true,
+        );
+        assert.equal(
+            events.indexOf("runtime:stopped") >
+                events.indexOf("stream-client:disconnect"),
+            true,
+        );
+    });
+
+    it("continues stream drains, registry cleanup, and disconnect after a subscription dispose failure", async () => {
+        const events: string[] = [];
+        const disposeFailure = new Error("subscription dispose failed");
+        const registryClearFailure = new Error("stream registry clear failed");
+        const bidStreams = new Map([
+            [
+                "terraforms",
+                {
+                    stream: {
+                        dispose: () => {
+                            events.push("stream:first-dispose");
+                            throw disposeFailure;
+                        },
+                        disposeAndDrain: async () => {
+                            events.push("stream:first-drain");
+                        },
+                    },
+                },
+            ],
+            [
+                "otherdeed",
+                {
+                    stream: {
+                        dispose: () => {
+                            events.push("stream:second-dispose");
+                        },
+                        disposeAndDrain: async () => {
+                            events.push("stream:second-drain");
+                        },
+                    },
+                },
+            ],
+        ]);
+        const bidStreamRegistry = {
+            values: () => bidStreams.values(),
+            clear: () => {
+                events.push("stream-registry:clear");
+                bidStreams.clear();
+                throw registryClearFailure;
+            },
+        };
+        await assert.rejects(
+            shutdownBiddingRuntime({
+                commandAdmissionDrains: [],
+                bidPipelineDrain: async () => undefined,
+                bidderDrain: async () => undefined,
+                collectionSnapshotDrain: async () => undefined,
+                bidBookProjectionDrain: async () => undefined,
+                independentDrains: [],
+                bidStreams: bidStreamRegistry,
+                disconnectStreamClient: () => {
+                    events.push("stream-client:disconnect");
+                },
+                stopHeartbeat: () => {
+                    events.push("runtime:heartbeat-stopped");
+                },
+                markStopped: () => {
+                    events.push("runtime:stopped");
+                },
+                setMetricState: (state) => {
+                    events.push(`metric:${state}`);
+                },
+                now: () => 100,
+            }),
+            (error: unknown) => {
+                assert.equal(error instanceof AggregateError, true);
+                assert.deepEqual((error as AggregateError).errors, [
+                    disposeFailure,
+                    registryClearFailure,
+                ]);
+                return true;
+            },
+        );
+
+        assert.equal(events.includes("stream:second-dispose"), true);
+        assert.equal(events.includes("stream:first-drain"), true);
+        assert.equal(events.includes("stream:second-drain"), true);
+        assert.equal(bidStreams.size, 0);
+        assert.equal(events.includes("stream-client:disconnect"), true);
+        assert.equal(events.includes("runtime:stopped"), true);
+        assert.equal(events.at(-1), "runtime:stopped");
+    });
+
     it("passes the explicit dry-run policy into failed-cancellation reconciliation", () => {
         const config = createFailedCancellationReconcilerConfig(
             1,

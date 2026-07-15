@@ -90,29 +90,31 @@ function seedCommand(params: {
     claimedAt?: string | null;
     createdAt?: string;
 }): number {
-    const result = db.prepare<{
-        jobId: string;
-        botKind: string;
-        commandKind: string;
-        status: string;
-        requestedRevision: number;
-        payloadJson: string;
-        claimedAt: string | null;
-        createdAt: string | null;
-    }>(
-        "INSERT INTO trading_job_commands " +
-            "(job_id, bot_kind, command_kind, status, requested_revision, payload_json, created_at, claimed_at) " +
-            "VALUES (@jobId, @botKind, @commandKind, @status, @requestedRevision, @payloadJson, COALESCE(@createdAt, CURRENT_TIMESTAMP), @claimedAt)",
-    ).run({
-        jobId: params.jobId,
-        botKind: TRADING_BOT_KIND.Bidding,
-        commandKind: TRADING_JOB_COMMAND_KIND.JobUpdated,
-        status: params.status,
-        requestedRevision: 1,
-        payloadJson: JSON.stringify({ jobId: params.jobId }),
-        claimedAt: params.claimedAt ?? null,
-        createdAt: params.createdAt ?? null,
-    });
+    const result = db
+        .prepare<{
+            jobId: string;
+            botKind: string;
+            commandKind: string;
+            status: string;
+            requestedRevision: number;
+            payloadJson: string;
+            claimedAt: string | null;
+            createdAt: string | null;
+        }>(
+            "INSERT INTO trading_job_commands " +
+                "(job_id, bot_kind, command_kind, status, requested_revision, payload_json, created_at, claimed_at) " +
+                "VALUES (@jobId, @botKind, @commandKind, @status, @requestedRevision, @payloadJson, COALESCE(@createdAt, CURRENT_TIMESTAMP), @claimedAt)",
+        )
+        .run({
+            jobId: params.jobId,
+            botKind: TRADING_BOT_KIND.Bidding,
+            commandKind: TRADING_JOB_COMMAND_KIND.JobUpdated,
+            status: params.status,
+            requestedRevision: 1,
+            payloadJson: JSON.stringify({ jobId: params.jobId }),
+            claimedAt: params.claimedAt ?? null,
+            createdAt: params.createdAt ?? null,
+        });
     return Number(result.lastInsertRowid);
 }
 
@@ -125,7 +127,9 @@ function getCommandRow(commandId: number): {
     completed_at: string | null;
 } {
     return db
-        .prepare<{ commandId: number }>(
+        .prepare<{
+            commandId: number;
+        }>(
             "SELECT status, attempts, last_error, created_at, claimed_at, completed_at FROM trading_job_commands WHERE command_id = @commandId",
         )
         .get({ commandId }) as {
@@ -165,6 +169,7 @@ describe("SqliteBiddingJobCommandRepository", () => {
         assert.equal(commands[0]?.commandId, commandId);
         assert.equal(commands[0]?.attempts, 1);
         const claimed = getCommandRow(commandId);
+        assert.match(claimed.claimed_at ?? "", /\.\d{3}$/);
         assert.equal(
             commands[0]?.createdAtMs,
             Date.parse("2026-07-14T10:00:00Z"),

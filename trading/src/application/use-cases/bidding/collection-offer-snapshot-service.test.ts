@@ -1,9 +1,15 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import {
+    COLLECTION_OFFER_REFRESH_OUTCOME,
+    COLLECTION_OFFER_SNAPSHOT_REFRESH_RESULT,
+    CollectionOfferSourceError,
     CollectionOfferSnapshotService,
     createCollectionOfferSnapshotMetrics,
+    type CollectionOfferRefreshOutcome,
     type CollectionOfferSourceResult,
+    type CollectionOfferSnapshotObserver,
+    type CollectionOfferSnapshotRefreshResult,
 } from "./collection-offer-snapshot-service.js";
 
 class FakeCollectionOfferSource {
@@ -12,6 +18,7 @@ class FakeCollectionOfferSource {
     public durationMs = 1;
     public gate?: Promise<void>;
     public failure?: Error;
+    public complete = true;
 
     async getAllOffers(
         collectionSlug: string,
@@ -26,6 +33,7 @@ class FakeCollectionOfferSource {
         return makeSourceResult(
             this.responses[collectionSlug] ?? [],
             this.durationMs,
+            this.complete,
         );
     }
 }
@@ -101,12 +109,16 @@ describe("CollectionOfferSnapshotService", () => {
     it("backs off failed ttl-aware refreshes while allowing forced refreshes", async () => {
         const source = new FakeCollectionOfferSource();
         source.failure = new Error("OpenSea unavailable");
+        const results: CollectionOfferSnapshotRefreshResult[] = [];
         const service = new CollectionOfferSnapshotService(
             source as any,
             ["terraforms"],
             60000,
             50,
-            undefined,
+            {
+                onSnapshotRefreshFinished: (input) =>
+                    results.push(input.result),
+            },
             {
                 maxTtlMs: 200,
             },
@@ -131,6 +143,53 @@ describe("CollectionOfferSnapshotService", () => {
 
         assert.deepEqual(source.calls, ["terraforms", "terraforms"]);
         assert.equal(service.getSnapshot("terraforms")?.offers.length, 1);
+        assert.deepEqual(results, [
+            COLLECTION_OFFER_SNAPSHOT_REFRESH_RESULT.Error,
+            COLLECTION_OFFER_SNAPSHOT_REFRESH_RESULT.Complete,
+        ]);
+    });
+
+    it("reports completed source work when a later snapshot page fails", async () => {
+        const source = new FakeCollectionOfferSource();
+        source.failure = new CollectionOfferSourceError(
+            "later page unavailable",
+            createCollectionOfferSnapshotMetrics({
+                durationMs: 250,
+                pageCount: 3,
+                offerCount: 120,
+                complete: false,
+            }),
+            new Error("later page unavailable"),
+        );
+        const finished: Array<{
+            durationMs: number;
+            pageCount: number;
+            offerCount: number;
+            result: CollectionOfferSnapshotRefreshResult;
+        }> = [];
+        const service = new CollectionOfferSnapshotService(
+            source as any,
+            ["terraforms"],
+            60_000,
+            0,
+            {
+                onSnapshotRefreshFinished: (input) => finished.push(input),
+            },
+        );
+
+        await assert.rejects(
+            () => service.refreshAndWait("terraforms", "test failure"),
+            /later page unavailable/,
+        );
+
+        assert.deepEqual(finished, [
+            {
+                durationMs: 250,
+                pageCount: 3,
+                offerCount: 120,
+                result: COLLECTION_OFFER_SNAPSHOT_REFRESH_RESULT.Error,
+            },
+        ]);
     });
 
     it("collapses refresh spam into a single pending rerun per collection", async () => {
@@ -140,11 +199,23 @@ describe("CollectionOfferSnapshotService", () => {
             releaseGate = resolve;
         });
         source.responses.terraforms = [{ order_hash: "0x1" }];
+        const outcomes: CollectionOfferRefreshOutcome[] = [];
+        const states: Array<{
+            inFlightRefreshes: number;
+            pendingRefreshes: number;
+        }> = [];
+        const finished: CollectionOfferSnapshotRefreshResult[] = [];
+        const observer: CollectionOfferSnapshotObserver = {
+            onSnapshotRefreshRequest: (input) => outcomes.push(input.outcome),
+            onSnapshotRefreshFinished: (input) => finished.push(input.result),
+            onSnapshotStateChanged: (input) => states.push(input),
+        };
         const service = new CollectionOfferSnapshotService(
             source as any,
             ["terraforms"],
             60000,
             0,
+            observer,
         );
 
         const refreshes = [
@@ -158,6 +229,27 @@ describe("CollectionOfferSnapshotService", () => {
         await Promise.all(refreshes);
 
         assert.equal(source.calls.length, 2);
+        assert.deepEqual(outcomes, [
+            COLLECTION_OFFER_REFRESH_OUTCOME.Started,
+            COLLECTION_OFFER_REFRESH_OUTCOME.Coalesced,
+            COLLECTION_OFFER_REFRESH_OUTCOME.Coalesced,
+        ]);
+        assert.deepEqual(finished, [
+            COLLECTION_OFFER_SNAPSHOT_REFRESH_RESULT.Complete,
+            COLLECTION_OFFER_SNAPSHOT_REFRESH_RESULT.Complete,
+        ]);
+        assert.ok(
+            states.some(
+                (state) =>
+                    state.inFlightRefreshes === 1 &&
+                    state.pendingRefreshes === 1,
+            ),
+        );
+        assert.deepEqual(states.at(-1), {
+            watchedCollections: 1,
+            inFlightRefreshes: 0,
+            pendingRefreshes: 0,
+        });
     });
 
     it("reports bootstrap collection start before long refresh completes", async () => {
@@ -346,11 +438,138 @@ describe("CollectionOfferSnapshotService", () => {
 
         assert.deepEqual(source.calls, ["terraforms"]);
     });
+
+    it("rejects partial results without replacing, projecting, or refreshing the authoritative snapshot", async () => {
+        const source = new FakeCollectionOfferSource();
+        source.responses.terraforms = [{ order_hash: "complete" }];
+        const refreshOutcomes: CollectionOfferRefreshOutcome[] = [];
+        const refreshResults: CollectionOfferSnapshotRefreshResult[] = [];
+        const projectedOffers: unknown[][] = [];
+        const observer: CollectionOfferSnapshotObserver = {
+            onSnapshotRefreshed: (snapshot) => {
+                projectedOffers.push(snapshot.offers);
+            },
+            onSnapshotRefreshRequest: (input) => {
+                refreshOutcomes.push(input.outcome);
+            },
+            onSnapshotRefreshFinished: (input) => {
+                refreshResults.push(input.result);
+            },
+        };
+        const service = new CollectionOfferSnapshotService(
+            source as any,
+            ["terraforms"],
+            60_000,
+            10_000,
+            observer,
+        );
+
+        await service.refreshAndWait("terraforms", "complete refresh");
+        const completeSnapshot = service.getSnapshot("terraforms");
+        assert.ok(completeSnapshot);
+        completeSnapshot.refreshedAt = Date.now() - 20_000;
+
+        source.complete = false;
+        source.responses.terraforms = [{ order_hash: "partial" }];
+        await assert.rejects(
+            () => service.refreshAndWait("terraforms", "partial refresh"),
+            /partial collection offer snapshot/,
+        );
+        await service.refreshAndWait("terraforms", "ttl refresh", {
+            respectTtl: true,
+        });
+
+        assert.equal(service.getSnapshot("terraforms"), completeSnapshot);
+        assert.deepEqual(projectedOffers, [[{ order_hash: "complete" }]]);
+        assert.deepEqual(refreshResults, [
+            COLLECTION_OFFER_SNAPSHOT_REFRESH_RESULT.Complete,
+            COLLECTION_OFFER_SNAPSHOT_REFRESH_RESULT.Partial,
+        ]);
+        assert.deepEqual(refreshOutcomes, [
+            COLLECTION_OFFER_REFRESH_OUTCOME.Started,
+            COLLECTION_OFFER_REFRESH_OUTCOME.Started,
+            COLLECTION_OFFER_REFRESH_OUTCOME.BackoffSkipped,
+        ]);
+        assert.deepEqual(source.calls, ["terraforms", "terraforms"]);
+    });
+
+    it("stops refresh admission, clears pending reruns, and waits for active source calls to settle", async () => {
+        const source = new FakeCollectionOfferSource();
+        let releaseSource!: () => void;
+        source.gate = new Promise<void>((resolve) => {
+            releaseSource = resolve;
+        });
+        const outcomes: CollectionOfferRefreshOutcome[] = [];
+        const states: Array<{
+            inFlightRefreshes: number;
+            pendingRefreshes: number;
+        }> = [];
+        const service = new CollectionOfferSnapshotService(
+            source as any,
+            ["terraforms"],
+            60_000,
+            0,
+            {
+                onSnapshotRefreshRequest: (input) =>
+                    outcomes.push(input.outcome),
+                onSnapshotStateChanged: (input) => states.push(input),
+            },
+        );
+
+        const activeRefresh = service.refreshAndWait("terraforms", "active");
+        const pendingRefresh = service.refreshAndWait("terraforms", "pending");
+        const joinedRefresh = service.refreshAndWait(
+            "terraforms",
+            "ttl-aware join",
+            { respectTtl: true },
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        let drained = false;
+        const drain = service.stop().then(() => {
+            drained = true;
+        });
+        service.requestRefresh("terraforms", "after stop");
+        await service.refreshAndWait("terraforms", "after stop");
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        assert.equal(drained, false);
+        assert.deepEqual(states.at(-1), {
+            watchedCollections: 1,
+            inFlightRefreshes: 1,
+            pendingRefreshes: 0,
+        });
+
+        releaseSource();
+        await Promise.all([
+            activeRefresh,
+            pendingRefresh,
+            joinedRefresh,
+            drain,
+        ]);
+
+        assert.equal(drained, true);
+        assert.deepEqual(source.calls, ["terraforms"]);
+        assert.deepEqual(outcomes, [
+            COLLECTION_OFFER_REFRESH_OUTCOME.Started,
+            COLLECTION_OFFER_REFRESH_OUTCOME.Coalesced,
+            COLLECTION_OFFER_REFRESH_OUTCOME.JoinedInFlight,
+            COLLECTION_OFFER_REFRESH_OUTCOME.Stopped,
+            COLLECTION_OFFER_REFRESH_OUTCOME.Stopped,
+            COLLECTION_OFFER_REFRESH_OUTCOME.Stopped,
+        ]);
+        assert.deepEqual(states.at(-1), {
+            watchedCollections: 1,
+            inFlightRefreshes: 0,
+            pendingRefreshes: 0,
+        });
+    });
 });
 
 function makeSourceResult(
     offers: unknown[],
     durationMs: number,
+    complete = true,
 ): CollectionOfferSourceResult {
     return {
         offers,
@@ -358,6 +577,7 @@ function makeSourceResult(
             durationMs,
             pageCount: 1,
             offerCount: offers.length,
+            complete,
         }),
     };
 }
