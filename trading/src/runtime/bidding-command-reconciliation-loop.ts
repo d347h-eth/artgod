@@ -3,7 +3,10 @@ import {
     createBiddingComponentLogger,
     toErrorLogFields,
 } from "../utils/bidding-log.js";
-import type { BiddingJobCommandReconciler } from "../application/use-cases/bidding/bidding-job-command-reconciler.js";
+import {
+    BIDDING_COMMAND_TRIGGER,
+    type BiddingJobCommandReconciler,
+} from "../application/use-cases/bidding/bidding-job-command-reconciler.js";
 
 export type BiddingCommandReconciliationLoopHandle = {
     shutdown(): Promise<void>;
@@ -28,7 +31,7 @@ export function startBiddingCommandReconciliationLoop(
         }
         timer = setTimeout(() => {
             inFlight = reconciler
-                .processPendingCommands("poll")
+                .processPendingCommands(BIDDING_COMMAND_TRIGGER.Poll)
                 .then(() => undefined)
                 .catch((error: unknown) => {
                     log.warn(

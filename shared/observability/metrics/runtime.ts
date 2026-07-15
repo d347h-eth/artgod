@@ -4,6 +4,12 @@ import { createPrometheusMetrics } from "./prometheus.js";
 import { startMetricsServer } from "./server.js";
 import type { Metrics } from "./types.js";
 
+// Default-label names are shared by runtime exporters and provisioned dashboard variables.
+export const RUNTIME_METRIC_DEFAULT_LABEL = {
+    Worker: "worker",
+    ChainId: "chain_id",
+} as const;
+
 export type RuntimeMetricsConfig = {
     enabled: boolean;
     host: string;
@@ -32,8 +38,8 @@ export async function initRuntimeMetrics(
     const metrics = await createPrometheusMetrics({
         prefix: config.prefix,
         defaultLabels: {
-            worker: config.worker,
-            chain_id: String(config.chainId),
+            [RUNTIME_METRIC_DEFAULT_LABEL.Worker]: config.worker,
+            [RUNTIME_METRIC_DEFAULT_LABEL.ChainId]: String(config.chainId),
         },
     });
     if (!metrics) {

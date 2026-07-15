@@ -15,6 +15,7 @@ import type {
     BiddingJobCommandRepository,
 } from "./bidding-job-command-repository.js";
 import type { BiddingJobSource } from "./bidding-job-source.js";
+import { observeBestEffort } from "../../../utils/observe-best-effort.js";
 
 export type BiddingJobCommandReconcilerOptions = {
     batchSize: number;
@@ -22,9 +23,57 @@ export type BiddingJobCommandReconcilerOptions = {
     maxAttempts: number;
 };
 
+// Stable reconciliation origins keep command-latency metrics low-cardinality.
+export const BIDDING_COMMAND_TRIGGER = {
+    Startup: "startup",
+    Poll: "poll",
+    Signal: "signal",
+} as const;
+
+export type BiddingCommandTrigger =
+    (typeof BIDDING_COMMAND_TRIGGER)[keyof typeof BIDDING_COMMAND_TRIGGER];
+
+// Reconciliation results distinguish a drained batch from a batch stopped by a command failure.
+export const BIDDING_COMMAND_RECONCILIATION_RESULT = {
+    Success: "success",
+    CompletedWithFailures: "completed_with_failures",
+    Failure: "failure",
+} as const;
+
+export type BiddingCommandReconciliationResult =
+    (typeof BIDDING_COMMAND_RECONCILIATION_RESULT)[keyof typeof BIDDING_COMMAND_RECONCILIATION_RESULT];
+
+// BiddingCommandObservabilityPort reports durable queue and strategy latency without command identity.
+export interface BiddingCommandObservabilityPort {
+    onReconciliationFinished(input: {
+        trigger: BiddingCommandTrigger;
+        processed: number;
+        durationMs: number;
+        result: BiddingCommandReconciliationResult;
+    }): void;
+    onCommandClaimed(input: {
+        trigger: BiddingCommandTrigger;
+        commandKind: BiddingJobCommand["commandKind"];
+        queueWaitMs: number;
+    }): void;
+    onCommandStrategyStarted(input: {
+        trigger: BiddingCommandTrigger;
+        commandKind: BiddingJobCommand["commandKind"];
+        claimToStrategyMs: number;
+        createdToStrategyMs: number;
+    }): void;
+    onCommandFinished(input: {
+        trigger: BiddingCommandTrigger;
+        commandKind: BiddingJobCommand["commandKind"];
+        durationMs: number;
+        succeeded: boolean;
+    }): void;
+    onCommandInFlightChanged(count: number): void;
+}
+
 // BiddingJobCommandProgress is the observable unit of command replay progress.
 export type BiddingJobCommandProgress = {
-    trigger: string;
+    trigger: BiddingCommandTrigger;
     commandId: number;
     commandKind: BiddingJobCommand["commandKind"];
     jobId: string;
@@ -83,64 +132,110 @@ export class BiddingJobCommandReconciler {
         private readonly jobPreparationPort: BiddingRuntimeJobPreparationPort,
         private readonly options: BiddingJobCommandReconcilerOptions,
         private readonly cancellationLifecyclePort?: BiddingOfferCancellationLifecyclePort,
-    ) {}
-
-    async processPendingCommands(
-        trigger: string,
-        observer: BiddingJobCommandReconciliationObserver = {},
-    ): Promise<number> {
-        return await this.mutex.runExclusive(async () => {
-            let processed = 0;
-            while (processed < this.options.batchSize) {
-                // Claim the next command only after all earlier commands have completed.
-                const commands = await this.commandRepository.claimNextBatch({
-                    limit: ORDERED_COMMAND_CLAIM_LIMIT,
-                    claimTimeoutMs: this.options.claimTimeoutMs,
-                });
-                const command = commands[0];
-                if (!command) {
-                    return processed;
-                }
-
-                log.info("processCommands", "Processing bidding job commands", {
-                    trigger,
-                    commandCount: commands.length,
-                });
-                processed += 1;
-                const progress = this.createCommandProgress(
-                    trigger,
-                    command,
-                    processed,
-                );
-                log.info(
-                    BIDDING_COMMAND_RECONCILER_LOG_ACTION.CommandStarted,
-                    "Started bidding job command",
-                    progress,
-                );
-                observer.onCommandStarted?.(progress);
-                const commandSucceeded = await this.processCommand(command);
-                log.info(
-                    BIDDING_COMMAND_RECONCILER_LOG_ACTION.CommandProgress,
-                    "Bidding job command progress",
-                    {
-                        ...progress,
-                        succeeded: commandSucceeded,
-                    },
-                );
-                observer.onCommandFinished?.({
-                    ...progress,
-                    succeeded: commandSucceeded,
-                });
-                if (!commandSucceeded) {
-                    break;
-                }
-            }
-            return processed;
+        private readonly observability?: BiddingCommandObservabilityPort,
+    ) {
+        observeBestEffort(() => {
+            this.observability?.onCommandInFlightChanged(0);
         });
     }
 
+    async processPendingCommands(
+        trigger: BiddingCommandTrigger,
+        observer: BiddingJobCommandReconciliationObserver = {},
+    ): Promise<number> {
+        const startedAt = Date.now();
+        let processed = 0;
+        let result: BiddingCommandReconciliationResult =
+            BIDDING_COMMAND_RECONCILIATION_RESULT.Failure;
+        try {
+            const batch = await this.mutex.runExclusive(async () => {
+                while (processed < this.options.batchSize) {
+                    // Claim the next command only after all earlier commands have completed.
+                    const commands =
+                        await this.commandRepository.claimNextBatch({
+                            limit: ORDERED_COMMAND_CLAIM_LIMIT,
+                            claimTimeoutMs: this.options.claimTimeoutMs,
+                        });
+                    const command = commands[0];
+                    if (!command) {
+                        return { processed, completedWithFailures: false };
+                    }
+
+                    log.info(
+                        "processCommands",
+                        "Processing bidding job commands",
+                        {
+                            trigger,
+                            commandCount: commands.length,
+                        },
+                    );
+                    processed += 1;
+                    const progress = this.createCommandProgress(
+                        trigger,
+                        command,
+                        processed,
+                    );
+                    log.info(
+                        BIDDING_COMMAND_RECONCILER_LOG_ACTION.CommandStarted,
+                        "Started bidding job command",
+                        progress,
+                    );
+                    observeBestEffort(() => {
+                        observer.onCommandStarted?.(progress);
+                    });
+                    observeBestEffort(() => {
+                        this.observability?.onCommandClaimed({
+                            trigger,
+                            commandKind: command.commandKind,
+                            queueWaitMs: Math.max(
+                                0,
+                                command.claimedAtMs - command.createdAtMs,
+                            ),
+                        });
+                    });
+                    const commandSucceeded = await this.processCommand(
+                        command,
+                        trigger,
+                    );
+                    log.info(
+                        BIDDING_COMMAND_RECONCILER_LOG_ACTION.CommandProgress,
+                        "Bidding job command progress",
+                        {
+                            ...progress,
+                            succeeded: commandSucceeded,
+                        },
+                    );
+                    observeBestEffort(() => {
+                        observer.onCommandFinished?.({
+                            ...progress,
+                            succeeded: commandSucceeded,
+                        });
+                    });
+                    if (!commandSucceeded) {
+                        return { processed, completedWithFailures: true };
+                    }
+                }
+                return { processed, completedWithFailures: false };
+            });
+            processed = batch.processed;
+            result = batch.completedWithFailures
+                ? BIDDING_COMMAND_RECONCILIATION_RESULT.CompletedWithFailures
+                : BIDDING_COMMAND_RECONCILIATION_RESULT.Success;
+            return processed;
+        } finally {
+            observeBestEffort(() => {
+                this.observability?.onReconciliationFinished({
+                    trigger,
+                    processed,
+                    durationMs: Date.now() - startedAt,
+                    result,
+                });
+            });
+        }
+    }
+
     private createCommandProgress(
-        trigger: string,
+        trigger: BiddingCommandTrigger,
         command: BiddingJobCommand,
         processed: number,
     ): BiddingJobCommandProgress {
@@ -154,17 +249,42 @@ export class BiddingJobCommandReconciler {
         };
     }
 
-    private async processCommand(command: BiddingJobCommand): Promise<boolean> {
+    private async processCommand(
+        command: BiddingJobCommand,
+        trigger: BiddingCommandTrigger,
+    ): Promise<boolean> {
+        const startedAt = Date.now();
+        let succeeded = false;
+        observeBestEffort(() => {
+            this.observability?.onCommandInFlightChanged(1);
+        });
         try {
-            await this.applyCommand(command);
+            await this.applyCommand(command, (strategyStartedAtMs) => {
+                observeBestEffort(() => {
+                    this.observability?.onCommandStrategyStarted({
+                        trigger,
+                        commandKind: command.commandKind,
+                        claimToStrategyMs: Math.max(
+                            0,
+                            strategyStartedAtMs - command.claimedAtMs,
+                        ),
+                        createdToStrategyMs: Math.max(
+                            0,
+                            strategyStartedAtMs - command.createdAtMs,
+                        ),
+                    });
+                });
+            });
             await this.reconcileEnabledJobs();
             await this.commandRepository.markCompleted(command.commandId);
             log.info("commandCompleted", "Completed bidding job command", {
                 ...commandLogFields(command),
             });
+            succeeded = true;
             return true;
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message =
+                error instanceof Error ? error.message : String(error);
             if (command.attempts >= this.options.maxAttempts) {
                 await this.commandRepository.markFailedTerminal(
                     command.commandId,
@@ -195,6 +315,18 @@ export class BiddingJobCommandReconciler {
                 },
             );
             return false;
+        } finally {
+            observeBestEffort(() => {
+                this.observability?.onCommandFinished({
+                    trigger,
+                    commandKind: command.commandKind,
+                    durationMs: Date.now() - startedAt,
+                    succeeded,
+                });
+            });
+            observeBestEffort(() => {
+                this.observability?.onCommandInFlightChanged(0);
+            });
         }
     }
 
@@ -203,13 +335,16 @@ export class BiddingJobCommandReconciler {
         message: string,
     ): Promise<void> {
         if (
-            command.commandKind !== TRADING_JOB_COMMAND_KIND.CancelActiveOffer ||
+            command.commandKind !==
+                TRADING_JOB_COMMAND_KIND.CancelActiveOffer ||
             !this.cancellationLifecyclePort
         ) {
             return;
         }
 
-        const orderId = parseOptionalPayloadString(command.payload.activeOrderId);
+        const orderId = parseOptionalPayloadString(
+            command.payload.activeOrderId,
+        );
         if (!orderId) {
             return;
         }
@@ -234,12 +369,15 @@ export class BiddingJobCommandReconciler {
         }
     }
 
-    private async applyCommand(command: BiddingJobCommand): Promise<void> {
+    private async applyCommand(
+        command: BiddingJobCommand,
+        onStrategyStarted: (startedAtMs: number) => void,
+    ): Promise<void> {
         if (
             command.commandKind === TRADING_JOB_COMMAND_KIND.JobCreated ||
             command.commandKind === TRADING_JOB_COMMAND_KIND.JobUpdated
         ) {
-            await this.applyDesiredJob(command);
+            await this.applyDesiredJob(command, onStrategyStarted);
             return;
         }
 
@@ -251,7 +389,9 @@ export class BiddingJobCommandReconciler {
             return;
         }
 
-        if (command.commandKind === TRADING_JOB_COMMAND_KIND.CancelActiveOffer) {
+        if (
+            command.commandKind === TRADING_JOB_COMMAND_KIND.CancelActiveOffer
+        ) {
             await this.cancelActiveOffer(command);
             return;
         }
@@ -261,7 +401,10 @@ export class BiddingJobCommandReconciler {
         );
     }
 
-    private async applyDesiredJob(command: BiddingJobCommand): Promise<void> {
+    private async applyDesiredJob(
+        command: BiddingJobCommand,
+        onStrategyStarted: (startedAtMs: number) => void,
+    ): Promise<void> {
         // Reload the authoritative job declaration from SQLite before mutating live bidder state.
         const record = await this.jobSource.loadJobById(command.jobId);
         if (!record) {
@@ -302,7 +445,10 @@ export class BiddingJobCommandReconciler {
             revision: record.revision,
         });
         // Run an immediate refresh so DB-driven changes affect market state without waiting for the next tick.
-        await this.bidder.refreshJobForCommand(record.job.id);
+        await this.bidder.refreshJobForCommand(
+            record.job.id,
+            onStrategyStarted,
+        );
     }
 
     private completeAlreadySatisfiedJobCommand(
@@ -452,9 +598,7 @@ export class BiddingJobCommandReconciler {
 }
 
 function parseOptionalPayloadString(value: unknown): string | undefined {
-    return typeof value === "string" && value.trim() !== ""
-        ? value
-        : undefined;
+    return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }
 
 function parseOptionalPayloadBigInt(value: unknown): bigint | undefined {

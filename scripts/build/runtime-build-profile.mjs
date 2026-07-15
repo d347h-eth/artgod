@@ -3,11 +3,40 @@ export const RUNTIME_BUILD_PROFILE = Object.freeze({
     DESKTOP: "desktop",
 });
 
+// Names each runtime artifact group validated by the desktop release build.
+export const RUNTIME_ARTIFACT = Object.freeze({
+    Backend: "backend",
+    Indexer: "indexer",
+    Trading: "trading",
+});
+
 export const RUNTIME_BUILD_PROFILE_MARKER_FILE_NAME =
     ".artgod-runtime-build-profile.json";
 export const RUNTIME_BUILD_PROFILE_MARKER_VERSION = 1;
 export const DESKTOP_RUNTIME_EXPORT_CONDITION = "artgod-desktop-runtime";
 const ESBUILD_MODULE_EXPORT_CONDITION = "module";
+
+const PROM_CLIENT_PACKAGE = Object.freeze({
+    packageName: "prom-client",
+    pathFragments: Object.freeze([
+        "/node_modules/prom-client/",
+        "prom-client-npm-",
+    ]),
+});
+const OPEN_TELEMETRY_API_PACKAGE = Object.freeze({
+    packageName: "@opentelemetry/api",
+    pathFragments: Object.freeze([
+        "/node_modules/@opentelemetry/api/",
+        "@opentelemetry-api-npm-",
+    ]),
+});
+const OPEN_TELEMETRY_PACKAGE_SCOPE = Object.freeze({
+    packageName: "@opentelemetry/*",
+    pathFragments: Object.freeze([
+        "/node_modules/@opentelemetry/",
+        "@opentelemetry-",
+    ]),
+});
 
 export const DESKTOP_RUNTIME_EXCLUDED_OBSERVABILITY_PACKAGES = Object.freeze([
     Object.freeze({
@@ -24,45 +53,53 @@ export const DESKTOP_RUNTIME_EXCLUDED_OBSERVABILITY_PACKAGES = Object.freeze([
             "@datadog-pprof-npm-",
         ]),
     }),
-    Object.freeze({
-        packageName: "@opentelemetry/*",
-        pathFragments: Object.freeze([
-            "/node_modules/@opentelemetry/",
-            "@opentelemetry-",
-        ]),
-    }),
-    Object.freeze({
-        packageName: "prom-client",
-        pathFragments: Object.freeze([
-            "/node_modules/prom-client/",
-            "prom-client-npm-",
-        ]),
-    }),
+    OPEN_TELEMETRY_PACKAGE_SCOPE,
+    PROM_CLIENT_PACKAGE,
 ]);
 
-// Full exporter adapters must never enter the desktop graph, even through relative imports.
+// Only this reviewed package pair may enter trading through its metrics facade.
+export const DESKTOP_TRADING_METRICS_ALLOWED_OBSERVABILITY_PACKAGES =
+    Object.freeze([PROM_CLIENT_PACKAGE, OPEN_TELEMETRY_API_PACKAGE]);
+
+const FULL_APM_IMPLEMENTATION = Object.freeze({
+    name: "full APM adapter",
+    pathSuffix: "/shared/observability/apm.ts",
+});
+const FULL_METRICS_IMPLEMENTATION = Object.freeze({
+    name: "full metrics adapter",
+    pathSuffix: "/shared/observability/metrics/index.ts",
+});
+const PROMETHEUS_METRICS_IMPLEMENTATION = Object.freeze({
+    name: "Prometheus metrics adapter",
+    pathSuffix: "/shared/observability/metrics/prometheus.ts",
+});
+const METRICS_SERVER_IMPLEMENTATION = Object.freeze({
+    name: "metrics server adapter",
+    pathSuffix: "/shared/observability/metrics/server.ts",
+});
+const RUNTIME_METRICS_IMPLEMENTATION = Object.freeze({
+    name: "runtime metrics adapter",
+    pathSuffix: "/shared/observability/metrics/runtime.ts",
+});
+const TRADING_METRICS_FACADE_PATH_SUFFIX =
+    "/shared/observability/metrics/trading.ts";
+
+// These implementations stay excluded unless the narrow trading policy admits them.
 export const DESKTOP_RUNTIME_EXCLUDED_OBSERVABILITY_IMPLEMENTATIONS =
     Object.freeze([
-        Object.freeze({
-            name: "full APM adapter",
-            pathSuffix: "/shared/observability/apm.ts",
-        }),
-        Object.freeze({
-            name: "full metrics adapter",
-            pathSuffix: "/shared/observability/metrics/index.ts",
-        }),
-        Object.freeze({
-            name: "Prometheus metrics adapter",
-            pathSuffix: "/shared/observability/metrics/prometheus.ts",
-        }),
-        Object.freeze({
-            name: "metrics server adapter",
-            pathSuffix: "/shared/observability/metrics/server.ts",
-        }),
-        Object.freeze({
-            name: "runtime metrics adapter",
-            pathSuffix: "/shared/observability/metrics/runtime.ts",
-        }),
+        FULL_APM_IMPLEMENTATION,
+        FULL_METRICS_IMPLEMENTATION,
+        PROMETHEUS_METRICS_IMPLEMENTATION,
+        METRICS_SERVER_IMPLEMENTATION,
+        RUNTIME_METRICS_IMPLEMENTATION,
+    ]);
+
+// Trading may use only the narrow runtime path, never the full metrics barrel or APM.
+export const DESKTOP_TRADING_METRICS_ALLOWED_OBSERVABILITY_IMPLEMENTATIONS =
+    Object.freeze([
+        PROMETHEUS_METRICS_IMPLEMENTATION,
+        METRICS_SERVER_IMPLEMENTATION,
+        RUNTIME_METRICS_IMPLEMENTATION,
     ]);
 
 // Resolves the explicit artifact graph requested by the build command.
@@ -101,19 +138,26 @@ export function runtimeBuildConditions(profile) {
         : undefined;
 }
 
-// Rejects exporter packages if they enter a desktop artifact through any path.
+// Rejects exporter packages outside the reviewed trading metrics graph.
 export function validateRuntimeBuildMetafile(profile, artifact, metafile) {
     if (requireRuntimeBuildProfile(profile) !== RUNTIME_BUILD_PROFILE.DESKTOP) {
         return;
     }
 
     const matches = new Map();
+    const tradingMetricsReachableInputPaths =
+        resolveTradingMetricsReachableInputPaths(artifact, metafile);
     for (const inputPath of Object.keys(metafile.inputs ?? {})) {
-        const normalizedInputPath = `/${inputPath.replaceAll("\\", "/")}`;
+        const normalizedInputPath = normalizeMetafileInputPath(inputPath);
         for (const excludedPackage of DESKTOP_RUNTIME_EXCLUDED_OBSERVABILITY_PACKAGES) {
             if (
                 excludedPackage.pathFragments.some((fragment) =>
                     normalizedInputPath.includes(fragment),
+                ) &&
+                !isAllowedTradingMetricsPackageInput(
+                    artifact,
+                    normalizedInputPath,
+                    tradingMetricsReachableInputPaths,
                 )
             ) {
                 const existingMatch = matches.get(excludedPackage.packageName);
@@ -124,7 +168,14 @@ export function validateRuntimeBuildMetafile(profile, artifact, metafile) {
             }
         }
         for (const implementation of DESKTOP_RUNTIME_EXCLUDED_OBSERVABILITY_IMPLEMENTATIONS) {
-            if (normalizedInputPath.endsWith(implementation.pathSuffix)) {
+            if (
+                normalizedInputPath.endsWith(implementation.pathSuffix) &&
+                !isAllowedTradingMetricsImplementationInput(
+                    artifact,
+                    normalizedInputPath,
+                    tradingMetricsReachableInputPaths,
+                )
+            ) {
                 const existingMatch = matches.get(implementation.name);
                 matches.set(implementation.name, {
                     firstInputPath: existingMatch?.firstInputPath ?? inputPath,
@@ -167,6 +218,104 @@ export function validateRuntimeBuildMetafile(profile, artifact, metafile) {
             `Desktop runtime artifact ${artifact} contains excluded observability packages or implementation inputs:\n- ${details.join("\n- ")}`,
         );
     }
+}
+
+function resolveTradingMetricsReachableInputPaths(artifact, metafile) {
+    if (artifact !== RUNTIME_ARTIFACT.Trading) return new Set();
+
+    const inputs = new Map(
+        Object.entries(metafile.inputs ?? {}).map(([inputPath, input]) => [
+            normalizeMetafileInputPath(inputPath),
+            input,
+        ]),
+    );
+    const facadeInputPath = [...inputs.keys()].find((inputPath) =>
+        inputPath.endsWith(TRADING_METRICS_FACADE_PATH_SUFFIX),
+    );
+    if (!facadeInputPath) return new Set();
+
+    const reachableInputPaths = new Set();
+    const pendingInputPaths = [facadeInputPath];
+    while (pendingInputPaths.length > 0) {
+        const inputPath = pendingInputPaths.pop();
+        if (!inputPath || reachableInputPaths.has(inputPath)) continue;
+        reachableInputPaths.add(inputPath);
+
+        const input = inputs.get(inputPath);
+        for (const imported of input?.imports ?? []) {
+            if (imported.external) continue;
+            const importedInputPath = normalizeMetafileInputPath(imported.path);
+            if (inputs.has(importedInputPath)) {
+                pendingInputPaths.push(importedInputPath);
+            }
+        }
+    }
+
+    // Refuse alternate imports that bypass the reviewed facade boundary.
+    for (const [inputPath, input] of inputs) {
+        if (reachableInputPaths.has(inputPath)) continue;
+        for (const imported of input?.imports ?? []) {
+            if (imported.external) continue;
+            const importedInputPath = normalizeMetafileInputPath(imported.path);
+            if (
+                reachableInputPaths.has(importedInputPath) &&
+                importedInputPath !== facadeInputPath &&
+                isTradingMetricsRestrictedInputPath(importedInputPath)
+            ) {
+                return new Set();
+            }
+        }
+    }
+    return reachableInputPaths;
+}
+
+function isTradingMetricsRestrictedInputPath(inputPath) {
+    return (
+        DESKTOP_TRADING_METRICS_ALLOWED_OBSERVABILITY_PACKAGES.some(
+            ({ packageName }) =>
+                matchesExactPackageInput(inputPath, packageName),
+        ) ||
+        DESKTOP_TRADING_METRICS_ALLOWED_OBSERVABILITY_IMPLEMENTATIONS.some(
+            ({ pathSuffix }) => inputPath.endsWith(pathSuffix),
+        )
+    );
+}
+
+function isAllowedTradingMetricsPackageInput(
+    artifact,
+    inputPath,
+    reachableInputPaths,
+) {
+    return (
+        artifact === RUNTIME_ARTIFACT.Trading &&
+        reachableInputPaths.has(inputPath) &&
+        DESKTOP_TRADING_METRICS_ALLOWED_OBSERVABILITY_PACKAGES.some(
+            ({ packageName }) =>
+                matchesExactPackageInput(inputPath, packageName),
+        )
+    );
+}
+
+function matchesExactPackageInput(inputPath, packageName) {
+    return inputPath.includes(`/node_modules/${packageName}/`);
+}
+
+function isAllowedTradingMetricsImplementationInput(
+    artifact,
+    inputPath,
+    reachableInputPaths,
+) {
+    return (
+        artifact === RUNTIME_ARTIFACT.Trading &&
+        reachableInputPaths.has(inputPath) &&
+        DESKTOP_TRADING_METRICS_ALLOWED_OBSERVABILITY_IMPLEMENTATIONS.some(
+            ({ pathSuffix }) => inputPath.endsWith(pathSuffix),
+        )
+    );
+}
+
+function normalizeMetafileInputPath(inputPath) {
+    return `/${inputPath.replaceAll("\\", "/").replace(/^\/+/, "")}`;
 }
 
 function matchesExcludedPackageSpecifier(specifier, excludedPackageName) {

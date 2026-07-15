@@ -1,7 +1,9 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import {
+    BIDDING_BID_BOOK_PROJECTION_REQUEST_OUTCOME,
     BiddingBidBookProjectionScheduler,
+    type BiddingBidBookProjectionObservabilityPort,
     type BiddingBidBookProjectionErrorInput,
     type BiddingBidBookProjectionPort,
 } from "./bidding-bid-book-projection.js";
@@ -49,9 +51,18 @@ describe("BiddingBidBookProjectionScheduler", () => {
         projection.gate = new Promise<void>((resolve) => {
             releaseGate = resolve;
         });
+        const requests: string[] = [];
+        const finished: boolean[] = [];
+        const states: Array<{ active: number; pending: number }> = [];
+        const observability: BiddingBidBookProjectionObservabilityPort = {
+            onProjectionRequested: (input) => requests.push(input.outcome),
+            onProjectionFinished: (input) => finished.push(input.succeeded),
+            onProjectionStateChanged: (input) => states.push(input),
+        };
         const scheduler = new BiddingBidBookProjectionScheduler(
             projection,
             10,
+            observability,
         );
 
         scheduler.requestProjection(makeSnapshot("first"), "bootstrap");
@@ -60,7 +71,7 @@ describe("BiddingBidBookProjectionScheduler", () => {
         scheduler.requestProjection(makeSnapshot("third"), "poll cadence");
         releaseGate();
         await sleep(30);
-        scheduler.stop();
+        await scheduler.stop();
 
         assert.equal(projection.calls.length, 2);
         assert.deepEqual(
@@ -68,10 +79,15 @@ describe("BiddingBidBookProjectionScheduler", () => {
             ["first", "third"],
         );
         assert.equal(projection.calls[0]?.reason, "bootstrap");
-        assert.equal(
-            projection.calls[1]?.reason,
-            "stream || poll cadence",
-        );
+        assert.equal(projection.calls[1]?.reason, "stream || poll cadence");
+        assert.deepEqual(requests, [
+            BIDDING_BID_BOOK_PROJECTION_REQUEST_OUTCOME.Started,
+            BIDDING_BID_BOOK_PROJECTION_REQUEST_OUTCOME.Coalesced,
+            BIDDING_BID_BOOK_PROJECTION_REQUEST_OUTCOME.Coalesced,
+        ]);
+        assert.deepEqual(finished, [true, true]);
+        assert.ok(states.some((state) => state.active === 1));
+        assert.ok(states.some((state) => state.pending === 1));
     });
 
     it("records projection failures through the projection port", async () => {
@@ -81,7 +97,7 @@ describe("BiddingBidBookProjectionScheduler", () => {
 
         scheduler.requestProjection(makeSnapshot("first"), "poll cadence");
         await sleep(10);
-        scheduler.stop();
+        await scheduler.stop();
 
         assert.equal(projection.calls.length, 1);
         assert.equal(projection.errors.length, 1);
@@ -92,6 +108,28 @@ describe("BiddingBidBookProjectionScheduler", () => {
         assert.equal(projection.errors[0]?.reason, "poll cadence");
         assert.equal(projection.errors[0]?.errorMessage, "projection exploded");
         assert.ok((projection.errors[0]?.durationMs ?? -1) >= 0);
+    });
+
+    it("waits for an active projection write during stop", async () => {
+        const projection = new FakeProjectionPort();
+        let releaseGate!: () => void;
+        projection.gate = new Promise<void>((resolve) => {
+            releaseGate = resolve;
+        });
+        const scheduler = new BiddingBidBookProjectionScheduler(projection, 10);
+        scheduler.requestProjection(makeSnapshot("first"), "bootstrap");
+        await sleep(0);
+
+        let stopped = false;
+        const stop = scheduler.stop().then(() => {
+            stopped = true;
+        });
+        await Promise.resolve();
+
+        assert.equal(stopped, false);
+        releaseGate();
+        await stop;
+        assert.equal(stopped, true);
     });
 });
 

@@ -1,7 +1,15 @@
 import process from "node:process";
-import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
+import {
+    initRuntimeMetrics,
+    noopMetrics,
+    type RuntimeMetricsHandle,
+} from "@artgod/shared/observability/trading-metrics";
 import { TRADING_BOT_KIND } from "@artgod/shared/types";
-import { loadTradingConfig } from "../config/trading-config.js";
+import {
+    loadTradingConfig,
+    type TradingConfig,
+} from "../config/trading-config.js";
+import { biddingLog, toErrorLogFields } from "../utils/bidding-log.js";
 import {
     startBiddingRuntime,
     type BiddingRuntimeBootstrapPhase,
@@ -14,6 +22,7 @@ import {
 import { consumeTradingSigningAuthority } from "./trading-signing-authority.js";
 import { assertBiddingPolicyMatchesConfig } from "./bidding-policy-agreement.js";
 import {
+    TRADING_METRICS_LOG_ACTION,
     TRADING_METRICS_LOG_COMPONENT,
     TRADING_METRICS_PREFIX,
     TRADING_METRICS_WORKER,
@@ -92,15 +101,7 @@ export async function bootstrapTradingBot(
                 metadata,
                 signingAccount.address,
             );
-            const runtimeMetrics = await initRuntimeMetrics({
-                enabled: config.metrics.enabled,
-                host: config.metrics.host,
-                port: config.metrics.ports.biddingBot,
-                prefix: TRADING_METRICS_PREFIX,
-                worker: TRADING_METRICS_WORKER.BiddingBot,
-                chainId: config.chainId,
-                logComponent: TRADING_METRICS_LOG_COMPONENT,
-            });
+            const runtimeMetrics = await initBiddingRuntimeMetrics(config);
             try {
                 // Bootstrap the real bidder runtime before emitting bot_ready to the desktop supervisor.
                 const runtime = await startBiddingRuntime({
@@ -123,7 +124,7 @@ export async function bootstrapTradingBot(
                     await runtime.shutdown();
                 }
             } finally {
-                await runtimeMetrics.stop();
+                await stopBiddingRuntimeMetrics(runtimeMetrics);
             }
             return;
         }
@@ -135,6 +136,56 @@ export async function bootstrapTradingBot(
     } finally {
         // Release stdin only after runtime and metrics cleanup so graceful SIGTERM can exit.
         parentSecretChannel.releaseAfterCleanup();
+    }
+}
+
+// Prevents optional exporter cleanup from replacing an authoritative runtime failure.
+async function stopBiddingRuntimeMetrics(
+    runtimeMetrics: RuntimeMetricsHandle,
+): Promise<void> {
+    try {
+        await runtimeMetrics.stop();
+    } catch (error) {
+        biddingLog.warn(
+            "Metrics endpoint did not close cleanly; the bidding runtime result remains authoritative.",
+            {
+                ...toErrorLogFields(error),
+                component: TRADING_METRICS_LOG_COMPONENT,
+                action: TRADING_METRICS_LOG_ACTION.EndpointShutdownFailed,
+            },
+        );
+    }
+}
+
+// Keeps optional diagnostics from preventing the fund-sensitive bidding runtime from starting.
+async function initBiddingRuntimeMetrics(
+    config: Pick<TradingConfig, "chainId" | "metrics">,
+): Promise<RuntimeMetricsHandle> {
+    try {
+        return await initRuntimeMetrics({
+            enabled: config.metrics.enabled,
+            host: config.metrics.host,
+            port: config.metrics.ports.biddingBot,
+            prefix: TRADING_METRICS_PREFIX,
+            worker: TRADING_METRICS_WORKER.BiddingBot,
+            chainId: config.chainId,
+            logComponent: TRADING_METRICS_LOG_COMPONENT,
+        });
+    } catch (error) {
+        biddingLog.warn(
+            "Metrics endpoint unavailable; bidding will continue. Check the configured loopback port and metrics settings, or disable the endpoint, then restart the bidding bot.",
+            {
+                ...toErrorLogFields(error),
+                component: TRADING_METRICS_LOG_COMPONENT,
+                action: TRADING_METRICS_LOG_ACTION.EndpointUnavailable,
+                host: config.metrics.host,
+                port: config.metrics.ports.biddingBot,
+            },
+        );
+        return {
+            metrics: noopMetrics,
+            stop: async () => {},
+        };
     }
 }
 

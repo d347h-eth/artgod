@@ -23,7 +23,11 @@ import type {
     BiddingJobCommandRepository,
 } from "./bidding-job-command-repository.js";
 import {
+    BIDDING_COMMAND_RECONCILIATION_RESULT,
+    BIDDING_COMMAND_TRIGGER,
     BiddingJobCommandReconciler,
+    type BiddingCommandObservabilityPort,
+    type BiddingCommandReconciliationResult,
     type BiddingJobCommandProgress,
 } from "./bidding-job-command-reconciler.js";
 import type {
@@ -103,6 +107,21 @@ class FakeCommandRepository implements BiddingJobCommandRepository {
 
     remainingCommandIds(): number[] {
         return this.commands.map((command) => command.commandId);
+    }
+}
+
+class ThrowAfterFirstClaimCommandRepository extends FakeCommandRepository {
+    private claimCalls = 0;
+
+    override async claimNextBatch(params: {
+        limit: number;
+        claimTimeoutMs: number;
+    }): Promise<BiddingJobCommand[]> {
+        this.claimCalls += 1;
+        if (this.claimCalls > 1) {
+            throw new Error("next command claim failed");
+        }
+        return await super.claimNextBatch(params);
     }
 }
 
@@ -195,9 +214,15 @@ function makeRecord(
 describe("BiddingJobCommandReconciler", () => {
     it("loads enabled job commands, prepares runtime dependencies, and refreshes the bidder", async () => {
         const job = makeJob("job-enabled");
-        const repository = new FakeCommandRepository([
-            makeCommand(1, job.id, TRADING_JOB_COMMAND_KIND.JobUpdated),
-        ]);
+        const command = makeCommand(
+            1,
+            job.id,
+            TRADING_JOB_COMMAND_KIND.JobUpdated,
+        );
+        const nowMs = Date.now();
+        command.createdAtMs = nowMs - 2_500;
+        command.claimedAtMs = nowMs - 500;
+        const repository = new FakeCommandRepository([command]);
         const source = new FakeJobSource(
             new Map([[job.id, makeRecord(job, TRADING_JOB_STATUS.Enabled)]]),
         );
@@ -207,6 +232,19 @@ describe("BiddingJobCommandReconciler", () => {
         });
         const prepared: string[] = [];
         const reconciled: string[][] = [];
+        const queueWaits: number[] = [];
+        const strategyLatencies: Array<{
+            claimToStrategyMs: number;
+            createdToStrategyMs: number;
+        }> = [];
+        const inFlight: number[] = [];
+        const observability: BiddingCommandObservabilityPort = {
+            onReconciliationFinished: () => undefined,
+            onCommandClaimed: (input) => queueWaits.push(input.queueWaitMs),
+            onCommandStrategyStarted: (input) => strategyLatencies.push(input),
+            onCommandFinished: () => undefined,
+            onCommandInFlightChanged: (count) => inFlight.push(count),
+        };
         const reconciler = new BiddingJobCommandReconciler(
             repository,
             source,
@@ -224,15 +262,78 @@ describe("BiddingJobCommandReconciler", () => {
                 claimTimeoutMs: 300_000,
                 maxAttempts: 3,
             },
+            undefined,
+            observability,
         );
 
-        const processed = await reconciler.processPendingCommands("test");
+        const processed = await reconciler.processPendingCommands(
+            BIDDING_COMMAND_TRIGGER.Poll,
+        );
 
         assert.equal(processed, 1);
         assert.equal(bidder.getJob(job.id)?.id, job.id);
         assert.deepEqual(prepared, [job.id]);
         assert.deepEqual(reconciled, [[job.id]]);
         assert.deepEqual(repository.completed, [1]);
+        assert.deepEqual(queueWaits, [2_000]);
+        assert.equal(strategyLatencies.length, 1);
+        assert.ok(strategyLatencies[0]!.claimToStrategyMs >= 500);
+        assert.equal(
+            strategyLatencies[0]!.createdToStrategyMs -
+                strategyLatencies[0]!.claimToStrategyMs,
+            2_000,
+        );
+        assert.deepEqual(inFlight, [0, 1, 0]);
+    });
+
+    it("resets command pressure when the finish observer throws", async () => {
+        const job = makeJob("job-throwing-finish-observer");
+        const repository = new FakeCommandRepository([
+            makeCommand(1, job.id, TRADING_JOB_COMMAND_KIND.JobUpdated),
+        ]);
+        const source = new FakeJobSource(
+            new Map([[job.id, makeRecord(job, TRADING_JOB_STATUS.Enabled)]]),
+        );
+        const bidder = new Bidder(
+            new FakeBiddingService(),
+            makerAddress,
+            60_000,
+            { dryRun: true },
+        );
+        const inFlight: number[] = [];
+        const observability: BiddingCommandObservabilityPort = {
+            onReconciliationFinished: () => undefined,
+            onCommandClaimed: () => undefined,
+            onCommandStrategyStarted: () => undefined,
+            onCommandFinished: () => {
+                throw new Error("finish observer unavailable");
+            },
+            onCommandInFlightChanged: (count) => inFlight.push(count),
+        };
+        const reconciler = new BiddingJobCommandReconciler(
+            repository,
+            source,
+            bidder,
+            {
+                prepareEnabledJob: async () => undefined,
+                reconcileEnabledJobs: async () => undefined,
+            },
+            {
+                batchSize: 10,
+                claimTimeoutMs: 300_000,
+                maxAttempts: 3,
+            },
+            undefined,
+            observability,
+        );
+
+        const processed = await reconciler.processPendingCommands(
+            BIDDING_COMMAND_TRIGGER.Poll,
+        );
+
+        assert.equal(processed, 1);
+        assert.deepEqual(repository.completed, [1]);
+        assert.deepEqual(inFlight, [0, 1, 0]);
     });
 
     it("reports command start and finish progress to observers", async () => {
@@ -269,17 +370,20 @@ describe("BiddingJobCommandReconciler", () => {
             BiddingJobCommandProgress & { succeeded: boolean }
         > = [];
 
-        const processed = await reconciler.processPendingCommands("test", {
-            onCommandStarted: (progress) => {
-                started.push(progress);
+        const processed = await reconciler.processPendingCommands(
+            BIDDING_COMMAND_TRIGGER.Poll,
+            {
+                onCommandStarted: (progress) => {
+                    started.push(progress);
+                },
+                onCommandFinished: (progress) => {
+                    finished.push(progress);
+                },
             },
-            onCommandFinished: (progress) => {
-                finished.push(progress);
-            },
-        });
+        );
 
         const expectedProgress = {
-            trigger: "test",
+            trigger: BIDDING_COMMAND_TRIGGER.Poll,
             commandId: command.commandId,
             commandKind: command.commandKind,
             jobId: command.jobId,
@@ -292,6 +396,63 @@ describe("BiddingJobCommandReconciler", () => {
             {
                 ...expectedProgress,
                 succeeded: true,
+            },
+        ]);
+    });
+
+    it("preserves processed batch work when a later command claim fails", async () => {
+        const job = makeJob("job-claim-failure-after-work");
+        const repository = new ThrowAfterFirstClaimCommandRepository([
+            makeCommand(1, job.id, TRADING_JOB_COMMAND_KIND.JobUpdated),
+        ]);
+        const source = new FakeJobSource(
+            new Map([[job.id, makeRecord(job, TRADING_JOB_STATUS.Enabled)]]),
+        );
+        const bidder = new Bidder(
+            new FakeBiddingService(),
+            makerAddress,
+            60_000,
+            { dryRun: true },
+        );
+        const reconciliations: Array<{
+            processed: number;
+            result: BiddingCommandReconciliationResult;
+        }> = [];
+        const reconciler = new BiddingJobCommandReconciler(
+            repository,
+            source,
+            bidder,
+            {
+                prepareEnabledJob: async () => undefined,
+                reconcileEnabledJobs: async () => undefined,
+            },
+            {
+                batchSize: 10,
+                claimTimeoutMs: 300_000,
+                maxAttempts: 3,
+            },
+            undefined,
+            {
+                onReconciliationFinished: ({ processed, result }) => {
+                    reconciliations.push({ processed, result });
+                },
+                onCommandClaimed: () => undefined,
+                onCommandStrategyStarted: () => undefined,
+                onCommandFinished: () => undefined,
+                onCommandInFlightChanged: () => undefined,
+            },
+        );
+
+        await assert.rejects(
+            reconciler.processPendingCommands(BIDDING_COMMAND_TRIGGER.Poll),
+            /next command claim failed/,
+        );
+
+        assert.deepEqual(repository.completed, [1]);
+        assert.deepEqual(reconciliations, [
+            {
+                processed: 1,
+                result: BIDDING_COMMAND_RECONCILIATION_RESULT.Failure,
             },
         ]);
     });
@@ -309,6 +470,15 @@ describe("BiddingJobCommandReconciler", () => {
         const bidder = new Bidder(biddingService, makerAddress, 60_000);
         const prepared: string[] = [];
         const reconciled: string[][] = [];
+        const reconciliationResults: BiddingCommandReconciliationResult[] = [];
+        const observability: BiddingCommandObservabilityPort = {
+            onReconciliationFinished: (input) =>
+                reconciliationResults.push(input.result),
+            onCommandClaimed: () => undefined,
+            onCommandStrategyStarted: () => undefined,
+            onCommandFinished: () => undefined,
+            onCommandInFlightChanged: () => undefined,
+        };
         const reconciler = new BiddingJobCommandReconciler(
             repository,
             source,
@@ -326,9 +496,13 @@ describe("BiddingJobCommandReconciler", () => {
                 claimTimeoutMs: 300_000,
                 maxAttempts: 3,
             },
+            undefined,
+            observability,
         );
 
-        const processed = await reconciler.processPendingCommands("test");
+        const processed = await reconciler.processPendingCommands(
+            BIDDING_COMMAND_TRIGGER.Poll,
+        );
 
         assert.equal(processed, 1);
         assert.equal(bidder.getJob(job.id)?.id, job.id);
@@ -337,6 +511,9 @@ describe("BiddingJobCommandReconciler", () => {
         assert.deepEqual(repository.completed, []);
         assert.equal(repository.retryFailures.length, 1);
         assert.equal(repository.retryFailures[0]?.commandId, 1);
+        assert.deepEqual(reconciliationResults, [
+            BIDDING_COMMAND_RECONCILIATION_RESULT.CompletedWithFailures,
+        ]);
         assert.match(
             repository.retryFailures[0]?.error ?? "",
             /opensea placement unavailable/,
@@ -384,7 +561,9 @@ describe("BiddingJobCommandReconciler", () => {
             },
         );
 
-        const processed = await reconciler.processPendingCommands("test");
+        const processed = await reconciler.processPendingCommands(
+            BIDDING_COMMAND_TRIGGER.Poll,
+        );
 
         assert.equal(processed, 1);
         assert.deepEqual(prepared, []);
@@ -434,7 +613,9 @@ describe("BiddingJobCommandReconciler", () => {
             },
         );
 
-        const processed = await reconciler.processPendingCommands("test");
+        const processed = await reconciler.processPendingCommands(
+            BIDDING_COMMAND_TRIGGER.Poll,
+        );
 
         assert.equal(processed, 2);
         assert.equal(bidder.getJob(job.id), undefined);
@@ -483,7 +664,9 @@ describe("BiddingJobCommandReconciler", () => {
             },
         );
 
-        const processed = await reconciler.processPendingCommands("test");
+        const processed = await reconciler.processPendingCommands(
+            BIDDING_COMMAND_TRIGGER.Poll,
+        );
 
         assert.equal(processed, 1);
         assert.equal(bidder.getJob(job.id)?.id, job.id);
@@ -526,7 +709,9 @@ describe("BiddingJobCommandReconciler", () => {
             },
         );
 
-        const processed = await reconciler.processPendingCommands("test");
+        const processed = await reconciler.processPendingCommands(
+            BIDDING_COMMAND_TRIGGER.Poll,
+        );
 
         assert.equal(processed, 1);
         assert.equal(bidder.getJob(job.id), undefined);
@@ -573,7 +758,9 @@ describe("BiddingJobCommandReconciler", () => {
             },
         );
 
-        const processed = await reconciler.processPendingCommands("test");
+        const processed = await reconciler.processPendingCommands(
+            BIDDING_COMMAND_TRIGGER.Poll,
+        );
 
         assert.equal(processed, 1);
         assert.equal(bidder.getJob(job.id), undefined);
@@ -635,7 +822,9 @@ describe("BiddingJobCommandReconciler", () => {
             },
         );
 
-        const processed = await reconciler.processPendingCommands("test");
+        const processed = await reconciler.processPendingCommands(
+            BIDDING_COMMAND_TRIGGER.Poll,
+        );
 
         assert.equal(processed, 1);
         assert.deepEqual(repository.completed, []);
@@ -685,7 +874,9 @@ describe("BiddingJobCommandReconciler", () => {
             },
         );
 
-        const processed = await reconciler.processPendingCommands("test");
+        const processed = await reconciler.processPendingCommands(
+            BIDDING_COMMAND_TRIGGER.Poll,
+        );
 
         assert.equal(processed, 2);
         assert.equal(bidder.getJob(job.id), undefined);
@@ -758,7 +949,9 @@ describe("BiddingJobCommandReconciler", () => {
             },
         );
 
-        const processed = await reconciler.processPendingCommands("test");
+        const processed = await reconciler.processPendingCommands(
+            BIDDING_COMMAND_TRIGGER.Poll,
+        );
 
         assert.equal(processed, 1);
         assert.deepEqual(biddingService.cancelled, ["0xactive"]);

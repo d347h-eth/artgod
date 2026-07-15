@@ -22,6 +22,7 @@
         "./config/rpc-auto-sourcing": "./config/rpc-auto-sourcing.ts",
         "./config/rpc-endpoints": "./config/rpc-endpoints.ts",
         "./config/rpc-resilience": "./config/rpc-resilience.ts",
+        "./config/tcp-port": "./config/tcp-port.ts",
         "./config/block-explorer": "./config/block-explorer.ts",
         "./config/weighted-endpoints": "./config/weighted-endpoints.ts",
         "./http/api-security": "./http/api-security.ts",
@@ -83,6 +84,7 @@
             "artgod-desktop-runtime": "./observability/metrics/desktop.ts",
             "default": "./observability/metrics/index.ts"
         },
+        "./observability/trading-metrics": "./observability/metrics/trading.ts",
         "./observability/rpc": "./observability/rpc.ts",
         "./database": "./database/db.ts",
         "./migrations": "./database/migrations.ts",

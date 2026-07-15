@@ -14,6 +14,7 @@ import {
     parsePositiveInteger,
     parseRequiredString,
 } from "@artgod/shared/utils/env";
+import { parseTcpPort } from "@artgod/shared/config/tcp-port";
 import {
     EVM_PENDING_NONCE_POLICY,
     type EvmTransactionPolicyConfig,
@@ -425,7 +426,7 @@ function parseTradingMetricsConfig(
             TRADING_METRICS_ENV_KEY.Host,
         ),
         ports: {
-            biddingBot: parsePositiveInteger(
+            biddingBot: parseTcpPort(
                 env[TRADING_METRICS_ENV_KEY.PortBiddingBot],
                 TRADING_METRICS_ENV_KEY.PortBiddingBot,
                 getSettingDefaultNumber(TRADING_METRICS_ENV_KEY.PortBiddingBot),
