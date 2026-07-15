@@ -1,6 +1,7 @@
 # Observability, Metrics, Tracing, and Profiling
 
-This document captures the current observability implementation for the backend API and indexer after these recent commits:
+This document captures the current shared observability implementation for the
+backend API, indexer, and trading runtime after these foundational commits:
 
 - `1fa7406` - observability stack (Loki/Grafana/Alloy).
 - `a5271fc` - Prometheus metrics export + dashboard wiring.
@@ -14,14 +15,18 @@ It also records known limitations and what is still missing for complete trace-t
 Current setup is local-first and split by signal type:
 
 - Logs: local backend API, frontend SSR, indexer, and trading bot runtimes write JSON log files to `tmp/logs/*.log`; deploy containers are discovered by Alloy through Docker labels.
-- Metrics: backend API and indexer runtimes expose `/metrics` over HTTP; Prometheus scrapes them and Grafana reads Prometheus.
+- Metrics: backend API, indexer runtimes, and the bidding bot expose `/metrics`
+  over HTTP when enabled; Prometheus scrapes them and Grafana reads Prometheus.
 - Traces: backend API and indexer runtimes send OTLP traces directly to Tempo (`:42732`), and Grafana reads Tempo.
 - Profiles: backend API and indexer runtimes send profiles directly to Pyroscope (`:42733`), and Grafana reads Pyroscope.
 
-This exporter graph applies to the full local/deploy runtime profile. Desktop
-artifacts resolve APM and metrics to compile-time no-op adapters, exclude
-Pyroscope, Datadog pprof, OpenTelemetry, and Prometheus packages, and do not
-expose exporter settings in Admin or its rendered environment.
+This complete exporter graph applies to the full local/deploy runtime profile.
+Desktop backend/indexer metrics and every desktop APM/profile path still resolve
+to compile-time no-op adapters. The desktop trading artifact has one narrow
+exception: an opt-in Prometheus endpoint for the bidding bot, forced by Rust to
+`127.0.0.1` and exposed in Admin as only an enable toggle and TCP port. Desktop
+build validation rejects full metrics-barrel or APM access through that
+exception.
 
 Observability containers run behind the `observability` compose profile in `docker-compose.yml` for local dev and `docker-compose.deploy.yml` for the public deploy stack.
 
@@ -143,10 +148,16 @@ Main env flags (declared in `config/settings.manifest.toml`, generated into `.en
 
 Design notes:
 
-- these metrics and APM settings target only local and deploy runtimes.
+- backend/indexer metrics and all APM settings target only local and deploy
+  runtimes.
+- trading metrics target local, deploy, and desktop. `TRADING_METRICS_HOST`
+  remains local/deploy-only; installed desktop forces the child process value
+  to `127.0.0.1` and exposes only enable/port settings in Admin.
 - in the full local/deploy profile, exporters are optional and degrade to no-op paths when disabled.
 - full-profile exporter packages are loaded lazily at runtime; missing packages do not crash observability-disabled runs.
-- the desktop profile selects no-op modules during artifact construction, so exporter implementations and packages never enter staged desktop resources.
+- the desktop profile keeps backend/indexer metrics and all APM/profile modules
+  out of staged resources. Its reviewed trading metrics facade admits only the
+  Prometheus runtime needed by the bidding endpoint.
 - Observability config accepts workspace-specific names (`INDEXER_*`, `BACKEND_*`, `TRADING_*`) and composition-level endpoint names (`OBSERVABILITY_*`) only.
 
 ## What Is Instrumented Today
@@ -352,6 +363,24 @@ bounds for UI range filtering.
 
 The backend APM service name is `${BACKEND_APM_SERVICE_NAMESPACE}.api`; by default that is `artgod.backend.api`.
 
+### Bidding Runtime Metrics
+
+The bidding bot exports end-to-end lifecycle and pressure metrics with the
+`artgod_trading_` prefix. Coverage includes bootstrap and time to ready,
+dynamic job scans, refresh concurrency, marketplace actions, durable commands
+from creation/claim through strategy start, inbound OpenSea event pressure,
+hot-refresh queue decisions, OpenSea operation and rate-limit timing,
+collection-offer syncs, bid-book updates, shutdown entry, and Node process
+resources. The durable `shutdownComplete` log records the final shutdown
+duration and result after the pull exporter closes.
+
+The dedicated `ArtGod Bidding Runtime Overview` dashboard preserves this
+reading order and compares the main handoff latencies directly. Metric labels
+are bounded; identifiers such as wallet, address, collection, job, order, and
+token are reserved for structured logs. Complete setup, interpretation,
+cardinality, fail-closed partial-snapshot behavior, and recovery are documented
+in `docs/trading/03-bidding-runtime-observability.md`.
+
 ### RPC Logs and Metrics
 
 Backend, indexer, and trading RPC adapters emit dedicated structured logs and matching
@@ -472,9 +501,10 @@ Provisioned datasources:
 - Tempo: `observability/grafana/provisioning/datasources/tempo.yaml`
 - Pyroscope: `observability/grafana/provisioning/datasources/pyroscope.yaml`
 
-Provisioned dashboard:
+Provisioned dashboards:
 
 - `observability/grafana/provisioning/dashboards/runtime-metrics-overview.json`
+- `observability/grafana/provisioning/dashboards/bidding-runtime-overview.json`
 
 Use `yarn observability:up` for local startup so Grafana provisioning
 permissions are normalized before Docker mounts the dashboard and datasource
@@ -488,6 +518,14 @@ counts, endpoint failure percentage, call latency p95, retry-attempt counts,
 effective endpoint weight, endpoint failures by error class, circuit-open
 counts, and rate-limit wait p95. The indexer section also includes
 websocket endpoint events because websocket failover is currently indexer-owned.
+
+The bidding runtime dashboard is generated from
+`scripts/observability/generate-bidding-runtime-dashboard.ts`. Run
+`yarn observability:bidding-dashboard:generate` after an intentional dashboard
+or metric-contract change and
+`yarn observability:bidding-dashboard:check` to reject drift. The generator also
+rejects unknown bidding metrics and high-cardinality identity labels in its
+queries.
 
 Current Tempo `tracesToProfiles` mapping is:
 
@@ -513,6 +551,9 @@ The profile type is intentionally `wall:cpu...` for Node workers, not `process_c
 
 - `up{job="artgod-backend"}` should show the backend API scrape target when `BACKEND_METRICS_ENABLED=true`.
 - `up{job="artgod-indexer"}` should show runtimes as healthy once workers are up and `INDEXER_METRICS_ENABLED=true`.
+- `up{job="artgod-trading",runtime="bidding-bot"}` should be `1` while a
+  metrics-enabled bidding bot is running. Installed desktop requires saving the
+  Admin setting and restarting that bot process first.
 - if `/metrics` works locally but Prometheus is empty, check host/container networking and host firewall policy (especially custom Docker/DOCKER-USER rules).
 - `INDEXER_METRICS_HOST=0.0.0.0` is required for host-based scraping setups used here.
 
