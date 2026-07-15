@@ -11,14 +11,20 @@ The installed desktop composition owns two persistent inbound TCP listeners:
 - backend API and userland static content on `127.0.0.1:42710` by default
 - bundled NATS clients on `127.0.0.1:42720` by default
 
+When the operator enables bidding metrics, the running bidding bot adds one
+optional listener on `127.0.0.1:42753` by default.
+
 Rust requires the numeric IPv4 loopback address `127.0.0.1` for both listeners
 before it starts child processes. It passes NATS an explicit address flag and
 rebuilds the backend child value from validated config. Custom ports remain
 supported, but desktop wildcard, hostname, IPv6, LAN, and public bind addresses
-are rejected. `42701` is a development/Admin Vite port, not the installed
-userland origin. The installed desktop does not start the `42723` NATS monitor,
-and its metrics/APM implementations are compile-time no-ops; compose and deploy
-binding requirements remain separate.
+are rejected. Rust also forces the optional bidding metrics host to numeric
+IPv4 loopback and does not expose that host in Admin. `42701` is a
+development/Admin Vite port, not the installed userland origin. The installed
+desktop does not start the `42723` NATS monitor. Backend/indexer metrics and all
+APM/profile implementations remain compile-time no-ops; the bidding Prometheus
+endpoint is the only desktop exporter exception. Compose and deploy binding
+requirements remain separate.
 
 ## App Layer
 
@@ -29,6 +35,9 @@ binding requirements remain separate.
 | `42702` | Private bidding automation E2E app | Vite E2E server                                         | `frontend/package.json`                                  |
 | `42703` | Public bidding automation E2E app  | Vite E2E public server                                  | `frontend/package.json`                                  |
 | `42704` | Terraforms Hypercastle E2E app     | Vite E2E server                                         | `frontend/package.json`                                  |
+| `42705` | Bootstrap probe E2E app            | Vite E2E server                                         | `frontend/package.json`                                  |
+| `42706` | Bidding authorization E2E app      | Vite E2E server                                         | `frontend/package.json`                                  |
+| `42707` | Admin observability E2E app        | Vite E2E server                                         | `frontend/e2e/config-observability-harness.mjs`          |
 | `42710` | Backend HTTP API                   | Backend runtime, deploy Caddy proxy, frontend dev proxy | `config/settings.manifest.toml`, `backend/src/config.ts` |
 
 ## Local Infra
@@ -61,22 +70,22 @@ binding requirements remain separate.
 
 ## Metrics Endpoints
 
-| Port    | Runtime                            | Source                          |
-| ------- | ---------------------------------- | ------------------------------- |
-| `42740` | backend-api                        | `config/settings.manifest.toml` |
-| `42741` | scheduler-worker                   | `config/settings.manifest.toml` |
-| `42742` | sync-worker                        | `config/settings.manifest.toml` |
-| `42743` | reorg-worker                       | `config/settings.manifest.toml` |
-| `42744` | domain-worker                      | `config/settings.manifest.toml` |
-| `42745` | offchain-ingest-worker             | `config/settings.manifest.toml` |
-| `42746` | opensea-stream-worker              | `config/settings.manifest.toml` |
-| `42747` | bootstrap-worker                   | `config/settings.manifest.toml` |
-| `42748` | dead-letter-worker                 | `config/settings.manifest.toml` |
-| `42749` | opensea-bootstrap-worker           | `config/settings.manifest.toml` |
-| `42750` | opensea-reconcile-worker           | `config/settings.manifest.toml` |
-| `42751` | opensea-reconcile-scheduler-worker | `config/settings.manifest.toml` |
-| `42752` | collection-extension-worker        | `config/settings.manifest.toml` |
-| `42753` | bidding-bot                        | `config/settings.manifest.toml` |
+| Port    | Runtime                                 | Source                          |
+| ------- | --------------------------------------- | ------------------------------- |
+| `42740` | backend-api                             | `config/settings.manifest.toml` |
+| `42741` | scheduler-worker                        | `config/settings.manifest.toml` |
+| `42742` | sync-worker                             | `config/settings.manifest.toml` |
+| `42743` | reorg-worker                            | `config/settings.manifest.toml` |
+| `42744` | domain-worker                           | `config/settings.manifest.toml` |
+| `42745` | offchain-ingest-worker                  | `config/settings.manifest.toml` |
+| `42746` | opensea-stream-worker                   | `config/settings.manifest.toml` |
+| `42747` | bootstrap-worker                        | `config/settings.manifest.toml` |
+| `42748` | dead-letter-worker                      | `config/settings.manifest.toml` |
+| `42749` | opensea-bootstrap-worker                | `config/settings.manifest.toml` |
+| `42750` | opensea-reconcile-worker                | `config/settings.manifest.toml` |
+| `42751` | opensea-reconcile-scheduler-worker      | `config/settings.manifest.toml` |
+| `42752` | collection-extension-worker             | `config/settings.manifest.toml` |
+| `42753` | bidding-bot (optional desktop loopback) | `config/settings.manifest.toml` |
 
 ## Public Edge Exception
 

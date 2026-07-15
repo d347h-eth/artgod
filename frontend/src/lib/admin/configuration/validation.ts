@@ -7,12 +7,15 @@ import {
 	isBlockExplorerValidationRule,
 	parseBlockExplorerConfigValueByValidationRule
 } from '@artgod/shared/config/block-explorer';
+import { TCP_PORT_RANGE, isTcpPort } from '@artgod/shared/config/tcp-port';
+import { SETTINGS_VALIDATION_RULE } from '@artgod/shared/config/generated-settings-validation-rules';
 
 export const ADMIN_CONFIG_VALIDATION_RULES = {
-	url: 'url',
-	positiveInteger: 'positive_integer',
-	rpcEndpointList: 'rpc_endpoint_list',
-	websocketEndpointList: 'websocket_endpoint_list'
+	url: SETTINGS_VALIDATION_RULE.Url,
+	positiveInteger: SETTINGS_VALIDATION_RULE.PositiveInteger,
+	tcpPort: SETTINGS_VALIDATION_RULE.TcpPort,
+	rpcEndpointList: SETTINGS_VALIDATION_RULE.RpcEndpointList,
+	websocketEndpointList: SETTINGS_VALIDATION_RULE.WebSocketEndpointList
 } as const;
 
 export const ADMIN_CONFIG_VALIDATION_ISSUE_KINDS = {
@@ -104,6 +107,13 @@ export function validateAdminConfigField(
 			`${field.key} is required for app launch.`
 		);
 	}
+	if (field.validation === ADMIN_CONFIG_VALIDATION_RULES.tcpPort && trimmed.length === 0) {
+		return buildValidationIssue(
+			field,
+			ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.integer,
+			`${field.key} must be a whole number from ${TCP_PORT_RANGE.Minimum} to ${TCP_PORT_RANGE.Maximum}.`
+		);
+	}
 	if (trimmed.length === 0) {
 		return null;
 	}
@@ -122,6 +132,13 @@ export function validateAdminConfigField(
 			field,
 			ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.integer,
 			`${field.key} must be a positive whole number.`
+		);
+	}
+	if (field.validation === ADMIN_CONFIG_VALIDATION_RULES.tcpPort && !isTcpPort(trimmed)) {
+		return buildValidationIssue(
+			field,
+			ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.integer,
+			`${field.key} must be a whole number from ${TCP_PORT_RANGE.Minimum} to ${TCP_PORT_RANGE.Maximum}.`
 		);
 	}
 	if (field.validation === ADMIN_CONFIG_VALIDATION_RULES.rpcEndpointList) {

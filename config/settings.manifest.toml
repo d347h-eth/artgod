@@ -1140,11 +1140,11 @@ help = "OpenSea API key for bidding collection-offer snapshots; use a separate k
 [[settings]]
 key = "TRADING_METRICS_ENABLED"
 group = "trading-observability"
-targets = ["local", "deploy"]
-label = "trading metrics enabled"
+targets = ["local", "deploy", "desktop"]
+label = "bidding metrics endpoint"
 default = "false"
 input = "checkbox"
-help = "Enables the bidding bot Prometheus metrics endpoint."
+help = "Exposes bidding runtime metrics on this computer for Prometheus and Grafana after the bidding bot restarts."
 
 [[settings]]
 key = "TRADING_METRICS_HOST"
@@ -1157,11 +1157,11 @@ help = "Network interface for trading metrics endpoints."
 [[settings]]
 key = "TRADING_METRICS_PORT_BIDDING_BOT"
 group = "trading-observability"
-targets = ["local", "deploy"]
-label = "trading metrics port bidding bot"
+targets = ["local", "deploy", "desktop"]
+label = "bidding metrics TCP port"
 default = "42753"
-validation = "positive_integer"
-help = "Prometheus metrics port for the bidding bot runtime."
+validation = "tcp_port"
+help = "Local TCP port from 1 to 65535 used by the bidding bot metrics endpoint."
 
 [[settings]]
 key = "BIDDING_ENABLED"
@@ -1320,7 +1320,7 @@ key = "BIDDING_HOT_REFRESH_BROAD_MAX_PENDING_SIGNATURES"
 group = "bidding"
 label = "bidding hot refresh broad max pending signatures"
 default = "256"
-help = "Maximum queued broad collection or trait hot-refresh signatures per bidding bot."
+help = "Maximum queued broad collection or trait refresh targets and recently completed targets remembered during cooldown per bidding bot; each group uses this limit."
 
 [[settings]]
 key = "BIDDING_HOT_REFRESH_ITEM_COOLDOWN_MS"
@@ -1334,7 +1334,7 @@ key = "BIDDING_HOT_REFRESH_ITEM_MAX_PENDING_SIGNATURES"
 group = "bidding"
 label = "bidding hot refresh item max pending signatures"
 default = "512"
-help = "Maximum queued exact-token hot-refresh signatures per bidding bot."
+help = "Maximum queued exact-token refresh targets and recently completed token targets remembered during cooldown per bidding bot; each group uses this limit."
 
 [[settings]]
 key = "BIDDING_COMPETITIVE_TRAIT_MAX_LOOKUP_SELECTORS"

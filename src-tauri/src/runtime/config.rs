@@ -9,7 +9,7 @@ use super::app_config::{ensure_desktop_config_paths, load_or_materialize_process
 use super::bot_runtime::BotRuntimeSpec;
 use super::env_keys::{
     BACKEND_HOST_ENV_KEY, COMMON_MEDIA_CACHE_DIR_ENV_KEY, NATS_URL_ENV_KEY,
-    RPC_ENDPOINT_LIST_ENV_KEY,
+    RPC_ENDPOINT_LIST_ENV_KEY, TRADING_METRICS_HOST_ENV_KEY,
 };
 use super::http_fetch_resilience::HttpFetchResilienceConfig;
 #[cfg(target_os = "linux")]
@@ -202,6 +202,7 @@ impl DesktopRuntimeConfig {
         merged_env.insert(BACKEND_HOST_ENV_KEY.to_owned(), backend_host);
         merged_env.insert("BACKEND_PORT".to_owned(), backend_port.to_string());
         merged_env.insert(NATS_URL_ENV_KEY.to_owned(), nats_url.clone());
+        enforce_desktop_metrics_loopback(&mut merged_env);
 
         Ok(Self {
             env_file_path,
@@ -254,6 +255,14 @@ impl DesktopRuntimeConfig {
             logs_dir: self.logs_dir.clone(),
         })
     }
+}
+
+/// Overrides persisted process config with the native-owned metrics listener boundary.
+fn enforce_desktop_metrics_loopback(process_env: &mut HashMap<String, String>) {
+    process_env.insert(
+        TRADING_METRICS_HOST_ENV_KEY.to_owned(),
+        DESKTOP_IPV4_LOOPBACK_HOST.to_owned(),
+    );
 }
 
 fn build_nats_store_dir(app_data_dir: &Path) -> Result<PathBuf, String> {
@@ -670,6 +679,23 @@ mod tests {
                 bot_unlock_stabilization_delay_ms: 5_000,
             },
         }
+    }
+
+    #[test]
+    fn desktop_metrics_host_overrides_persisted_non_loopback_value() {
+        let mut process_env = HashMap::from([(
+            TRADING_METRICS_HOST_ENV_KEY.to_owned(),
+            "0.0.0.0".to_owned(),
+        )]);
+
+        enforce_desktop_metrics_loopback(&mut process_env);
+
+        assert_eq!(
+            process_env
+                .get(TRADING_METRICS_HOST_ENV_KEY)
+                .map(String::as_str),
+            Some(DESKTOP_IPV4_LOOPBACK_HOST)
+        );
     }
 
     #[test]

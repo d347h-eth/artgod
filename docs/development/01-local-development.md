@@ -360,10 +360,13 @@ cp .env.example .env
 cp .env.test.example .env.test
 ```
 
-`.env.example`, `.env.deploy.example`, and
-`shared/config/generated-settings-defaults.ts` are generated from
-`config/settings.manifest.toml`. Edit the manifest first, then run
-`yarn config:generate` and commit the manifest plus generated files together.
+`.env.example`, `.env.deploy.example`,
+`shared/config/generated-settings-defaults.ts`, and
+`frontend/src/lib/e2e/generated-desktop-admin-config.ts` are generated from
+`config/settings.manifest.toml`.
+`shared/config/generated-settings-validation-rules.ts` is generated from
+`config/settings-validation-rules.json`. Edit the owning source first, then run
+`yarn config:generate` and commit the source plus every generated file together.
 See `docs/desktop/04-settings-manifest-process.md` for the full process.
 
 The generated `.env.example` is the local web/indexer development baseline.

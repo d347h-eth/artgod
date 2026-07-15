@@ -176,6 +176,10 @@ export const SETTINGS_DEFAULTS = {
 
 // Settings keys known to the generated defaults module.
 export type SettingsDefaultKey = keyof typeof SETTINGS_DEFAULTS;
+// Identity map for importing manifest-owned setting keys without repeating wire literals.
+export const SETTINGS_KEY = Object.freeze(
+    Object.fromEntries(Object.keys(SETTINGS_DEFAULTS).map((key) => [key, key])),
+) as { readonly [Key in SettingsDefaultKey]: Key };
 // Exact generated defaults shape.
 export type SettingsDefaults = typeof SETTINGS_DEFAULTS;
 

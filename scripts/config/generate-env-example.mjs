@@ -8,6 +8,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "../..");
 const manifestPath = path.join(rootDir, "config", "settings.manifest.toml");
+const validationRulesPath = path.join(
+    rootDir,
+    "config",
+    "settings-validation-rules.json",
+);
 const envExamplePath = path.join(rootDir, ".env.example");
 const envDeployExamplePath = path.join(rootDir, ".env.deploy.example");
 const generatedDefaultsPath = path.join(
@@ -16,16 +21,20 @@ const generatedDefaultsPath = path.join(
     "config",
     "generated-settings-defaults.ts",
 );
-const SUPPORTED_VALIDATION_RULES = [
-    "url",
-    "positive_integer",
-    "rpc_endpoint_list",
-    "websocket_endpoint_list",
-    "block_explorer_base_url",
-    "block_explorer_tx_path_template",
-    "block_explorer_address_path_template",
-    "block_explorer_block_path_template",
-];
+const generatedValidationRulesPath = path.join(
+    rootDir,
+    "shared",
+    "config",
+    "generated-settings-validation-rules.ts",
+);
+const generatedDesktopAdminConfigPath = path.join(
+    rootDir,
+    "frontend",
+    "src",
+    "lib",
+    "e2e",
+    "generated-desktop-admin-config.ts",
+);
 const SUPPORTED_TARGETS = ["local", "deploy", "desktop"];
 const DEFAULT_TARGETS = SUPPORTED_TARGETS;
 
@@ -166,7 +175,7 @@ function validateStringArray(value, location, errors) {
     return result;
 }
 
-function validateManifest(manifest) {
+function validateManifest(manifest, supportedValidationRules) {
     const errors = [];
     if (manifest.version !== 1) {
         errors.push(`version: expected 1, got ${manifest.version}`);
@@ -235,10 +244,7 @@ function validateManifest(manifest) {
                 `${location}.validation`,
                 errors,
             );
-            if (
-                validation &&
-                !SUPPORTED_VALIDATION_RULES.includes(validation)
-            ) {
+            if (validation && !supportedValidationRules.has(validation)) {
                 errors.push(
                     `${location}.validation: unsupported validation "${validation}"`,
                 );
@@ -398,6 +404,108 @@ function generateEnvFile(manifest, target) {
     return lines.join("\n");
 }
 
+function parseValidationRules(source) {
+    const rules = JSON.parse(source);
+    if (!rules || typeof rules !== "object" || Array.isArray(rules)) {
+        throw new Error(`${validationRulesPath}: expected an object`);
+    }
+
+    const values = new Set();
+    for (const [name, value] of Object.entries(rules)) {
+        if (!/^[A-Z][A-Za-z0-9]*$/.test(name)) {
+            throw new Error(
+                `${validationRulesPath}: invalid validation rule name ${name}`,
+            );
+        }
+        if (typeof value !== "string" || value.trim().length === 0) {
+            throw new Error(
+                `${validationRulesPath}: validation rule ${name} must be a non-empty string`,
+            );
+        }
+        if (values.has(value)) {
+            throw new Error(
+                `${validationRulesPath}: duplicate validation rule value ${value}`,
+            );
+        }
+        values.add(value);
+    }
+    return rules;
+}
+
+async function generateSettingsValidationRulesModule(validationRules) {
+    const source = [
+        "// Generated from config/settings-validation-rules.json.",
+        "// Do not edit directly; run `yarn config:generate`.",
+        "",
+        "// Validation rule names shared by the manifest generator and Admin clients.",
+        `export const SETTINGS_VALIDATION_RULE = ${JSON.stringify(validationRules, null, 4)} as const;`,
+        "",
+        "// Exact validation vocabulary accepted by generated settings clients.",
+        "export type SettingsValidationRule =",
+        "    (typeof SETTINGS_VALIDATION_RULE)[keyof typeof SETTINGS_VALIDATION_RULE];",
+        "",
+    ].join("\n");
+    const prettierOptions =
+        (await resolveConfig(generatedValidationRulesPath)) ?? {};
+    return format(source, {
+        ...prettierOptions,
+        parser: "typescript",
+    });
+}
+
+async function generateDesktopAdminConfigModule(manifest) {
+    const desktopSettings = manifest.settings.filter(
+        (setting) =>
+            hasTarget(setting, "desktop") && setting.desktop_managed !== false,
+    );
+    const desktopGroupIds = new Set(
+        desktopSettings.map((setting) => setting.group),
+    );
+    const schema = {
+        groups: manifest.groups
+            .filter((group) => desktopGroupIds.has(group.id))
+            .map((group) => ({
+                id: group.id,
+                label: group.label,
+                fields: desktopSettings
+                    .filter((setting) => setting.group === group.id)
+                    .map((setting) => ({
+                        key: setting.key,
+                        label: setting.label,
+                        inputKind: setting.input ?? "text",
+                        secret: setting.secret ?? false,
+                        options: setting.options ?? [],
+                        help: setting.help ?? "",
+                        requiredForLaunch: setting.required_for_launch ?? false,
+                        validation: setting.validation ?? null,
+                        ...(setting.view === undefined
+                            ? {}
+                            : { view: setting.view }),
+                    })),
+            })),
+        defaults: Object.fromEntries(
+            desktopSettings.map((setting) => [
+                setting.key,
+                resolveDefaultForTarget(setting, "desktop"),
+            ]),
+        ),
+    };
+    const source = [
+        "// Generated from the desktop-managed settings in config/settings.manifest.toml.",
+        "// Do not edit directly; run `yarn config:generate`.",
+        "",
+        "// Exact native Admin schema used by the maintained browser harness.",
+        `export const DESKTOP_ADMIN_CONFIG_SCHEMA = ${JSON.stringify(schema, null, 4)} as const;`,
+        "",
+    ].join("\n");
+    const prettierOptions =
+        (await resolveConfig(generatedDesktopAdminConfigPath)) ?? {};
+    return format(source, {
+        ...prettierOptions,
+        parser: "typescript",
+    });
+}
+
 async function generateSettingsDefaultsModule(manifest) {
     const defaults = Object.fromEntries(
         manifest.settings
@@ -416,6 +524,12 @@ async function generateSettingsDefaultsModule(manifest) {
         "",
         "// Settings keys known to the generated defaults module.",
         "export type SettingsDefaultKey = keyof typeof SETTINGS_DEFAULTS;",
+        "// Identity map for importing manifest-owned setting keys without repeating wire literals.",
+        "export const SETTINGS_KEY = Object.freeze(",
+        "    Object.fromEntries(",
+        "        Object.keys(SETTINGS_DEFAULTS).map((key) => [key, key]),",
+        "    ),",
+        ") as { readonly [Key in SettingsDefaultKey]: Key };",
         "// Exact generated defaults shape.",
         "export type SettingsDefaults = typeof SETTINGS_DEFAULTS;",
         "",
@@ -464,12 +578,20 @@ async function generateSettingsDefaultsModule(manifest) {
 
 async function main() {
     const check = process.argv.includes("--check");
-    const source = await readFile(manifestPath, "utf8");
+    const [source, validationRulesSource] = await Promise.all([
+        readFile(manifestPath, "utf8"),
+        readFile(validationRulesPath, "utf8"),
+    ]);
     const manifest = parseManifest(source);
-    validateManifest(manifest);
+    const validationRules = parseValidationRules(validationRulesSource);
+    validateManifest(manifest, new Set(Object.values(validationRules)));
     const generated = generateEnvFile(manifest, "local");
     const generatedDeploy = generateEnvFile(manifest, "deploy");
     const generatedDefaults = await generateSettingsDefaultsModule(manifest);
+    const generatedValidationRules =
+        await generateSettingsValidationRulesModule(validationRules);
+    const generatedDesktopAdminConfig =
+        await generateDesktopAdminConfigModule(manifest);
 
     if (check) {
         const existing = await readFile(envExamplePath, "utf8");
@@ -493,10 +615,36 @@ async function main() {
             );
             process.exit(1);
         }
+        const existingValidationRules = await readFile(
+            generatedValidationRulesPath,
+            "utf8",
+        );
+        if (existingValidationRules !== generatedValidationRules) {
+            console.error(
+                "shared/config/generated-settings-validation-rules.ts is stale. Run `yarn config:generate` and commit the result.",
+            );
+            process.exit(1);
+        }
+        const existingDesktopAdminConfig = await readFile(
+            generatedDesktopAdminConfigPath,
+            "utf8",
+        );
+        if (existingDesktopAdminConfig !== generatedDesktopAdminConfig) {
+            console.error(
+                "frontend/src/lib/e2e/generated-desktop-admin-config.ts is stale. Run `yarn config:generate` and commit the result.",
+            );
+            process.exit(1);
+        }
         console.log(".env.example is up to date.");
         console.log(".env.deploy.example is up to date.");
         console.log(
             "shared/config/generated-settings-defaults.ts is up to date.",
+        );
+        console.log(
+            "shared/config/generated-settings-validation-rules.ts is up to date.",
+        );
+        console.log(
+            "frontend/src/lib/e2e/generated-desktop-admin-config.ts is up to date.",
         );
         return;
     }
@@ -504,8 +652,18 @@ async function main() {
     await writeFile(envExamplePath, generated, "utf8");
     await writeFile(envDeployExamplePath, generatedDeploy, "utf8");
     await writeFile(generatedDefaultsPath, generatedDefaults, "utf8");
+    await writeFile(
+        generatedValidationRulesPath,
+        generatedValidationRules,
+        "utf8",
+    );
+    await writeFile(
+        generatedDesktopAdminConfigPath,
+        generatedDesktopAdminConfig,
+        "utf8",
+    );
     console.log(
-        "Generated .env.example, .env.deploy.example, and shared/config/generated-settings-defaults.ts from config/settings.manifest.toml.",
+        "Generated env examples and shared settings contracts from the config manifests.",
     );
 }
 

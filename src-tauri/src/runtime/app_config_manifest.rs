@@ -4,16 +4,8 @@ use serde::Deserialize;
 
 const SETTINGS_MANIFEST_VERSION: u8 = 1;
 const SETTINGS_MANIFEST: &str = include_str!("../../../config/settings.manifest.toml");
-const SUPPORTED_VALIDATION_RULES: &[&str] = &[
-    "url",
-    "positive_integer",
-    "rpc_endpoint_list",
-    "websocket_endpoint_list",
-    "block_explorer_base_url",
-    "block_explorer_tx_path_template",
-    "block_explorer_address_path_template",
-    "block_explorer_block_path_template",
-];
+const SETTINGS_VALIDATION_RULES: &str =
+    include_str!("../../../config/settings-validation-rules.json");
 const SUPPORTED_TARGETS: &[&str] = &["local", "deploy", "desktop"];
 
 /// Validated Admin configuration schema embedded into the desktop binary.
@@ -96,10 +88,16 @@ struct ManifestSettingDefaultsDocument {
 pub fn load_app_config_manifest() -> Result<AppConfigManifestModel, String> {
     let document: ManifestDocument = toml::from_str(SETTINGS_MANIFEST)
         .map_err(|error| format!("Failed to parse settings manifest: {error}"))?;
-    build_manifest_model(document)
+    let validation_rules: HashMap<String, String> = serde_json::from_str(SETTINGS_VALIDATION_RULES)
+        .map_err(|error| format!("Failed to parse settings validation rules: {error}"))?;
+    let supported_validation_rules = validation_rules.into_values().collect::<HashSet<_>>();
+    build_manifest_model(document, &supported_validation_rules)
 }
 
-fn build_manifest_model(document: ManifestDocument) -> Result<AppConfigManifestModel, String> {
+fn build_manifest_model(
+    document: ManifestDocument,
+    supported_validation_rules: &HashSet<String>,
+) -> Result<AppConfigManifestModel, String> {
     if document.version != SETTINGS_MANIFEST_VERSION {
         return Err(format!(
             "Unsupported settings manifest version {}",
@@ -188,7 +186,7 @@ fn build_manifest_model(document: ManifestDocument) -> Result<AppConfigManifestM
             ));
         }
         if let Some(validation) = setting.validation.as_deref()
-            && !SUPPORTED_VALIDATION_RULES.contains(&validation)
+            && !supported_validation_rules.contains(validation)
         {
             errors.push(format!(
                 "settings manifest setting {} uses unsupported validation {}",
@@ -286,7 +284,11 @@ fn resolve_default_for_target(setting: &ManifestSettingDocument, target: &str) -
 
 #[cfg(test)]
 mod tests {
-    use super::super::env_keys::{RPC_ENDPOINT_LIST_ENV_KEY, RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY};
+    use super::super::env_keys::{
+        RPC_ENDPOINT_LIST_ENV_KEY, RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY,
+        TRADING_METRICS_ENABLED_ENV_KEY, TRADING_METRICS_HOST_ENV_KEY,
+        TRADING_METRICS_PORT_BIDDING_BOT_ENV_KEY,
+    };
     use super::*;
 
     #[test]
@@ -337,13 +339,9 @@ mod tests {
     }
 
     #[test]
-    fn observability_settings_are_not_admin_managed() {
+    fn desktop_admin_exposes_only_loopback_safe_trading_observability_settings() {
         let model = load_app_config_manifest().expect("load settings manifest");
-        let observability_group_ids = [
-            "backend-observability",
-            "indexer-observability",
-            "trading-observability",
-        ];
+        let observability_group_ids = ["backend-observability", "indexer-observability"];
 
         for group_id in observability_group_ids {
             assert!(!model.groups.iter().any(|group| group.id == group_id));
@@ -354,6 +352,39 @@ mod tests {
                     .any(|setting| setting.group == group_id)
             );
         }
+
+        assert!(
+            model
+                .groups
+                .iter()
+                .any(|group| group.id == "trading-observability")
+        );
+        for key in [
+            TRADING_METRICS_ENABLED_ENV_KEY,
+            TRADING_METRICS_PORT_BIDDING_BOT_ENV_KEY,
+        ] {
+            assert!(model.settings.iter().any(|setting| setting.key == key));
+            assert!(model.defaults.contains_key(key));
+        }
+        assert_eq!(
+            model
+                .defaults
+                .get(TRADING_METRICS_ENABLED_ENV_KEY)
+                .map(String::as_str),
+            Some("false")
+        );
+        assert!(
+            !model
+                .settings
+                .iter()
+                .any(|setting| setting.key == TRADING_METRICS_HOST_ENV_KEY)
+        );
+        let port_setting = model
+            .settings
+            .iter()
+            .find(|setting| setting.key == TRADING_METRICS_PORT_BIDDING_BOT_ENV_KEY)
+            .expect("trading metrics port setting should exist");
+        assert_eq!(port_setting.validation.as_deref(), Some("tcp_port"));
     }
 
     #[test]
