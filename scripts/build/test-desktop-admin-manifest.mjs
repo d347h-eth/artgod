@@ -9,7 +9,7 @@ const rootDir = path.resolve(
 );
 const tauriConfigEnvironmentKey = "TAURI_CONFIG";
 const adminManifestTestTarget =
-    "runtime::app_config_manifest::tests::observability_settings_are_not_admin_managed";
+    "runtime::app_config_manifest::tests::desktop_admin_exposes_only_loopback_safe_trading_observability_settings";
 
 // The focused unit test does not package an app, so omit release sidecars from Tauri's merged config.
 const tauriConfigOverride = JSON.stringify({

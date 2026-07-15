@@ -9,6 +9,8 @@ Generated artifacts are committed so runtime packages and operators do not parse
 - `.env.example`
 - `.env.deploy.example`
 - `shared/config/generated-settings-defaults.ts`
+- `shared/config/generated-settings-validation-rules.ts`
+- `frontend/src/lib/e2e/generated-desktop-admin-config.ts`
 
 Do not edit generated artifacts directly. Update the manifest, run generation, and commit the manifest plus generated outputs together.
 
@@ -72,14 +74,35 @@ Optional fields:
 - `view`: `basic` or `advanced`; absent settings default to advanced-only UI.
 - `input`: `text`, `password`, `checkbox`, `textarea`, `select`, or `weighted_endpoint_list`.
 - `options`: allowed values for `select`.
-- `validation`: currently `url`, `positive_integer`, `rpc_endpoint_list`, `websocket_endpoint_list`, or the block explorer rules (`block_explorer_base_url`, `block_explorer_tx_path_template`, `block_explorer_address_path_template`, `block_explorer_block_path_template`).
+- `validation`: one of the values owned by `config/settings-validation-rules.json`, including URL, positive-integer, TCP-port, RPC endpoint-list, and block-explorer rules.
 - `required_for_launch`: blocks `start infra` when the effective desktop value is empty or invalid.
 - `desktop_managed`: set `false` for settings that are known to the app but should not be shown or rendered by desktop Admin.
 - `secret`: marks sensitive settings in the Admin schema.
 
 For ordinary app settings, keep the short `default = "..."` form. Use `defaults = { local = "...", deploy = "...", desktop = "..." }` only when at least one context needs a different value. Use `targets = ["deploy"]` for deploy orchestration keys that should appear only in `.env.deploy.example`.
 
-Backend/indexer-specific override URLs such as `BACKEND_APM_OTLP_HTTP_URL`, `BACKEND_APM_PYROSCOPE_URL`, `INDEXER_APM_OTLP_HTTP_URL`, and `INDEXER_APM_PYROSCOPE_URL` intentionally keep blank defaults. Runtime config falls back to the root `OBSERVABILITY_*` settings, so defaults stay centralized while component-specific overrides remain available. All backend/indexer/trading metrics and APM settings target only `local` and `deploy`; the desktop build selects dependency-free no-op adapters, so those groups must not appear in Admin or its rendered `.env`.
+Backend/indexer-specific override URLs such as `BACKEND_APM_OTLP_HTTP_URL`,
+`BACKEND_APM_PYROSCOPE_URL`, `INDEXER_APM_OTLP_HTTP_URL`, and
+`INDEXER_APM_PYROSCOPE_URL` intentionally keep blank defaults. Runtime config
+falls back to the root `OBSERVABILITY_*` settings, so defaults stay centralized
+while component-specific overrides remain available. Backend/indexer metrics
+and every APM/profile setting target only `local` and `deploy`; those groups do
+not appear in Admin or its rendered `.env`.
+
+Trading metrics are the narrow desktop exception. Admin renders
+`TRADING_METRICS_ENABLED` and `TRADING_METRICS_PORT_BIDDING_BOT`, but not
+`TRADING_METRICS_HOST`. Rust writes that host as `127.0.0.1` into the child
+environment regardless of persisted input. The desktop artifact admits only
+the reviewed trading Prometheus facade and continues to reject the full metrics
+barrel, tracing, and profiling implementations.
+
+Validation rule names are defined once in `config/settings-validation-rules.json`.
+`yarn config:generate` emits the typed shared contract consumed by Admin, while
+the desktop embeds the same JSON file when validating the manifest. The same
+command generates `frontend/src/lib/e2e/generated-desktop-admin-config.ts`, so
+the maintained browser harness renders the desktop-managed schema and defaults
+from the manifest instead of maintaining a parallel fixture. Run `yarn
+config:check` after generation to catch drift.
 
 ## Change Workflow
 
@@ -92,7 +115,12 @@ Backend/indexer-specific override URLs such as `BACKEND_APM_OTLP_HTTP_URL`, `BAC
 yarn config:generate
 ```
 
-5. Commit `config/settings.manifest.toml`, `.env.example`, `.env.deploy.example`, `shared/config/generated-settings-defaults.ts`, and any runtime consumer changes together.
+5. Commit `config/settings.manifest.toml`, `.env.example`, `.env.deploy.example`,
+   `shared/config/generated-settings-defaults.ts`,
+   `shared/config/generated-settings-validation-rules.ts`,
+   `frontend/src/lib/e2e/generated-desktop-admin-config.ts`, and any runtime
+   consumer changes together. Include `config/settings-validation-rules.json`
+   when the validation vocabulary changes.
 
 ## Required Checks
 
@@ -124,7 +152,11 @@ The full indexer smoke suite additionally requires `SMOKE_*` env values and is n
 ## Drift Rules
 
 - No hardcoded fallback default should be added to backend/indexer config if the value exists in the manifest.
-- `.env.example`, `.env.deploy.example`, and `shared/config/generated-settings-defaults.ts` must be generated, not hand-edited.
+- `.env.example`, `.env.deploy.example`,
+  `shared/config/generated-settings-defaults.ts`,
+  `shared/config/generated-settings-validation-rules.ts`, and
+  `frontend/src/lib/e2e/generated-desktop-admin-config.ts` must be generated,
+  not hand-edited.
 - `yarn config:check` is the guard for stale generated settings artifacts.
 - Update `docs/ports/01-port-catalog.md` when changing port defaults.
 - Update operator docs when changing launch-required settings, Admin-visible grouping, validation, or desktop-only behavior.

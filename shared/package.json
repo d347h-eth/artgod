@@ -16,6 +16,7 @@
         "./config/debug-payload-persistence": "./config/debug-payload-persistence.ts",
         "./config/deployment": "./config/deployment.ts",
         "./config/generated-settings-defaults": "./config/generated-settings-defaults.ts",
+        "./config/generated-settings-validation-rules": "./config/generated-settings-validation-rules.ts",
         "./config/http-fetch-resilience": "./config/http-fetch-resilience.ts",
         "./config/nats": "./config/nats.ts",
         "./config/opensea-http": "./config/opensea-http.ts",

@@ -2,6 +2,7 @@ import {
     getSettingDefault,
     type SettingsDefaultKey,
 } from "./generated-settings-defaults.js";
+import { SETTINGS_VALIDATION_RULE } from "./generated-settings-validation-rules.js";
 
 // Env key for the base block explorer URL used by frontend lookup links.
 export const BLOCK_EXPLORER_BASE_URL_ENV_KEY =
@@ -41,10 +42,12 @@ export type BlockExplorerConfigEnvKey =
 
 // Manifest validation rule names owned by the block explorer config contract.
 export const BLOCK_EXPLORER_VALIDATION_RULES = {
-    BaseUrl: "block_explorer_base_url",
-    TransactionPathTemplate: "block_explorer_tx_path_template",
-    AddressPathTemplate: "block_explorer_address_path_template",
-    BlockPathTemplate: "block_explorer_block_path_template",
+    BaseUrl: SETTINGS_VALIDATION_RULE.BlockExplorerBaseUrl,
+    TransactionPathTemplate:
+        SETTINGS_VALIDATION_RULE.BlockExplorerTransactionPathTemplate,
+    AddressPathTemplate:
+        SETTINGS_VALIDATION_RULE.BlockExplorerAddressPathTemplate,
+    BlockPathTemplate: SETTINGS_VALIDATION_RULE.BlockExplorerBlockPathTemplate,
 } as const;
 
 export type BlockExplorerValidationRule =
