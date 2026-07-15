@@ -204,6 +204,8 @@ Product domains:
   snapshots, reconciliation, wallet boundary, and config surface.
 - `docs/trading/02-bidding-automation-capabilities.md`: user-facing bidding UI
   capabilities and backend API coverage.
+- `docs/trading/03-bidding-runtime-observability.md`: opt-in desktop bidding
+  metrics, Grafana dashboard, bottleneck interpretation, and recovery.
 - `docs/extensions/01-collection-extensions.md`: extension registry, indexer
   hooks, backend presentation overrides, and Terraforms extension behavior.
 - `docs/ui/00-user-perspective-and-language.md`: required user-eye workflow

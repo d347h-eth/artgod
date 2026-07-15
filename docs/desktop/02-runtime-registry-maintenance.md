@@ -101,7 +101,9 @@ What is explicit here:
 These commands are the stable interface used by Tauri build and developers.
 `build:runtime` keeps the full local/deploy observability graph;
 `build:desktop-runtime` is the only artifact profile accepted by desktop
-resource staging.
+resource staging. That desktop profile keeps backend/indexer metrics and every
+APM/profile path on no-op adapters. Its only exporter exception is the reviewed
+trading Prometheus facade used by the opt-in loopback bidding endpoint.
 
 ### 5) Indexer Dev Runtime Script Registry
 
@@ -190,7 +192,7 @@ When adding a new indexer runtime (example `foo-worker`):
     : `yarn build:desktop-runtime-resources`
     : `yarn build:desktop:no-bundle`
     : Start desktop app and confirm process appears in runtime state/logs.
-    : Start the worker through the full local/deploy flow with observability enabled, then verify `up{job="artgod-indexer",runtime="foo-worker"}` in Prometheus/Grafana. The desktop profile is intentionally no-op and cannot verify this signal.
+    : Start the worker through the full local/deploy flow with observability enabled, then verify `up{job="artgod-indexer",runtime="foo-worker"}` in Prometheus/Grafana. Desktop backend/indexer observability is intentionally no-op and cannot verify this signal; the narrow trading metrics exception does not apply to indexer workers.
 
 When adding a new trading bot runtime (example `foo-bot`):
 
@@ -213,7 +215,13 @@ When adding a new trading bot runtime (example `foo-bot`):
 6. Sync docs.
    : Update `README.md` and desktop wallet/bot docs if the operator model changes.
 
-7. Verify.
+7. Extend trading observability only when the new bot has a real operator need.
+   : Reuse the narrow trading metrics facade and add a bounded worker identity,
+   typed port setting, Prometheus scrape target, and generated dashboard
+   coverage. Do not widen the exception to APM, profiling, or the full shared
+   metrics barrel.
+
+8. Verify.
    : `yarn install --immutable`
    : `yarn build:sqlite-native`
    : `yarn build:desktop-runtime`

@@ -24,6 +24,10 @@ For desktop wallet custody, native secret prompts, and bot unlock policy, see:
 
 - `docs/desktop/03-wallet-keystore-and-bot-unlock.md`
 
+For the opt-in desktop bidding metrics endpoint and Grafana workflow, see:
+
+- `docs/trading/03-bidding-runtime-observability.md`
+
 For deferred local runtime identity and browser trust-store work, see:
 
 - `docs/progress/desktop/02-local-runtime-identity-and-browser-trust.md`
@@ -177,7 +181,10 @@ What each command does:
 
 - `yarn build:desktop-runtime`
   : Runs the same artifact builder with the explicit desktop profile.
-  : Selects dependency-free observability adapters and fails if Pyroscope, Datadog pprof, OpenTelemetry, or Prometheus enters the desktop graph.
+  : Keeps backend/indexer metrics and every APM/profile path on no-op adapters.
+  : The trading artifact may reach only the reviewed Prometheus metrics runtime
+  through its narrow facade; the build rejects APM, profiling, the full metrics
+  barrel, and any alternate path into that exception.
 
 - `yarn build:desktop-runtime-resources`
   : Runs `scripts/build/prepare-desktop-runtime-resources.mjs`.
@@ -297,7 +304,11 @@ Current build strategy details:
 - `bundle: true`, `format: "esm"`, `platform: "node"`
 - native packages declared by `scripts/build/native-runtime-dependencies.mjs` are externalized (`better-sqlite3`, `sharp`)
 - the default full profile retains optional metrics/tracing/profiling exporters for local and deploy runtimes
-- the explicit desktop profile resolves APM and metrics to no-op adapters and rejects `@pyroscope/nodejs`, `@datadog/pprof`, `@opentelemetry/*`, and `prom-client` in the esbuild input graph
+- the explicit desktop profile resolves backend/indexer metrics and all APM to
+  no-op adapters. The trading artifact alone may include `prom-client` and its
+  exact OpenTelemetry API dependency when they are reachable through
+  `shared/observability/metrics/trading.ts`; the profile rejects APM/profiling,
+  full metrics-barrel access, and facade bypasses
 - Node `require` shim banner is injected for CJS dependencies bundled into ESM output
 - explicit `tsconfigRaw` is provided so runtime build does not depend on frontend `.svelte-kit` TS config state
 
@@ -555,6 +566,9 @@ Desktop executable resources are not operator configuration:
   address `127.0.0.1`; hostnames, IPv6, wildcard, LAN, and public addresses are
   rejected before child-process startup. Rust rewrites both child values to
   their canonical loopback form.
+- The optional bidding metrics listener is also Rust-owned at the network
+  boundary. Admin exposes its enable toggle and TCP port, while Rust always
+  rewrites `TRADING_METRICS_HOST` to `127.0.0.1` before a bot launch.
 - JetStream storage is not left to the NATS default temp path. The desktop
   supervisor always passes `--addr 127.0.0.1` and starts bundled NATS with its
   store root at `<app-data>/nats`; JetStream files live under the NATS-created
@@ -572,6 +586,8 @@ Desktop-specific wallet/bot keys:
 
 Trading bot runtime keys:
 
+- `TRADING_METRICS_ENABLED` and `TRADING_METRICS_PORT_BIDDING_BOT` (opt-in
+  loopback Prometheus endpoint; changes apply to the next bidding bot process)
 - `OPENSEA_STREAM_SECRET_KEY` (bot stream lane; separate from indexer `OPENSEA_API_KEY`)
 - `OPENSEA_BIDDING_SECRET_KEY` (bot order placement/cancellation lane)
 - `OPENSEA_SNAPSHOT_SECRET_KEY` (bot collection-offer snapshot polling lane)
@@ -598,7 +614,10 @@ Core runtime keys are also validated (for backend/indexer startup), for example:
 - `NATS_URL` (must use `nats://127.0.0.1:<port>`; `localhost`, IPv6, and non-loopback hosts are rejected)
 - `WETH_ADDRESS`
 - `SEAPORT_CONDUIT_CONTROLLER`
-- metrics/APM exporter settings are local/deploy-only and are not rendered into the desktop Admin manifest; desktop artifacts use compile-time no-op adapters
+- backend/indexer metrics and every APM/profile setting remain local/deploy-only
+  and are not rendered into desktop Admin. Desktop Admin renders only the
+  trading metrics enable/port settings; the host stays native-owned loopback.
+  See `docs/trading/03-bidding-runtime-observability.md` for the operator path.
 
 Desktop-first default path behavior:
 
@@ -940,10 +959,11 @@ Current state:
   `yarn build:sqlite-native --if-needed` for the allowlisted `better-sqlite3`
   native binding before runtime resources are staged. Reuse requires matching
   package and Node build metadata as well as the requested architecture.
-- Tauri builds use the desktop artifact profile and fail if an observability
-  exporter enters the compiled graph or if full-profile artifacts reach
-  staging. The full `yarn build:runtime` profile remains available to local
-  and deploy runtimes.
+- Tauri builds use the desktop artifact profile and fail if an unapproved
+  observability path enters the compiled graph or if full-profile artifacts
+  reach staging. The only exporter exception is the narrow trading Prometheus
+  facade used by the opt-in loopback bidding endpoint. The full
+  `yarn build:runtime` profile remains available to local and deploy runtimes.
 - Desktop staging contains only reviewed package-local SQLite/Sharp dependency
   closures; project PnP hooks, the workspace Yarn cache/install state, and
   unrelated production/development packages are absent. Universal macOS
