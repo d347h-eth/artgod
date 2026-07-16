@@ -27,9 +27,10 @@ export interface OpenSeaCollectionSlugProbePort {
     resolveCollectionSlugByContract(input: {
         address: string;
     }): Promise<string | null>;
-    resolveCollectionSlugBySlug(input: {
+    resolveCollectionBySlug(input: { slug: string }): Promise<{
         slug: string;
-    }): Promise<string | null>;
+        contractAddresses: readonly string[];
+    } | null>;
 }
 
 export class ProbeOpenSeaCollectionSlugUseCase {
@@ -73,18 +74,22 @@ export class ProbeOpenSeaCollectionSlugUseCase {
 
         // Ask OpenSea for the collection identity attached to this probe target.
         let slug: string | null;
-        if (address) {
+        if (requestedSlug) {
+            const collection =
+                await this.openSeaCollectionSlugProbePort.resolveCollectionBySlug(
+                    {
+                        slug: requestedSlug,
+                    },
+                );
+            slug = collection?.slug ?? null;
+            if (address && !collection?.contractAddresses.includes(address)) {
+                slug = null;
+            }
+        } else if (address) {
             slug =
                 await this.openSeaCollectionSlugProbePort.resolveCollectionSlugByContract(
                     {
                         address,
-                    },
-                );
-        } else if (requestedSlug) {
-            slug =
-                await this.openSeaCollectionSlugProbePort.resolveCollectionSlugBySlug(
-                    {
-                        slug: requestedSlug,
                     },
                 );
         } else {

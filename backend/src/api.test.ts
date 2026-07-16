@@ -149,8 +149,7 @@ const TERRAFORMS_ADDRESS = "0x2222222222222222222222222222222222222222";
 const EMBEDDED_TERRAFORMS_MAIN_ADDRESS =
     "0x4e1f41613c9084fdb9e34e11fae9412427480e56";
 const PREPARED_BOOTSTRAP_COLLECTION_SLUG = "prepared-bootstrap-target";
-const PREPARED_BOOTSTRAP_ADDRESS =
-    "0x3333333333333333333333333333333333333333";
+const PREPARED_BOOTSTRAP_ADDRESS = "0x3333333333333333333333333333333333333333";
 const OPENSEA_SYNC_COLLECTION_SLUG = "opensea-sync-target";
 const OPENSEA_SYNC_ADDRESS = "0x4444444444444444444444444444444444444444";
 const OPENSEA_SYNC_PREVIOUS_ERROR = "previous OpenSea sync failed";
@@ -678,9 +677,8 @@ beforeAll(async () => {
         await import("./infra/collection-extensions/built-in-collection-extension-resolver.js");
     const createBootstrapUseCaseModule =
         await import("./application/use-cases/bootstrap/create-bootstrap-run.js");
-    const startPreparedCollectionBootstrapUseCaseModule = await import(
-        "./application/use-cases/bootstrap/start-prepared-collection-bootstrap.js"
-    );
+    const startPreparedCollectionBootstrapUseCaseModule =
+        await import("./application/use-cases/bootstrap/start-prepared-collection-bootstrap.js");
     const probeCollectionContractUseCaseModule =
         await import("./application/use-cases/bootstrap/probe-collection-contract.js");
     const estimateBootstrapImageCacheUseCaseModule =
@@ -697,18 +695,14 @@ beforeAll(async () => {
         await import("./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js");
     const applyBootstrapRunStepActionUseCaseModule =
         await import("./application/use-cases/bootstrap/apply-bootstrap-run-step-action.js");
-    const startOpenSeaCollectionSyncUseCaseModule = await import(
-        "./application/use-cases/collections/start-opensea-collection-sync.js"
-    );
-    const updateOpenSeaStreamIngestionUseCaseModule = await import(
-        "./application/use-cases/collections/update-opensea-stream-ingestion.js"
-    );
-    const openSeaCollectionSyncRepositoryModule = await import(
-        "./infra/collections/sqlite-opensea-collection-sync-repository.js"
-    );
-    const openSeaStreamIngestionRepositoryModule = await import(
-        "./infra/collections/sqlite-opensea-stream-ingestion-repository.js"
-    );
+    const startOpenSeaCollectionSyncUseCaseModule =
+        await import("./application/use-cases/collections/start-opensea-collection-sync.js");
+    const updateOpenSeaStreamIngestionUseCaseModule =
+        await import("./application/use-cases/collections/update-opensea-stream-ingestion.js");
+    const openSeaCollectionSyncRepositoryModule =
+        await import("./infra/collections/sqlite-opensea-collection-sync-repository.js");
+    const openSeaStreamIngestionRepositoryModule =
+        await import("./infra/collections/sqlite-opensea-stream-ingestion-repository.js");
 
     const bootstrapRepository =
         new bootstrapRepositoryModule.SqliteBootstrapRunsRepository();
@@ -856,9 +850,14 @@ beforeAll(async () => {
                         ? "terraforms"
                         : null;
                 },
-                async resolveCollectionSlugBySlug(input: { slug: string }) {
+                async resolveCollectionBySlug(input: { slug: string }) {
                     openSeaSlugProbeInputs.push(input);
-                    return input.slug === "terraforms" ? "terraforms" : null;
+                    return input.slug === "terraforms"
+                        ? {
+                              slug: "terraforms",
+                              contractAddresses: [TERRAFORMS_ADDRESS],
+                          }
+                        : null;
                 },
             },
         );
@@ -1294,9 +1293,9 @@ describe("backend api routes", () => {
         expect(result.payload.bidding.bidBookLiveRefresh).toEqual(
             DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
         );
-        expect(
-            result.payload.bidding.trustOpenSeaSignedZoneTraitOffers,
-        ).toBe(DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS);
+        expect(result.payload.bidding.trustOpenSeaSignedZoneTraitOffers).toBe(
+            DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
+        );
     });
 
     it("returns chain blockspace state on the local API", async () => {
@@ -5431,15 +5430,10 @@ describe("backend api routes", () => {
     it("starts bootstrap from a prepared collection row", async () => {
         const collectionId = insertPreparedBootstrapCollectionFixture();
         try {
-            const csrf = await resolve(
-                "GET",
-                "/api/security/csrf",
-                undefined,
-                {
-                    host: "127.0.0.1:42710",
-                    origin: "http://127.0.0.1:42701",
-                },
-            );
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
             const token = csrf.payload.token as string;
             const cookie = csrf.headers["set-cookie"] as string;
 
@@ -5519,7 +5513,8 @@ describe("backend api routes", () => {
                 request_opensea_slug: PREPARED_BOOTSTRAP_COLLECTION_SLUG,
                 request_address: PREPARED_BOOTSTRAP_ADDRESS,
                 request_standard: COLLECTION_STANDARD.Erc721,
-                request_image_source_field: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+                request_image_source_field:
+                    TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 request_animation_source_field:
                     TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl,
                 metadata_mode: BOOTSTRAP_METADATA_MODE.BestEffort,
@@ -5527,9 +5522,9 @@ describe("backend api routes", () => {
             });
 
             const stepKeys = db
-                .prepare<
-                    [number]
-                >("SELECT step_key FROM bootstrap_run_steps WHERE run_id = ? ORDER BY rowid ASC")
+                .prepare<[number]>(
+                    "SELECT step_key FROM bootstrap_run_steps WHERE run_id = ? ORDER BY rowid ASC",
+                )
                 .all(start.payload.runId)
                 .map((row) => (row as { step_key: string }).step_key);
             expect(stepKeys).toEqual(
@@ -5547,15 +5542,10 @@ describe("backend api routes", () => {
     it("restores a prepared collection when bootstrap queue publish fails", async () => {
         const collectionId = insertPreparedBootstrapCollectionFixture();
         try {
-            const csrf = await resolve(
-                "GET",
-                "/api/security/csrf",
-                undefined,
-                {
-                    host: "127.0.0.1:42710",
-                    origin: "http://127.0.0.1:42701",
-                },
-            );
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
             const token = csrf.payload.token as string;
             const cookie = csrf.headers["set-cookie"] as string;
 
@@ -5621,15 +5611,10 @@ describe("backend api routes", () => {
     it("rejects OpenSea sync start without a submitted slug", async () => {
         const collectionId = insertOpenSeaSyncCollectionFixture();
         try {
-            const csrf = await resolve(
-                "GET",
-                "/api/security/csrf",
-                undefined,
-                {
-                    host: "127.0.0.1:42710",
-                    origin: "http://127.0.0.1:42701",
-                },
-            );
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
             const token = csrf.payload.token as string;
             const cookie = csrf.headers["set-cookie"] as string;
 
@@ -5676,15 +5661,10 @@ describe("backend api routes", () => {
             openseaSlug: null,
         });
         try {
-            const csrf = await resolve(
-                "GET",
-                "/api/security/csrf",
-                undefined,
-                {
-                    host: "127.0.0.1:42710",
-                    origin: "http://127.0.0.1:42701",
-                },
-            );
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
             const token = csrf.payload.token as string;
             const cookie = csrf.headers["set-cookie"] as string;
 
@@ -5747,15 +5727,10 @@ describe("backend api routes", () => {
     it("verifies a submitted existing OpenSea slug before starting sync", async () => {
         const collectionId = insertOpenSeaSyncCollectionFixture();
         try {
-            const csrf = await resolve(
-                "GET",
-                "/api/security/csrf",
-                undefined,
-                {
-                    host: "127.0.0.1:42710",
-                    origin: "http://127.0.0.1:42701",
-                },
-            );
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
             const token = csrf.payload.token as string;
             const cookie = csrf.headers["set-cookie"] as string;
 
@@ -5820,15 +5795,10 @@ describe("backend api routes", () => {
             openseaSlug: null,
         });
         try {
-            const csrf = await resolve(
-                "GET",
-                "/api/security/csrf",
-                undefined,
-                {
-                    host: "127.0.0.1:42710",
-                    origin: "http://127.0.0.1:42701",
-                },
-            );
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
             const token = csrf.payload.token as string;
             const cookie = csrf.headers["set-cookie"] as string;
 
@@ -5875,15 +5845,10 @@ describe("backend api routes", () => {
     it("updates OpenSea stream ingestion gate for a collection", async () => {
         const collectionId = insertOpenSeaSyncCollectionFixture();
         try {
-            const csrf = await resolve(
-                "GET",
-                "/api/security/csrf",
-                undefined,
-                {
-                    host: "127.0.0.1:42710",
-                    origin: "http://127.0.0.1:42701",
-                },
-            );
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
             const token = csrf.payload.token as string;
             const cookie = csrf.headers["set-cookie"] as string;
 
@@ -5959,15 +5924,10 @@ describe("backend api routes", () => {
     it("restores OpenSea status when sync queue publish fails", async () => {
         const collectionId = insertOpenSeaSyncCollectionFixture();
         try {
-            const csrf = await resolve(
-                "GET",
-                "/api/security/csrf",
-                undefined,
-                {
-                    host: "127.0.0.1:42710",
-                    origin: "http://127.0.0.1:42701",
-                },
-            );
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
             const token = csrf.payload.token as string;
             const cookie = csrf.headers["set-cookie"] as string;
 

@@ -22,7 +22,7 @@ describe("OpenSeaApiAdapter", () => {
             contractLookup: {
                 async resolveCollectionByContract(input) {
                     requests.push(input.address);
-                    return { slug: "milady-maker" };
+                    return { slug: "milady-maker", contractAddresses: [] };
                 },
                 async resolveCollectionBySlug() {
                     return null;
@@ -32,7 +32,10 @@ describe("OpenSeaApiAdapter", () => {
 
         await expect(
             adapter.instance.resolveCollectionByContract(CONTRACT),
-        ).resolves.toEqual({ slug: "milady-maker" });
+        ).resolves.toEqual({
+            slug: "milady-maker",
+            contractAddresses: [],
+        });
         expect(requests).toEqual([CONTRACT]);
     });
 

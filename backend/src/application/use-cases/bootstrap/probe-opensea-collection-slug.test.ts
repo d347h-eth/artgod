@@ -40,9 +40,9 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
                 calls.push(input);
                 return "ignored";
             },
-            async resolveCollectionSlugBySlug(input) {
+            async resolveCollectionBySlug(input) {
                 calls.push(input);
-                return "ignored";
+                return { slug: "ignored", contractAddresses: [] };
             },
         });
 
@@ -70,7 +70,7 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
                 });
                 return "milady-maker";
             },
-            async resolveCollectionSlugBySlug() {
+            async resolveCollectionBySlug() {
                 return null;
             },
         });
@@ -95,11 +95,11 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
             async resolveCollectionSlugByContract() {
                 return null;
             },
-            async resolveCollectionSlugBySlug(input) {
+            async resolveCollectionBySlug(input) {
                 expect(input).toEqual({
                     slug: "milady-maker",
                 });
-                return "milady-maker";
+                return { slug: "milady-maker", contractAddresses: [] };
             },
         });
 
@@ -118,16 +118,17 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
         });
     });
 
-    it("verifies the entered slug against the contract mapping when both are provided", async () => {
+    it("verifies that the entered OpenSea collection lists the contract", async () => {
         const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
-            async resolveCollectionSlugByContract(input) {
-                expect(input).toEqual({
-                    address: CONTRACT_ADDRESS,
-                });
-                return "milady-maker";
+            async resolveCollectionSlugByContract() {
+                throw new Error("contract lookup should not run");
             },
-            async resolveCollectionSlugBySlug() {
-                throw new Error("slug lookup should not run");
+            async resolveCollectionBySlug(input) {
+                expect(input).toEqual({ slug: "milady-maker" });
+                return {
+                    slug: "milady-maker",
+                    contractAddresses: [CONTRACT_ADDRESS],
+                };
             },
         });
 
@@ -147,13 +148,18 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
         });
     });
 
-    it("returns missing when the entered slug does not match the contract mapping", async () => {
+    it("returns missing when the entered collection does not list the contract", async () => {
         const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
             async resolveCollectionSlugByContract() {
-                return "different-collection";
+                throw new Error("contract lookup should not run");
             },
-            async resolveCollectionSlugBySlug() {
-                throw new Error("slug lookup should not run");
+            async resolveCollectionBySlug() {
+                return {
+                    slug: "milady-maker",
+                    contractAddresses: [
+                        "0x2222222222222222222222222222222222222222",
+                    ],
+                };
             },
         });
 
@@ -178,8 +184,8 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
             async resolveCollectionSlugByContract() {
                 return null;
             },
-            async resolveCollectionSlugBySlug() {
-                return "different-collection";
+            async resolveCollectionBySlug() {
+                return { slug: "different-collection", contractAddresses: [] };
             },
         });
 
@@ -203,7 +209,7 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
             async resolveCollectionSlugByContract() {
                 return null;
             },
-            async resolveCollectionSlugBySlug() {
+            async resolveCollectionBySlug() {
                 return null;
             },
         });

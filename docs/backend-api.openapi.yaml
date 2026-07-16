@@ -1498,8 +1498,9 @@ paths:
             summary: Probe or verify OpenSea collection slug
             description: |
                 Resolves the OpenSea collection slug for a standalone contract, verifies an entered
-                OpenSea collection slug, or verifies that a contract maps to an entered slug when
-                both `address` and `slug` are provided. OpenSea integration must be enabled.
+                OpenSea collection slug, or verifies that an entered collection lists the contract
+                when both `address` and `slug` are provided. This supports collections that share
+                one contract address. OpenSea integration must be enabled.
                 Returns `disabled` when the backend was started without an active OpenSea API key.
             operationId: probeBootstrapOpenSeaSlug
             parameters:

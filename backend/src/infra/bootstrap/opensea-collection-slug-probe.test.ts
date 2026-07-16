@@ -9,7 +9,7 @@ describe("OpenSeaCollectionSlugProbeAdapter", () => {
         const adapter = new OpenSeaCollectionSlugProbeAdapter({
             async resolveCollectionByContract(input) {
                 requests.push(input.address);
-                return { slug: "milady-maker" };
+                return { slug: "milady-maker", contractAddresses: [] };
             },
             async resolveCollectionBySlug() {
                 return null;
@@ -49,15 +49,18 @@ describe("OpenSeaCollectionSlugProbeAdapter", () => {
             },
             async resolveCollectionBySlug(input) {
                 requests.push(input.slug);
-                return { slug: "milady-maker" };
+                return { slug: "milady-maker", contractAddresses: [] };
             },
         });
 
-        const slug = await adapter.resolveCollectionSlugBySlug({
+        const collection = await adapter.resolveCollectionBySlug({
             slug: "milady-maker",
         });
 
-        expect(slug).toBe("milady-maker");
+        expect(collection).toEqual({
+            slug: "milady-maker",
+            contractAddresses: [],
+        });
         expect(requests).toEqual(["milady-maker"]);
     });
 });
