@@ -13,6 +13,7 @@ describe("OpenSeaContractLookupClient", () => {
                     apiKey: new Headers(init?.headers).get("X-API-KEY"),
                 });
                 return Response.json({
+                    address: CONTRACT_ADDRESS,
                     collection: "Milady-Maker",
                 });
             },
@@ -22,7 +23,10 @@ describe("OpenSeaContractLookupClient", () => {
             address: CONTRACT_ADDRESS,
         });
 
-        expect(collection).toEqual({ slug: "milady-maker" });
+        expect(collection).toEqual({
+            slug: "milady-maker",
+            contractAddresses: [CONTRACT_ADDRESS],
+        });
         expect(requests).toEqual([
             {
                 url: `https://api.opensea.io/api/v2/chain/ethereum/contract/${CONTRACT_ADDRESS}`,
@@ -59,6 +63,7 @@ describe("OpenSeaContractLookupClient", () => {
                 });
                 return Response.json({
                     collection: "Milady-Maker",
+                    contracts: [{ address: CONTRACT_ADDRESS }],
                 });
             },
         });
@@ -67,7 +72,10 @@ describe("OpenSeaContractLookupClient", () => {
             slug: "Milady-Maker",
         });
 
-        expect(collection).toEqual({ slug: "milady-maker" });
+        expect(collection).toEqual({
+            slug: "milady-maker",
+            contractAddresses: [CONTRACT_ADDRESS],
+        });
         expect(requests).toEqual([
             {
                 url: "https://api.opensea.io/api/v2/collections/milady-maker",

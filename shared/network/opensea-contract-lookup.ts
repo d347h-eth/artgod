@@ -22,6 +22,7 @@ export type OpenSeaCollectionSlugLookupInput = {
 // Collection identity returned by OpenSea collection lookup endpoints.
 export type OpenSeaResolvedContractCollection = {
     slug: string;
+    contractAddresses: readonly string[];
 };
 
 // Shared collection lookup port used by local OpenSea integrations.
@@ -50,11 +51,13 @@ export type OpenSeaContractLookupClientOptions = {
 };
 
 type OpenSeaContractResponse = {
+    address?: unknown;
     collection?: unknown;
 };
 
 type OpenSeaCollectionResponse = {
     collection?: unknown;
+    contracts?: unknown;
     slug?: unknown;
     collection_slug?: unknown;
 };
@@ -112,7 +115,14 @@ export class OpenSeaContractLookupClient implements OpenSeaContractLookupPort {
             call: () => this.fetchContract(input.address),
         });
         const slug = normalizeOpenSeaSlug(response?.collection);
-        return slug ? { slug } : null;
+        return slug
+            ? {
+                  slug,
+                  contractAddresses: normalizeOpenSeaContractAddresses(
+                      response?.address,
+                  ),
+              }
+            : null;
     }
 
     async resolveCollectionBySlug(
@@ -131,7 +141,14 @@ export class OpenSeaContractLookupClient implements OpenSeaContractLookupPort {
         const slug = normalizeOpenSeaSlug(
             response?.collection ?? response?.slug ?? response?.collection_slug,
         );
-        return slug ? { slug } : null;
+        return slug
+            ? {
+                  slug,
+                  contractAddresses: normalizeOpenSeaCollectionContracts(
+                      response?.contracts,
+                  ),
+              }
+            : null;
     }
 
     private async fetchContract(
@@ -209,4 +226,20 @@ function normalizeOpenSeaSlug(value: unknown): string | null {
     if (typeof value !== "string") return null;
     const slug = value.trim().toLowerCase();
     return slug.length > 0 ? slug : null;
+}
+
+function normalizeOpenSeaCollectionContracts(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((contract) => {
+        if (!contract || typeof contract !== "object") return [];
+        return normalizeOpenSeaContractAddresses(
+            (contract as { address?: unknown }).address,
+        );
+    });
+}
+
+function normalizeOpenSeaContractAddresses(value: unknown): string[] {
+    if (typeof value !== "string") return [];
+    const address = value.trim().toLowerCase();
+    return /^0x[a-f0-9]{40}$/.test(address) ? [address] : [];
 }

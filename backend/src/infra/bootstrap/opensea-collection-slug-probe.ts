@@ -15,12 +15,13 @@ export class OpenSeaCollectionSlugProbeAdapter implements OpenSeaCollectionSlugP
         return collection?.slug ?? null;
     }
 
-    async resolveCollectionSlugBySlug(input: {
+    async resolveCollectionBySlug(input: { slug: string }): Promise<{
         slug: string;
-    }): Promise<string | null> {
+        contractAddresses: readonly string[];
+    } | null> {
         const collection = await this.contractLookup.resolveCollectionBySlug({
             slug: input.slug,
         });
-        return collection?.slug ?? null;
+        return collection;
     }
 }
