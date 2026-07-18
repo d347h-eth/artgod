@@ -5,6 +5,7 @@ import {
     resolveBootstrapTriggerInput,
     triggerBootstrapViaApi,
 } from "../src/application/bootstrap-api-trigger.js";
+import { BOOTSTRAP_ENUMERATION_MODE } from "@artgod/shared/bootstrap/pipeline";
 
 try {
     const args = parseBootstrapTriggerArgs(process.argv.slice(2));
@@ -20,6 +21,24 @@ try {
     const input = resolveBootstrapTriggerInput(args);
     const result = await triggerBootstrapViaApi(input);
     const requestBody = result.requestBody;
+    const manualInput = requestBody.manualInput;
+    const enumerationMode = requestBody.supportsEnumerable
+        ? BOOTSTRAP_ENUMERATION_MODE.Enumerable
+        : manualInput?.mode;
+
+    // Summarize the submitted scope without printing a potentially large token list.
+    const explicitTokenCount =
+        manualInput?.mode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
+            ? manualInput.tokenIds.length
+            : null;
+    const manualRangeStartTokenId =
+        manualInput?.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
+            ? manualInput.startTokenId
+            : null;
+    const manualRangeTotalSupply =
+        manualInput?.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
+            ? manualInput.totalSupply
+            : null;
 
     console.log(
         [
@@ -35,6 +54,11 @@ try {
             `openseaSlug=${input.openseaSlug ?? "none"}`,
             `metadataMode=${input.metadataMode}`,
             `supportsEnumerable=${String(requestBody.supportsEnumerable)}`,
+            `sampleTokenId=${input.sampleTokenId ?? "auto"}`,
+            `enumerationMode=${enumerationMode ?? "none"}`,
+            `explicitTokenCount=${explicitTokenCount ?? "none"}`,
+            `manualRangeStartTokenId=${manualRangeStartTokenId ?? "none"}`,
+            `manualRangeTotalSupply=${manualRangeTotalSupply ?? "none"}`,
             `imageSourceField=${requestBody.imageSourceField}`,
             `animationSourceField=${requestBody.animationSourceField ?? "none"}`,
             `imageCacheSource=${requestBody.imageCache.selectedSource}`,

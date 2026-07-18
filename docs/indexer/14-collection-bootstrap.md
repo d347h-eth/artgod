@@ -50,7 +50,21 @@ does not register bootstrap write routes.
 yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --metadata-mode strict
 yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --metadata-mode best_effort
 yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --slug <slug> --opensea-slug <opensea-slug> --metadata-mode strict
+yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --sample-token-id <id> --manual-range-start-token-id <id> --manual-range-total-supply <count>
 ```
+
+When `--opensea-slug` is present, the trigger first asks the backend to verify
+that the contract resolves to that exact OpenSea slug. A missing, disabled, or
+mismatched probe result stops before the CSRF and create-run requests.
+
+`--sample-token-id` changes only the representative token used by the contract
+probe for metadata fields and storage estimates. It does not define collection
+scope. For a non-enumerable contract, pair a custom sample with either
+`--manual-token-ids <comma-or-space-separated-ids>` or both
+`--manual-range-start-token-id <id>` and
+`--manual-range-total-supply <count>`. Explicit manual options are rejected for
+contracts that the latest probe reports as enumerable; an explicit range must
+also match an inferred probe range.
 
 Inside the deploy `backend` container, the trigger defaults to the local backend
 listener at `http://127.0.0.1:<BACKEND_PORT>`. Use `--backend-origin` only when

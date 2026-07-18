@@ -7,15 +7,19 @@ import {
 import {
     buildCreateBootstrapRunPath,
     buildProbeBootstrapCollectionPath,
+    buildProbeBootstrapOpenSeaSlugPath,
 } from "@artgod/shared/http/bootstrap-routes";
 import {
+    BOOTSTRAP_ENUMERATION_MODE,
     BOOTSTRAP_METADATA_MODE,
     type BootstrapMetadataMode,
     type BootstrapRunStatus,
 } from "@artgod/shared/bootstrap/pipeline";
 import {
-    type ImageCacheMode,
-} from "@artgod/shared/media/token-image-cache";
+    BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS,
+    type BootstrapOpenSeaSlugProbeStatus,
+} from "@artgod/shared/bootstrap/opensea-slug-probe";
+import { type ImageCacheMode } from "@artgod/shared/media/token-image-cache";
 import type { CollectionCustomizationSourceKind } from "@artgod/shared/types";
 import { COLLECTION_STANDARD } from "../domain/collections.js";
 
@@ -29,6 +33,10 @@ export const BOOTSTRAP_TRIGGER_CLI_FLAG = {
     BackendOrigin: "--backend-origin",
     DeploymentBlock: "--deployment-block",
     MetadataMode: "--metadata-mode",
+    SampleTokenId: "--sample-token-id",
+    ManualTokenIds: "--manual-token-ids",
+    ManualRangeStartTokenId: "--manual-range-start-token-id",
+    ManualRangeTotalSupply: "--manual-range-total-supply",
     Help: "--help",
 } as const;
 
@@ -60,6 +68,10 @@ export type BootstrapTriggerCliArgs = {
     backendOrigin?: string;
     deploymentBlock?: number;
     metadataMode?: BootstrapMetadataMode;
+    sampleTokenId?: string;
+    manualTokenIds?: string;
+    manualRangeStartTokenId?: string;
+    manualRangeTotalSupply?: number;
     help?: boolean;
 };
 
@@ -72,18 +84,30 @@ export type BootstrapTriggerResolvedInput = {
     openseaSlug: string | null;
     deploymentBlock: number | null;
     metadataMode: BootstrapMetadataMode;
+    sampleTokenId: string | null;
+    manualInput: BootstrapManualInput | null;
+};
+
+type BootstrapManualTokenIdsInput = {
+    mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds;
+    tokenIds: string[];
+};
+
+type BootstrapManualRangeInput = {
+    mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualRange;
+    startTokenId: string;
+    totalSupply: number;
 };
 
 type BootstrapManualInput =
-    | {
-          mode: "manual_token_ids";
-          tokenIds: string[];
-      }
-    | {
-          mode: "manual_range";
-          startTokenId: string;
-          totalSupply: number;
-      };
+    | BootstrapManualTokenIdsInput
+    | BootstrapManualRangeInput;
+
+type BootstrapProbeManualInput = {
+    mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualRange;
+    startTokenId: string;
+    totalSupply: number;
+};
 
 export type BootstrapProbeApiResponse = {
     firstToken: {
@@ -92,7 +116,7 @@ export type BootstrapProbeApiResponse = {
     };
     suggestedInput: {
         supportsEnumerable: boolean;
-        manualInput: BootstrapManualInput | null;
+        manualInput: BootstrapProbeManualInput | null;
         ready: boolean;
         warnings: string[];
     };
@@ -131,6 +155,14 @@ export type BootstrapRunCreateApiResponse = {
     createdAt: string;
 };
 
+type BootstrapOpenSeaSlugProbeApiResponse = {
+    address: string | null;
+    requestedSlug: string | null;
+    status: BootstrapOpenSeaSlugProbeStatus;
+    slug: string | null;
+    reason: string | null;
+};
+
 export type BootstrapTriggerResult = BootstrapRunCreateApiResponse & {
     requestBody: BootstrapRunCreateBody;
     probe: BootstrapProbeApiResponse;
@@ -139,7 +171,9 @@ export type BootstrapTriggerResult = BootstrapRunCreateApiResponse & {
 type FetchLike = typeof fetch;
 
 // Parses CLI flags without touching process state so tests can cover deploy commands.
-export function parseBootstrapTriggerArgs(raw: string[]): BootstrapTriggerCliArgs {
+export function parseBootstrapTriggerArgs(
+    raw: string[],
+): BootstrapTriggerCliArgs {
     const parsed: BootstrapTriggerCliArgs = {};
     for (let i = 0; i < raw.length; i += 1) {
         const arg = raw[i];
@@ -188,6 +222,25 @@ export function parseBootstrapTriggerArgs(raw: string[]): BootstrapTriggerCliArg
                 );
                 i += 1;
                 break;
+            case BOOTSTRAP_TRIGGER_CLI_FLAG.SampleTokenId:
+                parsed.sampleTokenId = requireFlagValue(raw, i, arg);
+                i += 1;
+                break;
+            case BOOTSTRAP_TRIGGER_CLI_FLAG.ManualTokenIds:
+                parsed.manualTokenIds = requireFlagValue(raw, i, arg);
+                i += 1;
+                break;
+            case BOOTSTRAP_TRIGGER_CLI_FLAG.ManualRangeStartTokenId:
+                parsed.manualRangeStartTokenId = requireFlagValue(raw, i, arg);
+                i += 1;
+                break;
+            case BOOTSTRAP_TRIGGER_CLI_FLAG.ManualRangeTotalSupply:
+                parsed.manualRangeTotalSupply = parsePositiveIntegerFlag(
+                    requireFlagValue(raw, i, arg),
+                    arg,
+                );
+                i += 1;
+                break;
             default:
                 throw new Error(`Unknown bootstrap trigger option: ${arg}`);
         }
@@ -222,8 +275,9 @@ export function resolveBootstrapTriggerInput(
         slug,
         openseaSlug: normalizeOptionalSlug(args.openseaSlug),
         deploymentBlock: args.deploymentBlock ?? null,
-        metadataMode:
-            args.metadataMode ?? BOOTSTRAP_METADATA_MODE.BestEffort,
+        metadataMode: args.metadataMode ?? BOOTSTRAP_METADATA_MODE.BestEffort,
+        sampleTokenId: normalizeOptionalTokenId(args.sampleTokenId),
+        manualInput: resolveManualInput(args),
     };
 }
 
@@ -232,13 +286,7 @@ export function buildBootstrapRunCreateBody(
     input: BootstrapTriggerResolvedInput,
     probe: BootstrapProbeApiResponse,
 ): BootstrapRunCreateBody {
-    if (!probe.suggestedInput.ready) {
-        const warnings = probe.suggestedInput.warnings
-            .map((warning) => warning.trim())
-            .filter((warning) => warning.length > 0);
-        const suffix = warnings.length ? `: ${warnings.join("; ")}` : "";
-        throw new Error(`Bootstrap probe did not produce ready input${suffix}`);
-    }
+    const enumeration = resolveBootstrapEnumeration(input, probe);
 
     const imageSourceField = normalizeProbeField(
         probe.firstToken.imageSourceField,
@@ -257,7 +305,7 @@ export function buildBootstrapRunCreateBody(
         animationSourceField,
         standard: COLLECTION_STANDARD.Erc721,
         metadataMode: input.metadataMode,
-        supportsEnumerable: probe.suggestedInput.supportsEnumerable,
+        supportsEnumerable: enumeration.supportsEnumerable,
         imageCache: {
             selectedSource: probe.imageCacheSuggestion.selectedSource,
             imageCacheMode: probe.imageCacheSuggestion.config.imageCacheMode,
@@ -268,17 +316,70 @@ export function buildBootstrapRunCreateBody(
     if (input.openseaSlug) {
         body.openseaSlug = input.openseaSlug;
     }
-    if (!probe.suggestedInput.supportsEnumerable) {
-        if (!probe.suggestedInput.manualInput) {
-            throw new Error("Bootstrap probe requires manual input");
-        }
-        body.manualInput = probe.suggestedInput.manualInput;
+    if (enumeration.manualInput) {
+        body.manualInput = enumeration.manualInput;
     }
     if (input.deploymentBlock !== null) {
         body.deploymentBlock = input.deploymentBlock;
     }
 
     return body;
+}
+
+function resolveBootstrapEnumeration(
+    input: BootstrapTriggerResolvedInput,
+    probe: BootstrapProbeApiResponse,
+): {
+    supportsEnumerable: boolean;
+    manualInput: BootstrapManualInput | null;
+} {
+    if (input.manualInput) {
+        if (probe.suggestedInput.supportsEnumerable) {
+            throw new Error(
+                "Manual input cannot be used when the contract probe reports enumerable support",
+            );
+        }
+        if (
+            input.manualInput.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange &&
+            probe.suggestedInput.manualInput &&
+            (input.manualInput.startTokenId !==
+                probe.suggestedInput.manualInput.startTokenId ||
+                input.manualInput.totalSupply !==
+                    probe.suggestedInput.manualInput.totalSupply)
+        ) {
+            throw new Error(
+                "Explicit manual range must match the latest contract probe",
+            );
+        }
+        return {
+            supportsEnumerable: false,
+            manualInput: input.manualInput,
+        };
+    }
+    if (probe.suggestedInput.supportsEnumerable) {
+        if (!probe.suggestedInput.ready) {
+            throwProbeInputNotReady(probe);
+        }
+        return {
+            supportsEnumerable: true,
+            manualInput: null,
+        };
+    }
+    if (probe.suggestedInput.manualInput) {
+        return {
+            supportsEnumerable: false,
+            manualInput: probe.suggestedInput.manualInput,
+        };
+    }
+    throwProbeInputNotReady(probe);
+}
+
+function throwProbeInputNotReady(probe: BootstrapProbeApiResponse): never {
+    const warnings = probe.suggestedInput.warnings
+        .map((warning) => warning.trim())
+        .filter((warning) => warning.length > 0);
+    const suffix = warnings.length ? `: ${warnings.join("; ")}` : "";
+    throw new Error(`Bootstrap probe requires explicit manual input${suffix}`);
 }
 
 // Runs the backend API flow used by the normal bootstrap UI.
@@ -290,6 +391,7 @@ export async function triggerBootstrapViaApi(
 
     const probe = await fetchBootstrapProbe(input, fetchFn);
     const requestBody = buildBootstrapRunCreateBody(input, probe);
+    await verifyOpenSeaSlug(input, fetchFn);
     const csrfToken = await fetchCsrfToken(input.backendOrigin, fetchFn);
     const created = await createBootstrapRun(
         input,
@@ -318,6 +420,10 @@ export function printBootstrapTriggerUsage(): void {
             `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.BackendOrigin} <url>      Backend origin (defaults to http://127.0.0.1:<BACKEND_PORT>)`,
             `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.DeploymentBlock} <number> Deployment block (optional)`,
             `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.MetadataMode} <strict|best_effort> Metadata snapshot completion mode (defaults to best_effort)`,
+            `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.SampleTokenId} <id>       Sample token used by the contract probe (optional)`,
+            `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.ManualTokenIds} <ids>     Comma- or space-separated explicit token IDs`,
+            `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.ManualRangeStartTokenId} <id> Manual range first token ID`,
+            `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.ManualRangeTotalSupply} <number> Manual range token count`,
             `  ${BOOTSTRAP_TRIGGER_CLI_FLAG.Help}                     Show this help`,
         ].join("\n"),
     );
@@ -331,11 +437,44 @@ async function fetchBootstrapProbe(
         chainRef: input.chainRef,
         address: input.address,
         standard: COLLECTION_STANDARD.Erc721,
+        sampleTokenId: input.sampleTokenId,
     });
     return requestJson<BootstrapProbeApiResponse>(fetchFn, {
         url: `${input.backendOrigin}${path}`,
         method: BOOTSTRAP_TRIGGER_HTTP_METHOD.Get,
     });
+}
+
+async function verifyOpenSeaSlug(
+    input: BootstrapTriggerResolvedInput,
+    fetchFn: FetchLike,
+): Promise<void> {
+    if (!input.openseaSlug) {
+        return;
+    }
+    const path = buildProbeBootstrapOpenSeaSlugPath({
+        chainRef: input.chainRef,
+        address: input.address,
+        slug: input.openseaSlug,
+    });
+    const result = await requestJson<BootstrapOpenSeaSlugProbeApiResponse>(
+        fetchFn,
+        {
+            url: `${input.backendOrigin}${path}`,
+            method: BOOTSTRAP_TRIGGER_HTTP_METHOD.Get,
+        },
+    );
+    if (
+        result.status !== BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found ||
+        result.address !== input.address ||
+        result.requestedSlug !== input.openseaSlug ||
+        result.slug !== input.openseaSlug
+    ) {
+        const reason = result.reason?.trim() || "OpenSea did not confirm it";
+        throw new Error(
+            `OpenSea slug verification failed for ${input.openseaSlug}: ${reason}`,
+        );
+    }
 }
 
 async function fetchCsrfToken(
@@ -501,6 +640,78 @@ function normalizeOptionalSlug(raw: string | undefined): string | null {
         return null;
     }
     return normalizeSlug(value);
+}
+
+function normalizeOptionalTokenId(raw: string | undefined): string | null {
+    if (raw === undefined) {
+        return null;
+    }
+    return normalizeDecimalTokenId(
+        raw,
+        BOOTSTRAP_TRIGGER_CLI_FLAG.SampleTokenId,
+    );
+}
+
+function resolveManualInput(
+    args: BootstrapTriggerCliArgs,
+): BootstrapManualInput | null {
+    const manualTokenIds = args.manualTokenIds?.trim();
+    const rangeStartTokenId = args.manualRangeStartTokenId?.trim();
+    const rangeTotalSupply = args.manualRangeTotalSupply;
+    const hasTokenIds = Boolean(manualTokenIds);
+    const hasRangeStart = Boolean(rangeStartTokenId);
+    const hasRangeTotalSupply = rangeTotalSupply !== undefined;
+
+    if (hasTokenIds && (hasRangeStart || hasRangeTotalSupply)) {
+        throw new Error(
+            `${BOOTSTRAP_TRIGGER_CLI_FLAG.ManualTokenIds} cannot be combined with manual range options`,
+        );
+    }
+    if (hasRangeStart !== hasRangeTotalSupply) {
+        throw new Error(
+            `${BOOTSTRAP_TRIGGER_CLI_FLAG.ManualRangeStartTokenId} and ${BOOTSTRAP_TRIGGER_CLI_FLAG.ManualRangeTotalSupply} must be provided together`,
+        );
+    }
+    if (manualTokenIds) {
+        const tokenIds = manualTokenIds
+            .split(/[\s,]+/)
+            .map((tokenId) => tokenId.trim())
+            .filter((tokenId) => tokenId.length > 0)
+            .map((tokenId) =>
+                normalizeDecimalTokenId(
+                    tokenId,
+                    BOOTSTRAP_TRIGGER_CLI_FLAG.ManualTokenIds,
+                ),
+            );
+        if (tokenIds.length === 0) {
+            throw new Error(
+                `${BOOTSTRAP_TRIGGER_CLI_FLAG.ManualTokenIds} requires at least one token ID`,
+            );
+        }
+        return {
+            mode: BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds,
+            tokenIds,
+        };
+    }
+    if (rangeStartTokenId && rangeTotalSupply !== undefined) {
+        return {
+            mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
+            startTokenId: normalizeDecimalTokenId(
+                rangeStartTokenId,
+                BOOTSTRAP_TRIGGER_CLI_FLAG.ManualRangeStartTokenId,
+            ),
+            totalSupply: rangeTotalSupply,
+        };
+    }
+    return null;
+}
+
+function normalizeDecimalTokenId(raw: string, option: string): string {
+    const value = raw.trim();
+    if (!/^\d+$/.test(value)) {
+        throw new Error(`${option} must contain decimal token IDs`);
+    }
+    return value;
 }
 
 function normalizeProbeField(raw: string | null | undefined): string | null {
