@@ -135,6 +135,45 @@ Current backend resolver:
 
 This makes collection customization an extension-system feature, not a Terraforms-only frontend trick.
 
+## Media and Cache Boundary
+
+The generic collection contract has two canonical metadata source fields
+(`image` and `animation_url`), extension-provided media sources/preferences, and
+token-local variants. The backend resolves one effective image/animation pair
+per response and reports the available choices; it does not return every media
+payload in parallel.
+
+The local token-image cache stores canonical image media under generic
+collection policy. It does not cache animation documents or request-time live
+extension renders. Metadata refresh can recache the canonical image when the
+collection selects `refresh_on_metadata`. Extension artifact rows remain
+separate from canonical metadata and from the resized file cache.
+
+This is intentionally a bounded v1 mapping. Arbitrary named media fields,
+cross-source transformation graphs, and remote renderer packages are not part
+of the generic contract.
+
+The retained generalized direction keeps bootstrap inspection separate from
+runtime authority:
+
+- an advanced bootstrap surface may display the probed sample metadata JSON as
+  inert text, but that sample is only an inspection aid;
+- each detected media source field must map explicitly to a persistence plan
+  (none, resized, original, or both where supported) and a user-facing purpose
+  (card, fullscreen preview, token detail, or none);
+- persist the selected collection policy, not the raw sample payload as a
+  runtime dependency;
+- identify cache entries by token, source field, cache variant, and purpose;
+- refresh only configured sources and variants;
+- expose resolved purpose-level media in read models so the frontend never
+  parses arbitrary metadata JSON during browsing;
+- use extension media as a reference implementation without importing
+  extension-owned literals into generic modules.
+
+Bootstrap policy, cache schema, metadata refresh, and read-model presentation
+must evolve as one shared contract. Do not add isolated per-field cache switches
+before that boundary exists.
+
 ## Current Data And Control Flow
 
 ### Shared registry layer
@@ -175,13 +214,14 @@ Backend extensions currently own:
 
 This split keeps each runtime on its own contract instead of sharing a single cross-runtime implementation object.
 
-## Blueprint Extension: Terraforms
+## Bundled Extension: Terraforms
 
 The only existing embedded extension today is:
 
 - `terraforms`
 
-It should be treated as the blueprint implementation for the current extension system.
+It is the reference implementation for the current extension contracts, not a
+template whose collection-specific rules belong in generic modules.
 
 ### What Terraforms currently demonstrates
 
@@ -407,7 +447,7 @@ Current frontend pieces:
 
 The first bundled page contribution is Terraforms Hypercastle exploration.
 
-## What Is Not Implemented Yet
+## Current Limits and Future Direction
 
 The extension system is intentionally ahead of its current feature set in a few places.
 
@@ -447,4 +487,4 @@ For the surrounding implementation details, use these docs together:
 - `docs/indexer/12-ports-and-adapters.md`
 - `docs/indexer/14-collection-bootstrap.md`
 - `docs/ui/01-interaction-guidelines.md`
-- `docs/backend-api.openapi.yaml`
+- `docs/backend/openapi.yaml`

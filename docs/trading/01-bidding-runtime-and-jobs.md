@@ -1,8 +1,10 @@
 # Bidding Runtime and Jobs
 
 This document is the current-state reference for ArtGod bidding.
-Progress/history notes remain in `docs/progress/trading/*`.
-User-facing automation capabilities and backend/API coverage are detailed in `docs/trading/02-bidding-automation-capabilities.md`.
+User-facing automation capabilities and backend/API coverage are detailed in
+[Bidding Automation Capabilities](02-bidding-automation-capabilities.md).
+Snapshot authority, adaptive freshness, and scaling limits are detailed in
+[Market Data and Scaling](03-market-data-and-scaling.md).
 
 ## Status
 
@@ -30,9 +32,15 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 - Broad collection/trait offer stream events and exact-token offer stream events are coalesced before bidder refresh so flood traffic cannot monopolize command processing.
 - User-driven job commands stay serial at the durable command layer, but their immediate job refresh uses command-priority OpenSea reads/writes and is not queued behind hot-refresh or full-scan work for unrelated jobs.
 - Command reconciliation may complete an enabled-job command without another OpenSea pass when the current bot process has already verified an active order for the same job revision.
-- The snapshot lane polls every 60 seconds and hot-path callers force a blocking refresh when the snapshot is older than the configured stale threshold.
-- Snapshot refresh entrypoints are serialized/deduped by the snapshot service.
-- Heavy collection all-offers snapshots are a known scaling pressure; detailed evidence and the target adaptive snapshot refactor are tracked in `docs/progress/trading/07-bidding-market-snapshot-scaling.md`.
+- The snapshot lane polls at the configured cadence. Per-collection refreshes
+  are serialized and deduplicated, and freshness adapts to the last successful
+  fetch duration within configured minimum and maximum TTLs.
+- Commands reuse a usable collection snapshot and request background refresh;
+  only the first missing snapshot may block when a job cannot be evaluated
+  safely without it.
+- Failed TTL-aware refreshes back off with jitter. Forced recovery can bypass
+  the TTL gate but still uses the shared request limiter and per-collection
+  refresh serialization.
 - Job execution remains per-job serialized.
 - Token trait matching reads normalized `token_attributes` joins; bidding hot-refresh does not parse `token_metadata.attributes_json` or `token_metadata.raw_json`.
 - Marketplace token bidding targets must be canonical `tokens` rows. Extension-synthetic tokens can be shown in browsing surfaces, but frontend bidding selection and backend job mutation exclude them before bot commands exist.
@@ -52,7 +60,7 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 
 ## OpenSea SDK / API Surface
 
-The bidding runtime uses `@opensea/sdk` through the SDK's viem entrypoint.
+The bidding runtime uses `@opensea/sdk` `11.1.1` through the SDK's viem entrypoint.
 SDK concrete types remain isolated in runtime composition and the OpenSea adapters; the bidding core consumes local ports.
 
 For public-alpha compatibility, OpenSea still owns its existing offer build and
@@ -105,10 +113,16 @@ Current REST/SDK calls:
 The old `getOrders` API shape is not part of the bidding runtime contract anymore.
 Maker-specific token offer recovery filters the paginated NFT-offer response in the adapter.
 
+OpenSea response casing is normalized only at adapter/parser boundaries. The
+shared bidding-offer parser and recovery adapter accept SDK camelCase and raw
+API/stream snake_case shapes for order identity, protocol data, trait criteria,
+and encoded token IDs; the bidding core does not branch on SDK version shapes.
+
 ## OpenSea Stream Surface
 
 The bidding runtime uses `@opensea/stream-js` for wake-up events only.
-The current package version is `0.3.1`, whose public subscription methods remain compatible with the bot's adapter.
+The current package version is `0.4.0`; its SDK surface is isolated behind the
+bot's OpenSea stream adapter.
 
 Current stream calls:
 
@@ -614,10 +628,14 @@ Bidding runtime groups:
 
 The indexer `OPENSEA_API_KEY` remains dedicated to indexer/offchain ingestion and should not be merged with bot keys by convenience.
 
-## Deferred Work
+## Current Limits and Future Direction
 
 - sniping runtime port
-- persisted own-maker feedback for orders fallback `isOwn`
 - token-card best-bid projection, limited to tokens with active listings
 - real-time user-controlled WETH allowance updates
 - SQL-backed token-offer pagination for larger offer books
+
+Snapshot depth cutoff is deliberately not enabled. The all-offers adapter walks
+the complete cursor stream with loop detection because observed price ordering
+is not an API guarantee. See [Market Data and Scaling](03-market-data-and-scaling.md)
+for the evidence and the conditions a bounded mode would need to satisfy.
