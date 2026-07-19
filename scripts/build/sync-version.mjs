@@ -21,7 +21,7 @@ const WORKSPACE_PACKAGE_PATHS = Object.freeze([
 const DESKTOP_CONFIG_PATH = "src-tauri/tauri.conf.json";
 const CARGO_MANIFEST_PATH = "src-tauri/Cargo.toml";
 const CARGO_LOCK_PATH = "src-tauri/Cargo.lock";
-const OPENAPI_DOCUMENT_PATH = "docs/backend-api.openapi.yaml";
+const OPENAPI_DOCUMENT_PATH = "docs/backend/openapi.yaml";
 const CARGO_MANIFEST_VERSION_PATTERN = /^version = "([^"]*)"$/m;
 const CARGO_LOCK_VERSION_PATTERN =
     /name = "artgod-desktop"\r?\nversion = "([^"]*)"/m;

@@ -12,8 +12,10 @@ servers:
 
 tags:
     - name: Health
+    - name: Runtime
     - name: Security
     - name: Chains
+    - name: Owners
     - name: Collections
     - name: Activities
     - name: Bootstrap
@@ -97,6 +99,22 @@ paths:
                                 $ref: "#/components/schemas/GetDefaultChainResponse"
                 "404":
                     $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/runtime/config:
+        get:
+            tags: [Runtime]
+            summary: Get browser-visible runtime capabilities and display config
+            description: Returns non-secret integration status, block-explorer templates, and bidding display policy used by browser clients.
+            operationId: getRuntimeConfig
+            responses:
+                "200":
+                    description: Current non-secret runtime configuration
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/GetRuntimeConfigResponse"
                 "500":
                     $ref: "#/components/responses/InternalError"
 
@@ -241,7 +259,11 @@ paths:
         post:
             tags: [Sync]
             summary: Queue manual backfill for a block range
+            description: Mutating operator endpoint protected by host/origin/CSRF checks.
             operationId: scheduleBlockspaceBackfill
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
             requestBody:
@@ -259,6 +281,8 @@ paths:
                                 $ref: "#/components/schemas/ScheduleBlockspaceBackfillResponse"
                 "400":
                     $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
                 "404":
                     $ref: "#/components/responses/NotFound"
                 "409":
@@ -281,6 +305,7 @@ paths:
                 - $ref: "#/components/parameters/ActivityTokenIdFilter"
                 - $ref: "#/components/parameters/ActivityMakerFilter"
                 - $ref: "#/components/parameters/ActivityContentHashFilter"
+                - $ref: "#/components/parameters/ActivityEventGroupFilter"
                 - $ref: "#/components/parameters/Limit"
                 - $ref: "#/components/parameters/Cursor"
                 - name: traits
@@ -330,6 +355,36 @@ paths:
                         application/json:
                             schema:
                                 $ref: "#/components/schemas/GetCollectionActivityResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/activity/{activity_id}/preview:
+        get:
+            tags: [Activities]
+            summary: Get the media preview for one activity event
+            description: Resolves the event through the collection extension boundary and returns only the media state and lightweight token preview needed by the shared modal.
+            operationId: getActivityEventPreview
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/ActivityId"
+                - name: render_mode
+                  in: query
+                  required: false
+                  description: Extension-provided activity render mode, when the event supports one
+                  schema:
+                      type: string
+            responses:
+                "200":
+                    description: Activity media state and token preview
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/GetActivityEventPreviewResponse"
                 "400":
                     $ref: "#/components/responses/BadRequest"
                 "404":
@@ -613,6 +668,9 @@ paths:
             tags: [Collections]
             summary: Update collection customization
             operationId: updateCollectionCustomization
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
@@ -1003,6 +1061,42 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/bidding/jobs/tokens/lookup:
+        post:
+            tags: [Trading]
+            summary: Resolve existing token jobs for a batch selection
+            description: Protected admin endpoint. The operation is read-only, but POST is used for the structured selection and therefore requires CSRF under the common mutation guard.
+            operationId: lookupBatchTokenBiddingJobs
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/LookupBatchTokenBiddingJobsRequest"
+            responses:
+                "200":
+                    description: Expanded token selection and any matching declared jobs
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/LookupBatchTokenBiddingJobsResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/{collection_ref}/bidding/jobs/traits:
         put:
             tags: [Trading]
@@ -1362,6 +1456,30 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/{token_ref}/token-uri:
+        get:
+            tags: [Collections]
+            summary: Resolve the canonical token URI from the collection contract
+            description: Performs a current RPC read through the collection token-URI port; it does not return indexed metadata.
+            operationId: getTokenUri
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/TokenRef"
+            responses:
+                "200":
+                    description: Current contract token URI
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/GetTokenUriResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/collections/bootstrap/probe:
         get:
             tags: [Bootstrap]
@@ -1528,6 +1646,45 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/bootstrap/start:
+        post:
+            tags: [Bootstrap]
+            summary: Start bootstrap for a prepared collection
+            description: Plans and queues a durable bootstrap run from the collection's persisted prepared scope, extension, and image-cache configuration.
+            operationId: startPreparedCollectionBootstrap
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            requestBody:
+                required: false
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            additionalProperties: false
+            responses:
+                "200":
+                    description: Bootstrap run created and queued
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/CreateBootstrapRunResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/{collection_ref}/bootstrap:
         get:
             tags: [Bootstrap]
@@ -1641,6 +1798,47 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/bootstrap-runs/{run_id}/steps/{step_key}/{action}:
+        post:
+            tags: [Bootstrap]
+            summary: Pause, resume, or retry one durable bootstrap step
+            description: Applies an operator action to the latest run for a collection. Pause and resume are available only on pausable steps; retry requires a terminal-retryable failed step.
+            operationId: applyBootstrapRunStepAction
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/RunId"
+                - $ref: "#/components/parameters/BootstrapStepKey"
+                - $ref: "#/components/parameters/BootstrapStepAction"
+            requestBody:
+                required: false
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            additionalProperties: false
+            responses:
+                "200":
+                    description: Persisted bootstrap step state after the action
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/ApplyBootstrapRunStepActionResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
 components:
     securitySchemes:
         csrfHeader:
@@ -1676,6 +1874,14 @@ components:
             schema:
                 type: string
             description: Token id reference
+        ActivityId:
+            name: activity_id
+            in: path
+            required: true
+            schema:
+                type: integer
+                minimum: 1
+            description: Canonical activity row id
         JobId:
             name: job_id
             in: path
@@ -1698,6 +1904,20 @@ components:
                 type: integer
                 minimum: 1
             description: Bootstrap run id
+        BootstrapStepKey:
+            name: step_key
+            in: path
+            required: true
+            schema:
+                $ref: "#/components/schemas/BootstrapStepKey"
+            description: Persisted bootstrap step key
+        BootstrapStepAction:
+            name: action
+            in: path
+            required: true
+            schema:
+                $ref: "#/components/schemas/BootstrapStepAction"
+            description: Operator action applied to the step
         Limit:
             name: limit
             in: query
@@ -1757,6 +1977,13 @@ components:
                 type: string
                 pattern: "^0x[0-9a-fA-F]{64}$"
             description: Optional extension event content hash filter.
+        ActivityEventGroupFilter:
+            name: event_group
+            in: query
+            required: false
+            schema:
+                type: string
+            description: Optional extension-owned event group key for collection activity feeds.
         MediaMode:
             name: media_mode
             in: query
@@ -1919,6 +2146,28 @@ components:
             type: string
             enum: [enabled, paused]
 
+        OpenSeaCollectionStatus:
+            type: string
+            enum:
+                [
+                    pending,
+                    identity_running,
+                    subscribing,
+                    snapshot_pending,
+                    snapshot_running,
+                    ready,
+                    retrying,
+                    failed,
+                ]
+
+        CollectionExtensionSummary:
+            type: object
+            required: [key]
+            additionalProperties: false
+            properties:
+                key:
+                    type: string
+
         CollectionTokenScopeSummary:
             type: object
             required: [label, items]
@@ -1972,7 +2221,8 @@ components:
                     type: string
                     nullable: true
                 openseaStatus:
-                    type: string
+                    allOf:
+                        - $ref: "#/components/schemas/OpenSeaCollectionStatus"
                     nullable: true
                 openseaReadyAt:
                     type: string
@@ -1996,6 +2246,10 @@ components:
                     format: date-time
                 tokenScope:
                     $ref: "#/components/schemas/CollectionTokenScopeSummary"
+                extensions:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/CollectionExtensionSummary"
                 activityEventFeeds:
                     type: array
                     items:
@@ -2077,13 +2331,14 @@ components:
                             type: string
                             nullable: true
                         openseaStatus:
-                            type: string
+                            allOf:
+                                - $ref: "#/components/schemas/OpenSeaCollectionStatus"
                             nullable: true
                         openseaLastError:
                             type: string
                             nullable: true
                 openseaStatus:
-                    type: string
+                    $ref: "#/components/schemas/OpenSeaCollectionStatus"
 
         UpdateOpenSeaStreamIngestionRequest:
             type: object
@@ -2148,12 +2403,36 @@ components:
                             $ref: "#/components/schemas/ActivityExtensionEventFeedFilter"
                         contentHash:
                             $ref: "#/components/schemas/ActivityExtensionEventFeedFilter"
+                        eventGroup:
+                            $ref: "#/components/schemas/ActivityExtensionEventGroupFilter"
 
         ActivityExtensionEventFeedFilter:
             type: object
             required: [label]
             additionalProperties: false
             properties:
+                label:
+                    type: string
+
+        ActivityExtensionEventGroupFilter:
+            type: object
+            required: [label, options]
+            additionalProperties: false
+            properties:
+                label:
+                    type: string
+                options:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/ActivityExtensionEventGroupOption"
+
+        ActivityExtensionEventGroupOption:
+            type: object
+            required: [key, label]
+            additionalProperties: false
+            properties:
+                key:
+                    type: string
                 label:
                     type: string
 
@@ -2480,8 +2759,10 @@ components:
             required:
                 [
                     tokenId,
+                    marketplaceBiddingSupported,
                     name,
                     image,
+                    animationUrl,
                     traitSummary,
                     listingPrice,
                     listingCurrency,
@@ -2493,10 +2774,15 @@ components:
             properties:
                 tokenId:
                     type: string
+                marketplaceBiddingSupported:
+                    type: boolean
                 name:
                     type: string
                     nullable: true
                 image:
+                    type: string
+                    nullable: true
+                animationUrl:
                     type: string
                     nullable: true
                 traitSummary:
@@ -2521,7 +2807,14 @@ components:
 
         TokenDetailTrait:
             type: object
-            required: [key, value, tokenCount, rarityPercent]
+            required:
+                [
+                    key,
+                    value,
+                    tokenCount,
+                    rarityPercent,
+                    marketplaceBiddingSupported,
+                ]
             additionalProperties: false
             properties:
                 key:
@@ -2535,15 +2828,20 @@ components:
                     type: number
                     format: double
                     nullable: true
+                marketplaceBiddingSupported:
+                    type: boolean
 
         TokenDetail:
             type: object
             required:
                 [
                     tokenId,
+                    marketplaceBiddingSupported,
                     name,
                     image,
                     animationUrl,
+                    listingPrice,
+                    listingCurrency,
                     currentHolder,
                     attributes,
                     hasMetadata,
@@ -2553,6 +2851,8 @@ components:
             properties:
                 tokenId:
                     type: string
+                marketplaceBiddingSupported:
+                    type: boolean
                 name:
                     type: string
                     nullable: true
@@ -2560,6 +2860,12 @@ components:
                     type: string
                     nullable: true
                 animationUrl:
+                    type: string
+                    nullable: true
+                listingPrice:
+                    type: string
+                    nullable: true
+                listingCurrency:
                     type: string
                     nullable: true
                 currentHolder:
@@ -2598,6 +2904,7 @@ components:
                 - limit
                 - prevCursor
                 - totalItems
+                - marketplaceBiddingSupportedTotalItems
                 - rangeStart
                 - rangeEnd
                 - currentPage
@@ -2617,6 +2924,8 @@ components:
                     type: string
                     nullable: true
                 totalItems:
+                    type: integer
+                marketplaceBiddingSupportedTotalItems:
                     type: integer
                 rangeStart:
                     type: integer
@@ -2671,6 +2980,18 @@ components:
 
         TraitFacetValue:
             type: object
+            required: [value, tokenCount, marketplaceBiddingSupported]
+            additionalProperties: false
+            properties:
+                value:
+                    type: string
+                tokenCount:
+                    type: integer
+                marketplaceBiddingSupported:
+                    type: boolean
+
+        TraitCatalogFacetValue:
+            type: object
             required: [value, tokenCount]
             additionalProperties: false
             properties:
@@ -2697,7 +3018,7 @@ components:
                 values:
                     type: array
                     items:
-                        $ref: "#/components/schemas/TraitFacetValue"
+                        $ref: "#/components/schemas/TraitCatalogFacetValue"
 
         TraitCatalogFacet:
             type: object
@@ -2780,6 +3101,8 @@ components:
                     currentPriceEth,
                     activeOrderId,
                     activeProtocolAddress,
+                    activeOrderPlacedAt,
+                    activeOrderVerifiedAt,
                     activeExpirationTimeMs,
                     bidPosition,
                     bidConstraints,
@@ -2799,6 +3122,14 @@ components:
                     nullable: true
                 activeProtocolAddress:
                     type: string
+                    nullable: true
+                activeOrderPlacedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                activeOrderVerifiedAt:
+                    type: string
+                    format: date-time
                     nullable: true
                 activeExpirationTimeMs:
                     type: integer
@@ -3012,6 +3343,9 @@ components:
                           type: array
                           items:
                               $ref: "#/components/schemas/TraitRangeFilter"
+                      ownerAddress:
+                          type: string
+                          nullable: true
                 - type: object
                   required: [type, traitJoinMode]
                   additionalProperties: false
@@ -3033,6 +3367,39 @@ components:
                       makerAddress:
                           type: string
                           nullable: true
+                      ownershipFilter:
+                          type: string
+                          enum: [own]
+                          nullable: true
+
+        LookupBatchTokenBiddingJobsRequest:
+            type: object
+            required: [selection]
+            additionalProperties: false
+            properties:
+                selection:
+                    $ref: "#/components/schemas/BiddingTokenBatchSelection"
+
+        LookupBatchTokenBiddingJobsResponse:
+            type: object
+            required: [chain, collection, tokenIds, jobs, targetCount]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                tokenIds:
+                    type: array
+                    items:
+                        type: string
+                jobs:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BiddingJob"
+                targetCount:
+                    type: integer
+                    minimum: 0
 
         UpsertBatchTokenBiddingJobsRequest:
             type: object
@@ -3153,7 +3520,7 @@ components:
 
         BiddingBidBookOwnConstraint:
             type: string
-            enum: [ceiling, floor, balance, allowance]
+            enum: [ceiling, floor]
 
         BiddingBidBookOwnStatus:
             type: object
@@ -3486,8 +3853,10 @@ components:
             required:
                 [
                     tokenId,
+                    marketplaceBiddingSupported,
                     name,
                     image,
+                    animationUrl,
                     traitSummary,
                     listingPrice,
                     listingCurrency,
@@ -3500,10 +3869,15 @@ components:
             properties:
                 tokenId:
                     type: string
+                marketplaceBiddingSupported:
+                    type: boolean
                 name:
                     type: string
                     nullable: true
                 image:
+                    type: string
+                    nullable: true
+                animationUrl:
                     type: string
                     nullable: true
                 traitSummary:
@@ -3539,6 +3913,7 @@ components:
                     nextCursor,
                     limit,
                     totalItems,
+                    marketplaceBiddingSupportedTotalItems,
                     totalOffers,
                     rangeStart,
                     rangeEnd,
@@ -3560,6 +3935,8 @@ components:
                 limit:
                     type: integer
                 totalItems:
+                    type: integer
+                marketplaceBiddingSupportedTotalItems:
                     type: integer
                 totalOffers:
                     type: integer
@@ -4039,7 +4416,7 @@ components:
 
         ImageCacheMode:
             type: string
-            enum: [off, cache_once, refresh_on_metadata]
+            enum: ["off", cache_once, refresh_on_metadata]
 
         TraitFilterPresentationConfig:
             type: object
@@ -4430,6 +4807,7 @@ components:
             required:
                 [
                     tokenId,
+                    marketplaceBiddingSupported,
                     name,
                     image,
                     traitSummary,
@@ -4440,6 +4818,8 @@ components:
             properties:
                 tokenId:
                     type: string
+                marketplaceBiddingSupported:
+                    type: boolean
                 name:
                     type: string
                     nullable: true
@@ -4602,15 +4982,41 @@ components:
 
         ActivityFeedIncludes:
             type: object
-            required: [tokensById, hasTraitSummaryTemplate]
+            required:
+                [tokensById, eventMediaByActivityId, hasTraitSummaryTemplate]
             additionalProperties: false
             properties:
                 tokensById:
                     type: object
                     additionalProperties:
                         $ref: "#/components/schemas/TokenPresentationSummary"
+                eventMediaByActivityId:
+                    type: object
+                    additionalProperties:
+                        $ref: "#/components/schemas/ActivityEventMedia"
                 hasTraitSummaryTemplate:
                     type: boolean
+
+        ActivityEventMedia:
+            type: object
+            required: [image, animationUrl, mediaRef]
+            additionalProperties: false
+            properties:
+                image:
+                    type: string
+                    nullable: true
+                animationUrl:
+                    type: string
+                    nullable: true
+                htmlContent:
+                    type: string
+                    nullable: true
+                mediaRef:
+                    type: string
+                renderModes:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/CollectionMediaMode"
 
         GetCollectionActivityResponse:
             type: object
@@ -4647,7 +5053,7 @@ components:
 
         GetTokenDetailResponse:
             type: object
-            required: [chain, collection, media, token]
+            required: [chain, collection, media, token, traitFilterPresentation]
             additionalProperties: false
             properties:
                 chain:
@@ -4658,6 +5064,8 @@ components:
                     $ref: "#/components/schemas/TokenMediaState"
                 token:
                     $ref: "#/components/schemas/TokenDetail"
+                traitFilterPresentation:
+                    $ref: "#/components/schemas/TraitFilterPresentationFeatureState"
 
         GetTokenPreviewResponse:
             type: object
@@ -4703,6 +5111,104 @@ components:
                 input:
                     type: string
                 resolvedAddress:
+                    type: string
+
+        OpenSeaIntegrationStatus:
+            type: object
+            required: [enabled, mode, reason, missingKeys, requiredKeys]
+            additionalProperties: false
+            properties:
+                enabled:
+                    type: boolean
+                mode:
+                    type: string
+                    enum: [auto, enabled, disabled]
+                reason:
+                    type: string
+                    nullable: true
+                missingKeys:
+                    type: array
+                    items:
+                        type: string
+                requiredKeys:
+                    type: array
+                    items:
+                        type: string
+
+        BlockExplorerConfig:
+            type: object
+            required:
+                [
+                    baseUrl,
+                    transactionPathTemplate,
+                    addressPathTemplate,
+                    blockPathTemplate,
+                ]
+            additionalProperties: false
+            properties:
+                baseUrl:
+                    type: string
+                    format: uri
+                transactionPathTemplate:
+                    type: string
+                addressPathTemplate:
+                    type: string
+                blockPathTemplate:
+                    type: string
+
+        BiddingBidBookLiveRefreshConfig:
+            type: object
+            required: [normalPollMs, competitivePollMs]
+            additionalProperties: false
+            properties:
+                normalPollMs:
+                    type: integer
+                    minimum: 1
+                competitivePollMs:
+                    type: integer
+                    minimum: 1
+
+        GetRuntimeConfigResponse:
+            type: object
+            required: [integrations, blockExplorer, bidding]
+            additionalProperties: false
+            properties:
+                integrations:
+                    type: object
+                    required: [opensea]
+                    additionalProperties: false
+                    properties:
+                        opensea:
+                            $ref: "#/components/schemas/OpenSeaIntegrationStatus"
+                blockExplorer:
+                    $ref: "#/components/schemas/BlockExplorerConfig"
+                bidding:
+                    type: object
+                    required:
+                        [trustOpenSeaSignedZoneTraitOffers, bidBookLiveRefresh]
+                    additionalProperties: false
+                    properties:
+                        trustOpenSeaSignedZoneTraitOffers:
+                            type: boolean
+                        bidBookLiveRefresh:
+                            $ref: "#/components/schemas/BiddingBidBookLiveRefreshConfig"
+
+        GetActivityEventPreviewResponse:
+            type: object
+            required: [media, token]
+            additionalProperties: false
+            properties:
+                media:
+                    $ref: "#/components/schemas/CollectionMediaState"
+                token:
+                    $ref: "#/components/schemas/TokenPreview"
+
+        GetTokenUriResponse:
+            type: object
+            required: [uri]
+            additionalProperties: false
+            properties:
+                uri:
                     type: string
 
         BootstrapMetadataMode:
@@ -5031,6 +5537,41 @@ components:
                     failed,
                 ]
 
+        BootstrapStepKey:
+            type: string
+            enum:
+                [
+                    anchor,
+                    enumeration,
+                    metadata,
+                    ownership,
+                    backfill,
+                    collection_live,
+                    image_cache,
+                    opensea_identity,
+                    opensea_snapshot,
+                    opensea_ready,
+                    collection_extension_artifacts,
+                ]
+
+        BootstrapStepStatus:
+            type: string
+            enum:
+                [
+                    pending,
+                    ready,
+                    running,
+                    paused,
+                    succeeded,
+                    failed_retry,
+                    failed_terminal,
+                    skipped,
+                ]
+
+        BootstrapStepAction:
+            type: string
+            enum: [pause, resume, retry]
+
         BootstrapRunRow:
             type: object
             required:
@@ -5160,7 +5701,6 @@ components:
             type: string
             enum:
                 [
-                    requested,
                     queued,
                     anchor,
                     enumeration,
@@ -5172,11 +5712,23 @@ components:
                     opensea_identity,
                     opensea_snapshot,
                     opensea_ready,
+                    collection_extension_artifacts,
                 ]
 
         BootstrapFlowStep:
             type: object
-            required: [key, label, state, detailText, progress]
+            required:
+                [
+                    key,
+                    label,
+                    state,
+                    detailText,
+                    blocking,
+                    pausable,
+                    paused,
+                    availableActions,
+                    progress,
+                ]
             additionalProperties: false
             properties:
                 key:
@@ -5188,6 +5740,16 @@ components:
                 detailText:
                     type: string
                     nullable: true
+                blocking:
+                    type: boolean
+                pausable:
+                    type: boolean
+                paused:
+                    type: boolean
+                availableActions:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BootstrapStepAction"
                 progress:
                     type: object
                     nullable: true
@@ -5593,7 +6155,7 @@ components:
                 collectionId:
                     type: integer
                 status:
-                    type: string
+                    $ref: "#/components/schemas/BootstrapRunStatus"
                 createdAt:
                     type: string
                     format: date-time
@@ -5608,7 +6170,20 @@ components:
                 updatedCount:
                     type: integer
                 status:
-                    type: string
+                    $ref: "#/components/schemas/BootstrapRunStatus"
+
+        ApplyBootstrapRunStepActionResponse:
+            type: object
+            required: [runId, stepKey, status]
+            additionalProperties: false
+            properties:
+                runId:
+                    type: integer
+                    minimum: 1
+                stepKey:
+                    $ref: "#/components/schemas/BootstrapStepKey"
+                status:
+                    $ref: "#/components/schemas/BootstrapStepStatus"
 
         RuntimeHealthCheck:
             type: object
