@@ -9,6 +9,7 @@ sequenceDiagram
     participant W as Admin Window
     participant TR as System Tray
     participant R as Rust Runtime
+    participant P as Native prompt owner
     participant S as Supervisor
     participant OS as System Browser
 
@@ -27,6 +28,7 @@ sequenceDiagram
 
     U->>TR: Click "shutdown"
     TR->>R: tray.shutdown
+    R->>P: Close prompt admission and wait for cleanup
     R->>S: stop()
     S->>S: Graceful stop (force kill fallback)
     S-->>R: stopped
@@ -34,6 +36,7 @@ sequenceDiagram
 
     U->>W: Click "shutdown"
     W->>R: runtime_shutdown
+    R->>P: Close prompt admission and wait for cleanup
     R->>S: stop()
     S->>S: Graceful stop (force kill fallback)
     S-->>R: stopped
@@ -44,4 +47,5 @@ sequenceDiagram
 
 - Admin shell header action to enter the userland triggers the same open-userland action.
 - Admin shell shutdown triggers the same graceful runtime shutdown path as the tray action.
+- Shutdown closes native prompt admission before stopping bots and the core runtime.
 - Tray double-click can also trigger open-userland where supported by the platform.

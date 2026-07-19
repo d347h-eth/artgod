@@ -12,6 +12,14 @@ ArtGod's bidding system is not just a UI for manually placing marketplace offers
 
 ## A Full Step-by-Step Guide
 
+The screenshots below document the current control flow and were inspected at
+their actual `764px` source width. Some retain the earlier
+`v0.1.0-alpha.2` header badge; use the release filenames and version shown in
+the verification commands, not the badge inside those illustrative images.
+The repository does not yet have a maintained native-window capture harness,
+so replacement Admin screenshots require deliberate desktop QA rather than
+ad-hoc host-display automation.
+
 1. Verify the downloaded ArtGod release using the instructions in the README.
 
     Start with the [Release Key section in the README](../../README.md#release-key),
