@@ -171,78 +171,24 @@ bidding safety, metadata and media limitations, and where to send feedback.
 
 ## Documentation Map
 
-Start here when navigating the repo:
+Start with the [documentation home](docs/README.md). It provides the complete
+topic map, reading order, source-of-truth rules, diagram index, and the boundary
+between current domain references and unimplemented work.
 
-- [ArtGod Operator Guide](docs/project/02-public-alpha-starter-guide.md): public
-  alpha expectations, a step-by-step first-run workflow, configuration guidance,
-  bidding safety, and feedback channels.
-- `docs/project/01-public-alpha-scope.md`: product positioning, current public
-  alpha snapshot, project structure, and release boundaries.
-- `docs/development/01-local-development.md`: local setup, desktop dev,
-  config, versioning, release build pointers, and common commands.
-- `AGENTS.md`: agent-specific rules, architecture constraints, repo
-  contribution standards, and mandatory user-perspective UI review routing.
+The shortest routes are:
 
-Core architecture and runtime:
-
-- `docs/indexer/00-overview.md`: indexer purpose, runtime topology, invariants,
-  high-level data flows, and code map.
-- `docs/indexer/01-config-and-env.md`: runtime config loading and env contract.
-- `docs/indexer/02-queues-and-jobs.md`: queue names, job envelopes, JetStream
-  adapter, retry, and dead-letter behavior.
-- `docs/indexer/03-scheduler-worker.md` through
-  `docs/indexer/17-bootstrap-concurrency-audit.md`: focused indexer runtime,
-  storage, domain, testing, port, bootstrap, fill decoding, blockspace, and
-  concurrency references.
-- `docs/ports/01-port-catalog.md`: local service port map.
-- `docs/backend-api.openapi.yaml`: backend API contract.
-- `docs/diagrams/`: desktop and bootstrap sequence diagrams.
-
-Product domains:
-
-- `docs/trading/01-bidding-runtime-and-jobs.md`: bidding runtime, jobs,
-  snapshots, reconciliation, wallet boundary, and config surface.
-- `docs/trading/02-bidding-automation-capabilities.md`: user-facing bidding UI
-  capabilities and backend API coverage.
-- `docs/extensions/01-collection-extensions.md`: extension registry, indexer
-  hooks, backend presentation overrides, and Terraforms extension behavior.
-- `docs/ui/00-user-perspective-and-language.md`: required user-eye workflow
-  review, product language, identity, units, errors, cross-surface consistency,
-  and rendered verification.
-- `docs/ui/01-interaction-guidelines.md`: established UI interaction, layout,
-  control, style-reuse, navigation, media-selection, and pagination contracts.
-- `docs/ui/02-preview-modal-system.md`: preview modal security and sizing model.
-
-Desktop, deploy, and operations:
-
-- `docs/desktop/01-tauri-build-and-runtime.md`: Tauri build pipeline, desktop
-  runtime supervisor, Admin UI, logging, release CI, and troubleshooting.
-- `docs/desktop/02-runtime-registry-maintenance.md`: checklist for adding or
-  removing desktop/indexer runtimes.
-- `docs/desktop/03-wallet-keystore-and-bot-unlock.md`: Rust-owned wallet
-  custody, native secret prompt, and bot secret handoff.
-- `docs/desktop/04-settings-manifest-process.md`: manifest-first settings
-  workflow and generated env artifacts.
-- `docs/desktop/05-linux-gpg-release-signing.md`: dedicated Linux release GPG
-  key setup and CI signing flow.
-- `docs/desktop/06-release-signing-runbook.md`: desktop signing, notarization,
-  release secrets, and verification runbook.
-- `docs/deploy/01-web-hosted-read-only.md`: public read-only hosted deployment
-  shape.
-- `docs/indexer/10-observability-and-metrics.md`: logs, metrics, traces,
-  profiles, and Grafana wiring.
-- `docs/rpc/01-http-rpc-interaction-catalog.md`: HTTP JSON-RPC call inventory.
-
-Planning and backlog:
-
-- `docs/progress/indexer/15-unified-backlog.md`: canonical prioritized indexer
-  backlog.
-- `docs/progress/indexer/`: indexer plans, audits, deferred work, and migration
-  notes.
-- `docs/progress/trading/`: bidding and trading implementation plans.
-- `docs/progress/desktop/`: desktop wallet/runtime trust plans.
-- `docs/progress/ui/`: UI-specific implementation plans.
-- `docs/progress/terraforms/`: Terraforms static explorer context.
+- [ArtGod Operator Guide](docs/project/02-public-alpha-starter-guide.md) for a
+  first public-alpha run.
+- [Local development](docs/development/01-local-development.md) for setup,
+  builds, configuration, and validation.
+- [Indexer](docs/indexer/README.md), [Backend](docs/backend/README.md),
+  [Trading](docs/trading/README.md), [Extensions](docs/extensions/README.md),
+  [UI](docs/ui/README.md), and [Desktop](docs/desktop/README.md) for engineering
+  reference.
+- [Unified backlog](docs/planning/01-unified-backlog.md) for work that is not
+  implemented.
+- [AGENTS.md](AGENTS.md) for agent-specific architecture, safety, and review
+  rules.
 
 ## License
 

@@ -56,8 +56,8 @@ Read only what the current task needs, using these entry points as relevant.
 - Use `README.md` for orientation and its Documentation Map for component docs.
 - Use `docs/project/01-public-alpha-scope.md` for feature-scope decisions.
 - Use `docs/development/01-local-development.md` for setup and local verification.
-- For indexer work, use `docs/indexer/00-overview.md` to locate relevant design
-  guidance and `docs/progress/indexer/15-unified-backlog.md` for planned work.
+- For indexer work, use `docs/indexer/README.md` to locate relevant design
+  guidance and `docs/planning/01-unified-backlog.md` for planned work.
 - Before UI changes, consult the relevant guidance in
   `docs/ui/00-user-perspective-and-language.md` and
   `docs/ui/01-interaction-guidelines.md`.
