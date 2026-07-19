@@ -169,11 +169,11 @@ sequenceDiagram
     end
 
     opt User pause/resume
-        User->>API: Pause metadata or image cache
+        User->>API: Pause metadata, ownership, or image cache
         API->>DB: Mark step paused and clear local lease
         API->>Q: Wake scheduler
 
-        User->>API: Resume metadata or image cache
+        User->>API: Resume metadata, ownership, or image cache
         API->>DB: Mark step ready with current due timestamp
         API->>Q: Wake scheduler
     end

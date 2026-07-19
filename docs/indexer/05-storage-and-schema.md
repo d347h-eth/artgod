@@ -39,6 +39,23 @@ The migration runner is invoked by the onchain workers and the OpenSea workers.
 
 Defined primarily in `database/migrations/002_indexer_schema.sql`.
 
+### `chains`
+
+Defined in `013_chains_schema.sql`.
+
+The chain registry already separates its local row identity from public network
+identity:
+
+- `id` is the local primary key;
+- `type` identifies the chain family;
+- `public_chain_id` is the externally meaningful network id;
+- `slug` and `name` provide route and display identity;
+- `(type, public_chain_id)` and `(type, slug)` are unique.
+
+That separation currently stops at the registry boundary. Most domain tables,
+queue payloads, and core models still name `chain_id` and store the public EVM
+chain id rather than `chains.id`.
+
 ### `blocks`
 
 ```sql
@@ -693,3 +710,39 @@ Important operations:
 - stores canonical `seaport_data_json`
 - stores raw stream/rest payloads for audit only
 - async validation later reads canonical order state back from `orders`
+
+## Current Limits and Future Direction
+
+- The chain registry has distinct internal and public identities, but downstream
+  storage and messages still use the public id as `chain_id`.
+- ERC-1155 transfer uniqueness does not have a separately modeled batch
+  discriminator beyond the current transaction/log/collection/token fact key.
+- Normalized attributes are stored as string values. Scalar/range projection is
+  not materialized in a dedicated numeric table.
+- Successful bootstrap operational rows are deleted only after their lane is
+  settled and the run is complete. Terminal failures remain inspectable for
+  recovery; run events and canonical domain rows remain durable history.
+
+### Retained Chain-Identity Boundary
+
+Completing the chain-identity split is a broad migration, not a column rename.
+The target boundary is:
+
+- treat `chains.id` as the canonical local reference and call it `chainPk` at
+  core and queue boundaries;
+- migrate chain-scoped tables and foreign keys from the public `chain_id` value
+  to that internal key;
+- keep RPC, API, URLs, and external marketplace payloads explicit about
+  `publicChainId`, slug, or name;
+- resolve an inbound public id, slug, or name once at the adapter boundary, then
+  carry only the resolved internal reference through local persistence and
+  queues;
+- cache name/slug-to-internal, public-to-internal, and internal-to-public
+  mappings from the canonical chain registry;
+- reject unknown chains and payloads whose supplied identities disagree rather
+  than accepting an implicit default.
+
+The migration must preserve the current public API and route contract while
+tables, queries, queue payloads, tests, and telemetry are converted together.
+Until that work is justified by multi-chain ingest, callers must not assume the
+existing downstream `chain_id` columns reference `chains.id`.

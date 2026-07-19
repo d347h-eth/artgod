@@ -365,3 +365,38 @@ Workers:
 - `domain-worker`
 
 In desktop composition, OpenSea workers are staged but not launched when the resolved OpenSea capability is disabled. In standalone dev, starting an OpenSea worker directly still fails fast unless OpenSea integration is enabled.
+
+## Operator Controls and Recovery
+
+Admin creates and inspects durable runs through the backend bootstrap routes.
+The run detail exposes each planned step, persisted progress, whether it blocks
+collection liveness, and the actions valid for its current state.
+
+- metadata, ownership, and image-cache processing steps can be paused and
+  resumed where the shared bootstrap contract marks them pausable;
+- a terminal failed step must be explicitly retried, not resumed;
+- run-level `retry-failed` requeues terminal metadata, image, and artifact tasks
+  that are eligible for recovery;
+- startup and lane polling can wake a ready persisted step after a process
+  restart, so recovery does not depend on the original queue delivery;
+- strict metadata failure blocks liveness; best-effort metadata can complete
+  with retained terminal failures; ownership failure always blocks liveness;
+- image-cache and extension-artifact side lanes may fail without rolling back
+  canonical metadata or ownership.
+- completed-run history remains the current place to inspect terminal
+  non-blocking side-lane failures; whether those failures also warrant a
+  persistent warning on the collection outside bootstrap history remains a
+  product decision.
+
+## Current Limits and Future Direction
+
+- Enumerable token discovery still performs the current `tokenByIndex` loop
+  inside one step and assembles the discovered IDs before seeding tasks. Very
+  large enumerable collections would benefit from persisted enumeration pages.
+- Ownership tasks are durable and retryable but processed serially. Parallel
+  `ownerOf` calls require per-task leases and fenced settlement first.
+- OpenSea bootstrap is one collection snapshot at a time. Collection-level
+  concurrency needs fenced source-state reconciliation and shared API limits.
+- Successful operational tasks and ownership snapshots are cleaned once their
+  lanes settle; terminal failure rows and run events remain available for
+  inspection and redrive.

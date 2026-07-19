@@ -1,10 +1,13 @@
-# Bootstrap Concurrency Audit
+# Bootstrap Execution and Concurrency
 
-This document captures the current collection bootstrap concurrency model and the clean upgrade paths for steps that are still serial. It is an implementation snapshot, not a proposal to increase concurrency everywhere.
+This document explains how durable collection-bootstrap steps execute, where
+concurrency exists, and which persistence boundary must be added before a serial
+lane can safely scale. Concurrency is a correctness property here, not only a
+throughput setting.
 
 Values below are the manifest/generated defaults used by typed config loaders when no runtime override is present. Local desktop settings can render different env overrides at launch time.
 
-## Source Map
+## Owning Source
 
 - Config manifest: `config/settings.manifest.toml`
 - Generated defaults: `shared/config/generated-settings-defaults.ts`
@@ -21,17 +24,17 @@ Values below are the manifest/generated defaults used by typed config loaders wh
 
 ## Current Configured Values
 
-| Setting | Current default | Main config surface | Notes |
-| --- | ---: | --- | --- |
-| `BOOTSTRAP_METADATA_CONCURRENCY` | 8 | `IndexerConfig.bootstrap.metadataConcurrency` | Local worker-pool width inside the metadata step. |
-| `BOOTSTRAP_METADATA_BATCH_SIZE` | 200 | `IndexerConfig.bootstrap.metadataBatchSize` | Due task read/write batch size, not concurrency. |
-| `BOOTSTRAP_SNAPSHOT_BATCH_SIZE` | 200 | `IndexerConfig.bootstrap.snapshotBatchSize` | Ownership task seeding and processing batch size, not concurrency. |
-| `BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE` | 50 | `IndexerConfig.bootstrap.imageCacheBatchSize` | Due image-cache task read batch size. |
-| `BOOTSTRAP_IMAGE_CACHE_CONCURRENCY` | 4 | `IndexerConfig.bootstrap.imageCacheConcurrency` | Local worker-pool width inside the image-cache step. |
-| `BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_CONCURRENCY` | 2 | `IndexerConfig.bootstrap.collectionExtensionArtifactConcurrency` | Queue max-in-flight for collection-extension artifact jobs. |
-| `BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_TASK_LEASE_MS` | 60000 | `IndexerConfig.bootstrap.collectionExtensionArtifactTaskLeaseMs` | Per artifact task lease duration. |
-| `BACKFILL_BATCH_SIZE` | 10 | `IndexerConfig.sync.backfillBatchSize` | Bootstrap catchup range chunk size. |
-| `BACKFILL_WORKER_COUNT` | 1 | `IndexerConfig.sync.backfillWorkerCount` | Backfill sync queue max-in-flight. |
+| Setting                                                 | Current default | Main config surface                                              | Notes                                                              |
+| ------------------------------------------------------- | --------------: | ---------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `BOOTSTRAP_METADATA_CONCURRENCY`                        |               8 | `IndexerConfig.bootstrap.metadataConcurrency`                    | Local worker-pool width inside the metadata step.                  |
+| `BOOTSTRAP_METADATA_BATCH_SIZE`                         |             200 | `IndexerConfig.bootstrap.metadataBatchSize`                      | Due task read/write batch size, not concurrency.                   |
+| `BOOTSTRAP_SNAPSHOT_BATCH_SIZE`                         |             200 | `IndexerConfig.bootstrap.snapshotBatchSize`                      | Ownership task seeding and processing batch size, not concurrency. |
+| `BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE`                      |              50 | `IndexerConfig.bootstrap.imageCacheBatchSize`                    | Due image-cache task read batch size.                              |
+| `BOOTSTRAP_IMAGE_CACHE_CONCURRENCY`                     |               4 | `IndexerConfig.bootstrap.imageCacheConcurrency`                  | Local worker-pool width inside the image-cache step.               |
+| `BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_CONCURRENCY`   |               2 | `IndexerConfig.bootstrap.collectionExtensionArtifactConcurrency` | Queue max-in-flight for collection-extension artifact jobs.        |
+| `BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_TASK_LEASE_MS` |           60000 | `IndexerConfig.bootstrap.collectionExtensionArtifactTaskLeaseMs` | Per artifact task lease duration.                                  |
+| `BACKFILL_BATCH_SIZE`                                   |              10 | `IndexerConfig.sync.backfillBatchSize`                           | Bootstrap catchup range chunk size.                                |
+| `BACKFILL_WORKER_COUNT`                                 |               1 | `IndexerConfig.sync.backfillWorkerCount`                         | Backfill sync queue max-in-flight.                                 |
 
 There is no dedicated OpenSea bootstrap concurrency setting. The OpenSea bootstrap worker currently subscribes with `maxInFlight: 1`.
 
@@ -54,7 +57,7 @@ This gives one important property: even when queue jobs are duplicated or schedu
 
 Current concurrency setting: no dedicated knob.
 
-Bubbled into main config: no.
+Typed runtime config: no.
 
 Current model:
 
@@ -62,19 +65,17 @@ Current model:
 - The active-run guard prevents concurrent bootstrap runs for the same collection.
 - The queue publish uses a deterministic-ish start scope plus timestamp. It is idempotent at the NATS message id level for the generated job id, but run creation and queue publication are not a general multi-message work pool.
 
-Clean concurrency options:
+Scaling boundary:
 
 - No throughput setting is needed for normal registration. User-triggered run creation is not a heavy pipeline stage.
 - If this path needs stronger crash recovery, the clean improvement is a transactional queue outbox for bootstrap start publication, not higher concurrency. The backend would commit run creation and outbox intent together, and a publisher would drain the outbox idempotently.
 - If many collections are registered at once, concurrency should be governed by durable run and step leases downstream, not by allowing multiple active runs for one collection.
 
-ASAP risk: no merge blocker found.
-
 ### 2. Pick Anchor Block
 
 Current concurrency setting: effectively 1.
 
-Bubbled into main config: no.
+Typed runtime config: no.
 
 Current model:
 
@@ -83,19 +84,17 @@ Current model:
 - Anchor work reads current head, subtracts reorg depth, persists the anchor block/hash/timestamp, and marks the step terminal.
 - Embedded extension installation runs immediately after successful anchoring when the run requested an embedded extension.
 
-Clean concurrency options:
+Scaling boundary:
 
 - Across different runs, this could be parallelized by introducing a main-lane concurrency setting and allowing the scheduler to process multiple run ids concurrently.
 - The clean design requires preserving per-run step leases and ensuring the processor receives isolated run state. The existing step lease model is close, but the runtime would need an explicit lane-concurrency contract rather than ad hoc parallel `runOnce` calls.
 - No per-token or batch taskization is useful for anchoring itself.
 
-ASAP risk: no merge blocker found.
-
 ### 3. Auto-Install Embedded Collection Extension
 
 Current concurrency setting: effectively 1, coupled to anchor.
 
-Bubbled into main config: no.
+Typed runtime config: no.
 
 Current model:
 
@@ -103,18 +102,16 @@ Current model:
 - Anchor success calls the extension install upsert for that collection.
 - The install must exist before canonical metadata writes can fan out extension artifact refresh work.
 
-Clean concurrency options:
+Scaling boundary:
 
 - Keep this coupled to the anchored step. It is a small idempotent DB action and is semantically part of starting the run against a concrete collection id.
 - If main-lane concurrency is added later, the install remains safe as a per-run/per-collection upsert behind the anchor step lease.
-
-ASAP risk: no merge blocker found.
 
 ### 4. Token Enumeration
 
 Current concurrency setting: 1.
 
-Bubbled into main config: no.
+Typed runtime config: no.
 
 Current model:
 
@@ -123,24 +120,22 @@ Current model:
 - Enumeration stores progress on the durable step and logs heartbeat progress.
 - The implementation builds the token id list in memory before seeding metadata tasks.
 
-Clean concurrency options:
+Scaling boundary:
 
 - The cleanest scalability upgrade is durable page/task enumeration:
-  - create enumeration page tasks with cursor/index ranges,
-  - claim pages with leases,
-  - write discovered token ids into a staging table with unique constraints,
-  - seed metadata tasks after all pages are terminal,
-  - keep run progress derived from persisted page/task counts.
+    - create enumeration page tasks with cursor/index ranges,
+    - claim pages with leases,
+    - write discovered token ids into a staging table with unique constraints,
+    - seed metadata tasks after all pages are terminal,
+    - keep run progress derived from persisted page/task counts.
 - A lighter local-only worker pool around `tokenByIndex` could reduce latency, but it is weaker because progress, retries, and crash recovery still depend on one long-running step. That is acceptable only if deliberately scoped as an optimization, not as the durable concurrency model.
 - For large collections, a streamed approach would also avoid building the full token id array in memory. Token ids could be inserted into metadata tasks as pages complete, with completion determined by page task terminality.
-
-ASAP risk: no merge blocker found for current target collections. This is a future scalability concern.
 
 ### 5. Metadata Task Seeding
 
 Current concurrency setting: no concurrency. Batch size is `BOOTSTRAP_METADATA_BATCH_SIZE=200`.
 
-Bubbled into main config: yes, as batch size.
+Typed runtime config: yes, as batch size.
 
 Current model:
 
@@ -148,19 +143,17 @@ Current model:
 - `BOOTSTRAP_METADATA_BATCH_SIZE` controls insert batch size, not parallelism.
 - Existing task counts make seeding idempotent on resume: if metadata tasks already exist, seeding is skipped and the metadata step is considered queued.
 
-Clean concurrency options:
+Scaling boundary:
 
 - Do not add write concurrency first. SQLite benefits more from bounded transaction shape than concurrent writers.
 - If enumeration becomes page/task based, metadata task seeding can happen page-by-page in the same page task transaction, with unique `(run_id, token_id)` conflict handling.
 - For clean recovery, the completion condition should be persisted page terminality plus task counts, not in-memory counters.
 
-ASAP risk: no merge blocker found.
-
 ### 6. Metadata Fetch / Store
 
 Current concurrency setting: `BOOTSTRAP_METADATA_CONCURRENCY=8`.
 
-Bubbled into main config: yes.
+Typed runtime config: yes.
 
 Current model:
 
@@ -171,19 +164,17 @@ Current model:
 - Failed tasks are moved to retry or terminal failure according to the bootstrap metadata retry policy and snapshot mode.
 - Completion is derived from persisted metadata task counts.
 
-Clean concurrency options:
+Scaling boundary:
 
 - The current local concurrency model is coherent because only one leased metadata step selects tasks for a run at a time.
 - To support multiple metadata workers or higher process-level concurrency cleanly, metadata tasks should get the same claim/lease/fenced-settlement model as collection-extension artifact tasks.
 - Without task leases, raising queue-level concurrency for metadata would risk duplicate reads of the same due tasks. Current local `mapWithConcurrency` avoids that by keeping selection inside one step processor.
 
-ASAP risk: no merge blocker found.
-
 ### 7. Token Image Cache Side Lane
 
 Current concurrency setting: `BOOTSTRAP_IMAGE_CACHE_CONCURRENCY=4`.
 
-Bubbled into main config: yes.
+Typed runtime config: yes.
 
 Current model:
 
@@ -195,19 +186,17 @@ Current model:
 - Success writes the settled `token_image_cache` row transactionally with task success. If the task settlement loses the race, the newly written file is deleted.
 - Image cache failures can become terminal without failing collection liveness.
 
-Clean concurrency options:
+Scaling boundary:
 
 - The current local concurrency model is coherent for one process/lane.
 - Clean multi-worker image-cache concurrency would require per-task leases and fenced success/retry settlement. The storage shape is close but does not currently claim individual image-cache tasks before external fetch/resize work.
 - A dedicated image-cache task lifecycle module, shaped like collection-extension artifact lifecycle, would be the clean path if this lane needs process-level scaling.
 
-ASAP risk: no merge blocker found.
-
 ### 8. Collection-Extension Artifacts
 
 Current concurrency setting: `BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_CONCURRENCY=2`.
 
-Bubbled into main config: yes.
+Typed runtime config: yes.
 
 Current model:
 
@@ -221,19 +210,17 @@ Current model:
 - Completion and final stats release are derived from persisted artifact task counts.
 - Synthetic Terraforms rows are published atomically with their extension artifact and trait writes, and synthetic identities are tombstoned when retired so delayed bootstrap tasks cannot recreate them after a real mint refresh.
 
-Clean concurrency options:
+Scaling boundary:
 
 - This is the strongest concurrency model in the bootstrap pipeline today.
 - Scaling is mainly a matter of increasing `BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_CONCURRENCY`, bounded by RPC capacity, renderer cost, HTTP fetch rate, and SQLite write pressure.
 - If worker count is increased across processes, the per-task lease/fence model already provides the required correctness boundary.
 
-ASAP risk: no merge blocker found.
-
 ### 9. Ownership Snapshot
 
 Current concurrency setting: 1.
 
-Bubbled into main config: no. `BOOTSTRAP_SNAPSHOT_BATCH_SIZE=200` is only a batch size.
+Typed runtime config: no. `BOOTSTRAP_SNAPSHOT_BATCH_SIZE=200` is only a batch size.
 
 Current model:
 
@@ -245,24 +232,22 @@ Current model:
 - Once all ownership tasks succeed, `finalizeSnapshot` projects the snapshot into current ownership state at the anchor block.
 - Ownership is mandatory: terminal ownership task failures fail the bootstrap run and block collection liveness.
 
-Clean concurrency options:
+Scaling boundary:
 
 - The right upgrade is not a quick local `mapWithConcurrency` alone. Ownership is correctness-critical and should use durable per-task claim/lease/fenced settlement before external `ownerOf` calls run concurrently.
 - A clean implementation would add:
-  - ownership task lease fields,
-  - `claimOwnershipTask`, `renewOwnershipTaskLease`, and fenced success/retry ports,
-  - an application lifecycle handler analogous to collection-extension artifact lifecycle,
-  - `BOOTSTRAP_OWNERSHIP_CONCURRENCY` in the settings manifest and typed config,
-  - tests for stale lease owners, retry scheduling, terminal failure, snapshot finalization after all task terminality, and resume after crash.
+    - ownership task lease fields,
+    - `claimOwnershipTask`, `renewOwnershipTaskLease`, and fenced success/retry ports,
+    - an application lifecycle handler analogous to collection-extension artifact lifecycle,
+    - `BOOTSTRAP_OWNERSHIP_CONCURRENCY` in the settings manifest and typed config,
+    - tests for stale lease owners, retry scheduling, terminal failure, snapshot finalization after all task terminality, and resume after crash.
 - Snapshot finalization should remain a single transaction after all ownership tasks are terminal. Parallel `ownerOf` calls must not imply parallel finalization.
-
-ASAP risk: no merge blocker found, but this is the clearest future throughput improvement.
 
 ### 10. Short Backfill
 
 Current concurrency setting: `BACKFILL_WORKER_COUNT=1`.
 
-Bubbled into main config: yes, under sync config rather than bootstrap config.
+Typed runtime config: yes, under sync config rather than bootstrap config.
 
 Current model:
 
@@ -273,24 +258,22 @@ Current model:
 - `BackfillExecutionGate` allows fully pre-anchor facts-only ranges to run in parallel, but serializes ranges that may touch current-state projections.
 - Bootstrap catchup is intentionally post-anchor and uses current-state order maintenance, so it is effectively serialized by default and should remain ordered.
 
-Clean concurrency options:
+Scaling boundary:
 
 - Raising `BACKFILL_WORKER_COUNT` is safe for pre-anchor facts-only historical imports, but it does not automatically make bootstrap catchup parallel because current-state ranges are serialized by design.
 - Clean current-state backfill parallelism needs a fetch/apply split:
-  - fetch logs/blocks in parallel for ranges,
-  - persist raw/fact data idempotently,
-  - apply current-state projections through an ordered per-collection barrier by block/log order,
-  - commit coverage only after ordered apply completes.
+    - fetch logs/blocks in parallel for ranges,
+    - persist raw/fact data idempotently,
+    - apply current-state projections through an ordered per-collection barrier by block/log order,
+    - commit coverage only after ordered apply completes.
 - Another clean option is per-collection current-state lanes where independent collections can apply in parallel, but any shared contract/order side effects must be proven collection-scoped first.
 - Do not bypass `BackfillExecutionGate` just to make bootstrap faster. That would weaken ownership/order projection correctness.
-
-ASAP risk: no merge blocker found.
 
 ### 11. Collection Live
 
 Current concurrency setting: effectively 1.
 
-Bubbled into main config: no.
+Typed runtime config: no.
 
 Current model:
 
@@ -299,19 +282,17 @@ Current model:
 - For runs without collection extensions, it enqueues final stats recompute directly.
 - For runs with collection extensions, final stats are released by extension artifact terminality instead, so extension-owned traits are included.
 
-Clean concurrency options:
+Scaling boundary:
 
 - No dedicated concurrency is needed. This is a small finalization step.
 - If main-lane concurrency is added later, collection-live remains protected by its step lease and collection/run state checks.
 - The important invariant is transactional finalization after backfill coverage, not throughput.
 
-ASAP risk: no merge blocker found.
-
 ### 12. OpenSea Bootstrap
 
 Current concurrency setting: 1.
 
-Bubbled into main config: no. The OpenSea runtime has page size, retry, stale-start, subscription poll, and rate-limit settings, but no bootstrap concurrency setting.
+Typed runtime config: no. The OpenSea runtime has page size, retry, stale-start, subscription poll, and rate-limit settings, but no bootstrap concurrency setting.
 
 Current model:
 
@@ -323,24 +304,22 @@ Current model:
 - Each REST record is published to the offchain raw queue.
 - When the REST snapshot completes, the source-state store marks missing orders inactive for the run's active order id set, then the collection OpenSea state is marked ready.
 
-Clean concurrency options:
+Scaling boundary:
 
 - A dedicated `OPENSEA_BOOTSTRAP_CONCURRENCY` setting could be added, but only with per-collection snapshot ownership guarantees.
 - Clean requirements:
-  - prevent two OpenSea snapshot runs for the same collection from concurrently marking missing orders inactive,
-  - fence work by latest bootstrap/reconcile run id,
-  - share API rate limiting across concurrent snapshots,
-  - keep OpenSea bootstrap step terminality tied to the correct run,
-  - preserve idempotent raw observation dedupe keys.
+    - prevent two OpenSea snapshot runs for the same collection from concurrently marking missing orders inactive,
+    - fence work by latest bootstrap/reconcile run id,
+    - share API rate limiting across concurrent snapshots,
+    - keep OpenSea bootstrap step terminality tied to the correct run,
+    - preserve idempotent raw observation dedupe keys.
 - Page-level parallelism is not obviously clean because pagination cursors are sequential. The safe first concurrency boundary is collection-level, not page-level.
-
-ASAP risk: no merge blocker found.
 
 ### 13. Metadata Stats Follow-Ups
 
 Current concurrency setting: effectively 1 in the domain worker.
 
-Bubbled into main config: no.
+Typed runtime config: no.
 
 Current model:
 
@@ -349,14 +328,12 @@ Current model:
 - Non-extension collection-live completion enqueues final stats recompute directly.
 - Domain worker queues are subscribed with `maxInFlight: 1` for metadata stats processing.
 
-Clean concurrency options:
+Scaling boundary:
 
 - If stats recompute becomes expensive, add per-collection stats leases or versioned recompute rows before raising worker concurrency.
 - Recomputes for different collections can be parallel only when each job owns a distinct collection and final writes are fenced by collection/reason/run version.
 
-ASAP risk: no merge blocker found.
-
-## Design Assessment
+## Current Concurrency Model
 
 The pipeline already has three different concurrency tiers:
 
@@ -368,11 +345,22 @@ That split is coherent as long as the process-level concurrency is only enabled 
 
 The strongest next concurrency improvement would be ownership task leases plus a typed `BOOTSTRAP_OWNERSHIP_CONCURRENCY` setting. The strongest large-scale enumeration improvement would be persisted enumeration page tasks rather than a larger in-memory `tokenByIndex` loop.
 
-## Merge-Readiness Notes
+## Current Limits and Future Direction
 
-No ASAP correctness blocker was found in this audit. The immediate documentation gaps were:
+- Ownership is the clearest throughput limit. It needs per-task claims, lease
+  renewal, fenced settlement, and a typed concurrency setting before parallel
+  `ownerOf` calls are safe.
+- Enumerable discovery is one long-running step. Persisted enumeration page
+  tasks would improve crash recovery and avoid retaining the full token list in
+  memory before metadata seeding.
+- Metadata and image caching are bounded local pools, not multi-process task
+  pools. Additional queue consumers would duplicate selection unless those task
+  tables gain claim/lease semantics.
+- OpenSea bootstrap is serialized at the collection snapshot boundary. Safe
+  collection-level concurrency must fence missing-order reconciliation by the
+  owning run and share API rate limits.
+- Current-state catch-up remains ordered. Parallel fetch is possible only if a
+  later ordered per-collection apply barrier preserves projection semantics.
 
-- `docs/indexer/01-config-and-env.md` listed stale `BACKFILL_BATCH_SIZE=50` while manifest/generated defaults use `10`.
-- `docs/indexer/01-config-and-env.md` omitted `BOOTSTRAP_METADATA_BATCH_SIZE` and `BOOTSTRAP_METADATA_CONCURRENCY`.
-
-Those gaps were fixed alongside this audit document so the config docs match the branch.
+The [unified backlog](../planning/01-unified-backlog.md) owns priority for these
+directions; this document owns the invariants any implementation must preserve.

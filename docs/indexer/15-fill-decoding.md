@@ -357,7 +357,7 @@ Fixture tests should cover:
 
 Use `scripts/dump-tx.js` to capture transaction + receipt + block data for new fixtures.
 
-## Current Known Limits
+## Current Limitations
 
 - No transaction traces are used.
 - Criteria-based Seaport NFT items are skipped until criteria resolution is implemented.
@@ -366,3 +366,7 @@ Use `scripts/dump-tx.js` to capture transaction + receipt + block data for new f
 - Router payment-path details are not persisted as first-class context yet.
 - Financing context such as loan emission/repayment is not modeled in `fills` yet.
 - Blur methods not listed above are not decoded yet.
+- Partial order quantity progression and marketplace/royalty fee
+  classification are not persisted beside raw fills.
+- Routed or delegate-called Blur execution that cannot be attributed from the
+  transaction input and receipt logs remains outside the receipt-only decoder.

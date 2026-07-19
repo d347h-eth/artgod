@@ -18,10 +18,12 @@ Queue names are defined in `indexer/src/domain/queues.ts`:
 - `orders-upsert`
 - `order-updates-by-maker`
 - `order-updates-by-id`
+- `activity-upsert`
 - `collection-extension-artifacts`
 - `token-image-cache`
 - `metadata-domain`
 - `metadata-refresh`
+- `metadata-stats`
 - `activity-domain`
 - `dead-letter`
 
@@ -143,9 +145,12 @@ bootstrap catch-up, and realtime processing use `current_state`.
     - `reorg.block-check`
 
 - Domain jobs (`indexer/src/domain/domain-jobs.ts`):
-- `domain.orders.sync`
-- `domain.metadata.sync`
-- `domain.activity.sync`
+    - `domain.orders.sync`
+    - `domain.metadata.sync`
+    - `domain.metadata.refresh`
+    - `domain.metadata.refresh-range`
+    - `domain.metadata.stats-recompute`
+    - `domain.activity.sync`
 
 Domain sync payloads also carry an explicit projection contract:
 
@@ -178,6 +183,19 @@ Order update jobs are emitted by the sync worker whenever maker state changes (N
 - Offchain ingestion jobs (`indexer/src/domain/offchain-jobs.ts`):
     - `offchain.order.raw`
 
+- Activity projection jobs (`indexer/src/domain/activity-jobs.ts`):
+    - `activities.upsert`
+
+Offchain stream dispatch publishes `activities.upsert` to `activity-upsert`.
+The domain worker consumes it separately from historical-safe
+`domain.activity.sync` so source-event idempotency and open-row coalescing have a
+dedicated boundary.
+
+Metadata stats recompute jobs use `domain.metadata.stats-recompute` on
+`metadata-stats`. Bootstrap finalization, canonical metadata refresh follow-ups,
+and extension-artifact terminality publish this job only after their owning
+state is committed.
+
 `offchain.order.raw` jobs are produced by the OpenSea stream/bootstrap/reconcile workers and consumed by the offchain ingest worker. These payloads carry:
 
 - `channel` (`stream`, `snapshot`, `reconcile`)
@@ -201,7 +219,9 @@ Order update jobs are emitted by the sync worker whenever maker state changes (N
     - `token-image-cache.refresh-token`
     - `token-image-cache.refresh-collection`
 
-`bootstrap.collection.start` jobs are produced by future API/UI actions and consumed by the collection bootstrap worker runtime.
+`bootstrap.collection.start` jobs are produced by the backend after it creates a
+durable run and planned steps. Admin creates that run through the bootstrap API;
+the bootstrap worker consumes the wakeup and claims persisted work.
 `bootstrap.collection.metadata-process` jobs drain durable metadata snapshot tasks from `bootstrap_metadata_snapshot_tasks`.
 `bootstrap.collection.ownership-process` jobs drain durable ownership snapshot tasks from `bootstrap_ownership_snapshot_tasks`; ownership terminal failures fail collection bootstrap because ownership is required for liveness.
 `bootstrap.collection.image-cache-process` jobs drain durable image-cache tasks from `bootstrap_image_cache_tasks` on the separate `collection-bootstrap-image-cache` queue so slow remote media hosts do not block ownership/backfill/live progress.
@@ -243,4 +263,19 @@ Collection extension job production/consumption:
     - produced by `bootstrap-worker` and `domain-worker`
     - consumed by `collection-extension-worker`
 
-These jobs are produced by the scheduler-worker, bootstrap worker, sync worker, domain worker, OpenSea workers, offchain ingest worker, and future API/UI actions, and consumed by the sync, reorg, domain, bootstrap, collection-extension, offchain ingest, and OpenSea runtimes.
+These jobs are produced by backend use cases and the scheduler, bootstrap, sync,
+domain, collection-extension, OpenSea, and offchain-ingest runtimes. They are
+consumed by the sync, reorg, domain, bootstrap, collection-extension,
+offchain-ingest, and OpenSea runtimes.
+
+## Current Limits and Future Direction
+
+- Retry policy is bounded in the queue adapter and in several domain-owned task
+  lifecycles, but it is not one universal policy. A future unification must keep
+  domain terminality and operator recovery explicit rather than hiding them
+  behind broker redelivery.
+- Most consumers handle one envelope at a time. Queue-specific batch pulls are a
+  future throughput tool only where handler idempotency, ordering, and ack
+  semantics remain clear.
+- Backlog metrics and the read-only queue inspector expose pressure; there is no
+  automatic queue-depth admission policy yet.

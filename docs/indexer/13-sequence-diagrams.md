@@ -35,39 +35,58 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     autonumber
+    actor Admin
+    participant API as Backend API
     participant Bootstrap as Bootstrap Worker
-    participant RPC as RPC Node
     participant DB as SQLite
     participant NATS as NATS JetStream
+    participant RPC as RPC / metadata HTTP
     participant Ext as Collection Extension Worker
     participant OSBoot as OpenSea Bootstrap Worker
-    participant OSAPI as OpenSea REST API
     participant Offchain as Offchain Ingest Worker
     participant Domain as Domain Worker
 
+    Admin->>API: Probe and approve collection scope
+    API->>DB: Create run + planned durable steps
+    API->>NATS: Publish bootstrap wakeup
     NATS-->>Bootstrap: bootstrap.collection.start
-    Bootstrap->>RPC: Read head
-    Bootstrap->>DB: Set collection bootstrapping + anchor + install requested embedded extension
-    Bootstrap->>RPC: Metadata snapshot
-    Bootstrap->>DB: Persist metadata
+
+    loop Main and image-cache lane polls
+        Bootstrap->>DB: Reconcile dependencies + claim step lease
+        alt Anchor / enumeration
+            Bootstrap->>RPC: Read anchor + resolve approved token scope
+            Bootstrap->>DB: Persist anchor, extension install, task seeds
+        else Metadata / ownership
+            Bootstrap->>RPC: Fetch canonical metadata / ownerOf at anchor
+            Bootstrap->>DB: Settle durable tasks + progress
+        else Image cache
+            Bootstrap->>RPC: Fetch bounded source media
+            Bootstrap->>DB: Settle cache task + file record
+        else Backfill
+            Bootstrap->>DB: Mark delegated step running
+            Bootstrap->>NATS: Publish collection-scoped catch-up
+        else Collection live
+            Bootstrap->>DB: Finalize live state + clean successful temporary rows
+        end
+    end
+
+    Bootstrap->>DB: Seed/observe extension artifact tasks
     Bootstrap->>NATS: Publish collection-extension.refresh-artifacts
     NATS-->>Ext: collection-extension.refresh-artifacts
-    Ext->>RPC: Read collection-specific onchain artifact inputs
-    Ext->>DB: Upsert token_extension_artifacts
-    Bootstrap->>RPC: Ownership snapshot
-    Bootstrap->>DB: Persist snapshot + balances
-    Bootstrap->>NATS: Publish short backfill job
-    Bootstrap->>NATS: Publish opensea.collection.bootstrap job
+    Ext->>DB: Claim per-task lease
+    Ext->>RPC: Read/render collection-owned artifacts
+    Ext->>DB: Fenced artifact/trait write + task settlement
 
+    Bootstrap->>NATS: Publish opensea.collection.bootstrap job
     NATS-->>OSBoot: OpenSea bootstrap job
-    OSBoot->>DB: Load persisted OpenSea slug + mark snapshot status
-    OSBoot->>OSAPI: Fetch full orderbook pages
+    OSBoot->>DB: Fence collection snapshot run
+    OSBoot->>RPC: Fetch OpenSea listing/offer pages
     OSBoot->>NATS: Publish offchain.order.raw snapshot jobs
-    OSBoot->>DB: Complete orderbook run + mark OpenSea ready
+    OSBoot->>DB: Mark missing source orders inactive + ready
 
     NATS-->>Offchain: offchain.order.raw
     Offchain->>DB: Optionally record raw observation
-    Offchain->>NATS: Publish orders.upsert / order updates / metadata refresh
+    Offchain->>NATS: Publish order, activity, and metadata work
 
     NATS-->>Domain: orders.upsert
     Domain->>DB: Persist canonical order
@@ -93,14 +112,20 @@ sequenceDiagram
     NATS-->>Domain: metadata refresh job
     Domain->>RPC: Resolve tokenURI
     Domain->>MetaHTTP: Fetch / parse metadata
-    Domain->>DB: Upsert token_metadata + normalized attributes
-    Domain->>NATS: Publish collection-extension.refresh-artifacts
+    Domain->>DB: Commit canonical metadata + follow-up run + outbox
+    Domain->>NATS: Drain collection-extension.refresh-artifacts outbox
 
     NATS-->>Ext: collection-extension.refresh-artifacts
-    Ext->>DB: Read enabled install + normalized token attributes
+    Ext->>DB: Claim follow-up task + read normalized attributes
     Ext->>RPC: Read collection-specific artifact inputs
     Ext->>MetaHTTP: Parse/fetch extension metadata if needed
-    Ext->>DB: Upsert token_extension_artifacts
+    Ext->>DB: Fenced artifact/trait write + terminal task state
+    alt Last required extension task is terminal
+        Ext->>DB: Finalize follow-up + insert stats outbox row
+        Ext->>NATS: Drain metadata stats recompute outbox
+        NATS-->>Domain: domain.metadata.stats-recompute
+        Domain->>DB: Replace collection trait stats transactionally
+    end
 ```
 
 ## OpenSea Stream + Reconcile

@@ -81,6 +81,19 @@ The indexer reads these variables from the root `.env`:
 - `BOOTSTRAP_METADATA_BATCH_SIZE` (default: 200)
 - `BOOTSTRAP_METADATA_CONCURRENCY` (default: 8)
     - Controls how many bootstrap metadata tasks a leased metadata step may process concurrently inside the bootstrap worker.
+- `BOOTSTRAP_METADATA_PROCESS_POLL_MS` (default: 5000)
+    - Poll cadence while a metadata step has durable work to drain.
+- `BOOTSTRAP_SCHEDULER_POLL_MIN_MS` (default: 250)
+- `BOOTSTRAP_SCHEDULER_POLL_MAX_MS` (default: 5000)
+    - Bounds the durable bootstrap lane poller between ready-work and idle waits.
+- `BOOTSTRAP_STEP_LEASE_MS` (default: 60000)
+    - Lease duration for one claimed bootstrap run step.
+- `BOOTSTRAP_STEP_PROGRESS_STALE_MS` (default: 1800000)
+    - No-progress interval after which a claimed step is eligible for recovery.
+- `BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS` (local/desktop default: 3; deploy default: 5)
+- `BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS` (default: 100)
+- `BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS` (local/desktop default: 1000; deploy default: 3000)
+    - Shared bounded retry policy for bootstrap metadata, ownership, and image-cache tasks.
 - `BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE` (default: 50)
 - `BOOTSTRAP_IMAGE_CACHE_CONCURRENCY` (default: 4)
 - `BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES` (default: 26214400)
@@ -117,7 +130,7 @@ The OpenSea workers use a separate config loader (`indexer/src/config/opensea.ts
 - `OPENSEA_RECONCILE_INTERVAL_MS` (default: `900000`)
 - `OPENSEA_STALE_START_THRESHOLD_MS` (default: `1800000`)
 - `OPENSEA_STREAM_SUBSCRIPTION_POLL_MS` (default: `5000`)
-- `OPENSEA_HTTP_RETRY_MAX_ATTEMPTS` (default: `3`)
+- `OPENSEA_HTTP_RETRY_MAX_ATTEMPTS` (default: `5`)
 - `OPENSEA_HTTP_RETRY_BASE_DELAY_MS` (default: `500`)
 - `OPENSEA_HTTP_RETRY_MAX_DELAY_MS` (default: `10000`)
 - `OPENSEA_HTTP_RETRY_JITTER_RATIO` (default: `0.2`)
@@ -153,6 +166,14 @@ COMMON_HTTP_FETCH_RETRY_MAX_DELAY_MS=2000
 BOOTSTRAP_SNAPSHOT_BATCH_SIZE=200
 BOOTSTRAP_METADATA_BATCH_SIZE=200
 BOOTSTRAP_METADATA_CONCURRENCY=8
+BOOTSTRAP_METADATA_PROCESS_POLL_MS=5000
+BOOTSTRAP_SCHEDULER_POLL_MIN_MS=250
+BOOTSTRAP_SCHEDULER_POLL_MAX_MS=5000
+BOOTSTRAP_STEP_LEASE_MS=60000
+BOOTSTRAP_STEP_PROGRESS_STALE_MS=1800000
+BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS=3
+BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS=100
+BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS=1000
 BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE=50
 BOOTSTRAP_IMAGE_CACHE_CONCURRENCY=4
 BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES=26214400
@@ -165,7 +186,7 @@ OPENSEA_SNAPSHOT_PAGE_SIZE=100
 OPENSEA_RECONCILE_INTERVAL_MS=900000
 OPENSEA_STALE_START_THRESHOLD_MS=1800000
 OPENSEA_STREAM_SUBSCRIPTION_POLL_MS=5000
-OPENSEA_HTTP_RETRY_MAX_ATTEMPTS=3
+OPENSEA_HTTP_RETRY_MAX_ATTEMPTS=5
 OPENSEA_HTTP_RETRY_BASE_DELAY_MS=500
 OPENSEA_HTTP_RETRY_MAX_DELAY_MS=10000
 OPENSEA_HTTP_RETRY_JITTER_RATIO=0.2
@@ -218,3 +239,15 @@ SMOKE_CHAIN_ID=1
 - The default token-image cache directory is derived from this path, so database and local media can be moved together unless `COMMON_MEDIA_CACHE_DIR` overrides it.
 
 See `shared/database/db.ts` for details.
+
+## Current Limits and Future Direction
+
+- Well-known WETH and Seaport addresses are typed settings today. A future
+  canonical address registry would need an explicit chain-and-role domain
+  contract and migration; it must not become another scattered environment read.
+- Bootstrap metadata and image-cache concurrency are local pools inside one
+  leased step. Raising process count is not equivalent to raising these values;
+  see [bootstrap execution](17-bootstrap-execution-and-concurrency.md).
+- The settings manifest owns defaults and help text. Add or change a setting in
+  `config/settings.manifest.toml`, regenerate artifacts with
+  `yarn config:generate`, and update this reference in the same change.

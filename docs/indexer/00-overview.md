@@ -192,7 +192,7 @@ Collection-extension artifact completion is similarly eventual:
 - non-bootstrap collection stats recompute is guarded by the metadata-refresh follow-up run so normalized canonical and extension-owned rows are covered together
 - backend overrides converge once the artifact refresh worker completes
 
-## Current Limits and Planned Evolution
+## Current Limits and Future Direction
 
 Collection extensions intentionally ship as a narrow first pass:
 
@@ -214,4 +214,9 @@ The most important directories:
 - `database/migrations/`: SQLite schema
 - `indexer/tests/`: unit, DB-backed, and smoke tests
 
-See `docs/indexer/14-collection-bootstrap.md` for the per-collection bootstrap sequence, `docs/indexer/15-fill-decoding.md` for sale/fill decoding semantics, `docs/indexer/16-blockspace-exploration.md` for the blockspace explorer and public cache, `docs/indexer/17-bootstrap-concurrency-audit.md` for current bootstrap concurrency boundaries, and `docs/indexer/13-sequence-diagrams.md` for the key end-to-end flows.
+See [collection bootstrap](14-collection-bootstrap.md) for the per-collection
+pipeline, [fill decoding](15-fill-decoding.md) for sale semantics,
+[blockspace exploration](16-blockspace-exploration.md) for coverage views and
+the public cache, [bootstrap execution](17-bootstrap-execution-and-concurrency.md)
+for concurrency boundaries, and [sequence diagrams](13-sequence-diagrams.md)
+for the key end-to-end flows.

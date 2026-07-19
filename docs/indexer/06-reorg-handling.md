@@ -66,3 +66,10 @@ The backfill jobs use the same `events-sync-backfill` queue as manual backfills 
 
 - The worker never schedules ranges that start at or below block 0.
 - If a fork point calculation returns a negative value, rollback is skipped with a warning.
+
+## Current Limits and Future Direction
+
+Block-check cadence is scheduler-owned. Checks are not yet persisted beside the
+block write or separated into delayed short-, medium-, and long-horizon tiers.
+Any future change must retain ordered fork discovery, bounded rollback depth,
+and idempotent resync through the existing backfill queue.

@@ -201,8 +201,68 @@ counter triggers. Current-state repair backfills keep the global fanout.
 
 The collection bootstrap worker also uses the sync pipeline for short-range bootstrap backfill. These bootstrap-published backfill jobs are collection-scoped so completion checks only track the intended collection.
 
-## Notes and Current Limitations
+## Current Limits and Future Direction
 
 - Onchain order creation capture is still limited; the fully implemented orderbook path today is the separate OpenSea offchain pipeline (stream + snapshot/reconcile).
 - ERC1155 balances are derived from deltas only after the bootstrap anchor. Historical backfill before the anchor enriches raw history but intentionally does not rewrite current balances.
 - Collection-extension sync hooks are intentionally narrow in v1. They can request extra logs and emit metadata refresh events/ranges, but they do not yet publish broader domain actions.
+- Zero-log responses are not blanket-retried. A future retry must use a targeted
+  provider/eventual-consistency predicate so genuinely empty ranges do not loop.
+- Transaction receipts are fetched conservatively. Provider-capability-gated
+  batch or full-block transaction modes remain future backfill optimizations.
+- `nft_balances` writes are transactional but do not use a separate historical
+  write-buffer lane.
+
+### Large Manual Backfills
+
+The backend currently validates a requested range, splits it into configured
+chunks, and publishes those chunks directly. That is appropriate for bounded
+operator ranges. It is not a durable run manager for millions of blocks: there
+is no persisted parent run, deterministic feeder cursor, pause/resume state, or
+bounded JetStream admission loop.
+
+The current large-range risks are explicit:
+
+- the request remains open while the complete fan-out is published;
+- a mid-publish failure leaves no durable record of which prefix was accepted;
+- nonce-bearing manual job ids make a repeated request a new fan-out rather
+  than an idempotent resume;
+- JetStream retention and maximum age, not an application run model, determine
+  how long unfinished intent survives;
+- small queued ranges and a deliberately serial worker produce excessive queue
+  overhead for multi-year history.
+
+If that scale is required, retain one historical-sync path but put a durable run
+model in front of it:
+
+1. The scheduling use case commits a parent run and its intended chain,
+   optional collection scope, block range, logical job size, status, feeder
+   cursor, progress counts, timestamps, and last error, then returns quickly.
+2. Durable run-job rows own each range window and its publish/execution state.
+3. A bounded feeder publishes only a configured amount of pending work, using a
+   deterministic identity derived from the run and exact block window.
+4. SQLite state is committed before the broker wake-up; a periodic recovery scan
+   republishes pending work after a missed publish or restart.
+5. Worker completion advances durable progress and supports explicit pause,
+   cancel, resume, and retry-failed operations without duplicating completed
+   windows.
+
+Logical execution job size must remain separate from the RPC adapter's internal
+`LOG_CHUNK_SIZE`, so large jobs can reduce broker fan-out while each provider
+request stays within its limits. The scheduling surface should show the
+estimated job count and require explicit confirmation above a configured
+threshold. Post-anchor current-state application remains ordered even if
+facts-only historical work later gains safe parallelism.
+
+Before implementation, decide which runtime owns the feeder, whether the first
+model supports both chain-wide and collection-scoped runs, the default admitted
+window, and run-history retention. The existing `BackfillSyncPayload` source and
+manual order-maintenance policy remain authoritative throughout.
+
+The current Admin action always schedules historical enrichment. A later
+operator surface should expose that policy in run/status output rather than
+making operators infer it. If ArtGod adds an explicit current-state repair mode,
+it should remain a separate typed choice and guard Seaport counter fan-out by
+the presence of local Seaport orders, not by the buy-side bidder index. A direct
+collection-, maker-, or orderbook-scoped command to revalidate current local
+orders is preferable to replaying months of historical triggers for repair.

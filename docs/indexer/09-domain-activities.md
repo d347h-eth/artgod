@@ -154,3 +154,12 @@ not change the truthful activity rows stored in `activities`. Collection listing
 collapse rows are anchored to the first raw listing within each token, maker,
 currency, and UTC-day group so later same-day relists do not keep moving the
 group to the top of the feed.
+
+## Current Limits and Future Direction
+
+- Holder totals are queried from current balances; there is no separately
+  scheduled collection owner-count projection.
+- Activity projection is intentionally facts-first. Search-specific external
+  indexing or analytics fan-out is not part of the local public-alpha runtime.
+- Presentation collapsing belongs to read models and must never rewrite or
+  erase the underlying activity rows.

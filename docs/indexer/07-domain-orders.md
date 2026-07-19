@@ -146,6 +146,32 @@ The orders domain distinguishes source scope from local token-set linkage.
 
 The key rule is: local token-set resolution failure or mismatch must not drop otherwise valid source orders.
 
+### Token-set materialization
+
+The token-set registry materializes collection and attribute schemas from the
+canonical local collection state:
+
+- attribute key/value pairs are trimmed, deduplicated, and sorted before the
+  normalized schema JSON is hashed with SHA-256;
+- attribute schemas resolve membership with AND semantics across canonical
+  metadata traits only; extension-owned browse traits do not silently change
+  marketplace criteria membership;
+- collection schemas resolve membership from the collection's canonical
+  balance rows;
+- only canonical decimal token IDs inside the `uint256` range can become
+  Seaport criteria leaves;
+- each leaf is the Keccak-256 hash of its 32-byte token ID, leaves and pairs
+  sort deterministically, and an odd leaf is promoted unchanged;
+- `token_sets` stores the normalized schema, schema hash, Merkle root, and
+  `list:<contract>:<root>` identity; `token_sets_tokens` stores membership
+  under both token-set identity and schema hash.
+
+An empty local set is `unresolved`. For an attribute offer, a computed root
+that differs from the source criteria root is `mismatch`. Only a matching
+resolution attaches `token_set_id` and `token_set_schema_hash` to the order.
+Collection offers retain their protocol wildcard semantics independently of a
+non-zero local collection-set root.
+
 ## Order Update Queues
 
 ### `orders.update-by-id`
@@ -195,9 +221,17 @@ WETH transfer/approval logs can trigger maker updates, but to avoid queue spam t
 - if the index is not ready or empty, WETH-triggered maker updates are not emitted
 - when non-empty, only indexed makers receive WETH-triggered updates
 
-## Current Limits
+## Current Limits and Future Direction
 
 - `domain.orders.sync` is still a placeholder.
 - Validation semantics are intentionally split between source visibility and protocol executability.
 - Local time is still used for active/expired checks.
 - Raw audit payloads are intentionally not part of runtime decision-making outside the trading bid-book display exception.
+- Partial fill quantity progression is not modeled; fills can make an order
+  terminal, but the order row does not expose a remaining-quantity state machine.
+- Criteria-root parsing and local token-set materialization still need a
+  deterministic repair path for unusual numeric payload forms and incomplete
+  metadata coverage. Source orders remain visible with `unresolved` or
+  `mismatch` linkage instead of being silently dropped.
+- Maker revalidation watches WETH `Transfer` and `Approval`; native WETH
+  `Deposit` and `Withdrawal` triggers are not decoded separately yet.

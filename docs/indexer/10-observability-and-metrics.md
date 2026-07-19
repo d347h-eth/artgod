@@ -541,16 +541,60 @@ What is still missing for complete linking:
 - even though `pyroscope.profile.id` is emitted on spans and `wrapWithLabels` is used, `profile_id` is not yet consistently queryable/indexed as a first-class label in Pyroscope series for this runtime path.
 - result: profile navigation is currently best-effort at service/worker/chain granularity, not strict one-span isolation.
 
-## Remaining Work
+## Current Limits and Future Direction
 
 To reach full trace-profile correlation:
 
-- validate and enforce `profile_id` presence as an indexed/queryable label in stored Pyroscope series for Node runtime profiles.
-- once confirmed, re-enable strict `profile_id` mapping in Tempo `tracesToProfiles` tags (currently omitted to avoid no-result jumps).
-- add targeted integration checks that verify:
-    - span has `pyroscope.profile.id`
-    - matching Pyroscope series exists with same label/value
-    - Grafana Related Profiles returns non-empty result for that span.
+- validate and enforce `profile_id` presence as an indexed/queryable label in
+  stored Pyroscope series for Node runtime profiles;
+- once confirmed, re-enable strict `profile_id` mapping in Tempo
+  `tracesToProfiles` tags, which is currently omitted to avoid no-result jumps;
+- add targeted integration checks for the span attribute, matching profile
+  series, and non-empty Grafana Related Profiles result.
+
+### Retained Exact-Linking Design
+
+The required identity chain is exact: the span carries
+`pyroscope.profile.id=<spanId>`, the corresponding Pyroscope series carries
+`profile_id=<spanId>`, and Tempo maps the former to the latter. The current
+Node SDK's `wrapWithLabels` data is encoded on profile samples, while the ingest
+request's series identity is built from application-level tags. That mismatch,
+not the Tempo attribute itself, is the unresolved boundary.
+
+The retained implementation direction is an opt-in SDK or narrowly maintained
+fork feature for wall profiles:
+
+1. During flush, group samples by an allowed profile-id sample label.
+2. Export each bounded group as a derived profile with per-export series tags.
+3. Optionally retain the aggregate service profile for broad exploration.
+4. Leave heap profiles aggregate-only.
+
+The feature must be cheap when disabled and enforce a hex-only identifier
+policy, a maximum number of derived series per flush, and explicit cap/drop logs
+and metrics. Stable service, worker, and chain labels stay low-cardinality; no
+secrets, wallet data, RPC credentials, raw URLs, or query values may enter any
+profile label.
+
+End-to-end acceptance requires all of the following for the same span and time
+window:
+
+- Pyroscope label discovery includes `profile_id`;
+- a series query returns the matching value;
+- a stacktrace query scoped to that value returns samples;
+- Grafana Related Profiles opens a non-empty result;
+- aggregate service exploration still works;
+- disabled mode remains behaviorally and operationally unchanged.
+
+Cardinality, upload overhead, and dependency-fork drift remain the main risks.
+Implementation must explicitly decide whether to keep aggregate uploads, the
+per-flush cap, which span classes are eligible, and which runtimes enter the
+first rollout.
+
+Queue depth and backlog age are observable, but the runtime does not yet apply
+automatic admission control from those signals. Profile correlation work must
+preserve the current low-cardinality service/worker/chain labels and must not
+put secrets, wallet data, RPC credentials, raw URLs, or query values into
+telemetry.
 
 ## Quick Verification Checklist
 
