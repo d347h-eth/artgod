@@ -11,7 +11,10 @@ import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-me
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 import { TERRAFORMS_EXTENSION_KEY } from '@artgod/shared/extensions/terraforms';
-import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from '@artgod/shared/bootstrap/opensea-slug-probe';
+import {
+	OPENSEA_COLLECTION_SLUG_PROBE_STATUS,
+	resolveOpenSeaTokenRangeBoundaryIds
+} from '@artgod/shared/opensea/collection-slug-probe';
 import {
 	BOOTSTRAP_PROBE_E2E_CHAIN,
 	BOOTSTRAP_PROBE_E2E_ROUTE_PATH,
@@ -36,6 +39,19 @@ export const BOOTSTRAP_PROBE_OPENSEA_SLUGS = {
 	EnumerableOnchainSvg: 'terraforms',
 	NeedsTokenStart: 'needs-token-start',
 	SharedManualScope: 'shared-manual-scope'
+} as const;
+
+const BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_START_TOKEN_ID = '0';
+const BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_TOTAL_SUPPLY = 940;
+
+// Manual range used to prove shared-contract OpenSea identity in the browser harness.
+export const BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE = {
+	startTokenId: BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_START_TOKEN_ID,
+	totalSupply: BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_TOTAL_SUPPLY,
+	verificationTokenIds: resolveOpenSeaTokenRangeBoundaryIds({
+		startTokenId: BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_START_TOKEN_ID,
+		totalSupply: BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_TOTAL_SUPPLY
+	})
 } as const;
 
 // Inline media lets the token card render without depending on remote hosts.
@@ -75,6 +91,7 @@ export type BootstrapProbeApiMock = {
 	probeRequestSampleTokenIds: (string | null)[];
 	openSeaSlugProbeRequests: string[];
 	openSeaSlugVerificationRequests: string[];
+	openSeaSlugProbeVerificationTokenIds: string[][];
 	imageCacheEstimateRequests: unknown[];
 };
 
@@ -87,6 +104,7 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 	const probeRequestSampleTokenIds: (string | null)[] = [];
 	const openSeaSlugProbeRequests: string[] = [];
 	const openSeaSlugVerificationRequests: string[] = [];
+	const openSeaSlugProbeVerificationTokenIds: string[][] = [];
 	const imageCacheEstimateRequests: unknown[] = [];
 
 	await page.route('**/api/**', async (route) => {
@@ -139,17 +157,24 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 				url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.Address) ?? ''
 			);
 			const slug = normalizeSlug(url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.Slug) ?? '');
+			const verificationTokenIds = url.searchParams.getAll(
+				BOOTSTRAP_API_QUERY_PARAM.VerificationTokenId
+			);
+			openSeaSlugProbeVerificationTokenIds.push(verificationTokenIds);
 			if (slug) {
 				openSeaSlugVerificationRequests.push(slug);
 				if (address) {
-					await fulfillJson(route, openSeaSlugProbeResponseForAddressAndSlug(address, slug));
+					await fulfillJson(
+						route,
+						openSeaSlugProbeResponseForAddressAndSlug(address, slug, verificationTokenIds)
+					);
 					return;
 				}
 				await fulfillJson(route, openSeaSlugProbeResponseForSlug(slug));
 				return;
 			}
 			openSeaSlugProbeRequests.push(address);
-			await fulfillJson(route, openSeaSlugProbeResponseForAddress(address));
+			await fulfillJson(route, openSeaSlugProbeResponseForAddress(address, verificationTokenIds));
 			return;
 		}
 
@@ -306,11 +331,15 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 		probeRequestSampleTokenIds,
 		openSeaSlugProbeRequests,
 		openSeaSlugVerificationRequests,
+		openSeaSlugProbeVerificationTokenIds,
 		imageCacheEstimateRequests
 	};
 }
 
-function openSeaSlugProbeResponseForAddress(address: string): BootstrapOpenSeaSlugProbeApiResponse {
+function openSeaSlugProbeResponseForAddress(
+	address: string,
+	verificationTokenIds: readonly string[] = []
+): BootstrapOpenSeaSlugProbeApiResponse {
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable) {
 		return buildOpenSeaSlugProbeResponse({
 			address,
@@ -340,6 +369,19 @@ function openSeaSlugProbeResponseForAddress(address: string): BootstrapOpenSeaSl
 		});
 	}
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope) {
+		if (
+			verificationTokenIds.join(',') !==
+			BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.verificationTokenIds.join(',')
+		) {
+			return {
+				chain: BOOTSTRAP_PROBE_E2E_CHAIN,
+				address,
+				requestedSlug: null,
+				status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Missing,
+				slug: null,
+				reason: 'OpenSea did not return a collection slug for this token scope'
+			};
+		}
 		return buildOpenSeaSlugProbeResponse({
 			address,
 			requestedSlug: null,
@@ -350,7 +392,7 @@ function openSeaSlugProbeResponseForAddress(address: string): BootstrapOpenSeaSl
 		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
 		address,
 		requestedSlug: null,
-		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
+		status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Missing,
 		slug: null,
 		reason: 'OpenSea did not return a collection slug for this contract'
 	};
@@ -358,11 +400,12 @@ function openSeaSlugProbeResponseForAddress(address: string): BootstrapOpenSeaSl
 
 function openSeaSlugProbeResponseForAddressAndSlug(
 	address: string,
-	slug: string
+	slug: string,
+	verificationTokenIds: readonly string[] = []
 ): BootstrapOpenSeaSlugProbeApiResponse {
-	const addressResult = openSeaSlugProbeResponseForAddress(address);
+	const addressResult = openSeaSlugProbeResponseForAddress(address, verificationTokenIds);
 	if (
-		addressResult.status === BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found &&
+		addressResult.status === OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found &&
 		addressResult.slug === slug
 	) {
 		return buildOpenSeaSlugProbeResponse({
@@ -375,7 +418,7 @@ function openSeaSlugProbeResponseForAddressAndSlug(
 		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
 		address,
 		requestedSlug: slug,
-		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
+		status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Missing,
 		slug: null,
 		reason: 'OpenSea did not confirm this collection slug'
 	};
@@ -399,7 +442,7 @@ function openSeaSlugProbeResponseForSlug(slug: string): BootstrapOpenSeaSlugProb
 		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
 		address: null,
 		requestedSlug: slug,
-		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
+		status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Missing,
 		slug: null,
 		reason: 'OpenSea did not confirm this collection slug'
 	};
@@ -414,7 +457,7 @@ function buildOpenSeaSlugProbeResponse(input: {
 		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
 		address: input.address,
 		requestedSlug: input.requestedSlug,
-		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
+		status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found,
 		slug: input.slug,
 		reason: null
 	};
@@ -527,9 +570,7 @@ function probeResponse(
 			firstTokenImageContentType: requestedSampleTokenId ? 'image/png' : null,
 			firstTokenSource: requestedSampleTokenId ? 'candidate_token_uri' : null,
 			tokenUriPayloadBytes: requestedSampleTokenId ? 4096 : null,
-			animationUrl: resolvedAnimationSourceField
-				? BOOTSTRAP_PROBE_MEDIA.DynamicAnimationUrl
-				: null,
+			animationUrl: resolvedAnimationSourceField ? BOOTSTRAP_PROBE_MEDIA.DynamicAnimationUrl : null,
 			animationSourceField: resolvedAnimationSourceField,
 			manualInput: requestedSampleTokenId
 				? {

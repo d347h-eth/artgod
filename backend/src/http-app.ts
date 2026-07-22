@@ -79,6 +79,7 @@ import { GetTokenDetailHttpAdapter } from "./http/handlers/collections/get-token
 import { GetTokenPreviewHttpAdapter } from "./http/handlers/collections/get-token-preview.js";
 import { GetTokenUriHttpAdapter } from "./http/handlers/collections/get-token-uri.js";
 import { PurgeCollectionHttpAdapter } from "./http/handlers/collections/purge-collection.js";
+import { ProbeCollectionOpenSeaSlugHttpAdapter } from "./http/handlers/collections/probe-collection-opensea-slug.js";
 import { StartCollectionBootstrapHttpAdapter } from "./http/handlers/collections/start-collection-bootstrap.js";
 import { StartCollectionOpenSeaSyncHttpAdapter } from "./http/handlers/collections/start-collection-opensea-sync.js";
 import { UpdateCollectionOpenSeaStreamIngestionHttpAdapter } from "./http/handlers/collections/update-collection-opensea-stream-ingestion.js";
@@ -256,6 +257,10 @@ export function createApiApp(
     const listCollectionsAdapter = new ListCollectionsHttpAdapter(
         listCollectionsUseCase,
     );
+    const probeCollectionOpenSeaSlugAdapter =
+        new ProbeCollectionOpenSeaSlugHttpAdapter(
+            startOpenSeaCollectionSyncUseCase,
+        );
     const startCollectionOpenSeaSyncAdapter =
         new StartCollectionOpenSeaSyncHttpAdapter(
             startOpenSeaCollectionSyncUseCase,
@@ -427,6 +432,7 @@ export function createApiApp(
         publicGetBlockspaceRangeSummaryAdapter,
         scheduleBlockspaceBackfillAdapter,
         purgeCollectionAdapter,
+        probeCollectionOpenSeaSlugAdapter,
         startCollectionOpenSeaSyncAdapter,
         updateCollectionOpenSeaStreamIngestionAdapter,
         resolveOwnerRefAdapter,

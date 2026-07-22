@@ -28,7 +28,10 @@ import {
     BOOTSTRAP_RUN_EVENT_CODE,
     serializeBootstrapEnumerationProgressEventPayload,
 } from "@artgod/shared/bootstrap/run-events";
-import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from "@artgod/shared/bootstrap/opensea-slug-probe";
+import {
+    OPENSEA_COLLECTION_SLUG_PROBE_STATUS,
+    resolveOpenSeaTokenRangeBoundaryIds,
+} from "@artgod/shared/opensea/collection-slug-probe";
 import {
     BOOTSTRAP_ENUMERATION_MODE,
     BOOTSTRAP_METADATA_MODE,
@@ -119,6 +122,7 @@ import {
     EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND,
 } from "@artgod/shared/extensions";
 import {
+    buildProbeCollectionOpenSeaSlugPath,
     buildStartCollectionBootstrapPath,
     buildStartCollectionOpenSeaSyncPath,
     buildUpdateCollectionOpenSeaStreamIngestionPath,
@@ -152,6 +156,14 @@ const PREPARED_BOOTSTRAP_COLLECTION_SLUG = "prepared-bootstrap-target";
 const PREPARED_BOOTSTRAP_ADDRESS = "0x3333333333333333333333333333333333333333";
 const OPENSEA_SYNC_COLLECTION_SLUG = "opensea-sync-target";
 const OPENSEA_SYNC_ADDRESS = "0x4444444444444444444444444444444444444444";
+const OPENSEA_SYNC_SCOPE_START_TOKEN_ID = "462000000";
+const OPENSEA_SYNC_SCOPE_TOTAL_SUPPLY = 400;
+const OPENSEA_SYNC_VERIFICATION_TOKEN_IDS = resolveOpenSeaTokenRangeBoundaryIds(
+    {
+        startTokenId: OPENSEA_SYNC_SCOPE_START_TOKEN_ID,
+        totalSupply: OPENSEA_SYNC_SCOPE_TOTAL_SUPPLY,
+    },
+);
 const OPENSEA_SYNC_PREVIOUS_ERROR = "previous OpenSea sync failed";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const WETH_ADDRESS = "0xc02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -836,30 +848,37 @@ beforeAll(async () => {
                 },
             },
         );
+    const openSeaCollectionIdentityVerifier = {
+        async resolveVerifiedSlug(input: {
+            address: string | null;
+            requestedSlug: string | null;
+            verificationTokenIds: readonly string[];
+        }) {
+            openSeaSlugProbeInputs.push(input);
+            if (input.requestedSlug === "terraforms") {
+                return input.address === null ||
+                    input.address === TERRAFORMS_ADDRESS
+                    ? input.requestedSlug
+                    : null;
+            }
+            if (input.requestedSlug === OPENSEA_SYNC_COLLECTION_SLUG) {
+                return input.address === OPENSEA_SYNC_ADDRESS
+                    ? input.requestedSlug
+                    : null;
+            }
+            if (input.address === TERRAFORMS_ADDRESS) return "terraforms";
+            if (input.address === OPENSEA_SYNC_ADDRESS) {
+                return OPENSEA_SYNC_COLLECTION_SLUG;
+            }
+            return null;
+        },
+    };
     const probeOpenSeaCollectionSlugUseCase =
         new probeOpenSeaCollectionSlugUseCaseModule.ProbeOpenSeaCollectionSlugUseCase(
             1,
             ENABLED_OPENSEA_INTEGRATION,
             chainsReadModel,
-            {
-                async resolveCollectionSlugByContract(input: {
-                    address: string;
-                }) {
-                    openSeaSlugProbeInputs.push(input);
-                    return input.address === TERRAFORMS_ADDRESS
-                        ? "terraforms"
-                        : null;
-                },
-                async resolveCollectionBySlug(input: { slug: string }) {
-                    openSeaSlugProbeInputs.push(input);
-                    return input.slug === "terraforms"
-                        ? {
-                              slug: "terraforms",
-                              contractAddresses: [TERRAFORMS_ADDRESS],
-                          }
-                        : null;
-                },
-            },
+            openSeaCollectionIdentityVerifier,
         );
     const getBootstrapStatusUseCase =
         new getBootstrapStatusUseCaseModule.GetBootstrapStatusUseCase(
@@ -901,16 +920,7 @@ beforeAll(async () => {
             chainsReadModel,
             new openSeaCollectionSyncRepositoryModule.SqliteOpenSeaCollectionSyncRepository(),
             openSeaQueueMock,
-            {
-                async resolveCollectionSlugByContract(input: {
-                    address: string;
-                }) {
-                    openSeaSlugProbeInputs.push(input);
-                    return input.address === OPENSEA_SYNC_ADDRESS
-                        ? OPENSEA_SYNC_COLLECTION_SLUG
-                        : null;
-                },
-            },
+            openSeaCollectionIdentityVerifier,
         );
     const updateOpenSeaStreamIngestionUseCase =
         new updateOpenSeaStreamIngestionUseCaseModule.UpdateOpenSeaStreamIngestionUseCase(
@@ -5381,13 +5391,15 @@ describe("backend api routes", () => {
             }),
             address: TERRAFORMS_ADDRESS,
             requestedSlug: null,
-            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
+            status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found,
             slug: "terraforms",
             reason: null,
         });
         expect(openSeaSlugProbeInputs).toEqual([
             {
                 address: TERRAFORMS_ADDRESS,
+                requestedSlug: null,
+                verificationTokenIds: [],
             },
         ]);
 
@@ -5403,13 +5415,15 @@ describe("backend api routes", () => {
             }),
             address: null,
             requestedSlug: "terraforms",
-            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
+            status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found,
             slug: "terraforms",
             reason: null,
         });
         expect(openSeaSlugProbeInputs).toEqual([
             {
-                slug: "terraforms",
+                address: null,
+                requestedSlug: "terraforms",
+                verificationTokenIds: [],
             },
         ]);
 
@@ -5608,6 +5622,65 @@ describe("backend api routes", () => {
         }
     });
 
+    it("resolves a live collection slug from its persisted token-range boundaries", async () => {
+        const collectionId = insertOpenSeaSyncCollectionFixture({
+            openseaSlug: null,
+        });
+        try {
+            openSeaSlugProbeInputs = [];
+            const discovered = await resolve(
+                "GET",
+                buildProbeCollectionOpenSeaSlugPath({
+                    chainRef: DEFAULT_CHAIN_REF,
+                    collectionRef: OPENSEA_SYNC_COLLECTION_SLUG,
+                }),
+            );
+
+            expect(discovered.statusCode).toBe(200);
+            expect(discovered.payload).toEqual({
+                chain: expect.objectContaining({ slug: DEFAULT_CHAIN_REF }),
+                address: OPENSEA_SYNC_ADDRESS,
+                requestedSlug: null,
+                status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found,
+                slug: OPENSEA_SYNC_COLLECTION_SLUG,
+                reason: null,
+            });
+            expect(openSeaSlugProbeInputs).toEqual([
+                {
+                    address: OPENSEA_SYNC_ADDRESS,
+                    requestedSlug: null,
+                    verificationTokenIds: OPENSEA_SYNC_VERIFICATION_TOKEN_IDS,
+                },
+            ]);
+
+            openSeaSlugProbeInputs = [];
+            const verified = await resolve(
+                "GET",
+                buildProbeCollectionOpenSeaSlugPath({
+                    chainRef: DEFAULT_CHAIN_REF,
+                    collectionRef: OPENSEA_SYNC_COLLECTION_SLUG,
+                    slug: OPENSEA_SYNC_COLLECTION_SLUG,
+                }),
+            );
+            expect(verified.statusCode).toBe(200);
+            expect(verified.payload.status).toBe(
+                OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found,
+            );
+            expect(verified.payload.requestedSlug).toBe(
+                OPENSEA_SYNC_COLLECTION_SLUG,
+            );
+            expect(openSeaSlugProbeInputs).toEqual([
+                {
+                    address: OPENSEA_SYNC_ADDRESS,
+                    requestedSlug: OPENSEA_SYNC_COLLECTION_SLUG,
+                    verificationTokenIds: OPENSEA_SYNC_VERIFICATION_TOKEN_IDS,
+                },
+            ]);
+        } finally {
+            deleteCollectionFixture(collectionId);
+        }
+    });
+
     it("rejects OpenSea sync start without a submitted slug", async () => {
         const collectionId = insertOpenSeaSyncCollectionFixture();
         try {
@@ -5700,6 +5773,8 @@ describe("backend api routes", () => {
             expect(openSeaSlugProbeInputs).toEqual([
                 {
                     address: OPENSEA_SYNC_ADDRESS,
+                    requestedSlug: OPENSEA_SYNC_COLLECTION_SLUG,
+                    verificationTokenIds: OPENSEA_SYNC_VERIFICATION_TOKEN_IDS,
                 },
             ]);
             expect(openSeaBootstrapInputs).toEqual([
@@ -5766,6 +5841,8 @@ describe("backend api routes", () => {
             expect(openSeaSlugProbeInputs).toEqual([
                 {
                     address: OPENSEA_SYNC_ADDRESS,
+                    requestedSlug: OPENSEA_SYNC_COLLECTION_SLUG,
+                    verificationTokenIds: OPENSEA_SYNC_VERIFICATION_TOKEN_IDS,
                 },
             ]);
             expect(openSeaBootstrapInputs).toEqual([
@@ -5823,7 +5900,7 @@ describe("backend api routes", () => {
 
             expect(sync.statusCode).toBe(422);
             expect(sync.payload.message).toContain(
-                "OpenSea did not confirm this collection slug",
+                "OpenSea could not verify this collection slug",
             );
             expect(openSeaBootstrapInputs).toEqual([]);
             expect(
@@ -5956,6 +6033,8 @@ describe("backend api routes", () => {
             expect(openSeaSlugProbeInputs).toEqual([
                 {
                     address: OPENSEA_SYNC_ADDRESS,
+                    requestedSlug: OPENSEA_SYNC_COLLECTION_SLUG,
+                    verificationTokenIds: OPENSEA_SYNC_VERIFICATION_TOKEN_IDS,
                 },
             ]);
             expect(openSeaBootstrapInputs).toEqual([
@@ -7634,7 +7713,7 @@ function insertOpenSeaSyncCollectionFixture(
         .prepare(
             "INSERT INTO collections " +
                 "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply, deployment_block, bootstrap_anchor_block, opensea_slug, opensea_status, opensea_last_error, created_at, updated_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
         )
         .run(
             DEFAULT_CHAIN_ID,
@@ -7642,7 +7721,9 @@ function insertOpenSeaSyncCollectionFixture(
             OPENSEA_SYNC_ADDRESS,
             COLLECTION_STANDARD.Erc721,
             COLLECTION_STATUS.Live,
-            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
+            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.TokenRange,
+            OPENSEA_SYNC_SCOPE_START_TOKEN_ID,
+            OPENSEA_SYNC_SCOPE_TOTAL_SUPPLY,
             100,
             200,
             input.openseaSlug === undefined

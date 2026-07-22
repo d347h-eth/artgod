@@ -16,9 +16,11 @@ import {
     type BootstrapRunStatus,
 } from "@artgod/shared/bootstrap/pipeline";
 import {
-    BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS,
-    type BootstrapOpenSeaSlugProbeStatus,
-} from "@artgod/shared/bootstrap/opensea-slug-probe";
+    OPENSEA_COLLECTION_SLUG_PROBE_STATUS,
+    resolveOpenSeaExplicitTokenBoundaryIds,
+    resolveOpenSeaTokenRangeBoundaryIds,
+    type OpenSeaCollectionSlugProbeStatus,
+} from "@artgod/shared/opensea/collection-slug-probe";
 import { type ImageCacheMode } from "@artgod/shared/media/token-image-cache";
 import type { CollectionCustomizationSourceKind } from "@artgod/shared/types";
 import { COLLECTION_STANDARD } from "../domain/collections.js";
@@ -111,6 +113,7 @@ type BootstrapProbeManualInput = {
 
 export type BootstrapProbeApiResponse = {
     firstToken: {
+        tokenId: string | null;
         imageSourceField: string | null;
         animationSourceField: string | null;
     };
@@ -158,7 +161,7 @@ export type BootstrapRunCreateApiResponse = {
 type BootstrapOpenSeaSlugProbeApiResponse = {
     address: string | null;
     requestedSlug: string | null;
-    status: BootstrapOpenSeaSlugProbeStatus;
+    status: OpenSeaCollectionSlugProbeStatus;
     slug: string | null;
     reason: string | null;
 };
@@ -391,7 +394,11 @@ export async function triggerBootstrapViaApi(
 
     const probe = await fetchBootstrapProbe(input, fetchFn);
     const requestBody = buildBootstrapRunCreateBody(input, probe);
-    await verifyOpenSeaSlug(input, fetchFn);
+    await verifyOpenSeaSlug(
+        input,
+        resolveOpenSeaVerificationTokenIds(requestBody, probe),
+        fetchFn,
+    );
     const csrfToken = await fetchCsrfToken(input.backendOrigin, fetchFn);
     const created = await createBootstrapRun(
         input,
@@ -447,6 +454,7 @@ async function fetchBootstrapProbe(
 
 async function verifyOpenSeaSlug(
     input: BootstrapTriggerResolvedInput,
+    verificationTokenIds: readonly string[],
     fetchFn: FetchLike,
 ): Promise<void> {
     if (!input.openseaSlug) {
@@ -456,6 +464,7 @@ async function verifyOpenSeaSlug(
         chainRef: input.chainRef,
         address: input.address,
         slug: input.openseaSlug,
+        verificationTokenIds,
     });
     const result = await requestJson<BootstrapOpenSeaSlugProbeApiResponse>(
         fetchFn,
@@ -465,7 +474,7 @@ async function verifyOpenSeaSlug(
         },
     );
     if (
-        result.status !== BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found ||
+        result.status !== OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found ||
         result.address !== input.address ||
         result.requestedSlug !== input.openseaSlug ||
         result.slug !== input.openseaSlug
@@ -475,6 +484,23 @@ async function verifyOpenSeaSlug(
             `OpenSea slug verification failed for ${input.openseaSlug}: ${reason}`,
         );
     }
+}
+
+function resolveOpenSeaVerificationTokenIds(
+    requestBody: BootstrapRunCreateBody,
+    probe: BootstrapProbeApiResponse,
+): string[] {
+    const manualInput = requestBody.manualInput;
+    if (manualInput?.mode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds) {
+        return resolveOpenSeaExplicitTokenBoundaryIds(manualInput.tokenIds);
+    }
+    if (manualInput?.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange) {
+        return resolveOpenSeaTokenRangeBoundaryIds({
+            startTokenId: manualInput.startTokenId,
+            totalSupply: manualInput.totalSupply,
+        });
+    }
+    return probe.firstToken.tokenId ? [probe.firstToken.tokenId] : [];
 }
 
 async function fetchCsrfToken(

@@ -13,6 +13,7 @@ export type ProbeOpenSeaCollectionSlugRoute = {
     Querystring: {
         address?: string;
         slug?: string;
+        verification_token_id?: string | string[];
     };
 };
 
@@ -43,8 +44,24 @@ export class ProbeOpenSeaCollectionSlugHttpAdapter {
                 request.query[BOOTSTRAP_API_QUERY_PARAM.Address],
             ),
             slug: optionalString(request.query[BOOTSTRAP_API_QUERY_PARAM.Slug]),
+            verificationTokenIds: optionalStringList(
+                request.query[BOOTSTRAP_API_QUERY_PARAM.VerificationTokenId],
+            ),
         };
     }
+}
+
+function optionalStringList(value: unknown): string[] | undefined {
+    if (value === undefined) return undefined;
+    const values = Array.isArray(value) ? value : [value];
+    return values.map((item) => {
+        if (typeof item !== "string" || !item.trim()) {
+            throw new ReadModelBadRequestError(
+                "query value must be a non-empty string",
+            );
+        }
+        return item.trim();
+    });
 }
 
 function optionalString(value: unknown): string | undefined {

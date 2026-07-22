@@ -23,12 +23,21 @@ import {
 	BOOTSTRAP_PROBE_CONTRACTS,
 	BOOTSTRAP_PROBE_MEDIA,
 	BOOTSTRAP_PROBE_OPENSEA_SLUGS,
+	BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE,
 	installBootstrapProbeApiMock
 } from './helpers/bootstrap-probe-api';
 import {
 	BOOTSTRAP_RUN_DETAIL_E2E_ROUTE_PATH,
 	installBootstrapRunDetailApiMock
 } from './helpers/bootstrap-run-detail-api';
+import {
+	COLLECTION_OPENSEA_SYNC_E2E_ROUTE_PATH,
+	installCollectionOpenSeaSyncApiMock
+} from './helpers/collection-opensea-sync-api';
+import {
+	COLLECTION_OPENSEA_SYNC_E2E_COLLECTION,
+	COLLECTION_OPENSEA_SYNC_E2E_SLUG
+} from '../src/lib/e2e/collection-opensea-sync-fixtures';
 import {
 	BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_ACKNOWLEDGEMENT,
 	BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING,
@@ -104,9 +113,9 @@ test.describe('bootstrap contract probe UI', () => {
 			BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
 		);
 		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
-		await expect(formRow(page, 'OpenSea slug').getByRole('button', { name: 'resolve' })).toHaveCount(
-			0
-		);
+		await expect(
+			formRow(page, 'OpenSea slug').getByRole('button', { name: 'resolve' })
+		).toHaveCount(0);
 		await expect(page.getByText('Metadata size (1 token)')).toBeVisible();
 		await expect(page.getByText('Original image source size (1 token)')).toBeVisible();
 		await expect(formRow(page, 'Image cache plan')).toContainText('cache local files once');
@@ -226,9 +235,7 @@ test.describe('bootstrap contract probe UI', () => {
 		await sampleTokenInput.fill('42');
 		await expect(formLabel(page, 'Collection slug')).toHaveCount(0);
 		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toHaveCount(0);
-		await expect(
-			sampleTokenRow.getByRole('button', { name: 'probe again' })
-		).toBeEnabled();
+		await expect(sampleTokenRow.getByRole('button', { name: 'probe again' })).toBeEnabled();
 
 		await sampleTokenInput.press('Enter');
 		await expect(sampleTokenInput).toHaveValue('42');
@@ -441,25 +448,42 @@ test.describe('bootstrap contract probe UI', () => {
 		await expect(
 			statusRow.locator('.bootstrap-probe-status-tooltip .info-tooltip-popup')
 		).toContainText('shared contract');
-		await expect(rowControl(page, 'Manual range start token ID')).toHaveValue('0');
+		await expect(rowControl(page, 'Manual range start token ID')).toHaveValue(
+			BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.startTokenId
+		);
 		await expect(rowControl(page, 'Manual range total supply')).toHaveValue('');
 		await expect(formRow(page, 'Est. source images size (full collection)')).toContainText('-');
 		await expect(
 			formRow(page, 'Cached image max dimension').getByRole('button', { name: 'estimate' })
 		).toBeDisabled();
-		await expect(page.getByText('Manual range total supply must be a positive integer')).toBeVisible();
-		await expect(page.getByText('Set collection scope and supply before estimating image cache')).toBeVisible();
+		await expect(
+			page.getByText('Manual range total supply must be a positive integer')
+		).toBeVisible();
+		await expect(
+			page.getByText('Set collection scope and supply before estimating image cache')
+		).toBeVisible();
 		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
 
 		await page.locator(`[data-testid="${TEST_IDS.BootstrapAllowManualEditing}"]`).check();
-		await rowControl(page, 'Manual range total supply').fill('940');
+		await rowControl(page, 'Manual range total supply').fill(
+			String(BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.totalSupply)
+		);
+		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
+		await expect(rowControl(page, 'OpenSea slug')).toHaveValue(
+			BOOTSTRAP_PROBE_OPENSEA_SLUGS.SharedManualScope
+		);
+		await expect
+			.poll(() => api.openSeaSlugProbeVerificationTokenIds.at(-1))
+			.toEqual(BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.verificationTokenIds);
 		await expect(formRow(page, 'Est. source images size (full collection)')).toContainText(
 			'6.21 GB'
 		);
 		await expect(
 			formRow(page, 'Cached image max dimension').getByRole('button', { name: 'estimate' })
 		).toBeEnabled();
-		await expect(page.getByText('Run image cache estimate before queueing bootstrap')).toBeVisible();
+		await expect(
+			page.getByText('Run image cache estimate before queueing bootstrap')
+		).toBeVisible();
 
 		await formRow(page, 'Cached image max dimension')
 			.getByRole('button', { name: 'estimate' })
@@ -470,7 +494,7 @@ test.describe('bootstrap contract probe UI', () => {
 			expect.objectContaining({
 				sampleTokenId: '0',
 				sourceImageBytes: 7088374,
-				totalSupply: '940',
+				totalSupply: String(BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.totalSupply),
 				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
 				maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
 			})
@@ -483,8 +507,8 @@ test.describe('bootstrap contract probe UI', () => {
 			animationSourceField: null,
 			manualInput: {
 				mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
-				startTokenId: '0',
-				totalSupply: 940
+				startTokenId: BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.startTokenId,
+				totalSupply: BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.totalSupply
 			},
 			imageCache: {
 				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
@@ -586,6 +610,57 @@ test.describe('bootstrap run detail UI', () => {
 	});
 });
 
+test.describe('collection OpenSea sync UI', () => {
+	test('resolves and re-verifies a shared-contract collection slug', async ({ page }, testInfo) => {
+		const api = await installCollectionOpenSeaSyncApiMock(page);
+		await page.goto(COLLECTION_OPENSEA_SYNC_E2E_ROUTE_PATH);
+		await page.getByRole('button', { name: 'start opensea sync' }).click();
+
+		const dialog = page.getByRole('dialog', { name: 'start opensea sync' });
+		const slugInput = dialog.locator('input[name="openseaSlug"]');
+		const startButton = dialog.getByRole('button', { name: 'start sync' });
+		await expect(dialog).toBeVisible();
+		await expect(dialog).toContainText(COLLECTION_OPENSEA_SYNC_E2E_COLLECTION.slug);
+		await expect(dialog).toContainText(COLLECTION_OPENSEA_SYNC_E2E_COLLECTION.address);
+		await expect(dialog).toContainText('462000000');
+		await expect(dialog).toContainText('400');
+		await expect(slugInput).toHaveValue(COLLECTION_OPENSEA_SYNC_E2E_SLUG);
+		await expect(dialog).toContainText('resolved');
+		await expect(startButton).toBeEnabled();
+		const resolvedScreenshotPath = testInfo.outputPath('collection-opensea-sync-resolved.png');
+		await page.screenshot({ path: resolvedScreenshotPath, fullPage: true });
+		await testInfo.attach('collection-opensea-sync-resolved.png', {
+			path: resolvedScreenshotPath,
+			contentType: 'image/png'
+		});
+		expect(api.probeSlugs).toEqual([null]);
+
+		await slugInput.fill('sibling-art-blocks-project');
+		await dialog.getByRole('button', { name: 'resolve' }).click();
+		await expect(dialog).toContainText('incorrect');
+		await expect(dialog).toContainText("Check this collection's OpenSea slug, then resolve again");
+		await expect(startButton).toBeDisabled();
+		const incorrectScreenshotPath = testInfo.outputPath('collection-opensea-sync-incorrect.png');
+		await page.screenshot({ path: incorrectScreenshotPath, fullPage: true });
+		await testInfo.attach('collection-opensea-sync-incorrect.png', {
+			path: incorrectScreenshotPath,
+			contentType: 'image/png'
+		});
+
+		await slugInput.fill(COLLECTION_OPENSEA_SYNC_E2E_SLUG);
+		await dialog.getByRole('button', { name: 'resolve' }).click();
+		await expect(dialog).toContainText('resolved');
+		await expect(startButton).toBeEnabled();
+		await startButton.click();
+		await expect.poll(() => api.syncSlugs).toEqual([COLLECTION_OPENSEA_SYNC_E2E_SLUG]);
+		expect(api.probeSlugs).toEqual([
+			null,
+			'sibling-art-blocks-project',
+			COLLECTION_OPENSEA_SYNC_E2E_SLUG
+		]);
+	});
+});
+
 async function openBootstrapProbe(page: Page, address: string): Promise<void> {
 	await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
 	await contractAddressSafetyAcknowledgement(page).check();
@@ -609,9 +684,7 @@ function tokenCard(page: Page, tokenId: string) {
 }
 
 function contractAddressSafetyWarning(page: Page): Locator {
-	return page
-		.getByRole('note')
-		.filter({ hasText: BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING });
+	return page.getByRole('note').filter({ hasText: BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING });
 }
 
 function contractAddressSafetyAcknowledgement(page: Page): Locator {

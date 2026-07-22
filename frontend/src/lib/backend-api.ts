@@ -64,6 +64,7 @@ import {
 	buildProbeBootstrapOpenSeaSlugPath
 } from '@artgod/shared/http/bootstrap-routes';
 import {
+	buildProbeCollectionOpenSeaSlugPath,
 	buildStartCollectionBootstrapPath,
 	buildStartCollectionOpenSeaSyncPath,
 	buildUpdateCollectionOpenSeaStreamIngestionPath
@@ -335,6 +336,18 @@ export async function startCollectionOpenSeaSync(
 		buildStartCollectionOpenSeaSyncPath({ chainRef, collectionRef }),
 		'POST',
 		body
+	);
+}
+
+export async function probeCollectionOpenSeaSlug(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	slug?: string
+): Promise<BootstrapOpenSeaSlugProbeApiResponse> {
+	return requestJson<BootstrapOpenSeaSlugProbeApiResponse>(
+		fetchFn,
+		buildProbeCollectionOpenSeaSlugPath({ chainRef, collectionRef, slug })
 	);
 }
 
@@ -869,6 +882,7 @@ export async function probeBootstrapOpenSeaSlug(
 		| {
 				address: string;
 				slug?: string;
+				verificationTokenIds?: readonly string[];
 		  }
 		| {
 				address?: never;

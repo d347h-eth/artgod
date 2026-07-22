@@ -54,8 +54,11 @@ yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --sam
 ```
 
 When `--opensea-slug` is present, the trigger first asks the backend to verify
-that the contract resolves to that exact OpenSea slug. A missing, disabled, or
-mismatched probe result stops before the CSRF and create-run requests.
+that the OpenSea collection lists the contract and that representative tokens
+from the resolved bootstrap scope belong to that exact slug. It sends the first
+and last token for a range or explicit-token scope, and the probed token for an
+enumerable collection. A missing, disabled, or mismatched result stops before
+the CSRF and create-run requests.
 
 `--sample-token-id` changes only the representative token used by the contract
 probe for metadata fields and storage estimates. It does not define collection
@@ -226,11 +229,15 @@ When OpenSea is disabled (`OPENSEA_INTEGRATION_MODE=disabled` or `auto` with no 
 
 If a collection becomes `live` with a persisted OpenSea slug but without
 `opensea_status = ready`, the collections table exposes `start opensea sync`.
-That follow-up action requires OpenSea integration to be enabled at click time,
-marks the collection OpenSea state `pending`, and enqueues an
-`opensea-bootstrap` job without a bootstrap-run context. The OpenSea worker then
-updates only collection-level OpenSea state, so it can repair a skipped or
-failed OpenSea snapshot after the original bootstrap run has already completed.
+The modal resolves or verifies the slug against the persisted contract and token
+scope. For token-range and explicit-token collections, the backend checks the
+first and last token through OpenSea's NFT endpoint instead of trusting the one
+contract-level slug, which may identify a different project on shared
+contracts. Starting sync repeats that verification before it stores the slug,
+marks the collection OpenSea state `pending`, and enqueues an `opensea-bootstrap`
+job without a bootstrap-run context. The OpenSea worker then updates only
+collection-level OpenSea state, so it can repair a skipped or failed OpenSea
+snapshot after the original bootstrap run has already completed.
 
 ### 9. Mark collection `live`
 

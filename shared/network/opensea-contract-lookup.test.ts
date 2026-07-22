@@ -101,6 +101,50 @@ describe("OpenSeaContractLookupClient", () => {
             }),
         ).resolves.toBeNull();
     });
+
+    it("resolves an NFT's OpenSea collection through its contract and token ID", async () => {
+        const requests: string[] = [];
+        const client = new OpenSeaContractLookupClient(makeConfig(), {
+            fetch: async (input) => {
+                requests.push(String(input));
+                return Response.json({
+                    nft: {
+                        identifier: "462000000",
+                        collection: "Gumbo-By-Mathias-Isaksen",
+                    },
+                });
+            },
+        });
+
+        await expect(
+            client.resolveCollectionByToken({
+                address: CONTRACT_ADDRESS,
+                tokenId: "462000000",
+            }),
+        ).resolves.toEqual({ slug: "gumbo-by-mathias-isaksen" });
+        expect(requests).toEqual([
+            `https://api.opensea.io/api/v2/chain/ethereum/contract/${CONTRACT_ADDRESS}/nfts/462000000`,
+        ]);
+    });
+
+    it("returns null when an OpenSea NFT is not found", async () => {
+        const client = new OpenSeaContractLookupClient(makeConfig(), {
+            fetch: async () =>
+                Response.json(
+                    { errors: ["not found"] },
+                    {
+                        status: 404,
+                    },
+                ),
+        });
+
+        await expect(
+            client.resolveCollectionByToken({
+                address: CONTRACT_ADDRESS,
+                tokenId: "462000000",
+            }),
+        ).resolves.toBeNull();
+    });
 });
 
 function makeConfig() {
