@@ -508,13 +508,49 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/opensea/slug-probe:
+        get:
+            tags: [Collections]
+            summary: Probe or verify a live collection OpenSea slug
+            description: |
+                Loads the collection's persisted contract and token scope, then resolves or verifies
+                its OpenSea slug. Token-range and explicit-token collections are bound to their first
+                and last token IDs, so collections sharing one contract do not inherit an unrelated
+                contract-level slug. Omit `slug` to discover it or provide `slug` to verify an entry.
+            operationId: probeCollectionOpenSeaSlug
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - name: slug
+                  in: query
+                  required: false
+                  schema:
+                      type: string
+            responses:
+                "200":
+                    description: OpenSea slug probe result
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/BootstrapOpenSeaSlugProbeResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/{collection_ref}/opensea/sync:
         post:
             tags: [Collections]
             summary: Start collection OpenSea sync
             description: |
                 Starts or retries the initial OpenSea orderbook sync for a live collection.
-                Pass a slug that has been resolved through the OpenSea slug probe.
+                Pass a slug that has been resolved through the collection OpenSea slug probe.
+                Before persistence or queue publication, the backend repeats the contract and
+                representative-token verification against the collection's persisted scope.
             operationId: startCollectionOpenSeaSync
             security:
                 - csrfHeader: []
@@ -1616,10 +1652,12 @@ paths:
             tags: [Bootstrap]
             summary: Probe or verify OpenSea collection slug
             description: |
-                Resolves the OpenSea collection slug for a standalone contract, verifies an entered
-                OpenSea collection slug, or verifies that an entered collection lists the contract
-                when both `address` and `slug` are provided. This supports collections that share
-                one contract address. OpenSea integration must be enabled.
+                Resolves or verifies an OpenSea collection slug. With `address`, the backend confirms
+                that the OpenSea collection lists the contract. Optional repeated
+                `verification_token_id` values additionally require each representative NFT to
+                resolve to that same slug; pass at most the first and last token IDs. This binds
+                collections that share one contract to their actual token scope.
+                OpenSea integration must be enabled.
                 Returns `disabled` when the backend was started without an active OpenSea API key.
             operationId: probeBootstrapOpenSeaSlug
             parameters:
@@ -1634,6 +1672,18 @@ paths:
                   required: false
                   schema:
                       type: string
+                - name: verification_token_id
+                  in: query
+                  required: false
+                  description: Up to two representative decimal token IDs; requires `address`
+                  schema:
+                      type: array
+                      maxItems: 2
+                      items:
+                          type: string
+                          pattern: "^[0-9]+$"
+                  style: form
+                  explode: true
             responses:
                 "200":
                     description: OpenSea slug probe result
@@ -1645,6 +1695,8 @@ paths:
                     $ref: "#/components/responses/BadRequest"
                 "404":
                     $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
                 "500":
                     $ref: "#/components/responses/InternalError"
 

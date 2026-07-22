@@ -18,6 +18,7 @@ export const BOOTSTRAP_API_QUERY_PARAM = {
     SampleTokenId: "sample_token_id",
     Slug: "slug",
     Standard: "standard",
+    VerificationTokenId: "verification_token_id",
 } as const;
 
 // Builds the backend route used to create a durable collection bootstrap run.
@@ -77,11 +78,13 @@ type ProbeBootstrapOpenSeaSlugPathInput =
           chainRef: string;
           address: string;
           slug?: string;
+          verificationTokenIds?: readonly string[];
       }
     | {
           chainRef: string;
           address?: never;
           slug: string;
+          verificationTokenIds?: never;
       };
 
 // Builds the backend route used to resolve or verify a bootstrap OpenSea slug.
@@ -94,6 +97,9 @@ export function buildProbeBootstrapOpenSeaSlugPath(
     }
     if (input.slug !== undefined) {
         query.set(BOOTSTRAP_API_QUERY_PARAM.Slug, input.slug);
+    }
+    for (const tokenId of input.verificationTokenIds ?? []) {
+        query.append(BOOTSTRAP_API_QUERY_PARAM.VerificationTokenId, tokenId);
     }
     return `${buildBootstrapChainRoute(
         BOOTSTRAP_API_ROUTE_TEMPLATE.ProbeOpenSeaSlug,

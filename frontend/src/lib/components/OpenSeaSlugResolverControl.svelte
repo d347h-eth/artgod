@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from '@artgod/shared/bootstrap/opensea-slug-probe';
+	import { OPENSEA_COLLECTION_SLUG_PROBE_STATUS } from '@artgod/shared/opensea/collection-slug-probe';
 	import type { BootstrapOpenSeaSlugProbeApiResponse } from '$lib/api-types';
-	import { probeBootstrapOpenSeaSlug } from '$lib/backend-api';
+	import { probeBootstrapOpenSeaSlug, probeCollectionOpenSeaSlug } from '$lib/backend-api';
 	import {
 		isBootstrapProbeableAddress,
 		normalizeBootstrapAddress
@@ -25,6 +25,8 @@
 	let {
 		chainSlug,
 		contractAddress,
+		collectionRef = null,
+		verificationTokenIds = [],
 		initialSlug = '',
 		inputName = 'openseaSlug',
 		inputClass = 'bootstrap-control bootstrap-input-slug',
@@ -35,6 +37,8 @@
 	}: {
 		chainSlug: string | null;
 		contractAddress: string | null;
+		collectionRef?: string | null;
+		verificationTokenIds?: readonly string[];
 		initialSlug?: string | null;
 		inputName?: string;
 		inputClass?: string;
@@ -71,9 +75,11 @@
 		const contextKey = [
 			chainSlug ?? '',
 			normalizedContractAddress,
+			collectionRef ?? '',
 			openSeaEnabled ? 'enabled' : 'disabled',
 			String(resetKey),
-			initialSlug ?? ''
+			initialSlug ?? '',
+			verificationTokenIds.join(',')
 		].join('|');
 		if (contextKey === lastContextKey) return;
 		lastContextKey = contextKey;
@@ -83,7 +89,7 @@
 		slugWasAutoFilled = false;
 		resetProbeState();
 		if (!openSeaEnabled || !chainSlug || !contractAddressCanBeProbed) return;
-		scheduleAddressProbe(chainSlug, normalizedContractAddress);
+		scheduleAddressProbe(chainSlug, normalizedContractAddress, verificationTokenIds);
 	});
 
 	$effect(() => {
@@ -147,7 +153,11 @@
 		verifyCurrentSlug();
 	}
 
-	function scheduleAddressProbe(chain: string, address: string): void {
+	function scheduleAddressProbe(
+		chain: string,
+		address: string,
+		tokenIds: readonly string[]
+	): void {
 		probeRequestId += 1;
 		const requestId = probeRequestId;
 		probeStatus = openSeaSlugProbeUiStatus.Waiting;
@@ -158,7 +168,7 @@
 			lastAutoFilledSlug = null;
 			slugWasAutoFilled = false;
 		}
-		void runSlugProbe(chain, { address }, requestId);
+		void runSlugProbe(chain, { address, verificationTokenIds: tokenIds }, requestId);
 	}
 
 	function verifyCurrentSlug(): void {
@@ -174,7 +184,7 @@
 		probeResult = null;
 		probeError = null;
 		const input: OpenSeaSlugProbeRequest = contractAddressCanBeProbed
-			? { address: normalizedContractAddress, slug }
+			? { address: normalizedContractAddress, slug, verificationTokenIds }
 			: { slug };
 		void runSlugProbe(chainSlug, input, requestId);
 	}
@@ -186,7 +196,9 @@
 	): Promise<void> {
 		probeStatus = openSeaSlugProbeUiStatus.Loading;
 		try {
-			const result = await probeBootstrapOpenSeaSlug(fetch, chain, input);
+			const result = collectionRef
+				? await probeCollectionOpenSeaSlug(fetch, chain, collectionRef, input.slug)
+				: await probeBootstrapOpenSeaSlug(fetch, chain, input);
 			if (requestId !== probeRequestId) return;
 			probeStatus = openSeaSlugProbeUiStatus.Ready;
 			probeResult = result;
@@ -200,7 +212,7 @@
 	}
 
 	function applyProbeResult(result: BootstrapOpenSeaSlugProbeApiResponse): void {
-		if (result.status !== BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found || !result.slug) return;
+		if (result.status !== OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found || !result.slug) return;
 		const resolved = normalizeSlugInput(result.slug);
 		if (!resolved) return;
 		if (result.address && result.address !== normalizedContractAddress) return;
@@ -223,7 +235,7 @@
 	function isSlugResolved(): boolean {
 		if (!openSeaEnabled || probeStatus !== openSeaSlugProbeUiStatus.Ready) return false;
 		if (!probeResult) return false;
-		if (probeResult.status !== BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found) return false;
+		if (probeResult.status !== OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found) return false;
 		const resolved = normalizeSlugInput(probeResult.slug ?? '');
 		if (!resolved || readSlugInputValue() !== resolved) return false;
 		if (probeResult.address) {
@@ -237,13 +249,13 @@
 			return false;
 		}
 		if (
-			probeResult?.status === BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing &&
+			probeResult?.status === OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Missing &&
 			probeResult.requestedSlug !== null
 		) {
 			return true;
 		}
 		if (
-			probeResult?.status === BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found &&
+			probeResult?.status === OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found &&
 			probeResult.address !== null
 		) {
 			return normalizeSlugInput(probeResult.slug ?? '') !== readSlugInputValue();

@@ -30,7 +30,7 @@
         "./http/trading-routes": "./http/trading-routes.ts",
         "./bootstrap/pipeline": "./bootstrap/pipeline.ts",
         "./bootstrap/jobs": "./bootstrap/jobs.ts",
-        "./bootstrap/opensea-slug-probe": "./bootstrap/opensea-slug-probe.ts",
+        "./opensea/collection-slug-probe": "./opensea/collection-slug-probe.ts",
         "./bootstrap/run-events": "./bootstrap/run-events.ts",
         "./evm/transactions": "./evm/transactions.ts",
         "./evm/proxy-detection": "./evm/proxy-detection.ts",

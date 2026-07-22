@@ -108,6 +108,10 @@ import type {
     PurgeCollectionRoute,
 } from "./http/handlers/collections/purge-collection.js";
 import type {
+    ProbeCollectionOpenSeaSlugHttpAdapter,
+    ProbeCollectionOpenSeaSlugRoute,
+} from "./http/handlers/collections/probe-collection-opensea-slug.js";
+import type {
     StartCollectionOpenSeaSyncHttpAdapter,
     StartCollectionOpenSeaSyncRoute,
 } from "./http/handlers/collections/start-collection-opensea-sync.js";
@@ -279,6 +283,7 @@ export function registerApiRoutes(
     publicGetBlockspaceRangeSummaryAdapter: GetBlockspaceRangeSummaryHttpAdapter | null,
     scheduleBlockspaceBackfillAdapter: ScheduleBlockspaceBackfillHttpAdapter,
     purgeCollectionAdapter: PurgeCollectionHttpAdapter,
+    probeCollectionOpenSeaSlugAdapter: ProbeCollectionOpenSeaSlugHttpAdapter,
     startCollectionOpenSeaSyncAdapter: StartCollectionOpenSeaSyncHttpAdapter,
     updateCollectionOpenSeaStreamIngestionAdapter: UpdateCollectionOpenSeaStreamIngestionHttpAdapter,
     resolveOwnerRefAdapter: ResolveOwnerRefHttpAdapter,
@@ -522,6 +527,12 @@ export function registerApiRoutes(
         options,
         "/api/:chain_ref/:collection_ref",
         purgeCollectionAdapter.handle,
+    );
+    registerObservedGet<ProbeCollectionOpenSeaSlugRoute>(
+        app,
+        options,
+        COLLECTION_API_ROUTE_TEMPLATE.ProbeOpenSeaSlug,
+        probeCollectionOpenSeaSlugAdapter.handle,
     );
     registerObservedPost<StartCollectionOpenSeaSyncRoute>(
         app,

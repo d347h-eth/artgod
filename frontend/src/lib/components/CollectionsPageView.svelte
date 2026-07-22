@@ -563,6 +563,7 @@
 					<OpenSeaSlugResolverControl
 						chainSlug={chain?.slug ?? null}
 						contractAddress={openSeaSyncTarget.address}
+						collectionRef={collectionRef(openSeaSyncTarget)}
 						initialSlug={openSeaSyncTarget.openseaSlug ?? ''}
 						openSeaEnabled={openSeaIntegrationEnabled}
 						disabledReason={openSeaIntegrationDisabledReason}

@@ -27,6 +27,9 @@ describe("OpenSeaApiAdapter", () => {
                 async resolveCollectionBySlug() {
                     return null;
                 },
+                async resolveCollectionByToken() {
+                    return null;
+                },
             },
         });
 

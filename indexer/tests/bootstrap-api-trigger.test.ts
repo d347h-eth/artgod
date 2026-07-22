@@ -9,7 +9,7 @@ import {
     BOOTSTRAP_METADATA_MODE,
     BOOTSTRAP_RUN_STATUS,
 } from "@artgod/shared/bootstrap/pipeline";
-import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from "@artgod/shared/bootstrap/opensea-slug-probe";
+import { OPENSEA_COLLECTION_SLUG_PROBE_STATUS } from "@artgod/shared/opensea/collection-slug-probe";
 import { BOOTSTRAP_API_QUERY_PARAM } from "@artgod/shared/http/bootstrap-routes";
 import { IMAGE_CACHE_MODE } from "@artgod/shared/media/token-image-cache";
 import { TOKEN_METADATA_ANIMATION_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-animation-source";
@@ -251,7 +251,7 @@ describe("bootstrap API trigger", () => {
                 return jsonResponse({
                     address: TEST_ADDRESS,
                     requestedSlug: TEST_OPENSEA_SLUG,
-                    status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
+                    status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found,
                     slug: TEST_OPENSEA_SLUG,
                     reason: null,
                 });
@@ -316,6 +316,11 @@ describe("bootstrap API trigger", () => {
         expect(
             openSeaProbeUrl.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.Slug),
         ).toBe(TEST_OPENSEA_SLUG);
+        expect(
+            openSeaProbeUrl.searchParams.getAll(
+                BOOTSTRAP_API_QUERY_PARAM.VerificationTokenId,
+            ),
+        ).toEqual([TEST_SAMPLE_TOKEN_ID]);
         const createRequest = requests[3];
         expect(createRequest?.init?.method).toBe("POST");
         expect(createRequest?.init?.headers).toMatchObject({
@@ -341,7 +346,7 @@ describe("bootstrap API trigger", () => {
                 return jsonResponse({
                     address: TEST_ADDRESS,
                     requestedSlug: TEST_OPENSEA_SLUG,
-                    status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
+                    status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Missing,
                     slug: null,
                     reason: "OpenSea did not confirm this collection slug",
                 });
@@ -369,6 +374,7 @@ describe("bootstrap API trigger", () => {
 function enumerableProbe(): BootstrapProbeApiResponse {
     return {
         firstToken: {
+            tokenId: TEST_SAMPLE_TOKEN_ID,
             imageSourceField: TEST_IMAGE_SOURCE_FIELD,
             animationSourceField: TEST_ANIMATION_SOURCE_FIELD,
         },
@@ -392,6 +398,7 @@ function enumerableProbe(): BootstrapProbeApiResponse {
 function manualRangeProbe(): BootstrapProbeApiResponse {
     return {
         firstToken: {
+            tokenId: TEST_MANUAL_RANGE_START_TOKEN_ID,
             imageSourceField: TEST_IMAGE_SOURCE_FIELD,
             animationSourceField: null,
         },
@@ -419,6 +426,7 @@ function manualRangeProbe(): BootstrapProbeApiResponse {
 function customSampleProbe(): BootstrapProbeApiResponse {
     return {
         firstToken: {
+            tokenId: TEST_SAMPLE_TOKEN_ID,
             imageSourceField: TEST_IMAGE_SOURCE_FIELD,
             animationSourceField: null,
         },

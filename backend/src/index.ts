@@ -20,6 +20,7 @@ import { ListBootstrapRunsUseCase } from "./application/use-cases/bootstrap/list
 import { ProbeCollectionContractUseCase } from "./application/use-cases/bootstrap/probe-collection-contract.js";
 import { EstimateBootstrapImageCacheUseCase } from "./application/use-cases/bootstrap/estimate-bootstrap-image-cache.js";
 import { ProbeOpenSeaCollectionSlugUseCase } from "./application/use-cases/bootstrap/probe-opensea-collection-slug.js";
+import { OpenSeaCollectionIdentityVerifier } from "./application/open-sea/open-sea-collection-identity-verifier.js";
 import { RetryBootstrapRunFailedTasksUseCase } from "./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import { logger } from "@artgod/shared/utils";
 import { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
@@ -290,6 +291,9 @@ export function createBackendApp(
               new OpenSeaContractLookupClient(config.openseaApi),
           )
         : null;
+    const openSeaCollectionIdentityVerifier = openSeaCollectionSlugProbe
+        ? new OpenSeaCollectionIdentityVerifier(openSeaCollectionSlugProbe)
+        : null;
     const createBootstrapRunUseCase = new CreateBootstrapRunUseCase(
         config.defaultChainId,
         config.integrations.opensea,
@@ -326,7 +330,7 @@ export function createBackendApp(
             config.defaultChainId,
             config.integrations.opensea,
             chainsReadModel,
-            openSeaCollectionSlugProbe,
+            openSeaCollectionIdentityVerifier,
         );
     const getBootstrapStatusUseCase = new GetBootstrapStatusUseCase(
         config.defaultChainId,
@@ -416,7 +420,7 @@ export function createBackendApp(
             chainsReadModel,
             openSeaCollectionSyncRepository,
             openSeaCommandQueue,
-            openSeaCollectionSlugProbe,
+            openSeaCollectionIdentityVerifier,
         );
     const updateOpenSeaStreamIngestionUseCase =
         new UpdateOpenSeaStreamIngestionUseCase(

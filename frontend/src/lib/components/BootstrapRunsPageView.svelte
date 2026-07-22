@@ -57,6 +57,10 @@
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import { TEST_IDS } from '$lib/test-ids';
 	import { BOOTSTRAP_ENUMERATION_MODE } from '@artgod/shared/bootstrap/pipeline';
+	import {
+		resolveOpenSeaExplicitTokenBoundaryIds,
+		resolveOpenSeaTokenRangeBoundaryIds
+	} from '@artgod/shared/opensea/collection-slug-probe';
 
 	type BootstrapManualEnumerationMode =
 		| typeof BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
@@ -243,6 +247,7 @@
 		probeStatus === 'ready' && probeAddress === normalizedBootstrapAddress
 	);
 	let contractProbePending = $derived(probeStatus === 'waiting' || probeStatus === 'loading');
+	let openSeaVerificationTokenIds = $derived(resolveOpenSeaVerificationTokenIds());
 	let imageSourceFieldSectionVisible = $derived(
 		(probeAddress === normalizedBootstrapAddress && probeResult !== null) ||
 			(contractProbePending && imageSourceFieldDirty)
@@ -1161,6 +1166,20 @@
 		return /^\d+$/.test(value) && BigInt(value) > 0n ? value : '';
 	}
 
+	function resolveOpenSeaVerificationTokenIds(): string[] {
+		if (!formDetailsReady || !probeResult) return [];
+		if (supportsEnumerable) {
+			return probeResult.firstToken.tokenId ? [probeResult.firstToken.tokenId] : [];
+		}
+		if (manualMode === BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds) {
+			return resolveOpenSeaExplicitTokenBoundaryIds(manualTokenIdList());
+		}
+		const startTokenId = normalizedManualRangeStartTokenId();
+		const totalSupply = Number(normalizedManualRangeTotalSupply());
+		if (!startTokenId || !Number.isSafeInteger(totalSupply)) return [];
+		return resolveOpenSeaTokenRangeBoundaryIds({ startTokenId, totalSupply });
+	}
+
 	function resolvedBootstrapScopeTotalSupply(): string | null {
 		if (!formDetailsReady || !probeResult) return null;
 		if (supportsEnumerable) {
@@ -1886,6 +1905,7 @@
 							<OpenSeaSlugResolverControl
 								chainSlug={chain?.slug ?? null}
 								contractAddress={normalizedBootstrapAddress}
+								verificationTokenIds={openSeaVerificationTokenIds}
 								initialSlug=""
 								inputClass={`${bootstrapInputClass} bootstrap-input-slug`}
 								{openSeaEnabled}

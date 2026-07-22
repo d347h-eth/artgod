@@ -14,6 +14,9 @@ describe("OpenSeaCollectionSlugProbeAdapter", () => {
             async resolveCollectionBySlug() {
                 return null;
             },
+            async resolveCollectionByToken() {
+                return null;
+            },
         });
 
         const slug = await adapter.resolveCollectionSlugByContract({
@@ -30,6 +33,9 @@ describe("OpenSeaCollectionSlugProbeAdapter", () => {
                 return null;
             },
             async resolveCollectionBySlug() {
+                return null;
+            },
+            async resolveCollectionByToken() {
                 return null;
             },
         });
@@ -51,6 +57,9 @@ describe("OpenSeaCollectionSlugProbeAdapter", () => {
                 requests.push(input.slug);
                 return { slug: "milady-maker", contractAddresses: [] };
             },
+            async resolveCollectionByToken() {
+                return null;
+            },
         });
 
         const collection = await adapter.resolveCollectionBySlug({
@@ -62,5 +71,30 @@ describe("OpenSeaCollectionSlugProbeAdapter", () => {
             contractAddresses: [],
         });
         expect(requests).toEqual(["milady-maker"]);
+    });
+
+    it("returns the slug resolved for one contract token", async () => {
+        const adapter = new OpenSeaCollectionSlugProbeAdapter({
+            async resolveCollectionByContract() {
+                return null;
+            },
+            async resolveCollectionBySlug() {
+                return null;
+            },
+            async resolveCollectionByToken(input) {
+                expect(input).toEqual({
+                    address: CONTRACT_ADDRESS,
+                    tokenId: "462000000",
+                });
+                return { slug: "gumbo-by-mathias-isaksen" };
+            },
+        });
+
+        await expect(
+            adapter.resolveCollectionSlugByToken({
+                address: CONTRACT_ADDRESS,
+                tokenId: "462000000",
+            }),
+        ).resolves.toBe("gumbo-by-mathias-isaksen");
     });
 });
