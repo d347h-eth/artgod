@@ -126,6 +126,17 @@ export function bootstrapProbeNeedsManualScope(probe: BootstrapContractProbeApiR
 	return bootstrapProbeStatusLabel(probe) === BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope;
 }
 
+// Identifies probe outcomes that require the user to supply missing collection scope data.
+export function bootstrapProbeRequiresManualEditing(
+	probe: BootstrapContractProbeApiResponse
+): boolean {
+	const status = bootstrapProbeStatusLabel(probe);
+	return (
+		status === BOOTSTRAP_PROBE_STATUS_LABEL.NeedsTokenStart ||
+		status === BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope
+	);
+}
+
 function parseByteString(value: string): bigint | null {
 	const trimmed = value.trim();
 	if (!/^\d+$/.test(trimmed)) return null;
