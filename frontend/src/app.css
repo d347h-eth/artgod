@@ -23,6 +23,8 @@
 		'Mathcastles Remix', 'Noto Mathcastles Remix', 'Courier New', 'Monaco', 'Menlo', monospace;
 	/* Shared compact gap for adjacent top-action buttons and button-like controls. */
 	--control-button-gap: 0.35rem;
+	/* Shared width for collection and OpenSea slug inputs. */
+	--bootstrap-input-slug-width: 36ch;
 	/* Shared fill for own bid rows and bid-book update flashes. */
 	--bid-book-own-row-background: color-mix(in srgb, var(--c-yellow) 12%, transparent);
 	--bid-book-update-flash-peak-background: color-mix(in srgb, var(--c-orange) 88%, var(--c-yellow));
@@ -288,7 +290,6 @@ a:hover {
 }
 
 .bootstrap-create-form {
-	--bootstrap-input-slug-width: 36ch;
 	display: block;
 	width: min(46rem, 100%);
 	max-width: 100%;

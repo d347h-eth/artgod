@@ -75,7 +75,8 @@ export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
 			},
 			status: '',
 			basePath: '/',
-			deferred: false
+			deferred: false,
+			openseaIntegration: null
 		};
 	}
 	if (await shouldDeferInitialBackendLoad()) {
@@ -89,7 +90,8 @@ export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
 			},
 			status: params.get('status') ?? '',
 			basePath: '/',
-			deferred: true
+			deferred: true,
+			openseaIntegration: null
 		};
 	}
 
@@ -106,7 +108,8 @@ export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
 			status: response.filters.status ?? '',
 			basePath: '/',
 			deferred: false,
-			blockExplorer: runtimeConfigResponse.blockExplorer
+			blockExplorer: runtimeConfigResponse.blockExplorer,
+			openseaIntegration: runtimeConfigResponse.integrations.opensea
 		};
 	} catch (cause) {
 		toKitError(cause);

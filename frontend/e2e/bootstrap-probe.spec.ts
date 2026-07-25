@@ -36,7 +36,8 @@ import {
 } from './helpers/collection-opensea-sync-api';
 import {
 	COLLECTION_OPENSEA_SYNC_E2E_COLLECTION,
-	COLLECTION_OPENSEA_SYNC_E2E_SLUG
+	COLLECTION_OPENSEA_SYNC_E2E_SLUG,
+	COLLECTION_OPENSEA_SYNC_E2E_UNAVAILABLE_ROUTE_PATH
 } from '../src/lib/e2e/collection-opensea-sync-fixtures';
 import {
 	BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_ACKNOWLEDGEMENT,
@@ -45,6 +46,8 @@ import {
 } from '../src/lib/bootstrap-contract-probe';
 
 const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
+// Confirms the late-sync slug field uses the wider shared slug-input control.
+const COLLECTION_OPENSEA_SYNC_SLUG_INPUT_MIN_WIDTH_PX = 250;
 
 test.beforeEach(({ page }, testInfo) => {
 	captureDiagnosticsForTest(diagnosticsByTest, page, testInfo);
@@ -642,6 +645,17 @@ test.describe('bootstrap run detail UI', () => {
 });
 
 test.describe('collection OpenSea sync UI', () => {
+	test('explains when OpenSea setup status is not available yet', async ({ page }) => {
+		await page.goto(COLLECTION_OPENSEA_SYNC_E2E_UNAVAILABLE_ROUTE_PATH);
+		await page.getByRole('button', { name: 'start opensea sync' }).click();
+
+		const dialog = page.getByRole('dialog', { name: 'start opensea sync' });
+		await expect(dialog.locator('input[name="openseaSlug"]')).toBeDisabled();
+		await expect(dialog).toContainText('OpenSea setup status is not available yet');
+		await expect(dialog).toContainText('try again after app startup finishes');
+		await expect(dialog).toContainText('fully restart the app');
+	});
+
 	test('resolves and re-verifies a shared-contract collection slug', async ({ page }, testInfo) => {
 		const api = await installCollectionOpenSeaSyncApiMock(page);
 		await page.goto(COLLECTION_OPENSEA_SYNC_E2E_ROUTE_PATH);
@@ -656,6 +670,12 @@ test.describe('collection OpenSea sync UI', () => {
 		await expect(dialog).toContainText('462000000');
 		await expect(dialog).toContainText('400');
 		await expect(slugInput).toHaveValue(COLLECTION_OPENSEA_SYNC_E2E_SLUG);
+		await expect(slugInput).toBeEnabled();
+		const slugInputBox = await slugInput.boundingBox();
+		expect(slugInputBox).not.toBeNull();
+		expect(slugInputBox?.width ?? 0).toBeGreaterThanOrEqual(
+			COLLECTION_OPENSEA_SYNC_SLUG_INPUT_MIN_WIDTH_PX
+		);
 		await expect(dialog).toContainText('resolved');
 		await expect(startButton).toBeEnabled();
 		const resolvedScreenshotPath = testInfo.outputPath('collection-opensea-sync-resolved.png');

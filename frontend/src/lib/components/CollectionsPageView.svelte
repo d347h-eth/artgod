@@ -4,6 +4,7 @@
 		getDefaultBlockExplorerConfig,
 		type BlockExplorerConfig
 	} from '@artgod/shared/config/block-explorer';
+	import { OPENSEA_API_KEY_ENV } from '@artgod/shared/config/opensea-integration';
 	import {
 		BackendApiError,
 		getBootstrapStatus,
@@ -55,6 +56,8 @@
 		PauseOpenSeaStream: 'pause_opensea_stream',
 		ResumeOpenSeaStream: 'resume_opensea_stream'
 	} as const;
+	const openSeaSetupStatusUnavailableMessage =
+		`OpenSea setup status is not available yet. Close this window and try again after app startup finishes. If it stays unavailable, configure ${OPENSEA_API_KEY_ENV} in Admin UI and fully restart the app.`;
 	const statusOptions = ['', ...COLLECTION_STATUSES];
 	let latestRunHrefByCollection = $state<Record<string, string | null>>({});
 	let collectionActionPending = $state<string | null>(null);
@@ -77,9 +80,11 @@
 	);
 	let openSeaIntegrationEnabled = $derived(openseaIntegration?.enabled === true);
 	let openSeaIntegrationDisabledReason = $derived(
-		openseaIntegration && !openseaIntegration.enabled
-			? (openseaIntegration.reason ?? 'OpenSea integration disabled')
-			: null
+		openseaIntegration === null
+			? openSeaSetupStatusUnavailableMessage
+			: !openseaIntegration.enabled
+				? (openseaIntegration.reason ?? 'OpenSea integration disabled')
+				: null
 	);
 
 	$effect(() => {
