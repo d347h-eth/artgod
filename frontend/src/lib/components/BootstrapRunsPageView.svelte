@@ -32,6 +32,7 @@
 		BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING,
 		bootstrapProbeNeedsManualScope,
 		bootstrapProbeFormPatch,
+		bootstrapProbeRequiresManualEditing,
 		bootstrapProbeStatusLabel,
 		contractNameToBootstrapSlug,
 		formatByteSize,
@@ -129,7 +130,7 @@
 	const imageCachePreviewMessage =
 		'This preview was generated with the selected cache settings. If it looks wrong or does not render, choose caching: off.';
 	const manualScopeProbeMessage =
-		'The probe could not confirm the collection supply. This usually means the collection is on a shared contract. Enable manual editing below, then set the manual scope and supply for this collection.';
+		'The probe could not confirm the collection supply. This usually means the collection is on a shared contract. Set the manual scope and supply for this collection below.';
 	const bootstrapPreviewMediaModes: ApiCollectionMediaMode[] = [
 		COLLECTION_MEDIA_MODE_OPTIONS.Snapshot
 	];
@@ -508,7 +509,9 @@
 	function onCollectionSlugInput(event: Event): void {
 		const target = event.currentTarget;
 		if (!(target instanceof HTMLInputElement)) return;
+		bootstrapSlug = target.value;
 		collectionSlugInputHasValue = normalizeFieldValue(target.value).length > 0;
+		lastAutoFilledSlug = null;
 	}
 
 	function onBootstrapAddressInput(event: Event): void {
@@ -724,7 +727,7 @@
 			probeStatus = 'ready';
 			probeResult = result;
 			probeAddress = result.address;
-			manualEditingAllowed = false;
+			manualEditingAllowed = bootstrapProbeRequiresManualEditing(result);
 			applyProbeResult(
 				result,
 				imageSourceFieldOverride,
@@ -850,6 +853,14 @@
 		openSeaSlugInputHasValue = state.hasValue;
 		openSeaSlugResolved = state.resolved;
 		openSeaSlugProbePending = state.pending;
+		if (
+			state.resolvedSlug &&
+			(!readCollectionSlugInputValue() ||
+				readCollectionSlugInputValue() === normalizeFieldValue(lastAutoFilledSlug).toLowerCase())
+		) {
+			setCollectionSlugInputValue(state.resolvedSlug);
+			lastAutoFilledSlug = state.resolvedSlug;
+		}
 	}
 
 	function isImageSourceFieldResolved(): boolean {
@@ -1616,6 +1627,46 @@
 					</label>
 				</div>
 
+				{#if sampleTokenFieldSectionVisible}
+					<div class="bootstrap-form-section bootstrap-sample-token-section">
+						<label class="bootstrap-form-row">
+							{@render fieldLabel('Sample token ID', bootstrapFieldHelp.sampleTokenId)}
+							<div class="bootstrap-input-status-row">
+								<input
+									bind:this={sampleTokenIdInputElement}
+									value={sampleTokenId}
+									class={`${bootstrapInputClass} bootstrap-input-slug`}
+									type="text"
+									name="sampleTokenId"
+									form={sampleTokenProbeFormId}
+									oninput={onSampleTokenIdInput}
+								/>
+								{#if sampleTokenIdResolved}
+									<span class="bid-book-own-status bid-book-own-status-draw bootstrap-resolution-badge">
+										resolved
+									</span>
+								{:else if sampleTokenIdIncorrect}
+									<span class="bid-book-own-status bid-book-own-status-cancelled bootstrap-resolution-badge">
+										incorrect
+									</span>
+								{:else if contractProbePending && sampleTokenIdDirty}
+									<span class="muted">
+										{@render inProgressStatus('probing', 'probing sample token')}
+									</span>
+								{:else if sampleTokenProbeButtonVisible}
+									<button
+										type="submit"
+										form={sampleTokenProbeFormId}
+										disabled={!addressCanBeProbed || !sampleTokenIdInputHasValue}
+									>
+										probe again
+									</button>
+								{/if}
+							</div>
+						</label>
+					</div>
+				{/if}
+
 				{#if imageSourceFieldSectionVisible}
 					<div class="bootstrap-form-section bootstrap-image-source-section">
 						<label class="bootstrap-form-row">
@@ -1701,46 +1752,6 @@
 								<div class="muted">{animationSourceProbeError}</div>
 							</div>
 						{/if}
-					</div>
-				{/if}
-
-				{#if sampleTokenFieldSectionVisible}
-					<div class="bootstrap-form-section bootstrap-sample-token-section">
-						<label class="bootstrap-form-row">
-							{@render fieldLabel('Sample token ID', bootstrapFieldHelp.sampleTokenId)}
-							<div class="bootstrap-input-status-row">
-								<input
-									bind:this={sampleTokenIdInputElement}
-									value={sampleTokenId}
-									class={`${bootstrapInputClass} bootstrap-input-slug`}
-									type="text"
-									name="sampleTokenId"
-									form={sampleTokenProbeFormId}
-									oninput={onSampleTokenIdInput}
-								/>
-								{#if sampleTokenIdResolved}
-									<span class="bid-book-own-status bid-book-own-status-draw bootstrap-resolution-badge">
-										resolved
-									</span>
-								{:else if sampleTokenIdIncorrect}
-									<span class="bid-book-own-status bid-book-own-status-cancelled bootstrap-resolution-badge">
-										incorrect
-									</span>
-								{:else if contractProbePending && sampleTokenIdDirty}
-									<span class="muted">
-										{@render inProgressStatus('probing', 'probing sample token')}
-									</span>
-								{:else if sampleTokenProbeButtonVisible}
-									<button
-										type="submit"
-										form={sampleTokenProbeFormId}
-										disabled={!addressCanBeProbed || !sampleTokenIdInputHasValue}
-									>
-										probe again
-									</button>
-								{/if}
-							</div>
-						</label>
 					</div>
 				{/if}
 

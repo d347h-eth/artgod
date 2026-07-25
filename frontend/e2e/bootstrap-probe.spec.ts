@@ -108,6 +108,10 @@ test.describe('bootstrap contract probe UI', () => {
 			TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image
 		);
 		await expect(formRow(page, 'Image source field')).toContainText('resolved');
+		await assertRowBefore(
+			page.locator('.bootstrap-sample-token-section'),
+			page.locator('.bootstrap-image-source-section')
+		);
 		await expect(page.locator('input[name="slug"]')).toBeEnabled();
 		await expect(page.locator('input[name="openseaSlug"]')).toHaveValue(
 			BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
@@ -323,8 +327,23 @@ test.describe('bootstrap contract probe UI', () => {
 		);
 		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
 		await page.locator('input[name="slug"]').fill('custom-raster-slug');
+		const openSeaSlugInput = page.locator('input[name="openseaSlug"]');
+		await openSeaSlugInput.fill(`${BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster}-draft`);
+		await expect(formRow(page, 'OpenSea slug')).not.toContainText('resolved');
+		await openSeaSlugInput.fill(BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster);
+		const resolveOpenSeaSlug = formRow(page, 'OpenSea slug').getByRole('button', {
+			name: 'resolve'
+		});
+		await expect(resolveOpenSeaSlug).toBeVisible();
+		await resolveOpenSeaSlug.click();
+		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
+		await expect(page.locator('input[name="slug"]')).toHaveValue('custom-raster-slug');
+		await expect.poll(() => api.openSeaSlugVerificationRequests.length).toBe(1);
 		expect(api.probeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster]);
 		expect(api.openSeaSlugProbeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster]);
+		expect(api.openSeaSlugVerificationRequests).toEqual([
+			BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster
+		]);
 		await expect(page.getByText('Manual token scope mode')).toHaveCount(0);
 		await expect(rowControl(page, 'Cached image max dimension')).toBeEnabled();
 		await expect(rowControl(page, 'Cached image max dimension')).toHaveValue(
@@ -436,7 +455,10 @@ test.describe('bootstrap contract probe UI', () => {
 		});
 	});
 
-	test('requires manual supply before cache estimate for shared contracts', async ({ page }) => {
+	test('requires manual supply before cache estimate for shared contracts', async (
+		{ page },
+		testInfo
+	) => {
 		const api = await installBootstrapProbeApiMock(page);
 		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
 
@@ -464,7 +486,16 @@ test.describe('bootstrap contract probe UI', () => {
 		).toBeVisible();
 		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
 
-		await page.locator(`[data-testid="${TEST_IDS.BootstrapAllowManualEditing}"]`).check();
+		await expect(
+			page.locator(`[data-testid="${TEST_IDS.BootstrapAllowManualEditing}"]`)
+		).toBeChecked();
+		await expect(rowControl(page, 'Manual range total supply')).toBeEnabled();
+		const unlockedScreenshotPath = testInfo.outputPath('bootstrap-manual-scope-unlocked.png');
+		await page.screenshot({ path: unlockedScreenshotPath, fullPage: true });
+		await testInfo.attach('bootstrap-manual-scope-unlocked.png', {
+			path: unlockedScreenshotPath,
+			contentType: 'image/png'
+		});
 		await rowControl(page, 'Manual range total supply').fill(
 			String(BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.totalSupply)
 		);
@@ -717,6 +748,15 @@ async function assertContractAddressSafetyWarningPlacement(
 	expect(warningBox).not.toBeNull();
 	if (!inputBox || !warningBox) return;
 	expect(warningBox.y + warningBox.height).toBeLessThanOrEqual(inputBox.y);
+}
+
+async function assertRowBefore(first: Locator, second: Locator): Promise<void> {
+	const firstBox = await first.boundingBox();
+	const secondBox = await second.boundingBox();
+	expect(firstBox).not.toBeNull();
+	expect(secondBox).not.toBeNull();
+	if (!firstBox || !secondBox) return;
+	expect(firstBox.y + firstBox.height).toBeLessThanOrEqual(secondBox.y);
 }
 
 async function assertOpenSeaDisabledNoteFitsSlugInput(page: Page): Promise<void> {

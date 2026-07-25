@@ -35,7 +35,7 @@ export const BOOTSTRAP_PROBE_CONTRACTS = {
 // OpenSea slugs returned by the bootstrap probe harness.
 export const BOOTSTRAP_PROBE_OPENSEA_SLUGS = {
 	NonEnumerable: 'non-enumerable-test-collection',
-	EnumerableRaster: 'raster-images-2026',
+	EnumerableRaster: 'raster-images-by-test-artist',
 	EnumerableOnchainSvg: 'terraforms',
 	NeedsTokenStart: 'needs-token-start',
 	SharedManualScope: 'shared-manual-scope'

@@ -7,6 +7,7 @@ import {
 	BOOTSTRAP_PROBE_STATUS_LABEL,
 	bootstrapProbeFormPatch,
 	bootstrapProbeNeedsManualScope,
+	bootstrapProbeRequiresManualEditing,
 	bootstrapProbeStatusLabel,
 	contractNameToBootstrapSlug,
 	formatByteSize,
@@ -63,6 +64,7 @@ describe('bootstrap contract probe helpers', () => {
 		});
 		expect(bootstrapProbeStatusLabel(probe)).toBe(BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope);
 		expect(bootstrapProbeNeedsManualScope(probe)).toBe(true);
+		expect(bootstrapProbeRequiresManualEditing(probe)).toBe(true);
 	});
 
 	it('does not map a custom sample token onto manual scope fields', () => {
@@ -94,6 +96,7 @@ describe('bootstrap contract probe helpers', () => {
 			manualRangeTotalSupply: '940'
 		});
 		expect(bootstrapProbeStatusLabel(probe)).toBe(BOOTSTRAP_PROBE_STATUS_LABEL.NeedsTokenStart);
+		expect(bootstrapProbeRequiresManualEditing(probe)).toBe(true);
 	});
 
 	it('requires manual scope when available supply cannot be used as a bootstrap range', () => {
@@ -126,6 +129,15 @@ describe('bootstrap contract probe helpers', () => {
 				})
 			)
 		).toBe(BOOTSTRAP_PROBE_STATUS_LABEL.RangeInferred);
+		expect(
+			bootstrapProbeRequiresManualEditing(
+				makeProbe({
+					enumerable: false,
+					startTokenId: '1',
+					totalSupply: 940
+				})
+			)
+		).toBe(false);
 	});
 
 	it('formats byte counts for tokenURI payload estimates', () => {
