@@ -17,8 +17,7 @@ export const COLLECTION_OPENSEA_SYNC_E2E_SETUP_STATE = {
 } as const;
 
 // Browser-test route for the collection-list OpenSea setup-unavailable journey.
-export const COLLECTION_OPENSEA_SYNC_E2E_UNAVAILABLE_ROUTE_PATH =
-	`${COLLECTION_OPENSEA_SYNC_E2E_ROUTE_PATH}?${COLLECTION_OPENSEA_SYNC_E2E_SETUP_STATE.QueryParam}=${COLLECTION_OPENSEA_SYNC_E2E_SETUP_STATE.Unavailable}`;
+export const COLLECTION_OPENSEA_SYNC_E2E_UNAVAILABLE_ROUTE_PATH = `${COLLECTION_OPENSEA_SYNC_E2E_ROUTE_PATH}?${COLLECTION_OPENSEA_SYNC_E2E_SETUP_STATE.QueryParam}=${COLLECTION_OPENSEA_SYNC_E2E_SETUP_STATE.Unavailable}`;
 
 // Browser-test collection reproduces a shared Art Blocks token-range collection.
 export const COLLECTION_OPENSEA_SYNC_E2E_COLLECTION: ApiCollection = {
@@ -46,6 +45,36 @@ export const COLLECTION_OPENSEA_SYNC_E2E_COLLECTION: ApiCollection = {
 	}
 };
 
+// Recurring OpenSea reconcile completion shown by the collection-list time control.
+export const COLLECTION_OPENSEA_SNAPSHOT_E2E_TIMESTAMP = '2026-07-24T12:34:56Z';
+
+// Browser-test collection with a completed OpenSea snapshot and active stream.
+export const COLLECTION_OPENSEA_SNAPSHOT_E2E_COLLECTION: ApiCollection = {
+	chainId: 1,
+	collectionId: 17,
+	slug: 'meridian',
+	address: '0xa7d8d9ef8d8ce8992df33d8b8cf4aebabd5bd270',
+	standard: COLLECTION_STANDARD.Erc721,
+	status: COLLECTION_STATUS.Live,
+	openseaSlug: 'meridian-by-matt-deslauriers',
+	openseaStatus: OPENSEA_COLLECTION_STATUS.Ready,
+	openseaReadyAt: '2026-07-01T00:02:00Z',
+	openseaSnapshotRefreshedAt: COLLECTION_OPENSEA_SNAPSHOT_E2E_TIMESTAMP,
+	openseaStreamIngestionStatus: OPENSEA_STREAM_INGESTION_STATUS.Enabled,
+	deploymentBlock: 12_000_000,
+	bootstrapAnchorBlock: 20_000_000,
+	createdAt: '2026-07-01T00:00:00Z',
+	updatedAt: COLLECTION_OPENSEA_SNAPSHOT_E2E_TIMESTAMP,
+	tokenScope: {
+		label: 'token range',
+		items: [
+			{ label: 'scope', value: 'token range' },
+			{ label: 'start token', value: '163000000' },
+			{ label: 'total supply', value: '1000' }
+		]
+	}
+};
+
 // OpenSea slug expected for the shared-contract fixture collection.
 export const COLLECTION_OPENSEA_SYNC_E2E_SLUG = 'gumbo-by-mathias-isaksen';
 
@@ -67,13 +96,12 @@ const COLLECTION_OPENSEA_SYNC_E2E_INTEGRATION: ApiOpenSeaIntegrationStatus = {
 
 // Feeds the production collections view with one eligible shared-contract collection.
 export function buildCollectionOpenSeaSyncE2ePageData(
-	openseaIntegration: ApiOpenSeaIntegrationStatus | null =
-		COLLECTION_OPENSEA_SYNC_E2E_INTEGRATION
+	openseaIntegration: ApiOpenSeaIntegrationStatus | null = COLLECTION_OPENSEA_SYNC_E2E_INTEGRATION
 ) {
 	return {
 		chain: COLLECTION_OPENSEA_SYNC_E2E_CHAIN,
 		page: {
-			items: [COLLECTION_OPENSEA_SYNC_E2E_COLLECTION],
+			items: [COLLECTION_OPENSEA_SYNC_E2E_COLLECTION, COLLECTION_OPENSEA_SNAPSHOT_E2E_COLLECTION],
 			nextCursor: null,
 			limit: DEFAULT_PAGE_LIMIT
 		},

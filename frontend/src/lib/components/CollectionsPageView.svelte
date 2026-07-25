@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import {
 		getDefaultBlockExplorerConfig,
@@ -23,6 +24,14 @@
 	import OpenSeaSlugResolverControl from '$lib/components/OpenSeaSlugResolverControl.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import type { OpenSeaSlugResolverState } from '$lib/components/open-sea-slug-resolver-state';
+	import {
+		COMPACT_TIME_DISPLAY_MODE,
+		formatCompactTime,
+		oppositeCompactTimeTitle,
+		parseCompactTimeMs,
+		type CompactTimeDisplayMode
+	} from '$lib/compact-time-display';
+	import { LIVE_REFRESH_RELATIVE_TIME_TICK_MS } from '$lib/live-refresh';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import {
@@ -73,6 +82,10 @@
 	let openSeaSyncSubmitting = $state(false);
 	let openSeaSyncError = $state<string | null>(null);
 	let openSeaSyncResolverResetKey = $state(0);
+	let openSeaSnapshotTimeMode = $state<CompactTimeDisplayMode>(
+		COMPACT_TIME_DISPLAY_MODE.Relative
+	);
+	let openSeaSnapshotNowMs = $state(Date.now());
 	let purgedCollectionKeys = $state<Set<string>>(new Set());
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
 	let visibleCollections = $derived(
@@ -86,6 +99,14 @@
 				? (openseaIntegration.reason ?? 'OpenSea integration disabled')
 				: null
 	);
+
+	$effect(() => {
+		if (!browser || openSeaSnapshotTimeMode !== COMPACT_TIME_DISPLAY_MODE.Relative) return;
+		const intervalId = window.setInterval(() => {
+			openSeaSnapshotNowMs = Date.now();
+		}, LIVE_REFRESH_RELATIVE_TIME_TICK_MS);
+		return () => window.clearInterval(intervalId);
+	});
 
 	$effect(() => {
 		if (!chain) {
@@ -253,6 +274,16 @@
 		openSeaSyncSlugPending = state.pending;
 	}
 
+	function toggleOpenSeaSnapshotTimeMode(): void {
+		openSeaSnapshotTimeMode =
+			openSeaSnapshotTimeMode === COMPACT_TIME_DISPLAY_MODE.Relative
+				? COMPACT_TIME_DISPLAY_MODE.Absolute
+				: COMPACT_TIME_DISPLAY_MODE.Relative;
+		if (openSeaSnapshotTimeMode === COMPACT_TIME_DISPLAY_MODE.Relative) {
+			openSeaSnapshotNowMs = Date.now();
+		}
+	}
+
 	function canSubmitOpenSeaSync(): boolean {
 		return (
 			openSeaIntegrationEnabled &&
@@ -367,6 +398,27 @@
 
 <svelte:window onkeydown={onWindowKeydown} />
 
+{#snippet openSeaSnapshotTime(collection: ApiCollection)}
+	{@const valueMs = parseCompactTimeMs(collection.openseaSnapshotRefreshedAt)}
+	{#if valueMs === null}
+		-
+	{:else}
+		<button
+			type="button"
+			class="activities-time-mode-button collection-opensea-snapshot-time"
+			aria-label={`toggle ${collection.slug} OpenSea snapshot time mode`}
+			title={oppositeCompactTimeTitle(
+				valueMs,
+				openSeaSnapshotTimeMode,
+				openSeaSnapshotNowMs
+			)}
+			onclick={toggleOpenSeaSnapshotTimeMode}
+		>
+			{formatCompactTime(valueMs, openSeaSnapshotTimeMode, openSeaSnapshotNowMs)}
+		</button>
+	{/if}
+{/snippet}
+
 <section class="panel">
 	<header class="panel-header">
 		<h1 class="app-title">ArtGod {APP_VERSION}</h1>
@@ -403,13 +455,14 @@
 					<th>address</th>
 					<th>status</th>
 					<th>scope</th>
+					<th>OpenSea snapshot</th>
 					<th>actions</th>
 				</tr>
 			</thead>
 			<tbody>
 				{#if visibleCollections.length === 0}
 					<tr>
-						<td colspan="5" class="empty-cell">no collections found</td>
+						<td colspan="6" class="empty-cell">no collections found</td>
 					</tr>
 				{:else}
 					{#each visibleCollections as collection}
@@ -428,6 +481,9 @@
 								{/if}
 							</td>
 							<td>{collection.tokenScope?.label ?? 'scope unavailable'}</td>
+							<td class="mono collection-opensea-snapshot-cell">
+								{@render openSeaSnapshotTime(collection)}
+							</td>
 							<td>
 								<div class="collection-actions">
 									{#if canStartBootstrap(collection)}
@@ -665,6 +721,10 @@
 		flex-wrap: wrap;
 		gap: 0.4rem;
 		align-items: center;
+	}
+
+	.collection-opensea-snapshot-time {
+		white-space: nowrap;
 	}
 
 	.collection-purge-button {

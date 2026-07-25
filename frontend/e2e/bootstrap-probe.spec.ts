@@ -35,6 +35,8 @@ import {
 	installCollectionOpenSeaSyncApiMock
 } from './helpers/collection-opensea-sync-api';
 import {
+	COLLECTION_OPENSEA_SNAPSHOT_E2E_COLLECTION,
+	COLLECTION_OPENSEA_SNAPSHOT_E2E_TIMESTAMP,
 	COLLECTION_OPENSEA_SYNC_E2E_COLLECTION,
 	COLLECTION_OPENSEA_SYNC_E2E_SLUG,
 	COLLECTION_OPENSEA_SYNC_E2E_UNAVAILABLE_ROUTE_PATH
@@ -645,6 +647,26 @@ test.describe('bootstrap run detail UI', () => {
 });
 
 test.describe('collection OpenSea sync UI', () => {
+	test('shows and toggles the latest OpenSea snapshot time', async ({ page }, testInfo) => {
+		await page.goto(COLLECTION_OPENSEA_SYNC_E2E_ROUTE_PATH);
+
+		await expect(page.getByRole('columnheader', { name: 'OpenSea snapshot' })).toBeVisible();
+		const snapshotTime = page.getByRole('button', {
+			name: `toggle ${COLLECTION_OPENSEA_SNAPSHOT_E2E_COLLECTION.slug} OpenSea snapshot time mode`
+		});
+		await expect(snapshotTime).toBeVisible();
+		await expect(snapshotTime).toHaveAttribute('title', COLLECTION_OPENSEA_SNAPSHOT_E2E_TIMESTAMP);
+		await snapshotTime.click();
+		await expect(snapshotTime).toHaveText(COLLECTION_OPENSEA_SNAPSHOT_E2E_TIMESTAMP);
+
+		const screenshotPath = testInfo.outputPath('collections-opensea-snapshot-time.png');
+		await page.screenshot({ path: screenshotPath, fullPage: true });
+		await testInfo.attach('collections-opensea-snapshot-time.png', {
+			path: screenshotPath,
+			contentType: 'image/png'
+		});
+	});
+
 	test('explains when OpenSea setup status is not available yet', async ({ page }) => {
 		await page.goto(COLLECTION_OPENSEA_SYNC_E2E_UNAVAILABLE_ROUTE_PATH);
 		await page.getByRole('button', { name: 'start opensea sync' }).click();

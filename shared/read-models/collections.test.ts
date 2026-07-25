@@ -102,6 +102,41 @@ describe("SqliteCollectionsReadModel observability", () => {
         ]);
     });
 
+    it("uses reconciliation completion as the collection OpenSea snapshot heartbeat", () => {
+        const initialSnapshotAt = "2026-07-12 00:50:00";
+        const reconciliationAt = "2026-07-12 00:55:00";
+        db.prepare(
+            "INSERT INTO collections " +
+                "(chain_id, collection_id, slug, address, standard, status, opensea_snapshot_completed_at, created_at, updated_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).run(
+            1,
+            8,
+            "snapshot-heartbeat",
+            "0x8888888888888888888888888888888888888888",
+            COLLECTION_STANDARD.Erc721,
+            COLLECTION_STATUS.Live,
+            initialSnapshotAt,
+            initialSnapshotAt,
+            initialSnapshotAt,
+        );
+
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
+        expect(
+            readModel.listCollections({ chainId: 1, limit: 10 }).items[0]
+                ?.openseaSnapshotRefreshedAt,
+        ).toBe(initialSnapshotAt);
+
+        db.prepare(
+            "UPDATE collections SET opensea_reconcile_completed_at = ? WHERE chain_id = ? AND collection_id = ?",
+        ).run(reconciliationAt, 1, 8);
+
+        expect(
+            readModel.listCollections({ chainId: 1, limit: 10 }).items[0]
+                ?.openseaSnapshotRefreshedAt,
+        ).toBe(reconciliationAt);
+    });
+
     it("does not run a previous-page token query on first page", () => {
         insertToken("1", "100");
         insertToken("2", "200");
@@ -1021,6 +1056,8 @@ function createSchema(): void {
             opensea_slug TEXT,
             opensea_status TEXT,
             opensea_ready_at TEXT,
+            opensea_snapshot_completed_at TEXT,
+            opensea_reconcile_completed_at TEXT,
             opensea_stream_ingestion_status TEXT NOT NULL DEFAULT '${OPENSEA_STREAM_INGESTION_STATUS.Enabled}',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
