@@ -10,6 +10,16 @@ import type { ApiChain, ApiCollection, ApiOpenSeaIntegrationStatus } from '../ap
 // Browser-test route for the collection-list OpenSea sync journey.
 export const COLLECTION_OPENSEA_SYNC_E2E_ROUTE_PATH = '/e2e-harness/collections';
 
+// Query contract used to render the temporarily unavailable setup state.
+export const COLLECTION_OPENSEA_SYNC_E2E_SETUP_STATE = {
+	QueryParam: 'opensea_setup',
+	Unavailable: 'unavailable'
+} as const;
+
+// Browser-test route for the collection-list OpenSea setup-unavailable journey.
+export const COLLECTION_OPENSEA_SYNC_E2E_UNAVAILABLE_ROUTE_PATH =
+	`${COLLECTION_OPENSEA_SYNC_E2E_ROUTE_PATH}?${COLLECTION_OPENSEA_SYNC_E2E_SETUP_STATE.QueryParam}=${COLLECTION_OPENSEA_SYNC_E2E_SETUP_STATE.Unavailable}`;
+
 // Browser-test collection reproduces a shared Art Blocks token-range collection.
 export const COLLECTION_OPENSEA_SYNC_E2E_COLLECTION: ApiCollection = {
 	chainId: 1,
@@ -56,7 +66,10 @@ const COLLECTION_OPENSEA_SYNC_E2E_INTEGRATION: ApiOpenSeaIntegrationStatus = {
 };
 
 // Feeds the production collections view with one eligible shared-contract collection.
-export function buildCollectionOpenSeaSyncE2ePageData() {
+export function buildCollectionOpenSeaSyncE2ePageData(
+	openseaIntegration: ApiOpenSeaIntegrationStatus | null =
+		COLLECTION_OPENSEA_SYNC_E2E_INTEGRATION
+) {
 	return {
 		chain: COLLECTION_OPENSEA_SYNC_E2E_CHAIN,
 		page: {
@@ -66,6 +79,6 @@ export function buildCollectionOpenSeaSyncE2ePageData() {
 		},
 		status: '',
 		basePath: COLLECTION_OPENSEA_SYNC_E2E_ROUTE_PATH,
-		openseaIntegration: COLLECTION_OPENSEA_SYNC_E2E_INTEGRATION
+		openseaIntegration
 	};
 }
