@@ -13,7 +13,7 @@ flowchart LR
     Http[HTTP adapter]
     UseCase[Concrete use case]
     Domain[Domain contracts]
-    Port[Use-case-owned outbound port]
+    Port[Application outbound port]
     Adapter[SQLite, NATS, RPC, media, or cache adapter]
 
     Client --> Route --> Http --> UseCase
@@ -24,18 +24,22 @@ flowchart LR
 
 The dependency rules are strict:
 
-- `backend/src/http-routes.ts` registers method and path only.
+- `backend/src/http-routes.ts` registers methods and paths and attaches
+  route-specific deployment-scope guards and observability metadata.
 - `backend/src/http/handlers/*` owns request DTO parsing and response mapping.
 - `backend/src/application/use-cases/*` owns business actions and orchestration.
-- Each use case receives only the outbound ports it drives. Its input and output
-  types do not expose Fastify, SQLite rows, NATS envelopes, or SDK payloads.
+- Use cases receive constructor-injected application ports. Some current
+  bootstrap and trading ports are shared by several related use cases, while
+  use-case input and output types do not expose Fastify, SQLite rows, NATS
+  envelopes, or SDK payloads.
 - `backend/src/infra/*` implements database, queue, RPC, cache, media, and trading
   ports.
-- `backend/src/index.ts` is the composition root and is the only place that wires
-  concrete adapters through the complete application.
+- `backend/src/index.ts` wires concrete outbound adapters and use cases.
+  `backend/src/http-app.ts` constructs the inbound HTTP adapters, common hooks,
+  and route registry.
 
 See the [backend request-flow diagram](../diagrams/07-backend-hexagonal-request-flow.md)
-for the call and dependency directions together.
+for the runtime call flow and layer boundaries together.
 
 ## Composition Order
 
@@ -44,11 +48,13 @@ for the call and dependency directions together.
 1. Load typed configuration and open the local SQLite database.
 2. Create observability, chain/RPC, queue, read-model, cache, media, collection,
    bootstrap, and trading adapters one by one.
-3. Construct concrete use-case classes with their narrow outbound ports.
+3. Construct concrete use-case classes with their application ports.
 4. Pass each use case to `createApiApp()`.
-5. Create one HTTP adapter per route entry, register common hooks, register
-   routes, then add cached-media and optional Userland static routes.
-6. Start cache lifecycles and the Fastify listener; stop them in reverse order.
+5. In `backend/src/http-app.ts`, construct the route-specific HTTP adapters,
+   register common hooks and API routes, then add cached-media and optional
+   Userland static routes.
+6. Start cache lifecycles around Fastify listener startup and stop them when the
+   app closes.
 
 Grouped dependency containers are intentionally absent. A new route should make
 its dependency path visible rather than expanding a general-purpose object.
@@ -70,18 +76,21 @@ The current route set covers:
   price tiers, collection settings, and archive/reapply actions.
 
 The machine-readable method, path, parameter, and response contract is
-[OpenAPI](openapi.yaml). `yarn check:docs` compares its method/path set to route
-registration and the shared route-template owners.
+[OpenAPI](openapi.yaml). `yarn check:docs` compares its non-wildcard method/path
+set to route registration and the shared route-template owners.
 
 ## Read Models and Writes
 
-Collection, token, activity, holder, trait, bid-book, and blockspace queries read
-materialized local state. The backend may compose or cache those reads, but it
-does not replay chain history in a request.
+Most collection, token, activity, holder, trait, bid-book, and blockspace
+presentation comes from materialized local state. Specific endpoints also make
+current dependency reads: owner resolution and tokenURI use RPC, bootstrap
+probes inspect contracts or OpenSea, and runtime health checks SQLite and NATS.
+The backend may compose or cache reads, but it does not replay chain history in
+an HTTP request.
 
 Mutations follow one of three patterns:
 
-- a use case performs a local transactional state change through a narrow
+- a use case performs a local transactional state change through an application
   repository port;
 - a use case persists intent and emits a durable NATS command signal;
 - a use case validates input, creates a durable run, and lets an indexer runtime
@@ -102,8 +111,8 @@ single-collection composition can additionally maintain:
 
 Cache values are derived from local read models. A cache miss or refresh does
 not change domain state. Debug response headers are emitted only when a query
-cache records an event for the request, and HTTP observability sanitizes query
-values before logging.
+cache records an event for the request, and query-cache response logging drops
+query values while retaining only allowlisted query keys.
 
 ## Error Boundary
 
@@ -114,7 +123,8 @@ not raw database, transport, RPC, or marketplace errors.
 
 ## Adding a Backend Capability
 
-1. Define or update the use-case input, output, method, and local outbound ports.
+1. Define or update the use-case input, output, method, and narrow outbound
+   contracts in the owning use-case or subject boundary.
 2. Implement or extend a concrete outbound adapter.
 3. Wire the adapter and use case explicitly in `backend/src/index.ts`.
 4. Add a transport mapper in `backend/src/http/handlers/<subject>/`.
@@ -125,8 +135,9 @@ not raw database, transport, RPC, or marketplace errors.
 
 ## Current Limits
 
-- The OpenAPI document describes registered HTTP routes, not cached media or
-  built frontend static-file paths.
+- The OpenAPI document describes registered non-wildcard HTTP routes, not the
+  wildcard API `OPTIONS` handler, cached media, or built frontend static-file
+  paths.
 - Read-only public hosting is a fixed configured collection view, not a general
   multi-tenant API. See [deployment modes](02-http-security-and-deployment-modes.md).
 - Loopback browser mutation protection is not proof that the browser belongs to

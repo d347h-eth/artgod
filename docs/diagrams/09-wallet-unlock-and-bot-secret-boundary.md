@@ -1,7 +1,8 @@
-# Wallet Unlock and Bot Secret Boundary
+# Bidding Wallet Unlock and Bot Secret Boundary
 
-Every bot start is a new native authorization and unlock operation. The WebView
-can request the operation but never receives the passphrase or private key.
+Every operator-visible bidding-bot start is a new native authorization and
+unlock operation. The WebView can request the operation but never receives the
+passphrase or private key.
 
 ```mermaid
 sequenceDiagram
@@ -11,7 +12,7 @@ sequenceDiagram
     participant Rust as Tauri command and bot supervisor
     participant Prompt as Native secret-prompt sidecar
     participant Store as Rust keystore service and wallet files
-    participant Bot as Fixed bundled Node bot
+    participant Bot as Fixed bundled bidding bot
     participant DB as SQLite runtime state
     participant Market as RPC and OpenSea adapters
 
@@ -19,11 +20,12 @@ sequenceDiagram
     Admin->>Rust: Start bot with non-secret authorization draft
     Rust->>Rust: Reserve lifecycle generation and resolve fixed recipient
     Rust->>Prompt: Open serialized native authorization and passphrase prompt
-    User->>Prompt: Review exact mandate and enter passphrase
+    User->>Prompt: Review exact bidding mandate and enter passphrase
     Prompt-->>Rust: Bounded prompt result over stdio
+    Rust->>Rust: Revalidate generation, core health, frozen config, wallet assignment, and mandate
     Rust->>Store: Decrypt selected Ethereum keystore
     Store-->>Rust: Zeroizing private-key buffer
-    Rust->>Rust: Revalidate generation, core health, config, wallet, and mandate
+    Rust->>Rust: Verify decrypted identity and revalidate the frozen context after KDF work
     Rust->>Bot: Spawn recipient and attach process containment
     Rust->>Bot: Write one bounded secret-envelope v3 frame to stdin
     Rust->>Rust: Drop passphrase and key buffers; retain idle stdin writer

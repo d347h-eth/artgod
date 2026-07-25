@@ -585,6 +585,7 @@ paths:
         get:
             tags: [Collections]
             summary: Get exact minted counts for requested collection trait keys
+            description: At least one nonblank trait key must be supplied through `keys` or `key`.
             operationId: getCollectionTraitCatalog
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
@@ -1459,8 +1460,8 @@ paths:
     /api/{chain_ref}/{collection_ref}/{token_ref}/token-uri:
         get:
             tags: [Collections]
-            summary: Resolve the canonical token URI from the collection contract
-            description: Performs a current RPC read through the collection token-URI port; it does not return indexed metadata.
+            summary: Resolve the current token URI
+            description: Uses the enabled collection extension's token-URI resolver when available and otherwise calls the ERC-721 collection contract through the current RPC; it does not return indexed metadata.
             operationId: getTokenUri
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
@@ -1540,8 +1541,8 @@ paths:
             description: |
                 Mutating endpoint protected by host/origin/CSRF checks.
                 Requires:
-                - loopback Host
-                - loopback Origin
+                - Host allowed by the configured API host policy
+                - Origin allowed by the configured API origin policy
                 - `x-artgod-csrf` header matching `artgod_csrf` cookie
             operationId: createBootstrapRun
             security:
@@ -1650,7 +1651,7 @@ paths:
         post:
             tags: [Bootstrap]
             summary: Start bootstrap for a prepared collection
-            description: Plans and queues a durable bootstrap run from the collection's persisted prepared scope, extension, and image-cache configuration.
+            description: Plans and queues a durable bootstrap run from the persisted prepared collection scope plus any build-bundled extension match and the resolved extension or default image-cache policy.
             operationId: startPreparedCollectionBootstrap
             security:
                 - csrfHeader: []
@@ -1658,13 +1659,6 @@ paths:
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
-            requestBody:
-                required: false
-                content:
-                    application/json:
-                        schema:
-                            type: object
-                            additionalProperties: false
             responses:
                 "200":
                     description: Bootstrap run created and queued
@@ -1812,13 +1806,6 @@ paths:
                 - $ref: "#/components/parameters/RunId"
                 - $ref: "#/components/parameters/BootstrapStepKey"
                 - $ref: "#/components/parameters/BootstrapStepAction"
-            requestBody:
-                required: false
-                content:
-                    application/json:
-                        schema:
-                            type: object
-                            additionalProperties: false
             responses:
                 "200":
                     description: Persisted bootstrap step state after the action

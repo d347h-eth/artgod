@@ -15,7 +15,7 @@ const DOCUMENTATION_ROOT_PATH = "docs";
 const DOCUMENT_INDEX_FILE_NAME = "README.md";
 const MARKDOWN_FILE_EXTENSION = ".md";
 
-// Source-owned HTTP contracts compared with the generated human reference.
+// Source-owned HTTP contracts compared with the machine-readable reference.
 const HTTP_ROUTE_REGISTRATION_PATH = "backend/src/http-routes.ts";
 const OPENAPI_DOCUMENT_PATH = "docs/backend/openapi.yaml";
 const HTTP_ROUTE_OWNER_PATHS = Object.freeze([
@@ -211,7 +211,10 @@ async function checkMarkdownLinks(documentSources, errors) {
                   )
                 : sourcePath;
             const targetProjectPath = toProjectPath(targetPath);
-            if (targetProjectPath.startsWith("../")) {
+            if (
+                targetProjectPath === ".." ||
+                targetProjectPath.startsWith("../")
+            ) {
                 errors.push(
                     `${sourceProjectPath}:${link.lineNumber}: link escapes the project: ${link.target}`,
                 );
@@ -409,7 +412,7 @@ async function checkOpenApiRouteParity(errors) {
     for (const route of openApiRoutes) {
         if (!registeredRoutes.has(route)) {
             errors.push(
-                `${OPENAPI_DOCUMENT_PATH}: undocumented source route ${route}`,
+                `${OPENAPI_DOCUMENT_PATH}: route is not registered in source ${route}`,
             );
         }
     }

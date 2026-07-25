@@ -172,9 +172,10 @@ The current preview system has these responsibilities:
 
 Backend/read-contract notes:
 
-- preview modal should use a dedicated lightweight backend read contract, not the full token-detail endpoint
-- token preview data should include only `tokenId`, `image`, `animationUrl`,
-  collection source/preference state, and token-local variant state
+- the preview modal uses a dedicated lightweight backend read contract, not the full token-detail endpoint
+- the token payload contains only `tokenId`, `image`, and `animationUrl`; the
+  response also carries collection source/preference state and token-local
+  variant state
 - activity-event preview keeps its separate extension render-mode contract
 - only snapshot token previews are eligible for preview caching
 - request-time live media must bypass backend/frontend preview caches and

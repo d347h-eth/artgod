@@ -47,9 +47,15 @@ The bootstrap worker also runs two durable step scheduler lanes:
 - main lane: anchor, enumeration, metadata, ownership, backfill, collection live, collection-extension artifact step coordination, and OpenSea step coordination
 - image-cache lane: image-cache step only
 
-Each lane has a poller that prevents overlapping polls inside the same process. The scheduler collects due run ids, then the orchestrator claims ready steps using persisted step leases. `BOOTSTRAP_STEP_CLAIM_LIMIT` is currently `1`, so a lane claims at most one step per run iteration. Step leases are renewed while the processor runs, and release/settlement is fenced by lease owner.
+Each lane has a poller that prevents overlapping polls inside the same process.
+The scheduler collects due run ids, then the orchestrator claims ready steps
+using persisted step leases. `BOOTSTRAP_STEP_CLAIM_LIMIT` is currently `1`, so
+a lane claims at most one step per run iteration. Step leases are renewed while
+the processor runs, and lease release is fenced by owner. Generic progress and
+terminal-settlement writes do not carry that owner predicate.
 
-This gives one important property: even when queue jobs are duplicated or scheduler polls wake the same run more than once, the durable step row remains the step-level concurrency boundary.
+This coordinates the normal duplicate-delivery and repeated-poll path through
+the durable step row, but it is not a complete stale-owner settlement fence.
 
 ## Pipeline Steps
 
@@ -62,8 +68,13 @@ Typed runtime config: no.
 Current model:
 
 - Backend use case validates the request, resolves embedded extension eligibility, upserts the collection, checks for an active run, creates a bootstrap run plus planned steps, then publishes one `bootstrap.collection.start` job.
-- The active-run guard prevents concurrent bootstrap runs for the same collection.
-- The queue publish uses a deterministic-ish start scope plus timestamp. It is idempotent at the NATS message id level for the generated job id, but run creation and queue publication are not a general multi-message work pool.
+- The application check rejects an already-active run. The database partial
+  unique index also rejects concurrent `requested`, `queued`, `metadata`,
+  `ownership`, or `backfill` rows for one collection, but it does not include
+  the later-added `image_cache` run status.
+- The queue publish uses a start scope plus timestamp. JetStream deduplicates
+  only an exactly reused generated job id; a fresh publication gets a fresh id.
+  Run creation and queue publication are not one transactional boundary.
 
 Scaling boundary:
 
@@ -100,7 +111,8 @@ Current model:
 
 - Request-time planning stores the requested extension key when collection contract plus token scope matches an embedded extension.
 - Anchor success calls the extension install upsert for that collection.
-- The install must exist before canonical metadata writes can fan out extension artifact refresh work.
+- The install must exist before the later collection-extension step seeds and
+  publishes artifact refresh work from the settled metadata snapshot.
 
 Scaling boundary:
 
@@ -141,13 +153,20 @@ Current model:
 
 - After enumeration, metadata task seeding writes `bootstrap_metadata_snapshot_tasks` in batches.
 - `BOOTSTRAP_METADATA_BATCH_SIZE` controls insert batch size, not parallelism.
-- Existing task counts make seeding idempotent on resume: if metadata tasks already exist, seeding is skipped and the metadata step is considered queued.
+- The executor marks enumeration succeeded before it inserts metadata task
+  batches.
+- If the enumeration executor itself is re-entered and any metadata tasks
+  already exist, it skips seeding and treats that count as the token count.
 
 Scaling boundary:
 
 - Do not add write concurrency first. SQLite benefits more from bounded transaction shape than concurrent writers.
 - If enumeration becomes page/task based, metadata task seeding can happen page-by-page in the same page task transaction, with unique `(run_id, token_id)` conflict handling.
 - For clean recovery, the completion condition should be persisted page terminality plus task counts, not in-memory counters.
+- Current recovery does not prove full seeding after a process exit between
+  enumeration success and the last metadata task batch. That transition needs a
+  persisted expected count or an atomic/page-terminal boundary before it can be
+  described as crash-safe.
 
 ### 6. Metadata Fetch / Store
 
@@ -160,7 +179,12 @@ Current model:
 - The metadata step is one leased bootstrap step.
 - Each pass reads up to `BOOTSTRAP_METADATA_BATCH_SIZE` due metadata tasks.
 - The step processes the due tasks through an in-process bounded worker pool with width `BOOTSTRAP_METADATA_CONCURRENCY`.
-- Each token calls the metadata domain refresh path, which stores canonical `tokens`, `token_metadata`, normalized attributes, and follow-up work.
+- Each token calls the metadata domain refresh path, which transactionally
+  stores canonical `tokens`, `token_metadata`, and normalized attributes.
+- Once task counts satisfy the metadata snapshot mode, bootstrap records the
+  early canonical stats follow-up and queue-outbox intent before marking the
+  metadata step succeeded. The later collection-extension step owns artifact
+  task seeding.
 - Failed tasks are moved to retry or terminal failure according to the bootstrap metadata retry policy and snapshot mode.
 - Completion is derived from persisted metadata task counts.
 
@@ -206,15 +230,23 @@ Current model:
 - The main lane publishes due artifact tasks to the dedicated `collection-extension-artifacts` queue.
 - The collection-extension worker subscribes with `maxInFlight` equal to `BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_CONCURRENCY`.
 - Each bootstrap artifact task has `lease_owner` and `lease_until`.
-- Workers claim pending/retry tasks with a persisted lease, renew that lease while rendering/fetching, and only the current lease owner can settle success, retry, or terminal failure.
+- Workers claim pending/retry tasks with a persisted lease, renew that lease
+  while rendering/fetching, and only the current lease owner can settle success,
+  retry, or terminal failure.
+- Extension artifact and trait writes happen before that fenced task settlement;
+  the writes are not themselves conditioned on the lease owner.
 - Completion and final stats release are derived from persisted artifact task counts.
 - Synthetic Terraforms rows are published atomically with their extension artifact and trait writes, and synthetic identities are tombstoned when retired so delayed bootstrap tasks cannot recreate them after a real mint refresh.
 
 Scaling boundary:
 
 - This is the strongest concurrency model in the bootstrap pipeline today.
-- Scaling is mainly a matter of increasing `BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_CONCURRENCY`, bounded by RPC capacity, renderer cost, HTTP fetch rate, and SQLite write pressure.
-- If worker count is increased across processes, the per-task lease/fence model already provides the required correctness boundary.
+- Increasing `BOOTSTRAP_COLLECTION_EXTENSION_ARTIFACT_CONCURRENCY` remains
+  bounded by RPC capacity, renderer cost, HTTP fetch rate, and SQLite write
+  pressure.
+- Before increasing worker count across processes, prove extension writes are
+  idempotent and current, or bring those writes under the same lease fence as
+  task settlement.
 
 ### 9. Ownership Snapshot
 
@@ -279,14 +311,17 @@ Current model:
 
 - The collection-live step depends on backfill.
 - It reads the backfill live block from step result, marks the collection bootstrap finished, marks the run completed, and cleans successful temporary data.
-- For runs without collection extensions, it enqueues final stats recompute directly.
-- For runs with collection extensions, final stats are released by extension artifact terminality instead, so extension-owned traits are included.
+- For runs without collection extensions, it records the final stats follow-up
+  and queue-outbox intent during collection-live processing.
+- For runs with collection extensions, extension artifact terminality records
+  that final follow-up instead, so extension-owned traits are included.
 
 Scaling boundary:
 
 - No dedicated concurrency is needed. This is a small finalization step.
 - If main-lane concurrency is added later, collection-live remains protected by its step lease and collection/run state checks.
-- The important invariant is transactional finalization after backfill coverage, not throughput.
+- If this multi-call finalization is hardened later, the important boundary is
+  one transaction after backfill coverage, not higher throughput.
 
 ### 12. OpenSea Bootstrap
 
@@ -302,7 +337,9 @@ Current model:
 - The worker marks identity running/succeeded, snapshot running, then calls `OpenSeaOrderbookSync.syncCollection`.
 - The orderbook sync paginates listings serially, then offers serially.
 - Each REST record is published to the offchain raw queue.
-- When the REST snapshot completes, the source-state store marks missing orders inactive for the run's active order id set, then the collection OpenSea state is marked ready.
+- When the REST snapshot completes, the source-state store marks missing orders
+  inactive for the run's active order id set, the collection OpenSea state is
+  marked ready, and the source run is completed.
 
 Scaling boundary:
 
@@ -323,10 +360,13 @@ Typed runtime config: no.
 
 Current model:
 
-- Metadata snapshot completion enqueues an early canonical stats recompute.
-- Collection-extension artifact terminality enqueues final stats recompute for extension collections.
-- Non-extension collection-live completion enqueues final stats recompute directly.
-- Domain worker queues are subscribed with `maxInFlight: 1` for metadata stats processing.
+- Metadata task completion records an early canonical stats follow-up and outbox
+  job.
+- Collection-extension artifact terminality records final stats follow-up and
+  outbox work for extension collections.
+- Non-extension collection-live processing records the final follow-up itself.
+- The domain worker subscribes to the metadata-stats queue with
+  `maxInFlight: 1`.
 
 Scaling boundary:
 
@@ -341,7 +381,13 @@ The pipeline already has three different concurrency tiers:
 2. Local bounded worker pools for metadata and image cache task batches.
 3. Durable per-task leases for collection-extension artifacts.
 
-That split is coherent as long as the process-level concurrency is only enabled where the persistence model can fence duplicate work. Collection-extension artifacts satisfy that standard today. Metadata and image cache are clean local pools but should not be scaled by adding more queue consumers until they get task leases. Ownership is serial because it is correctness-critical and currently lacks task leases.
+That split is coherent as long as process-level concurrency is enabled only
+where duplicate work has an explicit persistence boundary. Collection-extension
+artifact task claims and settlement are leased, but their data writes precede
+the settlement fence. Metadata and image cache are clean local pools but should
+not be scaled by adding more queue consumers until they get task leases.
+Ownership is serial because it is correctness-critical and currently lacks task
+leases.
 
 The strongest next concurrency improvement would be ownership task leases plus a typed `BOOTSTRAP_OWNERSHIP_CONCURRENCY` setting. The strongest large-scale enumeration improvement would be persisted enumeration page tasks rather than a larger in-memory `tokenByIndex` loop.
 
@@ -353,12 +399,25 @@ The strongest next concurrency improvement would be ownership task leases plus a
 - Enumerable discovery is one long-running step. Persisted enumeration page
   tasks would improve crash recovery and avoid retaining the full token list in
   memory before metadata seeding.
+- Enumeration terminality currently precedes completion of batched metadata task
+  seeding. Persist an expected count or couple terminality to verified seeding
+  so restart cannot accept an empty or partial task set as complete.
+- Step lease renewal and release are owner-fenced, but generic progress and
+  terminal-settlement writes are not. A processor that outlives its lease can
+  still update the step row, so those writes need the active lease owner or an
+  equivalent generation fence.
 - Metadata and image caching are bounded local pools, not multi-process task
   pools. Additional queue consumers would duplicate selection unless those task
   tables gain claim/lease semantics.
+- The active-run partial unique index does not include `image_cache`; the
+  application-level check covers the normal path, but the database invariant
+  should be extended to cover every active run status.
 - OpenSea bootstrap is serialized at the collection snapshot boundary. Safe
   collection-level concurrency must fence missing-order reconciliation by the
   owning run and share API rate limits.
+- Collection-extension task settlement is fenced, but artifact and trait writes
+  occur first. Multi-process scaling needs idempotency/currentness proof or a
+  fenced write boundary.
 - Current-state catch-up remains ordered. Parallel fetch is possible only if a
   later ordered per-collection apply barrier preserves projection semantics.
 

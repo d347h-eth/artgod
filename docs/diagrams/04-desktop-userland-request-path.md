@@ -11,6 +11,7 @@ sequenceDiagram
     participant BR as System Browser
     participant BE as Backend HTTP
     participant DB as SQLite
+    participant NATS as NATS JetStream
 
     U->>A: Trigger the userland-open action from admin shell or tray
     A->>BR: Open http://127.0.0.1:<backend-port>
@@ -35,6 +36,9 @@ sequenceDiagram
         BR->>BE: Mutating /api request with matching header and cookie
         BE->>DB: Validate and commit local state
         DB-->>BE: committed result
+        opt Use case emits asynchronous work or a wake-up
+            BE->>NATS: Publish after the durable commit
+        end
         BE-->>BR: Sanitized API response
     end
 ```

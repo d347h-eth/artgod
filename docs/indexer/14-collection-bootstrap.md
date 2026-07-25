@@ -103,7 +103,8 @@ If it does:
 
 - bootstrap upserts a `collection_extension_installs` row
 - the install is DB-activated immediately
-- later metadata writes in the same bootstrap run can already fan out extension artifact refresh jobs
+- the later collection-extension step can seed and publish artifact work after
+  the metadata snapshot settles
 
 Current v1 limits:
 
@@ -115,7 +116,9 @@ Current v1 limits:
 - enumerate collection token ids
 - fetch/store metadata first
 - this step runs before OpenSea offchain work so local token/attribute context exists
-- successful canonical metadata writes can publish `collection-extension.refresh-artifacts` as non-blocking side-effects
+- bootstrap metadata writes do not publish per-token extension work; the later
+  collection-extension step seeds and publishes artifact tasks after the
+  metadata snapshot settles
 - metadata snapshot completion enqueues a canonical metadata stats checkpoint so the token browser can use standard traits before extension artifacts converge
 
 ### 5. Token image cache
@@ -218,7 +221,9 @@ When enabled, that OpenSea flow does:
 1. read the persisted `collections.opensea_slug`
 2. mark OpenSea lifecycle state pending/running for that collection
 3. start the initial OpenSea orderbook snapshot
-4. let the stream worker subscribe using the persisted slug when the snapshot path completes
+4. let the stream worker independently subscribe while the collection is
+   bootstrapping once the slug, non-null OpenSea status, and enabled
+   stream-ingestion state are visible
 
 This OpenSea work runs in parallel with the short onchain backfill.
 
@@ -254,7 +259,9 @@ This is tracked separately via:
 - `opensea_status`
 - `opensea_ready_at`
 - snapshot/reconcile timestamps
-- stream health timestamps
+- stream subscription-poll and event timestamps; the field named
+  `opensea_stream_last_healthy_at` is updated during subscription refresh, not
+  by an explicit SDK connection heartbeat
 
 ## OpenSea Reconcile Behavior
 
@@ -286,10 +293,12 @@ Token image cache completion is not part of onchain ownership correctness. It is
 a local token-card loading optimization and may continue after the collection is
 already live.
 
-When a run fully succeeds and all task families have no pending, retry, or
-terminal-failed rows, bootstrap removes per-token scratch rows from metadata,
-ownership, image-cache, and temporary snapshot tables. `bootstrap_run_steps`
-remains the historical journal for step timing and progress totals.
+After a run completes, cleanup trims succeeded task rows lane by lane once that
+lane has no pending or retry rows. Ownership snapshot rows are removed only when
+ownership has no terminal failures, and metadata success rows for an extension
+run wait until extension artifact tasks are terminal. Terminal failure rows
+remain inspectable. `bootstrap_run_steps` remains the historical journal for
+step timing and progress totals.
 
 Manual historical backfill before `bootstrap_anchor_block` does not improve or change current ownership correctness. It only enriches historical facts before the anchor.
 
@@ -304,9 +313,9 @@ A collection should be considered OpenSea-ready once:
 
 `opensea_ready_at` is the durable record that initial setup succeeded.
 `opensea_status` describes the current bootstrap or reconciliation activity and
-may temporarily become `retrying` after readiness. Stream health and
-reconciliation failures do not clear durable OpenSea readiness; reconcile is the
-recovery path.
+may temporarily become `retrying` after readiness. Stale subscription/event
+timestamps and reconciliation failures do not clear durable OpenSea readiness;
+reconcile is the recovery path.
 
 If OpenSea integration is disabled, there is no OpenSea-ready target for bootstrap. The collection can still become onchain-live, and run-detail polling treats the OpenSea steps as out of scope.
 
@@ -319,7 +328,10 @@ That tradeoff is intentional for now:
 - source-complete data is published quickly
 - canonical order rows and validation converge through the queue pipeline shortly after
 
-Bootstrap metadata stats follow the same availability-first shape: canonical metadata stats are published when the metadata snapshot completes, while extension-owned trait stats converge after the extension side lane finishes.
+Bootstrap metadata stats follow the same availability-first shape: once
+metadata task counts satisfy the snapshot mode, bootstrap records the canonical
+stats follow-up and queue-outbox intent; the outbox drainer publishes it.
+Extension-owned trait stats converge after the extension side lane finishes.
 
 ## Relevant Tables
 
@@ -375,8 +387,10 @@ collection liveness, and the actions valid for its current state.
 - metadata, ownership, and image-cache processing steps can be paused and
   resumed where the shared bootstrap contract marks them pausable;
 - a terminal failed step must be explicitly retried, not resumed;
-- run-level `retry-failed` requeues terminal metadata, image, and artifact tasks
-  that are eligible for recovery;
+- run-level `retry-failed` is metadata-specific: it requeues eligible terminal
+  metadata tasks and, when image caching is configured, resets the image-cache
+  step and removes its old tasks so they can be regenerated; other terminal
+  step failures use explicit step-level retry;
 - startup and lane polling can wake a ready persisted step after a process
   restart, so recovery does not depend on the original queue delivery;
 - strict metadata failure blocks liveness; best-effort metadata can complete
@@ -393,10 +407,14 @@ collection liveness, and the actions valid for its current state.
 - Enumerable token discovery still performs the current `tokenByIndex` loop
   inside one step and assembles the discovered IDs before seeding tasks. Very
   large enumerable collections would benefit from persisted enumeration pages.
+- Enumeration is marked succeeded before metadata task batches are fully
+  seeded. A process exit in that gap can leave a terminal enumeration step with
+  an empty or partial metadata task set; the restart path does not currently
+  prove that seeding reached the enumerated total.
 - Ownership tasks are durable and retryable but processed serially. Parallel
   `ownerOf` calls require per-task leases and fenced settlement first.
 - OpenSea bootstrap is one collection snapshot at a time. Collection-level
   concurrency needs fenced source-state reconciliation and shared API limits.
-- Successful operational tasks and ownership snapshots are cleaned once their
-  lanes settle; terminal failure rows and run events remain available for
-  inspection and redrive.
+- Successful operational tasks and ownership snapshots are cleaned only after
+  the run is completed and their lanes settle; terminal failure rows and run
+  events remain available for inspection and redrive.

@@ -210,8 +210,9 @@ The collection bootstrap worker also uses the sync pipeline for short-range boot
   provider/eventual-consistency predicate so genuinely empty ranges do not loop.
 - Transaction receipts are fetched conservatively. Provider-capability-gated
   batch or full-block transaction modes remain future backfill optimizations.
-- `nft_balances` writes are transactional but do not use a separate historical
-  write-buffer lane.
+- High-volume current-state `nft_balances` projection writes during catch-up or
+  reorg recovery are transactional but do not use a separate write-buffer lane.
+  Pre-anchor historical imports remain facts-only.
 
 ### Large Manual Backfills
 
@@ -229,8 +230,8 @@ The current large-range risks are explicit:
   than an idempotent resume;
 - JetStream retention and maximum age, not an application run model, determine
   how long unfinished intent survives;
-- small queued ranges and a deliberately serial worker produce excessive queue
-  overhead for multi-year history.
+- small queued ranges and the default single-in-flight backfill worker produce
+  excessive queue overhead for multi-year history.
 
 If that scale is required, retain one historical-sync path but put a durable run
 model in front of it:

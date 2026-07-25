@@ -7,7 +7,7 @@ details.
    architecture boundary, package map, and release scope.
 2. [Public Alpha Starter Guide](02-public-alpha-starter-guide.md) is the operator
    journey from verified download through configuration, bootstrap, browsing,
-   bidding, recovery, and feedback.
+   bidding safety, and feedback.
 
 Implementation details belong in the domain indexes linked from the
 [documentation home](../README.md). Proposed work belongs in the

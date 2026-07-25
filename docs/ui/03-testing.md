@@ -19,9 +19,11 @@ test should not copy pricing, media, filtering, pagination, or selection logic.
 
 ## Deterministic Playwright Harnesses
 
-Fixture-backed routes under `/e2e-harness/collection` render production
-components with compact typed data and capture outgoing API intent. They do not
-run OpenSea, the bidding bot, or depend on whichever rows happen to be in the
+Dedicated fixture-backed routes under `/e2e-harness` render production
+components with compact typed data. Collection bidding and Terraforms media use
+`/e2e-harness/collection`, authorization uses `/e2e-harness/admin/bots`, and
+bootstrap coverage uses `/e2e-harness/bootstrap-runs`. The harnesses do not run
+OpenSea, the bidding bot, or depend on whichever rows happen to be in the
 developer's SQLite database.
 
 The harness is appropriate for:
@@ -105,10 +107,13 @@ the user and report the gap.
 
 ## Failure Diagnostics
 
-The shared E2E helpers attach browser console errors, page errors, and requested
-artifacts when a test fails. Preserve those diagnostics when adding a new suite.
-Expected product failures should be asserted through their user-visible action
-and recovery; raw transport details belong in logs, not in screenshot text.
+Suites that install the shared E2E diagnostics helper attach browser console
+errors and page errors when a test fails. Playwright configuration and
+individual specs retain or attach screenshots, traces, video, and other
+artifacts according to each suite's policy. Preserve those diagnostics when
+adding a new suite. Expected product failures should be asserted through their
+user-visible action and recovery; raw transport details belong in logs, not in
+screenshot text.
 
 ## Current Limits
 

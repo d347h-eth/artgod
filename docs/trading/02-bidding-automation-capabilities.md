@@ -226,7 +226,7 @@ Current settings:
 
 Backend source selection:
 
-- use `bot_snapshot` when the collection has enabled bidding jobs, the bidding bot heartbeat is live, and projection metadata is fresh
+- use `bot_snapshot` when the collection has enabled bidding jobs, the bot lifecycle resolves to active from a fresh running heartbeat, and projection metadata is fresh
 - otherwise use `orders`
 - standard/admin bid-book reads include own declared-job overlays when the bot has not yet produced or reobserved the matching market bid, including before any runtime maker address is known
 - public single-collection mode keeps bid-book reads market-only and never exposes local own-job or active-authorization context
@@ -242,7 +242,7 @@ Frontend feed, lifecycle, and authorization labels:
 - a fresh session without the collection displays as `bidding authorization: not included`
 - changed canonical collection identity displays as `bidding authorization: update required`
 - no fresh session displays as `bidding authorization: inactive`
-- a fresh heartbeat without a usable same-session projection displays as `bidding authorization: unavailable`
+- a fresh runtime row without a usable session id, or with incomplete identity or limit fields in its matched authorization row, displays as `bidding authorization: unavailable`
 - feed source, bot lifecycle, and collection authorization remain independent
 
 Bid-book filters:
@@ -261,10 +261,10 @@ Own-bid display:
 - Private `ownership=own` reads include both own market rows and addressless own declared-job rows, while exact maker filters continue to exclude addressless intent.
 - Own market rows can carry position signals: `winning`, `draw`, or `losing`, but only from a fresh bot-snapshot read and the bot-persisted runtime decision for the active order id.
 - Own market rows can carry bot-owned strategy-limit signals rendered as `hit ceiling` and `at floor`.
-- Own declared jobs can appear as `own_job_intent` rows with `queued`, `waiting for bidding bot`, `authorization required`, `authorization unavailable`, or `paused` phase.
+- Own declared jobs can appear as `own_job_intent` rows with `queued`, `waiting for bidding bot`, `authorization required`, `authorization unavailable`, `paused`, or `verifying` phase.
 - `authorization required` replaces an enabled job's indefinite `queued` state when the current process omits the collection or its approved identity is stale. The bidding panel directs the user to stop and start the bot in Admin and include or review the collection in the new bidding authorization.
-- Own active-order lifecycle rows can appear as `own_job_intent` rows with `replacing`, `canceling`, `cancel failed`, or `cancelled` phase.
-- Own-intent rows use range pricing for queued/paused intent and exact order pricing for runtime/cancellation-backed lifecycle rows.
+- Own active-order lifecycle rows can appear as `own_job_intent` rows with `verifying`, `replacing`, `canceling`, `cancel failed`, or `cancelled` phase.
+- Own-intent rows without active-order evidence use range pricing; runtime/cancellation-backed rows use exact order pricing.
 - Own-intent rows carry no marketplace maker address and render plain `You`; maker navigation, address titles, and maker highlighting remain available only for observed market rows.
 - Bid-book floor and ceiling columns are shown only when visible rows have bid-limit or range values.
 - Backend and frontend code must not infer own bid position from passive order rows, exact-scope grouping, or local price comparisons.
@@ -322,7 +322,7 @@ Current coverage is maintained by behavior, not a checked-in percentage snapshot
 The backend suite covers:
 
 - trading use-case validation, tier resolution, target lookup, archive, and reapply behavior;
-- HTTP request/response mapping and error shapes for every bidding mutation;
+- HTTP request/response mapping and error shapes across the bidding mutation routes;
 - SQLite job, command, price-tier, bid-book, runtime-authorization, and cancellation state;
 - NATS command-signal publication and retry-safe command ordering;
 - bot-snapshot versus indexed-orders fallback, freshness, scopes, maker filters, and token-set matching.
@@ -330,8 +330,9 @@ The backend suite covers:
 The trading suite covers restricted OpenSea adapters, snapshot freshness and
 backoff, hot-refresh pressure, command reconciliation, bidder decisions, wallet
 policy, cancellation recovery, runtime liveness, and bid-book projection. The
-frontend suite covers the shared bidding UI plus deterministic public, attached,
-and authorization Playwright flows.
+frontend unit and Playwright suites cover the shared bidding UI, deterministic
+private/public bidding flows, authorization, and a separate attached-app smoke
+flow.
 
 Run the owning suites instead of relying on an old coverage table:
 
@@ -339,8 +340,13 @@ Run the owning suites instead of relying on an old coverage table:
 yarn workspace @artgod/backend test
 yarn workspace @artgod/trading test
 yarn test:bidding:automation
+yarn test:bidding:automation:public
 yarn test:bidding:authorization
 ```
+
+The attached bidding smoke requires an already-running local application and
+uses `yarn test:bidding:attached`; it is not part of the deterministic command
+set above.
 
 ## Current Limits and Future Direction
 

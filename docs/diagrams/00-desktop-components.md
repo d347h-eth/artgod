@@ -29,7 +29,7 @@ flowchart LR
     TR --> RT
     RT --> AS
     RT --> KS
-    KS --> SP
+    RT --> SP
     KS --> WS
 
     RT --> NATS
@@ -40,8 +40,8 @@ flowchart LR
     BE --> DB
     BE --> NATS
     IDX --> DB
-    IDX --> NATS
-    BOT --> NATS
+    IDX <--> NATS
+    NATS --> BOT
     BOT --> DB
 
     U --> B

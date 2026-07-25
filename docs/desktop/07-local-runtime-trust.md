@@ -54,8 +54,12 @@ parent-liveness containment. See
 
 The current model does not protect against arbitrary code execution in Tauri
 core or the privileged Admin WebView, same-user process-memory access, or direct
-writes to app-data, SQLite, keystore, or runtime files. Those are host-compromise
-capabilities outside the public-alpha threat model.
+writes to app-data, SQLite, or keystore files. Those are host-compromise
+capabilities outside the public-alpha threat model. Release builds do separately
+fail closed when the staged key-bearing runtime file set, hashes, or path types
+differ from the manifest embedded in the desktop executable; that check does not
+defeat an attacker able to replace both the trusted executable and runtime
+closure.
 
 ## Local Port Impersonation
 

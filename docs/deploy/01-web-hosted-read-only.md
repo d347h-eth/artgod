@@ -24,8 +24,10 @@ Today that public mode is intended for a single fixed collection deployment:
 The deploy compose intentionally keeps public writes/admin surfaces disabled by route registration:
 
 - backend runs in `public_single_collection` mode
-- only read routes scoped to the configured chain and collection are registered
-  publicly
+- collection and chain data routes are read-only and reject references outside
+  the configured public scope
+- read-only health, default-chain, and runtime-config routes also remain
+  registered
 - bootstrap and customization routes are not registered
 - collection-list routes are not registered
 - CSRF issuance route is not registered
@@ -255,10 +257,17 @@ docker compose --env-file .env.deploy -f docker-compose.deploy.yml exec backend 
 ```
 
 After bootstrap and the required historical backfill complete, switch the stack
-to public single-collection mode and recreate both backend and frontend before
-enabling public ingress. Do not expose `standard` mode as a public hosted
-deployment; it registers local operator mutations that are intentionally absent
-from the public mode.
+to public single-collection mode, rebuild the shared app image, and recreate
+both backend and frontend before enabling public ingress:
+
+```sh
+docker compose --env-file .env.deploy -f docker-compose.deploy.yml up --build -d backend frontend-web
+```
+
+The rebuild is required because the deployment mode and public scope are
+frontend build inputs as well as backend runtime inputs. Do not expose
+`standard` mode as a public hosted deployment; it registers local operator
+mutations that are intentionally absent from the public mode.
 
 ## Notes
 

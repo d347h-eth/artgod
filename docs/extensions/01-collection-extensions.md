@@ -137,11 +137,12 @@ This makes collection customization an extension-system feature, not a Terraform
 
 ## Media and Cache Boundary
 
-The generic collection contract has two canonical metadata source fields
-(`image` and `animation_url`), extension-provided media sources/preferences, and
-token-local variants. The backend resolves one effective image/animation pair
-per response and reports the available choices; it does not return every media
-payload in parallel.
+The canonical token metadata row has normalized `image` and `animation_url`
+media slots. Bootstrap can select which raw metadata fields populate those
+slots. Extension-provided media sources/preferences and token-local variants
+remain separate presentation state. The backend resolves one effective
+image/animation pair per response and reports the available choices; it does
+not return every media payload in parallel.
 
 The local token-image cache stores canonical image media under generic
 collection policy. It does not cache animation documents or request-time live
@@ -149,12 +150,12 @@ extension renders. Metadata refresh can recache the canonical image when the
 collection selects `refresh_on_metadata`. Extension artifact rows remain
 separate from canonical metadata and from the resized file cache.
 
-This is intentionally a bounded v1 mapping. Arbitrary named media fields,
+This is intentionally a bounded v1 mapping. Arbitrary named output media slots,
 cross-source transformation graphs, and remote renderer packages are not part
 of the generic contract.
 
-The retained generalized direction keeps bootstrap inspection separate from
-runtime authority:
+The following generalized direction is retained design work, not an implemented
+runtime contract. It keeps bootstrap inspection separate from runtime authority:
 
 - an advanced bootstrap surface may display the probed sample metadata JSON as
   inert text, but that sample is only an inspection aid;
@@ -423,7 +424,7 @@ The renderer is intentionally simple:
 - `{{#if Trait=Value}}text{{/if}}` renders `text` only when `Trait` exactly matches `Value`
 - templates do not evaluate JavaScript or arbitrary expressions
 
-Rendering is backend-owned so token browser cards and activity includes consume the same resolved summary behavior.
+Rendering is backend-owned so token browser cards and activity rows consume the same resolved summary behavior.
 
 ## Extension-Owned Collection Pages
 

@@ -14,6 +14,7 @@ sequenceDiagram
     participant Bot as Bidding bot
     participant Snap as Authoritative OpenSea snapshot lane
     participant Signer as Mandate-restricted signer
+    participant SDK as OpenSea SDK
     participant OS as OpenSea
     participant Read as Bid-book read model
 
@@ -34,33 +35,43 @@ sequenceDiagram
 
     alt Enabled create or update
         Bot->>Snap: Load or refresh usable collection market view
-        Snap->>OS: Complete paginated REST snapshot as needed
+        Snap->>OS: Paginated REST snapshot as needed
         OS-->>Snap: Current offers
-        Bot->>Bot: Evaluate bidder decision within native mandate
+        Bot->>Bot: Evaluate bidder decision from job and market state
         alt Place or replace offer
-            Bot->>Signer: Request exact typed-data signature
+            Bot->>SDK: Create offer
+            SDK->>Signer: Request exact typed-data signature
             Signer->>Signer: Enforce chain, identity, quantity, price, allowance, and fee policy
-            Signer->>OS: Submit signed offer
-            OS-->>Bot: Active order identity
+            Signer-->>SDK: Return signature
+            SDK->>OS: Submit signed offer
+            OS-->>SDK: Active order identity
+            SDK-->>Bot: Return active order identity
             Bot->>DB: Persist active-order and decision state
         else No marketplace change
             Bot->>DB: Persist verified command completion
         end
     else Pause, archive, or cancel-active-offer
-        Bot->>OS: Discover and cancel tracked active order
+        Bot->>SDK: Discover and cancel tracked active order
+        SDK->>Signer: Request exact cancellation signature
+        Signer->>Signer: Enforce tracked protocol and order identity
+        Signer-->>SDK: Return signature
+        SDK->>OS: Submit offchain cancellation
+        OS-->>SDK: Cancellation result
+        SDK-->>Bot: Return cancellation result
         Bot->>DB: Persist completed, retryable, or terminal cancellation state
     end
 
     Bot->>DB: Complete or reschedule command row
-    Bot->>Read: Project fresh snapshot rows asynchronously
-    Read->>DB: Replace collection bid-book projection transactionally
 
     par Steady-state recovery
-        Bot->>Snap: Poll enabled collections with adaptive cadence
+        Bot->>Snap: Poll snapshot-backed collections with adaptive cadence
     and Event-driven pressure
         OS-->>Bot: Stream event wake-up hint
         Bot->>Bot: Coalesce by collection and scope
-        Bot->>Snap: Request targeted refresh without changing authority
+        Bot->>Snap: Refresh collection snapshot when event criteria require it
+    and Snapshot projection
+        Snap-->>Read: Notify after a successful snapshot refresh
+        Read->>DB: Replace collection bid-book projection transactionally
     and UI refresh
         UI->>API: Read jobs and bid books
         API->>DB: Select fresh bot projection or indexed-orders fallback

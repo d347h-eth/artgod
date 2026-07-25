@@ -60,18 +60,17 @@ The WS path and poller both call the same `handleHead()` function.
 
 ## Manual Backfills
 
-`indexer/src/application/scheduler-worker.ts` contains the shared
-`scheduleBackfillRange()` action, but startup never calls it automatically.
+Scheduler startup never publishes manual historical ranges automatically.
 
 Operators can schedule a range through either current inbound adapter:
 
 - Admin calls `POST /api/{chain_ref}/blockspace/backfill`;
 - `indexer/scripts/trigger-backfill.ts` provides the CLI path.
 
-Both publish explicit `manual_historical` jobs to `events-sync-backfill`. The
-payload selects `skip_global_maker_revalidation`, preserving historical facts
-and token-scoped effects without treating old WETH/counter events as current
-maker state.
+The backend use case and CLI each build explicit `manual_historical` jobs for
+`events-sync-backfill`. Their payload selects
+`skip_global_maker_revalidation`, preserving historical facts and token-scoped
+effects without treating old WETH/counter events as current maker state.
 
 ## Runtime Entrypoint
 

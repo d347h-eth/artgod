@@ -173,7 +173,7 @@ bidding safety, metadata and media limitations, and where to send feedback.
 
 Start with the [documentation home](docs/README.md). It provides the complete
 topic map, reading order, source-of-truth rules, diagram index, and the boundary
-between current domain references and unimplemented work.
+between current domain references, remaining work, and retained status history.
 
 The shortest routes are:
 
@@ -185,8 +185,8 @@ The shortest routes are:
   [Trading](docs/trading/README.md), [Extensions](docs/extensions/README.md),
   [UI](docs/ui/README.md), and [Desktop](docs/desktop/README.md) for engineering
   reference.
-- [Unified backlog](docs/planning/01-unified-backlog.md) for work that is not
-  implemented.
+- [Unified backlog](docs/planning/01-unified-backlog.md) for remaining work and
+  retained status history.
 - [AGENTS.md](AGENTS.md) for agent-specific architecture, safety, and review
   rules.
 

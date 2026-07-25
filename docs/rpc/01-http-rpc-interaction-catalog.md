@@ -223,7 +223,7 @@ request attempt; the retry policy still bounds the total number of attempts.
 - Resilience: weighted endpoint selection, dynamic endpoint weight drift,
   adapter retry, per-endpoint rate limiting, and per-endpoint circuit breaker.
 - Fallback: the resolver records metadata failure metrics and returns `null`
-  after retry exhaustion.
+  when the read ends in a final error.
 
 ### Domain Worker
 
@@ -233,8 +233,7 @@ request attempt; the retry policy still bounds the total number of attempts.
   validation.
 - HTTP lane: `domain-http-rpc`.
 - RPC method paths: Seaport order status, Seaport counters, conduit state,
-  ownership, approvals, WETH allowance/balance, native ETH balance, and
-  extension reads.
+  ownership, approvals, WETH allowance/balance, and native ETH balance.
 - Resilience: full indexer HTTP adapter coverage.
 
 ### Reorg Worker
@@ -305,8 +304,8 @@ request attempt; the retry policy still bounds the total number of attempts.
 | Path                                                      | Use Case                                                             | Endpoint Source                                                  | Weighted Selection                   | Adapter Retry           | Circuit Breaker         | Rate Limit              | Notes                                                                                                                                                                                                           |
 | --------------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------ | ----------------------- | ----------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src-tauri/src/runtime/rpc_auto_sourcing.rs`              | Admin automated public RPC sourcing and pre-start sanity checks      | Embedded/saved/fresh Chainlist payload or current `RPC_URL_LIST` | Initial latency-derived weights only | No                      | No                      | No                      | Runs before runtime startup from the desktop Admin plane; successful Chainlist sourcing writes a curated `RPC_URL_LIST` config value, while configured-list sanity checks do not replace the user endpoint set. |
-| `scripts/dump-tx.js`                                      | Dump transaction, receipt, and block data                            | `--rpc` or first endpoint from `RPC_URL_LIST`                    | No                                   | No                      | No                      | No                      | Uses a direct viem HTTP client for manual diagnostics.                                                                                                                                                          |
-| `scripts/debug/ethereum-node-probe.mjs`                   | Probe node health, account state, txpool, and optional self-transfer | `--rpc` or first endpoint from `RPC_URL_LIST`                    | No                                   | No                      | No                      | No                      | Uses direct viem HTTP clients and optional wallet client.                                                                                                                                                       |
+| `scripts/dump-tx.js`                                      | Dump transaction, receipt, and block data                            | `--rpc` or first endpoint from `RPC_URL_LIST`                    | No                                   | Viem transport default  | No                      | No                      | Uses a direct viem HTTP client for manual diagnostics.                                                                                                                                                          |
+| `scripts/debug/ethereum-node-probe.mjs`                   | Probe node health, account state, txpool, and optional self-transfer | `--rpc` or first endpoint from `RPC_URL_LIST`                    | No                                   | Viem transport default  | No                      | No                      | Uses direct viem HTTP clients and optional wallet client.                                                                                                                                                       |
 | `scripts/benchmark-contract-read/fetch-terraform-data.ts` | Benchmark Terraforms contract reads                                  | Fixed local benchmark URL                                        | No                                   | No                      | No                      | No                      | Uses raw JSON-RPC batch fetches for benchmarking only.                                                                                                                                                          |
 | `indexer/tests/smoke.test.ts`                             | End-to-end indexer smoke tests                                       | `SMOKE_RPC_URL_LIST`                                             | Follows runtime adapter              | Follows runtime adapter | Follows runtime adapter | Follows runtime adapter | The test config feeds actual indexer workers, so coverage follows the indexer rows above.                                                                                                                       |
 
@@ -346,8 +345,9 @@ Partially covered today:
 
 Not covered:
 
-- Developer scripts use direct HTTP JSON-RPC clients or fetches with no runtime
-  observability, retry, circuit breaker, or rate limiter.
+- Developer scripts use direct HTTP JSON-RPC clients or fetches with no
+  project-owned runtime observability, retry policy, circuit breaker, or rate
+  limiter. Direct viem HTTP transports retain viem's default transport retry.
 - OpenSea REST retries and rate limiting do not cover Ethereum HTTP JSON-RPC
   calls. They are separate integration resilience.
 

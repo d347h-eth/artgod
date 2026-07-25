@@ -2,8 +2,9 @@
 
 The bidding bot needs a current market view without turning every active job or
 stream event into a fresh collection-wide OpenSea crawl. The current design
-keeps one authoritative in-memory offer snapshot per watched collection and
-separates that decision input from display projections.
+keeps one authoritative in-memory offer snapshot per snapshot-backed collection
+(a collection with an enabled token or collection job) and separates that
+decision input from display projections.
 
 ## Authority Model
 
@@ -23,12 +24,12 @@ The [bidding lifecycle diagram](../diagrams/10-bidding-command-and-offer-lifecyc
 shows where declared state, authoritative market reads, side effects, and
 display state meet.
 
-## Complete Collection Snapshot
+## Collection Snapshot Traversal
 
 `OpenSeaCollectionOfferSource` walks `getAllOffers(collectionSlug, limit, next)`
-until the cursor ends. It retains all returned offer kinds that later parsing can
-classify or preserve: collection, trait/criteria, exact token, token set, and
-unknown.
+until the cursor ends or a cursor repeats. It retains all returned offer kinds
+that later parsing can classify or preserve: collection, trait/criteria, exact
+token, token set, and unknown.
 
 Every fetch records:
 
@@ -36,9 +37,10 @@ Every fetch records:
 - first, last, minimum, and maximum parseable prices;
 - a scope distribution summary and observed trait types.
 
-Repeated cursors terminate the walk and emit a pagination-loop error instead of
-looping forever. The adapter uses the shared OpenSea request limiter and bounded
-retry policy.
+When a cursor repeats, the adapter logs a pagination-loop error, stops the walk,
+and returns the offers collected so far. It does not currently fail the refresh
+or mark the result as degraded, so that result can be incomplete. The adapter
+uses the dedicated snapshot OpenSea request limiter and bounded retry policy.
 
 The snapshot service serializes refresh work per collection. Concurrent callers
 join or coalesce around the same work rather than starting parallel full crawls.
@@ -70,18 +72,20 @@ TTL-aware failures back off from the base TTL with an exponential factor of two,
 20% positive jitter, and the same maximum-TTL cap. A success resets failure
 state. A forced refresh can bypass TTL/backoff eligibility when recovery must
 wait for current data, but it still respects per-collection serialization and
-the OpenSea request limiter.
+the dedicated snapshot OpenSea request limiter.
 
 `BIDDING_COLLECTION_OFFERS_POLL_MS` controls how often the background lane asks
-watched collections whether a refresh is due; it does not force every poll to
-hit OpenSea.
+snapshot-backed collections whether a refresh is due; it does not force every
+poll to hit OpenSea.
 
 ## Startup and Command Behavior
 
-Startup builds one snapshot for every collection with enabled bidding jobs
-before steady-state placement begins. It then replays committed commands while
-stream listeners and periodic snapshot polling are still inactive. This avoids
-hot events racing with recovery of declared intent.
+Startup builds one snapshot for every collection with an enabled token or
+collection job before steady-state placement begins. Competitive-trait-only
+collections are watched for stream events but are not part of this broad
+snapshot lane. The runtime then replays committed commands while stream
+listeners and periodic snapshot polling are still inactive. This avoids hot
+events racing with recovery of declared intent.
 
 For a later command:
 
@@ -102,8 +106,9 @@ one.
 Broad collection/trait events and exact-item events have separate cooldown and
 pending-signature budgets. Within a signature, the highest observed price wins
 so coalescing remains conservative. When a pending budget is full, the
-backpressure component retains stronger signals and logs summarized drops or
-evictions rather than emitting one line per event.
+backpressure component drops the incoming signal when it is not stronger than
+the weakest queued signal; otherwise it evicts that weakest signal. Each drop
+or eviction is logged with queue counts.
 
 The runtime also:
 
@@ -111,14 +116,16 @@ The runtime also:
 - waits until command replay completes before subscribing streams;
 - lets user commands outrank background hot refresh at OpenSea adapter
   bottlenecks;
-- ignores hot events for jobs whose effective ceiling cannot beat the broad
-  event price;
+- skips token-job hot refresh when the event price meets or exceeds that job's
+  effective ceiling;
 - fails closed when a competitive-trait target expands beyond
   `BIDDING_COMPETITIVE_TRAIT_MAX_LOOKUP_SELECTORS` (default 64).
 
-Normal full scans read the broad snapshot but may still perform narrow live
-token reads. Per-job execution remains serialized, and configured job
-concurrency is deliberately conservative.
+Token and collection full scans read the broad snapshot; token jobs may still
+perform narrow live token reads. Competitive-trait scans bypass the snapshot
+and use live collection and trait pagination after a configured selector-count
+guard. Per-job execution remains serialized, and configured job concurrency is
+deliberately conservative.
 
 ## Bid-Book Display Selection
 
@@ -127,7 +134,8 @@ snapshot metadata to SQLite. Backend reads use that source only when all of
 these are true:
 
 - the collection has enabled bidding jobs;
-- the bot heartbeat is within `BIDDING_RUNTIME_HEARTBEAT_STALE_MS`;
+- the bot lifecycle resolves to active from a fresh running heartbeat within
+  `BIDDING_RUNTIME_HEARTBEAT_STALE_MS`;
 - the projected snapshot is within `BIDDING_BID_BOOK_SNAPSHOT_STALE_MS`.
 
 Otherwise the backend falls back to canonical indexer orders. The UI labels the
@@ -135,41 +143,37 @@ source and refreshes more frequently while a live bot projection is selected.
 Bidder decision freshness and display-projection freshness are intentionally
 separate.
 
-When own-job context is requested, the backend resolves the current authorized
-maker from persisted runtime authorization and marks matching rows from either
-display source as the user's offers. Own-maker feedback is therefore already
-available on the indexed-orders fallback; it is not dependent on a live bot
-projection.
+When own-job context is requested, the backend loads the latest persisted
+bidding-bot wallet address for the chain and marks matching rows from either
+display source as the user's offers. This passive maker identity is separate
+from collection authorization. Own-maker feedback is therefore available on
+the indexed-orders fallback; it is not dependent on a live bot projection.
 
 ## Why Full Snapshots Are Expensive
 
-A diagnostic Milady run on 2026-07-02 showed that OpenSea pagination, not SQLite
-projection, dominated cost. These are historical measurements, not current
-market guarantees:
+The adapter requests every cursor page and retains every returned offer in
+memory. Fetch work, memory use, parsing, and projection size therefore grow with
+the current depth of the collection offer book. Adaptive freshness, command
+snapshot reuse, coalescing, and pending-work caps bound how often that work is
+repeated; they do not bound one traversal.
 
-| Offers returned | Approximate fetch time | Dominant scope        |
-| --------------: | ---------------------: | --------------------- |
-|           8,544 |             82 seconds | explicit token offers |
-|          10,277 |             99 seconds | explicit token offers |
-|          11,856 |            115 seconds | explicit token offers |
-
-Writing the 11,856-row local projection took hundreds of milliseconds. The
-evidence drove adaptive freshness, command snapshot reuse, coalescing, and
-pending-work caps.
-
-Observed OpenSea pages appeared price-descending in that probe, and the stream
-crossed the collection-wide bid level late in the crawl. Neither ordering nor
-endpoint visibility is treated as a stable API guarantee.
+`scripts/debug/milady-offer-depth.mjs` can record a live diagnostic crawl, but
+its results depend on current OpenSea data and credentials. The repository does
+not contain a checked-in measurement that establishes stable fetch time,
+projection time, scope distribution, or price ordering.
 
 ## Current Limits and Future Direction
 
-- The first missing complete snapshot can still block a command that cannot act
+- The first missing broad snapshot can still block a command that cannot act
   safely without broad competition context.
-- Complete `getAllOffers` pagination can remain expensive on spammed collections.
+- A repeated cursor currently produces a logged, partial snapshot without a
+  degraded-state marker. This is a correctness limit, not a complete-snapshot
+  guarantee.
+- Full `getAllOffers` pagination can remain expensive on deep offer books.
 - A hard price/depth cutoff is deliberately deferred. A future bounded snapshot
   must derive a conservative strategy cutoff, record degraded/bounded state,
-  guard observed ordering, retain enough depth for winning decisions, and fall
-  back to a complete fetch when confidence is lost.
+  validate any ordering assumption, retain enough depth for winning decisions,
+  and fall back to a full fetch when confidence is lost.
 - Maintaining one target-specific background snapshot per token or trait is not
   the preferred direction: 100+ jobs would turn the bot into an unbounded cache
   warmer. Exact endpoints remain narrow verification tools.
@@ -211,8 +215,9 @@ the selected page.
 
 Automated adapter tests cover normalized SDK shapes and failure handling, but a
 dependency or endpoint migration still requires a live credentialed OpenSea
-check for production pagination, rate limits, stream delivery, and observed
-ordering. Observed ordering remains evidence for guards, never an API contract.
+check for production pagination, rate limits, stream delivery, and response
+ordering. Any ordering observed during a diagnostic run is evidence for that
+run only, never an API contract.
 
 These retained outcomes are `BKL-049` and `BKL-051` in the
 [unified backlog](../planning/01-unified-backlog.md).

@@ -24,11 +24,14 @@ The Terraforms indexer adapter adds watch specs for:
 
 - main-contract `Daydreaming` and `Terraformed` events;
 - V2 tokenURI `AttunementSet` events;
-- V2 Beacon `ParcelModified` events.
+- V2 Beacon `ParcelModified`, `BroadcastAdded`, `BroadcastRemoved`,
+  `BroadcastModified`, `BroadcastOrderModified`, and
+  `ScriptComponentModified` events.
 
-Watch outputs normalize to the generic metadata refresh contract. Immutable
-extension event facts are stored separately and projected into activity rows;
-the sync hook does not gain arbitrary stateful domain authority.
+Token-affecting watch outputs normalize to the generic metadata refresh
+contract. Immutable extension event facts are stored separately and projected
+into activity rows; collection-wide Beacon events can produce facts without a
+token refresh. The sync hook does not gain arbitrary stateful domain authority.
 
 After canonical metadata writes, the extension artifact worker reconstructs V2
 renderer inputs and stores extension-owned artifacts and normalized traits. For
@@ -72,7 +75,7 @@ auto-selects lost terrain. `media_mode`, `media_preference`, and token-local
 Terraforms also supplies default collection customization for range/set trait
 presentation and compact token-card/activity trait summary templates. Users can
 select user-owned or extension-owned customization per feature. The backend
-renders the constrained template so token cards and activity includes share one
+renders the constrained template so token cards and activity rows share one
 result.
 
 ## Activity Presentation
@@ -99,10 +102,10 @@ Public single-collection mode uses:
 /extensions/:extension_key/:page_ref
 ```
 
-The generic loader verifies that the extension is enabled and a bundled page
-registration exists. The Terraforms page receives collection context, media
-state, a base path, and page-local action scope; it does not own a privileged
-top-level route.
+The generic loader verifies that the extension is enabled. The shared page host
+then resolves the bundled page registration before rendering. The Terraforms
+page receives collection context, media state, a base path, and page-local
+action scope; it does not own a privileged top-level route.
 
 ### Structure Source
 
@@ -133,7 +136,7 @@ trait filters.
 The detail views provide:
 
 - sortable zone rows for all levels or the selected level;
-- exact live token counts from the backend trait catalog;
+- current indexed token counts from the backend trait catalog;
 - zone palettes with copy feedback and selected-level texture preview;
 - sortable biome rows and character previews;
 - token-browser links scoped by level, zone, and biome;

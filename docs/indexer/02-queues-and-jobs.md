@@ -227,11 +227,12 @@ the bootstrap worker consumes the wakeup and claims persisted work.
 `bootstrap.collection.image-cache-process` jobs drain durable image-cache tasks from `bootstrap_image_cache_tasks` on the separate `collection-bootstrap-image-cache` queue so slow remote media hosts do not block ownership/backfill/live progress.
 `bootstrap.collection.backfill-check` jobs are produced by the bootstrap worker to verify short backfill completion before switching a collection to `live`.
 
-`collection-extension.refresh-artifacts` jobs are produced only after a successful canonical metadata write:
+`collection-extension.refresh-artifacts` jobs are produced in two flows:
 
-- by `bootstrap-worker` during bootstrap metadata snapshot processing
-- by `domain-worker` during `domain.metadata.sync`
-- by `domain-worker` during token and range metadata refresh handling
+- by `bootstrap-worker` from the dedicated collection-extension step after the
+  metadata snapshot settles, for metadata-derived and extension-owned tasks
+- by `domain-worker` after canonical metadata writes during
+  `domain.metadata.sync` and token or range refresh handling
 
 These jobs are consumed by `collection-extension-worker` and carry:
 
@@ -277,5 +278,8 @@ offchain-ingest, and OpenSea runtimes.
 - Most consumers handle one envelope at a time. Queue-specific batch pulls are a
   future throughput tool only where handler idempotency, ordering, and ack
   semantics remain clear.
-- Backlog metrics and the read-only queue inspector expose pressure; there is no
-  automatic queue-depth admission policy yet.
+- The OpenSea stream worker refreshes per-slug subscriptions on a timer, but its
+  event callback starts asynchronous queue publication without a project-owned
+  bounded ingress buffer or explicit SDK connection-heartbeat supervisor.
+- The read-only queue inspector reports stored-message counts and first/last
+  message timestamps; there is no automatic queue-depth admission policy yet.

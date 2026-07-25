@@ -12,14 +12,15 @@ backend route registry and scope guards enforce the server-side boundary.
 
 ## Standard Local Mode
 
-Standard mode registers all reads, the CSRF issuer, and Admin mutation routes.
+Standard mode registers the full local read surface, the CSRF issuer, and Admin
+mutation routes.
 Every `POST`, `PUT`, `PATCH`, or `DELETE` request under `/api/` must pass all of
 these checks before its handler runs:
 
 1. the normalized `Host` header is in `BACKEND_ALLOWED_HOSTS`;
 2. the normalized `Origin` header is in `BACKEND_ALLOWED_ORIGINS`;
 3. the `X-ArtGod-CSRF` header is present;
-4. the header token exactly matches the `artgod_csrf` cookie.
+4. the trimmed header token matches the `artgod_csrf` cookie.
 
 `GET /api/security/csrf` returns the token in the response body and sets a
 32-hex-character, `HttpOnly`, `SameSite=Strict`, 24-hour cookie. Set
@@ -40,8 +41,10 @@ Route guards enforce:
 
 - chain-scoped reads must match `PUBLIC_APP_CHAIN_REF`;
 - collection-scoped reads must also match `PUBLIC_APP_COLLECTION_REF`;
-- blockspace is served through the configured collection's cached read port;
-- private bidding context is omitted from collection/token presentation.
+- blockspace is fixed to the configured collection and uses its cached read
+  port when the backend query-cache provider is enabled;
+- private bidding context is omitted from collection and token bid-book
+  responses.
 
 The fixed collection can have an extension such as Terraforms, but the mode is
 generic: it is not a Terraforms-only backend contract.
@@ -69,13 +72,17 @@ mode directly to an untrusted network.
 ## Cached Media
 
 The backend can serve files from the configured token-image cache through a
-dedicated static route. Path resolution rejects traversal and serves only files
-under the cache root. The cache is derived media, not a writable upload API.
+dedicated static route. The route rejects lexical path traversal outside the
+configured cache root and serves targets that filesystem metadata reports as
+regular files. It currently follows symlinks during metadata and file reads, so
+the cache root must not contain untrusted symlinks. The cache is derived media,
+not a writable upload API.
 
 ## Observability and Sensitive Data
 
 HTTP metrics and spans use registered route templates rather than raw URLs.
-Query keys may be retained for diagnostics, but query values are sanitized.
+Query-cache response diagnostics may retain allowlisted query keys, but they
+drop query values.
 Secrets, CSRF tokens, wallet material, raw keystore passwords, and full
 marketplace credentials must never be logged or added as telemetry attributes.
 

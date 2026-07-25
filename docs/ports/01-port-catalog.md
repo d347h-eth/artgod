@@ -29,6 +29,8 @@ binding requirements remain separate.
 | `42702` | Private bidding automation E2E app | Vite E2E server                                         | `frontend/package.json`                                  |
 | `42703` | Public bidding automation E2E app  | Vite E2E public server                                  | `frontend/package.json`                                  |
 | `42704` | Terraforms Hypercastle E2E app     | Vite E2E server                                         | `frontend/package.json`                                  |
+| `42705` | Bootstrap probe E2E app            | Vite E2E server                                         | `frontend/package.json`                                  |
+| `42706` | Bidding authorization E2E app      | Vite E2E server                                         | `frontend/package.json`                                  |
 | `42710` | Backend HTTP API                   | Backend runtime, deploy Caddy proxy, frontend dev proxy | `config/settings.manifest.toml`, `backend/src/config.ts` |
 
 ## Local Infra

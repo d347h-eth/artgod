@@ -229,9 +229,10 @@ WETH transfer/approval logs can trigger maker updates, but to avoid queue spam t
 - Raw audit payloads are intentionally not part of runtime decision-making outside the trading bid-book display exception.
 - Partial fill quantity progression is not modeled; fills can make an order
   terminal, but the order row does not expose a remaining-quantity state machine.
-- Criteria-root parsing and local token-set materialization still need a
-  deterministic repair path for unusual numeric payload forms and incomplete
-  metadata coverage. Source orders remain visible with `unresolved` or
-  `mismatch` linkage instead of being silently dropped.
+- Ingest fails closed on local criteria linkage: empty membership is
+  `unresolved`, a root difference is `mismatch`, and neither state attaches a
+  local token-set id. There is no automatic redrive that rematerializes those
+  orders after canonical metadata coverage changes, and unusual numeric payload
+  forms still need a deterministic parsing/repair policy.
 - Maker revalidation watches WETH `Transfer` and `Approval`; native WETH
   `Deposit` and `Withdrawal` triggers are not decoded separately yet.

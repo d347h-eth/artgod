@@ -101,7 +101,8 @@ Canonical backlog and priorities live in
   provisioning.
 - `scripts/`: local development, build, config, debug, and release helpers.
 - `src-tauri/`: Tauri desktop wrapper and Rust-owned desktop services.
-- `docs/`: architecture references, runtime guides, progress plans, and backlog.
+- `docs/`: operating guides, domain references, diagrams, and the unified
+  backlog.
 
 ## Public Alpha Boundaries
 

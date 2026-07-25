@@ -53,9 +53,14 @@ sequenceDiagram
 
     loop Main and image-cache lane polls
         Bootstrap->>DB: Reconcile dependencies + claim step lease
-        alt Anchor / enumeration
-            Bootstrap->>RPC: Read anchor + resolve approved token scope
-            Bootstrap->>DB: Persist anchor, extension install, task seeds
+        alt Anchor
+            Bootstrap->>RPC: Read anchor block
+            Bootstrap->>DB: Persist anchor
+            Bootstrap->>DB: Persist extension install if requested
+        else Enumeration
+            Bootstrap->>RPC: Resolve approved token scope
+            Bootstrap->>DB: Mark enumeration succeeded
+            Bootstrap->>DB: Seed metadata tasks in batches
         else Metadata / ownership
             Bootstrap->>RPC: Fetch canonical metadata / ownerOf at anchor
             Bootstrap->>DB: Settle durable tasks + progress
@@ -66,27 +71,35 @@ sequenceDiagram
             Bootstrap->>DB: Mark delegated step running
             Bootstrap->>NATS: Publish collection-scoped catch-up
         else Collection live
-            Bootstrap->>DB: Finalize live state + clean successful temporary rows
+            Bootstrap->>DB: Mark collection live
+            Bootstrap->>DB: Mark step succeeded
+            Bootstrap->>DB: Mark run completed
+            Bootstrap->>DB: Clean eligible successful temporary rows
         end
     end
 
-    Bootstrap->>DB: Seed/observe extension artifact tasks
-    Bootstrap->>NATS: Publish collection-extension.refresh-artifacts
-    NATS-->>Ext: collection-extension.refresh-artifacts
-    Ext->>DB: Claim per-task lease
-    Ext->>RPC: Read/render collection-owned artifacts
-    Ext->>DB: Fenced artifact/trait write + task settlement
-
-    Bootstrap->>NATS: Publish opensea.collection.bootstrap job
-    NATS-->>OSBoot: OpenSea bootstrap job
-    OSBoot->>DB: Fence collection snapshot run
-    OSBoot->>RPC: Fetch OpenSea listing/offer pages
-    OSBoot->>NATS: Publish offchain.order.raw snapshot jobs
-    OSBoot->>DB: Mark missing source orders inactive + ready
+    par Extension side work after metadata
+        Bootstrap->>DB: Seed/observe extension artifact tasks
+        Bootstrap->>NATS: Publish collection-extension.refresh-artifacts
+        NATS-->>Ext: collection-extension.refresh-artifacts
+        Ext->>DB: Claim per-task lease
+        Ext->>RPC: Read/render collection-owned artifacts
+        Ext->>DB: Upsert artifact/traits
+        Ext->>DB: Settle task under the current lease fence
+    and OpenSea side work after metadata and ownership
+        Bootstrap->>NATS: Publish opensea.collection.bootstrap job
+        NATS-->>OSBoot: OpenSea bootstrap job
+        OSBoot->>DB: Start collection snapshot run
+        OSBoot->>RPC: Fetch OpenSea listing/offer pages
+        OSBoot->>NATS: Publish offchain.order.raw snapshot jobs
+        OSBoot->>DB: Mark missing source orders inactive
+        OSBoot->>DB: Mark collection OpenSea-ready
+        OSBoot->>DB: Complete source run
+    end
 
     NATS-->>Offchain: offchain.order.raw
     Offchain->>DB: Optionally record raw observation
-    Offchain->>NATS: Publish order, activity, and metadata work
+    Offchain->>NATS: Publish order work
 
     NATS-->>Domain: orders.upsert
     Domain->>DB: Persist canonical order
@@ -112,17 +125,18 @@ sequenceDiagram
     NATS-->>Domain: metadata refresh job
     Domain->>RPC: Resolve tokenURI
     Domain->>MetaHTTP: Fetch / parse metadata
-    Domain->>DB: Commit canonical metadata + follow-up run + outbox
+    Domain->>DB: Commit canonical metadata
+    Domain->>DB: Persist follow-up run, tasks, and outbox jobs
     Domain->>NATS: Drain collection-extension.refresh-artifacts outbox
 
     NATS-->>Ext: collection-extension.refresh-artifacts
-    Ext->>DB: Claim follow-up task + read normalized attributes
+    Ext->>DB: Read enabled install + normalized attributes
     Ext->>RPC: Read collection-specific artifact inputs
     Ext->>MetaHTTP: Parse/fetch extension metadata if needed
-    Ext->>DB: Fenced artifact/trait write + terminal task state
+    Ext->>DB: Upsert artifact/traits, then mark task terminal
     alt Last required extension task is terminal
         Ext->>DB: Finalize follow-up + insert stats outbox row
-        Ext->>NATS: Drain metadata stats recompute outbox
+        Domain->>NATS: Drain metadata stats recompute outbox
         NATS-->>Domain: domain.metadata.stats-recompute
         Domain->>DB: Replace collection trait stats transactionally
     end
@@ -142,11 +156,12 @@ sequenceDiagram
     participant Offchain as Offchain Ingest Worker
     participant DB as SQLite
 
-    loop live collections with OpenSea slug
-        Stream->>OSStream: Subscribe per collection slug
+    loop Eligible live or bootstrapping collections
+        Stream->>OSStream: Subscribe/refresh per enabled slug
+        Stream->>DB: Touch subscription-refresh timestamp
         OSStream-->>Stream: item_listed / bids / cancels / etc
-        Stream->>DB: Touch stream health timestamps
         Stream->>NATS: Publish offchain.order.raw (channel=stream)
+        Stream->>DB: Touch last-event timestamp
     end
 
     loop every reconcile interval
@@ -159,7 +174,9 @@ sequenceDiagram
     Reconcile->>OSAPI: Fetch full orderbook pages
     Reconcile->>NATS: Publish offchain.order.raw (channel=reconcile)
     Reconcile->>DB: Mark missing active source orders inactive
-    Reconcile->>DB: Complete run + mark reconcile completed
+    Reconcile->>DB: Mark reconcile completed
+    Reconcile->>DB: Mark collection OpenSea-ready
+    Reconcile->>DB: Complete source run
 
     NATS-->>Offchain: offchain.order.raw
     Offchain->>DB: Optionally append raw observation

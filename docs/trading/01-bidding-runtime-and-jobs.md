@@ -26,7 +26,9 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 ## Hard Invariants
 
 - The bidding runtime keeps direct OpenSea stream, REST, SDK, and snapshot lanes.
-- The bot's collection-offer snapshot is the authoritative market view for bidding decisions.
+- The bot's collection-offer snapshot is the authoritative broad competition
+  view for token and collection jobs; target-specific OpenSea reads remain
+  authoritative for narrow lookup and recovery.
 - ArtGod `orders` rows are never used for bidder competitiveness or placement decisions.
 - OpenSea stream events are wake-up hints only; missed stream events are expected.
 - Broad collection/trait offer stream events and exact-token offer stream events are coalesced before bidder refresh so flood traffic cannot monopolize command processing.
@@ -35,12 +37,12 @@ Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_M
 - The snapshot lane polls at the configured cadence. Per-collection refreshes
   are serialized and deduplicated, and freshness adapts to the last successful
   fetch duration within configured minimum and maximum TTLs.
-- Commands reuse a usable collection snapshot and request background refresh;
-  only the first missing snapshot may block when a job cannot be evaluated
-  safely without it.
+- Snapshot-backed commands reuse a usable collection snapshot and request
+  background refresh; only the first missing snapshot may block when a job
+  cannot be evaluated safely without it.
 - Failed TTL-aware refreshes back off with jitter. Forced recovery can bypass
-  the TTL gate but still uses the shared request limiter and per-collection
-  refresh serialization.
+  the TTL gate but still uses the dedicated snapshot request limiter and
+  per-collection refresh serialization.
 - Job execution remains per-job serialized.
 - Token trait matching reads normalized `token_attributes` joins; bidding hot-refresh does not parse `token_metadata.attributes_json` or `token_metadata.raw_json`.
 - Marketplace token bidding targets must be canonical `tokens` rows. Extension-synthetic tokens can be shown in browsing surfaces, but frontend bidding selection and backend job mutation exclude them before bot commands exist.
@@ -298,9 +300,11 @@ Command effects:
 
 Reconciliation also updates watched collections:
 
-- enabled jobs define which collection snapshots should poll
+- enabled token and collection jobs define which collection snapshots should
+  poll; competitive-trait-only collections do not use the broad snapshot lane
 - enabled jobs define which OpenSea stream subscriptions should be active
-- disabled or archived collections are unwatched so snapshot polling stops when no enabled jobs remain
+- snapshot polling stops when no enabled snapshot-backed job remains, and the
+  stream subscription stops when no enabled job remains for the collection
 
 OpenSea HTTP retry behavior is shared with the main app config through
 `OPENSEA_HTTP_RETRY_*` and `OPENSEA_RATE_LIMIT_*`. The bidding OpenSea adapter
@@ -325,14 +329,14 @@ Bot snapshot projection:
 - only projects collections with enabled bidding jobs
 - coalesces concurrent notifications per collection
 - throttles projection by `BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS`
-- treats bot snapshots as usable only while `BIDDING_RUNTIME_HEARTBEAT_STALE_MS` and `BIDDING_BID_BOOK_SNAPSHOT_STALE_MS` are fresh
+- treats bot snapshots as usable only while the bot has a fresh running heartbeat and `BIDDING_BID_BOOK_SNAPSHOT_STALE_MS` is fresh
 - does full transactional replacement for one collection
 - logs row count and elapsed time on every successful projection
 - records projection errors without failing snapshot refresh or bidder decisions
 
 Backend source selection:
 
-- use `bot_snapshot` when the collection has enabled bidding jobs, the bidding bot heartbeat is live, and projection metadata is fresh
+- use `bot_snapshot` when the collection has enabled bidding jobs, the bot lifecycle resolves to active from a fresh running heartbeat, and projection metadata is fresh
 - otherwise use `orders`
 - standard/admin reads may overlay own declared jobs as `own_job_intent` rows before the bot has landed a matching market offer
 - own declared-job overlays do not require a known runtime maker address; the declared local job is already sufficient evidence that the intent belongs to the user
@@ -357,7 +361,7 @@ Frontend feed, lifecycle, and authorization labels:
 - `bidding authorization: not included` means that session has no authority row for the collection
 - `bidding authorization: update required` means the approved contract address or OpenSea slug no longer matches the canonical collection
 - `bidding authorization: inactive` means there is no fresh process session whose authority can be active
-- `bidding authorization: unavailable` means a fresh process heartbeat exists but no usable same-session authorization projection is available
+- `bidding authorization: unavailable` means the fresh runtime row lacks a usable session id, or its matched authorization row has incomplete identity or limit fields
 
 Feed, lifecycle, and authorization are independent. An active bot can accompany
 the indexed-orders feed when the market projection is unavailable or stale, and
@@ -370,9 +374,9 @@ Bid-book row materialization:
 - maker-address filters match only rows with that observed address, so identityless `own_job_intent` rows are excluded from address-filtered results while remaining visible in the unfiltered private bid book
 - private `ownership=own` reads include both locally owned market bids and addressless `own_job_intent` rows; the ownership and maker-address filters are mutually exclusive
 - the frontend renders an identityless own intent as plain `You`; maker links, address titles, and maker highlighting appear only after the row is an observed market bid with an address
-- queued, waiting, authorization-required, or paused own-intent rows use a floor-ceiling price range because no single market order price exists yet
-- enabled intent is `waiting for bidding bot` when no fresh process exists, `authorization required` when the fresh process omits the collection or holds stale collection identity, and `authorization unavailable` when its session projection cannot be resolved
-- replacing, canceling, cancel failed, and cancelled own-intent rows use the real active order id and exact current price
+- queued, waiting, authorization-required, authorization-unavailable, or paused own-intent rows without active-order evidence use a floor-ceiling price range because no single market order price exists yet
+- enabled intent is `waiting for bidding bot` when no fresh process exists, `authorization required` when the fresh process omits the collection or holds stale collection identity, and `authorization unavailable` when the runtime session or matched authorization fields are incomplete
+- verifying, replacing, canceling, cancel failed, and cancelled own-intent rows backed by active-order evidence use the real active order id and exact current price
 - runtime-active own-intent rows use the bot-persisted active order id and exact current price until the market row appears
 - bid-book tables show floor and ceiling columns only when visible rows carry bid-limit or range data
 
@@ -636,6 +640,8 @@ The indexer `OPENSEA_API_KEY` remains dedicated to indexer/offchain ingestion an
 - SQL-backed token-offer pagination for larger offer books
 
 Snapshot depth cutoff is deliberately not enabled. The all-offers adapter walks
-the complete cursor stream with loop detection because observed price ordering
-is not an API guarantee. See [Market Data and Scaling](03-market-data-and-scaling.md)
-for the evidence and the conditions a bounded mode would need to satisfy.
+cursor pages until the cursor ends or repeats because response ordering is not
+treated as an API guarantee. A repeated cursor currently stops the traversal
+and returns the rows collected so far. See
+[Market Data and Scaling](03-market-data-and-scaling.md) for that limit and the
+conditions a bounded mode would need to satisfy.

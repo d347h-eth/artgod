@@ -20,7 +20,7 @@ this page routes maintainers and agents to the owning topic.
 | Runtime ports                                     | [Port catalog](ports/01-port-catalog.md)                 |
 | JSON-RPC inventory                                | [RPC catalog](rpc/01-http-rpc-interaction-catalog.md)    |
 | Cross-domain flows                                | [Diagrams](diagrams/README.md)                           |
-| Work that is not implemented                      | [Planning](planning/README.md)                           |
+| Remaining work and retained status history        | [Planning](planning/README.md)                           |
 
 ## Documentation Contract
 

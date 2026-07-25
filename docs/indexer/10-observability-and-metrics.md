@@ -590,11 +590,11 @@ Implementation must explicitly decide whether to keep aggregate uploads, the
 per-flush cap, which span classes are eligible, and which runtimes enter the
 first rollout.
 
-Queue depth and backlog age are observable, but the runtime does not yet apply
-automatic admission control from those signals. Profile correlation work must
-preserve the current low-cardinality service/worker/chain labels and must not
-put secrets, wallet data, RPC credentials, raw URLs, or query values into
-telemetry.
+The read-only JetStream inspector reports stored-message counts and first/last
+message timestamps, but the runtime does not yet apply automatic admission
+control from those signals. Profile correlation work must preserve the current
+low-cardinality service/worker/chain labels and must not put secrets, wallet
+data, RPC credentials, raw URLs, or query values into telemetry.
 
 ## Quick Verification Checklist
 

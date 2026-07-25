@@ -10,7 +10,8 @@ the supervised bot evaluates state and talks to marketplace and chain APIs.
    user-visible targets, price tiers, settings, authorization, and API/UI
    coverage.
 3. [Market data and scaling](03-market-data-and-scaling.md) — bid-book inputs,
-   snapshot tiers, fallback behavior, and current scaling limits.
+   snapshot traversal and freshness, fallback behavior, and current scaling
+   limits.
 
 Wallet custody is documented under
 [Desktop](../desktop/03-wallet-keystore-and-bot-unlock.md). Topic documents

@@ -1,7 +1,8 @@
 # Backend Hexagonal Request Flow
 
-This diagram shows dependency direction for one backend request. The
-composition root is the only layer that knows concrete adapters.
+This diagram shows the runtime call flow for one backend request.
+`backend/src/index.ts` wires outbound adapters and use cases, while
+`backend/src/http-app.ts` wires inbound HTTP adapters and common hooks.
 
 ```mermaid
 flowchart LR
@@ -10,7 +11,7 @@ flowchart LR
     Guard[HTTP boundary<br/>host, origin, CSRF, deployment scope]
     Adapter[Inbound HTTP adapter<br/>transport mapping]
     UseCase[Application use-case class<br/>business orchestration]
-    Port[Use-case-owned outbound port]
+    Port[Application outbound port]
     DBAdapter[SQLite or read-model adapter]
     QueueAdapter[JetStream command adapter]
     NetworkAdapter[RPC or marketplace adapter]
@@ -33,7 +34,7 @@ flowchart LR
     NetworkAdapter --> Network
 
     Adapter -->|core output to response| Client
-    Guard -. expected boundary failure .-> Errors
+    Guard -. boundary rejection .-> Client
     UseCase -. typed domain or use-case failure .-> Errors
     Errors -. sanitized response .-> Client
     Route -. span metadata .-> Observe
@@ -41,13 +42,15 @@ flowchart LR
 
 ## Dependency Rule
 
-- Routes depend on inbound adapters, not concrete database or SDK adapters.
+- Routes depend on inbound adapters, not concrete database or SDK adapters, and
+  attach route-specific deployment guards and observability metadata.
 - Inbound adapters translate transport data and call exported use-case methods.
-- Use cases depend on domain types and locally owned outbound ports.
+- Use cases depend on domain types and application outbound port contracts.
 - Concrete outbound adapters implement those ports and are wired one by one in
   `backend/src/index.ts`.
-- Common HTTP code owns parsing, headers, and error mapping; it does not own
-  business behavior.
+- Common HTTP code provides reusable query parsing, headers, security hooks,
+  observability, and error mapping; route-specific parsing remains in inbound
+  adapters.
 
 See [API and application architecture](../backend/01-api-and-application-architecture.md)
 and the [OpenAPI reference](../backend/openapi.yaml).

@@ -208,8 +208,8 @@ This design does not claim to protect against:
 - arbitrary code execution in the privileged Admin WebView or Tauri core
 - a malicious or dishonest operator-selected RPC; public-alpha operation
   assumes the operator selects truthful endpoints
-- direct writes to ArtGod SQLite, app-data, keystore files, or runtime files;
-  those are host-compromise capabilities in this local-only model
+- direct writes to ArtGod SQLite, app-data, or keystore files; those are
+  host-compromise capabilities in this local-only model
 - same-user debugger, `ptrace`, or process-memory access
 - aggregate strategy abuse within an authorized collection while each offer
   remains inside the reviewed per-NFT price and quantity caps
@@ -223,6 +223,12 @@ This design does not claim to protect against:
 - kernel compromise
 - hardware keyloggers
 - OS screenshots or screen recording outside app control
+
+Release builds separately validate the exact key-bearing runtime file set and
+hashes against a manifest embedded in the desktop executable. That check fails
+closed on runtime-only modification, missing or unexpected files, and symlinks;
+it does not protect against an attacker able to replace both the trusted desktop
+executable and its staged runtime closure.
 
 The objective is to make the wallet boundary materially narrower and more auditable, not to solve full host compromise.
 
@@ -423,8 +429,10 @@ Current behavior:
 - Stop remains available while a native authorization prompt or startup work is
   pending; it cancels that start generation and waits for the pending operation
   to unwind before completing
-- a bot restart must return that bot to a locked state
-- a locked bot requires a fresh passphrase prompt before it starts again
+- an unexpected bot exit is reported as `error`; bots are not restarted
+  automatically
+- every later start reserves a fresh lifecycle generation and requires a fresh
+  passphrase prompt
 
 This keeps bot custody strict without making the entire desktop stack unusable.
 
