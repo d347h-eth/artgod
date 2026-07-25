@@ -329,6 +329,7 @@ Backend source selection:
 - prior-process active-order evidence can keep an own row visible, but strategy badges stay hidden and the row is marked `verifying` until the running bot verifies the order in the current process
 - runtime-backed own rows prefer the bot-persisted active order timing even when the visible row is backed by a projected or indexed market order
 - when a job revision supersedes an active order, the old exact order remains visible as a lifecycle own row while the current revision appears as a queued intent row
+- an explicit cancellation fact exclusively owns lifecycle presentation for its exact job and order, so the current declaration cannot materialize a duplicate row for that order
 - completed own cancellations suppress stale indexed own order rows, with a short `cancelled` confirmation row before disappearance
 - the backend must not infer own bid position from bid-book rows or exact-scope price comparisons
 

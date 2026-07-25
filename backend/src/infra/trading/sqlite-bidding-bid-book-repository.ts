@@ -1511,17 +1511,64 @@ function mergeOwnBiddingJobSignals(
         return activeJobs;
     }
 
-    const cancelingPausedJobIds = new Set(
+    const currentJobs = removeCancellationOwnedOrderEvidence(
+        activeJobs,
+        cancellationJobs,
+    );
+    const cancellationJobIds = new Set(
         cancellationJobs.map((job) => job.jobId),
     );
     return [
-        ...activeJobs.filter(
+        ...currentJobs.filter(
             (job) =>
                 job.status === TRADING_JOB_STATUS.Enabled ||
-                !cancelingPausedJobIds.has(job.jobId),
+                !cancellationJobIds.has(job.jobId),
         ),
         ...cancellationJobs,
     ];
+}
+
+function removeCancellationOwnedOrderEvidence(
+    currentJobs: BiddingJobSignal[],
+    cancellationJobs: BiddingJobSignal[],
+): BiddingJobSignal[] {
+    const cancellationOrderIdsByJobId = new Map<string, Set<string>>();
+    for (const job of cancellationJobs) {
+        const orderId = job.activeOrder?.activeOrderId;
+        if (!orderId) {
+            continue;
+        }
+        const orderIds =
+            cancellationOrderIdsByJobId.get(job.jobId) ?? new Set<string>();
+        orderIds.add(orderId);
+        cancellationOrderIdsByJobId.set(job.jobId, orderIds);
+    }
+
+    // Let explicit cancellation facts own each real order while the current declaration owns only its current intent.
+    return currentJobs.map((job) => {
+        const cancellationOrderIds = cancellationOrderIdsByJobId.get(job.jobId);
+        if (!cancellationOrderIds) {
+            return job;
+        }
+
+        const activeOrderId = job.activeOrder?.activeOrderId;
+        const runtimeOrderId = job.runtime?.activeOrderId;
+        const activeOrder =
+            activeOrderId && cancellationOrderIds.has(activeOrderId)
+                ? null
+                : job.activeOrder;
+        const runtime =
+            runtimeOrderId && cancellationOrderIds.has(runtimeOrderId)
+                ? null
+                : job.runtime;
+        return activeOrder === job.activeOrder && runtime === job.runtime
+            ? job
+            : {
+                  ...job,
+                  activeOrder,
+                  runtime,
+              };
+    });
 }
 
 type BiddingScopeCounts = {
@@ -1773,7 +1820,8 @@ function isStaleOwnJobMarketRow(
         matchingJobs.some(
             (job) =>
                 isCancellationPhase(job.phaseOverride) &&
-                hasRenderableActiveOrderEvidence(job),
+                hasRenderableActiveOrderEvidence(job) &&
+                activeOrderEvidenceMatchesBid(job, bid),
         )
     ) {
         return true;
