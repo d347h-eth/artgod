@@ -10,6 +10,7 @@ export type BootstrapContractProbeFormPatch = {
 
 export type BootstrapContractProbeFormPatchOptions = {
 	useFirstTokenAsManualRangeStart?: boolean;
+	useProbeTotalSupplyAsManualRangeSupply?: boolean;
 };
 
 const BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH = 64;
@@ -80,6 +81,8 @@ export function bootstrapProbeFormPatch(
 
 	const manualInput = probe.suggestedInput.manualInput;
 	const useFirstTokenAsManualRangeStart = options.useFirstTokenAsManualRangeStart ?? true;
+	const useProbeTotalSupplyAsManualRangeSupply =
+		options.useProbeTotalSupplyAsManualRangeSupply ?? true;
 	return {
 		supportsEnumerable: false,
 		manualMode:
@@ -92,7 +95,7 @@ export function bootstrapProbeFormPatch(
 		manualRangeTotalSupply:
 			manualInput && Number.isFinite(manualInput.totalSupply)
 				? String(manualInput.totalSupply)
-				: probe.totalSupply.bootstrapRangeValue !== null
+				: useProbeTotalSupplyAsManualRangeSupply && probe.totalSupply.bootstrapRangeValue !== null
 					? String(probe.totalSupply.bootstrapRangeValue)
 					: ''
 	};
@@ -114,7 +117,7 @@ export function formatByteSize(value: number | string | null | undefined): strin
 }
 
 export function bootstrapProbeStatusLabel(probe: BootstrapContractProbeApiResponse): string {
-	if (probe.enumerable.supported === true) return BOOTSTRAP_PROBE_STATUS_LABEL.Enumerable;
+	if (probe.suggestedInput.supportsEnumerable) return BOOTSTRAP_PROBE_STATUS_LABEL.Enumerable;
 	if (probe.suggestedInput.manualInput) return BOOTSTRAP_PROBE_STATUS_LABEL.RangeInferred;
 	if (!probe.firstToken.tokenId && probe.totalSupply.bootstrapRangeValue !== null) {
 		return BOOTSTRAP_PROBE_STATUS_LABEL.NeedsTokenStart;

@@ -785,7 +785,8 @@
 		const customSampleTokenRequested =
 			requestedSampleTokenId !== undefined && requestedSampleTokenId !== null;
 		const patch = bootstrapProbeFormPatch(result, {
-			useFirstTokenAsManualRangeStart: !customSampleTokenRequested
+			useFirstTokenAsManualRangeStart: !customSampleTokenRequested,
+			useProbeTotalSupplyAsManualRangeSupply: !customSampleTokenRequested
 		});
 		const slugSuggestion = contractNameToBootstrapSlug(result.contractName);
 		const resolvedImageSourceField = normalizeFieldValue(result.firstToken.imageSourceField);

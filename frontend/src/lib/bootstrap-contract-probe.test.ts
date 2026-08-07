@@ -74,7 +74,8 @@ describe('bootstrap contract probe helpers', () => {
 		});
 		expect(
 			bootstrapProbeFormPatch(probe, {
-				useFirstTokenAsManualRangeStart: false
+				useFirstTokenAsManualRangeStart: false,
+				useProbeTotalSupplyAsManualRangeSupply: false
 			})
 		).toEqual({
 			supportsEnumerable: false,
@@ -82,6 +83,32 @@ describe('bootstrap contract probe helpers', () => {
 			manualRangeStartTokenId: '',
 			manualRangeTotalSupply: ''
 		});
+	});
+
+	it('requires manual scope for a custom sample on an enumerable contract', () => {
+		const probe = makeProbe({
+			enumerable: true,
+			suggestedEnumerable: false,
+			inferManualRange: false,
+			startTokenId: '282000000',
+			totalSupply: 198_051
+		});
+
+		expect(probe.enumerable.supported).toBe(true);
+		expect(
+			bootstrapProbeFormPatch(probe, {
+				useFirstTokenAsManualRangeStart: false,
+				useProbeTotalSupplyAsManualRangeSupply: false
+			})
+		).toEqual({
+			supportsEnumerable: false,
+			manualMode: null,
+			manualRangeStartTokenId: '',
+			manualRangeTotalSupply: ''
+		});
+		expect(bootstrapProbeStatusLabel(probe)).toBe(BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope);
+		expect(bootstrapProbeNeedsManualScope(probe)).toBe(true);
+		expect(bootstrapProbeRequiresManualEditing(probe)).toBe(true);
 	});
 
 	it('pre-fills known supply when only the token start is missing', () => {
@@ -157,16 +184,22 @@ describe('bootstrap contract probe helpers', () => {
 
 function makeProbe(input: {
 	enumerable: boolean;
+	suggestedEnumerable?: boolean;
+	inferManualRange?: boolean;
 	startTokenId?: string;
 	totalSupply?: number;
 	bootstrapRangeValue?: number | null;
 }): BootstrapContractProbeApiResponse {
+	const suggestedEnumerable = input.suggestedEnumerable ?? input.enumerable;
 	const bootstrapRangeValue =
 		input.bootstrapRangeValue === undefined
 			? (input.totalSupply ?? null)
 			: input.bootstrapRangeValue;
 	const manualInput =
-		input.enumerable || !input.startTokenId || !bootstrapRangeValue
+		input.inferManualRange === false ||
+		suggestedEnumerable ||
+		!input.startTokenId ||
+		!bootstrapRangeValue
 			? null
 			: {
 					mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
@@ -224,9 +257,9 @@ function makeProbe(input: {
 		storageEstimate: null,
 		imageStorageEstimate: null,
 		suggestedInput: {
-			supportsEnumerable: input.enumerable,
+			supportsEnumerable: suggestedEnumerable,
 			manualInput,
-			ready: input.enumerable || manualInput !== null,
+			ready: suggestedEnumerable || manualInput !== null,
 			warnings: []
 		},
 		imageCacheSuggestion: {

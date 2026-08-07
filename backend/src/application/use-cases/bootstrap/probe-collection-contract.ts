@@ -229,11 +229,14 @@ export class ProbeCollectionContractUseCase {
                 animationSourceField,
                 sampleTokenId,
             });
-        const storageEstimate = estimateStorage(probe);
-        const imageStorageEstimate = estimateImageStorage(probe);
         const suggestedInput = buildSuggestedInput(
             probe,
             sampleTokenId !== null,
+        );
+        const storageEstimate = estimateStorage(probe, suggestedInput);
+        const imageStorageEstimate = estimateImageStorage(
+            probe,
+            suggestedInput,
         );
         return {
             chain,
@@ -276,8 +279,10 @@ function buildSuggestedInput(
     if (probe.erc721.supported === false) {
         warnings.push("erc721 interface was not reported by ERC165");
     }
-    if (probe.enumerable.supported === true) {
-        if (probe.totalSupply.status !== "available") {
+    if (probe.enumerable.supported === true && !customSampleTokenRequested) {
+        if (
+            probe.totalSupply.status !== BOOTSTRAP_PROBE_READ_STATUS.Available
+        ) {
             warnings.push("totalSupply is unavailable for the size estimate");
         }
         if (!probe.firstToken.tokenId) {
@@ -293,7 +298,7 @@ function buildSuggestedInput(
         };
     }
 
-    if (probe.totalSupply.status !== "available") {
+    if (probe.totalSupply.status !== BOOTSTRAP_PROBE_READ_STATUS.Available) {
         warnings.push("totalSupply could not be read");
     }
     if (!probe.firstToken.tokenId) {
@@ -400,43 +405,58 @@ function toEmbeddedCollectionExtensionScope(
 
 function estimateStorage(
     probe: CollectionContractProbeResult,
+    suggestedInput: BootstrapProbeSuggestedInput,
 ): BootstrapProbeStorageEstimate {
+    const totalSupply = resolveSuggestedScopeTotalSupply(probe, suggestedInput);
     if (
         !probe.firstToken.tokenId ||
         probe.firstToken.tokenUriPayloadBytes === null ||
-        probe.totalSupply.value === null
+        totalSupply === null
     ) {
         return null;
     }
     const samplePayloadBytes = BigInt(probe.firstToken.tokenUriPayloadBytes);
-    const totalSupply = BigInt(probe.totalSupply.value);
     return {
         sampleTokenId: probe.firstToken.tokenId,
         samplePayloadBytes: probe.firstToken.tokenUriPayloadBytes,
-        projectedBytes: (samplePayloadBytes * totalSupply).toString(),
-        totalSupply: probe.totalSupply.value,
+        projectedBytes: (samplePayloadBytes * BigInt(totalSupply)).toString(),
+        totalSupply,
     };
 }
 
 function estimateImageStorage(
     probe: CollectionContractProbeResult,
+    suggestedInput: BootstrapProbeSuggestedInput,
 ): BootstrapProbeImageStorageEstimate {
+    const totalSupply = resolveSuggestedScopeTotalSupply(probe, suggestedInput);
     if (
         !probe.firstToken.tokenId ||
         probe.firstToken.imageBytes === null ||
-        probe.totalSupply.value === null
+        totalSupply === null
     ) {
         return null;
     }
     const sampleImageBytes = BigInt(probe.firstToken.imageBytes);
-    const totalSupply = BigInt(probe.totalSupply.value);
     return {
         sampleTokenId: probe.firstToken.tokenId,
         sampleImageBytes: probe.firstToken.imageBytes,
-        projectedBytes: (sampleImageBytes * totalSupply).toString(),
-        totalSupply: probe.totalSupply.value,
+        projectedBytes: (sampleImageBytes * BigInt(totalSupply)).toString(),
+        totalSupply,
         contentType: probe.firstToken.imageContentType,
     };
+}
+
+function resolveSuggestedScopeTotalSupply(
+    probe: CollectionContractProbeResult,
+    suggestedInput: BootstrapProbeSuggestedInput,
+): string | null {
+    // Only project storage after the probe has identified the collection scope.
+    if (suggestedInput.supportsEnumerable) {
+        return probe.totalSupply.value;
+    }
+    return suggestedInput.manualInput
+        ? String(suggestedInput.manualInput.totalSupply)
+        : null;
 }
 
 export function toBootstrapRangeTotalSupply(value: bigint): number | null {

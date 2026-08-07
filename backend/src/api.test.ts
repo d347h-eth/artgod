@@ -5336,13 +5336,14 @@ describe("backend api routes", () => {
         expect(probe.statusCode).toBe(200);
         expect(probe.payload.enumerable.supported).toBe(true);
         expect(probe.payload.firstToken.tokenId).toBe("42");
-        expect(probe.payload.storageEstimate.projectedBytes).toBe("57");
-        expect(probe.payload.suggestedInput).toEqual(
-            expect.objectContaining({
-                supportsEnumerable: true,
-                ready: true,
-            }),
-        );
+        expect(probe.payload.storageEstimate).toBeNull();
+        expect(probe.payload.imageStorageEstimate).toBeNull();
+        expect(probe.payload.suggestedInput).toEqual({
+            supportsEnumerable: false,
+            manualInput: null,
+            ready: false,
+            warnings: [],
+        });
         const imageCacheEstimate = await resolve(
             "POST",
             "/api/ethereum/collections/bootstrap/image-cache-estimate",

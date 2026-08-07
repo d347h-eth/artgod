@@ -29,6 +29,8 @@ const CHAIN = {
 
 // Test extension key used to verify probe-time extension policy plumbing.
 const PROBE_TEST_EXTENSION_KEY = "probe-test-extension";
+const SHARED_ENUMERABLE_CONTRACT_TOTAL_SUPPLY = 198_051;
+const SHARED_ENUMERABLE_SAMPLE_TOKEN_ID = "282000000";
 
 describe("ProbeCollectionContractUseCase", () => {
     it("marks enumerable contracts ready without manual input", async () => {
@@ -93,6 +95,65 @@ describe("ProbeCollectionContractUseCase", () => {
             config: defaultImageCachePolicyConfig(),
         });
         expect(result.imageStorageEstimate).toBeNull();
+    });
+
+    it("requires manual scope when an enumerable contract is probed with a custom sample", async () => {
+        const useCase = makeUseCase({
+            enumerable: {
+                supported: true,
+                error: null,
+            },
+            totalSupply: {
+                status: BOOTSTRAP_PROBE_READ_STATUS.Available,
+                value: String(SHARED_ENUMERABLE_CONTRACT_TOTAL_SUPPLY),
+                safeIntegerValue: SHARED_ENUMERABLE_CONTRACT_TOTAL_SUPPLY,
+                bootstrapRangeValue: SHARED_ENUMERABLE_CONTRACT_TOTAL_SUPPLY,
+                error: null,
+            },
+            firstToken: {
+                tokenId: SHARED_ENUMERABLE_SAMPLE_TOKEN_ID,
+                source: BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.CandidateTokenUri,
+                tokenUri: "data:application/json,%7B%7D",
+                tokenUriPayloadBytes: 100,
+                tokenUriPayloadTruncated: false,
+                tokenUriPayloadError: null,
+                name: "Memories of Qilin #0",
+                imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+                image: "data:image/png;base64,aW1hZ2U=",
+                imageBytes: 5,
+                imageBytesSource: BOOTSTRAP_PROBE_IMAGE_BYTES_SOURCE.DataUri,
+                imageContentType: "image/png",
+                imageBytesError: null,
+                imageWidth: 1,
+                imageHeight: 1,
+                animationSourceField: null,
+                animationUrl: null,
+                metadataError: null,
+                candidates: [],
+            },
+        });
+
+        const result = await useCase.probe({
+            chainRef: "ethereum",
+            address: "0xa7d8d9ef8d8ce8992df33d8b8cf4aebabd5bd270",
+            standard: "erc721",
+            sampleTokenId: SHARED_ENUMERABLE_SAMPLE_TOKEN_ID,
+        });
+
+        expect(result.enumerable.supported).toBe(true);
+        expect(result.suggestedInput).toEqual({
+            supportsEnumerable: false,
+            manualInput: null,
+            ready: false,
+            warnings: [],
+        });
+        expect(result.storageEstimate).toBeNull();
+        expect(result.imageStorageEstimate).toBeNull();
+        expect(result.imageCacheSuggestion).toEqual({
+            selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
+            extensionKey: null,
+            config: defaultImageCachePolicyConfig(),
+        });
     });
 
     it("infers manual range input for non-enumerable token id starts", async () => {

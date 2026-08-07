@@ -494,6 +494,7 @@ function probeResponse(
 	}
 
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster) {
+		const useEnumerableScope = requestedSampleTokenId === null;
 		const resolvedAnimationSourceField =
 			requestedAnimationSourceField === null ||
 			requestedAnimationSourceField === TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl
@@ -511,16 +512,18 @@ function probeResponse(
 				requestedImageSourceField ?? TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
 			firstTokenImageBytes: 98234,
 			firstTokenImageContentType: 'image/png',
-			firstTokenSource: 'token_by_index',
+			firstTokenSource: useEnumerableScope ? 'token_by_index' : 'candidate_token_uri',
 			tokenUriPayloadBytes: 4096,
 			animationUrl: resolvedAnimationSourceField ? BOOTSTRAP_PROBE_MEDIA.DynamicAnimationUrl : null,
 			animationSourceField: resolvedAnimationSourceField,
+			suggestedSupportsEnumerable: useEnumerableScope,
 			manualInput: null,
 			warnings: []
 		});
 	}
 
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.EnumerableOnchainSvg) {
+		const useEnumerableScope = requestedSampleTokenId === null;
 		return buildProbeResponse({
 			address,
 			contractName: 'Terraforms',
@@ -533,18 +536,21 @@ function probeResponse(
 				requestedImageSourceField ?? TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData,
 			firstTokenImageBytes: 612,
 			firstTokenImageContentType: 'image/svg+xml',
-			firstTokenSource: 'token_by_index',
+			firstTokenSource: useEnumerableScope ? 'token_by_index' : 'candidate_token_uri',
 			tokenUriPayloadBytes: 7680,
+			suggestedSupportsEnumerable: useEnumerableScope,
 			manualInput: null,
 			warnings: [],
-			imageCacheSuggestion: {
-				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
-				extensionKey: TERRAFORMS_EXTENSION_KEY,
-				config: {
-					imageCacheMode: IMAGE_CACHE_MODE.Off,
-					maxDimension: null
-				}
-			}
+			imageCacheSuggestion: useEnumerableScope
+				? {
+						selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
+						extensionKey: TERRAFORMS_EXTENSION_KEY,
+						config: {
+							imageCacheMode: IMAGE_CACHE_MODE.Off,
+							maxDimension: null
+						}
+					}
+				: undefined
 		});
 	}
 
@@ -621,6 +627,7 @@ function buildProbeResponse(input: {
 	tokenUriPayloadBytes: number | null;
 	animationUrl?: string | null;
 	animationSourceField?: string | null;
+	suggestedSupportsEnumerable?: boolean;
 	manualInput: {
 		mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualRange;
 		startTokenId: string;
@@ -629,7 +636,13 @@ function buildProbeResponse(input: {
 	warnings: string[];
 	imageCacheSuggestion?: BootstrapContractProbeApiResponse['imageCacheSuggestion'];
 }): BootstrapContractProbeApiResponse {
-	const totalSupply = input.totalSupply === null ? null : Number(input.totalSupply);
+	const contractTotalSupply = input.totalSupply === null ? null : Number(input.totalSupply);
+	const suggestedSupportsEnumerable = input.suggestedSupportsEnumerable ?? input.enumerable;
+	const suggestedScopeTotalSupply = suggestedSupportsEnumerable
+		? input.totalSupply
+		: input.manualInput
+			? String(input.manualInput.totalSupply)
+			: null;
 	return {
 		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
 		address: input.address,
@@ -646,8 +659,8 @@ function buildProbeResponse(input: {
 		totalSupply: {
 			status: input.totalSupply === null ? 'unavailable' : 'available',
 			value: input.totalSupply,
-			safeIntegerValue: totalSupply,
-			bootstrapRangeValue: totalSupply,
+			safeIntegerValue: contractTotalSupply,
+			bootstrapRangeValue: contractTotalSupply,
 			error: input.totalSupply === null ? 'totalSupply unavailable for shared contract' : null
 		},
 		firstToken: {
@@ -677,32 +690,32 @@ function buildProbeResponse(input: {
 			candidates: []
 		},
 		storageEstimate:
-			input.totalSupply === null ||
+			suggestedScopeTotalSupply === null ||
 			input.firstTokenId === null ||
 			input.tokenUriPayloadBytes === null
 				? null
 				: {
 						sampleTokenId: input.firstTokenId,
 						samplePayloadBytes: input.tokenUriPayloadBytes,
-						projectedBytes: String(input.tokenUriPayloadBytes * totalSupply!),
-						totalSupply: input.totalSupply
+						projectedBytes: String(input.tokenUriPayloadBytes * Number(suggestedScopeTotalSupply)),
+						totalSupply: suggestedScopeTotalSupply
 					},
 		imageStorageEstimate:
-			input.totalSupply === null ||
+			suggestedScopeTotalSupply === null ||
 			input.firstTokenId === null ||
 			input.firstTokenImageBytes === null
 				? null
 				: {
 						sampleTokenId: input.firstTokenId,
 						sampleImageBytes: input.firstTokenImageBytes,
-						projectedBytes: String(input.firstTokenImageBytes * totalSupply!),
-						totalSupply: input.totalSupply,
+						projectedBytes: String(input.firstTokenImageBytes * Number(suggestedScopeTotalSupply)),
+						totalSupply: suggestedScopeTotalSupply,
 						contentType: input.firstTokenImageContentType
 					},
 		suggestedInput: {
-			supportsEnumerable: input.enumerable,
+			supportsEnumerable: suggestedSupportsEnumerable,
 			manualInput: input.manualInput,
-			ready: input.enumerable || input.manualInput !== null,
+			ready: suggestedSupportsEnumerable || input.manualInput !== null,
 			warnings: input.warnings
 		},
 		imageCacheSuggestion: input.imageCacheSuggestion ?? {

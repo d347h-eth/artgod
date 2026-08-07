@@ -50,6 +50,8 @@ import {
 const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
 // Confirms the late-sync slug field uses the wider shared slug-input control.
 const COLLECTION_OPENSEA_SYNC_SLUG_INPUT_MIN_WIDTH_PX = 250;
+const SHARED_ENUMERABLE_SAMPLE_TOKEN_ID = '282000000';
+const SHARED_ENUMERABLE_RANGE_TOTAL_SUPPLY = '1024';
 
 test.beforeEach(({ page }, testInfo) => {
 	captureDiagnosticsForTest(diagnosticsByTest, page, testInfo);
@@ -421,6 +423,61 @@ test.describe('bootstrap contract probe UI', () => {
 		expect(dynamicRequests).toEqual([]);
 	});
 
+	test('requires user-owned scope after a custom sample on an enumerable contract', async ({
+		page
+	}, testInfo) => {
+		const api = await installBootstrapProbeApiMock(page);
+		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+
+		await expect(formRow(page, 'Contract probe status')).toContainText(
+			BOOTSTRAP_PROBE_STATUS_LABEL.Enumerable
+		);
+		await expect(rowControl(page, 'Use ERC721Enumerable token enumeration')).toBeChecked();
+
+		const sampleTokenRow = page.locator('.bootstrap-sample-token-section .bootstrap-form-row');
+		const sampleTokenInput = sampleTokenRow.locator('input[name="sampleTokenId"]');
+		await sampleTokenInput.fill(SHARED_ENUMERABLE_SAMPLE_TOKEN_ID);
+		await sampleTokenInput.press('Enter');
+
+		await expect(sampleTokenRow).toContainText('resolved');
+		const statusRow = formRow(page, 'Contract probe status');
+		await expect(statusRow).toContainText(BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope);
+		await statusRow.locator('.bootstrap-probe-status-tooltip').hover();
+		await expect(
+			statusRow.locator('.bootstrap-probe-status-tooltip .info-tooltip-popup')
+		).toContainText('shared contract');
+		await expect(formRow(page, 'ERC721Enumerable interface')).toContainText('yes');
+		await expect(rowControl(page, 'Use ERC721Enumerable token enumeration')).not.toBeChecked();
+		await expect(
+			page.locator(`[data-testid="${TEST_IDS.BootstrapAllowManualEditing}"]`)
+		).toBeChecked();
+
+		const startTokenInput = rowControl(page, 'Manual range start token ID');
+		const totalSupplyInput = rowControl(page, 'Manual range total supply');
+		await expect(startTokenInput).toHaveValue('');
+		await expect(totalSupplyInput).toHaveValue('');
+		await expect(startTokenInput).toBeEnabled();
+		await expect(totalSupplyInput).toBeEnabled();
+		await expect(formRow(page, 'Contract total supply')).toContainText('7500');
+		await expect(formRow(page, 'Est. metadata size (full collection)')).toContainText('-');
+		const manualScopeScreenshotPath = testInfo.outputPath(
+			'bootstrap-enumerable-custom-sample-manual-scope.png'
+		);
+		await page.screenshot({ path: manualScopeScreenshotPath, fullPage: true });
+		await testInfo.attach('bootstrap-enumerable-custom-sample-manual-scope.png', {
+			path: manualScopeScreenshotPath,
+			contentType: 'image/png'
+		});
+
+		await startTokenInput.fill(SHARED_ENUMERABLE_SAMPLE_TOKEN_ID);
+		await totalSupplyInput.fill(SHARED_ENUMERABLE_RANGE_TOTAL_SUPPLY);
+		await expect(formRow(page, 'Est. metadata size (full collection)')).toContainText('4.00 MB');
+		await expect(formRow(page, 'Est. source images size (full collection)')).toContainText(
+			'95.9 MB'
+		);
+		expect(api.probeRequestSampleTokenIds).toEqual([null, SHARED_ENUMERABLE_SAMPLE_TOKEN_ID]);
+	});
+
 	test('lets optional animation source overrides resolve or be cleared', async ({ page }) => {
 		const api = await installBootstrapProbeApiMock(page);
 		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
@@ -460,10 +517,9 @@ test.describe('bootstrap contract probe UI', () => {
 		});
 	});
 
-	test('requires manual supply before cache estimate for shared contracts', async (
-		{ page },
-		testInfo
-	) => {
+	test('requires manual supply before cache estimate for shared contracts', async ({
+		page
+	}, testInfo) => {
 		const api = await installBootstrapProbeApiMock(page);
 		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
 
