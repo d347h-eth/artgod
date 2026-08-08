@@ -266,9 +266,7 @@
 	let animationSourceFieldResolved = $derived(isAnimationSourceFieldResolved());
 	let animationSourceFieldIncorrect = $derived(isAnimationSourceFieldIncorrect());
 	let sampleTokenFieldSectionVisible = $derived(
-		imageSourceFieldSectionVisible &&
-			!imageSourceFieldDirty &&
-			(probeResult !== null || sampleTokenIdDirty)
+		imageSourceFieldSectionVisible && (probeResult !== null || sampleTokenIdDirty)
 	);
 	let sampleTokenIdResolved = $derived(isSampleTokenIdResolved());
 	let sampleTokenIdIncorrect = $derived(isSampleTokenIdIncorrect());
@@ -391,7 +389,6 @@
 		imageCacheEstimateRequestId += 1;
 		animationSourceProbeRequestId += 1;
 		clearAnimationSourceFieldState();
-		clearSampleTokenFieldState();
 		setCollectionSlugInputValue('');
 		lastAutoFilledSlug = null;
 		resetOpenSeaSlugResolverState();
@@ -606,9 +603,17 @@
 		event.preventDefault();
 		const chainSlug = chain?.slug ?? null;
 		const address = normalizeBootstrapAddress(bootstrapAddress);
+		const imageSourceFieldForProbe = readImageSourceFieldInputValue();
 		if (!chainSlug || !isBootstrapProbeableAddress(address)) return;
 		contractProbeRequestId += 1;
-		scheduleContractProbe(chainSlug, address, readImageSourceFieldInputValue(), false);
+		scheduleContractProbe(
+			chainSlug,
+			address,
+			imageSourceFieldForProbe || null,
+			false,
+			readAnimationSourceFieldProbeOverride(),
+			sampleTokenIdInputHasValue ? readSampleTokenIdInputValue() : null
+		);
 	}
 
 	function onSubmitAnimationSourceProbe(event: SubmitEvent): void {
@@ -737,7 +742,7 @@
 		} catch (error) {
 			if (requestId !== contractProbeRequestId) return;
 			probeStatus = 'error';
-			if (imageSourceFieldOverride === null) {
+			if (imageSourceFieldOverride === null && !sampleTokenIdOverride) {
 				probeResult = null;
 				probeAddress = null;
 			} else {

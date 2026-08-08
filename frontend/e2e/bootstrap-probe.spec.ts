@@ -469,13 +469,46 @@ test.describe('bootstrap contract probe UI', () => {
 			contentType: 'image/png'
 		});
 
+		const imageSourceInput = rowControl(page, 'Image source field');
+		await imageSourceInput.fill('');
+		await expect(sampleTokenRow).toBeVisible();
+		await expect(sampleTokenInput).toHaveValue(SHARED_ENUMERABLE_SAMPLE_TOKEN_ID);
+		await expect(sampleTokenRow).toContainText('resolved');
+		await expect(
+			formRow(page, 'Image source field').getByRole('button', { name: 'probe again' })
+		).toBeEnabled();
+		const clearedImageSourceScreenshotPath = testInfo.outputPath(
+			'bootstrap-enumerable-custom-sample-cleared-image-source.png'
+		);
+		await page.screenshot({ path: clearedImageSourceScreenshotPath, fullPage: true });
+		await testInfo.attach('bootstrap-enumerable-custom-sample-cleared-image-source.png', {
+			path: clearedImageSourceScreenshotPath,
+			contentType: 'image/png'
+		});
+
+		await imageSourceInput.press('Enter');
+		await expect(imageSourceInput).toHaveValue(TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image);
+		await expect(formRow(page, 'Image source field')).toContainText('resolved');
+		await expect(sampleTokenRow).toBeVisible();
+		await expect(sampleTokenInput).toHaveValue(SHARED_ENUMERABLE_SAMPLE_TOKEN_ID);
+		await expect(sampleTokenRow).toContainText('resolved');
+
 		await startTokenInput.fill(SHARED_ENUMERABLE_SAMPLE_TOKEN_ID);
 		await totalSupplyInput.fill(SHARED_ENUMERABLE_RANGE_TOTAL_SUPPLY);
 		await expect(formRow(page, 'Est. metadata size (full collection)')).toContainText('4.00 MB');
 		await expect(formRow(page, 'Est. source images size (full collection)')).toContainText(
 			'95.9 MB'
 		);
-		expect(api.probeRequestSampleTokenIds).toEqual([null, SHARED_ENUMERABLE_SAMPLE_TOKEN_ID]);
+		expect(api.probeRequestImageSourceFields).toEqual([
+			null,
+			TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+			null
+		]);
+		expect(api.probeRequestSampleTokenIds).toEqual([
+			null,
+			SHARED_ENUMERABLE_SAMPLE_TOKEN_ID,
+			SHARED_ENUMERABLE_SAMPLE_TOKEN_ID
+		]);
 	});
 
 	test('lets optional animation source overrides resolve or be cleared', async ({ page }) => {
