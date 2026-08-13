@@ -25,8 +25,8 @@ use crate::runtime::config::{
     BotRuntimeLaunchConfig, DESKTOP_IPV4_LOOPBACK_HOST, DesktopRuntimeConfig,
 };
 use crate::runtime::process_registry::{
-    BACKEND_ARTIFACT, BACKEND_PROCESS_NAME, INDEXER_WORKERS, NATS_PROCESS_NAME,
-    SUPERVISOR_PROCESS_NAME,
+    BACKEND_ARTIFACT, BACKEND_PROCESS_NAME, INDEXER_WORKERS, NATS_JOB_STREAM_MAINTENANCE_ARTIFACT,
+    NATS_JOB_STREAM_MAINTENANCE_PROCESS_NAME, NATS_PROCESS_NAME, SUPERVISOR_PROCESS_NAME,
 };
 use crate::wallet::domain::BotKind;
 
@@ -2171,6 +2171,24 @@ fn spawn_runtime_processes(
         return Err(map_startup_wait_error(error));
     }
 
+    emit_supervisor_log(
+        app,
+        &config.logs_dir,
+        SUPERVISOR_LOG_LEVEL_INFO,
+        "Running jobs stream startup maintenance",
+    );
+    if let Err(error) = run_startup_node_process(
+        app,
+        config,
+        NATS_JOB_STREAM_MAINTENANCE_PROCESS_NAME,
+        NATS_JOB_STREAM_MAINTENANCE_ARTIFACT,
+        stop_rx,
+        stop_signal,
+    ) {
+        stop_all_processes(app, &config.logs_dir, &mut processes);
+        return Err(map_startup_wait_error(error));
+    }
+
     let backend_process =
         match spawn_node_process(app, config, BACKEND_PROCESS_NAME, BACKEND_ARTIFACT) {
             Ok(process) => process,
@@ -2345,6 +2363,58 @@ fn spawn_node_process(
             cleanup: None,
         },
     )
+}
+
+fn run_startup_node_process(
+    app: &AppHandle,
+    config: &DesktopRuntimeConfig,
+    process_name: &str,
+    artifact_relative_path: &str,
+    stop_rx: &Receiver<()>,
+    stop_signal: &AtomicBool,
+) -> Result<(), StartupWaitError> {
+    let mut process = spawn_node_process(app, config, process_name, artifact_relative_path)
+        .map_err(StartupWaitError::Failed)?;
+
+    loop {
+        if stop_requested(stop_rx, stop_signal) {
+            stop_all_processes(app, &config.logs_dir, std::slice::from_mut(&mut process));
+            return Err(StartupWaitError::Cancelled);
+        }
+
+        match process.child.try_wait() {
+            Ok(Some(status)) => {
+                join_process_output_threads(&mut process);
+                if status.success() {
+                    emit_supervisor_log(
+                        app,
+                        &config.logs_dir,
+                        SUPERVISOR_LOG_LEVEL_INFO,
+                        &format!("Startup process {process_name} completed successfully"),
+                    );
+                    return Ok(());
+                }
+                return Err(StartupWaitError::Failed(format!(
+                    "Startup process {process_name} exited with status {status}"
+                )));
+            }
+            Ok(None) => {}
+            Err(error) => {
+                stop_all_processes(app, &config.logs_dir, std::slice::from_mut(&mut process));
+                return Err(StartupWaitError::Failed(format!(
+                    "Failed to poll startup process {process_name}: {error}"
+                )));
+            }
+        }
+
+        thread::sleep(STARTUP_WAIT_POLL_INTERVAL);
+    }
+}
+
+fn join_process_output_threads(process: &mut ManagedProcess) {
+    for thread in process.output_threads.drain(..) {
+        let _ = thread.join();
+    }
 }
 
 struct ProcessSpec {

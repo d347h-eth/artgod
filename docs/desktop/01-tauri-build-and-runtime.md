@@ -89,11 +89,17 @@ contract rather than combining independently distributed package trees with
    installs with `autostart infra` disabled stay stopped behind the Admin header
    action sequence.
 6. When startup is requested, the supervisor starts local NATS from bundled
-   `nats-server`, then backend, then enabled indexer workers from bundled
-   resources using bundled Node and each runtime's isolated package-local
-   dependencies. OpenSea workers are skipped when OpenSea integration is
-   disabled, and wallet-bound trading bots are staged but start only on
-   explicit operator action after unlock.
+   `nats-server`, runs the jobs-stream maintenance artifact, then starts the
+   backend and enabled indexer workers from bundled resources using bundled
+   Node and each runtime's isolated package-local dependencies. The maintenance
+   pass records restored stream and consumer state, probes upgrade-only write
+   health, reconciles the 24-hour MaxAge policy, waits for active expiry, and
+   verifies a publish/delete before normal queue producers start. If storage
+   remains resource-limited after expiry stalls or the bounded startup wait
+   ends, it purges only the disposable jobs stream and verifies writes again.
+   OpenSea workers are skipped when
+   OpenSea integration is disabled, and wallet-bound trading bots are staged
+   but start only on explicit operator action after unlock.
 7. Boot lifecycle console stays visible until lifecycle backend readiness probe
    succeeds, not merely until process state is `running`.
 8. Any core composition process exit triggers fail-fast full stack restart.
@@ -289,7 +295,7 @@ Responsibilities:
 - validates the desktop metafile before artifacts can be staged
 - writes:
     - `backend/dist-desktop/server.mjs`
-    - `indexer/dist-desktop/*.mjs` (all worker entrypoints)
+    - `indexer/dist-desktop/*.mjs` (startup maintenance and all worker entrypoints)
     - `trading/dist-desktop/*.mjs` (wallet-bound bot runtimes)
 
 Current build strategy details:
@@ -326,7 +332,7 @@ Responsibilities:
   : the universal macOS target downloads and merges the Intel and Apple silicon executables
   : downloaded archives are cached in `.cache/desktop-node-runtime`
 - downloads/verifies the NATS server distribution for the target platform and stages bundled NATS under `src-tauri/resources/runtime/nats`
-  : source of truth for NATS version is `DESKTOP_NATS_VERSION` build env (default `2.10.17`)
+  : source of truth for NATS version is `DESKTOP_NATS_VERSION` build env (default `2.10.18`)
   : download target uses the same target resolution as Node
   : the universal macOS target downloads and merges the Intel and Apple silicon executables
   : downloaded archives are cached in `.cache/desktop-nats-runtime`
@@ -459,6 +465,7 @@ Reason:
 Produced runtime artifacts:
 
 - `backend/dist-desktop/server.mjs`
+- `indexer/dist-desktop/nats-job-stream-maintenance.mjs`
 - `indexer/dist-desktop/scheduler-worker.mjs`
 - `indexer/dist-desktop/sync-worker.mjs`
 - `indexer/dist-desktop/reorg-worker.mjs`
@@ -637,13 +644,23 @@ Supervisor startup order:
 1. start bundled NATS process (`nats-server`) with an explicit
    `--addr 127.0.0.1` client-listener bind
 2. wait for NATS port readiness
-3. start backend artifact
-4. wait for backend port readiness
-5. start enabled indexer worker artifacts; OpenSea workers are skipped when the resolved OpenSea capability is disabled
-6. wait for backend semantic readiness via `GET /health/runtime`
+3. run the short-lived jobs-stream maintenance artifact and require success
+   : record stream/account/consumer state before policy changes
+   : perform an upgrade-only publish/delete probe
+   : reconcile the installed stream to the canonical 24-hour MaxAge
+   : wait while expiry makes progress; if storage remains resource-limited
+   after cleanup stalls or the bounded startup wait ends, purge only the
+   disposable jobs stream
+   : require a final publish/delete probe before continuing
+4. start backend artifact
+5. wait for backend port readiness
+6. start enabled indexer worker artifacts; OpenSea workers are skipped when the resolved OpenSea capability is disabled
+7. wait for backend semantic readiness via `GET /health/runtime`
    : checks backend process + DB ping + NATS/JetStream jobs stream readiness details
-   : NATS connectivity errors are fatal; "jobs stream not yet created" is reported as warning (`warn`) and does not block startup
-7. only after semantic readiness succeeds, supervisor sets runtime status to `running`
+   : NATS connectivity errors are fatal; a missing jobs stream remains a
+   warning in backend health, but successful startup maintenance has already
+   required that stream to exist and be writable
+8. only after semantic readiness succeeds, supervisor sets runtime status to `running`
 
 Wallet-bound bot runtimes are not part of the startup order above.
 They stay independently managed and start only after explicit admin action,

@@ -1,5 +1,6 @@
 import { execa } from "execa";
 import { GenericContainer, Wait } from "testcontainers";
+import { DEFAULT_DESKTOP_NATS_VERSION } from "../../../scripts/build/native-runtime-dependencies.mjs";
 import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
 import { promises as fs } from "node:fs";
@@ -16,9 +17,12 @@ export type NatsHandle = {
     stop: () => Promise<void>;
 };
 
+// Keeps integration tests on the same broker patch release as desktop builds.
+const NATS_TEST_CONTAINER_IMAGE = `nats:${DEFAULT_DESKTOP_NATS_VERSION}`;
+
 export async function startNats(natsPort: number): Promise<NatsHandle> {
     try {
-        const containerBuilder = new GenericContainer("nats:2.10.17")
+        const containerBuilder = new GenericContainer(NATS_TEST_CONTAINER_IMAGE)
             .withCommand(["-js", "-p", "42720"])
             .withExposedPorts({ container: 42720, host: natsPort })
             .withWaitStrategy(Wait.forLogMessage("Server is ready"))

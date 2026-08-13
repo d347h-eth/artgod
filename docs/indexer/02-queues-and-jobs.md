@@ -74,7 +74,9 @@ Behavior:
     - Subjects: `${streamPrefix}.jobs.>`
 - Retention policy: `Workqueue` (each message consumed once).
 - Storage type: file-backed.
-- Max age: 7 days.
+- Max age: 24 hours.
+- Existing streams are reconciled to the same 24-hour policy before normal
+  desktop queue producers start.
 
 Publishing:
 

@@ -2,10 +2,8 @@ import dotenv from "dotenv";
 import { resolveRuntimeEnvPath } from "@artgod/shared/utils/runtime-env";
 import { parseNumber, parseRequiredString } from "@artgod/shared/utils/env";
 import { requireOpenSeaIntegrationEnabled } from "@artgod/shared/config/opensea-integration";
-import {
-    getSettingDefault,
-    getSettingDefaultNumber,
-} from "@artgod/shared/config/generated-settings-defaults";
+import { getSettingDefaultNumber } from "@artgod/shared/config/generated-settings-defaults";
+import { resolveNatsRuntimeConfig } from "@artgod/shared/config/nats";
 import {
     parseOpenSeaHttpConfig,
     type OpenSeaHttpRateLimiterConfig,
@@ -50,8 +48,6 @@ type OpenSeaRuntimeMetricsConfig = Omit<OpenSeaMetricsConfig, "ports"> & {
 dotenv.config({ path: resolveRuntimeEnvPath(process.env, ".env") });
 
 const DEFAULT_CHAIN_ID = getSettingDefaultNumber("CHAIN_ID");
-const DEFAULT_NATS_URL = getSettingDefault("NATS_URL");
-const DEFAULT_NATS_STREAM_PREFIX = getSettingDefault("NATS_STREAM_PREFIX");
 const DEFAULT_OPENSEA_RECONCILE_INTERVAL_MS = getSettingDefaultNumber(
     "OPENSEA_RECONCILE_INTERVAL_MS",
 );
@@ -69,14 +65,12 @@ export function loadOpenSeaConfig(
     requireOpenSeaIntegrationEnabled(env);
     const apiKey = parseRequiredString(env.OPENSEA_API_KEY, "OPENSEA_API_KEY");
     const httpConfig = parseOpenSeaHttpConfig(env);
+    const queue = resolveNatsRuntimeConfig(env);
 
     return {
         dbPath,
         chainId,
-        queue: {
-            natsUrl: env.NATS_URL ?? DEFAULT_NATS_URL,
-            streamPrefix: env.NATS_STREAM_PREFIX ?? DEFAULT_NATS_STREAM_PREFIX,
-        },
+        queue,
         opensea: {
             apiKey,
             snapshotPageSize: parseNumber(

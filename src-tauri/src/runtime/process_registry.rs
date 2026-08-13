@@ -6,6 +6,12 @@ pub(crate) const BACKEND_PROCESS_NAME: &str = "backend";
 pub(crate) const BACKEND_ARTIFACT: &str = "backend/dist-desktop/server.mjs";
 /// Local NATS child-process name used for supervision and app-data logs.
 pub(crate) const NATS_PROCESS_NAME: &str = "nats";
+/// Short-lived startup process that reconciles and verifies the jobs stream.
+pub(crate) const NATS_JOB_STREAM_MAINTENANCE_PROCESS_NAME: &str =
+    "indexer-nats-job-stream-maintenance";
+/// Bundled startup maintenance artifact that runs before normal queue producers.
+pub(crate) const NATS_JOB_STREAM_MAINTENANCE_ARTIFACT: &str =
+    "indexer/dist-desktop/nats-job-stream-maintenance.mjs";
 /// Supervisor-owned log process name for desktop runtime lifecycle messages.
 pub(crate) const SUPERVISOR_PROCESS_NAME: &str = "desktop-supervisor";
 
@@ -63,9 +69,10 @@ pub(crate) const INDEXER_WORKERS: &[(&str, &str)] = &[
 
 /// Returns every desktop runtime process name that should have an app-data log file.
 pub(crate) fn runtime_log_process_names() -> Vec<&'static str> {
-    let mut names = Vec::with_capacity(3 + INDEXER_WORKERS.len() + BOT_RUNTIME_SPECS.len());
+    let mut names = Vec::with_capacity(4 + INDEXER_WORKERS.len() + BOT_RUNTIME_SPECS.len());
     names.push(SUPERVISOR_PROCESS_NAME);
     names.push(NATS_PROCESS_NAME);
+    names.push(NATS_JOB_STREAM_MAINTENANCE_PROCESS_NAME);
     names.push(BACKEND_PROCESS_NAME);
     names.extend(
         INDEXER_WORKERS
@@ -86,6 +93,7 @@ mod tests {
 
         assert!(names.contains(&SUPERVISOR_PROCESS_NAME));
         assert!(names.contains(&NATS_PROCESS_NAME));
+        assert!(names.contains(&NATS_JOB_STREAM_MAINTENANCE_PROCESS_NAME));
         assert!(names.contains(&BACKEND_PROCESS_NAME));
         assert!(names.contains(&"indexer-sync-worker"));
         assert!(names.contains(&"trading-bidding-bot"));

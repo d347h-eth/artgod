@@ -18,6 +18,7 @@ import {
     stageDesktopRuntimeDependencies,
 } from "./desktop-runtime-dependency-staging.mjs";
 import {
+    DEFAULT_DESKTOP_NATS_VERSION,
     DESKTOP_BUILD_TARGET_ENV_KEYS,
     DESKTOP_NODE_DIST_TARGET,
     resolveDesktopDistributionTargetFromEnvironment,
@@ -38,7 +39,7 @@ const nodeDistTarget = resolveDesktopDistributionTargetFromEnvironment({
 });
 const nodeCacheRoot = path.join(rootDir, ".cache", "desktop-node-runtime");
 const natsVersion = parseExactSemver(
-    process.env.DESKTOP_NATS_VERSION?.trim() || "2.10.17",
+    process.env.DESKTOP_NATS_VERSION?.trim() || DEFAULT_DESKTOP_NATS_VERSION,
     "DESKTOP_NATS_VERSION",
 );
 const natsDistTarget = resolveDesktopDistributionTargetFromEnvironment({

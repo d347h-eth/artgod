@@ -1,10 +1,7 @@
 import {
     JSONCodec,
-    RetentionPolicy,
-    StorageType,
     connect,
     type JetStreamClient,
-    type JetStreamManager,
     type NatsConnection,
 } from "nats";
 import {
@@ -12,7 +9,9 @@ import {
     BOOTSTRAP_JOB_KIND,
     BOOTSTRAP_QUEUE_NAME,
 } from "@artgod/shared/bootstrap/jobs";
+import { resolveNatsJobSubjectPrefix } from "@artgod/shared/queue/nats-job-stream";
 import type { BootstrapCommandQueuePort } from "../../application/use-cases/bootstrap/ports.js";
+import { ensureNatsJobStream } from "../queue/nats-job-stream.js";
 
 type JobEnvelope<TPayload> = {
     jobId: string;
@@ -27,15 +26,13 @@ type JobEnvelope<TPayload> = {
 };
 
 export class NatsBootstrapCommandQueue implements BootstrapCommandQueuePort {
-    private readonly streamName: string;
     private readonly subjectPrefix: string;
 
     constructor(
         private readonly natsUrl: string,
         private readonly streamPrefix: string,
     ) {
-        this.streamName = `${streamPrefix}-jobs`;
-        this.subjectPrefix = `${streamPrefix}.jobs`;
+        this.subjectPrefix = resolveNatsJobSubjectPrefix(streamPrefix);
     }
 
     async publishBootstrapStart(input: {
@@ -129,7 +126,7 @@ export class NatsBootstrapCommandQueue implements BootstrapCommandQueuePort {
         try {
             const js = connection.jetstream();
             const jsm = await connection.jetstreamManager();
-            await ensureStream(jsm, this.streamName, this.subjectPrefix);
+            await ensureNatsJobStream(jsm, this.streamPrefix);
             const subject = `${this.subjectPrefix}.${queueName}`;
             const codec = JSONCodec<JobEnvelope<TPayload>>();
             const envelope: JobEnvelope<TPayload> = {
@@ -147,22 +144,4 @@ export class NatsBootstrapCommandQueue implements BootstrapCommandQueuePort {
             await connection.drain().catch(() => undefined);
         }
     }
-}
-
-async function ensureStream(
-    jsm: JetStreamManager,
-    streamName: string,
-    subjectPrefix: string,
-): Promise<void> {
-    try {
-        await jsm.streams.info(streamName);
-        return;
-    } catch {}
-    await jsm.streams.add({
-        name: streamName,
-        subjects: [`${subjectPrefix}.>`],
-        retention: RetentionPolicy.Workqueue,
-        storage: StorageType.File,
-        max_age: 7 * 24 * 60 * 60 * 1_000_000_000,
-    });
 }
