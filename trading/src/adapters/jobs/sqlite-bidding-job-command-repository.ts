@@ -109,7 +109,7 @@ export class SqliteBiddingJobCommandRepository
         );
 
         // Claim commands transactionally so overlapping signal and poll paths cannot process the same row.
-        return db.raw.transaction(() => {
+        return db.writeTransaction(() => {
             const rows = this.selectClaimableCommands.all({
                 botKind: TRADING_BOT_KIND.Bidding,
                 claimCutoff,

@@ -544,7 +544,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
 
     insertSnapshotRows(rows: BootstrapSnapshotRow[]): void {
         if (rows.length === 0) return;
-        const insertMany = db.raw.transaction(
+        const insertMany = db.writeTransaction(
             (batch: BootstrapSnapshotRow[]) => {
                 for (const row of batch) {
                     this.insertSnapshotStmt.run(row);
@@ -555,7 +555,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     }
 
     finalizeSnapshot(input: SnapshotFinalizeInput): void {
-        const finalize = db.raw.transaction((params: SnapshotFinalizeInput) => {
+        const finalize = db.writeTransaction((params: SnapshotFinalizeInput) => {
             this.deleteBalancesStmt.run({
                 chainId: params.chainId,
                 collectionId: params.collectionId,
@@ -572,7 +572,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     }
 
     deleteRunTemporaryData(runId: number): void {
-        const cleanup = db.raw.transaction((targetRunId: number) => {
+        const cleanup = db.writeTransaction((targetRunId: number) => {
             this.resetMetadataTasksStmt.run({ runId: targetRunId });
             this.resetImageCacheTasksStmt.run({ runId: targetRunId });
             this.resetOwnershipTasksStmt.run({ runId: targetRunId });
@@ -601,7 +601,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
 
     insertMetadataTasks(rows: BootstrapMetadataTaskSeed[]): number {
         if (rows.length === 0) return 0;
-        const insertMany = db.raw.transaction(
+        const insertMany = db.writeTransaction(
             (batch: BootstrapMetadataTaskSeed[]) => {
                 let inserted = 0;
                 for (const row of batch) {
@@ -730,7 +730,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         relativePath: string;
         publicPath: string;
     }): boolean {
-        const applySuccess = db.raw.transaction((params: typeof input) => {
+        const applySuccess = db.writeTransaction((params: typeof input) => {
             const taskUpdate = this.markImageCacheTaskSucceededStmt.run({
                 ...params,
                 succeededStatus: BOOTSTRAP_TASK_STATUS.Succeeded,
@@ -781,7 +781,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
 
     insertOwnershipTasks(rows: BootstrapOwnershipTaskSeed[]): void {
         if (rows.length === 0) return;
-        const insertMany = db.raw.transaction(
+        const insertMany = db.writeTransaction(
             (batch: BootstrapOwnershipTaskSeed[]) => {
                 for (const row of batch) {
                     this.insertOwnershipTaskStmt.run({
@@ -815,7 +815,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         attempts: number;
         owner: string;
     }): void {
-        const applySuccess = db.raw.transaction((params: typeof input) => {
+        const applySuccess = db.writeTransaction((params: typeof input) => {
             this.deleteSnapshotTokenStmt.run({
                 runId: params.runId,
                 tokenId: params.tokenId,
@@ -871,7 +871,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         extensionKey: CollectionExtensionKey;
         extensionOwnedTasks?: readonly BootstrapCollectionExtensionArtifactTaskSeed[];
     }): number {
-        const seedTasks = db.raw.transaction((params: typeof input) => {
+        const seedTasks = db.writeTransaction((params: typeof input) => {
             for (const row of params.extensionOwnedTasks ?? []) {
                 this.insertCollectionExtensionArtifactTaskStmt.run({
                     ...row,

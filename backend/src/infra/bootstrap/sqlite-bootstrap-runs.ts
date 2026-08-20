@@ -562,7 +562,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         explicitTokenIds: string[];
         deploymentBlock: number | null;
     }): CollectionBootstrapState {
-        const run = db.raw.transaction(() => {
+        const run = db.writeTransaction(() => {
             this.upsertCollectionBySlug.run({
                 chainId: input.chainId,
                 slug: input.slug,
@@ -632,7 +632,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
     }
 
     createRun(input: BootstrapRunCreateInput): BootstrapRunRow {
-        const run = db.raw.transaction(() => {
+        const run = db.writeTransaction(() => {
             return this.insertBootstrapRun(input);
         });
         return run();
@@ -641,7 +641,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
     createPreparedCollectionRun(
         input: PreparedCollectionRunCreateInput,
     ): BootstrapRunRow {
-        const run = db.raw.transaction(() => {
+        const run = db.writeTransaction(() => {
             this.markCollectionBootstrappingStmt.run({
                 chainId: input.chainId,
                 collectionId: input.collectionId,
@@ -669,7 +669,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
     abortPreparedCollectionRun(
         input: PreparedCollectionRunAbortInput,
     ): void {
-        db.raw.transaction(() => {
+        db.writeTransaction(() => {
             this.updateRunStatus(
                 input.runId,
                 BOOTSTRAP_RUN_STATUS.Failed,
@@ -968,7 +968,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         imageCacheStepReset: boolean;
         imageCacheTasksDeleted: number;
     } {
-        const retryFailedMetadata = db.raw.transaction((params: typeof input) => {
+        const retryFailedMetadata = db.writeTransaction((params: typeof input) => {
             const failedCountRow =
                 this.selectFailedMetadataTaskCountStmt.get({
                     runId: params.runId,
@@ -1058,7 +1058,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         stepUpdated: boolean;
         taskUpdatedCount: number;
     } {
-        const retryTerminal = db.raw.transaction(() => {
+        const retryTerminal = db.writeTransaction(() => {
             const stepResult = this.retryTerminalRunStepStmt.run({
                 runId,
                 stepKey,

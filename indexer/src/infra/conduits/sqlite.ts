@@ -112,7 +112,7 @@ export class SqliteConduitRegistry implements ConduitRegistryPort {
             channel.toLowerCase(),
         );
 
-        const replace = db.raw.transaction(
+        const replace = db.writeTransaction(
             (payload: {
                 chainId: number;
                 conduitAddress: string;

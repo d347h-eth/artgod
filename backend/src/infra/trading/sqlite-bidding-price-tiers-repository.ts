@@ -238,7 +238,7 @@ export class SqliteBiddingPriceTiersRepository
     upsertPriceTier(
         input: UpsertBiddingPriceTierRecordInput,
     ): PersistedBiddingPriceTierRecord {
-        return db.raw.transaction((transactionInput) => {
+        return db.writeTransaction((transactionInput: UpsertBiddingPriceTierRecordInput) => {
             const tierId = transactionInput.tierId ?? randomUUID();
             const payload = {
                 tierId,
@@ -272,7 +272,7 @@ export class SqliteBiddingPriceTiersRepository
     }
 
     archivePriceTier(tierId: string): PersistedBiddingPriceTierRecord | null {
-        return db.raw.transaction((transactionTierId: string) => {
+        return db.writeTransaction((transactionTierId: string) => {
             const existing = this.getPriceTierById(transactionTierId);
             if (!existing || existing.status === TRADING_JOB_STATUS.Archived) {
                 return existing;
@@ -285,7 +285,7 @@ export class SqliteBiddingPriceTiersRepository
     updatePriceTierResolutions(
         resolutions: BiddingPriceTierResolutionUpdate[],
     ): void {
-        db.raw.transaction((transactionResolutions) => {
+        db.writeTransaction((transactionResolutions: BiddingPriceTierResolutionUpdate[]) => {
             for (const resolution of transactionResolutions) {
                 this.updatePriceTierResolution.run(resolution);
             }

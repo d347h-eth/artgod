@@ -311,7 +311,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         if (input.stepKeys.length === 0) {
             return [];
         }
-        const claim = db.raw.transaction(() => {
+        const claim = db.writeTransaction(() => {
             const candidates = selectClaimCandidates(input);
             const claimed: BootstrapStepRecord[] = [];
             for (const candidate of candidates) {

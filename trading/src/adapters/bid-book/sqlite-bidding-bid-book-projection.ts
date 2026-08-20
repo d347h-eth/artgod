@@ -217,7 +217,7 @@ export class SqliteBiddingBidBookProjection
         const durationBeforeWriteMs = Date.now() - startedAt;
 
         // Replace the projected bid book transactionally so UI readers never see a partial snapshot.
-        db.raw.transaction(() => {
+        db.writeTransaction(() => {
             this.deleteSnapshotRows.run({
                 chainId: this.chainId,
                 collectionId: collection.collection_id,

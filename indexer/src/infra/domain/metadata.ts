@@ -397,7 +397,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             })),
         );
 
-        const persist = db.raw.transaction(() => {
+        const persist = db.writeTransaction(() => {
             // Persist token identity first so future FK constraints can safely
             // reference tokens before metadata/attributes are written.
             this.upsertToken.run({

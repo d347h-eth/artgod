@@ -92,7 +92,7 @@ export class SqliteMetadataRefreshFollowups {
         tasks: readonly MetadataRefreshExtensionArtifactTaskSeed[];
         extensionArtifactJobs: readonly JobEnvelope<CollectionExtensionRefreshArtifactsPayload>[];
     }): void {
-        const persist = db.raw.transaction(() => {
+        const persist = db.writeTransaction(() => {
             this.insertRun(input.run);
             if (this.isRunFinalized(input.run.runId)) {
                 return;
@@ -115,7 +115,7 @@ export class SqliteMetadataRefreshFollowups {
     enqueueFinalStatsOnce(input: {
         run: MetadataRefreshFollowupRunInput;
     }): boolean {
-        const persist = db.raw.transaction(() => {
+        const persist = db.writeTransaction(() => {
             this.insertRun(input.run);
             return this.finalizeRunAndEnqueueStats(input.run.runId);
         });
@@ -128,7 +128,7 @@ export class SqliteMetadataRefreshFollowups {
         extensionKey: CollectionExtensionKey;
         status: MetadataRefreshExtensionArtifactTerminalStatus;
     }): boolean {
-        const persist = db.raw.transaction(() => {
+        const persist = db.writeTransaction(() => {
             this.markTaskTerminalStmt.run({
                 runId: input.runId,
                 tokenId: input.tokenId,

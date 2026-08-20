@@ -248,7 +248,7 @@ export class SqliteStorage implements StoragePort {
         data: OnChainData,
         collections: CollectionRecord[],
     ): void {
-        const run = db.raw.transaction(() => {
+        const run = db.writeTransaction(() => {
             const blockMeta = buildBlockMeta(blocks);
             const currentStateCollections = new Map(
                 collections.map((collection) => [collection.id, collection]),
@@ -315,7 +315,7 @@ export class SqliteStorage implements StoragePort {
     }
 
     rollbackFromBlock(chainId: number, fromBlock: number): void {
-        const run = db.raw.transaction(() => {
+        const run = db.writeTransaction(() => {
             const events = this.selectTransfersFromBlock.all(
                 chainId,
                 fromBlock,

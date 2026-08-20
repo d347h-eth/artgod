@@ -274,7 +274,7 @@ export class SqliteActivityDomain implements ActivityDomainPort {
 
     async handleActivityUpsert(payload: ActivityUpsertPayload): Promise<void> {
         const normalized = normalizeActivityUpsert(payload);
-        const run = db.raw.transaction(() =>
+        const run = db.writeTransaction(() =>
             this.applyActivityUpsert(normalized),
         );
         run();

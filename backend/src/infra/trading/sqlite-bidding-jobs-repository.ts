@@ -522,7 +522,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         job: PersistedTokenBiddingJobRecord;
         commands: TradingJobCommandRecord[];
     } {
-        return db.raw.transaction((transactionInput: UpsertTokenBiddingJobInput) =>
+        return db.writeTransaction((transactionInput: UpsertTokenBiddingJobInput) =>
             this.upsertTokenJobInTransaction(transactionInput),
         )(input);
     }
@@ -533,7 +533,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         jobs: PersistedTokenBiddingJobRecord[];
         commands: TradingJobCommandRecord[];
     } {
-        return db.raw.transaction((transactionInputs: UpsertTokenBiddingJobInput[]) => {
+        return db.writeTransaction((transactionInputs: UpsertTokenBiddingJobInput[]) => {
             const jobs: PersistedTokenBiddingJobRecord[] = [];
             const commands: TradingJobCommandRecord[] = [];
             for (const input of transactionInputs) {
@@ -551,7 +551,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         job: PersistedCollectionBiddingJobRecord;
         commands: TradingJobCommandRecord[];
     } {
-        return db.raw.transaction(
+        return db.writeTransaction(
             (transactionInput: UpsertCollectionBiddingJobInput) => {
                 const targetTraits = this.normalizeTraitCriteria(
                     transactionInput.targetTraits,
@@ -654,7 +654,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         job: PersistedTokenBiddingJobRecord;
         commands: TradingJobCommandRecord[];
     } | null {
-        return db.raw.transaction((input: {
+        return db.writeTransaction((input: {
             chainId: number;
             collectionId: number;
             tokenId: string;
@@ -688,7 +688,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         job: PersistedBiddingJobRecord;
         commands: TradingJobCommandRecord[];
     } | null {
-        return db.raw.transaction((input: {
+        return db.writeTransaction((input: {
             chainId: number;
             collectionId: number;
             jobId: string;
@@ -701,7 +701,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         jobs: PersistedBiddingJobRecord[];
         commands: TradingJobCommandRecord[];
     } {
-        return db.raw.transaction(
+        return db.writeTransaction(
             (transactionInputs: UpdateBiddingJobPricingByIdInput[]) => {
                 const jobs: PersistedBiddingJobRecord[] = [];
                 const commands: TradingJobCommandRecord[] = [];
