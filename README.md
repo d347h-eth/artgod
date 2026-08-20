@@ -181,6 +181,8 @@ The shortest routes are:
   first public-alpha run.
 - [Local development](docs/development/01-local-development.md) for setup,
   builds, configuration, and validation.
+- [SQLite write contention](docs/development/02-sqlite-write-contention.md) for
+  the shared retry policy, write inventory, and deferred recovery decisions.
 - [Indexer](docs/indexer/README.md), [Backend](docs/backend/README.md),
   [Trading](docs/trading/README.md), [Extensions](docs/extensions/README.md),
   [UI](docs/ui/README.md), and [Desktop](docs/desktop/README.md) for engineering
