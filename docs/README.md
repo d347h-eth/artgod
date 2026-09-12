@@ -52,3 +52,11 @@ this page routes maintainers and agents to the owning topic.
 4. Run the focused package checks plus `yarn check:docs`, and run Prettier over
    every changed supported file. `yarn format:check` is the repository-wide
    formatting baseline check.
+
+`check:docs` checks local inline/reference links, heading anchors, topic-index
+coverage, retired paths, Mermaid fence/declaration structure, and selected
+OpenAPI route/reference/security/nullability contracts. It is a dependency-free structural
+check for the repository's Markdown and four-space YAML conventions, not a full
+Markdown/Mermaid/OpenAPI parser or a test of runtime response schemas. Source
+review and owning API tests are still required. Changes to the checker must
+also pass `yarn test:docs`; CI runs both commands before dependency installation.

@@ -71,6 +71,7 @@ async function main() {
     checkMermaidBlocks(documentSources, errors);
     await checkOpenApiRouteParity(errors);
     await checkOpenApiReferences(errors);
+    await checkOpenApiNullableSchemas(errors);
     await checkOpenApiOperationIds(errors);
     await checkOpenApiMutationSecurity(errors);
 
@@ -252,7 +253,7 @@ async function checkMarkdownLinks(documentSources, errors) {
                     continue;
                 }
             }
-            const fragment = decodeFragment(parsed.fragment).toLowerCase();
+            const fragment = decodeFragment(parsed.fragment);
             if (!anchors.has(fragment)) {
                 errors.push(
                     `${sourceProjectPath}:${link.lineNumber}: missing Markdown anchor #${parsed.fragment} in ${toProjectPath(resolvedTargetPath)}`,
@@ -272,7 +273,35 @@ function extractMarkdownLinks(source) {
             lineNumber: lineNumberAt(visibleSource, match.index ?? 0),
         });
     }
+
+    // Reference-style links are common in long topic indexes. Validate the
+    // destination at each use, not an unused definition as if it were navigation.
+    const definitions = new Map();
+    const definitionPattern =
+        /^ {0,3}\[([^\]\n]+)\]:\s*(<[^>\n]+>|\S+)(?:[^\n]*)$/gm;
+    for (const match of visibleSource.matchAll(definitionPattern)) {
+        const label = normalizeReferenceLabel(match[1]);
+        if (!definitions.has(label)) {
+            definitions.set(label, normalizeMarkdownLinkTarget(match[2]));
+        }
+    }
+    const referencePattern = /!?\[([^\]\n]+)\](?:\[([^\]\n]*)\])?(?![:(])/g;
+    for (const match of visibleSource.matchAll(referencePattern)) {
+        const target = definitions.get(
+            normalizeReferenceLabel(match[2] || match[1]),
+        );
+        if (target) {
+            links.push({
+                target,
+                lineNumber: lineNumberAt(visibleSource, match.index ?? 0),
+            });
+        }
+    }
     return links;
+}
+
+function normalizeReferenceLabel(label) {
+    return label.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function normalizeMarkdownLinkTarget(rawTarget) {
@@ -315,9 +344,14 @@ function collectHeadingAnchors(source) {
         if (!baseSlug) {
             continue;
         }
-        const count = slugCounts.get(baseSlug) ?? 0;
-        slugCounts.set(baseSlug, count + 1);
-        anchors.add(count === 0 ? baseSlug : `${baseSlug}-${count}`);
+        let count = slugCounts.get(baseSlug) ?? 0;
+        let slug = count === 0 ? baseSlug : `${baseSlug}-${count}`;
+        while (anchors.has(slug)) {
+            count += 1;
+            slug = `${baseSlug}-${count}`;
+        }
+        slugCounts.set(baseSlug, count);
+        anchors.add(slug);
     }
     return anchors;
 }
@@ -545,12 +579,66 @@ async function checkOpenApiReferences(errors) {
     }
 
     const referencePattern =
-        /\$ref:\s*"#\/components\/(securitySchemes|parameters|responses|schemas)\/([A-Za-z][A-Za-z0-9_]*)"/g;
+        /\$ref:\s*(["'])#\/components\/(securitySchemes|parameters|responses|schemas)\/([A-Za-z][A-Za-z0-9_]*)\1/g;
     for (const match of source.matchAll(referencePattern)) {
-        const reference = `${match[1]}/${match[2]}`;
+        const reference = `${match[2]}/${match[3]}`;
         if (!definitions.has(reference)) {
             errors.push(
                 `${OPENAPI_DOCUMENT_PATH}:${lineNumberAt(source, match.index ?? 0)}: missing component reference ${reference}`,
+            );
+        }
+    }
+}
+
+async function checkOpenApiNullableSchemas(errors) {
+    const source = await readFile(
+        path.join(projectRoot, OPENAPI_DOCUMENT_PATH),
+        "utf8",
+    );
+    const lines = source.split(/\r?\n/);
+    for (const [index, line] of lines.entries()) {
+        const nullable = line.match(/^( +)nullable: true\s*$/);
+        if (!nullable) continue;
+        const indent = nullable[1];
+        let start = index;
+        let end = index + 1;
+        while (
+            start > 0 &&
+            (!lines[start - 1].trim() || lines[start - 1].startsWith(indent))
+        ) {
+            start -= 1;
+        }
+        while (
+            end < lines.length &&
+            (!lines[end].trim() || lines[end].startsWith(indent))
+        ) {
+            end += 1;
+        }
+        const schemaLines = lines.slice(start, end);
+        // OpenAPI 3.0 adds null to a type declared in this same schema object;
+        // nullable beside an allOf/$ref does not widen the referenced schema.
+        if (
+            !schemaLines.some((sibling) =>
+                sibling.startsWith(`${indent}type: `),
+            )
+        ) {
+            errors.push(
+                `${OPENAPI_DOCUMENT_PATH}:${index + 1}: nullable schema must declare its own type; use an explicit null union for a reference`,
+            );
+        }
+        const enumIndex = schemaLines.findIndex((sibling) =>
+            sibling.startsWith(`${indent}enum:`),
+        );
+        if (enumIndex < 0) continue;
+        const enumLines = [schemaLines[enumIndex]];
+        for (const sibling of schemaLines.slice(enumIndex + 1)) {
+            if (sibling.trim() && !sibling.startsWith(`${indent} `)) break;
+            enumLines.push(sibling);
+        }
+        // The maintained YAML writes the null literal as `null`, not a string.
+        if (!/(?:^|[\s,[\]])null(?=$|[\s,\]])/.test(enumLines.join("\n"))) {
+            errors.push(
+                `${OPENAPI_DOCUMENT_PATH}:${index + 1}: nullable enum must include the null literal`,
             );
         }
     }
