@@ -1,322 +1,168 @@
 # AGENTS.md
 
-## Critical Worktree/Branch Rule
+Agent-specific guidance. Project overview and documentation navigation belong in
+`README.md`.
 
-Agent is not allowed to work on 'main' or 'dev' branch. Agent is not allowed to switch worktrees or branches at will - this is blocking rule. Switching worktree/branch can be done only after receiving direct instructions about it.
+## Scope and authorization
 
-## Critical Agent Standard
+- Do not edit files on `main` or `dev` unless the user explicitly overrides this
+  restriction. Honor expressly permitted read-only work on those branches.
+  Create or switch branches/worktrees only on direct user instruction.
+- Investigation, analysis, review, and report requests are diagnostic-only unless
+  implementation is explicitly authorized. Symptoms, logs, screenshots, and
+  queue output alone do not authorize edits or remedies. Report evidence,
+  uncertainty, and proposed next steps. Branch/worktree preferences alone do not
+  authorize implementation.
+- For authorized implementation, carry the requested change through relevant
+  verification, correcting failures caused by the change without repeated
+  approval. Make routine implementation decisions within scope; respect
+  review-first stopping points and explicitly excluded files or workflows.
+- Ask when a required decision or permission is missing; continue independent
+  authorized work. If guidance blocks progress, cite its file and exact
+  instruction and explain what remains unresolved.
+- Keep machine-specific filesystem paths out of code, comments, and tracked
+  documentation. Use workspace-relative paths or environment variables.
 
-- Challenge every prompt against project context, existing architecture, and industry best practices before acting. If the user's requested path is ad hoc, duplicative, unsafe, or worse than an established project/industry pattern, say so directly and steer the work toward the better standard.
+## GUI automation safety
 
-## Critical Agent Standard Reminder
+- Do not create or run ad hoc scripts that capture, inspect, or control host GUI
+  windows through system/display-server APIs, X11/Wayland, or driver-level input.
+- Automated GUI coverage must use a maintained, project-owned harness: Playwright
+  for web/WebView flows, or an appropriate native framework. Keep test code
+  reusable and reviewable in the repository, run through a documented command.
+- Creating or extending a harness is implementation work and requires that scope.
+  If no suitable harness exists, defer rendered inspection to user QA and report
+  the gap; do not improvise host-display automation.
 
-- Challenge every prompt against project context, existing architecture, and industry best practices before acting. If the user's requested path is ad hoc, duplicative, unsafe, or worse than an established project/industry pattern, say so directly and steer the work toward the better standard.
-- Treat user corrections as engineering feedback to reason through, not as
-  brainless rewrite instructions. Identify the principle behind the correction,
-  apply it narrowly to the actual defect, and challenge any literal
-  interpretation that would degrade code clarity, architecture, or maintainable
-  design.
+## Engineering judgment
 
-## Non-Negotiable GUI Automation Safety Rule
+- Evaluate requested approaches and existing patterns for concrete architectural
+  or correctness problems. Explain material objections and apply corrections to
+  the actual defect. Existing design can evolve as features develop.
+- Reuse abstractions that fit; improve unsuitable ones within the authorized
+  scope. Explain consequential departures from local conventions. Engineering
+  discretion applies to design choices within authorization, safety, and domain
+  invariants.
+- ArtGod has no centralized servers: backend, workers, and database run locally.
+  Use peer-to-peer communication and/or public blockchain/marketplace APIs, and
+  preserve offline-capable behavior where feasible.
+- Prefer cursor/streamed iteration for large datasets; justify large allocations
+  with business need or performance evidence.
 
-- Agents must not create or run ephemeral or ad hoc scripts that automate,
-  capture, or inspect GUI windows by calling system or display-server APIs,
-  manipulating X11 or Wayland, synthesizing driver-level input, or otherwise
-  interfering with the host display session.
-- Automated GUI coverage must use or extend a durable, project-owned E2E test
-  harness. Use the existing Playwright infrastructure for web and WebView flows;
-  use an appropriate maintained framework for a native-specific flow. Test code
-  must be reviewable, reusable, checked into the project, and run through a
-  documented repository command so each addition builds up the real E2E suite.
-- If no suitable harness exists, do not improvise system-level automation.
-  Building the appropriate durable harness is implementation work that must stay
-  within the authorized task scope; otherwise defer that rendered inspection to
-  user QA and report the gap explicitly at handoff.
+## Context and skills
 
-## Non-Negotiable User-Perspective UI/UX Rule
+Read only what the current task needs, using these entry points as relevant.
 
-- Before changing any user-visible surface, read
+- Use `README.md` for orientation and its Documentation Map for component docs.
+- Use `docs/project/01-public-alpha-scope.md` for feature-scope decisions.
+- Use `docs/development/01-local-development.md` for setup and local verification.
+- For indexer work, use `docs/indexer/00-overview.md` to locate relevant design
+  guidance and `docs/progress/indexer/15-unified-backlog.md` for planned work.
+- Before UI changes, consult the relevant guidance in
   `docs/ui/00-user-perspective-and-language.md` and
-  `docs/ui/01-interaction-guidelines.md` completely.
-- Define and then verify the exact user journey from entry state through action,
-  result, and recovery. Review the whole rendered surface in reading order, not
-  only the component or control being changed.
-- Use product and task language the user can understand without knowing ArtGod's
-  implementation. Do not expose unexplained internal terms such as adapters,
-  DTOs, rows, projections, payloads, or native mandates.
-- Show human-recognizable names before explicitly qualified technical IDs. Do
-  not render bare numbers or ambiguous `#N` labels when the canonical name and
-  ID type are available.
-- Every numeric control or value must state its unit, denominator, and scope,
-  including whether a cap is per NFT, per offer, per transaction, or cumulative.
-- Expected errors must be brief and actionable. Point to the exact recovery
-  action, keep raw transport/internal detail in logs, and do not mislabel an
-  unknown failure as a known cause.
-- Keep setup, native prompt, active state, validation, and error wording
-  consistent across Admin and Userland. Security-sensitive review UI must show
-  the same canonical identity and limits that enforcement receives.
-- UI work requires rendered inspection of all materially different states at a
-  representative viewport. Automated checks alone are insufficient. When
-  reproducing a screenshot, read its actual image dimensions instead of
-  inferring or rounding them.
-- Do not render placeholder or nonexistent capabilities merely because an
-  internal enum, process record, or future plan exists.
+  `docs/ui/01-interaction-guidelines.md`.
+- Use a skill when the user names it or its specific workflow fits the task.
+  Load only relevant supporting resources. Skill guidance must respect the
+  user's explicit scope and authorization.
+- Add a skill only when a recurring workflow benefits from reusable guidance
+  beyond these conditional sections. Keep its trigger precise and its body
+  limited to useful constraints, outcomes, and references.
 
-## Non-Negotiable Literal Ownership Rule
+## Domain and contract ownership
 
-- Before any edit, scan the planned change for new hard-coded semantic value
-  literals and for pointless over-abstraction. Challenge both before acting.
-  Do not add hard-coded semantic values, and do not replace ordinary language
-  syntax with constants.
-- This applies to **all code**, not only consumers: production code, tests,
-  fixtures, scripts, Svelte, TypeScript, Rust, SQL adapters, config generators,
-  runtime composition, observability, logs, metrics, dashboards, and docs that
-  define code contracts.
-- Semantic value literals include statuses, kinds, modes, actions, event names,
-  component names, metric names, log action names, route names, route params,
-  query keys, cache keys, storage enum values, config/env keys, protocol labels,
-  extension keys, CSS/state tokens, selector IDs, and any value that another
-  module, test, UI, runtime, dashboard, log query, or operator workflow must
-  recognize.
-- Define each semantic value once in the owning module/domain/config contract,
-  export it with a short purpose comment, and import that constant/helper
-  everywhere else. If ownership is unclear, create or extend the correct owning
-  contract before using the value.
-- Do **not** satisfy this rule by turning struct fields, object property names,
-  DTO shapes, destructuring keys, method names, local variables, or language
-  syntax into constants. Keep normal readable property syntax such as
-  `{ component: value }` and `record.component`. Only centralize a field name
-  when it is truly a shared serialized/wire vocabulary and doing so improves the
-  owning boundary contract rather than obscuring ordinary code.
-- Tests must import the same constants/contracts as runtime code unless the test
-  is intentionally asserting wire/storage serialization at the boundary.
-- Do not satisfy this rule by moving unrelated or extension-specific literals
-  into generic shared modules. Keep literals in the domain, adapter, extension,
-  or config surface that owns the vocabulary.
-- Hard-coded semantic literals are a stop-the-line issue. If a change would add
-  one, stop and refactor before continuing.
+- Put business rules and validation in the owning domain model. Expose named
+  behavior for business decisions; keep raw persistence/serialization values
+  private when callers can use that behavior. Model declared state separately
+  from downstream/materialized state when both exist.
+- Define semantic contract values once in the owning domain, adapter, extension,
+  or config module. This includes vocabulary another module, test, UI, or
+  operator must recognize: statuses, events/actions, metrics/log labels,
+  routes/parameters, config/query/cache/storage keys, protocol labels, and UI
+  state/selector tokens. Export constants when consumers need that vocabulary;
+  otherwise expose the owner's behavior. Resolve ownership within the requested
+  change before introducing a value.
+- This applies across production code, tests, fixtures, scripts, config,
+  observability, and documentation defining code contracts. Tests consume the
+  same public constants/contracts unless deliberately asserting wire or storage
+  serialization at the boundary.
+- Keep ordinary fields, properties, method names, variables, and language syntax
+  readable. Centralize a field name only when it is shared wire vocabulary and
+  doing so clarifies the boundary contract.
+- Keep collection-specific values and rules inside their extension. Generic
+  modules consume extension-provided data through generic contracts; they must
+  not import extension-specific constants or move them into shared/core.
+- Load environment configuration through typed config modules. Required runtime
+  and test inputs must fail clearly when absent; do not hide missing config with
+  defaults or skipped tests.
+- Comment non-obvious intent, constraints, and behavior, including public
+  contracts and port calls when their purpose needs explanation.
 
-This file is agent-specific guidance.
-Project overview and documentation navigation are canonical in `README.md`.
-Detailed public-alpha status lives in `docs/project/01-public-alpha-scope.md`.
+## Backend changes
 
-## Read Order
+Apply SOLID and Ports & Adapters consistently to keep business behavior
+independent of transport and storage. Preserve domain/use-case ownership and
+dependency direction as the implementation evolves:
 
-Before making substantial changes, read these orientation docs:
+- Keep responsibilities focused, interfaces narrow, and implementations faithful
+  to their contracts. Extend behavior through the owning abstractions while
+  keeping business rules in their domain.
+- Use cases own business orchestration and depend on domain models and injected
+  outbound ports. Their input/output contracts must not expose HTTP, SQL-row,
+  SDK, or driver types.
+- Inbound adapters map transport input to use-case input, call the use case, and
+  map its output to a response. They must not call concrete DB/RPC adapters.
+  Keep route registration focused on paths/methods and handler registration.
+- Outbound adapters implement core ports and own persistence, RPC, and SDK
+  translation. Keep transaction requirements in use-case port contracts.
+- Construct and wire concrete adapters and use cases in the composition root.
+  Inject only collaborators each consumer needs; keep the business flow linear
+  and readable, with helpers for distinct actions.
+- Prefer use-case-local outbound ports and adapter-local inbound contracts.
+  Share contracts when reuse is established; export only what consumers need.
+- Choose classes, functions, and file organization to fit the behavior and
+  surrounding code while preserving these boundaries. Add an abstraction only
+  for a concrete responsibility or variation.
 
-1. `README.md`
-2. `docs/project/01-public-alpha-scope.md`
-3. `docs/development/01-local-development.md`
-4. the relevant component docs from the README `Documentation Map`
+## UI changes
 
-For implementation details, use:
+- Verify the affected journey from entry through action, result, and recovery.
+  Review the whole affected rendered surface in reading order, including all
+  materially different states at a representative viewport. Automated checks
+  alone do not replace rendered inspection. For screenshot reproduction, read
+  the image's actual dimensions.
+- Use product/task language. Show recognizable names before qualified technical
+  IDs. Keep quantities explicit about units and scope, and ratios about their
+  denominator; distinguish limits per NFT, offer, transaction, or cumulative.
+- Keep expected errors brief and actionable, with the exact recovery action.
+  Leave transport/internal detail in logs and do not present an unknown failure
+  as a known cause.
+- Keep setup, prompts, active states, validation, and errors consistent across
+  Admin and Userland. Security-sensitive review must show the canonical identity
+  and limits that enforcement receives.
+- Default forms, tables, and configuration to compact, fit-to-content widths,
+  centered horizontally, with controls in compact left-aligned groups. Use
+  full-width layouts or far-right controls only when requested.
+- Reuse existing control families for established interactions. For authorized
+  new interactions, choose appropriate controls within the existing visual
+  system and interaction conventions.
+- Use the UI chrome colors owned by `frontend/src/app.css`: `--c-bg`,
+  `--c-cyan`, `--c-blue`, `--c-pink`, `--c-sand`, `--c-ice`, `--c-yellow`,
+  and `--c-orange`. Do not add raw colors or feature-local palettes. Normal links
+  are cyan, hover/focus yellow, and selected/active states orange.
+- Keep labels and controls compact; avoid redundant explanatory copy. Do not
+  expose placeholder or unimplemented capabilities.
 
-- `docs/indexer/00-overview.md` through `docs/indexer/17-bootstrap-concurrency-audit.md`
-- `docs/progress/indexer/15-unified-backlog.md`
+## Verification and handoff
 
-## Agent-Only Rules
-
-- Investigation/report prompts are not implementation requests. When the user
-  provides symptoms, logs, screenshots, queue output, or asks "any idea what's
-  going on?", "investigate", "analyze", or "report", do not change code, create
-  worktrees, commit, run fix-oriented commands, or otherwise execute a remedy
-  unless the user explicitly asks for implementation. In those turns, provide
-  diagnosis, evidence, risks, and proposed next steps only; if intent is
-  ambiguous, ask before acting.
-- Worktree/branch/commit preferences in an investigation prompt are constraints
-  for future implementation, not authorization to start implementation by
-  themselves.
-- Do not duplicate project status text from `README.md` into this file.
-- Do not introduce user-specific absolute filesystem paths in docs or code comments.
-  Prefer workspace-relative paths or environment variables.
-- Apply instructions through first-principles engineering judgment. When a
-  literal reading of any instruction conflicts with SOLID, separation of
-  concerns, dependency direction, domain ownership, semantic correctness, or the
-  existing architecture, do not follow it blindly; state the conflict and
-  preserve the stronger engineering principle.
-- Always plan and implement new code using Hexagonal Architecture (Ports & Adapters).
-- Keep top-level runtime flows linear and readable; separate business actions into named helpers.
-- Avoid mixing unrelated concerns in one block; use clear naming and spacing.
-- Follow SOLID principles at component and function level.
-- Follow KISS/DRY at component and function level.
-- Do not add ad-hoc implementations for concerns already isolated behind a dedicated component, module, helper, or service.
-  Extend the existing abstraction instead of duplicating its business logic in a feature-specific file.
-- Tests must fail fast on missing config (no silent skips).
-- Treat config as required where applicable; avoid implicit defaults for critical runtime/test inputs.
-- Centralize env loading in typed config modules; avoid scattered `process.env` reads.
-- Do not duplicate shared constants (pagination limits, statuses, defaults, etc.) across files.
-  Define once in the owning module/config/domain contract and import everywhere; no repeated magic numbers/strings.
-  This applies to all code and tests, including frontend code: import shared/core or feature-owned constants for known modes, query params, statuses, actions, metric names, log fields, and keys instead of repeating string literals in Svelte/TS files or tests.
-  Generic frontend/backend/core modules must not import collection-extension-specific constants or extension literals.
-  Do not promote collection-extension literals into shared/core constants to satisfy generic code; extend the generic extension contract and pass extension-provided data instead.
-  Collection-specific constants and business rules belong only in extension-local modules; generic components should consume extension-provided data through generic contracts.
-- Leave short one-line comments on important actions and non-obvious logic, especially immediately before adapter/port calls and data-fetching steps.
-  State plainly what is happening and why the call or step exists.
-- Prefer cursor/streamed iteration for large datasets instead of large in-memory preallocation.
-- Any large in-memory allocation must be explicitly justified by business need or performance evidence.
-- For frontend layout, default forms, tables, and configuration surfaces to compact, fit-to-content widths and center them horizontally.
-  Do not stretch UI elements to `100%` width unless the user explicitly asks for a full-width layout.
-- For frontend controls, do not push buttons, tabs, or action groups to the far-right edge by spanning the whole page width.
-  Keep controls in compact left-aligned groups unless the user explicitly asks for right-edge placement.
-- For frontend controls, reuse existing visual/control families when the interaction already exists elsewhere in the app.
-  Do not introduce near-duplicate button/tab styles or alternate active-state behavior without explicit user approval.
-- For frontend product language, styling, and interaction behavior, follow
-  `docs/ui/00-user-perspective-and-language.md` and
-  `docs/ui/01-interaction-guidelines.md` before adding or changing UI.
-  Treat `frontend/src/app.css` as the UI color source of truth: `--c-bg`, `--c-cyan`, `--c-blue`, `--c-pink`, `--c-sand`, `--c-ice`, `--c-yellow`, and `--c-orange` are the only UI chrome colors.
-  Do not add raw hex/rgb/hsl/named color literals, one-off color variables, or feature-local palettes for UI chrome. Normal links are cyan, hover/focus is yellow, and selected/active states are orange.
-- Do not add redundant UI explanatory text, helper copy, or placeholder descriptions unless the user explicitly asks for it.
-  Prefer compact labels and controls over instructional prose.
-
-## Domain Modeling
-
-- Treat business rules as domain behavior, not stringly-typed application logic spread across consumers.
-- Keep raw persistence/serialization literals private to the relevant domain module whenever possible.
-  Callers should not branch on hard-coded strings, status values, kind values, or internal flags that belong to one domain model.
-- Expose explicit domain contracts for business decisions.
-  Prefer methods and named helpers such as `isX()`, `canY()`, `matchesZ()`, `resolveScope()`, or other intention-revealing APIs instead of leaking internal rule details into callers.
-- Distinguish clearly between serialized/storage shapes and domain/business objects.
-  Serialized shapes exist for adapter boundaries; domain objects exist to protect invariants and expose behavior.
-- When a domain concept has declared state and downstream/materialized state, model both explicitly instead of implicitly collapsing them into one table or one flag.
-- If multiple consumers need the same rule, move that rule into the domain type instead of duplicating conditionals across workers, use cases, adapters, or tests.
-- Keep validation and invariant enforcement close to the domain constructor/factory so invalid raw data is normalized or rejected before wider use.
-- Use collection token scope as the reference example for this rule:
-  raw values like `contract_all_tokens` should stay internal to the collection domain module, while callers should use explicit APIs such as scope predicates, token membership checks, and range intersection helpers.
-- Leave short one-line comments on important literals, exported/public functions, and domain boundary helpers, especially inside `indexer/src/domain/*` and other core runtime packages.
-- Add a short purpose comment for exported literals, types, and functions that wire separate components, modules, or concerns together.
-- Keep comments simple and plain; explain the purpose, not the whole design.
-
-## Backend Hexagonal Guide
-
-These rules are mandatory for backend planning and code generation.
-
-### 1) Core model and ports
-
-- Use cases are the application core.
-- Use cases are concrete classes (not factory-returned closures by default).
-- Each use case class defines:
-    - exported input/output shapes (core boundary contract)
-    - constructor-injected outbound ports it drives
-    - explicit public methods that implement business behavior
-- Port signatures must use use-case-local/core types.
-- Do not expose framework/transport/driver types in use-case APIs.
-
-### 2) Port ownership and placement
-
-- Outbound ports should be local to each use case module (constructor types/aliases/interfaces).
-- Do not centralize outbound ports in a common `ports/*` folder unless clear cross-use-case reuse is proven.
-- Inbound adapters (HTTP) define their own driven-port contracts locally per adapter.
-- Inbound adapter driven ports should be embedded directly in adapter constructor signatures unless reuse justifies extraction.
-- Adapters implement translation/transport concerns; they do not define core business behavior.
-
-### 3) Dependency direction (strict)
-
-- Inbound adapters (HTTP) depend only on use-case public methods and exported input/output contracts.
-- Use cases depend only on domain + outbound port interfaces.
-- Outbound adapters depend on infra/SDK/DB details and implement outbound ports.
-- Adapters must not call adapters directly (e.g. HTTP -> DB adapter is forbidden).
-
-### 4) Import matrix (enforced)
-
-- `application/*` -> may import `domain/*` + outbound port interfaces; must not import `http/*` or concrete adapters.
-- `http/*` -> may import use-case classes + exported input/output contracts + `http/common/*`; must not import concrete DB/RPC adapters.
-- Outbound adapters -> may import infra libs + outbound port interfaces.
-- Composition root -> may import everything needed for wiring.
-
-### 5) Composition root
-
-- Keep composition centralized (backend startup/wiring path).
-- Wire in order:
-    1. create outbound adapters
-    2. instantiate use-case classes with outbound ports
-    3. inject use-case instances into inbound adapters explicitly one by one
-    4. register inbound routes
-- Only composition root knows concrete adapter implementations.
-- Do not introduce dependency container objects (e.g. `*Dependencies`, `ApiRouteDependencies`) when explicit parameters are sufficient.
-
-### 6) Adapter boundaries
-
-- Routes: path/method registration only.
-- HTTP adapters: map transport DTOs -> use-case input, call use-case method, map output -> transport response.
-- HTTP common: parsing, validation helpers, headers, error mapping.
-- Business orchestration belongs in use cases, not route/handler registration.
-
-### 7) DTO and model boundaries
-
-- Protocol DTOs (query/path/body/reply) are adapter-local.
-- Use-case input/output models remain transport-agnostic.
-- Avoid leaking SQL rows, SDK payloads, or framework request/response objects across boundaries.
-
-### 8) Transaction and consistency boundaries
-
-- If a use case needs atomicity/transaction scope, define it via an outbound port contract.
-- Do not place transaction orchestration in HTTP handlers.
-
-### 9) Structure and scaling
-
-- Organize by subject/use case.
-- Preferred backend structure:
-    - `application/use-cases/<subject>/*`
-    - `http/handlers/<subject>/*`
-    - `http-routes.ts` (single HTTP route registration module near `http-app.ts`)
-    - `http/common/*`
-- Keep one file per use case and one handler per route/use-case entry where practical.
-
-### 10) Extension workflow
-
-- For new behavior:
-    1. define/adjust use-case input/output and method
-    2. define/adjust local outbound ports in that use case
-    3. implement/update outbound adapters
-    4. wire use-case class instance in composition root
-    5. expose via inbound adapter mapping
-    6. add/adjust tests
-
-### 11) Testing strategy
-
-- Use-case tests: unit tests with mocked outbound ports; no Fastify/HTTP dependency.
-- HTTP adapter tests: request/response mapping and error-shape checks via `app.inject()`.
-- Integration tests: wire real adapters only when validating full vertical behavior.
-
-### 12) Anti-patterns (forbidden)
-
-- Inbound handlers importing concrete DB/RPC adapters.
-- Use-case signatures leaking framework/transport/driver types.
-- Shared “god” dependency objects passed to modules that do not need most fields.
-- Business logic hidden in route registration files.
-- Duplicated adapter-specific parsing/constants across handlers.
-
-### 13) Concrete conventions
-
-- Prefer concrete classes for use cases and HTTP adapters.
-- Prefer positional constructor/factory arguments over `*Dependencies` object wrappers unless there is a strong reason otherwise.
-- Do not introduce grouped adapter containers/builders that instantiate multiple adapters at once; compose adapters one by one explicitly in the composition path.
-- Do not introduce grouped route-registration modules per subject when a single `http-routes.ts` can register routes explicitly.
-- Export by default only core use-case input/output shapes and class.
-- Keep other helper types local unless cross-module reuse is real.
-- Use small explicit mapping functions/methods at adapter boundaries (`transport -> core -> transport`), even when currently identity.
-
-## Architecture Constraints
-
-- No centralized ArtGod servers.
-- Backend/workers/database run locally on the user's machine.
-- Network communication should be peer-to-peer and/or public blockchain/marketplace APIs.
-- Preserve offline-capable behavior where feasible.
-
-## Skills
-
-A skill is a set of local instructions in a `SKILL.md` file.
-
-### Available skills
-
-- `skill-creator`: Guide for creating/updating skills.
-  File: `$CODEX_HOME/skills/.system/skill-creator/SKILL.md`
-- `skill-installer`: Install curated or repo-based skills.
-  File: `$CODEX_HOME/skills/.system/skill-installer/SKILL.md`
-
-### Skill usage
-
-- Trigger: Use a skill when user names it or task clearly matches it.
-- Loading: Open only what is needed from the skill docs/references.
-- Missing skill: State briefly and continue with best fallback.
-- Keep context lean: avoid bulk-loading unrelated skill references.
+- Choose checks for the changed behavior and its risks; complete required
+  repository checks. Add tests when they verify meaningful behavior or
+  invariants, rather than mirroring implementation or wording.
+- Select backend test coverage for the behavior and boundary being changed.
+  Examples include isolated domain/use-case tests with test doubles, HTTP
+  mapping/error checks through `app.inject()`, and integration tests with real
+  adapters.
+- Once affected checks and required gates pass, broaden or repeat verification
+  only for new changes, failures, or unresolved concerns. Authorization for local
+  checks does not extend to unrequested changes to live or shared data.
+- Report the result, relevant verification, and remaining gaps concisely.
+  Distinguish confirmed evidence from inference and unverified behavior.
