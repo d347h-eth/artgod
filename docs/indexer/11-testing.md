@@ -65,7 +65,9 @@ yarn workspace @artgod/indexer test
 For the complete indexer suite except the externally configured smoke test, provide an isolated database path explicitly:
 
 ```sh
-ARTGOD_DB_PATH=/tmp/artgod-indexer-tests.sqlite yarn workspace @artgod/indexer test --exclude tests/smoke.test.ts
+mkdir -p tmp
+indexer_test_dir="$(mktemp -d "$PWD/tmp/indexer-tests.XXXXXX")"
+ARTGOD_DB_PATH="$indexer_test_dir/indexer.sqlite" yarn workspace @artgod/indexer test --exclude tests/smoke.test.ts
 ```
 
 ## Test Environment

@@ -252,8 +252,10 @@ Logical execution job size must remain separate from the RPC adapter's internal
 `LOG_CHUNK_SIZE`, so large jobs can reduce broker fan-out while each provider
 request stays within its limits. The scheduling surface should show the
 estimated job count and require explicit confirmation above a configured
-threshold. Post-anchor current-state application remains ordered even if
-facts-only historical work later gains safe parallelism.
+threshold. The design must preserve current-state projection order across
+post-anchor ranges, including retries. The current process-local backfill gate
+serializes arrivals but does not establish a durable block-order barrier; see
+[bootstrap execution](17-bootstrap-execution-and-concurrency.md#10-short-backfill).
 
 Before implementation, decide which runtime owns the feeder, whether the first
 model supports both chain-wide and collection-scoped runs, the default admitted

@@ -20,6 +20,11 @@ decision input from display projections.
 - Canonical indexer `orders` is a passive display fallback only. It never feeds
   placement or competitiveness.
 
+Here, authoritative identifies the decision input chosen by the runtime, not a
+guarantee that an API response is complete or immediately current. Snapshot
+freshness is bounded by policy, and repeated-cursor handling can accept an
+incomplete result as described below.
+
 The [bidding lifecycle diagram](../diagrams/10-bidding-command-and-offer-lifecycle.md)
 shows where declared state, authoritative market reads, side effects, and
 display state meet.
@@ -31,7 +36,7 @@ until the cursor ends or a cursor repeats. It retains all returned offer kinds
 that later parsing can classify or preserve: collection, trait/criteria, exact
 token, token set, and unknown.
 
-Every fetch records:
+Completed fetches record metrics, and the snapshot service logs a summary:
 
 - duration, page count, offer count, and final cursor;
 - first, last, minimum, and maximum parseable prices;

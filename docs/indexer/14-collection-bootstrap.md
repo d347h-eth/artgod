@@ -259,9 +259,9 @@ This is tracked separately via:
 - `opensea_status`
 - `opensea_ready_at`
 - snapshot/reconcile timestamps
-- stream subscription-poll and event timestamps; the field named
-  `opensea_stream_last_healthy_at` is updated during subscription refresh, not
-  by an explicit SDK connection heartbeat
+- stream subscription-poll and event timestamps; `opensea_last_stream_healthy_at`
+  is updated during subscription refresh and on received events, not by an
+  explicit SDK connection heartbeat
 
 ## OpenSea Reconcile Behavior
 
@@ -411,8 +411,11 @@ collection liveness, and the actions valid for its current state.
   seeded. A process exit in that gap can leave a terminal enumeration step with
   an empty or partial metadata task set; the restart path does not currently
   prove that seeding reached the enumerated total.
-- Ownership tasks are durable and retryable but processed serially. Parallel
-  `ownerOf` calls require per-task leases and fenced settlement first.
+- Ownership tasks are durable and retryable but processed serially. A bounded
+  pool inside the owning step and independent task workers are different
+  scaling choices; either must preserve exclusive task ownership and finalize
+  the snapshot only after every required ownership task succeeds. See
+  [execution and concurrency](17-bootstrap-execution-and-concurrency.md#9-ownership-snapshot).
 - OpenSea bootstrap is one collection snapshot at a time. Collection-level
   concurrency needs fenced source-state reconciliation and shared API limits.
 - Successful operational tasks and ownership snapshots are cleaned only after

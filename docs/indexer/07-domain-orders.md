@@ -226,7 +226,9 @@ WETH transfer/approval logs can trigger maker updates, but to avoid queue spam t
 - `domain.orders.sync` is still a placeholder.
 - Validation semantics are intentionally split between source visibility and protocol executability.
 - Local time is still used for active/expired checks.
-- Raw audit payloads are intentionally not part of runtime decision-making outside the trading bid-book display exception.
+- Raw audit payloads are not runtime input. The backend's indexed-orders
+  bid-book fallback uses normalized order columns and canonical source-schema
+  JSON, not the optional raw debug payload.
 - Partial fill quantity progression is not modeled; fills can make an order
   terminal, but the order row does not expose a remaining-quantity state machine.
 - Ingest fails closed on local criteria linkage: empty membership is

@@ -50,7 +50,9 @@ sequenceDiagram
         else No marketplace change
             Bot->>DB: Persist verified command completion
         end
-    else Pause, archive, or cancel-active-offer
+    else Pause or archive command
+        Bot->>Bot: Remove job from live scheduling
+    else Separate cancel-active-offer command
         Bot->>SDK: Discover and cancel tracked active order
         SDK->>Signer: Request exact cancellation signature
         Signer->>Signer: Enforce tracked protocol and order identity
@@ -82,6 +84,9 @@ sequenceDiagram
 Offchain cancellation intentionally remains available when placement authority
 is absent so paused or archived jobs can recover tracked offers. Stopping the
 bot does not itself cancel existing OpenSea orders or revoke WETH allowance.
+Pause/archive and cancellation are separate durable commands; cancellation
+can retry after the job has already left live scheduling. A cancellation
+command with no tracked active order completes without a marketplace call.
 
 See [bidding runtime and jobs](../trading/01-bidding-runtime-and-jobs.md) and
 [automation capabilities](../trading/02-bidding-automation-capabilities.md).

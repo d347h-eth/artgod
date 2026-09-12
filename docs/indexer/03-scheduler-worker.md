@@ -67,7 +67,8 @@ Operators can schedule a range through either current inbound adapter:
 - Admin calls `POST /api/{chain_ref}/blockspace/backfill`;
 - `indexer/scripts/trigger-backfill.ts` provides the CLI path.
 
-The backend use case and CLI each build explicit `manual_historical` jobs for
+The backend use case validates and splits the requested range; its outbound
+queue adapter and the CLI build explicit `manual_historical` jobs for
 `events-sync-backfill`. Their payload selects
 `skip_global_maker_revalidation`, preserving historical facts and token-scoped
 effects without treating old WETH/counter events as current maker state.

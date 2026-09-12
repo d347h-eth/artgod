@@ -5,9 +5,9 @@ single layer replaces the others.
 
 ## Static and Unit Tests
 
-Svelte/TypeScript checks catch component contracts, helper behavior, request
-mapping, state transitions, and accessibility regressions without launching a
-browser.
+Svelte/TypeScript checks cover component/type contracts and static accessibility
+diagnostics. Unit tests exercise helper behavior, request mapping, and state
+transitions without launching a browser; neither proves rendered accessibility.
 
 ```sh
 yarn workspace @artgod/frontend check
@@ -117,7 +117,9 @@ screenshot text.
 
 ## Current Limits
 
-- Playwright covers web and WebView behavior, not native secret-prompt rendering.
+- These Playwright configurations run browser-rendered components, including
+  components shared with the Admin WebView. They do not launch the packaged
+  Tauri WebView or verify native secret-prompt rendering.
 - Attached tests prove a thin integration path, not exhaustive correctness over
   live marketplace or chain state.
 - Marketplace placement, WETH approval, cancellation, and bot reconciliation

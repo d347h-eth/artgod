@@ -88,13 +88,17 @@ probes inspect contracts or OpenSea, and runtime health checks SQLite and NATS.
 The backend may compose or cache reads, but it does not replay chain history in
 an HTTP request.
 
-Mutations follow one of three patterns:
+Mutation workflows include:
 
 - a use case performs a local transactional state change through an application
   repository port;
-- a use case persists intent and emits a durable NATS command signal;
-- a use case validates input, creates a durable run, and lets an indexer runtime
-  claim the work.
+- a use case persists command intent in SQLite and publishes a NATS wake-up;
+  the trading recovery scan handles a missed wake-up;
+- a use case validates input, creates a durable bootstrap run, and lets an
+  indexer runtime claim the work;
+- manual historical backfill validates/splits a range and publishes its chunks
+  directly, without a durable parent run. Its partial-publication and recovery
+  limits are documented in [sync](../indexer/04-sync-pipeline.md#large-manual-backfills).
 
 HTTP handlers do not open transactions or call concrete repositories directly.
 Cross-row atomicity belongs behind the use case's outbound port.

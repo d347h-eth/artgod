@@ -1,11 +1,13 @@
 # Bootstrap Execution and Concurrency
 
 This document explains how durable collection-bootstrap steps execute, where
-concurrency exists, and which persistence boundary must be added before a serial
-lane can safely scale. Concurrency is a correctness property here, not only a
-throughput setting.
+concurrency exists, and which ownership and ordering guarantees a change must
+preserve. Bounded concurrency within one step is distinct from distributing
+that step's tasks across independently claiming workers.
 
 Values below are the manifest/generated defaults used by typed config loaders when no runtime override is present. Local desktop settings can render different env overrides at launch time.
+Pool widths apply to one claimed step's batch, not to aggregate work across
+runs, scheduler entry points, or processes.
 
 ## Owning Source
 
@@ -47,8 +49,10 @@ The bootstrap worker also runs two durable step scheduler lanes:
 - main lane: anchor, enumeration, metadata, ownership, backfill, collection live, collection-extension artifact step coordination, and OpenSea step coordination
 - image-cache lane: image-cache step only
 
-Each lane has a poller that prevents overlapping polls inside the same process.
-The scheduler collects due run ids, then the orchestrator claims ready steps
+Each lane's poller prevents overlap between its own timer callbacks. Queue
+handlers can enter the same lane independently, so there is no process-wide
+one-call-at-a-time lane lock. Each scheduler invocation visits due run ids
+serially, then the orchestrator claims ready steps
 using persisted step leases. `BOOTSTRAP_STEP_CLAIM_LIMIT` is currently `1`, so
 a lane claims at most one step per run iteration. Step leases are renewed while
 the processor runs, and lease release is fenced by owner. Generic progress and
@@ -84,26 +88,29 @@ Scaling boundary:
 
 ### 2. Pick Anchor Block
 
-Current concurrency setting: effectively 1.
+Current concurrency setting: serial per scheduler invocation, not a global lane cap.
 
 Typed runtime config: no.
 
 Current model:
 
 - The bootstrap worker consumes the `collection-bootstrap` queue with `maxInFlight: 1`.
-- The main scheduler lane claims one ready step at a time.
+- Each main-scheduler invocation claims at most one ready step per run
+  iteration; timer and queue-triggered invocations can overlap.
 - Anchor work reads current head, subtracts reorg depth, persists the anchor block/hash/timestamp, and marks the step terminal.
 - Embedded extension installation runs immediately after successful anchoring when the run requested an embedded extension.
 
 Scaling boundary:
 
-- Across different runs, this could be parallelized by introducing a main-lane concurrency setting and allowing the scheduler to process multiple run ids concurrently.
-- The clean design requires preserving per-run step leases and ensuring the processor receives isolated run state. The existing step lease model is close, but the runtime would need an explicit lane-concurrency contract rather than ad hoc parallel `runOnce` calls.
+- Deliberate multi-run scaling needs a bounded lane-concurrency policy covering
+  both timer and queue entry points. Keep run state isolated and preserve
+  per-step ownership, including stale-owner fencing, rather than assuming
+  `maxInFlight: 1` also serializes the poller.
 - No per-token or batch taskization is useful for anchoring itself.
 
 ### 3. Auto-Install Embedded Collection Extension
 
-Current concurrency setting: effectively 1, coupled to anchor.
+Current concurrency setting: coupled to each claimed anchor step.
 
 Typed runtime config: no.
 
@@ -117,11 +124,13 @@ Current model:
 Scaling boundary:
 
 - Keep this coupled to the anchored step. It is a small idempotent DB action and is semantically part of starting the run against a concrete collection id.
-- If main-lane concurrency is added later, the install remains safe as a per-run/per-collection upsert behind the anchor step lease.
+- Repeating the same install is an idempotent upsert. Multi-run execution must
+  also prevent a stale processor from replacing a newer collection install;
+  the presence of a step lease alone does not prove that fence.
 
 ### 4. Token Enumeration
 
-Current concurrency setting: 1.
+Current concurrency setting: serial within one claimed enumeration step.
 
 Typed runtime config: no.
 
@@ -190,9 +199,15 @@ Current model:
 
 Scaling boundary:
 
-- The current local concurrency model is coherent because only one leased metadata step selects tasks for a run at a time.
-- To support multiple metadata workers or higher process-level concurrency cleanly, metadata tasks should get the same claim/lease/fenced-settlement model as collection-extension artifact tasks.
-- Without task leases, raising queue-level concurrency for metadata would risk duplicate reads of the same due tasks. Current local `mapWithConcurrency` avoids that by keeping selection inside one step processor.
+- The local pool selects one due batch inside the owning metadata step. The
+  step lease is intended to exclude another processor for that run; it does not
+  fence every write after lease expiry (see `BKL-063`).
+- Processing different runs concurrently can retain step-level ownership.
+  Splitting one run's due tasks across independent workers needs exclusive
+  task claims and fenced writes/settlement, or an equivalent ownership design.
+- More queue consumers are not a substitute for that design: local
+  `mapWithConcurrency` bounds one processor's batch, not overlapping processors
+  after a lost lease.
 
 ### 7. Token Image Cache Side Lane
 
@@ -212,9 +227,12 @@ Current model:
 
 Scaling boundary:
 
-- The current local concurrency model is coherent for one process/lane.
-- Clean multi-worker image-cache concurrency would require per-task leases and fenced success/retry settlement. The storage shape is close but does not currently claim individual image-cache tasks before external fetch/resize work.
-- A dedicated image-cache task lifecycle module, shaped like collection-extension artifact lifecycle, would be the clean path if this lane needs process-level scaling.
+- The local pool is coordinated by the image-cache step lease, with the same
+  stale-step-owner limitation as metadata.
+- Tasks are not individually claimed before external fetch/resize work. To
+  distribute one run's tasks, introduce exclusive task ownership and fenced
+  success/retry writes; collection-extension task lifecycle is one existing
+  model to evaluate. Different runs need not share a task pool.
 
 ### 8. Collection-Extension Artifacts
 
@@ -250,7 +268,7 @@ Scaling boundary:
 
 ### 9. Ownership Snapshot
 
-Current concurrency setting: 1.
+Current concurrency setting: serial within one claimed ownership step.
 
 Typed runtime config: no. `BOOTSTRAP_SNAPSHOT_BATCH_SIZE=200` is only a batch size.
 
@@ -266,14 +284,18 @@ Current model:
 
 Scaling boundary:
 
-- The right upgrade is not a quick local `mapWithConcurrency` alone. Ownership is correctness-critical and should use durable per-task claim/lease/fenced settlement before external `ownerOf` calls run concurrently.
-- A clean implementation would add:
-    - ownership task lease fields,
-    - `claimOwnershipTask`, `renewOwnershipTaskLease`, and fenced success/retry ports,
-    - an application lifecycle handler analogous to collection-extension artifact lifecycle,
-    - `BOOTSTRAP_OWNERSHIP_CONCURRENCY` in the settings manifest and typed config,
-    - tests for stale lease owners, retry scheduling, terminal failure, snapshot finalization after all task terminality, and resume after crash.
-- Snapshot finalization should remain a single transaction after all ownership tasks are terminal. Parallel `ownerOf` calls must not imply parallel finalization.
+- A bounded in-step pool could parallelize independent `ownerOf` reads from one
+  selected batch, as metadata already does. It would still rely on step-level
+  ownership, need a typed concurrency setting, and need tests for retries,
+  pause/resume, stale processors, and crash recovery. Per-task leases are not
+  an inherent requirement of local parallel reads.
+- Distributing one run's ownership tasks across independent workers is a
+  separate design: add exclusive task claims, lease renewal, and fenced
+  snapshot/task writes and settlement, or an equivalent ownership mechanism.
+- Snapshot finalization must remain a single transaction after all required
+  ownership tasks **succeed**, not merely become terminal. A terminal failure
+  still blocks liveness. Neither scaling approach may finalize a partial
+  snapshot or allow a stale step owner to overwrite newer state.
 
 ### 10. Short Backfill
 
@@ -287,12 +309,20 @@ Current model:
 - Range size is `BACKFILL_BATCH_SIZE=10`.
 - Jobs go to the shared `events-sync-backfill` queue.
 - The sync worker subscribes with `maxInFlight` equal to `BACKFILL_WORKER_COUNT`.
-- `BackfillExecutionGate` allows fully pre-anchor facts-only ranges to run in parallel, but serializes ranges that may touch current-state projections.
-- Bootstrap catchup is intentionally post-anchor and uses current-state order maintenance, so it is effectively serialized by default and should remain ordered.
+- `BackfillExecutionGate` allows fully pre-anchor facts-only ranges to run in
+  parallel and serializes current-state-capable ranges within one sync-worker
+  process, in the order they enter that gate.
+- Bootstrap catchup is post-anchor and uses current-state order maintenance.
+  The gate does not sort by block number, coordinate other worker processes,
+  or prevent an earlier retried range from arriving after a later range.
+  Serialization is not proof of chronological apply order.
 
 Scaling boundary:
 
-- Raising `BACKFILL_WORKER_COUNT` is safe for pre-anchor facts-only historical imports, but it does not automatically make bootstrap catchup parallel because current-state ranges are serialized by design.
+- Raising `BACKFILL_WORKER_COUNT` allows overlapping pre-anchor facts-only
+  imports within the process. It does not parallelize that process's
+  current-state gate or establish cross-process ordering. Check resource
+  pressure and retry/idempotency behavior for the intended workload.
 - Clean current-state backfill parallelism needs a fetch/apply split:
     - fetch logs/blocks in parallel for ranges,
     - persist raw/fact data idempotently,
@@ -303,7 +333,7 @@ Scaling boundary:
 
 ### 11. Collection Live
 
-Current concurrency setting: effectively 1.
+Current concurrency setting: serial per scheduler invocation, not a global lane cap.
 
 Typed runtime config: no.
 
@@ -319,7 +349,9 @@ Current model:
 Scaling boundary:
 
 - No dedicated concurrency is needed. This is a small finalization step.
-- If main-lane concurrency is added later, collection-live remains protected by its step lease and collection/run state checks.
+- Collection-live uses its step lease and collection/run checks, with the
+  stale-owner write limitation described below. Do not treat this as a complete
+  finalization fence when changing concurrency.
 - If this multi-call finalization is hardened later, the important boundary is
   one transaction after backfill coverage, not higher throughput.
 
@@ -371,7 +403,9 @@ Current model:
 Scaling boundary:
 
 - If stats recompute becomes expensive, add per-collection stats leases or versioned recompute rows before raising worker concurrency.
-- Recomputes for different collections can be parallel only when each job owns a distinct collection and final writes are fenced by collection/reason/run version.
+- Independent collections can have separate recompute ownership. Overlapping
+  recomputes for the same collection need serialization or a currentness fence
+  so an older calculation cannot replace newer statistics.
 
 ## Current Concurrency Model
 
@@ -381,21 +415,21 @@ The pipeline already has three different concurrency tiers:
 2. Local bounded worker pools for metadata and image cache task batches.
 3. Durable per-task leases for collection-extension artifacts.
 
-That split is coherent as long as process-level concurrency is enabled only
-where duplicate work has an explicit persistence boundary. Collection-extension
-artifact task claims and settlement are leased, but their data writes precede
-the settlement fence. Metadata and image cache are clean local pools but should
-not be scaled by adding more queue consumers until they get task leases.
-Ownership is serial because it is correctness-critical and currently lacks task
-leases.
+Collection-extension artifact task claims and settlement are leased, but their
+data writes precede the settlement fence. Metadata and image cache use local
+pools under a step lease; ownership currently uses a serial loop under that
+same kind of lease. These are implemented mechanisms, not proof that stale
+processors or arbitrary additional workers are safe.
 
-The strongest next concurrency improvement would be ownership task leases plus a typed `BOOTSTRAP_OWNERSHIP_CONCURRENCY` setting. The strongest large-scale enumeration improvement would be persisted enumeration page tasks rather than a larger in-memory `tokenByIndex` loop.
+Choose the next optimization from measurements. A bounded ownership pool can
+reduce serial RPC latency; persisted enumeration pages can improve restart
+behavior and memory use. Neither requires treating independently distributed
+task workers as the only acceptable design.
 
 ## Current Limits and Future Direction
 
-- Ownership is the clearest throughput limit. It needs per-task claims, lease
-  renewal, fenced settlement, and a typed concurrency setting before parallel
-  `ownerOf` calls are safe.
+- Ownership reads are serial. Measure their share of bootstrap time before
+  choosing a bounded in-step pool or independently leased task workers.
 - Enumerable discovery is one long-running step. Persisted enumeration page
   tasks would improve crash recovery and avoid retaining the full token list in
   memory before metadata seeding.
@@ -406,9 +440,9 @@ The strongest next concurrency improvement would be ownership task leases plus a
   terminal-settlement writes are not. A processor that outlives its lease can
   still update the step row, so those writes need the active lease owner or an
   equivalent generation fence.
-- Metadata and image caching are bounded local pools, not multi-process task
-  pools. Additional queue consumers would duplicate selection unless those task
-  tables gain claim/lease semantics.
+- Metadata and image caching are bounded local pools, not independently claimed
+  task pools. Scaling must preserve per-run step ownership or introduce
+  exclusive ownership of individual tasks, including stale-owner fencing.
 - The active-run partial unique index does not include `image_cache`; the
   application-level check covers the normal path, but the database invariant
   should be extended to cover every active run status.
@@ -418,8 +452,9 @@ The strongest next concurrency improvement would be ownership task leases plus a
 - Collection-extension task settlement is fenced, but artifact and trait writes
   occur first. Multi-process scaling needs idempotency/currentness proof or a
   fenced write boundary.
-- Current-state catch-up remains ordered. Parallel fetch is possible only if a
-  later ordered per-collection apply barrier preserves projection semantics.
+- Current-state catch-up is serialized within one process, not ordered by a
+  durable block-range barrier. Retry and multi-process ordering remain concerns;
+  parallel fetch/apply work must preserve projection currentness explicitly.
 
 The [unified backlog](../planning/01-unified-backlog.md) owns priority for these
 directions; this document owns the invariants any implementation must preserve.

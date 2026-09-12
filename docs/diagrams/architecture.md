@@ -109,9 +109,13 @@ flowchart LR
 - JetStream carries scheduler wake-ups and bounded work such as realtime sync,
   backfill, metadata refresh, metadata statistics, activity upsert, OpenSea raw
   observations, and dead-letter handling.
-- OpenSea stream events and Ethereum WebSocket heads are hints. Canonical chain
-  reads, reconciliation, snapshots, and durable cursors recover missed or
-  duplicate delivery.
+- Ethereum WebSocket heads trigger chain reads; persisted sync progress and
+  subsequent RPC reads let the scheduler catch up after missed heads.
+- The indexer's OpenSea stream feeds order and activity observations. REST
+  reconciliation repairs the current orderbook view, not a complete history of
+  every stream event missed while offline.
+- In the bidding bot, OpenSea stream events are wake-up hints; REST/SDK reads
+  and collection snapshots supply the decision input.
 
 Follow the [backend architecture](../backend/01-api-and-application-architecture.md),
 [indexer overview](../indexer/00-overview.md), and

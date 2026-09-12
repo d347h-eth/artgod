@@ -161,5 +161,6 @@ group to the top of the feed.
   scheduled collection owner-count projection.
 - Activity projection is intentionally facts-first. Search-specific external
   indexing or analytics fan-out is not part of the local public-alpha runtime.
-- Presentation collapsing belongs to read models and must never rewrite or
-  erase the underlying activity rows.
+- Read-time presentation collapsing must not rewrite or erase activity rows.
+  This is separate from the projector's documented in-place updates to open
+  listing/bid rows.

@@ -1846,7 +1846,7 @@ components:
             required: true
             schema:
                 type: string
-            description: Chain reference (slug or public chain id string)
+            description: Chain slug or EVM network chain ID as a decimal string, not the database-local ChainRecord.id.
         CollectionRef:
             name: collection_ref
             in: path
@@ -2076,6 +2076,13 @@ components:
                         message: Internal server error
 
     schemas:
+        # OpenAPI 3.0 nullable does not widen an allOf reference or its enum.
+        # See https://spec.openapis.org/oas/v3.0.3.html#schema-object
+        NullValue:
+            type: string
+            nullable: true
+            enum: [null]
+
         ErrorResponse:
             type: object
             required: [error, message]
@@ -2101,10 +2108,12 @@ components:
             properties:
                 id:
                     type: integer
+                    description: Database-local chains catalog row key; not an EVM network ID or chain_ref.
                 type:
                     type: string
                 publicChainId:
                     type: integer
+                    description: EVM network ID used as chainId in operational API and queue contracts and chain_id in storage.
                 slug:
                     type: string
                 name:
@@ -2208,17 +2217,17 @@ components:
                     type: string
                     nullable: true
                 openseaStatus:
-                    allOf:
+                    anyOf:
                         - $ref: "#/components/schemas/OpenSeaCollectionStatus"
-                    nullable: true
+                        - $ref: "#/components/schemas/NullValue"
                 openseaReadyAt:
                     type: string
                     format: date-time
                     nullable: true
                 openseaStreamIngestionStatus:
-                    allOf:
+                    anyOf:
                         - $ref: "#/components/schemas/OpenSeaStreamIngestionStatus"
-                    nullable: true
+                        - $ref: "#/components/schemas/NullValue"
                 deploymentBlock:
                     type: integer
                     nullable: true
@@ -2318,9 +2327,9 @@ components:
                             type: string
                             nullable: true
                         openseaStatus:
-                            allOf:
+                            anyOf:
                                 - $ref: "#/components/schemas/OpenSeaCollectionStatus"
-                            nullable: true
+                                - $ref: "#/components/schemas/NullValue"
                         openseaLastError:
                             type: string
                             nullable: true
@@ -2451,9 +2460,9 @@ components:
                     additionalProperties: false
                     properties:
                         status:
-                            allOf:
+                            anyOf:
                                 - $ref: "#/components/schemas/CollectionStatus"
-                            nullable: true
+                                - $ref: "#/components/schemas/NullValue"
                 page:
                     $ref: "#/components/schemas/CursorPageCollection"
 
@@ -3123,7 +3132,7 @@ components:
                     nullable: true
                 bidPosition:
                     type: string
-                    enum: [winning, draw, losing]
+                    enum: [winning, draw, losing, null]
                     nullable: true
                 bidConstraints:
                     type: array
@@ -3232,9 +3241,9 @@ components:
                         deltaEth:
                             type: string
                         pricingSource:
-                            allOf:
+                            anyOf:
                                 - $ref: "#/components/schemas/BiddingJobPricingSource"
-                            nullable: true
+                                - $ref: "#/components/schemas/NullValue"
                 runtime:
                     $ref: "#/components/schemas/BiddingJobRuntimeState"
 
@@ -3356,7 +3365,7 @@ components:
                           nullable: true
                       ownershipFilter:
                           type: string
-                          enum: [own]
+                          enum: [own, null]
                           nullable: true
 
         LookupBatchTokenBiddingJobsRequest:
@@ -3462,9 +3471,9 @@ components:
                 collection:
                     $ref: "#/components/schemas/CollectionListItem"
                 job:
-                    allOf:
+                    anyOf:
                         - $ref: "#/components/schemas/BiddingJob"
-                    nullable: true
+                        - $ref: "#/components/schemas/NullValue"
 
         BiddingBidBookSource:
             type: string
@@ -3778,9 +3787,9 @@ components:
                 price:
                     $ref: "#/components/schemas/BiddingBidBookPrice"
                 bidLimits:
-                    allOf:
+                    anyOf:
                         - $ref: "#/components/schemas/BiddingBidBookBidLimits"
-                    nullable: true
+                        - $ref: "#/components/schemas/NullValue"
                 quantity:
                     type: string
                 currencyAddress:
@@ -4156,9 +4165,9 @@ components:
                 deltaEth:
                     type: string
                 pricingSource:
-                    allOf:
+                    anyOf:
                         - $ref: "#/components/schemas/BiddingJobPricingSource"
-                    nullable: true
+                        - $ref: "#/components/schemas/NullValue"
 
         BiddingPriceTierReapplyJobPreview:
             type: object
@@ -4365,9 +4374,9 @@ components:
                 tokenId:
                     type: string
                 job:
-                    allOf:
+                    anyOf:
                         - $ref: "#/components/schemas/BiddingJob"
-                    nullable: true
+                        - $ref: "#/components/schemas/NullValue"
 
         TokenBiddingJobMutationResponse:
             type: object
@@ -4432,9 +4441,9 @@ components:
                 userConfig:
                     $ref: "#/components/schemas/TraitFilterPresentationConfig"
                 extensionConfig:
-                    allOf:
+                    anyOf:
                         - $ref: "#/components/schemas/TraitFilterPresentationConfig"
-                    nullable: true
+                        - $ref: "#/components/schemas/NullValue"
                 effectiveConfig:
                     $ref: "#/components/schemas/TraitFilterPresentationConfig"
                 availableTraitKeys:
@@ -4462,9 +4471,9 @@ components:
                 userConfig:
                     $ref: "#/components/schemas/TraitSummaryTemplateConfig"
                 extensionConfig:
-                    allOf:
+                    anyOf:
                         - $ref: "#/components/schemas/TraitSummaryTemplateConfig"
-                    nullable: true
+                        - $ref: "#/components/schemas/NullValue"
                 effectiveConfig:
                     $ref: "#/components/schemas/TraitSummaryTemplateConfig"
 
@@ -4509,9 +4518,9 @@ components:
                 userConfig:
                     $ref: "#/components/schemas/MediaPurposePolicyConfig"
                 extensionConfig:
-                    allOf:
+                    anyOf:
                         - $ref: "#/components/schemas/MediaPurposePolicyConfig"
-                    nullable: true
+                        - $ref: "#/components/schemas/NullValue"
                 effectiveConfig:
                     $ref: "#/components/schemas/MediaPurposePolicyConfig"
 
@@ -4526,9 +4535,9 @@ components:
                 userConfig:
                     $ref: "#/components/schemas/ImageCachePolicyConfig"
                 extensionConfig:
-                    allOf:
+                    anyOf:
                         - $ref: "#/components/schemas/ImageCachePolicyConfig"
-                    nullable: true
+                        - $ref: "#/components/schemas/NullValue"
                 effectiveConfig:
                     $ref: "#/components/schemas/ImageCachePolicyConfig"
 
@@ -4656,9 +4665,9 @@ components:
                     items:
                         $ref: "#/components/schemas/CollectionMediaMode"
                 preference:
-                    nullable: true
-                    allOf:
+                    anyOf:
                         - $ref: "#/components/schemas/CollectionMediaPreference"
+                        - $ref: "#/components/schemas/NullValue"
 
         TokenMediaState:
             type: object
@@ -4683,9 +4692,9 @@ components:
                     items:
                         $ref: "#/components/schemas/CollectionMediaMode"
                 preference:
-                    nullable: true
-                    allOf:
+                    anyOf:
                         - $ref: "#/components/schemas/CollectionMediaPreference"
+                        - $ref: "#/components/schemas/NullValue"
                 selectedVariant:
                     type: string
                     nullable: true
@@ -4899,7 +4908,7 @@ components:
                     nullable: true
                 side:
                     type: string
-                    enum: [buy, sell]
+                    enum: [buy, sell, null]
                     nullable: true
                 amount:
                     type: string
@@ -5252,7 +5261,7 @@ components:
                     nullable: true
                 source:
                     type: string
-                    enum: [token_uri, owner_of]
+                    enum: [token_uri, owner_of, null]
                     nullable: true
                 error:
                     type: string
@@ -5294,6 +5303,7 @@ components:
                             token_by_index,
                             candidate_token_uri,
                             candidate_owner_of,
+                            null,
                         ]
                     nullable: true
                 tokenUri:
@@ -5323,7 +5333,7 @@ components:
                     minimum: 0
                 imageBytesSource:
                     type: string
-                    enum: [content_length, download, data_uri]
+                    enum: [content_length, download, data_uri, null]
                     nullable: true
                 imageContentType:
                     type: string
@@ -5487,9 +5497,9 @@ components:
                     type: string
                     enum: [erc721]
                 proxy:
-                    allOf:
+                    anyOf:
                         - $ref: "#/components/schemas/BootstrapProbeContractProxy"
-                    nullable: true
+                        - $ref: "#/components/schemas/NullValue"
                 contractName:
                     type: string
                     nullable: true
@@ -5803,9 +5813,9 @@ components:
                     additionalProperties: false
                     properties:
                         status:
-                            allOf:
+                            anyOf:
                                 - $ref: "#/components/schemas/BootstrapRunStatus"
-                            nullable: true
+                                - $ref: "#/components/schemas/NullValue"
                 page:
                     type: object
                     required: [items, nextCursor, limit]
@@ -5937,9 +5947,9 @@ components:
                 collection:
                     $ref: "#/components/schemas/BootstrapStatusCollection"
                 latestRun:
-                    allOf:
+                    anyOf:
                         - $ref: "#/components/schemas/BootstrapRunRow"
-                    nullable: true
+                        - $ref: "#/components/schemas/NullValue"
                 metadataTasks:
                     $ref: "#/components/schemas/BootstrapRunTaskCounts"
 

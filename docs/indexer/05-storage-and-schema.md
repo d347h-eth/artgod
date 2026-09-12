@@ -60,6 +60,12 @@ operational tables, and queue payloads carry the EVM network ID as
 operational value, not separate public and internal chain IDs. There is no
 current `chainPk` runtime contract.
 
+Do not pass `ChainRecord.id` into a `chainId` query or job: the catalog row key
+can differ from `ChainRecord.publicChainId`. The seeded Ethereum row can make
+the two numbers happen to coincide, but that is not an identity contract.
+Multi-chain ingress/routing and possible non-EVM identity remain a deferred
+design decision (`BKL-025`), not an implemented internal-key migration.
+
 ### `blocks`
 
 ```sql
