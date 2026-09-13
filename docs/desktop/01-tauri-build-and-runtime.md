@@ -662,6 +662,12 @@ Supervisor startup order:
    required that stream to exist and be writable
 8. only after semantic readiness succeeds, supervisor sets runtime status to `running`
 
+Jobs-stream recovery recognizes JetStream's specific insufficient-resource
+errors from failed publishes. A bare `503` can mean no matching responder, so
+it fails maintenance without purging queued jobs. Probe deletion failures also
+fail maintenance without purging. If client or manager initialization fails,
+the maintenance connection is closed so the process can exit unsuccessfully.
+
 Wallet-bound bot runtimes are not part of the startup order above.
 They stay independently managed and start only after explicit admin action,
 dependency stabilization, native policy review/unlock, and one exact framed

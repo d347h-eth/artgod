@@ -1,14 +1,12 @@
 const NANOSECONDS_PER_SECOND = 1_000_000_000;
 const SECONDS_PER_HOUR = 60 * 60;
 
-// Jobs are disposable transport state and must not remain queued beyond one day.
+// Pending jobs expire after one day; expired manual backfills can be republished.
 export const NATS_JOB_STREAM_MAX_AGE_HOURS = 24;
 
 // JetStream expresses stream age limits in nanoseconds.
 export const NATS_JOB_STREAM_MAX_AGE_NANOS =
-    NATS_JOB_STREAM_MAX_AGE_HOURS *
-    SECONDS_PER_HOUR *
-    NANOSECONDS_PER_SECOND;
+    NATS_JOB_STREAM_MAX_AGE_HOURS * SECONDS_PER_HOUR * NANOSECONDS_PER_SECOND;
 
 const NATS_JOB_STREAM_NAME_SUFFIX = "jobs";
 const NATS_JOB_SUBJECT_TOKEN = "jobs";

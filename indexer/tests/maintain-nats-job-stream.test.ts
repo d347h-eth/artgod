@@ -130,21 +130,38 @@ describe("MaintainNatsJobStream", () => {
         expect(administration.purgeCalls).toBe(1);
     });
 
-    it("does not mutate the stream after a non-storage probe failure", async () => {
+    it.each(["permission denied", "503"])(
+        "does not mutate the stream after a non-storage probe failure: %s",
+        async (error) => {
+            const administration = new FakeAdministration(
+                [snapshot()],
+                [
+                    {
+                        writable: false,
+                        resourceLimited: false,
+                        error,
+                    },
+                ],
+            );
+            const { useCase } = fixture(administration);
+
+            await expect(useCase.execute()).rejects.toThrow(error);
+            expect(administration.reconciledMaxAges).toEqual([]);
+            expect(administration.purgeCalls).toBe(0);
+        },
+    );
+
+    it("does not purge after an unrelated post-policy probe failure", async () => {
         const administration = new FakeAdministration(
-            [snapshot()],
+            [snapshot(), snapshot()],
             [
-                {
-                    writable: false,
-                    resourceLimited: false,
-                    error: "permission denied",
-                },
+                WRITABLE_PROBE,
+                { writable: false, resourceLimited: false, error: "503" },
             ],
         );
         const { useCase } = fixture(administration);
 
-        await expect(useCase.execute()).rejects.toThrow("permission denied");
-        expect(administration.reconciledMaxAges).toEqual([]);
+        await expect(useCase.execute()).rejects.toThrow("503");
         expect(administration.purgeCalls).toBe(0);
     });
 });
@@ -227,8 +244,7 @@ function snapshot(
     return {
         stream: {
             name: "artgod-jobs",
-            maxAgeNanos:
-                overrides.maxAgeNanos ?? NATS_JOB_STREAM_MAX_AGE_NANOS,
+            maxAgeNanos: overrides.maxAgeNanos ?? NATS_JOB_STREAM_MAX_AGE_NANOS,
             messages: overrides.messages ?? 10,
             bytes: overrides.storageBytes ?? 100,
             firstSequence: 1,

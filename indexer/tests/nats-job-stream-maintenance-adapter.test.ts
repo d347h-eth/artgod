@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { connect, type NatsConnection } from "nats";
 import {
     NATS_JOB_STREAM_MAX_AGE_NANOS,
     resolveNatsJobStreamMaintenanceProbeSubject,
@@ -7,18 +8,125 @@ import {
 import { NatsJobStreamMaintenanceAdapter } from "../src/infra/queue/nats-job-stream-maintenance.js";
 
 const TEST_STREAM_PREFIX = "test";
+const TEST_NATS_URL = "nats://127.0.0.1:42720";
+
+vi.mock("nats", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("nats")>()),
+    connect: vi.fn(),
+}));
+
+// These fixtures assert JetStream's wire error codes independently of the adapter.
+const RESOURCE_API_ERRORS = [
+    { code: 503, err_code: 10023, description: "insufficient resources" },
+    {
+        code: 500,
+        err_code: 10047,
+        description: "insufficient storage resources available",
+    },
+];
+
+beforeEach(() => {
+    vi.mocked(connect).mockReset();
+});
 
 describe("NatsJobStreamMaintenanceAdapter", () => {
-    it("classifies the observed JetStream 503 as a storage recovery signal", async () => {
-        const adapter = adapterWithProbe(
-            Object.assign(new Error("resource limit"), { code: "503" }),
-        );
+    it.each(RESOURCE_API_ERRORS)(
+        "recognizes the explicit resource error $err_code",
+        async (apiError) => {
+            const error = resourceError(apiError);
+            const adapter = adapterWithProbe(error);
 
+            await expect(adapter.probeWritable()).resolves.toEqual({
+                writable: false,
+                resourceLimited: true,
+                error: error.message,
+            });
+        },
+    );
+
+    it("does not classify a bare 503 as a resource limit", async () => {
+        const adapter = adapterWithProbe(
+            Object.assign(new Error("503"), { code: "503" }),
+        );
         await expect(adapter.probeWritable()).resolves.toEqual({
             writable: false,
-            resourceLimited: true,
-            error: "resource limit",
+            resourceLimited: false,
+            error: "503",
         });
+    });
+
+    it("does not classify a service-unavailable API error as a resource limit", async () => {
+        const adapter = adapterWithProbe(
+            Object.assign(new Error("503"), {
+                code: "503",
+                api_error: {
+                    code: 503,
+                    err_code: 10008,
+                    description: "JetStream system temporarily unavailable",
+                },
+            }),
+        );
+
+        expect(await adapter.probeWritable()).toMatchObject({
+            writable: false,
+            resourceLimited: false,
+        });
+    });
+
+    it("does not authorize resource recovery when only probe deletion fails", async () => {
+        const error = resourceError(RESOURCE_API_ERRORS[0]);
+        const adapter = adapterWithProbe(error);
+        const sequence = 7;
+        const deleteMessage = vi.fn().mockRejectedValue(error);
+        Object.assign(adapter, {
+            jetStream: {
+                publish: vi.fn().mockResolvedValue({ seq: sequence }),
+            },
+            manager: { streams: { deleteMessage } },
+        });
+
+        expect(await adapter.probeWritable()).toMatchObject({
+            writable: false,
+            resourceLimited: false,
+        });
+        expect(deleteMessage).toHaveBeenCalledWith(
+            resolveNatsJobStreamName(TEST_STREAM_PREFIX),
+            sequence,
+            false,
+        );
+    });
+
+    it("closes the connection when manager initialization fails", async () => {
+        const connection = connectionFixture();
+        const error = new Error("JetStream is unavailable");
+        connection.jetstreamManager.mockRejectedValue(error);
+
+        await expect(
+            NatsJobStreamMaintenanceAdapter.connect({
+                natsUrl: TEST_NATS_URL,
+                streamPrefix: TEST_STREAM_PREFIX,
+            }),
+        ).rejects.toBe(error);
+
+        expect(connection.close).toHaveBeenCalledOnce();
+    });
+
+    it("closes the connection when client initialization throws", async () => {
+        const connection = connectionFixture();
+        const error = new Error("Invalid JetStream client configuration");
+        connection.jetstream.mockImplementation(() => {
+            throw error;
+        });
+
+        await expect(
+            NatsJobStreamMaintenanceAdapter.connect({
+                natsUrl: TEST_NATS_URL,
+                streamPrefix: TEST_STREAM_PREFIX,
+            }),
+        ).rejects.toBe(error);
+
+        expect(connection.close).toHaveBeenCalledOnce();
+        expect(connection.jetstreamManager).not.toHaveBeenCalled();
     });
 
     it("accepts a timed-out update when the installed policy was applied", async () => {
@@ -57,6 +165,25 @@ describe("NatsJobStreamMaintenanceAdapter", () => {
         ).rejects.toBe(timeout);
     });
 });
+
+function connectionFixture() {
+    const connection = {
+        jetstream: vi.fn().mockReturnValue({}),
+        jetstreamManager: vi.fn().mockResolvedValue({}),
+        close: vi.fn().mockResolvedValue(undefined),
+    };
+    vi.mocked(connect).mockResolvedValue(
+        connection as unknown as NatsConnection,
+    );
+    return connection;
+}
+
+function resourceError(apiError: (typeof RESOURCE_API_ERRORS)[number]) {
+    return Object.assign(new Error(String(apiError.code)), {
+        code: String(apiError.code),
+        api_error: apiError,
+    });
+}
 
 function adapterWithManager(input: {
     info: ReturnType<typeof vi.fn>;

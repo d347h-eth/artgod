@@ -78,6 +78,13 @@ Behavior:
 - Existing streams are reconciled to the same 24-hour policy before normal
   desktop queue producers start.
 
+The age limit applies to unfinished jobs too. Manual backfills older than
+24 hours may expire; operators can republish those ranges when still needed.
+
+Desktop startup recovery requires an explicit JetStream resource-limit error
+from a failed publish before purging the jobs stream. A generic `503`, an
+unrelated API error, or a probe-cleanup failure does not permit a purge.
+
 Publishing:
 
 - Each job is published to a subject derived from the queue name.

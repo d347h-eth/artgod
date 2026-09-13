@@ -62,7 +62,9 @@ export class NatsTokenImageCacheCommandQueue {
             await ensureNatsJobStream(jsm, this.streamPrefix);
             const subject = `${this.subjectPrefix}.${TOKEN_IMAGE_CACHE_QUEUE_NAME}`;
             const codec =
-                JSONCodec<JobEnvelope<TokenImageCacheRefreshCollectionPayload>>();
+                JSONCodec<
+                    JobEnvelope<TokenImageCacheRefreshCollectionPayload>
+                >();
             const envelope: JobEnvelope<TokenImageCacheRefreshCollectionPayload> =
                 {
                     jobId,

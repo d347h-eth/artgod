@@ -7,6 +7,7 @@ import {
     type JetStreamClient,
     type JetStreamManager,
     type NatsConnection,
+    type PubAck,
     type StreamInfo,
 } from "nats";
 import {
@@ -22,7 +23,11 @@ import type {
 // Allows a large existing stream enough time to apply a lower MaxAge policy.
 const NATS_JOB_STREAM_ADMIN_REQUEST_TIMEOUT_MS = 30 * 60 * 1_000;
 const NATS_JOB_STREAM_WRITE_PROBE_TIMEOUT_MS = 5_000;
-const NATS_RESOURCE_LIMIT_STATUS_CODE = "503";
+// JetStream's resource errors are distinct from the shared 503 no-responder status.
+const NATS_RESOURCE_LIMIT_API_ERROR_CODE = {
+    InsufficientResources: 10023,
+    StorageResourcesExceeded: 10047,
+} as const;
 const NATS_REQUEST_TIMEOUT_CODE = "TIMEOUT";
 const NATS_JOB_STREAM_MAINTENANCE_PROBE_MESSAGE_ID_SCOPE =
     "artgod-job-stream-maintenance-probe";
@@ -49,18 +54,24 @@ export class NatsJobStreamMaintenanceAdapter {
         streamPrefix: string;
     }): Promise<NatsJobStreamMaintenanceAdapter> {
         const connection = await connect({ servers: input.natsUrl });
-        const jetStream = connection.jetstream({
-            timeout: NATS_JOB_STREAM_ADMIN_REQUEST_TIMEOUT_MS,
-        });
-        const manager = await connection.jetstreamManager({
-            timeout: NATS_JOB_STREAM_ADMIN_REQUEST_TIMEOUT_MS,
-        });
-        return new NatsJobStreamMaintenanceAdapter(
-            connection,
-            jetStream,
-            manager,
-            input.streamPrefix,
-        );
+        try {
+            const jetStream = connection.jetstream({
+                timeout: NATS_JOB_STREAM_ADMIN_REQUEST_TIMEOUT_MS,
+            });
+            const manager = await connection.jetstreamManager({
+                timeout: NATS_JOB_STREAM_ADMIN_REQUEST_TIMEOUT_MS,
+            });
+            return new NatsJobStreamMaintenanceAdapter(
+                connection,
+                jetStream,
+                manager,
+                input.streamPrefix,
+            );
+        } catch (error) {
+            // No adapter owns this connection yet; release it so startup can exit.
+            await connection.close();
+            throw error;
+        }
     }
 
     async inspect(): Promise<NatsJobStreamSnapshot> {
@@ -125,9 +136,10 @@ export class NatsJobStreamMaintenanceAdapter {
 
     async probeWritable(): Promise<NatsJobStreamWriteProbe> {
         const messageId = `${NATS_JOB_STREAM_MAINTENANCE_PROBE_MESSAGE_ID_SCOPE}:${randomUUID()}`;
+        let acknowledgement: PubAck;
         try {
-            // Publish and immediately delete one isolated message to prove write health.
-            const acknowledgement = await this.jetStream.publish(
+            // Only a rejected publish can establish the need for resource recovery.
+            acknowledgement = await this.jetStream.publish(
                 this.probeSubject,
                 new Uint8Array(),
                 {
@@ -136,6 +148,16 @@ export class NatsJobStreamMaintenanceAdapter {
                     timeout: NATS_JOB_STREAM_WRITE_PROBE_TIMEOUT_MS,
                 },
             );
+        } catch (error) {
+            return {
+                writable: false,
+                resourceLimited: isJetStreamResourceLimitError(error),
+                error: formatError(error),
+            };
+        }
+
+        try {
+            // Remove the successful probe without treating cleanup errors as write failures.
             const deleted = await this.manager.streams.deleteMessage(
                 this.streamName,
                 acknowledgement.seq,
@@ -150,13 +172,9 @@ export class NatsJobStreamMaintenanceAdapter {
             }
             return { writable: true, resourceLimited: false, error: null };
         } catch (error) {
-            const resourceLimitStatus =
-                String(readErrorCode(error)) ===
-                NATS_RESOURCE_LIMIT_STATUS_CODE;
             return {
                 writable: false,
-                // Server-global file limits return 503 but are not exposed as account max_storage.
-                resourceLimited: resourceLimitStatus,
+                resourceLimited: false,
                 error: formatError(error),
             };
         }
@@ -212,6 +230,18 @@ function mapConsumerSnapshot(consumer: ConsumerInfo) {
         ackPending: consumer.num_ack_pending,
         redelivered: consumer.num_redelivered,
     };
+}
+
+function isJetStreamResourceLimitError(error: unknown): boolean {
+    const apiErrorCode = (
+        error as { api_error?: { err_code?: number } } | null | undefined
+    )?.api_error?.err_code;
+    return (
+        apiErrorCode ===
+            NATS_RESOURCE_LIMIT_API_ERROR_CODE.InsufficientResources ||
+        apiErrorCode ===
+            NATS_RESOURCE_LIMIT_API_ERROR_CODE.StorageResourcesExceeded
+    );
 }
 
 function isStreamNotFound(error: unknown): boolean {
