@@ -293,8 +293,10 @@ const LISTED_THEN_UNLISTED_ORDER_BY_DESC_SQL = `${LISTED_THEN_UNLISTED_BLOCK_SQL
 const ATTRIBUTE_VALUE_NORMALIZED_NUMERIC_SQL =
     "CASE WHEN LTRIM(a.value, '0') = '' THEN '0' ELSE LTRIM(a.value, '0') END";
 // Reconciliation is the recurring snapshot heartbeat; the initial snapshot is its fallback.
+// SQLite completion timestamps are UTC; include the zone so clients never parse them as local time.
 const COLLECTION_OPENSEA_SNAPSHOT_REFRESHED_AT_SQL =
-    "COALESCE(opensea_reconcile_completed_at, opensea_snapshot_completed_at) AS opensea_snapshot_refreshed_at";
+    "strftime('%Y-%m-%dT%H:%M:%SZ', " +
+    "COALESCE(opensea_reconcile_completed_at, opensea_snapshot_completed_at)) AS opensea_snapshot_refreshed_at";
 const COLLECTION_SELECT_COLUMNS =
     "chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, " +
     "opensea_slug, opensea_status, opensea_ready_at, opensea_stream_ingestion_status, " +

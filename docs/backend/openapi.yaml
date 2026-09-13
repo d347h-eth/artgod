@@ -2277,7 +2277,7 @@ components:
                     type: string
                     format: date-time
                     nullable: true
-                    description: Last successful OpenSea reconciliation completion, falling back to the initial snapshot completion when no reconciliation has completed.
+                    description: Last successful OpenSea reconciliation completion in UTC, falling back to the initial snapshot completion when no reconciliation has completed.
                 openseaStreamIngestionStatus:
                     anyOf:
                         - $ref: "#/components/schemas/OpenSeaStreamIngestionStatus"

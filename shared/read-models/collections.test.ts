@@ -102,7 +102,7 @@ describe("SqliteCollectionsReadModel observability", () => {
         ]);
     });
 
-    it("uses reconciliation completion as the collection OpenSea snapshot heartbeat", () => {
+    it("returns UTC completion times without advancing for an unfinished reconciliation", () => {
         const initialSnapshotAt = "2026-07-12 00:50:00";
         const reconciliationAt = "2026-07-12 00:55:00";
         db.prepare(
@@ -116,25 +116,33 @@ describe("SqliteCollectionsReadModel observability", () => {
             "0x8888888888888888888888888888888888888888",
             COLLECTION_STANDARD.Erc721,
             COLLECTION_STATUS.Live,
-            initialSnapshotAt,
+            null,
             initialSnapshotAt,
             initialSnapshotAt,
         );
 
         const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
-        expect(
+        const readSnapshotTime = () =>
             readModel.listCollections({ chainId: 1, limit: 10 }).items[0]
-                ?.openseaSnapshotRefreshedAt,
-        ).toBe(initialSnapshotAt);
+                ?.openseaSnapshotRefreshedAt;
+        expect(readSnapshotTime()).toBeNull();
+
+        db.prepare(
+            "UPDATE collections SET opensea_snapshot_completed_at = ? WHERE chain_id = ? AND collection_id = ?",
+        ).run(initialSnapshotAt, 1, 8);
+        expect(readSnapshotTime()).toBe("2026-07-12T00:50:00Z");
 
         db.prepare(
             "UPDATE collections SET opensea_reconcile_completed_at = ? WHERE chain_id = ? AND collection_id = ?",
         ).run(reconciliationAt, 1, 8);
 
-        expect(
-            readModel.listCollections({ chainId: 1, limit: 10 }).items[0]
-                ?.openseaSnapshotRefreshedAt,
-        ).toBe(reconciliationAt);
+        expect(readSnapshotTime()).toBe("2026-07-12T00:55:00Z");
+
+        // Starting a later attempt must not replace the last successful completion.
+        db.prepare(
+            "UPDATE collections SET opensea_reconcile_started_at = ? WHERE chain_id = ? AND collection_id = ?",
+        ).run("2026-07-12 01:10:00", 1, 8);
+        expect(readSnapshotTime()).toBe("2026-07-12T00:55:00Z");
     });
 
     it("does not run a previous-page token query on first page", () => {
@@ -1057,6 +1065,7 @@ function createSchema(): void {
             opensea_status TEXT,
             opensea_ready_at TEXT,
             opensea_snapshot_completed_at TEXT,
+            opensea_reconcile_started_at TEXT,
             opensea_reconcile_completed_at TEXT,
             opensea_stream_ingestion_status TEXT NOT NULL DEFAULT '${OPENSEA_STREAM_INGESTION_STATUS.Enabled}',
             created_at TEXT NOT NULL,

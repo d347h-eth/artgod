@@ -440,7 +440,11 @@ test.describe('bootstrap run detail UI', () => {
 });
 
 test.describe('collection OpenSea sync UI', () => {
+	// Render the UTC API wire format in a non-UTC browser timezone.
+	test.use({ timezoneId: 'Europe/Berlin' });
+
 	test('shows and toggles the latest OpenSea snapshot time', async ({ page }, testInfo) => {
+		await page.clock.setFixedTime(new Date('2026-07-24T12:39:56Z'));
 		await page.goto(COLLECTION_OPENSEA_SYNC_E2E_ROUTE_PATH);
 
 		await expect(page.getByRole('columnheader', { name: 'OpenSea snapshot' })).toBeVisible();
@@ -448,7 +452,12 @@ test.describe('collection OpenSea sync UI', () => {
 			name: `toggle ${COLLECTION_OPENSEA_SNAPSHOT_E2E_COLLECTION.slug} OpenSea snapshot time mode`
 		});
 		await expect(snapshotTime).toBeVisible();
+		await expect(snapshotTime).toHaveText('5m');
 		await expect(snapshotTime).toHaveAttribute('title', COLLECTION_OPENSEA_SNAPSHOT_E2E_TIMESTAMP);
+		await page.screenshot({
+			path: testInfo.outputPath('collections-opensea-snapshot-relative.png'),
+			fullPage: true
+		});
 		await snapshotTime.click();
 		await expect(snapshotTime).toHaveText(COLLECTION_OPENSEA_SNAPSHOT_E2E_TIMESTAMP);
 
@@ -458,6 +467,8 @@ test.describe('collection OpenSea sync UI', () => {
 			path: screenshotPath,
 			contentType: 'image/png'
 		});
+		await snapshotTime.click();
+		await expect(snapshotTime).toHaveText('5m');
 	});
 
 	test('explains when OpenSea setup status is not available yet', async ({ page }) => {
