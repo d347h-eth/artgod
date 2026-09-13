@@ -3,27 +3,12 @@ import type { OpenSeaCollectionIdentityLookupPort } from "../../application/open
 
 // Adapts shared OpenSea REST lookups to the backend collection identity boundary.
 export class OpenSeaCollectionSlugProbeAdapter implements OpenSeaCollectionIdentityLookupPort {
-    constructor(private readonly contractLookup: OpenSeaContractLookupPort) {}
-
-    async resolveCollectionSlugByContract(input: {
-        address: string;
-    }): Promise<string | null> {
-        const collection =
-            await this.contractLookup.resolveCollectionByContract({
-                address: input.address,
-            });
-        return collection?.slug ?? null;
-    }
-
-    async resolveCollectionBySlug(input: { slug: string }): Promise<{
-        slug: string;
-        contractAddresses: readonly string[];
-    } | null> {
-        const collection = await this.contractLookup.resolveCollectionBySlug({
-            slug: input.slug,
-        });
-        return collection;
-    }
+    constructor(
+        private readonly contractLookup: Pick<
+            OpenSeaContractLookupPort,
+            "resolveCollectionByToken"
+        >,
+    ) {}
 
     async resolveCollectionSlugByToken(input: {
         address: string;

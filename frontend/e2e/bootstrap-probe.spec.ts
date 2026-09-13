@@ -1,9 +1,6 @@
-import { expect, test, type Locator, type Page, type TestInfo } from 'playwright/test';
+import { expect, test, type Locator, type Page } from 'playwright/test';
+import { OPENSEA_COLLECTION_SLUG_PROBE_ERROR } from '@artgod/shared/opensea/collection-slug-probe';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
-import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/bootstrap';
-import { OPENSEA_API_KEY_ENV } from '@artgod/shared/config/opensea-integration';
-import { TERRAFORMS_EXTENSION_KEY } from '@artgod/shared/extensions/terraforms';
-import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 import {
 	BOOTSTRAP_ENUMERATION_MODE,
 	BOOTSTRAP_STEP_ACTION,
@@ -12,7 +9,6 @@ import {
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-image-source';
 import { TOKEN_METADATA_ANIMATION_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-animation-source';
 import { TEST_IDS } from '../src/lib/test-ids';
-import { DEFAULT_BOOTSTRAP_METADATA_MODE } from '../src/lib/bootstrap-metadata-mode';
 import {
 	attachDiagnosticsForTestFailure,
 	captureDiagnosticsForTest,
@@ -21,7 +17,6 @@ import {
 import {
 	BOOTSTRAP_PROBE_E2E_ROUTE_PATH,
 	BOOTSTRAP_PROBE_CONTRACTS,
-	BOOTSTRAP_PROBE_MEDIA,
 	BOOTSTRAP_PROBE_OPENSEA_SLUGS,
 	BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE,
 	installBootstrapProbeApiMock
@@ -41,11 +36,7 @@ import {
 	COLLECTION_OPENSEA_SYNC_E2E_SLUG,
 	COLLECTION_OPENSEA_SYNC_E2E_UNAVAILABLE_ROUTE_PATH
 } from '../src/lib/e2e/collection-opensea-sync-fixtures';
-import {
-	BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_ACKNOWLEDGEMENT,
-	BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING,
-	BOOTSTRAP_PROBE_STATUS_LABEL
-} from '../src/lib/bootstrap-contract-probe';
+import { BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_ACKNOWLEDGEMENT } from '../src/lib/bootstrap-contract-probe';
 
 const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
 // Confirms the late-sync slug field uses the wider shared slug-input control.
@@ -62,637 +53,228 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test.describe('bootstrap contract probe UI', () => {
-	test('keeps the contract probe locked until the safety warning is acknowledged', async ({
+	test('keeps all staged inputs visible and makes no requests while editing', async ({
 		page
-	}) => {
+	}, testInfo) => {
+		const api = await installBootstrapProbeApiMock(page);
 		await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
-
-		const addressInput = page.locator('input[name="address"]');
-		const safetyWarning = contractAddressSafetyWarning(page);
-		const acknowledgement = contractAddressSafetyAcknowledgement(page);
-		await expect(addressInput).toBeVisible();
-		await expect(addressInput).toBeDisabled();
-		await expect(safetyWarning).toBeVisible();
-		await expect(safetyWarning.locator('.warning-icon')).toBeVisible();
-		await expect(acknowledgement).not.toBeChecked();
-		await assertContractAddressSafetyWarningPlacement(addressInput, safetyWarning);
-
-		await acknowledgement.check();
-		await expect(addressInput).toBeEnabled();
-		await acknowledgement.uncheck();
-		await expect(addressInput).toBeDisabled();
-		await acknowledgement.check();
-		await expect(addressInput).toBeEnabled();
-		await expect(formLabel(page, 'Image source field')).toHaveCount(0);
-		await expect(formLabel(page, 'Collection slug')).toHaveCount(0);
-		await expect(formLabel(page, 'OpenSea slug')).toHaveCount(0);
-		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toHaveCount(0);
-		await expect(page.locator(`[data-testid="${TEST_IDS.BootstrapProbeTokenCard}"]`)).toHaveCount(
-			0
-		);
-	});
-
-	test('renders non-enumerable probe data as locked probe-derived fields', async ({
-		page
-	}, testInfo) => {
-		const api = await installBootstrapProbeApiMock(page);
-		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
-		await expect(contractAddressSafetyWarning(page)).toBeVisible();
-		await expect(contractAddressSafetyAcknowledgement(page)).toBeChecked();
-
-		const card = tokenCard(page, '1');
-		await expect(card).toBeVisible();
-		await assertTokenBrowserCardScale(card);
-		await expect(card.locator('.token-grid-meta')).toHaveCount(0);
-		await expect(card.locator('img')).toHaveAttribute(
-			'src',
-			BOOTSTRAP_PROBE_MEDIA.NonEnumerableImage
-		);
-		await expect(page.locator('input[name="slug"]')).toHaveValue(
-			BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
-		);
-		await expect(rowControl(page, 'Image source field')).toHaveValue(
-			TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image
-		);
-		await expect(formRow(page, 'Image source field')).toContainText('resolved');
-		await assertRowBefore(
-			page.locator('.bootstrap-sample-token-section'),
-			page.locator('.bootstrap-image-source-section')
-		);
-		await expect(page.locator('input[name="slug"]')).toBeEnabled();
-		await expect(page.locator('input[name="openseaSlug"]')).toHaveValue(
-			BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
-		);
-		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
-		await expect(
-			formRow(page, 'OpenSea slug').getByRole('button', { name: 'resolve' })
-		).toHaveCount(0);
-		await expect(page.getByText('Metadata size (1 token)')).toBeVisible();
-		await expect(page.getByText('Original image source size (1 token)')).toBeVisible();
-		await expect(formRow(page, 'Image cache plan')).toContainText('cache local files once');
-		await expect(formLabel(page, 'Preview token')).toHaveCount(0);
-
-		const startTokenInput = rowControl(page, 'Manual range start token ID');
-		const totalSupplyInput = rowControl(page, 'Manual range total supply');
-		await expect(startTokenInput).toHaveValue('1');
-		await expect(totalSupplyInput).toHaveValue('1000');
-		await expect(totalSupplyInput).toHaveAttribute('type', 'text');
-		await expect(startTokenInput).toBeDisabled();
-		await expect(totalSupplyInput).toBeDisabled();
-
-		await page.locator(`[data-testid="${TEST_IDS.BootstrapAllowManualEditing}"]`).check();
-		await expect(startTokenInput).toBeEnabled();
-		await expect(totalSupplyInput).toBeEnabled();
-		await expect(page.getByText('use only if you know what you are doing')).toBeVisible();
-
-		await assertEveryBootstrapRowHasInfoTooltip(page);
-		await assertTokenCardPlacement(page, testInfo);
-		await assertTooltipText(page, 'OpenSea slug', 'Required for bidding');
-		await expect(formLabel(page, 'Metadata mode')).toHaveCount(0);
-		expect(api.probeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable]);
-		expect(api.probeRequestImageSourceFields).toEqual([null]);
-		expect(api.openSeaSlugProbeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable]);
-	});
-
-	test('shows needs token start when supply is known but no sample token is confirmed', async ({
-		page
-	}) => {
-		const api = await installBootstrapProbeApiMock(page);
-		await openBootstrapProbeStatusOnly(
-			page,
-			BOOTSTRAP_PROBE_CONTRACTS.NeedsTokenStart,
-			BOOTSTRAP_PROBE_STATUS_LABEL.NeedsTokenStart
-		);
-
-		const statusRow = formRow(page, 'Contract probe status');
-		await expect(statusRow.locator('.bootstrap-probe-status-action-required')).toHaveCount(0);
-		await expect(rowControl(page, 'Image source field')).toHaveValue('');
-		await expect(formRow(page, 'Probe warnings')).toContainText(
-			'token id 0 and 1 could not be confirmed'
-		);
-		await expect(formLabel(page, 'Collection slug')).toHaveCount(0);
-		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toHaveCount(0);
-		expect(api.openSeaSlugProbeRequests).toEqual([]);
-		const sampleTokenRow = page.locator('.bootstrap-sample-token-section .bootstrap-form-row');
-		const sampleTokenInput = sampleTokenRow.locator('input[name="sampleTokenId"]');
-		await sampleTokenInput.fill('462000384');
-		await sampleTokenInput.press('Enter');
-
-		await expect(sampleTokenInput).toHaveValue('462000384');
-		await expect(sampleTokenRow).toContainText('resolved');
-		await expect(rowControl(page, 'Image source field')).toHaveValue(
-			TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image
-		);
-		await expect(rowControl(page, 'Animation source field')).toHaveValue(
-			TOKEN_METADATA_ANIMATION_SOURCE_FIELD.GeneratorUrl
-		);
-		await expect(formRow(page, 'Animation source field')).toContainText('resolved');
-		await expect(page.getByRole('button', { name: 'animation' })).toBeEnabled();
-		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeVisible();
-		expect(api.probeRequests).toEqual([
-			BOOTSTRAP_PROBE_CONTRACTS.NeedsTokenStart,
-			BOOTSTRAP_PROBE_CONTRACTS.NeedsTokenStart
-		]);
-		expect(api.probeRequestSampleTokenIds).toEqual([null, '462000384']);
-		expect(api.probeRequestAnimationSourceFields).toEqual([null, null]);
-		await expect.poll(() => api.openSeaSlugProbeRequests.length).toBe(1);
-		expect(api.openSeaSlugProbeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.NeedsTokenStart]);
-	});
-
-	test('requires manual image source overrides to probe again before showing the full form', async ({
-		page
-	}) => {
-		const api = await installBootstrapProbeApiMock(page);
-		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
-
-		const imageSourceInput = rowControl(page, 'Image source field');
-		await expect(imageSourceInput).toHaveValue(TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image);
-		await imageSourceInput.fill(TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData);
-
-		await expect(formLabel(page, 'Collection slug')).toHaveCount(0);
-		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toHaveCount(0);
-		await expect(
-			formRow(page, 'Image source field').getByRole('button', { name: 'probe again' })
-		).toBeEnabled();
-
-		await imageSourceInput.press('Enter');
-		await expect(rowControl(page, 'Image source field')).toHaveValue(
-			TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData
-		);
-		await expect(formRow(page, 'Image source field')).toContainText('resolved');
-		await expect(formLabel(page, 'Collection slug')).toBeVisible();
-		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeVisible();
-		expect(api.probeRequests).toEqual([
-			BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable,
-			BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable
-		]);
-		expect(api.probeRequestImageSourceFields).toEqual([
-			null,
-			TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData
-		]);
-	});
-
-	test('requires manual sample token overrides to probe again before showing the full form', async ({
-		page
-	}) => {
-		const api = await installBootstrapProbeApiMock(page);
-		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
-
-		const sampleTokenRow = page.locator('.bootstrap-sample-token-section .bootstrap-form-row');
-		const sampleTokenInput = sampleTokenRow.locator('input[name="sampleTokenId"]');
-		await expect(sampleTokenInput).toHaveValue('1');
-		await expect(sampleTokenRow).toContainText('resolved');
-
-		await sampleTokenInput.fill('42');
-		await expect(formLabel(page, 'Collection slug')).toHaveCount(0);
-		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toHaveCount(0);
-		await expect(sampleTokenRow.getByRole('button', { name: 'probe again' })).toBeEnabled();
-
-		await sampleTokenInput.press('Enter');
-		await expect(sampleTokenInput).toHaveValue('42');
-		await expect(sampleTokenRow).toContainText('resolved');
-		await expect(tokenCard(page, '42')).toBeVisible();
-		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeVisible();
-		expect(api.probeRequests).toEqual([
-			BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable,
-			BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable
-		]);
-		expect(api.probeRequestImageSourceFields).toEqual([
-			null,
-			TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image
-		]);
-		expect(api.probeRequestSampleTokenIds).toEqual([null, '42']);
-	});
-
-	test('disables OpenSea slug input when the API key is unavailable', async ({ page }) => {
-		const api = await installBootstrapProbeApiMock(page);
-		await page.goto(`${BOOTSTRAP_PROBE_E2E_ROUTE_PATH}?opensea=disabled`);
+		const address = page.locator('input[name="address"]');
+		await expect(address).toBeDisabled();
+		await expect(page.locator('input[name="sampleTokenId"]')).toBeVisible();
+		await expect(rowControl(page, 'Image source field')).toBeVisible();
+		await expect(rowControl(page, 'Animation source field')).toBeVisible();
+		await expect(rowControl(page, 'Manual range start token ID')).toBeVisible();
 		await contractAddressSafetyAcknowledgement(page).check();
-		await page.locator('input[name="address"]').fill(BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
-
-		const openSeaSlugInput = page.locator('input[name="openseaSlug"]');
-		await expect(openSeaSlugInput).toBeDisabled();
-		await expect(formRow(page, 'OpenSea slug')).toContainText(OPENSEA_API_KEY_ENV);
-		await expect(formRow(page, 'OpenSea slug')).toContainText('Admin UI');
-		await expect(formRow(page, 'OpenSea slug')).toContainText('Fully restart the app');
-		await assertOpenSeaDisabledNoteFitsSlugInput(page);
-		expect(api.openSeaSlugProbeRequests).toEqual([]);
-	});
-
-	test('verifies manually edited OpenSea slugs before allowing submit', async ({ page }) => {
-		const api = await installBootstrapProbeApiMock(page);
-		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
-
-		const openSeaSlugInput = rowControl(page, 'OpenSea slug');
-		const openSeaSlugSubmit = formRow(page, 'OpenSea slug').getByRole('button', {
-			name: 'resolve'
-		});
-		await expect(openSeaSlugInput).toHaveValue(BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable);
-		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
-		await openSeaSlugInput.fill('missing-opensea-slug');
-		await expect(openSeaSlugSubmit).toBeEnabled();
-		await expect(formRow(page, 'OpenSea slug')).not.toContainText('resolved');
-		expect(api.openSeaSlugVerificationRequests).toEqual([]);
-		await openSeaSlugInput.press('Enter');
-		await expect(formRow(page, 'OpenSea slug')).toContainText('incorrect');
-		await openSeaSlugInput.fill(BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable);
-		await expect(openSeaSlugSubmit).toBeEnabled();
-		await expect(formRow(page, 'OpenSea slug')).not.toContainText('incorrect');
-		await openSeaSlugSubmit.click();
-		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
-		expect(api.openSeaSlugVerificationRequests).toEqual([
-			'missing-opensea-slug',
-			BOOTSTRAP_PROBE_OPENSEA_SLUGS.NonEnumerable
-		]);
-	});
-
-	test('uses the tokenURI image for enumerable raster previews instead of animation_url', async ({
-		page
-	}) => {
-		const dynamicRequests: string[] = [];
-		page.on('request', (request) => {
-			const url = request.url();
-			if (url.startsWith('https://dynamic.example/')) {
-				dynamicRequests.push(url);
-			}
-		});
-
-		const api = await installBootstrapProbeApiMock(page);
-		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
-
-		const card = tokenCard(page, '0');
-		await expect(card).toBeVisible();
-		await expect(card.locator('img')).toHaveAttribute('src', BOOTSTRAP_PROBE_MEDIA.RasterImage);
-		await expect(page.locator('input[name="slug"]')).toHaveValue(
-			BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster
+		await address.fill(BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
+		await page
+			.locator('input[name="sampleTokenId"]')
+			.fill(BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.sampleTokenId);
+		await rowControl(page, 'Image source field').fill(TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image);
+		await rowControl(page, 'Image source field').clear();
+		await expect(page.locator('input[name="sampleTokenId"]')).toHaveValue(
+			BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.sampleTokenId
 		);
-		await expect(rowControl(page, 'Image source field')).toHaveValue(
-			TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image
-		);
-		await expect(page.locator('input[name="openseaSlug"]')).toHaveValue(
-			BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster
-		);
-		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
-		await page.locator('input[name="slug"]').fill('custom-raster-slug');
-		const openSeaSlugInput = page.locator('input[name="openseaSlug"]');
-		await openSeaSlugInput.fill(`${BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster}-draft`);
-		await expect(formRow(page, 'OpenSea slug')).not.toContainText('resolved');
-		await openSeaSlugInput.fill(BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster);
-		const resolveOpenSeaSlug = formRow(page, 'OpenSea slug').getByRole('button', {
-			name: 'resolve'
-		});
-		await expect(resolveOpenSeaSlug).toBeVisible();
-		await resolveOpenSeaSlug.click();
-		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
-		await expect(page.locator('input[name="slug"]')).toHaveValue('custom-raster-slug');
-		await expect.poll(() => api.openSeaSlugVerificationRequests.length).toBe(1);
-		expect(api.probeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster]);
-		expect(api.openSeaSlugProbeRequests).toEqual([BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster]);
-		expect(api.openSeaSlugVerificationRequests).toEqual([
-			BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster
-		]);
-		await expect(page.getByText('Manual token scope mode')).toHaveCount(0);
-		await expect(rowControl(page, 'Cached image max dimension')).toBeEnabled();
-		await expect(rowControl(page, 'Cached image max dimension')).toHaveValue(
-			String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION)
-		);
-		await expect(rowControl(page, 'Cached image max dimension')).toHaveAttribute('type', 'text');
-		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
-		await formRow(page, 'Cached image max dimension')
-			.getByRole('button', { name: 'estimate' })
-			.click();
-		await expect(formRow(page, 'Cached image max dimension')).toContainText('estimated');
-		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeEnabled();
-		const cacheCard = page.locator(`[data-testid="${TEST_IDS.BootstrapCacheTokenCard}"]`);
-		await expect(cacheCard).toBeVisible();
-		await expect(page.getByText('generated with the selected cache settings')).toBeVisible();
-		await expect(cacheCard.locator('img')).toHaveAttribute(
-			'src',
-			'data:image/webp;base64,Y2FjaGVk'
-		);
-		await expect(formRow(page, 'Original image dimensions')).toContainText('2160 x 2160px');
-		await expect(formRow(page, 'Cached image size (1 token)')).toContainText('24.0 KB');
-		await expect(formRow(page, 'Cached image dimensions')).toContainText('1080 x 1080px');
-		await expect(formRow(page, 'Est. cached images size (full collection)')).toContainText(
-			'176 MB'
-		);
-		await rowControl(page, 'Cached image max dimension').fill('720');
-		await expect(cacheCard).toHaveCount(0);
-		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
-		await expect(
-			formRow(page, 'Cached image max dimension').getByRole('button', { name: 'estimate' })
-		).toBeEnabled();
-		await rowControl(page, 'Cached image max dimension').press('Enter');
-		await expect.poll(() => api.imageCacheEstimateRequests.length).toBe(2);
-		expect(api.mutations).toEqual([]);
-		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.Off);
-		await expect(formLabel(page, 'Cached image max dimension')).toHaveCount(0);
-		await expect(page.getByText('Original image source size (1 token)')).toBeVisible();
-		await expect(formRow(page, 'Image cache plan')).toContainText('cards use image field');
-		await page.getByRole('button', { name: 'queue bootstrap' }).click();
-		await expect.poll(() => api.mutations.length).toBe(1);
-		await expect(page).toHaveURL(/\/e2e-harness\/bootstrap-runs\/1$/);
-		expect(api.mutations[0]?.body).toMatchObject({
-			slug: 'custom-raster-slug',
-			metadataMode: DEFAULT_BOOTSTRAP_METADATA_MODE,
-			imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
-			animationSourceField: TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl,
-			openseaSlug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableRaster,
-			imageCache: {
-				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
-				imageCacheMode: IMAGE_CACHE_MODE.Off,
-				maxDimension: null
-			}
-		});
-		expect(api.imageCacheEstimateRequests).toEqual([
-			expect.objectContaining({
-				sampleTokenId: '0',
-				sourceImageBytes: 98234,
-				totalSupply: '7500',
-				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
-				maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
-			}),
-			expect.objectContaining({
-				sampleTokenId: '0',
-				sourceImageBytes: 98234,
-				totalSupply: '7500',
-				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
-				maxDimension: 720
-			})
-		]);
-		expect(dynamicRequests).toEqual([]);
-	});
-
-	test('requires user-owned scope after a custom sample on an enumerable contract', async ({
-		page
-	}, testInfo) => {
-		const api = await installBootstrapProbeApiMock(page);
-		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
-
-		await expect(formRow(page, 'Contract probe status')).toContainText(
-			BOOTSTRAP_PROBE_STATUS_LABEL.Enumerable
-		);
-		await expect(rowControl(page, 'Use ERC721Enumerable token enumeration')).toBeChecked();
-
-		const sampleTokenRow = page.locator('.bootstrap-sample-token-section .bootstrap-form-row');
-		const sampleTokenInput = sampleTokenRow.locator('input[name="sampleTokenId"]');
-		await sampleTokenInput.fill(SHARED_ENUMERABLE_SAMPLE_TOKEN_ID);
-		await sampleTokenInput.press('Enter');
-
-		await expect(sampleTokenRow).toContainText('resolved');
-		const statusRow = formRow(page, 'Contract probe status');
-		await expect(statusRow).toContainText(BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope);
-		await statusRow.locator('.bootstrap-probe-status-tooltip').hover();
-		await expect(
-			statusRow.locator('.bootstrap-probe-status-tooltip .info-tooltip-popup')
-		).toContainText('shared contract');
-		await expect(formRow(page, 'ERC721Enumerable interface')).toContainText('yes');
-		await expect(rowControl(page, 'Use ERC721Enumerable token enumeration')).not.toBeChecked();
-		await expect(
-			page.locator(`[data-testid="${TEST_IDS.BootstrapAllowManualEditing}"]`)
-		).toBeChecked();
-
-		const startTokenInput = rowControl(page, 'Manual range start token ID');
-		const totalSupplyInput = rowControl(page, 'Manual range total supply');
-		await expect(startTokenInput).toHaveValue('');
-		await expect(totalSupplyInput).toHaveValue('');
-		await expect(startTokenInput).toBeEnabled();
-		await expect(totalSupplyInput).toBeEnabled();
-		await expect(formRow(page, 'Contract total supply')).toContainText('7500');
-		await expect(formRow(page, 'Est. metadata size (full collection)')).toContainText('-');
-		const manualScopeScreenshotPath = testInfo.outputPath(
-			'bootstrap-enumerable-custom-sample-manual-scope.png'
-		);
-		await page.screenshot({ path: manualScopeScreenshotPath, fullPage: true });
-		await testInfo.attach('bootstrap-enumerable-custom-sample-manual-scope.png', {
-			path: manualScopeScreenshotPath,
-			contentType: 'image/png'
-		});
-
-		const imageSourceInput = rowControl(page, 'Image source field');
-		await imageSourceInput.fill('');
-		await expect(sampleTokenRow).toBeVisible();
-		await expect(sampleTokenInput).toHaveValue(SHARED_ENUMERABLE_SAMPLE_TOKEN_ID);
-		await expect(sampleTokenRow).toContainText('resolved');
-		await expect(
-			formRow(page, 'Image source field').getByRole('button', { name: 'probe again' })
-		).toBeEnabled();
-		const clearedImageSourceScreenshotPath = testInfo.outputPath(
-			'bootstrap-enumerable-custom-sample-cleared-image-source.png'
-		);
-		await page.screenshot({ path: clearedImageSourceScreenshotPath, fullPage: true });
-		await testInfo.attach('bootstrap-enumerable-custom-sample-cleared-image-source.png', {
-			path: clearedImageSourceScreenshotPath,
-			contentType: 'image/png'
-		});
-
-		await imageSourceInput.press('Enter');
-		await expect(imageSourceInput).toHaveValue(TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image);
-		await expect(formRow(page, 'Image source field')).toContainText('resolved');
-		await expect(sampleTokenRow).toBeVisible();
-		await expect(sampleTokenInput).toHaveValue(SHARED_ENUMERABLE_SAMPLE_TOKEN_ID);
-		await expect(sampleTokenRow).toContainText('resolved');
-
-		await startTokenInput.fill(SHARED_ENUMERABLE_SAMPLE_TOKEN_ID);
-		await totalSupplyInput.fill(SHARED_ENUMERABLE_RANGE_TOTAL_SUPPLY);
-		await expect(formRow(page, 'Est. metadata size (full collection)')).toContainText('4.00 MB');
-		await expect(formRow(page, 'Est. source images size (full collection)')).toContainText(
-			'95.9 MB'
-		);
-		expect(api.probeRequestImageSourceFields).toEqual([
-			null,
-			TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
-			null
-		]);
-		expect(api.probeRequestSampleTokenIds).toEqual([
-			null,
-			SHARED_ENUMERABLE_SAMPLE_TOKEN_ID,
-			SHARED_ENUMERABLE_SAMPLE_TOKEN_ID
-		]);
-	});
-
-	test('lets optional animation source overrides resolve or be cleared', async ({ page }) => {
-		const api = await installBootstrapProbeApiMock(page);
-		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
-
-		const animationRow = formRow(page, 'Animation source field');
-		await expect(rowControl(page, 'Animation source field')).toHaveValue(
-			TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl
-		);
-		await expect(animationRow).toContainText('resolved');
-		await expect(page.getByRole('button', { name: 'animation' })).toBeEnabled();
-		await page.getByRole('button', { name: 'animation' }).click();
-		await expect(page.locator('iframe.bootstrap-animation-preview-frame')).toHaveAttribute(
-			'src',
-			BOOTSTRAP_PROBE_MEDIA.DynamicAnimationUrl
-		);
-		await page.getByRole('button', { name: 'image' }).click();
-
-		await rowControl(page, 'Animation source field').fill('missing_animation');
-		await expect(animationRow.getByRole('button', { name: 'resolve' })).toBeEnabled();
-		await animationRow.getByRole('button', { name: 'resolve' }).click();
-		await expect(animationRow).toContainText('incorrect');
-		await expect(
-			page.getByText('Animation source field must resolve before queueing bootstrap')
-		).toBeVisible();
-		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
-
-		await rowControl(page, 'Animation source field').fill('');
-		await expect(animationRow).not.toContainText('incorrect');
-		await expect(page.getByRole('button', { name: 'animation' })).toBeDisabled();
-		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.Off);
-		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeEnabled();
-		await page.getByRole('button', { name: 'queue bootstrap' }).click();
-		await expect.poll(() => api.mutations.length).toBe(1);
-		expect(api.mutations[0]?.body).toMatchObject({
-			imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
-			animationSourceField: null
-		});
-	});
-
-	test('requires manual supply before cache estimate for shared contracts', async ({
-		page
-	}, testInfo) => {
-		const api = await installBootstrapProbeApiMock(page);
-		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
-
-		const statusRow = formRow(page, 'Contract probe status');
-		await expect(statusRow.locator('.bootstrap-probe-status-action-required')).toContainText(
-			BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope
-		);
-		await statusRow.locator('.bootstrap-probe-status-tooltip').hover();
-		await expect(
-			statusRow.locator('.bootstrap-probe-status-tooltip .info-tooltip-popup')
-		).toContainText('shared contract');
-		await expect(rowControl(page, 'Manual range start token ID')).toHaveValue(
-			BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.startTokenId
-		);
-		await expect(rowControl(page, 'Manual range total supply')).toHaveValue('');
-		await expect(formRow(page, 'Est. source images size (full collection)')).toContainText('-');
-		await expect(
-			formRow(page, 'Cached image max dimension').getByRole('button', { name: 'estimate' })
-		).toBeDisabled();
-		await expect(
-			page.getByText('Manual range total supply must be a positive integer')
-		).toBeVisible();
-		await expect(
-			page.getByText('Set collection scope and supply before estimating image cache')
-		).toBeVisible();
-		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
-
-		await expect(
-			page.locator(`[data-testid="${TEST_IDS.BootstrapAllowManualEditing}"]`)
-		).toBeChecked();
-		await expect(rowControl(page, 'Manual range total supply')).toBeEnabled();
-		const unlockedScreenshotPath = testInfo.outputPath('bootstrap-manual-scope-unlocked.png');
-		await page.screenshot({ path: unlockedScreenshotPath, fullPage: true });
-		await testInfo.attach('bootstrap-manual-scope-unlocked.png', {
-			path: unlockedScreenshotPath,
-			contentType: 'image/png'
-		});
 		await rowControl(page, 'Manual range total supply').fill(
 			String(BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.totalSupply)
 		);
+		await expect(page.getByRole('button', { name: 'Probe', exact: true })).toBeEnabled();
+		expect(api.probeRequests).toEqual([]);
+		expect(api.openSeaSlugProbeSampleTokenIds).toEqual([]);
+		expect(api.imageCacheEstimateRequests).toEqual([]);
+		await page.screenshot({ path: testInfo.outputPath('staged-inputs.png'), fullPage: true });
+	});
+
+	test('uses one sample and preserves the independent scope through probing and queueing', async ({
+		page
+	}, testInfo) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope);
+		const sample = BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.sampleTokenId;
+		await page.locator('input[name="sampleTokenId"]').fill(sample);
+		await page.getByRole('button', { name: 'Probe', exact: true }).click();
 		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
-		await expect(rowControl(page, 'OpenSea slug')).toHaveValue(
-			BOOTSTRAP_PROBE_OPENSEA_SLUGS.SharedManualScope
-		);
-		await expect
-			.poll(() => api.openSeaSlugProbeVerificationTokenIds.at(-1))
-			.toEqual(BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.verificationTokenIds);
-		await expect(formRow(page, 'Est. source images size (full collection)')).toContainText(
-			'6.21 GB'
-		);
-		await expect(
-			formRow(page, 'Cached image max dimension').getByRole('button', { name: 'estimate' })
-		).toBeEnabled();
-		await expect(
-			page.getByText('Run image cache estimate before queueing bootstrap')
-		).toBeVisible();
-
-		await formRow(page, 'Cached image max dimension')
-			.getByRole('button', { name: 'estimate' })
-			.click();
-		await expect(formRow(page, 'Cached image max dimension')).toContainText('estimated');
+		expect(api.probeRequestSampleTokenIds).toEqual([sample]);
+		expect(api.openSeaSlugProbeSampleTokenIds).toEqual([sample]);
+		await expect(rowControl(page, 'Manual range start token ID')).toHaveValue('1');
+		await expect(rowControl(page, 'Manual range total supply')).toHaveValue('999');
+		await expect(page.locator('input[name="slug"]')).toHaveValue('curated-collection');
+		await expect(rowControl(page, 'Manual range total supply')).toBeEnabled();
+		await expect(page.getByTestId(TEST_IDS.BootstrapAllowManualEditing)).toHaveCount(0);
+		// Scope edits do not cause marketplace calls, including for an unminted upper boundary.
+		await rowControl(page, 'Manual range total supply').fill('1000');
 		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeEnabled();
-		expect(api.imageCacheEstimateRequests).toEqual([
-			expect.objectContaining({
-				sampleTokenId: '0',
-				sourceImageBytes: 7088374,
-				totalSupply: String(BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.totalSupply),
-				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
-				maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
-			})
-		]);
-
+		expect(api.openSeaSlugProbeSampleTokenIds).toEqual([sample]);
+		await page.screenshot({ path: testInfo.outputPath('sample-resolved.png'), fullPage: true });
 		await page.getByRole('button', { name: 'queue bootstrap' }).click();
 		await expect.poll(() => api.mutations.length).toBe(1);
-		expect(api.mutations[0]?.body).toMatchObject({
-			imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
-			animationSourceField: null,
+		expect(api.mutations[0].body).toMatchObject({
+			slug: 'curated-collection',
 			manualInput: {
 				mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
-				startTokenId: BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.startTokenId,
-				totalSupply: BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.totalSupply
+				startTokenId: '1',
+				totalSupply: 1000
 			},
-			imageCache: {
-				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.User,
-				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
-				maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
-			}
+			openseaSlug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.SharedManualScope
 		});
 	});
 
-	test('renders enumerable onchain SVG image data with extension image cache off', async ({
+	test('keeps shared enumerable contracts in the user-selected manual scope', async ({ page }) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+		await page.locator('input[name="sampleTokenId"]').fill(SHARED_ENUMERABLE_SAMPLE_TOKEN_ID);
+		await rowControl(page, 'Manual range start token ID').fill(SHARED_ENUMERABLE_SAMPLE_TOKEN_ID);
+		await rowControl(page, 'Manual range total supply').fill(SHARED_ENUMERABLE_RANGE_TOTAL_SUPPLY);
+		await page.getByRole('button', { name: 'Probe', exact: true }).click();
+		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
+		await expect(rowControl(page, 'Use ERC721Enumerable token enumeration')).not.toBeChecked();
+		await expect(formRow(page, 'ERC721Enumerable interface')).toContainText('yes');
+		await expect(rowControl(page, 'Manual range total supply')).toHaveValue(
+			SHARED_ENUMERABLE_RANGE_TOTAL_SUPPLY
+		);
+		expect(api.openSeaSlugProbeSampleTokenIds).toEqual([SHARED_ENUMERABLE_SAMPLE_TOKEN_ID]);
+		await page.locator('input[name="sampleTokenId"]').fill('4000000');
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
+		expect(api.probeRequests).toHaveLength(1);
+		await expect(rowControl(page, 'Manual range start token ID')).toHaveValue(
+			SHARED_ENUMERABLE_SAMPLE_TOKEN_ID
+		);
+	});
+
+	test('accepts detected metadata fields only after the explicit apply action', async ({
 		page
 	}) => {
-		const api = await installBootstrapProbeApiMock(page);
-		await openBootstrapProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableOnchainSvg);
-
-		const card = tokenCard(page, '1');
-		await expect(card).toBeVisible();
-		await expect(card.locator('img')).toHaveAttribute('src', BOOTSTRAP_PROBE_MEDIA.OnchainSvgImage);
-		await expect(page.locator('input[name="slug"]')).toHaveValue(
-			BOOTSTRAP_PROBE_OPENSEA_SLUGS.EnumerableOnchainSvg
-		);
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await rowControl(page, 'Image source field').clear();
+		await page.locator('input[name="sampleTokenId"]').clear();
+		await page.getByRole('button', { name: 'Probe', exact: true }).click();
+		await expect(page.getByRole('button', { name: 'Apply detected fields' })).toBeVisible();
+		await expect(rowControl(page, 'Image source field')).toHaveValue('');
+		await expect(page.locator('input[name="sampleTokenId"]')).toHaveValue('');
+		expect(api.openSeaSlugProbeSampleTokenIds).toEqual([]);
+		await page.getByRole('button', { name: 'Apply detected fields' }).click();
 		await expect(rowControl(page, 'Image source field')).toHaveValue(
-			TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData
+			TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image
 		);
-		const imageCacheModeSelect = rowControl(page, 'Image cache mode');
-		await expect(imageCacheModeSelect).toHaveValue(IMAGE_CACHE_MODE.Off);
-		await expect(imageCacheModeSelect).toBeDisabled();
-		await expect(formLabel(page, 'Cached image max dimension')).toHaveCount(0);
-		await expect(formRow(page, 'Image cache policy source')).toContainText(
-			`extension-defined (${TERRAFORMS_EXTENSION_KEY})`
-		);
-		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
-		const manualEditing = page.locator(`[data-testid="${TEST_IDS.BootstrapAllowManualEditing}"]`);
-		await manualEditing.check();
-		await expect(imageCacheModeSelect).toBeEnabled();
-		await manualEditing.uncheck();
-		await expect(imageCacheModeSelect).toBeDisabled();
-		await expect(page.getByText('Est. source images size (full collection)')).toBeVisible();
+		await expect(page.locator('input[name="sampleTokenId"]')).toHaveValue('1');
+		await expect(rowControl(page, 'Manual range total supply')).toHaveValue('999');
+		await expect(page.locator('input[name="slug"]')).toHaveValue('curated-collection');
+		expect(api.probeRequests).toHaveLength(1);
+	});
 
-		const imageSizeRow = formRow(page, 'Original image source size (1 token)');
-		await imageSizeRow.locator('.info-tooltip').hover();
-		await expect(imageSizeRow.locator('.info-tooltip-popup')).toBeVisible();
-		await expect(imageSizeRow.locator('.info-tooltip-popup')).toContainText(
-			'Fetched image file size'
+	test('preserves inputs after an error and allows explicit recovery', async ({
+		page
+	}, testInfo) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await page.route(
+			'**/collections/bootstrap/probe?**',
+			(route) =>
+				route.fulfill({
+					status: 422,
+					contentType: 'application/json',
+					body: JSON.stringify({ error: 'unavailable' })
+				}),
+			{ times: 1 }
 		);
+		await page.getByRole('button', { name: 'Probe', exact: true }).click();
+		await expect(formRow(page, 'Contract probe status')).toContainText('probe failed');
+		await expect(page.locator('input[name="sampleTokenId"]')).toHaveValue('2');
+		await expect(rowControl(page, 'Manual range total supply')).toHaveValue('999');
+		await page.screenshot({ path: testInfo.outputPath('probe-error.png'), fullPage: true });
+		const warningBox = await page.locator('.bootstrap-contract-address-warning').boundingBox();
+		const errorSectionBox = await page.locator('.bootstrap-probe-section').boundingBox();
+		expect(errorSectionBox?.width).toBeLessThanOrEqual((warningBox?.width ?? 0) + 2);
+		await page.getByRole('button', { name: 'Probe', exact: true }).click();
+		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
+		expect(api.probeRequests).toHaveLength(1);
+	});
+
+	test('allows onchain bootstrap while an optional OpenSea slug is incorrect', async ({ page }) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await page.locator('input[name="openseaSlug"]').fill('another-project');
+		await page.getByRole('button', { name: 'Probe', exact: true }).click();
+		await expect(formRow(page, 'OpenSea slug')).toContainText('incorrect');
 		await page.getByRole('button', { name: 'queue bootstrap' }).click();
 		await expect.poll(() => api.mutations.length).toBe(1);
-		expect(api.mutations[0]?.body).toMatchObject({
-			metadataMode: DEFAULT_BOOTSTRAP_METADATA_MODE,
-			imageSourceField: TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData,
-			animationSourceField: null,
-			imageCache: {
-				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
-				imageCacheMode: IMAGE_CACHE_MODE.Off,
-				maxDimension: null
-			}
-		});
+		expect(api.mutations[0].body).not.toHaveProperty('openseaSlug');
+	});
+
+	test('rejects a sample outside a manually edited range', async ({ page }) => {
+		await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await page.getByRole('button', { name: 'Probe', exact: true }).click();
+		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
+		await rowControl(page, 'Manual range start token ID').fill('10');
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
+		await expect(
+			page.getByText('Sample token ID must be inside the collection range.')
+		).toBeVisible();
+	});
+
+	test('validates explicit token lists without querying OpenSea again', async ({ page }) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await page.getByRole('button', { name: 'Probe', exact: true }).click();
+		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
+		await rowControl(page, 'Manual token scope mode').selectOption(
+			BOOTSTRAP_ENUMERATION_MODE.ManualTokenIds
+		);
+		await rowControl(page, 'Manual token IDs').fill('1, 3');
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeDisabled();
+		await rowControl(page, 'Manual token IDs').fill('1, invalid, 2');
+		await expect(
+			page.getByText('Enter decimal token IDs separated by commas or spaces.')
+		).toBeVisible();
+		await rowControl(page, 'Manual token IDs').fill('1, 2, 3');
+		await expect(page.getByRole('button', { name: 'queue bootstrap' })).toBeEnabled();
+		expect(api.openSeaSlugProbeSampleTokenIds).toEqual(['2']);
+	});
+
+	test('lets users turn off an old Enumerable selection after changing contracts', async ({
+		page
+	}) => {
+		await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+		await page.getByRole('button', { name: 'Probe', exact: true }).click();
+		await expect(rowControl(page, 'Use ERC721Enumerable token enumeration')).toBeEnabled();
+		await rowControl(page, 'Use ERC721Enumerable token enumeration').check();
+		await page.locator('input[name="address"]').fill(BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable);
+		await page.getByRole('button', { name: 'Probe', exact: true }).click();
+		await expect(
+			page.getByText(
+				'Enumerable support was not confirmed. Turn off whole-contract enumeration and specify the token scope.'
+			)
+		).toBeVisible();
+		await rowControl(page, 'Use ERC721Enumerable token enumeration').uncheck();
+		await expect(rowControl(page, 'Manual range total supply')).toHaveValue('999');
+	});
+
+	test('keeps cache estimation explicit and supports optional animation', async ({
+		page
+	}, testInfo) => {
+		const api = await stageManualProbe(page, BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster);
+		await rowControl(page, 'Animation source field').fill(
+			TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl
+		);
+		await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.CacheOnce);
+		await page.getByRole('button', { name: 'Probe', exact: true }).click();
+		await expect(formRow(page, 'OpenSea slug')).toContainText('resolved');
+		await expect(formRow(page, 'Animation source field')).toContainText('resolved');
+		expect(api.imageCacheEstimateRequests).toEqual([]);
+		await page.getByRole('button', { name: 'estimate', exact: true }).click();
+		await expect(formRow(page, 'Cached image max dimension')).toContainText('estimated');
+		expect(api.imageCacheEstimateRequests).toHaveLength(1);
+		await page.screenshot({ path: testInfo.outputPath('cache-estimated.png'), fullPage: true });
 	});
 });
+
+async function stageManualProbe(page: Page, address: string) {
+	const api = await installBootstrapProbeApiMock(page);
+	await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
+	await contractAddressSafetyAcknowledgement(page).check();
+	await page.locator('input[name="address"]').fill(address);
+	await page.locator('input[name="sampleTokenId"]').fill('2');
+	await rowControl(page, 'Image source field').fill(TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image);
+	await rowControl(page, 'Manual range start token ID').fill('1');
+	await rowControl(page, 'Manual range total supply').fill('999');
+	await page.locator('input[name="slug"]').fill('curated-collection');
+	await rowControl(page, 'Image cache mode').selectOption(IMAGE_CACHE_MODE.Off);
+	return api;
+}
 
 test.describe('bootstrap run detail UI', () => {
 	test('renders progress and toggles image-cache pause resume actions', async ({ page }) => {
@@ -767,6 +349,46 @@ test.describe('collection OpenSea sync UI', () => {
 		await expect(dialog).toContainText('fully restart the app');
 	});
 
+	test('explains when late sync has no locally owned sample and allows retry', async ({
+		page
+	}, testInfo) => {
+		await installCollectionOpenSeaSyncApiMock(page);
+		await page.route(
+			'**/opensea/slug-probe*',
+			(route) =>
+				route.fulfill({
+					status: 422,
+					contentType: 'application/json',
+					body: JSON.stringify({
+						message: OPENSEA_COLLECTION_SLUG_PROBE_ERROR.LocalSampleUnavailable
+					})
+				}),
+			{ times: 1 }
+		);
+		await page.goto(COLLECTION_OPENSEA_SYNC_E2E_ROUTE_PATH);
+		await page.getByRole('button', { name: 'start opensea sync' }).click();
+		const dialog = page.getByRole('dialog', { name: 'start opensea sync' });
+		await dialog.getByRole('button', { name: 'resolve', exact: true }).click();
+		await expect(dialog).toContainText(OPENSEA_COLLECTION_SLUG_PROBE_ERROR.LocalSampleUnavailable);
+		await expect(dialog.getByRole('button', { name: 'start sync' })).toBeDisabled();
+		const dialogBox = await dialog.boundingBox();
+		const resolveBox = await dialog
+			.getByRole('button', { name: 'resolve', exact: true })
+			.boundingBox();
+		const padding = await dialog.evaluate((node) =>
+			Number.parseFloat(getComputedStyle(node).paddingRight)
+		);
+		expect((resolveBox?.x ?? 0) + (resolveBox?.width ?? 0)).toBeLessThanOrEqual(
+			(dialogBox?.x ?? 0) + (dialogBox?.width ?? 0) - padding + 1
+		);
+		await page.screenshot({
+			path: testInfo.outputPath('local-sample-unavailable.png'),
+			fullPage: true
+		});
+		await dialog.getByRole('button', { name: 'resolve', exact: true }).click();
+		await expect(dialog.getByRole('button', { name: 'start sync' })).toBeEnabled();
+	});
+
 	test('resolves and re-verifies a shared-contract collection slug', async ({ page }, testInfo) => {
 		const api = await installCollectionOpenSeaSyncApiMock(page);
 		await page.goto(COLLECTION_OPENSEA_SYNC_E2E_ROUTE_PATH);
@@ -780,13 +402,17 @@ test.describe('collection OpenSea sync UI', () => {
 		await expect(dialog).toContainText(COLLECTION_OPENSEA_SYNC_E2E_COLLECTION.address);
 		await expect(dialog).toContainText('462000000');
 		await expect(dialog).toContainText('400');
+		expect(api.probeSlugs).toEqual([]);
+		await dialog.getByRole('button', { name: 'resolve', exact: true }).click();
 		await expect(slugInput).toHaveValue(COLLECTION_OPENSEA_SYNC_E2E_SLUG);
 		await expect(slugInput).toBeEnabled();
 		const slugInputBox = await slugInput.boundingBox();
 		expect(slugInputBox).not.toBeNull();
-		expect(slugInputBox?.width ?? 0).toBeGreaterThanOrEqual(
-			COLLECTION_OPENSEA_SYNC_SLUG_INPUT_MIN_WIDTH_PX
-		);
+		if ((page.viewportSize()?.width ?? 0) >= 900) {
+			expect(slugInputBox?.width ?? 0).toBeGreaterThanOrEqual(
+				COLLECTION_OPENSEA_SYNC_SLUG_INPUT_MIN_WIDTH_PX
+			);
+		}
 		await expect(dialog).toContainText('resolved');
 		await expect(startButton).toBeEnabled();
 		const resolvedScreenshotPath = testInfo.outputPath('collection-opensea-sync-resolved.png');
@@ -823,147 +449,17 @@ test.describe('collection OpenSea sync UI', () => {
 	});
 });
 
-async function openBootstrapProbe(page: Page, address: string): Promise<void> {
-	await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
-	await contractAddressSafetyAcknowledgement(page).check();
-	await page.locator('input[name="address"]').fill(address);
-	await expect(page.locator(`[data-testid="${TEST_IDS.BootstrapProbeTokenCard}"]`)).toBeVisible();
-}
-
-async function openBootstrapProbeStatusOnly(
-	page: Page,
-	address: string,
-	expectedStatus: string
-): Promise<void> {
-	await page.goto(BOOTSTRAP_PROBE_E2E_ROUTE_PATH);
-	await contractAddressSafetyAcknowledgement(page).check();
-	await page.locator('input[name="address"]').fill(address);
-	await expect(formRow(page, 'Contract probe status')).toContainText(expectedStatus);
-}
-
-function tokenCard(page: Page, tokenId: string) {
-	return page.locator(`[data-testid="${TEST_IDS.TokenCard}"][data-token-id="${tokenId}"]`);
-}
-
-function contractAddressSafetyWarning(page: Page): Locator {
-	return page.getByRole('note').filter({ hasText: BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_WARNING });
-}
-
 function contractAddressSafetyAcknowledgement(page: Page): Locator {
-	return page.getByRole('checkbox', {
-		name: BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_ACKNOWLEDGEMENT
-	});
+	return page.getByRole('checkbox', { name: BOOTSTRAP_CONTRACT_ADDRESS_SAFETY_ACKNOWLEDGEMENT });
 }
 
 function formRow(page: Page, label: string) {
-	return page.locator('.bootstrap-form-fields .bootstrap-form-row').filter({ hasText: label });
+	return page.locator('.bootstrap-form-fields .bootstrap-form-row').filter({
+		has: page
+			.locator('.bootstrap-form-label-cell > span:first-child')
+			.filter({ hasText: new RegExp('^' + label + '$') })
+	});
 }
-
-function formLabel(page: Page, label: string) {
-	return page
-		.locator('.bootstrap-form-fields .bootstrap-form-label-cell > span:first-child')
-		.filter({ hasText: new RegExp(`^${label}$`) });
-}
-
 function rowControl(page: Page, label: string) {
 	return formRow(page, label).locator('input, select, textarea');
-}
-
-async function assertContractAddressSafetyWarningPlacement(
-	addressInput: Locator,
-	safetyWarning: Locator
-): Promise<void> {
-	const inputBox = await addressInput.boundingBox();
-	const warningBox = await safetyWarning.boundingBox();
-	expect(inputBox).not.toBeNull();
-	expect(warningBox).not.toBeNull();
-	if (!inputBox || !warningBox) return;
-	expect(warningBox.y + warningBox.height).toBeLessThanOrEqual(inputBox.y);
-}
-
-async function assertRowBefore(first: Locator, second: Locator): Promise<void> {
-	const firstBox = await first.boundingBox();
-	const secondBox = await second.boundingBox();
-	expect(firstBox).not.toBeNull();
-	expect(secondBox).not.toBeNull();
-	if (!firstBox || !secondBox) return;
-	expect(firstBox.y + firstBox.height).toBeLessThanOrEqual(secondBox.y);
-}
-
-async function assertOpenSeaDisabledNoteFitsSlugInput(page: Page): Promise<void> {
-	const openSeaSlugRow = formRow(page, 'OpenSea slug');
-	const openSeaSlugInput = openSeaSlugRow.locator('input[name="openseaSlug"]');
-	const disabledNote = openSeaSlugRow.locator('.bootstrap-opensea-slug-note');
-	await expect(disabledNote).toBeVisible();
-	const inputBox = await openSeaSlugInput.boundingBox();
-	const noteBox = await disabledNote.boundingBox();
-	expect(inputBox).not.toBeNull();
-	expect(noteBox).not.toBeNull();
-	if (!inputBox || !noteBox) return;
-	expect(noteBox.width).toBeLessThanOrEqual(inputBox.width + 1);
-}
-
-async function assertEveryBootstrapRowHasInfoTooltip(page: Page): Promise<void> {
-	const rows = page.locator('.bootstrap-form-fields .bootstrap-form-row');
-	const tooltips = page.locator(
-		'.bootstrap-form-fields .bootstrap-form-row .bootstrap-form-label-cell .info-tooltip'
-	);
-	expect(await tooltips.count()).toBe(await rows.count());
-}
-
-async function assertTooltipText(page: Page, label: string, expectedText: string): Promise<void> {
-	const row = formRow(page, label);
-	await row.locator('.info-tooltip').hover();
-	await expect(row.locator('.info-tooltip-popup')).toContainText(expectedText);
-}
-
-async function assertTokenBrowserCardScale(card: ReturnType<typeof tokenCard>): Promise<void> {
-	await expect(card.locator('.token-grid-media')).toHaveCSS('height', '400px');
-}
-
-async function assertTokenCardPlacement(page: Page, testInfo: TestInfo): Promise<void> {
-	const addressBox = await page.locator('.bootstrap-address-section').boundingBox();
-	const previewBox = await page.locator('.bootstrap-token-preview-section').boundingBox();
-	const cardBox = await page
-		.locator(`[data-testid="${TEST_IDS.BootstrapProbeTokenCard}"]`)
-		.boundingBox();
-	const probeBox = await page.locator('.bootstrap-probe-section').boundingBox();
-	expect(addressBox, `${testInfo.project.name} address box should be measurable`).not.toBeNull();
-	expect(previewBox, `${testInfo.project.name} preview box should be measurable`).not.toBeNull();
-	expect(cardBox, `${testInfo.project.name} token card box should be measurable`).not.toBeNull();
-	expect(probeBox, `${testInfo.project.name} probe box should be measurable`).not.toBeNull();
-	if (!addressBox || !previewBox || !cardBox || !probeBox) return;
-
-	const viewportWidth = page.viewportSize()?.width ?? 0;
-	if (viewportWidth >= 900) {
-		expect(
-			Math.abs(previewBox.x - addressBox.x),
-			`${testInfo.project.name} preview surface should align under the address surface`
-		).toBeLessThanOrEqual(2);
-		expect(
-			Math.abs(previewBox.width - addressBox.width),
-			`${testInfo.project.name} preview surface should share the address surface width`
-		).toBeLessThanOrEqual(2);
-		expect(
-			Math.abs(probeBox.width - addressBox.width),
-			`${testInfo.project.name} probe surface should share the address surface width`
-		).toBeLessThanOrEqual(2);
-		expect(
-			Math.abs(cardBox.x + cardBox.width / 2 - (previewBox.x + previewBox.width / 2)),
-			`${testInfo.project.name} token card should be centered in the preview surface`
-		).toBeLessThanOrEqual(2);
-	}
-	expect(
-		previewBox.y,
-		`${testInfo.project.name} preview surface should render below the address surface`
-	).toBeGreaterThan(addressBox.y + addressBox.height - 1);
-	expect(
-		cardBox.y,
-		`${testInfo.project.name} token card should live inside the preview surface`
-	).toBeGreaterThanOrEqual(previewBox.y);
-
-	expect(
-		probeBox.y,
-		`${testInfo.project.name} probe surface should follow the token card preview`
-	).toBeGreaterThan(previewBox.y + previewBox.height - 1);
 }

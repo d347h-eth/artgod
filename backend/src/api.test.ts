@@ -28,10 +28,7 @@ import {
     BOOTSTRAP_RUN_EVENT_CODE,
     serializeBootstrapEnumerationProgressEventPayload,
 } from "@artgod/shared/bootstrap/run-events";
-import {
-    OPENSEA_COLLECTION_SLUG_PROBE_STATUS,
-    resolveOpenSeaTokenRangeBoundaryIds,
-} from "@artgod/shared/opensea/collection-slug-probe";
+import { OPENSEA_COLLECTION_SLUG_PROBE_STATUS } from "@artgod/shared/opensea/collection-slug-probe";
 import {
     BOOTSTRAP_ENUMERATION_MODE,
     BOOTSTRAP_METADATA_MODE,
@@ -158,12 +155,7 @@ const OPENSEA_SYNC_COLLECTION_SLUG = "opensea-sync-target";
 const OPENSEA_SYNC_ADDRESS = "0x4444444444444444444444444444444444444444";
 const OPENSEA_SYNC_SCOPE_START_TOKEN_ID = "462000000";
 const OPENSEA_SYNC_SCOPE_TOTAL_SUPPLY = 400;
-const OPENSEA_SYNC_VERIFICATION_TOKEN_IDS = resolveOpenSeaTokenRangeBoundaryIds(
-    {
-        startTokenId: OPENSEA_SYNC_SCOPE_START_TOKEN_ID,
-        totalSupply: OPENSEA_SYNC_SCOPE_TOTAL_SUPPLY,
-    },
-);
+const OPENSEA_SYNC_SAMPLE_TOKEN_ID = "462000001";
 const OPENSEA_SYNC_PREVIOUS_ERROR = "previous OpenSea sync failed";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const WETH_ADDRESS = "0xc02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -850,14 +842,13 @@ beforeAll(async () => {
         );
     const openSeaCollectionIdentityVerifier = {
         async resolveVerifiedSlug(input: {
-            address: string | null;
+            address: string;
             requestedSlug: string | null;
-            verificationTokenIds: readonly string[];
+            sampleTokenId: string;
         }) {
             openSeaSlugProbeInputs.push(input);
             if (input.requestedSlug === "terraforms") {
-                return input.address === null ||
-                    input.address === TERRAFORMS_ADDRESS
+                return input.address === TERRAFORMS_ADDRESS
                     ? input.requestedSlug
                     : null;
             }
@@ -5386,7 +5377,7 @@ describe("backend api routes", () => {
         openSeaSlugProbeInputs = [];
         const openSeaSlugProbe = await resolve(
             "GET",
-            `/api/ethereum/collections/bootstrap/opensea-slug-probe?address=${TERRAFORMS_ADDRESS}`,
+            `/api/ethereum/collections/bootstrap/opensea-slug-probe?address=${TERRAFORMS_ADDRESS}&sample_token_id=42`,
         );
         expect(openSeaSlugProbe.statusCode).toBe(200);
         expect(openSeaSlugProbe.payload).toEqual({
@@ -5403,21 +5394,21 @@ describe("backend api routes", () => {
             {
                 address: TERRAFORMS_ADDRESS,
                 requestedSlug: null,
-                verificationTokenIds: [],
+                sampleTokenId: "42",
             },
         ]);
 
         openSeaSlugProbeInputs = [];
         const openSeaSlugVerification = await resolve(
             "GET",
-            "/api/ethereum/collections/bootstrap/opensea-slug-probe?slug=terraforms",
+            `/api/ethereum/collections/bootstrap/opensea-slug-probe?address=${TERRAFORMS_ADDRESS}&sample_token_id=42&slug=terraforms`,
         );
         expect(openSeaSlugVerification.statusCode).toBe(200);
         expect(openSeaSlugVerification.payload).toEqual({
             chain: expect.objectContaining({
                 slug: "ethereum",
             }),
-            address: null,
+            address: TERRAFORMS_ADDRESS,
             requestedSlug: "terraforms",
             status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found,
             slug: "terraforms",
@@ -5425,9 +5416,9 @@ describe("backend api routes", () => {
         });
         expect(openSeaSlugProbeInputs).toEqual([
             {
-                address: null,
+                address: TERRAFORMS_ADDRESS,
                 requestedSlug: "terraforms",
-                verificationTokenIds: [],
+                sampleTokenId: "42",
             },
         ]);
 
@@ -5653,7 +5644,7 @@ describe("backend api routes", () => {
                 {
                     address: OPENSEA_SYNC_ADDRESS,
                     requestedSlug: null,
-                    verificationTokenIds: OPENSEA_SYNC_VERIFICATION_TOKEN_IDS,
+                    sampleTokenId: OPENSEA_SYNC_SAMPLE_TOKEN_ID,
                 },
             ]);
 
@@ -5677,7 +5668,7 @@ describe("backend api routes", () => {
                 {
                     address: OPENSEA_SYNC_ADDRESS,
                     requestedSlug: OPENSEA_SYNC_COLLECTION_SLUG,
-                    verificationTokenIds: OPENSEA_SYNC_VERIFICATION_TOKEN_IDS,
+                    sampleTokenId: OPENSEA_SYNC_SAMPLE_TOKEN_ID,
                 },
             ]);
         } finally {
@@ -5778,7 +5769,7 @@ describe("backend api routes", () => {
                 {
                     address: OPENSEA_SYNC_ADDRESS,
                     requestedSlug: OPENSEA_SYNC_COLLECTION_SLUG,
-                    verificationTokenIds: OPENSEA_SYNC_VERIFICATION_TOKEN_IDS,
+                    sampleTokenId: OPENSEA_SYNC_SAMPLE_TOKEN_ID,
                 },
             ]);
             expect(openSeaBootstrapInputs).toEqual([
@@ -5846,7 +5837,7 @@ describe("backend api routes", () => {
                 {
                     address: OPENSEA_SYNC_ADDRESS,
                     requestedSlug: OPENSEA_SYNC_COLLECTION_SLUG,
-                    verificationTokenIds: OPENSEA_SYNC_VERIFICATION_TOKEN_IDS,
+                    sampleTokenId: OPENSEA_SYNC_SAMPLE_TOKEN_ID,
                 },
             ]);
             expect(openSeaBootstrapInputs).toEqual([
@@ -6038,7 +6029,7 @@ describe("backend api routes", () => {
                 {
                     address: OPENSEA_SYNC_ADDRESS,
                     requestedSlug: OPENSEA_SYNC_COLLECTION_SLUG,
-                    verificationTokenIds: OPENSEA_SYNC_VERIFICATION_TOKEN_IDS,
+                    sampleTokenId: OPENSEA_SYNC_SAMPLE_TOKEN_ID,
                 },
             ]);
             expect(openSeaBootstrapInputs).toEqual([
@@ -7736,10 +7727,31 @@ function insertOpenSeaSyncCollectionFixture(
             OPENSEA_COLLECTION_STATUS.Failed,
             OPENSEA_SYNC_PREVIOUS_ERROR,
         );
-    return Number(result.lastInsertRowid);
+    const collectionId = Number(result.lastInsertRowid);
+    db.prepare(
+        "INSERT INTO nft_balances " +
+            "(chain_id, collection_id, contract_address, token_id, owner, amount, last_block_number, last_block_hash, last_block_timestamp, last_tx_hash, last_log_index) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+        DEFAULT_CHAIN_ID,
+        collectionId,
+        OPENSEA_SYNC_ADDRESS,
+        OPENSEA_SYNC_SAMPLE_TOKEN_ID,
+        MILADY_ADDRESS,
+        "1",
+        200,
+        "0xanchor",
+        1,
+        "0xtx",
+        0,
+    );
+    return collectionId;
 }
 
 function deleteCollectionFixture(collectionId: number): void {
+    db.prepare<[number]>(
+        "DELETE FROM nft_balances WHERE collection_id = ?",
+    ).run(collectionId);
     const runRows = db
         .prepare<
             [number]

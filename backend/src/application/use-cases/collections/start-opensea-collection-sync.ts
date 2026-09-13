@@ -1,5 +1,6 @@
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 import {
+    OPENSEA_COLLECTION_SLUG_PROBE_ERROR,
     OPENSEA_COLLECTION_SLUG_PROBE_STATUS,
     type OpenSeaCollectionSlugProbeStatus,
 } from "@artgod/shared/opensea/collection-slug-probe";
@@ -32,7 +33,7 @@ export type OpenSeaCollectionSyncState = {
     openseaSlug: string | null;
     openseaStatus: OpenSeaCollectionStatus | null;
     openseaLastError: string | null;
-    verificationTokenIds: readonly string[];
+    sampleTokenId: string | null;
 };
 
 export type ProbeCollectionOpenSeaSlugInput = {
@@ -52,7 +53,7 @@ export type ProbeCollectionOpenSeaSlugOutput = {
 
 export type StartOpenSeaCollectionSyncOutput = {
     chain: ChainRecord;
-    collection: Omit<OpenSeaCollectionSyncState, "verificationTokenIds">;
+    collection: Omit<OpenSeaCollectionSyncState, "sampleTokenId">;
     openseaStatus: OpenSeaCollectionStatus;
 };
 
@@ -61,9 +62,9 @@ type MaybePromise<T> = T | Promise<T>;
 // Outbound lookup boundary for verifying OpenSea collection identity before sync.
 export interface OpenSeaCollectionSyncSlugProbePort {
     resolveVerifiedSlug(input: {
-        address: string | null;
+        address: string;
         requestedSlug: string | null;
-        verificationTokenIds: readonly string[];
+        sampleTokenId: string;
     }): Promise<string | null>;
 }
 
@@ -140,7 +141,7 @@ export class StartOpenSeaCollectionSyncUseCase {
             });
             return {
                 chain,
-                collection: withoutVerificationTokenIds(pending),
+                collection: withoutSampleTokenId(pending),
                 openseaStatus:
                     pending.openseaStatus ?? OPENSEA_COLLECTION_STATUS.Pending,
             };
@@ -252,12 +253,17 @@ export class StartOpenSeaCollectionSyncUseCase {
             throw new Error("OpenSea slug probe client is not configured");
         }
 
-        // Verify contract membership and representative token boundaries before persistence.
+        if (collection.sampleTokenId === null) {
+            throw new BootstrapValidationError(
+                OPENSEA_COLLECTION_SLUG_PROBE_ERROR.LocalSampleUnavailable,
+            );
+        }
+        // Recheck one locally owned token before persisting the marketplace identity.
         const resolvedSlug =
             await this.openSeaCollectionSyncSlugProbePort.resolveVerifiedSlug({
                 address: collection.address,
                 requestedSlug,
-                verificationTokenIds: collection.verificationTokenIds,
+                sampleTokenId: collection.sampleTokenId,
             });
         if (
             !resolvedSlug ||
@@ -323,10 +329,9 @@ function normalizeOptionalOpenSeaSlug(
     return normalizeOpenSeaSlug(value);
 }
 
-function withoutVerificationTokenIds(
+function withoutSampleTokenId(
     collection: OpenSeaCollectionSyncState,
-): Omit<OpenSeaCollectionSyncState, "verificationTokenIds"> {
-    const { verificationTokenIds: _verificationTokenIds, ...output } =
-        collection;
+): Omit<OpenSeaCollectionSyncState, "sampleTokenId"> {
+    const { sampleTokenId: _sampleTokenId, ...output } = collection;
     return output;
 }

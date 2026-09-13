@@ -5,9 +5,7 @@ import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 import {
 	BOOTSTRAP_PROBE_STATUS_LABEL,
-	bootstrapProbeFormPatch,
 	bootstrapProbeNeedsManualScope,
-	bootstrapProbeRequiresManualEditing,
 	bootstrapProbeStatusLabel,
 	contractNameToBootstrapSlug,
 	formatByteSize,
@@ -25,124 +23,6 @@ describe('bootstrap contract probe helpers', () => {
 		);
 	});
 
-	it('maps enumerable probes onto the enumerable checkbox', () => {
-		expect(bootstrapProbeFormPatch(makeProbe({ enumerable: true }))).toEqual({
-			supportsEnumerable: true,
-			manualMode: null,
-			manualRangeStartTokenId: '',
-			manualRangeTotalSupply: ''
-		});
-	});
-
-	it('maps inferred non-enumerable ranges onto manual range fields', () => {
-		expect(
-			bootstrapProbeFormPatch(
-				makeProbe({
-					enumerable: false,
-					startTokenId: '1',
-					totalSupply: 999
-				})
-			)
-		).toEqual({
-			supportsEnumerable: false,
-			manualMode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
-			manualRangeStartTokenId: '1',
-			manualRangeTotalSupply: '999'
-		});
-	});
-
-	it('maps shared-contract probes onto manual scope fields', () => {
-		const probe = makeProbe({
-			enumerable: false,
-			startTokenId: '0'
-		});
-		expect(bootstrapProbeFormPatch(probe)).toEqual({
-			supportsEnumerable: false,
-			manualMode: null,
-			manualRangeStartTokenId: '0',
-			manualRangeTotalSupply: ''
-		});
-		expect(bootstrapProbeStatusLabel(probe)).toBe(BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope);
-		expect(bootstrapProbeNeedsManualScope(probe)).toBe(true);
-		expect(bootstrapProbeRequiresManualEditing(probe)).toBe(true);
-	});
-
-	it('does not map a custom sample token onto manual scope fields', () => {
-		const probe = makeProbe({
-			enumerable: false,
-			startTokenId: '42'
-		});
-		expect(
-			bootstrapProbeFormPatch(probe, {
-				useFirstTokenAsManualRangeStart: false,
-				useProbeTotalSupplyAsManualRangeSupply: false
-			})
-		).toEqual({
-			supportsEnumerable: false,
-			manualMode: null,
-			manualRangeStartTokenId: '',
-			manualRangeTotalSupply: ''
-		});
-	});
-
-	it('requires manual scope for a custom sample on an enumerable contract', () => {
-		const probe = makeProbe({
-			enumerable: true,
-			suggestedEnumerable: false,
-			inferManualRange: false,
-			startTokenId: '282000000',
-			totalSupply: 198_051
-		});
-
-		expect(probe.enumerable.supported).toBe(true);
-		expect(
-			bootstrapProbeFormPatch(probe, {
-				useFirstTokenAsManualRangeStart: false,
-				useProbeTotalSupplyAsManualRangeSupply: false
-			})
-		).toEqual({
-			supportsEnumerable: false,
-			manualMode: null,
-			manualRangeStartTokenId: '',
-			manualRangeTotalSupply: ''
-		});
-		expect(bootstrapProbeStatusLabel(probe)).toBe(BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope);
-		expect(bootstrapProbeNeedsManualScope(probe)).toBe(true);
-		expect(bootstrapProbeRequiresManualEditing(probe)).toBe(true);
-	});
-
-	it('pre-fills known supply when only the token start is missing', () => {
-		const probe = makeProbe({
-			enumerable: false,
-			totalSupply: 940
-		});
-		expect(bootstrapProbeFormPatch(probe)).toEqual({
-			supportsEnumerable: false,
-			manualMode: null,
-			manualRangeStartTokenId: '',
-			manualRangeTotalSupply: '940'
-		});
-		expect(bootstrapProbeStatusLabel(probe)).toBe(BOOTSTRAP_PROBE_STATUS_LABEL.NeedsTokenStart);
-		expect(bootstrapProbeRequiresManualEditing(probe)).toBe(true);
-	});
-
-	it('requires manual scope when available supply cannot be used as a bootstrap range', () => {
-		const probe = makeProbe({
-			enumerable: false,
-			startTokenId: '1',
-			totalSupply: 1_000_001,
-			bootstrapRangeValue: null
-		});
-		expect(bootstrapProbeFormPatch(probe)).toEqual({
-			supportsEnumerable: false,
-			manualMode: null,
-			manualRangeStartTokenId: '1',
-			manualRangeTotalSupply: ''
-		});
-		expect(bootstrapProbeStatusLabel(probe)).toBe(BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope);
-		expect(bootstrapProbeNeedsManualScope(probe)).toBe(true);
-	});
-
 	it('labels enumerable and inferred-range probes', () => {
 		expect(bootstrapProbeStatusLabel(makeProbe({ enumerable: true, totalSupply: 940 }))).toBe(
 			BOOTSTRAP_PROBE_STATUS_LABEL.Enumerable
@@ -156,15 +36,19 @@ describe('bootstrap contract probe helpers', () => {
 				})
 			)
 		).toBe(BOOTSTRAP_PROBE_STATUS_LABEL.RangeInferred);
-		expect(
-			bootstrapProbeRequiresManualEditing(
-				makeProbe({
-					enumerable: false,
-					startTokenId: '1',
-					totalSupply: 940
-				})
-			)
-		).toBe(false);
+	});
+
+	it('keeps shared-contract capability separate from required manual scope', () => {
+		const probe = makeProbe({
+			enumerable: true,
+			suggestedEnumerable: false,
+			inferManualRange: false,
+			startTokenId: '282000000',
+			totalSupply: 198051
+		});
+		expect(probe.enumerable.supported).toBe(true);
+		expect(bootstrapProbeStatusLabel(probe)).toBe(BOOTSTRAP_PROBE_STATUS_LABEL.NeedsManualScope);
+		expect(bootstrapProbeNeedsManualScope(probe)).toBe(true);
 	});
 
 	it('formats byte counts for tokenURI payload estimates', () => {

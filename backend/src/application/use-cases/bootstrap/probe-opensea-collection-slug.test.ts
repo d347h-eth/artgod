@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-    OPENSEA_COLLECTION_SLUG_PROBE_MAX_VERIFICATION_TOKEN_IDS,
+    OPENSEA_COLLECTION_SLUG_PROBE_ERROR,
     OPENSEA_COLLECTION_SLUG_PROBE_STATUS,
 } from "@artgod/shared/opensea/collection-slug-probe";
 import {
@@ -21,7 +21,7 @@ const CHAIN = {
 };
 const CONTRACT_ADDRESS = "0x1111111111111111111111111111111111111111";
 const COLLECTION_SLUG = "gumbo-by-mathias-isaksen";
-const VERIFICATION_TOKEN_IDS = ["462000000", "462000399"];
+const SAMPLE_TOKEN_ID = "462000001";
 const ENABLED_OPENSEA_INTEGRATION: OpenSeaIntegrationStatus = {
     enabled: true,
     mode: "auto",
@@ -63,13 +63,13 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
         expect(calls).toEqual([]);
     });
 
-    it("forwards the contract and representative scope tokens to identity verification", async () => {
+    it("forwards the contract and exact sample token to identity verification", async () => {
         const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
             async resolveVerifiedSlug(input) {
                 expect(input).toEqual({
                     address: CONTRACT_ADDRESS,
                     requestedSlug: null,
-                    verificationTokenIds: VERIFICATION_TOKEN_IDS,
+                    sampleTokenId: SAMPLE_TOKEN_ID,
                 });
                 return COLLECTION_SLUG;
             },
@@ -78,7 +78,7 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
         const result = await useCase.probe({
             chainRef: "ethereum",
             address: `0x${CONTRACT_ADDRESS.slice(2).toUpperCase()}`,
-            verificationTokenIds: VERIFICATION_TOKEN_IDS,
+            sampleTokenId: SAMPLE_TOKEN_ID,
         });
 
         expect(result).toEqual({
@@ -89,28 +89,6 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
             slug: COLLECTION_SLUG,
             reason: null,
         });
-    });
-
-    it("verifies an entered slug without a contract for the slug-only flow", async () => {
-        const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
-            async resolveVerifiedSlug(input) {
-                expect(input).toEqual({
-                    address: null,
-                    requestedSlug: COLLECTION_SLUG,
-                    verificationTokenIds: [],
-                });
-                return COLLECTION_SLUG;
-            },
-        });
-
-        const result = await useCase.probe({
-            chainRef: "ethereum",
-            slug: "Gumbo-By-Mathias-Isaksen",
-        });
-
-        expect(result.status).toBe(OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found);
-        expect(result.requestedSlug).toBe(COLLECTION_SLUG);
-        expect(result.slug).toBe(COLLECTION_SLUG);
     });
 
     it("returns missing when identity verification rejects the requested slug", async () => {
@@ -124,7 +102,7 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
             chainRef: "ethereum",
             address: CONTRACT_ADDRESS,
             slug: COLLECTION_SLUG,
-            verificationTokenIds: VERIFICATION_TOKEN_IDS,
+            sampleTokenId: SAMPLE_TOKEN_ID,
         });
 
         expect(result).toEqual({
@@ -137,55 +115,27 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
         });
     });
 
-    it("rejects verification token IDs without a contract address", async () => {
-        const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
-            async resolveVerifiedSlug() {
-                throw new Error("identity verification should not run");
-            },
-        });
-
-        await expect(
-            useCase.probe({
-                chainRef: "ethereum",
-                slug: COLLECTION_SLUG,
-                verificationTokenIds: VERIFICATION_TOKEN_IDS,
-            }),
-        ).rejects.toThrow(
-            "OpenSea verification token IDs require a contract address",
-        );
-    });
-
-    it("rejects malformed or excessive verification token IDs", async () => {
-        const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
-            async resolveVerifiedSlug() {
-                throw new Error("identity verification should not run");
-            },
-        });
-
-        await expect(
-            useCase.probe({
-                chainRef: "ethereum",
-                address: CONTRACT_ADDRESS,
-                verificationTokenIds: ["not-decimal"],
-            }),
-        ).rejects.toThrow("OpenSea verification token IDs must be decimal");
-        await expect(
-            useCase.probe({
-                chainRef: "ethereum",
-                address: CONTRACT_ADDRESS,
-                verificationTokenIds: Array.from(
-                    {
-                        length:
-                            OPENSEA_COLLECTION_SLUG_PROBE_MAX_VERIFICATION_TOKEN_IDS +
-                            1,
-                    },
-                    (_, index) => String(index),
-                ),
-            }),
-        ).rejects.toThrow(
-            "OpenSea slug verification accepts at most the first and last token IDs",
-        );
-    });
+    it.each([undefined, "", "not-decimal"])(
+        "rejects missing or malformed samples (%s)",
+        async (sampleTokenId) => {
+            const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
+                async resolveVerifiedSlug() {
+                    throw new Error("must not call OpenSea");
+                },
+            });
+            await expect(
+                useCase.probe({
+                    chainRef: CHAIN.slug,
+                    address: CONTRACT_ADDRESS,
+                    sampleTokenId,
+                }),
+            ).rejects.toThrow(
+                sampleTokenId
+                    ? OPENSEA_COLLECTION_SLUG_PROBE_ERROR.SampleInvalid
+                    : OPENSEA_COLLECTION_SLUG_PROBE_ERROR.SampleRequired,
+            );
+        },
+    );
 });
 
 function makeUseCase(

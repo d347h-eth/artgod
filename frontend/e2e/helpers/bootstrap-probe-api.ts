@@ -11,10 +11,7 @@ import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-me
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 import { TERRAFORMS_EXTENSION_KEY } from '@artgod/shared/extensions/terraforms';
-import {
-	OPENSEA_COLLECTION_SLUG_PROBE_STATUS,
-	resolveOpenSeaTokenRangeBoundaryIds
-} from '@artgod/shared/opensea/collection-slug-probe';
+import { OPENSEA_COLLECTION_SLUG_PROBE_STATUS } from '@artgod/shared/opensea/collection-slug-probe';
 import {
 	BOOTSTRAP_PROBE_E2E_CHAIN,
 	BOOTSTRAP_PROBE_E2E_ROUTE_PATH,
@@ -41,17 +38,14 @@ export const BOOTSTRAP_PROBE_OPENSEA_SLUGS = {
 	SharedManualScope: 'shared-manual-scope'
 } as const;
 
-const BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_START_TOKEN_ID = '0';
-const BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_TOTAL_SUPPLY = 940;
+const BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_START_TOKEN_ID = '1';
+const BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_TOTAL_SUPPLY = 999;
 
 // Manual range used to prove shared-contract OpenSea identity in the browser harness.
 export const BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE = {
 	startTokenId: BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_START_TOKEN_ID,
 	totalSupply: BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_TOTAL_SUPPLY,
-	verificationTokenIds: resolveOpenSeaTokenRangeBoundaryIds({
-		startTokenId: BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_START_TOKEN_ID,
-		totalSupply: BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_TOTAL_SUPPLY
-	})
+	sampleTokenId: '2'
 } as const;
 
 // Inline media lets the token card render without depending on remote hosts.
@@ -60,8 +54,7 @@ export const BOOTSTRAP_PROBE_MEDIA = {
 		'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
 	RasterImage:
 		'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFElEQVR42mP8z8BQz0AEYBxVSFUBAFgSAf+D1M2sAAAAAElFTkSuQmCC',
-	SharedManualScopeImage:
-		'https://media-proxy.artblocks.io/1/0x145789247973c5d612bf121e9e4eef84b63eb707/0.png',
+	SharedManualScopeImage: `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M20 90h80L60 20z" fill="cyan"/></svg>', 'utf8').toString('base64')}`,
 	OnchainSvgImage: `data:image/svg+xml;base64,${Buffer.from(
 		'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" fill="#05070a"/><path d="M20 90h80L60 20z" fill="#1dd6ff"/><circle cx="60" cy="66" r="14" fill="#ff7a1a"/></svg>',
 		'utf8'
@@ -91,7 +84,7 @@ export type BootstrapProbeApiMock = {
 	probeRequestSampleTokenIds: (string | null)[];
 	openSeaSlugProbeRequests: string[];
 	openSeaSlugVerificationRequests: string[];
-	openSeaSlugProbeVerificationTokenIds: string[][];
+	openSeaSlugProbeSampleTokenIds: (string | null)[];
 	imageCacheEstimateRequests: unknown[];
 };
 
@@ -104,7 +97,7 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 	const probeRequestSampleTokenIds: (string | null)[] = [];
 	const openSeaSlugProbeRequests: string[] = [];
 	const openSeaSlugVerificationRequests: string[] = [];
-	const openSeaSlugProbeVerificationTokenIds: string[][] = [];
+	const openSeaSlugProbeSampleTokenIds: (string | null)[] = [];
 	const imageCacheEstimateRequests: unknown[] = [];
 
 	await page.route('**/api/**', async (route) => {
@@ -157,16 +150,14 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 				url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.Address) ?? ''
 			);
 			const slug = normalizeSlug(url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.Slug) ?? '');
-			const verificationTokenIds = url.searchParams.getAll(
-				BOOTSTRAP_API_QUERY_PARAM.VerificationTokenId
-			);
-			openSeaSlugProbeVerificationTokenIds.push(verificationTokenIds);
+			const sampleTokenId = url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.SampleTokenId);
+			openSeaSlugProbeSampleTokenIds.push(sampleTokenId);
 			if (slug) {
 				openSeaSlugVerificationRequests.push(slug);
 				if (address) {
 					await fulfillJson(
 						route,
-						openSeaSlugProbeResponseForAddressAndSlug(address, slug, verificationTokenIds)
+						openSeaSlugProbeResponseForAddressAndSlug(address, slug, sampleTokenId)
 					);
 					return;
 				}
@@ -174,7 +165,7 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 				return;
 			}
 			openSeaSlugProbeRequests.push(address);
-			await fulfillJson(route, openSeaSlugProbeResponseForAddress(address, verificationTokenIds));
+			await fulfillJson(route, openSeaSlugProbeResponseForAddress(address, sampleTokenId));
 			return;
 		}
 
@@ -202,11 +193,8 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 				sampleCachedBytes: cachedBytes,
 				projectedCachedBytes: String(cachedBytes * Number(body.totalSupply ?? '0')),
 				totalSupply: body.totalSupply ?? '0',
-				contentType: body.maxDimension === null ? 'image/png' : 'image/webp',
-				sampleCachedImageDataUrl:
-					body.maxDimension === null
-						? 'data:image/png;base64,Y2FjaGVk'
-						: 'data:image/webp;base64,Y2FjaGVk',
+				contentType: 'image/png',
+				sampleCachedImageDataUrl: BOOTSTRAP_PROBE_MEDIA.RasterImage,
 				sourceWidth: 2160,
 				sourceHeight: 2160,
 				width: body.maxDimension,
@@ -331,14 +319,14 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 		probeRequestSampleTokenIds,
 		openSeaSlugProbeRequests,
 		openSeaSlugVerificationRequests,
-		openSeaSlugProbeVerificationTokenIds,
+		openSeaSlugProbeSampleTokenIds,
 		imageCacheEstimateRequests
 	};
 }
 
 function openSeaSlugProbeResponseForAddress(
 	address: string,
-	verificationTokenIds: readonly string[] = []
+	sampleTokenId: string | null = null
 ): BootstrapOpenSeaSlugProbeApiResponse {
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable) {
 		return buildOpenSeaSlugProbeResponse({
@@ -369,10 +357,7 @@ function openSeaSlugProbeResponseForAddress(
 		});
 	}
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope) {
-		if (
-			verificationTokenIds.join(',') !==
-			BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.verificationTokenIds.join(',')
-		) {
+		if (sampleTokenId !== BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.sampleTokenId) {
 			return {
 				chain: BOOTSTRAP_PROBE_E2E_CHAIN,
 				address,
@@ -401,9 +386,9 @@ function openSeaSlugProbeResponseForAddress(
 function openSeaSlugProbeResponseForAddressAndSlug(
 	address: string,
 	slug: string,
-	verificationTokenIds: readonly string[] = []
+	sampleTokenId: string | null = null
 ): BootstrapOpenSeaSlugProbeApiResponse {
-	const addressResult = openSeaSlugProbeResponseForAddress(address, verificationTokenIds);
+	const addressResult = openSeaSlugProbeResponseForAddress(address, sampleTokenId);
 	if (
 		addressResult.status === OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found &&
 		addressResult.slug === slug

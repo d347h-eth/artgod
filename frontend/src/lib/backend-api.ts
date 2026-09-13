@@ -878,16 +878,7 @@ export async function createBootstrapRun(
 export async function probeBootstrapOpenSeaSlug(
 	fetchFn: typeof fetch,
 	chainRef: string,
-	input:
-		| {
-				address: string;
-				slug?: string;
-				verificationTokenIds?: readonly string[];
-		  }
-		| {
-				address?: never;
-				slug: string;
-		  }
+	input: { address: string; slug?: string; sampleTokenId: string }
 ): Promise<BootstrapOpenSeaSlugProbeApiResponse> {
 	return requestJson<BootstrapOpenSeaSlugProbeApiResponse>(
 		fetchFn,

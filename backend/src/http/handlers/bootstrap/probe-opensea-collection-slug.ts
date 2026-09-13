@@ -13,7 +13,7 @@ export type ProbeOpenSeaCollectionSlugRoute = {
     Querystring: {
         address?: string;
         slug?: string;
-        verification_token_id?: string | string[];
+        sample_token_id?: string;
     };
 };
 
@@ -40,28 +40,16 @@ export class ProbeOpenSeaCollectionSlugHttpAdapter {
     ): ProbeOpenSeaCollectionSlugInput {
         return {
             chainRef: request.params.chain_ref,
-            address: optionalString(
-                request.query[BOOTSTRAP_API_QUERY_PARAM.Address],
-            ),
+            address:
+                optionalString(
+                    request.query[BOOTSTRAP_API_QUERY_PARAM.Address],
+                ) ?? "",
             slug: optionalString(request.query[BOOTSTRAP_API_QUERY_PARAM.Slug]),
-            verificationTokenIds: optionalStringList(
-                request.query[BOOTSTRAP_API_QUERY_PARAM.VerificationTokenId],
+            sampleTokenId: optionalString(
+                request.query[BOOTSTRAP_API_QUERY_PARAM.SampleTokenId],
             ),
         };
     }
-}
-
-function optionalStringList(value: unknown): string[] | undefined {
-    if (value === undefined) return undefined;
-    const values = Array.isArray(value) ? value : [value];
-    return values.map((item) => {
-        if (typeof item !== "string" || !item.trim()) {
-            throw new ReadModelBadRequestError(
-                "query value must be a non-empty string",
-            );
-        }
-        return item.trim();
-    });
 }
 
 function optionalString(value: unknown): string | undefined {

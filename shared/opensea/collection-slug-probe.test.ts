@@ -1,46 +1,27 @@
 import { describe, expect, it } from "vitest";
 import {
-    resolveOpenSeaExplicitTokenBoundaryIds,
-    resolveOpenSeaTokenRangeBoundaryIds,
-} from "./collection-slug-probe.js";
+    buildProbeBootstrapOpenSeaSlugPath,
+    BOOTSTRAP_API_QUERY_PARAM,
+} from "../http/bootstrap-routes.js";
 
-describe("OpenSea slug verification token boundaries", () => {
-    it("returns the first and last token in a continuous range", () => {
-        expect(
-            resolveOpenSeaTokenRangeBoundaryIds({
-                startTokenId: "462000000",
-                totalSupply: 400,
+describe("OpenSea sample probe request", () => {
+    it("carries exactly the submitted sample independently of collection boundaries", () => {
+        const url = new URL(
+            buildProbeBootstrapOpenSeaSlugPath({
+                chainRef: "ethereum",
+                address: "0x1111111111111111111111111111111111111111",
+                sampleTokenId: "2",
+                slug: "shared-project",
             }),
-        ).toEqual(["462000000", "462000399"]);
-    });
-
-    it("returns one token for a singleton range", () => {
+            "http://localhost",
+        );
         expect(
-            resolveOpenSeaTokenRangeBoundaryIds({
-                startTokenId: "001",
-                totalSupply: 1,
-            }),
-        ).toEqual(["1"]);
-    });
-
-    it("returns the numeric boundaries of an explicit token scope", () => {
-        expect(
-            resolveOpenSeaExplicitTokenBoundaryIds(["10", "2", "002", " 30 "]),
-        ).toEqual(["2", "30"]);
-    });
-
-    it("rejects non-integer or unsafe range supplies", () => {
-        expect(
-            resolveOpenSeaTokenRangeBoundaryIds({
-                startTokenId: "1",
-                totalSupply: 1.5,
-            }),
-        ).toEqual([]);
-        expect(
-            resolveOpenSeaTokenRangeBoundaryIds({
-                startTokenId: "1",
-                totalSupply: Number.MAX_SAFE_INTEGER + 1,
-            }),
-        ).toEqual([]);
+            url.searchParams.getAll(BOOTSTRAP_API_QUERY_PARAM.SampleTokenId),
+        ).toEqual(["2"]);
+        expect([...url.searchParams.keys()]).toEqual([
+            BOOTSTRAP_API_QUERY_PARAM.Address,
+            BOOTSTRAP_API_QUERY_PARAM.Slug,
+            BOOTSTRAP_API_QUERY_PARAM.SampleTokenId,
+        ]);
     });
 });

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { OPENSEA_COLLECTION_SLUG_PROBE_STATUS } from "@artgod/shared/opensea/collection-slug-probe";
+import {
+    OPENSEA_COLLECTION_SLUG_PROBE_ERROR,
+    OPENSEA_COLLECTION_SLUG_PROBE_STATUS,
+} from "@artgod/shared/opensea/collection-slug-probe";
 import {
     OPENSEA_API_KEY_ENV,
     type OpenSeaIntegrationStatus,
@@ -24,7 +27,7 @@ const CHAIN = {
 const COLLECTION_SLUG = "gumbo";
 const OPENSEA_SLUG = "gumbo-by-mathias-isaksen";
 const CONTRACT_ADDRESS = "0x1111111111111111111111111111111111111111";
-const VERIFICATION_TOKEN_IDS = ["462000000", "462000399"];
+const SAMPLE_TOKEN_ID = "462000001";
 const ENABLED_OPENSEA_INTEGRATION: OpenSeaIntegrationStatus = {
     enabled: true,
     mode: "auto",
@@ -41,11 +44,11 @@ const COLLECTION: OpenSeaCollectionSyncState = {
     openseaSlug: null,
     openseaStatus: OPENSEA_COLLECTION_STATUS.Failed,
     openseaLastError: "previous failure",
-    verificationTokenIds: VERIFICATION_TOKEN_IDS,
+    sampleTokenId: SAMPLE_TOKEN_ID,
 };
 
 describe("StartOpenSeaCollectionSyncUseCase", () => {
-    it("probes a live collection through its persisted scope boundaries", async () => {
+    it("probes a live collection through its locally owned sample", async () => {
         const verificationInputs: unknown[] = [];
         const fixture = makeUseCase({
             async resolveVerifiedSlug(input) {
@@ -71,7 +74,7 @@ describe("StartOpenSeaCollectionSyncUseCase", () => {
             {
                 address: CONTRACT_ADDRESS,
                 requestedSlug: null,
-                verificationTokenIds: VERIFICATION_TOKEN_IDS,
+                sampleTokenId: SAMPLE_TOKEN_ID,
             },
         ]);
         expect(fixture.markPendingInputs).toEqual([]);
@@ -98,7 +101,7 @@ describe("StartOpenSeaCollectionSyncUseCase", () => {
             {
                 address: CONTRACT_ADDRESS,
                 requestedSlug: OPENSEA_SLUG,
-                verificationTokenIds: VERIFICATION_TOKEN_IDS,
+                sampleTokenId: SAMPLE_TOKEN_ID,
             },
         ]);
         expect(fixture.markPendingInputs).toEqual([
@@ -114,6 +117,30 @@ describe("StartOpenSeaCollectionSyncUseCase", () => {
                 collectionId: COLLECTION.collectionId,
             },
         ]);
+    });
+
+    it("requires a local owned sample without querying OpenSea or mutating state", async () => {
+        let calls = 0;
+        const fixture = makeUseCase(
+            {
+                async resolveVerifiedSlug() {
+                    calls += 1;
+                    return OPENSEA_SLUG;
+                },
+            },
+            { ...COLLECTION, sampleTokenId: null },
+        );
+        await expect(
+            fixture.useCase.probeSlug({
+                chainRef: CHAIN.slug,
+                collectionRef: COLLECTION_SLUG,
+            }),
+        ).rejects.toThrow(
+            OPENSEA_COLLECTION_SLUG_PROBE_ERROR.LocalSampleUnavailable,
+        );
+        expect(calls).toBe(0);
+        expect(fixture.markPendingInputs).toEqual([]);
+        expect(fixture.queueInputs).toEqual([]);
     });
 
     it("does not mutate collection state when identity verification fails", async () => {
@@ -137,7 +164,10 @@ describe("StartOpenSeaCollectionSyncUseCase", () => {
     });
 });
 
-function makeUseCase(slugProbePort: OpenSeaCollectionSyncSlugProbePort) {
+function makeUseCase(
+    slugProbePort: OpenSeaCollectionSyncSlugProbePort,
+    collection: OpenSeaCollectionSyncState = COLLECTION,
+) {
     const markPendingInputs: unknown[] = [];
     const queueInputs: unknown[] = [];
     const useCase = new StartOpenSeaCollectionSyncUseCase(
@@ -150,7 +180,7 @@ function makeUseCase(slugProbePort: OpenSeaCollectionSyncSlugProbePort) {
         },
         {
             resolveCollectionRef() {
-                return COLLECTION;
+                return collection;
             },
             resolveOpenSeaSlugOwner() {
                 return null;

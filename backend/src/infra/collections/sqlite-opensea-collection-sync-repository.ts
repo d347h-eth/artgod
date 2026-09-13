@@ -1,8 +1,4 @@
 import { db } from "@artgod/shared/database";
-import {
-    resolveOpenSeaExplicitTokenBoundaryIds,
-    resolveOpenSeaTokenRangeBoundaryIds,
-} from "@artgod/shared/opensea/collection-slug-probe";
 import { OPENSEA_COLLECTION_STATUS } from "@artgod/shared/types";
 import type {
     CollectionStatus,
@@ -20,23 +16,19 @@ type OpenSeaCollectionSyncRow = {
     opensea_slug: string | null;
     opensea_status: string | null;
     opensea_last_error: string | null;
-    scope_start_token_id: string | null;
-    scope_total_supply: number | null;
-    scope_first_explicit_token_id: string | null;
-    scope_last_explicit_token_id: string | null;
+    sample_token_id: string | null;
 };
 
 const OPEN_SEA_COLLECTION_SYNC_SELECT =
     "SELECT chain_id, collection_id, slug, address, status, opensea_slug, " +
-    "opensea_status, opensea_last_error, scope_start_token_id, scope_total_supply, " +
-    "(SELECT token_id FROM collection_scope_tokens AS scope_tokens " +
-    "WHERE scope_tokens.chain_id = collections.chain_id " +
-    "AND scope_tokens.collection_id = collections.collection_id " +
-    "ORDER BY length(token_id) ASC, token_id ASC LIMIT 1) AS scope_first_explicit_token_id, " +
-    "(SELECT token_id FROM collection_scope_tokens AS scope_tokens " +
-    "WHERE scope_tokens.chain_id = collections.chain_id " +
-    "AND scope_tokens.collection_id = collections.collection_id " +
-    "ORDER BY length(token_id) DESC, token_id DESC LIMIT 1) AS scope_last_explicit_token_id " +
+    "opensea_status, opensea_last_error, " +
+    // Canonical positive ownership supplies a minted representative, even for sparse ranges.
+    "(SELECT token_id FROM nft_balances AS balances " +
+    "WHERE balances.chain_id = collections.chain_id " +
+    "AND balances.collection_id = collections.collection_id " +
+    "AND balances.contract_address = collections.address " +
+    "AND CAST(balances.amount AS INTEGER) > 0 " +
+    "ORDER BY token_id ASC LIMIT 1) AS sample_token_id " +
     "FROM collections ";
 
 export class SqliteOpenSeaCollectionSyncRepository {
@@ -170,21 +162,6 @@ function mapCollection(
         openseaSlug: row.opensea_slug,
         openseaStatus: row.opensea_status as OpenSeaCollectionStatus | null,
         openseaLastError: row.opensea_last_error,
-        verificationTokenIds: resolveVerificationTokenIds(row),
+        sampleTokenId: row.sample_token_id,
     };
-}
-
-function resolveVerificationTokenIds(row: OpenSeaCollectionSyncRow): string[] {
-    if (row.scope_start_token_id !== null && row.scope_total_supply !== null) {
-        return resolveOpenSeaTokenRangeBoundaryIds({
-            startTokenId: row.scope_start_token_id,
-            totalSupply: row.scope_total_supply,
-        });
-    }
-    return resolveOpenSeaExplicitTokenBoundaryIds(
-        [
-            row.scope_first_explicit_token_id,
-            row.scope_last_explicit_token_id,
-        ].filter((tokenId): tokenId is string => tokenId !== null),
-    );
 }

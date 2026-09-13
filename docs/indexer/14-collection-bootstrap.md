@@ -41,7 +41,7 @@ launch.
 
 Trigger collection bootstrap with `metadata-mode` defaulting to `best_effort`.
 The trigger calls the backend bootstrap API, probes the contract first, applies
-the same extension/image-cache suggestion the frontend form would submit, then
+the returned extension/image-cache suggestion, then
 creates the durable run through the backend step planner. Run it only while the
 backend is in an admin-capable deployment mode; public single-collection mode
 does not register bootstrap write routes.
@@ -53,21 +53,21 @@ yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --slu
 yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --sample-token-id <id> --manual-range-start-token-id <id> --manual-range-total-supply <count>
 ```
 
-When `--opensea-slug` is present, the trigger first asks the backend to verify
-that the OpenSea collection lists the contract and that representative tokens
-from the resolved bootstrap scope belong to that exact slug. It sends the first
-and last token for a range or explicit-token scope, and the probed token for an
-enumerable collection. A missing, disabled, or mismatched result stops before
-the CSRF and create-run requests.
+When `--opensea-slug` is present, the trigger asks the backend to compare it
+with `nft.collection` from exactly one OpenSea NFT endpoint lookup for the
+contract and sample token. It uses the explicit `--sample-token-id`, or the
+probed sample if no sample was supplied. It never sends range boundaries or
+uses the contract-only endpoint. An explicitly requested but unavailable or
+mismatched slug stops the CLI before run creation; omit that optional flag to
+bootstrap onchain independently.
 
-`--sample-token-id` changes only the representative token used by the contract
-probe for metadata fields and storage estimates. It does not define collection
-scope. For a non-enumerable contract, pair a custom sample with either
-`--manual-token-ids <comma-or-space-separated-ids>` or both
+`--sample-token-id` selects the token used for metadata, estimates, and optional
+OpenSea identity. It does not define collection scope. Supply explicit scope
+with either `--manual-token-ids <comma-or-space-separated-ids>` or both
 `--manual-range-start-token-id <id>` and
-`--manual-range-total-supply <count>`. Explicit manual options are rejected for
-contracts that the latest probe reports as enumerable; an explicit range must
-also match an inferred probe range.
+`--manual-range-total-supply <count>`. Explicit manual scope takes precedence
+even on Enumerable contracts or over an inferred suggestion. Non-Enumerable
+probes do not infer a range from the current minted count.
 
 Inside the deploy `backend` container, the trigger defaults to the local backend
 listener at `http://127.0.0.1:<BACKEND_PORT>`. Use `--backend-origin` only when
@@ -78,6 +78,28 @@ Trigger manual historical backfill from CLI:
 ```sh
 yarn workspace @artgod/indexer run dev:backfill-trigger --from-block <n> --to-block <n> [--collection-id <id>] [--batch-size <n>]
 ```
+
+## Manual-First Probe Form
+
+All request fields are available after the contract-safety acknowledgement:
+address, sample token, image/animation source fields, local/OpenSea slugs, scope,
+and cache settings. Edits do not make network requests. Press **Probe** to submit
+the staged metadata inputs; detected fields can be accepted explicitly with
+**Apply detected fields**. Neither action silently replaces the configured scope.
+
+The first token ID (editable default `1`) and total supply define the inclusive
+scope `first .. first + supply - 1`, not the currently minted inventory.
+A sample is one existing token inside that scope; it need not be the first ID.
+ERC721Enumerable support is a diagnostic, not permission to select every project
+on a shared contract. Whole-contract enumeration requires an explicit checkbox.
+
+The short preflight reads contract capabilities and validates sample ownership
+through Ethereum JSON-RPC before fetching tokenURI metadata over HTTP/IPFS.
+It does not scan the range, paginate a marketplace, or read historical events.
+When a supplied sample resolves and OpenSea is enabled, the explicit Probe
+action also starts the optional single-NFT slug lookup. An unresolved or
+unavailable slug does not block onchain setup: queueing omits that slug and
+bidding remains unavailable until late OpenSea setup succeeds.
 
 ## Current Lifecycle
 
@@ -116,7 +138,16 @@ Current v1 limits:
 
 ### 4. Metadata snapshot
 
-- enumerate collection token ids
+- resolve the selected scope at the anchor: Enumerable mode uses totalSupply
+  and tokenByIndex; manual ranges/lists check ownerOf for each candidate
+- manual ranges are iterated lazily; only IDs with confirmed nonzero ownership
+  receive metadata tasks, while the complete configured scope remains persisted
+  for future mint routing
+- recognized decoded nonexistent-token reverts are skipped; unknown reverts,
+  invalid owners, provider errors, and missing archive state remain failures
+  handled by RPC resilience or explicit step retry
+- an empty anchor snapshot fails visibly; no event-history or marketplace
+  inventory discovery is performed
 - fetch/store metadata first
 - this step runs before OpenSea offchain work so local token/attribute context exists
 - bootstrap metadata writes do not publish per-token extension work; the later
@@ -135,8 +166,8 @@ created run persists the selected field in `request_image_source_field`, and
 bootstrap metadata fetching uses that field when normalizing each token.
 
 The probe can also accept an explicit sample token id. This changes only the
-representative `tokenURI` payload used by the pre-bootstrap form for preview and
-storage estimates. It is not persisted to the bootstrap run and does not change
+representative ownerOf/tokenURI reads used by the pre-bootstrap form for preview,
+storage estimates, and optional OpenSea identity. It is not persisted to the bootstrap run and does not change
 the collection token scope or later metadata enumeration.
 
 When the probed contract is a recognized deterministic proxy, the probe response
@@ -200,7 +231,8 @@ The first embedded extension, Terraforms, uses this shadow path to cache version
 
 - seed one ownership task per token after metadata completes
 - each task calls `ownerOf(tokenId)` at the anchor block through the shared
-  resilient bootstrap RPC lane
+  resilient bootstrap RPC lane (manual-scope ownership is currently re-read after
+  enumeration rather than cached across steps)
 - successful tasks persist snapshot rows
 - task retries use the bootstrap retry policy
 - ownership is mandatory: terminal ownership task failures fail the bootstrap
@@ -232,17 +264,15 @@ This OpenSea work runs in parallel with the short onchain backfill.
 
 When OpenSea is disabled (`OPENSEA_INTEGRATION_MODE=disabled` or `auto` with no `OPENSEA_API_KEY`), bootstrap records an `opensea.skipped` run event and does not mark collection OpenSea state pending. When OpenSea is enabled but no slug was configured, bootstrap also records `opensea.skipped` and continues onchain bootstrap without OpenSea work.
 
-If a collection becomes `live` with a persisted OpenSea slug but without
-`opensea_status = ready`, the collections table exposes `start opensea sync`.
-The modal resolves or verifies the slug against the persisted contract and token
-scope. For token-range and explicit-token collections, the backend checks the
-first and last token through OpenSea's NFT endpoint instead of trusting the one
-contract-level slug, which may identify a different project on shared
-contracts. Starting sync repeats that verification before it stores the slug,
-marks the collection OpenSea state `pending`, and enqueues an `opensea-bootstrap`
-job without a bootstrap-run context. The OpenSea worker then updates only
-collection-level OpenSea state, so it can repair a skipped or failed OpenSea
-snapshot after the original bootstrap run has already completed.
+If a collection becomes `live` without OpenSea readiness, the collections table
+exposes `start opensea sync`, including for a missing persisted slug. The modal
+performs no lookup until **resolve** is pressed. The backend selects one token
+with positive canonical local ownership and uses that exact contract/token in
+the NFT lookup. It never uses the first/last range boundaries. If no owned token
+is locally available, resolution reports that ownership sync must complete.
+Starting sync repeats single-sample verification before storing the slug,
+marking OpenSea state `pending`, and enqueueing an `opensea-bootstrap` job
+without a bootstrap-run context. No historical bootstrap run is rewritten.
 
 ### 9. Mark collection `live`
 

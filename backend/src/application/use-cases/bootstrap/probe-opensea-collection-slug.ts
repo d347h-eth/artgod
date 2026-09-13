@@ -1,7 +1,7 @@
 import type { ChainRecord } from "@artgod/shared/types/browse";
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 import {
-    OPENSEA_COLLECTION_SLUG_PROBE_MAX_VERIFICATION_TOKEN_IDS,
+    OPENSEA_COLLECTION_SLUG_PROBE_ERROR,
     OPENSEA_COLLECTION_SLUG_PROBE_STATUS,
     type OpenSeaCollectionSlugProbeStatus,
 } from "@artgod/shared/opensea/collection-slug-probe";
@@ -10,9 +10,9 @@ import { BootstrapValidationError } from "./types.js";
 
 export type ProbeOpenSeaCollectionSlugInput = {
     chainRef: string;
-    address?: string;
+    address: string;
     slug?: string;
-    verificationTokenIds?: string[];
+    sampleTokenId?: string;
 };
 
 export type ProbeOpenSeaCollectionSlugOutput = {
@@ -27,9 +27,9 @@ export type ProbeOpenSeaCollectionSlugOutput = {
 // Outbound lookup boundary for OpenSea collection identity probing.
 export interface OpenSeaCollectionSlugProbePort {
     resolveVerifiedSlug(input: {
-        address: string | null;
+        address: string;
         requestedSlug: string | null;
-        verificationTokenIds: readonly string[];
+        sampleTokenId: string;
     }): Promise<string | null>;
 }
 
@@ -48,22 +48,8 @@ export class ProbeOpenSeaCollectionSlugUseCase {
             input.chainRef,
             this.defaultChainId,
         );
-        const address = input.address ? normalizeAddress(input.address) : null;
+        const address = normalizeAddress(input.address);
         const requestedSlug = input.slug ? normalizeSlug(input.slug) : null;
-        const verificationTokenIds = normalizeVerificationTokenIds(
-            input.verificationTokenIds ?? [],
-        );
-        if (address === null && requestedSlug === null) {
-            throw new BootstrapValidationError(
-                "Provide at least one OpenSea slug probe target",
-            );
-        }
-        if (address === null && verificationTokenIds.length > 0) {
-            throw new BootstrapValidationError(
-                "OpenSea verification token IDs require a contract address",
-            );
-        }
-
         if (!this.openseaIntegration.enabled) {
             return {
                 chain,
@@ -80,12 +66,13 @@ export class ProbeOpenSeaCollectionSlugUseCase {
             throw new Error("OpenSea slug probe client is not configured");
         }
 
-        // Resolve the slug and bind shared contracts to representative scope tokens.
+        const sampleTokenId = normalizeSampleTokenId(input.sampleTokenId);
+        // Resolve through the metadata sample independently of the collection range.
         const slug =
             await this.openSeaCollectionSlugProbePort.resolveVerifiedSlug({
                 address,
                 requestedSlug,
-                verificationTokenIds,
+                sampleTokenId,
             });
         if (requestedSlug && slug !== requestedSlug) {
             return {
@@ -104,7 +91,7 @@ export class ProbeOpenSeaCollectionSlugUseCase {
                 requestedSlug,
                 status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Missing,
                 slug: null,
-                reason: "OpenSea did not return a collection slug for this contract",
+                reason: "OpenSea did not return a collection for this sample token. Check the sample token ID and try again.",
             };
         }
 
@@ -120,7 +107,7 @@ export class ProbeOpenSeaCollectionSlugUseCase {
 }
 
 function normalizeAddress(raw: string): string {
-    const value = raw.trim().toLowerCase();
+    const value = raw?.trim().toLowerCase() ?? "";
     if (!/^0x[a-f0-9]{40}$/.test(value)) {
         throw new BootstrapValidationError("Invalid address");
     }
@@ -135,22 +122,15 @@ function normalizeSlug(raw: string): string {
     return value;
 }
 
-function normalizeVerificationTokenIds(tokenIds: readonly string[]): string[] {
-    if (
-        tokenIds.length >
-        OPENSEA_COLLECTION_SLUG_PROBE_MAX_VERIFICATION_TOKEN_IDS
-    ) {
+function normalizeSampleTokenId(raw: string | undefined): string {
+    const value = raw?.trim();
+    if (!value)
         throw new BootstrapValidationError(
-            "OpenSea slug verification accepts at most the first and last token IDs",
+            OPENSEA_COLLECTION_SLUG_PROBE_ERROR.SampleRequired,
         );
-    }
-    return tokenIds.map((raw) => {
-        const value = raw.trim();
-        if (!/^\d+$/.test(value)) {
-            throw new BootstrapValidationError(
-                "OpenSea verification token IDs must be decimal",
-            );
-        }
-        return value;
-    });
+    if (!/^\d+$/.test(value))
+        throw new BootstrapValidationError(
+            OPENSEA_COLLECTION_SLUG_PROBE_ERROR.SampleInvalid,
+        );
+    return BigInt(value).toString();
 }
