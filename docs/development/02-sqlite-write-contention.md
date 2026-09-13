@@ -3,7 +3,8 @@
 This document owns ArtGod's cross-process SQLite write-contention policy and
 the production write-path inventory. It records the repository-wide audit from
 2026-08-20 and separates safe baseline handling from recovery behavior that
-needs a domain decision.
+needs a domain decision. The regular-write inventory was rechecked against
+current source on 2026-09-13.
 
 Primary files:
 
@@ -57,7 +58,10 @@ Retries are synchronous because `better-sqlite3` is synchronous and its native
 busy wait already blocks the calling process. The additional JavaScript
 backoff is deliberately small and bounded. In the worst case, 3 complete
 5-second native waits plus backoff can block that process's event loop for about
-15.03 seconds before the error escapes.
+15.03 seconds before the error escapes. This is the nominal contention wait for
+one lock acquisition per attempt, not a deadline for executing SQL or an entire
+business operation. The native timeout and retry budget are code-owned in
+`shared/database/db.ts`; no manifest, environment, or Admin setting exposes them.
 
 ## Audit Summary
 
@@ -132,7 +136,9 @@ its connection/statement initialization.
 | `infra/collections/sqlite-collection-purge-repository.ts`         | ordered collection-wide deletes and post-delete verification                                            | explicit deferred outlier; see below                                   |
 
 Read-only backend repositories and shared read models are not write-contention
-paths and are excluded from this table.
+paths and are excluded from this table. In particular, the two bid-book read
+transactions in `infra/trading/sqlite-bidding-bid-book-repository.ts` deliberately
+retain deferred snapshot reads; they must not acquire a writer lock.
 
 ### Indexer
 
@@ -183,10 +189,16 @@ NATS, filesystem, or marketplace effects.
 ### Collection purge transaction
 
 `backend/src/infra/collections/sqlite-collection-purge-repository.ts` retains
-one explicit raw transaction. It can delete across every collection-scoped
-table and then dynamically verifies the schema. Its destructive scope,
-potential duration, and operator-facing result need an explicit retry/time
-budget review before automatic whole-operation replay is enabled.
+one explicit raw write transaction. It deletes across collection-scoped tables
+and dynamically verifies the schema. Its first statement already writes, so it
+does not have the read-snapshot promotion race covered by the baseline. The
+callback is database-only, but its duration and lifecycle consequences require
+a separate design. Purge hardening is explicitly deferred under `BKL-065`, with
+per-collection admission and verified shutdown under `BKL-064` in the
+[unified backlog](../planning/01-unified-backlog.md). The
+[collection lifecycle reference](../backend/01-api-and-application-architecture.md#collection-lifecycle-controls-and-purge)
+records the current gaps and future design constraints; this baseline does not
+implement purge coordination or replay.
 
 ### Uncaught lease and heartbeat timers
 

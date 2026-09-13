@@ -127,7 +127,6 @@ export class SqliteCollectionPurgeRepository {
     purgeCollectionData(
         input: PurgeCollectionParams,
     ): PurgeCollectionDeletedRowCount[] {
-        // Keep this long destructive unit outside generic replay until its retry/time budget is reviewed.
         return db.raw.transaction((params: PurgeCollectionParams) => {
             const deletedRows = this.deleteStatements.map(
                 ({ table, statement }) => ({

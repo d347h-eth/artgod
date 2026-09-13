@@ -29,7 +29,7 @@ The shared database wrapper (`shared/database/db.ts`) enforces:
 
 All code uses a single connection per process, created on demand.
 Statements already inside a transaction are not retried independently. See
-`docs/development/02-sqlite-write-contention.md` for the complete policy,
+[SQLite write contention](../development/02-sqlite-write-contention.md) for the complete policy,
 write-path inventory, and semantic outliers.
 
 ## Migration Runner
