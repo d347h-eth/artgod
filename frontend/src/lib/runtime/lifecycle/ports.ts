@@ -7,7 +7,32 @@ export const RUNTIME_STATUS_STATES = {
 	stopped: 'stopped'
 } as const;
 
+// Mirrors runtime/recovery.rs at the desktop bridge boundary.
+export const STARTUP_PHASES = {
+	preparing: 'preparing',
+	recovery: 'recovery',
+	services: 'services',
+	cleanup: 'cleanup',
+	backoff: 'backoff'
+} as const;
+export const RECOVERY_TASKS = { natsMaintenance: 'natsMaintenance' } as const;
+export const RECOVERY_FAILURE_REASONS = { failed: 'failed', timedOut: 'timedOut' } as const;
+export type StartupActivity = {
+	phase: (typeof STARTUP_PHASES)[keyof typeof STARTUP_PHASES];
+	task: (typeof RECOVERY_TASKS)[keyof typeof RECOVERY_TASKS] | null;
+	startedAtMs: number;
+	deadlineAtMs: number;
+};
+export type RecoveryFailure = {
+	task: NonNullable<StartupActivity['task']>;
+	reason: (typeof RECOVERY_FAILURE_REASONS)[keyof typeof RECOVERY_FAILURE_REASONS];
+};
+
 export type RuntimeStatus = {
+	operationId: number;
+	revision: number;
+	startup: StartupActivity | null;
+	recoveryFailure: RecoveryFailure | null;
 	state: string;
 	restartCount: number;
 	lastError: string | null;
@@ -58,10 +83,23 @@ export interface RuntimePort {
 }
 
 export interface BackendProbePort {
-	probeReady(): Promise<void>;
+	probeReady(signal?: AbortSignal): Promise<void>;
 }
 
 export interface ClockPort {
 	now(): number;
 	sleep(ms: number): Promise<void>;
 }
+
+// Runtime store action ids shown in Admin status messages while a command is active.
+export const RUNTIME_BUSY_ACTIONS = {
+	start: 'start',
+	autoStart: 'autoStart',
+	stop: 'stop',
+	restart: 'restart',
+	shutdown: 'shutdown',
+	preflight: 'preflight',
+	openConfig: 'openConfig',
+	openLogs: 'openLogs',
+	openUserlandUi: 'openUserlandUi'
+} as const;

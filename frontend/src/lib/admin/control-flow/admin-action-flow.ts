@@ -6,6 +6,7 @@ import {
 } from '$lib/admin/configuration/validation';
 import type { LifecyclePhase } from '$lib/runtime/lifecycle/core/types';
 import { RUNTIME_STATUS_STATES, type RuntimeStatus } from '$lib/runtime/lifecycle/ports';
+import { RUNTIME_BUSY_ACTIONS } from '$lib/runtime/lifecycle/ports';
 import { RPC_ENDPOINT_LIST_ENV_KEY } from '@artgod/shared/config/rpc-endpoints';
 
 export const ADMIN_ACTION_FLOW_LABELS = {
@@ -56,6 +57,7 @@ export type AdminActionFlow = {
 	configure: AdminFlowAction;
 	boot: AdminBootAction;
 	userland: AdminFlowAction;
+	stop: AdminFlowAction;
 };
 
 const ADMIN_RUNTIME_STATES = {
@@ -85,7 +87,7 @@ export function resolveAdminActionFlow(input: AdminActionFlowInput): AdminAction
 		input.runtimeBusyAction !== null ||
 		RUNTIME_TRANSIENT_STATES.has(runtimeState);
 	const runtimeRunning = runtimeState === ADMIN_RUNTIME_STATES.running;
-	const userlandReady = input.lifecyclePhase === ADMIN_LIFECYCLE_PHASES.ready;
+	const userlandReady = runtimeRunning && input.lifecyclePhase === ADMIN_LIFECYCLE_PHASES.ready;
 	const configured = input.config?.configured === true;
 	const bootUsesDefaults = !configured;
 	const requiredConfigIssues = resolveAdminLaunchConfigIssues(input.config);
@@ -114,6 +116,14 @@ export function resolveAdminActionFlow(input: AdminActionFlowInput): AdminAction
 
 	return {
 		state,
+		stop: {
+			label: 'stop infra',
+			disabled: !canStopRuntime(
+				input.runtimeStatus,
+				input.runtimeBusyAction,
+				input.runtimeInitialized
+			)
+		},
 		configure: {
 			label: ADMIN_ACTION_FLOW_LABELS.config,
 			disabled: false
@@ -139,6 +149,22 @@ export function resolveAdminActionFlow(input: AdminActionFlowInput): AdminAction
 			disabled: !userlandReady || input.runtimeBusyAction !== null
 		}
 	};
+}
+
+/** Stop has its own prerequisites; API readiness is never required to cancel startup. */
+export function canStopRuntime(
+	status: RuntimeStatus | null,
+	busyAction: string | null,
+	initialized = true
+): boolean {
+	return (
+		initialized &&
+		busyAction !== RUNTIME_BUSY_ACTIONS.stop &&
+		busyAction !== RUNTIME_BUSY_ACTIONS.shutdown &&
+		(status?.state === RUNTIME_STATUS_STATES.starting ||
+			status?.state === RUNTIME_STATUS_STATES.restarting ||
+			status?.state === RUNTIME_STATUS_STATES.running)
+	);
 }
 
 function resolveRuntimeState(status: RuntimeStatus | null): AdminRuntimeState {

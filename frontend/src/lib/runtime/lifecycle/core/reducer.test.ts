@@ -7,6 +7,10 @@ import type { RuntimeStatus } from '../ports';
 function makeStatus(state: string, overrides: Partial<RuntimeStatus> = {}): RuntimeStatus {
 	return {
 		state,
+		operationId: 0,
+		revision: 0,
+		startup: null,
+		recoveryFailure: null,
 		restartCount: 0,
 		lastError: null,
 		runningProcesses: [],
@@ -90,7 +94,7 @@ describe('lifecycle reducer', () => {
 			startedAtMs: 1000
 		});
 		expect(stillStopping.phase).toBe('stopping');
-		expect(stillStopping.apiReady).toBe(true);
+		expect(stillStopping.apiReady).toBe(false);
 	});
 
 	it('ignores non-stopping status updates while stopping lock is active', () => {
@@ -109,4 +113,28 @@ describe('lifecycle reducer', () => {
 
 		expect(next).toEqual(state);
 	});
+});
+
+it('renders the Rust wire fixture as preparation without claiming corruption', async () => {
+	const { readFileSync } = await import('node:fs');
+	const status: RuntimeStatus = JSON.parse(
+		readFileSync('../src-tauri/tests/fixtures/runtime-recovery-status.json', 'utf8')
+	);
+	let state = reduceLifecycle(createInitialLifecycleState(true, 5000), {
+		type: 'APPLY_RUNTIME_STATUS',
+		status,
+		previous: null,
+		startedAtMs: 5000
+	});
+	expect(state.phase).toBe('recovering');
+	expect(state.currentAction).toBe('Checking queued work…');
+	expect(state.startedAtMs).toBe(1000);
+	state = reduceLifecycle(state, {
+		type: 'APPLY_RUNTIME_STATUS',
+		status,
+		previous: status,
+		startedAtMs: 30_000
+	});
+	expect(state.events).toHaveLength(1);
+	expect(state.startedAtMs).toBe(1000);
 });

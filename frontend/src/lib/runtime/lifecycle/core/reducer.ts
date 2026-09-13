@@ -1,7 +1,9 @@
-import type { RuntimeStatus } from '../ports';
+import { STARTUP_PHASES, type RuntimeStatus } from '../ports';
+import { runtimeFailureMessage, startupAction } from './startup-presentation';
 import type { LifecycleAction, LifecycleConfig, LifecycleEvent, LifecycleState } from './types';
 
 const DEFAULT_EVENT_LIMIT = 200;
+export const STARTUP_PHASE_EVENT_CODE = 'runtime.startup.phase';
 
 export function createInitialLifecycleState(
 	desktopShellExpected: boolean,
@@ -53,29 +55,26 @@ export function reduceLifecycle(
 				phase: 'stopping',
 				currentAction: action.currentAction,
 				startedAtMs: action.startedAtMs,
-				stoppingLockActive: true
+				stoppingLockActive: true,
+				apiReady: false
 			};
 		case 'SET_FATAL':
 			return {
 				...state,
 				phase: 'fatal',
 				currentAction: action.currentAction,
-				startedAtMs: action.startedAtMs
+				startedAtMs: action.startedAtMs,
+				apiReady: false
 			};
 		case 'API_READY': {
-			const next: LifecycleState = {
+			if (state.stoppingLockActive || state.phase === 'stopping') return state;
+			return {
 				...state,
-				apiReady: true
+				apiReady: true,
+				phase: 'ready',
+				currentAction: 'Runtime ready',
+				startedAtMs: action.startedAtMs
 			};
-			if (!next.stoppingLockActive) {
-				return {
-					...next,
-					phase: 'ready',
-					currentAction: 'Runtime ready',
-					startedAtMs: action.startedAtMs
-				};
-			}
-			return next;
 		}
 		case 'APPEND_EVENT':
 			return appendLifecycleEvent(state, action.event, eventLimit);
@@ -99,23 +98,34 @@ function applyRuntimeStatus(
 	nowMs: number,
 	eventLimit: number
 ): LifecycleState {
-	if (state.stoppingLockActive && status.state !== 'stopping' && status.state !== 'stopped') {
+	if (
+		state.stoppingLockActive &&
+		status.state !== 'stopping' &&
+		status.state !== 'stopped' &&
+		status.operationId <= (previous?.operationId ?? status.operationId)
+	) {
 		return state;
 	}
 
 	const statusChanged =
+		previous?.operationId !== status.operationId ||
+		previous?.startup?.phase !== status.startup?.phase ||
+		previous?.startup?.task !== status.startup?.task ||
 		previous?.state !== status.state ||
 		previous?.restartCount !== status.restartCount ||
 		previous?.lastError !== status.lastError;
 
-	let next = state;
+	// A missed restart event must not carry API readiness into a new core generation.
+	let next =
+		previous && previous.operationId !== status.operationId ? { ...state, apiReady: false } : state;
 
 	if (status.state === 'stopping') {
 		next = {
 			...next,
 			phase: 'stopping',
 			currentAction: 'Shutting down local runtime processes...',
-			startedAtMs: nowMs,
+			startedAtMs: statusChanged ? nowMs : next.startedAtMs,
+			apiReady: false,
 			stoppingLockActive: true
 		};
 		if (statusChanged) {
@@ -133,8 +143,9 @@ function applyRuntimeStatus(
 	if (status.state === 'stopped' && next.stoppingLockActive) {
 		next = {
 			...next,
-			phase: 'stopping',
-			currentAction: 'Runtime stopped. Finalizing shutdown...',
+			phase: 'booting',
+			currentAction: 'Runtime stopped. Waiting for start command...',
+			apiReady: false,
 			stoppingLockActive: false
 		};
 		if (statusChanged) {
@@ -169,6 +180,27 @@ function applyRuntimeStatus(
 			);
 		}
 		return next;
+	}
+
+	if (status.startup && (status.state === 'starting' || status.state === 'restarting')) {
+		next = {
+			...next,
+			phase: status.startup.phase === STARTUP_PHASES.recovery ? 'recovering' : 'booting',
+			currentAction: startupAction(status.startup),
+			startedAtMs: status.startup.startedAtMs,
+			apiReady: false,
+			stoppingLockActive: false
+		};
+		return statusChanged
+			? appendLifecycleEvent(
+					next,
+					createEvent('info', STARTUP_PHASE_EVENT_CODE, next.currentAction, {
+						operationId: status.operationId,
+						phase: status.startup.phase
+					}),
+					eventLimit
+				)
+			: next;
 	}
 
 	if (status.state === 'restarting') {
@@ -218,8 +250,9 @@ function applyRuntimeStatus(
 		next = {
 			...next,
 			phase: 'fatal',
-			currentAction: status.lastError.trim(),
-			startedAtMs: nowMs,
+			currentAction: runtimeFailureMessage(status),
+			startedAtMs: statusChanged ? nowMs : next.startedAtMs,
+			apiReady: false,
 			stoppingLockActive: false
 		};
 		if (statusChanged) {
@@ -239,6 +272,7 @@ function applyRuntimeStatus(
 			...next,
 			phase: 'booting',
 			currentAction: 'Runtime stopped. Waiting for start command...',
+			apiReady: false,
 			startedAtMs: next.startedAtMs,
 			stoppingLockActive: false
 		};

@@ -1,12 +1,24 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import { STARTUP_PHASE_EVENT_CODE } from './core/reducer';
 import { createLifecycleOrchestrator } from './orchestrator';
-import type { BackendProbePort, RuntimePort, RuntimeStatus } from './ports';
+import {
+	STARTUP_PHASES,
+	RECOVERY_TASKS,
+	RECOVERY_FAILURE_REASONS,
+	type BackendProbePort,
+	type RuntimePort,
+	type RuntimeStatus
+} from './ports';
 import type { LifecycleState } from './core/types';
 
 function makeStatus(state: string, overrides: Partial<RuntimeStatus> = {}): RuntimeStatus {
 	return {
 		state,
+		operationId: 0,
+		revision: 0,
+		startup: null,
+		recoveryFailure: null,
 		restartCount: 0,
 		lastError: null,
 		runningProcesses: [],
@@ -362,7 +374,7 @@ describe('lifecycle orchestrator', () => {
 		});
 
 		await orchestrator.autoStart();
-		await expect(orchestrator.waitUntilReady()).rejects.toThrow('did not reach running state');
+		await expect(orchestrator.waitUntilReady()).rejects.toThrow('did not finish starting in time');
 		expect(lifecycleStates.at(-1)?.phase).toBe('fatal');
 		expect(eventCodes(lifecycleStates)).toContain('ready.poll.timeout');
 	});
@@ -407,4 +419,184 @@ describe('lifecycle orchestrator', () => {
 		);
 		expect(eventCodes(lifecycleStates)).not.toContain('ready.poll.start');
 	});
+});
+
+function recoveryStatus(overrides: Partial<RuntimeStatus> = {}): RuntimeStatus {
+	return makeStatus('starting', {
+		operationId: 1,
+		revision: 1,
+		startup: {
+			phase: STARTUP_PHASES.recovery,
+			task: RECOVERY_TASKS.natsMaintenance,
+			startedAtMs: 0,
+			deadlineAtMs: 900_000
+		},
+		...overrides
+	});
+}
+
+describe('supervisor recovery readiness', () => {
+	it('waits through long recovery and both backend waits without early probing or duplicate phase events', async () => {
+		const clock = new FakeClock();
+		const port = new FakeRuntimePort();
+		port.statusValue = recoveryStatus();
+		const probes: number[] = [];
+		port.status = async () => {
+			if (clock.nowMs >= 110_000) return makeStatus('running', { operationId: 1, revision: 3 });
+			if (clock.nowMs >= 45_000)
+				return recoveryStatus({
+					revision: 2,
+					startup: {
+						phase: STARTUP_PHASES.services,
+						task: null,
+						startedAtMs: 45_000,
+						deadlineAtMs: 135_000
+					}
+				});
+			return recoveryStatus();
+		};
+		const h = createHarness({
+			runtimePort: port,
+			clock,
+			readyPollMs: 1_000,
+			backendProbePort: {
+				async probeReady() {
+					probes.push(clock.nowMs);
+				}
+			}
+		});
+		await h.orchestrator.waitUntilReady();
+		expect(probes).toEqual([110_000]);
+		expect(h.orchestrator.isReady()).toBe(true);
+		expect(h.lifecycleStates.some((s) => s.phase === 'fatal')).toBe(false);
+		expect(
+			eventCodes(h.lifecycleStates).filter((code) => code === STARTUP_PHASE_EVENT_CODE)
+		).toHaveLength(2);
+	});
+
+	it('attaches using the original deadline and does not renew it on repeated snapshots', async () => {
+		const clock = new FakeClock();
+		clock.nowMs = 904_000;
+		const port = new FakeRuntimePort();
+		port.statusValue = recoveryStatus();
+		const h = createHarness({ runtimePort: port, clock });
+		await expect(h.orchestrator.waitUntilReady()).rejects.toThrow('did not finish starting');
+		expect(clock.nowMs).toBeLessThan(906_000);
+	});
+
+	it.each([RECOVERY_FAILURE_REASONS.failed, RECOVERY_FAILURE_REASONS.timedOut])(
+		'keeps %s terminal and permits a new manual operation',
+		async (reason) => {
+			const port = new FakeRuntimePort();
+			port.statusValue = recoveryStatus();
+			const h = createHarness({ runtimePort: port });
+			await h.orchestrator.init();
+			port.emitStatus(
+				makeStatus('stopped', {
+					operationId: 1,
+					revision: 2,
+					lastError: 'private diagnostic',
+					recoveryFailure: { task: RECOVERY_TASKS.natsMaintenance, reason }
+				})
+			);
+			await expect(h.orchestrator.waitUntilReady()).rejects.toThrow('retry start');
+			expect(h.lifecycleStates.at(-1)?.currentAction).not.toContain('private diagnostic');
+			h.orchestrator.beginBoot('Retrying', 'test.retry', 'Retrying');
+			port.emitStatus(makeStatus('running', { operationId: 2, revision: 3 }));
+			await h.orchestrator.waitUntilReady();
+			expect(h.orchestrator.isReady()).toBe(true);
+		}
+	);
+
+	it('does not let obsolete polls or a stopped operation reopen Userland', async () => {
+		const port = new FakeRuntimePort();
+		port.statusValue = recoveryStatus();
+		const h = createHarness({ runtimePort: port });
+		await h.orchestrator.init();
+		h.orchestrator.setStopping('Stopping', 'test.stop');
+		port.emitStatus(makeStatus('stopped', { operationId: 1, revision: 3 }));
+		port.emitStatus(makeStatus('running', { operationId: 1, revision: 2 }));
+		expect(h.orchestrator.isReady()).toBe(false);
+		expect(h.lifecycleStates.at(-1)?.apiReady).toBe(false);
+		h.orchestrator.beginBoot('Retrying', 'test.retry', 'Retrying');
+		port.emitStatus(recoveryStatus({ operationId: 2, revision: 4 }));
+		h.orchestrator.acceptStatus(recoveryStatus({ operationId: 1, revision: 1 }));
+		expect(h.lifecycleStates.at(-1)?.phase).toBe('recovering');
+	});
+
+	it('bounds unavailable status during recovery instead of trusting a stale phase forever', async () => {
+		const port = new FakeRuntimePort();
+		port.statusValue = recoveryStatus();
+		const h = createHarness({ runtimePort: port });
+		await h.orchestrator.init();
+		port.status = async () => null;
+		await expect(h.orchestrator.waitUntilReady()).rejects.toThrow('status is unavailable');
+		expect(h.lifecycleStates.at(-1)?.phase).toBe('fatal');
+	});
+
+	it('bounds a hung status invocation and aborts a hung API probe on Stop', async () => {
+		vi.useFakeTimers();
+		try {
+			const port = new FakeRuntimePort();
+			port.statusValue = recoveryStatus();
+			const h = createHarness({ runtimePort: port });
+			await h.orchestrator.init();
+			port.status = () => new Promise(() => {});
+			const wait = expect(h.orchestrator.waitUntilReady()).rejects.toThrow('status is unavailable');
+			await vi.runAllTimersAsync();
+			await wait;
+			port.status = async () => makeStatus('running', { operationId: 2, revision: 2 });
+			h.orchestrator.dispose();
+			const probe = vi.fn(() => new Promise<void>(() => {}));
+			const h2 = createHarness({ runtimePort: port, backendProbePort: { probeReady: probe } });
+			const cancelled = expect(h2.orchestrator.waitUntilReady()).rejects.toThrow('cancelled');
+			await flushMicrotasks(40);
+			h2.orchestrator.setStopping('Stopping', 'test.stop');
+			await cancelled;
+			expect(probe.mock.calls.length).toBe(1);
+			expect(h2.orchestrator.isReady()).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('requires a new probe after an automatic core restart', async () => {
+		const port = new FakeRuntimePort();
+		port.statusValue = makeStatus('running', { operationId: 1, revision: 1 });
+		let probes = 0;
+		const h = createHarness({
+			runtimePort: port,
+			backendProbePort: {
+				async probeReady() {
+					probes++;
+				}
+			}
+		});
+		await h.orchestrator.waitUntilReady();
+		port.emitStatus(recoveryStatus({ state: 'restarting', operationId: 2, revision: 2 }));
+		expect(h.orchestrator.isReady()).toBe(false);
+		port.emitStatus(makeStatus('running', { operationId: 2, revision: 3 }));
+		await h.orchestrator.waitUntilReady();
+		expect(probes).toBe(2);
+	});
+});
+
+it('does not inherit API readiness when all restart phase events were missed', async () => {
+	const port = new FakeRuntimePort();
+	port.statusValue = makeStatus('running', { operationId: 1, revision: 1 });
+	let probes = 0;
+	const h = createHarness({
+		runtimePort: port,
+		backendProbePort: {
+			async probeReady() {
+				probes++;
+			}
+		}
+	});
+	await h.orchestrator.waitUntilReady();
+	port.emitStatus(makeStatus('running', { operationId: 2, revision: 8 }));
+	expect(h.orchestrator.isReady()).toBe(false);
+	await h.orchestrator.waitUntilReady();
+	expect(probes).toBe(2);
+	expect(h.orchestrator.isReady()).toBe(true);
 });

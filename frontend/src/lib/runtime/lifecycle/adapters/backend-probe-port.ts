@@ -4,11 +4,11 @@ import type { BackendProbePort } from '../ports';
 
 export function createBackendProbePort(fetchFn: typeof fetch = fetch): BackendProbePort {
 	return {
-		async probeReady(): Promise<void> {
+		async probeReady(signal?: AbortSignal): Promise<void> {
 			const backendOrigin = await resolveBackendOrigin();
 			let response: Response;
 			try {
-				response = await fetchFn(`${backendOrigin}/api/chains/default`);
+				response = await fetchFn(`${backendOrigin}/api/chains/default`, { signal });
 			} catch (cause) {
 				throw new Error(
 					`Backend readiness probe fetch failed (${describeProbeContext(

@@ -8,7 +8,14 @@ import {
 } from './lifecycle/adapters/desktop-shell';
 import { createTauriRuntimePort } from './lifecycle/adapters/tauri-runtime-port';
 import { createLifecycleOrchestrator } from './lifecycle/orchestrator';
-import type { RuntimeLogEntry, RuntimePreflight, RuntimeStatus } from './lifecycle/ports';
+import type {
+	BackendProbePort,
+	ClockPort,
+	RuntimePort,
+	RuntimeLogEntry,
+	RuntimePreflight,
+	RuntimeStatus
+} from './lifecycle/ports';
 
 export type { LifecycleEventLevel } from './lifecycle/core/types';
 export type { RuntimeLogEntry } from './lifecycle/ports';
@@ -36,23 +43,10 @@ const TAURI_BRIDGE_INIT_WAIT_MS = 2_000;
 // Poll cadence while waiting for the Tauri bridge to become available.
 const TAURI_BRIDGE_INIT_POLL_MS = 50;
 
-// Default max wait for desktop runtime readiness before surfacing a startup error.
-const READY_TIMEOUT_DEFAULT_MS = 30_000;
-
 const DESKTOP_SHELL_EXPECTED = isDesktopShellExpected();
 
-// Runtime store action ids shown in Admin status messages while a command is active.
-export const RUNTIME_BUSY_ACTIONS = {
-	start: 'start',
-	autoStart: 'autoStart',
-	stop: 'stop',
-	restart: 'restart',
-	shutdown: 'shutdown',
-	preflight: 'preflight',
-	openConfig: 'openConfig',
-	openLogs: 'openLogs',
-	openUserlandUi: 'openUserlandUi'
-} as const;
+export { RUNTIME_BUSY_ACTIONS } from './lifecycle/ports';
+import { RUNTIME_BUSY_ACTIONS } from './lifecycle/ports';
 
 // Lifecycle event codes emitted by desktop runtime store actions.
 const RUNTIME_LIFECYCLE_EVENT_CODES = {
@@ -69,11 +63,19 @@ const RUNTIME_LIFECYCLE_EVENT_CODES = {
 	actionFailed: 'action.failed'
 } as const;
 
-function createDesktopRuntimeStore() {
-	const runtimePort = createTauriRuntimePort();
-	const backendProbePort = createBackendProbePort();
+export function createDesktopRuntimeStore(
+	options: {
+		runtimePort?: RuntimePort;
+		backendProbePort?: BackendProbePort;
+		desktopShellExpected?: boolean;
+		clock?: ClockPort;
+	} = {}
+) {
+	const runtimePort = options.runtimePort ?? createTauriRuntimePort();
+	const backendProbePort = options.backendProbePort ?? createBackendProbePort();
+	const desktopShellExpected = options.desktopShellExpected ?? DESKTOP_SHELL_EXPECTED;
 
-	const initialLifecycle = createInitialLifecycleState(DESKTOP_SHELL_EXPECTED, Date.now());
+	const initialLifecycle = createInitialLifecycleState(desktopShellExpected, Date.now());
 	const initialState: RuntimeDrawerState = {
 		available: false,
 		initialized: false,
@@ -93,7 +95,8 @@ function createDesktopRuntimeStore() {
 	const lifecycle = createLifecycleOrchestrator({
 		runtimePort,
 		backendProbePort,
-		desktopShellExpected: DESKTOP_SHELL_EXPECTED,
+		desktopShellExpected,
+		clock: options.clock,
 		onLifecycleChange: (nextLifecycle) => {
 			state.update((snapshot) => ({
 				...snapshot,
@@ -221,7 +224,7 @@ function createDesktopRuntimeStore() {
 			'Runtime start requested from UI'
 		);
 		await withBusyAction(RUNTIME_BUSY_ACTIONS.start, async () => {
-			await runtimePort.start();
+			lifecycle.acceptStatus(await runtimePort.start());
 			await hydrate(consoleSessionActive);
 			lifecycle.reportEvent(
 				'info',
@@ -254,7 +257,7 @@ function createDesktopRuntimeStore() {
 			RUNTIME_LIFECYCLE_EVENT_CODES.stopRequested
 		);
 		await withBusyAction(RUNTIME_BUSY_ACTIONS.stop, async () => {
-			await runtimePort.stop();
+			lifecycle.acceptStatus(await runtimePort.stop());
 			await hydrate(consoleSessionActive);
 			lifecycle.reportEvent(
 				'info',
@@ -272,7 +275,7 @@ function createDesktopRuntimeStore() {
 			'Runtime restart requested from UI'
 		);
 		await withBusyAction(RUNTIME_BUSY_ACTIONS.restart, async () => {
-			await runtimePort.restart();
+			lifecycle.acceptStatus(await runtimePort.restart());
 			await hydrate(consoleSessionActive);
 			lifecycle.reportEvent(
 				'info',
@@ -319,9 +322,13 @@ function createDesktopRuntimeStore() {
 	}
 
 	async function openLogsPath() {
-		await withBusyAction(RUNTIME_BUSY_ACTIONS.openLogs, async () => {
-			await runtimePort.openLogsPath();
-		}, false);
+		await withBusyAction(
+			RUNTIME_BUSY_ACTIONS.openLogs,
+			async () => {
+				await runtimePort.openLogsPath();
+			},
+			false
+		);
 	}
 
 	async function openUserlandUi() {
@@ -337,7 +344,7 @@ function createDesktopRuntimeStore() {
 		}));
 	}
 
-	async function waitUntilReady(timeoutMs: number = READY_TIMEOUT_DEFAULT_MS): Promise<void> {
+	async function waitUntilReady(timeoutMs?: number): Promise<void> {
 		await init();
 		await lifecycle.waitUntilReady(timeoutMs);
 	}
@@ -347,8 +354,8 @@ function createDesktopRuntimeStore() {
 	}
 
 	async function hydrate(includeLogTail: boolean) {
-		const [status, preflight, configPath, logsPath, logProcesses, logTail] = await Promise.all([
-			runtimePort.status(),
+		const [, preflight, configPath, logsPath, logProcesses, logTail] = await Promise.all([
+			lifecycle.refreshStatus(),
 			runtimePort.preflight(),
 			runtimePort.getConfigPath(),
 			runtimePort.getLogsPath(),
@@ -360,7 +367,6 @@ function createDesktopRuntimeStore() {
 
 		state.update((snapshot) => ({
 			...snapshot,
-			status,
 			preflight,
 			configPath,
 			logsPath,
@@ -496,6 +502,7 @@ function toErrorMessage(value: unknown): string {
 }
 
 export const desktopRuntimeStore = createDesktopRuntimeStore();
+export type DesktopRuntimeStore = ReturnType<typeof createDesktopRuntimeStore>;
 
 export { IS_DESKTOP_BUILD_TARGET };
 

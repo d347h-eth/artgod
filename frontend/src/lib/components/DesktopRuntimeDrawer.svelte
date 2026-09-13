@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { adminRuntimeStore } from '$lib/admin/runtime/store';
+	import { getAdminRuntimeStore } from '$lib/admin/runtime/store';
+	import { canStopRuntime } from '$lib/admin/control-flow/admin-action-flow';
+	import { RUNTIME_STATUS_STATES } from '$lib/runtime/lifecycle/ports';
+	import { runtimeFailureMessage } from '$lib/runtime/lifecycle/core/startup-presentation';
 	import type { AdminConfigState } from '$lib/admin/configuration/ports';
 	import type { LifecycleEventLevel } from '$lib/admin/runtime/store';
 	import { parseRuntimeLogLine, createTokenizedLogLine } from '$lib/runtime/log-line-format';
@@ -27,6 +30,7 @@
 		appConfigLoading?: boolean;
 	} = $props();
 
+	const adminRuntimeStore = getAdminRuntimeStore();
 	const runtimeState = adminRuntimeStore.state;
 
 	let open = $state(embedded);
@@ -98,8 +102,10 @@
 	);
 	const lifecycleHeaderTitle = $derived.by(() => {
 		switch (lifecycle.phase) {
+			case 'recovering':
+				return 'Preparing Runtime';
 			case 'booting':
-				return 'Starting Runtime';
+				return $runtimeState.status?.state === 'stopped' ? 'Runtime Stopped' : 'Starting Runtime';
 			case 'stopping':
 				return 'Stopping Runtime';
 			case 'fatal':
@@ -391,12 +397,18 @@
 							<p class="desktop-lifecycle-elapsed mono">elapsed {lifecycleElapsedText}</p>
 						</div>
 						<p class="desktop-lifecycle-current-action">{lifecycle.currentAction}</p>
+						{#if !embedded && canStopRuntime($runtimeState.status, $runtimeState.busyAction)}
+							<div class="desktop-lifecycle-actions">
+								<button type="button" onclick={() => void adminRuntimeStore.stop()}>stop infra</button>
+								<button type="button" onclick={() => void adminRuntimeStore.openLogsPath()}>open logs</button>
+							</div>
+						{/if}
 						{#if lifecycle.phase === 'fatal'}
 							<div class="desktop-lifecycle-actions">
 								<button
 									type="button"
-									onclick={() => void adminRuntimeStore.start()}
-									disabled={$runtimeState.busyAction !== null}
+									onclick={() => void ($runtimeState.status?.state === 'stopped' ? adminRuntimeStore.start() : adminRuntimeStore.restart())}
+									disabled={$runtimeState.busyAction !== null || $runtimeState.status?.state === 'stopping'}
 								>
 									retry start
 								</button>
@@ -492,21 +504,21 @@
 						<button
 							type="button"
 							onclick={() => void adminRuntimeStore.start()}
-							disabled={$runtimeState.busyAction !== null}
+							disabled={$runtimeState.busyAction !== null || $runtimeState.status?.state !== RUNTIME_STATUS_STATES.stopped}
 						>
 							start
 						</button>
 						<button
 							type="button"
 							onclick={() => void adminRuntimeStore.stop()}
-							disabled={$runtimeState.busyAction !== null}
+							disabled={!canStopRuntime($runtimeState.status, $runtimeState.busyAction)}
 						>
 							stop
 						</button>
 						<button
 							type="button"
 							onclick={() => void adminRuntimeStore.restart()}
-							disabled={$runtimeState.busyAction !== null}
+							disabled={$runtimeState.busyAction !== null || $runtimeState.status?.state !== RUNTIME_STATUS_STATES.running}
 						>
 							restart
 						</button>
@@ -548,7 +560,7 @@
 							</div>
 						</div>
 						{#if $runtimeState.status.lastError}
-							<p class="runtime-error mono">{$runtimeState.status.lastError}</p>
+							<p class="runtime-error">{runtimeFailureMessage($runtimeState.status)}</p>
 						{/if}
 						{#if $runtimeState.status.runningProcesses.length > 0}
 							<p class="runtime-k">running processes</p>
