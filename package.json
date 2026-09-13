@@ -18,10 +18,11 @@
         "trading"
     ],
     "resolutions": {
-        "undici@npm:^6.25.0": "npm:6.27.0",
-        "undici@npm:^7.25.0": "npm:7.28.0",
+        "undici@npm:^6.25.0": "npm:6.28.0",
+        "undici@npm:^7.25.0": "npm:7.29.0",
         "ws@npm:8.17.1": "npm:8.21.0",
-        "ws@npm:8.20.1": "npm:8.21.0"
+        "ws@npm:8.20.1": "npm:8.21.0",
+        "cookie@npm:^0.6.0": "npm:0.7.2"
     },
     "scripts": {
         "dev": "./scripts/dev.sh",
@@ -112,13 +113,13 @@
         "@tauri-apps/cli": "2.11.3",
         "@types/better-sqlite3": "7.6.13",
         "@types/node": "25.9.2",
-        "@vitest/coverage-v8": "4.1.8",
-        "concurrently": "10.0.3",
+        "@vitest/coverage-v8": "4.1.11",
+        "concurrently": "10.0.4",
         "esbuild": "0.28.1",
         "prettier": "3.8.3",
         "tsx": "4.22.4",
         "typescript": "6.0.3",
-        "vitest": "4.1.8"
+        "vitest": "4.1.11"
     },
     "prettier": {
         "tabWidth": 4,

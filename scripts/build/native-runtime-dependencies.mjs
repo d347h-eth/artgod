@@ -194,7 +194,8 @@ const FIXED_PACKAGE_FILE_SELECTIONS = Object.freeze({
         optional: Object.freeze([]),
     }),
     [NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.Sharp]: Object.freeze({
-        required: Object.freeze(["package.json", "LICENSE", "lib"]),
+        // Sharp 0.35 publishes both CommonJS and ESM runtime modules in dist.
+        required: Object.freeze(["package.json", "LICENSE", "dist"]),
         optional: Object.freeze([]),
     }),
     [DESKTOP_RUNTIME_TRANSITIVE_PACKAGE_NAMES.Bindings]: Object.freeze({
@@ -240,6 +241,16 @@ const SHARP_TARGET_PACKAGE_FILE_SELECTION = Object.freeze({
         "README.md",
         "versions.json",
     ]),
+});
+
+const SHARP_LIBVIPS_PACKAGE_PREFIX = "@img/sharp-libvips-";
+const SHARP_ADDON_PACKAGE_FILE_SELECTION = Object.freeze({
+    // Sharp 0.35 routes the addon export through this JavaScript loader.
+    required: Object.freeze([
+        ...SHARP_TARGET_PACKAGE_FILE_SELECTION.required,
+        "index.cjs",
+    ]),
+    optional: SHARP_TARGET_PACKAGE_FILE_SELECTION.optional,
 });
 
 // esbuild leaves these packages as runtime imports resolved from isolated node_modules trees.
@@ -457,7 +468,9 @@ export function getDesktopRuntimePackageFileSelection(packageName) {
     const fixedSelection = FIXED_PACKAGE_FILE_SELECTIONS[packageName];
     if (fixedSelection) return fixedSelection;
     if (isSharpTargetPackageName(packageName)) {
-        return SHARP_TARGET_PACKAGE_FILE_SELECTION;
+        return packageName.startsWith(SHARP_LIBVIPS_PACKAGE_PREFIX)
+            ? SHARP_TARGET_PACKAGE_FILE_SELECTION
+            : SHARP_ADDON_PACKAGE_FILE_SELECTION;
     }
     throw new Error(`Unreviewed desktop runtime package: ${packageName}`);
 }
