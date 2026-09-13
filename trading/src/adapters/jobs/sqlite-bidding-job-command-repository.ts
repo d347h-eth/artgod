@@ -21,9 +21,7 @@ type TradingJobCommandRow = {
     attempts: number;
 };
 
-export class SqliteBiddingJobCommandRepository
-    implements BiddingJobCommandRepository
-{
+export class SqliteBiddingJobCommandRepository implements BiddingJobCommandRepository {
     private readonly selectClaimableCommands: BetterSqlite3NamedStatement<{
         botKind: typeof TRADING_BOT_KIND.Bidding;
         claimCutoff: string;
@@ -163,16 +161,15 @@ export class SqliteBiddingJobCommandRepository
         };
     }
 
-    private parsePayload(
-        row: TradingJobCommandRow,
-    ): Record<string, unknown> {
+    private parsePayload(row: TradingJobCommandRow): Record<string, unknown> {
         try {
             const parsed = JSON.parse(row.payload_json);
             return parsed && typeof parsed === "object"
                 ? (parsed as Record<string, unknown>)
                 : {};
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message =
+                error instanceof Error ? error.message : String(error);
             throw new Error(
                 `Invalid trading job command payload for commandId=${row.command_id}: ${message}`,
             );

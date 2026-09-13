@@ -666,9 +666,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         return run();
     }
 
-    abortPreparedCollectionRun(
-        input: PreparedCollectionRunAbortInput,
-    ): void {
+    abortPreparedCollectionRun(input: PreparedCollectionRunAbortInput): void {
         db.writeTransaction(() => {
             this.updateRunStatus(
                 input.runId,
@@ -752,7 +750,9 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         }));
     }
 
-    private insertBootstrapRun(input: BootstrapRunCreateInput): BootstrapRunRow {
+    private insertBootstrapRun(
+        input: BootstrapRunCreateInput,
+    ): BootstrapRunRow {
         this.insertRun.run({
             chainId: input.chainId,
             collectionId: input.collectionId,
@@ -968,81 +968,83 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         imageCacheStepReset: boolean;
         imageCacheTasksDeleted: number;
     } {
-        const retryFailedMetadata = db.writeTransaction((params: typeof input) => {
-            const failedCountRow =
-                this.selectFailedMetadataTaskCountStmt.get({
-                    runId: params.runId,
-                    failedTerminalStatus:
-                        BOOTSTRAP_TASK_STATUS.FailedTerminal,
-                }) as { count: number } | undefined;
-            const failedCount = failedCountRow?.count ?? 0;
-            if (failedCount <= 0) {
-                return {
-                    updatedCount: 0,
-                    metadataStepUpdated: false,
-                    imageCacheStepReset: false,
-                    imageCacheTasksDeleted: 0,
-                };
-            }
-
-            const stepResult =
-                this.resetMetadataStepForFailedTaskRetryStmt.run({
-                    runId: params.runId,
-                    metadataStepKey: BOOTSTRAP_STEP_KEY.Metadata,
-                    readyStatus: BOOTSTRAP_STEP_STATUS.Ready,
-                    succeededStatus: BOOTSTRAP_STEP_STATUS.Succeeded,
-                    skippedStatus: BOOTSTRAP_STEP_STATUS.Skipped,
-                    failedTerminalTaskStatus:
-                        BOOTSTRAP_TASK_STATUS.FailedTerminal,
-                    progressTotal: failedCount,
-                });
-            if (stepResult.changes <= 0) {
-                return {
-                    updatedCount: 0,
-                    metadataStepUpdated: false,
-                    imageCacheStepReset: false,
-                    imageCacheTasksDeleted: 0,
-                };
-            }
-
-            const taskResult = this.markFailedTasksRetry.run({
-                runId: params.runId,
-                retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
-                failedTerminalStatus: BOOTSTRAP_TASK_STATUS.FailedTerminal,
-            });
-            if (taskResult.changes <= 0) {
-                throw new Error("Failed metadata task retry state race");
-            }
-
-            let imageCacheStepReset = false;
-            let imageCacheTasksDeleted = 0;
-            if (params.resetImageCacheStep) {
-                const imageCacheStepResult =
-                    this.resetImageCacheStepForMetadataRetryStmt.run({
+        const retryFailedMetadata = db.writeTransaction(
+            (params: typeof input) => {
+                const failedCountRow =
+                    this.selectFailedMetadataTaskCountStmt.get({
                         runId: params.runId,
-                        imageCacheStepKey: BOOTSTRAP_STEP_KEY.ImageCache,
-                        pendingStatus: BOOTSTRAP_STEP_STATUS.Pending,
+                        failedTerminalStatus:
+                            BOOTSTRAP_TASK_STATUS.FailedTerminal,
+                    }) as { count: number } | undefined;
+                const failedCount = failedCountRow?.count ?? 0;
+                if (failedCount <= 0) {
+                    return {
+                        updatedCount: 0,
+                        metadataStepUpdated: false,
+                        imageCacheStepReset: false,
+                        imageCacheTasksDeleted: 0,
+                    };
+                }
+
+                const stepResult =
+                    this.resetMetadataStepForFailedTaskRetryStmt.run({
+                        runId: params.runId,
+                        metadataStepKey: BOOTSTRAP_STEP_KEY.Metadata,
+                        readyStatus: BOOTSTRAP_STEP_STATUS.Ready,
                         succeededStatus: BOOTSTRAP_STEP_STATUS.Succeeded,
                         skippedStatus: BOOTSTRAP_STEP_STATUS.Skipped,
-                        failedTerminalStatus:
-                            BOOTSTRAP_STEP_STATUS.FailedTerminal,
+                        failedTerminalTaskStatus:
+                            BOOTSTRAP_TASK_STATUS.FailedTerminal,
+                        progressTotal: failedCount,
                     });
-                imageCacheStepReset = imageCacheStepResult.changes > 0;
-                if (imageCacheStepReset) {
-                    imageCacheTasksDeleted =
-                        this.deleteImageCacheTasksForMetadataRetryStmt.run({
-                            runId: params.runId,
-                        }).changes;
+                if (stepResult.changes <= 0) {
+                    return {
+                        updatedCount: 0,
+                        metadataStepUpdated: false,
+                        imageCacheStepReset: false,
+                        imageCacheTasksDeleted: 0,
+                    };
                 }
-            }
 
-            return {
-                updatedCount: taskResult.changes,
-                metadataStepUpdated: true,
-                imageCacheStepReset,
-                imageCacheTasksDeleted,
-            };
-        });
+                const taskResult = this.markFailedTasksRetry.run({
+                    runId: params.runId,
+                    retryStatus: BOOTSTRAP_TASK_STATUS.Retry,
+                    failedTerminalStatus: BOOTSTRAP_TASK_STATUS.FailedTerminal,
+                });
+                if (taskResult.changes <= 0) {
+                    throw new Error("Failed metadata task retry state race");
+                }
+
+                let imageCacheStepReset = false;
+                let imageCacheTasksDeleted = 0;
+                if (params.resetImageCacheStep) {
+                    const imageCacheStepResult =
+                        this.resetImageCacheStepForMetadataRetryStmt.run({
+                            runId: params.runId,
+                            imageCacheStepKey: BOOTSTRAP_STEP_KEY.ImageCache,
+                            pendingStatus: BOOTSTRAP_STEP_STATUS.Pending,
+                            succeededStatus: BOOTSTRAP_STEP_STATUS.Succeeded,
+                            skippedStatus: BOOTSTRAP_STEP_STATUS.Skipped,
+                            failedTerminalStatus:
+                                BOOTSTRAP_STEP_STATUS.FailedTerminal,
+                        });
+                    imageCacheStepReset = imageCacheStepResult.changes > 0;
+                    if (imageCacheStepReset) {
+                        imageCacheTasksDeleted =
+                            this.deleteImageCacheTasksForMetadataRetryStmt.run({
+                                runId: params.runId,
+                            }).changes;
+                    }
+                }
+
+                return {
+                    updatedCount: taskResult.changes,
+                    metadataStepUpdated: true,
+                    imageCacheStepReset,
+                    imageCacheTasksDeleted,
+                };
+            },
+        );
         return retryFailedMetadata(input) as {
             updatedCount: number;
             metadataStepUpdated: boolean;

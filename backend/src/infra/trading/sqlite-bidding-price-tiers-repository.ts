@@ -34,9 +34,7 @@ type BiddingPriceTierRow = {
     archived_at: string | null;
 };
 
-export class SqliteBiddingPriceTiersRepository
-    implements BiddingPriceTiersRepositoryPort
-{
+export class SqliteBiddingPriceTiersRepository implements BiddingPriceTiersRepositoryPort {
     private readonly selectCollectionPriceTiers: BetterSqlite3NamedStatement<{
         chainId: number;
         collectionId: number;
@@ -238,37 +236,45 @@ export class SqliteBiddingPriceTiersRepository
     upsertPriceTier(
         input: UpsertBiddingPriceTierRecordInput,
     ): PersistedBiddingPriceTierRecord {
-        return db.writeTransaction((transactionInput: UpsertBiddingPriceTierRecordInput) => {
-            const tierId = transactionInput.tierId ?? randomUUID();
-            const payload = {
-                tierId,
-                chainId: transactionInput.chainId,
-                collectionId: transactionInput.collectionId,
-                name: transactionInput.name,
-                status: transactionInput.status,
-                sortOrder: transactionInput.sortOrder,
-                parentTierId: transactionInput.parentTierId,
-                floorConfigJson: JSON.stringify(transactionInput.floorConfig),
-                ceilingConfigJson: JSON.stringify(transactionInput.ceilingConfig),
-                deltaWei: transactionInput.deltaWei,
-                resolvedFloorWei: transactionInput.resolvedFloorWei,
-                resolvedCeilingWei: transactionInput.resolvedCeilingWei,
-                resolvedAt: transactionInput.resolvedAt,
-                lastError: transactionInput.lastError,
-            };
+        return db.writeTransaction(
+            (transactionInput: UpsertBiddingPriceTierRecordInput) => {
+                const tierId = transactionInput.tierId ?? randomUUID();
+                const payload = {
+                    tierId,
+                    chainId: transactionInput.chainId,
+                    collectionId: transactionInput.collectionId,
+                    name: transactionInput.name,
+                    status: transactionInput.status,
+                    sortOrder: transactionInput.sortOrder,
+                    parentTierId: transactionInput.parentTierId,
+                    floorConfigJson: JSON.stringify(
+                        transactionInput.floorConfig,
+                    ),
+                    ceilingConfigJson: JSON.stringify(
+                        transactionInput.ceilingConfig,
+                    ),
+                    deltaWei: transactionInput.deltaWei,
+                    resolvedFloorWei: transactionInput.resolvedFloorWei,
+                    resolvedCeilingWei: transactionInput.resolvedCeilingWei,
+                    resolvedAt: transactionInput.resolvedAt,
+                    lastError: transactionInput.lastError,
+                };
 
-            if (transactionInput.tierId && this.getPriceTierById(tierId)) {
-                this.updatePriceTier.run(payload);
-            } else {
-                this.insertPriceTier.run(payload);
-            }
+                if (transactionInput.tierId && this.getPriceTierById(tierId)) {
+                    this.updatePriceTier.run(payload);
+                } else {
+                    this.insertPriceTier.run(payload);
+                }
 
-            const saved = this.getPriceTierById(tierId);
-            if (!saved) {
-                throw new Error(`Failed to reload bidding price tier ${tierId}`);
-            }
-            return saved;
-        })(input);
+                const saved = this.getPriceTierById(tierId);
+                if (!saved) {
+                    throw new Error(
+                        `Failed to reload bidding price tier ${tierId}`,
+                    );
+                }
+                return saved;
+            },
+        )(input);
     }
 
     archivePriceTier(tierId: string): PersistedBiddingPriceTierRecord | null {
@@ -285,11 +291,13 @@ export class SqliteBiddingPriceTiersRepository
     updatePriceTierResolutions(
         resolutions: BiddingPriceTierResolutionUpdate[],
     ): void {
-        db.writeTransaction((transactionResolutions: BiddingPriceTierResolutionUpdate[]) => {
-            for (const resolution of transactionResolutions) {
-                this.updatePriceTierResolution.run(resolution);
-            }
-        })(resolutions);
+        db.writeTransaction(
+            (transactionResolutions: BiddingPriceTierResolutionUpdate[]) => {
+                for (const resolution of transactionResolutions) {
+                    this.updatePriceTierResolution.run(resolution);
+                }
+            },
+        )(resolutions);
     }
 
     private mapPriceTierRow(
@@ -308,11 +316,12 @@ export class SqliteBiddingPriceTiersRepository
                 row.tier_id,
                 "floor_config_json",
             ),
-            ceilingConfig: parseJsonConfig<TradingBiddingPriceTierCeilingConfig>(
-                row.ceiling_config_json,
-                row.tier_id,
-                "ceiling_config_json",
-            ),
+            ceilingConfig:
+                parseJsonConfig<TradingBiddingPriceTierCeilingConfig>(
+                    row.ceiling_config_json,
+                    row.tier_id,
+                    "ceiling_config_json",
+                ),
             deltaWei: row.delta_wei,
             resolvedFloorWei: row.resolved_floor_wei,
             resolvedCeilingWei: row.resolved_ceiling_wei,
@@ -331,6 +340,8 @@ function parseJsonConfig<T>(raw: string, tierId: string, field: string): T {
         return JSON.parse(raw) as T;
     } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Invalid ${field} for bidding price tier ${tierId}: ${message}`);
+        throw new Error(
+            `Invalid ${field} for bidding price tier ${tierId}: ${message}`,
+        );
     }
 }

@@ -555,19 +555,21 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     }
 
     finalizeSnapshot(input: SnapshotFinalizeInput): void {
-        const finalize = db.writeTransaction((params: SnapshotFinalizeInput) => {
-            this.deleteBalancesStmt.run({
-                chainId: params.chainId,
-                collectionId: params.collectionId,
-            });
-            this.insertBalancesFromSnapshotStmt.run({
-                runId: params.runId,
-                anchorBlock: params.anchorBlock,
-                anchorHash: params.anchorHash,
-                anchorTimestamp: params.anchorTimestamp,
-                zeroHash: ZERO_HASH,
-            });
-        });
+        const finalize = db.writeTransaction(
+            (params: SnapshotFinalizeInput) => {
+                this.deleteBalancesStmt.run({
+                    chainId: params.chainId,
+                    collectionId: params.collectionId,
+                });
+                this.insertBalancesFromSnapshotStmt.run({
+                    runId: params.runId,
+                    anchorBlock: params.anchorBlock,
+                    anchorHash: params.anchorHash,
+                    anchorTimestamp: params.anchorTimestamp,
+                    zeroHash: ZERO_HASH,
+                });
+            },
+        );
         finalize(input);
     }
 
