@@ -330,7 +330,8 @@
 	}
 
 	function readSampleTokenIdInputValue(): string {
-		return normalizeFieldValue(sampleTokenIdInputElement?.value ?? sampleTokenId);
+		// Derived validation must observe state changes when detected fields are explicitly applied.
+		return normalizeFieldValue(sampleTokenId);
 	}
 
 	function onCollectionSlugInput(event: Event): void {

@@ -6,6 +6,7 @@ import type {
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/bootstrap';
 import { BOOTSTRAP_ENUMERATION_MODE } from '@artgod/shared/bootstrap/pipeline';
 import { BOOTSTRAP_API_QUERY_PARAM } from '@artgod/shared/http/bootstrap-routes';
+import { ERC721_ABSENT_TOKEN_ERROR } from '@artgod/shared/evm/erc721-ownership';
 import { TOKEN_METADATA_ANIMATION_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-animation-source';
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-image-source';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
@@ -26,6 +27,7 @@ export const BOOTSTRAP_PROBE_CONTRACTS = {
 	EnumerableRaster: '0x5af0d9827e0c53e4799bb226655a1de152a425a5',
 	EnumerableOnchainSvg: '0x4e1f41613c9084fdb9e34e11fae9412427480e56',
 	NeedsTokenStart: '0x6b175474e89094c44da98b954eedeac495271d0f',
+	PartiallyMinted: '0xd89239186180617cfe17e8b73b2b8bd9c96d0a15',
 	SharedManualScope: '0x145789247973c5d612bf121e9e4eef84b63eb707'
 } as const;
 
@@ -35,6 +37,7 @@ export const BOOTSTRAP_PROBE_OPENSEA_SLUGS = {
 	EnumerableRaster: 'raster-images-by-test-artist',
 	EnumerableOnchainSvg: 'terraforms',
 	NeedsTokenStart: 'needs-token-start',
+	PartiallyMinted: 'partially-minted-test-collection',
 	SharedManualScope: 'shared-manual-scope'
 } as const;
 
@@ -45,6 +48,15 @@ const BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_TOTAL_SUPPLY = 999;
 export const BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE = {
 	startTokenId: BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_START_TOKEN_ID,
 	totalSupply: BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_TOTAL_SUPPLY,
+	sampleTokenId: '2'
+} as const;
+
+// Controlled sparse-collection scenario, not a claim about current live supply.
+export const BOOTSTRAP_PROBE_PARTIALLY_MINTED_SCOPE = {
+	startTokenId: '1',
+	totalSupply: 999,
+	mintedSupply: 704,
+	absentSampleTokenId: '1',
 	sampleTokenId: '2'
 } as const;
 
@@ -328,6 +340,16 @@ function openSeaSlugProbeResponseForAddress(
 	address: string,
 	sampleTokenId: string | null = null
 ): BootstrapOpenSeaSlugProbeApiResponse {
+	if (
+		address === BOOTSTRAP_PROBE_CONTRACTS.PartiallyMinted &&
+		sampleTokenId === BOOTSTRAP_PROBE_PARTIALLY_MINTED_SCOPE.sampleTokenId
+	) {
+		return buildOpenSeaSlugProbeResponse({
+			address,
+			requestedSlug: null,
+			slug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.PartiallyMinted
+		});
+	}
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable) {
 		return buildOpenSeaSlugProbeResponse({
 			address,
@@ -454,6 +476,41 @@ function probeResponse(
 	requestedAnimationSourceField: string | null,
 	requestedSampleTokenId: string | null
 ): BootstrapContractProbeApiResponse {
+	if (address === BOOTSTRAP_PROBE_CONTRACTS.PartiallyMinted) {
+		const scope = BOOTSTRAP_PROBE_PARTIALLY_MINTED_SCOPE;
+		const tokenId = requestedSampleTokenId ?? scope.absentSampleTokenId;
+		const exists = tokenId === scope.sampleTokenId;
+		const error = exists ? null : ERC721_ABSENT_TOKEN_ERROR.LegacyOwnerQuery;
+		const response = buildProbeResponse({
+			address,
+			contractName: 'Partially Minted Collection',
+			enumerable: false,
+			totalSupply: String(scope.mintedSupply),
+			firstTokenId: tokenId,
+			firstTokenName: exists ? `Sample #${tokenId}` : null,
+			firstTokenImage: exists ? BOOTSTRAP_PROBE_MEDIA.RasterImage : null,
+			firstTokenImageSourceField: exists
+				? (requestedImageSourceField ?? TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image)
+				: null,
+			firstTokenImageBytes: exists ? 98234 : null,
+			firstTokenImageContentType: exists ? 'image/png' : null,
+			firstTokenSource: exists ? 'candidate_owner_of' : null,
+			tokenUriPayloadBytes: exists ? 4096 : null,
+			manualInput: null,
+			warnings: []
+		});
+		// Mirror the owner-first API response: an absent sample carries no tokenURI metadata.
+		response.firstToken.candidates = [
+			{ tokenId, exists, source: exists ? 'owner_of' : null, error }
+		];
+		if (!exists) {
+			response.firstToken.tokenUri = null;
+			response.firstToken.tokenUriPayloadError = error;
+			response.firstToken.imageWidth = null;
+			response.firstToken.imageHeight = null;
+		}
+		return response;
+	}
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable) {
 		return buildProbeResponse({
 			address,
@@ -608,7 +665,7 @@ function buildProbeResponse(input: {
 	firstTokenImageSourceField: string | null;
 	firstTokenImageBytes: number | null;
 	firstTokenImageContentType: string | null;
-	firstTokenSource: 'token_by_index' | 'candidate_token_uri' | null;
+	firstTokenSource: BootstrapContractProbeApiResponse['firstToken']['source'];
 	tokenUriPayloadBytes: number | null;
 	animationUrl?: string | null;
 	animationSourceField?: string | null;
