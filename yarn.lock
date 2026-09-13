@@ -24,6 +24,7 @@ __metadata:
   resolution: "@artgod/backend@workspace:backend"
   dependencies:
     "@artgod/shared": "workspace:*"
+    "@types/better-sqlite3": "npm:7.6.13"
     "@types/node": "npm:25.9.2"
     better-sqlite3: "npm:12.10.0"
     dotenv: "npm:17.4.2"
