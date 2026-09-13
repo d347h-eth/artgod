@@ -305,6 +305,24 @@ yarn cargo:age-gate
 - CI runs `yarn install --immutable --mode=skip-build` before this alias for
   the same fresh-checkout package-script install-state reason.
 
+## GLib Advisory Exception
+
+On 2026-09-13, the project owner accepted the risk of
+[RUSTSEC-2024-0429 / GHSA-wrw7-89jp-8q8g](https://rustsec.org/advisories/RUSTSEC-2024-0429.html)
+for [Dependabot alert #75](https://github.com/d347h-eth/artgod/security/dependabot/75).
+The desktop keeps the original, unpatched `glib` 0.18.5 from crates.io. Tauri's
+GTK3 dependency chain requires the 0.18 series; the published fix starts at 0.20.
+
+Source review found no callers of `Variant::array_iter_str` or `VariantStrIter`
+in ArtGod or its resolved Linux Rust dependencies outside GLib's implementation,
+documentation, and tests. This is bounded source evidence, not proof of
+unreachability. [Tauri's audit configuration](https://github.com/tauri-apps/tauri/blob/dev/.cargo/audit.toml)
+also ignores this advisory.
+
+This exception accepts the affected dependency; it does not claim a fix or
+disable other security checks. Reassess it when desktop dependencies change,
+the affected iterator gains a caller, or new exposure evidence appears.
+
 ## Local Infrastructure
 
 Start local infra with NATS and JetStream:
