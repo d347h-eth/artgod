@@ -248,7 +248,12 @@ const BIDDING_BID_BOOK_REPOSITORY_LOG = {
     ReasonInvalidNormalizedScope: "invalid-normalized-scope",
 } as const;
 
-// Keeps confirmed cancellation rows readable before suppressing stale indexed order echoes.
+// Identifies the runtime-evidence read boundary for tracing and consistency tests.
+export const BIDDING_BID_BOOK_REPOSITORY_SPAN = {
+    ActiveJobsQuery: "backend.bidding.repository.active_jobs_query",
+} as const;
+
+// Keeps the cancellation confirmation visible briefly; cancellation ownership does not expire.
 const COMPLETED_CANCELLATION_ROW_RETENTION_MS = 3_000;
 
 // Prefixes local job-intent row ids so DOM keys change when the declared job revision changes.
@@ -473,6 +478,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
             completedAfter: string;
         }>;
 
+        // Cancellation facts own exact order evidence independently of confirmation-row retention.
         this.selectActiveBiddingJobs = db.prepare<{
             chainId: number;
             collectionId: number;
@@ -486,6 +492,10 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                 "FROM trading_jobs j " +
                 "JOIN trading_bidding_job_specs s ON s.job_id = j.job_id " +
                 "LEFT JOIN trading_bidding_job_runtime_state r ON r.job_id = j.job_id " +
+                "AND NOT EXISTS (" +
+                "SELECT 1 FROM trading_bidding_order_cancellations c " +
+                "WHERE c.order_id = r.active_order_id AND c.job_id = j.job_id" +
+                ") " +
                 "WHERE j.chain_id = @chainId AND j.collection_id = @collectionId " +
                 "AND j.bot_kind = @botKind AND j.status != @archivedStatus",
         ) as BetterSqlite3NamedStatement<{
@@ -528,7 +538,11 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
         return this.apm.withSyncSpan(
             "backend.bidding.repository.collection_bid_book",
             collectionBidBookSpanAttributes(params),
-            () => this.listCollectionBidBookInner(params),
+            // Keep declarations, runtime evidence, and cancellations on one database snapshot.
+            () =>
+                db.raw.transaction(() =>
+                    this.listCollectionBidBookInner(params),
+                )(),
         );
     }
 
@@ -547,7 +561,9 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
                 [BIDDING_SPAN_ATTRIBUTE.TokenTraitsCount]:
                     params.tokenTraits.length,
             },
-            () => this.listTokenBidBookInner(params),
+            // Token detail must observe the same lifecycle consistency as collection offers.
+            () =>
+                db.raw.transaction(() => this.listTokenBidBookInner(params))(),
         );
     }
 
@@ -995,7 +1011,7 @@ export class SqliteBiddingBidBookRepository implements BiddingBidBookRepositoryP
             collectionId,
         };
         const rows = this.apm.withSyncSpan(
-            "backend.bidding.repository.active_jobs_query",
+            BIDDING_BID_BOOK_REPOSITORY_SPAN.ActiveJobsQuery,
             baseCollectionSpanAttributes(attributes),
             () =>
                 this.selectActiveBiddingJobs.all({
@@ -1511,14 +1527,14 @@ function mergeOwnBiddingJobSignals(
         return activeJobs;
     }
 
-    const cancelingPausedJobIds = new Set(
+    const cancellationJobIds = new Set(
         cancellationJobs.map((job) => job.jobId),
     );
     return [
         ...activeJobs.filter(
             (job) =>
                 job.status === TRADING_JOB_STATUS.Enabled ||
-                !cancelingPausedJobIds.has(job.jobId),
+                !cancellationJobIds.has(job.jobId),
         ),
         ...cancellationJobs,
     ];
@@ -1763,17 +1779,9 @@ function isStaleOwnJobMarketRow(
     if (
         matchingJobs.some(
             (job) =>
-                job.phaseOverride ===
-                TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Cancelled,
-        )
-    ) {
-        return true;
-    }
-    if (
-        matchingJobs.some(
-            (job) =>
                 isCancellationPhase(job.phaseOverride) &&
-                hasRenderableActiveOrderEvidence(job),
+                hasRenderableActiveOrderEvidence(job) &&
+                activeOrderEvidenceMatchesBid(job, bid),
         )
     ) {
         return true;
