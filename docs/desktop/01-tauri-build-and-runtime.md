@@ -685,11 +685,39 @@ The controller is published under that generation before a worker barrier lets
 the bot consume wallet material; worker state updates and cleanup are accepted
 only from the matching generation.
 
-If any step fails:
+Startup recovery is supervisor-owned and reusable. The first task is NATS
+maintenance; its domain rules still decide whether expiry or emergency purge is
+needed. Every startup attempt has an `operationId`. Status responses and
+`runtime-state-changed` events share a monotonically increasing `revision` and a
+`startup` activity with `phase`, optional `task`, `startedAtMs`, and `deadlineAtMs`.
+The desktop bridge contract is mirrored in `frontend/src/lib/runtime/lifecycle/ports.ts`.
+Phases are preparation, recovery, service startup, cleanup, and restart backoff.
+The top-level status remains `starting` or `restarting` during recovery.
 
-- already-started processes are stopped
-- runtime enters restart flow with backoff
-- stop requests interrupt startup waits immediately (port waits, semantic health waits, and backoff sleeps)
+- NATS maintenance gets one **15-minute** monotonic work deadline, including
+  spawn and child execution. This deliberately caps the adapter's longer
+  individual administration timeouts. It allows the ten-minute expiry loop
+  plus five minutes for administration work; it is not a promise that every
+  large store can recover within that time.
+- Recovery failure or timeout stops the maintenance child and NATS before
+  publishing `stopped` with a typed `recoveryFailure`. It is terminal for that
+  attempt, with **no automatic recovery retry**. `retry start` reaps the finished
+  controller and starts a new operation; it cannot reuse the failed controller.
+  Repeated auto-start handshakes, including a UI reload, preserve an active
+  operation or its terminal recovery failure instead of retrying it.
+- Stop cancels recovery and cleans up without presenting a recovery error.
+  The task deadline initiates cleanup, which retains the existing 30-second
+  graceful-stop allowance per child (maintenance and NATS stop serially).
+- After recovery, a fresh 90-second service budget covers the serial backend
+  port and semantic-health waits (30 seconds each), with an allowance for
+  worker spawning. NATS port preparation has its own 30-second allowance.
+- Other startup failures and unexpected core-process exits retain the existing
+  restart/backoff policy. No wallet-bound bot starts as a recovery task.
+
+The task work deadline does not claim a global shutdown bound: existing output
+reader joins, operating-system process termination, and cleanup hooks remain
+separate constraints. Stop/Restart and retry controller joins run off the IPC
+thread. Live repair and recovery scheduling are outside this lifecycle.
 
 Frontend readiness behavior:
 
@@ -698,7 +726,20 @@ Frontend readiness behavior:
 - lifecycle reaches `ready` only after lifecycle orchestrator backend readiness probe succeeds, not merely when runtime status becomes `running`
 - admin UI does not execute userland collection/token route loads
 - userland browser UI uses `backend-api.ts` directly against backend localhost origin (`/api/*`)
-- runtime readiness in lifecycle orchestrator is event-first (`runtime-state-changed`) with a status reconciliation fallback poll during boot
+- runtime readiness uses events and bounded status polling through one reconciliation path;
+  older revisions cannot replace a newer phase or operation
+- confirmed recovery uses the supervisor phase deadline instead of the ordinary
+  30-second fallback; phase changes and UI reloads do not renew that deadline
+- status calls are limited to two seconds, and five seconds without a confirmed
+  status fails the readiness wait; phase expiry allows five seconds for the
+  next supervisor cleanup/status response
+- the separate 12-second API probe window includes hung requests; Stop aborts
+  the probe and rejects late completion before Userland can become ready
+- Admin shows "Checking queued work…" and elapsed time without implying damaged
+  data; Stop, Config, Logs, and Shutdown remain available during recovery,
+  while Start and Userland remain gated
+- both embedded Admin and the standalone lifecycle drawer expose cancellation;
+  failure offers `retry start` after cleanup
 - userland product UI is served by backend static hosting at `backend_http_base_url` and opened in system browser via admin UI/tray action
 
 ## Process Start Details
@@ -783,7 +824,7 @@ Window close behavior:
 Supervisor stop behavior:
 
 1. request graceful process stop (SIGTERM on Unix)
-2. wait up to grace timeout (`10s`)
+2. wait up to grace timeout (`30s`)
 3. force kill remaining processes if still running
 4. join output threads
 5. run cleanup hooks

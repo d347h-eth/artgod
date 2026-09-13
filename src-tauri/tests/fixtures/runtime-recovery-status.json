@@ -1,0 +1,18 @@
+{
+    "operationId": 7,
+    "revision": 12,
+    "startup": {
+        "phase": "recovery",
+        "task": "natsMaintenance",
+        "startedAtMs": 1000,
+        "deadlineAtMs": 901000
+    },
+    "recoveryFailure": null,
+    "state": "starting",
+    "restartCount": 0,
+    "lastError": null,
+    "runningProcesses": [],
+    "backendHttpBaseUrl": "",
+    "natsUrl": "",
+    "configPath": ""
+}

@@ -14,7 +14,15 @@ sequenceDiagram
 
     par core supervisor cycle
         loop core cycle
-            S->>C: Spawn NATS + backend + indexer workers
+            S->>C: Start NATS, then bounded startup recovery
+            break recovery fails, times out, or user stops
+                S->>R: startup=cleanup
+                S->>C: Stop recovery child and NATS
+                S->>R: state=stopped (typed failure unless cancelled)
+                R-->>A: Show retry start after cleanup
+                Note over S,A: Manual retry reaps controller and gets a new operation ID
+            end
+            S->>C: Spawn backend + indexer workers
             alt startup health fails
                 S->>C: Stop all core processes
                 S->>R: state=restarting, last_error=reason
@@ -53,7 +61,7 @@ sequenceDiagram
 
 ## Result
 
-- Any core runtime failure causes full-stack restart.
+- Recovery failure/timeout requires explicit retry; other core failures retain full-stack restart.
 - Bot failures do not restart the core composition.
 - A core restart does not carry wallet authority into its replacement
   generation. Restarting a bot later requires a fresh native unlock prompt.

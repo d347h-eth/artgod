@@ -9,6 +9,7 @@ mod env_keys;
 mod http_fetch_resilience;
 mod log_files;
 mod process_registry;
+mod recovery;
 mod resource_contract;
 mod rpc_auto_sourcing;
 mod runtime_integrity;

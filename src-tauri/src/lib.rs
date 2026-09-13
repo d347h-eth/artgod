@@ -67,8 +67,12 @@ struct RuntimeLogLine {
 }
 
 #[tauri::command]
-fn runtime_start(app: AppHandle, state: State<'_, DesktopState>) -> Result<RuntimeStatus, String> {
-    state.runtime.start(app)
+async fn runtime_start(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<RuntimeStatus, String> {
+    let runtime = state.runtime.clone();
+    run_blocking_runtime_command(move || runtime.start(app)).await
 }
 
 #[tauri::command]

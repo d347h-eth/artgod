@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -15,6 +15,10 @@ use zeroize::Zeroizing;
 
 use super::app_config::load_app_config_state;
 use super::bot_lifecycle::{BotLifecycleCoordinator, BotStartReservation, BotWorkerLifecycleLease};
+use super::recovery::{
+    RecoveryFailure, RecoveryFailureReason, RecoveryOutcome, RecoveryTask, RecoveryTaskId,
+    StartupActivity, StartupPhase, execute_recovery_process,
+};
 use crate::desktop_log::{append_child_process_log_line, append_desktop_supervisor_log};
 use crate::runtime::bidding_mandate::BiddingMandate;
 use crate::runtime::bot_runtime::{
@@ -40,6 +44,16 @@ const NATS_PORT_ARG: &str = "-p";
 const NATS_STORE_DIR_ARG: &str = "--store_dir";
 const STARTUP_PORT_TIMEOUT: Duration = Duration::from_secs(30);
 const STARTUP_RUNTIME_HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
+// Both serial backend waits plus an allowance for spawning the enabled workers.
+const STARTUP_SERVICES_BUDGET: Duration = Duration::from_secs(90);
+// One bounded attempt. This cap deliberately takes precedence over child API timeouts.
+const NATS_MAINTENANCE_TASK: RecoveryTask = RecoveryTask {
+    id: RecoveryTaskId::NatsMaintenance,
+    process_name: NATS_JOB_STREAM_MAINTENANCE_PROCESS_NAME,
+    artifact: NATS_JOB_STREAM_MAINTENANCE_ARTIFACT,
+    budget: Duration::from_secs(15 * 60),
+};
+static NEXT_STARTUP_OPERATION_ID: AtomicU64 = AtomicU64::new(1);
 const MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const PROCESS_STOP_GRACE_PERIOD: Duration = Duration::from_secs(30);
 const PROCESS_STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -64,6 +78,10 @@ const BOT_BOOTSTRAP_STALL_TIMEOUT: Duration = Duration::from_secs(180);
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeStatus {
+    pub operation_id: u64,
+    pub revision: u64,
+    pub startup: Option<StartupActivity>,
+    pub recovery_failure: Option<RecoveryFailure>,
     pub state: String,
     pub restart_count: u32,
     pub last_error: Option<String>,
@@ -71,6 +89,12 @@ pub struct RuntimeStatus {
     pub backend_http_base_url: String,
     pub nats_url: String,
     pub config_path: String,
+}
+
+impl RuntimeStatus {
+    fn permits_auto_start(&self) -> bool {
+        self.state == "stopped" && self.recovery_failure.is_none()
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -83,6 +107,18 @@ pub struct RuntimeEndpoints {
 struct RuntimeController {
     stop_tx: Sender<()>,
     join_handle: JoinHandle<()>,
+}
+
+/// Called under the manager's lifecycle gate; finished workers never own retry admission.
+fn reap_completed_controller(controller: &mut Option<RuntimeController>, terminal: bool) {
+    if controller
+        .as_ref()
+        .is_some_and(|value| terminal || value.join_handle.is_finished())
+    {
+        if let Some(finished) = controller.take() {
+            let _ = finished.join_handle.join();
+        }
+    }
 }
 
 struct BotRuntimeController {
@@ -114,6 +150,10 @@ impl RuntimeManager {
     pub fn new() -> Self {
         Self {
             status: Arc::new(Mutex::new(RuntimeStatus {
+                operation_id: 0,
+                revision: 0,
+                startup: None,
+                recovery_failure: None,
                 state: "stopped".to_owned(),
                 restart_count: 0,
                 last_error: None,
@@ -137,6 +177,11 @@ impl RuntimeManager {
     }
 
     fn auto_start_locked(&self, app: AppHandle) -> Result<(), String> {
+        // A WebView remount may repeat the handshake. It must neither rewrite
+        // an active phase nor turn terminal recovery into an automatic retry.
+        if !self.status()?.permits_auto_start() {
+            return Ok(());
+        }
         let app_config = load_app_config_state(&app)?;
         if !app_config.configured {
             self.update_status(&app, |status| {
@@ -232,6 +277,8 @@ impl RuntimeManager {
 
         self.update_status(&app, |status| {
             status.state = "stopped".to_owned();
+            status.recovery_failure = None;
+            status.last_error = None;
             status.running_processes.clear();
         });
 
@@ -302,16 +349,26 @@ impl RuntimeManager {
         config: DesktopRuntimeConfig,
     ) -> Result<RuntimeStatus, String> {
         {
-            let guard = self
+            let mut guard = self
                 .controller
                 .lock()
                 .map_err(|_| "Failed to lock runtime controller state".to_owned())?;
+            // A terminal snapshot is published only after process cleanup. Join even in
+            // the tiny interval before is_finished becomes true, so retry is never a no-op.
+            reap_completed_controller(&mut guard, self.status()?.state == "stopped");
             if guard.is_some() {
                 return self.status();
             }
         }
 
         self.update_status(&app, |status| {
+            status.operation_id = NEXT_STARTUP_OPERATION_ID.fetch_add(1, Ordering::Relaxed);
+            status.startup = Some(StartupActivity::new(
+                StartupPhase::Preparing,
+                None,
+                STARTUP_PORT_TIMEOUT,
+            ));
+            status.recovery_failure = None;
             status.state = "starting".to_owned();
             status.restart_count = 0;
             status.last_error = None;
@@ -719,6 +776,14 @@ fn run_supervisor_loop(
         // Every core startup/restart is a new generation for wallet-bound bot starts.
         bot_lifecycle.invalidate_core();
         update_status(&status_ref, &app, |status| {
+            if restart_count > 0 {
+                status.operation_id = NEXT_STARTUP_OPERATION_ID.fetch_add(1, Ordering::Relaxed);
+                status.startup = Some(StartupActivity::new(
+                    StartupPhase::Preparing,
+                    None,
+                    STARTUP_PORT_TIMEOUT,
+                ));
+            }
             status.state = if restart_count == 0 {
                 "starting".to_owned()
             } else {
@@ -730,43 +795,15 @@ fn run_supervisor_loop(
         });
         set_core_running_since(&core_running_since_ref, None);
 
-        let mut processes = match spawn_runtime_processes(&app, &config, &stop_rx, &stop_signal) {
-            Ok(processes) => processes,
-            Err(SpawnRuntimeError::Cancelled) => {
-                emit_supervisor_log(
-                    &app,
-                    &config.logs_dir,
-                    "info",
-                    "Stop requested during startup; supervisor stopping",
-                );
-                update_status(&status_ref, &app, |status| {
-                    status.state = "stopped".to_owned();
-                    status.running_processes.clear();
-                });
-                set_core_running_since(&core_running_since_ref, None);
-                break;
-            }
-            Err(SpawnRuntimeError::Failed(error)) => {
-                restart_count = restart_count.saturating_add(1);
-                emit_supervisor_log(
-                    &app,
-                    &config.logs_dir,
-                    "error",
-                    &format!("Runtime startup failed: {error}"),
-                );
-                update_status(&status_ref, &app, |status| {
-                    status.state = "restarting".to_owned();
-                    status.restart_count = restart_count;
-                    status.last_error = Some(error.clone());
-                    status.running_processes.clear();
-                });
-                set_core_running_since(&core_running_since_ref, None);
-                if stop_requested(&stop_rx, &stop_signal) {
+        let mut processes =
+            match spawn_runtime_processes(&app, &config, &status_ref, &stop_rx, &stop_signal) {
+                Ok(processes) => processes,
+                Err(SpawnRuntimeError::Cancelled) => {
                     emit_supervisor_log(
                         &app,
                         &config.logs_dir,
                         "info",
-                        "Stop requested during startup retry; supervisor stopping",
+                        "Stop requested during startup; supervisor stopping",
                     );
                     update_status(&status_ref, &app, |status| {
                         status.state = "stopped".to_owned();
@@ -775,27 +812,77 @@ fn run_supervisor_loop(
                     set_core_running_since(&core_running_since_ref, None);
                     break;
                 }
-                if sleep_with_stop(
-                    &stop_rx,
-                    &stop_signal,
-                    Duration::from_millis(config.restart_backoff_ms),
-                ) {
+                Err(SpawnRuntimeError::RecoveryFailed(failure, error)) => {
                     emit_supervisor_log(
                         &app,
                         &config.logs_dir,
-                        "info",
-                        "Stop requested during startup backoff; supervisor stopping",
+                        SUPERVISOR_LOG_LEVEL_ERROR,
+                        &format!("Startup recovery failed; manual retry required: {error}"),
                     );
                     update_status(&status_ref, &app, |status| {
                         status.state = "stopped".to_owned();
+                        status.recovery_failure = Some(failure);
+                        status.last_error = Some(error);
                         status.running_processes.clear();
                     });
                     set_core_running_since(&core_running_since_ref, None);
                     break;
                 }
-                continue;
-            }
-        };
+                Err(SpawnRuntimeError::Failed(error)) => {
+                    restart_count = restart_count.saturating_add(1);
+                    emit_supervisor_log(
+                        &app,
+                        &config.logs_dir,
+                        "error",
+                        &format!("Runtime startup failed: {error}"),
+                    );
+                    update_status(&status_ref, &app, |status| {
+                        status.state = "restarting".to_owned();
+                        status.restart_count = restart_count;
+                        status.last_error = Some(error.clone());
+                        status.running_processes.clear();
+                        status.startup = Some(StartupActivity::new(
+                            StartupPhase::Backoff,
+                            None,
+                            Duration::from_millis(config.restart_backoff_ms),
+                        ));
+                    });
+                    set_core_running_since(&core_running_since_ref, None);
+                    if stop_requested(&stop_rx, &stop_signal) {
+                        emit_supervisor_log(
+                            &app,
+                            &config.logs_dir,
+                            "info",
+                            "Stop requested during startup retry; supervisor stopping",
+                        );
+                        update_status(&status_ref, &app, |status| {
+                            status.state = "stopped".to_owned();
+                            status.running_processes.clear();
+                        });
+                        set_core_running_since(&core_running_since_ref, None);
+                        break;
+                    }
+                    if sleep_with_stop(
+                        &stop_rx,
+                        &stop_signal,
+                        Duration::from_millis(config.restart_backoff_ms),
+                    ) {
+                        emit_supervisor_log(
+                            &app,
+                            &config.logs_dir,
+                            "info",
+                            "Stop requested during startup backoff; supervisor stopping",
+                        );
+                        update_status(&status_ref, &app, |status| {
+                            status.state = "stopped".to_owned();
+                            status.running_processes.clear();
+                        });
+                        set_core_running_since(&core_running_since_ref, None);
+                        break;
+                    }
+                    continue;
+                }
+            };
 
         let running_names = processes
             .iter()
@@ -837,6 +924,14 @@ fn run_supervisor_loop(
             MonitorOutcome::ProcessExited { process, status } => {
                 let error = format!("Process {process} exited unexpectedly: {status}");
                 emit_supervisor_log(&app, &config.logs_dir, "error", &error);
+                update_status(&status_ref, &app, |status| {
+                    status.state = "restarting".to_owned();
+                    status.startup = Some(StartupActivity::new(
+                        StartupPhase::Cleanup,
+                        None,
+                        PROCESS_STOP_GRACE_PERIOD * processes.len() as u32,
+                    ));
+                });
                 stop_all_processes(&app, &config.logs_dir, &mut processes);
                 restart_count = restart_count.saturating_add(1);
                 update_status(&status_ref, &app, |status_ref| {
@@ -844,6 +939,11 @@ fn run_supervisor_loop(
                     status_ref.restart_count = restart_count;
                     status_ref.last_error = Some(error);
                     status_ref.running_processes.clear();
+                    status_ref.startup = Some(StartupActivity::new(
+                        StartupPhase::Backoff,
+                        None,
+                        Duration::from_millis(config.restart_backoff_ms),
+                    ));
                 });
                 set_core_running_since(&core_running_since_ref, None);
                 if sleep_with_stop(
@@ -868,6 +968,14 @@ fn run_supervisor_loop(
             MonitorOutcome::ProcessFailure { process, error } => {
                 let details = format!("Process {process} monitor failure: {error}");
                 emit_supervisor_log(&app, &config.logs_dir, "error", &details);
+                update_status(&status_ref, &app, |status| {
+                    status.state = "restarting".to_owned();
+                    status.startup = Some(StartupActivity::new(
+                        StartupPhase::Cleanup,
+                        None,
+                        PROCESS_STOP_GRACE_PERIOD * processes.len() as u32,
+                    ));
+                });
                 stop_all_processes(&app, &config.logs_dir, &mut processes);
                 restart_count = restart_count.saturating_add(1);
                 update_status(&status_ref, &app, |status_ref| {
@@ -875,6 +983,11 @@ fn run_supervisor_loop(
                     status_ref.restart_count = restart_count;
                     status_ref.last_error = Some(details);
                     status_ref.running_processes.clear();
+                    status_ref.startup = Some(StartupActivity::new(
+                        StartupPhase::Backoff,
+                        None,
+                        Duration::from_millis(config.restart_backoff_ms),
+                    ));
                 });
                 set_core_running_since(&core_running_since_ref, None);
                 if sleep_with_stop(
@@ -2136,6 +2249,7 @@ fn stop_requested(stop_rx: &Receiver<()>, stop_signal: &AtomicBool) -> bool {
 fn spawn_runtime_processes(
     app: &AppHandle,
     config: &DesktopRuntimeConfig,
+    status_ref: &Arc<Mutex<RuntimeStatus>>,
     stop_rx: &Receiver<()>,
     stop_signal: &AtomicBool,
 ) -> Result<Vec<ManagedProcess>, SpawnRuntimeError> {
@@ -2177,17 +2291,34 @@ fn spawn_runtime_processes(
         SUPERVISOR_LOG_LEVEL_INFO,
         "Running jobs stream startup maintenance",
     );
-    if let Err(error) = run_startup_node_process(
+    if let Err(error) = run_startup_recovery_task(
         app,
         config,
-        NATS_JOB_STREAM_MAINTENANCE_PROCESS_NAME,
-        NATS_JOB_STREAM_MAINTENANCE_ARTIFACT,
+        status_ref,
+        &NATS_MAINTENANCE_TASK,
         stop_rx,
         stop_signal,
     ) {
         stop_all_processes(app, &config.logs_dir, &mut processes);
-        return Err(map_startup_wait_error(error));
+        return Err(if stop_requested(stop_rx, stop_signal) {
+            SpawnRuntimeError::Cancelled
+        } else {
+            error
+        });
     }
+
+    if stop_requested(stop_rx, stop_signal) {
+        stop_all_processes(app, &config.logs_dir, &mut processes);
+        return Err(SpawnRuntimeError::Cancelled);
+    }
+    update_status(status_ref, app, |status| {
+        status.startup = Some(StartupActivity::new(
+            StartupPhase::Services,
+            None,
+            STARTUP_SERVICES_BUDGET,
+        ));
+    });
+    let services_deadline = Instant::now() + STARTUP_SERVICES_BUDGET;
 
     let backend_process =
         match spawn_node_process(app, config, BACKEND_PROCESS_NAME, BACKEND_ARTIFACT) {
@@ -2217,6 +2348,12 @@ fn spawn_runtime_processes(
     }
 
     for (name, artifact) in INDEXER_WORKERS {
+        if Instant::now() >= services_deadline {
+            stop_all_processes(app, &config.logs_dir, &mut processes);
+            return Err(SpawnRuntimeError::Failed(
+                "Service startup exceeded its budget".to_owned(),
+            ));
+        }
         if stop_requested(stop_rx, stop_signal) {
             stop_all_processes(app, &config.logs_dir, &mut processes);
             return Err(SpawnRuntimeError::Cancelled);
@@ -2254,7 +2391,8 @@ fn spawn_runtime_processes(
     );
     if let Err(error) = wait_for_backend_runtime_health(
         config.backend_port,
-        STARTUP_RUNTIME_HEALTH_TIMEOUT,
+        STARTUP_RUNTIME_HEALTH_TIMEOUT
+            .min(services_deadline.saturating_duration_since(Instant::now())),
         stop_rx,
         stop_signal,
     ) {
@@ -2262,6 +2400,14 @@ fn spawn_runtime_processes(
         return Err(map_startup_wait_error(error));
     }
 
+    if stop_requested(stop_rx, stop_signal) || Instant::now() >= services_deadline {
+        stop_all_processes(app, &config.logs_dir, &mut processes);
+        return Err(if stop_requested(stop_rx, stop_signal) {
+            SpawnRuntimeError::Cancelled
+        } else {
+            SpawnRuntimeError::Failed("Service startup exceeded its budget".to_owned())
+        });
+    }
     Ok(processes)
 }
 
@@ -2294,6 +2440,7 @@ fn sleep_with_stop(stop_rx: &Receiver<()>, stop_signal: &AtomicBool, duration: D
 enum SpawnRuntimeError {
     Cancelled,
     Failed(String),
+    RecoveryFailed(RecoveryFailure, String),
 }
 
 #[derive(Debug)]
@@ -2365,50 +2512,87 @@ fn spawn_node_process(
     )
 }
 
-fn run_startup_node_process(
+fn run_startup_recovery_task(
     app: &AppHandle,
     config: &DesktopRuntimeConfig,
-    process_name: &str,
-    artifact_relative_path: &str,
+    status_ref: &Arc<Mutex<RuntimeStatus>>,
+    task: &RecoveryTask,
     stop_rx: &Receiver<()>,
     stop_signal: &AtomicBool,
-) -> Result<(), StartupWaitError> {
-    let mut process = spawn_node_process(app, config, process_name, artifact_relative_path)
-        .map_err(StartupWaitError::Failed)?;
-
-    loop {
-        if stop_requested(stop_rx, stop_signal) {
-            stop_all_processes(app, &config.logs_dir, std::slice::from_mut(&mut process));
-            return Err(StartupWaitError::Cancelled);
-        }
-
-        match process.child.try_wait() {
-            Ok(Some(status)) => {
-                join_process_output_threads(&mut process);
-                if status.success() {
-                    emit_supervisor_log(
-                        app,
-                        &config.logs_dir,
-                        SUPERVISOR_LOG_LEVEL_INFO,
-                        &format!("Startup process {process_name} completed successfully"),
-                    );
-                    return Ok(());
-                }
-                return Err(StartupWaitError::Failed(format!(
-                    "Startup process {process_name} exited with status {status}"
-                )));
-            }
-            Ok(None) => {}
-            Err(error) => {
-                stop_all_processes(app, &config.logs_dir, std::slice::from_mut(&mut process));
-                return Err(StartupWaitError::Failed(format!(
-                    "Failed to poll startup process {process_name}: {error}"
-                )));
-            }
-        }
-
-        thread::sleep(STARTUP_WAIT_POLL_INTERVAL);
+) -> Result<(), SpawnRuntimeError> {
+    if stop_requested(stop_rx, stop_signal) {
+        return Err(SpawnRuntimeError::Cancelled);
     }
+    update_status(status_ref, app, |status| {
+        status.startup = Some(StartupActivity::new(
+            StartupPhase::Recovery,
+            Some(task.id),
+            task.budget,
+        ));
+    });
+    let outcome = execute_recovery_process(
+        task.budget,
+        || spawn_node_process(app, config, task.process_name, task.artifact),
+        |process| &mut process.child,
+        || stop_requested(stop_rx, stop_signal),
+        STARTUP_WAIT_POLL_INTERVAL,
+        |process, outcome| {
+            if *outcome == RecoveryOutcome::Completed {
+                join_process_output_threads(process);
+            } else {
+                publish_recovery_cleanup(status_ref, app, task);
+                stop_all_processes(app, &config.logs_dir, std::slice::from_mut(process));
+            }
+        },
+    );
+    // Includes spawn failure, where there was no recovery child to finalize.
+    if outcome != RecoveryOutcome::Completed {
+        if !status_ref.lock().is_ok_and(|status| {
+            status
+                .startup
+                .as_ref()
+                .is_some_and(|activity| activity.phase == StartupPhase::Cleanup)
+        }) {
+            publish_recovery_cleanup(status_ref, app, task);
+        }
+    }
+    match outcome {
+        RecoveryOutcome::Cancelled => Err(SpawnRuntimeError::Cancelled),
+        RecoveryOutcome::TimedOut => Err(SpawnRuntimeError::RecoveryFailed(
+            RecoveryFailure {
+                task: task.id,
+                reason: RecoveryFailureReason::TimedOut,
+            },
+            format!(
+                "Recovery task {:?} exceeded its {}s work deadline",
+                task.id,
+                task.budget.as_secs()
+            ),
+        )),
+        RecoveryOutcome::Failed(error) => Err(SpawnRuntimeError::RecoveryFailed(
+            RecoveryFailure {
+                task: task.id,
+                reason: RecoveryFailureReason::Failed,
+            },
+            error,
+        )),
+        RecoveryOutcome::Completed => Ok(()),
+    }
+}
+
+fn publish_recovery_cleanup(
+    status_ref: &Arc<Mutex<RuntimeStatus>>,
+    app: &AppHandle,
+    task: &RecoveryTask,
+) {
+    // The child and prerequisite NATS each retain the existing stop grace period.
+    update_status(status_ref, app, |status| {
+        status.startup = Some(StartupActivity::new(
+            StartupPhase::Cleanup,
+            Some(task.id),
+            PROCESS_STOP_GRACE_PERIOD * 2,
+        ));
+    });
 }
 
 fn join_process_output_threads(process: &mut ManagedProcess) {
@@ -2943,7 +3127,16 @@ where
     F: FnOnce(&mut RuntimeStatus),
 {
     if let Ok(mut status) = status_ref.lock() {
+        let stopping = status.state == "stopping";
         update(&mut status);
+        // A worker cannot publish running/starting over a Stop accepted by IPC.
+        if stopping && status.state != "stopped" {
+            status.state = "stopping".to_owned();
+        }
+        status.revision = status.revision.saturating_add(1);
+        if matches!(status.state.as_str(), "running" | "stopped") {
+            status.startup = None;
+        }
         let snapshot = status.clone();
         let _ = app.emit("runtime-state-changed", &snapshot);
     }
@@ -2964,6 +3157,73 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn terminal_controller_is_reaped_before_manual_retry_even_before_thread_exit() {
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let mut controller = Some(RuntimeController {
+            stop_tx,
+            join_handle: thread::spawn(move || {
+                stop_rx.recv().unwrap();
+            }),
+        });
+        reap_completed_controller(&mut controller, false);
+        assert!(controller.is_some(), "active startup stays single-flight");
+        controller.as_ref().unwrap().stop_tx.send(()).unwrap();
+        reap_completed_controller(&mut controller, true);
+        assert!(
+            controller.is_none(),
+            "terminal cleanup leaves retry admission free"
+        );
+        let (stop_tx, _) = mpsc::channel();
+        controller = Some(RuntimeController {
+            stop_tx,
+            join_handle: thread::spawn(|| {}),
+        });
+        reap_completed_controller(&mut controller, true);
+        assert!(controller.is_none());
+    }
+
+    #[test]
+    fn auto_start_handshake_cannot_renew_active_or_failed_recovery() {
+        let mut status = RuntimeManager::new().status().unwrap();
+        assert!(status.permits_auto_start());
+        status.state = "starting".to_owned();
+        assert!(!status.permits_auto_start());
+        status.state = "stopped".to_owned();
+        status.recovery_failure = Some(RecoveryFailure {
+            task: RecoveryTaskId::NatsMaintenance,
+            reason: RecoveryFailureReason::TimedOut,
+        });
+        assert!(!status.permits_auto_start());
+    }
+
+    #[test]
+    fn recovery_runtime_status_matches_bridge_fixture_and_keeps_bots_unready() {
+        let manager = RuntimeManager::new();
+        let mut status = manager.status().unwrap();
+        status.operation_id = 7;
+        status.revision = 12;
+        status.state = "starting".to_owned();
+        status.startup = Some(StartupActivity {
+            phase: StartupPhase::Recovery,
+            task: Some(RecoveryTaskId::NatsMaintenance),
+            started_at_ms: 1000,
+            deadline_at_ms: 901000,
+        });
+        let expected: serde_json::Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/runtime-recovery-status.json"
+        ))
+        .unwrap();
+        assert_eq!(serde_json::to_value(&status).unwrap(), expected);
+        let snapshots = build_bot_runtime_snapshots(&status, &HashMap::new());
+        assert!(snapshots.iter().all(|snapshot| {
+            snapshot
+                .critical_dependencies
+                .iter()
+                .all(|dependency| !dependency.healthy)
+        }));
+    }
     #[cfg(unix)]
     use crate::runtime::bot_runtime::{SNIPING_BOT_SPEC, build_trading_secret_envelope};
     use crate::runtime::config::{

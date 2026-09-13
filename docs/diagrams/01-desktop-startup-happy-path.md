@@ -32,7 +32,14 @@ sequenceDiagram
     end
 
     S->>W: Start NATS
+    S->>W: Wait for NATS port
+    S->>R: startup=recovery, task=natsMaintenance, fixed deadline
+    R-->>A: Checking queued work; Stop available
+    S->>W: Run bounded maintenance child (15 minutes)
+    W-->>S: Successful final publish/delete probe
+    S->>R: startup=services, fresh deadline
     S->>B: Start backend
+    S->>B: Wait for backend port
     S->>W: Start enabled indexer workers
     S->>B: Probe GET /health/runtime
     B-->>S: Semantic health ok
