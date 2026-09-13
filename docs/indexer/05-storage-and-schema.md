@@ -21,9 +21,16 @@ The shared database wrapper (`shared/database/db.ts`) enforces:
 - WAL journal mode for better read/write concurrency.
 - `synchronous = NORMAL`.
 - `foreign_keys = ON`.
-- `busy_timeout = 5000`.
+- `busy_timeout = 5000`, followed by a bounded application retry for
+  `SQLITE_BUSY` and its extended result codes.
+- Protected autocommit writes for prepared single statements.
+- `db.writeTransaction(...)` for `BEGIN IMMEDIATE` acquisition and safe
+  whole-transaction retry after rollback.
 
 All code uses a single connection per process, created on demand.
+Statements already inside a transaction are not retried independently. See
+[SQLite write contention](../development/02-sqlite-write-contention.md) for the complete policy,
+write-path inventory, and semantic outliers.
 
 ## Migration Runner
 
@@ -31,7 +38,9 @@ Migrations are applied at runtime startup via `createMigrationRunner()`:
 
 - ensures a `migrations` table
 - executes SQL files in `database/migrations/` sorted by filename
-- uses `BEGIN IMMEDIATE` to serialize migrations
+- avoids a writer lock for migrations already present in the ledger
+- rechecks and applies each outstanding migration through the shared
+  `BEGIN IMMEDIATE` write-transaction boundary
 
 The migration runner is invoked by the onchain workers and the OpenSea workers.
 

@@ -27,7 +27,7 @@ export class SqliteMetadataStatsDomain implements MetadataStatsDomainPort {
     async handleRecompute(
         payload: MetadataStatsRecomputePayload,
     ): Promise<void> {
-        const run = db.raw.transaction(() => {
+        const run = db.writeTransaction(() => {
             this.deleteCollectionStats.run(
                 payload.chainId,
                 payload.collectionId,

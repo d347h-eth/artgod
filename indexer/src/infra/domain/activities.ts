@@ -106,7 +106,9 @@ export class SqliteActivityDomain implements ActivityDomainPort {
         "SELECT collection_id, contract_address AS contract, token_id, from_address, to_address, amount, block_number, block_timestamp, tx_hash, log_index, kind AS transfer_standard " +
             "FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ? AND block_number <= ?",
     );
-    private selectTransfersForCollection = db.prepare<[number, number, number, number]>(
+    private selectTransfersForCollection = db.prepare<
+        [number, number, number, number]
+    >(
         "SELECT collection_id, contract_address AS contract, token_id, from_address, to_address, amount, block_number, block_timestamp, tx_hash, log_index, kind AS transfer_standard " +
             "FROM nft_transfer_events WHERE chain_id = ? AND collection_id = ? AND block_number >= ? AND block_number <= ?",
     );
@@ -114,7 +116,9 @@ export class SqliteActivityDomain implements ActivityDomainPort {
         "SELECT collection_id, kind AS fill_kind, order_id, order_side, maker, taker, contract_address AS contract, token_id, amount, price, currency, block_number, block_timestamp, tx_hash, log_index " +
             "FROM fills WHERE chain_id = ? AND block_number >= ? AND block_number <= ?",
     );
-    private selectFillsForCollection = db.prepare<[number, number, number, number]>(
+    private selectFillsForCollection = db.prepare<
+        [number, number, number, number]
+    >(
         "SELECT collection_id, kind AS fill_kind, order_id, order_side, maker, taker, contract_address AS contract, token_id, amount, price, currency, block_number, block_timestamp, tx_hash, log_index " +
             "FROM fills WHERE chain_id = ? AND collection_id = ? AND block_number >= ? AND block_number <= ?",
     );
@@ -126,14 +130,12 @@ export class SqliteActivityDomain implements ActivityDomainPort {
         "SELECT collection_id, extension_key, event_key, contract_address AS contract, token_id, maker, content_hash, block_number, block_timestamp, tx_hash, log_index, payload_json " +
             "FROM collection_extension_events WHERE chain_id = @chainId AND block_number >= @fromBlock AND block_number <= @toBlock",
     );
-    private selectCollectionExtensionEventsForCollection = db.prepare<
-        {
-            chainId: number;
-            collectionId: number;
-            fromBlock: number;
-            toBlock: number;
-        }
-    >(
+    private selectCollectionExtensionEventsForCollection = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        fromBlock: number;
+        toBlock: number;
+    }>(
         "SELECT collection_id, extension_key, event_key, contract_address AS contract, token_id, maker, content_hash, block_number, block_timestamp, tx_hash, log_index, payload_json " +
             "FROM collection_extension_events WHERE chain_id = @chainId AND collection_id = @collectionId AND block_number >= @fromBlock AND block_number <= @toBlock",
     );
@@ -274,7 +276,7 @@ export class SqliteActivityDomain implements ActivityDomainPort {
 
     async handleActivityUpsert(payload: ActivityUpsertPayload): Promise<void> {
         const normalized = normalizeActivityUpsert(payload);
-        const run = db.raw.transaction(() =>
+        const run = db.writeTransaction(() =>
             this.applyActivityUpsert(normalized),
         );
         run();
@@ -346,7 +348,10 @@ export class SqliteActivityDomain implements ActivityDomainPort {
             this.closeActivity.run({ activityId: open.id });
         }
 
-        return this.insertDirectActivity(payload, ACTIVITY_PROJECTION_STATE.Open);
+        return this.insertDirectActivity(
+            payload,
+            ACTIVITY_PROJECTION_STATE.Open,
+        );
     }
 
     private insertDirectActivity(

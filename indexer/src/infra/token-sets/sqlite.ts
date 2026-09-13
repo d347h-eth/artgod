@@ -141,7 +141,7 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
         });
 
         if (tokenIds.length > 0) {
-            const insertTokens = db.raw.transaction(() => {
+            const insertTokens = db.writeTransaction(() => {
                 for (const tokenId of tokenIds) {
                     this.insertTokenSetToken.run({
                         chainId: request.chainId,

@@ -47,9 +47,7 @@ const log = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.SqliteBiddingBidBookProjection,
 );
 
-export class SqliteBiddingBidBookProjection
-    implements BiddingBidBookProjectionPort
-{
+export class SqliteBiddingBidBookProjection implements BiddingBidBookProjectionPort {
     private readonly selectCollection: BetterSqlite3NamedStatement<{
         chainId: number;
         collectionSlug: string;
@@ -217,7 +215,7 @@ export class SqliteBiddingBidBookProjection
         const durationBeforeWriteMs = Date.now() - startedAt;
 
         // Replace the projected bid book transactionally so UI readers never see a partial snapshot.
-        db.raw.transaction(() => {
+        db.writeTransaction(() => {
             this.deleteSnapshotRows.run({
                 chainId: this.chainId,
                 collectionId: collection.collection_id,
@@ -350,7 +348,8 @@ export class SqliteBiddingBidBookProjection
             currencySymbol: "WETH",
             protocolAddress: parsed.protocolAddress ?? null,
             validUntil: parsed.expirationTime ?? null,
-            placedAt: parsed.createdAt ?? epochSecondsToRfc3339(parsed.validFrom),
+            placedAt:
+                parsed.createdAt ?? epochSecondsToRfc3339(parsed.validFrom),
             snapshotRefreshedAtMs: snapshot.refreshedAt,
         };
     }
@@ -361,5 +360,7 @@ function epochSecondsToRfc3339(value: number | undefined): string | null {
         return null;
     }
 
-    return new Date(Math.floor(value * 1000)).toISOString().replace(".000Z", "Z");
+    return new Date(Math.floor(value * 1000))
+        .toISOString()
+        .replace(".000Z", "Z");
 }

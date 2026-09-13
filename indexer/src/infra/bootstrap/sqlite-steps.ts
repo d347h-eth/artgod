@@ -311,7 +311,7 @@ export class SqliteBootstrapSteps implements BootstrapStepsPort {
         if (input.stepKeys.length === 0) {
             return [];
         }
-        const claim = db.raw.transaction(() => {
+        const claim = db.writeTransaction(() => {
             const candidates = selectClaimCandidates(input);
             const claimed: BootstrapStepRecord[] = [];
             for (const candidate of candidates) {
@@ -540,17 +540,19 @@ function selectClaimCandidates(input: {
         "(status IN (?, ?) AND next_attempt_at <= ? AND (lease_until IS NULL OR lease_until <= ?)) " +
         "OR (status = ? AND lease_until IS NOT NULL AND lease_until <= ?)" +
         ") ORDER BY rowid ASC LIMIT ?";
-    return db.raw.prepare(sql).all(
-        input.runId,
-        ...input.stepKeys,
-        BOOTSTRAP_STEP_STATUS.Ready,
-        BOOTSTRAP_STEP_STATUS.FailedRetry,
-        input.nowMs,
-        input.nowMs,
-        BOOTSTRAP_STEP_STATUS.Running,
-        input.nowMs,
-        Math.max(1, input.limit),
-    ) as BootstrapStepDbRow[];
+    return db.raw
+        .prepare(sql)
+        .all(
+            input.runId,
+            ...input.stepKeys,
+            BOOTSTRAP_STEP_STATUS.Ready,
+            BOOTSTRAP_STEP_STATUS.FailedRetry,
+            input.nowMs,
+            input.nowMs,
+            BOOTSTRAP_STEP_STATUS.Running,
+            input.nowMs,
+            Math.max(1, input.limit),
+        ) as BootstrapStepDbRow[];
 }
 
 function updateClaimCandidate(
@@ -561,25 +563,27 @@ function updateClaimCandidate(
     },
     candidate: BootstrapStepDbRow,
 ): number {
-    const result = db.raw.prepare(
-        "UPDATE bootstrap_run_steps SET " +
-            "status = ?, lease_owner = ?, lease_until = ?, started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP " +
-            "WHERE run_id = ? AND step_key = ? AND (" +
-            "(status IN (?, ?) AND next_attempt_at <= ? AND (lease_until IS NULL OR lease_until <= ?)) " +
-            "OR (status = ? AND lease_until IS NOT NULL AND lease_until <= ?)" +
-            ")",
-    ).run(
-        BOOTSTRAP_STEP_STATUS.Running,
-        input.leaseOwner,
-        input.leaseUntil,
-        candidate.run_id,
-        candidate.step_key,
-        BOOTSTRAP_STEP_STATUS.Ready,
-        BOOTSTRAP_STEP_STATUS.FailedRetry,
-        input.nowMs,
-        input.nowMs,
-        BOOTSTRAP_STEP_STATUS.Running,
-        input.nowMs,
-    );
+    const result = db.raw
+        .prepare(
+            "UPDATE bootstrap_run_steps SET " +
+                "status = ?, lease_owner = ?, lease_until = ?, started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP " +
+                "WHERE run_id = ? AND step_key = ? AND (" +
+                "(status IN (?, ?) AND next_attempt_at <= ? AND (lease_until IS NULL OR lease_until <= ?)) " +
+                "OR (status = ? AND lease_until IS NOT NULL AND lease_until <= ?)" +
+                ")",
+        )
+        .run(
+            BOOTSTRAP_STEP_STATUS.Running,
+            input.leaseOwner,
+            input.leaseUntil,
+            candidate.run_id,
+            candidate.step_key,
+            BOOTSTRAP_STEP_STATUS.Ready,
+            BOOTSTRAP_STEP_STATUS.FailedRetry,
+            input.nowMs,
+            input.nowMs,
+            BOOTSTRAP_STEP_STATUS.Running,
+            input.nowMs,
+        );
     return result.changes;
 }

@@ -43,9 +43,11 @@ export class SqliteStorage implements StoragePort {
             "ON CONFLICT(chain_id, block_number) DO UPDATE SET " +
             "block_hash = excluded.block_hash, parent_hash = excluded.parent_hash, timestamp = excluded.timestamp",
     );
-    private upsertCollectionSyncBlock = db.prepare<
-        { chainId: number; collectionId: number; blockNumber: number }
-    >(
+    private upsertCollectionSyncBlock = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        blockNumber: number;
+    }>(
         "INSERT INTO collection_sync_blocks (chain_id, collection_id, block_number) " +
             "VALUES (@chainId, @collectionId, @blockNumber) " +
             "ON CONFLICT(chain_id, collection_id, block_number) DO UPDATE SET " +
@@ -236,9 +238,7 @@ export class SqliteStorage implements StoragePort {
     private deleteBlocksFromBlock = db.prepare<[number, number]>(
         "DELETE FROM blocks WHERE chain_id = ? AND block_number >= ?",
     );
-    private deleteCollectionSyncBlocksFromBlock = db.prepare<
-        [number, number]
-    >(
+    private deleteCollectionSyncBlocksFromBlock = db.prepare<[number, number]>(
         "DELETE FROM collection_sync_blocks WHERE chain_id = ? AND block_number >= ?",
     );
 
@@ -248,7 +248,7 @@ export class SqliteStorage implements StoragePort {
         data: OnChainData,
         collections: CollectionRecord[],
     ): void {
-        const run = db.raw.transaction(() => {
+        const run = db.writeTransaction(() => {
             const blockMeta = buildBlockMeta(blocks);
             const currentStateCollections = new Map(
                 collections.map((collection) => [collection.id, collection]),
@@ -315,7 +315,7 @@ export class SqliteStorage implements StoragePort {
     }
 
     rollbackFromBlock(chainId: number, fromBlock: number): void {
-        const run = db.raw.transaction(() => {
+        const run = db.writeTransaction(() => {
             const events = this.selectTransfersFromBlock.all(
                 chainId,
                 fromBlock,
@@ -481,7 +481,8 @@ export class SqliteStorage implements StoragePort {
         blockMeta: Map<number, BlockMeta>,
     ): void {
         // Event media is extension-owned and keyed to immutable event identity.
-        for (const media of data.collectionScoped.collectionExtensionEventMedia) {
+        for (const media of data.collectionScoped
+            .collectionExtensionEventMedia) {
             const blockTimestamp = resolveBlockTimestamp(
                 blockMeta,
                 media.blockNumber,

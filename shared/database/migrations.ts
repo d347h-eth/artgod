@@ -11,14 +11,16 @@ export class MigrationRunner {
         const files = await this.getMigrationFiles();
         for (const file of files) {
             const name = path.basename(file);
+            // Avoid taking the global writer lock for migrations already applied.
+            if (this.hasRun(name)) continue;
             await this.runSingle(file, name);
         }
     }
 
     private async ensureMigrationsTable() {
-        db.exec(
+        db.prepare<[]>(
             "CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, executed_at TEXT DEFAULT CURRENT_TIMESTAMP)",
-        );
+        ).run();
     }
 
     private async getMigrationFiles(): Promise<string[]> {
@@ -44,22 +46,20 @@ export class MigrationRunner {
 
     private async runSingle(filePath: string, name: string) {
         const sql = await fs.readFile(filePath, "utf8");
-        db.exec("BEGIN IMMEDIATE");
-        try {
+        // Recheck under the write lock so concurrent runtime startups stay idempotent.
+        const applyMigration = db.writeTransaction(() => {
             if (this.hasRun(name)) {
-                db.exec("ROLLBACK");
-                return;
+                return false;
             }
             db.exec(sql);
             const insert = db.prepare<[string]>(
                 "INSERT INTO migrations (name) VALUES (?)",
             );
             insert.run(name);
-            db.exec("COMMIT");
+            return true;
+        });
+        if (applyMigration()) {
             process.stdout.write(`Applied migration: ${name}\n`);
-        } catch (e) {
-            db.exec("ROLLBACK");
-            throw e;
         }
     }
 }

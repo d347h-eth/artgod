@@ -103,6 +103,53 @@ Mutation workflows include:
 HTTP handlers do not open transactions or call concrete repositories directly.
 Cross-row atomicity belongs behind the use case's outbound port.
 
+## Collection Lifecycle Controls and Purge
+
+Current collection controls cover individual bootstrap steps, OpenSea stream
+ingestion, and bidding jobs, but do not establish a common collection shutdown
+boundary. `PurgeCollectionUseCase` checks confirmation, deletes collection data
+in one synchronous transaction through `SqliteCollectionPurgeRepository`, and
+then removes the image-cache directory. It does not wait for producers,
+claimed work, or marketplace cancellation to settle. File cleanup failures are
+logged without a durable recovery step.
+
+The purge deletes bidding commands, runtime state, and cancellation records
+directly, bypassing the normal job archive/cancellation workflow. Deleting the
+SQLite outbox does not retract messages already published to NATS. In-flight
+work can therefore outlive deletion; tables without collection foreign keys
+can accept stale writes afterward. Increasing SQLite retry limits does not
+establish a safe collection lifecycle.
+
+### Deferred Design Constraints
+
+The [unified backlog](../planning/01-unified-backlog.md) tracks independent
+collection controls (`BKL-064`) and safe purge (`BKL-065`). These are future
+design work, outside the regular SQLite contention baseline. The proposed
+"valves" are a starting idea to scrutinize, not an accepted architecture.
+
+- Model desired admission separately from observed shutdown completion for
+  bidding, orderbook reconciliation, event streams, and other collection
+  ingress/egress. Report pending commands, live marketplace bids, active leases,
+  and other unfinished work; closing admission must preserve cancellation and
+  cleanup paths.
+- Define how queued deliveries, retries, already-running callbacks, external
+  effects, and persistence are fenced across processes and restarts. An entry
+  check alone cannot prevent a write racing with purge. Decide how stale
+  messages are discarded and how reopening or re-importing a collection avoids
+  reviving old work. Consider shared-contract and multi-collection work too.
+- Require evidence that producers and external orders have settled before
+  deleting their recovery records. An unavailable marketplace cannot be treated
+  as proof that offers are absent.
+- Evaluate durable operations, deletion markers or generations, and bounded
+  deletion batches versus an explicit maintenance window. Preserve dependency
+  ordering, restart recovery, filesystem cleanup, and final verification. Keep
+  database space reclamation a separate maintenance decision.
+
+Validate the eventual design with concurrent deliveries, restart during
+shutdown/deletion, and late messages after purge. Runtime behavior is unchanged
+by this deferral; the current transaction remains a documented
+[SQLite policy outlier](../development/02-sqlite-write-contention.md#collection-purge-transaction).
+
 ## Query Caching
 
 The query-cache port supports `disabled` and bounded in-memory modes. The public

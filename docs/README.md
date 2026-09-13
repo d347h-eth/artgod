@@ -6,21 +6,21 @@ this page routes maintainers and agents to the owning topic.
 
 ## Start Here
 
-| Need                                              | Read                                                     |
-| ------------------------------------------------- | -------------------------------------------------------- |
-| Public-alpha scope and user workflow              | [Project](project/README.md)                             |
-| Local setup, builds, and validation               | [Local development](development/01-local-development.md) |
-| Backend HTTP boundary                             | [Backend](backend/README.md)                             |
-| Indexing, bootstrap, queues, and storage          | [Indexer](indexer/README.md)                             |
-| Bidding jobs and marketplace execution            | [Trading](trading/README.md)                             |
-| Collection-specific behavior                      | [Extensions](extensions/README.md)                       |
-| Product language, interactions, and UI testing    | [UI](ui/README.md)                                       |
-| Desktop supervision, wallet custody, and releases | [Desktop](desktop/README.md)                             |
-| Hosted read-only deployment                       | [Deploy](deploy/01-web-hosted-read-only.md)              |
-| Runtime ports                                     | [Port catalog](ports/01-port-catalog.md)                 |
-| JSON-RPC inventory                                | [RPC catalog](rpc/01-http-rpc-interaction-catalog.md)    |
-| Cross-domain flows                                | [Diagrams](diagrams/README.md)                           |
-| Remaining work and retained status history        | [Planning](planning/README.md)                           |
+| Need                                               | Read                                                  |
+| -------------------------------------------------- | ----------------------------------------------------- |
+| Public-alpha scope and user workflow               | [Project](project/README.md)                          |
+| Local setup, builds, validation, and SQLite policy | [Development](development/README.md)                  |
+| Backend HTTP boundary                              | [Backend](backend/README.md)                          |
+| Indexing, bootstrap, queues, and storage           | [Indexer](indexer/README.md)                          |
+| Bidding jobs and marketplace execution             | [Trading](trading/README.md)                          |
+| Collection-specific behavior                       | [Extensions](extensions/README.md)                    |
+| Product language, interactions, and UI testing     | [UI](ui/README.md)                                    |
+| Desktop supervision, wallet custody, and releases  | [Desktop](desktop/README.md)                          |
+| Hosted read-only deployment                        | [Deploy](deploy/01-web-hosted-read-only.md)           |
+| Runtime ports                                      | [Port catalog](ports/01-port-catalog.md)              |
+| JSON-RPC inventory                                 | [RPC catalog](rpc/01-http-rpc-interaction-catalog.md) |
+| Cross-domain flows                                 | [Diagrams](diagrams/README.md)                        |
+| Remaining work and retained status history         | [Planning](planning/README.md)                        |
 
 ## Documentation Contract
 

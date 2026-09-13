@@ -155,7 +155,7 @@ export class SqliteBiddingBotRuntimeState {
     ): void {
         const publishedAt = new Date().toISOString();
         // Replace the prior session projection and heartbeat together so readers never observe a partial authorization.
-        db.raw.transaction(() => {
+        db.writeTransaction(() => {
             this.deleteAuthorizedCollections.run({
                 chainId: session.identity.chainId,
                 walletId: session.identity.walletId,

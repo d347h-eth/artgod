@@ -300,7 +300,7 @@ export class SqliteCollectionExtensions
     publishSyntheticToken(
         input: CollectionExtensionSyntheticTokenPublicationInput,
     ): CollectionExtensionSyntheticTokenPublicationResult {
-        const publish = db.raw.transaction(() => {
+        const publish = db.writeTransaction(() => {
             if (this.isSyntheticTokenRetired(input)) {
                 return {
                     published: false,
@@ -349,7 +349,7 @@ export class SqliteCollectionExtensions
     replaceSyntheticTokenWithToken(
         input: CollectionExtensionSyntheticTokenReplacementInput,
     ): CollectionExtensionSyntheticTokenReplacementResult {
-        const replace = db.raw.transaction(() => {
+        const replace = db.writeTransaction(() => {
             const state = this.getSyntheticTokenCanonicalState(
                 input.syntheticToken,
             );
@@ -386,7 +386,7 @@ export class SqliteCollectionExtensions
     retireSyntheticToken(
         input: CollectionExtensionSyntheticTokenInput,
     ): CollectionExtensionSyntheticTokenRetirementResult {
-        const retire = db.raw.transaction(() => {
+        const retire = db.writeTransaction(() => {
             const state = this.getSyntheticTokenCanonicalState(input);
             if (hasSyntheticTokenCanonicalState(state)) {
                 return {
@@ -464,7 +464,7 @@ export class SqliteCollectionExtensions
     replaceTokenAttributes(
         input: CollectionExtensionTokenAttributesReplaceInput,
     ): void {
-        const persist = db.raw.transaction(() => {
+        const persist = db.writeTransaction(() => {
             this.replaceTokenAttributesInTransaction(input);
         });
         persist();

@@ -1,8 +1,9 @@
+import Database from "better-sqlite3";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { strict as assert } from "node:assert";
-import { beforeEach, describe, it } from "vitest";
+import { beforeEach, describe, it, vi } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -26,26 +27,28 @@ async function createTempDbPath(): Promise<string> {
 }
 
 function seedCollection(): number {
-    const result = db.prepare<{
-        chainId: number;
-        slug: string;
-        address: string;
-        standard: string;
-        status: string;
-        tokenScopeKind: string;
-    }>(
-        "INSERT INTO collections " +
-            "(chain_id, slug, address, standard, status, token_scope_kind) " +
-            "VALUES (@chainId, @slug, @address, @standard, @status, @tokenScopeKind)",
-    ).run({
-        chainId: 1,
-        slug: JOB_COMMAND_FIXTURE_SLUG,
-        address: "0x1111111111111111111111111111111111111111",
-        standard: COLLECTION_STANDARD.Erc721,
-        status: COLLECTION_STATUS.Live,
-        tokenScopeKind:
-            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
-    });
+    const result = db
+        .prepare<{
+            chainId: number;
+            slug: string;
+            address: string;
+            standard: string;
+            status: string;
+            tokenScopeKind: string;
+        }>(
+            "INSERT INTO collections " +
+                "(chain_id, slug, address, standard, status, token_scope_kind) " +
+                "VALUES (@chainId, @slug, @address, @standard, @status, @tokenScopeKind)",
+        )
+        .run({
+            chainId: 1,
+            slug: JOB_COMMAND_FIXTURE_SLUG,
+            address: "0x1111111111111111111111111111111111111111",
+            standard: COLLECTION_STANDARD.Erc721,
+            status: COLLECTION_STATUS.Live,
+            tokenScopeKind:
+                EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
+        });
 
     return Number(result.lastInsertRowid);
 }
@@ -86,27 +89,29 @@ function seedCommand(params: {
     status: string;
     claimedAt?: string | null;
 }): number {
-    const result = db.prepare<{
-        jobId: string;
-        botKind: string;
-        commandKind: string;
-        status: string;
-        requestedRevision: number;
-        payloadJson: string;
-        claimedAt: string | null;
-    }>(
-        "INSERT INTO trading_job_commands " +
-            "(job_id, bot_kind, command_kind, status, requested_revision, payload_json, claimed_at) " +
-            "VALUES (@jobId, @botKind, @commandKind, @status, @requestedRevision, @payloadJson, @claimedAt)",
-    ).run({
-        jobId: params.jobId,
-        botKind: TRADING_BOT_KIND.Bidding,
-        commandKind: TRADING_JOB_COMMAND_KIND.JobUpdated,
-        status: params.status,
-        requestedRevision: 1,
-        payloadJson: JSON.stringify({ jobId: params.jobId }),
-        claimedAt: params.claimedAt ?? null,
-    });
+    const result = db
+        .prepare<{
+            jobId: string;
+            botKind: string;
+            commandKind: string;
+            status: string;
+            requestedRevision: number;
+            payloadJson: string;
+            claimedAt: string | null;
+        }>(
+            "INSERT INTO trading_job_commands " +
+                "(job_id, bot_kind, command_kind, status, requested_revision, payload_json, claimed_at) " +
+                "VALUES (@jobId, @botKind, @commandKind, @status, @requestedRevision, @payloadJson, @claimedAt)",
+        )
+        .run({
+            jobId: params.jobId,
+            botKind: TRADING_BOT_KIND.Bidding,
+            commandKind: TRADING_JOB_COMMAND_KIND.JobUpdated,
+            status: params.status,
+            requestedRevision: 1,
+            payloadJson: JSON.stringify({ jobId: params.jobId }),
+            claimedAt: params.claimedAt ?? null,
+        });
     return Number(result.lastInsertRowid);
 }
 
@@ -117,7 +122,9 @@ function getCommandRow(commandId: number): {
     completed_at: string | null;
 } {
     return db
-        .prepare<{ commandId: number }>(
+        .prepare<{
+            commandId: number;
+        }>(
             "SELECT status, attempts, last_error, completed_at FROM trading_job_commands WHERE command_id = @commandId",
         )
         .get({ commandId }) as {
@@ -182,5 +189,53 @@ describe("SqliteBiddingJobCommandRepository", () => {
         const failed = getCommandRow(commandId);
         assert.equal(failed.status, "failed_retry");
         assert.equal(failed.last_error, "temporary failure");
+    });
+
+    it("continues claiming one command at a time after writer contention", async () => {
+        const firstId = seedCommand({
+            jobId,
+            status: TRADING_JOB_COMMAND_STATUS.Pending,
+        });
+        const secondId = seedCommand({
+            jobId,
+            status: TRADING_JOB_COMMAND_STATUS.Pending,
+        });
+        const repository = new SqliteBiddingJobCommandRepository();
+        const claimOptions = { limit: 1, claimTimeoutMs: 300_000 };
+        db.raw.pragma("busy_timeout = 0");
+        const competitor = new Database(db.raw.name);
+        competitor.exec("BEGIN IMMEDIATE");
+        // Release at the retry boundary so the first claim must encounter a real lock.
+        const backoff = vi.spyOn(Atomics, "wait").mockImplementationOnce(() => {
+            assert.equal(getCommandRow(firstId).attempts, 0);
+            assert.equal(getCommandRow(secondId).attempts, 0);
+            competitor.exec("COMMIT");
+            return "ok";
+        });
+
+        try {
+            const first = await repository.claimNextBatch(claimOptions);
+            assert.equal(backoff.mock.calls.length, 1);
+            assert.deepEqual(
+                first.map((command) => command.commandId),
+                [firstId],
+            );
+            assert.equal(getCommandRow(firstId).attempts, 1);
+            assert.equal(
+                getCommandRow(secondId).status,
+                TRADING_JOB_COMMAND_STATUS.Pending,
+            );
+
+            const second = await repository.claimNextBatch(claimOptions);
+            assert.deepEqual(
+                second.map((command) => command.commandId),
+                [secondId],
+            );
+            assert.equal(getCommandRow(secondId).attempts, 1);
+            assert.deepEqual(await repository.claimNextBatch(claimOptions), []);
+        } finally {
+            backoff.mockRestore();
+            competitor.close();
+        }
     });
 });
