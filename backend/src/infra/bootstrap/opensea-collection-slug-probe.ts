@@ -1,25 +1,22 @@
 import type { OpenSeaContractLookupPort } from "@artgod/shared/network/opensea-contract-lookup";
-import type { OpenSeaCollectionSlugProbePort } from "../../application/use-cases/bootstrap/probe-opensea-collection-slug.js";
+import type { OpenSeaCollectionIdentityLookupPort } from "../../application/open-sea/open-sea-collection-identity-verifier.js";
 
-// Adapts shared OpenSea contract lookup results to bootstrap slug probing.
-export class OpenSeaCollectionSlugProbeAdapter implements OpenSeaCollectionSlugProbePort {
-    constructor(private readonly contractLookup: OpenSeaContractLookupPort) {}
+// Adapts shared OpenSea REST lookups to the backend collection identity boundary.
+export class OpenSeaCollectionSlugProbeAdapter implements OpenSeaCollectionIdentityLookupPort {
+    constructor(
+        private readonly contractLookup: Pick<
+            OpenSeaContractLookupPort,
+            "resolveCollectionByToken"
+        >,
+    ) {}
 
-    async resolveCollectionSlugByContract(input: {
+    async resolveCollectionSlugByToken(input: {
         address: string;
+        tokenId: string;
     }): Promise<string | null> {
-        const collection =
-            await this.contractLookup.resolveCollectionByContract({
-                address: input.address,
-            });
-        return collection?.slug ?? null;
-    }
-
-    async resolveCollectionSlugBySlug(input: {
-        slug: string;
-    }): Promise<string | null> {
-        const collection = await this.contractLookup.resolveCollectionBySlug({
-            slug: input.slug,
+        const collection = await this.contractLookup.resolveCollectionByToken({
+            address: input.address,
+            tokenId: input.tokenId,
         });
         return collection?.slug ?? null;
     }

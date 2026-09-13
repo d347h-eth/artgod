@@ -16,12 +16,15 @@ import {
     type BootstrapRunStatus,
 } from "@artgod/shared/bootstrap/pipeline";
 import {
-    BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS,
-    type BootstrapOpenSeaSlugProbeStatus,
-} from "@artgod/shared/bootstrap/opensea-slug-probe";
+    OPENSEA_COLLECTION_SLUG_PROBE_STATUS,
+    type OpenSeaCollectionSlugProbeStatus,
+} from "@artgod/shared/opensea/collection-slug-probe";
 import { type ImageCacheMode } from "@artgod/shared/media/token-image-cache";
 import type { CollectionCustomizationSourceKind } from "@artgod/shared/types";
-import { COLLECTION_STANDARD } from "../domain/collections.js";
+import {
+    COLLECTION_STANDARD,
+    CollectionTokenScope,
+} from "../domain/collections.js";
 
 // CLI flags owned by the bootstrap trigger entrypoint.
 export const BOOTSTRAP_TRIGGER_CLI_FLAG = {
@@ -111,6 +114,7 @@ type BootstrapProbeManualInput = {
 
 export type BootstrapProbeApiResponse = {
     firstToken: {
+        tokenId: string | null;
         imageSourceField: string | null;
         animationSourceField: string | null;
     };
@@ -158,7 +162,7 @@ export type BootstrapRunCreateApiResponse = {
 type BootstrapOpenSeaSlugProbeApiResponse = {
     address: string | null;
     requestedSlug: string | null;
-    status: BootstrapOpenSeaSlugProbeStatus;
+    status: OpenSeaCollectionSlugProbeStatus;
     slug: string | null;
     reason: string | null;
 };
@@ -287,6 +291,12 @@ export function buildBootstrapRunCreateBody(
     probe: BootstrapProbeApiResponse,
 ): BootstrapRunCreateBody {
     const enumeration = resolveBootstrapEnumeration(input, probe);
+    if (enumeration.manualInput) {
+        assertSampleInManualScope(
+            enumeration.manualInput,
+            input.sampleTokenId ?? probe.firstToken.tokenId,
+        );
+    }
 
     const imageSourceField = normalizeProbeField(
         probe.firstToken.imageSourceField,
@@ -326,6 +336,36 @@ export function buildBootstrapRunCreateBody(
     return body;
 }
 
+function assertSampleInManualScope(
+    input: BootstrapManualInput,
+    sampleTokenId: string | null,
+): void {
+    const sample = normalizeOptionalTokenId(sampleTokenId ?? undefined);
+    if (sample === null) {
+        throw new Error(
+            "Probe an existing sample token before queueing bootstrap",
+        );
+    }
+    const containsSample =
+        input.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
+            ? CollectionTokenScope.tokenRange(
+                  input.startTokenId,
+                  input.totalSupply,
+              ).containsToken(sample)
+            : CollectionTokenScope.explicitTokenIds().containsToken(
+                  sample,
+                  (id) =>
+                      input.tokenIds.some(
+                          (tokenId) => BigInt(tokenId) === BigInt(id),
+                      ),
+              );
+    if (!containsSample) {
+        throw new Error(
+            "Probe sample token must be inside the requested manual collection scope",
+        );
+    }
+}
+
 function resolveBootstrapEnumeration(
     input: BootstrapTriggerResolvedInput,
     probe: BootstrapProbeApiResponse,
@@ -334,23 +374,6 @@ function resolveBootstrapEnumeration(
     manualInput: BootstrapManualInput | null;
 } {
     if (input.manualInput) {
-        if (probe.suggestedInput.supportsEnumerable) {
-            throw new Error(
-                "Manual input cannot be used when the contract probe reports enumerable support",
-            );
-        }
-        if (
-            input.manualInput.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange &&
-            probe.suggestedInput.manualInput &&
-            (input.manualInput.startTokenId !==
-                probe.suggestedInput.manualInput.startTokenId ||
-                input.manualInput.totalSupply !==
-                    probe.suggestedInput.manualInput.totalSupply)
-        ) {
-            throw new Error(
-                "Explicit manual range must match the latest contract probe",
-            );
-        }
         return {
             supportsEnumerable: false,
             manualInput: input.manualInput,
@@ -391,7 +414,11 @@ export async function triggerBootstrapViaApi(
 
     const probe = await fetchBootstrapProbe(input, fetchFn);
     const requestBody = buildBootstrapRunCreateBody(input, probe);
-    await verifyOpenSeaSlug(input, fetchFn);
+    await verifyOpenSeaSlug(
+        input,
+        input.sampleTokenId ?? probe.firstToken.tokenId,
+        fetchFn,
+    );
     const csrfToken = await fetchCsrfToken(input.backendOrigin, fetchFn);
     const created = await createBootstrapRun(
         input,
@@ -447,6 +474,7 @@ async function fetchBootstrapProbe(
 
 async function verifyOpenSeaSlug(
     input: BootstrapTriggerResolvedInput,
+    sampleTokenId: string | null,
     fetchFn: FetchLike,
 ): Promise<void> {
     if (!input.openseaSlug) {
@@ -456,6 +484,7 @@ async function verifyOpenSeaSlug(
         chainRef: input.chainRef,
         address: input.address,
         slug: input.openseaSlug,
+        sampleTokenId: sampleTokenId ?? "",
     });
     const result = await requestJson<BootstrapOpenSeaSlugProbeApiResponse>(
         fetchFn,
@@ -465,7 +494,7 @@ async function verifyOpenSeaSlug(
         },
     );
     if (
-        result.status !== BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found ||
+        result.status !== OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found ||
         result.address !== input.address ||
         result.requestedSlug !== input.openseaSlug ||
         result.slug !== input.openseaSlug

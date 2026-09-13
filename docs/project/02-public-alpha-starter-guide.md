@@ -140,7 +140,7 @@ the release you downloaded; the verification transcripts below are examples.
 
     ![Admin showing healthy infrastructure and the Enter the Userland action](../assets/operator-guide/artgod-guide-04-admin-started-infra.png)
 
-5. Bootstrap one collection. Confirm that its contract source is publicly verified, review the detected contract capabilities, complete the bootstrap settings, and queue the bootstrap.
+5. Bootstrap one collection. Confirm that its contract source is publicly verified, stage the sample and collection scope, then use **Probe** and review the result before queueing. Follow [Adding a Collection](#adding-a-collection) for shared or partially minted contracts.
 
     ![First part of the collection bootstrap form](../assets/operator-guide/artgod-guide-05-bootstrap-milady-part1.png)
 
@@ -182,7 +182,11 @@ Stopping the bot is not the same as cancelling its offers. Existing signed OpenS
 
 Every NFT collection is different.
 
-Some collections cannot be bootstrapped automatically yet. ArtGod currently works best with enumerable ERC-721 collections. Contracts without reliable token enumeration, unusual token scopes, unexpected proxy behavior, or nonstandard metadata may need support that is not implemented yet.
+ArtGod supports whole-contract ERC721Enumerable scans and user-defined token
+ranges or lists. Shared contracts and partially minted collections usually need
+explicit scope; Enumerable support alone does not identify one project on a
+shared contract. Unusual ownership behavior, unexpected proxy behavior, or
+unsupported metadata can still prevent setup.
 
 Metadata can be stored inline, onchain, behind an IPFS gateway, or on an ordinary HTTP server. Any external source can be slow, rate-limited, malformed, temporarily unavailable, or gone for good. ArtGod uses bounded retries, but it cannot recover data that no longer exists.
 
@@ -191,6 +195,57 @@ A collection becoming `live` means its local ownership state and realtime onchai
 Bidding behavior also varies by collection. Some collections receive far more offers and marketplace events than others, and their complete offer books may be many times larger. ArtGod coalesces repeated events and applies backpressure so a busy collection cannot completely monopolize the bot, but large order books still take longer to snapshot, verify, and process.
 
 Start with one collection bootstrap at a time. Multiple runs share the same RPC pool and bounded worker lanes, so starting more work usually increases total completion time instead of making everything finish in parallel.
+
+## Adding a Collection
+
+After the contract-safety acknowledgement, the sample, metadata source, and
+scope controls are available without a separate manual-editing gate. You can
+stage the inputs before submitting; typing or clearing a field sends no probe.
+
+1. Enter the contract address and a **Sample token ID** from the collection you
+   want. The sample is one existing NFT used for preview and optional OpenSea
+   lookup; it does not have to be the first token. If you only have an address,
+   you can probe it first, but review the candidate carefully on shared contracts.
+2. Choose the collection scope. Enable **Use ERC721Enumerable token
+   enumeration** only when you want every token on that contract and the probe
+   confirms support. Otherwise, enter the first token ID and total supply, or
+   use an explicit token list. For a range, the last ID is
+   `first + supply - 1`. The default first ID of `1` is editable, not a
+   detected fact.
+3. Press **Probe**. Use **Apply detected fields** if you want to accept the
+   suggested sample and media fields, and review the local **Collection slug**.
+   You can edit image/animation source fields and probe again. Clearing the
+   image field does not hide or clear the sample; a nonempty animation field
+   must resolve, or you can clear it to skip animation capture.
+4. Resolve the optional **OpenSea slug** using that same sample, then review
+   the settings and queue bootstrap. A successful explicit sample probe also
+   starts this optional lookup when OpenSea is enabled. If you accepted an
+   address-only candidate afterward, press **resolve** yourself. A staged slug
+   must match the sample's OpenSea collection.
+
+For a partially minted collection, use the intended published range rather
+than shortening it to the current minted count. For example, first ID `1`
+and supply `999` describe `1..999`, even if the existing preview token is
+`2`. Missing IDs inside the range are skipped only when the contract clearly
+reports that they do not exist at the bootstrap anchor. Unknown RPC/contract
+errors remain failures, and at least one token must exist at that anchor.
+Future mint events within the retained scope can then be indexed.
+
+Do not treat a resolved OpenSea badge as proof of the full token range: it
+only confirms the sample-to-slug association. OpenSea is optional for onchain
+setup. If it is unavailable or the slug is unresolved, you can still queue a
+valid onchain bootstrap; the unresolved slug is omitted and bidding waits.
+
+Once that collection is `live`, use **start opensea sync** on its collection
+row, enter the slug, press **resolve**, and start the sync. This uses one
+locally owned token, not the configured range endpoints. If setup status is
+unavailable during app startup, close the modal and retry after startup
+finishes; follow the configuration message if integration is disabled.
+An ownership-sync message instead means no locally owned representative is
+available yet. Bidding requires the initial OpenSea snapshot to finish.
+
+See the [bootstrap reference](../indexer/14-collection-bootstrap.md#manual-first-probe-form)
+for data sources and limitations.
 
 ## OpenSea API Key
 

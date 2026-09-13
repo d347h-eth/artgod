@@ -28,7 +28,7 @@ import {
     BOOTSTRAP_RUN_EVENT_CODE,
     serializeBootstrapEnumerationProgressEventPayload,
 } from "@artgod/shared/bootstrap/run-events";
-import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from "@artgod/shared/bootstrap/opensea-slug-probe";
+import { OPENSEA_COLLECTION_SLUG_PROBE_STATUS } from "@artgod/shared/opensea/collection-slug-probe";
 import {
     BOOTSTRAP_ENUMERATION_MODE,
     BOOTSTRAP_METADATA_MODE,
@@ -119,6 +119,7 @@ import {
     EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND,
 } from "@artgod/shared/extensions";
 import {
+    buildProbeCollectionOpenSeaSlugPath,
     buildStartCollectionBootstrapPath,
     buildStartCollectionOpenSeaSyncPath,
     buildUpdateCollectionOpenSeaStreamIngestionPath,
@@ -149,10 +150,12 @@ const TERRAFORMS_ADDRESS = "0x2222222222222222222222222222222222222222";
 const EMBEDDED_TERRAFORMS_MAIN_ADDRESS =
     "0x4e1f41613c9084fdb9e34e11fae9412427480e56";
 const PREPARED_BOOTSTRAP_COLLECTION_SLUG = "prepared-bootstrap-target";
-const PREPARED_BOOTSTRAP_ADDRESS =
-    "0x3333333333333333333333333333333333333333";
+const PREPARED_BOOTSTRAP_ADDRESS = "0x3333333333333333333333333333333333333333";
 const OPENSEA_SYNC_COLLECTION_SLUG = "opensea-sync-target";
 const OPENSEA_SYNC_ADDRESS = "0x4444444444444444444444444444444444444444";
+const OPENSEA_SYNC_SCOPE_START_TOKEN_ID = "462000000";
+const OPENSEA_SYNC_SCOPE_TOTAL_SUPPLY = 400;
+const OPENSEA_SYNC_SAMPLE_TOKEN_ID = "462000001";
 const OPENSEA_SYNC_PREVIOUS_ERROR = "previous OpenSea sync failed";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const WETH_ADDRESS = "0xc02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -678,9 +681,8 @@ beforeAll(async () => {
         await import("./infra/collection-extensions/built-in-collection-extension-resolver.js");
     const createBootstrapUseCaseModule =
         await import("./application/use-cases/bootstrap/create-bootstrap-run.js");
-    const startPreparedCollectionBootstrapUseCaseModule = await import(
-        "./application/use-cases/bootstrap/start-prepared-collection-bootstrap.js"
-    );
+    const startPreparedCollectionBootstrapUseCaseModule =
+        await import("./application/use-cases/bootstrap/start-prepared-collection-bootstrap.js");
     const probeCollectionContractUseCaseModule =
         await import("./application/use-cases/bootstrap/probe-collection-contract.js");
     const estimateBootstrapImageCacheUseCaseModule =
@@ -697,18 +699,14 @@ beforeAll(async () => {
         await import("./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js");
     const applyBootstrapRunStepActionUseCaseModule =
         await import("./application/use-cases/bootstrap/apply-bootstrap-run-step-action.js");
-    const startOpenSeaCollectionSyncUseCaseModule = await import(
-        "./application/use-cases/collections/start-opensea-collection-sync.js"
-    );
-    const updateOpenSeaStreamIngestionUseCaseModule = await import(
-        "./application/use-cases/collections/update-opensea-stream-ingestion.js"
-    );
-    const openSeaCollectionSyncRepositoryModule = await import(
-        "./infra/collections/sqlite-opensea-collection-sync-repository.js"
-    );
-    const openSeaStreamIngestionRepositoryModule = await import(
-        "./infra/collections/sqlite-opensea-stream-ingestion-repository.js"
-    );
+    const startOpenSeaCollectionSyncUseCaseModule =
+        await import("./application/use-cases/collections/start-opensea-collection-sync.js");
+    const updateOpenSeaStreamIngestionUseCaseModule =
+        await import("./application/use-cases/collections/update-opensea-stream-ingestion.js");
+    const openSeaCollectionSyncRepositoryModule =
+        await import("./infra/collections/sqlite-opensea-collection-sync-repository.js");
+    const openSeaStreamIngestionRepositoryModule =
+        await import("./infra/collections/sqlite-opensea-stream-ingestion-repository.js");
 
     const bootstrapRepository =
         new bootstrapRepositoryModule.SqliteBootstrapRunsRepository();
@@ -842,25 +840,36 @@ beforeAll(async () => {
                 },
             },
         );
+    const openSeaCollectionIdentityVerifier = {
+        async resolveVerifiedSlug(input: {
+            address: string;
+            requestedSlug: string | null;
+            sampleTokenId: string;
+        }) {
+            openSeaSlugProbeInputs.push(input);
+            if (input.requestedSlug === "terraforms") {
+                return input.address === TERRAFORMS_ADDRESS
+                    ? input.requestedSlug
+                    : null;
+            }
+            if (input.requestedSlug === OPENSEA_SYNC_COLLECTION_SLUG) {
+                return input.address === OPENSEA_SYNC_ADDRESS
+                    ? input.requestedSlug
+                    : null;
+            }
+            if (input.address === TERRAFORMS_ADDRESS) return "terraforms";
+            if (input.address === OPENSEA_SYNC_ADDRESS) {
+                return OPENSEA_SYNC_COLLECTION_SLUG;
+            }
+            return null;
+        },
+    };
     const probeOpenSeaCollectionSlugUseCase =
         new probeOpenSeaCollectionSlugUseCaseModule.ProbeOpenSeaCollectionSlugUseCase(
             1,
             ENABLED_OPENSEA_INTEGRATION,
             chainsReadModel,
-            {
-                async resolveCollectionSlugByContract(input: {
-                    address: string;
-                }) {
-                    openSeaSlugProbeInputs.push(input);
-                    return input.address === TERRAFORMS_ADDRESS
-                        ? "terraforms"
-                        : null;
-                },
-                async resolveCollectionSlugBySlug(input: { slug: string }) {
-                    openSeaSlugProbeInputs.push(input);
-                    return input.slug === "terraforms" ? "terraforms" : null;
-                },
-            },
+            openSeaCollectionIdentityVerifier,
         );
     const getBootstrapStatusUseCase =
         new getBootstrapStatusUseCaseModule.GetBootstrapStatusUseCase(
@@ -902,16 +911,7 @@ beforeAll(async () => {
             chainsReadModel,
             new openSeaCollectionSyncRepositoryModule.SqliteOpenSeaCollectionSyncRepository(),
             openSeaQueueMock,
-            {
-                async resolveCollectionSlugByContract(input: {
-                    address: string;
-                }) {
-                    openSeaSlugProbeInputs.push(input);
-                    return input.address === OPENSEA_SYNC_ADDRESS
-                        ? OPENSEA_SYNC_COLLECTION_SLUG
-                        : null;
-                },
-            },
+            openSeaCollectionIdentityVerifier,
         );
     const updateOpenSeaStreamIngestionUseCase =
         new updateOpenSeaStreamIngestionUseCaseModule.UpdateOpenSeaStreamIngestionUseCase(
@@ -1294,9 +1294,9 @@ describe("backend api routes", () => {
         expect(result.payload.bidding.bidBookLiveRefresh).toEqual(
             DEFAULT_BIDDING_BID_BOOK_LIVE_REFRESH_CONFIG,
         );
-        expect(
-            result.payload.bidding.trustOpenSeaSignedZoneTraitOffers,
-        ).toBe(DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS);
+        expect(result.payload.bidding.trustOpenSeaSignedZoneTraitOffers).toBe(
+            DEFAULT_BIDDING_TRUST_OPENSEA_SIGNED_ZONE_TRAIT_OFFERS,
+        );
     });
 
     it("returns chain blockspace state on the local API", async () => {
@@ -2743,6 +2743,9 @@ describe("backend api routes", () => {
             items: [{ label: "scope", value: "all contract tokens" }],
         });
         expect(first.payload.page.items[0].openseaReadyAt).toBeNull();
+        expect(
+            first.payload.page.items[0].openseaSnapshotRefreshedAt,
+        ).toBeNull();
         expect(first.payload.page.nextCursor).toEqual(expect.any(String));
 
         const second = await resolve(
@@ -5324,13 +5327,14 @@ describe("backend api routes", () => {
         expect(probe.statusCode).toBe(200);
         expect(probe.payload.enumerable.supported).toBe(true);
         expect(probe.payload.firstToken.tokenId).toBe("42");
-        expect(probe.payload.storageEstimate.projectedBytes).toBe("57");
-        expect(probe.payload.suggestedInput).toEqual(
-            expect.objectContaining({
-                supportsEnumerable: true,
-                ready: true,
-            }),
-        );
+        expect(probe.payload.storageEstimate).toBeNull();
+        expect(probe.payload.imageStorageEstimate).toBeNull();
+        expect(probe.payload.suggestedInput).toEqual({
+            supportsEnumerable: false,
+            manualInput: null,
+            ready: false,
+            warnings: [],
+        });
         const imageCacheEstimate = await resolve(
             "POST",
             "/api/ethereum/collections/bootstrap/image-cache-estimate",
@@ -5373,7 +5377,7 @@ describe("backend api routes", () => {
         openSeaSlugProbeInputs = [];
         const openSeaSlugProbe = await resolve(
             "GET",
-            `/api/ethereum/collections/bootstrap/opensea-slug-probe?address=${TERRAFORMS_ADDRESS}`,
+            `/api/ethereum/collections/bootstrap/opensea-slug-probe?address=${TERRAFORMS_ADDRESS}&sample_token_id=42`,
         );
         expect(openSeaSlugProbe.statusCode).toBe(200);
         expect(openSeaSlugProbe.payload).toEqual({
@@ -5382,35 +5386,39 @@ describe("backend api routes", () => {
             }),
             address: TERRAFORMS_ADDRESS,
             requestedSlug: null,
-            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
+            status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found,
             slug: "terraforms",
             reason: null,
         });
         expect(openSeaSlugProbeInputs).toEqual([
             {
                 address: TERRAFORMS_ADDRESS,
+                requestedSlug: null,
+                sampleTokenId: "42",
             },
         ]);
 
         openSeaSlugProbeInputs = [];
         const openSeaSlugVerification = await resolve(
             "GET",
-            "/api/ethereum/collections/bootstrap/opensea-slug-probe?slug=terraforms",
+            `/api/ethereum/collections/bootstrap/opensea-slug-probe?address=${TERRAFORMS_ADDRESS}&sample_token_id=42&slug=terraforms`,
         );
         expect(openSeaSlugVerification.statusCode).toBe(200);
         expect(openSeaSlugVerification.payload).toEqual({
             chain: expect.objectContaining({
                 slug: "ethereum",
             }),
-            address: null,
+            address: TERRAFORMS_ADDRESS,
             requestedSlug: "terraforms",
-            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
+            status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found,
             slug: "terraforms",
             reason: null,
         });
         expect(openSeaSlugProbeInputs).toEqual([
             {
-                slug: "terraforms",
+                address: TERRAFORMS_ADDRESS,
+                requestedSlug: "terraforms",
+                sampleTokenId: "42",
             },
         ]);
 
@@ -5431,15 +5439,10 @@ describe("backend api routes", () => {
     it("starts bootstrap from a prepared collection row", async () => {
         const collectionId = insertPreparedBootstrapCollectionFixture();
         try {
-            const csrf = await resolve(
-                "GET",
-                "/api/security/csrf",
-                undefined,
-                {
-                    host: "127.0.0.1:42710",
-                    origin: "http://127.0.0.1:42701",
-                },
-            );
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
             const token = csrf.payload.token as string;
             const cookie = csrf.headers["set-cookie"] as string;
 
@@ -5519,7 +5522,8 @@ describe("backend api routes", () => {
                 request_opensea_slug: PREPARED_BOOTSTRAP_COLLECTION_SLUG,
                 request_address: PREPARED_BOOTSTRAP_ADDRESS,
                 request_standard: COLLECTION_STANDARD.Erc721,
-                request_image_source_field: TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
+                request_image_source_field:
+                    TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
                 request_animation_source_field:
                     TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl,
                 metadata_mode: BOOTSTRAP_METADATA_MODE.BestEffort,
@@ -5527,9 +5531,9 @@ describe("backend api routes", () => {
             });
 
             const stepKeys = db
-                .prepare<
-                    [number]
-                >("SELECT step_key FROM bootstrap_run_steps WHERE run_id = ? ORDER BY rowid ASC")
+                .prepare<[number]>(
+                    "SELECT step_key FROM bootstrap_run_steps WHERE run_id = ? ORDER BY rowid ASC",
+                )
                 .all(start.payload.runId)
                 .map((row) => (row as { step_key: string }).step_key);
             expect(stepKeys).toEqual(
@@ -5547,15 +5551,10 @@ describe("backend api routes", () => {
     it("restores a prepared collection when bootstrap queue publish fails", async () => {
         const collectionId = insertPreparedBootstrapCollectionFixture();
         try {
-            const csrf = await resolve(
-                "GET",
-                "/api/security/csrf",
-                undefined,
-                {
-                    host: "127.0.0.1:42710",
-                    origin: "http://127.0.0.1:42701",
-                },
-            );
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
             const token = csrf.payload.token as string;
             const cookie = csrf.headers["set-cookie"] as string;
 
@@ -5618,18 +5617,72 @@ describe("backend api routes", () => {
         }
     });
 
+    it("resolves a live collection slug from its persisted token-range boundaries", async () => {
+        const collectionId = insertOpenSeaSyncCollectionFixture({
+            openseaSlug: null,
+        });
+        try {
+            openSeaSlugProbeInputs = [];
+            const discovered = await resolve(
+                "GET",
+                buildProbeCollectionOpenSeaSlugPath({
+                    chainRef: DEFAULT_CHAIN_REF,
+                    collectionRef: OPENSEA_SYNC_COLLECTION_SLUG,
+                }),
+            );
+
+            expect(discovered.statusCode).toBe(200);
+            expect(discovered.payload).toEqual({
+                chain: expect.objectContaining({ slug: DEFAULT_CHAIN_REF }),
+                address: OPENSEA_SYNC_ADDRESS,
+                requestedSlug: null,
+                status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found,
+                slug: OPENSEA_SYNC_COLLECTION_SLUG,
+                reason: null,
+            });
+            expect(openSeaSlugProbeInputs).toEqual([
+                {
+                    address: OPENSEA_SYNC_ADDRESS,
+                    requestedSlug: null,
+                    sampleTokenId: OPENSEA_SYNC_SAMPLE_TOKEN_ID,
+                },
+            ]);
+
+            openSeaSlugProbeInputs = [];
+            const verified = await resolve(
+                "GET",
+                buildProbeCollectionOpenSeaSlugPath({
+                    chainRef: DEFAULT_CHAIN_REF,
+                    collectionRef: OPENSEA_SYNC_COLLECTION_SLUG,
+                    slug: OPENSEA_SYNC_COLLECTION_SLUG,
+                }),
+            );
+            expect(verified.statusCode).toBe(200);
+            expect(verified.payload.status).toBe(
+                OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found,
+            );
+            expect(verified.payload.requestedSlug).toBe(
+                OPENSEA_SYNC_COLLECTION_SLUG,
+            );
+            expect(openSeaSlugProbeInputs).toEqual([
+                {
+                    address: OPENSEA_SYNC_ADDRESS,
+                    requestedSlug: OPENSEA_SYNC_COLLECTION_SLUG,
+                    sampleTokenId: OPENSEA_SYNC_SAMPLE_TOKEN_ID,
+                },
+            ]);
+        } finally {
+            deleteCollectionFixture(collectionId);
+        }
+    });
+
     it("rejects OpenSea sync start without a submitted slug", async () => {
         const collectionId = insertOpenSeaSyncCollectionFixture();
         try {
-            const csrf = await resolve(
-                "GET",
-                "/api/security/csrf",
-                undefined,
-                {
-                    host: "127.0.0.1:42710",
-                    origin: "http://127.0.0.1:42701",
-                },
-            );
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
             const token = csrf.payload.token as string;
             const cookie = csrf.headers["set-cookie"] as string;
 
@@ -5676,15 +5729,10 @@ describe("backend api routes", () => {
             openseaSlug: null,
         });
         try {
-            const csrf = await resolve(
-                "GET",
-                "/api/security/csrf",
-                undefined,
-                {
-                    host: "127.0.0.1:42710",
-                    origin: "http://127.0.0.1:42701",
-                },
-            );
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
             const token = csrf.payload.token as string;
             const cookie = csrf.headers["set-cookie"] as string;
 
@@ -5720,6 +5768,8 @@ describe("backend api routes", () => {
             expect(openSeaSlugProbeInputs).toEqual([
                 {
                     address: OPENSEA_SYNC_ADDRESS,
+                    requestedSlug: OPENSEA_SYNC_COLLECTION_SLUG,
+                    sampleTokenId: OPENSEA_SYNC_SAMPLE_TOKEN_ID,
                 },
             ]);
             expect(openSeaBootstrapInputs).toEqual([
@@ -5747,15 +5797,10 @@ describe("backend api routes", () => {
     it("verifies a submitted existing OpenSea slug before starting sync", async () => {
         const collectionId = insertOpenSeaSyncCollectionFixture();
         try {
-            const csrf = await resolve(
-                "GET",
-                "/api/security/csrf",
-                undefined,
-                {
-                    host: "127.0.0.1:42710",
-                    origin: "http://127.0.0.1:42701",
-                },
-            );
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
             const token = csrf.payload.token as string;
             const cookie = csrf.headers["set-cookie"] as string;
 
@@ -5791,6 +5836,8 @@ describe("backend api routes", () => {
             expect(openSeaSlugProbeInputs).toEqual([
                 {
                     address: OPENSEA_SYNC_ADDRESS,
+                    requestedSlug: OPENSEA_SYNC_COLLECTION_SLUG,
+                    sampleTokenId: OPENSEA_SYNC_SAMPLE_TOKEN_ID,
                 },
             ]);
             expect(openSeaBootstrapInputs).toEqual([
@@ -5820,15 +5867,10 @@ describe("backend api routes", () => {
             openseaSlug: null,
         });
         try {
-            const csrf = await resolve(
-                "GET",
-                "/api/security/csrf",
-                undefined,
-                {
-                    host: "127.0.0.1:42710",
-                    origin: "http://127.0.0.1:42701",
-                },
-            );
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
             const token = csrf.payload.token as string;
             const cookie = csrf.headers["set-cookie"] as string;
 
@@ -5853,7 +5895,7 @@ describe("backend api routes", () => {
 
             expect(sync.statusCode).toBe(422);
             expect(sync.payload.message).toContain(
-                "OpenSea did not confirm this collection slug",
+                "OpenSea could not verify this collection slug",
             );
             expect(openSeaBootstrapInputs).toEqual([]);
             expect(
@@ -5875,15 +5917,10 @@ describe("backend api routes", () => {
     it("updates OpenSea stream ingestion gate for a collection", async () => {
         const collectionId = insertOpenSeaSyncCollectionFixture();
         try {
-            const csrf = await resolve(
-                "GET",
-                "/api/security/csrf",
-                undefined,
-                {
-                    host: "127.0.0.1:42710",
-                    origin: "http://127.0.0.1:42701",
-                },
-            );
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
             const token = csrf.payload.token as string;
             const cookie = csrf.headers["set-cookie"] as string;
 
@@ -5959,15 +5996,10 @@ describe("backend api routes", () => {
     it("restores OpenSea status when sync queue publish fails", async () => {
         const collectionId = insertOpenSeaSyncCollectionFixture();
         try {
-            const csrf = await resolve(
-                "GET",
-                "/api/security/csrf",
-                undefined,
-                {
-                    host: "127.0.0.1:42710",
-                    origin: "http://127.0.0.1:42701",
-                },
-            );
+            const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            });
             const token = csrf.payload.token as string;
             const cookie = csrf.headers["set-cookie"] as string;
 
@@ -5996,6 +6028,8 @@ describe("backend api routes", () => {
             expect(openSeaSlugProbeInputs).toEqual([
                 {
                     address: OPENSEA_SYNC_ADDRESS,
+                    requestedSlug: OPENSEA_SYNC_COLLECTION_SLUG,
+                    sampleTokenId: OPENSEA_SYNC_SAMPLE_TOKEN_ID,
                 },
             ]);
             expect(openSeaBootstrapInputs).toEqual([
@@ -7674,7 +7708,7 @@ function insertOpenSeaSyncCollectionFixture(
         .prepare(
             "INSERT INTO collections " +
                 "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply, deployment_block, bootstrap_anchor_block, opensea_slug, opensea_status, opensea_last_error, created_at, updated_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
         )
         .run(
             DEFAULT_CHAIN_ID,
@@ -7682,7 +7716,9 @@ function insertOpenSeaSyncCollectionFixture(
             OPENSEA_SYNC_ADDRESS,
             COLLECTION_STANDARD.Erc721,
             COLLECTION_STATUS.Live,
-            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
+            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.TokenRange,
+            OPENSEA_SYNC_SCOPE_START_TOKEN_ID,
+            OPENSEA_SYNC_SCOPE_TOTAL_SUPPLY,
             100,
             200,
             input.openseaSlug === undefined
@@ -7691,10 +7727,31 @@ function insertOpenSeaSyncCollectionFixture(
             OPENSEA_COLLECTION_STATUS.Failed,
             OPENSEA_SYNC_PREVIOUS_ERROR,
         );
-    return Number(result.lastInsertRowid);
+    const collectionId = Number(result.lastInsertRowid);
+    db.prepare(
+        "INSERT INTO nft_balances " +
+            "(chain_id, collection_id, contract_address, token_id, owner, amount, last_block_number, last_block_hash, last_block_timestamp, last_tx_hash, last_log_index) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+        DEFAULT_CHAIN_ID,
+        collectionId,
+        OPENSEA_SYNC_ADDRESS,
+        OPENSEA_SYNC_SAMPLE_TOKEN_ID,
+        MILADY_ADDRESS,
+        "1",
+        200,
+        "0xanchor",
+        1,
+        "0xtx",
+        0,
+    );
+    return collectionId;
 }
 
 function deleteCollectionFixture(collectionId: number): void {
+    db.prepare<[number]>(
+        "DELETE FROM nft_balances WHERE collection_id = ?",
+    ).run(collectionId);
     const runRows = db
         .prepare<
             [number]

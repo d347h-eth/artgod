@@ -13,6 +13,7 @@ describe("OpenSeaContractLookupClient", () => {
                     apiKey: new Headers(init?.headers).get("X-API-KEY"),
                 });
                 return Response.json({
+                    address: CONTRACT_ADDRESS,
                     collection: "Milady-Maker",
                 });
             },
@@ -22,7 +23,10 @@ describe("OpenSeaContractLookupClient", () => {
             address: CONTRACT_ADDRESS,
         });
 
-        expect(collection).toEqual({ slug: "milady-maker" });
+        expect(collection).toEqual({
+            slug: "milady-maker",
+            contractAddresses: [CONTRACT_ADDRESS],
+        });
         expect(requests).toEqual([
             {
                 url: `https://api.opensea.io/api/v2/chain/ethereum/contract/${CONTRACT_ADDRESS}`,
@@ -59,6 +63,7 @@ describe("OpenSeaContractLookupClient", () => {
                 });
                 return Response.json({
                     collection: "Milady-Maker",
+                    contracts: [{ address: CONTRACT_ADDRESS }],
                 });
             },
         });
@@ -67,7 +72,10 @@ describe("OpenSeaContractLookupClient", () => {
             slug: "Milady-Maker",
         });
 
-        expect(collection).toEqual({ slug: "milady-maker" });
+        expect(collection).toEqual({
+            slug: "milady-maker",
+            contractAddresses: [CONTRACT_ADDRESS],
+        });
         expect(requests).toEqual([
             {
                 url: "https://api.opensea.io/api/v2/collections/milady-maker",
@@ -90,6 +98,50 @@ describe("OpenSeaContractLookupClient", () => {
         await expect(
             client.resolveCollectionBySlug({
                 slug: "missing-collection",
+            }),
+        ).resolves.toBeNull();
+    });
+
+    it("resolves an NFT's OpenSea collection through its contract and token ID", async () => {
+        const requests: string[] = [];
+        const client = new OpenSeaContractLookupClient(makeConfig(), {
+            fetch: async (input) => {
+                requests.push(String(input));
+                return Response.json({
+                    nft: {
+                        identifier: "462000000",
+                        collection: "Gumbo-By-Mathias-Isaksen",
+                    },
+                });
+            },
+        });
+
+        await expect(
+            client.resolveCollectionByToken({
+                address: CONTRACT_ADDRESS,
+                tokenId: "462000000",
+            }),
+        ).resolves.toEqual({ slug: "gumbo-by-mathias-isaksen" });
+        expect(requests).toEqual([
+            `https://api.opensea.io/api/v2/chain/ethereum/contract/${CONTRACT_ADDRESS}/nfts/462000000`,
+        ]);
+    });
+
+    it("returns null when an OpenSea NFT is not found", async () => {
+        const client = new OpenSeaContractLookupClient(makeConfig(), {
+            fetch: async () =>
+                Response.json(
+                    { errors: ["not found"] },
+                    {
+                        status: 404,
+                    },
+                ),
+        });
+
+        await expect(
+            client.resolveCollectionByToken({
+                address: CONTRACT_ADDRESS,
+                tokenId: "462000000",
             }),
         ).resolves.toBeNull();
     });

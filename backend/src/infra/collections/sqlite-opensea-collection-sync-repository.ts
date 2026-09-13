@@ -16,16 +16,27 @@ type OpenSeaCollectionSyncRow = {
     opensea_slug: string | null;
     opensea_status: string | null;
     opensea_last_error: string | null;
+    sample_token_id: string | null;
 };
+
+const OPEN_SEA_COLLECTION_SYNC_SELECT =
+    "SELECT chain_id, collection_id, slug, address, status, opensea_slug, " +
+    "opensea_status, opensea_last_error, " +
+    // Canonical positive ownership supplies a minted representative, even for sparse ranges.
+    "(SELECT token_id FROM nft_balances AS balances " +
+    "WHERE balances.chain_id = collections.chain_id " +
+    "AND balances.collection_id = collections.collection_id " +
+    "AND balances.contract_address = collections.address " +
+    "AND CAST(balances.amount AS INTEGER) > 0 " +
+    "ORDER BY token_id ASC LIMIT 1) AS sample_token_id " +
+    "FROM collections ";
 
 export class SqliteOpenSeaCollectionSyncRepository {
     private readonly selectCollectionBySlug = db.prepare<{
         chainId: number;
         slug: string;
     }>(
-        "SELECT chain_id, collection_id, slug, address, status, opensea_slug, " +
-            "opensea_status, opensea_last_error " +
-            "FROM collections " +
+        OPEN_SEA_COLLECTION_SYNC_SELECT +
             "WHERE chain_id = @chainId AND slug = @slug LIMIT 1",
     );
 
@@ -33,9 +44,7 @@ export class SqliteOpenSeaCollectionSyncRepository {
         chainId: number;
         collectionId: number;
     }>(
-        "SELECT chain_id, collection_id, slug, address, status, opensea_slug, " +
-            "opensea_status, opensea_last_error " +
-            "FROM collections " +
+        OPEN_SEA_COLLECTION_SYNC_SELECT +
             "WHERE chain_id = @chainId AND collection_id = @collectionId LIMIT 1",
     );
 
@@ -153,5 +162,6 @@ function mapCollection(
         openseaSlug: row.opensea_slug,
         openseaStatus: row.opensea_status as OpenSeaCollectionStatus | null,
         openseaLastError: row.opensea_last_error,
+        sampleTokenId: row.sample_token_id,
     };
 }

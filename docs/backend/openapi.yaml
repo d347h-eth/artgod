@@ -508,13 +508,51 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/opensea/slug-probe:
+        get:
+            tags: [Collections]
+            summary: Probe or verify a live collection OpenSea slug
+            description: |
+                Selects one token with positive canonical local ownership for the persisted collection,
+                then resolves or verifies its OpenSea slug through that exact contract and token.
+                Scope boundaries are not queried. Omit `slug` to discover it or provide `slug` to
+                verify an entry. Returns 422 when no locally owned sample is available.
+            operationId: probeCollectionOpenSeaSlug
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - name: slug
+                  in: query
+                  required: false
+                  schema:
+                      type: string
+            responses:
+                "200":
+                    description: OpenSea slug probe result
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/BootstrapOpenSeaSlugProbeResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/{collection_ref}/opensea/sync:
         post:
             tags: [Collections]
             summary: Start collection OpenSea sync
             description: |
                 Starts or retries the initial OpenSea orderbook sync for a live collection.
-                Pass a slug that has been resolved through the OpenSea slug probe.
+                Pass a slug that has been resolved through the collection OpenSea slug probe.
+                Before persistence or queue publication, the backend repeats the single-token
+                verification using a sample with positive canonical local ownership.
             operationId: startCollectionOpenSeaSync
             security:
                 - csrfHeader: []
@@ -1616,16 +1654,18 @@ paths:
             tags: [Bootstrap]
             summary: Probe or verify OpenSea collection slug
             description: |
-                Resolves the OpenSea collection slug for a standalone contract, verifies an entered
-                OpenSea collection slug, or verifies that a contract maps to an entered slug when
-                both `address` and `slug` are provided. OpenSea integration must be enabled.
-                Returns `disabled` when the backend was started without an active OpenSea API key.
+                Uses exactly one OpenSea NFT lookup for the supplied contract and sample token.
+                The response's nft.collection is returned, or compared with the optional requested slug.
+                The sample must identify a minted token; it is independent of the first/last scope
+                boundaries, which may be unminted. No contract-only or NFT-inventory fallback is used.
+                Returns disabled when OpenSea integration is inactive. This optional lookup does not
+                gate onchain bootstrap.
             operationId: probeBootstrapOpenSeaSlug
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
                 - name: address
                   in: query
-                  required: false
+                  required: true
                   schema:
                       type: string
                 - name: slug
@@ -1633,6 +1673,13 @@ paths:
                   required: false
                   schema:
                       type: string
+                - name: sample_token_id
+                  in: query
+                  required: true
+                  description: One minted sample token used for metadata preview and OpenSea identity, not a scope boundary
+                  schema:
+                      type: string
+                      pattern: "^[0-9]+$"
             responses:
                 "200":
                     description: OpenSea slug probe result
@@ -1644,6 +1691,8 @@ paths:
                     $ref: "#/components/responses/BadRequest"
                 "404":
                     $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
                 "500":
                     $ref: "#/components/responses/InternalError"
 
@@ -2224,6 +2273,11 @@ components:
                     type: string
                     format: date-time
                     nullable: true
+                openseaSnapshotRefreshedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    description: Last successful OpenSea reconciliation completion in UTC, falling back to the initial snapshot completion when no reconciliation has completed.
                 openseaStreamIngestionStatus:
                     anyOf:
                         - $ref: "#/components/schemas/OpenSeaStreamIngestionStatus"

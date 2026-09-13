@@ -31,7 +31,7 @@ import type {
 	BootstrapTaskCounts,
 	BootstrapTaskStatus
 } from '@artgod/shared/bootstrap/pipeline';
-import type { BootstrapOpenSeaSlugProbeStatus } from '@artgod/shared/bootstrap/opensea-slug-probe';
+import type { OpenSeaCollectionSlugProbeStatus } from '@artgod/shared/opensea/collection-slug-probe';
 import type {
 	CollectionMediaModeOption,
 	CollectionMediaPreference,
@@ -61,6 +61,7 @@ export type ApiCollection = {
 	openseaSlug?: string | null;
 	openseaStatus?: OpenSeaCollectionStatus | null;
 	openseaReadyAt?: string | null;
+	openseaSnapshotRefreshedAt?: string | null;
 	openseaStreamIngestionStatus?: OpenSeaStreamIngestionStatus | null;
 	deploymentBlock: number | null;
 	bootstrapAnchorBlock: number | null;
@@ -968,7 +969,7 @@ export type BootstrapOpenSeaSlugProbeApiResponse = {
 	chain: ApiChain;
 	address: string | null;
 	requestedSlug: string | null;
-	status: BootstrapOpenSeaSlugProbeStatus;
+	status: OpenSeaCollectionSlugProbeStatus;
 	slug: string | null;
 	reason: string | null;
 };

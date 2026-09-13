@@ -13,6 +13,7 @@ export type ProbeOpenSeaCollectionSlugRoute = {
     Querystring: {
         address?: string;
         slug?: string;
+        sample_token_id?: string;
     };
 };
 
@@ -39,10 +40,14 @@ export class ProbeOpenSeaCollectionSlugHttpAdapter {
     ): ProbeOpenSeaCollectionSlugInput {
         return {
             chainRef: request.params.chain_ref,
-            address: optionalString(
-                request.query[BOOTSTRAP_API_QUERY_PARAM.Address],
-            ),
+            address:
+                optionalString(
+                    request.query[BOOTSTRAP_API_QUERY_PARAM.Address],
+                ) ?? "",
             slug: optionalString(request.query[BOOTSTRAP_API_QUERY_PARAM.Slug]),
+            sampleTokenId: optionalString(
+                request.query[BOOTSTRAP_API_QUERY_PARAM.SampleTokenId],
+            ),
         };
     }
 }

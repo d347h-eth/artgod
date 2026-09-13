@@ -117,6 +117,7 @@ type CollectionRow = {
     opensea_slug: string | null;
     opensea_status: string | null;
     opensea_ready_at: string | null;
+    opensea_snapshot_refreshed_at: string | null;
     opensea_stream_ingestion_status: string;
     deployment_block: number | null;
     bootstrap_anchor_block: number | null;
@@ -291,9 +292,15 @@ const LISTED_THEN_UNLISTED_ORDER_BY_ASC_SQL = `${LISTED_THEN_UNLISTED_BLOCK_SQL}
 const LISTED_THEN_UNLISTED_ORDER_BY_DESC_SQL = `${LISTED_THEN_UNLISTED_BLOCK_SQL} DESC, ${LISTED_THEN_UNLISTED_PRICE_LENGTH_SQL} DESC, ${LISTED_THEN_UNLISTED_PRICE_VALUE_SQL} DESC, ${TOKEN_ORDER_BY_DESC_SQL}`;
 const ATTRIBUTE_VALUE_NORMALIZED_NUMERIC_SQL =
     "CASE WHEN LTRIM(a.value, '0') = '' THEN '0' ELSE LTRIM(a.value, '0') END";
+// Reconciliation is the recurring snapshot heartbeat; the initial snapshot is its fallback.
+// SQLite completion timestamps are UTC; include the zone so clients never parse them as local time.
+const COLLECTION_OPENSEA_SNAPSHOT_REFRESHED_AT_SQL =
+    "strftime('%Y-%m-%dT%H:%M:%SZ', " +
+    "COALESCE(opensea_reconcile_completed_at, opensea_snapshot_completed_at)) AS opensea_snapshot_refreshed_at";
 const COLLECTION_SELECT_COLUMNS =
     "chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, " +
     "opensea_slug, opensea_status, opensea_ready_at, opensea_stream_ingestion_status, " +
+    `${COLLECTION_OPENSEA_SNAPSHOT_REFRESHED_AT_SQL}, ` +
     "token_scope_kind, scope_start_token_id, scope_total_supply, " +
     "(SELECT COUNT(1) FROM collection_scope_tokens " +
     "WHERE collection_scope_tokens.chain_id = collections.chain_id " +
@@ -3032,6 +3039,7 @@ function mapCollectionRow(row: CollectionRow): CollectionListItem {
         openseaSlug: row.opensea_slug,
         openseaStatus: row.opensea_status as CollectionListItem["openseaStatus"],
         openseaReadyAt: row.opensea_ready_at,
+        openseaSnapshotRefreshedAt: row.opensea_snapshot_refreshed_at,
         openseaStreamIngestionStatus:
             row.opensea_stream_ingestion_status as OpenSeaStreamIngestionStatus,
         deploymentBlock: row.deployment_block,

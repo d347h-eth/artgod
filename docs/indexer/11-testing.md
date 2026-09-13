@@ -140,6 +140,102 @@ release that changes the OpenSea dependency or adapter contract still needs a
 credentialed live integration check; those observations must not be promoted
 into ordering guarantees without an upstream contract.
 
+## Bootstrap Regression Cases
+
+The [bootstrap contract](14-collection-bootstrap.md#manual-first-probe-form)
+separates a short preflight, declared scope, and the anchored present subset.
+Keep regression coverage at each boundary rather than relying on one live NFT
+collection to exercise the entire flow.
+
+| Case                                    | Required behavior                                                                                                                                              | Maintained coverage                                                                                                                                                  |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Standalone Enumerable contract          | Address-only diagnostics and explicitly accepted fields can lead to whole-contract queueing; enumeration remains a user choice.                                | `frontend/e2e/bootstrap-probe.spec.ts`, `backend/src/application/use-cases/bootstrap/probe-collection-contract.test.ts`                                              |
+| Shared Enumerable contract              | The exact sample is used; capability does not overwrite the user's project range.                                                                              | The same UI/use-case suites and `backend/src/infra/bootstrap/viem-bootstrap-contract-probe.test.ts`                                                                  |
+| Misleading supply or an unminted sample | No range inferred from a minted counter; ownership precedes metadata, and correction preserves staged scope and media fields.                                  | Probe adapter/use-case suites and the unminted-sample UI scenario                                                                                                    |
+| Sparse range or explicit list           | Anchor reads seed only confirmed present IDs; uncertain errors fail, and an entirely absent anchor set is rejected.                                            | `indexer/tests/bootstrap-token-enumeration.test.ts`, `indexer/tests/bootstrap-token-ownership.test.ts`                                                               |
+| Optional marketplace identity           | One exact NFT request, matching/mismatching slug, missing NFT, and no boundary or contract fallback; unresolved OpenSea does not block valid onchain queueing. | `backend/src/application/open-sea/open-sea-collection-identity-verifier.test.ts`, `shared/network/opensea-contract-lookup.test.ts`, probe use-case/API and UI suites |
+| Explicit editing and recovery           | No requests on edits; clearing media fields retains the sample; apply is explicit; out-of-scope samples and invalid lists are rejected.                        | `frontend/e2e/bootstrap-probe.spec.ts`, `frontend/src/lib/bootstrap-contract-probe.test.ts`, `indexer/tests/bootstrap-api-trigger.test.ts`                           |
+| Late OpenSea setup                      | Resolve/start use one positively owned local token; unavailable ownership and startup capability have distinct recovery states.                                | `backend/src/application/use-cases/collections/start-opensea-collection-sync.test.ts`, `backend/src/api.test.ts`, collection UI scenarios                            |
+
+Run the maintained desktop/mobile browser coverage with
+`yarn test:bootstrap:probe`; see [UI testing](../ui/03-testing.md) for the
+harness and rendered-inspection boundary. These frontend requests and backend
+RPC/marketplace dependencies are mocked. Passing them is not evidence of live
+OpenSea availability, a real collection bootstrap, or crash-safe task seeding.
+Keep public addresses in optional manual regression guidance, not as a reason
+to require credentials or live network calls in deterministic tests.
+
+### Shared-Contract Manual Fixture
+
+Use **Memories of Qilin by Emily Xie** to distinguish real Enumerable support
+from one project's scope:
+
+- Ethereum contract: `0xa7d8d9ef8d8ce8992df33d8b8cf4aebabd5bd270`
+- sample and first ID: `282000000`
+- total supply: `1024`; inclusive range: `282000000..282001023`
+- OpenSea slug: `memories-of-qilin-by-emily-xie`
+- observed metadata fields: `image` and `generator_url`
+
+The 2026-08-07 investigation confirmed working contract-wide enumeration:
+`totalSupply()` returned `198051`, while `tokenByIndex(0)` returned
+`4000000` (Dynamic Slices), not a Qilin token. Qilin IDs `282000000`,
+`282000001`, and `282001023` appeared at global indexes `157219`,
+`158408`, and `159430`, respectively. Their interleaving is why a working
+Enumerable interface cannot identify a subcollection. Contract-only OpenSea
+lookups also returned unrelated project slugs during the investigation.
+
+Those are dated observations, not current RPC expectations. The regression
+invariant is that an explicit Qilin sample stays exact and a manually selected
+Qilin scope survives probing. It must not silently become whole-contract
+enumeration. The fact that this fixture's sample equals its range start must
+not become a general inference rule.
+
+### Partially Minted Manual Fixture
+
+Use **Grailers DAO** to keep range boundaries independent from minted samples:
+
+- Ethereum contract: `0xd89239186180617cfe17e8b73b2b8bd9c96d0a15`
+- sample: `2`; first ID: `1`
+- intended published supply: `999`; inclusive range: `1..999`
+- OpenSea slug: `grailers-dao`
+
+The pre-implementation source investigation found that migration claims
+preserved legacy token IDs without incrementing the direct-mint supply counter;
+this explained a reported `totalSupply()` of `40` despite many more owned
+tokens. Legacy public minting started at `1`, while later direct minting used
+a mutable next-token value initially set to `821`. The historical OpenSea
+checks found token `1` missing but token `2` associated with the expected
+slug. Absence of token `1` was not evidence that the intended scope began at
+`2`.
+
+This is retained diagnostic context, not a current minted count, immutable cap
+guarantee, or generic contract rule. Recheck sample ownership/metadata when
+performing manual QA. The regression invariant is that `1..999` can remain the
+requested range while sample `2` drives preview and the single-NFT slug
+lookup; neither endpoint of that range must be queried to resolve the slug.
+
+### Manual Verification Boundary
+
+Probe-only QA can exercise the form without queueing a real bootstrap:
+
+1. Stage a fixture, leave whole-contract enumeration off for its manual range,
+   and verify that edits make no probe requests.
+2. Press **Probe**, review/apply the metadata fields, and verify that the sample,
+   first ID, and supply retain their distinct meanings.
+3. Inspect the request parameters: OpenSea resolution uses only the sample,
+   never range boundaries, collection inventory, or a contract-only fallback.
+4. Correct an invalid sample or metadata field and retry explicitly; check
+   recovery without losing the other inputs.
+
+Only run a real installation against an explicitly authorized isolated local
+runtime/database. Record the chosen anchor and confirm that only proven-present
+IDs receive metadata tasks while the full declared scope remains stored. The
+preview sample need not exist at the older anchor; the anchored set must instead
+be nonempty. Provider/archive errors must not be silently counted as absent.
+Check future mint routing separately from probe-only or mocked coverage, and
+never turn this regression into a full contract-history backfill. Keep logs and
+screenshots in a project-local task-artifact directory without secrets.
+
 ## Practical Notes
 
 - The Vite `spawnSync /bin/sh EPERM` warning can appear in restricted sandboxes. It is unrelated to actual test results.

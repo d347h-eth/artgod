@@ -102,6 +102,49 @@ describe("SqliteCollectionsReadModel observability", () => {
         ]);
     });
 
+    it("returns UTC completion times without advancing for an unfinished reconciliation", () => {
+        const initialSnapshotAt = "2026-07-12 00:50:00";
+        const reconciliationAt = "2026-07-12 00:55:00";
+        db.prepare(
+            "INSERT INTO collections " +
+                "(chain_id, collection_id, slug, address, standard, status, opensea_snapshot_completed_at, created_at, updated_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).run(
+            1,
+            8,
+            "snapshot-heartbeat",
+            "0x8888888888888888888888888888888888888888",
+            COLLECTION_STANDARD.Erc721,
+            COLLECTION_STATUS.Live,
+            null,
+            initialSnapshotAt,
+            initialSnapshotAt,
+        );
+
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
+        const readSnapshotTime = () =>
+            readModel.listCollections({ chainId: 1, limit: 10 }).items[0]
+                ?.openseaSnapshotRefreshedAt;
+        expect(readSnapshotTime()).toBeNull();
+
+        db.prepare(
+            "UPDATE collections SET opensea_snapshot_completed_at = ? WHERE chain_id = ? AND collection_id = ?",
+        ).run(initialSnapshotAt, 1, 8);
+        expect(readSnapshotTime()).toBe("2026-07-12T00:50:00Z");
+
+        db.prepare(
+            "UPDATE collections SET opensea_reconcile_completed_at = ? WHERE chain_id = ? AND collection_id = ?",
+        ).run(reconciliationAt, 1, 8);
+
+        expect(readSnapshotTime()).toBe("2026-07-12T00:55:00Z");
+
+        // Starting a later attempt must not replace the last successful completion.
+        db.prepare(
+            "UPDATE collections SET opensea_reconcile_started_at = ? WHERE chain_id = ? AND collection_id = ?",
+        ).run("2026-07-12 01:10:00", 1, 8);
+        expect(readSnapshotTime()).toBe("2026-07-12T00:55:00Z");
+    });
+
     it("does not run a previous-page token query on first page", () => {
         insertToken("1", "100");
         insertToken("2", "200");
@@ -1021,6 +1064,9 @@ function createSchema(): void {
             opensea_slug TEXT,
             opensea_status TEXT,
             opensea_ready_at TEXT,
+            opensea_snapshot_completed_at TEXT,
+            opensea_reconcile_started_at TEXT,
+            opensea_reconcile_completed_at TEXT,
             opensea_stream_ingestion_status TEXT NOT NULL DEFAULT '${OPENSEA_STREAM_INGESTION_STATUS.Enabled}',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,

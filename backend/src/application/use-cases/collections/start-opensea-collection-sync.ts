@@ -1,4 +1,9 @@
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
+import {
+    OPENSEA_COLLECTION_SLUG_PROBE_ERROR,
+    OPENSEA_COLLECTION_SLUG_PROBE_STATUS,
+    type OpenSeaCollectionSlugProbeStatus,
+} from "@artgod/shared/opensea/collection-slug-probe";
 import { ReadModelNotFoundError } from "@artgod/shared/read-models/errors";
 import {
     COLLECTION_STATUS,
@@ -28,11 +33,27 @@ export type OpenSeaCollectionSyncState = {
     openseaSlug: string | null;
     openseaStatus: OpenSeaCollectionStatus | null;
     openseaLastError: string | null;
+    sampleTokenId: string | null;
+};
+
+export type ProbeCollectionOpenSeaSlugInput = {
+    chainRef: string;
+    collectionRef: string;
+    slug?: string;
+};
+
+export type ProbeCollectionOpenSeaSlugOutput = {
+    chain: ChainRecord;
+    address: string;
+    requestedSlug: string | null;
+    status: OpenSeaCollectionSlugProbeStatus;
+    slug: string | null;
+    reason: string | null;
 };
 
 export type StartOpenSeaCollectionSyncOutput = {
     chain: ChainRecord;
-    collection: OpenSeaCollectionSyncState;
+    collection: Omit<OpenSeaCollectionSyncState, "sampleTokenId">;
     openseaStatus: OpenSeaCollectionStatus;
 };
 
@@ -40,8 +61,10 @@ type MaybePromise<T> = T | Promise<T>;
 
 // Outbound lookup boundary for verifying OpenSea collection identity before sync.
 export interface OpenSeaCollectionSyncSlugProbePort {
-    resolveCollectionSlugByContract(input: {
+    resolveVerifiedSlug(input: {
         address: string;
+        requestedSlug: string | null;
+        sampleTokenId: string;
     }): Promise<string | null>;
 }
 
@@ -89,19 +112,15 @@ export class StartOpenSeaCollectionSyncUseCase {
     async startSync(
         input: StartOpenSeaCollectionSyncInput,
     ): Promise<StartOpenSeaCollectionSyncOutput> {
-        const chain = this.chainRefResolverPort.resolveChainRef(
+        const { chain, collection } = this.resolveCollection(
             input.chainRef,
-            this.defaultChainId,
-        );
-        const collection = this.collectionSyncPort.resolveCollectionRef(
-            chain.publicChainId,
             input.collectionRef,
         );
-        if (!collection) {
-            throw new ReadModelNotFoundError("Unknown collection_ref");
-        }
         assertOpenSeaSyncBaseCanStart(collection, this.openseaIntegration);
-        const openseaSlug = await this.resolveSyncOpenSeaSlug(collection, input.openseaSlug);
+        const openseaSlug = await this.resolveSyncOpenSeaSlug(
+            collection,
+            input.openseaSlug,
+        );
 
         let pending: OpenSeaCollectionSyncState | null = null;
         try {
@@ -122,7 +141,7 @@ export class StartOpenSeaCollectionSyncUseCase {
             });
             return {
                 chain,
-                collection: pending,
+                collection: withoutSampleTokenId(pending),
                 openseaStatus:
                     pending.openseaStatus ?? OPENSEA_COLLECTION_STATUS.Pending,
             };
@@ -140,37 +159,128 @@ export class StartOpenSeaCollectionSyncUseCase {
         }
     }
 
+    async probeSlug(
+        input: ProbeCollectionOpenSeaSlugInput,
+    ): Promise<ProbeCollectionOpenSeaSlugOutput> {
+        const { chain, collection } = this.resolveCollection(
+            input.chainRef,
+            input.collectionRef,
+        );
+        const requestedSlug = normalizeOptionalOpenSeaSlug(input.slug);
+        if (!this.openseaIntegration.enabled) {
+            return {
+                chain,
+                address: collection.address,
+                requestedSlug,
+                status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Disabled,
+                slug: null,
+                reason:
+                    this.openseaIntegration.reason ??
+                    "OpenSea integration is disabled",
+            };
+        }
+        assertOpenSeaSyncCollectionCanStart(collection);
+
+        const slug = await this.resolveVerifiedOpenSeaSlug(
+            collection,
+            requestedSlug,
+        );
+        if (!slug) {
+            return {
+                chain,
+                address: collection.address,
+                requestedSlug,
+                status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Missing,
+                slug: null,
+                reason: requestedSlug
+                    ? "Check this collection's OpenSea slug, then resolve again"
+                    : "Enter this collection's OpenSea slug, then select resolve",
+            };
+        }
+        return {
+            chain,
+            address: collection.address,
+            requestedSlug,
+            status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found,
+            slug,
+            reason: null,
+        };
+    }
+
+    private resolveCollection(
+        chainRef: string,
+        collectionRef: string,
+    ): {
+        chain: ChainRecord;
+        collection: OpenSeaCollectionSyncState;
+    } {
+        const chain = this.chainRefResolverPort.resolveChainRef(
+            chainRef,
+            this.defaultChainId,
+        );
+        const collection = this.collectionSyncPort.resolveCollectionRef(
+            chain.publicChainId,
+            collectionRef,
+        );
+        if (!collection) {
+            throw new ReadModelNotFoundError("Unknown collection_ref");
+        }
+        return { chain, collection };
+    }
+
     private async resolveSyncOpenSeaSlug(
         collection: OpenSeaCollectionSyncState,
         inputSlug: string,
     ): Promise<string> {
         const requestedSlug = normalizeOpenSeaSlug(inputSlug);
+        const resolvedSlug = await this.resolveVerifiedOpenSeaSlug(
+            collection,
+            requestedSlug,
+        );
+        if (!resolvedSlug) {
+            throw new BootstrapValidationError(
+                "OpenSea could not verify this collection slug; resolve it again",
+            );
+        }
+        return resolvedSlug;
+    }
+
+    private async resolveVerifiedOpenSeaSlug(
+        collection: OpenSeaCollectionSyncState,
+        requestedSlug: string | null,
+    ): Promise<string | null> {
+        if (!this.openSeaCollectionSyncSlugProbePort) {
+            throw new Error("OpenSea slug probe client is not configured");
+        }
+
+        if (collection.sampleTokenId === null) {
+            throw new BootstrapValidationError(
+                OPENSEA_COLLECTION_SLUG_PROBE_ERROR.LocalSampleUnavailable,
+            );
+        }
+        // Recheck one locally owned token before persisting the marketplace identity.
+        const resolvedSlug =
+            await this.openSeaCollectionSyncSlugProbePort.resolveVerifiedSlug({
+                address: collection.address,
+                requestedSlug,
+                sampleTokenId: collection.sampleTokenId,
+            });
+        if (
+            !resolvedSlug ||
+            (requestedSlug !== null && resolvedSlug !== requestedSlug)
+        ) {
+            return null;
+        }
         const owner = this.collectionSyncPort.resolveOpenSeaSlugOwner(
             collection.chainId,
-            requestedSlug,
+            resolvedSlug,
         );
         if (owner && owner.collectionId !== collection.collectionId) {
             throw new BootstrapConflictError(
                 "OpenSea slug is already assigned to another collection",
             );
         }
-        if (!this.openSeaCollectionSyncSlugProbePort) {
-            throw new Error("OpenSea slug probe client is not configured");
-        }
-
-        // Confirm the submitted slug is the OpenSea slug for this collection contract.
-        const resolvedSlug =
-            await this.openSeaCollectionSyncSlugProbePort.resolveCollectionSlugByContract(
-                {
-                    address: collection.address,
-                },
-            );
-        if (resolvedSlug !== requestedSlug) {
-            throw new BootstrapValidationError(
-                "OpenSea did not confirm this collection slug for this contract",
-            );
-        }
-        return requestedSlug;
+        return resolvedSlug;
     }
 }
 
@@ -178,22 +288,26 @@ function assertOpenSeaSyncBaseCanStart(
     collection: OpenSeaCollectionSyncState,
     openseaIntegration: OpenSeaIntegrationStatus,
 ): void {
-    if (collection.status !== COLLECTION_STATUS.Live) {
-        throw new BootstrapConflictError(
-            "Collection must be live before OpenSea sync can start",
-        );
-    }
+    assertOpenSeaSyncCollectionCanStart(collection);
     if (!openseaIntegration.enabled) {
         throw new BootstrapValidationError(
             openseaIntegration.reason ?? "OpenSea integration is disabled",
         );
     }
+}
+
+function assertOpenSeaSyncCollectionCanStart(
+    collection: OpenSeaCollectionSyncState,
+): void {
+    if (collection.status !== COLLECTION_STATUS.Live) {
+        throw new BootstrapConflictError(
+            "Collection must be live before OpenSea sync can start",
+        );
+    }
     if (collection.openseaStatus === OPENSEA_COLLECTION_STATUS.Ready) {
         throw new BootstrapConflictError("Collection is already OpenSea ready");
     }
-    if (
-        isOpenSeaCollectionSyncActive(collection.openseaStatus)
-    ) {
+    if (isOpenSeaCollectionSyncActive(collection.openseaStatus)) {
         throw new BootstrapConflictError(
             "Collection OpenSea sync is already running",
         );
@@ -206,4 +320,18 @@ function normalizeOpenSeaSlug(value: string): string {
         throw new BootstrapValidationError("Invalid OpenSea slug");
     }
     return slug;
+}
+
+function normalizeOptionalOpenSeaSlug(
+    value: string | undefined,
+): string | null {
+    if (value === undefined || !value.trim()) return null;
+    return normalizeOpenSeaSlug(value);
+}
+
+function withoutSampleTokenId(
+    collection: OpenSeaCollectionSyncState,
+): Omit<OpenSeaCollectionSyncState, "sampleTokenId"> {
+    const { sampleTokenId: _sampleTokenId, ...output } = collection;
+    return output;
 }

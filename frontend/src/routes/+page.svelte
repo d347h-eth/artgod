@@ -15,6 +15,7 @@
 		ApiCollection,
 		ApiCollectionMediaState,
 		ApiCollectionsPage,
+		ApiOpenSeaIntegrationStatus,
 		ApiTokenAttribute,
 		ApiTraitFacet,
 		ApiTraitRangeFilter,
@@ -30,6 +31,7 @@
 		basePath: string;
 		deferred: boolean;
 		blockExplorer?: BlockExplorerConfig;
+		openseaIntegration?: ApiOpenSeaIntegrationStatus | null;
 	};
 
 	type PublicCollectionPageData = {
@@ -112,5 +114,6 @@
 		status={data?.status ?? ''}
 		basePath={data?.basePath ?? '/'}
 		blockExplorer={data?.blockExplorer}
+		openseaIntegration={data?.openseaIntegration ?? null}
 	/>
 {/if}

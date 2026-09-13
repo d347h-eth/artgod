@@ -23,6 +23,8 @@
 		'Mathcastles Remix', 'Noto Mathcastles Remix', 'Courier New', 'Monaco', 'Menlo', monospace;
 	/* Shared compact gap for adjacent top-action buttons and button-like controls. */
 	--control-button-gap: 0.35rem;
+	/* Shared width for collection and OpenSea slug inputs. */
+	--bootstrap-input-slug-width: 36ch;
 	/* Shared fill for own bid rows and bid-book update flashes. */
 	--bid-book-own-row-background: color-mix(in srgb, var(--c-yellow) 12%, transparent);
 	--bid-book-update-flash-peak-background: color-mix(in srgb, var(--c-orange) 88%, var(--c-yellow));
@@ -288,8 +290,8 @@ a:hover {
 }
 
 .bootstrap-create-form {
-	--bootstrap-input-slug-width: 36ch;
 	display: block;
+	margin-inline: auto;
 	width: min(46rem, 100%);
 	max-width: 100%;
 	margin-bottom: 4.5rem;
@@ -435,6 +437,11 @@ a:hover {
 	grid-template-columns: minmax(13rem, 17.5rem) max-content;
 }
 
+.bootstrap-create-form .bootstrap-probe-warning-row {
+	grid-template-columns: minmax(13rem, 17.5rem) minmax(0, 1fr);
+	width: 100%;
+}
+
 .bootstrap-form label {
 	font-size: 0.75rem;
 	text-transform: uppercase;
@@ -535,6 +542,8 @@ a:hover {
 
 .bootstrap-input-with-note {
 	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	min-width: 0;
 	gap: 0.25rem;
 	width: fit-content;
 	max-width: 100%;
@@ -552,7 +561,13 @@ a:hover {
 	display: inline-flex;
 	align-items: center;
 	gap: 0.5rem;
+	min-width: 0;
 	max-width: 100%;
+}
+
+.bootstrap-input-status-row > input {
+	min-width: 0;
+	flex-shrink: 1;
 }
 
 .bootstrap-resolution-badge {

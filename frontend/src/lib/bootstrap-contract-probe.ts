@@ -1,18 +1,17 @@
 import type { BootstrapContractProbeApiResponse } from '$lib/api-types';
-import { BOOTSTRAP_ENUMERATION_MODE } from '@artgod/shared/bootstrap/pipeline';
-
-export type BootstrapContractProbeFormPatch = {
-	supportsEnumerable: boolean;
-	manualMode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualRange | null;
-	manualRangeStartTokenId: string;
-	manualRangeTotalSupply: string;
-};
-
-export type BootstrapContractProbeFormPatchOptions = {
-	useFirstTokenAsManualRangeStart?: boolean;
-};
 
 const BOOTSTRAP_COLLECTION_SLUG_MAX_LENGTH = 64;
+
+// Editable conventional range start; it does not claim a token is minted.
+export const BOOTSTRAP_MANUAL_RANGE_DEFAULT_START_TOKEN_ID = '1';
+
+// Local lifecycle of an explicitly submitted bootstrap probe.
+export const BOOTSTRAP_PROBE_UI_STATUS = {
+	Idle: 'idle',
+	Loading: 'loading',
+	Ready: 'ready',
+	Error: 'error'
+} as const;
 
 // Complete EVM contract-address length required before bootstrap probing starts.
 export const BOOTSTRAP_CONTRACT_ADDRESS_LENGTH = 42;
@@ -65,39 +64,6 @@ export function contractNameToBootstrapSlug(value: string | null | undefined): s
 		.replace(/-+$/g, '');
 }
 
-export function bootstrapProbeFormPatch(
-	probe: BootstrapContractProbeApiResponse,
-	options: BootstrapContractProbeFormPatchOptions = {}
-): BootstrapContractProbeFormPatch {
-	if (probe.suggestedInput.supportsEnumerable) {
-		return {
-			supportsEnumerable: true,
-			manualMode: null,
-			manualRangeStartTokenId: '',
-			manualRangeTotalSupply: ''
-		};
-	}
-
-	const manualInput = probe.suggestedInput.manualInput;
-	const useFirstTokenAsManualRangeStart = options.useFirstTokenAsManualRangeStart ?? true;
-	return {
-		supportsEnumerable: false,
-		manualMode:
-			manualInput?.mode === BOOTSTRAP_ENUMERATION_MODE.ManualRange
-				? BOOTSTRAP_ENUMERATION_MODE.ManualRange
-				: null,
-		manualRangeStartTokenId:
-			manualInput?.startTokenId ??
-			(useFirstTokenAsManualRangeStart ? (probe.firstToken.tokenId ?? '') : ''),
-		manualRangeTotalSupply:
-			manualInput && Number.isFinite(manualInput.totalSupply)
-				? String(manualInput.totalSupply)
-				: probe.totalSupply.bootstrapRangeValue !== null
-					? String(probe.totalSupply.bootstrapRangeValue)
-					: ''
-	};
-}
-
 export function formatByteSize(value: number | string | null | undefined): string {
 	if (value === null || value === undefined) return '-';
 	const bytes = typeof value === 'number' ? BigInt(value) : parseByteString(value);
@@ -114,7 +80,7 @@ export function formatByteSize(value: number | string | null | undefined): strin
 }
 
 export function bootstrapProbeStatusLabel(probe: BootstrapContractProbeApiResponse): string {
-	if (probe.enumerable.supported === true) return BOOTSTRAP_PROBE_STATUS_LABEL.Enumerable;
+	if (probe.suggestedInput.supportsEnumerable) return BOOTSTRAP_PROBE_STATUS_LABEL.Enumerable;
 	if (probe.suggestedInput.manualInput) return BOOTSTRAP_PROBE_STATUS_LABEL.RangeInferred;
 	if (!probe.firstToken.tokenId && probe.totalSupply.bootstrapRangeValue !== null) {
 		return BOOTSTRAP_PROBE_STATUS_LABEL.NeedsTokenStart;

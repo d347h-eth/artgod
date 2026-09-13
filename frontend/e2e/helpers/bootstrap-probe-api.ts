@@ -6,12 +6,13 @@ import type {
 import { BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION } from '@artgod/shared/config/bootstrap';
 import { BOOTSTRAP_ENUMERATION_MODE } from '@artgod/shared/bootstrap/pipeline';
 import { BOOTSTRAP_API_QUERY_PARAM } from '@artgod/shared/http/bootstrap-routes';
+import { ERC721_ABSENT_TOKEN_ERROR } from '@artgod/shared/evm/erc721-ownership';
 import { TOKEN_METADATA_ANIMATION_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-animation-source';
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from '@artgod/shared/media/token-metadata-image-source';
 import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 import { COLLECTION_CUSTOMIZATION_SOURCE_KIND } from '@artgod/shared/types';
 import { TERRAFORMS_EXTENSION_KEY } from '@artgod/shared/extensions/terraforms';
-import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from '@artgod/shared/bootstrap/opensea-slug-probe';
+import { OPENSEA_COLLECTION_SLUG_PROBE_STATUS } from '@artgod/shared/opensea/collection-slug-probe';
 import {
 	BOOTSTRAP_PROBE_E2E_CHAIN,
 	BOOTSTRAP_PROBE_E2E_ROUTE_PATH,
@@ -26,16 +27,37 @@ export const BOOTSTRAP_PROBE_CONTRACTS = {
 	EnumerableRaster: '0x5af0d9827e0c53e4799bb226655a1de152a425a5',
 	EnumerableOnchainSvg: '0x4e1f41613c9084fdb9e34e11fae9412427480e56',
 	NeedsTokenStart: '0x6b175474e89094c44da98b954eedeac495271d0f',
+	PartiallyMinted: '0xd89239186180617cfe17e8b73b2b8bd9c96d0a15',
 	SharedManualScope: '0x145789247973c5d612bf121e9e4eef84b63eb707'
 } as const;
 
 // OpenSea slugs returned by the bootstrap probe harness.
 export const BOOTSTRAP_PROBE_OPENSEA_SLUGS = {
 	NonEnumerable: 'non-enumerable-test-collection',
-	EnumerableRaster: 'raster-images-2026',
+	EnumerableRaster: 'raster-images-by-test-artist',
 	EnumerableOnchainSvg: 'terraforms',
 	NeedsTokenStart: 'needs-token-start',
+	PartiallyMinted: 'partially-minted-test-collection',
 	SharedManualScope: 'shared-manual-scope'
+} as const;
+
+const BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_START_TOKEN_ID = '1';
+const BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_TOTAL_SUPPLY = 999;
+
+// Manual range used to prove shared-contract OpenSea identity in the browser harness.
+export const BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE = {
+	startTokenId: BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_START_TOKEN_ID,
+	totalSupply: BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE_TOTAL_SUPPLY,
+	sampleTokenId: '2'
+} as const;
+
+// Controlled sparse-collection scenario, not a claim about current live supply.
+export const BOOTSTRAP_PROBE_PARTIALLY_MINTED_SCOPE = {
+	startTokenId: '1',
+	totalSupply: 999,
+	mintedSupply: 704,
+	absentSampleTokenId: '1',
+	sampleTokenId: '2'
 } as const;
 
 // Inline media lets the token card render without depending on remote hosts.
@@ -44,8 +66,7 @@ export const BOOTSTRAP_PROBE_MEDIA = {
 		'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
 	RasterImage:
 		'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFElEQVR42mP8z8BQz0AEYBxVSFUBAFgSAf+D1M2sAAAAAElFTkSuQmCC',
-	SharedManualScopeImage:
-		'https://media-proxy.artblocks.io/1/0x145789247973c5d612bf121e9e4eef84b63eb707/0.png',
+	SharedManualScopeImage: `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path d="M20 90h80L60 20z" fill="cyan"/></svg>', 'utf8').toString('base64')}`,
 	OnchainSvgImage: `data:image/svg+xml;base64,${Buffer.from(
 		'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" fill="#05070a"/><path d="M20 90h80L60 20z" fill="#1dd6ff"/><circle cx="60" cy="66" r="14" fill="#ff7a1a"/></svg>',
 		'utf8'
@@ -75,6 +96,7 @@ export type BootstrapProbeApiMock = {
 	probeRequestSampleTokenIds: (string | null)[];
 	openSeaSlugProbeRequests: string[];
 	openSeaSlugVerificationRequests: string[];
+	openSeaSlugProbeSampleTokenIds: (string | null)[];
 	imageCacheEstimateRequests: unknown[];
 };
 
@@ -87,6 +109,7 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 	const probeRequestSampleTokenIds: (string | null)[] = [];
 	const openSeaSlugProbeRequests: string[] = [];
 	const openSeaSlugVerificationRequests: string[] = [];
+	const openSeaSlugProbeSampleTokenIds: (string | null)[] = [];
 	const imageCacheEstimateRequests: unknown[] = [];
 
 	await page.route('**/api/**', async (route) => {
@@ -139,17 +162,22 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 				url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.Address) ?? ''
 			);
 			const slug = normalizeSlug(url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.Slug) ?? '');
+			const sampleTokenId = url.searchParams.get(BOOTSTRAP_API_QUERY_PARAM.SampleTokenId);
+			openSeaSlugProbeSampleTokenIds.push(sampleTokenId);
 			if (slug) {
 				openSeaSlugVerificationRequests.push(slug);
 				if (address) {
-					await fulfillJson(route, openSeaSlugProbeResponseForAddressAndSlug(address, slug));
+					await fulfillJson(
+						route,
+						openSeaSlugProbeResponseForAddressAndSlug(address, slug, sampleTokenId)
+					);
 					return;
 				}
 				await fulfillJson(route, openSeaSlugProbeResponseForSlug(slug));
 				return;
 			}
 			openSeaSlugProbeRequests.push(address);
-			await fulfillJson(route, openSeaSlugProbeResponseForAddress(address));
+			await fulfillJson(route, openSeaSlugProbeResponseForAddress(address, sampleTokenId));
 			return;
 		}
 
@@ -177,11 +205,8 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 				sampleCachedBytes: cachedBytes,
 				projectedCachedBytes: String(cachedBytes * Number(body.totalSupply ?? '0')),
 				totalSupply: body.totalSupply ?? '0',
-				contentType: body.maxDimension === null ? 'image/png' : 'image/webp',
-				sampleCachedImageDataUrl:
-					body.maxDimension === null
-						? 'data:image/png;base64,Y2FjaGVk'
-						: 'data:image/webp;base64,Y2FjaGVk',
+				contentType: 'image/png',
+				sampleCachedImageDataUrl: BOOTSTRAP_PROBE_MEDIA.RasterImage,
 				sourceWidth: 2160,
 				sourceHeight: 2160,
 				width: body.maxDimension,
@@ -306,11 +331,25 @@ export async function installBootstrapProbeApiMock(page: Page): Promise<Bootstra
 		probeRequestSampleTokenIds,
 		openSeaSlugProbeRequests,
 		openSeaSlugVerificationRequests,
+		openSeaSlugProbeSampleTokenIds,
 		imageCacheEstimateRequests
 	};
 }
 
-function openSeaSlugProbeResponseForAddress(address: string): BootstrapOpenSeaSlugProbeApiResponse {
+function openSeaSlugProbeResponseForAddress(
+	address: string,
+	sampleTokenId: string | null = null
+): BootstrapOpenSeaSlugProbeApiResponse {
+	if (
+		address === BOOTSTRAP_PROBE_CONTRACTS.PartiallyMinted &&
+		sampleTokenId === BOOTSTRAP_PROBE_PARTIALLY_MINTED_SCOPE.sampleTokenId
+	) {
+		return buildOpenSeaSlugProbeResponse({
+			address,
+			requestedSlug: null,
+			slug: BOOTSTRAP_PROBE_OPENSEA_SLUGS.PartiallyMinted
+		});
+	}
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable) {
 		return buildOpenSeaSlugProbeResponse({
 			address,
@@ -340,6 +379,16 @@ function openSeaSlugProbeResponseForAddress(address: string): BootstrapOpenSeaSl
 		});
 	}
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.SharedManualScope) {
+		if (sampleTokenId !== BOOTSTRAP_PROBE_SHARED_MANUAL_SCOPE.sampleTokenId) {
+			return {
+				chain: BOOTSTRAP_PROBE_E2E_CHAIN,
+				address,
+				requestedSlug: null,
+				status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Missing,
+				slug: null,
+				reason: 'OpenSea did not return a collection slug for this token scope'
+			};
+		}
 		return buildOpenSeaSlugProbeResponse({
 			address,
 			requestedSlug: null,
@@ -350,7 +399,7 @@ function openSeaSlugProbeResponseForAddress(address: string): BootstrapOpenSeaSl
 		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
 		address,
 		requestedSlug: null,
-		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
+		status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Missing,
 		slug: null,
 		reason: 'OpenSea did not return a collection slug for this contract'
 	};
@@ -358,11 +407,12 @@ function openSeaSlugProbeResponseForAddress(address: string): BootstrapOpenSeaSl
 
 function openSeaSlugProbeResponseForAddressAndSlug(
 	address: string,
-	slug: string
+	slug: string,
+	sampleTokenId: string | null = null
 ): BootstrapOpenSeaSlugProbeApiResponse {
-	const addressResult = openSeaSlugProbeResponseForAddress(address);
+	const addressResult = openSeaSlugProbeResponseForAddress(address, sampleTokenId);
 	if (
-		addressResult.status === BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found &&
+		addressResult.status === OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found &&
 		addressResult.slug === slug
 	) {
 		return buildOpenSeaSlugProbeResponse({
@@ -375,7 +425,7 @@ function openSeaSlugProbeResponseForAddressAndSlug(
 		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
 		address,
 		requestedSlug: slug,
-		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
+		status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Missing,
 		slug: null,
 		reason: 'OpenSea did not confirm this collection slug'
 	};
@@ -399,7 +449,7 @@ function openSeaSlugProbeResponseForSlug(slug: string): BootstrapOpenSeaSlugProb
 		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
 		address: null,
 		requestedSlug: slug,
-		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
+		status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Missing,
 		slug: null,
 		reason: 'OpenSea did not confirm this collection slug'
 	};
@@ -414,7 +464,7 @@ function buildOpenSeaSlugProbeResponse(input: {
 		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
 		address: input.address,
 		requestedSlug: input.requestedSlug,
-		status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
+		status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found,
 		slug: input.slug,
 		reason: null
 	};
@@ -426,6 +476,41 @@ function probeResponse(
 	requestedAnimationSourceField: string | null,
 	requestedSampleTokenId: string | null
 ): BootstrapContractProbeApiResponse {
+	if (address === BOOTSTRAP_PROBE_CONTRACTS.PartiallyMinted) {
+		const scope = BOOTSTRAP_PROBE_PARTIALLY_MINTED_SCOPE;
+		const tokenId = requestedSampleTokenId ?? scope.absentSampleTokenId;
+		const exists = tokenId === scope.sampleTokenId;
+		const error = exists ? null : ERC721_ABSENT_TOKEN_ERROR.LegacyOwnerQuery;
+		const response = buildProbeResponse({
+			address,
+			contractName: 'Partially Minted Collection',
+			enumerable: false,
+			totalSupply: String(scope.mintedSupply),
+			firstTokenId: tokenId,
+			firstTokenName: exists ? `Sample #${tokenId}` : null,
+			firstTokenImage: exists ? BOOTSTRAP_PROBE_MEDIA.RasterImage : null,
+			firstTokenImageSourceField: exists
+				? (requestedImageSourceField ?? TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image)
+				: null,
+			firstTokenImageBytes: exists ? 98234 : null,
+			firstTokenImageContentType: exists ? 'image/png' : null,
+			firstTokenSource: exists ? 'candidate_owner_of' : null,
+			tokenUriPayloadBytes: exists ? 4096 : null,
+			manualInput: null,
+			warnings: []
+		});
+		// Mirror the owner-first API response: an absent sample carries no tokenURI metadata.
+		response.firstToken.candidates = [
+			{ tokenId, exists, source: exists ? 'owner_of' : null, error }
+		];
+		if (!exists) {
+			response.firstToken.tokenUri = null;
+			response.firstToken.tokenUriPayloadError = error;
+			response.firstToken.imageWidth = null;
+			response.firstToken.imageHeight = null;
+		}
+		return response;
+	}
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.NonEnumerable) {
 		return buildProbeResponse({
 			address,
@@ -451,6 +536,7 @@ function probeResponse(
 	}
 
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.EnumerableRaster) {
+		const useEnumerableScope = requestedSampleTokenId === null;
 		const resolvedAnimationSourceField =
 			requestedAnimationSourceField === null ||
 			requestedAnimationSourceField === TOKEN_METADATA_ANIMATION_SOURCE_FIELD.AnimationUrl
@@ -468,16 +554,18 @@ function probeResponse(
 				requestedImageSourceField ?? TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
 			firstTokenImageBytes: 98234,
 			firstTokenImageContentType: 'image/png',
-			firstTokenSource: 'token_by_index',
+			firstTokenSource: useEnumerableScope ? 'token_by_index' : 'candidate_token_uri',
 			tokenUriPayloadBytes: 4096,
 			animationUrl: resolvedAnimationSourceField ? BOOTSTRAP_PROBE_MEDIA.DynamicAnimationUrl : null,
 			animationSourceField: resolvedAnimationSourceField,
+			suggestedSupportsEnumerable: useEnumerableScope,
 			manualInput: null,
 			warnings: []
 		});
 	}
 
 	if (address === BOOTSTRAP_PROBE_CONTRACTS.EnumerableOnchainSvg) {
+		const useEnumerableScope = requestedSampleTokenId === null;
 		return buildProbeResponse({
 			address,
 			contractName: 'Terraforms',
@@ -490,18 +578,21 @@ function probeResponse(
 				requestedImageSourceField ?? TOKEN_METADATA_IMAGE_SOURCE_FIELD.SvgImageData,
 			firstTokenImageBytes: 612,
 			firstTokenImageContentType: 'image/svg+xml',
-			firstTokenSource: 'token_by_index',
+			firstTokenSource: useEnumerableScope ? 'token_by_index' : 'candidate_token_uri',
 			tokenUriPayloadBytes: 7680,
+			suggestedSupportsEnumerable: useEnumerableScope,
 			manualInput: null,
 			warnings: [],
-			imageCacheSuggestion: {
-				selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
-				extensionKey: TERRAFORMS_EXTENSION_KEY,
-				config: {
-					imageCacheMode: IMAGE_CACHE_MODE.Off,
-					maxDimension: null
-				}
-			}
+			imageCacheSuggestion: useEnumerableScope
+				? {
+						selectedSource: COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension,
+						extensionKey: TERRAFORMS_EXTENSION_KEY,
+						config: {
+							imageCacheMode: IMAGE_CACHE_MODE.Off,
+							maxDimension: null
+						}
+					}
+				: undefined
 		});
 	}
 
@@ -527,9 +618,7 @@ function probeResponse(
 			firstTokenImageContentType: requestedSampleTokenId ? 'image/png' : null,
 			firstTokenSource: requestedSampleTokenId ? 'candidate_token_uri' : null,
 			tokenUriPayloadBytes: requestedSampleTokenId ? 4096 : null,
-			animationUrl: resolvedAnimationSourceField
-				? BOOTSTRAP_PROBE_MEDIA.DynamicAnimationUrl
-				: null,
+			animationUrl: resolvedAnimationSourceField ? BOOTSTRAP_PROBE_MEDIA.DynamicAnimationUrl : null,
 			animationSourceField: resolvedAnimationSourceField,
 			manualInput: requestedSampleTokenId
 				? {
@@ -576,10 +665,11 @@ function buildProbeResponse(input: {
 	firstTokenImageSourceField: string | null;
 	firstTokenImageBytes: number | null;
 	firstTokenImageContentType: string | null;
-	firstTokenSource: 'token_by_index' | 'candidate_token_uri' | null;
+	firstTokenSource: BootstrapContractProbeApiResponse['firstToken']['source'];
 	tokenUriPayloadBytes: number | null;
 	animationUrl?: string | null;
 	animationSourceField?: string | null;
+	suggestedSupportsEnumerable?: boolean;
 	manualInput: {
 		mode: typeof BOOTSTRAP_ENUMERATION_MODE.ManualRange;
 		startTokenId: string;
@@ -588,7 +678,13 @@ function buildProbeResponse(input: {
 	warnings: string[];
 	imageCacheSuggestion?: BootstrapContractProbeApiResponse['imageCacheSuggestion'];
 }): BootstrapContractProbeApiResponse {
-	const totalSupply = input.totalSupply === null ? null : Number(input.totalSupply);
+	const contractTotalSupply = input.totalSupply === null ? null : Number(input.totalSupply);
+	const suggestedSupportsEnumerable = input.suggestedSupportsEnumerable ?? input.enumerable;
+	const suggestedScopeTotalSupply = suggestedSupportsEnumerable
+		? input.totalSupply
+		: input.manualInput
+			? String(input.manualInput.totalSupply)
+			: null;
 	return {
 		chain: BOOTSTRAP_PROBE_E2E_CHAIN,
 		address: input.address,
@@ -605,8 +701,8 @@ function buildProbeResponse(input: {
 		totalSupply: {
 			status: input.totalSupply === null ? 'unavailable' : 'available',
 			value: input.totalSupply,
-			safeIntegerValue: totalSupply,
-			bootstrapRangeValue: totalSupply,
+			safeIntegerValue: contractTotalSupply,
+			bootstrapRangeValue: contractTotalSupply,
 			error: input.totalSupply === null ? 'totalSupply unavailable for shared contract' : null
 		},
 		firstToken: {
@@ -636,32 +732,32 @@ function buildProbeResponse(input: {
 			candidates: []
 		},
 		storageEstimate:
-			input.totalSupply === null ||
+			suggestedScopeTotalSupply === null ||
 			input.firstTokenId === null ||
 			input.tokenUriPayloadBytes === null
 				? null
 				: {
 						sampleTokenId: input.firstTokenId,
 						samplePayloadBytes: input.tokenUriPayloadBytes,
-						projectedBytes: String(input.tokenUriPayloadBytes * totalSupply!),
-						totalSupply: input.totalSupply
+						projectedBytes: String(input.tokenUriPayloadBytes * Number(suggestedScopeTotalSupply)),
+						totalSupply: suggestedScopeTotalSupply
 					},
 		imageStorageEstimate:
-			input.totalSupply === null ||
+			suggestedScopeTotalSupply === null ||
 			input.firstTokenId === null ||
 			input.firstTokenImageBytes === null
 				? null
 				: {
 						sampleTokenId: input.firstTokenId,
 						sampleImageBytes: input.firstTokenImageBytes,
-						projectedBytes: String(input.firstTokenImageBytes * totalSupply!),
-						totalSupply: input.totalSupply,
+						projectedBytes: String(input.firstTokenImageBytes * Number(suggestedScopeTotalSupply)),
+						totalSupply: suggestedScopeTotalSupply,
 						contentType: input.firstTokenImageContentType
 					},
 		suggestedInput: {
-			supportsEnumerable: input.enumerable,
+			supportsEnumerable: suggestedSupportsEnumerable,
 			manualInput: input.manualInput,
-			ready: input.enumerable || input.manualInput !== null,
+			ready: suggestedSupportsEnumerable || input.manualInput !== null,
 			warnings: input.warnings
 		},
 		imageCacheSuggestion: input.imageCacheSuggestion ?? {

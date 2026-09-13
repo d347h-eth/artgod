@@ -1,5 +1,12 @@
 // Shared compact time modes used by dense table and form metadata controls.
-export type CompactTimeDisplayMode = 'relative' | 'absolute';
+export const COMPACT_TIME_DISPLAY_MODE = {
+	Relative: 'relative',
+	Absolute: 'absolute'
+} as const;
+
+// Compact time mode accepted by shared timestamp controls.
+export type CompactTimeDisplayMode =
+	(typeof COMPACT_TIME_DISPLAY_MODE)[keyof typeof COMPACT_TIME_DISPLAY_MODE];
 
 // Parses optional API timestamps into milliseconds for compact UI time labels.
 export function parseCompactTimeMs(value: string | null | undefined): number | null {
@@ -31,7 +38,9 @@ export function formatCompactTime(
 	nowMs: number
 ): string {
 	if (valueMs === null) return '-';
-	return mode === 'absolute' ? formatRfc3339(valueMs) : formatCompactRelativeTime(valueMs, nowMs);
+	return mode === COMPACT_TIME_DISPLAY_MODE.Absolute
+		? formatRfc3339(valueMs)
+		: formatCompactRelativeTime(valueMs, nowMs);
 }
 
 // Provides the opposite timestamp representation for title tooltips.
@@ -41,10 +50,12 @@ export function oppositeCompactTimeTitle(
 	nowMs: number
 ): string | undefined {
 	if (valueMs === null) return undefined;
-	return mode === 'relative' ? formatRfc3339(valueMs) : formatCompactRelativeTime(valueMs, nowMs);
+	return mode === COMPACT_TIME_DISPLAY_MODE.Relative
+		? formatRfc3339(valueMs)
+		: formatCompactRelativeTime(valueMs, nowMs);
 }
 
 // Labels the compact time-mode toggle buttons.
 export function compactTimeModeLabel(mode: CompactTimeDisplayMode): string {
-	return mode === 'relative' ? 'rel' : 'abs';
+	return mode === COMPACT_TIME_DISPLAY_MODE.Relative ? 'rel' : 'abs';
 }

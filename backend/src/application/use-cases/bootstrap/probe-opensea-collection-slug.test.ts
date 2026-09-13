@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+    OPENSEA_COLLECTION_SLUG_PROBE_ERROR,
+    OPENSEA_COLLECTION_SLUG_PROBE_STATUS,
+} from "@artgod/shared/opensea/collection-slug-probe";
+import {
     OPENSEA_API_KEY_ENV,
     type OpenSeaIntegrationStatus,
 } from "@artgod/shared/config/opensea-integration";
-import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from "@artgod/shared/bootstrap/opensea-slug-probe";
 import {
     ProbeOpenSeaCollectionSlugUseCase,
     type OpenSeaCollectionSlugProbePort,
@@ -17,6 +20,8 @@ const CHAIN = {
     name: "Ethereum",
 };
 const CONTRACT_ADDRESS = "0x1111111111111111111111111111111111111111";
+const COLLECTION_SLUG = "gumbo-by-mathias-isaksen";
+const SAMPLE_TOKEN_ID = "462000001";
 const ENABLED_OPENSEA_INTEGRATION: OpenSeaIntegrationStatus = {
     enabled: true,
     mode: "auto",
@@ -36,13 +41,9 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
     it("returns disabled without calling OpenSea when integration is unavailable", async () => {
         const calls: unknown[] = [];
         const useCase = makeUseCase(DISABLED_OPENSEA_INTEGRATION, {
-            async resolveCollectionSlugByContract(input) {
+            async resolveVerifiedSlug(input) {
                 calls.push(input);
-                return "ignored";
-            },
-            async resolveCollectionSlugBySlug(input) {
-                calls.push(input);
-                return "ignored";
+                return COLLECTION_SLUG;
             },
         });
 
@@ -55,169 +56,86 @@ describe("ProbeOpenSeaCollectionSlugUseCase", () => {
             chain: CHAIN,
             address: CONTRACT_ADDRESS,
             requestedSlug: null,
-            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Disabled,
+            status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Disabled,
             slug: null,
             reason: DISABLED_OPENSEA_INTEGRATION.reason,
         });
         expect(calls).toEqual([]);
     });
 
-    it("returns the OpenSea slug resolved from the contract address", async () => {
+    it("forwards the contract and exact sample token to identity verification", async () => {
         const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
-            async resolveCollectionSlugByContract(input) {
+            async resolveVerifiedSlug(input) {
                 expect(input).toEqual({
                     address: CONTRACT_ADDRESS,
+                    requestedSlug: null,
+                    sampleTokenId: SAMPLE_TOKEN_ID,
                 });
-                return "milady-maker";
-            },
-            async resolveCollectionSlugBySlug() {
-                return null;
+                return COLLECTION_SLUG;
             },
         });
 
         const result = await useCase.probe({
             chainRef: "ethereum",
             address: `0x${CONTRACT_ADDRESS.slice(2).toUpperCase()}`,
+            sampleTokenId: SAMPLE_TOKEN_ID,
         });
 
         expect(result).toEqual({
             chain: CHAIN,
             address: CONTRACT_ADDRESS,
             requestedSlug: null,
-            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
-            slug: "milady-maker",
+            status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found,
+            slug: COLLECTION_SLUG,
             reason: null,
         });
     });
 
-    it("returns the OpenSea slug when the entered slug resolves exactly", async () => {
+    it("returns missing when identity verification rejects the requested slug", async () => {
         const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
-            async resolveCollectionSlugByContract() {
+            async resolveVerifiedSlug() {
                 return null;
-            },
-            async resolveCollectionSlugBySlug(input) {
-                expect(input).toEqual({
-                    slug: "milady-maker",
-                });
-                return "milady-maker";
             },
         });
 
         const result = await useCase.probe({
             chainRef: "ethereum",
-            slug: "Milady-Maker",
+            address: CONTRACT_ADDRESS,
+            slug: COLLECTION_SLUG,
+            sampleTokenId: SAMPLE_TOKEN_ID,
         });
 
         expect(result).toEqual({
             chain: CHAIN,
-            address: null,
-            requestedSlug: "milady-maker",
-            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
-            slug: "milady-maker",
-            reason: null,
+            address: CONTRACT_ADDRESS,
+            requestedSlug: COLLECTION_SLUG,
+            status: OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Missing,
+            slug: null,
+            reason: "OpenSea did not confirm this collection slug",
         });
     });
 
-    it("verifies the entered slug against the contract mapping when both are provided", async () => {
-        const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
-            async resolveCollectionSlugByContract(input) {
-                expect(input).toEqual({
+    it.each([undefined, "", "not-decimal"])(
+        "rejects missing or malformed samples (%s)",
+        async (sampleTokenId) => {
+            const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
+                async resolveVerifiedSlug() {
+                    throw new Error("must not call OpenSea");
+                },
+            });
+            await expect(
+                useCase.probe({
+                    chainRef: CHAIN.slug,
                     address: CONTRACT_ADDRESS,
-                });
-                return "milady-maker";
-            },
-            async resolveCollectionSlugBySlug() {
-                throw new Error("slug lookup should not run");
-            },
-        });
-
-        const result = await useCase.probe({
-            chainRef: "ethereum",
-            address: CONTRACT_ADDRESS,
-            slug: "milady-maker",
-        });
-
-        expect(result).toEqual({
-            chain: CHAIN,
-            address: CONTRACT_ADDRESS,
-            requestedSlug: "milady-maker",
-            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found,
-            slug: "milady-maker",
-            reason: null,
-        });
-    });
-
-    it("returns missing when the entered slug does not match the contract mapping", async () => {
-        const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
-            async resolveCollectionSlugByContract() {
-                return "different-collection";
-            },
-            async resolveCollectionSlugBySlug() {
-                throw new Error("slug lookup should not run");
-            },
-        });
-
-        const result = await useCase.probe({
-            chainRef: "ethereum",
-            address: CONTRACT_ADDRESS,
-            slug: "milady-maker",
-        });
-
-        expect(result).toEqual({
-            chain: CHAIN,
-            address: CONTRACT_ADDRESS,
-            requestedSlug: "milady-maker",
-            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
-            slug: null,
-            reason: "OpenSea did not confirm this collection slug",
-        });
-    });
-
-    it("returns missing when the entered slug does not resolve exactly", async () => {
-        const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
-            async resolveCollectionSlugByContract() {
-                return null;
-            },
-            async resolveCollectionSlugBySlug() {
-                return "different-collection";
-            },
-        });
-
-        const result = await useCase.probe({
-            chainRef: "ethereum",
-            slug: "milady-maker",
-        });
-
-        expect(result).toEqual({
-            chain: CHAIN,
-            address: null,
-            requestedSlug: "milady-maker",
-            status: BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing,
-            slug: null,
-            reason: "OpenSea did not confirm this collection slug",
-        });
-    });
-
-    it("returns missing when OpenSea has no collection slug for the contract", async () => {
-        const useCase = makeUseCase(ENABLED_OPENSEA_INTEGRATION, {
-            async resolveCollectionSlugByContract() {
-                return null;
-            },
-            async resolveCollectionSlugBySlug() {
-                return null;
-            },
-        });
-
-        const result = await useCase.probe({
-            chainRef: "ethereum",
-            address: CONTRACT_ADDRESS,
-        });
-
-        expect(result.status).toBe(BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing);
-        expect(result.requestedSlug).toBeNull();
-        expect(result.slug).toBeNull();
-        expect(result.reason).toContain("OpenSea did not return");
-    });
+                    sampleTokenId,
+                }),
+            ).rejects.toThrow(
+                sampleTokenId
+                    ? OPENSEA_COLLECTION_SLUG_PROBE_ERROR.SampleInvalid
+                    : OPENSEA_COLLECTION_SLUG_PROBE_ERROR.SampleRequired,
+            );
+        },
+    );
 });
 
 function makeUseCase(

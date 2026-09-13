@@ -22,7 +22,8 @@ test should not copy pricing, media, filtering, pagination, or selection logic.
 Dedicated fixture-backed routes under `/e2e-harness` render production
 components with compact typed data. Collection bidding and Terraforms media use
 `/e2e-harness/collection`, authorization uses `/e2e-harness/admin/bots`, and
-bootstrap coverage uses `/e2e-harness/bootstrap-runs`. The harnesses do not run
+bootstrap coverage uses `/e2e-harness/bootstrap-runs`, with late OpenSea setup
+on `/e2e-harness/collections`. The harnesses do not run
 OpenSea, the bidding bot, or depend on whichever rows happen to be in the
 developer's SQLite database.
 
@@ -49,6 +50,10 @@ yarn test:terraforms:hypercastle
 Use accessible roles and names first. Add a domain-named `data-testid` only when
 repeated controls cannot be selected unambiguously. Avoid assertions against
 volatile CSS internals unless geometry itself is the contract.
+
+The [bootstrap regression cases](../indexer/11-testing.md#bootstrap-regression-cases)
+map standard, shared-contract, partially minted, and late OpenSea setup flows
+to their owning deterministic suites and optional manual fixtures.
 
 ### Bidding Scenario Ownership
 

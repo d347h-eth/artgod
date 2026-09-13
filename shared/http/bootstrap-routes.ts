@@ -72,17 +72,12 @@ export function buildEstimateBootstrapImageCachePath(chainRef: string): string {
     );
 }
 
-type ProbeBootstrapOpenSeaSlugPathInput =
-    | {
-          chainRef: string;
-          address: string;
-          slug?: string;
-      }
-    | {
-          chainRef: string;
-          address?: never;
-          slug: string;
-      };
+type ProbeBootstrapOpenSeaSlugPathInput = {
+    chainRef: string;
+    address: string;
+    slug?: string;
+    sampleTokenId: string;
+};
 
 // Builds the backend route used to resolve or verify a bootstrap OpenSea slug.
 export function buildProbeBootstrapOpenSeaSlugPath(
@@ -95,6 +90,7 @@ export function buildProbeBootstrapOpenSeaSlugPath(
     if (input.slug !== undefined) {
         query.set(BOOTSTRAP_API_QUERY_PARAM.Slug, input.slug);
     }
+    query.set(BOOTSTRAP_API_QUERY_PARAM.SampleTokenId, input.sampleTokenId);
     return `${buildBootstrapChainRoute(
         BOOTSTRAP_API_ROUTE_TEMPLATE.ProbeOpenSeaSlug,
         input.chainRef,

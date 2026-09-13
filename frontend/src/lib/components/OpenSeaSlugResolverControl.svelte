@@ -1,7 +1,15 @@
 <script lang="ts">
-	import { BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS } from '@artgod/shared/bootstrap/opensea-slug-probe';
+	import { onDestroy, untrack } from 'svelte';
+	import {
+		OPENSEA_COLLECTION_SLUG_PROBE_STATUS,
+		OPENSEA_COLLECTION_SLUG_PROBE_ERROR
+	} from '@artgod/shared/opensea/collection-slug-probe';
 	import type { BootstrapOpenSeaSlugProbeApiResponse } from '$lib/api-types';
-	import { probeBootstrapOpenSeaSlug } from '$lib/backend-api';
+	import {
+		BackendApiError,
+		probeBootstrapOpenSeaSlug,
+		probeCollectionOpenSeaSlug
+	} from '$lib/backend-api';
 	import {
 		isBootstrapProbeableAddress,
 		normalizeBootstrapAddress
@@ -9,22 +17,20 @@
 	import LoadingBladeBar from '$lib/components/LoadingBladeBar.svelte';
 	import type { OpenSeaSlugResolverState } from '$lib/components/open-sea-slug-resolver-state';
 
-	type OpenSeaSlugProbeRequest = Parameters<typeof probeBootstrapOpenSeaSlug>[2];
-
 	const openSeaSlugProbeUiStatus = {
 		Idle: 'idle',
-		Waiting: 'waiting',
 		Loading: 'loading',
 		Ready: 'ready',
 		Error: 'error'
 	} as const;
-
 	type OpenSeaSlugProbeUiStatus =
 		(typeof openSeaSlugProbeUiStatus)[keyof typeof openSeaSlugProbeUiStatus];
 
 	let {
 		chainSlug,
 		contractAddress,
+		collectionRef = null,
+		sampleTokenId = null,
 		initialSlug = '',
 		inputName = 'openseaSlug',
 		inputClass = 'bootstrap-control bootstrap-input-slug',
@@ -35,6 +41,8 @@
 	}: {
 		chainSlug: string | null;
 		contractAddress: string | null;
+		collectionRef?: string | null;
+		sampleTokenId?: string | null;
 		initialSlug?: string | null;
 		inputName?: string;
 		inputClass?: string;
@@ -45,234 +53,132 @@
 	} = $props();
 
 	let slugValue = $state('');
-	let slugInputElement = $state<HTMLInputElement | null>(null);
-	let slugInputHasValue = $state(false);
 	let probeStatus = $state<OpenSeaSlugProbeUiStatus>(openSeaSlugProbeUiStatus.Idle);
 	let probeResult = $state<BootstrapOpenSeaSlugProbeApiResponse | null>(null);
 	let probeError = $state<string | null>(null);
-	let lastAutoFilledSlug: string | null = null;
-	let slugWasAutoFilled = false;
 	let probeRequestId = 0;
-	let lastContextKey = '';
-	let lastEmittedStateKey = '';
-
 	let normalizedContractAddress = $derived(normalizeBootstrapAddress(contractAddress ?? ''));
-	let contractAddressCanBeProbed = $derived(isBootstrapProbeableAddress(normalizedContractAddress));
-	let probePending = $derived(
-		probeStatus === openSeaSlugProbeUiStatus.Waiting ||
-			probeStatus === openSeaSlugProbeUiStatus.Loading
+	let slugInputHasValue = $derived(slugValue.trim().length > 0);
+	let probePending = $derived(probeStatus === openSeaSlugProbeUiStatus.Loading);
+	let slugResolved = $derived(
+		openSeaEnabled &&
+			probeStatus === openSeaSlugProbeUiStatus.Ready &&
+			probeResult?.status === OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found &&
+			probeResult.slug === slugValue.trim().toLowerCase()
 	);
-	let slugResolved = $derived(isSlugResolved());
-	let slugIncorrect = $derived(isSlugIncorrect());
-	let resolvedSlug = $derived(slugResolved ? readSlugInputValue() : null);
-	let probeMessage = $derived(resolveProbeMessage());
+	let slugIncorrect = $derived(
+		openSeaEnabled &&
+			slugInputHasValue &&
+			probeStatus === openSeaSlugProbeUiStatus.Ready &&
+			probeResult?.status === OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Missing
+	);
+	let probeMessage = $derived(
+		!openSeaEnabled ? disabledReason : (probeError ?? probeResult?.reason ?? null)
+	);
+	let canResolve = $derived(
+		openSeaEnabled &&
+			chainSlug !== null &&
+			isBootstrapProbeableAddress(normalizedContractAddress) &&
+			(collectionRef !== null || /^\d+$/.test(sampleTokenId?.trim() ?? ''))
+	);
 
 	$effect(() => {
-		const contextKey = [
-			chainSlug ?? '',
-			normalizedContractAddress,
-			openSeaEnabled ? 'enabled' : 'disabled',
-			String(resetKey),
-			initialSlug ?? ''
-		].join('|');
-		if (contextKey === lastContextKey) return;
-		lastContextKey = contextKey;
-		probeRequestId += 1;
-		setSlugInputValue(initialSlug ?? '');
-		lastAutoFilledSlug = null;
-		slugWasAutoFilled = false;
-		resetProbeState();
-		if (!openSeaEnabled || !chainSlug || !contractAddressCanBeProbed) return;
-		scheduleAddressProbe(chainSlug, normalizedContractAddress);
+		const initial = initialSlug ?? '';
+		void resetKey;
+		untrack(() => {
+			slugValue = initial;
+			invalidate();
+		});
 	});
 
 	$effect(() => {
-		const state = currentState();
-		const stateKey = JSON.stringify(state);
-		if (stateKey === lastEmittedStateKey) return;
-		lastEmittedStateKey = stateKey;
-		onStateChange?.(state);
+		// Edits only invalidate old evidence. Network work requires an explicit action.
+		void chainSlug;
+		void normalizedContractAddress;
+		void collectionRef;
+		void sampleTokenId;
+		void openSeaEnabled;
+		untrack(invalidate);
 	});
 
-	function currentState(): OpenSeaSlugResolverState {
-		return {
-			slug: readSlugInputValue(),
+	onDestroy(() => { probeRequestId += 1; });
+
+	$effect(() => {
+		const state: OpenSeaSlugResolverState = {
+			slug: slugValue.trim().toLowerCase(),
 			hasValue: slugInputHasValue,
-			resolvedSlug,
+			resolvedSlug: slugResolved ? (probeResult?.slug ?? null) : null,
 			resolved: slugResolved,
 			incorrect: slugIncorrect,
 			pending: probePending,
 			message: probeMessage
 		};
-	}
+		untrack(() => onStateChange?.(state));
+	});
 
-	function resetProbeState(): void {
+	function invalidate(): void {
+		probeRequestId += 1;
 		probeStatus = openSeaSlugProbeUiStatus.Idle;
 		probeResult = null;
 		probeError = null;
 	}
 
-	function setSlugInputValue(value: string): void {
-		slugValue = value;
-		if (slugInputElement) slugInputElement.value = value;
-		slugInputHasValue = normalizeSlugInput(value).length > 0;
-	}
-
-	function readSlugInputValue(): string {
-		return normalizeSlugInput(slugInputElement?.value ?? slugValue);
-	}
-
-	function onSlugInput(event: Event): void {
-		const target = event.currentTarget;
-		if (!(target instanceof HTMLInputElement)) return;
-		slugValue = target.value;
-		lastAutoFilledSlug = null;
-		slugWasAutoFilled = false;
-		const slug = normalizeSlugInput(target.value);
-		const hasValue = slug.length > 0;
-		if (probeStatus !== openSeaSlugProbeUiStatus.Idle || slugInputHasValue !== hasValue) {
-			probeRequestId += 1;
-			resetProbeState();
+	// The bootstrap action and the standalone sync modal share this explicit lookup.
+	export async function resolveSlug(): Promise<void> {
+		if (!canResolve || !chainSlug) {
+			if (openSeaEnabled && !collectionRef)
+				probeError = OPENSEA_COLLECTION_SLUG_PROBE_ERROR.SampleRequired;
+			return;
 		}
-		slugInputHasValue = hasValue;
+		const requestId = ++probeRequestId;
+		const slug = slugValue.trim().toLowerCase() || undefined;
+		probeStatus = openSeaSlugProbeUiStatus.Loading;
+		probeError = null;
+		probeResult = null;
+		try {
+			const result = collectionRef
+				? await probeCollectionOpenSeaSlug(fetch, chainSlug, collectionRef, slug)
+				: await probeBootstrapOpenSeaSlug(fetch, chainSlug, {
+						address: normalizedContractAddress,
+						sampleTokenId: sampleTokenId!.trim(),
+						slug
+					});
+			if (requestId !== probeRequestId) return;
+			probeResult = result;
+			probeStatus = openSeaSlugProbeUiStatus.Ready;
+			// Resolving a blank slug is an explicit user action; never replace a staged slug.
+			if (!slug && result.status === OPENSEA_COLLECTION_SLUG_PROBE_STATUS.Found && result.slug) {
+				slugValue = result.slug;
+			}
+		} catch (error) {
+			if (requestId !== probeRequestId) return;
+			probeStatus = openSeaSlugProbeUiStatus.Error;
+			probeError =
+				error instanceof BackendApiError &&
+				Object.values(OPENSEA_COLLECTION_SLUG_PROBE_ERROR).some(
+					(message) => message === error.message
+				)
+					? error.message
+					: 'OpenSea lookup failed. Try resolve again.';
+		}
 	}
 
 	function onSlugKeydown(event: KeyboardEvent): void {
 		if (event.key !== 'Enter') return;
 		event.preventDefault();
-		verifyCurrentSlug();
-	}
-
-	function onResolveClick(): void {
-		verifyCurrentSlug();
-	}
-
-	function scheduleAddressProbe(chain: string, address: string): void {
-		probeRequestId += 1;
-		const requestId = probeRequestId;
-		probeStatus = openSeaSlugProbeUiStatus.Waiting;
-		probeResult = null;
-		probeError = null;
-		if (slugWasAutoFilled) {
-			setSlugInputValue('');
-			lastAutoFilledSlug = null;
-			slugWasAutoFilled = false;
-		}
-		void runSlugProbe(chain, { address }, requestId);
-	}
-
-	function verifyCurrentSlug(): void {
-		if (!openSeaEnabled || !chainSlug) return;
-		const slug = readSlugInputValue();
-		if (!slug) {
-			slugInputHasValue = false;
-			return;
-		}
-		probeRequestId += 1;
-		const requestId = probeRequestId;
-		probeStatus = openSeaSlugProbeUiStatus.Waiting;
-		probeResult = null;
-		probeError = null;
-		const input: OpenSeaSlugProbeRequest = contractAddressCanBeProbed
-			? { address: normalizedContractAddress, slug }
-			: { slug };
-		void runSlugProbe(chainSlug, input, requestId);
-	}
-
-	async function runSlugProbe(
-		chain: string,
-		input: OpenSeaSlugProbeRequest,
-		requestId: number
-	): Promise<void> {
-		probeStatus = openSeaSlugProbeUiStatus.Loading;
-		try {
-			const result = await probeBootstrapOpenSeaSlug(fetch, chain, input);
-			if (requestId !== probeRequestId) return;
-			probeStatus = openSeaSlugProbeUiStatus.Ready;
-			probeResult = result;
-			applyProbeResult(result);
-		} catch (error) {
-			if (requestId !== probeRequestId) return;
-			probeStatus = openSeaSlugProbeUiStatus.Error;
-			probeResult = null;
-			probeError = error instanceof Error ? error.message : 'OpenSea slug probe failed';
-		}
-	}
-
-	function applyProbeResult(result: BootstrapOpenSeaSlugProbeApiResponse): void {
-		if (result.status !== BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found || !result.slug) return;
-		const resolved = normalizeSlugInput(result.slug);
-		if (!resolved) return;
-		if (result.address && result.address !== normalizedContractAddress) return;
-		if (result.requestedSlug && result.requestedSlug !== resolved) return;
-		if (
-			result.address &&
-			!result.requestedSlug &&
-			(!readSlugInputValue() || slugValue === lastAutoFilledSlug)
-		) {
-			setSlugInputValue(result.slug);
-			lastAutoFilledSlug = result.slug;
-			slugWasAutoFilled = true;
-			return;
-		}
-		if (result.requestedSlug && readSlugInputValue() === resolved) {
-			setSlugInputValue(resolved);
-		}
-	}
-
-	function isSlugResolved(): boolean {
-		if (!openSeaEnabled || probeStatus !== openSeaSlugProbeUiStatus.Ready) return false;
-		if (!probeResult) return false;
-		if (probeResult.status !== BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found) return false;
-		const resolved = normalizeSlugInput(probeResult.slug ?? '');
-		if (!resolved || readSlugInputValue() !== resolved) return false;
-		if (probeResult.address) {
-			return probeResult.address === normalizedContractAddress;
-		}
-		return probeResult.requestedSlug === resolved;
-	}
-
-	function isSlugIncorrect(): boolean {
-		if (!openSeaEnabled || probeStatus !== openSeaSlugProbeUiStatus.Ready || !slugInputHasValue) {
-			return false;
-		}
-		if (
-			probeResult?.status === BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Missing &&
-			probeResult.requestedSlug !== null
-		) {
-			return true;
-		}
-		if (
-			probeResult?.status === BOOTSTRAP_OPENSEA_SLUG_PROBE_STATUS.Found &&
-			probeResult.address !== null
-		) {
-			return normalizeSlugInput(probeResult.slug ?? '') !== readSlugInputValue();
-		}
-		return false;
-	}
-
-	function resolveProbeMessage(): string | null {
-		if (!openSeaEnabled) return disabledReason;
-		if (probeError) return probeError;
-		if (probeResult?.reason) return probeResult.reason;
-		return null;
-	}
-
-	function normalizeSlugInput(value: string): string {
-		return value.trim().toLowerCase();
+		void resolveSlug();
 	}
 </script>
 
 <div class="bootstrap-input-with-note">
 	<div class="bootstrap-input-status-row">
 		<input
-			bind:this={slugInputElement}
-			value={slugValue}
+			bind:value={slugValue}
 			class={inputClass}
 			type="text"
 			name={inputName}
 			disabled={!openSeaEnabled}
-			oninput={onSlugInput}
+			oninput={invalidate}
 			onkeydown={onSlugKeydown}
 		/>
 		{#if slugResolved}
@@ -291,7 +197,7 @@
 				</span>
 			</span>
 		{:else}
-			<button type="button" disabled={!openSeaEnabled || !slugInputHasValue} onclick={onResolveClick}>
+			<button type="button" disabled={!canResolve} onclick={() => void resolveSlug()}>
 				resolve
 			</button>
 		{/if}
