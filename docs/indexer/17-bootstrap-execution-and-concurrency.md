@@ -158,6 +158,31 @@ Scaling boundary:
 - A lighter local-only worker pool around `tokenByIndex` could reduce latency, but it is weaker because progress, retries, and crash recovery still depend on one long-running step. That is acceptable only if deliberately scoped as an optimization, not as the durable concurrency model.
 - For large collections, a streamed approach would also avoid building the full token id array in memory. Token ids could be inserted into metadata tasks as pages complete, with completion determined by page task terminality.
 
+#### Deferred Anchored Ownership Reuse
+
+`BKL-037` in the [unified backlog](../planning/01-unified-backlog.md) retains
+durable enumeration and ownership scaling, including reuse of the owners
+already read for manual scopes. A future design may combine enumeration and
+ownership work before metadata, but the current pipeline still has separate
+steps and re-reads those owners. Any change must:
+
+- bind staged token/owner results to the same run and anchor, never reuse a
+  current-state probe owner as snapshot truth;
+- distinguish confirmed presence, recognized absence, and uncertain errors
+  through the owning RPC/domain contracts, without broad error-message matching;
+- persist progress and ownership evidence with idempotent writes and active
+  lease/generation fencing;
+- preserve the complete configured scope for future mints while keeping the
+  anchor's present subset separate;
+- prove complete metadata seeding before terminal enumeration; the existing
+  crash gap is tracked independently by `BKL-061`;
+- preserve ownership finalization and catch-up gates before liveness, even if
+  phase names or task organization change.
+
+Design the durable boundary before raising concurrency or supporting very large
+sparse intervals. This is snapshot work; it must not turn the short preflight
+into event-history reconstruction or marketplace inventory discovery.
+
 ### 5. Metadata Task Seeding
 
 Current concurrency setting: no concurrency. Batch size is `BOOTSTRAP_METADATA_BATCH_SIZE=200`.

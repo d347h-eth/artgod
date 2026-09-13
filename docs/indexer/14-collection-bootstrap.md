@@ -101,6 +101,68 @@ action also starts the optional single-NFT slug lookup. An unresolved or
 unavailable slug does not block onchain setup: queueing omits that slug and
 bidding remains unavailable until late OpenSea setup succeeds.
 
+### Scope Is Not Minted Inventory
+
+The user selects the intended collection universe; the probe does not discover
+that universe by walking tokens. Keep these facts separate:
+
+- `totalSupply()` is not a generic maximum token ID or published mint cap.
+  Outside Enumerable mode, it may be a partial or contract-specific counter;
+  combining it with one existing token cannot prove a contiguous range.
+- A shared contract can genuinely implement ERC721Enumerable while its global
+  indexes interleave several projects. A successful address-only sample and
+  contract-wide supply do not identify which project the user wants.
+- The editable first-token default of `1` is a convention, not a discovered
+  boundary. A missing low ID may be unminted, burned, or not yet migrated. Do not
+  shift the requested range to the first token that happens to have an owner.
+- Explicit token IDs are the fallback when a collection cannot be represented
+  by a reasonable bounded interval. The form and CLI check that their resolved
+  sample belongs to the selected manual range/list. Run creation separately
+  validates the scope and rejects overlap with existing collections.
+
+Manual scope does not bypass sample/metadata validation, range limits, or
+unrecognized contract failures. It also does not add collection-specific
+heuristics to the generic probe. See the [regression cases](11-testing.md#bootstrap-regression-cases)
+for shared-contract and partially minted examples.
+
+### Probe Data Sources and Guarantees
+
+| Question                               | Source used by ArtGod                                                                                      | What the result establishes                                                                                    |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Contract capabilities and name         | Current-state Ethereum JSON-RPC: bytecode/proxy reads, `supportsInterface`, `name`, and `totalSupply`      | Contract-level diagnostics, not subcollection identity or a mint cap.                                          |
+| Sample selection when none was entered | Ethereum JSON-RPC: `tokenByIndex(0)` for Enumerable, with bounded `0`/`1` ownership candidates as fallback | A preview candidate only, not the collection's first token. An explicit sample never falls back to another ID. |
+| Sample existence                       | Ethereum JSON-RPC: `ownerOf(sample)`, before metadata                                                      | A valid nonzero owner now. A successful `tokenURI` alone is not existence evidence.                            |
+| Preview, media fields, and estimates   | `tokenURI(sample)` over Ethereum JSON-RPC, then inline metadata or HTTP/IPFS metadata/media reads          | Sample-derived display data and estimates, not an inventory scan.                                              |
+| Manual scope                           | User input and local validation                                                                            | The inclusive range or explicit list to scan during bootstrap, not a claim that every ID is minted.            |
+| Optional OpenSea identity              | One OpenSea REST NFT lookup for the exact contract/sample                                                  | OpenSea associates that sample with a slug; it does not verify the whole ArtGod scope.                         |
+
+No preflight path scans historical events, iterates the requested range, or
+paginates OpenSea NFT inventory. OpenSea failure is independent of contract
+probing and onchain queue eligibility.
+
+The OpenSea adapter currently requests
+`GET /api/v2/chain/ethereum/contract/{address}/nfts/{sample_token_id}` with its
+configured API key and reads `nft.collection`. A staged slug is normalized and
+must match; an empty slug can be filled by the explicit lookup. One logical
+lookup may retry the same NFT under the shared HTTP policy, but never expands
+to other token IDs, a contract-only fallback, collection-details verification,
+or first/last boundary checks. A missing sample in OpenSea does not prove the
+requested range is invalid.
+
+The local collection slug is an independent ArtGod identifier. Detected fields
+are accepted only through **Apply detected fields**; this can fill a blank
+local slug from the contract name, which may name the shared contract rather
+than the intended project. Review it before queueing. Editing a sample,
+metadata source, address, or OpenSea slug invalidates the relevant old result;
+it does not submit a new request or let a stale response replace the draft.
+
+The sample is preflight input, not persisted bootstrap identity. Current sample
+ownership does not prove ownership at the older safe anchor. Bootstrap requires
+a nonempty present subset of the configured scope at that anchor, not presence
+of the exact preview sample. Existing collections need no scope migration;
+API callers must send `sample_token_id` to the OpenSea probe, so deploy backend
+and UI/CLI changes together.
+
 ## Current Lifecycle
 
 Collections normally start outside the indexed set. When the user adds a new
@@ -274,6 +336,12 @@ Starting sync repeats single-sample verification before storing the slug,
 marking OpenSea state `pending`, and enqueueing an `opensea-bootstrap` job
 without a bootstrap-run context. No historical bootstrap run is rewritten.
 
+This modal depends on the loaded backend OpenSea integration capability, not
+on an OpenSea stream heartbeat. If capability has not loaded during startup,
+the disabled input explains that setup status is unavailable. A disabled
+integration reports its configuration reason. Neither state proves the slug
+is incorrect; missing local ownership is a separate resolution error.
+
 ### 9. Mark collection `live`
 
 When the short backfill is complete, the bootstrap worker marks the collection `status = live`.
@@ -314,6 +382,16 @@ Current defaults:
 - stale-start threshold: 30 minutes
 
 These are config-driven, not hardcoded business invariants.
+
+The collections table's **OpenSea snapshot** column selects
+`opensea_reconcile_completed_at`, falling back to
+`opensea_snapshot_completed_at` only when no reconciliation has completed.
+The API serializes this value explicitly as UTC. Starting, scheduling, or
+retrying a reconciliation and receiving stream events do not advance it.
+Clicking the timestamp switches relative/absolute display; reload the page to
+fetch a newer completion because the table does not poll collection data.
+Completion has the [queue-publication meaning](#eventual-consistency-note)
+described below, not a guarantee that downstream order validation has drained.
 
 ## Correctness Guarantees
 
@@ -441,9 +519,11 @@ collection liveness, and the actions valid for its current state.
 
 ## Current Limits and Future Direction
 
-- Enumerable token discovery still performs the current `tokenByIndex` loop
-  inside one step and assembles the discovered IDs before seeding tasks. Very
-  large enumerable collections would benefit from persisted enumeration pages.
+- Enumerable discovery and manual-scope ownership filtering still execute in
+  one step and collect present IDs before seeding tasks. Very large collections
+  would benefit from persisted enumeration pages. Manual owners are read again
+  by the later ownership step; reuse or phase consolidation remains deferred
+  under `BKL-037` in the [unified backlog](../planning/01-unified-backlog.md).
 - Enumeration is marked succeeded before metadata task batches are fully
   seeded. A process exit in that gap can leave a terminal enumeration step with
   an empty or partial metadata task set; the restart path does not currently
