@@ -26,8 +26,11 @@ Core release characteristics:
 - Multi-runtime indexer is active and queue-driven with NATS JetStream and
   SQLite.
 - Realtime sync, backfill sync, and reorg checks are implemented.
-- Collection bootstrap is implemented: metadata first, optional local token
-  image cache, then ownership snapshot plus short backfill.
+- Collection bootstrap is a durable step graph. Its blocking path anchors the
+  run, enumerates tokens, writes metadata, snapshots ownership, catches up the
+  short historical gap, and marks the collection live. Image caching,
+  collection-extension artifacts, and OpenSea readiness are persisted side
+  lanes with their own progress and recovery state.
 - Fresh installs seed Terraforms as the first prepared collection row, visible
   for manual `start bootstrapping` or immediate purge without writing token or
   bootstrap data.
@@ -83,7 +86,7 @@ Core release characteristics:
   tiers, staged tier reapply, and shared bidding panels.
 
 Canonical backlog and priorities live in
-`docs/progress/indexer/15-unified-backlog.md`.
+`docs/planning/01-unified-backlog.md`.
 
 ## Project Structure
 
@@ -98,7 +101,8 @@ Canonical backlog and priorities live in
   provisioning.
 - `scripts/`: local development, build, config, debug, and release helpers.
 - `src-tauri/`: Tauri desktop wrapper and Rust-owned desktop services.
-- `docs/`: architecture references, runtime guides, progress plans, and backlog.
+- `docs/`: operating guides, domain references, diagrams, and the unified
+  backlog.
 
 ## Public Alpha Boundaries
 

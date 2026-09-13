@@ -54,12 +54,20 @@ From the repo root:
 yarn test
 ```
 
-This delegates to workspace-specific runners, so the frontend and indexer each run under their own Vitest config.
+This delegates to workspace-specific runners, so the frontend and indexer each run under their own Vitest config. The full command expects the smoke-test environment below and an available container runtime; it fails fast when either is missing.
 
 From `indexer/` specifically:
 
 ```sh
 yarn workspace @artgod/indexer test
+```
+
+For the complete indexer suite except the externally configured smoke test, provide an isolated database path explicitly:
+
+```sh
+mkdir -p tmp
+indexer_test_dir="$(mktemp -d "$PWD/tmp/indexer-tests.XXXXXX")"
+ARTGOD_DB_PATH="$indexer_test_dir/indexer.sqlite" yarn workspace @artgod/indexer test --exclude tests/smoke.test.ts
 ```
 
 ## Test Environment
@@ -122,8 +130,27 @@ Current focused coverage includes:
 - Seaport validation (`tests/seaport-validate.test.ts`)
 - scoped maker-triggered order revalidation (`tests/orders-update-by-maker.test.ts`)
 
+These tests pin SDK response-shape normalization and adapter behavior. The REST
+boundary accepts the SDK's camelCase fields such as `orderHash` and
+`protocolData` while the raw/stream boundary retains snake_case fields such as
+`order_hash` and `protocol_data`; criteria normalization likewise accepts both
+forms at the adapter boundary. The tests do not prove live OpenSea pagination,
+production rate-limit behavior, endpoint ordering, or stream delivery. A
+release that changes the OpenSea dependency or adapter contract still needs a
+credentialed live integration check; those observations must not be promoted
+into ordering guarantees without an upstream contract.
+
 ## Practical Notes
 
 - The Vite `spawnSync /bin/sh EPERM` warning can appear in restricted sandboxes. It is unrelated to actual test results.
 - DB-backed tests need teardown order to respect current foreign-key chains (`collection_trait_stats`, `token_sets`, `attributes`, etc.).
 - Workspace-level orchestration matters: running a single unconfigured repo-level Vitest sweep can bypass workspace-specific config such as the frontend SvelteKit plugin.
+
+## Current Limitations
+
+- `smoke.test.ts` still reads `WETH_ADDRESS` from the loaded test environment
+  when building child-process input rather than consuming the same typed config
+  boundary as production composition.
+- The DB-backed project intentionally owns migration and repository behavior;
+  adding an in-memory mock for those tests would hide the contracts they exist
+  to verify.

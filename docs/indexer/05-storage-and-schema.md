@@ -39,6 +39,33 @@ The migration runner is invoked by the onchain workers and the OpenSea workers.
 
 Defined primarily in `database/migrations/002_indexer_schema.sql`.
 
+### `chains`
+
+Defined in `013_chains_schema.sql`.
+
+The table is the registry used by backend chain-reference resolution:
+
+- `id` is an auto-generated SQLite row primary key. It is exposed in backend
+  chain responses as `ChainRecord.id`, but no downstream operational table has
+  a foreign key to it;
+- `type` identifies the chain family. The current resolver queries `evm`;
+- `public_chain_id` stores the EVM network chain ID;
+- `slug` is the human-readable route reference and `name` is the display name;
+- `(type, public_chain_id)` and `(type, slug)` are unique.
+
+`SqliteChainsReadModel` resolves a numeric `chain_ref` against
+`public_chain_id`, or a slug against `slug`. After resolution, current use cases,
+operational tables, and queue payloads carry the EVM network ID as
+`publicChainId`, `chainId`, or `chain_id`. Those names refer to the same
+operational value, not separate public and internal chain IDs. There is no
+current `chainPk` runtime contract.
+
+Do not pass `ChainRecord.id` into a `chainId` query or job: the catalog row key
+can differ from `ChainRecord.publicChainId`. The seeded Ethereum row can make
+the two numbers happen to coincide, but that is not an identity contract.
+Multi-chain ingress/routing and possible non-EVM identity remain a deferred
+design decision (`BKL-025`), not an implemented internal-key migration.
+
 ### `blocks`
 
 ```sql
@@ -693,3 +720,13 @@ Important operations:
 - stores canonical `seaport_data_json`
 - stores raw stream/rest payloads for audit only
 - async validation later reads canonical order state back from `orders`
+
+## Current Storage Limits
+
+- ERC-1155 `TransferBatch` decoding assigns `batchIndex` for in-memory ordering,
+  but persisted transfer facts do not retain it. Rows are unique by
+  `(chain_id, tx_hash, log_index, collection_id, token_id)`, so repeated
+  occurrences of the same token ID within one batch would collapse.
+- `attributes.value` is stored as text. Numeric range filters and bounds
+  interpret validated unsigned-integer strings at read time; there is no
+  materialized numeric attribute projection.

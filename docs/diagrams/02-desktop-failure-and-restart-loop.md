@@ -1,6 +1,7 @@
 # Desktop Failure and Restart Loop
 
-Fail-fast restart behavior for core composition failures, with independent bot shutdown behavior.
+Fail-fast restart behavior for core composition failures, with separately
+started wallet-bound bots.
 
 ```mermaid
 sequenceDiagram
@@ -37,14 +38,14 @@ sequenceDiagram
                 end
             end
         end
-    and bot runtime monitors
+    and bot runtime lifecycle
         loop per bot
             alt bot crashes unexpectedly
-                S->>BT: Mark stopped/error
-                S-->>A: bot state update
-            else critical dependency becomes unhealthy
-                S->>BT: Stop affected bot only
-                S-->>A: bot state update (locked/error)
+                S->>BT: Reap process and mark error
+                S-->>A: bot-runtime-state-changed(error)
+            else core generation ends or explicit stop arrives
+                S->>BT: Invalidate unlock generation and stop process
+                S-->>A: bot-runtime-state-changed(stopped)
             end
         end
     end
@@ -54,4 +55,5 @@ sequenceDiagram
 
 - Any core runtime failure causes full-stack restart.
 - Bot failures do not restart the core composition.
-- Restarting a bot later still requires a fresh unlock prompt.
+- A core restart does not carry wallet authority into its replacement
+  generation. Restarting a bot later requires a fresh native unlock prompt.

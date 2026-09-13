@@ -1,89 +1,122 @@
+# ArtGod System Architecture
+
+ArtGod has no centralized application server. The desktop composition and the
+optional hosted composition are operator-run deployments of the same
+backend/worker/broker/database software stack, and each deployment owns its own
+state. The Rust supervisor and Docker Compose are alternative composition roots,
+not concurrent launchers. Hosted mode narrows the public HTTP surface; it does
+not move canonical state to an ArtGod service.
+
 ```mermaid
 flowchart LR
-      RPC[(Ethereum JSON-RPC)]
-      OSStream[(OpenSea Stream)]
-      OSApi[(OpenSea REST API)]
-      MetaHTTP[(Metadata HTTP/IPFS)]
+    subgraph Clients[User-facing clients]
+        Admin[Desktop Admin<br/>Tauri WebView]
+        LocalUI[Desktop Userland<br/>static browser app]
+        HostedUI[Hosted read-only UI<br/>SvelteKit SSR]
+    end
 
-      NATS[(NATS JetStream)]
-      DB[(SQLite DB)]
+    subgraph Composition[Operator-run composition]
+        Supervisor[Rust desktop supervisor<br/>desktop only]
+        Compose[Docker Compose<br/>hosted only]
+        Backend[Backend HTTP adapters<br/>and use cases]
+        Cache[Backend query cache]
+        NATS[NATS JetStream<br/>wake-ups and work delivery]
+        Scheduler[Scheduler and reorg workers]
+        Bootstrap[Bootstrap workers<br/>durable step scheduler]
+        Ingest[Sync and offchain ingest workers]
+        Domain[Domain workers<br/>orders, metadata, activities]
+        Extensions[Collection-extension worker]
+        Recovery[Dead-letter worker]
+        Trading[Wallet-bound trading bot<br/>desktop only]
+        DB[(SQLite<br/>canonical and durable control state)]
+        Media[(Local token image cache)]
+    end
 
-      Frontend[Frontend UI]
-      Backend[Backend API]
-      Scheduler[Scheduler Worker]
-      Sync[Sync Worker]
-      Reorg[Reorg Worker]
-      Bootstrap[Bootstrap Worker]
-      CollectionExt[Collection Extension Worker]
-      OSBootstrap[OpenSea Bootstrap Worker]
-      OSReconcileSched[OpenSea Reconcile Scheduler]
-      OSReconcile[OpenSea Reconcile Worker]
-      OSWorker[OpenSea Stream Worker]
-      Offchain[Offchain Ingest Worker]
-      Domain[Domain Worker]
-      DeadLetter[Dead-Letter Worker]
+    subgraph External[Public external systems]
+        RPC[Ethereum JSON-RPC and WebSocket]
+        OpenSea[OpenSea REST and Stream]
+        Metadata[Metadata HTTP and IPFS]
+    end
 
-      Scheduler -->|realtime sync jobs| NATS
-      Scheduler -->|reorg block-check jobs| NATS
+    Admin -->|Tauri commands| Supervisor
+    Supervisor -->|desktop starts and monitors| NATS
+    Supervisor --> Backend
+    Supervisor --> Scheduler
+    Supervisor --> Bootstrap
+    Supervisor --> Ingest
+    Supervisor --> Domain
+    Supervisor --> Extensions
+    Supervisor --> Recovery
+    Supervisor -->|explicit unlock and start| Trading
 
-      NATS -->|RealtimeSync / BackfillSync| Sync
-      Sync -->|logs / tx / receipts| RPC
-      Sync -->|persist blocks / transfers / fills / balances| DB
-      Sync -->|domain sync jobs| NATS
-      Sync -->|order update jobs| NATS
-      Sync -->|metadata refresh jobs| NATS
+    Compose -->|hosted starts| HostedUI
+    Compose --> NATS
+    Compose --> Backend
+    Compose --> Scheduler
+    Compose --> Bootstrap
+    Compose --> Ingest
+    Compose --> Domain
+    Compose --> Extensions
+    Compose --> Recovery
 
-      NATS -->|BlockCheck| Reorg
-      Reorg -->|read/rollback blocks| DB
-      Reorg -->|canonical block lookup| RPC
-      Reorg -->|resync backfill jobs| NATS
+    LocalUI -->|same-origin HTTP| Backend
+    HostedUI -->|read-only backend contract| Backend
+    Backend -->|read models and transactions| DB
+    Backend <--> Cache
+    Backend -->|bootstrap and trading wakes| NATS
+    Backend -->|token URI and owner resolution| RPC
 
-      NATS -->|CollectionBootstrap| Bootstrap
-      Bootstrap -->|metadata snapshot / ownership snapshot| RPC
-      Bootstrap -->|persist collection + balances + snapshot state| DB
-      Bootstrap -->|auto-install embedded extension| DB
-      Bootstrap -->|short backfill jobs| NATS
-      Bootstrap -->|collection-extension artifact jobs| NATS
-      Bootstrap -->|OpenSea bootstrap jobs| NATS
+    Scheduler -->|scheduled work| NATS
+    NATS -->|reorg work| Scheduler
+    NATS --> Bootstrap
+    Bootstrap -->|follow-up work| NATS
+    NATS --> Ingest
+    Ingest -->|projection work| NATS
+    NATS --> Domain
+    Domain -->|follow-up work| NATS
+    NATS --> Extensions
+    Extensions -->|statistics follow-up| NATS
+    NATS --> Recovery
+    NATS --> Trading
 
-      NATS -->|CollectionExtensionArtifacts| CollectionExt
-      CollectionExt -->|collection-specific onchain reads| RPC
-      CollectionExt -->|extension metadata parse/fetch when needed| MetaHTTP
-      CollectionExt -->|upsert token_extension_artifacts| DB
+    Scheduler -->|scheduling and reorg state| DB
+    Bootstrap -->|runs, steps, tasks, snapshots| DB
+    Ingest -->|blocks and raw observations| DB
+    Domain -->|canonical projections and stats| DB
+    Extensions -->|artifacts and extension traits| DB
+    Trading -->|jobs, commands, runtime state, bid-book projection| DB
 
-      NATS -->|OpenSeaBootstrap| OSBootstrap
-      OSBootstrap -->|resolve slug + fetch snapshot pages| OSApi
-      OSBootstrap -->|update OpenSea collection state + orderbook runs| DB
-      OSBootstrap -->|snapshot raw order jobs| NATS
+    Bootstrap --> RPC
+    Bootstrap --> Metadata
+    Ingest --> RPC
+    Ingest --> OpenSea
+    Domain --> RPC
+    Domain --> Metadata
+    Extensions --> RPC
+    Extensions --> Metadata
+    Trading --> RPC
+    Trading --> OpenSea
 
-      OSReconcileSched -->|query due collections| DB
-      OSReconcileSched -->|OpenSea reconcile jobs| NATS
-      NATS -->|OpenSeaReconcile| OSReconcile
-      OSReconcile -->|fetch reconcile pages| OSApi
-      OSReconcile -->|complete runs + mark missing orders inactive| DB
-      OSReconcile -->|reconcile raw order jobs| NATS
-
-      OSStream -->|live events| OSWorker
-      OSWorker -->|touch stream health| DB
-      OSWorker -->|stream raw order jobs| NATS
-
-      NATS -->|OffchainOrdersRaw| Offchain
-      Offchain -->|append raw observations| DB
-      Offchain -->|orders.upsert| NATS
-      Offchain -->|order-updates-by-id| NATS
-      Offchain -->|order-updates-by-maker| NATS
-      Offchain -->|metadata-refresh| NATS
-
-      NATS -->|OrdersDomain / MetadataDomain / ActivityDomain| Domain
-      NATS -->|OrdersUpsert / OrdersUpdateBy*| Domain
-      NATS -->|MetadataRefresh| Domain
-      Domain -->|canonical orders / metadata / activities| DB
-      Domain -->|Seaport validation + metadata reads| RPC
-      Domain -->|metadata fetch| MetaHTTP
-      Domain -->|collection-extension artifact jobs| NATS
-
-      NATS -->|DLQ jobs| DeadLetter
-
-      Frontend -->|HTTP| Backend
-      Backend -->|read canonical tokens + extension artifacts| DB
+    Bootstrap --> Media
+    Domain --> Media
+    Backend --> Media
 ```
+
+## Durable-State Boundary
+
+- SQLite, not JetStream delivery, owns bootstrap progress, declared trading
+  jobs, command reconciliation, canonical indexed state, and read projections.
+- JetStream carries scheduler wake-ups and bounded work such as realtime sync,
+  backfill, metadata refresh, metadata statistics, activity upsert, OpenSea raw
+  observations, and dead-letter handling.
+- Ethereum WebSocket heads trigger chain reads; persisted sync progress and
+  subsequent RPC reads let the scheduler catch up after missed heads.
+- The indexer's OpenSea stream feeds order and activity observations. REST
+  reconciliation repairs the current orderbook view, not a complete history of
+  every stream event missed while offline.
+- In the bidding bot, OpenSea stream events are wake-up hints; REST/SDK reads
+  and collection snapshots supply the decision input.
+
+Follow the [backend architecture](../backend/01-api-and-application-architecture.md),
+[indexer overview](../indexer/00-overview.md), and
+[bidding runtime](../trading/01-bidding-runtime-and-jobs.md) for exact ownership.

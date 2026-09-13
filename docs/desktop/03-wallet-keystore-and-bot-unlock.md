@@ -7,7 +7,7 @@ channel used by trading bot runtimes.
 
 This is intentionally stricter than a typical desktop wallet UX.
 
-The design follows Foundry-like operational semantics:
+The current implementation follows Foundry-like operational semantics:
 
 - import existing private keys only
 - keep keys encrypted at rest
@@ -15,7 +15,8 @@ The design follows Foundry-like operational semantics:
 - keep decrypted keys out of normal app state
 - treat process restart as a fresh lock boundary
 
-The storage and crypto path should align with Foundry/Paradigm wherever practical:
+The storage and crypto path aligns with Foundry/Paradigm primitives while
+keeping ArtGod-owned bounds explicit:
 
 - standard Ethereum keystore JSON files at rest
 - the source-pinned `eth-keystore` decrypt primitive with immediate zeroizing ownership of returned plaintext
@@ -33,12 +34,11 @@ Related docs:
 - `docs/desktop/02-runtime-registry-maintenance.md`
 - `docs/diagrams/00-desktop-components.md`
 - `docs/trading/01-bidding-runtime-and-jobs.md`
-- `docs/progress/desktop/02-local-runtime-identity-and-browser-trust.md`
-- `docs/progress/desktop/01-wallet-keystore-implementation-plan.md`
+- `docs/desktop/07-local-runtime-trust.md`
 
 ## Decision Summary
 
-ArtGod will use a hybrid desktop model:
+ArtGod uses a hybrid desktop model:
 
 - wallet listing, labels, addresses, and bot assignment live in the privileged admin UI
 - raw private-key entry, passphrase entry, and plaintext export display do not live in the WebView
@@ -58,9 +58,11 @@ This design explicitly rejects all session unlock caching.
 
 ## Alignment With Foundry, Alloy, and Geth
 
-ArtGod should not invent a custom wallet cryptography format unless there is a compelling security reason that cannot be achieved with established Ethereum V3 implementations and primitives.
+ArtGod does not use a custom wallet cryptography format. A future change would
+require a compelling security reason that established Ethereum V3
+implementations and primitives cannot satisfy.
 
-Current design decision:
+Current implementation:
 
 - use standard Ethereum keystore JSON for secret storage
 - use the source-pinned `eth-keystore` primitive for decrypt operations and immediately wrap its returned plaintext allocation in `Zeroizing`
@@ -102,7 +104,7 @@ This specification covers:
 - importing one or more existing EVM private keys into the desktop app
 - exporting a stored private key back to plaintext on explicit operator request
 - removing a stored wallet
-- assigning wallets to `bidding` and `sniping` bot runtimes
+- assigning wallets to the operator-visible `bidding` bot runtime
 - decrypting a wallet only for explicit export or bot startup
 - keeping wallet storage and runtime wiring local-only
 
@@ -115,6 +117,11 @@ This specification does not cover:
 - remote custody or synchronized cloud state
 - unattended bot restart with cached secrets
 - session unlock TTLs, temporary unlock windows, or background auto-unlock
+
+The internal bot-kind and containment contracts also recognize `sniping`, and a
+bundled recipient currently proves the generic handoff/liveness path. The Admin
+surface deliberately hides it because no sniping strategy or operator workflow
+is implemented. It is retained infrastructure, not a product capability.
 
 ## Core Security Invariants
 
@@ -201,8 +208,8 @@ This design does not claim to protect against:
 - arbitrary code execution in the privileged Admin WebView or Tauri core
 - a malicious or dishonest operator-selected RPC; public-alpha operation
   assumes the operator selects truthful endpoints
-- direct writes to ArtGod SQLite, app-data, keystore files, or runtime files;
-  those are host-compromise capabilities in this local-only model
+- direct writes to ArtGod SQLite, app-data, or keystore files; those are
+  host-compromise capabilities in this local-only model
 - same-user debugger, `ptrace`, or process-memory access
 - aggregate strategy abuse within an authorized collection while each offer
   remains inside the reviewed per-NFT price and quantity caps
@@ -216,6 +223,12 @@ This design does not claim to protect against:
 - kernel compromise
 - hardware keyloggers
 - OS screenshots or screen recording outside app control
+
+Release builds separately validate the exact key-bearing runtime file set and
+hashes against a manifest embedded in the desktop executable. That check fails
+closed on runtime-only modification, missing or unexpected files, and symlinks;
+it does not protect against an attacker able to replace both the trusted desktop
+executable and its staged runtime closure.
 
 The objective is to make the wallet boundary materially narrower and more auditable, not to solve full host compromise.
 
@@ -272,10 +285,10 @@ flowchart LR
 
     U --> W
     W --> C
+    C --> P
     C --> K
-    K --> P
     K --> S
-    K --> B
+    C --> B
     B --> N
 ```
 
@@ -385,7 +398,7 @@ Important:
 
 ## Runtime Boundary Model
 
-ArtGod desktop should treat the runtime as two groups:
+ArtGod desktop treats the runtime as two groups:
 
 ### 1) Core Composition
 
@@ -401,35 +414,41 @@ Current fail-fast behavior is appropriate here.
 
 These are desktop-managed optional runtimes:
 
-- `bidding`
-- `sniping`
+- `bidding`, which is the current operator-visible runtime
+- the internal `sniping` recipient scaffold, which has no strategy or Admin
+  workflow and is not a current product capability
 
 Bots must not share the same restart policy as the core composition.
 
-Required behavior:
+Current behavior:
 
 - a bot failure must not tear down the full core composition
-- a bot may be stopped when one of its declared critical dependencies becomes unhealthy
+- the supervisor can stop a bot when a declared critical dependency becomes
+  unhealthy; the current bot specifications declare no process-specific
+  dependencies, so core-generation invalidation is the active dependency fence
 - Stop remains available while a native authorization prompt or startup work is
   pending; it cancels that start generation and waits for the pending operation
   to unwind before completing
-- a bot restart must return that bot to a locked state
-- a locked bot requires a fresh passphrase prompt before it starts again
+- an unexpected bot exit is reported as `error`; bots are not restarted
+  automatically
+- every later start reserves a fresh lifecycle generation and requires a fresh
+  passphrase prompt
 
 This keeps bot custody strict without making the entire desktop stack unusable.
 
 ## Wallet Storage Location
 
-Wallet storage must live in desktop app-data under a Rust-owned directory, separate from the shared app database.
+Wallet storage lives in desktop app-data under a Rust-owned directory, separate
+from the shared application database.
 
-Example layout:
+Current layout:
 
 ```text
 <app-data>/
   wallets/
     index.json
     <wallet-id>.json
-    <wallet-id>.json
+    <other-wallet-id>.json
 ```
 
 Why not backend/indexer SQLite:
@@ -442,7 +461,7 @@ Why not backend/indexer SQLite:
 
 `index.json` stores non-secret metadata only.
 
-Suggested fields:
+Current metadata fields:
 
 - `walletId`
 - `label`
@@ -463,7 +482,8 @@ Metadata rules:
 
 ## Ethereum Keystore File Format
 
-ArtGod should store private keys using the standard Ethereum keystore JSON format rather than a custom sealed file format.
+ArtGod stores private keys using the standard Ethereum keystore JSON format
+rather than a custom sealed file format.
 
 Reason:
 
@@ -500,7 +520,7 @@ The keystore service must:
 - zeroize passphrase and plaintext key buffers after use
 - zeroize derived KDF key buffers after encryption and decryption
 
-Recommended baseline:
+Current baseline:
 
 - standard Ethereum keystore JSON
 - the Foundry-compatible Ethereum V3 format and shared Alloy/`eth-keystore` primitives
@@ -508,7 +528,8 @@ Recommended baseline:
 - strict tamper detection on decrypt
 - decrypted private-key binding to the canonical stored wallet address
 
-The implementation should treat the Ethereum V3 format and the pinned Alloy/`eth-keystore` primitives as the source of truth for the file crypto path.
+The implementation treats the Ethereum V3 format and the pinned
+Alloy/`eth-keystore` primitives as the source of truth for the file crypto path.
 ArtGod owns wallet orchestration, metadata, runtime boundaries, and the work-factor policy, not a custom encryption scheme.
 
 ### Scrypt Work Policy
@@ -578,7 +599,7 @@ Required policy:
 - hidden input in native prompt
 - exact match required on unlock
 
-Recommended operator guidance:
+Operator guidance:
 
 - prefer a long unique sentence instead of a short password
 - do not reuse exchange, email, or laptop login passwords
@@ -631,7 +652,7 @@ It is because:
 The main Tauri core process remains the trusted owner of wallet state and decryption logic.
 The helper exists only to keep raw secret input and reveal out of the WebView.
 
-This helper should be:
+The current helper is:
 
 - visually minimal
 - isolated from normal app UI
@@ -711,7 +732,7 @@ It must not:
 - persist any secret in frontend state stores
 - receive raw secret payloads from Tauri commands
 
-The WebView command result for secret operations should contain only:
+The WebView command result for secret operations contains only:
 
 - success/failure status
 - sanitized error code or message
@@ -719,7 +740,7 @@ The WebView command result for secret operations should contain only:
 
 ## Import Flow
 
-Import supports raw private keys only in the initial implementation.
+Import currently supports raw private keys only.
 
 Mnemonic import is out of scope.
 
@@ -751,11 +772,11 @@ Import rules:
 - never echo the private key back to WebView
 - fail closed on malformed key, duplicate label, duplicate address, or write error
 
-Optional future extension:
+Current limit and possible future extension:
 
 - import encrypted JSON keystore files
 
-That is not part of the initial design.
+Encrypted JSON keystore import is not implemented.
 
 ## Export Flow
 
@@ -786,12 +807,12 @@ Export rules:
 - require the wallet to be unlocked via native passphrase prompt
 - require an explicit danger confirmation before reveal
 - do not send plaintext key to WebView
-- do not place plaintext key in system clipboard in the initial implementation
-- do not write plaintext key to disk in the initial implementation
+- do not place plaintext key in the system clipboard
+- do not write plaintext key to disk
 - reveal plaintext only inside the native prompt helper
 - zeroize buffers immediately after reveal window closes
 
-Recommended confirmation policy:
+Current confirmation policy:
 
 - type `EXPORT`
 - show wallet label and address
@@ -824,16 +845,16 @@ sequenceDiagram
 Remove rules:
 
 - require passphrase verification
-- require typed confirmation using wallet label or address suffix
-  : current implementation may use an address suffix to keep the confirmation string short in the native prompt
+- require the final six characters of the wallet address as typed confirmation
 - block removal while the wallet remains assigned to any bot until the operator detaches it first
 - perform metadata delete and keystore file delete atomically as much as practical
 
 ## Bot Assignment Model
 
-The system should support multiple stored wallets and explicit wallet-to-bot assignment.
+The system supports multiple stored wallets and explicit wallet-to-bot
+assignment.
 
-Initial assumption:
+Current assignment model:
 
 - one bot process uses one wallet
 - one wallet may be assigned to one or more bots if the operator chooses
@@ -846,9 +867,9 @@ Security rule:
 
 ## Unlock and Bot Startup Flow
 
-Bots must unlock only after the core composition is healthy and stable.
+Bots unlock only after the core composition is healthy and stable.
 
-Recommended policy:
+Current policy:
 
 - start NATS, backend, and indexer normally
 - wait for semantic runtime health
@@ -969,12 +990,17 @@ to developers. It is not a substitute for explaining the user's bidding task in
 the UI. Follow `docs/ui/00-user-perspective-and-language.md` for the complete
 cross-surface review method.
 
-Critical dependency rule:
+Current dependency rule:
 
-- each bot kind declares the runtime processes that are critical to it
-- a runtime failure must not bluntly stop every bot by category alone
-- a bot is force-stopped only when one of its own declared critical dependencies becomes unhealthy
-- during a full core restart this usually still stops all bots, but it happens through explicit per-bot dependency checks rather than a blanket stop-all shortcut
+- every bot start requires the core runtime to be `running` for the configured
+  stabilization delay;
+- both current bot specifications declare an empty process-specific dependency
+  list;
+- a full core stop or restart invalidates the core lifecycle generation, which
+  cancels every active bot lease and stops its recipient;
+- the supervisor retains per-bot critical-dependency support for future
+  runtimes. A future non-core dependency must be declared by its owning bot and
+  must stop only that affected bot.
 
 ## Bot Secret Handoff Protocol
 
@@ -988,7 +1014,7 @@ The supervisor must never pass secrets through:
 The canonical handoff is one framed stdin/pipe payload followed by a retained,
 otherwise-idle parent-liveness lease on the same pipe.
 
-Suggested format:
+Current frame shape:
 
 1. fixed magic bytes
 2. protocol version
@@ -1201,7 +1227,7 @@ If a bot exits unexpectedly:
 
 ## Future Idea: OS-Native Wrapping
 
-OS-native keychain or wrapper integration is not part of the planned implementation path for this subsystem.
+OS-native keychain or wrapper integration is not part of the current wallet subsystem.
 
 It may be explored later as an additive hardening idea only.
 
@@ -1235,49 +1261,48 @@ Logs may include:
 - locked/unlocked status transitions
 - sanitized error categories
 
-Recommended sanitized error categories:
+Current Tauri commands return short sanitized messages rather than a stable
+serialized error-code vocabulary. If structured categories are added later,
+their values must be defined once in the owning Rust/TypeScript boundary rather
+than copied into documentation first.
 
-- `prompt_cancelled`
-- `invalid_passphrase`
-- `wallet_not_found`
-- `duplicate_wallet`
-- `wallet_in_use`
-- `decrypt_failed`
-- `store_write_failed`
-- `bot_bootstrap_failed`
-
-Release builds of the secret prompt helper should not emit structured telemetry at all.
+Release builds of the secret prompt helper emit no structured telemetry.
 
 ## File and Permission Rules
 
-Wallet files must be created with restrictive permissions.
+Wallet files are created through the shared atomic private-file writer.
 
-Required behavior:
+Current behavior:
 
-- Unix: owner-only file mode where possible
-- Windows: user-restricted ACLs where possible
-- create parent directories explicitly
-- avoid predictable temp-file usage during writes
-- use atomic replace for metadata/index writes where practical
+- Unix wallet directories are forced to mode `0700` and wallet/index files to
+  mode `0600`.
+- Writes use UUID-named, create-new temporary files, flush them, replace the
+  destination, and reapply private-file permissions.
+- Removal stages the keystore before changing the index and reconciles an
+  interrupted staged removal when the store reopens.
+- Windows currently inherits the desktop app-data ACL. Explicit current-user
+  ACL application and verification remain future hardening tracked by
+  `BKL-059`.
 
 The keystore file path and metadata path may be logged for diagnostics only if the log is guaranteed not to leak secrets.
 
-## Recommended Rust Module Layout
+## Current Rust Module Layout
 
-The implementation should follow the same explicit boundary style used elsewhere in the repo.
+The implementation follows the same explicit boundary style used elsewhere in
+the repository.
 
-Suggested structure:
+Current structure:
 
 ```text
 src-tauri/src/
   wallet/
     mod.rs
     domain/
-      wallet_metadata.rs
-      wallet_record.rs
+      wallet.rs
       passphrase_policy.rs
     application/
-      use-cases/
+      use_cases/
+        assign_wallet_to_bot.rs
         import_wallet.rs
         export_wallet.rs
         remove_wallet.rs
@@ -1291,6 +1316,7 @@ src-tauri/src/
       prompt/
         secret_prompt_sidecar.rs
     tauri/
+      bot_commands.rs
       commands.rs
 ```
 
@@ -1305,13 +1331,11 @@ Design rules:
 
 Admin UI owns the wallet-management and bot-control surfaces, but only for non-secret operations and status.
 
-Suggested responsibilities:
+Current responsibilities:
 
-- wallet list
-- wallet label management
+- wallet import, list, one-time export, and remove controls
 - address display
-- bot assignment
-- bot start/stop controls
+- bidding-bot wallet assignment and start/stop controls
 - proposed and active bidding authorization display
 - locked/running/error state display
 
@@ -1325,7 +1349,8 @@ frontend/src/lib/admin/bots/
 frontend/src/routes/+layout.svelte
 ```
 
-Exact route paths can be decided during implementation, but they must remain admin-only and must not be served from the userland browser origin.
+These surfaces are mounted in the Admin shell and call explicit Tauri command
+adapters. They are not backend HTTP routes and are not mounted in Userland.
 
 ## Supervisor and Composition Model
 
@@ -1352,18 +1377,23 @@ Supervisor behavior:
   only for its owning generation; Admin never substitutes newly edited Config
   for active authority
 
-This means wallet-bound bots should not simply be appended to the current `INDEXER_WORKERS` list with identical restart semantics.
+Wallet-bound bots therefore remain separate from `INDEXER_WORKERS` and do not
+share core restart semantics.
 
 ## Config Requirements
 
-All wallet-related config must be loaded through typed Rust config, not ad hoc environment reads.
+Wallet-related config is loaded through typed Rust config rather than ad hoc
+environment reads.
 
-Expected config concepts:
+Current settings:
 
-- wallet store directory
-- bot unlock stabilization delay
+- `DESKTOP_WALLET_STORE_DIR`: wallet store directory, relative to app-data
+  unless explicitly absolute
+- `DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS`: healthy-core stabilization delay
+  before the native unlock prompt
 
-The secret prompt helper itself should be addressed through Tauri's bundled sidecar identifier, not through a runtime env path override.
+The secret prompt helper is addressed through Tauri's bundled sidecar
+identifier, not through a runtime environment path override.
 
 Rules:
 
@@ -1380,7 +1410,7 @@ Rules:
   outside native authorization
 - fail fast on missing required wallet runtime config
 
-## Test Strategy
+## Verification Coverage and Release Matrix
 
 ### Rust Unit Tests
 
@@ -1449,7 +1479,7 @@ Rules:
 - rejection of bytes after the frame and exit on parent-channel close/error
 - bounded Stop while a recipient leaves the secret pipe unread
 
-### Manual Desktop Verification
+### Manual Desktop Release Verification
 
 - Linux
 - macOS on Apple silicon and Intel
@@ -1468,7 +1498,7 @@ The manual matrix should explicitly verify:
 - no secrets in process list
 - `plugin:shell|spawn` and `plugin:shell|stdin_write` are denied from the main WebView
 - restart=prompt behavior
-- bot crash -> locked state
+- bot crash -> error state, followed by a fresh unlock on the next start
 - Stop remains usable during authorization review, decrypt, and startup
 - hard-killing the desktop process cannot leave the bot PID or heartbeat active
 - Admin request, trusted prompt, and active authorization use the same named
@@ -1481,26 +1511,38 @@ The manual matrix should explicitly verify:
 - loading, disabled, infrastructure-offline, validation, and active states are
   read end to end from the operator's perspective
 
-## Implementation Phases
+## Current Implementation
 
-### Phase 1
+The current desktop composition includes:
 
-- Rust wallet domain + storage
-- native secret prompt helper
-- import/list/remove flows
-- admin wallet list/status UI
+- Rust wallet domain, encrypted keystore storage, and metadata index;
+- the bundled native secret-prompt helper;
+- import, list, remove, and one-time export flows;
+- Admin wallet state and explicit bot assignment;
+- bot-start passphrase review and immutable bidding authorization review;
+- a single framed stdin handoff followed by a retained parent-liveness lease;
+- independent sensitive-process supervision, bounded Stop, and hard-parent-death
+  containment;
+- platform-specific secret-output, packaging, and runtime-boundary coverage
+  described above; Windows prompt/bot containment remains compile-only.
 
-### Phase 2
+## Current Limits and Future Direction
 
-- bot assignment model
-- bot startup unlock flow
-- single-frame stdin secret handoff with retained parent-liveness lease
-- independent bot supervisor lifecycle
-
-### Phase 3
-
-- export flow
-- cross-platform hardening pass
+- Mnemonic and encrypted-JSON import are not implemented.
+- Plaintext export is display-only in the native reveal window; there is no
+  clipboard or disk export path.
+- OS-native keychain or hardware-backed wrapping is not implemented. Any future
+  layer must preserve portable Ethereum V3 recovery and must not create a
+  prompt-once/session-unlock shortcut.
+- The Admin surface exposes bidding only. The bundled sniping recipient has no
+  strategy or operator workflow and must remain hidden until `BKL-050` is
+  completed.
+- Windows wallet files inherit app-data permissions; explicit current-user ACL
+  application and verification remain tracked by `BKL-059`.
+- Wallet decryption does not authenticate browser-origin job proposals. The
+  immutable native-reviewed bidding authorization restricts what the signer can
+  place; the separate loopback identity gap is documented in
+  [Local Runtime Trust](07-local-runtime-trust.md).
 
 ## Explicit Rejections
 

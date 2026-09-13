@@ -25,12 +25,11 @@ flowchart LR
     TW --> TR
     TW --> RT
 
-    AU --> AS
     AU --> RT
     TR --> RT
     RT --> AS
     RT --> KS
-    KS --> SP
+    RT --> SP
     KS --> WS
 
     RT --> NATS
@@ -39,10 +38,11 @@ flowchart LR
     RT --> BOT
 
     BE --> DB
+    BE --> NATS
     IDX --> DB
-    IDX --> NATS
-    BOT --> NATS
-    BOT --> BE
+    IDX <--> NATS
+    NATS --> BOT
+    BOT --> DB
 
     U --> B
     B --> BE
@@ -51,8 +51,11 @@ flowchart LR
 ## Notes
 
 - Admin UI is privileged through Tauri command bridge.
-- Userland browser UI is unprivileged and accesses backend over localhost HTTP.
-- Admin-managed application settings live in app-data JSON and render the runtime `.env` before child-process startup.
+- Userland browser UI has no Tauri bridge. It accesses the backend over
+  localhost HTTP for reads and CSRF-guarded local mutations.
+- Admin-managed application settings cross the Tauri command boundary before
+  Rust writes app-data JSON and renders the runtime `.env` for child-process
+  startup.
 - Runtime process orchestration happens only in Rust supervisor.
 - Raw secret entry/reveal happens only through the native secret-prompt sidecar, not in the WebView.
 - Wallet material is stored separately from SQLite under desktop app-data.

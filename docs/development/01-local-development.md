@@ -240,7 +240,7 @@ version fields:
 - `src-tauri/tauri.conf.json`
 - `src-tauri/Cargo.toml`
 - `src-tauri/Cargo.lock`
-- `docs/backend-api.openapi.yaml`
+- `docs/backend/openapi.yaml`
 
 Notes:
 

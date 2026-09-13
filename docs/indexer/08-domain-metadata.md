@@ -26,6 +26,14 @@ Current behavior:
 
 This keeps historical backfill before the bootstrap anchor from rewriting current metadata/materialized token state.
 
+## Refresh Triggers
+
+Canonical refresh work enters through current-state metadata sync ranges,
+ERC-4906 token/range events, collection-extension watch specs, OpenSea metadata
+events, and bootstrap snapshot tasks. Runtime jobs support exact-token and
+chunked range shapes, but there is not yet a general Admin API for an
+operator-selected token, range, or whole-collection refresh.
+
 ## Metadata Refresh Jobs
 
 Metadata refreshes are handled out-of-band via `domain.metadata.refresh` jobs. These jobs are produced by:
@@ -178,3 +186,39 @@ Collection-extension artifact failures are handled separately:
 - the canonical metadata write is already committed
 - the extension job retries on its own queue
 - a terminal extension failure does not roll back the canonical metadata row
+
+## Current Limits and Future Direction
+
+- Mint-origin initialization is not a distinct domain trigger; current transfer,
+  refresh-event, offchain, and bootstrap paths supply metadata work.
+- Attribute values are normalized as categorical strings. The system does not
+  classify high-cardinality or scalar keys before normalization.
+- Range-trait filtering parses string values in the read path. A future numeric
+  projection needs extension/config-owned key selection, a backfill/rebuild
+  path, and targeted repair when a live key changes from set to range.
+- Manual operator refresh hooks should drive the same typed refresh jobs and
+  follow-up run/outbox boundary, not bypass it.
+
+### Retained Numeric Range Projection
+
+Normalized string-valued traits remain canonical. If range-query cost becomes
+material, add a derived `token_numeric_attributes` projection with one parsed
+value per chain, collection, attribute key, and token. Its useful access paths
+are collection/key/value ordering for range reads and collection/key/token for
+incremental repair.
+
+Materialization must follow explicit product semantics:
+
+- project only keys whose effective user or extension configuration is
+  `range`; do not infer numeric meaning for every parseable string;
+- when a live key changes from set to range, rebuild only that collection and
+  key from canonical normalized attributes;
+- on later metadata refreshes, delete and replace affected token/key projection
+  rows within the normal metadata follow-up boundary;
+- retain the current unsigned-integer policy and ignore non-numeric values;
+  any later signed or decimal policy requires a deterministic rebuild;
+- switch range filters and min/max reads only after the target projection is
+  complete, while set filters, trait templates, and media behavior continue to
+  use their existing paths.
+
+The projection is a query optimization, never a second metadata authority.

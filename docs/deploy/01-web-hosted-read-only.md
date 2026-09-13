@@ -6,9 +6,11 @@ Today that public mode is intended for a single fixed collection deployment:
 
 - `terraforms.artgod.network/` -> Terraforms tokens
 - `terraforms.artgod.network/activity` -> Terraforms activities
+- `terraforms.artgod.network/bidding` -> Terraforms offers and bid-book views
 - `terraforms.artgod.network/holders` -> Terraforms holders
 - `terraforms.artgod.network/holders/:owner_ref` -> Terraforms owner tokens
 - `terraforms.artgod.network/blockspace` -> Terraforms blockspace coverage
+- `terraforms.artgod.network/extensions/terraforms/hypercastle` -> Hypercastle explorer
 - `terraforms.artgod.network/:token_ref` -> Terraforms token detail
 
 ## Shape
@@ -22,12 +24,18 @@ Today that public mode is intended for a single fixed collection deployment:
 The deploy compose intentionally keeps public writes/admin surfaces disabled by route registration:
 
 - backend runs in `public_single_collection` mode
-- only Terraforms read routes are registered publicly
+- collection and chain data routes are read-only and reject references outside
+  the configured public scope
+- read-only health, default-chain, and runtime-config routes also remain
+  registered
 - bootstrap and customization routes are not registered
 - collection-list routes are not registered
 - CSRF issuance route is not registered
 
 This is the intended mode for a public browse-only instance that you administer manually under the hood.
+
+See the [hosted read-only topology](../diagrams/08-hosted-read-only-topology.md)
+for the ingress, SSR, API, worker, RPC, and observability boundaries.
 
 ## Files
 
@@ -190,6 +198,21 @@ docker compose --env-file .env.deploy -f docker-compose.deploy.yml logs -f backe
 docker compose --env-file .env.deploy -f docker-compose.deploy.yml logs -f indexer-sync-worker
 ```
 
+Because `frontend-web` and `backend` are not published to host ports, verify
+them from inside their containers:
+
+```sh
+docker compose --env-file .env.deploy -f docker-compose.deploy.yml exec -T frontend-web \
+    node -e "fetch('http://127.0.0.1:42700/').then((response) => { console.log(response.status); process.exit(response.ok ? 0 : 1); })"
+docker compose --env-file .env.deploy -f docker-compose.deploy.yml exec -T backend \
+    node -e "fetch('http://127.0.0.1:42710/health/runtime').then((response) => { console.log(response.status); process.exit(response.ok ? 0 : 1); })"
+```
+
+Both commands must print `200`. A successful root response also proves the SSR
+frontend can reach the backend through `INTERNAL_BACKEND_ORIGIN`; it is a
+stronger deployment probe than checking only that the frontend port accepts a
+connection.
+
 ## Observability
 
 The deploy compose defines an `observability` profile with:
@@ -212,7 +235,8 @@ initial collection bootstrap before switching the stack to
 `PUBLIC_APP_DEPLOYMENT_MODE=public_single_collection`.
 
 For the first Terraforms load, run the deploy stack with
-`PUBLIC_APP_DEPLOYMENT_MODE=standard` or an equivalent admin-capable mode, then
+`PUBLIC_APP_DEPLOYMENT_MODE=standard` only while the public reverse proxy is
+disabled or otherwise prevented from reaching the admin-capable backend. Then
 trigger bootstrap from inside the `backend` container. The trigger uses the
 backend API contract: it probes the contract, resolves the same
 extension/image-cache submit body as the frontend form, fetches CSRF, and posts
@@ -233,7 +257,17 @@ docker compose --env-file .env.deploy -f docker-compose.deploy.yml exec backend 
 ```
 
 After bootstrap and the required historical backfill complete, switch the stack
-to public single-collection mode before sharing the site publicly.
+to public single-collection mode, rebuild the shared app image, and recreate
+both backend and frontend before enabling public ingress:
+
+```sh
+docker compose --env-file .env.deploy -f docker-compose.deploy.yml up --build -d backend frontend-web
+```
+
+The rebuild is required because the deployment mode and public scope are
+frontend build inputs as well as backend runtime inputs. Do not expose
+`standard` mode as a public hosted deployment; it registers local operator
+mutations that are intentionally absent from the public mode.
 
 ## Notes
 

@@ -24,9 +24,9 @@ For desktop wallet custody, native secret prompts, and bot unlock policy, see:
 
 - `docs/desktop/03-wallet-keystore-and-bot-unlock.md`
 
-For deferred local runtime identity and browser trust-store work, see:
+For the current local runtime trust boundary and retained identity direction, see:
 
-- `docs/progress/desktop/02-local-runtime-identity-and-browser-trust.md`
+- `docs/desktop/07-local-runtime-trust.md`
 
 For release signing procurement and CI secret setup, see:
 

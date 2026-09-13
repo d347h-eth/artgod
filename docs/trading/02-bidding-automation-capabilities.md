@@ -1,7 +1,6 @@
 # Bidding Automation Capabilities
 
 This document is the current-state feature reference for bidding automation UI/UX and its backend API surface.
-The implementation plan and historical slice notes remain in `docs/progress/trading/04-bidding-automation-ux-plan.md`.
 All bidding surfaces follow the user-perspective and product-language contract in
 `docs/ui/00-user-perspective-and-language.md` and the shared control/layout
 contract in `docs/ui/01-interaction-guidelines.md`.
@@ -33,23 +32,23 @@ Pause and archive actions may request offchain cancellation for tracked orders.
 Cancellation intentionally remains available outside the placement mandate so
 previously tracked orders can still be handled. The canonical custody and
 threat-model boundary is in
-`docs/desktop/03-wallet-keystore-and-bot-unlock.md`; deferred local-origin
-identity work is in
-`docs/progress/desktop/02-local-runtime-identity-and-browser-trust.md`.
+[Wallet Keystore and Bot Unlock](../desktop/03-wallet-keystore-and-bot-unlock.md);
+the local-origin trust boundary is in
+[Local Runtime Trust](../desktop/07-local-runtime-trust.md).
 
 ## User-Facing Surfaces
 
-| Surface | Capability |
-| --- | --- |
-| `asks` | Token-card browsing with bidding target controls when admin write controls are available. |
-| `tokens` | Token-card browsing with the same token/trait bidding target controls as `asks`. |
-| Holder-token browser | Owner-constrained token-card browsing with token-scoped bidding controls when admin write controls are available. |
-| `offers` with `bid_scope=token` | Explicit token-scoped offers shown as token cards with ask/bid prices and token-bidding controls. |
-| `offers` with `bid_scope=traits` | Trait-demand buckets, trait filtering, maker filtering, and per-bucket bid drafting. |
-| `offers` with `bid_scope=collection` | Collection-wide bids and collection-level bid drafting. |
-| Token detail | Inline shared bidding panel for the exact token plus the token's applicable bid book. |
-| `bidding` jobs page | Read-only declared-job/runtime overview; mutation flows stay in shared bidding surfaces. |
-| Admin `Bots` | Bidding authorization setup, canonical collection limits, wallet assignment, and bot lifecycle controls. |
+| Surface                              | Capability                                                                                                        |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `asks`                               | Token-card browsing with bidding target controls when admin write controls are available.                         |
+| `tokens`                             | Token-card browsing with the same token/trait bidding target controls as `asks`.                                  |
+| Holder-token browser                 | Owner-constrained token-card browsing with token-scoped bidding controls when admin write controls are available. |
+| `offers` with `bid_scope=token`      | Explicit token-scoped offers shown as token cards with ask/bid prices and token-bidding controls.                 |
+| `offers` with `bid_scope=traits`     | Trait-demand buckets, trait filtering, maker filtering, and per-bucket bid drafting.                              |
+| `offers` with `bid_scope=collection` | Collection-wide bids and collection-level bid drafting.                                                           |
+| Token detail                         | Inline shared bidding panel for the exact token plus the token's applicable bid book.                             |
+| `bidding` jobs page                  | Read-only declared-job/runtime overview; mutation flows stay in shared bidding surfaces.                          |
+| Admin `Bots`                         | Bidding authorization setup, canonical collection limits, wallet assignment, and bot lifecycle controls.          |
 
 The `offers` page is the primary bidding operations surface.
 It combines the bid book, maker filter, bid-scope controls, trait filters where relevant, bidding target controls, tier management, and the floating automation panel.
@@ -227,7 +226,7 @@ Current settings:
 
 Backend source selection:
 
-- use `bot_snapshot` when the collection has enabled bidding jobs, the bidding bot heartbeat is live, and projection metadata is fresh
+- use `bot_snapshot` when the collection has enabled bidding jobs, the bot lifecycle resolves to active from a fresh running heartbeat, and projection metadata is fresh
 - otherwise use `orders`
 - standard/admin bid-book reads include own declared-job overlays when the bot has not yet produced or reobserved the matching market bid, including before any runtime maker address is known
 - public single-collection mode keeps bid-book reads market-only and never exposes local own-job or active-authorization context
@@ -243,7 +242,7 @@ Frontend feed, lifecycle, and authorization labels:
 - a fresh session without the collection displays as `bidding authorization: not included`
 - changed canonical collection identity displays as `bidding authorization: update required`
 - no fresh session displays as `bidding authorization: inactive`
-- a fresh heartbeat without a usable same-session projection displays as `bidding authorization: unavailable`
+- a fresh runtime row without a usable session id, or with incomplete identity or limit fields in its matched authorization row, displays as `bidding authorization: unavailable`
 - feed source, bot lifecycle, and collection authorization remain independent
 
 Bid-book filters:
@@ -262,10 +261,10 @@ Own-bid display:
 - Private `ownership=own` reads include both own market rows and addressless own declared-job rows, while exact maker filters continue to exclude addressless intent.
 - Own market rows can carry position signals: `winning`, `draw`, or `losing`, but only from a fresh bot-snapshot read and the bot-persisted runtime decision for the active order id.
 - Own market rows can carry bot-owned strategy-limit signals rendered as `hit ceiling` and `at floor`.
-- Own declared jobs can appear as `own_job_intent` rows with `queued`, `waiting for bidding bot`, `authorization required`, `authorization unavailable`, or `paused` phase.
+- Own declared jobs can appear as `own_job_intent` rows with `queued`, `waiting for bidding bot`, `authorization required`, `authorization unavailable`, `paused`, or `verifying` phase.
 - `authorization required` replaces an enabled job's indefinite `queued` state when the current process omits the collection or its approved identity is stale. The bidding panel directs the user to stop and start the bot in Admin and include or review the collection in the new bidding authorization.
-- Own active-order lifecycle rows can appear as `own_job_intent` rows with `replacing`, `canceling`, `cancel failed`, or `cancelled` phase.
-- Own-intent rows use range pricing for queued/paused intent and exact order pricing for runtime/cancellation-backed lifecycle rows.
+- Own active-order lifecycle rows can appear as `own_job_intent` rows with `verifying`, `replacing`, `canceling`, `cancel failed`, or `cancelled` phase.
+- Own-intent rows without active-order evidence use range pricing; runtime/cancellation-backed rows use exact order pricing.
 - Own-intent rows carry no marketplace maker address and render plain `You`; maker navigation, address titles, and maker highlighting remain available only for observed market rows.
 - Bid-book floor and ceiling columns are shown only when visible rows have bid-limit or range values.
 - Backend and frontend code must not infer own bid position from passive order rows, exact-scope grouping, or local price comparisons.
@@ -281,115 +280,100 @@ Orders fallback mapper:
 
 Public read endpoints:
 
-| Method | Path | Capability |
-| --- | --- | --- |
-| `GET` | `/api/:chain_ref/:collection_ref/bidding/bids` | Collection bid book for token, trait, and collection scopes. |
-| `GET` | `/api/:chain_ref/:collection_ref/:token_ref/bidding/bids` | Token-applicable bid book across collection, trait, token-set, and exact-token scopes. |
+| Method | Path                                                      | Capability                                                                             |
+| ------ | --------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `GET`  | `/api/:chain_ref/:collection_ref/bidding/bids`            | Collection bid book for token, trait, and collection scopes.                           |
+| `GET`  | `/api/:chain_ref/:collection_ref/:token_ref/bidding/bids` | Token-applicable bid book across collection, trait, token-set, and exact-token scopes. |
 
 Admin read endpoints:
 
-| Method | Path | Capability |
-| --- | --- | --- |
-| `GET` | `/api/:chain_ref/:collection_ref/:token_ref/bidding/job` | Get the exact-token bidding job, if one exists. |
-| `POST` | `/api/:chain_ref/:collection_ref/bidding/jobs/target-lookup` | Resolve a token, trait, or collection draft target into an existing declared job. |
-| `GET` | `/api/:chain_ref/:collection_ref/bidding/price-tiers` | List tiers plus collection bidding settings. |
-| `GET` | `/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply-preview` | Preview changed tier-backed jobs before applying a tier update. |
-| `GET` | `/api/:chain_ref/bidding/jobs/ceiling-prefills` | Batch current-job authorization membership and maximum ceiling per collection. |
+| Method | Path                                                                           | Capability                                                                        |
+| ------ | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| `GET`  | `/api/:chain_ref/:collection_ref/:token_ref/bidding/job`                       | Get the exact-token bidding job, if one exists.                                   |
+| `POST` | `/api/:chain_ref/:collection_ref/bidding/jobs/target-lookup`                   | Resolve a token, trait, or collection draft target into an existing declared job. |
+| `POST` | `/api/:chain_ref/:collection_ref/bidding/jobs/tokens/lookup`                   | Expand a batch token selection and return its existing declared jobs.             |
+| `GET`  | `/api/:chain_ref/:collection_ref/bidding/price-tiers`                          | List tiers plus collection bidding settings.                                      |
+| `GET`  | `/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply-preview` | Preview changed tier-backed jobs before applying a tier update.                   |
+| `GET`  | `/api/:chain_ref/bidding/jobs/ceiling-prefills`                                | Batch current-job authorization membership and maximum ceiling per collection.    |
 
 Admin mutation endpoints:
 
-| Method | Path | Capability |
-| --- | --- | --- |
-| `PUT` | `/api/:chain_ref/:collection_ref/:token_ref/bidding/job` | Create, modify, activate, or pause an exact-token job. |
-| `DELETE` | `/api/:chain_ref/:collection_ref/:token_ref/bidding/job` | Archive an exact-token job and enqueue active-offer cancellation. |
-| `PUT` | `/api/:chain_ref/:collection_ref/bidding/jobs/traits` | Create, modify, activate, or pause a trait-scoped job. |
-| `PUT` | `/api/:chain_ref/:collection_ref/bidding/jobs/tokens/batch` | Create or update token jobs from explicit token ids, filtered tokens, or token-offer selection. |
-| `PUT` | `/api/:chain_ref/:collection_ref/bidding/jobs/collection` | Create, modify, activate, or pause the collection-wide job. |
-| `DELETE` | `/api/:chain_ref/:collection_ref/bidding/jobs/:job_id` | Archive a token, trait, or collection job by job id. |
-| `PUT` | `/api/:chain_ref/:collection_ref/bidding/price-tiers` | Create, modify, activate, or pause a price tier. |
-| `DELETE` | `/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id` | Archive a price tier. |
-| `PUT` | `/api/:chain_ref/:collection_ref/bidding/settings` | Update collection-scoped bidding settings. |
-| `POST` | `/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply` | Apply selected staged tier changes to jobs and publish runtime wake-ups. |
+| Method   | Path                                                                   | Capability                                                                                      |
+| -------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `PUT`    | `/api/:chain_ref/:collection_ref/:token_ref/bidding/job`               | Create, modify, activate, or pause an exact-token job.                                          |
+| `DELETE` | `/api/:chain_ref/:collection_ref/:token_ref/bidding/job`               | Archive an exact-token job and enqueue active-offer cancellation.                               |
+| `PUT`    | `/api/:chain_ref/:collection_ref/bidding/jobs/traits`                  | Create, modify, activate, or pause a trait-scoped job.                                          |
+| `PUT`    | `/api/:chain_ref/:collection_ref/bidding/jobs/tokens/batch`            | Create or update token jobs from explicit token ids, filtered tokens, or token-offer selection. |
+| `PUT`    | `/api/:chain_ref/:collection_ref/bidding/jobs/collection`              | Create, modify, activate, or pause the collection-wide job.                                     |
+| `DELETE` | `/api/:chain_ref/:collection_ref/bidding/jobs/:job_id`                 | Archive a token, trait, or collection job by job id.                                            |
+| `PUT`    | `/api/:chain_ref/:collection_ref/bidding/price-tiers`                  | Create, modify, activate, or pause a price tier.                                                |
+| `DELETE` | `/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id`         | Archive a price tier.                                                                           |
+| `PUT`    | `/api/:chain_ref/:collection_ref/bidding/settings`                     | Update collection-scoped bidding settings.                                                      |
+| `POST`   | `/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply` | Apply selected staged tier changes to jobs and publish runtime wake-ups.                        |
 
-All admin mutation endpoints are protected by local admin CSRF/host/origin checks through the backend's normal admin route path.
+Every admin `POST`, `PUT`, and `DELETE` route is protected by the local
+host/origin/CSRF boundary. That includes the two structured read-only lookup
+operations because the common guard intentionally treats their HTTP method the
+same as a mutation.
 
-## Backend Test Coverage Snapshot
+## Verification Coverage
 
-Snapshot date: `2026-05-15`.
-Measured commit: `e8773eca29257b2d48b452b80d72bf825a76ed87`.
+Current coverage is maintained by behavior, not a checked-in percentage snapshot.
+The backend suite covers:
 
-Coverage command:
+- trading use-case validation, tier resolution, target lookup, archive, and reapply behavior;
+- HTTP request/response mapping and error shapes across the bidding mutation routes;
+- SQLite job, command, price-tier, bid-book, runtime-authorization, and cancellation state;
+- NATS command-signal publication and retry-safe command ordering;
+- bot-snapshot versus indexed-orders fallback, freshness, scopes, maker filters, and token-set matching.
 
-```bash
-ARTGOD_DB_PATH=/tmp/artgod-bidding-coverage-worktree.sqlite yarn workspace @artgod/backend test --coverage --coverage.reportsDirectory=/tmp/artgod-backend-coverage-bidding-worktree
+The trading suite covers restricted OpenSea adapters, snapshot freshness and
+backoff, hot-refresh pressure, command reconciliation, bidder decisions, wallet
+policy, cancellation recovery, runtime liveness, and bid-book projection. The
+frontend unit and Playwright suites cover the shared bidding UI, deterministic
+private/public bidding flows, authorization, and a separate attached-app smoke
+flow.
+
+Run the owning suites instead of relying on an old coverage table:
+
+```sh
+yarn workspace @artgod/backend test
+yarn workspace @artgod/trading test
+yarn test:bidding:automation
+yarn test:bidding:automation:public
+yarn test:bidding:authorization
 ```
 
-Overall backend result:
+The attached bidding smoke requires an already-running local application and
+uses `yarn test:bidding:attached`; it is not part of the deterministic command
+set above.
 
-| Scope | Files | Statements | Branches | Functions | Lines |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| All backend coverage report files | 120 | 82.13% | 65.87% | 90.45% | 82.53% |
-| `backend/src/application/use-cases/trading/` | 24 | 93.53% | 81.21% | 97.46% | 93.43% |
-| `backend/src/http/handlers/trading/` | 19 | 91.84% | 85.82% | 100.00% | 91.75% |
-| `backend/src/infra/trading/` | 4 | 85.57% | 70.58% | 93.89% | 85.68% |
+## Current Limits and Future Direction
 
-Backend file coverage report:
+- Sniping is not exposed or functionally ported. It must reuse the durable
+  job/command, restricted-wallet, mandate, cancellation, and observability
+  boundaries before it can become a product capability. Its strategy-specific
+  configuration and any intent-signal monitor belong behind isolated sniping
+  ports/specification rather than in the common job envelope.
+- Public-alpha authorization caps each offer, not aggregate jobs, open orders,
+  or wallet exposure. The UI and native review state this explicitly.
+- Deep token-offer views are bounded in application memory; SQL keyset
+  pagination is retained work for materially larger offer books.
+- Price tiers currently use explicit fixed, floor-relative, and parent-relative
+  values. A future live ask-floor or current-bid anchor must be a distinct
+  configuration kind rather than a hidden meaning of a fixed scalar. Current
+  ordering updates one tier's sort position; any atomic multi-row reorder must
+  be a transactional backend use case, not coordinated by the frontend.
+- Tier edits currently affect jobs only through the explicit staged preview and
+  selected apply flow. Any future automatic reapply must be an opt-in user
+  preference with an equally clear funds-impact boundary; it must not become a
+  silent default cascade.
+- Browser-origin job proposals are not local-runtime authentication. See
+  [Local Runtime Trust](../desktop/07-local-runtime-trust.md).
+- The signer validates mandate identity and offer shape, but an independent
+  signer-side proof of exact-token membership in the displayed ArtGod scope is
+  still deferred; backend mutation validation remains the canonical membership
+  gate.
 
-The table below is the full bidding backend report.
-Remaining gaps are recorded inline in the same row as the measured file instead of in a separate weak-spots list.
-
-| Layer | File | Statements | Branches | Functions | Lines | Covered behavior / remaining gap |
-| --- | --- | ---: | ---: | ---: | ---: | --- |
-| Use case | `backend/src/application/use-cases/trading/apply-bidding-price-tier-reapply.ts` | 96.15% | 83.33% | 100.00% | 95.83% | Applies selected changed tier-backed jobs, rejects empty/non-tier-backed selections, and publishes wake-ups; only unchanged-result return detail remains thin. |
-| Use case | `backend/src/application/use-cases/trading/archive-bidding-job.ts` | 91.67% | 50.00% | 100.00% | 91.67% | Archive-by-job-id path is covered; missing branch is negative path detail. |
-| Use case | `backend/src/application/use-cases/trading/archive-collection-bidding-price-tier.ts` | 100.00% | 100.00% | 100.00% | 100.00% | Price-tier archive, unknown tier, already-archived tier, and durable command behavior are covered. |
-| Use case | `backend/src/application/use-cases/trading/archive-token-bidding-job.ts` | 100.00% | 100.00% | 100.00% | 100.00% | Exact-token archive and cancellation command path are covered. |
-| Use case | `backend/src/application/use-cases/trading/bidding-bid-book.ts` | 100.00% | 100.00% | 100.00% | 100.00% | Bid-book scope/filter constants and helpers are exercised. |
-| Use case | `backend/src/application/use-cases/trading/bidding-collection-settings.ts` | 86.36% | 85.71% | 100.00% | 86.36% | Bidding collection setting parse/default behavior is covered. |
-| Use case | `backend/src/application/use-cases/trading/bidding-job-pricing.ts` | 100.00% | 100.00% | 100.00% | 100.00% | Manual missing floor/ceiling, missing tier, invalid tier graph, and valid tier-backed scalar output are covered. |
-| Use case | `backend/src/application/use-cases/trading/bidding-job-target-lookup.ts` | 94.44% | 90.91% | 100.00% | 94.44% | Token, trait, and collection target lookup variants are covered; only small null/empty edge branches remain. |
-| Use case | `backend/src/application/use-cases/trading/bidding-price-tier-ports.ts` | n/a | n/a | n/a | n/a | Port/type contract only; no runtime statements emitted into coverage. |
-| Use case | `backend/src/application/use-cases/trading/bidding-price-tier-reapply.ts` | 100.00% | 50.00% | 100.00% | 100.00% | Shared staged reapply calculation, changed diff, pricing source output, and unknown-tier error are covered; unchanged comparison branch remains thin. |
-| Use case | `backend/src/application/use-cases/trading/bidding-price-tiers.ts` | 86.31% | 70.58% | 100.00% | 86.17% | Tier graph resolution, invalid Ether, missing parents, invalid graph output, and cycle rejection are covered; a few numeric parser branches remain. |
-| Use case | `backend/src/application/use-cases/trading/bidding-token-offer-cards.ts` | 93.06% | 83.58% | 92.00% | 93.06% | Token-offer card grouping, pagination, and muted-offer behavior are covered; only small optional-field branches remain. |
-| Use case | `backend/src/application/use-cases/trading/get-token-bidding-bid-book.ts` | 100.00% | n/a | 100.00% | 100.00% | Token bid-book API path is covered through API tests. |
-| Use case | `backend/src/application/use-cases/trading/get-token-bidding-job.ts` | 100.00% | 100.00% | 100.00% | 100.00% | Exact-token job lookup is covered. |
-| Use case | `backend/src/application/use-cases/trading/list-collection-bidding-bid-book.ts` | 86.00% | 72.41% | 92.31% | 86.00% | Orders fallback, snapshot selection, scopes, maker, and traits are covered; more SQL/source edge cases remain. |
-| Use case | `backend/src/application/use-cases/trading/list-collection-bidding-price-tiers.ts` | 100.00% | n/a | 100.00% | 100.00% | Price-tier list and settings API path is covered. |
-| Use case | `backend/src/application/use-cases/trading/ports.ts` | n/a | n/a | n/a | n/a | Port/type contract only; no runtime statements emitted into coverage. |
-| Use case | `backend/src/application/use-cases/trading/preview-bidding-price-tier-reapply.ts` | 100.00% | 100.00% | 100.00% | 100.00% | Reapply preview and unknown-tier error are covered. |
-| Use case | `backend/src/application/use-cases/trading/trading-job-command-signal-port.ts` | n/a | n/a | n/a | n/a | Port/type contract only; no runtime statements emitted into coverage. |
-| Use case | `backend/src/application/use-cases/trading/types.ts` | 100.00% | 88.89% | 100.00% | 100.00% | Shared validation, price parsing, range checks, and job view mapping are covered. |
-| Use case | `backend/src/application/use-cases/trading/update-collection-bidding-settings.ts` | 100.00% | n/a | 100.00% | 100.00% | Bidding settings update API path is covered. |
-| Use case | `backend/src/application/use-cases/trading/upsert-batch-token-bidding-jobs.ts` | 92.06% | 77.27% | 100.00% | 91.67% | Filtered, explicit, and token-offer selections are covered at use-case level. |
-| Use case | `backend/src/application/use-cases/trading/upsert-collection-bidding-job.ts` | 88.89% | 66.67% | 100.00% | 88.89% | Collection job create/update API path is covered; some invalid branches remain. |
-| Use case | `backend/src/application/use-cases/trading/upsert-collection-bidding-price-tier.ts` | 90.90% | 80.00% | 87.50% | 90.62% | Tier create/update, blank name, invalid sort order, missing parent, invalid graph, and resolution refresh behavior are covered. |
-| Use case | `backend/src/application/use-cases/trading/upsert-token-bidding-job.ts` | 100.00% | n/a | 100.00% | 100.00% | Exact-token create/update and tier-backed token job paths are covered. |
-| Use case | `backend/src/application/use-cases/trading/upsert-trait-bidding-job.ts` | 100.00% | 100.00% | 100.00% | 100.00% | Trait job create/update, quantity validation, trait target validation, canonicalization, duplicate rejection, and durable command publish are covered. |
-| HTTP handler | `backend/src/http/handlers/trading/apply-bidding-price-tier-reapply.ts` | 88.89% | 83.33% | 100.00% | 88.89% | Reapply route mapping and invalid request branches are covered. |
-| HTTP handler | `backend/src/http/handlers/trading/archive-bidding-job.ts` | 100.00% | n/a | 100.00% | 100.00% | Archive-by-job-id route is covered. |
-| HTTP handler | `backend/src/http/handlers/trading/archive-collection-bidding-price-tier.ts` | 100.00% | n/a | 100.00% | 100.00% | Price-tier archive route is covered. |
-| HTTP handler | `backend/src/http/handlers/trading/archive-token-bidding-job.ts` | 100.00% | n/a | 100.00% | 100.00% | Exact-token archive route is covered. |
-| HTTP handler | `backend/src/http/handlers/trading/bidding-price-tier-http.ts` | 83.33% | 79.17% | 100.00% | 83.33% | Tier DTO parsing, valid input, and multiple validation branches are covered; a few optional config branches remain. |
-| HTTP handler | `backend/src/http/handlers/trading/get-token-bidding-bid-book.ts` | 100.00% | n/a | 100.00% | 100.00% | Token bid-book route is covered. |
-| HTTP handler | `backend/src/http/handlers/trading/get-token-bidding-job.ts` | 100.00% | n/a | 100.00% | 100.00% | Exact-token job lookup route is covered. |
-| HTTP handler | `backend/src/http/handlers/trading/list-collection-bidding-bid-book.ts` | 100.00% | n/a | 100.00% | 100.00% | Collection bid-book route is covered. |
-| HTTP handler | `backend/src/http/handlers/trading/list-collection-bidding-price-tiers.ts` | 100.00% | n/a | 100.00% | 100.00% | Price-tier list route is covered. |
-| HTTP handler | `backend/src/http/handlers/trading/lookup-bidding-job-target.ts` | 83.33% | 81.81% | 100.00% | 83.33% | Target lookup DTO mapping covers core variants, invalid quantity, empty trait target, and non-object trait entries. |
-| HTTP handler | `backend/src/http/handlers/trading/preview-bidding-price-tier-reapply.ts` | 100.00% | n/a | 100.00% | 100.00% | Reapply preview route is covered. |
-| HTTP handler | `backend/src/http/handlers/trading/trading-job-http.ts` | 93.75% | 95.00% | 100.00% | 93.75% | Shared job transport mapping and status validation are exercised by mutation routes. |
-| HTTP handler | `backend/src/http/handlers/trading/update-collection-bidding-settings.ts` | 100.00% | 50.00% | 100.00% | 100.00% | Settings update route is covered; branch coverage needs invalid settings cases. |
-| HTTP handler | `backend/src/http/handlers/trading/upsert-batch-token-bidding-jobs.ts` | 89.80% | 88.37% | 100.00% | 89.36% | Batch route token-id, filter, token-offer, maker, and malformed selection parsing are covered. |
-| HTTP handler | `backend/src/http/handlers/trading/upsert-collection-bidding-job.ts` | 100.00% | n/a | 100.00% | 100.00% | Collection job route is covered. |
-| HTTP handler | `backend/src/http/handlers/trading/upsert-collection-bidding-price-tier.ts` | 100.00% | 50.00% | 100.00% | 100.00% | Tier upsert route is covered; branch coverage needs invalid input cases. |
-| HTTP handler | `backend/src/http/handlers/trading/upsert-token-bidding-job.ts` | 100.00% | n/a | 100.00% | 100.00% | Exact-token upsert route is covered. |
-| HTTP handler | `backend/src/http/handlers/trading/upsert-trait-bidding-job.ts` | 100.00% | 100.00% | 100.00% | 100.00% | Trait job route mapping covers valid payloads, invalid quantity, empty trait targets, and non-object trait entries. |
-| Infra | `backend/src/infra/collections/sqlite-collection-settings-repository.ts` | 90.00% | 75.00% | 100.00% | 90.00% | Generic collection settings persistence is covered. |
-| Infra | `backend/src/infra/trading/nats-trading-job-command-signals.ts` | 93.75% | 66.67% | 84.62% | 100.00% | Disabled publisher, stream creation, publish payload, close, and failed background publish recovery are covered. |
-| Infra | `backend/src/infra/trading/sqlite-bidding-bid-book-repository.ts` | 82.62% | 72.48% | 90.47% | 82.25% | Fresh/stale snapshot source selection, orders fallback retry, projected rows, token-set matching, malformed token-set exclusions, and SQL edge paths are covered; only narrow parser/logging branches remain. |
-| Infra | `backend/src/infra/trading/sqlite-bidding-jobs-repository.ts` | 86.70% | 66.14% | 100.00% | 86.57% | Job persistence, commands, runtime joins, batch, and archive behavior are covered. |
-| Infra | `backend/src/infra/trading/sqlite-bidding-price-tiers-repository.ts` | 91.43% | 83.33% | 100.00% | 91.18% | Tier persistence, reload, parent-child graph persistence, resolved scalar values, archive paths, and edge branches are covered. |
-
-Documentation coverage note:
-
-- `docs/backend-api.openapi.yaml` documents bid-book reads, job listing, exact-token job CRUD, trait jobs, batch token jobs, collection jobs, target lookup, price tiers, bidding settings, and tier reapply.
+The [unified backlog](../planning/01-unified-backlog.md) owns priority for the
+retained work.

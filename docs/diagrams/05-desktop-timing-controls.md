@@ -12,9 +12,16 @@ Canonical timing controls used across desktop startup/shutdown lifecycle.
 | Backend readiness retry delay      |    `250ms` | Delay between readiness probe retries.                      |
 | Supervisor port wait timeout       |      `30s` | Max wait for critical startup ports to bind.                |
 | Supervisor semantic health timeout |      `30s` | Max wait for `GET /health/runtime` readiness gate.          |
-| Process graceful stop wait         |      `10s` | Wait before force-killing processes during shutdown.        |
+| Supervisor monitor poll interval   |    `500ms` | Poll cadence for unexpected child-process exits.            |
+| Supervisor startup wait poll       |    `150ms` | Poll cadence while ports and semantic health become ready.  |
+| Process graceful stop wait         |      `30s` | Wait before force-killing processes during shutdown.        |
+| Bot start-signal timeout           |      `30s` | Max wait for a spawned bot to enter managed bootstrap.      |
+| Bot secret-handoff timeout         |      `10s` | Max blocking time for the single stdin secret frame.        |
+| Bot bootstrap stall timeout        |     `180s` | Max interval without bot bootstrap progress.                |
 
 ## Notes
 
 - Startup waits and backoff periods are stop-signal cancellable.
 - Runtime readiness for admin UI requires both process state and backend API probe success.
+- Supervisor constants live in `src-tauri/src/runtime/supervisor.rs`; frontend
+  lifecycle constants live in `frontend/src/lib/runtime/lifecycle/orchestrator.ts`.

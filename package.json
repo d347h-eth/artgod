@@ -46,6 +46,8 @@
         "prepare:tauri-linux-tools": "node ./scripts/build/prepare-tauri-linux-bundler-tools.mjs",
         "config:generate": "node ./scripts/config/generate-env-example.mjs",
         "config:check": "node ./scripts/config/generate-env-example.mjs --check",
+        "check:docs": "node ./scripts/docs/verify-documentation.mjs",
+        "test:docs": "node --test ./scripts/docs/verify-documentation.test.mjs",
         "security:yarn:verify-lockfile": "yarn install --immutable --refresh-lockfile --check-resolutions --mode=skip-build",
         "security:yarn:audit": "yarn npm audit -A -R --severity high",
         "security:yarn:verify": "yarn security:yarn:verify-lockfile && yarn security:yarn:audit",

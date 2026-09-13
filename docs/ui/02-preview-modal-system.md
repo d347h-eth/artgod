@@ -2,7 +2,8 @@
 
 Scope: fullscreen token-media preview overlays in the userland UI.
 
-This document defines the preview modal from first principles and should be treated as the canonical design reference for future implementation or rework.
+This document defines the implemented preview modal and the invariants future
+changes must preserve.
 Apply `docs/ui/00-user-perspective-and-language.md` to the complete open,
 loading, navigation, error, and close journey, and use
 `docs/ui/01-interaction-guidelines.md` for shared controls and page chrome.
@@ -158,9 +159,9 @@ Implication:
 - if fixed-layout mode is supported, the preview system needs declared intrinsic dimensions or another explicit size contract for that media
 - the implementation must not assume it can inspect or repair the iframe document after load
 
-## Implementation Guidance
+## Implementation Boundary
 
-The preview system should behave as if it had these responsibilities:
+The current preview system has these responsibilities:
 
 - manage open/close state
 - manage persisted preview scale
@@ -171,9 +172,10 @@ The preview system should behave as if it had these responsibilities:
 
 Backend/read-contract notes:
 
-- preview modal should use a dedicated lightweight backend read contract, not the full token-detail endpoint
-- token preview data should include only `tokenId`, `image`, `animationUrl`,
-  collection source/preference state, and token-local variant state
+- the preview modal uses a dedicated lightweight backend read contract, not the full token-detail endpoint
+- the token payload contains only `tokenId`, `image`, and `animationUrl`; the
+  response also carries collection source/preference state and token-local
+  variant state
 - activity-event preview keeps its separate extension render-mode contract
 - only snapshot token previews are eligible for preview caching
 - request-time live media must bypass backend/frontend preview caches and
@@ -202,7 +204,7 @@ Activity-event previews are a distinct flow. Their extension-provided render
 modes remain one flat row and must not be presented as token source/variant
 choices.
 
-## Recommended UX Behavior
+## Current UX Behavior
 
 - open onto a dimmed backdrop
 - center the preview immediately
@@ -224,7 +226,49 @@ choices.
 - assuming arbitrary iframe HTML is responsive
 - allowing the preview box to exceed the visible viewport
 
-## Required Future Clarification For Fixed-Layout Media
+## Current Implementation Map
+
+- `frontend/src/routes/+layout.svelte` owns the single shared modal host.
+- `frontend/src/lib/components/TokenPreviewOverlay.svelte` owns overlay layout,
+  controls, focus, scroll lock, touch gestures, and visible request states.
+- `frontend/src/lib/components/token-preview-controller.ts` owns requests,
+  adjacent navigation, source/variant state, cache eligibility, retry, and
+  shortcuts.
+- `frontend/src/lib/components/TokenMediaFrame.svelte` owns the sandboxed iframe
+  boundary.
+- `frontend/src/app.css` owns viewport, contain-fit, controls, and request-state
+  styling through the shared chrome color contract.
+
+The controller has explicit closed, loading, ready, and error states. The host
+is fixed to the visual viewport, observes resize/visual-viewport changes, locks
+background scroll, and exposes keyboard/touch navigation without moving media
+selection into page-specific components.
+
+Terraforms snapshot variants may include the normal V2 artifact, explicit lost
+terrain, and canonical animation variants. Live Terraforms requests expose the
+supported renderer versions as request-time choices. Live requests bypass
+backend/frontend preview caches and adjacent-token prefetch; failures remain
+visible with retry instead of silently falling back to snapshot media.
+
+## Verification Contract
+
+Preview changes require unit/component coverage and rendered inspection at a
+representative desktop and narrow touch viewport. Review the complete journey:
+
+- initial open and stable loading geometry;
+- every materially different source/variant combination;
+- source switching with extension preference enabled and disabled;
+- adjacent tokens with different variant availability;
+- recoverable request failure and retry;
+- minimum and maximum scale, resize/orientation, and background scroll lock;
+- desktop two-row controls and touch states where the complete control stack
+  does or does not fit.
+
+Use the durable Playwright suites described in [UI Testing](03-testing.md).
+Native/system display automation is not an acceptable substitute for that
+harness or for user rendered QA.
+
+## Current Limits and Future Direction
 
 If fixed-layout scaled mode is implemented later, the media pipeline must define how intrinsic size is known.
 

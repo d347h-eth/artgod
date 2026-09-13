@@ -12,6 +12,10 @@ ArtGod's bidding system is not just a UI for manually placing marketplace offers
 
 ## A Full Step-by-Step Guide
 
+The screenshots illustrate the workflow and may show earlier labels or layout,
+including a `v0.1.0-alpha.2` header badge. Use the filenames and version from
+the release you downloaded; the verification transcripts below are examples.
+
 1. Verify the downloaded ArtGod release using the instructions in the README.
 
     Start with the [Release Key section in the README](../../README.md#release-key),
@@ -166,7 +170,7 @@ ArtGod's bidding system is not just a UI for manually placing marketplace offers
 
     ![Creating a small bidding job for one NFT](../assets/operator-guide/artgod-guide-12-create-bid.png)
 
-12. After creating the first bidding job, return to Admin and refresh the **Bots** page to load the bidding authorization request. Review its limits, select the assigned wallet, and start the bot.
+12. After creating the first bidding job, return to Admin and refresh the **Bots** page to load the bidding authorization request. Select each collection you intend to authorize, review its limits, confirm the assigned wallet, and start the bot.
 
     ![Bidding authorization request ready for review in Admin Bots](../assets/operator-guide/artgod-guide-13-admin-start-bot.png)
 
