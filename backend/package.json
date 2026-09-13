@@ -11,9 +11,9 @@
         "@artgod/shared": "workspace:*",
         "better-sqlite3": "12.10.0",
         "dotenv": "17.4.2",
-        "fastify": "5.8.5",
+        "fastify": "5.12.1",
         "nats": "2.29.3",
-        "sharp": "0.34.5",
+        "sharp": "0.35.4",
         "viem": "2.54.6"
     },
     "devDependencies": {
@@ -21,6 +21,6 @@
         "@types/node": "25.9.2",
         "tsx": "4.22.4",
         "typescript": "6.0.3",
-        "vitest": "4.1.8"
+        "vitest": "4.1.11"
     }
 }

@@ -9,6 +9,8 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import {
     assertDesktopRuntimeBuildProfileMarkers,
@@ -131,13 +133,38 @@ test("staging materializes isolated reviewed dependency trees", async (t) => {
                     "backend",
                     "node_modules",
                     NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.Sharp,
-                    "lib",
-                    "fixture.js",
+                    "dist",
+                    "index.cjs",
                 ),
             )
         ).isFile(),
         true,
     );
+    for (const runtime of [
+        DESKTOP_RUNTIME_DEPENDENCY_ROOTS.Backend,
+        DESKTOP_RUNTIME_DEPENDENCY_ROOTS.Indexer,
+    ]) {
+        const runtimeRoot = path.join(destinationRoot, runtime.directoryName);
+        const require = createRequire(
+            path.join(runtimeRoot, runtime.issuerRelativePath),
+        );
+        assert.equal(
+            require(NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.Sharp),
+            "sharp-runtime",
+        );
+        const esm = await import(
+            pathToFileURL(
+                path.join(
+                    runtimeRoot,
+                    "node_modules",
+                    NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.Sharp,
+                    "dist",
+                    "index.mjs",
+                ),
+            ).href
+        );
+        assert.equal(esm.default, "sharp-runtime");
+    }
     await assert.rejects(
         lstat(
             path.join(
@@ -289,6 +316,59 @@ async function createRuntimeArtifacts(rootDir, profile) {
 }
 
 async function createReviewedPackageFixture(sourceRoot, packageName) {
+    if (packageName === NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES.Sharp) {
+        // Model the published Sharp 0.35 package boundary independently of the
+        // staging selection so an outdated lib-only selection fails this test.
+        await writeFixtureFile(
+            path.join(sourceRoot, "package.json"),
+            JSON.stringify({
+                name: packageName,
+                exports: {
+                    ".": {
+                        require: "./dist/index.cjs",
+                        import: "./dist/index.mjs",
+                    },
+                },
+            }),
+        );
+        await writeFixtureFile(path.join(sourceRoot, "LICENSE"));
+        await writeFixtureFile(path.join(sourceRoot, "lib", "index.d.ts"));
+        await writeFixtureFile(
+            path.join(sourceRoot, "dist", "index.cjs"),
+            "module.exports = require('./loader.cjs');\n",
+        );
+        await writeFixtureFile(
+            path.join(sourceRoot, "dist", "loader.cjs"),
+            "module.exports = require('@img/sharp-linux-x64/sharp.node');\n",
+        );
+        await writeFixtureFile(
+            path.join(sourceRoot, "dist", "index.mjs"),
+            "export { default } from './loader.mjs';\n",
+        );
+        await writeFixtureFile(
+            path.join(sourceRoot, "dist", "loader.mjs"),
+            "import { createRequire } from 'node:module';\nexport default createRequire(import.meta.url)('@img/sharp-linux-x64/sharp.node');\n",
+        );
+        return;
+    }
+    if (packageName === "@img/sharp-linux-x64") {
+        await writeFixtureFile(
+            path.join(sourceRoot, "package.json"),
+            JSON.stringify({
+                name: packageName,
+                exports: { "./sharp.node": "./index.cjs" },
+            }),
+        );
+        await writeFixtureFile(
+            path.join(sourceRoot, "index.cjs"),
+            "module.exports = require('./lib/addon.cjs');\n",
+        );
+        await writeFixtureFile(
+            path.join(sourceRoot, "lib", "addon.cjs"),
+            "module.exports = 'sharp-runtime';\n",
+        );
+        return;
+    }
     const selection = getDesktopRuntimePackageFileSelection(packageName);
     for (const relativePath of selection.required) {
         if (REVIEWED_DIRECTORY_PATHS.has(relativePath)) {
