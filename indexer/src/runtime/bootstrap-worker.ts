@@ -13,6 +13,7 @@ import {
     BOOTSTRAP_RUN_STATUS,
     BOOTSTRAP_STEP_KEY,
     isBootstrapStepTerminalStatus,
+    BOOTSTRAP_ENUMERATION_MODE,
     type BootstrapEnumerationMode,
     type BootstrapStepKey,
     type BootstrapTaskCounts,
@@ -72,7 +73,11 @@ import {
     type BootstrapAnchorExecutorResult,
 } from "../application/bootstrap-anchor-executor.js";
 import { BootstrapEnumerationExecutor } from "../application/bootstrap-enumeration-executor.js";
-import { resolveManualBootstrapTokenIds } from "../application/bootstrap-token-enumeration.js";
+import {
+    resolveManualBootstrapTokenIds,
+    resolvePresentBootstrapTokenIds,
+} from "../application/bootstrap-token-enumeration.js";
+import { Erc721TokenOwnership } from "../infra/bootstrap/erc721-token-ownership.js";
 import { runWorker } from "../application/worker-runner.js";
 import {
     buildBootstrapFinalStatsFollowupRun,
@@ -270,10 +275,17 @@ async function main() {
             bootstrapSteps,
             collections,
         );
+        const tokenOwnership = new Erc721TokenOwnership(rpc);
         const bootstrapEnumerationExecutor = new BootstrapEnumerationExecutor(
             {
                 resolveTokenIds: async ({ run, anchorBlock, onProgress }) =>
-                    resolveTokenIdsForRun(rpc, run, anchorBlock, onProgress),
+                    resolveTokenIdsForRun(
+                        rpc,
+                        tokenOwnership,
+                        run,
+                        anchorBlock,
+                        onProgress,
+                    ),
             },
             bootstrapStorage,
             bootstrapRuns,
@@ -1431,13 +1443,16 @@ async function processBootstrapMetadataStep(input: {
                 1,
             ).length > 0;
         if (hasDueMetadataWork) {
-            logger.info("Metadata process continuing for live collection retry", {
-                component: BOOTSTRAP_WORKER_COMPONENT,
-                action: BOOTSTRAP_WORKER_ACTION.MetadataStep,
-                runId: payload.runId,
-                chainId: payload.chainId,
-                collectionId: payload.collectionId,
-            });
+            logger.info(
+                "Metadata process continuing for live collection retry",
+                {
+                    component: BOOTSTRAP_WORKER_COMPONENT,
+                    action: BOOTSTRAP_WORKER_ACTION.MetadataStep,
+                    runId: payload.runId,
+                    chainId: payload.chainId,
+                    collectionId: payload.collectionId,
+                },
+            );
         } else {
             logger.debug("Metadata process skipped (collection already live)", {
                 component: BOOTSTRAP_WORKER_COMPONENT,
@@ -2956,6 +2971,7 @@ async function enumerateTokenIds(
 
 async function resolveTokenIdsForRun(
     rpc: RpcProviderPort,
+    tokenOwnership: Erc721TokenOwnership,
     run: {
         requestAddress: string;
         enumerationMode: BootstrapEnumerationMode;
@@ -2966,7 +2982,7 @@ async function resolveTokenIdsForRun(
     anchorBlock: number,
     onProgress?: (progress: { resolved: number; total: number | null }) => void,
 ): Promise<string[]> {
-    if (run.enumerationMode === "enumerable") {
+    if (run.enumerationMode === BOOTSTRAP_ENUMERATION_MODE.Enumerable) {
         return enumerateTokenIds(
             rpc,
             run.requestAddress as Hex,
@@ -2977,8 +2993,18 @@ async function resolveTokenIdsForRun(
 
     const tokenIds = resolveManualBootstrapTokenIds(run);
     if (tokenIds) {
-        onProgress?.({ resolved: tokenIds.length, total: tokenIds.length });
-        return tokenIds;
+        // Check only the user-approved interval at the anchor, skipping proven nonexistent IDs.
+        return resolvePresentBootstrapTokenIds(
+            tokenIds,
+            (tokenId) =>
+                tokenOwnership.readOwner(
+                    run.requestAddress,
+                    tokenId,
+                    anchorBlock,
+                ),
+            onProgress,
+            run.manualRangeTotalSupply,
+        );
     }
 
     throw new Error(

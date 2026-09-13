@@ -313,21 +313,11 @@ function buildSuggestedInput(
         );
     }
 
-    const manualInput =
-        !customSampleTokenRequested &&
-        probe.firstToken.tokenId &&
-        probe.totalSupply.bootstrapRangeValue
-            ? {
-                  mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
-                  startTokenId: probe.firstToken.tokenId,
-                  totalSupply: probe.totalSupply.bootstrapRangeValue,
-              }
-            : null;
-
+    // A supply count and one existing token cannot establish a contiguous collection scope.
     return {
         supportsEnumerable: false,
-        manualInput,
-        ready: manualInput !== null,
+        manualInput: null,
+        ready: false,
         warnings,
     };
 }

@@ -1,3 +1,9 @@
+import {
+    ERC721_OWNER_OF_FUNCTION,
+    ERC721_OWNERSHIP_ABI,
+    isErc721TokenAbsentError,
+    normalizeErc721Owner,
+} from "@artgod/shared/evm/erc721-ownership";
 import type {
     BootstrapProbeFirstTokenSource,
     BootstrapProbeImageBytesSource,
@@ -83,7 +89,6 @@ const ERC165_SUPPORTS_INTERFACE_FUNCTION = "supportsInterface";
 const ERC721_TOKEN_BY_INDEX_FUNCTION = "tokenByIndex";
 const ERC721_TOKEN_URI_FUNCTION = "tokenURI";
 const ERC721_NAME_FUNCTION = "name";
-const ERC721_OWNER_OF_FUNCTION = "ownerOf";
 const ERC721_TOTAL_SUPPLY_FUNCTION = "totalSupply";
 
 const ERC165_ABI = [
@@ -123,16 +128,6 @@ const ERC721_NAME_ABI = [
         stateMutability: "view",
         inputs: [],
         outputs: [{ type: "string" }],
-    },
-] as const;
-
-const ERC721_OWNER_ABI = [
-    {
-        name: ERC721_OWNER_OF_FUNCTION,
-        type: "function",
-        stateMutability: "view",
-        inputs: [{ type: "uint256", name: "tokenId" }],
-        outputs: [{ type: "address" }],
     },
 ] as const;
 
@@ -378,15 +373,17 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                     functionName: ERC721_TOKEN_BY_INDEX_FUNCTION,
                     args: [0n],
                 });
-                return this.readFirstTokenMetadata(
+                const sample = await this.probeRequestedSampleToken(
                     address,
                     tokenId.toString(),
-                    BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.TokenByIndex,
                     candidates,
-                    null,
                     imageSourceField,
                     animationSourceField,
                 );
+                return {
+                    ...sample,
+                    source: BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.TokenByIndex,
+                };
             } catch {
                 // Fall back to token id start probing below.
             }
@@ -474,37 +471,28 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
         address: `0x${string}`,
         tokenId: string,
     ): Promise<CandidateProbeResult> {
-        const tokenUri = await this.readTokenUri(address, tokenId);
-        if (tokenUri.ok) {
-            return {
-                tokenId,
-                exists: true,
-                source: BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE.TokenUri,
-                error: null,
-                tokenUri: tokenUri.uri,
-            };
-        }
-
+        // Metadata may exist for unminted IDs; establish ownership before fetching it.
         try {
-            await this.rpc.readContract<string>({
+            const owner = await this.rpc.readContract<string>({
                 address,
-                abi: ERC721_OWNER_ABI,
+                abi: ERC721_OWNERSHIP_ABI,
                 functionName: ERC721_OWNER_OF_FUNCTION,
                 args: [BigInt(tokenId)],
             });
+            normalizeErc721Owner(owner);
             return {
                 tokenId,
                 exists: true,
                 source: BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE.OwnerOf,
-                error: tokenUri.error,
+                error: null,
                 tokenUri: null,
             };
         } catch (error) {
             return {
                 tokenId,
-                exists: false,
+                exists: isErc721TokenAbsentError(error) ? false : null,
                 source: null,
-                error: `${tokenUri.error}; ownerOf: ${compactError(error)}`,
+                error: compactError(error),
                 tokenUri: null,
             };
         }

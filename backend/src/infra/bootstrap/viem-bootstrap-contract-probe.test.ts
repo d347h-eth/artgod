@@ -1,4 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { ContractFunctionRevertedError } from "viem";
+import {
+    ERC721_OWNER_OF_FUNCTION,
+    ERC721_OWNERSHIP_ABI,
+    ERC721_ABSENT_TOKEN_ERROR,
+} from "@artgod/shared/evm/erc721-ownership";
 import { TOKEN_METADATA_ANIMATION_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-animation-source";
 import { TOKEN_METADATA_IMAGE_SOURCE_FIELD } from "@artgod/shared/media/token-metadata-image-source";
 import {
@@ -249,6 +255,8 @@ describe("ViemBootstrapContractProbe", () => {
                     tokenUriTokenIds.push(String(params.args?.[0]));
                     return tokenUri as T;
                 }
+                if (params.functionName === ERC721_OWNER_OF_FUNCTION)
+                    return TEST_CONTRACT_ADDRESS as T;
                 throw new Error(`unexpected read ${params.functionName}`);
             },
         });
@@ -262,7 +270,7 @@ describe("ViemBootstrapContractProbe", () => {
 
         expect(result.firstToken.tokenId).toBe("42");
         expect(result.firstToken.source).toBe(
-            BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.CandidateTokenUri,
+            BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.CandidateOwnerOf,
         );
         expect(result.firstToken.imageSourceField).toBe(
             TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
@@ -271,11 +279,60 @@ describe("ViemBootstrapContractProbe", () => {
             {
                 tokenId: "42",
                 exists: true,
-                source: BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE.TokenUri,
+                source: BOOTSTRAP_PROBE_TOKEN_CANDIDATE_SOURCE.OwnerOf,
                 error: null,
             },
         ]);
         expect(tokenUriTokenIds).toEqual(["42"]);
+    });
+
+    it("does not fetch metadata from tokenURI when ownerOf proves the sample absent", async () => {
+        const tokenUriCalls: string[] = [];
+        const probe = new ViemBootstrapContractProbe({
+            async getBytecode() {
+                return "0x60006000";
+            },
+            async getStorageAt() {
+                return "0x";
+            },
+            async readContract<T>(params: {
+                functionName: string;
+                args?: readonly unknown[];
+            }): Promise<T> {
+                if (params.functionName === ERC721_OWNER_OF_FUNCTION)
+                    throw new ContractFunctionRevertedError({
+                        abi: ERC721_OWNERSHIP_ABI,
+                        functionName: ERC721_OWNER_OF_FUNCTION,
+                        message: ERC721_ABSENT_TOKEN_ERROR.LegacyOwnerQuery,
+                    });
+                if (params.functionName === "supportsInterface")
+                    return false as T;
+                if (params.functionName === "name")
+                    return "Sparse collection" as T;
+                if (params.functionName === "totalSupply") return 40n as T;
+                if (params.functionName === "tokenURI") {
+                    tokenUriCalls.push(String(params.args?.[0]));
+                    return "data:application/json,%7B%7D" as T;
+                }
+                throw new Error("unexpected contract call");
+            },
+        });
+        const result = await probe.probeErc721Contract({
+            address: TEST_CONTRACT_ADDRESS,
+            sampleTokenId: "1",
+            imageSourceField: null,
+            animationSourceField: null,
+        });
+        expect(result.firstToken.candidates).toEqual([
+            {
+                tokenId: "1",
+                exists: false,
+                source: null,
+                error: expect.any(String),
+            },
+        ]);
+        expect(result.firstToken.tokenUri).toBeNull();
+        expect(tokenUriCalls).toEqual([]);
     });
 
     it("returns an unresolved sample token result for invalid custom token ids", async () => {
@@ -297,10 +354,10 @@ describe("ViemBootstrapContractProbe", () => {
 
         expect(result.firstToken.tokenId).toBe("not-a-number");
         expect(result.firstToken.source).toBeNull();
-        expect(result.firstToken.tokenUriPayloadError).toContain("tokenURI:");
+        expect(result.firstToken.tokenUriPayloadError).not.toBeNull();
         expect(result.firstToken.imageSourceField).toBeNull();
         expect(result.firstToken.candidates).toHaveLength(1);
-        expect(result.firstToken.candidates[0]?.exists).toBe(false);
+        expect(result.firstToken.candidates[0]?.exists).toBeNull();
     });
 
     it("detects EIP-1167 minimal proxies while probing through the proxy address", async () => {
@@ -334,6 +391,8 @@ describe("ViemBootstrapContractProbe", () => {
                 if (params.functionName === "ownerOf") {
                     return "0x2222222222222222222222222222222222222222" as T;
                 }
+                if (params.functionName === ERC721_OWNER_OF_FUNCTION)
+                    return TEST_CONTRACT_ADDRESS as T;
                 throw new Error(`unexpected read ${params.functionName}`);
             },
         });
@@ -357,7 +416,7 @@ describe("ViemBootstrapContractProbe", () => {
         expect(result.totalSupply.value).toBe("64");
         expect(result.firstToken.tokenId).toBe("0");
         expect(result.firstToken.source).toBe(
-            BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.CandidateTokenUri,
+            BOOTSTRAP_PROBE_FIRST_TOKEN_SOURCE.CandidateOwnerOf,
         );
         expect(result.firstToken.imageSourceField).toBe(
             TOKEN_METADATA_IMAGE_SOURCE_FIELD.Image,
@@ -404,6 +463,8 @@ describe("ViemBootstrapContractProbe", () => {
                 if (params.functionName === "ownerOf") {
                     return "0x2222222222222222222222222222222222222222" as T;
                 }
+                if (params.functionName === ERC721_OWNER_OF_FUNCTION)
+                    return TEST_CONTRACT_ADDRESS as T;
                 throw new Error(`unexpected read ${params.functionName}`);
             },
         });
@@ -480,6 +541,8 @@ describe("ViemBootstrapContractProbe", () => {
                 if (params.functionName === "ownerOf") {
                     return "0x2222222222222222222222222222222222222222" as T;
                 }
+                if (params.functionName === ERC721_OWNER_OF_FUNCTION)
+                    return TEST_CONTRACT_ADDRESS as T;
                 throw new Error(`unexpected read ${params.functionName}`);
             },
         });
@@ -523,6 +586,8 @@ function makeEnumerableProbe(tokenUri: string): ViemBootstrapContractProbe {
             if (params.functionName === "totalSupply") return 1n as T;
             if (params.functionName === "tokenByIndex") return 1n as T;
             if (params.functionName === "tokenURI") return tokenUri as T;
+            if (params.functionName === ERC721_OWNER_OF_FUNCTION)
+                return TEST_CONTRACT_ADDRESS as T;
             throw new Error(`unexpected read ${params.functionName}`);
         },
     });

@@ -137,9 +137,15 @@ Typed runtime config: no.
 Current model:
 
 - Enumerable runs call `totalSupply`, then call `tokenByIndex` sequentially from index `0` to `totalSupply - 1`.
-- Manual token-id and manual-range runs resolve locally.
+- Manual token-id and manual-range runs iterate the configured candidates and
+  read ownerOf at the anchor through Ethereum JSON-RPC. Only confirmed present
+  tokens enter the snapshot; recognized absence reverts are skipped, while
+  uncertain reads fail. No historical events or marketplace inventory are read.
 - Enumeration stores progress on the durable step and logs heartbeat progress.
-- The implementation builds the token id list in memory before seeding metadata tasks.
+- Manual ranges generate candidates lazily. The confirmed-present token list
+  remains in memory for the existing metadata seeding boundary. Anchored owners
+  are currently read again by ownership tasks; durable enumeration pages/owner
+  reuse remain a separate scalability improvement.
 
 Scaling boundary:
 

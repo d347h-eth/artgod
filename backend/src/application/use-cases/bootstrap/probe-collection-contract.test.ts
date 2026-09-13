@@ -156,7 +156,7 @@ describe("ProbeCollectionContractUseCase", () => {
         });
     });
 
-    it("infers manual range input for non-enumerable token id starts", async () => {
+    it("does not infer a range from current minted count and one sample", async () => {
         const useCase = makeUseCase({
             enumerable: {
                 supported: false,
@@ -207,21 +207,11 @@ describe("ProbeCollectionContractUseCase", () => {
 
         expect(result.suggestedInput).toEqual({
             supportsEnumerable: false,
-            manualInput: {
-                mode: BOOTSTRAP_ENUMERATION_MODE.ManualRange,
-                startTokenId: "0",
-                totalSupply: 999,
-            },
-            ready: true,
+            manualInput: null,
+            ready: false,
             warnings: [],
         });
-        expect(result.imageStorageEstimate).toEqual({
-            sampleTokenId: "0",
-            sampleImageBytes: 2048,
-            projectedBytes: "2045952",
-            totalSupply: "999",
-            contentType: "image/png",
-        });
+        expect(result.imageStorageEstimate).toBeNull();
     });
 
     it("uses embedded extension image cache policy suggestions when the probed scope matches", async () => {
