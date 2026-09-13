@@ -37,8 +37,6 @@ export const SQLITE_BUSY_RETRY_POLICY = Object.freeze({
 
 // Extended busy result codes retain the SQLITE_BUSY prefix.
 const SQLITE_BUSY_ERROR_CODE = "SQLITE_BUSY";
-const ASYNC_WRITE_TRANSACTION_ERROR_MESSAGE =
-    "SQLite write transaction callbacks must be synchronous";
 const sqliteBusyRetryWaitState = new Int32Array(
     new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
 );
@@ -66,16 +64,6 @@ function isSqliteBusyError(error: unknown): boolean {
         (code === SQLITE_BUSY_ERROR_CODE ||
             code.startsWith(`${SQLITE_BUSY_ERROR_CODE}_`))
     );
-}
-
-function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
-    if (
-        (typeof value !== "object" || value === null) &&
-        typeof value !== "function"
-    ) {
-        return false;
-    }
-    return typeof Reflect.get(value, "then") === "function";
 }
 
 function getSqliteBusyRetryDelayMs(attempt: number): number {
@@ -202,13 +190,9 @@ export const db = {
             SynchronousTransactionGuard<TResult>,
     ): (...args: TArgs) => TResult {
         const conn = ensureConnection();
-        const transaction = conn.transaction((...args: TArgs): TResult => {
-            const result = operation(...args);
-            if (isPromiseLike(result)) {
-                throw new Error(ASYNC_WRITE_TRANSACTION_ERROR_MESSAGE);
-            }
-            return result;
-        });
+        // The driver also rejects Promise results at runtime and rolls back.
+        const transaction =
+            conn.transaction<(...args: TArgs) => TResult>(operation);
         return (...args: TArgs): TResult => {
             if (conn.inTransaction) {
                 return transaction(...args);

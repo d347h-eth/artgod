@@ -1,25 +1,17 @@
 import Database from "better-sqlite3";
-import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Worker } from "node:worker_threads";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db, setDbPath, SQLITE_BUSY_RETRY_POLICY } from "./db.js";
 
+// Assert the native SQLite error vocabulary at the driver boundary.
 const SQLITE_BUSY_ERROR_CODE = "SQLITE_BUSY";
 const SQLITE_BUSY_SNAPSHOT_ERROR_CODE = "SQLITE_BUSY_SNAPSHOT";
 const SQLITE_LOCKED_ERROR_CODE = "SQLITE_LOCKED";
 const SQLITE_LOCK_ERROR_MESSAGE = "database is locked";
 const SQLITE_TABLE_LOCK_ERROR_MESSAGE = "database table is locked";
-const LOCK_ACQUIRED_MESSAGE = "lock-acquired";
-const RELEASE_LOCK_MESSAGE = "release-lock";
-const LOCK_RELEASE_SCHEDULED_MESSAGE = "lock-release-scheduled";
-const UNEXPECTED_WRITER_LOCK_MESSAGE_ERROR =
-    "Unexpected writer-lock control message";
 const TEST_BUSY_TIMEOUT_MS = 0;
-const WORKER_LOCK_HOLD_MS = 20;
 
 describe("shared SQLite contention policy", () => {
     let tempDir: string;
@@ -38,6 +30,7 @@ describe("shared SQLite contention policy", () => {
     });
 
     afterEach(() => {
+        vi.restoreAllMocks();
         setDbPath(join(tmpdir(), "artgod-sqlite-contention-closed.sqlite"));
         rmSync(tempDir, { recursive: true, force: true });
     });
@@ -177,42 +170,124 @@ describe("shared SQLite contention policy", () => {
         expect(readCounterValue()).toBe(1);
     });
 
-    it("retries one autocommit statement after another writer releases", async () => {
+    it("retries one autocommit statement after another writer releases", () => {
         db.raw.pragma(`busy_timeout = ${TEST_BUSY_TIMEOUT_MS}`);
-        const worker = startWriterLockWorker(dbPath);
-        const exitPromise = once(worker, "exit");
-        await waitForWriterLock(worker);
-        await scheduleWriterLockRelease(worker);
+        const competitor = new Database(dbPath);
+        competitor.exec("BEGIN IMMEDIATE");
+        // Release only after a real SQLITE_BUSY reaches the application backoff.
+        const backoff = vi.spyOn(Atomics, "wait").mockImplementationOnce(() => {
+            expect(readCounterValue()).toBe(0);
+            competitor.exec("COMMIT");
+            return "ok";
+        });
 
-        const result = db
-            .prepare<
-                [number]
-            >("UPDATE counters SET value = value + 1 WHERE id = ?")
-            .run(1);
+        try {
+            const result = db
+                .prepare<{
+                    id: number;
+                }>("UPDATE counters SET value = value + 1 WHERE id = @id")
+                .run({ id: 1 });
 
-        const [exitCode] = await exitPromise;
-        expect(exitCode).toBe(0);
-        expect(result.changes).toBe(1);
+            expect(backoff).toHaveBeenCalledTimes(1);
+            expect(result.changes).toBe(1);
+            expect(readCounterValue()).toBe(1);
+        } finally {
+            competitor.close();
+        }
+    });
+
+    it("retries a write transaction after another writer releases", () => {
+        db.raw.pragma(`busy_timeout = ${TEST_BUSY_TIMEOUT_MS}`);
+        const competitor = new Database(dbPath);
+        competitor.exec("BEGIN IMMEDIATE");
+        const callback = vi.fn(() => {
+            db.prepare<[number]>(
+                "UPDATE counters SET value = value + 1 WHERE id = ?",
+            ).run(1);
+            return readCounterValue();
+        });
+        const write = db.writeTransaction(callback);
+        const backoff = vi.spyOn(Atomics, "wait").mockImplementationOnce(() => {
+            expect(callback).not.toHaveBeenCalled();
+            competitor.exec("COMMIT");
+            return "ok";
+        });
+
+        try {
+            expect(write()).toBe(1);
+            expect(backoff).toHaveBeenCalledTimes(1);
+            expect(callback).toHaveBeenCalledTimes(1);
+            expect(readCounterValue()).toBe(1);
+        } finally {
+            competitor.close();
+        }
+    });
+
+    it("exhausts real autocommit contention without changing data", () => {
+        db.raw.pragma(`busy_timeout = ${TEST_BUSY_TIMEOUT_MS}`);
+        const statement = db.prepare<[number]>(
+            "UPDATE counters SET value = value + 1 WHERE id = ?",
+        );
+        const competitor = new Database(dbPath);
+        competitor.exec("BEGIN IMMEDIATE");
+        const backoff = vi.spyOn(Atomics, "wait");
+
+        try {
+            expect(() => statement.run(1)).toThrow(
+                expect.objectContaining({ code: SQLITE_BUSY_ERROR_CODE }),
+            );
+            expect(backoff).toHaveBeenCalledTimes(
+                SQLITE_BUSY_RETRY_POLICY.maxAttempts - 1,
+            );
+            expect(db.raw.inTransaction).toBe(false);
+            expect(readCounterValue()).toBe(0);
+        } finally {
+            competitor.close();
+        }
+
+        // Exhaustion must leave the connection and statement usable.
+        expect(statement.run(1).changes).toBe(1);
         expect(readCounterValue()).toBe(1);
     });
 
-    it("retries a write transaction after another writer releases", async () => {
-        db.raw.pragma(`busy_timeout = ${TEST_BUSY_TIMEOUT_MS}`);
-        const worker = startWriterLockWorker(dbPath);
-        const exitPromise = once(worker, "exit");
-        await waitForWriterLock(worker);
-        await scheduleWriterLockRelease(worker);
-        const write = db.writeTransaction(() => {
+    it("leaves snapshot failure inside a raw transaction to its owner", () => {
+        const competitor = new Database(dbPath);
+        const backoff = vi.spyOn(Atomics, "wait");
+        const write = db.raw.transaction(() => {
+            expect(readCounterValue()).toBe(0);
+            competitor
+                .prepare("UPDATE counters SET value = value + 10 WHERE id = 1")
+                .run();
             db.prepare<[number]>(
                 "UPDATE counters SET value = value + 1 WHERE id = ?",
             ).run(1);
         });
 
-        write();
+        try {
+            expect(write).toThrow(
+                expect.objectContaining({
+                    code: SQLITE_BUSY_SNAPSHOT_ERROR_CODE,
+                }),
+            );
+            expect(backoff).not.toHaveBeenCalled();
+            expect(db.raw.inTransaction).toBe(false);
+            expect(readCounterValue()).toBe(10);
+        } finally {
+            competitor.close();
+        }
+    });
 
-        const [exitCode] = await exitPromise;
-        expect(exitCode).toBe(0);
-        expect(readCounterValue()).toBe(1);
+    it("does not retry an autocommit constraint violation", () => {
+        const backoff = vi.spyOn(Atomics, "wait");
+        expect(() =>
+            db
+                .prepare<
+                    [number, number]
+                >("INSERT INTO counters (id, value) VALUES (?, ?)")
+                .run(1, 1),
+        ).toThrow(Database.SqliteError);
+        expect(backoff).not.toHaveBeenCalled();
+        expect(readCounterValue()).toBe(0);
     });
 
     function readCounterValue(): number {
@@ -229,58 +304,4 @@ function readErrorCode(error: unknown): string | undefined {
     }
     const code = Reflect.get(error, "code");
     return typeof code === "string" ? code : undefined;
-}
-
-async function waitForWriterLock(worker: Worker): Promise<void> {
-    const [message] = await once(worker, "message");
-    expect(message).toBe(LOCK_ACQUIRED_MESSAGE);
-}
-
-async function scheduleWriterLockRelease(worker: Worker): Promise<void> {
-    const releaseScheduled = once(worker, "message");
-    worker.postMessage(RELEASE_LOCK_MESSAGE);
-    const [message] = await releaseScheduled;
-    expect(message).toBe(LOCK_RELEASE_SCHEDULED_MESSAGE);
-}
-
-function startWriterLockWorker(dbPath: string): Worker {
-    const betterSqlite3Path = createRequire(import.meta.url).resolve(
-        "better-sqlite3",
-    );
-    return new Worker(
-        `
-            const { parentPort, workerData } = require("node:worker_threads");
-            const Database = require(workerData.betterSqlite3Path);
-            const database = new Database(workerData.dbPath, {
-                timeout: workerData.busyTimeoutMs,
-            });
-            database.pragma("journal_mode = WAL");
-            database.exec("BEGIN IMMEDIATE");
-            parentPort.postMessage(workerData.lockAcquiredMessage);
-            parentPort.once("message", (message) => {
-                if (message !== workerData.releaseLockMessage) {
-                    throw new Error(workerData.unexpectedControlMessageError);
-                }
-                setTimeout(() => {
-                    database.exec("COMMIT");
-                    database.close();
-                }, workerData.lockHoldMs);
-                parentPort.postMessage(workerData.lockReleaseScheduledMessage);
-            });
-        `,
-        {
-            eval: true,
-            workerData: {
-                betterSqlite3Path,
-                busyTimeoutMs: TEST_BUSY_TIMEOUT_MS,
-                dbPath,
-                lockAcquiredMessage: LOCK_ACQUIRED_MESSAGE,
-                lockReleaseScheduledMessage: LOCK_RELEASE_SCHEDULED_MESSAGE,
-                lockHoldMs: WORKER_LOCK_HOLD_MS,
-                releaseLockMessage: RELEASE_LOCK_MESSAGE,
-                unexpectedControlMessageError:
-                    UNEXPECTED_WRITER_LOCK_MESSAGE_ERROR,
-            },
-        },
-    );
 }
