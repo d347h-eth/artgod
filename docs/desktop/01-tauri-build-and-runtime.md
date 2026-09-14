@@ -88,18 +88,16 @@ contract rather than combining independently distributed package trees with
    readiness, then invokes `runtime_auto_start`; unconfigured installs and
    installs with `autostart infra` disabled stay stopped behind the Admin header
    action sequence.
-6. When startup is requested, the supervisor starts local NATS from bundled
-   `nats-server`, runs the jobs-stream maintenance artifact, then starts the
-   backend and enabled indexer workers from bundled resources using bundled
-   Node and each runtime's isolated package-local dependencies. The maintenance
-   pass records restored stream and consumer state, probes upgrade-only write
-   health, reconciles the 24-hour MaxAge policy, waits for active expiry, and
-   verifies a publish/delete before normal queue producers start. If storage
-   remains resource-limited after expiry stalls or the bounded startup wait
-   ends, it purges only the disposable jobs stream and verifies writes again.
-   OpenSea workers are skipped when
-   OpenSea integration is disabled, and wallet-bound trading bots are staged
-   but start only on explicit operator action after unlock.
+6. When startup is requested, the supervisor runs a native store-preservation
+   child, starts bundled NATS, then runs the jobs-stream maintenance artifact.
+   Preparation disables a saved age limit before NATS can expire valid jobs
+   during restore. Maintenance removes only retained records below a fully
+   acknowledged consumer position and verifies a publish/delete before normal
+   producers start. Healthy pending work is preserved regardless of age; an
+   unrecoverable full store fails startup instead of dropping jobs. The backend
+   and enabled indexer workers then start from bundled resources with their
+   isolated dependencies. OpenSea workers are skipped when disabled, and
+   wallet-bound bots start only on explicit operator action after unlock.
 7. Boot lifecycle console stays visible until lifecycle backend readiness probe
    succeeds, not merely until process state is `running`.
 8. Any core composition process exit triggers fail-fast full stack restart.
@@ -641,32 +639,39 @@ Startup trigger:
 
 Supervisor startup order:
 
-1. start bundled NATS process (`nats-server`) with an explicit
-   `--addr 127.0.0.1` client-listener bind
-2. wait for NATS port readiness
-3. run the short-lived jobs-stream maintenance artifact and require success
-   : record stream/account/consumer state before policy changes
-   : perform an upgrade-only publish/delete probe
-   : reconcile the installed stream to the canonical 24-hour MaxAge
-   : wait while expiry makes progress; if storage remains resource-limited
-   after cleanup stalls or the bounded startup wait ends, purge only the
-   disposable jobs stream
-   : require a final publish/delete probe before continuing
-4. start backend artifact
-5. wait for backend port readiness
-6. start enabled indexer worker artifacts; OpenSea workers are skipped when the resolved OpenSea capability is disabled
+1. acquire the runtime's exclusive store lease and publish the NATS recovery activity
+2. run the native store-preservation child before NATS opens its files
+3. start bundled NATS with `--addr 127.0.0.1` and wait for its listener within the recovery deadline
+4. run the jobs-stream maintenance artifact and require success: inspect stream/account/consumer state, reconcile disabled age expiry, remove only proven acknowledged leftovers, and verify a publish/delete
+5. start the backend and wait for its listener
+6. start enabled indexer workers; skip disabled OpenSea workers
 7. wait for backend semantic readiness via `GET /health/runtime`
-   : checks backend process + DB ping + NATS/JetStream jobs stream readiness details
-   : NATS connectivity errors are fatal; a missing jobs stream remains a
-   warning in backend health, but successful startup maintenance has already
-   required that stream to exist and be writable
-8. only after semantic readiness succeeds, supervisor sets runtime status to `running`
+8. set runtime status to `running` only after semantic readiness succeeds
 
-Jobs-stream recovery recognizes JetStream's specific insufficient-resource
-errors from failed publishes. A bare `503` can mean no matching responder, so
-it fails maintenance without purging queued jobs. Probe deletion failures also
-fail maintenance without purging. If client or manager initialization fails,
-the maintenance connection is closed so the process can exit unsuccessfully.
+The NATS task shares one deadline across native preparation, broker restore,
+and API maintenance. It runs on every start/restart. No periodic or live repair
+is scheduled. Backend/worker producers remain gated behind successful recovery.
+
+The native preparation child only supports the desktop's single-account,
+unencrypted file store. It validates the jobs stream identity, shape and
+HighwayHash checksum, changes only `max_age` to zero, and records an interrupted
+update in a journal before atomically replacing metadata/checksum files. Retry
+accepts only the original/new pair; corruption or unrelated changes fail closed.
+The runtime lease stays held through service operation, cleanup and restart
+backoff. Preparation refuses a live NATS listener and symlinked metadata. It
+never opens a wallet, starts Tauri, or edits message blocks/consumer state.
+This format adapter must be reverified when upgrading the bundled NATS version.
+
+API maintenance authorizes cleanup only for one exact subject with fully
+acknowledged durable consumer state. It rechecks that evidence, then purges
+only through that consumer's ACK floor. Pending work, unacknowledged work and
+uncovered subjects are preserved. A healthy queue needs no cleanup. A full
+store with no safely removable leftovers fails startup without dropping work.
+
+JetStream's specific resource errors permit this safe recovery path; a bare
+`503`, unrelated failure, or probe-deletion failure does not. Failed client or
+manager initialization closes the connection so the child can exit and retry
+can use a fresh connection.
 
 Wallet-bound bot runtimes are not part of the startup order above.
 They stay independently managed and start only after explicit admin action,
@@ -686,19 +691,18 @@ the bot consume wallet material; worker state updates and cleanup are accepted
 only from the matching generation.
 
 Startup recovery is supervisor-owned and reusable. The first task is NATS
-maintenance; its domain rules still decide whether expiry or emergency purge is
-needed. Every startup attempt has an `operationId`. Status responses and
+maintenance; its domain rules decide whether acknowledged leftovers can be
+removed safely. Every startup attempt has an `operationId`. Status responses and
 `runtime-state-changed` events share a monotonically increasing `revision` and a
 `startup` activity with `phase`, optional `task`, `startedAtMs`, and `deadlineAtMs`.
 The desktop bridge contract is mirrored in `frontend/src/lib/runtime/lifecycle/ports.ts`.
 Phases are preparation, recovery, service startup, cleanup, and restart backoff.
 The top-level status remains `starting` or `restarting` during recovery.
 
-- NATS maintenance gets one **15-minute** monotonic work deadline, including
-  spawn and child execution. This deliberately caps the adapter's longer
-  individual administration timeouts. It allows the ten-minute expiry loop
-  plus five minutes for administration work; it is not a promise that every
-  large store can recover within that time.
+- NATS recovery gets one **15-minute** monotonic work deadline across native
+  store preparation, NATS restore, and API maintenance. No prerequisite step or
+  UI handshake renews it. Large stores may still exceed the cap and require
+  manual retry after cleanup.
 - Recovery failure or timeout stops the maintenance child and NATS before
   publishing `stopped` with a typed `recoveryFailure`. It is terminal for that
   attempt, with **no automatic recovery retry**. `retry start` reaps the finished
@@ -710,8 +714,8 @@ The top-level status remains `starting` or `restarting` during recovery.
   graceful-stop allowance per child (maintenance and NATS stop serially).
 - After recovery, a fresh 90-second service budget covers the serial backend
   port and semantic-health waits (30 seconds each), with an allowance for
-  worker spawning. NATS port preparation has its own 30-second allowance.
-- Other startup failures and unexpected core-process exits retain the existing
+  worker spawning. NATS preparation/restore uses the recovery budget above.
+- Later service startup failures and unexpected core-process exits retain the existing
   restart/backoff policy. No wallet-bound bot starts as a recovery task.
 
 The task work deadline does not claim a global shutdown bound: existing output

@@ -22,7 +22,8 @@
         "inspect:queue": "tsx scripts/inspect-jetstream-backlog.ts",
         "dev:dead-letter-worker": "tsx src/runtime/dead-letter-worker.ts",
         "test": "vitest run",
-        "test:watch": "vitest"
+        "test:watch": "vitest",
+        "test:nats:recovery": "tsx scripts/verify-nats-startup-recovery.ts"
     },
     "dependencies": {
         "@artgod/shared": "workspace:*",

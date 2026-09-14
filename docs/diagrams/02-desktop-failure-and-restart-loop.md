@@ -14,7 +14,7 @@ sequenceDiagram
 
     par core supervisor cycle
         loop core cycle
-            S->>C: Start NATS, then bounded startup recovery
+            S->>C: Prepare store, start NATS, run bounded recovery
             break recovery fails, times out, or user stops
                 S->>R: startup=cleanup
                 S->>C: Stop recovery child and NATS
