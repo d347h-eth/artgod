@@ -73,6 +73,7 @@ pub(crate) fn runtime_log_process_names() -> Vec<&'static str> {
     names.push(SUPERVISOR_PROCESS_NAME);
     names.push(NATS_PROCESS_NAME);
     names.push(NATS_JOB_STREAM_MAINTENANCE_PROCESS_NAME);
+    names.push(super::nats_store::PREPARE_STORE_PROCESS_NAME);
     names.push(BACKEND_PROCESS_NAME);
     names.extend(
         INDEXER_WORKERS

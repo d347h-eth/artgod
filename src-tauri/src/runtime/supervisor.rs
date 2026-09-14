@@ -15,9 +15,13 @@ use zeroize::Zeroizing;
 
 use super::app_config::load_app_config_state;
 use super::bot_lifecycle::{BotLifecycleCoordinator, BotStartReservation, BotWorkerLifecycleLease};
+use super::env_keys::NATS_STREAM_PREFIX_ENV_KEY;
+use super::nats_store::{
+    PREPARE_STORE_ARG, PREPARE_STORE_PROCESS_NAME, acquire_runtime_store_lock,
+};
 use super::recovery::{
     RecoveryFailure, RecoveryFailureReason, RecoveryOutcome, RecoveryTask, RecoveryTaskId,
-    StartupActivity, StartupPhase, execute_recovery_process,
+    StartupActivity, StartupPhase, execute_recovery_process_until, wait_for_recovery_service,
 };
 use crate::desktop_log::{append_child_process_log_line, append_desktop_supervisor_log};
 use crate::runtime::bidding_mandate::BiddingMandate;
@@ -760,6 +764,7 @@ fn run_supervisor_loop(
     stop_rx: Receiver<()>,
 ) {
     let mut restart_count: u32 = 0;
+    let mut store_lease = None;
     let stop_signal = AtomicBool::new(false);
     emit_supervisor_log(
         &app,
@@ -795,15 +800,71 @@ fn run_supervisor_loop(
         });
         set_core_running_since(&core_running_since_ref, None);
 
-        let mut processes =
-            match spawn_runtime_processes(&app, &config, &status_ref, &stop_rx, &stop_signal) {
-                Ok(processes) => processes,
-                Err(SpawnRuntimeError::Cancelled) => {
+        let mut processes = match spawn_runtime_processes(
+            &app,
+            &config,
+            &status_ref,
+            &stop_rx,
+            &stop_signal,
+            &mut store_lease,
+        ) {
+            Ok(processes) => processes,
+            Err(SpawnRuntimeError::Cancelled) => {
+                emit_supervisor_log(
+                    &app,
+                    &config.logs_dir,
+                    "info",
+                    "Stop requested during startup; supervisor stopping",
+                );
+                update_status(&status_ref, &app, |status| {
+                    status.state = "stopped".to_owned();
+                    status.running_processes.clear();
+                });
+                set_core_running_since(&core_running_since_ref, None);
+                break;
+            }
+            Err(SpawnRuntimeError::RecoveryFailed(failure, error)) => {
+                emit_supervisor_log(
+                    &app,
+                    &config.logs_dir,
+                    SUPERVISOR_LOG_LEVEL_ERROR,
+                    &format!("Startup recovery failed; manual retry required: {error}"),
+                );
+                update_status(&status_ref, &app, |status| {
+                    status.state = "stopped".to_owned();
+                    status.recovery_failure = Some(failure);
+                    status.last_error = Some(error);
+                    status.running_processes.clear();
+                });
+                set_core_running_since(&core_running_since_ref, None);
+                break;
+            }
+            Err(SpawnRuntimeError::Failed(error)) => {
+                restart_count = restart_count.saturating_add(1);
+                emit_supervisor_log(
+                    &app,
+                    &config.logs_dir,
+                    "error",
+                    &format!("Runtime startup failed: {error}"),
+                );
+                update_status(&status_ref, &app, |status| {
+                    status.state = "restarting".to_owned();
+                    status.restart_count = restart_count;
+                    status.last_error = Some(error.clone());
+                    status.running_processes.clear();
+                    status.startup = Some(StartupActivity::new(
+                        StartupPhase::Backoff,
+                        None,
+                        Duration::from_millis(config.restart_backoff_ms),
+                    ));
+                });
+                set_core_running_since(&core_running_since_ref, None);
+                if stop_requested(&stop_rx, &stop_signal) {
                     emit_supervisor_log(
                         &app,
                         &config.logs_dir,
                         "info",
-                        "Stop requested during startup; supervisor stopping",
+                        "Stop requested during startup retry; supervisor stopping",
                     );
                     update_status(&status_ref, &app, |status| {
                         status.state = "stopped".to_owned();
@@ -812,77 +873,27 @@ fn run_supervisor_loop(
                     set_core_running_since(&core_running_since_ref, None);
                     break;
                 }
-                Err(SpawnRuntimeError::RecoveryFailed(failure, error)) => {
+                if sleep_with_stop(
+                    &stop_rx,
+                    &stop_signal,
+                    Duration::from_millis(config.restart_backoff_ms),
+                ) {
                     emit_supervisor_log(
                         &app,
                         &config.logs_dir,
-                        SUPERVISOR_LOG_LEVEL_ERROR,
-                        &format!("Startup recovery failed; manual retry required: {error}"),
+                        "info",
+                        "Stop requested during startup backoff; supervisor stopping",
                     );
                     update_status(&status_ref, &app, |status| {
                         status.state = "stopped".to_owned();
-                        status.recovery_failure = Some(failure);
-                        status.last_error = Some(error);
                         status.running_processes.clear();
                     });
                     set_core_running_since(&core_running_since_ref, None);
                     break;
                 }
-                Err(SpawnRuntimeError::Failed(error)) => {
-                    restart_count = restart_count.saturating_add(1);
-                    emit_supervisor_log(
-                        &app,
-                        &config.logs_dir,
-                        "error",
-                        &format!("Runtime startup failed: {error}"),
-                    );
-                    update_status(&status_ref, &app, |status| {
-                        status.state = "restarting".to_owned();
-                        status.restart_count = restart_count;
-                        status.last_error = Some(error.clone());
-                        status.running_processes.clear();
-                        status.startup = Some(StartupActivity::new(
-                            StartupPhase::Backoff,
-                            None,
-                            Duration::from_millis(config.restart_backoff_ms),
-                        ));
-                    });
-                    set_core_running_since(&core_running_since_ref, None);
-                    if stop_requested(&stop_rx, &stop_signal) {
-                        emit_supervisor_log(
-                            &app,
-                            &config.logs_dir,
-                            "info",
-                            "Stop requested during startup retry; supervisor stopping",
-                        );
-                        update_status(&status_ref, &app, |status| {
-                            status.state = "stopped".to_owned();
-                            status.running_processes.clear();
-                        });
-                        set_core_running_since(&core_running_since_ref, None);
-                        break;
-                    }
-                    if sleep_with_stop(
-                        &stop_rx,
-                        &stop_signal,
-                        Duration::from_millis(config.restart_backoff_ms),
-                    ) {
-                        emit_supervisor_log(
-                            &app,
-                            &config.logs_dir,
-                            "info",
-                            "Stop requested during startup backoff; supervisor stopping",
-                        );
-                        update_status(&status_ref, &app, |status| {
-                            status.state = "stopped".to_owned();
-                            status.running_processes.clear();
-                        });
-                        set_core_running_since(&core_running_since_ref, None);
-                        break;
-                    }
-                    continue;
-                }
-            };
+                continue;
+            }
+        };
 
         let running_names = processes
             .iter()
@@ -2252,52 +2263,84 @@ fn spawn_runtime_processes(
     status_ref: &Arc<Mutex<RuntimeStatus>>,
     stop_rx: &Receiver<()>,
     stop_signal: &AtomicBool,
+    store_lease: &mut Option<std::fs::File>,
 ) -> Result<Vec<ManagedProcess>, SpawnRuntimeError> {
     let mut processes = Vec::<ManagedProcess>::new();
-
     if stop_requested(stop_rx, stop_signal) {
         return Err(SpawnRuntimeError::Cancelled);
     }
-
-    let nats_process = match spawn_nats_process(app, config) {
-        Ok(process) => process,
-        Err(error) => {
-            stop_all_processes(app, &config.logs_dir, &mut processes);
-            return Err(SpawnRuntimeError::Failed(error));
-        }
-    };
-    processes.push(nats_process);
+    let task = &NATS_MAINTENANCE_TASK;
+    let deadline = Instant::now() + task.budget;
+    update_status(status_ref, app, |status| {
+        status.startup = Some(StartupActivity::new(
+            StartupPhase::Recovery,
+            Some(task.id),
+            task.budget,
+        ));
+    });
+    // Keep exclusive ownership through every restart, service lifetime and cleanup.
+    if store_lease.is_none() {
+        *store_lease = Some(
+            acquire_runtime_store_lock(&config.nats_store_dir)
+                .map_err(|error| recovery_step_error(task, error))?,
+        );
+    }
+    run_startup_recovery_step(
+        app,
+        config,
+        status_ref,
+        task,
+        deadline,
+        stop_rx,
+        stop_signal,
+        || spawn_nats_store_preparation(app, config),
+    )?;
+    if stop_requested(stop_rx, stop_signal) {
+        return Err(SpawnRuntimeError::Cancelled);
+    }
+    if Instant::now() >= deadline {
+        recovery_outcome_result(task, RecoveryOutcome::TimedOut)?;
+    }
+    processes
+        .push(spawn_nats_process(app, config).map_err(|error| recovery_step_error(task, error))?);
     emit_supervisor_log(
         app,
         &config.logs_dir,
-        "info",
+        SUPERVISOR_LOG_LEVEL_INFO,
         "Waiting for NATS port binding",
     );
-    if let Err(error) = wait_for_port(
-        config.nats_host.as_str(),
-        config.nats_port,
-        STARTUP_PORT_TIMEOUT,
-        "NATS",
-        stop_rx,
-        stop_signal,
-    ) {
+    let listener = SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, config.nats_port));
+    let outcome = wait_for_recovery_service(
+        &mut processes.last_mut().expect("NATS was just spawned").child,
+        deadline,
+        || TcpStream::connect_timeout(&listener, STARTUP_WAIT_POLL_INTERVAL).is_ok(),
+        || stop_requested(stop_rx, stop_signal),
+        STARTUP_WAIT_POLL_INTERVAL,
+    );
+    if let Err(error) = recovery_outcome_result(task, outcome) {
+        publish_recovery_cleanup(status_ref, app, task);
         stop_all_processes(app, &config.logs_dir, &mut processes);
-        return Err(map_startup_wait_error(error));
+        return Err(if stop_requested(stop_rx, stop_signal) {
+            SpawnRuntimeError::Cancelled
+        } else {
+            error
+        });
     }
-
     emit_supervisor_log(
         app,
         &config.logs_dir,
         SUPERVISOR_LOG_LEVEL_INFO,
         "Running jobs stream startup maintenance",
     );
-    if let Err(error) = run_startup_recovery_task(
+    if let Err(error) = run_startup_recovery_step(
         app,
         config,
         status_ref,
-        &NATS_MAINTENANCE_TASK,
+        task,
+        deadline,
         stop_rx,
         stop_signal,
+        || spawn_node_process(app, config, task.process_name, task.artifact),
     ) {
         stop_all_processes(app, &config.logs_dir, &mut processes);
         return Err(if stop_requested(stop_rx, stop_signal) {
@@ -2512,27 +2555,56 @@ fn spawn_node_process(
     )
 }
 
-fn run_startup_recovery_task(
+fn spawn_nats_store_preparation(
+    app: &AppHandle,
+    config: &DesktopRuntimeConfig,
+) -> Result<ManagedProcess, String> {
+    let prefix = config
+        .process_env
+        .get(NATS_STREAM_PREFIX_ENV_KEY)
+        .ok_or_else(|| format!("Missing {NATS_STREAM_PREFIX_ENV_KEY}"))?;
+    let executable = std::env::current_exe()
+        .map_err(|e| format!("Cannot locate native maintenance executable: {e}"))?;
+    spawn_process(
+        app,
+        config,
+        ProcessSpec {
+            name: PREPARE_STORE_PROCESS_NAME.to_owned(),
+            command: executable.to_string_lossy().into_owned(),
+            args: vec![
+                PREPARE_STORE_ARG.to_owned(),
+                config.nats_store_dir.to_string_lossy().into_owned(),
+                prefix.clone(),
+                format!("{}:{}", config.nats_host, config.nats_port),
+            ],
+            cleanup: None,
+        },
+    )
+}
+
+fn recovery_step_error(task: &RecoveryTask, error: String) -> SpawnRuntimeError {
+    SpawnRuntimeError::RecoveryFailed(
+        RecoveryFailure {
+            task: task.id,
+            reason: RecoveryFailureReason::Failed,
+        },
+        error,
+    )
+}
+
+fn run_startup_recovery_step(
     app: &AppHandle,
     config: &DesktopRuntimeConfig,
     status_ref: &Arc<Mutex<RuntimeStatus>>,
     task: &RecoveryTask,
+    deadline: Instant,
     stop_rx: &Receiver<()>,
     stop_signal: &AtomicBool,
+    spawn: impl FnOnce() -> Result<ManagedProcess, String>,
 ) -> Result<(), SpawnRuntimeError> {
-    if stop_requested(stop_rx, stop_signal) {
-        return Err(SpawnRuntimeError::Cancelled);
-    }
-    update_status(status_ref, app, |status| {
-        status.startup = Some(StartupActivity::new(
-            StartupPhase::Recovery,
-            Some(task.id),
-            task.budget,
-        ));
-    });
-    let outcome = execute_recovery_process(
-        task.budget,
-        || spawn_node_process(app, config, task.process_name, task.artifact),
+    let outcome = execute_recovery_process_until(
+        deadline,
+        spawn,
         |process| &mut process.child,
         || stop_requested(stop_rx, stop_signal),
         STARTUP_WAIT_POLL_INTERVAL,
@@ -2556,6 +2628,13 @@ fn run_startup_recovery_task(
             publish_recovery_cleanup(status_ref, app, task);
         }
     }
+    recovery_outcome_result(task, outcome)
+}
+
+fn recovery_outcome_result(
+    task: &RecoveryTask,
+    outcome: RecoveryOutcome,
+) -> Result<(), SpawnRuntimeError> {
     match outcome {
         RecoveryOutcome::Cancelled => Err(SpawnRuntimeError::Cancelled),
         RecoveryOutcome::TimedOut => Err(SpawnRuntimeError::RecoveryFailed(

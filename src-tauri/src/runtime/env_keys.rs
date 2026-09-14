@@ -3,6 +3,8 @@ pub(crate) const BACKEND_HOST_ENV_KEY: &str = "BACKEND_HOST";
 
 // Env key for the NATS server URL shared by desktop runtime children.
 pub(crate) const NATS_URL_ENV_KEY: &str = "NATS_URL";
+/// Configured namespace used by the native jobs store migration and queue workers.
+pub(crate) const NATS_STREAM_PREFIX_ENV_KEY: &str = "NATS_STREAM_PREFIX";
 
 // Env key for the primary weighted HTTP JSON-RPC endpoint list.
 pub(crate) const RPC_ENDPOINT_LIST_ENV_KEY: &str = "RPC_URL_LIST";

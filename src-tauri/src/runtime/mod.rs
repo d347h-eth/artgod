@@ -8,6 +8,7 @@ mod config;
 mod env_keys;
 mod http_fetch_resilience;
 mod log_files;
+mod nats_store;
 mod process_registry;
 mod recovery;
 mod resource_contract;
@@ -40,6 +41,7 @@ pub(crate) use config::BotRuntimeLaunchConfig;
 pub use config::{DesktopRuntimeConfig, DesktopWalletConfig};
 pub(crate) use env_keys::RPC_ENDPOINT_LIST_ENV_KEY;
 pub(crate) use log_files::ensure_runtime_log_files;
+pub use nats_store::run_preparation_child;
 pub use rpc_auto_sourcing::{
     RpcEndpointBenchmarkInput, RpcEndpointBenchmarkResult, benchmark_rpc_endpoints,
 };

@@ -3,6 +3,8 @@ mod private_file;
 mod runtime;
 mod wallet;
 
+pub use runtime::run_preparation_child as run_nats_store_preparation_child;
+
 use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader};

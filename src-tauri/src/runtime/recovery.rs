@@ -77,15 +77,34 @@ pub enum RecoveryOutcome {
 
 /// A recovery runner owns the process until finalization has completed. Callers
 /// may admit producers only after this function returns Completed.
+#[cfg(test)]
 pub fn execute_recovery_process<P>(
     budget: Duration,
     spawn: impl FnOnce() -> Result<P, String>,
-    mut child: impl FnMut(&mut P) -> &mut Child,
+    child: impl FnMut(&mut P) -> &mut Child,
     cancelled: impl FnMut() -> bool,
     poll_interval: Duration,
     finalize: impl FnOnce(&mut P, &RecoveryOutcome),
 ) -> RecoveryOutcome {
     let deadline = Instant::now() + budget;
+    execute_recovery_process_until(deadline, spawn, child, cancelled, poll_interval, finalize)
+}
+
+/// Multiple prerequisite steps can share one deadline without renewing it.
+pub fn execute_recovery_process_until<P>(
+    deadline: Instant,
+    spawn: impl FnOnce() -> Result<P, String>,
+    mut child: impl FnMut(&mut P) -> &mut Child,
+    mut cancelled: impl FnMut() -> bool,
+    poll_interval: Duration,
+    finalize: impl FnOnce(&mut P, &RecoveryOutcome),
+) -> RecoveryOutcome {
+    if cancelled() {
+        return RecoveryOutcome::Cancelled;
+    }
+    if Instant::now() >= deadline {
+        return RecoveryOutcome::TimedOut;
+    }
     let mut process = match spawn() {
         Ok(process) => process,
         Err(error) => return RecoveryOutcome::Failed(error),
@@ -120,6 +139,50 @@ pub fn wait_for_recovery_child(
             Err(error) => {
                 return RecoveryOutcome::Failed(format!("Recovery child poll failed: {error}"));
             }
+        }
+        thread::sleep(poll_interval.min(deadline.saturating_duration_since(Instant::now())));
+    }
+}
+
+/// A long-lived prerequisite must stay alive while becoming ready. The caller
+/// retains ownership on success and cleans up on every other outcome. Probes
+/// must have their own short I/O timeout; they never renew the shared deadline.
+pub fn wait_for_recovery_service(
+    child: &mut Child,
+    deadline: Instant,
+    mut ready: impl FnMut() -> bool,
+    mut cancelled: impl FnMut() -> bool,
+    poll_interval: Duration,
+) -> RecoveryOutcome {
+    loop {
+        if cancelled() {
+            return RecoveryOutcome::Cancelled;
+        }
+        if Instant::now() >= deadline {
+            return RecoveryOutcome::TimedOut;
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return RecoveryOutcome::Failed(format!(
+                    "Recovery prerequisite exited with {status}"
+                ));
+            }
+            Err(error) => {
+                return RecoveryOutcome::Failed(format!(
+                    "Recovery prerequisite poll failed: {error}"
+                ));
+            }
+            Ok(None) => {}
+        }
+        let is_ready = ready();
+        if cancelled() {
+            return RecoveryOutcome::Cancelled;
+        }
+        if Instant::now() >= deadline {
+            return RecoveryOutcome::TimedOut;
+        }
+        if is_ready {
+            return RecoveryOutcome::Completed;
         }
         thread::sleep(poll_interval.min(deadline.saturating_duration_since(Instant::now())));
     }
@@ -195,9 +258,10 @@ mod tests {
                 },
             );
             assert_eq!(outcome, expected);
-            assert!(
+            assert_eq!(
                 finalized.load(Ordering::SeqCst),
-                "cleanup precedes return/retry admission"
+                !cancel,
+                "cancel before spawn creates no child; otherwise cleanup precedes return"
             );
         }
         // A fresh attempt after cancellation/timeout can actually execute.
@@ -267,6 +331,56 @@ mod tests {
                 Duration::from_millis(1)
             ),
             RecoveryOutcome::Cancelled
+        );
+    }
+
+    #[test]
+    fn recovery_prerequisite_exit_is_terminal_even_if_another_listener_is_ready() {
+        let mut child = spawn_fixture(FAILURE_FIXTURE);
+        child.wait().unwrap();
+        assert!(matches!(
+            wait_for_recovery_service(
+                &mut child,
+                Instant::now() + Duration::from_secs(900),
+                || true,
+                || false,
+                Duration::from_millis(1)
+            ),
+            RecoveryOutcome::Failed(_)
+        ));
+    }
+
+    #[test]
+    fn prerequisite_readiness_preserves_the_deadline_and_stop_priority() {
+        for (cancel, ready, expected) in [
+            (false, true, RecoveryOutcome::Completed),
+            (true, true, RecoveryOutcome::Cancelled),
+            (false, false, RecoveryOutcome::TimedOut),
+        ] {
+            let mut child = spawn_fixture(HUNG_FIXTURE);
+            let outcome = wait_for_recovery_service(
+                &mut child,
+                Instant::now() + Duration::from_millis(20),
+                || ready,
+                || cancel,
+                Duration::from_millis(1),
+            );
+            child.kill().unwrap();
+            child.wait().unwrap();
+            assert_eq!(outcome, expected);
+        }
+        // A later step cannot spawn after the shared deadline, even if it
+        // would otherwise complete immediately.
+        assert_eq!(
+            execute_recovery_process_until::<Child>(
+                Instant::now(),
+                || panic!("expired recovery must not spawn the next step"),
+                |child| child,
+                || false,
+                Duration::from_millis(1),
+                |_, _| unreachable!()
+            ),
+            RecoveryOutcome::TimedOut
         );
     }
 
