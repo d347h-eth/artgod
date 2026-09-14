@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import {
+    AckPolicy,
+    DeliverPolicy,
     RetentionPolicy,
     StorageType,
     connect,
@@ -14,14 +17,19 @@ import {
     resolveNatsJobStreamMaintenanceProbeSubject,
     resolveNatsJobStreamName,
     resolveNatsJobStreamSubjectFilter,
+    resolveNatsJobSubjectPrefix,
 } from "@artgod/shared/queue/nats-job-stream";
-import type {
-    NatsJobStreamSnapshot,
-    NatsJobStreamWriteProbe,
+import {
+    isExactJobSubject,
+    planAcknowledgedJobStreamCleanup,
+    type AcknowledgedJobStreamCleanup,
+    type NatsJobStreamSnapshot,
+    type NatsJobStreamWriteProbe,
 } from "../../application/queue/maintain-nats-job-stream.js";
 
-// Allows a large existing stream enough time to apply a lower MaxAge policy.
-const NATS_JOB_STREAM_ADMIN_REQUEST_TIMEOUT_MS = 30 * 60 * 1_000;
+// Large scoped cleanup can take time. The supervisor owns the 15-minute total
+// deadline and stops this child and NATS before admitting another attempt.
+const NATS_JOB_STREAM_ADMIN_REQUEST_TIMEOUT_MS = 15 * 60 * 1_000;
 const NATS_JOB_STREAM_WRITE_PROBE_TIMEOUT_MS = 5_000;
 // JetStream's resource errors are distinct from the shared 503 no-responder status.
 const NATS_RESOURCE_LIMIT_API_ERROR_CODE = {
@@ -116,7 +124,8 @@ export class NatsJobStreamMaintenanceAdapter {
         if (streamInfo.config.max_age === maxAgeNanos) return;
 
         try {
-            // Updating the installed stream triggers NATS MaxAge enforcement in place.
+            // Zero disables expiry. Native startup also migrates saved metadata
+            // before restore, when this API is not yet available.
             await this.manager.streams.update(this.streamName, {
                 max_age: maxAgeNanos,
             });
@@ -129,8 +138,29 @@ export class NatsJobStreamMaintenanceAdapter {
         }
     }
 
-    async purge(): Promise<number> {
-        const response = await this.manager.streams.purge(this.streamName);
+    async removeAcknowledged(
+        cleanup: AcknowledgedJobStreamCleanup,
+    ): Promise<number> {
+        // Runtime startup excludes active workers. Still fail closed if the
+        // stream/consumer was recreated or its acknowledged position changed.
+        const current = planAcknowledgedJobStreamCleanup(await this.inspect());
+        if (
+            !cleanup.subject.startsWith(
+                `${resolveNatsJobSubjectPrefix(this.streamPrefix)}.`,
+            ) ||
+            !current.some((candidate) => isDeepStrictEqual(candidate, cleanup))
+        ) {
+            throw new Error(
+                "Jobs stream cleanup evidence changed; queued work was preserved",
+            );
+        }
+        const response = await this.manager.streams.purge(this.streamName, {
+            filter: cleanup.subject,
+            // NATS purge's sequence bound is exclusive. Never send a whole-stream purge.
+            seq: cleanup.throughSequence + 1,
+        });
+        if (!response.success)
+            throw new Error("Jobs stream acknowledged cleanup failed");
         return response.purged;
     }
 
@@ -198,7 +228,30 @@ export class NatsJobStreamMaintenanceAdapter {
         for await (const consumer of this.manager.consumers.list(
             this.streamName,
         )) {
-            consumers.push(mapConsumerSnapshot(consumer));
+            const snapshot = mapConsumerSnapshot(consumer);
+            const subject = snapshot.filterSubjects[0];
+            if (
+                snapshot.filterSubjects.length === 1 &&
+                subject &&
+                isExactJobSubject(subject)
+            ) {
+                try {
+                    // One retained record per subject, not a scan of a large backlog.
+                    // The pinned server supports next_by_subj. nats.js forwards
+                    // this request unchanged but types getMessage as seq-only.
+                    const request = { seq: 1, next_by_subj: subject };
+                    const message = await this.manager.streams.getMessage(
+                        this.streamName,
+                        request,
+                    );
+                    if (message.subject !== subject)
+                        throw new Error("Unexpected retained job subject");
+                    snapshot.firstRetainedSequence = message.seq;
+                } catch (error) {
+                    if (!isMessageNotFound(error)) throw error;
+                }
+            }
+            consumers.push(snapshot);
         }
         return consumers;
     }
@@ -207,6 +260,8 @@ export class NatsJobStreamMaintenanceAdapter {
 function mapStreamSnapshot(streamInfo: StreamInfo) {
     return {
         name: streamInfo.config.name,
+        created: streamInfo.created,
+        workQueue: streamInfo.config.retention === RetentionPolicy.Workqueue,
         maxAgeNanos: streamInfo.config.max_age,
         messages: streamInfo.state.messages,
         bytes: streamInfo.state.bytes,
@@ -218,18 +273,38 @@ function mapStreamSnapshot(streamInfo: StreamInfo) {
     };
 }
 
-function mapConsumerSnapshot(consumer: ConsumerInfo) {
-    const filterSubjects = consumer.config.filter_subjects;
+function mapConsumerSnapshot(
+    consumer: ConsumerInfo,
+): NatsJobStreamSnapshot["consumers"][number] {
     return {
         name: consumer.name,
-        filterSubject:
-            consumer.config.filter_subject ?? filterSubjects?.join(",") ?? null,
+        created: consumer.created,
+        durable: consumer.config.durable_name === consumer.name,
+        deliversAll: consumer.config.deliver_policy === DeliverPolicy.All,
+        explicitAck: consumer.config.ack_policy === AckPolicy.Explicit,
+        filterSubjects: [
+            ...(consumer.config.filter_subject
+                ? [consumer.config.filter_subject]
+                : []),
+            ...(consumer.config.filter_subjects ?? []),
+        ],
         deliveredStreamSequence: consumer.delivered.stream_seq,
+        deliveredConsumerSequence: consumer.delivered.consumer_seq,
         ackFloorStreamSequence: consumer.ack_floor.stream_seq,
+        ackFloorConsumerSequence: consumer.ack_floor.consumer_seq,
         pending: consumer.num_pending,
         ackPending: consumer.num_ack_pending,
         redelivered: consumer.num_redelivered,
+        firstRetainedSequence: null,
     };
+}
+
+function isMessageNotFound(error: unknown): boolean {
+    // JetStream's no-message error; stream/permission/transport failures remain failures.
+    return (
+        (error as { api_error?: { err_code?: number } } | null)?.api_error
+            ?.err_code === 10037
+    );
 }
 
 function isJetStreamResourceLimitError(error: unknown): boolean {

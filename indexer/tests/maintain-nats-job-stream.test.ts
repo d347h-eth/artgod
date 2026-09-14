@@ -1,262 +1,232 @@
 import { describe, expect, it, vi } from "vitest";
-import { NATS_JOB_STREAM_MAX_AGE_NANOS } from "@artgod/shared/queue/nats-job-stream";
+import {
+    NATS_JOB_STREAM_MAX_AGE_NANOS,
+    resolveNatsJobSubject,
+} from "@artgod/shared/queue/nats-job-stream";
 import {
     MaintainNatsJobStream,
-    NATS_JOB_STREAM_MAINTENANCE_EVENT,
-    type NatsJobStreamMaintenanceEvent,
+    planAcknowledgedJobStreamCleanup,
+    type NatsJobStreamConsumerSnapshot,
     type NatsJobStreamSnapshot,
     type NatsJobStreamWriteProbe,
 } from "../src/application/queue/maintain-nats-job-stream.js";
 
-const WRITABLE_PROBE: NatsJobStreamWriteProbe = {
+import {
+    consumer,
+    snapshot,
+    PREFIX,
+    SUBJECT,
+} from "./fixtures/nats-job-stream.js";
+
+const WRITABLE: NatsJobStreamWriteProbe = {
     writable: true,
     resourceLimited: false,
     error: null,
 };
-const LIMITED_PROBE: NatsJobStreamWriteProbe = {
+const LIMITED: NatsJobStreamWriteProbe = {
     writable: false,
     resourceLimited: true,
-    error: "503",
+    error: "storage limit",
 };
 
-describe("MaintainNatsJobStream", () => {
-    it("records upgrade-only health and verifies writes after policy reconciliation", async () => {
-        const administration = new FakeAdministration(
-            [
-                snapshot({ maxAgeNanos: NATS_JOB_STREAM_MAX_AGE_NANOS + 1 }),
-                snapshot(),
-                snapshot(),
-            ],
-            [WRITABLE_PROBE, WRITABLE_PROBE],
-        );
-        const { useCase, events } = fixture(administration);
+function fixture(state: NatsJobStreamSnapshot, probe = WRITABLE) {
+    const administration = {
+        inspect: vi.fn().mockResolvedValue(state),
+        reconcileMaxAge: vi.fn().mockResolvedValue(undefined),
+        removeAcknowledged: vi.fn().mockResolvedValue(20),
+        probeWritable: vi.fn().mockResolvedValue(probe),
+    };
+    return {
+        administration,
+        useCase: new MaintainNatsJobStream(administration, { report: vi.fn() }),
+    };
+}
 
-        const result = await useCase.execute();
-
-        expect(result.purged).toBe(false);
-        expect(administration.reconciledMaxAges).toEqual([
-            NATS_JOB_STREAM_MAX_AGE_NANOS,
-        ]);
-        expect(administration.purgeCalls).toBe(0);
-        expect(events.map((event) => event.kind)).toEqual([
-            NATS_JOB_STREAM_MAINTENANCE_EVENT.UpgradeObservation,
-            NATS_JOB_STREAM_MAINTENANCE_EVENT.UpgradeWriteProbe,
-            NATS_JOB_STREAM_MAINTENANCE_EVENT.PolicyReconciled,
-            NATS_JOB_STREAM_MAINTENANCE_EVENT.WriteVerified,
-            NATS_JOB_STREAM_MAINTENANCE_EVENT.Completed,
+describe("acknowledged jobs cleanup", () => {
+    it("scopes cleanup behind the ACK floor while preserving newer pending work of any age", () => {
+        expect(planAcknowledgedJobStreamCleanup(snapshot())).toEqual([
+            {
+                streamCreated: "2026-08-01T00:00:00Z",
+                subject: SUBJECT,
+                throughSequence: 50,
+                consumer: consumer(),
+            },
         ]);
     });
 
-    it("waits while MaxAge cleanup makes progress and avoids a purge", async () => {
-        const administration = new FakeAdministration(
-            [
-                snapshot({ storageBytes: 120 }),
-                snapshot({ storageBytes: 100 }),
-                snapshot({ storageBytes: 80 }),
-                snapshot({ storageBytes: 80 }),
-            ],
-            [LIMITED_PROBE, WRITABLE_PROBE],
-        );
-        const { useCase, events } = fixture(administration);
-
-        const result = await useCase.execute();
-
-        expect(result.purged).toBe(false);
-        expect(administration.purgeCalls).toBe(0);
-        expect(events.map((event) => event.kind)).toContain(
-            NATS_JOB_STREAM_MAINTENANCE_EVENT.ExpiryProgress,
-        );
-    });
-
-    it("purges only after storage-limit recovery stalls", async () => {
-        const administration = new FakeAdministration(
-            [
-                snapshot({ storageBytes: 100 }),
-                snapshot({ storageBytes: 100 }),
-                snapshot({ storageBytes: 100 }),
-                snapshot({ storageBytes: 0, messages: 0 }),
-                snapshot({ storageBytes: 0, messages: 0 }),
-            ],
-            [LIMITED_PROBE, LIMITED_PROBE, WRITABLE_PROBE],
-            41,
-        );
-        const { useCase, events } = fixture(administration, {
-            expiryPollIntervalMs: 5,
-            expiryStallTimeoutMs: 5,
-            expiryMaxWaitMs: 20,
-        });
-
-        const result = await useCase.execute();
-
-        expect(result).toMatchObject({
-            purged: true,
-            purgedMessages: 41,
-        });
-        expect(administration.purgeCalls).toBe(1);
-        expect(events.map((event) => event.kind)).toContain(
-            NATS_JOB_STREAM_MAINTENANCE_EVENT.PurgeStarted,
-        );
-    });
-
-    it("recovers a server-global limit even when account max storage is unlimited", async () => {
-        const administration = new FakeAdministration(
-            [
-                snapshot({ maxStorageBytes: -1 }),
-                snapshot({ maxStorageBytes: -1 }),
-                snapshot({ maxStorageBytes: -1 }),
-                snapshot({
-                    maxStorageBytes: -1,
-                    storageBytes: 0,
-                    messages: 0,
-                }),
-                snapshot({
-                    maxStorageBytes: -1,
-                    storageBytes: 0,
-                    messages: 0,
-                }),
-            ],
-            [LIMITED_PROBE, LIMITED_PROBE, WRITABLE_PROBE],
-            12,
-        );
-        const { useCase } = fixture(administration, {
-            expiryPollIntervalMs: 5,
-            expiryStallTimeoutMs: 5,
-            expiryMaxWaitMs: 20,
-        });
-
-        const result = await useCase.execute();
-
-        expect(result.purged).toBe(true);
-        expect(administration.purgeCalls).toBe(1);
-    });
-
-    it.each(["permission denied", "503"])(
-        "does not mutate the stream after a non-storage probe failure: %s",
-        async (error) => {
-            const administration = new FakeAdministration(
-                [snapshot()],
-                [
-                    {
-                        writable: false,
-                        resourceLimited: false,
-                        error,
-                    },
-                ],
-            );
-            const { useCase } = fixture(administration);
-
-            await expect(useCase.execute()).rejects.toThrow(error);
-            expect(administration.reconciledMaxAges).toEqual([]);
-            expect(administration.purgeCalls).toBe(0);
+    it.each<Partial<NatsJobStreamConsumerSnapshot>>([
+        { ackPending: 1 },
+        { redelivered: 1 },
+        { ackFloorStreamSequence: 49 },
+        { ackFloorConsumerSequence: 19 },
+        { deliveredConsumerSequence: 0, ackFloorConsumerSequence: 0 },
+        { durable: false },
+        { deliversAll: false },
+        { explicitAck: false },
+        { created: "" },
+        { firstRetainedSequence: 51 },
+        { firstRetainedSequence: null },
+        { firstRetainedSequence: 0 },
+        { pending: -1 },
+        {
+            ackFloorStreamSequence: Number.MAX_SAFE_INTEGER,
+            deliveredStreamSequence: Number.MAX_SAFE_INTEGER,
+        },
+        { filterSubjects: [] },
+        { filterSubjects: ["test.jobs.*"] },
+        { filterSubjects: [SUBJECT, resolveNatsJobSubject(PREFIX, "other")] },
+    ])(
+        "does not infer completed leftovers from unsupported or uncertain state: %j",
+        (overrides) => {
+            expect(
+                planAcknowledgedJobStreamCleanup(
+                    snapshot([consumer(overrides)]),
+                ),
+            ).toEqual([]);
         },
     );
 
-    it("does not purge after an unrelated post-policy probe failure", async () => {
-        const administration = new FakeAdministration(
-            [snapshot(), snapshot()],
-            [
-                WRITABLE_PROBE,
-                { writable: false, resourceLimited: false, error: "503" },
-            ],
-        );
-        const { useCase } = fixture(administration);
+    it("leaves a healthy old backlog, uncovered subjects and in-flight work alone", () => {
+        const inFlight = consumer({
+            name: "inflight",
+            filterSubjects: [resolveNatsJobSubject(PREFIX, "inflight")],
+            ackPending: 1,
+        });
+        const healthy = consumer({
+            name: "healthy",
+            filterSubjects: [resolveNatsJobSubject(PREFIX, "healthy")],
+            firstRetainedSequence: 80,
+        });
+        expect(
+            planAcknowledgedJobStreamCleanup(
+                snapshot([consumer(), inFlight, healthy]),
+            ),
+        ).toHaveLength(1);
+        expect(planAcknowledgedJobStreamCleanup(snapshot([]))).toEqual([]);
+    });
 
-        await expect(useCase.execute()).rejects.toThrow("503");
-        expect(administration.purgeCalls).toBe(0);
+    it("refuses ambiguous ownership and incomplete consumer enumeration", () => {
+        expect(
+            planAcknowledgedJobStreamCleanup(
+                snapshot([consumer(), consumer({ name: "duplicate" })]),
+            ),
+        ).toEqual([]);
+        const incomplete = snapshot();
+        incomplete.stream!.consumerCount++;
+        expect(planAcknowledgedJobStreamCleanup(incomplete)).toEqual([]);
+        expect(
+            planAcknowledgedJobStreamCleanup(
+                snapshot([
+                    consumer(),
+                    consumer({ name: "wild", filterSubjects: [">"] }),
+                ]),
+            ),
+        ).toEqual([]);
+    });
+
+    it("requires a work queue with expiry disabled", () => {
+        const state = snapshot();
+        state.stream!.workQueue = false;
+        expect(planAcknowledgedJobStreamCleanup(state)).toEqual([]);
+        state.stream!.workQueue = true;
+        state.stream!.maxAgeNanos = 1;
+        expect(planAcknowledgedJobStreamCleanup(state)).toEqual([]);
     });
 });
 
-class FakeAdministration {
-    readonly reconciledMaxAges: number[] = [];
-    purgeCalls = 0;
+describe("MaintainNatsJobStream", () => {
+    it("does no cleanup for a healthy backlog even after days offline", async () => {
+        const { administration, useCase } = fixture(
+            snapshot([consumer({ firstRetainedSequence: 80 })]),
+        );
+        expect(await useCase.execute()).toMatchObject({ purged: false });
+        expect(administration.removeAcknowledged).not.toHaveBeenCalled();
+        expect(administration.reconcileMaxAge).toHaveBeenCalledWith(
+            NATS_JOB_STREAM_MAX_AGE_NANOS,
+        );
+    });
 
-    constructor(
-        private readonly snapshots: NatsJobStreamSnapshot[],
-        private readonly probes: NatsJobStreamWriteProbe[],
-        private readonly purgedMessages = 0,
-    ) {}
+    it("removes only proven completed leftovers even without current storage pressure", async () => {
+        const { administration, useCase } = fixture(snapshot());
+        expect(await useCase.execute()).toMatchObject({
+            purged: true,
+            purgedMessages: 20,
+        });
+        expect(
+            administration.removeAcknowledged,
+        ).toHaveBeenCalledExactlyOnceWith(
+            planAcknowledgedJobStreamCleanup(snapshot())[0],
+        );
+    });
 
-    async inspect(): Promise<NatsJobStreamSnapshot> {
-        const value =
-            this.snapshots.length > 1
-                ? this.snapshots.shift()
-                : this.snapshots[0];
-        if (!value) throw new Error("Missing inspection fixture");
-        return value;
-    }
+    it("recovers storage pressure only through acknowledged cleanup", async () => {
+        const { administration, useCase } = fixture(snapshot(), LIMITED);
+        administration.probeWritable
+            .mockResolvedValueOnce(LIMITED)
+            .mockResolvedValueOnce(LIMITED)
+            .mockResolvedValueOnce(WRITABLE);
+        expect(await useCase.execute()).toMatchObject({ purged: true });
+    });
 
-    async reconcileMaxAge(maxAgeNanos: number): Promise<void> {
-        this.reconciledMaxAges.push(maxAgeNanos);
-    }
+    it("fails without deleting valid pending work when storage stays full", async () => {
+        const { administration, useCase } = fixture(
+            snapshot([consumer({ firstRetainedSequence: 80 })]),
+            LIMITED,
+        );
+        await expect(useCase.execute()).rejects.toThrow(
+            "queued work was preserved",
+        );
+        expect(administration.removeAcknowledged).not.toHaveBeenCalled();
+    });
 
-    async purge(): Promise<number> {
-        this.purgeCalls += 1;
-        return this.purgedMessages;
-    }
-
-    async probeWritable(): Promise<NatsJobStreamWriteProbe> {
-        const value =
-            this.probes.length > 1 ? this.probes.shift() : this.probes[0];
-        if (!value) throw new Error("Missing write probe fixture");
-        return value;
-    }
-}
-
-function fixture(
-    administration: FakeAdministration,
-    policy = {
-        expiryPollIntervalMs: 5,
-        expiryStallTimeoutMs: 10,
-        expiryMaxWaitMs: 30,
-    },
-) {
-    let now = 0;
-    const events: NatsJobStreamMaintenanceEvent[] = [];
-    const reporter = {
-        report: vi.fn((event: NatsJobStreamMaintenanceEvent) =>
-            events.push(event),
-        ),
-    };
-    return {
-        useCase: new MaintainNatsJobStream(
-            administration,
-            reporter,
-            {
-                now: () => now,
-                sleep: async (delayMs) => {
-                    now += delayMs;
-                },
-            },
-            policy,
-        ),
-        events,
-    };
-}
-
-function snapshot(
-    overrides: {
-        maxAgeNanos?: number;
-        storageBytes?: number;
-        maxStorageBytes?: number;
-        messages?: number;
-    } = {},
-): NatsJobStreamSnapshot {
-    return {
-        stream: {
-            name: "artgod-jobs",
-            maxAgeNanos: overrides.maxAgeNanos ?? NATS_JOB_STREAM_MAX_AGE_NANOS,
-            messages: overrides.messages ?? 10,
-            bytes: overrides.storageBytes ?? 100,
-            firstSequence: 1,
-            firstTimestamp: "2026-08-10T00:00:00.000Z",
-            lastSequence: 10,
-            lastTimestamp: "2026-08-11T00:00:00.000Z",
-            consumerCount: 1,
+    it.each(["503", "permission denied", "probe cleanup failed"])(
+        "does not delete on unrelated failure: %s",
+        async (error) => {
+            const { administration, useCase } = fixture(snapshot(), {
+                writable: false,
+                resourceLimited: false,
+                error,
+            });
+            await expect(useCase.execute()).rejects.toThrow(error);
+            expect(administration.removeAcknowledged).not.toHaveBeenCalled();
+            expect(administration.reconcileMaxAge).not.toHaveBeenCalled();
         },
-        account: {
-            storageBytes: overrides.storageBytes ?? 100,
-            maxStorageBytes: overrides.maxStorageBytes ?? -1,
-        },
-        consumers: [],
-    };
-}
+    );
+
+    it("does not let an earlier storage error mask a later unrelated failure", async () => {
+        const { administration, useCase } = fixture(snapshot(), LIMITED);
+        administration.probeWritable
+            .mockResolvedValueOnce(LIMITED)
+            .mockResolvedValueOnce({
+                writable: false,
+                resourceLimited: false,
+                error: "503",
+            });
+        await expect(useCase.execute()).rejects.toThrow("503");
+        expect(administration.removeAcknowledged).not.toHaveBeenCalled();
+    });
+
+    it("reports failure if safe cleanup did not restore writes", async () => {
+        const { administration, useCase } = fixture(snapshot(), LIMITED);
+        await expect(useCase.execute()).rejects.toThrow(
+            "queued work was preserved",
+        );
+        expect(administration.removeAcknowledged).toHaveBeenCalledTimes(1);
+    });
+
+    it("aborts before later subjects when revalidation/cleanup fails", async () => {
+        const state = snapshot([
+            consumer(),
+            consumer({
+                name: "other",
+                filterSubjects: [resolveNatsJobSubject(PREFIX, "other")],
+            }),
+        ]);
+        const { administration, useCase } = fixture(state);
+        administration.removeAcknowledged.mockRejectedValue(
+            new Error("evidence changed"),
+        );
+        await expect(useCase.execute()).rejects.toThrow("evidence changed");
+        expect(administration.removeAcknowledged).toHaveBeenCalledTimes(1);
+    });
+});

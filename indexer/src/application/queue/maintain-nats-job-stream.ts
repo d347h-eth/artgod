@@ -1,11 +1,9 @@
 import { NATS_JOB_STREAM_MAX_AGE_NANOS } from "@artgod/shared/queue/nats-job-stream";
 
-// Owns the lifecycle event vocabulary emitted by the startup maintenance use case.
 export const NATS_JOB_STREAM_MAINTENANCE_EVENT = {
     UpgradeObservation: "upgrade_observation",
     UpgradeWriteProbe: "upgrade_write_probe",
     PolicyReconciled: "policy_reconciled",
-    ExpiryProgress: "expiry_progress",
     PurgeStarted: "purge_started",
     PurgeCompleted: "purge_completed",
     WriteVerified: "write_verified",
@@ -18,17 +16,26 @@ export type NatsJobStreamMaintenanceEventKind =
 
 export type NatsJobStreamConsumerSnapshot = {
     name: string;
-    filterSubject: string | null;
+    created: string;
+    durable: boolean;
+    deliversAll: boolean;
+    explicitAck: boolean;
+    filterSubjects: string[];
     deliveredStreamSequence: number;
+    deliveredConsumerSequence: number;
     ackFloorStreamSequence: number;
+    ackFloorConsumerSequence: number;
     pending: number;
     ackPending: number;
     redelivered: number;
+    firstRetainedSequence: number | null;
 };
 
 export type NatsJobStreamSnapshot = {
     stream: {
         name: string;
+        created: string;
+        workQueue: boolean;
         maxAgeNanos: number;
         messages: number;
         bytes: number;
@@ -38,10 +45,7 @@ export type NatsJobStreamSnapshot = {
         lastTimestamp: string;
         consumerCount: number;
     } | null;
-    account: {
-        storageBytes: number;
-        maxStorageBytes: number;
-    };
+    account: { storageBytes: number; maxStorageBytes: number };
     consumers: NatsJobStreamConsumerSnapshot[];
 };
 
@@ -51,10 +55,20 @@ export type NatsJobStreamWriteProbe = {
     error: string | null;
 };
 
+// A deletion is always one exact subject, bounded by a fully acknowledged
+// consumer position. The adapter must revalidate this evidence before mutation.
+export type AcknowledgedJobStreamCleanup = {
+    streamCreated: string;
+    subject: string;
+    throughSequence: number;
+    consumer: NatsJobStreamConsumerSnapshot;
+};
+
 export type NatsJobStreamMaintenanceEvent = {
     kind: NatsJobStreamMaintenanceEventKind;
     snapshot?: NatsJobStreamSnapshot;
     writeProbe?: NatsJobStreamWriteProbe;
+    cleanup?: AcknowledgedJobStreamCleanup;
     purgedMessages?: number;
 };
 
@@ -70,50 +84,26 @@ export type NatsJobStreamMaintenanceResult = {
 type NatsJobStreamAdministrationPort = {
     inspect(): Promise<NatsJobStreamSnapshot>;
     reconcileMaxAge(maxAgeNanos: number): Promise<void>;
-    purge(): Promise<number>;
+    removeAcknowledged(cleanup: AcknowledgedJobStreamCleanup): Promise<number>;
     probeWritable(): Promise<NatsJobStreamWriteProbe>;
 };
 
-type NatsJobStreamMaintenanceReporterPort = {
-    report(event: NatsJobStreamMaintenanceEvent): void;
-};
-
-type NatsJobStreamMaintenanceClockPort = {
-    now(): number;
-    sleep(delayMs: number): Promise<void>;
-};
-
-export type NatsJobStreamMaintenancePolicy = {
-    expiryPollIntervalMs: number;
-    expiryStallTimeoutMs: number;
-    expiryMaxWaitMs: number;
-};
-
-// Bounds startup waiting while allowing active MaxAge cleanup to keep making progress.
-export const DEFAULT_NATS_JOB_STREAM_MAINTENANCE_POLICY: NatsJobStreamMaintenancePolicy =
-    {
-        expiryPollIntervalMs: 5_000,
-        expiryStallTimeoutMs: 30_000,
-        expiryMaxWaitMs: 10 * 60 * 1_000,
-    };
-
-// Reconciles the jobs stream before any normal queue producer is allowed to start.
+// Runs before producers/consumers. Storage pressure never authorizes dropping
+// processable work; if completed leftovers cannot recover writes, startup fails.
 export class MaintainNatsJobStream {
     constructor(
         private readonly administration: NatsJobStreamAdministrationPort,
-        private readonly reporter: NatsJobStreamMaintenanceReporterPort,
-        private readonly clock: NatsJobStreamMaintenanceClockPort,
-        private readonly policy: NatsJobStreamMaintenancePolicy = DEFAULT_NATS_JOB_STREAM_MAINTENANCE_POLICY,
+        private readonly reporter: {
+            report(event: NatsJobStreamMaintenanceEvent): void;
+        },
     ) {}
 
     async execute(): Promise<NatsJobStreamMaintenanceResult> {
-        // Capture the exact restored state before the release changes stream policy.
         const initial = await this.administration.inspect();
         this.reporter.report({
             kind: NATS_JOB_STREAM_MAINTENANCE_EVENT.UpgradeObservation,
             snapshot: initial,
         });
-
         const initialWriteProbe = initial.stream
             ? await this.administration.probeWritable()
             : null;
@@ -122,191 +112,149 @@ export class MaintainNatsJobStream {
                 kind: NATS_JOB_STREAM_MAINTENANCE_EVENT.UpgradeWriteProbe,
                 writeProbe: initialWriteProbe,
             });
-            if (
-                !initialWriteProbe.writable &&
-                !initialWriteProbe.resourceLimited
-            ) {
-                throw new Error(
-                    `Initial jobs stream write probe failed outside the storage-limit recovery path: ${initialWriteProbe.error ?? "unknown error"}`,
-                );
-            }
+            assertRecoverableProbe(initialWriteProbe);
         }
 
-        // Apply the canonical policy to both newly created and previously installed streams.
         await this.administration.reconcileMaxAge(
             NATS_JOB_STREAM_MAX_AGE_NANOS,
         );
         const afterPolicy = await this.administration.inspect();
-        this.assertPolicyReconciled(afterPolicy);
+        if (afterPolicy.stream?.maxAgeNanos !== NATS_JOB_STREAM_MAX_AGE_NANOS) {
+            throw new Error("Jobs stream age policy was not reconciled");
+        }
         this.reporter.report({
             kind: NATS_JOB_STREAM_MAINTENANCE_EVENT.PolicyReconciled,
             snapshot: afterPolicy,
         });
 
-        const afterExpiry = await this.waitForWriteRecovery(
-            afterPolicy,
-            initialWriteProbe,
-        );
-        const recovery = await this.ensureWritable(
-            afterExpiry.snapshot,
-            afterExpiry.writeProbe,
-        );
+        // An unrelated failure must not fall through from an earlier resource
+        // error into deletion. A successful probe also cleans up its own message.
+        const beforeCleanup = await this.administration.probeWritable();
+        assertRecoverableProbe(beforeCleanup);
+        let purgedMessages = 0;
+        const cleanups = planAcknowledgedJobStreamCleanup(afterPolicy);
+        for (const cleanup of cleanups) {
+            this.reporter.report({
+                kind: NATS_JOB_STREAM_MAINTENANCE_EVENT.PurgeStarted,
+                cleanup,
+            });
+            const removed =
+                await this.administration.removeAcknowledged(cleanup);
+            purgedMessages += removed;
+            this.reporter.report({
+                kind: NATS_JOB_STREAM_MAINTENANCE_EVENT.PurgeCompleted,
+                cleanup,
+                purgedMessages: removed,
+            });
+        }
 
+        const writeProbe =
+            cleanups.length > 0
+                ? await this.administration.probeWritable()
+                : beforeCleanup;
+        if (!writeProbe.writable) {
+            throw new Error(
+                `Jobs stream remains unwritable; queued work was preserved: ${writeProbe.error ?? "unknown error"}`,
+            );
+        }
+        const final = await this.administration.inspect();
+        this.reporter.report({
+            kind: NATS_JOB_STREAM_MAINTENANCE_EVENT.WriteVerified,
+            snapshot: final,
+            writeProbe,
+        });
         this.reporter.report({
             kind: NATS_JOB_STREAM_MAINTENANCE_EVENT.Completed,
-            snapshot: recovery.final,
-            purgedMessages: recovery.purgedMessages,
+            snapshot: final,
+            purgedMessages,
         });
         return {
             initial,
             initialWriteProbe,
             afterPolicy,
-            final: recovery.final,
-            purged: recovery.purged,
-            purgedMessages: recovery.purgedMessages,
-        };
-    }
-
-    private async waitForWriteRecovery(
-        startingSnapshot: NatsJobStreamSnapshot,
-        initialWriteProbe: NatsJobStreamWriteProbe | null,
-    ): Promise<{
-        snapshot: NatsJobStreamSnapshot;
-        writeProbe: NatsJobStreamWriteProbe | null;
-    }> {
-        let current = startingSnapshot;
-        const recoveryRequired =
-            initialWriteProbe?.resourceLimited || isOverStorageLimit(current);
-        if (!recoveryRequired) {
-            return { snapshot: current, writeProbe: null };
-        }
-
-        const startedAt = this.clock.now();
-        let lastProgressAt = startedAt;
-        let previousStorageBytes = current.account.storageBytes;
-        let writeProbe = initialWriteProbe;
-
-        while (true) {
-            const now = this.clock.now();
-            if (
-                now - startedAt >= this.policy.expiryMaxWaitMs ||
-                now - lastProgressAt >= this.policy.expiryStallTimeoutMs
-            ) {
-                return { snapshot: current, writeProbe };
-            }
-
-            await this.clock.sleep(this.policy.expiryPollIntervalMs);
-            current = await this.administration.inspect();
-            writeProbe = await this.administration.probeWritable();
-            if (current.account.storageBytes < previousStorageBytes) {
-                lastProgressAt = this.clock.now();
-                previousStorageBytes = current.account.storageBytes;
-            }
-            this.reporter.report({
-                kind: NATS_JOB_STREAM_MAINTENANCE_EVENT.ExpiryProgress,
-                snapshot: current,
-                writeProbe,
-            });
-            if (writeProbe.writable) {
-                return { snapshot: current, writeProbe };
-            }
-            if (!writeProbe.resourceLimited) {
-                throw new Error(
-                    `Jobs stream write verification failed during MaxAge cleanup: ${writeProbe.error ?? "unknown error"}`,
-                );
-            }
-        }
-    }
-
-    private async ensureWritable(
-        snapshot: NatsJobStreamSnapshot,
-        observedProbe: NatsJobStreamWriteProbe | null,
-    ): Promise<{
-        final: NatsJobStreamSnapshot;
-        purged: boolean;
-        purgedMessages: number;
-    }> {
-        if (observedProbe?.writable) {
-            const final = await this.administration.inspect();
-            this.reporter.report({
-                kind: NATS_JOB_STREAM_MAINTENANCE_EVENT.WriteVerified,
-                snapshot: final,
-                writeProbe: observedProbe,
-            });
-            return { final, purged: false, purgedMessages: 0 };
-        }
-
-        if (!isOverStorageLimit(snapshot)) {
-            const probe =
-                observedProbe ?? (await this.administration.probeWritable());
-            if (probe.writable) {
-                const final = await this.administration.inspect();
-                this.reporter.report({
-                    kind: NATS_JOB_STREAM_MAINTENANCE_EVENT.WriteVerified,
-                    snapshot: final,
-                    writeProbe: probe,
-                });
-                return { final, purged: false, purgedMessages: 0 };
-            }
-            if (!probe.resourceLimited) {
-                throw new Error(
-                    `Jobs stream write verification failed: ${probe.error ?? "unknown error"}`,
-                );
-            }
-        }
-
-        const stream = snapshot.stream;
-        if (!stream || stream.messages === 0) {
-            throw new Error(
-                "JetStream remains over its storage limit, but the jobs stream has no messages available for recovery purge",
-            );
-        }
-
-        this.reporter.report({
-            kind: NATS_JOB_STREAM_MAINTENANCE_EVENT.PurgeStarted,
-            snapshot,
-        });
-        const purgedMessages = await this.administration.purge();
-        const afterPurge = await this.administration.inspect();
-        this.reporter.report({
-            kind: NATS_JOB_STREAM_MAINTENANCE_EVENT.PurgeCompleted,
-            snapshot: afterPurge,
+            final,
+            purged: purgedMessages > 0,
             purgedMessages,
-        });
-
-        const probe = await this.administration.probeWritable();
-        if (!probe.writable) {
-            throw new Error(
-                `Jobs stream remained unwritable after purging ${purgedMessages} messages: ${probe.error ?? "unknown error"}`,
-            );
-        }
-
-        const final = await this.administration.inspect();
-        this.reporter.report({
-            kind: NATS_JOB_STREAM_MAINTENANCE_EVENT.WriteVerified,
-            snapshot: final,
-            writeProbe: probe,
-        });
-        return { final, purged: true, purgedMessages };
-    }
-
-    private assertPolicyReconciled(snapshot: NatsJobStreamSnapshot): void {
-        if (!snapshot.stream) {
-            throw new Error(
-                "Jobs stream is missing after policy reconciliation",
-            );
-        }
-        if (snapshot.stream.maxAgeNanos !== NATS_JOB_STREAM_MAX_AGE_NANOS) {
-            throw new Error(
-                `Jobs stream MaxAge is ${snapshot.stream.maxAgeNanos}ns after reconciliation; expected ${NATS_JOB_STREAM_MAX_AGE_NANOS}ns`,
-            );
-        }
+        };
     }
 }
 
-function isOverStorageLimit(snapshot: NatsJobStreamSnapshot): boolean {
-    const maxStorageBytes = snapshot.account.maxStorageBytes;
+// A healthy work queue has no retained records behind its ACK floor. Require
+// the entire delivered prefix to be acknowledged; do not infer completion from
+// age, account storage, total pending counts, or a consumer's delivery position.
+export function planAcknowledgedJobStreamCleanup(
+    snapshot: NatsJobStreamSnapshot,
+): AcknowledgedJobStreamCleanup[] {
+    const { stream, consumers } = snapshot;
+    if (
+        !stream?.workQueue ||
+        !stream.created ||
+        stream.maxAgeNanos !== NATS_JOB_STREAM_MAX_AGE_NANOS ||
+        stream.consumerCount !== consumers.length
+    )
+        return [];
+    // Unknown/wildcard ownership could overlap an otherwise exact subject.
+    if (
+        consumers.some(
+            (c) =>
+                c.filterSubjects.length !== 1 ||
+                !isExactJobSubject(c.filterSubjects[0]!),
+        )
+    )
+        return [];
+
+    return consumers.flatMap((consumer) => {
+        const subject = consumer.filterSubjects[0]!;
+        const floor = consumer.ackFloorStreamSequence;
+        if (
+            !consumer.durable ||
+            !consumer.deliversAll ||
+            !consumer.explicitAck ||
+            !consumer.created ||
+            consumer.ackPending !== 0 ||
+            consumer.redelivered !== 0 ||
+            !Number.isSafeInteger(consumer.pending) ||
+            consumer.pending < 0 ||
+            !Number.isSafeInteger(floor) ||
+            floor <= 0 ||
+            floor >= Number.MAX_SAFE_INTEGER ||
+            floor > stream.lastSequence ||
+            consumer.deliveredStreamSequence !== floor ||
+            !Number.isSafeInteger(consumer.ackFloorConsumerSequence) ||
+            consumer.ackFloorConsumerSequence <= 0 ||
+            consumer.deliveredConsumerSequence !==
+                consumer.ackFloorConsumerSequence ||
+            consumer.firstRetainedSequence === null ||
+            !Number.isSafeInteger(consumer.firstRetainedSequence) ||
+            consumer.firstRetainedSequence <= 0 ||
+            consumer.firstRetainedSequence > floor ||
+            consumers.filter((c) => c.filterSubjects[0] === subject).length !==
+                1
+        )
+            return [];
+        return [
+            {
+                streamCreated: stream.created,
+                subject,
+                throughSequence: floor,
+                consumer,
+            },
+        ];
+    });
+}
+
+export function isExactJobSubject(subject: string): boolean {
     return (
-        maxStorageBytes >= 0 && snapshot.account.storageBytes > maxStorageBytes
+        subject.length > 0 &&
+        !/[\s*>]/u.test(subject) &&
+        subject.split(".").every((token) => token.length > 0)
     );
+}
+
+function assertRecoverableProbe(probe: NatsJobStreamWriteProbe): void {
+    if (!probe.writable && !probe.resourceLimited) {
+        throw new Error(
+            `Jobs stream write probe failed outside storage recovery: ${probe.error ?? "unknown error"}`,
+        );
+    }
 }

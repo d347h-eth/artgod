@@ -18,10 +18,8 @@ const NATS_JOB_STREAM_MAINTENANCE_MESSAGE = {
         "Checked jobs stream write health before policy recovery",
     [NATS_JOB_STREAM_MAINTENANCE_EVENT.PolicyReconciled]:
         "Reconciled jobs stream retention policy",
-    [NATS_JOB_STREAM_MAINTENANCE_EVENT.ExpiryProgress]:
-        "Waiting for jobs stream MaxAge cleanup",
     [NATS_JOB_STREAM_MAINTENANCE_EVENT.PurgeStarted]:
-        "Jobs stream remains over its storage limit; starting recovery purge",
+        "Removing retained jobs below a fully acknowledged consumer position",
     [NATS_JOB_STREAM_MAINTENANCE_EVENT.PurgeCompleted]:
         "Completed jobs stream recovery purge",
     [NATS_JOB_STREAM_MAINTENANCE_EVENT.WriteVerified]:
@@ -36,15 +34,9 @@ async function main(): Promise<void> {
     const config = loadNatsJobStreamMaintenanceConfig();
     const adapter = await NatsJobStreamMaintenanceAdapter.connect(config);
     try {
-        const maintenance = new MaintainNatsJobStream(
-            adapter,
-            { report: reportMaintenanceEvent },
-            {
-                now: () => Date.now(),
-                sleep: (delayMs) =>
-                    new Promise((resolve) => setTimeout(resolve, delayMs)),
-            },
-        );
+        const maintenance = new MaintainNatsJobStream(adapter, {
+            report: reportMaintenanceEvent,
+        });
         await maintenance.execute();
     } finally {
         await adapter.close();
@@ -59,6 +51,7 @@ function reportMaintenanceEvent(event: NatsJobStreamMaintenanceEvent): void {
             ? summarizeSnapshot(event.snapshot, event.kind)
             : {}),
         ...(event.writeProbe ? { writeProbe: event.writeProbe } : {}),
+        ...(event.cleanup ? { cleanup: event.cleanup } : {}),
         ...(event.purgedMessages !== undefined
             ? { purgedMessages: event.purgedMessages }
             : {}),

@@ -9,8 +9,8 @@ import {
 } from "./nats-job-stream.js";
 
 describe("NATS jobs stream contract", () => {
-    it("owns the exact 24-hour JetStream retention value", () => {
-        expect(NATS_JOB_STREAM_MAX_AGE_NANOS).toBe(86_400_000_000_000);
+    it("disables age expiry so valid pending work survives downtime", () => {
+        expect(NATS_JOB_STREAM_MAX_AGE_NANOS).toBe(0);
     });
 
     it("resolves the installed stream and subject vocabulary", () => {

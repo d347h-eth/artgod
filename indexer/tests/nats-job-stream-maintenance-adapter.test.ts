@@ -7,6 +7,9 @@ import {
 } from "@artgod/shared/queue/nats-job-stream";
 import { NatsJobStreamMaintenanceAdapter } from "../src/infra/queue/nats-job-stream-maintenance.js";
 
+import { planAcknowledgedJobStreamCleanup } from "../src/application/queue/maintain-nats-job-stream.js";
+import { snapshot } from "./fixtures/nats-job-stream.js";
+
 const TEST_STREAM_PREFIX = "test";
 const TEST_NATS_URL = "nats://127.0.0.1:42720";
 
@@ -163,6 +166,69 @@ describe("NatsJobStreamMaintenanceAdapter", () => {
         await expect(
             adapter.reconcileMaxAge(NATS_JOB_STREAM_MAX_AGE_NANOS),
         ).rejects.toBe(timeout);
+    });
+});
+
+describe("acknowledged cleanup adapter", () => {
+    function cleanupFixture() {
+        const state = snapshot();
+        const cleanup = planAcknowledgedJobStreamCleanup(state)[0]!;
+        const adapter = Object.create(
+            NatsJobStreamMaintenanceAdapter.prototype,
+        ) as NatsJobStreamMaintenanceAdapter;
+        const purge = vi.fn().mockResolvedValue({ success: true, purged: 20 });
+        Object.assign(adapter, {
+            streamName: resolveNatsJobStreamName(TEST_STREAM_PREFIX),
+            streamPrefix: TEST_STREAM_PREFIX,
+            manager: { streams: { purge } },
+        });
+        vi.spyOn(adapter, "inspect").mockImplementation(async () => state);
+        return { adapter, state, cleanup, purge };
+    }
+
+    it("sends an exact subject and exclusive ACK cutoff, never an unfiltered purge", async () => {
+        const { adapter, cleanup, purge } = cleanupFixture();
+        expect(await adapter.removeAcknowledged(cleanup)).toBe(20);
+        expect(purge).toHaveBeenCalledExactlyOnceWith(
+            resolveNatsJobStreamName(TEST_STREAM_PREFIX),
+            {
+                filter: cleanup.subject,
+                seq: cleanup.throughSequence + 1,
+            },
+        );
+    });
+
+    it.each([
+        "recreated-stream",
+        "recreated-consumer",
+        "in-flight",
+        "changed-floor",
+        "changed-scope",
+    ])("rejects changed evidence: %s", async (change) => {
+        const { adapter, state, cleanup, purge } = cleanupFixture();
+        // Preserve the planned evidence while independently changing the inspected state.
+        const planned = structuredClone(cleanup);
+        if (change === "recreated-stream")
+            state.stream!.created = "2026-09-15T00:00:00Z";
+        if (change === "recreated-consumer")
+            state.consumers[0]!.created = "2026-09-15T00:00:00Z";
+        if (change === "in-flight") state.consumers[0]!.ackPending = 1;
+        if (change === "changed-floor")
+            state.consumers[0]!.ackFloorStreamSequence--;
+        if (change === "changed-scope") planned.subject = ">";
+        await expect(adapter.removeAcknowledged(planned)).rejects.toThrow(
+            "evidence changed",
+        );
+        expect(purge).not.toHaveBeenCalled();
+    });
+
+    it("does not broaden cleanup when NATS rejects the scoped request", async () => {
+        const { adapter, cleanup, purge } = cleanupFixture();
+        purge.mockResolvedValue({ success: false, purged: 0 });
+        await expect(adapter.removeAcknowledged(cleanup)).rejects.toThrow(
+            "cleanup failed",
+        );
+        expect(purge).toHaveBeenCalledTimes(1);
     });
 });
 

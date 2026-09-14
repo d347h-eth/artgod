@@ -1,15 +1,11 @@
-const NANOSECONDS_PER_SECOND = 1_000_000_000;
-const SECONDS_PER_HOUR = 60 * 60;
+import policy from "./nats-job-stream-policy.json" with { type: "json" };
 
-// Pending jobs expire after one day; expired manual backfills can be republished.
-export const NATS_JOB_STREAM_MAX_AGE_HOURS = 24;
+// Pending work survives downtime. Zero disables JetStream's age-based expiry.
+// The native pre-start migration reads this same policy before NATS restores data.
+export const NATS_JOB_STREAM_MAX_AGE_NANOS = policy.maxAgeNanos;
 
-// JetStream expresses stream age limits in nanoseconds.
-export const NATS_JOB_STREAM_MAX_AGE_NANOS =
-    NATS_JOB_STREAM_MAX_AGE_HOURS * SECONDS_PER_HOUR * NANOSECONDS_PER_SECOND;
-
-const NATS_JOB_STREAM_NAME_SUFFIX = "jobs";
-const NATS_JOB_SUBJECT_TOKEN = "jobs";
+const NATS_JOB_STREAM_NAME_SUFFIX = policy.streamNameSuffix;
+const NATS_JOB_SUBJECT_TOKEN = policy.subjectToken;
 const NATS_JOB_STREAM_WILDCARD_TOKEN = ">";
 const NATS_JOB_STREAM_MAINTENANCE_PROBE_TOKEN = "_maintenance_probe";
 
