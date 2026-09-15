@@ -9,6 +9,10 @@ This now covers two runtime families:
 - fail-fast core composition runtimes (`backend`, `indexer/*`, `nats`)
 - wallet-bound trading bot runtimes (`trading/*`)
 
+Short-lived startup prerequisites use the separate
+[startup recovery task recipe](08-startup-recovery-tasks.md). Their artifact and
+log registration overlaps this guide, but they are not long-running workers.
+
 ## Why This Exists
 
 Runtime composition is currently explicit, not auto-discovered.

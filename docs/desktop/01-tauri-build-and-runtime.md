@@ -690,6 +690,9 @@ The controller is published under that generation before a worker barrier lets
 the bot consume wallet material; worker state updates and cleanup are accepted
 only from the matching generation.
 
+For new tasks, follow [Adding a startup recovery task](08-startup-recovery-tasks.md)
+for domain, supervisor, build, UI and verification touchpoints.
+
 Startup recovery is supervisor-owned and reusable. The first task is NATS
 maintenance; its domain rules decide whether acknowledged leftovers can be
 removed safely. Every startup attempt has an `operationId`. Status responses and
