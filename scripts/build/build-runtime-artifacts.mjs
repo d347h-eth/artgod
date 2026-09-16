@@ -81,6 +81,13 @@ validateRuntimeBuildMetafile(
 const indexerBuildResult = await build({
     ...baseBuildConfig,
     entryPoints: {
+        "nats-job-stream-maintenance": path.join(
+            rootDir,
+            "indexer",
+            "src",
+            "runtime",
+            "nats-job-stream-maintenance.ts",
+        ),
         "scheduler-worker": path.join(
             rootDir,
             "indexer",

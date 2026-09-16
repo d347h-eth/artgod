@@ -577,3 +577,30 @@ yarn check:runtime-registry
 # Remove all generated build artifacts and caches for broad recovery.
 yarn clean:build
 ```
+
+## NATS startup recovery regression harness
+
+```sh
+yarn test:nats:recovery
+```
+
+This maintained harness builds the native desktop executable, invokes its
+preparation child without opening Tauri, and uses the staged pinned NATS binary.
+Prepare runtime resources with `yarn build:desktop-runtime-resources` first if
+that binary is absent. All stores, logs and evidence remain in a new directory
+under `tmp/nats-startup-recovery/`; existing application data is never loaded.
+
+Coverage includes legacy age-policy migration before restore, an unmigrated
+expiry control, actual delivery after restart, refusal of an active listener,
+acknowledged leftovers mixed with pending/in-flight/unowned work, physical block
+reclamation, idempotence, and a full healthy queue that must fail without loss.
+The mixed store combines real acknowledged consumer state with earlier message
+blocks in a new synthetic directory. It recreates the observed retained-state
+invariant, not the original defect's unknown trigger. The age-expiry test uses a
+short limit and real offline time instead of waiting a day.
+
+`yarn test:runtime:recovery` separately renders the production Admin recovery,
+Stop, failure/retry, and readiness journeys through the maintained Playwright
+harness. It uses a synthetic bridge, so it does not establish native WebView or
+packaged end-to-end coverage. Cross-platform metadata replacement and packaged
+Stop/retry still need native QA; current local integration evidence is Linux.

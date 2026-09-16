@@ -10,7 +10,7 @@ export type StartupSurfacePolicy = {
 };
 
 export function resolveStartupSurfacePolicy(phase: LifecyclePhase): StartupSurfacePolicy {
-	if (phase === 'booting' || phase === 'stopping' || phase === 'fatal') {
+	if (phase === 'booting' || phase === 'recovering' || phase === 'stopping' || phase === 'fatal') {
 		return {
 			mode: 'admin-lifecycle',
 			forceOpen: true,

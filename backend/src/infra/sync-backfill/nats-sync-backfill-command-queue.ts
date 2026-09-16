@@ -1,11 +1,6 @@
-import {
-    JSONCodec,
-    RetentionPolicy,
-    StorageType,
-    connect,
-    type JetStreamManager,
-} from "nats";
+import { JSONCodec, connect } from "nats";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
+import { resolveNatsJobSubjectPrefix } from "@artgod/shared/queue/nats-job-stream";
 import {
     BACKFILL_ORDER_MAINTENANCE_POLICY,
     BACKFILL_SOURCE,
@@ -14,6 +9,7 @@ import {
 } from "@artgod/shared/types/sync-backfill";
 import type { SyncBackfillRangeCommand } from "../../application/use-cases/sync-backfill/schedule-sync-backfill.js";
 import { SYNC_BACKFILL_SPAN_ATTRIBUTE } from "../../application/use-cases/sync-backfill/sync-backfill-observability.js";
+import { ensureNatsJobStream } from "../queue/nats-job-stream.js";
 
 type BackfillSyncPayload = {
     fromBlock: number;
@@ -42,7 +38,6 @@ const SYNC_JOB_KIND = {
 } as const;
 
 export class NatsSyncBackfillCommandQueue {
-    private readonly streamName: string;
     private readonly subjectPrefix: string;
 
     constructor(
@@ -50,8 +45,7 @@ export class NatsSyncBackfillCommandQueue {
         private readonly streamPrefix: string,
         private readonly apm: ApmPort = NOOP_APM,
     ) {
-        this.streamName = `${streamPrefix}-jobs`;
-        this.subjectPrefix = `${streamPrefix}.jobs`;
+        this.subjectPrefix = resolveNatsJobSubjectPrefix(streamPrefix);
     }
 
     async publishBackfillRanges(
@@ -77,7 +71,7 @@ export class NatsSyncBackfillCommandQueue {
             await this.apm.withSpan(
                 "backend.sync_backfill.nats.ensure_stream",
                 attributes,
-                () => ensureStream(jsm, this.streamName, this.subjectPrefix),
+                () => ensureNatsJobStream(jsm, this.streamPrefix),
             );
             const codec = JSONCodec<JobEnvelope<BackfillSyncPayload>>();
             const subject = `${this.subjectPrefix}.${QUEUE_NAMES.BackfillSync}`;
@@ -126,22 +120,4 @@ function buildBackfillJobId(
 ): string {
     const scope = command.collectionId ?? "all";
     return `sync:manual:${command.chainId}:${scope}:${command.fromBlock}-${command.toBlock}:${nonce}`;
-}
-
-async function ensureStream(
-    jsm: JetStreamManager,
-    streamName: string,
-    subjectPrefix: string,
-): Promise<void> {
-    try {
-        await jsm.streams.info(streamName);
-        return;
-    } catch {}
-    await jsm.streams.add({
-        name: streamName,
-        subjects: [`${subjectPrefix}.>`],
-        retention: RetentionPolicy.Workqueue,
-        storage: StorageType.File,
-        max_age: 7 * 24 * 60 * 60 * 1_000_000_000,
-    });
 }

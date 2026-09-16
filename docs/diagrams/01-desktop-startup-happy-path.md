@@ -31,8 +31,15 @@ sequenceDiagram
         R->>S: Start supervisor
     end
 
-    S->>W: Start NATS
+    S->>R: startup=recovery, task=natsMaintenance, fixed deadline
+    R-->>A: Checking queued work; Stop available
+    S->>W: Native store preparation, then start NATS
+    S->>W: Wait for NATS; run API maintenance
+    Note over S,W: One shared 15-minute deadline
+    W-->>S: Successful final publish/delete probe
+    S->>R: startup=services, fresh deadline
     S->>B: Start backend
+    S->>B: Wait for backend port
     S->>W: Start enabled indexer workers
     S->>B: Probe GET /health/runtime
     B-->>S: Semantic health ok

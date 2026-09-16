@@ -10,6 +10,7 @@ import {
     getSettingDefaultBoolean,
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
+import { resolveNatsRuntimeConfig } from "@artgod/shared/config/nats";
 import { COMMON_MEDIA_ENV_KEY } from "@artgod/shared/config/common-media";
 import {
     parseRpcEndpointConfigList,
@@ -52,8 +53,6 @@ import {
 dotenv.config({ path: resolveRuntimeEnvPath(process.env, ".env") });
 
 const DEFAULT_CHAIN_ID = getSettingDefaultNumber("CHAIN_ID");
-const DEFAULT_NATS_URL = getSettingDefault("NATS_URL");
-const DEFAULT_NATS_STREAM_PREFIX = getSettingDefault("NATS_STREAM_PREFIX");
 const DEFAULT_REORG_DEPTH = getSettingDefaultNumber("REORG_DEPTH");
 const DEFAULT_BACKFILL_BATCH_SIZE = getSettingDefaultNumber(
     "BACKFILL_BATCH_SIZE",
@@ -246,6 +245,7 @@ export function loadConfig(
             env[COMMON_MEDIA_ENV_KEY.MediaCacheDir] ??
             DEFAULT_COMMON_MEDIA_CACHE_DIR,
     });
+    const queue = resolveNatsRuntimeConfig(env);
 
     return {
         dbPath,
@@ -260,10 +260,7 @@ export function loadConfig(
         tokens: {
             wethAddress: parseAddress(env.WETH_ADDRESS, "WETH_ADDRESS"),
         },
-        queue: {
-            natsUrl: env.NATS_URL ?? DEFAULT_NATS_URL,
-            streamPrefix: env.NATS_STREAM_PREFIX ?? DEFAULT_NATS_STREAM_PREFIX,
-        },
+        queue,
         sync: {
             reorgDepth: parseNumber(
                 env.REORG_DEPTH,

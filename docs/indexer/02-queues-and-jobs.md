@@ -74,7 +74,33 @@ Behavior:
     - Subjects: `${streamPrefix}.jobs.>`
 - Retention policy: `Workqueue` (each message consumed once).
 - Storage type: file-backed.
-- Max age: 7 days.
+- No age expiry (`max_age: 0`). Valid pending work survives time offline.
+- Backend publishers and indexer workers reconcile the same shared stream policy.
+
+Startup maintenance runs on every desktop runtime start/restart, before normal
+producers and consumers. It removes retained records only for an exact subject
+owned by one durable, explicit-ACK, deliver-all consumer whose delivered prefix
+is fully acknowledged. Retained records must be at or below that ACK floor;
+pending records above it remain intact. In-flight, redelivering, ambiguous,
+uncovered, or unsupported consumer state is never used to authorize cleanup.
+The adapter rechecks stream/consumer identity and positions immediately before
+a subject-and-sequence-bounded purge. Healthy queues require no cleanup.
+
+Storage pressure or record age alone never permits deletion. If writes cannot
+recover by removing acknowledged leftovers, startup fails and preserves queued
+work. A generic `503`, unrelated API error, or probe-cleanup failure also fails
+maintenance without deleting jobs. Failed connection initialization closes its
+connection before returning the failure.
+
+For existing installations, a native child disables the saved age limit before
+NATS starts: NATS otherwise expires old records during restore, before the API
+is available. This narrowly scoped metadata migration verifies NATS checksums
+and journals the two-file update so an interrupted attempt can finish on retry.
+It never changes message blocks or consumer state. See the
+[desktop recovery lifecycle](../desktop/01-tauri-build-and-runtime.md#supervisor-runtime-composition).
+
+This is startup recovery, not live repair or a durability guarantee for manual
+backfills. No job is deleted merely because a manual backfill is older than a day.
 
 Publishing:
 

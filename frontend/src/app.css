@@ -3826,6 +3826,7 @@ th {
 
 .desktop-lifecycle-title-row {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: baseline;
 	justify-content: space-between;
 	gap: 0.75rem;

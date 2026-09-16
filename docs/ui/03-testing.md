@@ -42,6 +42,7 @@ Current repository commands include:
 yarn test:bidding:automation
 yarn test:bidding:automation:public
 yarn test:bidding:authorization
+yarn test:runtime:recovery
 yarn test:bootstrap:probe
 yarn test:terraforms:media
 yarn test:terraforms:hypercastle
@@ -54,6 +55,31 @@ volatile CSS internals unless geometry itself is the contract.
 The [bootstrap regression cases](../indexer/11-testing.md#bootstrap-regression-cases)
 map standard, shared-contract, partially minted, and late OpenSea setup flows
 to their owning deterministic suites and optional manual fixtures.
+
+### Runtime Recovery
+
+`yarn test:runtime:recovery` renders the production Admin shell and retained
+standalone lifecycle drawer through typed synthetic runtime/configuration ports.
+It covers manual/automatic start, attachment to recovery, extended checking,
+service startup, API readiness, failure/timeout, Stop, cleanup, and retry at
+768x1024 and 480x1024. Configuration, logs, and Userland controls use the same
+production components. No existing application database or NATS store is opened.
+The development-only route is `/e2e-harness/admin/runtime`; its dedicated Vite
+server listens on loopback port 42707.
+
+Screenshots and failure diagnostics are preserved under
+`tmp/runtime-recovery-playwright/`. The Rust recovery and supervisor test modules
+exercise real synthetic child exits, timeout, cancellation, cleanup, controller
+reaping, wire serialization, and bot gating; their retained fixtures live in
+`tmp/recovery-native-tests/`. Run them with:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml --locked runtime::recovery::tests --lib
+cargo test --manifest-path src-tauri/Cargo.toml --locked runtime::supervisor::tests --lib
+```
+
+These checks do not launch the packaged native Tauri WebView or simulate a large
+real application store. Native rendered QA remains a separate release check.
 
 ### Bidding Scenario Ownership
 

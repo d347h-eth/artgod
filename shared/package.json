@@ -17,6 +17,7 @@
         "./config/deployment": "./config/deployment.ts",
         "./config/generated-settings-defaults": "./config/generated-settings-defaults.ts",
         "./config/http-fetch-resilience": "./config/http-fetch-resilience.ts",
+        "./config/nats": "./config/nats.ts",
         "./config/opensea-http": "./config/opensea-http.ts",
         "./config/opensea-integration": "./config/opensea-integration.ts",
         "./config/rpc-auto-sourcing": "./config/rpc-auto-sourcing.ts",
@@ -85,6 +86,7 @@
             "default": "./observability/metrics/index.ts"
         },
         "./observability/rpc": "./observability/rpc.ts",
+        "./queue/nats-job-stream": "./queue/nats-job-stream.ts",
         "./database": "./database/db.ts",
         "./migrations": "./database/migrations.ts",
         "./read-models": "./read-models/index.ts",

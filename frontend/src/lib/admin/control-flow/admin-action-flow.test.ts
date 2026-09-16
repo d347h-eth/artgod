@@ -52,6 +52,10 @@ function configState(
 function runtimeStatus(state: string): RuntimeStatus {
 	return {
 		state,
+		operationId: 0,
+		revision: 0,
+		startup: null,
+		recoveryFailure: null,
 		restartCount: 0,
 		lastError: null,
 		runningProcesses: [],
@@ -184,4 +188,15 @@ describe('resolveAdminActionFlow', () => {
 		expect(state.boot.disabled).toBe(true);
 		expect(state.userland.disabled).toBe(false);
 	});
+});
+
+it('keeps Stop available throughout startup without enabling Userland', async () => {
+	const { canStopRuntime } = await import('./admin-action-flow');
+	for (const state of ['starting', 'restarting', 'running']) {
+		expect(canStopRuntime(runtimeStatus(state), null)).toBe(true);
+		expect(canStopRuntime(runtimeStatus(state), 'stop')).toBe(false);
+		expect(canStopRuntime(runtimeStatus(state), 'shutdown')).toBe(false);
+	}
+	expect(canStopRuntime(runtimeStatus('stopped'), null)).toBe(false);
+	expect(canStopRuntime(runtimeStatus('stopping'), null)).toBe(false);
 });

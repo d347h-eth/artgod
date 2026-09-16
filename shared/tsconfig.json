@@ -7,6 +7,6 @@
         "noEmit": false,
         "emitDeclarationOnly": true
     },
-    "include": ["**/*"],
+    "include": ["**/*", "queue/nats-job-stream-policy.json"],
     "exclude": ["node_modules", "build"]
 }

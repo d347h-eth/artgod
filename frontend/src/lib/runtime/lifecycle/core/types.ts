@@ -1,6 +1,6 @@
 import type { RuntimeStatus } from '../ports';
 
-export type LifecyclePhase = 'booting' | 'fatal' | 'stopping' | 'ready';
+export type LifecyclePhase = 'booting' | 'recovering' | 'fatal' | 'stopping' | 'ready';
 export type LifecycleEventLevel = 'info' | 'warn' | 'error';
 
 export type LifecycleEventMeta = Record<string, string | number | boolean>;

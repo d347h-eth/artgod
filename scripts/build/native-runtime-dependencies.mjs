@@ -4,6 +4,9 @@ export const NATIVE_RUNTIME_DEPENDENCY_PACKAGE_NAMES = Object.freeze({
     Sharp: "sharp",
 });
 
+// Broker patch release staged into desktop builds and matching integration tests.
+export const DEFAULT_DESKTOP_NATS_VERSION = "2.10.18";
+
 // Transitive runtime packages required by the two external native packages.
 export const DESKTOP_RUNTIME_TRANSITIVE_PACKAGE_NAMES = Object.freeze({
     Bindings: "bindings",

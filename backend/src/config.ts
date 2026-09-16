@@ -17,6 +17,7 @@ import {
     getSettingDefaultCsv,
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
+import { NATS_ENV_KEY } from "@artgod/shared/config/nats";
 import {
     APP_DEPLOYMENT_MODE,
     PUBLIC_APP_DEPLOYMENT_ENV_KEY,
@@ -271,10 +272,13 @@ export function loadBackendConfig(
         RPC_ENDPOINT_LIST_ENV_KEY,
     );
     const wethAddress = parseAddress(env.WETH_ADDRESS, "WETH_ADDRESS");
-    const natsUrl = parseRequiredString(env.NATS_URL, "NATS_URL");
+    const natsUrl = parseRequiredString(
+        env[NATS_ENV_KEY.Url],
+        NATS_ENV_KEY.Url,
+    );
     const natsStreamPrefix = parseRequiredString(
-        env.NATS_STREAM_PREFIX,
-        "NATS_STREAM_PREFIX",
+        env[NATS_ENV_KEY.StreamPrefix],
+        NATS_ENV_KEY.StreamPrefix,
     );
     const userlandUiDistDir = env.USERLAND_UI_DIST_DIR?.trim() || null;
     const security: BackendSecurityConfig = {

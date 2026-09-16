@@ -3,6 +3,8 @@ mod private_file;
 mod runtime;
 mod wallet;
 
+pub use runtime::run_preparation_child as run_nats_store_preparation_child;
+
 use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader};
@@ -67,8 +69,12 @@ struct RuntimeLogLine {
 }
 
 #[tauri::command]
-fn runtime_start(app: AppHandle, state: State<'_, DesktopState>) -> Result<RuntimeStatus, String> {
-    state.runtime.start(app)
+async fn runtime_start(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<RuntimeStatus, String> {
+    let runtime = state.runtime.clone();
+    run_blocking_runtime_command(move || runtime.start(app)).await
 }
 
 #[tauri::command]

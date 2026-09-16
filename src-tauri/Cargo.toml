@@ -24,6 +24,7 @@ artgod-secret-prompt-protocol = { path = "crates/artgod-secret-prompt-protocol" 
 artgod-sensitive-process = { path = "crates/artgod-sensitive-process" }
 eth-keystore = { version = "0.5.0", default-features = false }
 futures-util = "0.3"
+highway = "1.3.0"
 log = "0.4"
 rand = "0.8.6"
 reqwest = { version = "0.13.2", default-features = false, features = ["json", "native-tls-no-alpn", "query"] }

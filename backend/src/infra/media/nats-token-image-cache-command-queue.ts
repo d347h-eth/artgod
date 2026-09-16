@@ -1,10 +1,4 @@
-import {
-    JSONCodec,
-    RetentionPolicy,
-    StorageType,
-    connect,
-    type JetStreamManager,
-} from "nats";
+import { JSONCodec, connect } from "nats";
 import {
     TOKEN_IMAGE_CACHE_JOB_KIND,
     TOKEN_IMAGE_CACHE_QUEUE_NAME,
@@ -12,6 +6,8 @@ import {
     type TokenImageCacheRefreshCollectionPayload,
 } from "@artgod/shared/media/token-image-cache-jobs";
 import type { ImageCacheMode } from "@artgod/shared/media/token-image-cache";
+import { resolveNatsJobSubjectPrefix } from "@artgod/shared/queue/nats-job-stream";
+import { ensureNatsJobStream } from "../queue/nats-job-stream.js";
 
 type JobEnvelope<TPayload> = {
     jobId: string;
@@ -26,15 +22,13 @@ type JobEnvelope<TPayload> = {
 };
 
 export class NatsTokenImageCacheCommandQueue {
-    private readonly streamName: string;
     private readonly subjectPrefix: string;
 
     constructor(
         private readonly natsUrl: string,
         private readonly streamPrefix: string,
     ) {
-        this.streamName = `${streamPrefix}-jobs`;
-        this.subjectPrefix = `${streamPrefix}.jobs`;
+        this.subjectPrefix = resolveNatsJobSubjectPrefix(streamPrefix);
     }
 
     async publishCollectionImageCacheRefresh(input: {
@@ -65,10 +59,12 @@ export class NatsTokenImageCacheCommandQueue {
         try {
             const js = connection.jetstream();
             const jsm = await connection.jetstreamManager();
-            await ensureStream(jsm, this.streamName, this.subjectPrefix);
+            await ensureNatsJobStream(jsm, this.streamPrefix);
             const subject = `${this.subjectPrefix}.${TOKEN_IMAGE_CACHE_QUEUE_NAME}`;
             const codec =
-                JSONCodec<JobEnvelope<TokenImageCacheRefreshCollectionPayload>>();
+                JSONCodec<
+                    JobEnvelope<TokenImageCacheRefreshCollectionPayload>
+                >();
             const envelope: JobEnvelope<TokenImageCacheRefreshCollectionPayload> =
                 {
                     jobId,
@@ -85,22 +81,4 @@ export class NatsTokenImageCacheCommandQueue {
             await connection.drain().catch(() => undefined);
         }
     }
-}
-
-async function ensureStream(
-    jsm: JetStreamManager,
-    streamName: string,
-    subjectPrefix: string,
-): Promise<void> {
-    try {
-        await jsm.streams.info(streamName);
-        return;
-    } catch {}
-    await jsm.streams.add({
-        name: streamName,
-        subjects: [`${subjectPrefix}.>`],
-        retention: RetentionPolicy.Workqueue,
-        storage: StorageType.File,
-        max_age: 7 * 24 * 60 * 60 * 1_000_000_000,
-    });
 }

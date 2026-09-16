@@ -697,6 +697,7 @@ dependencies = [
  "artgod-sensitive-process",
  "eth-keystore",
  "futures-util",
+ "highway",
  "log",
  "rand 0.8.6",
  "reqwest",
@@ -2473,6 +2474,12 @@ checksum = "fda06d18ac606267c40c04e41b9947729bf8b9efe74bd4e82b61a5f26a510b9f"
 dependencies = [
  "arrayvec",
 ]
+
+[[package]]
+name = "highway"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9040319a6910b901d5d49cbada4a99db52836a1b63228a05f7e2b7f8feef89b1"
 
 [[package]]
 name = "hmac"

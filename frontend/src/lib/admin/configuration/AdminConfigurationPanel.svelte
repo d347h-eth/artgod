@@ -556,4 +556,15 @@
 	.admin-config-actions button {
 		min-width: 8.75rem;
 	}
+
+	@media (max-width: 40rem) {
+		.admin-config-actions {
+			grid-template-columns: minmax(0, 1fr);
+			gap: 1rem;
+		}
+
+		.admin-config-action-group:last-child {
+			justify-self: start;
+		}
+	}
 </style>

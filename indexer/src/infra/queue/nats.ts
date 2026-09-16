@@ -11,7 +11,14 @@ import {
     type JetStreamClient,
     type JetStreamManager,
     type NatsConnection,
+    type StreamInfo,
 } from "nats";
+import {
+    NATS_JOB_STREAM_MAX_AGE_NANOS,
+    resolveNatsJobStreamName,
+    resolveNatsJobStreamSubjectFilter,
+    resolveNatsJobSubject,
+} from "@artgod/shared/queue/nats-job-stream";
 import type { QueueName } from "../../domain/queues.js";
 import type { JobEnvelope } from "../../domain/jobs.js";
 import type {
@@ -34,24 +41,6 @@ type ConsumerConfigSnapshot = Pick<
     ConsumerInfo["config"],
     "max_ack_pending" | "ack_wait"
 >;
-
-// Resolve the durable jobs stream name shared by queue publishers and tooling.
-export function resolveNatsJobStreamName(streamPrefix: string): string {
-    return `${streamPrefix}-jobs`;
-}
-
-// Resolve the subject used for one logical queue inside the shared jobs stream.
-export function resolveNatsJobSubject(
-    streamPrefix: string,
-    queue: QueueName,
-): string {
-    return `${streamPrefix}.jobs.${queue}`;
-}
-
-// Resolve the wildcard subject used by the shared jobs stream.
-export function resolveNatsJobsSubjectFilter(streamPrefix: string): string {
-    return `${streamPrefix}.jobs.>`;
-}
 
 // Computes mutable durable consumer settings that drifted from runtime config.
 export function resolveNatsConsumerConfigUpdate(
@@ -203,17 +192,30 @@ export class NatsJetStreamQueue implements QueuePort {
     }
 
     private async ensureStreamInner(): Promise<void> {
+        let existing: StreamInfo | undefined;
         try {
-            await this.jsm.streams.info(this.streamName);
+            existing = await this.jsm.streams.info(this.streamName);
+        } catch (error) {
+            if (!isStreamNotFound(error)) throw error;
+        }
+
+        if (existing) {
+            if (existing.config.max_age !== NATS_JOB_STREAM_MAX_AGE_NANOS) {
+                await this.jsm.streams.update(this.streamName, {
+                    max_age: NATS_JOB_STREAM_MAX_AGE_NANOS,
+                });
+            }
             return;
-        } catch {}
+        }
 
         await this.jsm.streams.add({
             name: this.streamName,
-            subjects: [resolveNatsJobsSubjectFilter(this.config.streamPrefix)],
+            subjects: [
+                resolveNatsJobStreamSubjectFilter(this.config.streamPrefix),
+            ],
             retention: RetentionPolicy.Workqueue,
             storage: StorageType.File,
-            max_age: 7 * 24 * 60 * 60 * 1_000_000_000,
+            max_age: NATS_JOB_STREAM_MAX_AGE_NANOS,
         });
     }
 
@@ -274,6 +276,13 @@ function assertConsumerSubjectMatches(
 function isConsumerNotFound(error: unknown): boolean {
     const code = (error as { code?: string | number } | undefined)?.code;
     return code === "404" || code === 404;
+}
+
+function isStreamNotFound(error: unknown): boolean {
+    const code = (error as { code?: string | number } | undefined)?.code;
+    const apiCode = (error as { api_error?: { code?: number } } | undefined)
+        ?.api_error?.code;
+    return code === "404" || code === 404 || apiCode === 404;
 }
 
 function createLimiter(limit: number) {

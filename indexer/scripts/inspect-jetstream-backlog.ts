@@ -4,14 +4,14 @@ import { getSettingDefault } from "@artgod/shared/config/generated-settings-defa
 import { parsePositiveInteger } from "@artgod/shared/utils/env";
 import { resolveRuntimeEnvPath } from "@artgod/shared/utils";
 import {
+    resolveNatsJobStreamName,
+    resolveNatsJobSubject,
+} from "@artgod/shared/queue/nats-job-stream";
+import {
     summarizeJobBacklog,
     type InspectableJobEnvelope,
 } from "../src/application/queue-inspection/job-backlog-summary.js";
 import { QUEUE_NAMES, type QueueName } from "../src/domain/queues.js";
-import {
-    resolveNatsJobStreamName,
-    resolveNatsJobSubject,
-} from "../src/infra/queue/nats.js";
 
 dotenv.config({ path: resolveRuntimeEnvPath(process.env, ".env") });
 

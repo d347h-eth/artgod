@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { resolveAdminActionFlow } from '$lib/admin/control-flow/admin-action-flow';
 	import AdminConfigurationPanel from '$lib/admin/configuration/AdminConfigurationPanel.svelte';
 	import { createTauriAdminConfigPort } from '$lib/admin/configuration/adapters/tauri-admin-config-port';
@@ -13,7 +13,7 @@
 	import AdminBotsPanel from '$lib/admin/bots/AdminBotsPanel.svelte';
 	import AdminWalletsPanel from '$lib/admin/wallets/AdminWalletsPanel.svelte';
 	import InfoTooltip from '$lib/components/InfoTooltip.svelte';
-	import { RUNTIME_BUSY_ACTIONS, adminRuntimeStore } from '$lib/admin/runtime/store';
+	import { RUNTIME_BUSY_ACTIONS, getAdminRuntimeStore, provideAdminRuntimeStore } from '$lib/admin/runtime/store';
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import type { AdminConsoleTab } from '$lib/runtime/lifecycle-ui-policy';
 	import { RUNTIME_STATUS_STATES } from '$lib/runtime/lifecycle/ports';
@@ -27,7 +27,12 @@
 
 	type AdminShellTab = 'config' | 'system' | 'wallets' | 'bots';
 
-	const configPort = createTauriAdminConfigPort();
+	let { runtimeStore = getAdminRuntimeStore(), configPort = createTauriAdminConfigPort() }: {
+		runtimeStore?: import('$lib/runtime/desktop-runtime-store').DesktopRuntimeStore;
+		configPort?: import('$lib/admin/configuration/ports').AdminConfigPort;
+	} = $props();
+	// One store owns this mounted shell and every nested runtime panel.
+	const adminRuntimeStore = provideAdminRuntimeStore(untrack(() => runtimeStore));
 	const runtimeState = adminRuntimeStore.state;
 	const ADMIN_CONFIG_BUSY_ACTIONS = {
 		save: 'save',
@@ -69,7 +74,7 @@
 	const openSeaApiKeyMissing = $derived(
 		config !== null && (config.values[OPENSEA_API_KEY_ENV] ?? '').trim().length === 0
 	);
-	const stopInfraDisabled = $derived(actionFlow.userland.disabled);
+	const stopInfraDisabled = $derived(actionFlow.stop.disabled);
 	const shutdownDisabled = $derived($runtimeState.busyAction === RUNTIME_BUSY_ACTIONS.stop);
 	const configRestartNoticeVisible = $derived(
 		$runtimeState.status?.state === RUNTIME_STATUS_STATES.running
@@ -461,6 +466,7 @@
 		margin: 0 auto;
 		display: grid;
 		grid-template-rows: auto auto minmax(0, 1fr);
+		grid-template-columns: minmax(0, 1fr);
 		gap: 1.2rem;
 		min-width: 0;
 	}
@@ -655,6 +661,44 @@
 
 		.admin-shell-header {
 			padding: 1rem;
+		}
+
+		.admin-flow-action-grid {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+
+		.admin-flow-action-grid button {
+			min-width: 0;
+			white-space: normal;
+		}
+
+		.admin-flow-arrow {
+			display: none;
+		}
+
+		.admin-flow-primary-config {
+			grid-column: 1;
+			grid-row: 1;
+		}
+		.admin-flow-primary-boot {
+			grid-column: 1;
+			grid-row: 2;
+		}
+		.admin-flow-primary-userland {
+			grid-column: 1;
+			grid-row: 3;
+		}
+		.admin-flow-secondary-logs {
+			grid-column: 2;
+			grid-row: 1;
+		}
+		.admin-flow-secondary-stop {
+			grid-column: 2;
+			grid-row: 2;
+		}
+		.admin-flow-secondary-shutdown {
+			grid-column: 2;
+			grid-row: 3;
 		}
 	}
 </style>

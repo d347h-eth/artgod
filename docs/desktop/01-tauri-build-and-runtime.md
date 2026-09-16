@@ -88,12 +88,16 @@ contract rather than combining independently distributed package trees with
    readiness, then invokes `runtime_auto_start`; unconfigured installs and
    installs with `autostart infra` disabled stay stopped behind the Admin header
    action sequence.
-6. When startup is requested, the supervisor starts local NATS from bundled
-   `nats-server`, then backend, then enabled indexer workers from bundled
-   resources using bundled Node and each runtime's isolated package-local
-   dependencies. OpenSea workers are skipped when OpenSea integration is
-   disabled, and wallet-bound trading bots are staged but start only on
-   explicit operator action after unlock.
+6. When startup is requested, the supervisor runs a native store-preservation
+   child, starts bundled NATS, then runs the jobs-stream maintenance artifact.
+   Preparation disables a saved age limit before NATS can expire valid jobs
+   during restore. Maintenance removes only retained records below a fully
+   acknowledged consumer position and verifies a publish/delete before normal
+   producers start. Healthy pending work is preserved regardless of age; an
+   unrecoverable full store fails startup instead of dropping jobs. The backend
+   and enabled indexer workers then start from bundled resources with their
+   isolated dependencies. OpenSea workers are skipped when disabled, and
+   wallet-bound bots start only on explicit operator action after unlock.
 7. Boot lifecycle console stays visible until lifecycle backend readiness probe
    succeeds, not merely until process state is `running`.
 8. Any core composition process exit triggers fail-fast full stack restart.
@@ -289,7 +293,7 @@ Responsibilities:
 - validates the desktop metafile before artifacts can be staged
 - writes:
     - `backend/dist-desktop/server.mjs`
-    - `indexer/dist-desktop/*.mjs` (all worker entrypoints)
+    - `indexer/dist-desktop/*.mjs` (startup maintenance and all worker entrypoints)
     - `trading/dist-desktop/*.mjs` (wallet-bound bot runtimes)
 
 Current build strategy details:
@@ -326,7 +330,7 @@ Responsibilities:
   : the universal macOS target downloads and merges the Intel and Apple silicon executables
   : downloaded archives are cached in `.cache/desktop-node-runtime`
 - downloads/verifies the NATS server distribution for the target platform and stages bundled NATS under `src-tauri/resources/runtime/nats`
-  : source of truth for NATS version is `DESKTOP_NATS_VERSION` build env (default `2.10.17`)
+  : source of truth for NATS version is `DESKTOP_NATS_VERSION` build env (default `2.10.18`)
   : download target uses the same target resolution as Node
   : the universal macOS target downloads and merges the Intel and Apple silicon executables
   : downloaded archives are cached in `.cache/desktop-nats-runtime`
@@ -459,6 +463,7 @@ Reason:
 Produced runtime artifacts:
 
 - `backend/dist-desktop/server.mjs`
+- `indexer/dist-desktop/nats-job-stream-maintenance.mjs`
 - `indexer/dist-desktop/scheduler-worker.mjs`
 - `indexer/dist-desktop/sync-worker.mjs`
 - `indexer/dist-desktop/reorg-worker.mjs`
@@ -634,16 +639,39 @@ Startup trigger:
 
 Supervisor startup order:
 
-1. start bundled NATS process (`nats-server`) with an explicit
-   `--addr 127.0.0.1` client-listener bind
-2. wait for NATS port readiness
-3. start backend artifact
-4. wait for backend port readiness
-5. start enabled indexer worker artifacts; OpenSea workers are skipped when the resolved OpenSea capability is disabled
-6. wait for backend semantic readiness via `GET /health/runtime`
-   : checks backend process + DB ping + NATS/JetStream jobs stream readiness details
-   : NATS connectivity errors are fatal; "jobs stream not yet created" is reported as warning (`warn`) and does not block startup
-7. only after semantic readiness succeeds, supervisor sets runtime status to `running`
+1. acquire the runtime's exclusive store lease and publish the NATS recovery activity
+2. run the native store-preservation child before NATS opens its files
+3. start bundled NATS with `--addr 127.0.0.1` and wait for its listener within the recovery deadline
+4. run the jobs-stream maintenance artifact and require success: inspect stream/account/consumer state, reconcile disabled age expiry, remove only proven acknowledged leftovers, and verify a publish/delete
+5. start the backend and wait for its listener
+6. start enabled indexer workers; skip disabled OpenSea workers
+7. wait for backend semantic readiness via `GET /health/runtime`
+8. set runtime status to `running` only after semantic readiness succeeds
+
+The NATS task shares one deadline across native preparation, broker restore,
+and API maintenance. It runs on every start/restart. No periodic or live repair
+is scheduled. Backend/worker producers remain gated behind successful recovery.
+
+The native preparation child only supports the desktop's single-account,
+unencrypted file store. It validates the jobs stream identity, shape and
+HighwayHash checksum, changes only `max_age` to zero, and records an interrupted
+update in a journal before atomically replacing metadata/checksum files. Retry
+accepts only the original/new pair; corruption or unrelated changes fail closed.
+The runtime lease stays held through service operation, cleanup and restart
+backoff. Preparation refuses a live NATS listener and symlinked metadata. It
+never opens a wallet, starts Tauri, or edits message blocks/consumer state.
+This format adapter must be reverified when upgrading the bundled NATS version.
+
+API maintenance authorizes cleanup only for one exact subject with fully
+acknowledged durable consumer state. It rechecks that evidence, then purges
+only through that consumer's ACK floor. Pending work, unacknowledged work and
+uncovered subjects are preserved. A healthy queue needs no cleanup. A full
+store with no safely removable leftovers fails startup without dropping work.
+
+JetStream's specific resource errors permit this safe recovery path; a bare
+`503`, unrelated failure, or probe-deletion failure does not. Failed client or
+manager initialization closes the connection so the child can exit and retry
+can use a fresh connection.
 
 Wallet-bound bot runtimes are not part of the startup order above.
 They stay independently managed and start only after explicit admin action,
@@ -662,11 +690,41 @@ The controller is published under that generation before a worker barrier lets
 the bot consume wallet material; worker state updates and cleanup are accepted
 only from the matching generation.
 
-If any step fails:
+For new tasks, follow [Adding a startup recovery task](08-startup-recovery-tasks.md)
+for domain, supervisor, build, UI and verification touchpoints.
 
-- already-started processes are stopped
-- runtime enters restart flow with backoff
-- stop requests interrupt startup waits immediately (port waits, semantic health waits, and backoff sleeps)
+Startup recovery is supervisor-owned and reusable. The first task is NATS
+maintenance; its domain rules decide whether acknowledged leftovers can be
+removed safely. Every startup attempt has an `operationId`. Status responses and
+`runtime-state-changed` events share a monotonically increasing `revision` and a
+`startup` activity with `phase`, optional `task`, `startedAtMs`, and `deadlineAtMs`.
+The desktop bridge contract is mirrored in `frontend/src/lib/runtime/lifecycle/ports.ts`.
+Phases are preparation, recovery, service startup, cleanup, and restart backoff.
+The top-level status remains `starting` or `restarting` during recovery.
+
+- NATS recovery gets one **15-minute** monotonic work deadline across native
+  store preparation, NATS restore, and API maintenance. No prerequisite step or
+  UI handshake renews it. Large stores may still exceed the cap and require
+  manual retry after cleanup.
+- Recovery failure or timeout stops the maintenance child and NATS before
+  publishing `stopped` with a typed `recoveryFailure`. It is terminal for that
+  attempt, with **no automatic recovery retry**. `retry start` reaps the finished
+  controller and starts a new operation; it cannot reuse the failed controller.
+  Repeated auto-start handshakes, including a UI reload, preserve an active
+  operation or its terminal recovery failure instead of retrying it.
+- Stop cancels recovery and cleans up without presenting a recovery error.
+  The task deadline initiates cleanup, which retains the existing 30-second
+  graceful-stop allowance per child (maintenance and NATS stop serially).
+- After recovery, a fresh 90-second service budget covers the serial backend
+  port and semantic-health waits (30 seconds each), with an allowance for
+  worker spawning. NATS preparation/restore uses the recovery budget above.
+- Later service startup failures and unexpected core-process exits retain the existing
+  restart/backoff policy. No wallet-bound bot starts as a recovery task.
+
+The task work deadline does not claim a global shutdown bound: existing output
+reader joins, operating-system process termination, and cleanup hooks remain
+separate constraints. Stop/Restart and retry controller joins run off the IPC
+thread. Live repair and recovery scheduling are outside this lifecycle.
 
 Frontend readiness behavior:
 
@@ -675,7 +733,20 @@ Frontend readiness behavior:
 - lifecycle reaches `ready` only after lifecycle orchestrator backend readiness probe succeeds, not merely when runtime status becomes `running`
 - admin UI does not execute userland collection/token route loads
 - userland browser UI uses `backend-api.ts` directly against backend localhost origin (`/api/*`)
-- runtime readiness in lifecycle orchestrator is event-first (`runtime-state-changed`) with a status reconciliation fallback poll during boot
+- runtime readiness uses events and bounded status polling through one reconciliation path;
+  older revisions cannot replace a newer phase or operation
+- confirmed recovery uses the supervisor phase deadline instead of the ordinary
+  30-second fallback; phase changes and UI reloads do not renew that deadline
+- status calls are limited to two seconds, and five seconds without a confirmed
+  status fails the readiness wait; phase expiry allows five seconds for the
+  next supervisor cleanup/status response
+- the separate 12-second API probe window includes hung requests; Stop aborts
+  the probe and rejects late completion before Userland can become ready
+- Admin shows "Checking queued work…" and elapsed time without implying damaged
+  data; Stop, Config, Logs, and Shutdown remain available during recovery,
+  while Start and Userland remain gated
+- both embedded Admin and the standalone lifecycle drawer expose cancellation;
+  failure offers `retry start` after cleanup
 - userland product UI is served by backend static hosting at `backend_http_base_url` and opened in system browser via admin UI/tray action
 
 ## Process Start Details
@@ -760,7 +831,7 @@ Window close behavior:
 Supervisor stop behavior:
 
 1. request graceful process stop (SIGTERM on Unix)
-2. wait up to grace timeout (`10s`)
+2. wait up to grace timeout (`30s`)
 3. force kill remaining processes if still running
 4. join output threads
 5. run cleanup hooks
