@@ -111,7 +111,7 @@ export function validateAdminConfigField(
 		return buildValidationIssue(
 			field,
 			ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.integer,
-			`${field.key} must be a whole number from ${TCP_PORT_RANGE.Minimum} to ${TCP_PORT_RANGE.Maximum}.`
+			`${field.label} must be a whole number from ${TCP_PORT_RANGE.Minimum} to ${TCP_PORT_RANGE.Maximum}.`
 		);
 	}
 	if (trimmed.length === 0) {
@@ -138,7 +138,7 @@ export function validateAdminConfigField(
 		return buildValidationIssue(
 			field,
 			ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.integer,
-			`${field.key} must be a whole number from ${TCP_PORT_RANGE.Minimum} to ${TCP_PORT_RANGE.Maximum}.`
+			`${field.label} must be a whole number from ${TCP_PORT_RANGE.Minimum} to ${TCP_PORT_RANGE.Maximum}.`
 		);
 	}
 	if (field.validation === ADMIN_CONFIG_VALIDATION_RULES.rpcEndpointList) {

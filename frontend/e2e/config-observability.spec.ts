@@ -3,7 +3,8 @@ import { TCP_PORT_RANGE } from '@artgod/shared/config/tcp-port';
 import { getSettingDefault } from '@artgod/shared/config/generated-settings-defaults';
 import {
 	ADMIN_CONFIG_OBSERVABILITY_FIELD,
-	ADMIN_CONFIG_OBSERVABILITY_TEST_ID
+	ADMIN_CONFIG_OBSERVABILITY_TEST_ID,
+	createAdminConfigObservabilityFixture
 } from '../src/lib/e2e/admin-config-observability-fixtures';
 import { CONFIG_OBSERVABILITY_HARNESS } from './config-observability-harness.mjs';
 
@@ -36,8 +37,12 @@ test('renders the disabled default and validates the opt-in metrics port', async
 	await expect(port).toHaveAttribute('aria-invalid', 'true');
 	await expect(save).toBeDisabled();
 	await group.getByRole('button', { name: 'Warning details' }).hover();
+	const portField = createAdminConfigObservabilityFixture()
+		.groups.flatMap((group) => group.fields)
+		.find((field) => field.key === ADMIN_CONFIG_OBSERVABILITY_FIELD.Port);
+	if (!portField) throw new Error('Metrics port is missing from the Admin schema');
 	const warning = group.locator('[role="tooltip"]').filter({
-		hasText: `${ADMIN_CONFIG_OBSERVABILITY_FIELD.Port} must be a whole number from ${TCP_PORT_RANGE.Minimum} to ${TCP_PORT_RANGE.Maximum}.`
+		hasText: `${portField.label} must be a whole number from ${TCP_PORT_RANGE.Minimum} to ${TCP_PORT_RANGE.Maximum}.`
 	});
 	await expect(warning).toBeVisible();
 	await assertElementsDoNotOverlap(warning, page.getByRole('button', { name: 'cancel' }));

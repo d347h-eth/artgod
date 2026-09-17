@@ -290,7 +290,7 @@ describe('admin config validation', () => {
 
 		expect(issues).toHaveLength(1);
 		expect(issues[0]?.message).toBe(
-			`TEST_METRICS_PORT must be a whole number from ${TCP_PORT_RANGE.Minimum} to ${TCP_PORT_RANGE.Maximum}.`
+			`${METRICS_PORT_FIELD.label} must be a whole number from ${TCP_PORT_RANGE.Minimum} to ${TCP_PORT_RANGE.Maximum}.`
 		);
 
 		const blankIssues = resolveAdminConfigValidationIssues(
@@ -299,7 +299,7 @@ describe('admin config validation', () => {
 		);
 		expect(blankIssues).toHaveLength(1);
 		expect(blankIssues[0]?.message).toBe(
-			`TEST_METRICS_PORT must be a whole number from ${TCP_PORT_RANGE.Minimum} to ${TCP_PORT_RANGE.Maximum}.`
+			`${METRICS_PORT_FIELD.label} must be a whole number from ${TCP_PORT_RANGE.Minimum} to ${TCP_PORT_RANGE.Maximum}.`
 		);
 	});
 
