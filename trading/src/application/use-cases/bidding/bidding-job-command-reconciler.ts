@@ -38,6 +38,7 @@ export const BIDDING_COMMAND_RECONCILIATION_RESULT = {
     Success: "success",
     CompletedWithFailures: "completed_with_failures",
     Failure: "failure",
+    Stopped: "stopped",
 } as const;
 
 export type BiddingCommandReconciliationResult =
@@ -125,6 +126,7 @@ const ORDERED_COMMAND_CLAIM_LIMIT = 1;
 // BiddingJobCommandReconciler applies durable DB Outbox commands to the live bidder.
 export class BiddingJobCommandReconciler {
     private readonly mutex = new Mutex();
+    private acceptingCommands = true;
 
     constructor(
         private readonly commandRepository: BiddingJobCommandRepository,
@@ -140,6 +142,11 @@ export class BiddingJobCommandReconciler {
         });
     }
 
+    // Closing admission preserves an already-started atomic claim, but never starts another.
+    closeAdmission(): void {
+        this.acceptingCommands = false;
+    }
+
     async processPendingCommands(
         trigger: BiddingCommandTrigger,
         observer: BiddingJobCommandReconciliationObserver = {},
@@ -150,7 +157,12 @@ export class BiddingJobCommandReconciler {
             BIDDING_COMMAND_RECONCILIATION_RESULT.Failure;
         try {
             const batch = await this.mutex.runExclusive(async () => {
-                while (processed < this.options.batchSize) {
+                // Check after mutex acquisition and between claims: queued signal handlers
+                // must not turn scheduler shutdown into admission of another batch.
+                while (
+                    this.acceptingCommands &&
+                    processed < this.options.batchSize
+                ) {
                     // Claim the next command only after all earlier commands have completed.
                     const commands =
                         await this.commandRepository.claimNextBatch({
@@ -221,7 +233,9 @@ export class BiddingJobCommandReconciler {
             processed = batch.processed;
             result = batch.completedWithFailures
                 ? BIDDING_COMMAND_RECONCILIATION_RESULT.CompletedWithFailures
-                : BIDDING_COMMAND_RECONCILIATION_RESULT.Success;
+                : this.acceptingCommands
+                  ? BIDDING_COMMAND_RECONCILIATION_RESULT.Success
+                  : BIDDING_COMMAND_RECONCILIATION_RESULT.Stopped;
             return processed;
         } finally {
             observeBestEffort(() => {

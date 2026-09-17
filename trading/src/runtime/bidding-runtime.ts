@@ -170,6 +170,7 @@ type BiddingRuntimeShutdownStreamRegistryPort = {
 // Defines the runtime-owned resources and lifecycle observers that must settle during shutdown.
 export type BiddingRuntimeShutdownPlan = {
     closeBidderBackgroundAdmission: BiddingRuntimeShutdownAction;
+    closeCommandAdmission: BiddingRuntimeShutdownAction;
     commandAdmissionDrains: BiddingRuntimeShutdownAction[];
     bidPipelineDrain: BiddingRuntimeShutdownAction;
     bidderDrain: BiddingRuntimeShutdownAction;
@@ -231,6 +232,7 @@ export async function shutdownBiddingRuntime(
             () =>
                 plan.setMetricState(BIDDING_RUNTIME_METRIC_STATE.ShuttingDown),
             plan.closeBidderBackgroundAdmission,
+            plan.closeCommandAdmission,
         ],
         shutdownErrors,
     );
@@ -1081,6 +1083,7 @@ export async function startBiddingRuntime(
             await shutdownBiddingRuntime({
                 closeBidderBackgroundAdmission: () =>
                     bidder.closeBackgroundRefreshAdmission(),
+                closeCommandAdmission: () => commandReconciler.closeAdmission(),
                 commandAdmissionDrains: [
                     () => commandLoop.shutdown(),
                     ...(signalListener

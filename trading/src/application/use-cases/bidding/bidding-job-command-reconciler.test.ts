@@ -11,6 +11,7 @@ import {
     type BidderJob,
 } from "../../../domain/market/strategy/job.js";
 import { Bidder } from "./bidder.js";
+import { startBiddingCommandReconciliationLoop } from "../../../runtime/bidding-command-reconciliation-loop.js";
 import {
     BIDDING_ORDER_RECOVERY_REASON,
     BIDDING_ORDER_RECOVERY_STATUS,
@@ -212,6 +213,100 @@ function makeRecord(
 }
 
 describe("BiddingJobCommandReconciler", () => {
+    it("finishes the admitted command but leaves later rows pending across poll and queued signal drains", async () => {
+        const jobs = [makeJob("first"), makeJob("second")];
+        const repository = new FakeCommandRepository(
+            jobs.map((job, index) =>
+                makeCommand(
+                    index + 1,
+                    job.id,
+                    TRADING_JOB_COMMAND_KIND.JobUpdated,
+                ),
+            ),
+        );
+        const source = new FakeJobSource(
+            new Map(
+                jobs.map((job) => [
+                    job.id,
+                    makeRecord(job, TRADING_JOB_STATUS.Enabled),
+                ]),
+            ),
+        );
+        const bidder = new Bidder(
+            new FakeBiddingService(),
+            makerAddress,
+            60_000,
+            { dryRun: true },
+        );
+        let admitted!: () => void;
+        let release!: () => void;
+        const started = new Promise<void>((resolve) => {
+            admitted = resolve;
+        });
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const results: BiddingCommandReconciliationResult[] = [];
+        const reconciler = new BiddingJobCommandReconciler(
+            repository,
+            source,
+            bidder,
+            {
+                async prepareEnabledJob() {
+                    admitted();
+                    await gate;
+                },
+                async reconcileEnabledJobs() {},
+            },
+            { batchSize: 10, claimTimeoutMs: 300_000, maxAttempts: 3 },
+            undefined,
+            {
+                onReconciliationFinished: (input) => results.push(input.result),
+                onCommandClaimed: () => {},
+                onCommandStrategyStarted: () => {},
+                onCommandFinished: () => {},
+                onCommandInFlightChanged: () => {},
+            },
+        );
+        const loop = startBiddingCommandReconciliationLoop(reconciler, 1);
+        try {
+            await started;
+            const queuedSignals = [
+                reconciler.processPendingCommands(
+                    BIDDING_COMMAND_TRIGGER.Signal,
+                ),
+                reconciler.processPendingCommands(
+                    BIDDING_COMMAND_TRIGGER.Signal,
+                ),
+            ];
+            bidder.closeBackgroundRefreshAdmission();
+            reconciler.closeAdmission();
+            reconciler.closeAdmission(); // Idempotent Stop must not affect the admitted command.
+            const drain = loop.shutdown();
+            release();
+            await drain;
+            assert.deepEqual(await Promise.all(queuedSignals), [0, 0]);
+            assert.deepEqual(repository.completed, [1]);
+            assert.deepEqual(repository.remainingCommandIds(), [2]);
+            assert.equal(bidder.getJob(jobs[1]!.id), undefined);
+            assert.deepEqual(
+                results,
+                Array(3).fill(BIDDING_COMMAND_RECONCILIATION_RESULT.Stopped),
+            );
+            assert.equal(
+                await reconciler.processPendingCommands(
+                    BIDDING_COMMAND_TRIGGER.Poll,
+                ),
+                0,
+            );
+            assert.deepEqual(repository.remainingCommandIds(), [2]);
+        } finally {
+            release();
+            await loop.shutdown();
+            await bidder.stop();
+        }
+    });
+
     it("loads enabled job commands, prepares runtime dependencies, and refreshes the bidder", async () => {
         const job = makeJob("job-enabled");
         const command = makeCommand(
