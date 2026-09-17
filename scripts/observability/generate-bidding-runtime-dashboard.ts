@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { format } from "prettier";
 import { RUNTIME_METRIC_DEFAULT_LABEL } from "../../shared/observability/metrics/runtime.js";
 import { OPEN_SEA_STREAM_EVENT_OUTCOME } from "../../trading/src/adapters/opensea/open-sea-event-stream.js";
@@ -11,6 +11,7 @@ import {
     BIDDING_RUNTIME_METRIC_LABEL,
     BIDDING_RUNTIME_METRIC_NAME,
     BIDDING_RUNTIME_METRIC_RESULT,
+    BIDDING_RUNTIME_HISTOGRAM_BUCKETS,
 } from "../../trading/src/adapters/observability/bidding-runtime-metric-contract.js";
 import { TRADING_METRICS_PREFIX } from "../../trading/src/runtime/observability.js";
 
@@ -46,6 +47,55 @@ const BIDDING_METRIC_REFERENCE_PATTERN = new RegExp(
 
 type MetricName =
     (typeof BIDDING_RUNTIME_METRIC_NAME)[keyof typeof BIDDING_RUNTIME_METRIC_NAME];
+
+type HistogramMetricName = keyof typeof BIDDING_RUNTIME_HISTOGRAM_BUCKETS;
+
+// These labels identify the measured work and its unit in the overflow panel.
+const HISTOGRAM_MEASUREMENTS: Record<HistogramMetricName, string> = {
+    [BIDDING_RUNTIME_METRIC_NAME.OpenSeaOperationDuration]: "OpenSea call (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.OpenSeaRateLimitWait]:
+        "OpenSea rate-limit wait (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.RuntimeBootstrapPhaseDuration]:
+        "startup phase (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.RuntimeTimeToReady]: "time to ready (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.JobScanDuration]: "job scan (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.JobRefreshQueueWait]: "job refresh queue (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.JobRefreshDuration]: "job refresh (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.MarketActionDuration]:
+        "marketplace action (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.CommandReconciliationDuration]:
+        "command reconciliation (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.CommandReconciliationBatchSize]:
+        "commands per reconciliation",
+    [BIDDING_RUNTIME_METRIC_NAME.CommandQueueWait]: "command queue (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.CommandClaimToStrategy]:
+        "command claim to strategy (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.CommandCreatedToStrategy]:
+        "command creation to strategy (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.CommandProcessingDuration]:
+        "command attempt (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.HotRefreshQueueWait]:
+        "inbound refresh queue (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.HotRefreshPassDuration]:
+        "inbound refresh pass (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.HotRefreshPassEvents]:
+        "events per inbound refresh pass",
+    [BIDDING_RUNTIME_METRIC_NAME.HotRefreshPassSignals]:
+        "signals per inbound refresh pass",
+    [BIDDING_RUNTIME_METRIC_NAME.StreamEventAge]: "inbound event age (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.StreamDispatchDuration]:
+        "inbound dispatch (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.SnapshotRefreshDuration]: "offer sync (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.SnapshotRefreshPages]: "pages per offer sync",
+    [BIDDING_RUNTIME_METRIC_NAME.SnapshotRefreshOffers]:
+        "offers per offer sync",
+    [BIDDING_RUNTIME_METRIC_NAME.BidBookProjectionQueueWait]:
+        "bid-book update queue (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.BidBookProjectionDuration]:
+        "bid-book update (ms)",
+    [BIDDING_RUNTIME_METRIC_NAME.BidBookProjectionRows]:
+        "offers per bid-book update",
+};
 
 type DashboardTarget = {
     expr: string;
@@ -135,14 +185,37 @@ function sumOf(
     return `sum by (${groupBy(labels)}) (${metricName(name)}${scoped(extraMatchers)})`;
 }
 
-function histogramPercentile(
-    name: MetricName,
+// Omit a percentile outside the recorded range instead of reporting the final finite boundary.
+export function histogramPercentile(
+    name: HistogramMetricName,
     percentile: number,
     labels: readonly string[],
     extraMatchers: readonly string[] = [],
 ): string {
     const histogramLabels = [PROMETHEUS_HISTOGRAM_BOUND_LABEL, ...labels];
-    return `histogram_quantile(${percentile}, sum by (${groupBy(histogramLabels)}) (rate(${histogramMetricName(name, "bucket")}${scoped(extraMatchers)}[$__rate_interval])))`;
+    const quantile = `histogram_quantile(${percentile}, sum by (${groupBy(histogramLabels)}) (rate(${histogramMetricName(name, "bucket")}${scoped(extraMatchers)}[$__rate_interval])))`;
+    return `${quantile} and (${histogramFiniteFraction(name, labels, extraMatchers)} >= ${percentile})`;
+}
+
+function histogramFiniteFraction(
+    name: HistogramMetricName,
+    labels: readonly string[],
+    extraMatchers: readonly string[] = [],
+): string {
+    const maximum = BIDDING_RUNTIME_HISTOGRAM_BUCKETS[name].at(-1)!;
+    const withinRange = [
+        ...extraMatchers,
+        matcher(PROMETHEUS_HISTOGRAM_BOUND_LABEL, "=", String(maximum)),
+    ];
+    return `sum by (${groupBy(labels)}) (rate(${histogramMetricName(name, "bucket")}${scoped(withinRange)}[$__rate_interval])) / ${histogramCountRate(name, labels, extraMatchers)}`;
+}
+
+// Report the fraction of completed observations above the last finite histogram boundary.
+export function histogramOverflowFraction(
+    name: HistogramMetricName,
+    labels: readonly string[],
+): string {
+    return `clamp_min(1 - (${histogramFiniteFraction(name, labels)}), 0)`;
 }
 
 function histogramCountRate(
@@ -262,7 +335,8 @@ class DashboardLayout {
     }
 }
 
-function buildDashboard(): Record<string, unknown> {
+// Build the reviewable Grafana artifact without performing file writes.
+export function buildDashboard(): Record<string, unknown> {
     const layout = new DashboardLayout();
     const runtimeLabels = [
         DASHBOARD_VARIABLE.Worker,
@@ -360,6 +434,21 @@ function buildDashboard(): Record<string, unknown> {
         "Compares 95th-percentile milliseconds at the main handoff points so the largest end-to-end bottleneck is visible first.",
     );
     layout.timeseries(
+        "Measurements Beyond Histogram Range",
+        "percentunit",
+        (
+            Object.keys(
+                BIDDING_RUNTIME_HISTOGRAM_BUCKETS,
+            ) as HistogramMetricName[]
+        ).map((name) =>
+            target(
+                `${histogramOverflowFraction(name, runtimeLabels)} > 0`,
+                `${HISTOGRAM_MEASUREMENTS[name]} > ${BIDDING_RUNTIME_HISTOGRAM_BUCKETS[name].at(-1)!}`,
+            ),
+        ),
+        "Percentage of completed observations above each measurement's largest finite bucket, by bot and chain. Only positive overflow is shown. A p95 outside its recorded range is omitted; this panel distinguishes overflow from absent observations. Long-operation and event-age ranges extend through 24 hours.",
+    );
+    layout.timeseries(
         "Active Pressure",
         "short",
         [
@@ -413,10 +502,12 @@ function buildDashboard(): Record<string, unknown> {
         "short",
         [
             target(
-                sumOf(BIDDING_RUNTIME_METRIC_NAME.Commands, runtimeLabels, [
-                    matcher(label.Result, "=", result.Failure),
-                ]),
-                "command failures",
+                sumOf(
+                    BIDDING_RUNTIME_METRIC_NAME.CommandAttempts,
+                    runtimeLabels,
+                    [matcher(label.Result, "=", result.Failure)],
+                ),
+                "command attempt failures",
             ),
             target(
                 sumOf(
@@ -833,7 +924,7 @@ function buildDashboard(): Record<string, unknown> {
         "95th-percentile total milliseconds from command creation through queueing and strategy start.",
     );
     layout.timeseries(
-        "Command Processing Duration p95",
+        "Command Attempt Duration p95",
         "ms",
         [
             target(
@@ -845,14 +936,14 @@ function buildDashboard(): Record<string, unknown> {
                 legend(label.CommandKind, label.Result),
             ),
         ],
-        "95th-percentile milliseconds from command processing start until its final result is recorded.",
+        "95th-percentile milliseconds for one command processing attempt, ending at completion, retry scheduling, or terminal failure.",
     );
     layout.timeseries(
-        "Command Results",
+        "Command Processing Attempts",
         "ops",
         [
             target(
-                rateOf(BIDDING_RUNTIME_METRIC_NAME.Commands, [
+                rateOf(BIDDING_RUNTIME_METRIC_NAME.CommandAttempts, [
                     ...runtimeLabels,
                     label.CommandKind,
                     label.Trigger,
@@ -861,7 +952,7 @@ function buildDashboard(): Record<string, unknown> {
                 legend(label.CommandKind, label.Trigger, label.Result),
             ),
         ],
-        "Completed commands per second by command kind, trigger, and result.",
+        "Finished processing attempts per second by command kind, trigger, and attempt result. A command that fails twice before succeeding contributes two failures and one success. Failures include both scheduled retries and terminal failures; use structured command logs for the durable outcome.",
     );
     layout.timeseries(
         "Commands in Flight",
@@ -1450,7 +1541,8 @@ function dashboardVariable(variableName: string, sourceMetric: string) {
     };
 }
 
-function validateDashboard(dashboard: Record<string, unknown>): void {
+// Reject unknown metrics, identity-bearing labels, and ambiguous multi-runtime legends.
+export function validateDashboard(dashboard: Record<string, unknown>): void {
     const rendered = JSON.stringify(dashboard);
     const allowedBiddingMetrics = new Set(
         Object.values(BIDDING_RUNTIME_METRIC_NAME).flatMap((name) => {
@@ -1471,7 +1563,7 @@ function validateDashboard(dashboard: Record<string, unknown>): void {
 
     for (const forbiddenLabel of BIDDING_RUNTIME_FORBIDDEN_HIGH_CARDINALITY_LABELS) {
         const labelUse = new RegExp(
-            `(?:[,{(]|\\{\\{)\\s*${forbiddenLabel}\\s*(?:=|=~|,|\\)|\\}\\})`,
+            `(?:[,{(]|\\{\\{)\\s*${forbiddenLabel}\\s*(?:=~|!~|!=|=|,|\\)|\\}\\})`,
         );
         if (labelUse.test(rendered)) {
             throw new Error(
@@ -1549,4 +1641,9 @@ async function main(): Promise<void> {
     console.log(`Generated ${path.relative(process.cwd(), DASHBOARD_OUTPUT)}.`);
 }
 
-await main();
+if (
+    process.argv[1] &&
+    import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+) {
+    await main();
+}

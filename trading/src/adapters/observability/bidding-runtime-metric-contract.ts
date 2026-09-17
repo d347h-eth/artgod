@@ -22,7 +22,7 @@ export const BIDDING_RUNTIME_METRIC_NAME = {
     CommandClaimToStrategy: "bidding_command_claim_to_strategy_ms",
     CommandCreatedToStrategy: "bidding_command_created_to_strategy_ms",
     CommandProcessingDuration: "bidding_command_processing_duration_ms",
-    Commands: "bidding_commands_total",
+    CommandAttempts: "bidding_command_attempts_total",
     CommandInFlight: "bidding_command_in_flight",
     StreamEvents: "bidding_stream_events_total",
     StreamEventAge: "bidding_stream_event_age_ms",
@@ -150,10 +150,11 @@ export const BIDDING_RUNTIME_QUEUE_DURATION_BUCKETS_MS = Object.freeze([
     60_000, 120_000, 300_000, 600_000, 1_800_000, 3_600_000,
 ]);
 
-// Long-duration buckets cover scans, snapshots, bootstrap, and shutdown work up to ten minutes.
+// Long-duration buckets retain sub-second resolution and expose delays through a full day.
 export const BIDDING_LONG_DURATION_BUCKETS_MS = Object.freeze([
     0, 100, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000, 120_000, 300_000,
-    600_000,
+    600_000, 1_800_000, 3_600_000, 10_800_000, 21_600_000, 43_200_000,
+    86_400_000,
 ]);
 
 // Durable-command queue buckets cover brief contention through a full day offline.
@@ -162,11 +163,8 @@ export const BIDDING_COMMAND_QUEUE_DURATION_BUCKETS_MS = Object.freeze([
     3_600_000, 10_800_000, 21_600_000, 43_200_000, 86_400_000,
 ]);
 
-// Event-age buckets surface stream lag from sub-second delivery through ten-minute backlog.
-export const BIDDING_EVENT_AGE_BUCKETS_MS = Object.freeze([
-    0, 100, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000, 120_000, 300_000,
-    600_000,
-]);
+// Stream backlog uses the same range as long-running work, including a full day of lag.
+export const BIDDING_EVENT_AGE_BUCKETS_MS = BIDDING_LONG_DURATION_BUCKETS_MS;
 
 // Count buckets preserve empty work passes and cover coalesced batches without assuming one event.
 export const BIDDING_COUNT_BUCKETS = Object.freeze([
@@ -177,3 +175,55 @@ export const BIDDING_COUNT_BUCKETS = Object.freeze([
 export const BIDDING_LARGE_COUNT_BUCKETS = Object.freeze([
     0, 10, 100, 500, 1_000, 2_500, 5_000, 10_000, 25_000, 50_000, 100_000,
 ]);
+
+// Exporter registration and dashboard overflow checks share these per-metric boundaries.
+export const BIDDING_RUNTIME_HISTOGRAM_BUCKETS = {
+    [BIDDING_RUNTIME_METRIC_NAME.OpenSeaOperationDuration]:
+        BIDDING_LONG_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.OpenSeaRateLimitWait]:
+        BIDDING_RUNTIME_QUEUE_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.RuntimeBootstrapPhaseDuration]:
+        BIDDING_LONG_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.RuntimeTimeToReady]:
+        BIDDING_LONG_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.JobScanDuration]:
+        BIDDING_LONG_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.JobRefreshQueueWait]:
+        BIDDING_RUNTIME_QUEUE_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.JobRefreshDuration]:
+        BIDDING_LONG_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.MarketActionDuration]:
+        BIDDING_LONG_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.CommandReconciliationDuration]:
+        BIDDING_LONG_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.CommandReconciliationBatchSize]:
+        BIDDING_COUNT_BUCKETS,
+    [BIDDING_RUNTIME_METRIC_NAME.CommandQueueWait]:
+        BIDDING_COMMAND_QUEUE_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.CommandClaimToStrategy]:
+        BIDDING_LONG_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.CommandCreatedToStrategy]:
+        BIDDING_COMMAND_QUEUE_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.CommandProcessingDuration]:
+        BIDDING_LONG_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.HotRefreshQueueWait]:
+        BIDDING_RUNTIME_QUEUE_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.HotRefreshPassDuration]:
+        BIDDING_LONG_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.HotRefreshPassEvents]: BIDDING_COUNT_BUCKETS,
+    [BIDDING_RUNTIME_METRIC_NAME.HotRefreshPassSignals]: BIDDING_COUNT_BUCKETS,
+    [BIDDING_RUNTIME_METRIC_NAME.StreamEventAge]: BIDDING_EVENT_AGE_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.StreamDispatchDuration]:
+        BIDDING_SHORT_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.SnapshotRefreshDuration]:
+        BIDDING_LONG_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.SnapshotRefreshPages]: BIDDING_COUNT_BUCKETS,
+    [BIDDING_RUNTIME_METRIC_NAME.SnapshotRefreshOffers]:
+        BIDDING_LARGE_COUNT_BUCKETS,
+    [BIDDING_RUNTIME_METRIC_NAME.BidBookProjectionQueueWait]:
+        BIDDING_RUNTIME_QUEUE_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.BidBookProjectionDuration]:
+        BIDDING_LONG_DURATION_BUCKETS_MS,
+    [BIDDING_RUNTIME_METRIC_NAME.BidBookProjectionRows]:
+        BIDDING_LARGE_COUNT_BUCKETS,
+} as const;

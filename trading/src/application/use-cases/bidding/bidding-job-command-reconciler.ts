@@ -62,6 +62,7 @@ export interface BiddingCommandObservabilityPort {
         claimToStrategyMs: number;
         createdToStrategyMs: number;
     }): void;
+    // A retried durable command produces one observation for each processing attempt.
     onCommandFinished(input: {
         trigger: BiddingCommandTrigger;
         commandKind: BiddingJobCommand["commandKind"];

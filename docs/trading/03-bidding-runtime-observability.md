@@ -113,13 +113,29 @@ so the structured startup log remains authoritative for failed bootstrap.
 The process-lifetime failure panel uses raw counters rather than rates. That
 keeps a first or singleton failure visible even if it happened before the first
 Prometheus baseline scrape. These totals reset with the bidding bot process.
+Command failures in this panel count failed processing attempts, including
+attempts scheduled for retry.
+
+Long-operation and event-age histograms cover sub-second observations through
+24 hours. `Measurements Beyond Histogram Range` shows the percentage of
+completed observations above each measurement's largest finite bucket, per bot
+and chain, with the measurement unit and boundary in its legend. Only positive
+overflow appears. A percentile outside its recorded range is omitted from the
+p95 charts, so it cannot appear as a misleading fixed latency. Compare a missing
+p95 with this overflow panel before treating it as an idle runtime. A hung
+operation has not completed a duration observation; use active pressure and
+structured logs to inspect work that is still running.
+
+This guard is needed because classic Prometheus histograms otherwise return the
+highest finite boundary when the requested quantile falls in the infinite
+bucket. See [Prometheus histogram quantiles](https://prometheus.io/docs/prometheus/latest/querying/functions/#histogram_quantile).
 
 `Job Scan Duration p95` measures a complete dynamic scan of the current job
 inventory. `Jobs Found in Latest Scan` shows its size. Scan results distinguish
 a fully successful pass, a pass that completed with one or more job failures,
-and an operational failure. Rising scan time with a stable job count points to
-slower per-job work; rising scan size and refresh pressure points to inventory
-growth or insufficient configured concurrency.
+an operational failure, and a scan stopped during shutdown. Rising scan time
+with a stable job count points to slower per-job work; rising scan size and
+refresh pressure points to inventory growth or insufficient configured concurrency.
 
 ### Commands to Strategy
 
@@ -134,16 +150,23 @@ Three timings separate durable command backlog from strategy contention:
 High queue wait with low claimed-to-strategy time indicates polling, batch, or
 durable backlog pressure. Low queue wait with high claimed-to-strategy time
 indicates contention after claim, such as job refresh concurrency or other
-admitted work. Compare both with command processing duration, reconciliation
+admitted work. Compare both with command attempt duration, reconciliation
 pass duration, batch size, and commands in flight before changing a cadence.
+
+`Command Processing Attempts` and `Command Attempt Duration p95` describe one
+processing attempt, not the final outcome of a unique durable command. The
+`bidding_command_attempts_total` counter records two failures and one success
+when one command fails twice before succeeding. Both retryable and terminal
+attempt failures use the failure result; structured command logs retain the
+authoritative retry or terminal outcome.
 
 ### Job Refreshes and Marketplace Actions
 
-Refresh request outcomes show whether a refresh started, coalesced behind work
-for the same job, or arrived after admission closed. Queue wait, duration, and
-active/waiting/pending gauges expose concurrency pressure without identifying a
-job. Marketplace action rate and duration are split by bounded action, target
-type, result, and dry-run state.
+Refresh request outcomes show whether a refresh was admitted or coalesced behind
+work for the same job. Shutdown rejects new background refreshes. Queue wait,
+duration, and active/waiting/pending gauges expose concurrency pressure without
+identifying a job. Marketplace action rate and duration are split by bounded
+action, target type, result, and dry-run state.
 
 ### Inbound Marketplace Pressure
 
@@ -208,12 +231,16 @@ to separate marketplace fetch cost from local bid-book update cost.
 
 ### Shutdown and Process Resources
 
-Shutdown first closes durable-command admission, then removes stream
-subscriptions and drains callbacks already captured by the stream adapter.
+Shutdown first closes background bidder admission and discards coalesced
+reruns. Background work waiting on concurrency or a job lock rechecks admission
+before strategy execution and is discarded. It then closes durable-command
+admission and finishes admitted commands, including their required strategy work,
+before removing stream subscriptions and draining captured callbacks.
 Active event batches and job refreshes settle before active offer syncs, and
 active offer syncs settle before active bid-book writes. Work that is still
-queued or coalesced but has not started is discarded once shutdown closes
-admission. The shared OpenSea stream disconnects only after those ordered drain
+queued or coalesced in background stages is discarded when that stage closes
+admission. Already-executing strategy work may finish its placement or cancellation.
+The shared OpenSea stream disconnects only after those ordered drain
 attempts finish. This prevents a durable command from being acknowledged while
 its strategy work is abandoned without making shutdown wait for superseded
 background signals.
@@ -243,8 +270,8 @@ job, collection, token, order, or failure, then return to metrics to determine
 whether it is isolated or system-wide.
 
 The dashboard generator rejects unknown bidding metric names, queries that use
-the forbidden high-cardinality labels above, and legends that omit worker or
-chain identity under multi-value selectors.
+the forbidden high-cardinality labels above (including negative matchers), and
+legends that omit worker or chain identity under multi-value selectors.
 
 ## Dashboard Generation and Drift Check
 
@@ -265,6 +292,19 @@ Verify that the committed dashboard is current without writing it:
 ```sh
 yarn observability:bidding-dashboard:check
 ```
+
+Run the dashboard vocabulary checks and the pinned Prometheus query tests:
+
+```sh
+yarn observability:bidding-dashboard:test
+yarn observability:bidding-dashboard:test-promql <promtool-path> <project-artifact-directory>
+```
+
+Use `promtool` from the Prometheus version pinned in `docker-compose.yml`.
+The query test requires both arguments, saves its synthetic scrape fixture in
+the chosen project directory, evaluates every generated query, and verifies
+30-minute, multi-hour, and overflowing observations with independent chain
+selectors. It needs no live bot, marketplace, or database.
 
 Do not hand-edit the generated JSON. Update the generator and metric owner
 contracts together, regenerate, and review the resulting PromQL and panel

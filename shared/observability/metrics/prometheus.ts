@@ -277,10 +277,12 @@ function sanitizeHistogramBuckets(
     if (!buckets || buckets.length === 0) {
         return [...fallback];
     }
-    const normalized = buckets
-        .filter((bucket) => Number.isFinite(bucket) && bucket >= 0)
-        .map((bucket) => Number(bucket))
-        .sort((a, b) => a - b);
+    // Duplicate boundaries produce duplicate label sets and inconsistent cumulative counts.
+    const normalized = [
+        ...new Set(
+            buckets.filter((bucket) => Number.isFinite(bucket) && bucket >= 0),
+        ),
+    ].sort((a, b) => a - b);
     return normalized.length > 0 ? normalized : [...fallback];
 }
 

@@ -155,41 +155,250 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / command claimed to strategy",
                     "range": true,
                     "refId": "A"
                 },
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / job refresh queue",
                     "range": true,
                     "refId": "B"
                 },
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id) (rate(artgod_trading_bidding_stream_event_age_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id) (rate(artgod_trading_bidding_stream_event_age_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id) (rate(artgod_trading_bidding_stream_event_age_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_stream_event_age_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / inbound event age",
                     "range": true,
                     "refId": "C"
                 },
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / OpenSea rate-limit wait",
                     "range": true,
                     "refId": "D"
                 },
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / bid-book update queue",
                     "range": true,
                     "refId": "E"
                 }
             ],
             "title": "Critical Path Latency p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Percentage of completed observations above each measurement's largest finite bucket, by bot and chain. Only positive overflow is shown. A p95 outside its recorded range is omitted; this panel distinguishes overflow from absent observations. Long-operation and event-age ranges extend through 24 hours.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "percentunit"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 9 },
+            "id": 5,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_opensea_operation_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_opensea_operation_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / OpenSea call (ms) > 86400000",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / OpenSea rate-limit wait (ms) > 3600000",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_runtime_bootstrap_phase_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_runtime_bootstrap_phase_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / startup phase (ms) > 86400000",
+                    "range": true,
+                    "refId": "C"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_runtime_time_to_ready_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_runtime_time_to_ready_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / time to ready (ms) > 86400000",
+                    "range": true,
+                    "refId": "D"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_job_scan_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_job_scan_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / job scan (ms) > 86400000",
+                    "range": true,
+                    "refId": "E"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / job refresh queue (ms) > 3600000",
+                    "range": true,
+                    "refId": "F"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_job_refresh_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_job_refresh_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / job refresh (ms) > 86400000",
+                    "range": true,
+                    "refId": "G"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_market_action_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_market_action_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / marketplace action (ms) > 86400000",
+                    "range": true,
+                    "refId": "H"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_command_reconciliation_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_command_reconciliation_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / command reconciliation (ms) > 86400000",
+                    "range": true,
+                    "refId": "I"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_command_reconciliation_batch_size_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"1000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_command_reconciliation_batch_size_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / commands per reconciliation > 1000",
+                    "range": true,
+                    "refId": "J"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_command_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_command_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / command queue (ms) > 86400000",
+                    "range": true,
+                    "refId": "K"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / command claim to strategy (ms) > 86400000",
+                    "range": true,
+                    "refId": "L"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_command_created_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_command_created_to_strategy_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / command creation to strategy (ms) > 86400000",
+                    "range": true,
+                    "refId": "M"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_command_processing_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_command_processing_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / command attempt (ms) > 86400000",
+                    "range": true,
+                    "refId": "N"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_hot_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_hot_refresh_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / inbound refresh queue (ms) > 3600000",
+                    "range": true,
+                    "refId": "O"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_hot_refresh_pass_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_hot_refresh_pass_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / inbound refresh pass (ms) > 86400000",
+                    "range": true,
+                    "refId": "P"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_hot_refresh_pass_events_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"1000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_hot_refresh_pass_events_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / events per inbound refresh pass > 1000",
+                    "range": true,
+                    "refId": "Q"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_hot_refresh_pass_signals_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"1000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_hot_refresh_pass_signals_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / signals per inbound refresh pass > 1000",
+                    "range": true,
+                    "refId": "R"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_stream_event_age_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_stream_event_age_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / inbound event age (ms) > 86400000",
+                    "range": true,
+                    "refId": "S"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_stream_dispatch_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"30000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_stream_dispatch_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / inbound dispatch (ms) > 30000",
+                    "range": true,
+                    "refId": "T"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_snapshot_refresh_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_snapshot_refresh_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / offer sync (ms) > 86400000",
+                    "range": true,
+                    "refId": "U"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_snapshot_refresh_pages_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"1000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_snapshot_refresh_pages_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / pages per offer sync > 1000",
+                    "range": true,
+                    "refId": "V"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_snapshot_refresh_offers_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"100000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_snapshot_refresh_offers_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / offers per offer sync > 100000",
+                    "range": true,
+                    "refId": "W"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / bid-book update queue (ms) > 3600000",
+                    "range": true,
+                    "refId": "X"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / bid-book update (ms) > 86400000",
+                    "range": true,
+                    "refId": "Y"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_rows_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"100000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_rows_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / offers per bid-book update > 100000",
+                    "range": true,
+                    "refId": "Z"
+                }
+            ],
+            "title": "Measurements Beyond Histogram Range",
             "type": "timeseries"
         },
         {
@@ -203,8 +412,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 9 },
-            "id": 5,
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 9 },
+            "id": 6,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -272,8 +481,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 9 },
-            "id": 6,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 17 },
+            "id": 7,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -286,8 +495,8 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_commands_total{worker=~\"$worker\",chain_id=~\"$chain_id\",result=\"failure\"})",
-                    "legendFormat": "{{worker}} / {{chain_id}} / command failures",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_command_attempts_total{worker=~\"$worker\",chain_id=~\"$chain_id\",result=\"failure\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / command attempt failures",
                     "range": true,
                     "refId": "A"
                 },
@@ -376,8 +585,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 17 },
-            "id": 7,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 17 },
+            "id": 8,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -426,7 +635,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 26 },
-            "id": 8,
+            "id": 9,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -460,7 +669,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 8, "y": 26 },
-            "id": 9,
+            "id": 10,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -494,7 +703,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 16, "y": 26 },
-            "id": 10,
+            "id": 11,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -528,7 +737,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 34 },
-            "id": 11,
+            "id": 12,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -541,7 +750,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_job_scan_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_job_scan_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, result) (rate(artgod_trading_bidding_job_scan_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, result) (rate(artgod_trading_bidding_job_scan_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{result}}",
                     "range": true,
                     "refId": "A"
@@ -562,7 +771,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 8, "y": 34 },
-            "id": 12,
+            "id": 13,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -604,7 +813,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 43 },
-            "id": 13,
+            "id": 14,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -638,7 +847,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 8, "y": 43 },
-            "id": 14,
+            "id": 15,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -651,7 +860,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, trigger, target_type) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, trigger, target_type) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, trigger, target_type) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id, trigger, target_type) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{trigger}} / {{target_type}}",
                     "range": true,
                     "refId": "A"
@@ -672,7 +881,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 16, "y": 43 },
-            "id": 15,
+            "id": 16,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -685,7 +894,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, trigger, target_type, result) (rate(artgod_trading_bidding_job_refresh_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, trigger, target_type, result) (rate(artgod_trading_bidding_job_refresh_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, trigger, target_type, result) (rate(artgod_trading_bidding_job_refresh_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, trigger, target_type, result) (rate(artgod_trading_bidding_job_refresh_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{trigger}} / {{target_type}} / {{result}}",
                     "range": true,
                     "refId": "A"
@@ -706,7 +915,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 51 },
-            "id": 16,
+            "id": 17,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -754,7 +963,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 8, "y": 51 },
-            "id": 17,
+            "id": 18,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -788,7 +997,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 16, "y": 51 },
-            "id": 18,
+            "id": 19,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -801,7 +1010,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, action, target_type, result, dry_run) (rate(artgod_trading_bidding_market_action_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, action, target_type, result, dry_run) (rate(artgod_trading_bidding_market_action_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, action, target_type, result, dry_run) (rate(artgod_trading_bidding_market_action_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, action, target_type, result, dry_run) (rate(artgod_trading_bidding_market_action_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{action}} / {{target_type}} / {{result}} / {{dry_run}}",
                     "range": true,
                     "refId": "A"
@@ -830,7 +1039,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 60 },
-            "id": 19,
+            "id": 20,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -843,7 +1052,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, trigger, result) (rate(artgod_trading_bidding_command_reconciliation_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, trigger, result) (rate(artgod_trading_bidding_command_reconciliation_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, trigger, result) (rate(artgod_trading_bidding_command_reconciliation_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, trigger, result) (rate(artgod_trading_bidding_command_reconciliation_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{trigger}} / {{result}}",
                     "range": true,
                     "refId": "A"
@@ -864,7 +1073,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 8, "y": 60 },
-            "id": 20,
+            "id": 21,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -877,7 +1086,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, trigger, result) (rate(artgod_trading_bidding_command_reconciliation_batch_size_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, trigger, result) (rate(artgod_trading_bidding_command_reconciliation_batch_size_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, trigger, result) (rate(artgod_trading_bidding_command_reconciliation_batch_size_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"1000\"}[$__rate_interval])) / sum by (worker, chain_id, trigger, result) (rate(artgod_trading_bidding_command_reconciliation_batch_size_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{trigger}} / {{result}}",
                     "range": true,
                     "refId": "A"
@@ -898,7 +1107,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 16, "y": 60 },
-            "id": 21,
+            "id": 22,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -911,7 +1120,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{command_kind}} / {{trigger}}",
                     "range": true,
                     "refId": "A"
@@ -932,7 +1141,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 68 },
-            "id": 22,
+            "id": 23,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -945,7 +1154,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{command_kind}} / {{trigger}}",
                     "range": true,
                     "refId": "A"
@@ -966,40 +1175,6 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 8, "y": 68 },
-            "id": 23,
-            "options": {
-                "legend": {
-                    "calcs": [],
-                    "displayMode": "list",
-                    "placement": "bottom",
-                    "showLegend": true
-                },
-                "tooltip": { "mode": "multi", "sort": "desc" }
-            },
-            "targets": [
-                {
-                    "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_created_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
-                    "legendFormat": "{{worker}} / {{chain_id}} / {{command_kind}} / {{trigger}}",
-                    "range": true,
-                    "refId": "A"
-                }
-            ],
-            "title": "Command Created to Strategy Start p95",
-            "type": "timeseries"
-        },
-        {
-            "datasource": { "type": "prometheus", "uid": "prometheus" },
-            "description": "95th-percentile milliseconds from command processing start until its final result is recorded.",
-            "fieldConfig": {
-                "defaults": {
-                    "color": { "mode": "palette-classic" },
-                    "mappings": [],
-                    "unit": "ms"
-                },
-                "overrides": []
-            },
-            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 68 },
             "id": 24,
             "options": {
                 "legend": {
@@ -1013,27 +1188,27 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, command_kind, result) (rate(artgod_trading_bidding_command_processing_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
-                    "legendFormat": "{{worker}} / {{chain_id}} / {{command_kind}} / {{result}}",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_created_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_created_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_created_to_strategy_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{command_kind}} / {{trigger}}",
                     "range": true,
                     "refId": "A"
                 }
             ],
-            "title": "Command Processing Duration p95",
+            "title": "Command Created to Strategy Start p95",
             "type": "timeseries"
         },
         {
             "datasource": { "type": "prometheus", "uid": "prometheus" },
-            "description": "Completed commands per second by command kind, trigger, and result.",
+            "description": "95th-percentile milliseconds for one command processing attempt, ending at completion, retry scheduling, or terminal failure.",
             "fieldConfig": {
                 "defaults": {
                     "color": { "mode": "palette-classic" },
                     "mappings": [],
-                    "unit": "ops"
+                    "unit": "ms"
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 76 },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 68 },
             "id": 25,
             "options": {
                 "legend": {
@@ -1047,13 +1222,47 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "sum by (worker, chain_id, command_kind, trigger, result) (rate(artgod_trading_bidding_commands_total{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, command_kind, result) (rate(artgod_trading_bidding_command_processing_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, command_kind, result) (rate(artgod_trading_bidding_command_processing_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, command_kind, result) (rate(artgod_trading_bidding_command_processing_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{command_kind}} / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Command Attempt Duration p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Finished processing attempts per second by command kind, trigger, and attempt result. A command that fails twice before succeeding contributes two failures and one success. Failures include both scheduled retries and terminal failures; use structured command logs for the durable outcome.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 76 },
+            "id": 26,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, command_kind, trigger, result) (rate(artgod_trading_bidding_command_attempts_total{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{command_kind}} / {{trigger}} / {{result}}",
                     "range": true,
                     "refId": "A"
                 }
             ],
-            "title": "Command Results",
+            "title": "Command Processing Attempts",
             "type": "timeseries"
         },
         {
@@ -1068,7 +1277,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 8, "y": 76 },
-            "id": 26,
+            "id": 27,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1110,7 +1319,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 85 },
-            "id": 27,
+            "id": 28,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1144,7 +1353,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 8, "y": 85 },
-            "id": 28,
+            "id": 29,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1157,7 +1366,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, event_type, event_scope) (rate(artgod_trading_bidding_stream_event_age_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, event_type, event_scope) (rate(artgod_trading_bidding_stream_event_age_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, event_type, event_scope) (rate(artgod_trading_bidding_stream_event_age_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, event_type, event_scope) (rate(artgod_trading_bidding_stream_event_age_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{event_type}} / {{event_scope}}",
                     "range": true,
                     "refId": "A"
@@ -1178,7 +1387,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 16, "y": 85 },
-            "id": 29,
+            "id": 30,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1191,7 +1400,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, event_type, event_scope, result) (rate(artgod_trading_bidding_stream_dispatch_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, event_type, event_scope, result) (rate(artgod_trading_bidding_stream_dispatch_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, event_type, event_scope, result) (rate(artgod_trading_bidding_stream_dispatch_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"30000\"}[$__rate_interval])) / sum by (worker, chain_id, event_type, event_scope, result) (rate(artgod_trading_bidding_stream_dispatch_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{event_type}} / {{event_scope}} / {{result}}",
                     "range": true,
                     "refId": "A"
@@ -1212,7 +1421,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 93 },
-            "id": 30,
+            "id": 31,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1246,7 +1455,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 8, "y": 93 },
-            "id": 31,
+            "id": 32,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1280,7 +1489,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 16, "y": 93 },
-            "id": 32,
+            "id": 33,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1321,7 +1530,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 101 },
-            "id": 33,
+            "id": 34,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1362,7 +1571,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 8, "y": 101 },
-            "id": 34,
+            "id": 35,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1375,7 +1584,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{lane}}",
                     "range": true,
                     "refId": "A"
@@ -1396,7 +1605,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 16, "y": 101 },
-            "id": 35,
+            "id": 36,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1409,7 +1618,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane, result) (rate(artgod_trading_bidding_hot_refresh_pass_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane, result) (rate(artgod_trading_bidding_hot_refresh_pass_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, lane, result) (rate(artgod_trading_bidding_hot_refresh_pass_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, lane, result) (rate(artgod_trading_bidding_hot_refresh_pass_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / {{result}}",
                     "range": true,
                     "refId": "A"
@@ -1430,7 +1639,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 109 },
-            "id": 36,
+            "id": 37,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1443,14 +1652,14 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_pass_events_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_pass_events_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_pass_events_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"1000\"}[$__rate_interval])) / sum by (worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_pass_events_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / events",
                     "range": true,
                     "refId": "A"
                 },
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_pass_signals_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_pass_signals_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_pass_signals_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"1000\"}[$__rate_interval])) / sum by (worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_pass_signals_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / signals",
                     "range": true,
                     "refId": "B"
@@ -1479,7 +1688,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 118 },
-            "id": 37,
+            "id": 38,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1513,7 +1722,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 8, "y": 118 },
-            "id": 38,
+            "id": 39,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1526,7 +1735,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane, operation, priority, result) (rate(artgod_trading_bidding_opensea_operation_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane, operation, priority, result) (rate(artgod_trading_bidding_opensea_operation_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, lane, operation, priority, result) (rate(artgod_trading_bidding_opensea_operation_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, lane, operation, priority, result) (rate(artgod_trading_bidding_opensea_operation_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / {{operation}} / {{priority}} / {{result}}",
                     "range": true,
                     "refId": "A"
@@ -1547,7 +1756,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 16, "y": 118 },
-            "id": 39,
+            "id": 40,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1581,7 +1790,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 126 },
-            "id": 40,
+            "id": 41,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1594,7 +1803,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane, priority, outcome) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane, priority, outcome) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, lane, priority, outcome) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id, lane, priority, outcome) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / {{priority}} / {{outcome}}",
                     "range": true,
                     "refId": "A"
@@ -1615,7 +1824,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 8, "y": 126 },
-            "id": 41,
+            "id": 42,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1657,7 +1866,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 135 },
-            "id": 42,
+            "id": 43,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1691,7 +1900,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 8, "y": 135 },
-            "id": 43,
+            "id": 44,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1725,7 +1934,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 16, "y": 135 },
-            "id": 44,
+            "id": 45,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1738,7 +1947,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{result}}",
                     "range": true,
                     "refId": "A"
@@ -1759,7 +1968,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 143 },
-            "id": 45,
+            "id": 46,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1772,14 +1981,14 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_pages_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_pages_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_pages_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"1000\"}[$__rate_interval])) / sum by (worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_pages_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{result}} / pages",
                     "range": true,
                     "refId": "A"
                 },
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_offers_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_offers_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_offers_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"100000\"}[$__rate_interval])) / sum by (worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_offers_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{result}} / offers",
                     "range": true,
                     "refId": "B"
@@ -1800,7 +2009,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 8, "y": 143 },
-            "id": 46,
+            "id": 47,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1848,7 +2057,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 16, "y": 143 },
-            "id": 47,
+            "id": 48,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1882,7 +2091,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 151 },
-            "id": 48,
+            "id": 49,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1895,7 +2104,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{result}}",
                     "range": true,
                     "refId": "A"
@@ -1916,7 +2125,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 8, "y": 151 },
-            "id": 49,
+            "id": 50,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1929,7 +2138,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{result}}",
                     "range": true,
                     "refId": "A"
@@ -1950,7 +2159,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 16, "y": 151 },
-            "id": 50,
+            "id": 51,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1963,7 +2172,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_rows_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_rows_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_rows_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"100000\"}[$__rate_interval])) / sum by (worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_rows_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{result}}",
                     "range": true,
                     "refId": "A"
@@ -1984,7 +2193,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 159 },
-            "id": 51,
+            "id": 52,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -2033,7 +2242,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 168 },
-            "id": 52,
+            "id": 53,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -2067,7 +2276,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 8, "y": 168 },
-            "id": 53,
+            "id": 54,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -2101,7 +2310,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 16, "y": 168 },
-            "id": 54,
+            "id": 55,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -2135,7 +2344,7 @@
                 "overrides": []
             },
             "gridPos": { "h": 8, "w": 8, "x": 0, "y": 176 },
-            "id": 55,
+            "id": 56,
             "options": {
                 "legend": {
                     "calcs": [],

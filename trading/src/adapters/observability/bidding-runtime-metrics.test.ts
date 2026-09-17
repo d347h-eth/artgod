@@ -143,12 +143,14 @@ describe("BiddingRuntimeMetrics", () => {
             durationMs: 900,
             result: BIDDING_COMMAND_RECONCILIATION_RESULT.CompletedWithFailures,
         });
-        observability.onCommandFinished({
-            trigger: BIDDING_COMMAND_TRIGGER.Signal,
-            commandKind: TRADING_JOB_COMMAND_KIND.JobUpdated,
-            durationMs: 900,
-            succeeded: true,
-        });
+        for (const succeeded of [false, false, true]) {
+            observability.onCommandFinished({
+                trigger: BIDDING_COMMAND_TRIGGER.Signal,
+                commandKind: TRADING_JOB_COMMAND_KIND.JobUpdated,
+                durationMs: 900,
+                succeeded,
+            });
+        }
         observability.onSignal({
             laneKind: HOT_REFRESH_LANE_KIND.Item,
             eventType: Type.ItemReceivedBid,
@@ -238,6 +240,21 @@ describe("BiddingRuntimeMetrics", () => {
         });
 
         const scrape = await metrics.metricsText();
+        for (const [result, count] of [
+            [BIDDING_RUNTIME_METRIC_RESULT.Failure, 2],
+            [BIDDING_RUNTIME_METRIC_RESULT.Success, 1],
+        ] as const) {
+            expect(
+                scrape
+                    .split("\n")
+                    .find(
+                        (line) =>
+                            line.startsWith(
+                                `${metric(BIDDING_RUNTIME_METRIC_NAME.CommandAttempts)}{`,
+                            ) && line.includes(`result="${result}"`),
+                    ),
+            ).toMatch(new RegExp(` ${count}$`));
+        }
         expect(scrape).toContain(metric(BIDDING_RUNTIME_METRIC_NAME.Jobs));
         expect(scrape).toContain(
             metric(BIDDING_RUNTIME_METRIC_NAME.CommandClaimToStrategy),
@@ -284,13 +301,6 @@ describe("BiddingRuntimeMetrics", () => {
                 BIDDING_LONG_DURATION_BUCKETS_MS.at(-1)!,
             ),
         ).toBe(true);
-        expect(
-            hasHistogramBucket(
-                scrape,
-                BIDDING_RUNTIME_METRIC_NAME.CommandClaimToStrategy,
-                BIDDING_COMMAND_QUEUE_DURATION_BUCKETS_MS.at(-1)!,
-            ),
-        ).toBe(false);
         for (const countMetric of [
             BIDDING_RUNTIME_METRIC_NAME.CommandReconciliationBatchSize,
             BIDDING_RUNTIME_METRIC_NAME.HotRefreshPassEvents,

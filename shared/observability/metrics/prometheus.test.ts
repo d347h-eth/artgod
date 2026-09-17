@@ -81,6 +81,45 @@ describe("PrometheusMetrics histogram buckets", () => {
             }),
         ).not.toThrow();
     });
+
+    it("emits unique cumulative samples for repeated and unordered boundaries", async () => {
+        const metrics = await createPrometheusMetrics({
+            prefix: TEST_METRIC_PREFIX,
+            histogramBucketsMs: [2, 1, 1],
+            collectProcessMetrics: false,
+        });
+        if (!metrics) throw new Error("prom-client is required for this test");
+        metrics.histogram(TEST_DEFAULT_HISTOGRAM, 1);
+        metrics.histogram(TEST_CUSTOM_HISTOGRAM, 1, undefined, {
+            buckets: [2, 1, 0, 1, 0, -1, Number.NaN, Number.POSITIVE_INFINITY],
+        });
+        metrics.histogram(TEST_CUSTOM_HISTOGRAM, 3);
+
+        const scrape = await metrics.metricsText();
+        expect(bucketBoundaries(scrape, TEST_DEFAULT_HISTOGRAM)).toEqual([
+            "1",
+            "2",
+            "+Inf",
+        ]);
+        expect(bucketBoundaries(scrape, TEST_CUSTOM_HISTOGRAM)).toEqual([
+            "0",
+            "1",
+            "2",
+            "+Inf",
+        ]);
+        const counts = (name: string) =>
+            scrape
+                .split("\n")
+                .filter((line) =>
+                    line.startsWith(`${TEST_METRIC_PREFIX}_${name}_bucket{`),
+                )
+                .map((line) => Number(line.slice(line.lastIndexOf(" ") + 1)));
+        expect(counts(TEST_DEFAULT_HISTOGRAM)).toEqual([1, 1, 1]);
+        expect(counts(TEST_CUSTOM_HISTOGRAM)).toEqual([0, 1, 1, 2]);
+        expect(scrape).toContain(
+            `${TEST_METRIC_PREFIX}_${TEST_CUSTOM_HISTOGRAM}_count 2`,
+        );
+    });
 });
 
 async function createMetrics(): Promise<PrometheusMetrics> {

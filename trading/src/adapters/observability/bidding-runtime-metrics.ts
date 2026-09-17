@@ -1,4 +1,7 @@
-import type { Metrics } from "@artgod/shared/observability/metrics";
+import type {
+    Metrics,
+    MetricLabels,
+} from "@artgod/shared/observability/metrics";
 import {
     BIDDER_TARGET_TYPE,
     type BidderJob,
@@ -44,20 +47,14 @@ import {
 import type { Scope } from "../../domain/market/event.js";
 import { observeBestEffort } from "../../utils/observe-best-effort.js";
 import {
-    BIDDING_COMMAND_QUEUE_DURATION_BUCKETS_MS,
-    BIDDING_COUNT_BUCKETS,
-    BIDDING_EVENT_AGE_BUCKETS_MS,
-    BIDDING_LARGE_COUNT_BUCKETS,
-    BIDDING_LONG_DURATION_BUCKETS_MS,
     BIDDING_RUNTIME_CONFIGURATION_SETTING,
     BIDDING_RUNTIME_METRIC_LABEL,
     BIDDING_RUNTIME_METRIC_NAME,
+    BIDDING_RUNTIME_HISTOGRAM_BUCKETS,
     BIDDING_RUNTIME_METRIC_RESULT,
-    BIDDING_RUNTIME_QUEUE_DURATION_BUCKETS_MS,
     BIDDING_RUNTIME_METRIC_STATE,
     BIDDING_RUNTIME_TARGET_TYPE_AGGREGATE,
     BIDDING_RUNTIME_UNKNOWN_LABEL,
-    BIDDING_SHORT_DURATION_BUCKETS_MS,
     type BiddingOpenSeaLane,
     type BiddingRuntimeMetricState,
 } from "./bidding-runtime-metric-contract.js";
@@ -132,11 +129,10 @@ export class BiddingRuntimeMetrics
                     1,
                     labels,
                 );
-                this.metrics.histogram(
+                this.observeHistogram(
                     BIDDING_RUNTIME_METRIC_NAME.OpenSeaOperationDuration,
                     input.durationMs,
                     labels,
-                    { buckets: BIDDING_LONG_DURATION_BUCKETS_MS },
                 );
             },
             onOpenSeaRetry: (input) => {
@@ -167,7 +163,7 @@ export class BiddingRuntimeMetrics
                 );
             },
             onRateLimitWaitFinished: (input) => {
-                this.metrics.histogram(
+                this.observeHistogram(
                     BIDDING_RUNTIME_METRIC_NAME.OpenSeaRateLimitWait,
                     input.waitMs,
                     {
@@ -176,7 +172,6 @@ export class BiddingRuntimeMetrics
                             rateLimitPriorityLabel(input.priority),
                         [BIDDING_RUNTIME_METRIC_LABEL.Outcome]: input.outcome,
                     },
-                    { buckets: BIDDING_RUNTIME_QUEUE_DURATION_BUCKETS_MS },
                 );
             },
         };
@@ -195,7 +190,7 @@ export class BiddingRuntimeMetrics
     }
 
     public observeBootstrapPhase(input: BootstrapPhaseObservation): void {
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.RuntimeBootstrapPhaseDuration,
             input.durationMs,
             {
@@ -204,16 +199,14 @@ export class BiddingRuntimeMetrics
                     input.succeeded,
                 ),
             },
-            { buckets: BIDDING_LONG_DURATION_BUCKETS_MS },
         );
     }
 
     public observeTimeToReady(durationMs: number): void {
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.RuntimeTimeToReady,
             durationMs,
             undefined,
-            { buckets: BIDDING_LONG_DURATION_BUCKETS_MS },
         );
     }
 
@@ -274,11 +267,10 @@ export class BiddingRuntimeMetrics
         const labels = {
             [BIDDING_RUNTIME_METRIC_LABEL.Result]: input.result,
         };
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.JobScanDuration,
             input.durationMs,
             labels,
-            { buckets: BIDDING_LONG_DURATION_BUCKETS_MS },
         );
         this.metrics.gauge(
             BIDDING_RUNTIME_METRIC_NAME.JobScanSize,
@@ -308,14 +300,13 @@ export class BiddingRuntimeMetrics
         targetType: BidderJob["target"]["type"];
         queueWaitMs: number;
     }): void {
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.JobRefreshQueueWait,
             input.queueWaitMs,
             {
                 [BIDDING_RUNTIME_METRIC_LABEL.Trigger]: input.trigger,
                 [BIDDING_RUNTIME_METRIC_LABEL.TargetType]: input.targetType,
             },
-            { buckets: BIDDING_RUNTIME_QUEUE_DURATION_BUCKETS_MS },
         );
     }
 
@@ -325,7 +316,7 @@ export class BiddingRuntimeMetrics
         durationMs: number;
         succeeded: boolean;
     }): void {
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.JobRefreshDuration,
             input.durationMs,
             {
@@ -335,7 +326,6 @@ export class BiddingRuntimeMetrics
                     input.succeeded,
                 ),
             },
-            { buckets: BIDDING_LONG_DURATION_BUCKETS_MS },
         );
     }
 
@@ -376,11 +366,10 @@ export class BiddingRuntimeMetrics
             1,
             labels,
         );
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.MarketActionDuration,
             input.durationMs,
             labels,
-            { buckets: BIDDING_LONG_DURATION_BUCKETS_MS },
         );
     }
 
@@ -394,17 +383,15 @@ export class BiddingRuntimeMetrics
             [BIDDING_RUNTIME_METRIC_LABEL.Trigger]: input.trigger,
             [BIDDING_RUNTIME_METRIC_LABEL.Result]: input.result,
         };
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.CommandReconciliationDuration,
             input.durationMs,
             labels,
-            { buckets: BIDDING_LONG_DURATION_BUCKETS_MS },
         );
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.CommandReconciliationBatchSize,
             input.processed,
             labels,
-            { buckets: BIDDING_COUNT_BUCKETS },
         );
     }
 
@@ -413,11 +400,10 @@ export class BiddingRuntimeMetrics
         commandKind: BiddingJobCommand["commandKind"];
         queueWaitMs: number;
     }): void {
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.CommandQueueWait,
             input.queueWaitMs,
             commandLabels(input),
-            { buckets: BIDDING_COMMAND_QUEUE_DURATION_BUCKETS_MS },
         );
     }
 
@@ -428,20 +414,19 @@ export class BiddingRuntimeMetrics
         createdToStrategyMs: number;
     }): void {
         const labels = commandLabels(input);
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.CommandClaimToStrategy,
             input.claimToStrategyMs,
             labels,
-            { buckets: BIDDING_LONG_DURATION_BUCKETS_MS },
         );
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.CommandCreatedToStrategy,
             input.createdToStrategyMs,
             labels,
-            { buckets: BIDDING_COMMAND_QUEUE_DURATION_BUCKETS_MS },
         );
     }
 
+    // Each observation is one processing attempt, including failures scheduled for retry.
     public onCommandFinished(input: {
         trigger: BiddingCommandTrigger;
         commandKind: BiddingJobCommand["commandKind"];
@@ -452,13 +437,27 @@ export class BiddingRuntimeMetrics
             ...commandLabels(input),
             [BIDDING_RUNTIME_METRIC_LABEL.Result]: toResult(input.succeeded),
         };
-        this.metrics.increment(BIDDING_RUNTIME_METRIC_NAME.Commands, 1, labels);
-        this.metrics.histogram(
+        this.metrics.increment(
+            BIDDING_RUNTIME_METRIC_NAME.CommandAttempts,
+            1,
+            labels,
+        );
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.CommandProcessingDuration,
             input.durationMs,
             labels,
-            { buckets: BIDDING_LONG_DURATION_BUCKETS_MS },
         );
+    }
+
+    private observeHistogram(
+        name: keyof typeof BIDDING_RUNTIME_HISTOGRAM_BUCKETS,
+        value: number,
+        labels?: MetricLabels,
+    ): void {
+        // The exporter and dashboard share one range so overflow cannot masquerade as a finite p95.
+        this.metrics.histogram(name, value, labels, {
+            buckets: BIDDING_RUNTIME_HISTOGRAM_BUCKETS[name],
+        });
     }
 
     public onCommandInFlightChanged(count: number): void {
@@ -525,29 +524,25 @@ export class BiddingRuntimeMetrics
             [BIDDING_RUNTIME_METRIC_LABEL.Lane]: input.laneKind,
             [BIDDING_RUNTIME_METRIC_LABEL.Result]: toResult(input.succeeded),
         };
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.HotRefreshQueueWait,
             input.queueWaitMs,
             labels,
-            { buckets: BIDDING_RUNTIME_QUEUE_DURATION_BUCKETS_MS },
         );
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.HotRefreshPassDuration,
             input.durationMs,
             labels,
-            { buckets: BIDDING_LONG_DURATION_BUCKETS_MS },
         );
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.HotRefreshPassEvents,
             input.eventCount,
             labels,
-            { buckets: BIDDING_COUNT_BUCKETS },
         );
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.HotRefreshPassSignals,
             input.signalCount,
             labels,
-            { buckets: BIDDING_COUNT_BUCKETS },
         );
     }
 
@@ -570,7 +565,7 @@ export class BiddingRuntimeMetrics
             labels,
         );
         if (input.ageMs !== undefined) {
-            this.metrics.histogram(
+            this.observeHistogram(
                 BIDDING_RUNTIME_METRIC_NAME.StreamEventAge,
                 input.ageMs,
                 {
@@ -578,7 +573,6 @@ export class BiddingRuntimeMetrics
                     [BIDDING_RUNTIME_METRIC_LABEL.EventScope]:
                         input.eventScope!,
                 },
-                { buckets: BIDDING_EVENT_AGE_BUCKETS_MS },
             );
         }
     }
@@ -594,7 +588,7 @@ export class BiddingRuntimeMetrics
             this.activeStreamDispatches - 1,
         );
         this.reportActiveStreamDispatches();
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.StreamDispatchDuration,
             input.durationMs,
             {
@@ -604,7 +598,6 @@ export class BiddingRuntimeMetrics
                     input.succeeded,
                 ),
             },
-            { buckets: BIDDING_SHORT_DURATION_BUCKETS_MS },
         );
     }
 
@@ -641,23 +634,20 @@ export class BiddingRuntimeMetrics
         const labels = {
             [BIDDING_RUNTIME_METRIC_LABEL.Result]: input.result,
         };
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.SnapshotRefreshDuration,
             input.durationMs,
             labels,
-            { buckets: BIDDING_LONG_DURATION_BUCKETS_MS },
         );
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.SnapshotRefreshPages,
             input.pageCount,
             labels,
-            { buckets: BIDDING_COUNT_BUCKETS },
         );
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.SnapshotRefreshOffers,
             input.offerCount,
             labels,
-            { buckets: BIDDING_LARGE_COUNT_BUCKETS },
         );
     }
 
@@ -701,23 +691,20 @@ export class BiddingRuntimeMetrics
         const labels = {
             [BIDDING_RUNTIME_METRIC_LABEL.Result]: toResult(input.succeeded),
         };
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.BidBookProjectionQueueWait,
             input.queueWaitMs,
             labels,
-            { buckets: BIDDING_RUNTIME_QUEUE_DURATION_BUCKETS_MS },
         );
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.BidBookProjectionDuration,
             input.durationMs,
             labels,
-            { buckets: BIDDING_LONG_DURATION_BUCKETS_MS },
         );
-        this.metrics.histogram(
+        this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.BidBookProjectionRows,
             input.rowCount,
             labels,
-            { buckets: BIDDING_LARGE_COUNT_BUCKETS },
         );
     }
 
