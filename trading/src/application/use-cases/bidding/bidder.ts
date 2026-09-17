@@ -82,6 +82,7 @@ export const BIDDER_SCAN_RESULT = {
     Success: "success",
     CompletedWithFailures: "completed_with_failures",
     Failure: "failure",
+    Stopped: "stopped",
 } as const;
 
 export type BidderScanResult =
@@ -326,6 +327,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     private nextActivationId = 1;
     private started = false;
     private acceptingRefreshes = true;
+    private acceptingBackgroundRefreshes = true;
     private scanSleepTimer?: ReturnType<typeof setTimeout>;
     private activeScanPromise?: Promise<void>;
 
@@ -499,6 +501,9 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         jobId: string,
         options: BidderActivationOptions,
     ): Promise<void> {
+        if (!this.acceptingBackgroundRefreshes) {
+            return;
+        }
         const job = this.jobs.get(jobId);
         if (!job) {
             throw new Error(`[Bidder] Cannot activate unknown job: ${jobId}`);
@@ -685,7 +690,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     }
 
     public start(): void {
-        if (this.started || !this.acceptingRefreshes) {
+        if (this.started || !this.acceptingBackgroundRefreshes) {
             return;
         }
 
@@ -693,10 +698,10 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         this.startScanPass();
     }
 
-    // stop prevents new strategy work and waits for every admitted refresh to settle.
-    public async stop(): Promise<void> {
+    // Close background admission before draining durable commands that may still need strategy work.
+    public closeBackgroundRefreshAdmission(): void {
         this.started = false;
-        this.acceptingRefreshes = false;
+        this.acceptingBackgroundRefreshes = false;
         if (this.scanSleepTimer) {
             clearTimeout(this.scanSleepTimer);
             this.scanSleepTimer = undefined;
@@ -708,6 +713,20 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 override.timer = undefined;
             }
         }
+
+        for (const state of this.jobExecutionStates.values()) {
+            this.combineRefreshCompletionObservers(
+                state.pendingCompletionObservers,
+            )?.(false);
+            this.clearPendingRefresh(state);
+        }
+        this.reportRefreshPressure();
+    }
+
+    // Discard background waiters; finish active strategy work and already-admitted commands.
+    public async stop(): Promise<void> {
+        this.acceptingRefreshes = false;
+        this.closeBackgroundRefreshAdmission();
 
         await Promise.allSettled([
             ...(this.activeScanPromise ? [this.activeScanPromise] : []),
@@ -739,9 +758,13 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     }),
                 ),
             );
-            result = refreshResults.every((succeeded) => succeeded)
-                ? BIDDER_SCAN_RESULT.Success
-                : BIDDER_SCAN_RESULT.CompletedWithFailures;
+            if (!this.acceptingBackgroundRefreshes) {
+                result = BIDDER_SCAN_RESULT.Stopped;
+            } else {
+                result = refreshResults.every((succeeded) => succeeded)
+                    ? BIDDER_SCAN_RESULT.Success
+                    : BIDDER_SCAN_RESULT.CompletedWithFailures;
+            }
         } finally {
             observeBestEffort(() => {
                 this.observability?.onScanFinished({
@@ -857,7 +880,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         context: ProgressContext | undefined,
         options: JobExecutionOptions,
     ): Promise<void> {
-        if (!this.acceptingRefreshes) {
+        if (!this.acceptingBackgroundRefreshes) {
             options.onCompleted?.(false);
             return;
         }
@@ -902,26 +925,14 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             });
         });
         state.running = true;
-        this.setRefreshPending(state, false);
-        state.pendingContext = undefined;
-        state.pendingThrowOnFailure = undefined;
-        state.pendingRequestContext = undefined;
-        state.pendingRequestedAt = undefined;
-        state.pendingTrigger = undefined;
-        state.pendingCompletionObservers = undefined;
+        this.clearPendingRefresh(state);
         this.waitingRefreshCount += 1;
         this.reportRefreshPressure();
         state.inFlightPromise = this.trackRefresh(
             this.runJobRefreshLoop(jobId, state, context, options).finally(
                 () => {
                     state.running = false;
-                    this.setRefreshPending(state, false);
-                    state.pendingContext = undefined;
-                    state.pendingThrowOnFailure = undefined;
-                    state.pendingRequestContext = undefined;
-                    state.pendingRequestedAt = undefined;
-                    state.pendingTrigger = undefined;
-                    state.pendingCompletionObservers = undefined;
+                    this.clearPendingRefresh(state);
                     state.inFlightPromise = undefined;
                     this.reportRefreshPressure();
                 },
@@ -952,6 +963,12 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                         0,
                         this.waitingRefreshCount - 1,
                     );
+                    // Admission may close while this refresh waits for either execution lock.
+                    if (!this.acceptingBackgroundRefreshes) {
+                        nextOptions.onCompleted?.(false);
+                        this.reportRefreshPressure();
+                        return;
+                    }
                     this.activeRefreshCount += 1;
                     state.executing = true;
                     const startedAt = Date.now();
@@ -998,13 +1015,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     state.pendingCompletionObservers,
                 ),
             };
-            this.setRefreshPending(state, false);
-            state.pendingContext = undefined;
-            state.pendingThrowOnFailure = undefined;
-            state.pendingRequestContext = undefined;
-            state.pendingRequestedAt = undefined;
-            state.pendingTrigger = undefined;
-            state.pendingCompletionObservers = undefined;
+            this.clearPendingRefresh(state);
             this.waitingRefreshCount += 1;
             this.reportRefreshPressure();
         }
@@ -1063,6 +1074,16 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         );
     }
 
+    private clearPendingRefresh(state: JobExecutionState): void {
+        this.setRefreshPending(state, false);
+        state.pendingContext = undefined;
+        state.pendingThrowOnFailure = undefined;
+        state.pendingRequestContext = undefined;
+        state.pendingRequestedAt = undefined;
+        state.pendingTrigger = undefined;
+        state.pendingCompletionObservers = undefined;
+    }
+
     private combineRefreshCompletionObservers(
         observers: JobRefreshCompletionObserver[] | undefined,
     ): JobRefreshCompletionObserver | undefined {
@@ -1082,6 +1103,17 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         options: JobExecutionOptions,
     ): Promise<void> {
         if (!this.acceptingRefreshes) {
+            if (options.trigger === BIDDER_REFRESH_TRIGGER.UserCommand) {
+                throw new Error(
+                    "Cannot refresh a bidding job after the bidder has stopped",
+                );
+            }
+            return;
+        }
+        if (
+            !this.acceptingBackgroundRefreshes &&
+            options.trigger !== BIDDER_REFRESH_TRIGGER.UserCommand
+        ) {
             return;
         }
         log.debug(
@@ -1108,6 +1140,14 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     0,
                     this.waitingRefreshCount - 1,
                 );
+                // Preserve an admitted durable command, but discard queued activation/expiry work.
+                if (
+                    !this.acceptingBackgroundRefreshes &&
+                    options.trigger !== BIDDER_REFRESH_TRIGGER.UserCommand
+                ) {
+                    this.reportRefreshPressure();
+                    return;
+                }
                 this.activeRefreshCount += 1;
                 const startedAt = Date.now();
                 const job = this.jobs.get(jobId);

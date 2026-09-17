@@ -17,6 +17,9 @@ import {
 } from "./bidding-runtime.js";
 import { BIDDING_RUNTIME_METRIC_STATE } from "../adapters/observability/bidding-runtime-metric-contract.js";
 
+// Test event marks the admission boundary before any asynchronous command drain.
+const BACKGROUND_ADMISSION_CLOSED_EVENT = "bidder:admission-closed";
+
 function makeJob(
     id: string,
     collectionSlug: string,
@@ -89,6 +92,7 @@ describe("bidding runtime helpers", () => {
             "terraforms",
         );
         const shutdown = shutdownBiddingRuntime({
+            closeBidderBackgroundAdmission: () => undefined,
             commandAdmissionDrains: [
                 async () => {
                     await retirement;
@@ -168,6 +172,9 @@ describe("bidding runtime helpers", () => {
         let now = 100;
 
         const shutdown = shutdownBiddingRuntime({
+            closeBidderBackgroundAdmission: () => {
+                events.push(BACKGROUND_ADMISSION_CLOSED_EVENT);
+            },
             commandAdmissionDrains: [
                 async () => {
                     events.push("command:rejected");
@@ -218,6 +225,11 @@ describe("bidding runtime helpers", () => {
         await new Promise<void>((resolve) => setImmediate(resolve));
 
         assert.equal(events.includes("command:sibling-settled"), true);
+        assert.equal(
+            events.indexOf(BACKGROUND_ADMISSION_CLOSED_EVENT) <
+                events.indexOf("command:rejected"),
+            true,
+        );
         assert.equal(events.includes("stream:first-drain"), true);
         assert.equal(events.includes("stream:second-drain-started"), true);
         assert.equal(events.includes("stream:second-drain-settled"), false);
@@ -323,6 +335,7 @@ describe("bidding runtime helpers", () => {
         };
         await assert.rejects(
             shutdownBiddingRuntime({
+                closeBidderBackgroundAdmission: () => undefined,
                 commandAdmissionDrains: [],
                 bidPipelineDrain: async () => undefined,
                 bidderDrain: async () => undefined,

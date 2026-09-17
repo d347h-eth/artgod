@@ -840,6 +840,200 @@ describe("Bidder stream refresh", () => {
         assert.equal((bidder as any).runtimeOverrides.size, 0);
     });
 
+    it("discards scan waiters and coalesced reruns when shutdown begins", async () => {
+        const service = new FakeBiddingService();
+        const jobIds = ["active", "waiting-a", "waiting-b"];
+        const startedJobs: string[] = [];
+        const scanResults: BidderScanResult[] = [];
+        const pressure: Array<{
+            active: number;
+            waiting: number;
+            pending: number;
+        }> = [];
+        let release!: () => void;
+        let markStarted!: () => void;
+        const started = new Promise<void>((resolve) => {
+            markStarted = resolve;
+        });
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        service.activeOffersImpl = async (job) => {
+            startedJobs.push(job.id);
+            markStarted();
+            await gate;
+            return [];
+        };
+        const bidder = new Bidder(
+            service as any,
+            "0xmaker",
+            1000,
+            { dryRun: false, maxConcurrentJobs: 1 },
+            undefined,
+            undefined,
+            undefined,
+            makeScanObservability(scanResults, {
+                onRefreshPressureChanged: (input) => pressure.push(input),
+            }),
+        );
+        jobIds.forEach((id, index) =>
+            bidder.addJob(
+                makeJob(id, "terraforms", {
+                    type: BIDDER_TARGET_TYPE.Token,
+                    tokenId: String(index + 1),
+                }),
+            ),
+        );
+
+        bidder.start();
+        await started;
+        const overlappingScan = bidder.scanOnce();
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        assert.deepEqual(pressure.at(-1), {
+            active: 1,
+            waiting: 2,
+            pending: 3,
+        });
+        const stop = bidder.stop();
+        release();
+        await Promise.all([stop, overlappingScan]);
+
+        assert.deepEqual(startedJobs, [jobIds[0]]);
+        assert.deepEqual(service.placedAmounts, [1n]);
+        assert.deepEqual(service.canceledOrderIds, []);
+        assert.deepEqual(scanResults, [
+            BIDDER_SCAN_RESULT.Stopped,
+            BIDDER_SCAN_RESULT.Stopped,
+        ]);
+        assert.deepEqual(pressure.at(-1), {
+            active: 0,
+            waiting: 0,
+            pending: 0,
+        });
+    });
+
+    it.each([
+        BIDDER_REFRESH_TRIGGER.Internal,
+        BIDDER_REFRESH_TRIGGER.RuntimeActivation,
+    ])(
+        "discards %s work waiting on the same job's command mutex",
+        async (trigger) => {
+            const service = new FakeBiddingService();
+            const jobId = "command-active";
+            let calls = 0;
+            let release!: () => void;
+            let markStarted!: () => void;
+            const started = new Promise<void>((resolve) => {
+                markStarted = resolve;
+            });
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            service.activeOffersImpl = async () => {
+                calls += 1;
+                markStarted();
+                await gate;
+                return [];
+            };
+            const bidder = new Bidder(service as any, "0xmaker", 1000, {
+                dryRun: false,
+                maxConcurrentJobs: 1,
+            });
+            bidder.addJob(
+                makeJob(jobId, "terraforms", {
+                    type: BIDDER_TARGET_TYPE.Token,
+                    tokenId: "1",
+                }),
+            );
+
+            const command = bidder.refreshJobForCommand(jobId);
+            await started;
+            const background =
+                trigger === BIDDER_REFRESH_TRIGGER.RuntimeActivation
+                    ? bidder.activateJob(jobId, {
+                          floor: 1n,
+                          ceiling: 2n,
+                          ttlMs: 100_000,
+                      })
+                    : bidder.refreshJob(jobId);
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            const stop = bidder.stop();
+            release();
+            await Promise.all([command, background, stop]);
+
+            assert.equal(calls, 1);
+            assert.deepEqual(service.placedAmounts, [1n]);
+        },
+    );
+
+    it("finishes an admitted command waiting on a running background refresh", async () => {
+        const service = new FakeBiddingService();
+        const jobId = "background-active";
+        let calls = 0;
+        let release!: () => void;
+        let markStarted!: () => void;
+        const started = new Promise<void>((resolve) => {
+            markStarted = resolve;
+        });
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        service.activeOffersImpl = async () => {
+            calls += 1;
+            markStarted();
+            await gate;
+            return [];
+        };
+        const bidder = new Bidder(service as any, "0xmaker", 1000, {
+            dryRun: true,
+            maxConcurrentJobs: 1,
+        });
+        bidder.addJob(
+            makeJob(jobId, "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "1",
+            }),
+        );
+
+        const background = bidder.refreshJob(jobId);
+        await started;
+        const command = bidder.refreshJobForCommand(jobId);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        const stop = bidder.stop();
+        release();
+        await Promise.all([background, command, stop]);
+
+        assert.equal(calls, 2);
+    });
+
+    it("admits durable-command strategy work while background admission is closed", async () => {
+        const service = new FakeBiddingService();
+        const jobId = "command-during-drain";
+        let calls = 0;
+        service.activeOffersImpl = async () => {
+            calls += 1;
+            return [];
+        };
+        const bidder = new Bidder(service as any, "0xmaker", 1000, {
+            dryRun: true,
+        });
+        bidder.addJob(
+            makeJob(jobId, "terraforms", {
+                type: BIDDER_TARGET_TYPE.Token,
+                tokenId: "1",
+            }),
+        );
+
+        bidder.closeBackgroundRefreshAdmission();
+        await bidder.refreshJob(jobId);
+        assert.equal(calls, 0);
+        await bidder.refreshJobForCommand(jobId);
+        assert.equal(calls, 1);
+        await bidder.stop();
+        await assert.rejects(bidder.refreshJobForCommand(jobId));
+        assert.equal(calls, 1);
+    });
+
     it("collapses overlapping refresh requests for the same job into a single pending rerun", async () => {
         const biddingService = new FakeBiddingService();
         let callCount = 0;
