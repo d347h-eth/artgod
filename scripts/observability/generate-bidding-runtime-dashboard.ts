@@ -13,7 +13,12 @@ import {
     BIDDING_RUNTIME_METRIC_RESULT,
     BIDDING_RUNTIME_HISTOGRAM_BUCKETS,
 } from "../../trading/src/adapters/observability/bidding-runtime-metric-contract.js";
-import { TRADING_METRICS_PREFIX } from "../../trading/src/runtime/observability.js";
+import {
+    TRADING_METRICS_PREFIX,
+    TRADING_METRICS_WORKER,
+} from "../../trading/src/runtime/observability.js";
+import { BIDDER_SCAN_RESULT } from "../../trading/src/application/use-cases/bidding/bidder.js";
+import { BIDDING_COMMAND_RECONCILIATION_RESULT } from "../../trading/src/application/use-cases/bidding/bidding-job-command-reconciler.js";
 
 const DASHBOARD_UID = "artgod-bidding-runtime";
 const DASHBOARD_TITLE = "ArtGod Bidding Runtime Overview";
@@ -21,6 +26,46 @@ const DASHBOARD_OUTPUT = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "../../observability/grafana/provisioning/dashboards/bidding-runtime-overview.json",
 );
+const ALERT_OUTPUT = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../observability/prometheus/bidding-runtime-alerts.json",
+);
+
+// These operational warnings request inspection; they never retry or cancel marketplace work.
+export const BIDDING_PROGRESS_WARNING = {
+    idleSeconds: 600,
+    pendingDuration: "2m",
+} as const;
+export const BIDDING_ALERT_NAME = {
+    ScanNoProgress: "ArtGodBiddingScanNoProgress",
+    WorkNoProgress: "ArtGodBiddingWorkNoProgress",
+} as const;
+export const BIDDING_DASHBOARD_PANEL = {
+    ScanProgress: "Current Scan Progress",
+    ScanAge: "Current Scan and Last Success Age",
+    ActiveWork: "Active Work Stages",
+    WorkAge: "Oldest Unfinished Work",
+    WorkProgress: "Work Stage Progress and Success Age",
+    OpenSeaInFlight: "OpenSea Calls in Flight",
+    OpenSeaAge: "Oldest OpenSea Call",
+    HealthSuccess: "Latest Health Sample Succeeded",
+    HealthAge: "Last Successful Health Sample Age",
+    NoProgress: "Work With No Progress",
+    QueueDepth: "Durable Command Backlog",
+    QueueAge: "Oldest Pending Command Age",
+    DurableOutcomes: "Durable Command Outcomes",
+    SnapshotFreshness: "Market Data Freshness",
+    SnapshotAge: "Oldest Complete Market Data Age",
+    PublicationStatus: "Bid-Book Publication Status",
+    PublicationAge: "Oldest Bid-Book Publication Age",
+    FreshnessTtl: "Configured Market Data Freshness Bounds",
+    FreshnessMultiplier: "Configured Fetch Duration Multiplier",
+    Decisions: "Bidding Decision Intents",
+    Positions: "Last-Known Job Positions",
+    Constraints: "Last-Known Job Constraints",
+    Effects: "Marketplace Action Outcomes",
+    Failures: "Process-Lifetime Failures",
+} as const;
 
 const PROMETHEUS_DATASOURCE = {
     type: "prometheus",
@@ -185,6 +230,71 @@ function sumOf(
     return `sum by (${groupBy(labels)}) (${metricName(name)}${scoped(extraMatchers)})`;
 }
 
+// Zero means never observed or no active work. Excluding it prevents epoch-sized false ages.
+export function timestampAge(
+    name: MetricName,
+    labels: readonly string[],
+    extraMatchers: readonly string[] = [],
+): string {
+    return `clamp_min(time() - min by (${groupBy(labels)}) (${metricName(name)}${scoped(extraMatchers)} > 0), 0)`;
+}
+
+function scanIdleAge(labels: readonly string[]): string {
+    return `${timestampAge(BIDDING_RUNTIME_METRIC_NAME.ScanLastProgressAt, labels)} and (${maxOf(BIDDING_RUNTIME_METRIC_NAME.ScanActive, labels)} > 0)`;
+}
+
+export function buildBiddingAlertRules() {
+    const runtimeLabels = [
+        DASHBOARD_VARIABLE.Worker,
+        DASHBOARD_VARIABLE.ChainId,
+    ];
+    const workLabels = [...runtimeLabels, label.Stage];
+    const expression = (query: string) =>
+        query
+            .replaceAll(
+                `$${DASHBOARD_VARIABLE.Worker}`,
+                TRADING_METRICS_WORKER.BiddingBot,
+            )
+            .replaceAll(`$${DASHBOARD_VARIABLE.ChainId}`, ".*");
+    return {
+        groups: [
+            {
+                name: "artgod-bidding-progress",
+                rules: [
+                    {
+                        alert: BIDDING_ALERT_NAME.ScanNoProgress,
+                        expr: expression(
+                            `(${scanIdleAge(runtimeLabels)}) > ${BIDDING_PROGRESS_WARNING.idleSeconds}`,
+                        ),
+                        for: BIDDING_PROGRESS_WARNING.pendingDuration,
+                        labels: { severity: "warning" },
+                        annotations: {
+                            summary:
+                                "Active bidding scan has no settled-job progress",
+                            description:
+                                "Inspect active stages, OpenSea calls and logs. Long admitted work may be legitimate; this warning does not authorize retrying marketplace writes.",
+                        },
+                    },
+                    {
+                        alert: BIDDING_ALERT_NAME.WorkNoProgress,
+                        expr: expression(
+                            `(${timestampAge(BIDDING_RUNTIME_METRIC_NAME.WorkLastProgress, workLabels)} and (${sumOf(BIDDING_RUNTIME_METRIC_NAME.WorkActive, workLabels)} > 0)) > ${BIDDING_PROGRESS_WARNING.idleSeconds}`,
+                        ),
+                        for: BIDDING_PROGRESS_WARNING.pendingDuration,
+                        labels: { severity: "warning" },
+                        annotations: {
+                            summary:
+                                "Active bidding stage has no start or completion progress",
+                            description:
+                                "Inspect the stage and its child operations. A long traversal can still be progressing internally; this is an inspection warning, not proof of a deadlock.",
+                        },
+                    },
+                ],
+            },
+        ],
+    };
+}
+
 // Omit a percentile outside the recorded range instead of reporting the final finite boundary.
 export function histogramPercentile(
     name: HistogramMetricName,
@@ -343,6 +453,416 @@ export function buildDashboard(): Record<string, unknown> {
         DASHBOARD_VARIABLE.ChainId,
     ];
 
+    const workLabels = [...runtimeLabels, label.Stage];
+    const apiLabels = [
+        ...runtimeLabels,
+        label.Lane,
+        label.Operation,
+        label.Priority,
+    ];
+    layout.row("Current Work and Collector Health");
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.ScanProgress,
+        "short",
+        [
+            target(
+                maxOf(BIDDING_RUNTIME_METRIC_NAME.ScanActive, runtimeLabels),
+                "scan active (0/1)",
+            ),
+            target(
+                maxOf(BIDDING_RUNTIME_METRIC_NAME.JobScanSize, runtimeLabels),
+                "jobs in latest scan",
+            ),
+            target(
+                maxOf(
+                    BIDDING_RUNTIME_METRIC_NAME.ScanCompletedJobs,
+                    runtimeLabels,
+                ),
+                "jobs settled in latest scan",
+            ),
+        ],
+        "Current or most recent scan inventory and settled jobs. Settled includes failed jobs and waiters discarded on Stop; it does not mean successful bids. Counts reset at scan start.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.ScanAge,
+        "s",
+        [
+            target(
+                `${timestampAge(BIDDING_RUNTIME_METRIC_NAME.ScanStartedAt, runtimeLabels)} and (${maxOf(BIDDING_RUNTIME_METRIC_NAME.ScanActive, runtimeLabels)} > 0)`,
+                "active scan age",
+            ),
+            target(
+                scanIdleAge(runtimeLabels),
+                "active scan time without settled-job progress",
+            ),
+            target(
+                timestampAge(
+                    BIDDING_RUNTIME_METRIC_NAME.ScanLastSuccessAt,
+                    runtimeLabels,
+                ),
+                "last fully successful scan age",
+            ),
+        ],
+        "Ages keep increasing without new runtime events. Inactive scan age is omitted; absent success means no successful scan has been observed in this process.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.ActiveWork,
+        "short",
+        [
+            target(
+                sumOf(BIDDING_RUNTIME_METRIC_NAME.WorkActive, workLabels),
+                legend(label.Stage),
+            ),
+        ],
+        "Unfinished operations by bounded stage. Stages can nest, so adding stage counts is not a count of distinct jobs.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.WorkAge,
+        "s",
+        [
+            target(
+                timestampAge(
+                    BIDDING_RUNTIME_METRIC_NAME.WorkOldestStart,
+                    workLabels,
+                ),
+                legend(label.Stage),
+            ),
+        ],
+        "Age of the oldest unfinished operation in each stage, including startup and durable-command work. Empty stages are omitted, not reported as an epoch-sized age.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.OpenSeaInFlight,
+        "short",
+        [
+            target(
+                sumOf(BIDDING_RUNTIME_METRIC_NAME.OpenSeaInFlight, apiLabels),
+                legend(label.Lane, label.Operation, label.Priority),
+            ),
+        ],
+        "Calls currently inside the API/SDK boundary. Local rate-limit waiting is separate; no placement or cancellation retry policy is changed.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.OpenSeaAge,
+        "s",
+        [
+            target(
+                timestampAge(
+                    BIDDING_RUNTIME_METRIC_NAME.OpenSeaOldestStart,
+                    apiLabels,
+                ),
+                legend(label.Lane, label.Operation, label.Priority),
+            ),
+        ],
+        "Oldest API/SDK call age, still visible before any duration observation completes. All completed calls clear their in-flight timestamp.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.HealthSuccess,
+        "short",
+        [
+            target(
+                maxOf(BIDDING_RUNTIME_METRIC_NAME.HealthSampleSuccess, [
+                    ...runtimeLabels,
+                    label.Component,
+                ]),
+                legend(label.Component),
+            ),
+        ],
+        "Latest completed owner read: 1 succeeded, 0 failed; absent means not yet observed. Health gauges retain the last good read after failure. This is independent of exporter availability and business progress.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.HealthAge,
+        "s",
+        [
+            target(
+                timestampAge(BIDDING_RUNTIME_METRIC_NAME.HealthLastSuccess, [
+                    ...runtimeLabels,
+                    label.Component,
+                ]),
+                legend(label.Component),
+            ),
+        ],
+        "Age of each owner's last successful sample. Sampling runs immediately and then at the configured health cadence without overlapping reads or database work in scrape handlers. Compare with configured health_poll_ms; a stale sample is not fresh runtime evidence.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.NoProgress,
+        "s",
+        [
+            target(
+                `(${scanIdleAge(runtimeLabels)}) > ${BIDDING_PROGRESS_WARNING.idleSeconds}`,
+                "scan without settled-job progress",
+            ),
+            target(
+                `(${timestampAge(BIDDING_RUNTIME_METRIC_NAME.WorkLastProgress, workLabels)} and (${sumOf(BIDDING_RUNTIME_METRIC_NAME.WorkActive, workLabels)} > 0)) > ${BIDDING_PROGRESS_WARNING.idleSeconds}`,
+                legend(label.Stage),
+            ),
+        ],
+        `Only active work without boundary progress for more than ${BIDDING_PROGRESS_WARNING.idleSeconds} seconds is shown. Matching Prometheus warnings require another ${BIDDING_PROGRESS_WARNING.pendingDuration}. Inspect child operations and logs; long work is not necessarily deadlocked. No automatic recovery or external notification delivery is configured here.`,
+    );
+
+    layout.row("Durable Commands and Data Freshness");
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.QueueDepth,
+        "short",
+        [
+            target(
+                sumOf(BIDDING_RUNTIME_METRIC_NAME.CommandQueueDepth, [
+                    ...runtimeLabels,
+                    label.Status,
+                ]),
+                legend(label.Status),
+            ),
+            target(
+                sumOf(
+                    BIDDING_RUNTIME_METRIC_NAME.CommandStaleProcessing,
+                    runtimeLabels,
+                ),
+                "stale processing (subset)",
+            ),
+        ],
+        "Last sampled durable rows by status, excluding completed history. Stale processing is the reclaimable subset under the existing claim-timeout policy, not another queue status. Check collector health before interpreting retained values.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.QueueAge,
+        "s",
+        [
+            target(
+                timestampAge(
+                    BIDDING_RUNTIME_METRIC_NAME.CommandOldestPendingAt,
+                    runtimeLabels,
+                ),
+                "oldest pending or retrying command",
+            ),
+        ],
+        "Creation age of the oldest pending or retryable command, before it is claimed. Empty queues are omitted. A failed/stale health sample can retain an old queue timestamp.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.DurableOutcomes,
+        "short",
+        [
+            target(
+                sumOf(BIDDING_RUNTIME_METRIC_NAME.CommandDurableOutcomes, [
+                    ...runtimeLabels,
+                    label.CommandKind,
+                    label.Outcome,
+                ]),
+                legend(label.CommandKind, label.Outcome),
+            ),
+        ],
+        "Process-lifetime transitions observed after successful persistence: completed, retry scheduled, terminal failure, and stale-claim recovery. These are not unique-command totals or durable audit history across restarts.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.SnapshotFreshness,
+        "short",
+        [
+            target(
+                sumOf(BIDDING_RUNTIME_METRIC_NAME.SnapshotFreshness, [
+                    ...runtimeLabels,
+                    label.Status,
+                ]),
+                legend(label.Status),
+            ),
+            target(
+                sumOf(
+                    BIDDING_RUNTIME_METRIC_NAME.SnapshotBackoff,
+                    runtimeLabels,
+                ),
+                "collections in backoff (overlapping subset)",
+            ),
+        ],
+        "Watched collections with fresh, stale or missing complete market data, evaluated by the actual adaptive TTL policy. Backoff may overlap any freshness state. Partial/error fetches never reset complete-data age.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.SnapshotAge,
+        "s",
+        [
+            target(
+                timestampAge(
+                    BIDDING_RUNTIME_METRIC_NAME.SnapshotOldestCompleteAt,
+                    runtimeLabels,
+                ),
+                "oldest complete refresh",
+            ),
+        ],
+        "Oldest successful complete refresh among watched collections. Missing collections have no timestamp and are counted separately, so an empty age graph does not prove health.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.PublicationStatus,
+        "short",
+        [
+            target(
+                sumOf(
+                    BIDDING_RUNTIME_METRIC_NAME.PublicationWatched,
+                    runtimeLabels,
+                ),
+                "watched collections",
+            ),
+            target(
+                sumOf(
+                    BIDDING_RUNTIME_METRIC_NAME.PublicationMissing,
+                    runtimeLabels,
+                ),
+                "no publication observed this process",
+            ),
+            target(
+                sumOf(
+                    BIDDING_RUNTIME_METRIC_NAME.PublicationLagging,
+                    runtimeLabels,
+                ),
+                "newer complete market data awaiting publication",
+            ),
+        ],
+        "Display publication is independent of market-data freshness. Missing and lagging can overlap. Startup cannot attest to an older persisted bid book until this process publishes it; removed collections leave this scope.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.PublicationAge,
+        "s",
+        [
+            target(
+                timestampAge(
+                    BIDDING_RUNTIME_METRIC_NAME.PublicationOldestAt,
+                    runtimeLabels,
+                ),
+                "oldest successful publication",
+            ),
+            target(
+                timestampAge(
+                    BIDDING_RUNTIME_METRIC_NAME.PublicationOldestSnapshotAt,
+                    runtimeLabels,
+                ),
+                "oldest published market data",
+            ),
+        ],
+        "A recently written bid book can contain older market data. Failed writes preserve the previous successful publication timestamps; successful fetches alone do not reset them.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.FreshnessTtl,
+        "ms",
+        [
+            target(
+                maxOf(
+                    BIDDING_RUNTIME_METRIC_NAME.RuntimeConfiguration,
+                    [...runtimeLabels, label.Setting],
+                    [
+                        matcher(
+                            label.Setting,
+                            "=~",
+                            [
+                                BIDDING_RUNTIME_CONFIGURATION_SETTING.SnapshotTtlMs,
+                                BIDDING_RUNTIME_CONFIGURATION_SETTING.SnapshotMaxTtlMs,
+                            ].join("|"),
+                        ),
+                    ],
+                ),
+                legend(label.Setting),
+            ),
+        ],
+        "Base and maximum adaptive freshness TTL. The runtime combines these with last fetch duration and the configured multiplier; these are bounds, not per-collection effective TTLs.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.FreshnessMultiplier,
+        "short",
+        [
+            target(
+                maxOf(
+                    BIDDING_RUNTIME_METRIC_NAME.RuntimeConfiguration,
+                    runtimeLabels,
+                    [
+                        matcher(
+                            label.Setting,
+                            "=",
+                            BIDDING_RUNTIME_CONFIGURATION_SETTING.SnapshotTtlMultiplier,
+                        ),
+                    ],
+                ),
+                "fetch duration multiplier",
+            ),
+        ],
+        "Dimensionless multiplier applied to the previous complete fetch duration by the market-data freshness policy.",
+    );
+
+    layout.row("Bidding Decisions and Known Positions");
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.Decisions,
+        "short",
+        [
+            target(
+                sumOf(BIDDING_RUNTIME_METRIC_NAME.Decisions, [
+                    ...runtimeLabels,
+                    label.Decision,
+                    label.TargetType,
+                    label.DryRun,
+                ]),
+                legend(label.Decision, label.TargetType, label.DryRun),
+            ),
+        ],
+        "Process-lifetime strategy intentions: place, renew, adjust, maintain winning/capped, reuse target, or zero-ceiling skip/cancel. Intent is recorded before effects and can be followed by a failed action. Dry-run intent is separate.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.Positions,
+        "short",
+        [
+            target(
+                sumOf(BIDDING_RUNTIME_METRIC_NAME.JobPositions, [
+                    ...runtimeLabels,
+                    label.Position,
+                ]),
+                legend(label.Position),
+            ),
+        ],
+        "Last-known bot-owned positions for currently scheduled jobs, including unobserved jobs. Positions can be restored from durable state or become stale; they are not independent proof of current marketplace leadership.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.Constraints,
+        "short",
+        [
+            target(
+                sumOf(BIDDING_RUNTIME_METRIC_NAME.JobConstraints, [
+                    ...runtimeLabels,
+                    label.Constraint,
+                ]),
+                legend(label.Constraint),
+            ),
+        ],
+        "Currently scheduled jobs with each last-known constraint. One job may have multiple constraints; their sum is not a distinct-job total.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.Effects,
+        "short",
+        [
+            target(
+                sumOf(BIDDING_RUNTIME_METRIC_NAME.MarketActions, [
+                    ...runtimeLabels,
+                    label.Action,
+                    label.Result,
+                    label.DryRun,
+                ]),
+                legend(label.Action, label.Result, label.DryRun),
+            ),
+        ],
+        "Process-lifetime place/cancel action outcomes. Success with dry_run=false means the action path completed; dry_run=true is simulated, not a marketplace write. Failure can include local tracking failure after an external effect, so it does not prove no offer was placed or cancelled.",
+    );
+    layout.timeseries(
+        BIDDING_DASHBOARD_PANEL.WorkProgress,
+        "s",
+        [
+            target(
+                timestampAge(
+                    BIDDING_RUNTIME_METRIC_NAME.WorkLastProgress,
+                    workLabels,
+                ),
+                `last start or finish / ${legend(label.Stage)}`,
+            ),
+            target(
+                timestampAge(
+                    BIDDING_RUNTIME_METRIC_NAME.WorkLastSuccess,
+                    workLabels,
+                ),
+                `last success / ${legend(label.Stage)}`,
+            ),
+        ],
+        "Last stage-boundary progress and last successful completion. Values persist when the stage is idle; compare with active work before diagnosing a stall. Failure updates progress but not success.",
+    );
+
     layout.row("Bidding Runtime Health");
     layout.timeseries(
         "Runtime State",
@@ -370,7 +890,7 @@ export function buildDashboard(): Record<string, unknown> {
                 legend(...runtimeLabels),
             ),
         ],
-        "Elapsed milliseconds from process start until the bidding bot can process work. The value is the current process lifetime average.",
+        "Elapsed milliseconds from entering startBiddingRuntime until ready, after secret intake, configuration, policy agreement and metrics initialization. This is runtime bootstrap time, not total process startup time.",
     );
     layout.timeseries(
         "Bootstrap Phase Duration per Bot Start",
@@ -498,7 +1018,7 @@ export function buildDashboard(): Record<string, unknown> {
         "Concurrent and queued work across the bidding pipeline. Sustained growth indicates work is arriving faster than it completes.",
     );
     layout.timeseries(
-        "Process-Lifetime Failures",
+        BIDDING_DASHBOARD_PANEL.Failures,
         "short",
         [
             target(
@@ -552,10 +1072,19 @@ export function buildDashboard(): Record<string, unknown> {
             target(
                 histogramCount(
                     BIDDING_RUNTIME_METRIC_NAME.JobScanDuration,
-                    runtimeLabels,
-                    [matcher(label.Result, "=", result.Failure)],
+                    [...runtimeLabels, label.Result],
+                    [
+                        matcher(
+                            label.Result,
+                            "=~",
+                            [
+                                BIDDER_SCAN_RESULT.Failure,
+                                BIDDER_SCAN_RESULT.CompletedWithFailures,
+                            ].join("|"),
+                        ),
+                    ],
                 ),
-                "job scan failures",
+                `job scan / ${legend(label.Result)}`,
             ),
             target(
                 histogramCount(
@@ -568,10 +1097,19 @@ export function buildDashboard(): Record<string, unknown> {
             target(
                 histogramCount(
                     BIDDING_RUNTIME_METRIC_NAME.CommandReconciliationDuration,
-                    runtimeLabels,
-                    [matcher(label.Result, "=", result.Failure)],
+                    [...runtimeLabels, label.Result],
+                    [
+                        matcher(
+                            label.Result,
+                            "=~",
+                            [
+                                BIDDING_COMMAND_RECONCILIATION_RESULT.Failure,
+                                BIDDING_COMMAND_RECONCILIATION_RESULT.CompletedWithFailures,
+                            ].join("|"),
+                        ),
+                    ],
                 ),
-                "command reconciliation failures",
+                `command reconciliation / ${legend(label.Result)}`,
             ),
             target(
                 histogramCount(
@@ -665,6 +1203,7 @@ export function buildDashboard(): Record<string, unknown> {
                             [
                                 BIDDING_RUNTIME_CONFIGURATION_SETTING.ScanIntervalMs,
                                 BIDDING_RUNTIME_CONFIGURATION_SETTING.CommandPollMs,
+                                BIDDING_RUNTIME_CONFIGURATION_SETTING.HealthPollMs,
                                 BIDDING_RUNTIME_CONFIGURATION_SETTING.SnapshotPollMs,
                                 BIDDING_RUNTIME_CONFIGURATION_SETTING.SnapshotTtlMs,
                                 BIDDING_RUNTIME_CONFIGURATION_SETTING.HotRefreshBroadCooldownMs,
@@ -716,7 +1255,7 @@ export function buildDashboard(): Record<string, unknown> {
                 legend(...runtimeLabels),
             ),
         ],
-        "Number of bidding jobs found by the latest completed dynamic scan.",
+        "Number of bidding jobs captured when the current or most recent dynamic scan started.",
     );
     layout.row("Job Refresh and Market Actions");
     layout.timeseries(
@@ -1618,27 +2157,28 @@ function escapeRegularExpression(value: string): string {
 async function main(): Promise<void> {
     const dashboard = buildDashboard();
     validateDashboard(dashboard);
-    const output = await format(JSON.stringify(dashboard), {
-        parser: "json",
-        tabWidth: 4,
-    });
-
-    if (process.argv.includes("--check")) {
-        const current = await readFile(DASHBOARD_OUTPUT, "utf8").catch(
-            () => "",
-        );
-        if (current !== output) {
-            throw new Error(
-                "Bidding runtime dashboard is stale. Run yarn observability:bidding-dashboard:generate.",
-            );
+    for (const [destination, value] of [
+        [DASHBOARD_OUTPUT, dashboard],
+        [ALERT_OUTPUT, buildBiddingAlertRules()],
+    ] as const) {
+        const output = await format(JSON.stringify(value), {
+            parser: "json",
+            tabWidth: 4,
+        });
+        if (process.argv.includes("--check")) {
+            const current = await readFile(destination, "utf8").catch(() => "");
+            if (current !== output)
+                throw new Error(
+                    `Bidding observability artifact ${path.basename(destination)} is stale. Run yarn observability:bidding-dashboard:generate.`,
+                );
+        } else {
+            await mkdir(path.dirname(destination), { recursive: true });
+            await writeFile(destination, output, "utf8");
         }
-        console.log("Bidding runtime dashboard is current.");
-        return;
+        console.log(
+            `${process.argv.includes("--check") ? "Verified" : "Generated"} ${path.relative(process.cwd(), destination)}.`,
+        );
     }
-
-    await mkdir(path.dirname(DASHBOARD_OUTPUT), { recursive: true });
-    await writeFile(DASHBOARD_OUTPUT, output, "utf8");
-    console.log(`Generated ${path.relative(process.cwd(), DASHBOARD_OUTPUT)}.`);
 }
 
 if (

@@ -25,6 +25,889 @@
             "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
             "id": 1001,
             "panels": [],
+            "title": "Current Work and Collector Health",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Current or most recent scan inventory and settled jobs. Settled includes failed jobs and waiters discarded on Stop; it does not mean successful bids. Counts reset at scan start.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+            "id": 1,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "max by (worker, chain_id) (artgod_trading_bidding_scan_active{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / scan active (0/1)",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "max by (worker, chain_id) (artgod_trading_bidding_job_scan_size{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / jobs in latest scan",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "max by (worker, chain_id) (artgod_trading_bidding_scan_completed_jobs{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / jobs settled in latest scan",
+                    "range": true,
+                    "refId": "C"
+                }
+            ],
+            "title": "Current Scan Progress",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Ages keep increasing without new runtime events. Inactive scan age is omitted; absent success means no successful scan has been observed in this process.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
+            "id": 2,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id) (artgod_trading_bidding_scan_started_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0) and (max by (worker, chain_id) (artgod_trading_bidding_scan_active{worker=~\"$worker\",chain_id=~\"$chain_id\"}) > 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / active scan age",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id) (artgod_trading_bidding_scan_last_progress_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0) and (max by (worker, chain_id) (artgod_trading_bidding_scan_active{worker=~\"$worker\",chain_id=~\"$chain_id\"}) > 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / active scan time without settled-job progress",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id) (artgod_trading_bidding_scan_last_success_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / last fully successful scan age",
+                    "range": true,
+                    "refId": "C"
+                }
+            ],
+            "title": "Current Scan and Last Success Age",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Unfinished operations by bounded stage. Stages can nest, so adding stage counts is not a count of distinct jobs.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+            "id": 3,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, stage) (artgod_trading_bidding_work_active{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{stage}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Active Work Stages",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Age of the oldest unfinished operation in each stage, including startup and durable-command work. Empty stages are omitted, not reported as an epoch-sized age.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 9 },
+            "id": 4,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id, stage) (artgod_trading_bidding_work_oldest_started_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{stage}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Oldest Unfinished Work",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Calls currently inside the API/SDK boundary. Local rate-limit waiting is separate; no placement or cancellation retry policy is changed.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 9 },
+            "id": 5,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, lane, operation, priority) (artgod_trading_bidding_opensea_in_flight{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / {{operation}} / {{priority}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "OpenSea Calls in Flight",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Oldest API/SDK call age, still visible before any duration observation completes. All completed calls clear their in-flight timestamp.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 9 },
+            "id": 6,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id, lane, operation, priority) (artgod_trading_bidding_opensea_oldest_started_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / {{operation}} / {{priority}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Oldest OpenSea Call",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Latest completed owner read: 1 succeeded, 0 failed; absent means not yet observed. Health gauges retain the last good read after failure. This is independent of exporter availability and business progress.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 17 },
+            "id": 7,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "max by (worker, chain_id, component) (artgod_trading_bidding_health_sample_success{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{component}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Latest Health Sample Succeeded",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Age of each owner's last successful sample. Sampling runs immediately and then at the configured health cadence without overlapping reads or database work in scrape handlers. Compare with configured health_poll_ms; a stale sample is not fresh runtime evidence.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 17 },
+            "id": 8,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id, component) (artgod_trading_bidding_health_last_success_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{component}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Last Successful Health Sample Age",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Only active work without boundary progress for more than 600 seconds is shown. Matching Prometheus warnings require another 2m. Inspect child operations and logs; long work is not necessarily deadlocked. No automatic recovery or external notification delivery is configured here.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 17 },
+            "id": 9,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "(clamp_min(time() - min by (worker, chain_id) (artgod_trading_bidding_scan_last_progress_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0) and (max by (worker, chain_id) (artgod_trading_bidding_scan_active{worker=~\"$worker\",chain_id=~\"$chain_id\"}) > 0)) > 600",
+                    "legendFormat": "{{worker}} / {{chain_id}} / scan without settled-job progress",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "(clamp_min(time() - min by (worker, chain_id, stage) (artgod_trading_bidding_work_last_progress_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0) and (sum by (worker, chain_id, stage) (artgod_trading_bidding_work_active{worker=~\"$worker\",chain_id=~\"$chain_id\"}) > 0)) > 600",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{stage}}",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Work With No Progress",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
+            "id": 1002,
+            "panels": [],
+            "title": "Durable Commands and Data Freshness",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Last sampled durable rows by status, excluding completed history. Stale processing is the reclaimable subset under the existing claim-timeout policy, not another queue status. Check collector health before interpreting retained values.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 26 },
+            "id": 10,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, status) (artgod_trading_bidding_command_queue_depth{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{status}}",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_command_stale_processing{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / stale processing (subset)",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Durable Command Backlog",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Creation age of the oldest pending or retryable command, before it is claimed. Empty queues are omitted. A failed/stale health sample can retain an old queue timestamp.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 26 },
+            "id": 11,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id) (artgod_trading_bidding_command_oldest_pending_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / oldest pending or retrying command",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Oldest Pending Command Age",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Process-lifetime transitions observed after successful persistence: completed, retry scheduled, terminal failure, and stale-claim recovery. These are not unique-command totals or durable audit history across restarts.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 26 },
+            "id": 12,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, command_kind, outcome) (artgod_trading_bidding_command_durable_outcomes_total{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{command_kind}} / {{outcome}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Durable Command Outcomes",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Watched collections with fresh, stale or missing complete market data, evaluated by the actual adaptive TTL policy. Backoff may overlap any freshness state. Partial/error fetches never reset complete-data age.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 34 },
+            "id": 13,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, status) (artgod_trading_bidding_snapshot_freshness{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{status}}",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_snapshot_backoff_collections{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / collections in backoff (overlapping subset)",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Market Data Freshness",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Oldest successful complete refresh among watched collections. Missing collections have no timestamp and are counted separately, so an empty age graph does not prove health.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 34 },
+            "id": 14,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id) (artgod_trading_bidding_snapshot_oldest_complete_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / oldest complete refresh",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Oldest Complete Market Data Age",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Display publication is independent of market-data freshness. Missing and lagging can overlap. Startup cannot attest to an older persisted bid book until this process publishes it; removed collections leave this scope.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 34 },
+            "id": 15,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_publication_watched_collections{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / watched collections",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_publication_missing_collections{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / no publication observed this process",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_publication_lagging_collections{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / newer complete market data awaiting publication",
+                    "range": true,
+                    "refId": "C"
+                }
+            ],
+            "title": "Bid-Book Publication Status",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "A recently written bid book can contain older market data. Failed writes preserve the previous successful publication timestamps; successful fetches alone do not reset them.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 42 },
+            "id": 16,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id) (artgod_trading_bidding_publication_oldest_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / oldest successful publication",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id) (artgod_trading_bidding_publication_oldest_snapshot_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / oldest published market data",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Oldest Bid-Book Publication Age",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Base and maximum adaptive freshness TTL. The runtime combines these with last fetch duration and the configured multiplier; these are bounds, not per-collection effective TTLs.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 42 },
+            "id": 17,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "max by (worker, chain_id, setting) (artgod_trading_bidding_runtime_configuration{worker=~\"$worker\",chain_id=~\"$chain_id\",setting=~\"snapshot_ttl_ms|snapshot_max_ttl_ms\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{setting}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Configured Market Data Freshness Bounds",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Dimensionless multiplier applied to the previous complete fetch duration by the market-data freshness policy.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 42 },
+            "id": 18,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "max by (worker, chain_id) (artgod_trading_bidding_runtime_configuration{worker=~\"$worker\",chain_id=~\"$chain_id\",setting=\"snapshot_ttl_multiplier\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / fetch duration multiplier",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Configured Fetch Duration Multiplier",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 50 },
+            "id": 1003,
+            "panels": [],
+            "title": "Bidding Decisions and Known Positions",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Process-lifetime strategy intentions: place, renew, adjust, maintain winning/capped, reuse target, or zero-ceiling skip/cancel. Intent is recorded before effects and can be followed by a failed action. Dry-run intent is separate.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 51 },
+            "id": 19,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, decision, target_type, dry_run) (artgod_trading_bidding_decisions_total{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{decision}} / {{target_type}} / {{dry_run}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Bidding Decision Intents",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Last-known bot-owned positions for currently scheduled jobs, including unobserved jobs. Positions can be restored from durable state or become stale; they are not independent proof of current marketplace leadership.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 51 },
+            "id": 20,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, position) (artgod_trading_bidding_job_positions{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{position}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Last-Known Job Positions",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Currently scheduled jobs with each last-known constraint. One job may have multiple constraints; their sum is not a distinct-job total.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 51 },
+            "id": 21,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, constraint) (artgod_trading_bidding_job_constraints{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{constraint}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Last-Known Job Constraints",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Process-lifetime place/cancel action outcomes. Success with dry_run=false means the action path completed; dry_run=true is simulated, not a marketplace write. Failure can include local tracking failure after an external effect, so it does not prove no offer was placed or cancelled.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 59 },
+            "id": 22,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, action, result, dry_run) (artgod_trading_bidding_market_actions_total{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{action}} / {{result}} / {{dry_run}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Marketplace Action Outcomes",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Last stage-boundary progress and last successful completion. Values persist when the stage is idle; compare with active work before diagnosing a stall. Failure updates progress but not success.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 59 },
+            "id": 23,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id, stage) (artgod_trading_bidding_work_last_progress_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / last start or finish / {{stage}}",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id, stage) (artgod_trading_bidding_work_last_success_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / last success / {{stage}}",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Work Stage Progress and Success Age",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 67 },
+            "id": 1004,
+            "panels": [],
             "title": "Bidding Runtime Health",
             "type": "row"
         },
@@ -39,8 +922,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
-            "id": 1,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 68 },
+            "id": 24,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -64,7 +947,7 @@
         },
         {
             "datasource": { "type": "prometheus", "uid": "prometheus" },
-            "description": "Elapsed milliseconds from process start until the bidding bot can process work. The value is the current process lifetime average.",
+            "description": "Elapsed milliseconds from entering startBiddingRuntime until ready, after secret intake, configuration, policy agreement and metrics initialization. This is runtime bootstrap time, not total process startup time.",
             "fieldConfig": {
                 "defaults": {
                     "color": { "mode": "palette-classic" },
@@ -73,8 +956,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
-            "id": 2,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 68 },
+            "id": 25,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -107,8 +990,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
-            "id": 3,
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 68 },
+            "id": 26,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -141,8 +1024,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 9 },
-            "id": 4,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 76 },
+            "id": 27,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -203,8 +1086,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 9 },
-            "id": 5,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 76 },
+            "id": 28,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -412,8 +1295,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 9 },
-            "id": 6,
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 76 },
+            "id": 29,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -481,8 +1364,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 17 },
-            "id": 7,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 84 },
+            "id": 30,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -530,8 +1413,8 @@
                 },
                 {
                     "editorMode": "code",
-                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_job_scan_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\",result=\"failure\"})",
-                    "legendFormat": "{{worker}} / {{chain_id}} / job scan failures",
+                    "expr": "sum by (worker, chain_id, result) (artgod_trading_bidding_job_scan_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\",result=~\"failure|completed_with_failures\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / job scan / {{result}}",
                     "range": true,
                     "refId": "F"
                 },
@@ -544,8 +1427,8 @@
                 },
                 {
                     "editorMode": "code",
-                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_command_reconciliation_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\",result=\"failure\"})",
-                    "legendFormat": "{{worker}} / {{chain_id}} / command reconciliation failures",
+                    "expr": "sum by (worker, chain_id, result) (artgod_trading_bidding_command_reconciliation_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\",result=~\"failure|completed_with_failures\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / command reconciliation / {{result}}",
                     "range": true,
                     "refId": "H"
                 },
@@ -585,8 +1468,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 17 },
-            "id": 8,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 84 },
+            "id": 31,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -617,8 +1500,8 @@
         },
         {
             "collapsed": false,
-            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
-            "id": 1002,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 92 },
+            "id": 1005,
             "panels": [],
             "title": "Capacity and Job Scans",
             "type": "row"
@@ -634,8 +1517,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 26 },
-            "id": 9,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 93 },
+            "id": 32,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -668,8 +1551,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 26 },
-            "id": 10,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 93 },
+            "id": 33,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -682,7 +1565,7 @@
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "max by (worker, chain_id, setting) (artgod_trading_bidding_runtime_configuration{worker=~\"$worker\",chain_id=~\"$chain_id\",setting=~\"scan_interval_ms|command_poll_ms|snapshot_poll_ms|snapshot_ttl_ms|hot_refresh_broad_cooldown_ms|hot_refresh_item_cooldown_ms\"})",
+                    "expr": "max by (worker, chain_id, setting) (artgod_trading_bidding_runtime_configuration{worker=~\"$worker\",chain_id=~\"$chain_id\",setting=~\"scan_interval_ms|command_poll_ms|health_poll_ms|snapshot_poll_ms|snapshot_ttl_ms|hot_refresh_broad_cooldown_ms|hot_refresh_item_cooldown_ms\"})",
                     "legendFormat": "{{worker}} / {{chain_id}} / {{setting}}",
                     "range": true,
                     "refId": "A"
@@ -702,8 +1585,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 26 },
-            "id": 11,
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 93 },
+            "id": 34,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -736,8 +1619,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 34 },
-            "id": 12,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 101 },
+            "id": 35,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -761,7 +1644,7 @@
         },
         {
             "datasource": { "type": "prometheus", "uid": "prometheus" },
-            "description": "Number of bidding jobs found by the latest completed dynamic scan.",
+            "description": "Number of bidding jobs captured when the current or most recent dynamic scan started.",
             "fieldConfig": {
                 "defaults": {
                     "color": { "mode": "palette-classic" },
@@ -770,8 +1653,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 34 },
-            "id": 13,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 101 },
+            "id": 36,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -795,8 +1678,8 @@
         },
         {
             "collapsed": false,
-            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 42 },
-            "id": 1003,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 109 },
+            "id": 1006,
             "panels": [],
             "title": "Job Refresh and Market Actions",
             "type": "row"
@@ -812,8 +1695,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 43 },
-            "id": 14,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 110 },
+            "id": 37,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -846,8 +1729,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 43 },
-            "id": 15,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 110 },
+            "id": 38,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -880,8 +1763,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 43 },
-            "id": 16,
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 110 },
+            "id": 39,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -914,8 +1797,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 51 },
-            "id": 17,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 118 },
+            "id": 40,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -962,8 +1845,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 51 },
-            "id": 18,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 118 },
+            "id": 41,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -996,8 +1879,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 51 },
-            "id": 19,
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 118 },
+            "id": 42,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1021,8 +1904,8 @@
         },
         {
             "collapsed": false,
-            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 59 },
-            "id": 1004,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 126 },
+            "id": 1007,
             "panels": [],
             "title": "Commands to Strategy",
             "type": "row"
@@ -1038,8 +1921,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 60 },
-            "id": 20,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 127 },
+            "id": 43,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1072,8 +1955,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 60 },
-            "id": 21,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 127 },
+            "id": 44,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1106,8 +1989,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 60 },
-            "id": 22,
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 127 },
+            "id": 45,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1140,8 +2023,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 68 },
-            "id": 23,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 135 },
+            "id": 46,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1174,8 +2057,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 68 },
-            "id": 24,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 135 },
+            "id": 47,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1208,8 +2091,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 68 },
-            "id": 25,
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 135 },
+            "id": 48,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1242,8 +2125,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 76 },
-            "id": 26,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 143 },
+            "id": 49,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1276,8 +2159,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 76 },
-            "id": 27,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 143 },
+            "id": 50,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1301,8 +2184,8 @@
         },
         {
             "collapsed": false,
-            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 84 },
-            "id": 1005,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 151 },
+            "id": 1008,
             "panels": [],
             "title": "Inbound Marketplace Events",
             "type": "row"
@@ -1318,8 +2201,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 85 },
-            "id": 28,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 152 },
+            "id": 51,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1352,8 +2235,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 85 },
-            "id": 29,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 152 },
+            "id": 52,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1386,8 +2269,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 85 },
-            "id": 30,
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 152 },
+            "id": 53,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1420,8 +2303,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 93 },
-            "id": 31,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 160 },
+            "id": 54,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1454,8 +2337,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 93 },
-            "id": 32,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 160 },
+            "id": 55,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1488,8 +2371,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 93 },
-            "id": 33,
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 160 },
+            "id": 56,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1529,8 +2412,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 101 },
-            "id": 34,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 168 },
+            "id": 57,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1570,8 +2453,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 101 },
-            "id": 35,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 168 },
+            "id": 58,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1604,8 +2487,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 101 },
-            "id": 36,
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 168 },
+            "id": 59,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1638,8 +2521,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 109 },
-            "id": 37,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 176 },
+            "id": 60,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1670,8 +2553,8 @@
         },
         {
             "collapsed": false,
-            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 117 },
-            "id": 1006,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 184 },
+            "id": 1009,
             "panels": [],
             "title": "OpenSea API and Rate Limits",
             "type": "row"
@@ -1687,8 +2570,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 118 },
-            "id": 38,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 185 },
+            "id": 61,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1721,8 +2604,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 118 },
-            "id": 39,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 185 },
+            "id": 62,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1755,8 +2638,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 118 },
-            "id": 40,
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 185 },
+            "id": 63,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1789,8 +2672,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 126 },
-            "id": 41,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 193 },
+            "id": 64,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1823,8 +2706,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 126 },
-            "id": 42,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 193 },
+            "id": 65,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1848,8 +2731,8 @@
         },
         {
             "collapsed": false,
-            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 134 },
-            "id": 1007,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 201 },
+            "id": 1010,
             "panels": [],
             "title": "Marketplace Offer Sync and Bid-Book Update",
             "type": "row"
@@ -1865,8 +2748,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 135 },
-            "id": 43,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 202 },
+            "id": 66,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1899,8 +2782,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 135 },
-            "id": 44,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 202 },
+            "id": 67,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1933,8 +2816,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 135 },
-            "id": 45,
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 202 },
+            "id": 68,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -1967,8 +2850,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 143 },
-            "id": 46,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 210 },
+            "id": 69,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -2008,8 +2891,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 143 },
-            "id": 47,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 210 },
+            "id": 70,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -2056,8 +2939,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 143 },
-            "id": 48,
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 210 },
+            "id": 71,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -2090,8 +2973,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 151 },
-            "id": 49,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 218 },
+            "id": 72,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -2124,8 +3007,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 151 },
-            "id": 50,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 218 },
+            "id": 73,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -2158,8 +3041,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 151 },
-            "id": 51,
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 218 },
+            "id": 74,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -2192,8 +3075,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 159 },
-            "id": 52,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 226 },
+            "id": 75,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -2224,8 +3107,8 @@
         },
         {
             "collapsed": false,
-            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 167 },
-            "id": 1008,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 234 },
+            "id": 1011,
             "panels": [],
             "title": "Process Resources",
             "type": "row"
@@ -2241,8 +3124,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 168 },
-            "id": 53,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 235 },
+            "id": 76,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -2275,8 +3158,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 168 },
-            "id": 54,
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 235 },
+            "id": 77,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -2309,8 +3192,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 168 },
-            "id": 55,
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 235 },
+            "id": 78,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -2343,8 +3226,8 @@
                 },
                 "overrides": []
             },
-            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 176 },
-            "id": 56,
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 243 },
+            "id": 79,
             "options": {
                 "legend": {
                     "calcs": [],

@@ -1,0 +1,29 @@
+{
+    "groups": [
+        {
+            "name": "artgod-bidding-progress",
+            "rules": [
+                {
+                    "alert": "ArtGodBiddingScanNoProgress",
+                    "expr": "(clamp_min(time() - min by (worker, chain_id) (artgod_trading_bidding_scan_last_progress_at_seconds{worker=~\"bidding-bot\",chain_id=~\".*\"} > 0), 0) and (max by (worker, chain_id) (artgod_trading_bidding_scan_active{worker=~\"bidding-bot\",chain_id=~\".*\"}) > 0)) > 600",
+                    "for": "2m",
+                    "labels": { "severity": "warning" },
+                    "annotations": {
+                        "summary": "Active bidding scan has no settled-job progress",
+                        "description": "Inspect active stages, OpenSea calls and logs. Long admitted work may be legitimate; this warning does not authorize retrying marketplace writes."
+                    }
+                },
+                {
+                    "alert": "ArtGodBiddingWorkNoProgress",
+                    "expr": "(clamp_min(time() - min by (worker, chain_id, stage) (artgod_trading_bidding_work_last_progress_at_seconds{worker=~\"bidding-bot\",chain_id=~\".*\"} > 0), 0) and (sum by (worker, chain_id, stage) (artgod_trading_bidding_work_active{worker=~\"bidding-bot\",chain_id=~\".*\"}) > 0)) > 600",
+                    "for": "2m",
+                    "labels": { "severity": "warning" },
+                    "annotations": {
+                        "summary": "Active bidding stage has no start or completion progress",
+                        "description": "Inspect the stage and its child operations. A long traversal can still be progressing internally; this is an inspection warning, not proof of a deadlock."
+                    }
+                }
+            ]
+        }
+    ]
+}
