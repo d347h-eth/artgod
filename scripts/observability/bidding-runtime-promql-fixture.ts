@@ -23,6 +23,7 @@ import {
 } from "../../trading/src/application/use-cases/bidding/bidding-job-command-reconciler.js";
 import { BIDDING_COMMAND_QUEUE_STATUS } from "../../trading/src/application/use-cases/bidding/bidding-command-queue-health.js";
 import { BIDDING_WORK_STAGE } from "../../trading/src/application/use-cases/bidding/bidding-work-observability.js";
+import { BIDDING_BID_BOOK_PROJECTION_OUTCOME } from "../../trading/src/application/use-cases/bidding/bidding-bid-book-projection.js";
 import { BIDDING_HEALTH_COMPONENT } from "../../trading/src/application/use-cases/bidding/sample-bidding-runtime-health.js";
 import { COLLECTION_OFFER_FRESHNESS } from "../../trading/src/application/use-cases/bidding/collection-offer-snapshot-service.js";
 import { OPEN_SEA_SNAPSHOT_OPERATION } from "../../trading/src/adapters/opensea/open-sea-collection-offer-source.js";
@@ -79,6 +80,16 @@ export async function biddingRuntimePromqlFixture(chainId: string) {
             result,
         });
     }
+    for (const outcome of Object.values(BIDDING_BID_BOOK_PROJECTION_OUTCOME))
+        observer.onProjectionFinished({
+            queueWaitMs: 10,
+            durationMs: 100,
+            rowCount:
+                outcome === BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published
+                    ? 1
+                    : 0,
+            outcome,
+        });
     observer.onScanProgress({
         active: true,
         total: 3,

@@ -1,11 +1,14 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import {
+    BIDDING_BID_BOOK_PROJECTION_OUTCOME,
     BIDDING_BID_BOOK_PROJECTION_REQUEST_OUTCOME,
     BiddingBidBookProjectionScheduler,
     type BiddingBidBookProjectionObservabilityPort,
     type BiddingBidBookProjectionErrorInput,
     type BiddingBidBookProjectionPort,
+    type BiddingBidBookProjectionResult,
+    type BiddingBidBookProjectionOutcome,
 } from "./bidding-bid-book-projection.js";
 import {
     createCollectionOfferSnapshotMetrics,
@@ -18,6 +21,8 @@ class FakeProjectionPort implements BiddingBidBookProjectionPort {
     public errors: BiddingBidBookProjectionErrorInput[] = [];
     public gate: Promise<void> | null = null;
     public failure: Error | null = null;
+    public outcome: BiddingBidBookProjectionResult["outcome"] =
+        BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published;
 
     async replaceCollectionBidBook(
         snapshot: CollectionOfferSnapshot,
@@ -31,8 +36,12 @@ class FakeProjectionPort implements BiddingBidBookProjectionPort {
             throw this.failure;
         }
         return {
+            outcome: this.outcome,
             collectionSlug: snapshot.collectionSlug,
-            rowCount: snapshot.offers.length,
+            rowCount:
+                this.outcome === BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published
+                    ? snapshot.offers.length
+                    : 0,
             durationMs: 1,
         };
     }
@@ -45,6 +54,99 @@ class FakeProjectionPort implements BiddingBidBookProjectionPort {
 }
 
 describe("BiddingBidBookProjectionScheduler", () => {
+    it("retains previous publication freshness and lag after a skipped write", async () => {
+        const projection = new FakeProjectionPort();
+        const finished: BiddingBidBookProjectionOutcome[] = [];
+        const workSucceeded: boolean[] = [];
+        const scheduler = new BiddingBidBookProjectionScheduler(
+            projection,
+            0,
+            {
+                onWorkStarted: () => (succeeded) =>
+                    workSucceeded.push(succeeded),
+                onProjectionRequested: () => undefined,
+                onProjectionFinished: ({ outcome }) => finished.push(outcome),
+                onProjectionStateChanged: () => undefined,
+            },
+            ["terraforms"],
+        );
+        scheduler.requestProjection(
+            { ...makeSnapshot("first"), refreshedAt: 1000 },
+            "initial",
+        );
+        await sleep(0);
+        const previous = scheduler.readPublicationHealth();
+
+        projection.outcome = BIDDING_BID_BOOK_PROJECTION_OUTCOME.Skipped;
+        scheduler.requestProjection(
+            { ...makeSnapshot("skipped"), refreshedAt: 2000 },
+            "collection missing",
+        );
+        await sleep(0);
+        await scheduler.stop();
+
+        assert.deepEqual(scheduler.readPublicationHealth(), {
+            ...previous,
+            laggingCollections: 1,
+        });
+        assert.deepEqual(finished, [
+            BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published,
+            BIDDING_BID_BOOK_PROJECTION_OUTCOME.Skipped,
+        ]);
+        assert.deepEqual(workSucceeded, [true, false]);
+        assert.deepEqual(projection.errors, []);
+    });
+
+    it("runs a coalesced successor after a skipped publication", async () => {
+        const projection = new FakeProjectionPort();
+        projection.outcome = BIDDING_BID_BOOK_PROJECTION_OUTCOME.Skipped;
+        let releaseGate!: () => void;
+        projection.gate = new Promise<void>((resolve) => {
+            releaseGate = resolve;
+        });
+        const finished: BiddingBidBookProjectionOutcome[] = [];
+        const lagAfterCompletion: number[] = [];
+        let finishSuccessor!: () => void;
+        const successorFinished = new Promise<void>((resolve) => {
+            finishSuccessor = resolve;
+        });
+        const scheduler = new BiddingBidBookProjectionScheduler(
+            projection,
+            10,
+            {
+                onProjectionRequested: () => undefined,
+                onProjectionFinished: ({ outcome }) => {
+                    finished.push(outcome);
+                    lagAfterCompletion.push(
+                        scheduler.readPublicationHealth().laggingCollections,
+                    );
+                    projection.outcome =
+                        BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published;
+                    if (finished.length === 2) finishSuccessor();
+                },
+                onProjectionStateChanged: () => undefined,
+            },
+            ["terraforms"],
+        );
+        scheduler.requestProjection(makeSnapshot("skipped"), "initial");
+        await sleep(0);
+        scheduler.requestProjection(makeSnapshot("successor"), "coalesced");
+        releaseGate();
+        await successorFinished;
+        await scheduler.stop();
+
+        assert.deepEqual(
+            projection.calls.map((call) => call.snapshot.offers[0]),
+            ["skipped", "successor"],
+        );
+        assert.deepEqual(finished, [
+            BIDDING_BID_BOOK_PROJECTION_OUTCOME.Skipped,
+            BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published,
+        ]);
+        assert.deepEqual(lagAfterCompletion, [1, 0]);
+        assert.equal(scheduler.readPublicationHealth().missingCollections, 0);
+    });
+
     it("retains publication lag when different snapshots have identical timestamps", async () => {
         const projection = new FakeProjectionPort();
         const scheduler = new BiddingBidBookProjectionScheduler(
@@ -139,13 +241,13 @@ describe("BiddingBidBookProjectionScheduler", () => {
             releaseGate = resolve;
         });
         const requests: string[] = [];
-        const finished: boolean[] = [];
+        const finished: BiddingBidBookProjectionOutcome[] = [];
         const lagAfterCompletion: number[] = [];
         const states: Array<{ active: number; pending: number }> = [];
         const observability: BiddingBidBookProjectionObservabilityPort = {
             onProjectionRequested: (input) => requests.push(input.outcome),
             onProjectionFinished: (input) => {
-                finished.push(input.succeeded);
+                finished.push(input.outcome);
                 lagAfterCompletion.push(
                     scheduler.readPublicationHealth().laggingCollections,
                 );
@@ -179,7 +281,10 @@ describe("BiddingBidBookProjectionScheduler", () => {
             BIDDING_BID_BOOK_PROJECTION_REQUEST_OUTCOME.Coalesced,
             BIDDING_BID_BOOK_PROJECTION_REQUEST_OUTCOME.Coalesced,
         ]);
-        assert.deepEqual(finished, [true, true]);
+        assert.deepEqual(finished, [
+            BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published,
+            BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published,
+        ]);
         // Finishing an older write must not clear lag for the newer coalesced snapshot.
         assert.deepEqual(lagAfterCompletion, [1, 0]);
         assert.ok(states.some((state) => state.active === 1));

@@ -321,6 +321,17 @@ async function main(): Promise<void> {
                 results.map((result) => sample(1, { [label.Result]: result })),
             ),
         );
+    // The real exporter also emits published and skipped attempts. Neither is a failure.
+    checks.push(
+        check(
+            failureTargets.find((target) =>
+                target.expr.includes(
+                    `${TRADING_METRICS_PREFIX}${BIDDING_RUNTIME_METRIC_NAME.BidBookProjectionDuration}_count`,
+                ),
+            )!.expr,
+            [sample(1)],
+        ),
+    );
     tests.push({
         name: "real exporter: populated failures, unfinished work, queue/freshness and decisions",
         interval: SAMPLE_INTERVAL,

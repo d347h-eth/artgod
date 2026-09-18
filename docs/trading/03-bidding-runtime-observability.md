@@ -168,8 +168,12 @@ has not observed a successful publication for a watched collection; it is not
 proof that no older persisted display data exists. Lagging means newer complete
 market data has been requested but not successfully published. These counts
 can overlap. Publication age and published-market-data age have separate
-timestamps; failed writes update neither. Removed collections leave the sampled
-scope. Check collector health for all these last-sampled aggregates.
+timestamps; failed or skipped writes update neither. A missing local collection
+skips publication and retains missing/lagging health; it reports `skipped`, not
+`success` or `failure`, in projection result metrics. Successfully publishing an
+empty snapshot still counts as success because the empty bid book was persisted.
+Removed collections leave the sampled scope. Check collector health for all these
+last-sampled aggregates.
 
 ### Decisions, Positions, and Effects
 

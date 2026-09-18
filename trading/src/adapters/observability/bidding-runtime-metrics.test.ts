@@ -13,7 +13,10 @@ import {
     BIDDING_COMMAND_RECONCILIATION_RESULT,
     BIDDING_COMMAND_TRIGGER,
 } from "../../application/use-cases/bidding/bidding-job-command-reconciler.js";
-import { BIDDING_BID_BOOK_PROJECTION_REQUEST_OUTCOME } from "../../application/use-cases/bidding/bidding-bid-book-projection.js";
+import {
+    BIDDING_BID_BOOK_PROJECTION_OUTCOME,
+    BIDDING_BID_BOOK_PROJECTION_REQUEST_OUTCOME,
+} from "../../application/use-cases/bidding/bidding-bid-book-projection.js";
 import {
     COLLECTION_OFFER_REFRESH_OUTCOME,
     COLLECTION_OFFER_SNAPSHOT_REFRESH_RESULT,
@@ -292,7 +295,7 @@ describe("BiddingRuntimeMetrics", () => {
             queueWaitMs: 10,
             durationMs: 150,
             rowCount: 11_800,
-            succeeded: true,
+            outcome: BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published,
         });
 
         const openSeaObserver = observability.createOpenSeaOperationObserver(

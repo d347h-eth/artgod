@@ -11,7 +11,20 @@ import {
     type BiddingWorkObservabilityPort,
 } from "./bidding-work-observability.js";
 
+// A settled adapter call may skip publication; failures are reported by throwing.
+export const BIDDING_BID_BOOK_PROJECTION_OUTCOME = {
+    Published: "published",
+    Skipped: "skipped",
+    Failed: "failed",
+} as const;
+
+export type BiddingBidBookProjectionOutcome =
+    (typeof BIDDING_BID_BOOK_PROJECTION_OUTCOME)[keyof typeof BIDDING_BID_BOOK_PROJECTION_OUTCOME];
+
 export interface BiddingBidBookProjectionResult {
+    outcome:
+        | typeof BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published
+        | typeof BIDDING_BID_BOOK_PROJECTION_OUTCOME.Skipped;
     collectionSlug: string;
     rowCount: number;
     durationMs: number;
@@ -61,7 +74,7 @@ export interface BiddingBidBookProjectionObservabilityPort extends BiddingWorkOb
         queueWaitMs: number;
         durationMs: number;
         rowCount: number;
-        succeeded: boolean;
+        outcome: BiddingBidBookProjectionOutcome;
     }): void;
     onProjectionStateChanged(input: { active: number; pending: number }): void;
 }
@@ -253,7 +266,8 @@ export class BiddingBidBookProjectionScheduler {
         this.activeProjectionCount += 1;
         this.reportState();
         let rowCount = 0;
-        let succeeded = false;
+        let outcome: BiddingBidBookProjectionOutcome =
+            BIDDING_BID_BOOK_PROJECTION_OUTCOME.Failed;
 
         try {
             // Persist the latest snapshot into the local bid-book read model for UI reads.
@@ -265,23 +279,28 @@ export class BiddingBidBookProjectionScheduler {
                         snapshot,
                         reason,
                     ),
+                (result) =>
+                    result.outcome ===
+                    BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published,
             );
             state.lastCompletedAt = Date.now();
-            state.publishedAt = state.lastCompletedAt;
-            state.publishedSnapshotAt = snapshot.refreshedAt;
-            state.publishedVersion = version;
             rowCount = result.rowCount;
-            succeeded = true;
-            log.debug(
-                "projectionComplete",
-                "Bidding bid-book projection complete",
-                {
-                    collectionSlug: result.collectionSlug,
-                    rowCount: result.rowCount,
-                    durationMs: result.durationMs,
-                    reason,
-                },
-            );
+            outcome = result.outcome;
+            if (outcome === BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published) {
+                state.publishedAt = state.lastCompletedAt;
+                state.publishedSnapshotAt = snapshot.refreshedAt;
+                state.publishedVersion = version;
+                log.debug(
+                    "projectionComplete",
+                    "Bidding bid-book projection complete",
+                    {
+                        collectionSlug: result.collectionSlug,
+                        rowCount: result.rowCount,
+                        durationMs: result.durationMs,
+                        reason,
+                    },
+                );
+            }
         } catch (error: unknown) {
             state.lastCompletedAt = Date.now();
             const errorMessage = projectionErrorMessage(error);
@@ -324,7 +343,7 @@ export class BiddingBidBookProjectionScheduler {
                     queueWaitMs,
                     durationMs: Date.now() - startedAt,
                     rowCount,
-                    succeeded,
+                    outcome,
                 });
             });
             this.reportState();

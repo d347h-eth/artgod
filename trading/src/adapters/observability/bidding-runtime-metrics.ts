@@ -19,9 +19,11 @@ import type {
     BiddingCommandTrigger,
 } from "../../application/use-cases/bidding/bidding-job-command-reconciler.js";
 import type { BiddingJobCommand } from "../../application/use-cases/bidding/bidding-job-command-repository.js";
-import type {
-    BiddingBidBookProjectionObservabilityPort,
-    BiddingBidBookProjectionRequestOutcome,
+import {
+    BIDDING_BID_BOOK_PROJECTION_OUTCOME,
+    type BiddingBidBookProjectionOutcome,
+    type BiddingBidBookProjectionObservabilityPort,
+    type BiddingBidBookProjectionRequestOutcome,
 } from "../../application/use-cases/bidding/bidding-bid-book-projection.js";
 import type {
     CollectionOfferRefreshOutcome,
@@ -909,10 +911,16 @@ export class BiddingRuntimeMetrics
         queueWaitMs: number;
         durationMs: number;
         rowCount: number;
-        succeeded: boolean;
+        outcome: BiddingBidBookProjectionOutcome;
     }): void {
         const labels = {
-            [BIDDING_RUNTIME_METRIC_LABEL.Result]: toResult(input.succeeded),
+            [BIDDING_RUNTIME_METRIC_LABEL.Result]:
+                input.outcome === BIDDING_BID_BOOK_PROJECTION_OUTCOME.Skipped
+                    ? input.outcome
+                    : toResult(
+                          input.outcome ===
+                              BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published,
+                      ),
         };
         this.observeHistogram(
             BIDDING_RUNTIME_METRIC_NAME.BidBookProjectionQueueWait,
