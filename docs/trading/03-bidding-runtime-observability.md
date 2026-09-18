@@ -97,22 +97,119 @@ commands do not stop the ArtGod desktop runtime or bidding bot.
 
 ## Reading the Dashboard
 
-The dashboard is arranged in the same order that work moves through the
-bidding process.
+The dashboard starts with unfinished work and collector health, then durable
+backlog, market-data/display freshness, and bidding decisions. Historical
+latency, throughput, capacity, and process-resource panels follow.
+
+### Current Work and Progress
+
+`Current Scan Progress` shows active status, the scan's captured inventory, and
+settled jobs. Settled means the refresh finished, failed, or was discarded on
+Stop; it is not a count of successful bids. The counts reset at each scan start.
+The scan-age panel separates elapsed scan time, time without settled-job
+progress, and time since the last fully successful scan.
+
+Active stages cover startup phases, balance and market reads, own-order
+recovery, job preparation, durable commands, placement/cancellation, full offer
+fetches, and bid-book publication. Stages may nest; their summed count is not a
+distinct-job count. OpenSea in-flight counts and oldest-call age additionally
+split calls by lane, operation, and request priority, after local rate-limit
+admission. Use rate-limit queue metrics for work waiting before an API call.
+
+The exporter publishes start/progress/success timestamps in seconds. PromQL
+computes age with `time()` so an unfinished await remains visible without new
+events. A zero timestamp means no active work or no successful observation;
+age queries omit it. Failed completion advances progress but not last success.
+Stage progress means a start or finish, not every page or internal substep;
+inspect child stages and OpenSea calls during long operations. Inactive stages
+retain their last-progress/success history and do not raise no-progress warnings.
+
+`Work With No Progress` shows active scans without settled-job progress and
+active stages without start/finish progress for more than 10 minutes. The
+generated Prometheus warning rules require this condition for another 2
+minutes. These conservative inspection thresholds are owned by
+`BIDDING_PROGRESS_WARNING` in the dashboard generator; change that owner and
+regenerate to tune them. A warning is not proof of a deadlock: a long crawl or
+admitted marketplace request can be legitimate. These rules do not retry,
+cancel, or time out work. They appear in Prometheus's alert state; external
+notification delivery requires separately configured routing and is not
+provided by this change.
+
+### Collector Health and Sampled State
+
+Health sampling starts before snapshot/price/command bootstrap and runs
+independently of command processing. Each pass reads command backlog, snapshot
+freshness, publication health, and job positions through their owners. A single
+non-overlapping loop waits `BIDDING_RUNTIME_HEARTBEAT_INTERVAL_MS` after a pass finishes;
+the effective cadence is exported as `health_poll_ms`. Reads are not performed
+inside scrape callbacks. This is enabled only when runtime metrics are enabled.
+
+`Latest Health Sample Succeeded` distinguishes a successful owner read (1), a
+failed read (0), and no observation yet (absent). After failure, the last good
+counts/timestamps remain; check their last-success age before interpreting them
+as current. A held sampler can leave the previous success flag at 1 while its
+last-success age grows. Collector success, scrape availability, and bidding
+progress are three separate signals. Missing data must not be interpreted as
+healthy zero activity.
+
+`Durable Command Backlog` counts pending, retryable, processing, and terminal
+failure rows, excluding completed history. Stale processing is the reclaimable
+subset under the same claim-timeout policy as admission. Oldest pending age
+covers pending and retryable commands before claim, not processing work.
+
+`Market Data Freshness` classifies watched collections using the actual adaptive
+TTL: fresh, stale, or missing complete data. Backoff overlaps these categories;
+it is not an additional mutually exclusive state. Oldest-complete age excludes
+missing collections, which remain visible in the missing count. Base/maximum
+TTL and the fetch-duration multiplier are shown separately with their units.
+
+Bid-book publication is independent of fetching. Missing means this process
+has not observed a successful publication for a watched collection; it is not
+proof that no older persisted display data exists. Lagging means newer complete
+market data has been requested but not successfully published. These counts
+can overlap. Publication age and published-market-data age have separate
+timestamps; failed writes update neither. Removed collections leave the sampled
+scope. Check collector health for all these last-sampled aggregates.
+
+### Decisions, Positions, and Effects
+
+Decision counters record strategy intent before effects: placing, renewing,
+adjusting up/down, maintaining winning/capped offers, reusing an existing target
+offer, or skipping/cancelling at an effective zero ceiling. They are split by
+target type and dry-run state. A maintain decision may also cancel redundant
+offers; a place decision may fail. Neither is silently counted as a successful
+marketplace placement.
+
+The separate marketplace-action outcomes retain successful/failed placement
+and cancellation attempts and dry-run mode. A successful dry-run is simulated.
+A failed action can include local tracking failure after an external effect;
+do not infer that the provider definitely did nothing, or automatically retry.
+
+Job positions and constraints describe last-known bot-owned observations for
+currently scheduled jobs, including unobserved positions. They may have been
+restored from persistence or become stale, so they do not independently prove
+current leadership. One job can have multiple constraints. All counters are
+process-lifetime observations, not durable audit totals across restarts.
 
 ### Runtime Health, Capacity, and Dynamic Scans
 
-Start with runtime state, time to ready, bootstrap phase duration,
+After current health, inspect runtime state, time to ready, bootstrap phase duration,
 process-lifetime failures, active pressure, and the critical-path comparison.
 The capacity panels place live concurrency, queue caps, and cadences beside
 current job counts. Startup phase duration is the current bot process's
 lifetime average for each completed phase, not a rate-window percentile. A
 startup failure can close the optional endpoint before Prometheus scrapes it,
 so the structured startup log remains authoritative for failed bootstrap.
+Time to ready starts on entering `startBiddingRuntime`, after secret intake,
+configuration, policy agreement, and metrics initialization. It is runtime
+bootstrap time, not the full process-start interval.
 
 The process-lifetime failure panel uses raw counters rather than rates. That
 keeps a first or singleton failure visible even if it happened before the first
 Prometheus baseline scrape. These totals reset with the bidding bot process.
+Scan and reconciliation failures include both operational `failure` and
+`completed_with_failures`, with separate result legends. The latter means the
+pass completed with failed job/command work, not an infrastructure exception.
 Command failures in this panel count failed processing attempts, including
 attempts scheduled for retry.
 
@@ -123,8 +220,8 @@ and chain, with the measurement unit and boundary in its legend. Only positive
 overflow appears. A percentile outside its recorded range is omitted from the
 p95 charts, so it cannot appear as a misleading fixed latency. Compare a missing
 p95 with this overflow panel before treating it as an idle runtime. A hung
-operation has not completed a duration observation; use active pressure and
-structured logs to inspect work that is still running.
+operation has not completed a duration observation; use current progress,
+in-flight ages, active pressure, and logs to inspect work that is still running.
 
 This guard is needed because classic Prometheus histograms otherwise return the
 highest finite boundary when the requested quantile falls in the infinite
@@ -157,8 +254,11 @@ pass duration, batch size, and commands in flight before changing a cadence.
 processing attempt, not the final outcome of a unique durable command. The
 `bidding_command_attempts_total` counter records two failures and one success
 when one command fails twice before succeeding. Both retryable and terminal
-attempt failures use the failure result; structured command logs retain the
-authoritative retry or terminal outcome.
+attempt failures use the failure result. `Durable Command Outcomes` separately
+counts completion, retry scheduling, terminal failure, and stale-claim recovery
+only after the corresponding repository operation succeeds. A single command
+can contribute several transitions. Structured logs and SQLite retain the
+per-command detail; the metric does not replace that history.
 
 ### Job Refreshes and Marketplace Actions
 
@@ -261,6 +361,9 @@ Bidding-specific metrics use the `artgod_trading_` prefix and the shared
 `worker=bidding-bot` and `chain_id` labels. Runtime labels are bounded enums or
 aggregate values such as action, command kind, event type/scope, lane,
 operation, priority, result, target type, and trigger.
+The additional stage, status, component, decision, position, and constraint
+labels also use owner-defined finite vocabulary; timestamps are sample values,
+never labels.
 
 Metrics and dashboard queries intentionally do not label or group by wallet,
 address, collection id/slug, job id, order id/hash, or token id. Those values
@@ -280,6 +383,13 @@ The editable source is
 PromQL, layout, panel text, allowed metric vocabulary, and cardinality check.
 The generated Grafana artifact is
 `observability/grafana/provisioning/dashboards/bidding-runtime-overview.json`.
+The same generator owns
+`observability/prometheus/bidding-runtime-alerts.json`, mounted by both existing
+Compose profiles. The generate/check commands cover both artifacts. Reload or
+restart an already running Prometheus through the established workflow after
+updating rule files; generating files does not modify a running stack.
+When first adopting the added rule-file mount, rerun `yarn observability:up`
+to apply the Compose change; a container restart alone does not add a mount.
 
 Regenerate after an intentional metric or dashboard change:
 
@@ -304,7 +414,19 @@ Use `promtool` from the Prometheus version pinned in `docker-compose.yml`.
 The query test requires both arguments, saves its synthetic scrape fixture in
 the chosen project directory, evaluates every generated query, and verifies
 30-minute, multi-hour, and overflowing observations with independent chain
-selectors. It needs no live bot, marketplace, or database.
+selectors. Populated scrapes from the real metrics adapter/exporter verify
+failed batches, held-operation ages, collector failure/recovery, queue and
+freshness aggregates, decision/effect separation, zero-timestamp handling,
+chain isolation, and warning timing. It needs no live bot, marketplace,
+database, Docker access, or rendered dashboard. Use already provisioned tools;
+an unavailable tool is a reported verification gap, not permission to download
+or bootstrap a replacement stack.
+
+Rendered Grafana QA is a separate final step. Inspect the generated dashboard
+in the existing stack with healthy, stalled, failed-sampling, recovered, and
+empty states; verify selectors, legends, units, reading order, and no-data
+behavior. Passing query tests is not evidence that this visual inspection has
+been completed.
 
 Do not hand-edit the generated JSON. Update the generator and metric owner
 contracts together, regenerate, and review the resulting PromQL and panel

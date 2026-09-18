@@ -371,8 +371,9 @@ dynamic job scans, refresh concurrency, marketplace actions, durable commands
 from creation/claim through strategy start, inbound OpenSea event pressure,
 hot-refresh queue decisions, OpenSea operation and rate-limit timing,
 collection-offer syncs, bid-book updates, shutdown entry, and Node process
-resources. The durable `shutdownComplete` log records the final shutdown
-duration and result after the pull exporter closes.
+resources. The durable `shutdownComplete` log records the final runtime-drain
+duration and result before exporter cleanup. The final log remains authoritative
+because Prometheus may not scrape the last state before the exporter closes.
 
 The dedicated `ArtGod Bidding Runtime Overview` dashboard preserves this
 reading order and compares the main handoff latencies directly. Metric labels

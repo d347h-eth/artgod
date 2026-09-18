@@ -21,9 +21,9 @@ decision input from display projections.
   placement or competitiveness.
 
 Here, authoritative identifies the decision input chosen by the runtime, not a
-guarantee that an API response is complete or immediately current. Snapshot
-freshness is bounded by policy, and repeated-cursor handling can accept an
-incomplete result as described below.
+guarantee that the provider's data is immediately current. Snapshot freshness
+is bounded by policy. Only a complete pagination traversal may replace the
+authoritative snapshot; repeated-cursor results are rejected as described below.
 
 The [bidding lifecycle diagram](../diagrams/10-bidding-command-and-offer-lifecycle.md)
 shows where declared state, authoritative market reads, side effects, and
@@ -43,9 +43,13 @@ Completed fetches record metrics, and the snapshot service logs a summary:
 - a scope distribution summary and observed trait types.
 
 When a cursor repeats, the adapter logs a pagination-loop error, stops the walk,
-and returns the offers collected so far. It does not currently fail the refresh
-or mark the result as degraded, so that result can be incomplete. The adapter
-uses the dedicated snapshot OpenSea request limiter and bounded retry policy.
+and marks the result incomplete. The snapshot service rejects that refresh,
+records a partial result, retains the previous complete snapshot (if any), and
+enters failure backoff. An exhausted page request similarly preserves the last
+complete snapshot and records an error. Neither result is published as fresh
+market data or sent to the bid-book projection. A first refresh without a
+previous complete snapshot remains unavailable. The adapter uses the dedicated
+snapshot OpenSea request limiter and bounded retry policy.
 
 The snapshot service serializes refresh work per collection. Concurrent callers
 join or coalesce around the same work rather than starting parallel full crawls.
@@ -171,9 +175,9 @@ projection time, scope distribution, or price ordering.
 
 - The first missing broad snapshot can still block a command that cannot act
   safely without broad competition context.
-- A repeated cursor currently produces a logged, partial snapshot without a
-  degraded-state marker. This is a correctness limit, not a complete-snapshot
-  guarantee.
+- Repeated cursors and failed traversals leave the previous complete snapshot
+  aging under its normal freshness policy, or leave market data missing until a
+  complete refresh succeeds. The runtime does not treat partial data as fresh.
 - Full `getAllOffers` pagination can remain expensive on deep offer books.
 - A hard price/depth cutoff is deliberately deferred. A future bounded snapshot
   must derive a conservative strategy cutoff, record degraded/bounded state,
