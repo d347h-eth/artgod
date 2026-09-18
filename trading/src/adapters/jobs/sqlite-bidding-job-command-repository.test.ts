@@ -17,6 +17,7 @@ import {
     TRADING_JOB_TARGET_KIND,
 } from "@artgod/shared/types";
 import { SqliteBiddingJobCommandRepository } from "./sqlite-bidding-job-command-repository.js";
+import { BIDDING_COMMAND_QUEUE_STATUS } from "../../application/use-cases/bidding/bidding-command-queue-health.js";
 
 // Command repository tests seed an isolated collection fixture.
 const JOB_COMMAND_FIXTURE_SLUG = "job-command-fixture";
@@ -168,6 +169,7 @@ describe("SqliteBiddingJobCommandRepository", () => {
         assert.equal(commands.length, 1);
         assert.equal(commands[0]?.commandId, commandId);
         assert.equal(commands[0]?.attempts, 1);
+        assert.equal(commands[0]?.reclaimed, false);
         const claimed = getCommandRow(commandId);
         assert.match(claimed.claimed_at ?? "", /\.\d{3}$/);
         assert.equal(
@@ -202,6 +204,7 @@ describe("SqliteBiddingJobCommandRepository", () => {
         });
 
         assert.equal(commands.length, 1);
+        assert.equal(commands[0]?.reclaimed, true);
         assert.equal(commands[0]?.attempts, 1);
 
         await repository.markFailedRetry(commandId, "temporary failure");
@@ -209,6 +212,54 @@ describe("SqliteBiddingJobCommandRepository", () => {
         const failed = getCommandRow(commandId);
         assert.equal(failed.status, "failed_retry");
         assert.equal(failed.last_error, "temporary failure");
+    });
+
+    it("reads backlog health without claiming rows or counting completed history", async () => {
+        const pending = seedCommand({
+            jobId,
+            status: TRADING_JOB_COMMAND_STATUS.Pending,
+            createdAt: "2001-01-01 00:00:00.500",
+        });
+        seedCommand({
+            jobId,
+            status: TRADING_JOB_COMMAND_STATUS.FailedRetry,
+            createdAt: "2000-01-01 00:00:00.250",
+        });
+        seedCommand({
+            jobId,
+            status: TRADING_JOB_COMMAND_STATUS.Processing,
+            claimedAt: "2000-01-01 00:00:00",
+        });
+        seedCommand({
+            jobId,
+            status: TRADING_JOB_COMMAND_STATUS.Processing,
+            claimedAt: "2999-01-01 00:00:00",
+        });
+        seedCommand({
+            jobId,
+            status: TRADING_JOB_COMMAND_STATUS.FailedTerminal,
+        });
+        seedCommand({
+            jobId,
+            status: TRADING_JOB_COMMAND_STATUS.Completed,
+            createdAt: "1990-01-01 00:00:00",
+        });
+        const repository = new SqliteBiddingJobCommandRepository();
+        assert.deepEqual(await repository.readQueueHealth(1000), {
+            counts: {
+                [BIDDING_COMMAND_QUEUE_STATUS.Pending]: 1,
+                [BIDDING_COMMAND_QUEUE_STATUS.Retrying]: 1,
+                [BIDDING_COMMAND_QUEUE_STATUS.Processing]: 2,
+                [BIDDING_COMMAND_QUEUE_STATUS.FailedTerminal]: 1,
+            },
+            oldestPendingAtMs: Date.parse("2000-01-01T00:00:00.250Z"),
+            staleProcessing: 1,
+        });
+        assert.equal(
+            getCommandRow(pending).status,
+            TRADING_JOB_COMMAND_STATUS.Pending,
+        );
+        assert.equal(getCommandRow(pending).attempts, 0);
     });
 
     it("continues claiming one command at a time after writer contention", async () => {

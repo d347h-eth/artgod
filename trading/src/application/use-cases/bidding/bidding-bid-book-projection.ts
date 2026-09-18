@@ -5,6 +5,11 @@ import {
     toErrorLogFields,
 } from "../../../utils/bidding-log.js";
 import { observeBestEffort } from "../../../utils/observe-best-effort.js";
+import {
+    BIDDING_WORK_STAGE,
+    observeBiddingWork,
+    type BiddingWorkObservabilityPort,
+} from "./bidding-work-observability.js";
 
 export interface BiddingBidBookProjectionResult {
     collectionSlug: string;
@@ -39,8 +44,16 @@ export const BIDDING_BID_BOOK_PROJECTION_REQUEST_OUTCOME = {
 export type BiddingBidBookProjectionRequestOutcome =
     (typeof BIDDING_BID_BOOK_PROJECTION_REQUEST_OUTCOME)[keyof typeof BIDDING_BID_BOOK_PROJECTION_REQUEST_OUTCOME];
 
+export type BiddingPublicationHealth = {
+    watchedCollections: number;
+    missingCollections: number;
+    laggingCollections: number;
+    oldestPublishedAtMs: number | null;
+    oldestPublishedSnapshotAtMs: number | null;
+};
+
 // BiddingBidBookProjectionObservabilityPort reports coalescing, queue latency, and local write cost.
-export interface BiddingBidBookProjectionObservabilityPort {
+export interface BiddingBidBookProjectionObservabilityPort extends BiddingWorkObservabilityPort {
     onProjectionRequested(input: {
         outcome: BiddingBidBookProjectionRequestOutcome;
     }): void;
@@ -60,6 +73,10 @@ type ProjectionState = {
     timer?: ReturnType<typeof setTimeout>;
     lastCompletedAt: number;
     firstRequestedAt?: number;
+    requestedVersion: number;
+    publishedVersion: number;
+    publishedAt?: number;
+    publishedSnapshotAt?: number;
 };
 
 const log = createBiddingComponentLogger(
@@ -73,13 +90,58 @@ export class BiddingBidBookProjectionScheduler {
     private activeProjectionCount = 0;
     private pendingProjectionCount = 0;
     private stopped = false;
+    private watchedCollections = new Set<string>();
 
     constructor(
         private readonly projectionPort: BiddingBidBookProjectionPort,
         private readonly throttleMs: number,
         private readonly observability?: BiddingBidBookProjectionObservabilityPort,
+        watchedCollections: readonly string[] = [],
     ) {
+        this.reconcileWatchedCollections(watchedCollections);
         this.reportState();
+    }
+
+    // Monitor only collections in the current desired job set; this does not cancel admitted writes.
+    public reconcileWatchedCollections(collections: readonly string[]): void {
+        this.watchedCollections = new Set(collections);
+    }
+
+    public readPublicationHealth(): BiddingPublicationHealth {
+        let missingCollections = 0;
+        let laggingCollections = 0;
+        let oldestPublishedAtMs: number | null = null;
+        let oldestPublishedSnapshotAtMs: number | null = null;
+        for (const slug of this.watchedCollections) {
+            const state = this.states.get(slug);
+            if (
+                state?.publishedAt === undefined ||
+                state.publishedSnapshotAt === undefined
+            )
+                missingCollections += 1;
+            else {
+                oldestPublishedAtMs =
+                    oldestPublishedAtMs === null
+                        ? state.publishedAt
+                        : Math.min(oldestPublishedAtMs, state.publishedAt);
+                oldestPublishedSnapshotAtMs =
+                    oldestPublishedSnapshotAtMs === null
+                        ? state.publishedSnapshotAt
+                        : Math.min(
+                              oldestPublishedSnapshotAtMs,
+                              state.publishedSnapshotAt,
+                          );
+            }
+            if (state && state.requestedVersion > state.publishedVersion)
+                laggingCollections += 1;
+        }
+        return {
+            watchedCollections: this.watchedCollections.size,
+            missingCollections,
+            laggingCollections,
+            oldestPublishedAtMs,
+            oldestPublishedSnapshotAtMs,
+        };
     }
 
     // requestProjection keeps only the latest snapshot per collection and throttles replacement writes.
@@ -100,6 +162,8 @@ export class BiddingBidBookProjectionScheduler {
             this.pendingProjectionCount += 1;
         }
         state.latestSnapshot = snapshot;
+        // Wall-clock timestamps are not versions: equal times or clock adjustments must not hide lag.
+        state.requestedVersion += 1;
         state.pendingReason = mergeReasons(state.pendingReason, reason);
         state.firstRequestedAt ??= Date.now();
         observeBestEffort(() => {
@@ -141,6 +205,8 @@ export class BiddingBidBookProjectionScheduler {
             state = {
                 running: false,
                 lastCompletedAt: 0,
+                requestedVersion: 0,
+                publishedVersion: 0,
             };
             this.states.set(collectionSlug, state);
         }
@@ -169,6 +235,7 @@ export class BiddingBidBookProjectionScheduler {
         }
 
         const snapshot = state.latestSnapshot;
+        const version = state.requestedVersion;
         const reason = state.pendingReason ?? "unspecified";
         const startedAt = Date.now();
         const queueWaitMs = Math.max(
@@ -190,11 +257,19 @@ export class BiddingBidBookProjectionScheduler {
 
         try {
             // Persist the latest snapshot into the local bid-book read model for UI reads.
-            const result = await this.projectionPort.replaceCollectionBidBook(
-                snapshot,
-                reason,
+            const result = await observeBiddingWork(
+                this.observability,
+                BIDDING_WORK_STAGE.BidBookPublication,
+                () =>
+                    this.projectionPort.replaceCollectionBidBook(
+                        snapshot,
+                        reason,
+                    ),
             );
             state.lastCompletedAt = Date.now();
+            state.publishedAt = state.lastCompletedAt;
+            state.publishedSnapshotAt = snapshot.refreshedAt;
+            state.publishedVersion = version;
             rowCount = result.rowCount;
             succeeded = true;
             log.debug(

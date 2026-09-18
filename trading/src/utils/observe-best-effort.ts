@@ -1,7 +1,7 @@
 // Runs optional observability without allowing diagnostics to change business behavior.
-export function observeBestEffort(observe: () => void): void {
+export function observeBestEffort<T>(observe: () => T): T | undefined {
     try {
-        observe();
+        return observe();
     } catch {
         // Metrics are diagnostic; runtime behavior remains authoritative.
     }

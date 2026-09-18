@@ -46,6 +46,21 @@ import {
 } from "../support/token-bucket-rate-limiter.js";
 import type { Scope } from "../../domain/market/event.js";
 import { observeBestEffort } from "../../utils/observe-best-effort.js";
+import type { BiddingWorkStage } from "../../application/use-cases/bidding/bidding-work-observability.js";
+import { BIDDER_SCAN_RESULT } from "../../application/use-cases/bidding/bidder.js";
+import { InFlightMetrics } from "./in-flight-metrics.js";
+import type { BiddingCommandQueueHealth } from "../../application/use-cases/bidding/bidding-command-queue-health.js";
+import type { BiddingCommandDurableOutcome } from "../../application/use-cases/bidding/bidding-job-command-reconciler.js";
+import type {
+    BiddingHealthComponent,
+    BiddingRuntimeHealthObserver,
+} from "../../application/use-cases/bidding/sample-bidding-runtime-health.js";
+import type { CollectionOfferFreshnessHealth } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
+import type { BiddingPublicationHealth } from "../../application/use-cases/bidding/bidding-bid-book-projection.js";
+import type {
+    BidderDecision,
+    BidderPositionHealth,
+} from "../../application/use-cases/bidding/bidder.js";
 import {
     BIDDING_RUNTIME_CONFIGURATION_SETTING,
     BIDDING_RUNTIME_METRIC_LABEL,
@@ -66,6 +81,9 @@ export type BiddingRuntimeConfigurationInput = {
     commandBatchSize: number;
     snapshotPollMs: number;
     snapshotTtlMs: number;
+    snapshotMaxTtlMs: number;
+    snapshotTtlMultiplier: number;
+    healthPollMs: number;
     hotRefreshBroadCooldownMs: number;
     hotRefreshBroadMaxPending: number;
     hotRefreshItemCooldownMs: number;
@@ -73,6 +91,10 @@ export type BiddingRuntimeConfigurationInput = {
 };
 
 export type OpenSeaOperationMetricsObserver = {
+    onOpenSeaOperationStarted(input: {
+        operation: string;
+        priority: TokenBucketRateLimitPriority;
+    }): (succeeded: boolean) => void;
     onOpenSeaOperationFinished(input: {
         operation: string;
         priority: TokenBucketRateLimitPriority;
@@ -100,13 +122,39 @@ export class BiddingRuntimeMetrics
         HotRefreshBackpressureObservabilityPort,
         OpenSeaEventStreamObservabilityPort,
         CollectionOfferSnapshotObserver,
+        BiddingRuntimeHealthObserver,
         BiddingBidBookProjectionObservabilityPort
 {
     private activeStreamDispatches = 0;
     private readonly metrics: Metrics;
+    private readonly workActivity: InFlightMetrics;
+    private readonly openSeaActivity: InFlightMetrics;
 
-    constructor(metrics: Metrics) {
+    constructor(
+        metrics: Metrics,
+        private readonly now: () => number = Date.now,
+    ) {
         this.metrics = createBestEffortMetrics(metrics);
+        this.workActivity = new InFlightMetrics(
+            this.metrics,
+            {
+                active: BIDDING_RUNTIME_METRIC_NAME.WorkActive,
+                oldestStart: BIDDING_RUNTIME_METRIC_NAME.WorkOldestStart,
+                lastProgress: BIDDING_RUNTIME_METRIC_NAME.WorkLastProgress,
+                lastSuccess: BIDDING_RUNTIME_METRIC_NAME.WorkLastSuccess,
+            },
+            now,
+        );
+        this.openSeaActivity = new InFlightMetrics(
+            this.metrics,
+            {
+                active: BIDDING_RUNTIME_METRIC_NAME.OpenSeaInFlight,
+                oldestStart: BIDDING_RUNTIME_METRIC_NAME.OpenSeaOldestStart,
+                lastProgress: BIDDING_RUNTIME_METRIC_NAME.OpenSeaLastProgress,
+                lastSuccess: BIDDING_RUNTIME_METRIC_NAME.OpenSeaLastSuccess,
+            },
+            now,
+        );
         this.reportActiveStreamDispatches();
     }
 
@@ -114,6 +162,13 @@ export class BiddingRuntimeMetrics
         lane: BiddingOpenSeaLane,
     ): OpenSeaOperationMetricsObserver {
         return {
+            onOpenSeaOperationStarted: (input) =>
+                this.openSeaActivity.start({
+                    [BIDDING_RUNTIME_METRIC_LABEL.Lane]: lane,
+                    [BIDDING_RUNTIME_METRIC_LABEL.Operation]: input.operation,
+                    [BIDDING_RUNTIME_METRIC_LABEL.Priority]:
+                        rateLimitPriorityLabel(input.priority),
+                }),
             onOpenSeaOperationFinished: (input) => {
                 const labels = {
                     [BIDDING_RUNTIME_METRIC_LABEL.Lane]: lane,
@@ -224,6 +279,12 @@ export class BiddingRuntimeMetrics
                 input.snapshotPollMs,
             [BIDDING_RUNTIME_CONFIGURATION_SETTING.SnapshotTtlMs]:
                 input.snapshotTtlMs,
+            [BIDDING_RUNTIME_CONFIGURATION_SETTING.SnapshotMaxTtlMs]:
+                input.snapshotMaxTtlMs,
+            [BIDDING_RUNTIME_CONFIGURATION_SETTING.SnapshotTtlMultiplier]:
+                input.snapshotTtlMultiplier,
+            [BIDDING_RUNTIME_CONFIGURATION_SETTING.HealthPollMs]:
+                input.healthPollMs,
             [BIDDING_RUNTIME_CONFIGURATION_SETTING.HotRefreshBroadCooldownMs]:
                 input.hotRefreshBroadCooldownMs,
             [BIDDING_RUNTIME_CONFIGURATION_SETTING.HotRefreshBroadMaxPending]:
@@ -259,6 +320,43 @@ export class BiddingRuntimeMetrics
         }
     }
 
+    public onWorkStarted(
+        stage: BiddingWorkStage,
+    ): (succeeded: boolean) => void {
+        return this.workActivity.start({
+            [BIDDING_RUNTIME_METRIC_LABEL.Stage]: stage,
+        });
+    }
+
+    public onScanProgress(input: {
+        active: boolean;
+        total: number;
+        completed: number;
+        startedAtMs: number;
+        lastProgressAtMs: number;
+    }): void {
+        this.metrics.gauge(
+            BIDDING_RUNTIME_METRIC_NAME.ScanActive,
+            Number(input.active),
+        );
+        this.metrics.gauge(
+            BIDDING_RUNTIME_METRIC_NAME.JobScanSize,
+            input.total,
+        );
+        this.metrics.gauge(
+            BIDDING_RUNTIME_METRIC_NAME.ScanCompletedJobs,
+            input.completed,
+        );
+        this.metrics.gauge(
+            BIDDING_RUNTIME_METRIC_NAME.ScanStartedAt,
+            input.startedAtMs / 1000,
+        );
+        this.metrics.gauge(
+            BIDDING_RUNTIME_METRIC_NAME.ScanLastProgressAt,
+            input.lastProgressAtMs / 1000,
+        );
+    }
+
     public onScanFinished(input: {
         durationMs: number;
         jobCount: number;
@@ -276,6 +374,12 @@ export class BiddingRuntimeMetrics
             BIDDING_RUNTIME_METRIC_NAME.JobScanSize,
             input.jobCount,
         );
+        if (input.result === BIDDER_SCAN_RESULT.Success) {
+            this.metrics.gauge(
+                BIDDING_RUNTIME_METRIC_NAME.ScanLastSuccessAt,
+                this.now() / 1000,
+            );
+        }
     }
 
     public onRefreshRequested(input: {
@@ -393,6 +497,125 @@ export class BiddingRuntimeMetrics
             input.processed,
             labels,
         );
+    }
+
+    public onHealthSample(input: {
+        component: BiddingHealthComponent;
+        succeeded: boolean;
+        sampledAtMs: number;
+    }): void {
+        const labels = {
+            [BIDDING_RUNTIME_METRIC_LABEL.Component]: input.component,
+        };
+        this.metrics.gauge(
+            BIDDING_RUNTIME_METRIC_NAME.HealthSampleSuccess,
+            Number(input.succeeded),
+            labels,
+        );
+        if (input.succeeded)
+            this.metrics.gauge(
+                BIDDING_RUNTIME_METRIC_NAME.HealthLastSuccess,
+                input.sampledAtMs / 1000,
+                labels,
+            );
+    }
+
+    public onCommandQueueHealth(health: BiddingCommandQueueHealth): void {
+        for (const [status, count] of Object.entries(health.counts))
+            this.metrics.gauge(
+                BIDDING_RUNTIME_METRIC_NAME.CommandQueueDepth,
+                count,
+                { [BIDDING_RUNTIME_METRIC_LABEL.Status]: status },
+            );
+        this.metrics.gauge(
+            BIDDING_RUNTIME_METRIC_NAME.CommandOldestPendingAt,
+            (health.oldestPendingAtMs ?? 0) / 1000,
+        );
+        this.metrics.gauge(
+            BIDDING_RUNTIME_METRIC_NAME.CommandStaleProcessing,
+            health.staleProcessing,
+        );
+    }
+
+    public onCommandDurableOutcome(input: {
+        commandKind: BiddingJobCommand["commandKind"];
+        outcome: BiddingCommandDurableOutcome;
+    }): void {
+        this.metrics.increment(
+            BIDDING_RUNTIME_METRIC_NAME.CommandDurableOutcomes,
+            1,
+            {
+                [BIDDING_RUNTIME_METRIC_LABEL.CommandKind]: input.commandKind,
+                [BIDDING_RUNTIME_METRIC_LABEL.Outcome]: input.outcome,
+            },
+        );
+    }
+
+    public onSnapshotFreshness(health: CollectionOfferFreshnessHealth): void {
+        for (const [status, count] of Object.entries(health.counts))
+            this.metrics.gauge(
+                BIDDING_RUNTIME_METRIC_NAME.SnapshotFreshness,
+                count,
+                { [BIDDING_RUNTIME_METRIC_LABEL.Status]: status },
+            );
+        this.metrics.gauge(
+            BIDDING_RUNTIME_METRIC_NAME.SnapshotBackoff,
+            health.backoffCollections,
+        );
+        this.metrics.gauge(
+            BIDDING_RUNTIME_METRIC_NAME.SnapshotOldestCompleteAt,
+            (health.oldestCompleteAtMs ?? 0) / 1000,
+        );
+    }
+
+    public onPublicationHealth(health: BiddingPublicationHealth): void {
+        this.metrics.gauge(
+            BIDDING_RUNTIME_METRIC_NAME.PublicationWatched,
+            health.watchedCollections,
+        );
+        this.metrics.gauge(
+            BIDDING_RUNTIME_METRIC_NAME.PublicationMissing,
+            health.missingCollections,
+        );
+        this.metrics.gauge(
+            BIDDING_RUNTIME_METRIC_NAME.PublicationLagging,
+            health.laggingCollections,
+        );
+        this.metrics.gauge(
+            BIDDING_RUNTIME_METRIC_NAME.PublicationOldestAt,
+            (health.oldestPublishedAtMs ?? 0) / 1000,
+        );
+        this.metrics.gauge(
+            BIDDING_RUNTIME_METRIC_NAME.PublicationOldestSnapshotAt,
+            (health.oldestPublishedSnapshotAtMs ?? 0) / 1000,
+        );
+    }
+
+    public onDecision(input: {
+        decision: BidderDecision;
+        targetType: BidderJob["target"]["type"];
+        dryRun: boolean;
+    }): void {
+        this.metrics.increment(BIDDING_RUNTIME_METRIC_NAME.Decisions, 1, {
+            [BIDDING_RUNTIME_METRIC_LABEL.Decision]: input.decision,
+            [BIDDING_RUNTIME_METRIC_LABEL.TargetType]: input.targetType,
+            [BIDDING_RUNTIME_METRIC_LABEL.DryRun]: String(input.dryRun),
+        });
+    }
+
+    public onPositionHealth(health: BidderPositionHealth): void {
+        for (const [position, count] of Object.entries(health.positions))
+            this.metrics.gauge(
+                BIDDING_RUNTIME_METRIC_NAME.JobPositions,
+                count,
+                { [BIDDING_RUNTIME_METRIC_LABEL.Position]: position },
+            );
+        for (const [constraint, count] of Object.entries(health.constraints))
+            this.metrics.gauge(
+                BIDDING_RUNTIME_METRIC_NAME.JobConstraints,
+                count,
+                { [BIDDING_RUNTIME_METRIC_LABEL.Constraint]: constraint },
+            );
     }
 
     public onCommandClaimed(input: {

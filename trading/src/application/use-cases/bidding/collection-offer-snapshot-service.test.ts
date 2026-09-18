@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import {
     COLLECTION_OFFER_REFRESH_OUTCOME,
+    COLLECTION_OFFER_FRESHNESS,
     COLLECTION_OFFER_SNAPSHOT_REFRESH_RESULT,
     CollectionOfferSourceError,
     CollectionOfferSnapshotService,
@@ -39,6 +40,58 @@ class FakeCollectionOfferSource {
 }
 
 describe("CollectionOfferSnapshotService", () => {
+    it("reports adaptive freshness, missing data, and failure backoff only for watched collections", async () => {
+        const source = new FakeCollectionOfferSource();
+        source.durationMs = 80;
+        const service = new CollectionOfferSnapshotService(
+            source,
+            ["ready", "missing"],
+            60_000,
+            50,
+            undefined,
+            { maxTtlMs: 200, durationMultiplier: 2 },
+        );
+        await service.refreshAndWait("ready");
+        const timestamp = service.getSnapshot("ready")!.refreshedAt;
+        assert.deepEqual(service.readFreshness(timestamp + 100).counts, {
+            [COLLECTION_OFFER_FRESHNESS.Fresh]: 1,
+            [COLLECTION_OFFER_FRESHNESS.Stale]: 0,
+            [COLLECTION_OFFER_FRESHNESS.Missing]: 1,
+        });
+        assert.equal(
+            service.readFreshness(timestamp + 160).counts[
+                COLLECTION_OFFER_FRESHNESS.Stale
+            ],
+            1,
+        );
+        source.complete = false;
+        await assert.rejects(
+            service.refreshAndWait("ready", "partial", { respectTtl: false }),
+            /partial/,
+        );
+        assert.equal(service.readFreshness(timestamp).backoffCollections, 1);
+        assert.equal(
+            service.readFreshness(timestamp).oldestCompleteAtMs,
+            timestamp,
+        );
+        source.complete = true;
+        await service.refreshAndWait("ready", "recovery", {
+            respectTtl: false,
+        });
+        const recoveredAt = service.getSnapshot("ready")!.refreshedAt;
+        assert.equal(service.readFreshness(recoveredAt).backoffCollections, 0);
+        assert.equal(
+            service.readFreshness(recoveredAt).counts[
+                COLLECTION_OFFER_FRESHNESS.Fresh
+            ],
+            1,
+        );
+        service.unwatchCollection("ready");
+        assert.equal(service.readFreshness(timestamp).oldestCompleteAtMs, null);
+        assert.equal(service.readFreshness(timestamp).backoffCollections, 0);
+        await service.stop();
+    });
+
     it("refreshes watched collections and stores snapshots", async () => {
         const source = new FakeCollectionOfferSource();
         source.responses.terraforms = [{ order_hash: "0x1" }];

@@ -21,6 +21,9 @@ import {
     BidderJob,
 } from "../../../domain/market/strategy/job.js";
 import {
+    BIDDER_DECISION,
+    BIDDER_MARKET_ACTION,
+    BIDDER_OBSERVED_POSITION,
     BIDDER_REFRESH_REQUEST_OUTCOME,
     BIDDER_REFRESH_TRIGGER,
     BIDDER_SCAN_RESULT,
@@ -28,6 +31,10 @@ import {
     type BidderObservabilityPort,
     type BidderScanResult,
 } from "./bidder.js";
+import {
+    BIDDING_WORK_STAGE,
+    type BiddingWorkStage,
+} from "./bidding-work-observability.js";
 import {
     BIDDING_ORDER_RECOVERY_REASON,
     BIDDING_ORDER_RECOVERY_STATUS,
@@ -205,6 +212,271 @@ const makeScanObservability = (
 });
 
 describe("Bidder stream refresh", () => {
+    it.each([false, true])(
+        "separates a zero-ceiling decision from cancellation effects (hasOffer=%s)",
+        async (hasOffer) => {
+            const service = new FakeBiddingService();
+            if (hasOffer)
+                service.activeOffers = [
+                    {
+                        id: "mine",
+                        price: 5n,
+                        maker: "0xmaker",
+                        protocolAddress: "0xprotocol",
+                        offerScope: "item",
+                    },
+                ];
+            const decisions: string[] = [];
+            const actions: Array<
+                Parameters<BidderObservabilityPort["onMarketActionFinished"]>[0]
+            > = [];
+            const bidder = new Bidder(
+                service as any,
+                "0xmaker",
+                1000,
+                { dryRun: false },
+                undefined,
+                new FakeMakerWethBalanceService(0n),
+                undefined,
+                makeScanObservability([], {
+                    onDecision: ({ decision }) => decisions.push(decision),
+                    onMarketActionFinished: (action) => actions.push(action),
+                }),
+            );
+            bidder.addJob(
+                makeJob("job", "terraforms", {
+                    type: BIDDER_TARGET_TYPE.Token,
+                    tokenId: "1",
+                }),
+            );
+            await bidder.scanOnce();
+            assert.deepEqual(decisions, [BIDDER_DECISION.ZeroCeiling]);
+            assert.deepEqual(service.placedAmounts, []);
+            assert.deepEqual(
+                service.canceledOrderIds,
+                hasOffer ? ["mine"] : [],
+            );
+            assert.equal(actions.length, hasOffer ? 1 : 0);
+            if (hasOffer) {
+                assert.equal(
+                    actions[0]?.action,
+                    BIDDER_MARKET_ACTION.CancelOffer,
+                );
+                assert.equal(actions[0]?.succeeded, true);
+                assert.equal(actions[0]?.dryRun, false);
+            }
+        },
+    );
+
+    it.each([
+        [
+            10n,
+            BIDDER_DECISION.MaintainWinning,
+            TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning,
+        ],
+        [
+            250n,
+            BIDDER_DECISION.MaintainCapped,
+            TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+        ],
+    ] as const)(
+        "reports maintained positions without inventing market effects (competitor=%s)",
+        async (competitorPrice, decision, position) => {
+            const service = new FakeBiddingService();
+            service.activeOffers = [
+                {
+                    id: "mine",
+                    price: 15n,
+                    maker: "0xmaker",
+                    protocolAddress: "0xprotocol",
+                    offerScope: "item",
+                    expirationTime: Math.floor(Date.now() / 1000) + 3600,
+                },
+                {
+                    id: "other",
+                    price: competitorPrice,
+                    maker: "0xother",
+                    offerScope: "item",
+                },
+            ];
+            const decisions: string[] = [];
+            let effects = 0;
+            const bidder = new Bidder(
+                service as any,
+                "0xmaker",
+                1000,
+                { dryRun: false },
+                undefined,
+                undefined,
+                undefined,
+                makeScanObservability([], {
+                    onDecision: (value) => decisions.push(value.decision),
+                    onMarketActionFinished: () => {
+                        effects += 1;
+                    },
+                }),
+            );
+            const job = makeJob(
+                "job",
+                "terraforms",
+                { type: BIDDER_TARGET_TYPE.Token, tokenId: "1" },
+                undefined,
+                { floor: 15n, ceiling: 15n },
+            );
+            job.state.activeOrderId = "mine";
+            bidder.addJob(job);
+            await bidder.refreshJob(job.id);
+            assert.deepEqual(decisions, [decision]);
+            assert.equal(effects, 0);
+            const health = bidder.readPositionHealth();
+            assert.equal(health.positions[position], 1);
+            assert.equal(
+                health.positions[BIDDER_OBSERVED_POSITION.Unobserved],
+                0,
+            );
+            assert.equal(
+                health.constraints[
+                    TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling
+                ],
+                competitorPrice > 15n ? 1 : 0,
+            );
+        },
+    );
+
+    it("reports live scan progress and the held stage before completion, then clears both", async () => {
+        let enter!: () => void;
+        let release!: () => void;
+        const entered = new Promise<void>((resolve) => {
+            enter = resolve;
+        });
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const service = new FakeBiddingService();
+        service.activeOffersImpl = async () => {
+            enter();
+            await gate;
+            throw new Error("held read failed");
+        };
+        const scans: BidderScanResult[] = [];
+        const progress: Array<
+            Parameters<
+                NonNullable<BidderObservabilityPort["onScanProgress"]>
+            >[0]
+        > = [];
+        const active = new Set<BiddingWorkStage>();
+        const finished: Array<{ stage: BiddingWorkStage; succeeded: boolean }> =
+            [];
+        const bidder = new Bidder(
+            service as any,
+            "0xmaker",
+            1000,
+            { dryRun: true, maxConcurrentJobs: 1 },
+            undefined,
+            undefined,
+            undefined,
+            makeScanObservability(scans, {
+                onScanProgress: (value) => progress.push(value),
+                onWorkStarted: (stage) => {
+                    active.add(stage);
+                    return (succeeded) => {
+                        active.delete(stage);
+                        finished.push({ stage, succeeded });
+                    };
+                },
+            }),
+        );
+        for (const id of ["first", "second"])
+            bidder.addJob(
+                makeJob(id, "terraforms", {
+                    type: BIDDER_TARGET_TYPE.Token,
+                    tokenId: id,
+                }),
+            );
+        const scan = bidder.scanOnce();
+        await entered;
+        assert.equal(progress.at(-1)?.active, true);
+        assert.equal(progress.at(-1)?.total, 2);
+        assert.equal(progress.at(-1)?.completed, 0);
+        assert.equal(active.has(BIDDING_WORK_STAGE.MarketRead), true);
+        assert.deepEqual(scans, []);
+        release();
+        await scan;
+        assert.deepEqual(scans, [BIDDER_SCAN_RESULT.CompletedWithFailures]);
+        assert.equal(progress.at(-1)?.active, false);
+        assert.equal(progress.at(-1)?.completed, 2);
+        assert.equal(active.size, 0);
+        assert.equal(
+            finished.filter(
+                (item) =>
+                    item.stage === BIDDING_WORK_STAGE.MarketRead &&
+                    !item.succeeded,
+            ).length,
+            2,
+        );
+    });
+
+    it.each([false, true])(
+        "separates place intent from failed effects and dry-run (dryRun=%s)",
+        async (dryRun) => {
+            const service = new FakeBiddingService();
+            service.placeError = new Error("synthetic placement failure");
+            const decisions: Array<
+                Parameters<
+                    NonNullable<BidderObservabilityPort["onDecision"]>
+                >[0]
+            > = [];
+            const effects: Array<
+                Parameters<BidderObservabilityPort["onMarketActionFinished"]>[0]
+            > = [];
+            const bidder = new Bidder(
+                service as any,
+                "0xmaker",
+                1000,
+                { dryRun },
+                undefined,
+                undefined,
+                undefined,
+                makeScanObservability([], {
+                    onDecision: (value) => decisions.push(value),
+                    onMarketActionFinished: (value) => effects.push(value),
+                }),
+            );
+            bidder.addJob(
+                makeJob("job", "terraforms", {
+                    type: BIDDER_TARGET_TYPE.Token,
+                    tokenId: "1",
+                }),
+            );
+            assert.equal(
+                bidder.readPositionHealth().positions[
+                    BIDDER_OBSERVED_POSITION.Unobserved
+                ],
+                1,
+            );
+            await bidder.refreshJob("job");
+            assert.deepEqual(decisions, [
+                {
+                    decision: BIDDER_DECISION.Place,
+                    targetType: BIDDER_TARGET_TYPE.Token,
+                    dryRun,
+                },
+            ]);
+            assert.equal(effects.length, 1);
+            assert.equal(effects[0]?.succeeded, dryRun);
+            assert.equal(effects[0]?.dryRun, dryRun);
+            assert.deepEqual(service.placedAmounts, []);
+            bidder.removeJob("job");
+            assert.equal(
+                Object.values(bidder.readPositionHealth().positions).reduce(
+                    (sum, value) => sum + value,
+                    0,
+                ),
+                0,
+            );
+        },
+    );
+
     it("returns unique token IDs from token-targeted jobs only", () => {
         const bidder = new Bidder(
             new FakeBiddingService() as any,

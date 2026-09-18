@@ -5,6 +5,11 @@ import {
 } from "../../../utils/bidding-log.js";
 import { sleep } from "../../../utils/sleep.js";
 import { observeBestEffort } from "../../../utils/observe-best-effort.js";
+import {
+    BIDDING_WORK_STAGE,
+    observeBiddingWork,
+    type BiddingWorkObservabilityPort,
+} from "./bidding-work-observability.js";
 
 export interface CollectionOfferSnapshot {
     collectionSlug: string;
@@ -91,7 +96,21 @@ export interface CollectionOfferBootstrapOptions {
     onProgress?: (progress: CollectionOfferBootstrapProgress) => void;
 }
 
-export interface CollectionOfferSnapshotObserver {
+export const COLLECTION_OFFER_FRESHNESS = {
+    Fresh: "fresh",
+    Stale: "stale",
+    Missing: "missing",
+} as const;
+export type CollectionOfferFreshnessHealth = {
+    counts: Record<
+        (typeof COLLECTION_OFFER_FRESHNESS)[keyof typeof COLLECTION_OFFER_FRESHNESS],
+        number
+    >;
+    backoffCollections: number;
+    oldestCompleteAtMs: number | null;
+};
+
+export interface CollectionOfferSnapshotObserver extends BiddingWorkObservabilityPort {
     onSnapshotRefreshed?(
         snapshot: CollectionOfferSnapshot,
         reason: string,
@@ -294,6 +313,40 @@ export class CollectionOfferSnapshotService
     // getSnapshot returns the latest stored snapshot immediately; it does not wait for in-flight refreshes.
     public getSnapshot(collectionSlug: string): CollectionOfferSnapshot | null {
         return this.snapshots.get(collectionSlug) ?? null;
+    }
+
+    // Evaluate time-dependent freshness from the actual adaptive policy, not base TTL alone.
+    public readFreshness(nowMs: number): CollectionOfferFreshnessHealth {
+        const counts = {
+            [COLLECTION_OFFER_FRESHNESS.Fresh]: 0,
+            [COLLECTION_OFFER_FRESHNESS.Stale]: 0,
+            [COLLECTION_OFFER_FRESHNESS.Missing]: 0,
+        };
+        let backoffCollections = 0;
+        let oldestCompleteAtMs: number | null = null;
+        for (const slug of this.watchedCollectionSlugs) {
+            const snapshot = this.snapshots.get(slug);
+            if (!snapshot) counts[COLLECTION_OFFER_FRESHNESS.Missing] += 1;
+            else {
+                const state =
+                    this.refreshTtlMs > 0 &&
+                    nowMs - snapshot.refreshedAt <
+                        this.getSnapshotFreshnessTtlMs(snapshot)
+                        ? COLLECTION_OFFER_FRESHNESS.Fresh
+                        : COLLECTION_OFFER_FRESHNESS.Stale;
+                counts[state] += 1;
+                oldestCompleteAtMs =
+                    oldestCompleteAtMs === null
+                        ? snapshot.refreshedAt
+                        : Math.min(oldestCompleteAtMs, snapshot.refreshedAt);
+            }
+            if (
+                (this.refreshStates.get(slug)?.nextEligibleRefreshAt ?? 0) >
+                nowMs
+            )
+                backoffCollections += 1;
+        }
+        return { counts, backoffCollections, oldestCompleteAtMs };
     }
 
     // watchCollection adds a collection to snapshot management and starts polling it if the service is running.
@@ -555,8 +608,12 @@ export class CollectionOfferSnapshotService
                     state.lastStartedAt = Date.now();
                     let sourceResult: CollectionOfferSourceResult;
                     try {
-                        sourceResult =
-                            await this.source.getAllOffers(collectionSlug);
+                        sourceResult = await observeBiddingWork(
+                            this.observer,
+                            BIDDING_WORK_STAGE.SnapshotFetch,
+                            () => this.source.getAllOffers(collectionSlug),
+                            (result) => result.metrics.complete,
+                        );
                     } catch (error: unknown) {
                         const failedMetrics =
                             error instanceof CollectionOfferSourceError
@@ -983,6 +1040,7 @@ function createBestEffortSnapshotObserver(
     observer: CollectionOfferSnapshotObserver,
 ): CollectionOfferSnapshotObserver {
     return {
+        onWorkStarted: (stage) => observer.onWorkStarted?.(stage) ?? (() => {}),
         onSnapshotRefreshed(snapshot, reason) {
             observeBestEffort(() =>
                 observer.onSnapshotRefreshed?.(snapshot, reason),

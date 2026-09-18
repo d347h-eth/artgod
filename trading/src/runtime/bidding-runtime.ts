@@ -54,6 +54,10 @@ import { SqliteBiddingBotRuntimeState } from "../adapters/runtime/sqlite-bidding
 import { ViemWethAllowanceApprovalService } from "../adapters/wallet/viem-weth-allowance-approval-service.js";
 import { ViemMakerWethBalanceService } from "../adapters/wallet/viem-maker-weth-balance-service.js";
 import { Bidder } from "../application/use-cases/bidding/bidder.js";
+import {
+    BIDDING_WORK_STAGE,
+    observeBiddingWork,
+} from "../application/use-cases/bidding/bidding-work-observability.js";
 import { BiddingBidBookProjectionScheduler } from "../application/use-cases/bidding/bidding-bid-book-projection.js";
 import {
     BIDDING_COMMAND_TRIGGER,
@@ -96,6 +100,8 @@ import {
     toErrorLogFields,
 } from "../utils/bidding-log.js";
 import { startBiddingCommandReconciliationLoop } from "./bidding-command-reconciliation-loop.js";
+import { SampleBiddingRuntimeHealth } from "../application/use-cases/bidding/sample-bidding-runtime-health.js";
+import { startBiddingHealthSamplingLoop } from "./bidding-health-sampling-loop.js";
 import { startBiddingFailedCancellationReconciliationLoop } from "./bidding-failed-cancellation-reconciliation-loop.js";
 import { createOpenSeaSdkRpcConnection } from "./opensea-sdk-rpc-connection.js";
 import { buildMandateApprovalTransactionPolicy } from "./bidding-policy-agreement.js";
@@ -364,10 +370,10 @@ export interface BiddingRuntimeLifecyclePort {
 
 // Stable bootstrap phases are shared by the desktop lifecycle and runtime metrics.
 export const BIDDING_RUNTIME_BOOTSTRAP_PHASE = {
-    AllowanceApproval: "allowance_approval",
-    SnapshotBootstrap: "snapshot_bootstrap",
-    PriceBootstrap: "price_bootstrap",
-    CommandReconciliation: "command_reconciliation",
+    AllowanceApproval: BIDDING_WORK_STAGE.AllowanceApproval,
+    SnapshotBootstrap: BIDDING_WORK_STAGE.SnapshotBootstrap,
+    PriceBootstrap: BIDDING_WORK_STAGE.PriceBootstrap,
+    CommandReconciliation: BIDDING_WORK_STAGE.CommandReconciliation,
 } as const;
 
 export type BiddingRuntimeBootstrapPhase =
@@ -394,6 +400,10 @@ export async function startBiddingRuntime(
         commandBatchSize: params.biddingConfig.commandBatchSize,
         snapshotPollMs: params.biddingConfig.collectionOffersPollMs,
         snapshotTtlMs: params.biddingConfig.collectionOffersTtlMs,
+        snapshotMaxTtlMs: params.biddingConfig.collectionOffersMaxTtlMs,
+        snapshotTtlMultiplier:
+            params.biddingConfig.collectionOffersAdaptiveTtlMultiplier,
+        healthPollMs: params.biddingConfig.runtimeHeartbeat.intervalMs,
         hotRefreshBroadCooldownMs:
             params.biddingConfig.hotRefreshBroadCooldownMs,
         hotRefreshBroadMaxPending:
@@ -599,6 +609,7 @@ export async function startBiddingRuntime(
         ),
         params.biddingConfig.bidBookProjectionThrottleMs,
         observability,
+        snapshotBackedCollectionSlugs,
     );
     const snapshotOpenSeaObservability =
         observability.createOpenSeaOperationObserver(
@@ -630,6 +641,7 @@ export async function startBiddingRuntime(
         params.biddingConfig.collectionOffersPollMs,
         params.biddingConfig.collectionOffersTtlMs,
         {
+            onWorkStarted: (stage) => observability.onWorkStarted(stage),
             onSnapshotRefreshed: (snapshot, reason) => {
                 bidBookProjection.requestProjection(snapshot, reason);
             },
@@ -689,428 +701,467 @@ export async function startBiddingRuntime(
     // Register all configured jobs before bootstrapping snapshot state or current prices.
     jobs.forEach((job) => bidder.addJob(job));
 
-    if (snapshotBackedCollectionSlugs.length > 0) {
-        // Tell the supervisor the runtime is live and entering the authoritative snapshot bootstrap phase.
-        params.lifecycle.bootstrapping({
-            phase: BIDDING_RUNTIME_BOOTSTRAP_PHASE.SnapshotBootstrap,
-            completed: 0,
-            total: snapshotBackedCollectionSlugs.length,
-            detail: `collections=${snapshotBackedCollectionSlugs.length}, tokenWarmCandidates=${tokenWarmCandidates}`,
-        });
-        // Build the authoritative collection snapshots before the bidder starts reacting to live stream signals.
-        const snapshotBootstrapProgress =
-            createSnapshotBootstrapProgressReporter(
-                params,
-                snapshotBackedCollectionSlugs.length,
-                tokenWarmCandidates,
-            );
-        const stopSnapshotBootstrapProgressPulse = startBootstrapProgressPulse(
-            snapshotBootstrapProgress,
-        );
-        try {
-            await observeBootstrapAction(
-                observability,
-                BIDDING_RUNTIME_BOOTSTRAP_PHASE.SnapshotBootstrap,
-                async () =>
-                    await collectionOfferSnapshotService.bootstrap({
-                        onCollectionStarted: (progress) => {
-                            snapshotBootstrapProgress.reportStarted(progress);
-                        },
-                        onProgress: (progress) => {
-                            snapshotBootstrapProgress.reportFinished(progress);
-                        },
-                    }),
-            );
-        } finally {
-            stopSnapshotBootstrapProgressPulse();
-        }
-        params.lifecycle.progress({
-            phase: BIDDING_RUNTIME_BOOTSTRAP_PHASE.SnapshotBootstrap,
-            completed: snapshotBackedCollectionSlugs.length,
-            total: snapshotBackedCollectionSlugs.length,
-            detail: `collections=${snapshotBackedCollectionSlugs.length}, status=complete`,
-        });
-    }
-
-    // Tell the supervisor the runtime is still healthy while current-price warmup is running for token jobs.
-    params.lifecycle.bootstrapping({
-        phase: BIDDING_RUNTIME_BOOTSTRAP_PHASE.PriceBootstrap,
-        completed: 0,
-        total: tokenWarmCandidates,
-        detail: `snapshotCollections=${snapshotBackedCollectionSlugs.length}, tokenWarmCandidates=${tokenWarmCandidates}`,
-    });
-    // Warm token-job current prices so the first bidder loop starts from real market context.
-    await observeBootstrapAction(
-        observability,
-        BIDDING_RUNTIME_BOOTSTRAP_PHASE.PriceBootstrap,
-        async () =>
-            await bidder.bootstrapCurrentPrices({
-                onProgress: ({ jobId, completed, total, warmed }) => {
-                    params.lifecycle.progress({
-                        phase: BIDDING_RUNTIME_BOOTSTRAP_PHASE.PriceBootstrap,
-                        completed,
-                        total,
-                        detail: `jobId=${jobId}, warmed=${warmed}`,
-                    });
-                },
-            }),
-    );
-
-    const streamClient = createStreamClient(
-        params.biddingConfig.openSea.streamSecretKey,
-    );
-    const bidPipeline = buildBidPipeline(
-        makerAddress,
-        bidder,
-        collectionOfferSnapshotService,
-        params.biddingConfig.criteriaRefreshTraitsByCollection,
-        params.biddingConfig.hotRefreshBroadCooldownMs,
-        params.biddingConfig.hotRefreshBroadMaxPendingSignatures,
-        params.biddingConfig.hotRefreshItemCooldownMs,
-        params.biddingConfig.hotRefreshItemMaxPendingSignatures,
-        params.biddingConfig.maxConcurrentJobs,
-        observability,
-    );
-    const bidStreams = new Map<string, RegisteredBidStream>();
-    let bidStreamSubscriptionsEnabled = false;
-    const pendingBidStreamCollections = new Set<string>();
-    const ensureBidStream = (collectionSlug: string): boolean => {
-        if (!bidStreamSubscriptionsEnabled) {
-            pendingBidStreamCollections.add(collectionSlug);
-            return false;
-        }
-
-        if (bidStreams.has(collectionSlug)) {
-            return false;
-        }
-
-        // Subscribe the direct OpenSea bid stream when a DB-driven job introduces a watched collection.
-        bidStreams.set(
-            collectionSlug,
-            registerBidStream(
-                streamClient,
-                collectionSlug,
-                bidPipeline.callback,
-                observability,
-            ),
-        );
-        log.info(
-            "bidStreamSubscribed",
-            "Subscribed direct OpenSea bid stream",
-            {
-                collectionSlug,
-                streamCollectionCount: bidStreams.size,
-            },
-        );
-        return true;
-    };
-    const disposeBidStream = async (
-        collectionSlug: string,
-    ): Promise<boolean> => {
-        const removed = await disposeBiddingRuntimeBidStream(
-            bidStreams,
-            collectionSlug,
-        );
-        if (!removed) {
-            return false;
-        }
-
-        log.info(
-            "bidStreamUnsubscribed",
-            "Unsubscribed direct OpenSea bid stream",
-            {
-                collectionSlug,
-                streamCollectionCount: bidStreams.size,
-            },
-        );
-        return true;
-    };
-    const reconcileBidStreams = async (
-        collectionSlugs: string[],
-    ): Promise<{
-        added: number;
-        removed: number;
-    }> => {
-        const next = new Set(collectionSlugs);
-        let added = 0;
-        let removed = 0;
-
-        if (!bidStreamSubscriptionsEnabled) {
-            pendingBidStreamCollections.clear();
-            next.forEach((collectionSlug) =>
-                pendingBidStreamCollections.add(collectionSlug),
-            );
-            return { added, removed };
-        }
-
-        const retiredCollections = Array.from(bidStreams.keys()).filter(
-            (collectionSlug) => !next.has(collectionSlug),
-        );
-        const retirementResults = await Promise.allSettled(
-            retiredCollections.map((collectionSlug) =>
-                disposeBidStream(collectionSlug),
-            ),
-        );
-        for (const retirementResult of retirementResults) {
-            if (
-                retirementResult.status === "fulfilled" &&
-                retirementResult.value
-            ) {
-                removed += 1;
-            }
-        }
-
-        for (const collectionSlug of next) {
-            if (ensureBidStream(collectionSlug)) {
-                added += 1;
-            }
-        }
-
-        const retirementErrors = retirementResults.flatMap(
-            (retirementResult) =>
-                retirementResult.status === "rejected"
-                    ? [retirementResult.reason]
-                    : [],
-        );
-        if (retirementErrors.length === 1) {
-            throw retirementErrors[0];
-        }
-        if (retirementErrors.length > 1) {
-            throw new AggregateError(
-                retirementErrors,
-                "Failed to retire bidding streams",
-            );
-        }
-
-        return { added, removed };
-    };
-    const enableBidStreams = async (
-        collectionSlugs: string[],
-    ): Promise<void> => {
-        bidStreamSubscriptionsEnabled = true;
-        const desiredCollections = new Set(collectionSlugs);
-        pendingBidStreamCollections.forEach((collectionSlug) =>
-            desiredCollections.add(collectionSlug),
-        );
-        pendingBidStreamCollections.clear();
-        await reconcileBidStreams(Array.from(desiredCollections));
-    };
-
     const commandRepository = new SqliteBiddingJobCommandRepository();
-    const commandReconciler = new BiddingJobCommandReconciler(
-        commandRepository,
-        biddingJobSource,
-        bidder,
-        {
-            prepareEnabledJob: async (job) => {
-                log.info(
-                    BIDDING_RUNTIME_LOG_ACTION.CommandJobPreparationStarted,
-                    "Preparing enabled bidding job command",
-                    {
-                        jobId: job.id,
-                        collectionSlug: job.collectionSlug,
-                        targetType: job.target.type,
-                    },
+    const healthLoop = params.config.metrics.enabled
+        ? startBiddingHealthSamplingLoop(
+              new SampleBiddingRuntimeHealth(
+                  commandRepository,
+                  collectionOfferSnapshotService,
+                  bidBookProjection,
+                  bidder,
+                  observability,
+                  params.biddingConfig.commandClaimTimeoutMs,
+              ),
+              params.biddingConfig.runtimeHeartbeat.intervalMs,
+          )
+        : undefined;
+    let ready = false;
+    try {
+        if (snapshotBackedCollectionSlugs.length > 0) {
+            // Tell the supervisor the runtime is live and entering the authoritative snapshot bootstrap phase.
+            params.lifecycle.bootstrapping({
+                phase: BIDDING_RUNTIME_BOOTSTRAP_PHASE.SnapshotBootstrap,
+                completed: 0,
+                total: snapshotBackedCollectionSlugs.length,
+                detail: `collections=${snapshotBackedCollectionSlugs.length}, tokenWarmCandidates=${tokenWarmCandidates}`,
+            });
+            // Build the authoritative collection snapshots before the bidder starts reacting to live stream signals.
+            const snapshotBootstrapProgress =
+                createSnapshotBootstrapProgressReporter(
+                    params,
+                    snapshotBackedCollectionSlugs.length,
+                    tokenWarmCandidates,
                 );
-                ensureBidStream(job.collectionSlug);
+            const stopSnapshotBootstrapProgressPulse =
+                startBootstrapProgressPulse(snapshotBootstrapProgress);
+            try {
+                await observeBootstrapAction(
+                    observability,
+                    BIDDING_RUNTIME_BOOTSTRAP_PHASE.SnapshotBootstrap,
+                    async () =>
+                        await collectionOfferSnapshotService.bootstrap({
+                            onCollectionStarted: (progress) => {
+                                snapshotBootstrapProgress.reportStarted(
+                                    progress,
+                                );
+                            },
+                            onProgress: (progress) => {
+                                snapshotBootstrapProgress.reportFinished(
+                                    progress,
+                                );
+                            },
+                        }),
+                );
+            } finally {
+                stopSnapshotBootstrapProgressPulse();
+            }
+            params.lifecycle.progress({
+                phase: BIDDING_RUNTIME_BOOTSTRAP_PHASE.SnapshotBootstrap,
+                completed: snapshotBackedCollectionSlugs.length,
+                total: snapshotBackedCollectionSlugs.length,
+                detail: `collections=${snapshotBackedCollectionSlugs.length}, status=complete`,
+            });
+        }
+
+        // Tell the supervisor the runtime is still healthy while current-price warmup is running for token jobs.
+        params.lifecycle.bootstrapping({
+            phase: BIDDING_RUNTIME_BOOTSTRAP_PHASE.PriceBootstrap,
+            completed: 0,
+            total: tokenWarmCandidates,
+            detail: `snapshotCollections=${snapshotBackedCollectionSlugs.length}, tokenWarmCandidates=${tokenWarmCandidates}`,
+        });
+        // Warm token-job current prices so the first bidder loop starts from real market context.
+        await observeBootstrapAction(
+            observability,
+            BIDDING_RUNTIME_BOOTSTRAP_PHASE.PriceBootstrap,
+            async () =>
+                await bidder.bootstrapCurrentPrices({
+                    onProgress: ({ jobId, completed, total, warmed }) => {
+                        params.lifecycle.progress({
+                            phase: BIDDING_RUNTIME_BOOTSTRAP_PHASE.PriceBootstrap,
+                            completed,
+                            total,
+                            detail: `jobId=${jobId}, warmed=${warmed}`,
+                        });
+                    },
+                }),
+        );
+
+        const streamClient = createStreamClient(
+            params.biddingConfig.openSea.streamSecretKey,
+        );
+        const bidPipeline = buildBidPipeline(
+            makerAddress,
+            bidder,
+            collectionOfferSnapshotService,
+            params.biddingConfig.criteriaRefreshTraitsByCollection,
+            params.biddingConfig.hotRefreshBroadCooldownMs,
+            params.biddingConfig.hotRefreshBroadMaxPendingSignatures,
+            params.biddingConfig.hotRefreshItemCooldownMs,
+            params.biddingConfig.hotRefreshItemMaxPendingSignatures,
+            params.biddingConfig.maxConcurrentJobs,
+            observability,
+        );
+        const bidStreams = new Map<string, RegisteredBidStream>();
+        let bidStreamSubscriptionsEnabled = false;
+        const pendingBidStreamCollections = new Set<string>();
+        const ensureBidStream = (collectionSlug: string): boolean => {
+            if (!bidStreamSubscriptionsEnabled) {
+                pendingBidStreamCollections.add(collectionSlug);
+                return false;
+            }
+
+            if (bidStreams.has(collectionSlug)) {
+                return false;
+            }
+
+            // Subscribe the direct OpenSea bid stream when a DB-driven job introduces a watched collection.
+            bidStreams.set(
+                collectionSlug,
+                registerBidStream(
+                    streamClient,
+                    collectionSlug,
+                    bidPipeline.callback,
+                    observability,
+                ),
+            );
+            log.info(
+                "bidStreamSubscribed",
+                "Subscribed direct OpenSea bid stream",
+                {
+                    collectionSlug,
+                    streamCollectionCount: bidStreams.size,
+                },
+            );
+            return true;
+        };
+        const disposeBidStream = async (
+            collectionSlug: string,
+        ): Promise<boolean> => {
+            const removed = await disposeBiddingRuntimeBidStream(
+                bidStreams,
+                collectionSlug,
+            );
+            if (!removed) {
+                return false;
+            }
+
+            log.info(
+                "bidStreamUnsubscribed",
+                "Unsubscribed direct OpenSea bid stream",
+                {
+                    collectionSlug,
+                    streamCollectionCount: bidStreams.size,
+                },
+            );
+            return true;
+        };
+        const reconcileBidStreams = async (
+            collectionSlugs: string[],
+        ): Promise<{
+            added: number;
+            removed: number;
+        }> => {
+            const next = new Set(collectionSlugs);
+            let added = 0;
+            let removed = 0;
+
+            if (!bidStreamSubscriptionsEnabled) {
+                pendingBidStreamCollections.clear();
+                next.forEach((collectionSlug) =>
+                    pendingBidStreamCollections.add(collectionSlug),
+                );
+                return { added, removed };
+            }
+
+            const retiredCollections = Array.from(bidStreams.keys()).filter(
+                (collectionSlug) => !next.has(collectionSlug),
+            );
+            const retirementResults = await Promise.allSettled(
+                retiredCollections.map((collectionSlug) =>
+                    disposeBidStream(collectionSlug),
+                ),
+            );
+            for (const retirementResult of retirementResults) {
                 if (
-                    job.target.type === BIDDER_TARGET_TYPE.Token ||
-                    job.target.type === BIDDER_TARGET_TYPE.Collection
+                    retirementResult.status === "fulfilled" &&
+                    retirementResult.value
                 ) {
-                    collectionOfferSnapshotService.watchCollection(
-                        job.collectionSlug,
+                    removed += 1;
+                }
+            }
+
+            for (const collectionSlug of next) {
+                if (ensureBidStream(collectionSlug)) {
+                    added += 1;
+                }
+            }
+
+            const retirementErrors = retirementResults.flatMap(
+                (retirementResult) =>
+                    retirementResult.status === "rejected"
+                        ? [retirementResult.reason]
+                        : [],
+            );
+            if (retirementErrors.length === 1) {
+                throw retirementErrors[0];
+            }
+            if (retirementErrors.length > 1) {
+                throw new AggregateError(
+                    retirementErrors,
+                    "Failed to retire bidding streams",
+                );
+            }
+
+            return { added, removed };
+        };
+        const enableBidStreams = async (
+            collectionSlugs: string[],
+        ): Promise<void> => {
+            bidStreamSubscriptionsEnabled = true;
+            const desiredCollections = new Set(collectionSlugs);
+            pendingBidStreamCollections.forEach((collectionSlug) =>
+                desiredCollections.add(collectionSlug),
+            );
+            pendingBidStreamCollections.clear();
+            await reconcileBidStreams(Array.from(desiredCollections));
+        };
+
+        const commandReconciler = new BiddingJobCommandReconciler(
+            commandRepository,
+            biddingJobSource,
+            bidder,
+            {
+                prepareEnabledJob: async (job) => {
+                    log.info(
+                        BIDDING_RUNTIME_LOG_ACTION.CommandJobPreparationStarted,
+                        "Preparing enabled bidding job command",
+                        {
+                            jobId: job.id,
+                            collectionSlug: job.collectionSlug,
+                            targetType: job.target.type,
+                        },
                     );
-                    const existingSnapshot =
-                        collectionOfferSnapshotService.getSnapshot(
+                    ensureBidStream(job.collectionSlug);
+                    if (
+                        job.target.type === BIDDER_TARGET_TYPE.Token ||
+                        job.target.type === BIDDER_TARGET_TYPE.Collection
+                    ) {
+                        collectionOfferSnapshotService.watchCollection(
                             job.collectionSlug,
                         );
-                    if (existingSnapshot) {
+                        const existingSnapshot =
+                            collectionOfferSnapshotService.getSnapshot(
+                                job.collectionSlug,
+                            );
+                        if (existingSnapshot) {
+                            log.info(
+                                BIDDING_RUNTIME_LOG_ACTION.CommandSnapshotRefreshQueued,
+                                "Queued collection-offer snapshot refresh for bidding job command",
+                                {
+                                    jobId: job.id,
+                                    collectionSlug: job.collectionSlug,
+                                    targetType: job.target.type,
+                                    snapshotAgeMs:
+                                        Date.now() -
+                                        existingSnapshot.refreshedAt,
+                                },
+                            );
+                            // Reuse the latest market snapshot for command evaluation and refresh it asynchronously when stale.
+                            collectionOfferSnapshotService.requestRefresh(
+                                job.collectionSlug,
+                                `job command reconciliation: ${job.id}`,
+                            );
+                            return;
+                        }
+
                         log.info(
-                            BIDDING_RUNTIME_LOG_ACTION.CommandSnapshotRefreshQueued,
-                            "Queued collection-offer snapshot refresh for bidding job command",
+                            BIDDING_RUNTIME_LOG_ACTION.CommandSnapshotRefreshStarted,
+                            "Refreshing collection-offer snapshot for bidding job command",
                             {
                                 jobId: job.id,
                                 collectionSlug: job.collectionSlug,
                                 targetType: job.target.type,
-                                snapshotAgeMs:
-                                    Date.now() - existingSnapshot.refreshedAt,
                             },
                         );
-                        // Reuse the latest market snapshot for command evaluation and refresh it asynchronously when stale.
-                        collectionOfferSnapshotService.requestRefresh(
+                        // Refresh the authoritative snapshot before the reconciled job performs an immediate bid pass.
+                        await collectionOfferSnapshotService.refreshAndWait(
                             job.collectionSlug,
                             `job command reconciliation: ${job.id}`,
+                            { respectTtl: false },
                         );
-                        return;
+                        log.info(
+                            BIDDING_RUNTIME_LOG_ACTION.CommandSnapshotRefreshComplete,
+                            "Collection-offer snapshot refreshed for bidding job command",
+                            {
+                                jobId: job.id,
+                                collectionSlug: job.collectionSlug,
+                                targetType: job.target.type,
+                            },
+                        );
                     }
-
-                    log.info(
-                        BIDDING_RUNTIME_LOG_ACTION.CommandSnapshotRefreshStarted,
-                        "Refreshing collection-offer snapshot for bidding job command",
-                        {
-                            jobId: job.id,
-                            collectionSlug: job.collectionSlug,
-                            targetType: job.target.type,
-                        },
+                },
+                reconcileEnabledJobs: async (enabledJobs) => {
+                    const nextStreamCollections =
+                        collectWatchedCollectionSlugs(enabledJobs);
+                    await reconcileBidStreams(nextStreamCollections);
+                    const nextSnapshotCollections =
+                        collectSnapshotBackedCollectionSlugs(enabledJobs);
+                    collectionOfferSnapshotService.reconcileWatchedCollections(
+                        nextSnapshotCollections,
                     );
-                    // Refresh the authoritative snapshot before the reconciled job performs an immediate bid pass.
-                    await collectionOfferSnapshotService.refreshAndWait(
-                        job.collectionSlug,
-                        `job command reconciliation: ${job.id}`,
-                        { respectTtl: false },
+                    bidBookProjection.reconcileWatchedCollections(
+                        nextSnapshotCollections,
                     );
-                    log.info(
-                        BIDDING_RUNTIME_LOG_ACTION.CommandSnapshotRefreshComplete,
-                        "Collection-offer snapshot refreshed for bidding job command",
-                        {
-                            jobId: job.id,
-                            collectionSlug: job.collectionSlug,
-                            targetType: job.target.type,
-                        },
-                    );
-                }
+                },
             },
-            reconcileEnabledJobs: async (enabledJobs) => {
-                const nextStreamCollections =
-                    collectWatchedCollectionSlugs(enabledJobs);
-                await reconcileBidStreams(nextStreamCollections);
-                const nextSnapshotCollections =
-                    collectSnapshotBackedCollectionSlugs(enabledJobs);
-                collectionOfferSnapshotService.reconcileWatchedCollections(
-                    nextSnapshotCollections,
-                );
+            {
+                batchSize: params.biddingConfig.commandBatchSize,
+                claimTimeoutMs: params.biddingConfig.commandClaimTimeoutMs,
+                maxAttempts: params.biddingConfig.commandMaxAttempts,
             },
-        },
-        {
-            batchSize: params.biddingConfig.commandBatchSize,
-            claimTimeoutMs: params.biddingConfig.commandClaimTimeoutMs,
-            maxAttempts: params.biddingConfig.commandMaxAttempts,
-        },
-        biddingJobRuntimeState,
-        observability,
-    );
-    // Process any committed DB commands before the normal bidder loop starts.
-    params.lifecycle.bootstrapping({
-        phase: BIDDING_RUNTIME_BOOTSTRAP_PHASE.CommandReconciliation,
-        completed: 0,
-        total: params.biddingConfig.commandBatchSize,
-        detail: "trigger=startup",
-    });
-    const startupCommandProgress = createStartupCommandProgressReporter(params);
-    const stopStartupCommandProgressPulse = startBootstrapProgressPulse(
-        startupCommandProgress,
-    );
-    let startupCommandCount = 0;
-    try {
-        startupCommandCount = await observeBootstrapAction(
+            biddingJobRuntimeState,
             observability,
-            BIDDING_RUNTIME_BOOTSTRAP_PHASE.CommandReconciliation,
-            async () =>
-                await commandReconciler.processPendingCommands(
-                    BIDDING_COMMAND_TRIGGER.Startup,
-                    {
-                        onCommandStarted: (progress) => {
-                            startupCommandProgress.reportStarted(progress);
-                        },
-                        onCommandFinished: (progress) => {
-                            startupCommandProgress.reportFinished(progress);
-                        },
-                    },
-                ),
         );
-    } finally {
-        stopStartupCommandProgressPulse();
-    }
-    params.lifecycle.progress({
-        phase: BIDDING_RUNTIME_BOOTSTRAP_PHASE.CommandReconciliation,
-        completed: startupCommandCount,
-        total: params.biddingConfig.commandBatchSize,
-        detail: `processed=${startupCommandCount}`,
-    });
-
-    const startupEnabledJobs = await biddingJobSource.loadEnabledJobs();
-    await enableBidStreams(collectWatchedCollectionSlugs(startupEnabledJobs));
-    collectionOfferSnapshotService.reconcileWatchedCollections(
-        collectSnapshotBackedCollectionSlugs(startupEnabledJobs),
-    );
-
-    // Start steady-state snapshot polling only after startup command replay cannot compete with poll work.
-    collectionOfferSnapshotService.start();
-
-    // Start the steady-state bidder scan loop only after stream listeners and warm state are ready.
-    bidder.start();
-
-    const commandLoop = startBiddingCommandReconciliationLoop(
-        commandReconciler,
-        params.biddingConfig.commandPollMs,
-    );
-    const failedCancellationReconciler = new FailedOfferCancellationReconciler(
-        biddingJobRuntimeState,
-        biddingService,
-        createFailedCancellationReconcilerConfig(
-            params.config.chainId,
-            params.biddingConfig.cancellationRemediationRetryMs,
-            params.biddingConfig.dryRun,
-        ),
-    );
-    const failedCancellationLoop =
-        startBiddingFailedCancellationReconciliationLoop(
-            failedCancellationReconciler,
-            params.biddingConfig.failedCancellationReconcileMs,
+        // Process any committed DB commands before the normal bidder loop starts.
+        params.lifecycle.bootstrapping({
+            phase: BIDDING_RUNTIME_BOOTSTRAP_PHASE.CommandReconciliation,
+            completed: 0,
+            total: params.biddingConfig.commandBatchSize,
+            detail: "trigger=startup",
+        });
+        const startupCommandProgress =
+            createStartupCommandProgressReporter(params);
+        const stopStartupCommandProgressPulse = startBootstrapProgressPulse(
+            startupCommandProgress,
         );
-    const signalListener = await startBiddingJobCommandSignalListener(
-        params.config.queue.natsUrl,
-        params.config.queue.streamPrefix,
-        commandReconciler,
-    );
-
-    log.info("bidderStarted", "Started bidder", {
-        jobCount: jobs.length,
-        watchedCollectionCount: watchedCollectionSlugs.length,
-        snapshotCollectionCount: snapshotBackedCollectionSlugs.length,
-        dryRun: params.biddingConfig.dryRun,
-    });
-    // Switch to running heartbeat only after bootstrap and steady-state loops have started.
-    runtimeState.startHeartbeat(
-        runtimeStateIdentity,
-        TRADING_BOT_RUNTIME_STATE.Running,
-    );
-    observability.observeTimeToReady(Date.now() - runtimeStartedAt);
-    observability.setRuntimeState(BIDDING_RUNTIME_METRIC_STATE.Running);
-
-    return {
-        async shutdown(): Promise<void> {
-            await shutdownBiddingRuntime({
-                closeBidderBackgroundAdmission: () =>
-                    bidder.closeBackgroundRefreshAdmission(),
-                closeCommandAdmission: () => commandReconciler.closeAdmission(),
-                commandAdmissionDrains: [
-                    () => commandLoop.shutdown(),
-                    ...(signalListener
-                        ? [() => signalListener.shutdown()]
-                        : []),
-                ],
-                bidPipelineDrain: () => bidPipeline.stop(),
-                bidderDrain: () => bidder.stop(),
-                collectionSnapshotDrain: () =>
-                    collectionOfferSnapshotService.stop(),
-                bidBookProjectionDrain: () => bidBookProjection.stop(),
-                independentDrains: [() => failedCancellationLoop.shutdown()],
-                bidStreams,
-                // Disconnect the shared OpenSea socket after every per-collection handler settles.
-                disconnectStreamClient: () => streamClient.disconnect(),
-                stopHeartbeat: () => runtimeState.stopHeartbeat(),
-                // Mark the bot stopped so backend reads fall back to indexed orders immediately.
-                markStopped: () =>
-                    runtimeState.markState(
-                        runtimeStateIdentity,
-                        TRADING_BOT_RUNTIME_STATE.Stopped,
+        let startupCommandCount = 0;
+        try {
+            startupCommandCount = await observeBootstrapAction(
+                observability,
+                BIDDING_RUNTIME_BOOTSTRAP_PHASE.CommandReconciliation,
+                async () =>
+                    await commandReconciler.processPendingCommands(
+                        BIDDING_COMMAND_TRIGGER.Startup,
+                        {
+                            onCommandStarted: (progress) => {
+                                startupCommandProgress.reportStarted(progress);
+                            },
+                            onCommandFinished: (progress) => {
+                                startupCommandProgress.reportFinished(progress);
+                            },
+                        },
                     ),
-                setMetricState: (state) => observability.setRuntimeState(state),
-                now: Date.now,
-            });
-        },
-    };
+            );
+        } finally {
+            stopStartupCommandProgressPulse();
+        }
+        params.lifecycle.progress({
+            phase: BIDDING_RUNTIME_BOOTSTRAP_PHASE.CommandReconciliation,
+            completed: startupCommandCount,
+            total: params.biddingConfig.commandBatchSize,
+            detail: `processed=${startupCommandCount}`,
+        });
+
+        const startupEnabledJobs = await biddingJobSource.loadEnabledJobs();
+        await enableBidStreams(
+            collectWatchedCollectionSlugs(startupEnabledJobs),
+        );
+        collectionOfferSnapshotService.reconcileWatchedCollections(
+            collectSnapshotBackedCollectionSlugs(startupEnabledJobs),
+        );
+        bidBookProjection.reconcileWatchedCollections(
+            collectSnapshotBackedCollectionSlugs(startupEnabledJobs),
+        );
+
+        // Start steady-state snapshot polling only after startup command replay cannot compete with poll work.
+        collectionOfferSnapshotService.start();
+
+        // Start the steady-state bidder scan loop only after stream listeners and warm state are ready.
+        bidder.start();
+
+        const commandLoop = startBiddingCommandReconciliationLoop(
+            commandReconciler,
+            params.biddingConfig.commandPollMs,
+        );
+        const failedCancellationReconciler =
+            new FailedOfferCancellationReconciler(
+                biddingJobRuntimeState,
+                biddingService,
+                createFailedCancellationReconcilerConfig(
+                    params.config.chainId,
+                    params.biddingConfig.cancellationRemediationRetryMs,
+                    params.biddingConfig.dryRun,
+                ),
+            );
+        const failedCancellationLoop =
+            startBiddingFailedCancellationReconciliationLoop(
+                failedCancellationReconciler,
+                params.biddingConfig.failedCancellationReconcileMs,
+            );
+        const signalListener = await startBiddingJobCommandSignalListener(
+            params.config.queue.natsUrl,
+            params.config.queue.streamPrefix,
+            commandReconciler,
+        );
+
+        log.info("bidderStarted", "Started bidder", {
+            jobCount: jobs.length,
+            watchedCollectionCount: watchedCollectionSlugs.length,
+            snapshotCollectionCount: snapshotBackedCollectionSlugs.length,
+            dryRun: params.biddingConfig.dryRun,
+        });
+        // Switch to running heartbeat only after bootstrap and steady-state loops have started.
+        runtimeState.startHeartbeat(
+            runtimeStateIdentity,
+            TRADING_BOT_RUNTIME_STATE.Running,
+        );
+        observability.observeTimeToReady(Date.now() - runtimeStartedAt);
+        observability.setRuntimeState(BIDDING_RUNTIME_METRIC_STATE.Running);
+        ready = true;
+
+        return {
+            async shutdown(): Promise<void> {
+                await shutdownBiddingRuntime({
+                    closeBidderBackgroundAdmission: () =>
+                        bidder.closeBackgroundRefreshAdmission(),
+                    closeCommandAdmission: () =>
+                        commandReconciler.closeAdmission(),
+                    commandAdmissionDrains: [
+                        () => commandLoop.shutdown(),
+                        ...(signalListener
+                            ? [() => signalListener.shutdown()]
+                            : []),
+                    ],
+                    bidPipelineDrain: () => bidPipeline.stop(),
+                    bidderDrain: () => bidder.stop(),
+                    collectionSnapshotDrain: () =>
+                        collectionOfferSnapshotService.stop(),
+                    bidBookProjectionDrain: () => bidBookProjection.stop(),
+                    independentDrains: [
+                        () => failedCancellationLoop.shutdown(),
+                        () => healthLoop?.shutdown(),
+                    ],
+                    bidStreams,
+                    // Disconnect the shared OpenSea socket after every per-collection handler settles.
+                    disconnectStreamClient: () => streamClient.disconnect(),
+                    stopHeartbeat: () => runtimeState.stopHeartbeat(),
+                    // Mark the bot stopped so backend reads fall back to indexed orders immediately.
+                    markStopped: () =>
+                        runtimeState.markState(
+                            runtimeStateIdentity,
+                            TRADING_BOT_RUNTIME_STATE.Stopped,
+                        ),
+                    setMetricState: (state) =>
+                        observability.setRuntimeState(state),
+                    now: Date.now,
+                });
+            },
+        };
+    } finally {
+        // A failed bootstrap must not leave the newly introduced monitoring loop alive.
+        if (!ready) await healthLoop?.shutdown();
+    }
 }
 
 // collectWatchedCollectionSlugs returns every collection that needs a direct OpenSea bid stream subscription.
@@ -1244,7 +1295,7 @@ async function observeBootstrapAction<T>(
     const startedAt = Date.now();
     let succeeded = false;
     try {
-        const result = await action();
+        const result = await observeBiddingWork(observability, phase, action);
         succeeded = true;
         return result;
     } finally {

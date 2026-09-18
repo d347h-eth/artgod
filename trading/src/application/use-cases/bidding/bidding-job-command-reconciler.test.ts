@@ -24,6 +24,7 @@ import type {
     BiddingJobCommandRepository,
 } from "./bidding-job-command-repository.js";
 import {
+    BIDDING_COMMAND_DURABLE_OUTCOME,
     BIDDING_COMMAND_RECONCILIATION_RESULT,
     BIDDING_COMMAND_TRIGGER,
     BiddingJobCommandReconciler,
@@ -213,6 +214,151 @@ function makeRecord(
 }
 
 describe("BiddingJobCommandReconciler", () => {
+    it.each([
+        {
+            fail: false,
+            attempts: 1,
+            reclaimed: false,
+            outcome: BIDDING_COMMAND_DURABLE_OUTCOME.Completed,
+        },
+        {
+            fail: true,
+            attempts: 1,
+            reclaimed: false,
+            outcome: BIDDING_COMMAND_DURABLE_OUTCOME.RetryScheduled,
+        },
+        {
+            fail: true,
+            attempts: 3,
+            reclaimed: false,
+            outcome: BIDDING_COMMAND_DURABLE_OUTCOME.FailedTerminal,
+        },
+        {
+            fail: false,
+            attempts: 2,
+            reclaimed: true,
+            outcome: BIDDING_COMMAND_DURABLE_OUTCOME.Completed,
+        },
+    ])(
+        "reports durable $outcome after persistence (reclaimed=$reclaimed)",
+        async ({ fail, attempts, reclaimed, outcome }) => {
+            const job = makeJob("job");
+            const command = {
+                ...makeCommand(
+                    1,
+                    job.id,
+                    TRADING_JOB_COMMAND_KIND.JobUpdated,
+                    { jobId: job.id },
+                    attempts,
+                ),
+                reclaimed,
+            };
+            const repository = new FakeCommandRepository([command]);
+            const bidder = new Bidder(
+                new FakeBiddingService(),
+                makerAddress,
+                60_000,
+                { dryRun: true },
+            );
+            const outcomes: string[] = [];
+            const reconciler = new BiddingJobCommandReconciler(
+                repository,
+                new FakeJobSource(
+                    new Map([
+                        [job.id, makeRecord(job, TRADING_JOB_STATUS.Enabled)],
+                    ]),
+                ),
+                bidder,
+                {
+                    prepareEnabledJob: async () => {
+                        if (fail)
+                            throw new Error("synthetic preparation failure");
+                    },
+                    reconcileEnabledJobs: async () => {},
+                },
+                { batchSize: 1, claimTimeoutMs: 300_000, maxAttempts: 3 },
+                undefined,
+                {
+                    onReconciliationFinished() {},
+                    onCommandClaimed() {},
+                    onCommandStrategyStarted() {},
+                    onCommandFinished() {},
+                    onCommandInFlightChanged() {},
+                    onCommandDurableOutcome: (value) => {
+                        if (
+                            value.outcome ===
+                            BIDDING_COMMAND_DURABLE_OUTCOME.Completed
+                        )
+                            assert.deepEqual(repository.completed, [1]);
+                        if (
+                            value.outcome ===
+                            BIDDING_COMMAND_DURABLE_OUTCOME.RetryScheduled
+                        )
+                            assert.equal(repository.retryFailures.length, 1);
+                        if (
+                            value.outcome ===
+                            BIDDING_COMMAND_DURABLE_OUTCOME.FailedTerminal
+                        )
+                            assert.equal(repository.terminalFailures.length, 1);
+                        outcomes.push(value.outcome);
+                    },
+                },
+            );
+            await reconciler.processPendingCommands(
+                BIDDING_COMMAND_TRIGGER.Poll,
+            );
+            assert.deepEqual(outcomes, [
+                ...(reclaimed
+                    ? [BIDDING_COMMAND_DURABLE_OUTCOME.StaleClaimRecovered]
+                    : []),
+                outcome,
+            ]);
+        },
+    );
+
+    it("does not claim that a retry was persisted when its durable write fails", async () => {
+        const job = makeJob("job");
+        const repository = new (class extends FakeCommandRepository {
+            override async markFailedRetry(): Promise<void> {
+                throw new Error("retry persistence failed");
+            }
+        })([makeCommand(1, job.id, TRADING_JOB_COMMAND_KIND.JobUpdated)]);
+        const outcomes: string[] = [];
+        const reconciler = new BiddingJobCommandReconciler(
+            repository,
+            new FakeJobSource(
+                new Map([
+                    [job.id, makeRecord(job, TRADING_JOB_STATUS.Enabled)],
+                ]),
+            ),
+            new Bidder(new FakeBiddingService(), makerAddress, 60_000, {
+                dryRun: true,
+            }),
+            {
+                prepareEnabledJob: async () => {
+                    throw new Error("preparation failed");
+                },
+                reconcileEnabledJobs: async () => {},
+            },
+            { batchSize: 1, claimTimeoutMs: 300_000, maxAttempts: 3 },
+            undefined,
+            {
+                onReconciliationFinished() {},
+                onCommandClaimed() {},
+                onCommandStrategyStarted() {},
+                onCommandFinished() {},
+                onCommandInFlightChanged() {},
+                onCommandDurableOutcome: ({ outcome }) =>
+                    outcomes.push(outcome),
+            },
+        );
+        await assert.rejects(
+            reconciler.processPendingCommands(BIDDING_COMMAND_TRIGGER.Poll),
+            /retry persistence failed/,
+        );
+        assert.deepEqual(outcomes, []);
+    });
+
     it("finishes the admitted command but leaves later rows pending across poll and queued signal drains", async () => {
         const jobs = [makeJob("first"), makeJob("second")];
         const repository = new FakeCommandRepository(

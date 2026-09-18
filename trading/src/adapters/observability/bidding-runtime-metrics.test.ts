@@ -45,6 +45,7 @@ import {
     BIDDING_RUNTIME_QUEUE_DURATION_BUCKETS_MS,
 } from "./bidding-runtime-metric-contract.js";
 import { BiddingRuntimeMetrics } from "./bidding-runtime-metrics.js";
+import { OpenSeaCollectionOfferSource } from "../opensea/open-sea-collection-offer-source.js";
 
 const TEST_TARGET_COUNTS = {
     [BIDDER_TARGET_TYPE.Token]: 2,
@@ -53,6 +54,88 @@ const TEST_TARGET_COUNTS = {
 };
 
 describe("BiddingRuntimeMetrics", () => {
+    it("exports a held real adapter call before completion and clears it after a failure", async () => {
+        const metrics = await createPrometheusMetrics({
+            prefix: TRADING_METRICS_PREFIX,
+            defaultLabels: {
+                worker: TRADING_METRICS_WORKER.BiddingBot,
+                chain_id: "1",
+            },
+            collectProcessMetrics: false,
+        });
+        if (!metrics) throw new Error("prom-client is required for this test");
+        let enter!: () => void;
+        let rejectResponse!: (error: Error) => void;
+        const entered = new Promise<void>((resolve) => {
+            enter = resolve;
+        });
+        const response = new Promise<{ offers: unknown[] }>(
+            (_resolve, reject) => {
+                rejectResponse = reject;
+            },
+        );
+        const observability = new BiddingRuntimeMetrics(metrics);
+        const source = new OpenSeaCollectionOfferSource(
+            {
+                getAllOffers: async () => {
+                    enter();
+                    return await response;
+                },
+            },
+            {
+                offersPageSize: 100,
+                retryPolicy: {
+                    maxAttempts: 1,
+                    baseDelayMs: 0,
+                    maxDelayMs: 0,
+                    jitterRatio: 0,
+                },
+                observability: observability.createOpenSeaOperationObserver(
+                    BIDDING_OPEN_SEA_LANE.Snapshot,
+                ),
+            },
+        );
+        const pending = source.getAllOffers("synthetic-collection");
+        await entered;
+        const held = await metrics.metricsText();
+        const value = (scrape: string, name: string) =>
+            Number(
+                scrape
+                    .split("\n")
+                    .find((line) => line.startsWith(`${metric(name)}{`))
+                    ?.split(" ")
+                    .at(-1),
+            );
+        expect(value(held, BIDDING_RUNTIME_METRIC_NAME.OpenSeaInFlight)).toBe(
+            1,
+        );
+        expect(
+            value(held, BIDDING_RUNTIME_METRIC_NAME.OpenSeaOldestStart),
+        ).toBeGreaterThan(0);
+        expect(held).not.toContain(
+            `${metric(BIDDING_RUNTIME_METRIC_NAME.OpenSeaOperationDuration)}_count`,
+        );
+        const rejection = expect(pending).rejects.toThrow("held API failed");
+        rejectResponse(new Error("held API failed"));
+        await rejection;
+        const failed = await metrics.metricsText();
+        expect(value(failed, BIDDING_RUNTIME_METRIC_NAME.OpenSeaInFlight)).toBe(
+            0,
+        );
+        expect(
+            value(failed, BIDDING_RUNTIME_METRIC_NAME.OpenSeaOldestStart),
+        ).toBe(0);
+        expect(
+            value(failed, BIDDING_RUNTIME_METRIC_NAME.OpenSeaLastSuccess),
+        ).toBe(0);
+        expect(failed).toContain(
+            `result="${BIDDING_RUNTIME_METRIC_RESULT.Failure}"`,
+        );
+        expect(failed).not.toContain("synthetic-collection");
+        for (const name of BIDDING_RUNTIME_FORBIDDEN_HIGH_CARDINALITY_LABELS)
+            expect(failed).not.toMatch(new RegExp(`[,{]${name}="`));
+    });
+
     it("exports lifecycle, pressure, latency, and business metrics with bounded labels", async () => {
         const metrics = await createPrometheusMetrics({
             prefix: TRADING_METRICS_PREFIX,
@@ -83,6 +166,9 @@ describe("BiddingRuntimeMetrics", () => {
             commandBatchSize: 25,
             snapshotPollMs: 60_000,
             snapshotTtlMs: 60_000,
+            snapshotMaxTtlMs: 300_000,
+            snapshotTtlMultiplier: 2,
+            healthPollMs: 5_000,
             hotRefreshBroadCooldownMs: 2_000,
             hotRefreshBroadMaxPending: 100,
             hotRefreshItemCooldownMs: 500,

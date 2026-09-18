@@ -36,6 +36,10 @@ export type OpenSeaSnapshotOperation =
 
 // OpenSeaCollectionOfferSourceObservabilityPort reports per-page API timing and retry pressure.
 export interface OpenSeaCollectionOfferSourceObservabilityPort {
+    onOpenSeaOperationStarted?(input: {
+        operation: OpenSeaSnapshotOperation;
+        priority: TokenBucketRateLimitPriority;
+    }): (succeeded: boolean) => void;
     onOpenSeaOperationFinished(input: {
         operation: OpenSeaSnapshotOperation;
         priority: TokenBucketRateLimitPriority;
@@ -66,7 +70,7 @@ export class OpenSeaCollectionOfferSource implements CollectionOfferSource {
     private readonly observability?: OpenSeaCollectionOfferSourceObservabilityPort;
 
     constructor(
-        private readonly api: OpenSeaApiClient,
+        private readonly api: Pick<OpenSeaApiClient, "getAllOffers">,
         options: OpenSeaCollectionOfferSourceOptions = {},
     ) {
         this.offersPageSize = Math.max(
@@ -116,6 +120,14 @@ export class OpenSeaCollectionOfferSource implements CollectionOfferSource {
                 async () => {
                     await this.rateLimiter.wait(1, 0);
                     const startedAt = Date.now();
+                    const finish = observeBestEffort(() =>
+                        this.observability?.onOpenSeaOperationStarted?.({
+                            operation:
+                                OPEN_SEA_SNAPSHOT_OPERATION.GetAllOffersPage,
+                            priority:
+                                TOKEN_BUCKET_RATE_LIMIT_PRIORITY.Background,
+                        }),
+                    );
                     let succeeded = false;
                     try {
                         const result = await this.api.getAllOffers(
@@ -126,6 +138,7 @@ export class OpenSeaCollectionOfferSource implements CollectionOfferSource {
                         succeeded = true;
                         return result;
                     } finally {
+                        observeBestEffort(() => finish?.(succeeded));
                         observeBestEffort(() => {
                             this.observability?.onOpenSeaOperationFinished({
                                 operation:

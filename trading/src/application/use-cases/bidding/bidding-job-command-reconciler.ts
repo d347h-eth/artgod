@@ -16,6 +16,11 @@ import type {
 } from "./bidding-job-command-repository.js";
 import type { BiddingJobSource } from "./bidding-job-source.js";
 import { observeBestEffort } from "../../../utils/observe-best-effort.js";
+import {
+    BIDDING_WORK_STAGE,
+    observeBiddingWork,
+    type BiddingWorkObservabilityPort,
+} from "./bidding-work-observability.js";
 
 export type BiddingJobCommandReconcilerOptions = {
     batchSize: number;
@@ -44,8 +49,22 @@ export const BIDDING_COMMAND_RECONCILIATION_RESULT = {
 export type BiddingCommandReconciliationResult =
     (typeof BIDDING_COMMAND_RECONCILIATION_RESULT)[keyof typeof BIDDING_COMMAND_RECONCILIATION_RESULT];
 
+// These are persisted lifecycle transitions, not the result of a processing attempt.
+export const BIDDING_COMMAND_DURABLE_OUTCOME = {
+    Completed: "completed",
+    RetryScheduled: "retry_scheduled",
+    FailedTerminal: "failed_terminal",
+    StaleClaimRecovered: "stale_claim_recovered",
+} as const;
+export type BiddingCommandDurableOutcome =
+    (typeof BIDDING_COMMAND_DURABLE_OUTCOME)[keyof typeof BIDDING_COMMAND_DURABLE_OUTCOME];
+
 // BiddingCommandObservabilityPort reports durable queue and strategy latency without command identity.
-export interface BiddingCommandObservabilityPort {
+export interface BiddingCommandObservabilityPort extends BiddingWorkObservabilityPort {
+    onCommandDurableOutcome?(input: {
+        commandKind: BiddingJobCommand["commandKind"];
+        outcome: BiddingCommandDurableOutcome;
+    }): void;
     onReconciliationFinished(input: {
         trigger: BiddingCommandTrigger;
         processed: number;
@@ -173,6 +192,11 @@ export class BiddingJobCommandReconciler {
                     if (!command) {
                         return { processed, completedWithFailures: false };
                     }
+                    if (command.reclaimed)
+                        this.reportDurableOutcome(
+                            command,
+                            BIDDING_COMMAND_DURABLE_OUTCOME.StaleClaimRecovered,
+                        );
 
                     log.info(
                         "processCommands",
@@ -206,9 +230,11 @@ export class BiddingJobCommandReconciler {
                             ),
                         });
                     });
-                    const commandSucceeded = await this.processCommand(
-                        command,
-                        trigger,
+                    const commandSucceeded = await observeBiddingWork(
+                        this.observability,
+                        BIDDING_WORK_STAGE.Command,
+                        () => this.processCommand(command, trigger),
+                        (succeeded) => succeeded,
                     );
                     log.info(
                         BIDDING_COMMAND_RECONCILER_LOG_ACTION.CommandProgress,
@@ -292,6 +318,10 @@ export class BiddingJobCommandReconciler {
             });
             await this.reconcileEnabledJobs();
             await this.commandRepository.markCompleted(command.commandId);
+            this.reportDurableOutcome(
+                command,
+                BIDDING_COMMAND_DURABLE_OUTCOME.Completed,
+            );
             log.info("commandCompleted", "Completed bidding job command", {
                 ...commandLogFields(command),
             });
@@ -304,6 +334,10 @@ export class BiddingJobCommandReconciler {
                 await this.commandRepository.markFailedTerminal(
                     command.commandId,
                     message,
+                );
+                this.reportDurableOutcome(
+                    command,
+                    BIDDING_COMMAND_DURABLE_OUTCOME.FailedTerminal,
                 );
                 await this.markTerminalCancellationFailure(command, message);
                 log.error(
@@ -320,6 +354,10 @@ export class BiddingJobCommandReconciler {
             await this.commandRepository.markFailedRetry(
                 command.commandId,
                 message,
+            );
+            this.reportDurableOutcome(
+                command,
+                BIDDING_COMMAND_DURABLE_OUTCOME.RetryScheduled,
             );
             log.warn(
                 "commandRetryFailure",
@@ -343,6 +381,18 @@ export class BiddingJobCommandReconciler {
                 this.observability?.onCommandInFlightChanged(0);
             });
         }
+    }
+
+    private reportDurableOutcome(
+        command: BiddingJobCommand,
+        outcome: BiddingCommandDurableOutcome,
+    ): void {
+        observeBestEffort(() =>
+            this.observability?.onCommandDurableOutcome?.({
+                commandKind: command.commandKind,
+                outcome,
+            }),
+        );
     }
 
     private async markTerminalCancellationFailure(
@@ -449,7 +499,11 @@ export class BiddingJobCommandReconciler {
             return;
         }
 
-        await this.jobPreparationPort.prepareEnabledJob(record.job);
+        await observeBiddingWork(
+            this.observability,
+            BIDDING_WORK_STAGE.JobPreparation,
+            () => this.jobPreparationPort.prepareEnabledJob(record.job),
+        );
         this.bidder.addJob(record.job);
         if (this.completeAlreadySatisfiedJobCommand(command, record.job)) {
             return;

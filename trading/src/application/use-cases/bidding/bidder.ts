@@ -29,6 +29,11 @@ import {
 import { sleep } from "../../../utils/sleep.js";
 import { observeBestEffort } from "../../../utils/observe-best-effort.js";
 import {
+    BIDDING_WORK_STAGE,
+    observeBiddingWork,
+    type BiddingWorkObservabilityPort,
+} from "./bidding-work-observability.js";
+import {
     BIDDER_DEFAULT_BOOTSTRAP_CONCURRENCY,
     BIDDER_DEFAULT_MAX_CONCURRENT_JOBS,
 } from "./defaults.js";
@@ -77,6 +82,31 @@ export const BIDDER_MARKET_ACTION = {
 export type BidderMarketAction =
     (typeof BIDDER_MARKET_ACTION)[keyof typeof BIDDER_MARKET_ACTION];
 
+// Intent is distinct from an attempted or completed marketplace mutation.
+export const BIDDER_DECISION = {
+    Place: "place",
+    Renew: "renew",
+    AdjustUp: "adjust_up",
+    AdjustDown: "adjust_down",
+    MaintainWinning: "maintain_winning",
+    MaintainCapped: "maintain_capped",
+    RevertToTarget: "revert_to_target",
+    ZeroCeiling: "zero_ceiling",
+} as const;
+export type BidderDecision =
+    (typeof BIDDER_DECISION)[keyof typeof BIDDER_DECISION];
+export const BIDDER_OBSERVED_POSITION = {
+    ...TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
+    Unobserved: "unobserved",
+} as const;
+export type BidderPositionHealth = {
+    positions: Record<
+        (typeof BIDDER_OBSERVED_POSITION)[keyof typeof BIDDER_OBSERVED_POSITION],
+        number
+    >;
+    constraints: Record<TradingBiddingJobRuntimeConstraint, number>;
+};
+
 // Stable scan results distinguish strategy failures from an interrupted scan.
 export const BIDDER_SCAN_RESULT = {
     Success: "success",
@@ -89,7 +119,19 @@ export type BidderScanResult =
     (typeof BIDDER_SCAN_RESULT)[keyof typeof BIDDER_SCAN_RESULT];
 
 // BidderObservabilityPort reports aggregate timing and pressure without exposing job identity.
-export interface BidderObservabilityPort {
+export interface BidderObservabilityPort extends BiddingWorkObservabilityPort {
+    onDecision?(input: {
+        decision: BidderDecision;
+        targetType: BidderJob["target"]["type"];
+        dryRun: boolean;
+    }): void;
+    onScanProgress?(input: {
+        active: boolean;
+        total: number;
+        completed: number;
+        startedAtMs: number;
+        lastProgressAtMs: number;
+    }): void;
     onJobInventoryChanged(input: {
         total: number;
         targetCounts: Record<BidderJob["target"]["type"], number>;
@@ -375,6 +417,26 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         return this.jobs.get(jobId);
     }
 
+    // Stream the current schedule at the health-sampling cadence; never allocate per-job time series.
+    public readPositionHealth(): BidderPositionHealth {
+        const positions = Object.fromEntries(
+            Object.values(BIDDER_OBSERVED_POSITION).map((value) => [value, 0]),
+        ) as BidderPositionHealth["positions"];
+        const constraints = Object.fromEntries(
+            Object.values(TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT).map(
+                (value) => [value, 0],
+            ),
+        ) as BidderPositionHealth["constraints"];
+        for (const job of this.jobs.values()) {
+            positions[
+                job.state.bidPosition ?? BIDDER_OBSERVED_POSITION.Unobserved
+            ] += 1;
+            for (const constraint of new Set(job.state.bidConstraints ?? []))
+                constraints[constraint] += 1;
+        }
+        return { positions, constraints };
+    }
+
     public removeJob(jobId: string): BidderJob | undefined {
         const existingJob = this.jobs.get(jobId);
         if (!existingJob) {
@@ -407,10 +469,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 },
             );
             // Fetch active offers through the bidding service so cancellation uses the same market scope as normal refreshes.
-            const offers = await this.biddingService.getActiveOffers(
-                job,
-                requestContext,
-            );
+            const offers = await this.readActiveOffers(job, requestContext);
             const trackedOrderId = job.state.activeOrderId;
             const trackedOrder = await this.resolveTrackedActiveOrder(
                 job,
@@ -738,6 +797,18 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     public async scanOnce(): Promise<void> {
         const startedAt = Date.now();
         const jobs = Array.from(this.jobs.values());
+        let completed = 0;
+        const reportProgress = (active: boolean) =>
+            observeBestEffort(() =>
+                this.observability?.onScanProgress?.({
+                    active,
+                    total: jobs.length,
+                    completed,
+                    startedAtMs: startedAt,
+                    lastProgressAtMs: Date.now(),
+                }),
+            );
+        reportProgress(true);
         let result: BidderScanResult = BIDDER_SCAN_RESULT.Failure;
         try {
             const refreshed = await this.refreshCachedMakerWethBalance();
@@ -751,12 +822,17 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     !refreshed && this.cachedMakerWethBalance !== undefined,
             });
             const refreshResults = await Promise.all(
-                jobs.map((job, index) =>
-                    this.refreshJobForScan(job.id, {
-                        sequence: index + 1,
-                        total: jobs.length,
-                    }),
-                ),
+                jobs.map(async (job, index) => {
+                    try {
+                        return await this.refreshJobForScan(job.id, {
+                            sequence: index + 1,
+                            total: jobs.length,
+                        });
+                    } finally {
+                        completed += 1;
+                        reportProgress(true);
+                    }
+                }),
             );
             if (!this.acceptingBackgroundRefreshes) {
                 result = BIDDER_SCAN_RESULT.Stopped;
@@ -766,6 +842,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     : BIDDER_SCAN_RESULT.CompletedWithFailures;
             }
         } finally {
+            reportProgress(false);
             observeBestEffort(() => {
                 this.observability?.onScanFinished({
                     durationMs: Date.now() - startedAt,
@@ -1257,10 +1334,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             });
 
             const requestContext = options.requestContext ?? {};
-            const offers = await this.biddingService.getActiveOffers(
-                job,
-                requestContext,
-            );
+            const offers = await this.readActiveOffers(job, requestContext);
             const trackedOrder = await this.resolveTrackedActiveOrder(
                 job,
                 offers,
@@ -1360,6 +1434,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 : undefined;
 
             if (desiredPrice <= 0n) {
+                this.reportDecision(job, BIDDER_DECISION.ZeroCeiling);
                 if (myOffers.length > 0) {
                     log.info(
                         "zeroCeilingCancelOffers",
@@ -1394,6 +1469,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             }
 
             if (!myHighest) {
+                this.reportDecision(job, BIDDER_DECISION.Place);
                 log.debug(
                     "noActiveBidPlaceTarget",
                     "No active bid; placing target",
@@ -1424,6 +1500,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             );
 
             if (renewalReason) {
+                this.reportDecision(job, BIDDER_DECISION.Renew);
                 log.info("bidRenewal", "Renewing bid", {
                     jobId: job.id,
                     jobRef,
@@ -1454,6 +1531,14 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             }
 
             if (matchingMakerOffer) {
+                this.reportDecision(
+                    job,
+                    matchingMakerOffer.id !== myHighest.id
+                        ? BIDDER_DECISION.RevertToTarget
+                        : desiredPrice > competitorPrice
+                          ? BIDDER_DECISION.MaintainWinning
+                          : BIDDER_DECISION.MaintainCapped,
+                );
                 this.trackRuntimeBidDecision(
                     job,
                     matchingMakerOffer.price,
@@ -1511,6 +1596,12 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             }
 
             const direction = desiredPrice > myPrice ? "upward" : "downward";
+            this.reportDecision(
+                job,
+                desiredPrice > myPrice
+                    ? BIDDER_DECISION.AdjustUp
+                    : BIDDER_DECISION.AdjustDown,
+            );
             log.info("bidAdjusted", "Adjusting bid", {
                 jobId: job.id,
                 jobRef,
@@ -1865,11 +1956,15 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         }
 
         try {
-            const activeOffer =
-                await this.biddingService.getActiveTokenOfferByMaker(
-                    job,
-                    this.makerAddress,
-                );
+            const activeOffer = await observeBiddingWork(
+                this.observability,
+                BIDDING_WORK_STAGE.OrderRecovery,
+                () =>
+                    this.biddingService.getActiveTokenOfferByMaker(
+                        job,
+                        this.makerAddress,
+                    ),
+            );
             if (!activeOffer) {
                 return false;
             }
@@ -2107,10 +2202,14 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         }
 
         try {
-            this.cachedMakerWethBalance =
-                await this.makerWethBalanceService.getWethBalance(
-                    this.makerAddress,
-                );
+            this.cachedMakerWethBalance = await observeBiddingWork(
+                this.observability,
+                BIDDING_WORK_STAGE.BalanceRead,
+                () =>
+                    this.makerWethBalanceService!.getWethBalance(
+                        this.makerAddress,
+                    ),
+            );
             return true;
         } catch (error: unknown) {
             log.error(
@@ -2386,11 +2485,16 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         const startedAt = Date.now();
         let failed = false;
         try {
-            await this.performPlaceAndTrack(
-                job,
-                amount,
-                decisionContext,
-                requestContext,
+            await observeBiddingWork(
+                this.observability,
+                BIDDING_WORK_STAGE.PlaceOffer,
+                () =>
+                    this.performPlaceAndTrack(
+                        job,
+                        amount,
+                        decisionContext,
+                        requestContext,
+                    ),
             );
         } catch (error: unknown) {
             failed = true;
@@ -2510,7 +2614,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         const startedAt = Date.now();
         let failed = false;
         try {
-            await this.performCancelAndTrack(job, order, requestContext);
+            await observeBiddingWork(
+                this.observability,
+                BIDDING_WORK_STAGE.CancelOffer,
+                () => this.performCancelAndTrack(job, order, requestContext),
+            );
         } catch (error: unknown) {
             failed = true;
             throw error;
@@ -2649,13 +2757,18 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             job.target.type === BIDDER_TARGET_TYPE.Token
                 ? job.target.tokenId
                 : undefined;
-        const recovered = await this.biddingService.getOrder(
-            activeId,
-            job.state.activeProtocolAddress,
-            job.collectionAddress,
-            tokenId,
-            job.collectionSlug,
-            requestContext,
+        const recovered = await observeBiddingWork(
+            this.observability,
+            BIDDING_WORK_STAGE.OrderRecovery,
+            () =>
+                this.biddingService.getOrder(
+                    activeId,
+                    job.state.activeProtocolAddress,
+                    job.collectionAddress,
+                    tokenId,
+                    job.collectionSlug,
+                    requestContext,
+                ),
         );
 
         if (recovered.status === BIDDING_ORDER_RECOVERY_STATUS.Active) {
@@ -2698,6 +2811,27 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             this.clearTrackedOrder(job);
         }
         return null;
+    }
+
+    private reportDecision(job: BidderJob, decision: BidderDecision): void {
+        observeBestEffort(() =>
+            this.observability?.onDecision?.({
+                decision,
+                targetType: job.target.type,
+                dryRun: this.isDryRun(),
+            }),
+        );
+    }
+
+    private readActiveOffers(
+        job: BidderJob,
+        context: BiddingServiceRequestContext,
+    ): Promise<Order[]> {
+        return observeBiddingWork(
+            this.observability,
+            BIDDING_WORK_STAGE.MarketRead,
+            () => this.biddingService.getActiveOffers(job, context),
+        );
     }
 
     private persistJobRuntimeState(

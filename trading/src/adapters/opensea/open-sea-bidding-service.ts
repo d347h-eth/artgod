@@ -43,6 +43,7 @@ import {
     toErrorLogFields,
 } from "../../utils/bidding-log.js";
 import { defaultRetryPolicy, RetryPolicy, retry } from "../support/retry.js";
+import { observeBestEffort } from "../../utils/observe-best-effort.js";
 import {
     TOKEN_BUCKET_RATE_LIMIT_PRIORITY,
     TokenBucketRateLimiter,
@@ -101,6 +102,10 @@ export type OpenSeaBiddingOperation =
 
 // OpenSeaBiddingServiceObservabilityPort reports SDK timing and retry pressure without order identity.
 export interface OpenSeaBiddingServiceObservabilityPort {
+    onOpenSeaOperationStarted?(input: {
+        operation: OpenSeaBiddingOperation;
+        priority: TokenBucketRateLimitPriority;
+    }): (succeeded: boolean) => void;
     onOpenSeaOperationFinished(input: {
         operation: OpenSeaBiddingOperation;
         priority: TokenBucketRateLimitPriority;
@@ -873,6 +878,12 @@ export class OpenSeaBiddingService implements BiddingService {
             priority,
         });
         const startedAt = Date.now();
+        const finish = observeBestEffort(() =>
+            this.observability?.onOpenSeaOperationStarted?.({
+                operation: action,
+                priority,
+            }),
+        );
         let succeeded = false;
         let expectedAbsence = false;
         try {
@@ -883,6 +894,7 @@ export class OpenSeaBiddingService implements BiddingService {
             expectedAbsence = isExpectedAbsence?.(error) ?? false;
             throw error;
         } finally {
+            observeBestEffort(() => finish?.(succeeded || expectedAbsence));
             this.observeOperationFinished(
                 action,
                 priority,
