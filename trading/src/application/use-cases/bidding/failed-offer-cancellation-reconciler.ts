@@ -79,23 +79,37 @@ export const FAILED_OFFER_CANCELLATION_RECONCILER_LOG_ACTION = {
 
 // FailedOfferCancellationReconciler heals failed cancellation rows only after OpenSea proves the order is gone.
 export class FailedOfferCancellationReconciler {
+    private acceptingRecords = true;
+
     constructor(
         private readonly repository: FailedOfferCancellationRepositoryPort,
         private readonly biddingService: BiddingService,
         private readonly config: FailedOfferCancellationReconcilerConfig,
     ) {}
 
+    // An admitted record may settle, but no later record may start after Stop.
+    closeAdmission(): void {
+        this.acceptingRecords = false;
+    }
+
     async reconcileFailedCancellations(): Promise<number> {
-        const records = await this.repository.listRecoverableOfferCancellations({
-            chainId: this.config.chainId,
-            limit: this.config.batchSize,
-            retryCutoff: new Date(
-                Date.now() - this.config.cancellationRetryMs,
-            ).toISOString(),
-        });
+        if (!this.acceptingRecords) return 0;
+
+        const records = await this.repository.listRecoverableOfferCancellations(
+            {
+                chainId: this.config.chainId,
+                limit: this.config.batchSize,
+                retryCutoff: new Date(
+                    Date.now() - this.config.cancellationRetryMs,
+                ).toISOString(),
+            },
+        );
         let completedCount = 0;
 
         for (const record of records) {
+            // Recheck after the repository await and between records in the batch.
+            if (!this.acceptingRecords) break;
+
             try {
                 // Recover remote state before deciding whether local completion or a live retry is safe.
                 const result = await this.biddingService.getOrder(

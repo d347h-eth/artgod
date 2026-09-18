@@ -31,14 +31,20 @@ const FAILED_CANCELLATION_RECORD = {
 
 class FakeFailedCancellationRepository implements FailedOfferCancellationRepositoryPort {
     completed: CompletedOfferCancellation[] = [];
+    listCalls = 0;
+    listGate: Promise<void> | undefined;
 
-    constructor(private readonly records: RecoverableOfferCancellationRecord[]) {}
+    constructor(
+        private readonly records: RecoverableOfferCancellationRecord[],
+    ) {}
 
-    listRecoverableOfferCancellations(params: {
+    async listRecoverableOfferCancellations(params: {
         chainId: number;
         limit: number;
         retryCutoff: string;
-    }): RecoverableOfferCancellationRecord[] {
+    }): Promise<RecoverableOfferCancellationRecord[]> {
+        this.listCalls += 1;
+        if (this.listGate) await this.listGate;
         assert.equal(params.chainId, 1);
         assert.ok(params.retryCutoff);
         return this.records.slice(0, params.limit);
@@ -67,6 +73,7 @@ class FakeBiddingService implements BiddingService {
     error: Error | null = null;
     cancelError: Error | null = null;
     cancelledOrders: Order[] = [];
+    lookupGate: Promise<void> | undefined;
 
     async getActiveOffers(): Promise<Order[]> {
         return [];
@@ -97,6 +104,7 @@ class FakeBiddingService implements BiddingService {
                 FAILED_CANCELLATION_RECORD.terminalCommandError,
             hasTerminalCommand: FAILED_CANCELLATION_RECORD.hasTerminalCommand,
         });
+        if (this.lookupGate) await this.lookupGate;
         if (this.error) {
             throw this.error;
         }
@@ -138,6 +146,90 @@ function createReconciler(
 }
 
 describe("FailedOfferCancellationReconciler", () => {
+    it("does not read a batch after admission closes", async () => {
+        const repository = new FakeFailedCancellationRepository([
+            FAILED_CANCELLATION_RECORD,
+        ]);
+        const biddingService = new FakeBiddingService();
+        const reconciler = createReconciler(repository, biddingService, false);
+
+        reconciler.closeAdmission();
+
+        assert.equal(await reconciler.reconcileFailedCancellations(), 0);
+        assert.equal(repository.listCalls, 0);
+        assert.deepEqual(biddingService.lookups, []);
+    });
+
+    it("does not admit records from a batch read that settles after Stop", async () => {
+        const repository = new FakeFailedCancellationRepository([
+            FAILED_CANCELLATION_RECORD,
+        ]);
+        let releaseBatch!: () => void;
+        repository.listGate = new Promise<void>((resolve) => {
+            releaseBatch = resolve;
+        });
+        const biddingService = new FakeBiddingService();
+        const reconciler = createReconciler(repository, biddingService, false);
+
+        const reconciliation = reconciler.reconcileFailedCancellations();
+        assert.equal(repository.listCalls, 1);
+        reconciler.closeAdmission();
+        releaseBatch();
+
+        assert.equal(await reconciliation, 0);
+        assert.deepEqual(biddingService.lookups, []);
+        assert.deepEqual(repository.completed, []);
+    });
+
+    it("settles the admitted record but does not admit the next record after Stop", async () => {
+        const firstRecord = {
+            ...FAILED_CANCELLATION_RECORD,
+            expirationTimeMs: Date.now() + 60_000,
+        };
+        const repository = new FakeFailedCancellationRepository([
+            firstRecord,
+            { ...firstRecord, orderId: "0xnext" },
+        ]);
+        const biddingService = new FakeBiddingService();
+        const order: Order = {
+            id: firstRecord.orderId,
+            maker: "0xmaker",
+            price: 1n,
+            protocolAddress: "0xprotocol",
+        };
+        biddingService.result = {
+            status: BIDDING_ORDER_RECOVERY_STATUS.Active,
+            order,
+        };
+        let releaseLookup!: () => void;
+        biddingService.lookupGate = new Promise<void>((resolve) => {
+            releaseLookup = resolve;
+        });
+        const reconciler = createReconciler(repository, biddingService, false);
+
+        const reconciliation = reconciler.reconcileFailedCancellations();
+        await Promise.resolve();
+        assert.equal(biddingService.lookups.length, 1);
+        reconciler.closeAdmission();
+        releaseLookup();
+
+        assert.equal(await reconciliation, 1);
+        assert.deepEqual(
+            biddingService.cancelledOrders.map((cancelled) => cancelled.id),
+            [order.id],
+        );
+        assert.deepEqual(
+            biddingService.lookups.map((record) => record.orderId),
+            [firstRecord.orderId],
+        );
+        assert.deepEqual(
+            repository.completed.map((record) => record.orderId),
+            [firstRecord.orderId],
+        );
+        assert.equal(await reconciler.reconcileFailedCancellations(), 0);
+        assert.equal(repository.listCalls, 1);
+    });
+
     it("marks failed cancellation completed when OpenSea proves the order is gone", async () => {
         const repository = new FakeFailedCancellationRepository([
             FAILED_CANCELLATION_RECORD,

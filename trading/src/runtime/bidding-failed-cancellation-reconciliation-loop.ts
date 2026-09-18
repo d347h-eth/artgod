@@ -6,6 +6,7 @@ import {
 } from "../utils/bidding-log.js";
 
 export type BiddingFailedCancellationReconciliationLoopHandle = {
+    closeAdmission(): void;
     shutdown(): Promise<void>;
 };
 
@@ -21,7 +22,10 @@ const FAILED_CANCELLATION_RECONCILIATION_LOOP_LOG_ACTION = {
 
 // Starts a low-cadence audit for cancellations that previously failed but may now be gone on OpenSea.
 export function startBiddingFailedCancellationReconciliationLoop(
-    reconciler: FailedOfferCancellationReconciler,
+    reconciler: Pick<
+        FailedOfferCancellationReconciler,
+        "reconcileFailedCancellations" | "closeAdmission"
+    >,
     pollMs: number,
 ): BiddingFailedCancellationReconciliationLoopHandle {
     let stopped = false;
@@ -33,6 +37,9 @@ export function startBiddingFailedCancellationReconciliationLoop(
             return;
         }
         timer = setTimeout(() => {
+            timer = undefined;
+            if (stopped) return;
+
             inFlight = reconciler
                 .reconcileFailedCancellations()
                 .then((completedCount) => {
@@ -57,13 +64,19 @@ export function startBiddingFailedCancellationReconciliationLoop(
 
     schedule();
 
+    const closeAdmission = () => {
+        stopped = true;
+        if (timer !== undefined) {
+            clearTimeout(timer);
+            timer = undefined;
+        }
+        reconciler.closeAdmission();
+    };
+
     return {
+        closeAdmission,
         shutdown: async () => {
-            stopped = true;
-            if (timer) {
-                clearTimeout(timer);
-                timer = undefined;
-            }
+            closeAdmission();
             await inFlight.catch(() => undefined);
         },
     };

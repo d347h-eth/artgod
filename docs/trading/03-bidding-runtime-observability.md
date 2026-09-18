@@ -331,10 +331,13 @@ to separate marketplace fetch cost from local bid-book update cost.
 
 ### Shutdown and Process Resources
 
-Shutdown first closes background bidder admission and discards coalesced
-reruns. Background work waiting on concurrency or a job lock rechecks admission
-before strategy execution and is discarded. It then closes durable-command
-admission and finishes admitted commands, including their required strategy work,
+Shutdown first closes background bidder, durable-command, and failed-cancellation
+remediation admission. It discards coalesced bidder reruns. Background work waiting
+on concurrency or a job lock rechecks admission before strategy execution and is
+discarded. Remediation cancels future polls and rechecks admission after reading
+a batch and between records. An already-admitted record may finish recovery and
+cancellation under the existing retry policy; the remainder of its batch cannot
+start. Shutdown finishes admitted commands, including their required strategy work,
 before removing stream subscriptions and draining captured callbacks.
 Active event batches and job refreshes settle before active offer syncs, and
 active offer syncs settle before active bid-book writes. Work that is still

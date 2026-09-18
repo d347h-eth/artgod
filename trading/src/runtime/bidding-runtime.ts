@@ -177,6 +177,7 @@ type BiddingRuntimeShutdownStreamRegistryPort = {
 export type BiddingRuntimeShutdownPlan = {
     closeBidderBackgroundAdmission: BiddingRuntimeShutdownAction;
     closeCommandAdmission: BiddingRuntimeShutdownAction;
+    closeFailedCancellationAdmission: BiddingRuntimeShutdownAction;
     commandAdmissionDrains: BiddingRuntimeShutdownAction[];
     bidPipelineDrain: BiddingRuntimeShutdownAction;
     bidderDrain: BiddingRuntimeShutdownAction;
@@ -239,6 +240,7 @@ export async function shutdownBiddingRuntime(
                 plan.setMetricState(BIDDING_RUNTIME_METRIC_STATE.ShuttingDown),
             plan.closeBidderBackgroundAdmission,
             plan.closeCommandAdmission,
+            plan.closeFailedCancellationAdmission,
         ],
         shutdownErrors,
     );
@@ -1127,6 +1129,8 @@ export async function startBiddingRuntime(
                         bidder.closeBackgroundRefreshAdmission(),
                     closeCommandAdmission: () =>
                         commandReconciler.closeAdmission(),
+                    closeFailedCancellationAdmission: () =>
+                        failedCancellationLoop.closeAdmission(),
                     commandAdmissionDrains: [
                         () => commandLoop.shutdown(),
                         ...(signalListener

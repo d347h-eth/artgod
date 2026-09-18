@@ -20,6 +20,8 @@ import { BIDDING_RUNTIME_METRIC_STATE } from "../adapters/observability/bidding-
 // Test event marks the admission boundary before any asynchronous command drain.
 const BACKGROUND_ADMISSION_CLOSED_EVENT = "bidder:admission-closed";
 const COMMAND_ADMISSION_CLOSED_EVENT = "command:admission-closed";
+const FAILED_CANCELLATION_ADMISSION_CLOSED_EVENT =
+    "failed-cancellation:admission-closed";
 
 function makeJob(
     id: string,
@@ -95,6 +97,7 @@ describe("bidding runtime helpers", () => {
         const shutdown = shutdownBiddingRuntime({
             closeBidderBackgroundAdmission: () => undefined,
             closeCommandAdmission: () => undefined,
+            closeFailedCancellationAdmission: () => undefined,
             commandAdmissionDrains: [
                 async () => {
                     await retirement;
@@ -180,6 +183,9 @@ describe("bidding runtime helpers", () => {
             closeCommandAdmission: () => {
                 events.push(COMMAND_ADMISSION_CLOSED_EVENT);
             },
+            closeFailedCancellationAdmission: () => {
+                events.push(FAILED_CANCELLATION_ADMISSION_CLOSED_EVENT);
+            },
             commandAdmissionDrains: [
                 async () => {
                     events.push("command:rejected");
@@ -230,6 +236,11 @@ describe("bidding runtime helpers", () => {
         await new Promise<void>((resolve) => setImmediate(resolve));
 
         assert.equal(events.includes("command:sibling-settled"), true);
+        assert.equal(
+            events.indexOf(FAILED_CANCELLATION_ADMISSION_CLOSED_EVENT) <
+                events.indexOf("command:rejected"),
+            true,
+        );
         assert.equal(
             events.indexOf(COMMAND_ADMISSION_CLOSED_EVENT) <
                 events.indexOf("command:rejected"),
@@ -347,6 +358,7 @@ describe("bidding runtime helpers", () => {
             shutdownBiddingRuntime({
                 closeBidderBackgroundAdmission: () => undefined,
                 closeCommandAdmission: () => undefined,
+                closeFailedCancellationAdmission: () => undefined,
                 commandAdmissionDrains: [],
                 bidPipelineDrain: async () => undefined,
                 bidderDrain: async () => undefined,
