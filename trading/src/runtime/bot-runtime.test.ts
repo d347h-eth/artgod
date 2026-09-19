@@ -2,15 +2,19 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { TRADING_BOT_KIND } from "@artgod/shared/types";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toErrorLogFields } from "../utils/bidding-log.js";
 import { bootstrapTradingBot } from "./bot-runtime.js";
-import type { startBiddingRuntime as StartBiddingRuntime } from "./bidding-runtime.js";
+import {
+    BIDDING_RUNTIME_BOOTSTRAP_PHASE,
+    type startBiddingRuntime as StartBiddingRuntime,
+} from "./bidding-runtime.js";
 import { createSecretEnvelopeTestFrame } from "./secret-envelope-test-fixture.js";
 
 const mocks = vi.hoisted(() => ({
     frame: undefined as Buffer | undefined,
     releaseAfterCleanup: vi.fn(),
+    initRuntimeMetrics: vi.fn(),
     stopMetrics: vi.fn(async () => undefined),
     startBiddingRuntime: vi.fn(),
     wethAllowanceCapWei: 500000000000000000n,
@@ -47,24 +51,34 @@ vi.mock("../config/trading-config.js", () => ({
     })),
 }));
 
-vi.mock("@artgod/shared/observability/metrics", () => ({
-    initRuntimeMetrics: vi.fn(async () => ({
-        metrics: {},
-        stop: mocks.stopMetrics,
-    })),
+vi.mock("@artgod/shared/observability/trading-metrics", () => ({
+    initRuntimeMetrics: mocks.initRuntimeMetrics,
+    noopMetrics: { kind: "noop" },
 }));
 
-vi.mock("./bidding-runtime.js", () => ({
-    startBiddingRuntime: mocks.startBiddingRuntime,
-}));
+vi.mock("./bidding-runtime.js", async (importOriginal) => {
+    const actual =
+        await importOriginal<typeof import("./bidding-runtime.js")>();
+    return {
+        ...actual,
+        startBiddingRuntime: mocks.startBiddingRuntime,
+    };
+});
 
 type StartBiddingRuntimeParams = Parameters<typeof StartBiddingRuntime>[0];
+
+beforeEach(() => {
+    mocks.frame = undefined;
+    mocks.wethAllowanceCapWei = 500000000000000000n;
+    mocks.initRuntimeMetrics.mockResolvedValue({
+        metrics: {},
+        stop: mocks.stopMetrics,
+    });
+});
 
 afterEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
-    mocks.frame = undefined;
-    mocks.wethAllowanceCapWei = 500000000000000000n;
 });
 
 describe("bootstrapTradingBot", () => {
@@ -85,7 +99,7 @@ describe("bootstrapTradingBot", () => {
 
                 // Exercise the supervisor lifecycle boundary after the secret frame is gone.
                 params.lifecycle.progress({
-                    phase: "allowance_approval",
+                    phase: BIDDING_RUNTIME_BOOTSTRAP_PHASE.AllowanceApproval,
                     completed: 0,
                     total: 1,
                     detail: "bootstrap test",
@@ -133,6 +147,59 @@ describe("bootstrapTradingBot", () => {
         expect(mocks.startBiddingRuntime).not.toHaveBeenCalled();
         expect(mocks.stopMetrics).not.toHaveBeenCalled();
         expect(fixture.frame.every((byte) => byte === 0)).toBe(true);
+        expect(mocks.releaseAfterCleanup).toHaveBeenCalledOnce();
+    });
+
+    it("continues bidding with no-op metrics when the optional listener cannot bind", async () => {
+        const fixture = createSecretEnvelopeTestFrame();
+        const listenerFailure = new Error("address already in use");
+        mocks.frame = fixture.frame;
+        mocks.initRuntimeMetrics.mockRejectedValueOnce(listenerFailure);
+        mocks.startBiddingRuntime.mockRejectedValueOnce(
+            new Error("stop after composition"),
+        );
+        const logSpy = vi
+            .spyOn(console, "error")
+            .mockImplementation(() => undefined);
+
+        await expect(
+            bootstrapTradingBot(TRADING_BOT_KIND.Bidding),
+        ).rejects.toThrow("stop after composition");
+
+        expect(mocks.startBiddingRuntime).toHaveBeenCalledWith(
+            expect.objectContaining({ metrics: { kind: "noop" } }),
+        );
+        expect(mocks.stopMetrics).not.toHaveBeenCalled();
+        expect(logSpy).toHaveBeenCalledWith(
+            expect.stringContaining(
+                "Metrics endpoint unavailable; bidding will continue",
+            ),
+        );
+        expect(mocks.releaseAfterCleanup).toHaveBeenCalledOnce();
+    });
+
+    it("preserves the runtime failure when optional metrics cleanup also fails", async () => {
+        const fixture = createSecretEnvelopeTestFrame();
+        const runtimeFailure = new Error("runtime composition unavailable");
+        mocks.frame = fixture.frame;
+        mocks.startBiddingRuntime.mockRejectedValueOnce(runtimeFailure);
+        mocks.stopMetrics.mockRejectedValueOnce(
+            new Error("metrics listener close failed"),
+        );
+        const logSpy = vi
+            .spyOn(console, "error")
+            .mockImplementation(() => undefined);
+
+        await expect(
+            bootstrapTradingBot(TRADING_BOT_KIND.Bidding),
+        ).rejects.toBe(runtimeFailure);
+
+        expect(mocks.stopMetrics).toHaveBeenCalledOnce();
+        expect(logSpy).toHaveBeenCalledWith(
+            expect.stringContaining(
+                "Metrics endpoint did not close cleanly; the bidding runtime result remains authoritative",
+            ),
+        );
         expect(mocks.releaseAfterCleanup).toHaveBeenCalledOnce();
     });
 });

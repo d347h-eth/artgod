@@ -20,11 +20,40 @@ export type TokenBucketRateLimitOptions = {
     priority?: TokenBucketRateLimitPriority;
 };
 
+// Stable priority labels translate internal scheduling ranks into operator-facing metrics.
+export const TOKEN_BUCKET_RATE_LIMIT_PRIORITY_LABEL = {
+    Background: "background",
+    UserCommand: "user_command",
+} as const;
+
+export type TokenBucketRateLimitPriorityLabel =
+    (typeof TOKEN_BUCKET_RATE_LIMIT_PRIORITY_LABEL)[keyof typeof TOKEN_BUCKET_RATE_LIMIT_PRIORITY_LABEL];
+
+// Wait outcomes distinguish immediate token admission from queued rate-limit work.
+export const TOKEN_BUCKET_RATE_LIMIT_WAIT_OUTCOME = {
+    Immediate: "immediate",
+    Queued: "queued",
+} as const;
+
+export type TokenBucketRateLimitWaitOutcome =
+    (typeof TOKEN_BUCKET_RATE_LIMIT_WAIT_OUTCOME)[keyof typeof TOKEN_BUCKET_RATE_LIMIT_WAIT_OUTCOME];
+
+// TokenBucketRateLimiterObservabilityPort reports queue depth and actual admission wait.
+export interface TokenBucketRateLimiterObservabilityPort {
+    onRateLimitQueueDepthChanged(count: number): void;
+    onRateLimitWaitFinished(input: {
+        priority: TokenBucketRateLimitPriority;
+        waitMs: number;
+        outcome: TokenBucketRateLimitWaitOutcome;
+    }): void;
+}
+
 interface PendingRateLimitRequest {
     getCost: number;
     postCost: number;
     priority: TokenBucketRateLimitPriority;
     sequence: number;
+    requestedAt: number;
     resolve: () => void;
 }
 
@@ -45,6 +74,7 @@ export class TokenBucketRateLimiter {
     constructor(
         config: TokenBucketRateLimiterConfig,
         private readonly nowMs: ClockFn = Date.now,
+        private readonly observability?: TokenBucketRateLimiterObservabilityPort,
     ) {
         this.getMax = Math.max(1, config.getMax);
         this.postMax = Math.max(1, config.postMax);
@@ -53,6 +83,7 @@ export class TokenBucketRateLimiter {
         this.getTokens = this.getMax;
         this.postTokens = this.postMax;
         this.lastRefillAt = this.nowMs();
+        this.observeQueueDepthChanged(0);
     }
 
     public async wait(
@@ -70,6 +101,11 @@ export class TokenBucketRateLimiter {
             this.canSatisfy(getCost, postCost)
         ) {
             this.consume(getCost, postCost);
+            this.observeWaitFinished(
+                options.priority ?? TOKEN_BUCKET_RATE_LIMIT_PRIORITY.Background,
+                0,
+                TOKEN_BUCKET_RATE_LIMIT_WAIT_OUTCOME.Immediate,
+            );
             return;
         }
 
@@ -81,9 +117,11 @@ export class TokenBucketRateLimiter {
                     options.priority ??
                     TOKEN_BUCKET_RATE_LIMIT_PRIORITY.Background,
                 sequence: this.nextSequence,
+                requestedAt: this.nowMs(),
                 resolve,
             });
             this.nextSequence += 1;
+            this.observeQueueDepthChanged(this.pendingRequests.length);
             this.scheduleDrain(0);
         });
     }
@@ -116,11 +154,14 @@ export class TokenBucketRateLimiter {
         }
 
         this.drainTimerAt = runAt;
-        this.drainTimer = setTimeout(() => {
-            this.drainTimer = undefined;
-            this.drainTimerAt = undefined;
-            this.drainQueue();
-        }, Math.max(0, Math.ceil(delayMs)));
+        this.drainTimer = setTimeout(
+            () => {
+                this.drainTimer = undefined;
+                this.drainTimerAt = undefined;
+                this.drainQueue();
+            },
+            Math.max(0, Math.ceil(delayMs)),
+        );
     }
 
     private drainQueue(): void {
@@ -135,7 +176,37 @@ export class TokenBucketRateLimiter {
 
             const [request] = this.pendingRequests.splice(nextIndex, 1);
             this.consume(request.getCost, request.postCost);
+            this.observeWaitFinished(
+                request.priority,
+                Math.max(0, this.nowMs() - request.requestedAt),
+                TOKEN_BUCKET_RATE_LIMIT_WAIT_OUTCOME.Queued,
+            );
+            this.observeQueueDepthChanged(this.pendingRequests.length);
             request.resolve();
+        }
+    }
+
+    private observeQueueDepthChanged(count: number): void {
+        try {
+            this.observability?.onRateLimitQueueDepthChanged(count);
+        } catch {
+            // Telemetry is best-effort and cannot block rate-limit admission or draining.
+        }
+    }
+
+    private observeWaitFinished(
+        priority: TokenBucketRateLimitPriority,
+        waitMs: number,
+        outcome: TokenBucketRateLimitWaitOutcome,
+    ): void {
+        try {
+            this.observability?.onRateLimitWaitFinished({
+                priority,
+                waitMs,
+                outcome,
+            });
+        } catch {
+            // Telemetry is best-effort and cannot change a completed rate-limit wait.
         }
     }
 
@@ -170,10 +241,7 @@ export class TokenBucketRateLimiter {
             .filter((request) => request.priority === highestPriority)
             .sort((left, right) => left.sequence - right.sequence)[0];
 
-        return this.computeWaitMs(
-            nextRequest.getCost,
-            nextRequest.postCost,
-        );
+        return this.computeWaitMs(nextRequest.getCost, nextRequest.postCost);
     }
 
     private computeWaitMs(getCost: number, postCost: number): number {

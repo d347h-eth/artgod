@@ -12,6 +12,8 @@ the supervised bot evaluates state and talks to marketplace and chain APIs.
 3. [Market data and scaling](03-market-data-and-scaling.md) — bid-book inputs,
    snapshot traversal and freshness, fallback behavior, and current scaling
    limits.
+4. [Bidding runtime observability](03-bidding-runtime-observability.md) — opt-in
+   desktop metrics, Grafana panels, latency, pressure, and operator recovery.
 
 Wallet custody is documented under
 [Desktop](../desktop/03-wallet-keystore-and-bot-unlock.md). Topic documents

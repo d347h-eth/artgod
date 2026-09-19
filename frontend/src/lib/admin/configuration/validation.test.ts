@@ -13,8 +13,9 @@ import {
 	BLOCK_EXPLORER_TX_PATH_TEMPLATE_ENV_KEY,
 	BLOCK_EXPLORER_VALIDATION_RULES
 } from '@artgod/shared/config/block-explorer';
-
+import { TCP_PORT_RANGE } from '@artgod/shared/config/tcp-port';
 import {
+	ADMIN_CONFIG_VALIDATION_RULES,
 	formatLaunchConfigIssueSummary,
 	resolveAdminConfigValidationIssues,
 	resolveAdminLaunchConfigIssues
@@ -29,7 +30,7 @@ const RPC_URL_FIELD: AdminConfigField = {
 	options: [],
 	help: '',
 	requiredForLaunch: true,
-	validation: 'rpc_endpoint_list',
+	validation: ADMIN_CONFIG_VALIDATION_RULES.rpcEndpointList,
 	view: 'basic'
 };
 
@@ -41,7 +42,7 @@ const RPC_WS_URL_FIELD: AdminConfigField = {
 	options: [],
 	help: '',
 	requiredForLaunch: false,
-	validation: 'websocket_endpoint_list',
+	validation: ADMIN_CONFIG_VALIDATION_RULES.websocketEndpointList,
 	view: 'basic'
 };
 
@@ -53,8 +54,20 @@ const DESKTOP_LOG_RETENTION_HOURS_FIELD: AdminConfigField = {
 	options: [],
 	help: '',
 	requiredForLaunch: false,
-	validation: 'positive_integer',
+	validation: ADMIN_CONFIG_VALIDATION_RULES.positiveInteger,
 	view: 'basic'
+};
+
+const METRICS_PORT_FIELD: AdminConfigField = {
+	key: 'TEST_METRICS_PORT',
+	label: 'metrics TCP port',
+	inputKind: 'text',
+	secret: false,
+	options: [],
+	help: '',
+	requiredForLaunch: false,
+	validation: ADMIN_CONFIG_VALIDATION_RULES.tcpPort,
+	view: 'advanced'
 };
 
 const BLOCK_EXPLORER_BASE_FIELD: AdminConfigField = {
@@ -260,6 +273,34 @@ describe('admin config validation', () => {
 		expect(issues.map((issue) => issue.message)).toEqual([
 			'DESKTOP_LOG_RETENTION_HOURS must be a positive whole number.'
 		]);
+	});
+
+	it('validates the operating-system TCP port range', () => {
+		expect(
+			resolveAdminConfigValidationIssues(
+				config({ TEST_METRICS_PORT: String(TCP_PORT_RANGE.Maximum) }, [METRICS_PORT_FIELD]),
+				{ TEST_METRICS_PORT: String(TCP_PORT_RANGE.Maximum) }
+			)
+		).toEqual([]);
+
+		const issues = resolveAdminConfigValidationIssues(
+			config({ TEST_METRICS_PORT: String(TCP_PORT_RANGE.Maximum + 1) }, [METRICS_PORT_FIELD]),
+			{ TEST_METRICS_PORT: String(TCP_PORT_RANGE.Maximum + 1) }
+		);
+
+		expect(issues).toHaveLength(1);
+		expect(issues[0]?.message).toBe(
+			`${METRICS_PORT_FIELD.label} must be a whole number from ${TCP_PORT_RANGE.Minimum} to ${TCP_PORT_RANGE.Maximum}.`
+		);
+
+		const blankIssues = resolveAdminConfigValidationIssues(
+			config({ TEST_METRICS_PORT: '' }, [METRICS_PORT_FIELD]),
+			{ TEST_METRICS_PORT: '' }
+		);
+		expect(blankIssues).toHaveLength(1);
+		expect(blankIssues[0]?.message).toBe(
+			`${METRICS_PORT_FIELD.label} must be a whole number from ${TCP_PORT_RANGE.Minimum} to ${TCP_PORT_RANGE.Maximum}.`
+		);
 	});
 
 	it('requires block explorer lookup templates to include their placeholders', () => {

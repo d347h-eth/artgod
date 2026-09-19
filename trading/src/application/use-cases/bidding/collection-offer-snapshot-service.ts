@@ -4,6 +4,12 @@ import {
     toErrorLogFields,
 } from "../../../utils/bidding-log.js";
 import { sleep } from "../../../utils/sleep.js";
+import { observeBestEffort } from "../../../utils/observe-best-effort.js";
+import {
+    BIDDING_WORK_STAGE,
+    observeBiddingWork,
+    type BiddingWorkObservabilityPort,
+} from "./bidding-work-observability.js";
 
 export interface CollectionOfferSnapshot {
     collectionSlug: string;
@@ -16,6 +22,7 @@ export interface CollectionOfferSnapshotMetrics {
     durationMs: number;
     pageCount: number;
     offerCount: number;
+    complete: boolean;
     firstPriceWei: string | null;
     lastPriceWei: string | null;
     minPriceWei: string | null;
@@ -26,6 +33,17 @@ export interface CollectionOfferSnapshotMetrics {
 export interface CollectionOfferSourceResult {
     offers: unknown[];
     metrics: CollectionOfferSnapshotMetrics;
+}
+
+// Carries completed pagination work when a later collection-offer source page fails.
+export class CollectionOfferSourceError extends Error {
+    constructor(
+        message: string,
+        public readonly metrics: CollectionOfferSnapshotMetrics,
+        public readonly sourceError: unknown,
+    ) {
+        super(message);
+    }
 }
 
 export interface CollectionOfferSource {
@@ -40,6 +58,7 @@ export function createCollectionOfferSnapshotMetrics(
         durationMs: 0,
         pageCount: 0,
         offerCount: 0,
+        complete: true,
         firstPriceWei: null,
         lastPriceWei: null,
         minPriceWei: null,
@@ -77,12 +96,64 @@ export interface CollectionOfferBootstrapOptions {
     onProgress?: (progress: CollectionOfferBootstrapProgress) => void;
 }
 
-export interface CollectionOfferSnapshotObserver {
-    onSnapshotRefreshed(
+export const COLLECTION_OFFER_FRESHNESS = {
+    Fresh: "fresh",
+    Stale: "stale",
+    Missing: "missing",
+} as const;
+export type CollectionOfferFreshnessHealth = {
+    counts: Record<
+        (typeof COLLECTION_OFFER_FRESHNESS)[keyof typeof COLLECTION_OFFER_FRESHNESS],
+        number
+    >;
+    backoffCollections: number;
+    oldestCompleteAtMs: number | null;
+};
+
+export interface CollectionOfferSnapshotObserver extends BiddingWorkObservabilityPort {
+    onSnapshotRefreshed?(
         snapshot: CollectionOfferSnapshot,
         reason: string,
     ): void;
+    onSnapshotRefreshRequest?(input: {
+        outcome: CollectionOfferRefreshOutcome;
+    }): void;
+    onSnapshotRefreshFinished?(input: {
+        durationMs: number;
+        pageCount: number;
+        offerCount: number;
+        result: CollectionOfferSnapshotRefreshResult;
+    }): void;
+    onSnapshotStateChanged?(input: {
+        watchedCollections: number;
+        inFlightRefreshes: number;
+        pendingRefreshes: number;
+    }): void;
 }
+
+// Stable refresh outcomes describe snapshot deduplication and freshness decisions.
+export const COLLECTION_OFFER_REFRESH_OUTCOME = {
+    Started: "started",
+    Coalesced: "coalesced",
+    FreshSkipped: "fresh_skipped",
+    JoinedInFlight: "joined_in_flight",
+    BackoffSkipped: "backoff_skipped",
+    Unwatched: "unwatched",
+    Stopped: "stopped",
+} as const;
+
+export type CollectionOfferRefreshOutcome =
+    (typeof COLLECTION_OFFER_REFRESH_OUTCOME)[keyof typeof COLLECTION_OFFER_REFRESH_OUTCOME];
+
+// Stable results distinguish complete snapshots from rejected partial data and source errors.
+export const COLLECTION_OFFER_SNAPSHOT_REFRESH_RESULT = {
+    Complete: "complete",
+    Partial: "partial",
+    Error: "error",
+} as const;
+
+export type CollectionOfferSnapshotRefreshResult =
+    (typeof COLLECTION_OFFER_SNAPSHOT_REFRESH_RESULT)[keyof typeof COLLECTION_OFFER_SNAPSHOT_REFRESH_RESULT];
 
 export interface CollectionOfferSnapshotFreshnessOptions {
     maxTtlMs?: number;
@@ -112,8 +183,12 @@ const COLLECTION_OFFER_SNAPSHOT_LOG_ACTION = {
     FreshSnapshotSkipped: "freshSnapshotSkipped",
     RefreshBackoffSkipped: "refreshBackoffSkipped",
     RefreshFailed: "refreshFailed",
+    PartialSnapshotRejected: "partialSnapshotRejected",
     SnapshotRefreshStarted: "snapshotRefreshStarted",
 } as const;
+
+type CollectionOfferSnapshotLogAction =
+    (typeof COLLECTION_OFFER_SNAPSHOT_LOG_ACTION)[keyof typeof COLLECTION_OFFER_SNAPSHOT_LOG_ACTION];
 
 const COLLECTION_OFFER_SNAPSHOT_FAILURE_BACKOFF_MULTIPLIER = 2;
 const COLLECTION_OFFER_SNAPSHOT_FAILURE_BACKOFF_MAX_EXPONENT = 6;
@@ -128,7 +203,13 @@ export class CollectionOfferSnapshotService
     private readonly refreshStates = new Map<string, CollectionRefreshState>();
     private readonly refreshMaxTtlMs: number;
     private readonly refreshDurationMultiplier: number;
+    private readonly observer?: CollectionOfferSnapshotObserver;
+    private activeRefreshCount = 0;
+    private pendingRefreshCount = 0;
+    private readonly activeRefreshPromises = new Set<Promise<void>>();
     private started = false;
+    private stopped = false;
+    private stopPromise?: Promise<void>;
     private pollTimer?: ReturnType<typeof setTimeout>;
 
     constructor(
@@ -136,9 +217,12 @@ export class CollectionOfferSnapshotService
         collectionSlugs: string[],
         private readonly pollIntervalMs: number,
         private readonly refreshTtlMs: number,
-        private readonly observer?: CollectionOfferSnapshotObserver,
+        observer?: CollectionOfferSnapshotObserver,
         freshnessOptions: CollectionOfferSnapshotFreshnessOptions = {},
     ) {
+        this.observer = observer
+            ? createBestEffortSnapshotObserver(observer)
+            : undefined;
         this.watchedCollectionSlugs = new Set(collectionSlugs);
         this.refreshMaxTtlMs = Math.max(
             this.refreshTtlMs,
@@ -150,11 +234,12 @@ export class CollectionOfferSnapshotService
             freshnessOptions.durationMultiplier > 0
                 ? freshnessOptions.durationMultiplier
                 : 1;
+        this.reportState();
     }
 
     // start begins TTL-aware polling for watched collections; per-collection refreshes remain serialized.
     public start(): void {
-        if (this.started) {
+        if (this.started || this.stopped) {
             return;
         }
 
@@ -164,13 +249,29 @@ export class CollectionOfferSnapshotService
         }
     }
 
-    // stop cancels the recurring poll timer so the runtime can shut down cleanly.
-    public stop(): void {
+    // stop closes refresh admission, clears reruns, and resolves only after active source calls settle.
+    public stop(): Promise<void> {
+        if (this.stopPromise) {
+            return this.stopPromise;
+        }
+
         this.started = false;
+        this.stopped = true;
         if (this.pollTimer) {
             clearTimeout(this.pollTimer);
             this.pollTimer = undefined;
         }
+
+        for (const state of this.refreshStates.values()) {
+            this.clearPendingRequest(state);
+        }
+        this.reportState();
+
+        this.stopPromise = (async () => {
+            await Promise.allSettled(Array.from(this.activeRefreshPromises));
+            this.reportState();
+        })();
+        return this.stopPromise;
     }
 
     // bootstrap force-builds initial snapshots for all watched collections before steady-state bidding starts.
@@ -186,18 +287,22 @@ export class CollectionOfferSnapshotService
 
         await Promise.all(
             Array.from(this.watchedCollectionSlugs).map((collectionSlug) => {
-                options.onCollectionStarted?.({
-                    collectionSlug,
-                    completed,
-                    total,
+                observeBestEffort(() => {
+                    options.onCollectionStarted?.({
+                        collectionSlug,
+                        completed,
+                        total,
+                    });
                 });
                 return this.refreshAndWait(collectionSlug, "bootstrap").then(
                     () => {
                         completed += 1;
-                        options.onProgress?.({
-                            collectionSlug,
-                            completed,
-                            total,
+                        observeBestEffort(() => {
+                            options.onProgress?.({
+                                collectionSlug,
+                                completed,
+                                total,
+                            });
                         });
                     },
                 );
@@ -210,6 +315,40 @@ export class CollectionOfferSnapshotService
         return this.snapshots.get(collectionSlug) ?? null;
     }
 
+    // Evaluate time-dependent freshness from the actual adaptive policy, not base TTL alone.
+    public readFreshness(nowMs: number): CollectionOfferFreshnessHealth {
+        const counts = {
+            [COLLECTION_OFFER_FRESHNESS.Fresh]: 0,
+            [COLLECTION_OFFER_FRESHNESS.Stale]: 0,
+            [COLLECTION_OFFER_FRESHNESS.Missing]: 0,
+        };
+        let backoffCollections = 0;
+        let oldestCompleteAtMs: number | null = null;
+        for (const slug of this.watchedCollectionSlugs) {
+            const snapshot = this.snapshots.get(slug);
+            if (!snapshot) counts[COLLECTION_OFFER_FRESHNESS.Missing] += 1;
+            else {
+                const state =
+                    this.refreshTtlMs > 0 &&
+                    nowMs - snapshot.refreshedAt <
+                        this.getSnapshotFreshnessTtlMs(snapshot)
+                        ? COLLECTION_OFFER_FRESHNESS.Fresh
+                        : COLLECTION_OFFER_FRESHNESS.Stale;
+                counts[state] += 1;
+                oldestCompleteAtMs =
+                    oldestCompleteAtMs === null
+                        ? snapshot.refreshedAt
+                        : Math.min(oldestCompleteAtMs, snapshot.refreshedAt);
+            }
+            if (
+                (this.refreshStates.get(slug)?.nextEligibleRefreshAt ?? 0) >
+                nowMs
+            )
+                backoffCollections += 1;
+        }
+        return { counts, backoffCollections, oldestCompleteAtMs };
+    }
+
     // watchCollection adds a collection to snapshot management and starts polling it if the service is running.
     public watchCollection(collectionSlug: string): boolean {
         if (this.watchedCollectionSlugs.has(collectionSlug)) {
@@ -217,6 +356,7 @@ export class CollectionOfferSnapshotService
         }
 
         this.watchedCollectionSlugs.add(collectionSlug);
+        this.reportState();
         log.info("collectionWatched", "Added watched collection", {
             collectionSlug,
             watchedCollectionCount: this.watchedCollectionSlugs.size,
@@ -232,6 +372,7 @@ export class CollectionOfferSnapshotService
         if (!this.watchedCollectionSlugs.delete(collectionSlug)) {
             return false;
         }
+        this.reportState();
 
         log.info("collectionUnwatched", "Removed watched collection", {
             collectionSlug,
@@ -276,7 +417,17 @@ export class CollectionOfferSnapshotService
         collectionSlug: string,
         reason: string = "unspecified",
     ): void {
+        if (this.stopped) {
+            this.observer?.onSnapshotRefreshRequest?.({
+                outcome: COLLECTION_OFFER_REFRESH_OUTCOME.Stopped,
+            });
+            return;
+        }
+
         if (!this.watchedCollectionSlugs.has(collectionSlug)) {
+            this.observer?.onSnapshotRefreshRequest?.({
+                outcome: COLLECTION_OFFER_REFRESH_OUTCOME.Unwatched,
+            });
             return;
         }
 
@@ -291,11 +442,24 @@ export class CollectionOfferSnapshotService
         reason: string = "unspecified",
         options: CollectionOfferRefreshOptions = {},
     ): Promise<void> {
+        if (this.stopped) {
+            this.observer?.onSnapshotRefreshRequest?.({
+                outcome: COLLECTION_OFFER_REFRESH_OUTCOME.Stopped,
+            });
+            return;
+        }
+
         if (!this.watchedCollectionSlugs.has(collectionSlug)) {
+            this.observer?.onSnapshotRefreshRequest?.({
+                outcome: COLLECTION_OFFER_REFRESH_OUTCOME.Unwatched,
+            });
             return;
         }
 
         if (options.respectTtl && this.isSnapshotFresh(collectionSlug)) {
+            this.observer?.onSnapshotRefreshRequest?.({
+                outcome: COLLECTION_OFFER_REFRESH_OUTCOME.FreshSkipped,
+            });
             this.logFreshSnapshotSkip(collectionSlug, reason);
             return;
         }
@@ -307,7 +471,17 @@ export class CollectionOfferSnapshotService
             return;
         }
 
+        if (this.stopped) {
+            this.observer?.onSnapshotRefreshRequest?.({
+                outcome: COLLECTION_OFFER_REFRESH_OUTCOME.Stopped,
+            });
+            return;
+        }
+
         if (options.respectTtl && this.isRefreshBackoffActive(collectionSlug)) {
+            this.observer?.onSnapshotRefreshRequest?.({
+                outcome: COLLECTION_OFFER_REFRESH_OUTCOME.BackoffSkipped,
+            });
             this.logRefreshBackoffSkip(collectionSlug, reason);
             return;
         }
@@ -323,6 +497,10 @@ export class CollectionOfferSnapshotService
         if (!state?.refreshing || !state.inFlightPromise) {
             return false;
         }
+
+        this.observer?.onSnapshotRefreshRequest?.({
+            outcome: COLLECTION_OFFER_REFRESH_OUTCOME.JoinedInFlight,
+        });
 
         log.debug(
             "waitForFreshInFlightRefresh",
@@ -391,6 +569,10 @@ export class CollectionOfferSnapshotService
     ): Promise<void> {
         const state = this.getRefreshState(collectionSlug);
         if (state.refreshing) {
+            this.observer?.onSnapshotRefreshRequest?.({
+                outcome: COLLECTION_OFFER_REFRESH_OUTCOME.Coalesced,
+            });
+            const hadPendingRequest = state.pendingRequest !== undefined;
             state.pendingRequest = this.mergePendingRefreshRequest(
                 state.pendingRequest,
                 {
@@ -398,12 +580,21 @@ export class CollectionOfferSnapshotService
                     respectTtl: options.respectTtl === true,
                 },
             );
+            if (!hadPendingRequest) {
+                this.pendingRefreshCount += 1;
+            }
+            this.reportState();
             return await (state.inFlightPromise ?? Promise.resolve());
         }
 
+        this.observer?.onSnapshotRefreshRequest?.({
+            outcome: COLLECTION_OFFER_REFRESH_OUTCOME.Started,
+        });
         state.refreshing = true;
+        this.activeRefreshCount += 1;
+        this.reportState();
         let nextReason = reason;
-        state.inFlightPromise = (async () => {
+        const inFlightPromise = (async () => {
             try {
                 while (true) {
                     log.debug(
@@ -417,9 +608,27 @@ export class CollectionOfferSnapshotService
                     state.lastStartedAt = Date.now();
                     let sourceResult: CollectionOfferSourceResult;
                     try {
-                        sourceResult =
-                            await this.source.getAllOffers(collectionSlug);
+                        sourceResult = await observeBiddingWork(
+                            this.observer,
+                            BIDDING_WORK_STAGE.SnapshotFetch,
+                            () => this.source.getAllOffers(collectionSlug),
+                            (result) => result.metrics.complete,
+                        );
                     } catch (error: unknown) {
+                        const failedMetrics =
+                            error instanceof CollectionOfferSourceError
+                                ? error.metrics
+                                : createCollectionOfferSnapshotMetrics({
+                                      durationMs:
+                                          Date.now() - state.lastStartedAt,
+                                      complete: false,
+                                  });
+                        this.observer?.onSnapshotRefreshFinished?.({
+                            durationMs: failedMetrics.durationMs,
+                            pageCount: failedMetrics.pageCount,
+                            offerCount: failedMetrics.offerCount,
+                            result: COLLECTION_OFFER_SNAPSHOT_REFRESH_RESULT.Error,
+                        });
                         this.recordRefreshFailure(
                             state,
                             collectionSlug,
@@ -428,6 +637,32 @@ export class CollectionOfferSnapshotService
                         );
                         throw error;
                     }
+
+                    const refreshResult = sourceResult.metrics.complete
+                        ? COLLECTION_OFFER_SNAPSHOT_REFRESH_RESULT.Complete
+                        : COLLECTION_OFFER_SNAPSHOT_REFRESH_RESULT.Partial;
+                    this.observer?.onSnapshotRefreshFinished?.({
+                        durationMs: sourceResult.metrics.durationMs,
+                        pageCount: sourceResult.metrics.pageCount,
+                        offerCount: sourceResult.metrics.offerCount,
+                        result: refreshResult,
+                    });
+
+                    if (!sourceResult.metrics.complete) {
+                        const error = new Error(
+                            "OpenSea returned a partial collection offer snapshot",
+                        );
+                        this.recordRefreshFailure(
+                            state,
+                            collectionSlug,
+                            nextReason,
+                            error,
+                            COLLECTION_OFFER_SNAPSHOT_LOG_ACTION.PartialSnapshotRejected,
+                            "Incomplete pagination rejected; retrying without changing authoritative collection offers",
+                        );
+                        throw error;
+                    }
+
                     this.recordRefreshSuccess(state);
                     this.logSnapshotSummary(
                         collectionSlug,
@@ -443,18 +678,18 @@ export class CollectionOfferSnapshotService
                     const snapshot = this.snapshots.get(collectionSlug);
                     if (snapshot) {
                         // Notify read-model observers after the authoritative snapshot has been replaced.
-                        this.observer?.onSnapshotRefreshed(
+                        this.observer?.onSnapshotRefreshed?.(
                             snapshot,
                             nextReason,
                         );
                     }
 
-                    const pendingRequest = state.pendingRequest;
+                    const pendingRequest = this.takePendingRequest(state);
                     if (!pendingRequest) {
                         return;
                     }
 
-                    state.pendingRequest = undefined;
+                    this.reportState();
                     if (
                         pendingRequest.respectTtl &&
                         this.isSnapshotFresh(collectionSlug)
@@ -470,12 +705,20 @@ export class CollectionOfferSnapshotService
                 }
             } finally {
                 state.refreshing = false;
-                state.pendingRequest = undefined;
+                this.activeRefreshCount -= 1;
+                this.clearPendingRequest(state);
                 state.inFlightPromise = undefined;
+                this.reportState();
             }
         })();
+        state.inFlightPromise = inFlightPromise;
+        this.activeRefreshPromises.add(inFlightPromise);
+        void inFlightPromise.then(
+            () => this.activeRefreshPromises.delete(inFlightPromise),
+            () => this.activeRefreshPromises.delete(inFlightPromise),
+        );
 
-        return await state.inFlightPromise;
+        return await inFlightPromise;
     }
 
     private getRefreshState(collectionSlug: string): CollectionRefreshState {
@@ -486,6 +729,29 @@ export class CollectionOfferSnapshotService
         }
 
         return state;
+    }
+
+    private takePendingRequest(
+        state: CollectionRefreshState,
+    ): PendingRefreshRequest | undefined {
+        const pendingRequest = state.pendingRequest;
+        if (pendingRequest) {
+            state.pendingRequest = undefined;
+            this.pendingRefreshCount -= 1;
+        }
+        return pendingRequest;
+    }
+
+    private clearPendingRequest(state: CollectionRefreshState): void {
+        this.takePendingRequest(state);
+    }
+
+    private reportState(): void {
+        this.observer?.onSnapshotStateChanged?.({
+            watchedCollections: this.watchedCollectionSlugs.size,
+            inFlightRefreshes: this.activeRefreshCount,
+            pendingRefreshes: this.pendingRefreshCount,
+        });
     }
 
     private scheduleNextPoll(): void {
@@ -594,6 +860,8 @@ export class CollectionOfferSnapshotService
         collectionSlug: string,
         reason: string,
         error: unknown,
+        action: CollectionOfferSnapshotLogAction = COLLECTION_OFFER_SNAPSHOT_LOG_ACTION.RefreshFailed,
+        message: string = "Collection offer snapshot refresh failed; retrying without changing authoritative collection offers",
     ): void {
         state.failureCount += 1;
         state.lastError =
@@ -615,18 +883,14 @@ export class CollectionOfferSnapshotService
             rawBackoffMs + jitterMs,
         );
         state.nextEligibleRefreshAt = Date.now() + backoffMs;
-        log.warn(
-            COLLECTION_OFFER_SNAPSHOT_LOG_ACTION.RefreshFailed,
-            "Collection offer snapshot refresh failed",
-            {
-                collectionSlug,
-                reason,
-                failureCount: state.failureCount,
-                backoffMs,
-                nextEligibleRefreshAt: state.nextEligibleRefreshAt,
-                ...toErrorLogFields(error),
-            },
-        );
+        log.warn(action, message, {
+            collectionSlug,
+            reason,
+            failureCount: state.failureCount,
+            backoffMs,
+            nextEligibleRefreshAt: state.nextEligibleRefreshAt,
+            ...toErrorLogFields(error),
+        });
     }
 
     private logSnapshotSummary(
@@ -770,4 +1034,28 @@ export class CollectionOfferSnapshotService
             traitTypes: Array.from(seenTraitTypes).sort(),
         });
     }
+}
+
+function createBestEffortSnapshotObserver(
+    observer: CollectionOfferSnapshotObserver,
+): CollectionOfferSnapshotObserver {
+    return {
+        onWorkStarted: (stage) => observer.onWorkStarted?.(stage) ?? (() => {}),
+        onSnapshotRefreshed(snapshot, reason) {
+            observeBestEffort(() =>
+                observer.onSnapshotRefreshed?.(snapshot, reason),
+            );
+        },
+        onSnapshotRefreshRequest(input) {
+            observeBestEffort(() => observer.onSnapshotRefreshRequest?.(input));
+        },
+        onSnapshotRefreshFinished(input) {
+            observeBestEffort(() =>
+                observer.onSnapshotRefreshFinished?.(input),
+            );
+        },
+        onSnapshotStateChanged(input) {
+            observeBestEffort(() => observer.onSnapshotStateChanged?.(input));
+        },
+    };
 }

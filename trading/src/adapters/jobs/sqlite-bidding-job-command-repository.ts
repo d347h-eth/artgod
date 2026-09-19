@@ -10,6 +10,12 @@ import type {
     BiddingJobCommand,
     BiddingJobCommandRepository,
 } from "../../application/use-cases/bidding/bidding-job-command-repository.js";
+import {
+    BIDDING_COMMAND_QUEUE_STATUS,
+    type BiddingCommandQueueHealth,
+    type BiddingCommandQueueHealthPort,
+    type BiddingCommandQueueStatus,
+} from "../../application/use-cases/bidding/bidding-command-queue-health.js";
 
 type TradingJobCommandRow = {
     command_id: number;
@@ -19,9 +25,14 @@ type TradingJobCommandRow = {
     requested_revision: number;
     payload_json: string;
     attempts: number;
+    created_at: string | null;
+    claimed_at: string | null;
 };
 
-export class SqliteBiddingJobCommandRepository implements BiddingJobCommandRepository {
+export class SqliteBiddingJobCommandRepository
+    implements BiddingJobCommandRepository, BiddingCommandQueueHealthPort
+{
+    private readonly selectQueueHealth;
     private readonly selectClaimableCommands: BetterSqlite3NamedStatement<{
         botKind: typeof TRADING_BOT_KIND.Bidding;
         claimCutoff: string;
@@ -45,12 +56,26 @@ export class SqliteBiddingJobCommandRepository implements BiddingJobCommandRepos
     }>;
 
     constructor() {
+        // Group in SQLite rather than materializing the queue; ignore unbounded completed history.
+        this.selectQueueHealth = db.prepare<{
+            botKind: string;
+            pending: string;
+            retrying: string;
+            processing: string;
+            failedTerminal: string;
+            claimCutoff: string;
+        }>(
+            "SELECT status, COUNT(*) AS count, MIN(created_at) AS oldest_created_at, " +
+                "SUM(CASE WHEN status = @processing AND claimed_at < @claimCutoff THEN 1 ELSE 0 END) AS stale_processing " +
+                "FROM trading_job_commands WHERE bot_kind = @botKind AND completed_at IS NULL " +
+                "AND status IN (@pending, @retrying, @processing, @failedTerminal) GROUP BY status",
+        );
         this.selectClaimableCommands = db.prepare<{
             botKind: typeof TRADING_BOT_KIND.Bidding;
             claimCutoff: string;
             limit: number;
         }>(
-            "SELECT command_id, job_id, command_kind, status, requested_revision, payload_json, attempts " +
+            "SELECT command_id, job_id, command_kind, status, requested_revision, payload_json, attempts, created_at, claimed_at " +
                 "FROM trading_job_commands " +
                 "WHERE bot_kind = @botKind " +
                 "AND completed_at IS NULL " +
@@ -64,12 +89,12 @@ export class SqliteBiddingJobCommandRepository implements BiddingJobCommandRepos
 
         this.claimCommandById = db.prepare<{ commandId: number }>(
             "UPDATE trading_job_commands SET " +
-                "status = 'processing', attempts = attempts + 1, claimed_at = CURRENT_TIMESTAMP, last_error = NULL " +
+                "status = 'processing', attempts = attempts + 1, claimed_at = STRFTIME('%Y-%m-%d %H:%M:%f', 'now'), last_error = NULL " +
                 "WHERE command_id = @commandId",
         ) as BetterSqlite3NamedStatement<{ commandId: number }>;
 
         this.selectCommandById = db.prepare<{ commandId: number }>(
-            "SELECT command_id, job_id, command_kind, status, requested_revision, payload_json, attempts " +
+            "SELECT command_id, job_id, command_kind, status, requested_revision, payload_json, attempts, created_at, claimed_at " +
                 "FROM trading_job_commands WHERE command_id = @commandId LIMIT 1",
         ) as BetterSqlite3NamedStatement<{ commandId: number }>;
 
@@ -124,13 +149,67 @@ export class SqliteBiddingJobCommandRepository implements BiddingJobCommandRepos
                         `Failed to reload claimed trading job command ${row.command_id}`,
                     );
                 }
-                return this.mapRow(claimed);
+                return {
+                    ...this.mapRow(claimed),
+                    reclaimed:
+                        row.status === TRADING_JOB_COMMAND_STATUS.Processing,
+                };
             });
         })();
     }
 
     async markCompleted(commandId: number): Promise<void> {
         this.completeCommandById.run({ commandId });
+    }
+
+    async readQueueHealth(
+        claimTimeoutMs: number,
+    ): Promise<BiddingCommandQueueHealth> {
+        const rows = this.selectQueueHealth.all({
+            botKind: TRADING_BOT_KIND.Bidding,
+            pending: BIDDING_COMMAND_QUEUE_STATUS.Pending,
+            retrying: BIDDING_COMMAND_QUEUE_STATUS.Retrying,
+            processing: BIDDING_COMMAND_QUEUE_STATUS.Processing,
+            failedTerminal: BIDDING_COMMAND_QUEUE_STATUS.FailedTerminal,
+            claimCutoff: formatSqliteTimestamp(
+                new Date(Date.now() - claimTimeoutMs),
+            ),
+        }) as Array<{
+            status: BiddingCommandQueueStatus;
+            count: number;
+            oldest_created_at: string | null;
+            stale_processing: number;
+        }>;
+        const counts = Object.fromEntries(
+            Object.values(BIDDING_COMMAND_QUEUE_STATUS).map((status) => [
+                status,
+                0,
+            ]),
+        ) as BiddingCommandQueueHealth["counts"];
+        let oldestPendingAtMs: number | null = null;
+        let staleProcessing = 0;
+        for (const row of rows) {
+            counts[row.status] = row.count;
+            staleProcessing += row.stale_processing;
+            if (
+                (row.status === BIDDING_COMMAND_QUEUE_STATUS.Pending ||
+                    row.status === BIDDING_COMMAND_QUEUE_STATUS.Retrying) &&
+                row.oldest_created_at
+            ) {
+                const time = Date.parse(
+                    row.oldest_created_at.replace(" ", "T") + "Z",
+                );
+                if (!Number.isFinite(time))
+                    throw new Error(
+                        "Invalid durable command queue creation timestamp",
+                    );
+                oldestPendingAtMs =
+                    oldestPendingAtMs === null
+                        ? time
+                        : Math.min(oldestPendingAtMs, time);
+            }
+        }
+        return { counts, oldestPendingAtMs, staleProcessing };
     }
 
     async markFailedRetry(commandId: number, error: string): Promise<void> {
@@ -150,6 +229,12 @@ export class SqliteBiddingJobCommandRepository implements BiddingJobCommandRepos
     }
 
     private mapRow(row: TradingJobCommandRow): BiddingJobCommand {
+        if (!row.created_at || !row.claimed_at) {
+            throw new Error(
+                `Claimed trading job command ${row.command_id} is missing lifecycle timestamps`,
+            );
+        }
+
         return {
             commandId: row.command_id,
             jobId: row.job_id,
@@ -158,6 +243,16 @@ export class SqliteBiddingJobCommandRepository implements BiddingJobCommandRepos
             requestedRevision: row.requested_revision,
             payload: this.parsePayload(row),
             attempts: row.attempts,
+            createdAtMs: parseSqliteTimestampMs(
+                row.created_at,
+                row.command_id,
+                "created_at",
+            ),
+            claimedAtMs: parseSqliteTimestampMs(
+                row.claimed_at,
+                row.command_id,
+                "claimed_at",
+            ),
         };
     }
 
@@ -179,4 +274,18 @@ export class SqliteBiddingJobCommandRepository implements BiddingJobCommandRepos
 
 function formatSqliteTimestamp(date: Date): string {
     return date.toISOString().replace("T", " ").slice(0, 19);
+}
+
+function parseSqliteTimestampMs(
+    value: string,
+    commandId: number,
+    field: "created_at" | "claimed_at",
+): number {
+    const timestampMs = Date.parse(`${value.replace(" ", "T")}Z`);
+    if (!Number.isFinite(timestampMs)) {
+        throw new Error(
+            `Claimed trading job command ${commandId} has invalid ${field}`,
+        );
+    }
+    return timestampMs;
 }

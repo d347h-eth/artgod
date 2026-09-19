@@ -9,6 +9,12 @@ export const TRADING_METRICS_WORKER = {
 // Log component emitted by the shared runtime metrics bootstrapper.
 export const TRADING_METRICS_LOG_COMPONENT = "TradingMetrics";
 
+// Log actions describe metrics-endpoint lifecycle decisions without duplicating query vocabulary.
+export const TRADING_METRICS_LOG_ACTION = {
+    EndpointUnavailable: "endpointUnavailable",
+    EndpointShutdownFailed: "endpointShutdownFailed",
+} as const;
+
 // Component labels that split trading RPC metrics by integration lane.
 export const TRADING_RPC_OBSERVABILITY_COMPONENT = {
     BiddingReadOnlyViem: "bidding-read-only-viem-rpc",

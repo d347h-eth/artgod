@@ -16,6 +16,16 @@ pub(crate) const RPC_AUTO_SOURCING_TRACKING_POLICY_ENV_KEY: &str =
 // Env key for the optional local media-cache directory shared by runtime children.
 pub(crate) const COMMON_MEDIA_CACHE_DIR_ENV_KEY: &str = "COMMON_MEDIA_CACHE_DIR";
 
+/// Env key that enables the bidding bot Prometheus endpoint.
+pub(crate) const TRADING_METRICS_ENABLED_ENV_KEY: &str = "TRADING_METRICS_ENABLED";
+
+/// Env key for the desktop-owned bidding metrics network interface.
+pub(crate) const TRADING_METRICS_HOST_ENV_KEY: &str = "TRADING_METRICS_HOST";
+
+/// Env key for the bidding bot Prometheus TCP port.
+pub(crate) const TRADING_METRICS_PORT_BIDDING_BOT_ENV_KEY: &str =
+    "TRADING_METRICS_PORT_BIDDING_BOT";
+
 // Env key for the per-attempt timeout shared by ordinary HTTP fetches.
 pub(crate) const COMMON_HTTP_FETCH_TIMEOUT_MS_ENV_KEY: &str = "COMMON_HTTP_FETCH_TIMEOUT_MS";
 

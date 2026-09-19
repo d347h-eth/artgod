@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RPC_ENDPOINT_LIST_ENV_KEY } from '@artgod/shared/config/rpc-endpoints';
+import { SETTINGS_VALIDATION_RULE } from '@artgod/shared/config/generated-settings-validation-rules';
 
 import {
 	ADMIN_ACTION_FLOW_LABELS,
@@ -40,7 +41,7 @@ function configState(
 						options: [],
 						help: '',
 						requiredForLaunch: true,
-						validation: 'rpc_endpoint_list',
+						validation: SETTINGS_VALIDATION_RULE.RpcEndpointList,
 						view: 'basic'
 					}
 				]

@@ -7,7 +7,21 @@ import { db, setDbPath } from "@artgod/shared/database";
 import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { COLLECTION_STANDARD, COLLECTION_STATUS } from "@artgod/shared/types";
+import { createPrometheusMetrics } from "@artgod/shared/observability/metrics";
 import { createCollectionOfferSnapshotMetrics } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
+import {
+    BIDDING_BID_BOOK_PROJECTION_OUTCOME,
+    BiddingBidBookProjectionScheduler,
+    type BiddingBidBookProjectionOutcome,
+} from "../../application/use-cases/bidding/bidding-bid-book-projection.js";
+import { BIDDING_WORK_STAGE } from "../../application/use-cases/bidding/bidding-work-observability.js";
+import { BiddingRuntimeMetrics } from "../observability/bidding-runtime-metrics.js";
+import {
+    BIDDING_RUNTIME_METRIC_LABEL,
+    BIDDING_RUNTIME_METRIC_NAME,
+    BIDDING_RUNTIME_METRIC_RESULT,
+} from "../observability/bidding-runtime-metric-contract.js";
+import { TRADING_METRICS_PREFIX } from "../../runtime/observability.js";
 import { SqliteBiddingBidBookProjection } from "./sqlite-bidding-bid-book-projection.js";
 
 // Projection tests target a fixture OpenSea slug instead of the preset market slug.
@@ -140,6 +154,156 @@ describe("SqliteBiddingBidBookProjection", () => {
         const migrationRunner = createMigrationRunner();
         await migrationRunner.runMigrations();
         collectionId = seedCollection();
+    });
+
+    it("keeps skipped writes unpublished but publishes a valid empty bid book", async () => {
+        const missingSlug = "missing-projection-collection";
+        const projection = new SqliteBiddingBidBookProjection(
+            1,
+            OWNER_ADDRESS,
+            WETH_ADDRESS,
+        );
+        const metrics = await createPrometheusMetrics({
+            prefix: TRADING_METRICS_PREFIX,
+            collectProcessMetrics: false,
+        });
+        if (!metrics) throw new Error("prom-client is required for this test");
+        const observability = new BiddingRuntimeMetrics(metrics);
+        const outcomes: BiddingBidBookProjectionOutcome[] = [];
+        let finishProjection!: () => void;
+        const scheduler = new BiddingBidBookProjectionScheduler(
+            projection,
+            0,
+            {
+                onWorkStarted: (stage) => observability.onWorkStarted(stage),
+                onProjectionRequested: (input) =>
+                    observability.onProjectionRequested(input),
+                onProjectionFinished: (input) => {
+                    observability.onProjectionFinished(input);
+                    outcomes.push(input.outcome);
+                    finishProjection();
+                },
+                onProjectionStateChanged: (input) =>
+                    observability.onProjectionStateChanged(input),
+            },
+            [missingSlug],
+        );
+        const snapshot = {
+            collectionSlug: missingSlug,
+            refreshedAt: 1234,
+            offers: [],
+            metrics: createCollectionOfferSnapshotMetrics(),
+        };
+        const publish = async () => {
+            const finished = new Promise<void>((resolve) => {
+                finishProjection = resolve;
+            });
+            scheduler.requestProjection(snapshot, "publication regression");
+            await finished;
+        };
+        const metricValue = (scrape: string, name: string, label: string) =>
+            Number(
+                scrape
+                    .split("\n")
+                    .find(
+                        (line) =>
+                            line.startsWith(
+                                `${TRADING_METRICS_PREFIX}${name}{`,
+                            ) && line.includes(label),
+                    )
+                    ?.split(" ")
+                    .at(-1),
+            );
+        const stageLabel = `${BIDDING_RUNTIME_METRIC_LABEL.Stage}="${BIDDING_WORK_STAGE.BidBookPublication}"`;
+
+        try {
+            await publish();
+            assert.deepEqual(scheduler.readPublicationHealth(), {
+                watchedCollections: 1,
+                missingCollections: 1,
+                laggingCollections: 1,
+                oldestPublishedAtMs: null,
+                oldestPublishedSnapshotAtMs: null,
+            });
+            assert.equal(
+                db
+                    .prepare(
+                        "SELECT * FROM trading_bidding_collection_bid_book_state",
+                    )
+                    .all().length,
+                0,
+            );
+            const skipped = await metrics.metricsText();
+            assert.equal(
+                metricValue(
+                    skipped,
+                    BIDDING_RUNTIME_METRIC_NAME.WorkLastSuccess,
+                    stageLabel,
+                ),
+                0,
+            );
+            assert.ok(
+                metricValue(
+                    skipped,
+                    BIDDING_RUNTIME_METRIC_NAME.WorkLastProgress,
+                    stageLabel,
+                ) > 0,
+            );
+            assert.equal(
+                metricValue(
+                    skipped,
+                    `${BIDDING_RUNTIME_METRIC_NAME.BidBookProjectionDuration}_count`,
+                    `${BIDDING_RUNTIME_METRIC_LABEL.Result}="${BIDDING_BID_BOOK_PROJECTION_OUTCOME.Skipped}"`,
+                ),
+                1,
+            );
+
+            // The same empty snapshot becomes publishable once its local collection exists.
+            db.prepare<[string, number]>(
+                "UPDATE collections SET opensea_slug = ? WHERE collection_id = ?",
+            ).run(missingSlug, collectionId);
+            await publish();
+            const health = scheduler.readPublicationHealth();
+            assert.equal(health.missingCollections, 0);
+            assert.equal(health.laggingCollections, 0);
+            assert.ok((health.oldestPublishedAtMs ?? 0) > 0);
+            assert.equal(
+                health.oldestPublishedSnapshotAtMs,
+                snapshot.refreshedAt,
+            );
+            const state = db
+                .prepare<
+                    [number]
+                >("SELECT snapshot_refreshed_at_ms, row_count, last_error " + "FROM trading_bidding_collection_bid_book_state WHERE collection_id = ?")
+                .get(collectionId);
+            assert.deepEqual(state, {
+                snapshot_refreshed_at_ms: snapshot.refreshedAt,
+                row_count: 0,
+                last_error: null,
+            });
+            const published = await metrics.metricsText();
+            assert.ok(
+                metricValue(
+                    published,
+                    BIDDING_RUNTIME_METRIC_NAME.WorkLastSuccess,
+                    stageLabel,
+                ) > 0,
+            );
+            assert.equal(
+                metricValue(
+                    published,
+                    `${BIDDING_RUNTIME_METRIC_NAME.BidBookProjectionDuration}_count`,
+                    `${BIDDING_RUNTIME_METRIC_LABEL.Result}="${BIDDING_RUNTIME_METRIC_RESULT.Success}"`,
+                ),
+                1,
+            );
+            assert.deepEqual(outcomes, [
+                BIDDING_BID_BOOK_PROJECTION_OUTCOME.Skipped,
+                BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published,
+            ]);
+        } finally {
+            await scheduler.stop();
+        }
     });
 
     it("classifies OpenSea REST collection, trait, and token offers into displayable bid-book scopes", async () => {

@@ -20,6 +20,7 @@
 		normalizeRpcAutoSourcingTrackingPolicy
 	} from '@artgod/shared/config/rpc-auto-sourcing';
 	import { RPC_ENDPOINT_LIST_ENV_KEY } from '@artgod/shared/config/rpc-endpoints';
+	import { SETTINGS_VALIDATION_RULE } from '@artgod/shared/config/generated-settings-validation-rules';
 
 	type AdminConfigView = 'basic' | 'advanced';
 
@@ -45,7 +46,6 @@
 		onClose: () => void;
 	} = $props();
 
-	let appliedConfig = $state<AdminConfigState | null>(null);
 	let values = $state<Record<string, string>>({});
 	let autoLaunchOnStartup = $state(false);
 	let configView = $state<AdminConfigView>('basic');
@@ -58,14 +58,13 @@
 	const saveDisabled = $derived(formDisabled || validationIssues.length > 0);
 
 	$effect(() => {
-		if (!config || config === appliedConfig) {
+		if (!config) {
 			return;
 		}
 		applyConfigState(config);
 	});
 
 	function applyConfigState(next: AdminConfigState): void {
-		appliedConfig = next;
 		values = { ...next.values };
 		autoLaunchOnStartup = next.autoLaunchOnStartup;
 		clearRpcBenchmarkSummaries();
@@ -271,7 +270,7 @@
 											disabled={formDisabled}
 											invalid={validationIssue !== null}
 											validation={field.validation}
-											endpointLabel={field.validation === 'websocket_endpoint_list'
+											endpointLabel={field.validation === SETTINGS_VALIDATION_RULE.WebSocketEndpointList
 												? 'WebSocket endpoint'
 												: 'RPC endpoint'}
 											currentBenchmarkSummary={fieldSupportsRpcAutoSourcing(field)
@@ -410,7 +409,7 @@
 							<div class="admin-config-action-group admin-config-save-action-group">
 								{#if infraRunning}
 									<p class="admin-config-restart-note">
-										Saved changes apply after you stop and restart infra.
+										Saved changes apply after the affected ArtGod process restarts.
 									</p>
 								{/if}
 								<button type="submit" class="action-button-positive" disabled={saveDisabled}>
@@ -561,10 +560,27 @@
 		.admin-config-actions {
 			grid-template-columns: minmax(0, 1fr);
 			gap: 1rem;
+			margin-top: 1rem;
+			overflow-x: visible;
 		}
 
 		.admin-config-action-group:last-child {
 			justify-self: start;
+		}
+
+		.admin-config-save-action-group {
+			justify-content: flex-start;
+			flex-wrap: wrap;
+		}
+
+		.admin-config-restart-note {
+			text-align: left;
+		}
+
+		:global(.admin-setting-label-tooltip .info-tooltip-popup) {
+			left: 50%;
+			top: calc(100% + 0.45rem);
+			transform: translateX(-50%);
 		}
 	}
 </style>

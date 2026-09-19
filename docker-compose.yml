@@ -68,6 +68,7 @@ services:
             ]
         volumes:
             - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+            - ./observability/prometheus/bidding-runtime-alerts.json:/etc/prometheus/bidding-runtime-alerts.json:ro
             - prometheus-data:/prometheus
 
     grafana:

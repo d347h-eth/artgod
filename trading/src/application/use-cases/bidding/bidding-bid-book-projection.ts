@@ -4,8 +4,27 @@ import {
     createBiddingComponentLogger,
     toErrorLogFields,
 } from "../../../utils/bidding-log.js";
+import { observeBestEffort } from "../../../utils/observe-best-effort.js";
+import {
+    BIDDING_WORK_STAGE,
+    observeBiddingWork,
+    type BiddingWorkObservabilityPort,
+} from "./bidding-work-observability.js";
+
+// A settled adapter call may skip publication; failures are reported by throwing.
+export const BIDDING_BID_BOOK_PROJECTION_OUTCOME = {
+    Published: "published",
+    Skipped: "skipped",
+    Failed: "failed",
+} as const;
+
+export type BiddingBidBookProjectionOutcome =
+    (typeof BIDDING_BID_BOOK_PROJECTION_OUTCOME)[keyof typeof BIDDING_BID_BOOK_PROJECTION_OUTCOME];
 
 export interface BiddingBidBookProjectionResult {
+    outcome:
+        | typeof BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published
+        | typeof BIDDING_BID_BOOK_PROJECTION_OUTCOME.Skipped;
     collectionSlug: string;
     rowCount: number;
     durationMs: number;
@@ -29,12 +48,48 @@ export interface BiddingBidBookProjectionPort {
     ): Promise<void>;
 }
 
+// Projection request outcomes expose whether a write started or joined pending work.
+export const BIDDING_BID_BOOK_PROJECTION_REQUEST_OUTCOME = {
+    Started: "started",
+    Coalesced: "coalesced",
+} as const;
+
+export type BiddingBidBookProjectionRequestOutcome =
+    (typeof BIDDING_BID_BOOK_PROJECTION_REQUEST_OUTCOME)[keyof typeof BIDDING_BID_BOOK_PROJECTION_REQUEST_OUTCOME];
+
+export type BiddingPublicationHealth = {
+    watchedCollections: number;
+    missingCollections: number;
+    laggingCollections: number;
+    oldestPublishedAtMs: number | null;
+    oldestPublishedSnapshotAtMs: number | null;
+};
+
+// BiddingBidBookProjectionObservabilityPort reports coalescing, queue latency, and local write cost.
+export interface BiddingBidBookProjectionObservabilityPort extends BiddingWorkObservabilityPort {
+    onProjectionRequested(input: {
+        outcome: BiddingBidBookProjectionRequestOutcome;
+    }): void;
+    onProjectionFinished(input: {
+        queueWaitMs: number;
+        durationMs: number;
+        rowCount: number;
+        outcome: BiddingBidBookProjectionOutcome;
+    }): void;
+    onProjectionStateChanged(input: { active: number; pending: number }): void;
+}
+
 type ProjectionState = {
     running: boolean;
     latestSnapshot?: CollectionOfferSnapshot;
     pendingReason?: string;
     timer?: ReturnType<typeof setTimeout>;
     lastCompletedAt: number;
+    firstRequestedAt?: number;
+    requestedVersion: number;
+    publishedVersion: number;
+    publishedAt?: number;
+    publishedSnapshotAt?: number;
 };
 
 const log = createBiddingComponentLogger(
@@ -44,12 +99,63 @@ const log = createBiddingComponentLogger(
 // Coalesces snapshot-to-bid-book projection work without blocking snapshot refresh or bidder decisions.
 export class BiddingBidBookProjectionScheduler {
     private readonly states = new Map<string, ProjectionState>();
+    private readonly activeRuns = new Set<Promise<void>>();
+    private activeProjectionCount = 0;
+    private pendingProjectionCount = 0;
     private stopped = false;
+    private watchedCollections = new Set<string>();
 
     constructor(
         private readonly projectionPort: BiddingBidBookProjectionPort,
         private readonly throttleMs: number,
-    ) {}
+        private readonly observability?: BiddingBidBookProjectionObservabilityPort,
+        watchedCollections: readonly string[] = [],
+    ) {
+        this.reconcileWatchedCollections(watchedCollections);
+        this.reportState();
+    }
+
+    // Monitor only collections in the current desired job set; this does not cancel admitted writes.
+    public reconcileWatchedCollections(collections: readonly string[]): void {
+        this.watchedCollections = new Set(collections);
+    }
+
+    public readPublicationHealth(): BiddingPublicationHealth {
+        let missingCollections = 0;
+        let laggingCollections = 0;
+        let oldestPublishedAtMs: number | null = null;
+        let oldestPublishedSnapshotAtMs: number | null = null;
+        for (const slug of this.watchedCollections) {
+            const state = this.states.get(slug);
+            if (
+                state?.publishedAt === undefined ||
+                state.publishedSnapshotAt === undefined
+            )
+                missingCollections += 1;
+            else {
+                oldestPublishedAtMs =
+                    oldestPublishedAtMs === null
+                        ? state.publishedAt
+                        : Math.min(oldestPublishedAtMs, state.publishedAt);
+                oldestPublishedSnapshotAtMs =
+                    oldestPublishedSnapshotAtMs === null
+                        ? state.publishedSnapshotAt
+                        : Math.min(
+                              oldestPublishedSnapshotAtMs,
+                              state.publishedSnapshotAt,
+                          );
+            }
+            if (state && state.requestedVersion > state.publishedVersion)
+                laggingCollections += 1;
+        }
+        return {
+            watchedCollections: this.watchedCollections.size,
+            missingCollections,
+            laggingCollections,
+            oldestPublishedAtMs,
+            oldestPublishedSnapshotAtMs,
+        };
+    }
 
     // requestProjection keeps only the latest snapshot per collection and throttles replacement writes.
     public requestProjection(
@@ -61,8 +167,26 @@ export class BiddingBidBookProjectionScheduler {
         }
 
         const state = this.getState(snapshot.collectionSlug);
+        const coalesced =
+            state.running ||
+            state.timer !== undefined ||
+            state.latestSnapshot !== undefined;
+        if (!state.latestSnapshot) {
+            this.pendingProjectionCount += 1;
+        }
         state.latestSnapshot = snapshot;
+        // Wall-clock timestamps are not versions: equal times or clock adjustments must not hide lag.
+        state.requestedVersion += 1;
         state.pendingReason = mergeReasons(state.pendingReason, reason);
+        state.firstRequestedAt ??= Date.now();
+        observeBestEffort(() => {
+            this.observability?.onProjectionRequested({
+                outcome: coalesced
+                    ? BIDDING_BID_BOOK_PROJECTION_REQUEST_OUTCOME.Coalesced
+                    : BIDDING_BID_BOOK_PROJECTION_REQUEST_OUTCOME.Started,
+            });
+        });
+        this.reportState();
 
         if (state.running || state.timer) {
             return;
@@ -71,15 +195,21 @@ export class BiddingBidBookProjectionScheduler {
         this.schedule(snapshot.collectionSlug, state);
     }
 
-    // stop cancels delayed projection work during runtime shutdown.
-    public stop(): void {
+    // stop drops delayed work and waits for every active local projection write to settle.
+    public async stop(): Promise<void> {
         this.stopped = true;
         for (const state of this.states.values()) {
             if (state.timer) {
                 clearTimeout(state.timer);
                 state.timer = undefined;
             }
+            state.latestSnapshot = undefined;
+            state.pendingReason = undefined;
+            state.firstRequestedAt = undefined;
         }
+        this.pendingProjectionCount = 0;
+        this.reportState();
+        await Promise.allSettled(Array.from(this.activeRuns));
     }
 
     private getState(collectionSlug: string): ProjectionState {
@@ -88,6 +218,8 @@ export class BiddingBidBookProjectionScheduler {
             state = {
                 running: false,
                 lastCompletedAt: 0,
+                requestedVersion: 0,
+                publishedVersion: 0,
             };
             this.states.set(collectionSlug, state);
         }
@@ -103,7 +235,7 @@ export class BiddingBidBookProjectionScheduler {
 
         state.timer = setTimeout(() => {
             state.timer = undefined;
-            void this.run(collectionSlug, state);
+            this.startRun(collectionSlug, state);
         }, delayMs);
     }
 
@@ -116,29 +248,59 @@ export class BiddingBidBookProjectionScheduler {
         }
 
         const snapshot = state.latestSnapshot;
+        const version = state.requestedVersion;
         const reason = state.pendingReason ?? "unspecified";
-        state.latestSnapshot = undefined;
-        state.pendingReason = undefined;
-        state.running = true;
         const startedAt = Date.now();
+        const queueWaitMs = Math.max(
+            0,
+            startedAt - (state.firstRequestedAt ?? startedAt),
+        );
+        state.latestSnapshot = undefined;
+        this.pendingProjectionCount = Math.max(
+            0,
+            this.pendingProjectionCount - 1,
+        );
+        state.pendingReason = undefined;
+        state.firstRequestedAt = undefined;
+        state.running = true;
+        this.activeProjectionCount += 1;
+        this.reportState();
+        let rowCount = 0;
+        let outcome: BiddingBidBookProjectionOutcome =
+            BIDDING_BID_BOOK_PROJECTION_OUTCOME.Failed;
 
         try {
             // Persist the latest snapshot into the local bid-book read model for UI reads.
-            const result = await this.projectionPort.replaceCollectionBidBook(
-                snapshot,
-                reason,
+            const result = await observeBiddingWork(
+                this.observability,
+                BIDDING_WORK_STAGE.BidBookPublication,
+                () =>
+                    this.projectionPort.replaceCollectionBidBook(
+                        snapshot,
+                        reason,
+                    ),
+                (result) =>
+                    result.outcome ===
+                    BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published,
             );
             state.lastCompletedAt = Date.now();
-            log.debug(
-                "projectionComplete",
-                "Bidding bid-book projection complete",
-                {
-                    collectionSlug: result.collectionSlug,
-                    rowCount: result.rowCount,
-                    durationMs: result.durationMs,
-                    reason,
-                },
-            );
+            rowCount = result.rowCount;
+            outcome = result.outcome;
+            if (outcome === BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published) {
+                state.publishedAt = state.lastCompletedAt;
+                state.publishedSnapshotAt = snapshot.refreshedAt;
+                state.publishedVersion = version;
+                log.debug(
+                    "projectionComplete",
+                    "Bidding bid-book projection complete",
+                    {
+                        collectionSlug: result.collectionSlug,
+                        rowCount: result.rowCount,
+                        durationMs: result.durationMs,
+                        reason,
+                    },
+                );
+            }
         } catch (error: unknown) {
             state.lastCompletedAt = Date.now();
             const errorMessage = projectionErrorMessage(error);
@@ -172,11 +334,42 @@ export class BiddingBidBookProjectionScheduler {
             );
         } finally {
             state.running = false;
+            this.activeProjectionCount = Math.max(
+                0,
+                this.activeProjectionCount - 1,
+            );
+            observeBestEffort(() => {
+                this.observability?.onProjectionFinished({
+                    queueWaitMs,
+                    durationMs: Date.now() - startedAt,
+                    rowCount,
+                    outcome,
+                });
+            });
+            this.reportState();
         }
 
         if (!this.stopped && state.latestSnapshot && !state.timer) {
             this.schedule(collectionSlug, state);
         }
+    }
+
+    private startRun(collectionSlug: string, state: ProjectionState): void {
+        const run = this.run(collectionSlug, state);
+        this.activeRuns.add(run);
+        void run.then(
+            () => this.activeRuns.delete(run),
+            () => this.activeRuns.delete(run),
+        );
+    }
+
+    private reportState(): void {
+        observeBestEffort(() => {
+            this.observability?.onProjectionStateChanged({
+                active: this.activeProjectionCount,
+                pending: this.pendingProjectionCount,
+            });
+        });
     }
 }
 

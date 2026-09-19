@@ -37,28 +37,30 @@ async function createTempDbPath(): Promise<string> {
 }
 
 function seedCollection(): number {
-    const result = db.prepare<{
-        chainId: number;
-        slug: string;
-        address: string;
-        standard: string;
-        status: string;
-        tokenScopeKind: string;
-        openseaSlug: string;
-    }>(
-        "INSERT INTO collections " +
-            "(chain_id, slug, address, standard, status, token_scope_kind, opensea_slug) " +
-            "VALUES (@chainId, @slug, @address, @standard, @status, @tokenScopeKind, @openseaSlug)",
-    ).run({
-        chainId: 1,
-        slug: BIDDING_JOBS_FIXTURE_SLUG,
-        address: "0x1111111111111111111111111111111111111111",
-        standard: COLLECTION_STANDARD.Erc721,
-        status: COLLECTION_STATUS.Live,
-        tokenScopeKind:
-            EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
-        openseaSlug: BIDDING_JOBS_FIXTURE_OPENSEA_SLUG,
-    });
+    const result = db
+        .prepare<{
+            chainId: number;
+            slug: string;
+            address: string;
+            standard: string;
+            status: string;
+            tokenScopeKind: string;
+            openseaSlug: string;
+        }>(
+            "INSERT INTO collections " +
+                "(chain_id, slug, address, standard, status, token_scope_kind, opensea_slug) " +
+                "VALUES (@chainId, @slug, @address, @standard, @status, @tokenScopeKind, @openseaSlug)",
+        )
+        .run({
+            chainId: 1,
+            slug: BIDDING_JOBS_FIXTURE_SLUG,
+            address: "0x1111111111111111111111111111111111111111",
+            standard: COLLECTION_STANDARD.Erc721,
+            status: COLLECTION_STATUS.Live,
+            tokenScopeKind:
+                EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
+            openseaSlug: BIDDING_JOBS_FIXTURE_OPENSEA_SLUG,
+        });
 
     return Number(result.lastInsertRowid);
 }
@@ -110,6 +112,7 @@ describe("SqliteBiddingJobsRepository", () => {
             TRADING_JOB_COMMAND_KIND.JobCreated,
         );
         assert.equal(result.commands[0]?.requestedRevision, 1);
+        assert.match(result.commands[0]?.createdAt ?? "", /\.\d{3}$/);
 
         const listed = repository.listCollectionJobs({
             chainId: 1,
@@ -319,10 +322,7 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.equal(updated.job.status, TRADING_JOB_STATUS.Paused);
         assert.equal(updated.job.floorWei, "120000000000000000");
         assert.equal(updated.job.runtime, null);
-        assert.equal(
-            repository.getJobById(created.job.jobId)?.runtime,
-            null,
-        );
+        assert.equal(repository.getJobById(created.job.jobId)?.runtime, null);
         assert.equal(countRuntimeRows(created.job.jobId), 1);
 
         assert.equal(updated.commands.length, 2);
@@ -333,7 +333,10 @@ describe("SqliteBiddingJobsRepository", () => {
                 TRADING_JOB_COMMAND_KIND.JobPaused,
             ],
         );
-        assert.equal(updated.commands[0]?.payload.activeOrderId, ACTIVE_ORDER_ID);
+        assert.equal(
+            updated.commands[0]?.payload.activeOrderId,
+            ACTIVE_ORDER_ID,
+        );
         assert.equal(updated.commands[0]?.payload.activeOrderJobRevision, 1);
         assert.equal(
             updated.commands[0]?.payload.activeProtocolAddress,
@@ -385,7 +388,10 @@ describe("SqliteBiddingJobsRepository", () => {
             ],
         });
 
-        assert.equal(created.job.targetKind, TRADING_JOB_TARGET_KIND.Collection);
+        assert.equal(
+            created.job.targetKind,
+            TRADING_JOB_TARGET_KIND.Collection,
+        );
         assert.equal(created.job.quantity, 1);
         assert.deepEqual(created.job.targetTraits, [
             { type: "Biome", value: "42" },
@@ -484,10 +490,7 @@ describe("SqliteBiddingJobsRepository", () => {
             paused.commands[0]?.payload.activeOrderId,
             "0xtrait-active-order",
         );
-        assert.equal(
-            repository.getJobById(created.job.jobId)?.runtime,
-            null,
-        );
+        assert.equal(repository.getJobById(created.job.jobId)?.runtime, null);
         assert.equal(countRuntimeRows(created.job.jobId), 1);
 
         const reactivated = repository.upsertCollectionJob({
@@ -795,7 +798,9 @@ function selectCancellationRequest(orderId: string):
       }
     | undefined {
     return db
-        .prepare<{ orderId: string }>(
+        .prepare<{
+            orderId: string;
+        }>(
             "SELECT order_id, job_id, job_revision, maker, price_wei, protocol_address, placed_at, expiration_time_ms, completed_at, cancellation_error " +
                 "FROM trading_bidding_order_cancellations WHERE order_id = @orderId",
         )
@@ -817,7 +822,9 @@ function selectCancellationRequest(orderId: string):
 
 function countRuntimeRows(jobId: string): number {
     const row = db
-        .prepare<{ jobId: string }>(
+        .prepare<{
+            jobId: string;
+        }>(
             "SELECT COUNT(*) AS count FROM trading_bidding_job_runtime_state WHERE job_id = @jobId",
         )
         .get({ jobId }) as { count: number };

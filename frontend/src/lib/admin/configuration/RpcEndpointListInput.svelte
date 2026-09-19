@@ -5,6 +5,7 @@
 		parseRpcWebSocketEndpointConfigList
 	} from '@artgod/shared/config/rpc-endpoints';
 	import type { AdminConfigValidationRule } from '$lib/admin/configuration/ports';
+	import { SETTINGS_VALIDATION_RULE } from '@artgod/shared/config/generated-settings-validation-rules';
 
 	type RpcEndpointDraft = {
 		url: string;
@@ -15,7 +16,7 @@
 		value,
 		disabled,
 		invalid = false,
-		validation = 'rpc_endpoint_list',
+		validation = SETTINGS_VALIDATION_RULE.RpcEndpointList,
 		endpointLabel = 'RPC endpoint',
 		currentBenchmarkSummary = null,
 		onBenchmarkCurrentEndpoints,
@@ -114,7 +115,7 @@
 	}
 
 	function parseEndpointList(raw: string): { url: string; weight: number }[] {
-		return validation === 'websocket_endpoint_list'
+		return validation === SETTINGS_VALIDATION_RULE.WebSocketEndpointList
 			? parseRpcWebSocketEndpointConfigList(raw)
 			: parseRpcEndpointConfigList(raw);
 	}

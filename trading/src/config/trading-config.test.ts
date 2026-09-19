@@ -21,6 +21,7 @@ import {
     loadTradingConfig,
     TRADING_METRICS_ENV_KEY,
 } from "./trading-config.js";
+import { TCP_PORT_RANGE } from "@artgod/shared/config/tcp-port";
 
 const requiredBaseEnv = {
     ARTGOD_DB_PATH: "database/sqlite/main/db",
@@ -180,6 +181,25 @@ describe("loadTradingConfig", () => {
                 biddingBot: 49001,
             },
         });
+    });
+
+    it("rejects trading metrics ports above the TCP range", () => {
+        assert.throws(
+            () =>
+                loadTradingConfig(
+                    {
+                        ...requiredBaseEnv,
+                        BIDDING_ENABLED: "false",
+                        [TRADING_METRICS_ENV_KEY.PortBiddingBot]: String(
+                            TCP_PORT_RANGE.Maximum + 1,
+                        ),
+                    },
+                    {
+                        envFilePath: "/tmp/artgod/runtime.env",
+                    },
+                ),
+            new RegExp(TRADING_METRICS_ENV_KEY.PortBiddingBot),
+        );
     });
 
     it("does not require bot keys or jobs file when bidding is disabled", () => {
@@ -382,7 +402,9 @@ describe("loadTradingConfig", () => {
                         envFilePath: "/tmp/artgod/runtime.env",
                     },
                 ),
-            new RegExp(`Invalid ${BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth}`),
+            new RegExp(
+                `Invalid ${BIDDING_CONFIG_ENV_KEY.WethApprovalMaxGasFeeEth}`,
+            ),
         );
     });
 
@@ -424,7 +446,9 @@ describe("loadTradingConfig", () => {
                         envFilePath: "/tmp/artgod/runtime.env",
                     },
                 ),
-            new RegExp(`Invalid ${BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei}`),
+            new RegExp(
+                `Invalid ${BIDDING_CONFIG_ENV_KEY.TxMinPriorityFeeGwei}`,
+            ),
         );
 
         assert.throws(

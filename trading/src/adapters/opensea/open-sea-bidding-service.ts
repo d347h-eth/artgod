@@ -43,6 +43,7 @@ import {
     toErrorLogFields,
 } from "../../utils/bidding-log.js";
 import { defaultRetryPolicy, RetryPolicy, retry } from "../support/retry.js";
+import { observeBestEffort } from "../../utils/observe-best-effort.js";
 import {
     TOKEN_BUCKET_RATE_LIMIT_PRIORITY,
     TokenBucketRateLimiter,
@@ -80,6 +81,42 @@ export interface OpenSeaBiddingServiceOptions {
     competitiveTraitMaxLookupSelectors?: number;
     // Requires the caller to supply the generation-authorized trait trust decision.
     trustOpenSeaSignedZoneTraitOffers: boolean;
+    observability?: OpenSeaBiddingServiceObservabilityPort;
+}
+
+// Stable operation names describe each OpenSea SDK boundary used by bidding.
+export const OPEN_SEA_BIDDING_OPERATION = {
+    GetNftOffers: "get_nft_offers",
+    GetCollectionOffers: "get_collection_offers",
+    GetTraitOffers: "get_trait_offers",
+    GetTraits: "get_traits",
+    GetBestOffer: "get_best_offer",
+    GetOrderByHash: "get_order_by_hash",
+    CreateCollectionOffer: "create_collection_offer",
+    CreateOffer: "create_offer",
+    CancelOrder: "cancel_order",
+} as const;
+
+export type OpenSeaBiddingOperation =
+    (typeof OPEN_SEA_BIDDING_OPERATION)[keyof typeof OPEN_SEA_BIDDING_OPERATION];
+
+// OpenSeaBiddingServiceObservabilityPort reports SDK timing and retry pressure without order identity.
+export interface OpenSeaBiddingServiceObservabilityPort {
+    onOpenSeaOperationStarted?(input: {
+        operation: OpenSeaBiddingOperation;
+        priority: TokenBucketRateLimitPriority;
+    }): (succeeded: boolean) => void;
+    onOpenSeaOperationFinished(input: {
+        operation: OpenSeaBiddingOperation;
+        priority: TokenBucketRateLimitPriority;
+        durationMs: number;
+        succeeded: boolean;
+        expectedAbsence?: boolean;
+    }): void;
+    onOpenSeaRetry(input: {
+        operation: OpenSeaBiddingOperation;
+        priority: TokenBucketRateLimitPriority;
+    }): void;
 }
 
 // Stable error text for jobs blocked until the operator explicitly accepts OpenSea SignedZone trait enforcement.
@@ -97,17 +134,22 @@ const PERMANENT_OPENSEA_ERROR_PATTERNS = [
     /\btrait .+ not found\b/i,
 ];
 
-const sdkCallCosts: Record<string, { get: number; post: number }> = {
-    getOffersByNFT: { get: 1, post: 0 },
-    getCollectionOffers: { get: 1, post: 0 },
-    getTraitOffers: { get: 1, post: 0 },
-    getTraits: { get: 1, post: 0 },
-    getBestOffer: { get: 1, post: 0 },
-    getOrderByHash: { get: 1, post: 0 },
-    getAllOffers: { get: 1, post: 0 },
-    createCollectionOffer: { get: 1, post: 2 },
-    createOffer: { get: 1, post: 2 },
-    offchainCancelOrder: { get: 0, post: 1 },
+const sdkCallCosts: Record<
+    OpenSeaBiddingOperation,
+    { get: number; post: number }
+> = {
+    [OPEN_SEA_BIDDING_OPERATION.GetNftOffers]: { get: 1, post: 0 },
+    [OPEN_SEA_BIDDING_OPERATION.GetCollectionOffers]: { get: 1, post: 0 },
+    [OPEN_SEA_BIDDING_OPERATION.GetTraitOffers]: { get: 1, post: 0 },
+    [OPEN_SEA_BIDDING_OPERATION.GetTraits]: { get: 1, post: 0 },
+    [OPEN_SEA_BIDDING_OPERATION.GetBestOffer]: { get: 1, post: 0 },
+    [OPEN_SEA_BIDDING_OPERATION.GetOrderByHash]: { get: 1, post: 0 },
+    [OPEN_SEA_BIDDING_OPERATION.CreateCollectionOffer]: {
+        get: 1,
+        post: 2,
+    },
+    [OPEN_SEA_BIDDING_OPERATION.CreateOffer]: { get: 1, post: 2 },
+    [OPEN_SEA_BIDDING_OPERATION.CancelOrder]: { get: 0, post: 1 },
 };
 
 // OpenSeaBiddingService preserves the upstream offer-discovery and order-management logic behind ArtGod's BiddingService port.
@@ -122,6 +164,7 @@ export class OpenSeaBiddingService implements BiddingService {
     private readonly tokenCriteriaTraitsByCollection: Record<string, string[]>;
     private readonly competitiveTraitMaxLookupSelectors: number;
     private readonly trustOpenSeaSignedZoneTraitOffers: boolean;
+    private readonly observability?: OpenSeaBiddingServiceObservabilityPort;
 
     constructor(
         private readonly sdk: OpenSeaBiddingSdkClient,
@@ -162,6 +205,7 @@ export class OpenSeaBiddingService implements BiddingService {
         );
         this.trustOpenSeaSignedZoneTraitOffers =
             options.trustOpenSeaSignedZoneTraitOffers;
+        this.observability = options.observability;
     }
 
     public async getActiveOffers(
@@ -170,7 +214,8 @@ export class OpenSeaBiddingService implements BiddingService {
     ): Promise<Order[]> {
         const offers: Order[] = [];
         const lookupTraitSelectors = this.getLookupTraitSelectors(job);
-        const isCompetitiveTraitJob = job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait;
+        const isCompetitiveTraitJob =
+            job.target.type === BIDDER_TARGET_TYPE.CompetitiveTrait;
         const competitiveBucketCounts = {
             collectionWide: new Set<string>(),
             targetTrait: new Set<string>(),
@@ -368,7 +413,7 @@ export class OpenSeaBiddingService implements BiddingService {
             try {
                 // 3. Fetch best-offer as a catch-all fallback because OpenSea visibility is not perfectly uniform across endpoints.
                 const bestOffer = await this.withRetry(
-                    "getBestOffer",
+                    OPEN_SEA_BIDDING_OPERATION.GetBestOffer,
                     "best offer",
                     () =>
                         this.sdk.api.getBestOffer(
@@ -376,6 +421,7 @@ export class OpenSeaBiddingService implements BiddingService {
                             tokenTarget.tokenId,
                         ),
                     context,
+                    isNotFoundError,
                 );
 
                 const parsed = this.parseRawOffer(
@@ -497,11 +543,12 @@ export class OpenSeaBiddingService implements BiddingService {
                     },
                 );
                 const response = await this.withRetry(
-                    "getOrderByHash",
+                    OPEN_SEA_BIDDING_OPERATION.GetOrderByHash,
                     "order by hash",
                     () =>
                         this.sdk.api.getOrderByHash(orderHash, protocolAddress),
                     context,
+                    isDirectOrderAbsentError,
                 );
 
                 if (matchesOrderHash(response, orderHash)) {
@@ -650,7 +697,7 @@ export class OpenSeaBiddingService implements BiddingService {
                         : undefined;
 
                 const order = await this.trackSdkCall(
-                    "createCollectionOffer",
+                    OPEN_SEA_BIDDING_OPERATION.CreateCollectionOffer,
                     () =>
                         this.sdk.createCollectionOffer(
                             {
@@ -697,7 +744,7 @@ export class OpenSeaBiddingService implements BiddingService {
             const tokenTarget = job.target;
 
             const order = await this.trackSdkCall(
-                "createOffer",
+                OPEN_SEA_BIDDING_OPERATION.CreateOffer,
                 () =>
                     this.sdk.createOffer(
                         {
@@ -773,7 +820,7 @@ export class OpenSeaBiddingService implements BiddingService {
             await retry(
                 async () => {
                     await this.trackSdkCall(
-                        "offchainCancelOrder",
+                        OPEN_SEA_BIDDING_OPERATION.CancelOrder,
                         () =>
                             this.sdk.offchainCancelOrder(
                                 order.protocolAddress!,
@@ -789,6 +836,10 @@ export class OpenSeaBiddingService implements BiddingService {
                 {
                     shouldRetry: isRetryableOpenSeaBiddingError,
                     onRetry: ({ attempt, error }) => {
+                        this.observeRetry(
+                            OPEN_SEA_BIDDING_OPERATION.CancelOrder,
+                            toRateLimitPriority(context),
+                        );
                         log.info(
                             "offerCancelRetry",
                             "Retrying offer cancellation",
@@ -816,29 +867,61 @@ export class OpenSeaBiddingService implements BiddingService {
     }
 
     private async trackSdkCall<T>(
-        action: string,
+        action: OpenSeaBiddingOperation,
         fn: () => Promise<T>,
         context: BiddingServiceRequestContext = {},
+        isExpectedAbsence?: (error: unknown) => boolean,
     ): Promise<T> {
-        const cost = sdkCallCosts[action] ?? { get: 1, post: 0 };
+        const cost = sdkCallCosts[action];
+        const priority = toRateLimitPriority(context);
         await this.rateLimiter.wait(cost.get, cost.post, {
-            priority: toRateLimitPriority(context),
+            priority,
         });
-        return await fn();
+        const startedAt = Date.now();
+        const finish = observeBestEffort(() =>
+            this.observability?.onOpenSeaOperationStarted?.({
+                operation: action,
+                priority,
+            }),
+        );
+        let succeeded = false;
+        let expectedAbsence = false;
+        try {
+            const result = await fn();
+            succeeded = true;
+            return result;
+        } catch (error) {
+            expectedAbsence = isExpectedAbsence?.(error) ?? false;
+            throw error;
+        } finally {
+            observeBestEffort(() => finish?.(succeeded || expectedAbsence));
+            this.observeOperationFinished(
+                action,
+                priority,
+                Date.now() - startedAt,
+                succeeded || expectedAbsence,
+                expectedAbsence,
+            );
+        }
     }
 
     private async withRetry<T>(
-        action: string,
+        action: OpenSeaBiddingOperation,
         logLabel: string,
         fn: () => Promise<T>,
         context: BiddingServiceRequestContext = {},
+        isExpectedAbsence?: (error: unknown) => boolean,
     ): Promise<T> {
         return await retry(
-            async () => await this.trackSdkCall(action, fn, context),
+            async () =>
+                await this.trackSdkCall(action, fn, context, isExpectedAbsence),
             this.retryPolicy,
             {
-                shouldRetry: isRetryableOpenSeaBiddingError,
+                shouldRetry: (error) =>
+                    !(isExpectedAbsence?.(error) ?? false) &&
+                    isRetryableOpenSeaBiddingError(error),
                 onRetry: ({ attempt, error }) => {
+                    this.observeRetry(action, toRateLimitPriority(context));
                     log.info("sdkCallRetry", "Retrying OpenSea SDK call", {
                         sdkAction: action,
                         logLabel,
@@ -848,6 +931,37 @@ export class OpenSeaBiddingService implements BiddingService {
                 },
             },
         );
+    }
+
+    private observeOperationFinished(
+        operation: OpenSeaBiddingOperation,
+        priority: TokenBucketRateLimitPriority,
+        durationMs: number,
+        succeeded: boolean,
+        expectedAbsence: boolean = false,
+    ): void {
+        try {
+            this.observability?.onOpenSeaOperationFinished({
+                operation,
+                priority,
+                durationMs,
+                succeeded,
+                ...(expectedAbsence ? { expectedAbsence: true } : {}),
+            });
+        } catch {
+            // Telemetry is best-effort and cannot replace an OpenSea SDK result or error.
+        }
+    }
+
+    private observeRetry(
+        operation: OpenSeaBiddingOperation,
+        priority: TokenBucketRateLimitPriority,
+    ): void {
+        try {
+            this.observability?.onOpenSeaRetry({ operation, priority });
+        } catch {
+            // Telemetry is best-effort and cannot interrupt OpenSea retry behavior.
+        }
     }
 
     private async fetchNftOffers(
@@ -863,7 +977,7 @@ export class OpenSeaBiddingService implements BiddingService {
 
         while (page < this.orderLookupMaxPages) {
             const response = await this.withRetry(
-                "getOffersByNFT",
+                OPEN_SEA_BIDDING_OPERATION.GetNftOffers,
                 `${logLabel} (page ${page + 1})`,
                 () =>
                     this.sdk.api.getOffersByNFT(
@@ -1443,7 +1557,7 @@ export class OpenSeaBiddingService implements BiddingService {
 
         while (true) {
             const response = await this.withRetry(
-                "getCollectionOffers",
+                OPEN_SEA_BIDDING_OPERATION.GetCollectionOffers,
                 "collection offers",
                 () =>
                     this.sdk.api.getCollectionOffers(
@@ -1489,7 +1603,7 @@ export class OpenSeaBiddingService implements BiddingService {
 
         while (true) {
             const response = await this.withRetry(
-                "getTraitOffers",
+                OPEN_SEA_BIDDING_OPERATION.GetTraitOffers,
                 `trait offers ${traitType}=${traitValue}`,
                 () =>
                     this.sdk.api.getTraitOffers(
@@ -1606,7 +1720,7 @@ export class OpenSeaBiddingService implements BiddingService {
         let traitsResponse: unknown;
         try {
             traitsResponse = await this.withRetry(
-                "getTraits",
+                OPEN_SEA_BIDDING_OPERATION.GetTraits,
                 "collection traits",
                 () => this.sdk.api.getTraits(job.collectionSlug),
                 context,
@@ -1680,7 +1794,10 @@ function jobLogFields(job: BidderJob): Record<string, unknown> {
         collectionSlug: job.collectionSlug,
         collectionAddress: job.collectionAddress,
         targetType: job.target.type,
-        tokenId: job.target.type === BIDDER_TARGET_TYPE.Token ? job.target.tokenId : null,
+        tokenId:
+            job.target.type === BIDDER_TARGET_TYPE.Token
+                ? job.target.tokenId
+                : null,
     };
 }
 
@@ -1783,7 +1900,9 @@ function isDirectOrderAbsentError(error: unknown): boolean {
     return (
         message === "not found" ||
         /\border\b.*\bnot found\b/.test(message) ||
-        /\bnot found\b.*\border\b/.test(message)
+        /\bnot found\b.*\border\b/.test(message) ||
+        /\border\b.*\b(?:inactive|not active)\b/.test(message) ||
+        /\b(?:inactive|not active)\b.*\border\b/.test(message)
     );
 }
 

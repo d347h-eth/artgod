@@ -6,6 +6,8 @@ import {
     DESKTOP_RUNTIME_EXCLUDED_OBSERVABILITY_IMPLEMENTATIONS,
     DESKTOP_RUNTIME_EXCLUDED_OBSERVABILITY_PACKAGES,
     DESKTOP_RUNTIME_EXPORT_CONDITION,
+    DESKTOP_TRADING_METRICS_ALLOWED_OBSERVABILITY_PACKAGES,
+    RUNTIME_ARTIFACT,
     RUNTIME_BUILD_PROFILE,
     RUNTIME_BUILD_PROFILE_MARKER_VERSION,
     parseRuntimeBuildProfileMarker,
@@ -137,6 +139,107 @@ test("rejects full exporter adapters and unresolved imports in desktop metafiles
     );
 });
 
+test("allows only the facade-reachable Prometheus graph in the trading desktop artifact", () => {
+    const metafile = createTradingMetricsMetafile();
+
+    assert.doesNotThrow(() =>
+        validateRuntimeBuildMetafile(
+            RUNTIME_BUILD_PROFILE.DESKTOP,
+            RUNTIME_ARTIFACT.Trading,
+            metafile,
+        ),
+    );
+    for (const artifact of [
+        RUNTIME_ARTIFACT.Backend,
+        RUNTIME_ARTIFACT.Indexer,
+    ]) {
+        assert.throws(
+            () =>
+                validateRuntimeBuildMetafile(
+                    RUNTIME_BUILD_PROFILE.DESKTOP,
+                    artifact,
+                    metafile,
+                ),
+            /prom-client/,
+        );
+    }
+});
+
+test("rejects trading metrics imports that bypass the facade", () => {
+    const metafile = createTradingMetricsMetafile();
+    metafile.inputs["trading/src/runtime/unreviewed-metrics.ts"] = {
+        bytes: 1,
+        imports: [
+            {
+                path: "shared/observability/metrics/prometheus.ts",
+                kind: "import-statement",
+            },
+        ],
+    };
+
+    assert.throws(
+        () =>
+            validateRuntimeBuildMetafile(
+                RUNTIME_BUILD_PROFILE.DESKTOP,
+                RUNTIME_ARTIFACT.Trading,
+                metafile,
+            ),
+        /Prometheus metrics adapter/,
+    );
+});
+
+test("keeps the metrics barrel and OpenTelemetry SDKs out of trading", () => {
+    const metricsBarrelMetafile = createTradingMetricsMetafile();
+    metricsBarrelMetafile.inputs[
+        "shared/observability/metrics/trading.ts"
+    ].imports.push({
+        path: "shared/observability/metrics/index.ts",
+        kind: "import-statement",
+    });
+    metricsBarrelMetafile.inputs["shared/observability/metrics/index.ts"] = {
+        bytes: 1,
+        imports: [],
+    };
+    assert.throws(
+        () =>
+            validateRuntimeBuildMetafile(
+                RUNTIME_BUILD_PROFILE.DESKTOP,
+                RUNTIME_ARTIFACT.Trading,
+                metricsBarrelMetafile,
+            ),
+        /full metrics adapter/,
+    );
+
+    for (const packageName of [
+        "@opentelemetry/sdk-node",
+        "@opentelemetry/exporter-trace-otlp-http",
+    ]) {
+        const openTelemetryMetafile = createTradingMetricsMetafile();
+        const packageInput = openTelemetryPackageInputPath(packageName);
+        openTelemetryMetafile.inputs[
+            packageInputPath(
+                DESKTOP_TRADING_METRICS_ALLOWED_OBSERVABILITY_PACKAGES[0],
+            )
+        ].imports.push({
+            path: packageInput,
+            kind: "import-statement",
+        });
+        openTelemetryMetafile.inputs[packageInput] = {
+            bytes: 1,
+            imports: [],
+        };
+        assert.throws(
+            () =>
+                validateRuntimeBuildMetafile(
+                    RUNTIME_BUILD_PROFILE.DESKTOP,
+                    RUNTIME_ARTIFACT.Trading,
+                    openTelemetryMetafile,
+                ),
+            /@opentelemetry\/\*/,
+        );
+    }
+});
+
 test("round-trips the versioned runtime profile marker", () => {
     const source = runtimeBuildProfileMarkerSource(
         RUNTIME_BUILD_PROFILE.DESKTOP,
@@ -162,7 +265,7 @@ test("round-trips the versioned runtime profile marker", () => {
     );
 });
 
-test("maps desktop observability exports to no-op adapters", async () => {
+test("keeps general desktop observability no-op and exposes narrow trading metrics", async () => {
     const packageManifest = JSON.parse(
         await readFile(new URL("../../shared/package.json", import.meta.url)),
     );
@@ -172,6 +275,13 @@ test("maps desktop observability exports to no-op adapters", async () => {
     );
     const desktopObservabilityIndex = await readFile(
         new URL("../../shared/observability/index.desktop.ts", import.meta.url),
+        "utf8",
+    );
+    const tradingMetricsFacade = await readFile(
+        new URL(
+            "../../shared/observability/metrics/trading.ts",
+            import.meta.url,
+        ),
         "utf8",
     );
 
@@ -188,9 +298,16 @@ test("maps desktop observability exports to no-op adapters", async () => {
             "./observability/metrics/desktop.ts",
         default: "./observability/metrics/index.ts",
     });
+    assert.equal(
+        packageManifest.exports["./observability/trading-metrics"],
+        "./observability/metrics/trading.ts",
+    );
     assert.match(observabilityIndex, /from "\.\/apm\.js"/);
     assert.match(desktopObservabilityIndex, /from "\.\/apm\.desktop\.js"/);
     assert.doesNotMatch(desktopObservabilityIndex, /from "\.\/apm\.js"/);
+    assert.match(tradingMetricsFacade, /from "\.\/runtime\.js"/);
+    assert.doesNotMatch(tradingMetricsFacade, /from "\.\/index\.js"/);
+    assert.doesNotMatch(tradingMetricsFacade, /from "\.\.\/apm\.js"/);
 });
 
 test("routes desktop builds through the release-pruned runtime profile", async () => {
@@ -227,4 +344,90 @@ test("routes desktop builds through the release-pruned runtime profile", async (
 
 function escapeRegex(value) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function createTradingMetricsMetafile() {
+    const [promClientPackage, openTelemetryApiPackage] =
+        DESKTOP_TRADING_METRICS_ALLOWED_OBSERVABILITY_PACKAGES;
+    const promClientInputPath = packageInputPath(promClientPackage);
+    const openTelemetryApiInputPath = packageInputPath(openTelemetryApiPackage);
+
+    return {
+        inputs: {
+            "shared/observability/metrics/trading.ts": {
+                bytes: 1,
+                imports: [
+                    {
+                        path: "shared/observability/metrics/runtime.ts",
+                        kind: "import-statement",
+                    },
+                ],
+            },
+            "shared/observability/metrics/runtime.ts": {
+                bytes: 1,
+                imports: [
+                    {
+                        path: "shared/observability/metrics/noop.ts",
+                        kind: "import-statement",
+                    },
+                    {
+                        path: "shared/observability/metrics/prometheus.ts",
+                        kind: "import-statement",
+                    },
+                    {
+                        path: "shared/observability/metrics/server.ts",
+                        kind: "import-statement",
+                    },
+                ],
+            },
+            "shared/observability/metrics/noop.ts": {
+                bytes: 1,
+                imports: [],
+            },
+            "shared/observability/metrics/prometheus.ts": {
+                bytes: 1,
+                imports: [
+                    {
+                        path: promClientInputPath,
+                        kind: "dynamic-import",
+                    },
+                ],
+            },
+            "shared/observability/metrics/server.ts": {
+                bytes: 1,
+                imports: [],
+            },
+            [promClientInputPath]: {
+                bytes: 1,
+                imports: [
+                    {
+                        path: openTelemetryApiInputPath,
+                        kind: "require-call",
+                    },
+                ],
+            },
+            [openTelemetryApiInputPath]: {
+                bytes: 1,
+                imports: [],
+            },
+            "trading/src/runtime/bot-runtime.ts": {
+                bytes: 1,
+                imports: [
+                    {
+                        path: "shared/observability/metrics/trading.ts",
+                        kind: "import-statement",
+                    },
+                ],
+            },
+        },
+    };
+}
+
+function packageInputPath(packageDescriptor) {
+    return `.yarn/cache/${packageDescriptor.pathFragments.at(-1)}fixture/node_modules/${packageDescriptor.packageName}/index.js`;
+}
+
+function openTelemetryPackageInputPath(packageName) {
+    const cacheSlug = packageName.replaceAll("/", "-").replace(/^@/, "");
+    return `.yarn/cache/@${cacheSlug}-npm-fixture/node_modules/${packageName}/build/src/index.js`;
 }

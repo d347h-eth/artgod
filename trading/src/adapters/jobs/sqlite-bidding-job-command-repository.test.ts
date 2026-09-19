@@ -17,6 +17,7 @@ import {
     TRADING_JOB_TARGET_KIND,
 } from "@artgod/shared/types";
 import { SqliteBiddingJobCommandRepository } from "./sqlite-bidding-job-command-repository.js";
+import { BIDDING_COMMAND_QUEUE_STATUS } from "../../application/use-cases/bidding/bidding-command-queue-health.js";
 
 // Command repository tests seed an isolated collection fixture.
 const JOB_COMMAND_FIXTURE_SLUG = "job-command-fixture";
@@ -88,6 +89,7 @@ function seedCommand(params: {
     jobId: string;
     status: string;
     claimedAt?: string | null;
+    createdAt?: string;
 }): number {
     const result = db
         .prepare<{
@@ -98,10 +100,11 @@ function seedCommand(params: {
             requestedRevision: number;
             payloadJson: string;
             claimedAt: string | null;
+            createdAt: string | null;
         }>(
             "INSERT INTO trading_job_commands " +
-                "(job_id, bot_kind, command_kind, status, requested_revision, payload_json, claimed_at) " +
-                "VALUES (@jobId, @botKind, @commandKind, @status, @requestedRevision, @payloadJson, @claimedAt)",
+                "(job_id, bot_kind, command_kind, status, requested_revision, payload_json, created_at, claimed_at) " +
+                "VALUES (@jobId, @botKind, @commandKind, @status, @requestedRevision, @payloadJson, COALESCE(@createdAt, CURRENT_TIMESTAMP), @claimedAt)",
         )
         .run({
             jobId: params.jobId,
@@ -111,6 +114,7 @@ function seedCommand(params: {
             requestedRevision: 1,
             payloadJson: JSON.stringify({ jobId: params.jobId }),
             claimedAt: params.claimedAt ?? null,
+            createdAt: params.createdAt ?? null,
         });
     return Number(result.lastInsertRowid);
 }
@@ -119,18 +123,22 @@ function getCommandRow(commandId: number): {
     status: string;
     attempts: number;
     last_error: string | null;
+    created_at: string | null;
+    claimed_at: string | null;
     completed_at: string | null;
 } {
     return db
         .prepare<{
             commandId: number;
         }>(
-            "SELECT status, attempts, last_error, completed_at FROM trading_job_commands WHERE command_id = @commandId",
+            "SELECT status, attempts, last_error, created_at, claimed_at, completed_at FROM trading_job_commands WHERE command_id = @commandId",
         )
         .get({ commandId }) as {
         status: string;
         attempts: number;
         last_error: string | null;
+        created_at: string | null;
+        claimed_at: string | null;
         completed_at: string | null;
     };
 }
@@ -145,9 +153,11 @@ describe("SqliteBiddingJobCommandRepository", () => {
     });
 
     it("claims pending commands and marks them completed", async () => {
+        const createdAt = "2026-07-14 10:00:00";
         const commandId = seedCommand({
             jobId,
             status: TRADING_JOB_COMMAND_STATUS.Pending,
+            createdAt,
         });
         const repository = new SqliteBiddingJobCommandRepository();
 
@@ -159,7 +169,19 @@ describe("SqliteBiddingJobCommandRepository", () => {
         assert.equal(commands.length, 1);
         assert.equal(commands[0]?.commandId, commandId);
         assert.equal(commands[0]?.attempts, 1);
-        assert.equal(getCommandRow(commandId).status, "processing");
+        assert.equal(commands[0]?.reclaimed, false);
+        const claimed = getCommandRow(commandId);
+        assert.match(claimed.claimed_at ?? "", /\.\d{3}$/);
+        assert.equal(
+            commands[0]?.createdAtMs,
+            Date.parse("2026-07-14T10:00:00Z"),
+        );
+        assert.equal(
+            commands[0]?.claimedAtMs,
+            Date.parse(`${claimed.claimed_at?.replace(" ", "T")}Z`),
+        );
+        assert.ok(commands[0]?.claimedAtMs);
+        assert.equal(claimed.status, "processing");
 
         await repository.markCompleted(commandId);
 
@@ -182,6 +204,7 @@ describe("SqliteBiddingJobCommandRepository", () => {
         });
 
         assert.equal(commands.length, 1);
+        assert.equal(commands[0]?.reclaimed, true);
         assert.equal(commands[0]?.attempts, 1);
 
         await repository.markFailedRetry(commandId, "temporary failure");
@@ -189,6 +212,54 @@ describe("SqliteBiddingJobCommandRepository", () => {
         const failed = getCommandRow(commandId);
         assert.equal(failed.status, "failed_retry");
         assert.equal(failed.last_error, "temporary failure");
+    });
+
+    it("reads backlog health without claiming rows or counting completed history", async () => {
+        const pending = seedCommand({
+            jobId,
+            status: TRADING_JOB_COMMAND_STATUS.Pending,
+            createdAt: "2001-01-01 00:00:00.500",
+        });
+        seedCommand({
+            jobId,
+            status: TRADING_JOB_COMMAND_STATUS.FailedRetry,
+            createdAt: "2000-01-01 00:00:00.250",
+        });
+        seedCommand({
+            jobId,
+            status: TRADING_JOB_COMMAND_STATUS.Processing,
+            claimedAt: "2000-01-01 00:00:00",
+        });
+        seedCommand({
+            jobId,
+            status: TRADING_JOB_COMMAND_STATUS.Processing,
+            claimedAt: "2999-01-01 00:00:00",
+        });
+        seedCommand({
+            jobId,
+            status: TRADING_JOB_COMMAND_STATUS.FailedTerminal,
+        });
+        seedCommand({
+            jobId,
+            status: TRADING_JOB_COMMAND_STATUS.Completed,
+            createdAt: "1990-01-01 00:00:00",
+        });
+        const repository = new SqliteBiddingJobCommandRepository();
+        assert.deepEqual(await repository.readQueueHealth(1000), {
+            counts: {
+                [BIDDING_COMMAND_QUEUE_STATUS.Pending]: 1,
+                [BIDDING_COMMAND_QUEUE_STATUS.Retrying]: 1,
+                [BIDDING_COMMAND_QUEUE_STATUS.Processing]: 2,
+                [BIDDING_COMMAND_QUEUE_STATUS.FailedTerminal]: 1,
+            },
+            oldestPendingAtMs: Date.parse("2000-01-01T00:00:00.250Z"),
+            staleProcessing: 1,
+        });
+        assert.equal(
+            getCommandRow(pending).status,
+            TRADING_JOB_COMMAND_STATUS.Pending,
+        );
+        assert.equal(getCommandRow(pending).attempts, 0);
     });
 
     it("continues claiming one command at a time after writer contention", async () => {

@@ -6,10 +6,11 @@ import {
     type TradingBiddingBidScopeKind,
 } from "@artgod/shared/types";
 import type { CollectionOfferSnapshot } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
-import type {
-    BiddingBidBookProjectionErrorInput,
-    BiddingBidBookProjectionPort,
-    BiddingBidBookProjectionResult,
+import {
+    BIDDING_BID_BOOK_PROJECTION_OUTCOME,
+    type BiddingBidBookProjectionErrorInput,
+    type BiddingBidBookProjectionPort,
+    type BiddingBidBookProjectionResult,
 } from "../../application/use-cases/bidding/bidding-bid-book-projection.js";
 import {
     BIDDING_LOG_COMPONENT,
@@ -205,6 +206,7 @@ export class SqliteBiddingBidBookProjection implements BiddingBidBookProjectionP
                 { collectionSlug: snapshot.collectionSlug },
             );
             return {
+                outcome: BIDDING_BID_BOOK_PROJECTION_OUTCOME.Skipped,
                 collectionSlug: snapshot.collectionSlug,
                 rowCount: 0,
                 durationMs: Date.now() - startedAt,
@@ -251,6 +253,7 @@ export class SqliteBiddingBidBookProjection implements BiddingBidBookProjectionP
             durationMs,
         });
         return {
+            outcome: BIDDING_BID_BOOK_PROJECTION_OUTCOME.Published,
             collectionSlug: snapshot.collectionSlug,
             rowCount: rows.length,
             durationMs,

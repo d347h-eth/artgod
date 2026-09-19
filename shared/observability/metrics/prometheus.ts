@@ -1,4 +1,9 @@
-import type { MetricLabels, Metrics, MetricsScrapePort } from "./types.js";
+import type {
+    HistogramMetricOptions,
+    MetricLabels,
+    Metrics,
+    MetricsScrapePort,
+} from "./types.js";
 
 const DEFAULT_PREFIX = "artgod_indexer_";
 const DEFAULT_HISTOGRAM_BUCKETS_MS = [
@@ -116,9 +121,14 @@ export class PrometheusMetrics implements Metrics, MetricsScrapePort {
         entry.metric.set(mapLabelValues(entry.labelNames, labels), value);
     }
 
-    histogram(name: string, value: number, labels: MetricLabels = {}): void {
+    histogram(
+        name: string,
+        value: number,
+        labels: MetricLabels = {},
+        options: HistogramMetricOptions = {},
+    ): void {
         const metricName = this.metricName(name, "histogram");
-        const entry = this.getHistogram(metricName, labels, name);
+        const entry = this.getHistogram(metricName, labels, name, options);
         if (entry.labelNames.length === 0) {
             entry.metric.observe(value);
             return;
@@ -182,6 +192,7 @@ export class PrometheusMetrics implements Metrics, MetricsScrapePort {
         metricName: string,
         labels: MetricLabels,
         inputName: string,
+        options: HistogramMetricOptions,
     ): MetricEntry<PromHistogram> {
         const key = metricKey(metricName, "histogram");
         const cached = this.histograms.get(key);
@@ -192,7 +203,10 @@ export class PrometheusMetrics implements Metrics, MetricsScrapePort {
             name: metricName,
             help: `${inputName} histogram`,
             labelNames: [...labelNames],
-            buckets: this.histogramBucketsMs,
+            buckets: sanitizeHistogramBuckets(
+                options.buckets,
+                this.histogramBucketsMs,
+            ),
             registers: [this.registry],
         });
         const entry = { metric, labelNames };
@@ -256,15 +270,20 @@ function normalizeMetricPrefix(prefix: string): string {
     return `${normalized}_`;
 }
 
-function sanitizeHistogramBuckets(buckets: number[] | undefined): number[] {
+function sanitizeHistogramBuckets(
+    buckets: readonly number[] | undefined,
+    fallback: readonly number[] = DEFAULT_HISTOGRAM_BUCKETS_MS,
+): number[] {
     if (!buckets || buckets.length === 0) {
-        return DEFAULT_HISTOGRAM_BUCKETS_MS;
+        return [...fallback];
     }
-    const normalized = buckets
-        .filter((bucket) => Number.isFinite(bucket) && bucket > 0)
-        .map((bucket) => Number(bucket))
-        .sort((a, b) => a - b);
-    return normalized.length > 0 ? normalized : DEFAULT_HISTOGRAM_BUCKETS_MS;
+    // Duplicate boundaries produce duplicate label sets and inconsistent cumulative counts.
+    const normalized = [
+        ...new Set(
+            buckets.filter((bucket) => Number.isFinite(bucket) && bucket >= 0),
+        ),
+    ].sort((a, b) => a - b);
+    return normalized.length > 0 ? normalized : [...fallback];
 }
 
 function normalizeMetricName(name: string): string {

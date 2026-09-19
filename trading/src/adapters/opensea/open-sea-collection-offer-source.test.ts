@@ -1,9 +1,13 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
-import { OpenSeaCollectionOfferSource } from "./open-sea-collection-offer-source.js";
+import { CollectionOfferSourceError } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
+import {
+    OPEN_SEA_SNAPSHOT_OPERATION,
+    OpenSeaCollectionOfferSource,
+} from "./open-sea-collection-offer-source.js";
 
 class FakeOpenSeaApiClient {
-    public pages: Array<{ offers?: unknown[]; next?: string }> = [];
+    public pages: Array<{ offers?: unknown[]; next?: string } | Error> = [];
     public calls: Array<{
         collectionSlug: string;
         limit?: number;
@@ -16,7 +20,11 @@ class FakeOpenSeaApiClient {
         next?: string,
     ): Promise<{ offers?: unknown[]; next?: string }> {
         this.calls.push({ collectionSlug, limit, next });
-        return this.pages.shift() ?? { offers: [] };
+        const page = this.pages.shift() ?? { offers: [] };
+        if (page instanceof Error) {
+            throw page;
+        }
+        return page;
     }
 }
 
@@ -43,8 +51,14 @@ describe("OpenSeaCollectionOfferSource", () => {
             },
         ];
 
+        const operations: string[] = [];
         const source = new OpenSeaCollectionOfferSource(api as any, {
             offersPageSize: 100,
+            observability: {
+                onOpenSeaOperationFinished: (input) =>
+                    operations.push(input.operation),
+                onOpenSeaRetry: () => undefined,
+            },
         });
 
         const result = await source.getAllOffers("terraforms");
@@ -55,6 +69,7 @@ describe("OpenSeaCollectionOfferSource", () => {
         ]);
         assert.equal(result.metrics.pageCount, 2);
         assert.equal(result.metrics.offerCount, 2);
+        assert.equal(result.metrics.complete, true);
         assert.equal(result.metrics.firstPriceWei, "200");
         assert.equal(result.metrics.lastPriceWei, "100");
         assert.equal(result.metrics.minPriceWei, "100");
@@ -70,6 +85,10 @@ describe("OpenSeaCollectionOfferSource", () => {
                 limit: 100,
                 next: "page-2",
             },
+        ]);
+        assert.deepEqual(operations, [
+            OPEN_SEA_SNAPSHOT_OPERATION.GetAllOffersPage,
+            OPEN_SEA_SNAPSHOT_OPERATION.GetAllOffersPage,
         ]);
     });
 
@@ -94,6 +113,36 @@ describe("OpenSeaCollectionOfferSource", () => {
         assert.equal(result.metrics.pageCount, 2);
         assert.equal(result.metrics.offerCount, 2);
         assert.equal(result.metrics.finalCursor, "page-2");
+        assert.equal(result.metrics.complete, false);
         assert.equal(api.calls.length, 2);
+    });
+
+    it("preserves completed page and offer counts when a later page fails", async () => {
+        const api = new FakeOpenSeaApiClient();
+        api.pages = [
+            { offers: [{ order_hash: "0x1" }], next: "page-2" },
+            new Error("second page unavailable"),
+        ];
+        const source = new OpenSeaCollectionOfferSource(api as any, {
+            offersPageSize: 50,
+            retryPolicy: {
+                maxAttempts: 1,
+                baseDelayMs: 0,
+                maxDelayMs: 0,
+                jitterRatio: 0,
+            },
+        });
+
+        await assert.rejects(
+            () => source.getAllOffers("terraforms"),
+            (error: unknown) => {
+                assert.ok(error instanceof CollectionOfferSourceError);
+                assert.equal(error.metrics.pageCount, 1);
+                assert.equal(error.metrics.offerCount, 1);
+                assert.equal(error.metrics.complete, false);
+                assert.equal(error.metrics.finalCursor, "page-2");
+                return true;
+            },
+        );
     });
 });

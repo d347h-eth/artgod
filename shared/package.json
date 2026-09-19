@@ -16,6 +16,7 @@
         "./config/debug-payload-persistence": "./config/debug-payload-persistence.ts",
         "./config/deployment": "./config/deployment.ts",
         "./config/generated-settings-defaults": "./config/generated-settings-defaults.ts",
+        "./config/generated-settings-validation-rules": "./config/generated-settings-validation-rules.ts",
         "./config/http-fetch-resilience": "./config/http-fetch-resilience.ts",
         "./config/nats": "./config/nats.ts",
         "./config/opensea-http": "./config/opensea-http.ts",
@@ -23,6 +24,7 @@
         "./config/rpc-auto-sourcing": "./config/rpc-auto-sourcing.ts",
         "./config/rpc-endpoints": "./config/rpc-endpoints.ts",
         "./config/rpc-resilience": "./config/rpc-resilience.ts",
+        "./config/tcp-port": "./config/tcp-port.ts",
         "./config/block-explorer": "./config/block-explorer.ts",
         "./config/weighted-endpoints": "./config/weighted-endpoints.ts",
         "./http/api-security": "./http/api-security.ts",
@@ -85,6 +87,7 @@
             "artgod-desktop-runtime": "./observability/metrics/desktop.ts",
             "default": "./observability/metrics/index.ts"
         },
+        "./observability/trading-metrics": "./observability/metrics/trading.ts",
         "./observability/rpc": "./observability/rpc.ts",
         "./queue/nats-job-stream": "./queue/nats-job-stream.ts",
         "./database": "./database/db.ts",

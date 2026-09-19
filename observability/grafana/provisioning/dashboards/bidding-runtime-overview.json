@@ -1,0 +1,3308 @@
+{
+    "annotations": {
+        "list": [
+            {
+                "builtIn": 1,
+                "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+                "enable": true,
+                "hide": true,
+                "iconColor": "rgba(0, 211, 255, 1)",
+                "name": "Annotations & Alerts",
+                "type": "dashboard"
+            }
+        ]
+    },
+    "description": "End-to-end bidding runtime timing, queue pressure, inbound marketplace events, OpenSea calls, and process resources. If every panel is empty, enable the bidding metrics endpoint, restart the bidding bot, and confirm the Prometheus target is healthy.",
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 1,
+    "id": null,
+    "links": [],
+    "liveNow": false,
+    "panels": [
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+            "id": 1001,
+            "panels": [],
+            "title": "Current Work and Collector Health",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Current or most recent scan inventory and settled jobs. Settled includes failed jobs and waiters discarded on Stop; it does not mean successful bids. Counts reset at scan start.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+            "id": 1,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "max by (worker, chain_id) (artgod_trading_bidding_scan_active{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / scan active (0/1)",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "max by (worker, chain_id) (artgod_trading_bidding_job_scan_size{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / jobs in latest scan",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "max by (worker, chain_id) (artgod_trading_bidding_scan_completed_jobs{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / jobs settled in latest scan",
+                    "range": true,
+                    "refId": "C"
+                }
+            ],
+            "title": "Current Scan Progress",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Ages keep increasing without new runtime events. Inactive scan age is omitted; absent success means no successful scan has been observed in this process.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
+            "id": 2,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id) (artgod_trading_bidding_scan_started_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0) and (max by (worker, chain_id) (artgod_trading_bidding_scan_active{worker=~\"$worker\",chain_id=~\"$chain_id\"}) > 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / active scan age",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id) (artgod_trading_bidding_scan_last_progress_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0) and (max by (worker, chain_id) (artgod_trading_bidding_scan_active{worker=~\"$worker\",chain_id=~\"$chain_id\"}) > 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / active scan time without settled-job progress",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id) (artgod_trading_bidding_scan_last_success_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / last fully successful scan age",
+                    "range": true,
+                    "refId": "C"
+                }
+            ],
+            "title": "Current Scan and Last Success Age",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Unfinished operations by bounded stage. Stages can nest, so adding stage counts is not a count of distinct jobs.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+            "id": 3,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, stage) (artgod_trading_bidding_work_active{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{stage}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Active Work Stages",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Age of the oldest unfinished operation in each stage, including startup and durable-command work. Empty stages are omitted, not reported as an epoch-sized age.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 9 },
+            "id": 4,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id, stage) (artgod_trading_bidding_work_oldest_started_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{stage}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Oldest Unfinished Work",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Calls currently inside the API/SDK boundary. Local rate-limit waiting is separate; no placement or cancellation retry policy is changed.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 9 },
+            "id": 5,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, lane, operation, priority) (artgod_trading_bidding_opensea_in_flight{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / {{operation}} / {{priority}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "OpenSea Calls in Flight",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Oldest API/SDK call age, still visible before any duration observation completes. All completed calls clear their in-flight timestamp.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 9 },
+            "id": 6,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id, lane, operation, priority) (artgod_trading_bidding_opensea_oldest_started_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / {{operation}} / {{priority}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Oldest OpenSea Call",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Latest completed owner read: 1 succeeded, 0 failed; absent means not yet observed. Health gauges retain the last good read after failure. This is independent of exporter availability and business progress.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 17 },
+            "id": 7,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "max by (worker, chain_id, component) (artgod_trading_bidding_health_sample_success{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{component}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Latest Health Sample Succeeded",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Age of each owner's last successful sample. Sampling runs immediately and then at the configured health cadence without overlapping reads or database work in scrape handlers. Compare with configured health_poll_ms; a stale sample is not fresh runtime evidence.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 17 },
+            "id": 8,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id, component) (artgod_trading_bidding_health_last_success_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{component}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Last Successful Health Sample Age",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Only active work without boundary progress for more than 600 seconds is shown. Matching Prometheus warnings require another 2m. Inspect child operations and logs; long work is not necessarily deadlocked. No automatic recovery or external notification delivery is configured here.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 17 },
+            "id": 9,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "(clamp_min(time() - min by (worker, chain_id) (artgod_trading_bidding_scan_last_progress_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0) and (max by (worker, chain_id) (artgod_trading_bidding_scan_active{worker=~\"$worker\",chain_id=~\"$chain_id\"}) > 0)) > 600",
+                    "legendFormat": "{{worker}} / {{chain_id}} / scan without settled-job progress",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "(clamp_min(time() - min by (worker, chain_id, stage) (artgod_trading_bidding_work_last_progress_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0) and (sum by (worker, chain_id, stage) (artgod_trading_bidding_work_active{worker=~\"$worker\",chain_id=~\"$chain_id\"}) > 0)) > 600",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{stage}}",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Work With No Progress",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
+            "id": 1002,
+            "panels": [],
+            "title": "Durable Commands and Data Freshness",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Last sampled durable rows by status, excluding completed history. Stale processing is the reclaimable subset under the existing claim-timeout policy, not another queue status. Check collector health before interpreting retained values.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 26 },
+            "id": 10,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, status) (artgod_trading_bidding_command_queue_depth{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{status}}",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_command_stale_processing{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / stale processing (subset)",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Durable Command Backlog",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Creation age of the oldest pending or retryable command, before it is claimed. Empty queues are omitted. A failed/stale health sample can retain an old queue timestamp.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 26 },
+            "id": 11,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id) (artgod_trading_bidding_command_oldest_pending_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / oldest pending or retrying command",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Oldest Pending Command Age",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Process-lifetime transitions observed after successful persistence: completed, retry scheduled, terminal failure, and stale-claim recovery. These are not unique-command totals or durable audit history across restarts.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 26 },
+            "id": 12,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, command_kind, outcome) (artgod_trading_bidding_command_durable_outcomes_total{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{command_kind}} / {{outcome}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Durable Command Outcomes",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Watched collections with fresh, stale or missing complete market data, evaluated by the actual adaptive TTL policy. Backoff may overlap any freshness state. Partial/error fetches never reset complete-data age.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 34 },
+            "id": 13,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, status) (artgod_trading_bidding_snapshot_freshness{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{status}}",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_snapshot_backoff_collections{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / collections in backoff (overlapping subset)",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Market Data Freshness",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Oldest successful complete refresh among watched collections. Missing collections have no timestamp and are counted separately, so an empty age graph does not prove health.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 34 },
+            "id": 14,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id) (artgod_trading_bidding_snapshot_oldest_complete_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / oldest complete refresh",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Oldest Complete Market Data Age",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Display publication is independent of market-data freshness. Missing and lagging can overlap. Startup cannot attest to an older persisted bid book until this process publishes it; removed collections leave this scope.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 34 },
+            "id": 15,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_publication_watched_collections{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / watched collections",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_publication_missing_collections{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / no publication observed this process",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_publication_lagging_collections{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / newer complete market data awaiting publication",
+                    "range": true,
+                    "refId": "C"
+                }
+            ],
+            "title": "Bid-Book Publication Status",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "A recently written bid book can contain older market data. Failed writes preserve the previous successful publication timestamps; successful fetches alone do not reset them.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 42 },
+            "id": 16,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id) (artgod_trading_bidding_publication_oldest_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / oldest successful publication",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id) (artgod_trading_bidding_publication_oldest_snapshot_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / oldest published market data",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Oldest Bid-Book Publication Age",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Base and maximum adaptive freshness TTL. The runtime combines these with last fetch duration and the configured multiplier; these are bounds, not per-collection effective TTLs.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 42 },
+            "id": 17,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "max by (worker, chain_id, setting) (artgod_trading_bidding_runtime_configuration{worker=~\"$worker\",chain_id=~\"$chain_id\",setting=~\"snapshot_ttl_ms|snapshot_max_ttl_ms\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{setting}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Configured Market Data Freshness Bounds",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Dimensionless multiplier applied to the previous complete fetch duration by the market-data freshness policy.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 42 },
+            "id": 18,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "max by (worker, chain_id) (artgod_trading_bidding_runtime_configuration{worker=~\"$worker\",chain_id=~\"$chain_id\",setting=\"snapshot_ttl_multiplier\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / fetch duration multiplier",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Configured Fetch Duration Multiplier",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 50 },
+            "id": 1003,
+            "panels": [],
+            "title": "Bidding Decisions and Known Positions",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Process-lifetime strategy intentions: place, renew, adjust, maintain winning/capped, reuse target, or zero-ceiling skip/cancel. Intent is recorded before effects and can be followed by a failed action. Dry-run intent is separate.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 51 },
+            "id": 19,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, decision, target_type, dry_run) (artgod_trading_bidding_decisions_total{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{decision}} / {{target_type}} / {{dry_run}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Bidding Decision Intents",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Last-known bot-owned positions for currently scheduled jobs, including unobserved jobs. Positions can be restored from durable state or become stale; they are not independent proof of current marketplace leadership.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 51 },
+            "id": 20,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, position) (artgod_trading_bidding_job_positions{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{position}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Last-Known Job Positions",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Currently scheduled jobs with each last-known constraint. One job may have multiple constraints; their sum is not a distinct-job total.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 51 },
+            "id": 21,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, constraint) (artgod_trading_bidding_job_constraints{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{constraint}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Last-Known Job Constraints",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Process-lifetime place/cancel action outcomes. Success with dry_run=false means the action path completed; dry_run=true is simulated, not a marketplace write. Failure can include local tracking failure after an external effect, so it does not prove no offer was placed or cancelled.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 59 },
+            "id": 22,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, action, result, dry_run) (artgod_trading_bidding_market_actions_total{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{action}} / {{result}} / {{dry_run}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Marketplace Action Outcomes",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Last stage-boundary progress and last successful completion. Values persist when the stage is idle; compare with active work before diagnosing a stall. Failure updates progress but not success.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 59 },
+            "id": 23,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id, stage) (artgod_trading_bidding_work_last_progress_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / last start or finish / {{stage}}",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(time() - min by (worker, chain_id, stage) (artgod_trading_bidding_work_last_success_at_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"} > 0), 0)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / last success / {{stage}}",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Work Stage Progress and Success Age",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 67 },
+            "id": 1004,
+            "panels": [],
+            "title": "Bidding Runtime Health",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "A value of 1 identifies the current lifecycle state for each bidding bot and chain ID.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 68 },
+            "id": 24,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "max by (worker, chain_id, runtime_state) (artgod_trading_bidding_runtime_state{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{runtime_state}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Runtime State",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Elapsed milliseconds from entering startBiddingRuntime until ready, after secret intake, configuration, policy agreement and metrics initialization. This is runtime bootstrap time, not total process startup time.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 68 },
+            "id": 25,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_runtime_time_to_ready_ms_sum{worker=~\"$worker\",chain_id=~\"$chain_id\"}) / clamp_min(sum by (worker, chain_id) (artgod_trading_bidding_runtime_time_to_ready_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}), 1)",
+                    "legendFormat": "{{worker}} / {{chain_id}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Time to Ready per Bot Start",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Current-process lifetime average milliseconds for each completed startup phase. Startup failures remain authoritative in structured logs because the metrics endpoint can close before Prometheus scrapes a failed phase.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 68 },
+            "id": 26,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, phase, result) (artgod_trading_bidding_runtime_bootstrap_phase_duration_ms_sum{worker=~\"$worker\",chain_id=~\"$chain_id\"}) / clamp_min(sum by (worker, chain_id, phase, result) (artgod_trading_bidding_runtime_bootstrap_phase_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}), 1)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{phase}} / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Bootstrap Phase Duration per Bot Start",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Compares 95th-percentile milliseconds at the main handoff points so the largest end-to-end bottleneck is visible first.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 76 },
+            "id": 27,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / command claimed to strategy",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / job refresh queue",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id) (rate(artgod_trading_bidding_stream_event_age_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id) (rate(artgod_trading_bidding_stream_event_age_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_stream_event_age_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / inbound event age",
+                    "range": true,
+                    "refId": "C"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / OpenSea rate-limit wait",
+                    "range": true,
+                    "refId": "D"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / bid-book update queue",
+                    "range": true,
+                    "refId": "E"
+                }
+            ],
+            "title": "Critical Path Latency p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Percentage of completed observations above each measurement's largest finite bucket, by bot and chain. Only positive overflow is shown. A p95 outside its recorded range is omitted; this panel distinguishes overflow from absent observations. Long-operation and event-age ranges extend through 24 hours.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "percentunit"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 76 },
+            "id": 28,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_opensea_operation_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_opensea_operation_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / OpenSea call (ms) > 86400000",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / OpenSea rate-limit wait (ms) > 3600000",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_runtime_bootstrap_phase_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_runtime_bootstrap_phase_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / startup phase (ms) > 86400000",
+                    "range": true,
+                    "refId": "C"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_runtime_time_to_ready_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_runtime_time_to_ready_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / time to ready (ms) > 86400000",
+                    "range": true,
+                    "refId": "D"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_job_scan_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_job_scan_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / job scan (ms) > 86400000",
+                    "range": true,
+                    "refId": "E"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / job refresh queue (ms) > 3600000",
+                    "range": true,
+                    "refId": "F"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_job_refresh_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_job_refresh_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / job refresh (ms) > 86400000",
+                    "range": true,
+                    "refId": "G"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_market_action_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_market_action_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / marketplace action (ms) > 86400000",
+                    "range": true,
+                    "refId": "H"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_command_reconciliation_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_command_reconciliation_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / command reconciliation (ms) > 86400000",
+                    "range": true,
+                    "refId": "I"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_command_reconciliation_batch_size_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"1000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_command_reconciliation_batch_size_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / commands per reconciliation > 1000",
+                    "range": true,
+                    "refId": "J"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_command_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_command_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / command queue (ms) > 86400000",
+                    "range": true,
+                    "refId": "K"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / command claim to strategy (ms) > 86400000",
+                    "range": true,
+                    "refId": "L"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_command_created_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_command_created_to_strategy_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / command creation to strategy (ms) > 86400000",
+                    "range": true,
+                    "refId": "M"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_command_processing_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_command_processing_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / command attempt (ms) > 86400000",
+                    "range": true,
+                    "refId": "N"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_hot_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_hot_refresh_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / inbound refresh queue (ms) > 3600000",
+                    "range": true,
+                    "refId": "O"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_hot_refresh_pass_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_hot_refresh_pass_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / inbound refresh pass (ms) > 86400000",
+                    "range": true,
+                    "refId": "P"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_hot_refresh_pass_events_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"1000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_hot_refresh_pass_events_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / events per inbound refresh pass > 1000",
+                    "range": true,
+                    "refId": "Q"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_hot_refresh_pass_signals_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"1000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_hot_refresh_pass_signals_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / signals per inbound refresh pass > 1000",
+                    "range": true,
+                    "refId": "R"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_stream_event_age_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_stream_event_age_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / inbound event age (ms) > 86400000",
+                    "range": true,
+                    "refId": "S"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_stream_dispatch_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"30000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_stream_dispatch_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / inbound dispatch (ms) > 30000",
+                    "range": true,
+                    "refId": "T"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_snapshot_refresh_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_snapshot_refresh_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / offer sync (ms) > 86400000",
+                    "range": true,
+                    "refId": "U"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_snapshot_refresh_pages_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"1000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_snapshot_refresh_pages_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / pages per offer sync > 1000",
+                    "range": true,
+                    "refId": "V"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_snapshot_refresh_offers_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"100000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_snapshot_refresh_offers_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / offers per offer sync > 100000",
+                    "range": true,
+                    "refId": "W"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / bid-book update queue (ms) > 3600000",
+                    "range": true,
+                    "refId": "X"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / bid-book update (ms) > 86400000",
+                    "range": true,
+                    "refId": "Y"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "clamp_min(1 - (sum by (worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_rows_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"100000\"}[$__rate_interval])) / sum by (worker, chain_id) (rate(artgod_trading_bidding_bid_book_projection_rows_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))), 0) > 0",
+                    "legendFormat": "{{worker}} / {{chain_id}} / offers per bid-book update > 100000",
+                    "range": true,
+                    "refId": "Z"
+                }
+            ],
+            "title": "Measurements Beyond Histogram Range",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Concurrent and queued work across the bidding pipeline. Sustained growth indicates work is arriving faster than it completes.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 76 },
+            "id": 29,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_job_refresh_waiting{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / job refresh waiting",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_job_refresh_pending{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / job refresh pending",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_command_in_flight{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / commands in flight",
+                    "range": true,
+                    "refId": "C"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_hot_refresh_pending_signals{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / inbound refresh signals pending",
+                    "range": true,
+                    "refId": "D"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_snapshot_refresh_pending{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / market offer sync pending",
+                    "range": true,
+                    "refId": "E"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_bid_book_projection_pending{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / bid-book update pending",
+                    "range": true,
+                    "refId": "F"
+                }
+            ],
+            "title": "Active Pressure",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Cumulative failures and rejected offer syncs for the current bidding bot process across commands, scans, refreshes, inbound normalization and dispatch, OpenSea, snapshots, and bid-book updates. Raw totals keep a first or singleton failure visible even when it happened before Prometheus obtained a baseline scrape.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 84 },
+            "id": 30,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_command_attempts_total{worker=~\"$worker\",chain_id=~\"$chain_id\",result=\"failure\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / command attempt failures",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_market_actions_total{worker=~\"$worker\",chain_id=~\"$chain_id\",result=\"failure\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / market action failures",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_opensea_operations_total{worker=~\"$worker\",chain_id=~\"$chain_id\",result=\"failure\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / OpenSea failures",
+                    "range": true,
+                    "refId": "C"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_stream_events_total{worker=~\"$worker\",chain_id=~\"$chain_id\",outcome=\"normalization_failed\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / inbound normalization failures",
+                    "range": true,
+                    "refId": "D"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, result) (artgod_trading_bidding_snapshot_refresh_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\",result=~\"partial|error\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / offer sync {{result}}",
+                    "range": true,
+                    "refId": "E"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, result) (artgod_trading_bidding_job_scan_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\",result=~\"failure|completed_with_failures\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / job scan / {{result}}",
+                    "range": true,
+                    "refId": "F"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_job_refresh_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\",result=\"failure\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / job refresh failures",
+                    "range": true,
+                    "refId": "G"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, result) (artgod_trading_bidding_command_reconciliation_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\",result=~\"failure|completed_with_failures\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / command reconciliation / {{result}}",
+                    "range": true,
+                    "refId": "H"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_hot_refresh_pass_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\",result=\"failure\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / inbound refresh pass failures",
+                    "range": true,
+                    "refId": "I"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_stream_dispatch_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\",result=\"failure\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / inbound dispatch failures",
+                    "range": true,
+                    "refId": "J"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_bid_book_projection_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\",result=\"failure\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / bid-book update failures",
+                    "range": true,
+                    "refId": "K"
+                }
+            ],
+            "title": "Process-Lifetime Failures",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Final offer-sync results and inbound refresh queue decisions per second. Offer syncs remain split into complete, partial, and error results; dropped, evicted, and coalesced refresh outcomes remain visible without identifying individual NFTs.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 84 },
+            "id": 31,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))",
+                    "legendFormat": "{{worker}} / {{chain_id}} / offer sync / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, lane, outcome) (rate(artgod_trading_bidding_hot_refresh_signals_total{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / {{outcome}}",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Offer Sync Results and Queue Decisions",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 92 },
+            "id": 1005,
+            "panels": [],
+            "title": "Capacity and Job Scans",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Live configured job concurrency, command batch size, and pending-signal caps for the selected bot and chain ID.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 93 },
+            "id": 32,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "max by (worker, chain_id, setting) (artgod_trading_bidding_runtime_configuration{worker=~\"$worker\",chain_id=~\"$chain_id\",setting=~\"max_concurrent_jobs|command_batch_size|hot_refresh_broad_max_pending|hot_refresh_item_max_pending\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{setting}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Configured Concurrent Jobs and Queue Caps",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Configured milliseconds between scans, command polls, marketplace offer syncs, and inbound-refresh passes.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 93 },
+            "id": 33,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "max by (worker, chain_id, setting) (artgod_trading_bidding_runtime_configuration{worker=~\"$worker\",chain_id=~\"$chain_id\",setting=~\"scan_interval_ms|command_poll_ms|health_poll_ms|snapshot_poll_ms|snapshot_ttl_ms|hot_refresh_broad_cooldown_ms|hot_refresh_item_cooldown_ms\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{setting}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Configured Cadences",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Current number of configured bidding jobs by bounded target type; it never identifies an individual job or collection.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 93 },
+            "id": 34,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "max by (worker, chain_id, target_type) (artgod_trading_bidding_jobs{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{target_type}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Bidding Jobs by Target Type",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile milliseconds to scan the dynamic bidding-job inventory.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 101 },
+            "id": 35,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_job_scan_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, result) (rate(artgod_trading_bidding_job_scan_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, result) (rate(artgod_trading_bidding_job_scan_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Job Scan Duration p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Number of bidding jobs captured when the current or most recent dynamic scan started.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 101 },
+            "id": 36,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "max by (worker, chain_id) (artgod_trading_bidding_job_scan_size{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Jobs Found in Latest Scan",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 109 },
+            "id": 1006,
+            "panels": [],
+            "title": "Job Refresh and Market Actions",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Refresh requests per second by trigger, bounded target type, and whether work started, coalesced, or stopped.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 110 },
+            "id": 37,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, trigger, target_type, outcome) (rate(artgod_trading_bidding_job_refresh_requests_total{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{trigger}} / {{target_type}} / {{outcome}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Job Refresh Requests",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile milliseconds a job refresh waits before it starts strategy work, by trigger and bounded target type.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 110 },
+            "id": 38,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, trigger, target_type) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, trigger, target_type) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id, trigger, target_type) (rate(artgod_trading_bidding_job_refresh_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{trigger}} / {{target_type}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Job Refresh Queue Wait p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile end-to-end milliseconds for a job refresh, split by trigger, bounded target type, and result.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 110 },
+            "id": 39,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, trigger, target_type, result) (rate(artgod_trading_bidding_job_refresh_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, trigger, target_type, result) (rate(artgod_trading_bidding_job_refresh_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, trigger, target_type, result) (rate(artgod_trading_bidding_job_refresh_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{trigger}} / {{target_type}} / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Job Refresh Duration p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Active job refreshes, requests waiting for a concurrency slot, and jobs with one coalesced rerun pending.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 118 },
+            "id": 40,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_job_refresh_active{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / active",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_job_refresh_waiting{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / waiting",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_job_refresh_pending{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / pending rerun",
+                    "range": true,
+                    "refId": "C"
+                }
+            ],
+            "title": "Job Refresh Concurrency",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Marketplace actions per second by action, bounded target type, result, and whether the bot was in dry-run mode.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 118 },
+            "id": 41,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, action, target_type, result, dry_run) (rate(artgod_trading_bidding_market_actions_total{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{action}} / {{target_type}} / {{result}} / {{dry_run}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Market Actions",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile milliseconds for marketplace actions by bounded target type, including failed and dry-run attempts.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 118 },
+            "id": 42,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, action, target_type, result, dry_run) (rate(artgod_trading_bidding_market_action_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, action, target_type, result, dry_run) (rate(artgod_trading_bidding_market_action_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, action, target_type, result, dry_run) (rate(artgod_trading_bidding_market_action_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{action}} / {{target_type}} / {{result}} / {{dry_run}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Market Action Duration p95",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 126 },
+            "id": 1007,
+            "panels": [],
+            "title": "Commands to Strategy",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile milliseconds for one command-reconciliation pass, by poll or signal trigger and result.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 127 },
+            "id": 43,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, trigger, result) (rate(artgod_trading_bidding_command_reconciliation_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, trigger, result) (rate(artgod_trading_bidding_command_reconciliation_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, trigger, result) (rate(artgod_trading_bidding_command_reconciliation_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{trigger}} / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Command Reconciliation Duration p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile number of bidding commands claimed per reconciliation pass.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 127 },
+            "id": 44,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, trigger, result) (rate(artgod_trading_bidding_command_reconciliation_batch_size_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, trigger, result) (rate(artgod_trading_bidding_command_reconciliation_batch_size_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"1000\"}[$__rate_interval])) / sum by (worker, chain_id, trigger, result) (rate(artgod_trading_bidding_command_reconciliation_batch_size_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{trigger}} / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Commands per Reconciliation p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile milliseconds from command creation until it is claimed for processing.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 127 },
+            "id": 45,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{command_kind}} / {{trigger}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Command Queue Wait p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile milliseconds from a command being claimed until its job strategy actually starts.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 135 },
+            "id": 46,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_claim_to_strategy_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{command_kind}} / {{trigger}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Command Claimed to Strategy Start p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile total milliseconds from command creation through queueing and strategy start.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 135 },
+            "id": 47,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_created_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_created_to_strategy_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, command_kind, trigger) (rate(artgod_trading_bidding_command_created_to_strategy_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{command_kind}} / {{trigger}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Command Created to Strategy Start p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile milliseconds for one command processing attempt, ending at completion, retry scheduling, or terminal failure.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 135 },
+            "id": 48,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, command_kind, result) (rate(artgod_trading_bidding_command_processing_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, command_kind, result) (rate(artgod_trading_bidding_command_processing_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, command_kind, result) (rate(artgod_trading_bidding_command_processing_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{command_kind}} / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Command Attempt Duration p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Finished processing attempts per second by command kind, trigger, and attempt result. A command that fails twice before succeeding contributes two failures and one success. Failures include both scheduled retries and terminal failures; use structured command logs for the durable outcome.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 143 },
+            "id": 49,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, command_kind, trigger, result) (rate(artgod_trading_bidding_command_attempts_total{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{command_kind}} / {{trigger}} / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Command Processing Attempts",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Commands currently being processed by the bidding runtime.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 143 },
+            "id": 50,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_command_in_flight{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Commands in Flight",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 151 },
+            "id": 1008,
+            "panels": [],
+            "title": "Inbound Marketplace Events",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Inbound OpenSea events per second by bounded event type, scope, and normalization outcome.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 152 },
+            "id": 51,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, event_type, event_scope, outcome) (rate(artgod_trading_bidding_stream_events_total{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{event_type}} / {{event_scope}} / {{outcome}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Inbound Events",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile milliseconds between an event's marketplace timestamp and local receipt.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 152 },
+            "id": 52,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, event_type, event_scope) (rate(artgod_trading_bidding_stream_event_age_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, event_type, event_scope) (rate(artgod_trading_bidding_stream_event_age_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, event_type, event_scope) (rate(artgod_trading_bidding_stream_event_age_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{event_type}} / {{event_scope}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Inbound Event Age p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile milliseconds to dispatch one normalized event into bidding refresh work.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 152 },
+            "id": 53,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, event_type, event_scope, result) (rate(artgod_trading_bidding_stream_dispatch_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, event_type, event_scope, result) (rate(artgod_trading_bidding_stream_dispatch_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"30000\"}[$__rate_interval])) / sum by (worker, chain_id, event_type, event_scope, result) (rate(artgod_trading_bidding_stream_dispatch_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{event_type}} / {{event_scope}} / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Inbound Dispatch Duration p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Inbound event dispatches currently executing. Sustained growth indicates event handling is monopolizing runtime resources.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 160 },
+            "id": 54,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_stream_dispatch_active{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Inbound Dispatches Active",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Inbound refresh signals per second by lane and queue decision, including coalesced, dropped, and evicted work.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 160 },
+            "id": 55,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, lane, outcome) (rate(artgod_trading_bidding_hot_refresh_signals_total{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / {{outcome}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Refresh Signal Decisions",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Pending marketplace events and refresh signals by bounded refresh lane.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 160 },
+            "id": 56,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, lane) (artgod_trading_bidding_hot_refresh_pending_events{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / events",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, lane) (artgod_trading_bidding_hot_refresh_pending_signals{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / signals",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Pending Events and Signals",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Active versus known refresh lanes, including retained cooldown identity. Per lane kind, known identity is bounded by twice that kind's max-pending setting plus the shared max-concurrent-jobs setting.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 168 },
+            "id": 57,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, lane) (artgod_trading_bidding_hot_refresh_active_lanes{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / active",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, lane) (artgod_trading_bidding_hot_refresh_known_lanes{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / known",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Hot-Refresh Lane Pressure",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile milliseconds from the first pending signal until its refresh pass starts.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 168 },
+            "id": 58,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Hot-Refresh Queue Wait p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile milliseconds for one inbound refresh pass by lane and result.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 168 },
+            "id": 59,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane, result) (rate(artgod_trading_bidding_hot_refresh_pass_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, lane, result) (rate(artgod_trading_bidding_hot_refresh_pass_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, lane, result) (rate(artgod_trading_bidding_hot_refresh_pass_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Hot-Refresh Pass Duration p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile number of marketplace events and coalesced signals handled by one refresh pass.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 176 },
+            "id": 60,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_pass_events_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_pass_events_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"1000\"}[$__rate_interval])) / sum by (worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_pass_events_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / events",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_pass_signals_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_pass_signals_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"1000\"}[$__rate_interval])) / sum by (worker, chain_id, lane) (rate(artgod_trading_bidding_hot_refresh_pass_signals_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / signals",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Events and Signals per Refresh Pass p95",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 184 },
+            "id": 1009,
+            "panels": [],
+            "title": "OpenSea API and Rate Limits",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "OpenSea calls per second by bounded lane, operation, request priority, and result.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 185 },
+            "id": 61,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, lane, operation, priority, result) (rate(artgod_trading_bidding_opensea_operations_total{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / {{operation}} / {{priority}} / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "OpenSea Operations",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile milliseconds spent inside the OpenSea call itself, excluding the local rate-limit wait.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 185 },
+            "id": 62,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane, operation, priority, result) (rate(artgod_trading_bidding_opensea_operation_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, lane, operation, priority, result) (rate(artgod_trading_bidding_opensea_operation_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, lane, operation, priority, result) (rate(artgod_trading_bidding_opensea_operation_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / {{operation}} / {{priority}} / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "OpenSea Operation Duration p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Retry attempts per second by OpenSea lane, operation, and request priority.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 185 },
+            "id": 63,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, lane, operation, priority) (rate(artgod_trading_bidding_opensea_retries_total{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / {{operation}} / {{priority}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "OpenSea Retries",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile milliseconds spent waiting for a local OpenSea rate-limit token, split by request priority and immediate versus queued outcome.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 193 },
+            "id": 64,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, lane, priority, outcome) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, lane, priority, outcome) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id, lane, priority, outcome) (rate(artgod_trading_bidding_opensea_rate_limit_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}} / {{priority}} / {{outcome}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "OpenSea Rate-Limit Wait p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Requests currently queued for a local OpenSea rate-limit token by lane.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 193 },
+            "id": 65,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, lane) (artgod_trading_bidding_opensea_rate_limit_queue_depth{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{lane}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "OpenSea Rate-Limit Queue Depth",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 201 },
+            "id": 1010,
+            "panels": [],
+            "title": "Marketplace Offer Sync and Bid-Book Update",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Marketplace offer-sync requests per second by whether work started, joined existing work, or was skipped.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 202 },
+            "id": 66,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, outcome) (rate(artgod_trading_bidding_snapshot_refresh_requests_total{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{outcome}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Offer Sync Requests",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Finished marketplace offer syncs per second, split into complete, partial, and error results.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 202 },
+            "id": 67,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Offer Sync Results",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile end-to-end milliseconds to synchronize a collection's marketplace offers, split into complete, partial, and error results.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 202 },
+            "id": 68,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Offer Sync Duration p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile marketplace pages and offers processed in one offer sync, with complete, partial, and error results shown separately.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 210 },
+            "id": 69,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_pages_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_pages_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"1000\"}[$__rate_interval])) / sum by (worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_pages_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{result}} / pages",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_offers_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_offers_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"100000\"}[$__rate_interval])) / sum by (worker, chain_id, result) (rate(artgod_trading_bidding_snapshot_refresh_offers_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{result}} / offers",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Pages and Offers per Sync p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Offer syncs currently running or pending and the aggregate number of collections being watched.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 210 },
+            "id": 70,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_snapshot_refresh_in_flight{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / in flight",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_snapshot_refresh_pending{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / pending",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_snapshot_watched_collections{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / watched collections",
+                    "range": true,
+                    "refId": "C"
+                }
+            ],
+            "title": "Offer Sync Pressure",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Bid-book update requests per second, including work that starts immediately or is coalesced behind an active update.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 210 },
+            "id": 71,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id, outcome) (rate(artgod_trading_bidding_bid_book_projection_requests_total{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{outcome}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Bid-Book Update Requests",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile milliseconds between request admission and the start of any bid-book update pass, including immediate and coalesced work.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 218 },
+            "id": 72,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"3600000\"}[$__rate_interval])) / sum by (worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_queue_wait_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Bid-Book Update Queue Wait p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile milliseconds to rebuild the local bid-book view from synchronized marketplace offers.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 218 },
+            "id": 73,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_duration_ms_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"86400000\"}[$__rate_interval])) / sum by (worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_duration_ms_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Bid-Book Update Duration p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "95th-percentile number of local bid-book entries written in one update.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 218 },
+            "id": 74,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_rows_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval]))) and (sum by (worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_rows_bucket{worker=~\"$worker\",chain_id=~\"$chain_id\",le=\"100000\"}[$__rate_interval])) / sum by (worker, chain_id, result) (rate(artgod_trading_bidding_bid_book_projection_rows_count{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])) >= 0.95)",
+                    "legendFormat": "{{worker}} / {{chain_id}} / {{result}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Rows Written per Bid-Book Update p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Bid-book updates currently running and coalesced reruns waiting behind them.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 226 },
+            "id": 75,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_bid_book_projection_active{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / active",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, chain_id) (artgod_trading_bidding_bid_book_projection_pending{worker=~\"$worker\",chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{chain_id}} / pending rerun",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Bid-Book Update Pressure",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 234 },
+            "id": 1011,
+            "panels": [],
+            "title": "Process Resources",
+            "type": "row"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Seconds since each selected bidding bot process started.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 235 },
+            "id": 76,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "time() - process_start_time_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"}",
+                    "legendFormat": "{{worker}} / {{chain_id}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Bidding Bot Uptime",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "Resident memory used by each selected bidding bot process in bytes.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "bytes"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 8, "y": 235 },
+            "id": 77,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "process_resident_memory_bytes{worker=~\"$worker\",chain_id=~\"$chain_id\"}",
+                    "legendFormat": "{{worker}} / {{chain_id}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Process RSS",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "CPU seconds consumed per wall-clock second by each selected bidding bot process.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "percentunit"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 16, "y": 235 },
+            "id": 78,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "rate(process_cpu_seconds_total{worker=~\"$worker\",chain_id=~\"$chain_id\"}[$__rate_interval])",
+                    "legendFormat": "{{worker}} / {{chain_id}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Process CPU Usage",
+            "type": "timeseries"
+        },
+        {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "description": "99th-percentile event-loop delay in seconds. Sustained increases indicate the process cannot promptly schedule more work.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": { "mode": "palette-classic" },
+                    "mappings": [],
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": { "h": 8, "w": 8, "x": 0, "y": 243 },
+            "id": 79,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "desc" }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "nodejs_eventloop_lag_p99_seconds{worker=~\"$worker\",chain_id=~\"$chain_id\"}",
+                    "legendFormat": "{{worker}} / {{chain_id}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Event-Loop Delay p99",
+            "type": "timeseries"
+        }
+    ],
+    "refresh": "10s",
+    "schemaVersion": 39,
+    "style": "dark",
+    "tags": ["artgod", "bidding", "runtime", "metrics"],
+    "templating": {
+        "list": [
+            {
+                "allValue": ".*",
+                "current": {
+                    "selected": true,
+                    "text": ["All"],
+                    "value": ["$__all"]
+                },
+                "datasource": { "type": "prometheus", "uid": "prometheus" },
+                "definition": "label_values(artgod_trading_bidding_runtime_state, worker)",
+                "hide": 0,
+                "includeAll": true,
+                "label": "worker",
+                "multi": true,
+                "name": "worker",
+                "options": [],
+                "query": "label_values(artgod_trading_bidding_runtime_state, worker)",
+                "refresh": 2,
+                "sort": 1,
+                "type": "query"
+            },
+            {
+                "allValue": ".*",
+                "current": {
+                    "selected": true,
+                    "text": ["All"],
+                    "value": ["$__all"]
+                },
+                "datasource": { "type": "prometheus", "uid": "prometheus" },
+                "definition": "label_values(artgod_trading_bidding_runtime_state, chain_id)",
+                "hide": 0,
+                "includeAll": true,
+                "label": "chain_id",
+                "multi": true,
+                "name": "chain_id",
+                "options": [],
+                "query": "label_values(artgod_trading_bidding_runtime_state, chain_id)",
+                "refresh": 2,
+                "sort": 1,
+                "type": "query"
+            }
+        ]
+    },
+    "time": { "from": "now-1h", "to": "now" },
+    "timepicker": {},
+    "timezone": "",
+    "title": "ArtGod Bidding Runtime Overview",
+    "uid": "artgod-bidding-runtime",
+    "version": 1,
+    "weekStart": ""
+}

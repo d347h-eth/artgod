@@ -442,8 +442,8 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             payloadJson: string;
         }>(
             "INSERT INTO trading_job_commands " +
-                "(job_id, bot_kind, command_kind, status, requested_revision, payload_json) " +
-                "VALUES (@jobId, @botKind, @commandKind, @status, @requestedRevision, @payloadJson)",
+                "(job_id, bot_kind, command_kind, status, requested_revision, payload_json, created_at) " +
+                "VALUES (@jobId, @botKind, @commandKind, @status, @requestedRevision, @payloadJson, STRFTIME('%Y-%m-%d %H:%M:%f', 'now'))",
         ) as BetterSqlite3NamedStatement<{
             jobId: string;
             botKind: typeof TRADING_BOT_KIND.Bidding;

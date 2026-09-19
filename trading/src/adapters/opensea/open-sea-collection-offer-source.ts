@@ -1,13 +1,15 @@
 import type {
     CollectionOfferSource,
+    CollectionOfferSnapshotMetrics,
     CollectionOfferSourceResult,
 } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
+import { CollectionOfferSourceError } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
+import { defaultRetryPolicy, RetryPolicy, retry } from "../support/retry.js";
 import {
-    defaultRetryPolicy,
-    RetryPolicy,
-    retry,
-} from "../support/retry.js";
-import { TokenBucketRateLimiter } from "../support/token-bucket-rate-limiter.js";
+    TOKEN_BUCKET_RATE_LIMIT_PRIORITY,
+    TokenBucketRateLimiter,
+    type TokenBucketRateLimitPriority,
+} from "../support/token-bucket-rate-limiter.js";
 import {
     BIDDING_LOG_COMPONENT,
     createBiddingComponentLogger,
@@ -15,11 +17,39 @@ import {
 } from "../../utils/bidding-log.js";
 import { OpenSeaApiClient } from "./open-sea-client.js";
 import { BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE } from "../../config/bidding-defaults.js";
+import { observeBestEffort } from "../../utils/observe-best-effort.js";
 
 export interface OpenSeaCollectionOfferSourceOptions {
     offersPageSize?: number;
     retryPolicy?: RetryPolicy;
     rateLimiter?: TokenBucketRateLimiter;
+    observability?: OpenSeaCollectionOfferSourceObservabilityPort;
+}
+
+// Stable snapshot operation names describe the paginated OpenSea API boundary.
+export const OPEN_SEA_SNAPSHOT_OPERATION = {
+    GetAllOffersPage: "get_all_offers_page",
+} as const;
+
+export type OpenSeaSnapshotOperation =
+    (typeof OPEN_SEA_SNAPSHOT_OPERATION)[keyof typeof OPEN_SEA_SNAPSHOT_OPERATION];
+
+// OpenSeaCollectionOfferSourceObservabilityPort reports per-page API timing and retry pressure.
+export interface OpenSeaCollectionOfferSourceObservabilityPort {
+    onOpenSeaOperationStarted?(input: {
+        operation: OpenSeaSnapshotOperation;
+        priority: TokenBucketRateLimitPriority;
+    }): (succeeded: boolean) => void;
+    onOpenSeaOperationFinished(input: {
+        operation: OpenSeaSnapshotOperation;
+        priority: TokenBucketRateLimitPriority;
+        durationMs: number;
+        succeeded: boolean;
+    }): void;
+    onOpenSeaRetry(input: {
+        operation: OpenSeaSnapshotOperation;
+        priority: TokenBucketRateLimitPriority;
+    }): void;
 }
 
 const log = createBiddingComponentLogger(
@@ -37,9 +67,10 @@ export class OpenSeaCollectionOfferSource implements CollectionOfferSource {
     private readonly offersPageSize: number;
     private readonly retryPolicy: RetryPolicy;
     private readonly rateLimiter: TokenBucketRateLimiter;
+    private readonly observability?: OpenSeaCollectionOfferSourceObservabilityPort;
 
     constructor(
-        private readonly api: OpenSeaApiClient,
+        private readonly api: Pick<OpenSeaApiClient, "getAllOffers">,
         options: OpenSeaCollectionOfferSourceOptions = {},
     ) {
         this.offersPageSize = Math.max(
@@ -55,6 +86,7 @@ export class OpenSeaCollectionOfferSource implements CollectionOfferSource {
                 postMax: 1,
                 postRefillPerSecond: 1,
             });
+        this.observability = options.observability;
     }
 
     public async getAllOffers(
@@ -67,20 +99,69 @@ export class OpenSeaCollectionOfferSource implements CollectionOfferSource {
         const priceStats = new OfferPriceStats();
         let pageCount = 0;
         let finalCursor: string | null = null;
+        let complete = true;
+        const buildMetrics = (
+            snapshotComplete: boolean,
+            snapshotFinalCursor: string | null,
+        ): CollectionOfferSnapshotMetrics => ({
+            durationMs: Date.now() - startedAt,
+            pageCount,
+            offerCount: allOffers.length,
+            complete: snapshotComplete,
+            firstPriceWei: priceStats.firstPriceWei,
+            lastPriceWei: priceStats.lastPriceWei,
+            minPriceWei: priceStats.minPriceWei,
+            maxPriceWei: priceStats.maxPriceWei,
+            finalCursor: snapshotFinalCursor,
+        });
 
         while (true) {
             const response = await retry(
                 async () => {
                     await this.rateLimiter.wait(1, 0);
-                    return await this.api.getAllOffers(
-                        collectionSlug,
-                        this.offersPageSize,
-                        cursor,
+                    const startedAt = Date.now();
+                    const finish = observeBestEffort(() =>
+                        this.observability?.onOpenSeaOperationStarted?.({
+                            operation:
+                                OPEN_SEA_SNAPSHOT_OPERATION.GetAllOffersPage,
+                            priority:
+                                TOKEN_BUCKET_RATE_LIMIT_PRIORITY.Background,
+                        }),
                     );
+                    let succeeded = false;
+                    try {
+                        const result = await this.api.getAllOffers(
+                            collectionSlug,
+                            this.offersPageSize,
+                            cursor,
+                        );
+                        succeeded = true;
+                        return result;
+                    } finally {
+                        observeBestEffort(() => finish?.(succeeded));
+                        observeBestEffort(() => {
+                            this.observability?.onOpenSeaOperationFinished({
+                                operation:
+                                    OPEN_SEA_SNAPSHOT_OPERATION.GetAllOffersPage,
+                                priority:
+                                    TOKEN_BUCKET_RATE_LIMIT_PRIORITY.Background,
+                                durationMs: Date.now() - startedAt,
+                                succeeded,
+                            });
+                        });
+                    }
                 },
                 this.retryPolicy,
                 {
                     onRetry: ({ attempt, error }) => {
+                        observeBestEffort(() => {
+                            this.observability?.onOpenSeaRetry({
+                                operation:
+                                    OPEN_SEA_SNAPSHOT_OPERATION.GetAllOffersPage,
+                                priority:
+                                    TOKEN_BUCKET_RATE_LIMIT_PRIORITY.Background,
+                            });
+                        });
                         log.info(
                             OPEN_SEA_COLLECTION_OFFER_SOURCE_LOG_ACTION.GetAllOffersRetry,
                             "Retrying OpenSea all-offers request",
@@ -92,7 +173,13 @@ export class OpenSeaCollectionOfferSource implements CollectionOfferSource {
                         );
                     },
                 },
-            );
+            ).catch((error: unknown) => {
+                throw new CollectionOfferSourceError(
+                    error instanceof Error ? error.message : String(error),
+                    buildMetrics(false, cursor ?? null),
+                    error,
+                );
+            });
 
             const pageOffers = asArray(response?.offers);
             pageCount += 1;
@@ -116,6 +203,7 @@ export class OpenSeaCollectionOfferSource implements CollectionOfferSource {
                     },
                 );
                 finalCursor = next;
+                complete = false;
                 break;
             }
 
@@ -123,17 +211,7 @@ export class OpenSeaCollectionOfferSource implements CollectionOfferSource {
             cursor = next;
         }
 
-        const durationMs = Date.now() - startedAt;
-        const metrics = {
-            durationMs,
-            pageCount,
-            offerCount: allOffers.length,
-            firstPriceWei: priceStats.firstPriceWei,
-            lastPriceWei: priceStats.lastPriceWei,
-            minPriceWei: priceStats.minPriceWei,
-            maxPriceWei: priceStats.maxPriceWei,
-            finalCursor,
-        };
+        const metrics = buildMetrics(complete, finalCursor);
         log.debug(
             OPEN_SEA_COLLECTION_OFFER_SOURCE_LOG_ACTION.GetAllOffersComplete,
             "Fetched OpenSea all-offers snapshot",
@@ -188,10 +266,7 @@ class OfferPriceStats {
 function extractOfferPriceWei(rawOffer: unknown): string | null {
     const candidates = collectPriceCandidates(rawOffer);
     for (const candidate of candidates) {
-        if (
-            typeof candidate === "string" &&
-            /^(0|[1-9]\d*)$/.test(candidate)
-        ) {
+        if (typeof candidate === "string" && /^(0|[1-9]\d*)$/.test(candidate)) {
             return candidate;
         }
         if (

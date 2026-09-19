@@ -5,6 +5,8 @@ User-facing automation capabilities and backend/API coverage are detailed in
 [Bidding Automation Capabilities](02-bidding-automation-capabilities.md).
 Snapshot authority, adaptive freshness, and scaling limits are detailed in
 [Market Data and Scaling](03-market-data-and-scaling.md).
+The opt-in metrics endpoint, Grafana dashboard, and operator recovery path are
+in [Bidding Runtime Observability](03-bidding-runtime-observability.md).
 
 ## Status
 
@@ -242,6 +244,12 @@ running. Current-price bootstrap logs each token candidate start and completion.
 
 No-effect hot-refresh logs are summarized per collection/scope/type/reason so
 irrelevant stream flood remains visible without emitting one log line per event.
+
+The optional Prometheus endpoint reports aggregate lifecycle, command,
+job-refresh, stream, OpenSea, snapshot, bid-book, and process pressure without
+using job, collection, token, order, address, or wallet identifiers as metric
+labels. Use `docs/trading/03-bidding-runtime-observability.md` for the complete
+operator path and dashboard interpretation.
 
 Bot logs must never include wallet private keys, secret-envelope payloads,
 OpenSea secret keys, or raw OpenSea request/stream payloads.
@@ -632,6 +640,13 @@ Bidding runtime groups:
 - EIP-1559 fee/nonce policy: `BIDDING_TX_*`
 - WETH approval gas-fee cap: `BIDDING_WETH_APPROVAL_MAX_GAS_FEE_ETH`
 - newly created offer lifetime in seconds: `BIDDING_OFFER_EXPIRATION_SECONDS`
+
+Trading observability:
+
+- `TRADING_METRICS_ENABLED` opts into the bidding Prometheus endpoint
+- `TRADING_METRICS_PORT_BIDDING_BOT` selects its TCP port
+- `TRADING_METRICS_HOST` selects the host only for local/deploy profiles;
+  installed desktop always uses `127.0.0.1`
 
 The indexer `OPENSEA_API_KEY` remains dedicated to indexer/offchain ingestion and should not be merged with bot keys by convenience.
 

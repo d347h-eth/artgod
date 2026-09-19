@@ -290,6 +290,7 @@ services:
             - "42734"
         volumes:
             - ./observability/prometheus/deploy-prometheus.yml:/etc/prometheus/prometheus.yml:ro
+            - ./observability/prometheus/bidding-runtime-alerts.json:/etc/prometheus/bidding-runtime-alerts.json:ro
             - prometheus-data:/prometheus
 
     grafana:
